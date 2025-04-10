@@ -12,7 +12,7 @@ pub struct AwbwGame {
     pub activity_date: String,
     pub maps_id: u32,
     pub weather_type: String,
-    pub weather_start: Option<String>,
+    pub weather_start: Option<u32>,
     pub weather_code: String,
     pub win_condition: Option<String>,
     pub turn: u32,
