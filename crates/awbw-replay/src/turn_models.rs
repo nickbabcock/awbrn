@@ -1,6 +1,4 @@
-use serde::{Deserialize, Serialize};
-use serde_json;
-use std::collections::HashMap;
+use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Debug)]
 pub enum TurnElement {
@@ -54,15 +52,6 @@ impl<'de> Deserialize<'de> for TurnElement {
     }
 }
 
-/// Top level structure representing a player's turn
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PlayerTurn {
-    pub player_id: u32,
-    pub turn_number: u32,
-    pub actions: Vec<(u32, ActionData)>,
-}
-
-/// String content representing various action types
 #[derive(Debug)]
 pub struct ActionData(pub Action);
 
@@ -88,39 +77,85 @@ impl Serialize for ActionData {
     }
 }
 
-/// Once deserialized from the ActionData string
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Action {
-    pub action: String,
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub unit: Option<UnitVisibility>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub paths: Option<PathVisibility>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub dist: Option<u32>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub trapped: Option<bool>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub discovered: Option<HashMap<String, Option<String>>>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // #[serde(rename = "Move")]
-    // pub move_action: Option<MoveAction>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // #[serde(rename = "Fire")]
-    // pub fire_action: Option<FireAction>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // #[serde(rename = "newUnit")]
-    // pub new_unit: Option<NewUnitVisibility>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // #[serde(rename = "updatedInfo")]
-    // pub updated_info: Option<UpdatedInfo>,
+#[serde(tag = "action")]
+pub enum Action {
+    AttackSeam {
+        #[serde(rename = "Move", deserialize_with = "empty_field_action")]
+        move_action: Option<MoveAction>,
+
+        #[serde(rename = "AttackSeam")]
+        attack_seam_action: AttackSeamAction,
+    },
+    Build {
+        #[serde(rename = "newUnit")]
+        new_unit: indexmap::IndexMap<String, UnitProperty>,
+        discovered: indexmap::IndexMap<String, Option<String>>,
+    },
+    Capt {
+        #[serde(rename = "Move", deserialize_with = "empty_field_action")]
+        move_action: Option<MoveAction>,
+
+        #[serde(rename = "Capt")]
+        capture_action: CaptureAction,
+    },
+    End {
+        #[serde(rename = "updatedInfo")]
+        updated_info: UpdatedInfo,
+    },
+    Fire {
+        #[serde(rename = "Move", deserialize_with = "empty_field_action")]
+        move_action: Option<MoveAction>,
+
+        #[serde(rename = "Fire")]
+        fire_action: FireAction,
+    },
+    Join {
+        #[serde(rename = "Move")]
+        move_action: MoveAction,
+
+        #[serde(rename = "Join")]
+        join_action: JoinAction,
+    },
+    Load {
+        #[serde(rename = "Move")]
+        move_action: MoveAction,
+
+        #[serde(rename = "Load")]
+        load_action: LoadAction,
+    },
+    Move(MoveAction),
+    Power(PowerAction),
+    Resign {
+        #[serde(rename = "Resign")]
+        resign_action: ResignAction,
+
+        #[serde(rename = "NextTurn")]
+        next_turn_action: Option<NextTurnAction>,
+
+        #[serde(rename = "GameOver")]
+        game_over_action: Option<GameOverAction>,
+    },
+    Supply {
+        #[serde(rename = "Move")]
+        move_action: MoveAction,
+
+        #[serde(rename = "Supply")]
+        supply_action: SupplyAction,
+    },
+    Unload {
+        unit: indexmap::IndexMap<String, UnitProperty>,
+        #[serde(rename = "transportID")]
+        transport_id: u32,
+        discovered: indexmap::IndexMap<String, Option<String>>,
+    },
 }
 
 /// Represents unit visibility for different players
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UnitVisibility {
-    pub global: HashMap<String, i32>,
-    pub players: HashMap<String, HashMap<String, UnitProperty>>,
+    pub global: indexmap::IndexMap<String, i32>,
+    pub players: indexmap::IndexMap<String, indexmap::IndexMap<String, UnitProperty>>,
 }
 
 /// Properties of a unit
@@ -173,32 +208,166 @@ pub struct PathTile {
 /// Move action specific data
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MoveAction {
-    pub action: String,
-    pub unit: UnitVisibility,
+    pub unit: indexmap::IndexMap<String, UnitProperty>,
     pub paths: PathVisibility,
     pub dist: u32,
     pub trapped: bool,
-    pub discovered: HashMap<String, Option<String>>,
+    #[serde(deserialize_with = "empty_field_action")]
+    pub discovered: Option<indexmap::IndexMap<String, Option<String>>>,
 }
 
-/// Fire action specific data
+fn empty_field_action<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum FieldOption<T> {
+        Filled(T),
+        #[allow(unused)]
+        Empty(Vec<()>),
+    }
+
+    let result = FieldOption::deserialize(deserializer)?;
+    match result {
+        FieldOption::Filled(action) => Ok(Some(action)),
+        FieldOption::Empty(_) => Ok(None),
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LoadAction {
+    pub loaded: indexmap::IndexMap<String, u32>,
+    pub transport: indexmap::IndexMap<String, u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CaptureAction {
+    #[serde(rename = "buildingInfo")]
+    pub building_info: BuildingInfo,
+    pub vision: indexmap::IndexMap<String, BuildingVision>,
+    pub income: Option<indexmap::IndexMap<String, PlayerIncome>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PlayerIncome {
+    pub player: u32,
+    pub income: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BuildingInfo {
+    pub buildings_capture: i32,
+    pub buildings_id: u32,
+    pub buildings_x: u32,
+    pub buildings_y: u32,
+    pub buildings_team: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BuildingVision {
+    #[serde(rename = "onCapture")]
+    pub on_capture: Coordinate,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Coordinate {
+    pub x: u32,
+    pub y: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JoinAction {
+    #[serde(rename = "playerId")]
+    pub player_id: u32,
+    #[serde(rename = "newFunds")]
+    pub new_funds: indexmap::IndexMap<String, u32>,
+    pub unit: indexmap::IndexMap<String, UnitProperty>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SupplyAction {
+    pub unit: indexmap::IndexMap<String, u32>,
+    pub rows: Vec<String>,
+    pub supplied: indexmap::IndexMap<String, Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AttackSeamAction {
+    pub unit: indexmap::IndexMap<String, AttackSeamCombat>,
+    pub buildings_hit_points: i32,
+    pub buildings_terrain_id: u32,
+    #[serde(rename = "seamX")]
+    pub seam_x: u32,
+    #[serde(rename = "seamY")]
+    pub seam_y: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AttackSeamCombat {
+    #[serde(rename = "hasVision")]
+    pub has_vision: bool,
+    #[serde(rename = "combatInfo")]
+    pub combat_info: CombatUnit,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PowerAction {
+    #[serde(rename = "playerID")]
+    pub player_id: u32,
+    #[serde(rename = "coName")]
+    pub co_name: String,
+    #[serde(rename = "coPower")]
+    pub co_power: String,
+    #[serde(rename = "powerName")]
+    pub power_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResignAction {
+    #[serde(rename = "playerId")]
+    pub player_id: u32,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NextTurnAction {
+    #[serde(rename = "nextPId")]
+    pub next_player_id: u32,
+    #[serde(rename = "nextFunds")]
+    pub next_funds: indexmap::IndexMap<String, u32>,
+    #[serde(rename = "nextTimer")]
+    pub next_timer: u32,
+    #[serde(rename = "nextWeather")]
+    pub next_weather: String,
+    pub supplied: Option<indexmap::IndexMap<String, Vec<String>>>,
+    pub repaired: Option<indexmap::IndexMap<String, Vec<RepairedUnit>>>,
+    pub day: u32,
+    #[serde(rename = "nextTurnStart")]
+    pub next_turn_start: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GameOverAction {
+    pub day: u32,
+    #[serde(rename = "gameEndDate")]
+    pub game_end_date: String,
+    pub losers: Vec<u32>,
+    pub message: String,
+    pub winners: Vec<u32>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FireAction {
-    pub action: String,
     #[serde(rename = "combatInfoVision")]
-    pub combat_info_vision: CombatInfoVision,
+    pub combat_info_vision: indexmap::IndexMap<String, CombatInfoVision>,
     #[serde(rename = "copValues")]
     pub cop_values: CopValues,
 }
 
-/// Combat info for a fire action
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CombatInfoVision {
-    pub global: CombatInfoGlobal,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CombatInfoGlobal {
     #[serde(rename = "hasVision")]
     pub has_vision: bool,
     #[serde(rename = "combatInfo")]
@@ -214,7 +383,7 @@ pub struct CombatInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CombatUnit {
     pub units_ammo: u32,
-    pub units_hit_points: f64,
+    pub units_hit_points: Option<f64>,
     pub units_id: u32,
     pub units_x: u32,
     pub units_y: u32,
@@ -239,7 +408,7 @@ pub struct CopValueInfo {
 /// New unit info for a build action
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NewUnitVisibility {
-    pub global: HashMap<String, UnitProperty>,
+    pub global: indexmap::IndexMap<String, UnitProperty>,
 }
 
 /// Updated info for turn end
@@ -249,13 +418,13 @@ pub struct UpdatedInfo {
     #[serde(rename = "nextPId")]
     pub next_player_id: u32,
     #[serde(rename = "nextFunds")]
-    pub next_funds: HashMap<String, u32>,
+    pub next_funds: indexmap::IndexMap<String, u32>,
     #[serde(rename = "nextTimer")]
     pub next_timer: u32,
     #[serde(rename = "nextWeather")]
     pub next_weather: String,
-    pub supplied: HashMap<String, Vec<String>>,
-    pub repaired: HashMap<String, Vec<RepairedUnit>>,
+    pub supplied: Option<indexmap::IndexMap<String, Vec<String>>>,
+    pub repaired: Option<indexmap::IndexMap<String, Vec<RepairedUnit>>>,
     pub day: u32,
     #[serde(rename = "nextTurnStart")]
     pub next_turn_start: String,
