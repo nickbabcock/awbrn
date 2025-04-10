@@ -50,12 +50,26 @@ where
 }
 
 /// Value is hidden with an empty string
-#[derive(Debug, Serialize, Default)]
-#[serde(untagged)]
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub enum Hidden<T> {
     #[default]
     Hidden,
     Visible(T),
+}
+
+impl<T> Serialize for Hidden<T>
+where
+    T: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Hidden::Hidden => serializer.serialize_str(""),
+            Hidden::Visible(value) => value.serialize(serializer),
+        }
+    }
 }
 
 impl<'de, T> Deserialize<'de> for Hidden<T>
@@ -289,12 +303,26 @@ where
 }
 
 /// Value was masked with a "?"
-#[derive(Debug, Serialize, Default)]
-#[serde(untagged)]
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub enum Masked<T> {
     #[default]
     Masked,
     Visible(T),
+}
+
+impl<T> Serialize for Masked<T>
+where
+    T: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Masked::Masked => serializer.serialize_str("?"),
+            Masked::Visible(value) => value.serialize(serializer),
+        }
+    }
 }
 
 impl<'de, T> Deserialize<'de> for Masked<T>
@@ -524,5 +552,116 @@ where
         deserializer.deserialize_any(MaskedVisitor {
             marker: std::marker::PhantomData,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hidden_roundtrip() {
+        // Test Hidden::Hidden
+        let hidden: Hidden<String> = Hidden::Hidden;
+        let serialized = serde_json::to_string(&hidden).unwrap();
+        assert_eq!(serialized, r#""""#); // Should serialize as empty string
+
+        let deserialized: Hidden<String> = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, Hidden::Hidden);
+
+        // Test Hidden::Visible
+        let visible = Hidden::Visible("test".to_string());
+        let serialized = serde_json::to_string(&visible).unwrap();
+        assert_eq!(serialized, r#""test""#); // Should serialize the inner value
+
+        let deserialized: Hidden<String> = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, Hidden::Visible("test".to_string()));
+    }
+
+    #[test]
+    fn test_masked_roundtrip() {
+        // Test Masked::Masked
+        let masked: Masked<String> = Masked::Masked;
+        let serialized = serde_json::to_string(&masked).unwrap();
+        assert_eq!(serialized, r#""?""#); // Should serialize as "?"
+
+        let deserialized: Masked<String> = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, Masked::Masked);
+
+        // Test Masked::Visible
+        let visible = Masked::Visible("test".to_string());
+        let serialized = serde_json::to_string(&visible).unwrap();
+        assert_eq!(serialized, r#""test""#); // Should serialize the inner value
+
+        let deserialized: Masked<String> = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, Masked::Visible("test".to_string()));
+    }
+
+    #[test]
+    fn test_hidden_with_different_types() {
+        // Test with numeric type
+        let hidden_num: Hidden<i32> = Hidden::Hidden;
+        let serialized = serde_json::to_string(&hidden_num).unwrap();
+        assert_eq!(serialized, r#""""#);
+
+        let visible_num = Hidden::Visible(42);
+        let serialized = serde_json::to_string(&visible_num).unwrap();
+        assert_eq!(serialized, r#"42"#);
+
+        let deserialized: Hidden<i32> = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, Hidden::Visible(42));
+
+        // Test with boolean type
+        let visible_bool = Hidden::Visible(true);
+        let serialized = serde_json::to_string(&visible_bool).unwrap();
+        assert_eq!(serialized, r#"true"#);
+
+        let deserialized: Hidden<bool> = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, Hidden::Visible(true));
+    }
+
+    #[test]
+    fn test_masked_with_different_types() {
+        // Test with numeric type
+        let masked_num: Masked<i32> = Masked::Masked;
+        let serialized = serde_json::to_string(&masked_num).unwrap();
+        assert_eq!(serialized, r#""?""#);
+
+        let visible_num = Masked::Visible(42);
+        let serialized = serde_json::to_string(&visible_num).unwrap();
+        assert_eq!(serialized, r#"42"#);
+
+        let deserialized: Masked<i32> = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, Masked::Visible(42));
+
+        // Test with boolean type
+        let visible_bool = Masked::Visible(true);
+        let serialized = serde_json::to_string(&visible_bool).unwrap();
+        assert_eq!(serialized, r#"true"#);
+
+        let deserialized: Masked<bool> = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, Masked::Visible(true));
+    }
+
+    #[test]
+    fn test_hidden_with_complex_types() {
+        // Test with Vec
+        let visible_vec = Hidden::Visible(vec![1, 2, 3]);
+        let serialized = serde_json::to_string(&visible_vec).unwrap();
+        assert_eq!(serialized, r#"[1,2,3]"#);
+
+        let deserialized: Hidden<Vec<i32>> = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, Hidden::Visible(vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn test_masked_with_complex_types() {
+        // Test with Vec
+        let visible_vec = Masked::Visible(vec![1, 2, 3]);
+        let serialized = serde_json::to_string(&visible_vec).unwrap();
+        assert_eq!(serialized, r#"[1,2,3]"#);
+
+        let deserialized: Masked<Vec<i32>> = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, Masked::Visible(vec![1, 2, 3]));
     }
 }
