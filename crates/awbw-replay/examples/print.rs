@@ -6,9 +6,9 @@ fn main() {
     stdin
         .read_to_end(&mut buffer)
         .expect("Failed to read from stdin");
-    let (game, actions) = awbw_replay::parse_replay(&buffer).expect("Failed to parse replay");
-    println!("Game: {}", game[0].id);
-    for (i, action) in actions.iter().enumerate() {
-        println!("Turn {i}: {action:?}");
-    }
+    let replay = awbw_replay::parse_replay(&buffer).expect("Failed to parse replay");
+
+    let stdout = std::io::stdout();
+    let handle = stdout.lock();
+    serde_json::to_writer_pretty(handle, &replay).expect("Failed to write to stdout");
 }

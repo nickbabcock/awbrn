@@ -1,8 +1,0 @@
----
-source: crates/awbw-replay/tests/snapshots.rs
-expression: snapshot
-input_file: assets/replays/1362397.zip
----
-{
-  "checksum": "0xb4c2a03d87a5f4a35bc001047bcf1ae342d82a31e3692130bdb9ce897bce12dc"
-}

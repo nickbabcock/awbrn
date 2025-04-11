@@ -2,19 +2,23 @@ use crate::{
     de::deserialize_vec_pair,
     errors,
     game_models::AwbwGame,
-    turn_models::{ActionData, TurnElement},
+    turn_models::{Action, TurnElement},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::io::{BufRead, Read};
+
+#[derive(Debug, Serialize, PartialEq, Clone)]
+pub struct AwbwReplay {
+    pub games: Vec<AwbwGame>,
+    pub turns: Vec<Vec<Action>>,
+}
 
 enum FileType {
     Game,
     Turn,
 }
 
-pub fn parse_replay(
-    data: &[u8],
-) -> Result<(Vec<AwbwGame>, Vec<Vec<ActionData>>), errors::ReplayError> {
+pub fn parse_replay(data: &[u8]) -> Result<AwbwReplay, errors::ReplayError> {
     let zip = rawzip::ZipArchive::from_slice(data)?;
     let mut files = Vec::new();
     let mut entries = zip.entries();
@@ -71,7 +75,7 @@ pub fn parse_replay(
                     let header = TurnHeader::from_slice(&buf).unwrap();
                     let mut deser = phpserz::PhpDeserializer::new(header.data);
                     let data: Vec<(u32, TurnElement)> = deserialize_vec_pair(&mut deser)?;
-                    let actions: Vec<ActionData> = data
+                    let actions: Vec<Action> = data
                         .into_iter()
                         .find_map(|(_, element)| match element {
                             TurnElement::Data(x) => Some(x),
@@ -88,7 +92,7 @@ pub fn parse_replay(
         }
     }
 
-    Ok((games, turns))
+    Ok(AwbwReplay { games, turns })
 }
 
 #[allow(dead_code)]
