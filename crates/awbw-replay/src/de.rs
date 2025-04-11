@@ -1,12 +1,6 @@
 use serde::{
     Deserialize, Deserializer, Serialize, de,
-    de::value::{
-        BoolDeserializer, BorrowedBytesDeserializer, BorrowedStrDeserializer, BytesDeserializer,
-        CharDeserializer, EnumAccessDeserializer, F32Deserializer, F64Deserializer, I8Deserializer,
-        I16Deserializer, I32Deserializer, I64Deserializer, I128Deserializer, MapAccessDeserializer,
-        SeqAccessDeserializer, StrDeserializer, StringDeserializer, U8Deserializer,
-        U16Deserializer, U32Deserializer, U64Deserializer, U128Deserializer, UnitDeserializer,
-    },
+    de::value::{BorrowedStrDeserializer, StrDeserializer, StringDeserializer},
 };
 use std::marker::PhantomData;
 
@@ -49,12 +43,60 @@ where
     })
 }
 
+/// Helper trait for implementing special value deserializers
+trait SpecialValueDeserializer<T> {
+    /// Check if a string represents the special value
+    fn is_special(value: &str) -> bool;
+
+    /// Create the special variant
+    fn create_special() -> Self;
+
+    /// Create the visible variant
+    fn create_visible(value: T) -> Self;
+}
+
 /// Value is hidden with an empty string
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub enum Hidden<T> {
     #[default]
     Hidden,
     Visible(T),
+}
+
+impl<T> SpecialValueDeserializer<T> for Hidden<T> {
+    fn is_special(value: &str) -> bool {
+        value.is_empty()
+    }
+
+    fn create_special() -> Self {
+        Hidden::Hidden
+    }
+
+    fn create_visible(value: T) -> Self {
+        Hidden::Visible(value)
+    }
+}
+
+/// Value was masked with a "?"
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
+pub enum Masked<T> {
+    #[default]
+    Masked,
+    Visible(T),
+}
+
+impl<T> SpecialValueDeserializer<T> for Masked<T> {
+    fn is_special(value: &str) -> bool {
+        value == "?"
+    }
+
+    fn create_special() -> Self {
+        Masked::Masked
+    }
+
+    fn create_visible(value: T) -> Self {
+        Masked::Visible(value)
+    }
 }
 
 impl<T> Serialize for Hidden<T>
@@ -72,244 +114,6 @@ where
     }
 }
 
-impl<'de, T> Deserialize<'de> for Hidden<T>
-where
-    T: Deserialize<'de>,
-{
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct HiddenVisitor<T> {
-            marker: std::marker::PhantomData<T>,
-        }
-
-        impl<'de, T> serde::de::Visitor<'de> for HiddenVisitor<T>
-        where
-            T: Deserialize<'de>,
-        {
-            type Value = Hidden<T>;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("an empty string or T")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                if value.is_empty() {
-                    Ok(Hidden::Hidden)
-                } else {
-                    T::deserialize(StrDeserializer::new(value)).map(Hidden::Visible)
-                }
-            }
-
-            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                if value.is_empty() {
-                    Ok(Hidden::Hidden)
-                } else {
-                    T::deserialize(StringDeserializer::new(value)).map(Hidden::Visible)
-                }
-            }
-
-            fn visit_borrowed_str<E>(self, value: &'de str) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                if value.is_empty() {
-                    Ok(Hidden::Hidden)
-                } else {
-                    T::deserialize(BorrowedStrDeserializer::new(value)).map(Hidden::Visible)
-                }
-            }
-
-            fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(BoolDeserializer::new(v)).map(Hidden::Visible)
-            }
-
-            fn visit_i8<E>(self, v: i8) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(I8Deserializer::new(v)).map(Hidden::Visible)
-            }
-
-            fn visit_i16<E>(self, v: i16) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(I16Deserializer::new(v)).map(Hidden::Visible)
-            }
-
-            fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(I32Deserializer::new(v)).map(Hidden::Visible)
-            }
-
-            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(I64Deserializer::new(v)).map(Hidden::Visible)
-            }
-
-            fn visit_i128<E>(self, v: i128) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(I128Deserializer::new(v)).map(Hidden::Visible)
-            }
-
-            fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(U8Deserializer::new(v)).map(Hidden::Visible)
-            }
-
-            fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(U16Deserializer::new(v)).map(Hidden::Visible)
-            }
-
-            fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(U32Deserializer::new(v)).map(Hidden::Visible)
-            }
-
-            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(U64Deserializer::new(v)).map(Hidden::Visible)
-            }
-
-            fn visit_u128<E>(self, v: u128) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(U128Deserializer::new(v)).map(Hidden::Visible)
-            }
-
-            fn visit_f32<E>(self, v: f32) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(F32Deserializer::new(v)).map(Hidden::Visible)
-            }
-
-            fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(F64Deserializer::new(v)).map(Hidden::Visible)
-            }
-
-            fn visit_char<E>(self, v: char) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(CharDeserializer::new(v)).map(Hidden::Visible)
-            }
-
-            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(BytesDeserializer::new(v)).map(Hidden::Visible)
-            }
-
-            fn visit_borrowed_bytes<E>(self, v: &'de [u8]) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(BorrowedBytesDeserializer::new(v)).map(Hidden::Visible)
-            }
-
-            fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                self.visit_bytes(v.as_slice())
-            }
-
-            fn visit_none<E>(self) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                Err(de::Error::invalid_type(de::Unexpected::Option, &self))
-            }
-
-            fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-            where
-                D: Deserializer<'de>,
-            {
-                T::deserialize(deserializer).map(Hidden::Visible)
-            }
-
-            fn visit_unit<E>(self) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(UnitDeserializer::new()).map(Hidden::Visible)
-            }
-
-            fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-            where
-                D: Deserializer<'de>,
-            {
-                T::deserialize(deserializer).map(Hidden::Visible)
-            }
-
-            fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: de::SeqAccess<'de>,
-            {
-                T::deserialize(SeqAccessDeserializer::new(seq)).map(Hidden::Visible)
-            }
-
-            fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
-            where
-                A: de::MapAccess<'de>,
-            {
-                T::deserialize(MapAccessDeserializer::new(map)).map(Hidden::Visible)
-            }
-
-            fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-            where
-                A: de::EnumAccess<'de>,
-            {
-                T::deserialize(EnumAccessDeserializer::new(data)).map(Hidden::Visible)
-            }
-        }
-
-        deserializer.deserialize_any(HiddenVisitor {
-            marker: std::marker::PhantomData,
-        })
-    }
-}
-
-/// Value was masked with a "?"
-#[derive(Debug, Default, PartialEq, Eq, Clone)]
-pub enum Masked<T> {
-    #[default]
-    Masked,
-    Visible(T),
-}
-
 impl<T> Serialize for Masked<T>
 where
     T: Serialize,
@@ -325,6 +129,196 @@ where
     }
 }
 
+fn deserialize_special_value<'de, D, T, S>(deserializer: D) -> Result<S, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+    S: SpecialValueDeserializer<T>,
+{
+    struct SpecialVisitor<T, S> {
+        marker: PhantomData<(T, S)>,
+    }
+
+    impl<'de, T, S> de::Visitor<'de> for SpecialVisitor<T, S>
+    where
+        T: Deserialize<'de>,
+        S: SpecialValueDeserializer<T>,
+    {
+        type Value = S;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string or a value")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            if S::is_special(value) {
+                Ok(S::create_special())
+            } else {
+                T::deserialize(StrDeserializer::new(value)).map(S::create_visible)
+            }
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            if S::is_special(&value) {
+                Ok(S::create_special())
+            } else {
+                T::deserialize(StringDeserializer::new(value)).map(S::create_visible)
+            }
+        }
+
+        fn visit_borrowed_str<E>(self, value: &'de str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            if S::is_special(value) {
+                Ok(S::create_special())
+            } else {
+                T::deserialize(BorrowedStrDeserializer::new(value)).map(S::create_visible)
+            }
+        }
+
+        // For all non-string types, just deserialize directly to visible variant
+        fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(S::create_visible(T::deserialize(
+                serde::de::value::BoolDeserializer::new(v),
+            )?))
+        }
+
+        fn visit_i8<E>(self, v: i8) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(S::create_visible(T::deserialize(
+                serde::de::value::I8Deserializer::new(v),
+            )?))
+        }
+
+        fn visit_i16<E>(self, v: i16) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(S::create_visible(T::deserialize(
+                serde::de::value::I16Deserializer::new(v),
+            )?))
+        }
+
+        fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(S::create_visible(T::deserialize(
+                serde::de::value::I32Deserializer::new(v),
+            )?))
+        }
+
+        fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(S::create_visible(T::deserialize(
+                serde::de::value::I64Deserializer::new(v),
+            )?))
+        }
+
+        fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(S::create_visible(T::deserialize(
+                serde::de::value::U8Deserializer::new(v),
+            )?))
+        }
+
+        fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(S::create_visible(T::deserialize(
+                serde::de::value::U16Deserializer::new(v),
+            )?))
+        }
+
+        fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(S::create_visible(T::deserialize(
+                serde::de::value::U32Deserializer::new(v),
+            )?))
+        }
+
+        fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(S::create_visible(T::deserialize(
+                serde::de::value::U64Deserializer::new(v),
+            )?))
+        }
+
+        fn visit_f32<E>(self, v: f32) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(S::create_visible(T::deserialize(
+                serde::de::value::F32Deserializer::new(v),
+            )?))
+        }
+
+        fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(S::create_visible(T::deserialize(
+                serde::de::value::F64Deserializer::new(v),
+            )?))
+        }
+
+        fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            Ok(S::create_visible(T::deserialize(
+                serde::de::value::SeqAccessDeserializer::new(seq),
+            )?))
+        }
+
+        fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::MapAccess<'de>,
+        {
+            Ok(S::create_visible(T::deserialize(
+                serde::de::value::MapAccessDeserializer::new(map),
+            )?))
+        }
+    }
+
+    deserializer.deserialize_any(SpecialVisitor {
+        marker: PhantomData,
+    })
+}
+
+impl<'de, T> Deserialize<'de> for Hidden<T>
+where
+    T: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserialize_special_value(deserializer)
+    }
+}
+
 impl<'de, T> Deserialize<'de> for Masked<T>
 where
     T: Deserialize<'de>,
@@ -333,225 +327,7 @@ where
     where
         D: Deserializer<'de>,
     {
-        struct MaskedVisitor<T> {
-            marker: std::marker::PhantomData<T>,
-        }
-
-        impl<'de, T> serde::de::Visitor<'de> for MaskedVisitor<T>
-        where
-            T: Deserialize<'de>,
-        {
-            type Value = Masked<T>;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a string or T")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                if value == "?" {
-                    Ok(Masked::Masked)
-                } else {
-                    T::deserialize(StrDeserializer::new(value)).map(Masked::Visible)
-                }
-            }
-
-            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                if value == "?" {
-                    Ok(Masked::Masked)
-                } else {
-                    T::deserialize(StringDeserializer::new(value)).map(Masked::Visible)
-                }
-            }
-
-            fn visit_borrowed_str<E>(self, value: &'de str) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                if value == "?" {
-                    Ok(Masked::Masked)
-                } else {
-                    T::deserialize(BorrowedStrDeserializer::new(value)).map(Masked::Visible)
-                }
-            }
-
-            fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(BoolDeserializer::new(v)).map(Masked::Visible)
-            }
-
-            fn visit_i8<E>(self, v: i8) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(I8Deserializer::new(v)).map(Masked::Visible)
-            }
-
-            fn visit_i16<E>(self, v: i16) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(I16Deserializer::new(v)).map(Masked::Visible)
-            }
-
-            fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(I32Deserializer::new(v)).map(Masked::Visible)
-            }
-
-            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(I64Deserializer::new(v)).map(Masked::Visible)
-            }
-
-            fn visit_i128<E>(self, v: i128) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(I128Deserializer::new(v)).map(Masked::Visible)
-            }
-
-            fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(U8Deserializer::new(v)).map(Masked::Visible)
-            }
-
-            fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(U16Deserializer::new(v)).map(Masked::Visible)
-            }
-
-            fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(U32Deserializer::new(v)).map(Masked::Visible)
-            }
-
-            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(U64Deserializer::new(v)).map(Masked::Visible)
-            }
-
-            fn visit_u128<E>(self, v: u128) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(U128Deserializer::new(v)).map(Masked::Visible)
-            }
-
-            fn visit_f32<E>(self, v: f32) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(F32Deserializer::new(v)).map(Masked::Visible)
-            }
-
-            fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(F64Deserializer::new(v)).map(Masked::Visible)
-            }
-
-            fn visit_char<E>(self, v: char) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(CharDeserializer::new(v)).map(Masked::Visible)
-            }
-
-            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(BytesDeserializer::new(v)).map(Masked::Visible)
-            }
-
-            fn visit_borrowed_bytes<E>(self, v: &'de [u8]) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(BorrowedBytesDeserializer::new(v)).map(Masked::Visible)
-            }
-
-            fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                self.visit_bytes(v.as_slice())
-            }
-
-            fn visit_none<E>(self) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                Err(de::Error::invalid_type(de::Unexpected::Option, &self))
-            }
-
-            fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-            where
-                D: Deserializer<'de>,
-            {
-                T::deserialize(deserializer).map(Masked::Visible)
-            }
-
-            fn visit_unit<E>(self) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                T::deserialize(UnitDeserializer::new()).map(Masked::Visible)
-            }
-
-            fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-            where
-                D: Deserializer<'de>,
-            {
-                T::deserialize(deserializer).map(Masked::Visible)
-            }
-
-            fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: de::SeqAccess<'de>,
-            {
-                T::deserialize(SeqAccessDeserializer::new(seq)).map(Masked::Visible)
-            }
-
-            fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
-            where
-                A: de::MapAccess<'de>,
-            {
-                T::deserialize(MapAccessDeserializer::new(map)).map(Masked::Visible)
-            }
-
-            fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-            where
-                A: de::EnumAccess<'de>,
-            {
-                T::deserialize(EnumAccessDeserializer::new(data)).map(Masked::Visible)
-            }
-        }
-
-        deserializer.deserialize_any(MaskedVisitor {
-            marker: std::marker::PhantomData,
-        })
+        deserialize_special_value(deserializer)
     }
 }
 
@@ -663,5 +439,41 @@ mod tests {
 
         let deserialized: Masked<Vec<i32>> = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized, Masked::Visible(vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn test_hidden_with_struct() {
+        #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+        struct TestStruct {
+            id: u32,
+            name: String,
+        }
+
+        let test_struct = TestStruct {
+            id: 42,
+            name: "test".to_string(),
+        };
+        let visible_struct = Hidden::Visible(test_struct);
+        let serialized = serde_json::to_string(&visible_struct).unwrap();
+
+        let expected = r#"{"id":42,"name":"test"}"#;
+        assert_eq!(serialized, expected);
+
+        let deserialized: Hidden<TestStruct> = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(
+            deserialized,
+            Hidden::Visible(TestStruct {
+                id: 42,
+                name: "test".to_string()
+            })
+        );
+
+        // Test with a hidden struct
+        let hidden_struct: Hidden<TestStruct> = Hidden::Hidden;
+        let serialized = serde_json::to_string(&hidden_struct).unwrap();
+        assert_eq!(serialized, r#""""#);
+
+        let deserialized: Hidden<TestStruct> = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, Hidden::Hidden);
     }
 }
