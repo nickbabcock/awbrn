@@ -1,7 +1,7 @@
 use crate::de::deserialize_vec_pair;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct AwbwGame {
     pub id: u32,
     pub name: String,
@@ -45,7 +45,7 @@ pub struct AwbwGame {
     pub timers_max_turn: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct AwbwPlayer {
     pub id: u32,
     pub users_id: u32,
@@ -79,7 +79,7 @@ pub struct AwbwPlayer {
     pub interface: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct AwbwBuilding {
     pub id: u32,
     pub games_id: u32,
@@ -91,7 +91,7 @@ pub struct AwbwBuilding {
     pub last_updated: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct AwbwUnit {
     pub id: u32,
     pub games_id: u32,

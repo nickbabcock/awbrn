@@ -1,10 +1,10 @@
 use crate::de::{Hidden, Masked};
 use serde::{Deserialize, Deserializer, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TurnElement {
     Int(()),
-    Data(Vec<ActionData>),
+    Data(Vec<Action>),
 }
 
 impl<'de> Deserialize<'de> for TurnElement {
@@ -39,12 +39,12 @@ impl<'de> Deserialize<'de> for TurnElement {
                         None => return Ok(TurnElement::Data(elements)),
                     };
 
-                    let action: ActionData = match seq.next_element()? {
-                        Some(elem) => elem,
-                        None => return Ok(TurnElement::Data(elements)),
-                    };
+                    let data: &[u8] = seq
+                        .next_element()?
+                        .ok_or_else(|| serde::de::Error::custom("Expected action"))?;
 
-                    elements.push(action);
+                    let value = serde_json::from_slice(data).map_err(serde::de::Error::custom)?;
+                    elements.push(value);
                 }
             }
         }
@@ -53,32 +53,7 @@ impl<'de> Deserialize<'de> for TurnElement {
     }
 }
 
-#[derive(Debug)]
-pub struct ActionData(pub Action);
-
-impl<'de> Deserialize<'de> for ActionData {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let action_json: String = Deserialize::deserialize(deserializer)?;
-        let action: Action =
-            serde_json::from_str(&action_json).map_err(serde::de::Error::custom)?;
-        Ok(ActionData(action))
-    }
-}
-
-impl Serialize for ActionData {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let action_str = serde_json::to_string(&self.0).map_err(serde::ser::Error::custom)?;
-        serializer.serialize_str(&action_str)
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 #[serde(tag = "action")]
 pub enum Action {
     AttackSeam {
@@ -154,7 +129,7 @@ pub enum Action {
 
 pub type UnitMap = indexmap::IndexMap<String, Hidden<UnitProperty>>;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct UnitProperty {
     pub units_id: u32,
     pub units_games_id: Option<u32>,
@@ -187,7 +162,7 @@ pub struct UnitProperty {
 }
 
 /// A tile in a movement path
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct PathTile {
     pub unit_visible: bool,
     pub x: u32,
@@ -195,7 +170,7 @@ pub struct PathTile {
 }
 
 /// Move action specific data
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct MoveAction {
     pub unit: UnitMap,
     pub paths: indexmap::IndexMap<String, Vec<PathTile>>,
@@ -250,13 +225,13 @@ where
     })
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct LoadAction {
     pub loaded: indexmap::IndexMap<String, Hidden<u32>>,
     pub transport: indexmap::IndexMap<String, Hidden<u32>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct CaptureAction {
     #[serde(rename = "buildingInfo")]
     pub building_info: BuildingInfo,
@@ -264,13 +239,13 @@ pub struct CaptureAction {
     pub income: Option<indexmap::IndexMap<String, PlayerIncome>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct PlayerIncome {
     pub player: u32,
     pub income: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct BuildingInfo {
     pub buildings_capture: i32,
     pub buildings_id: u32,
@@ -279,19 +254,19 @@ pub struct BuildingInfo {
     pub buildings_team: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct BuildingVision {
     #[serde(rename = "onCapture")]
     pub on_capture: Masked<Coordinate>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Coordinate {
     pub x: u32,
     pub y: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct JoinAction {
     #[serde(rename = "playerId")]
     pub player_id: u32,
@@ -300,14 +275,14 @@ pub struct JoinAction {
     pub unit: UnitMap,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct SupplyAction {
     pub unit: indexmap::IndexMap<String, Hidden<u32>>,
     pub rows: Vec<String>,
     pub supplied: indexmap::IndexMap<String, Vec<String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct AttackSeamAction {
     pub unit: indexmap::IndexMap<String, AttackSeamCombat>,
     pub buildings_hit_points: i32,
@@ -318,7 +293,7 @@ pub struct AttackSeamAction {
     pub seam_y: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct AttackSeamCombat {
     #[serde(rename = "hasVision")]
     pub has_vision: bool,
@@ -326,7 +301,7 @@ pub struct AttackSeamCombat {
     pub combat_info: CombatUnit,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct PowerAction {
     #[serde(rename = "playerID")]
     pub player_id: u32,
@@ -338,14 +313,14 @@ pub struct PowerAction {
     pub power_name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct ResignAction {
     #[serde(rename = "playerId")]
     pub player_id: u32,
     pub message: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct NextTurnAction {
     #[serde(rename = "nextPId")]
     pub next_player_id: u32,
@@ -362,7 +337,7 @@ pub struct NextTurnAction {
     pub next_turn_start: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct GameOverAction {
     pub day: u32,
     #[serde(rename = "gameEndDate")]
@@ -372,7 +347,7 @@ pub struct GameOverAction {
     pub winners: Vec<u32>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct FireAction {
     #[serde(rename = "combatInfoVision")]
     pub combat_info_vision: indexmap::IndexMap<String, CombatInfoVision>,
@@ -380,7 +355,7 @@ pub struct FireAction {
     pub cop_values: CopValues,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct CombatInfoVision {
     #[serde(rename = "hasVision")]
     pub has_vision: bool,
@@ -388,13 +363,13 @@ pub struct CombatInfoVision {
     pub combat_info: CombatInfo,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct CombatInfo {
     pub attacker: CombatUnit,
     pub defender: CombatUnit,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct CombatUnit {
     pub units_ammo: u32,
     pub units_hit_points: Option<f64>,
@@ -403,13 +378,13 @@ pub struct CombatUnit {
     pub units_y: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct CopValues {
     pub attacker: CopValueInfo,
     pub defender: CopValueInfo,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct CopValueInfo {
     #[serde(rename = "playerId")]
     pub player_id: u32,
@@ -420,7 +395,7 @@ pub struct CopValueInfo {
 }
 
 /// Updated info for turn end
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct UpdatedInfo {
     pub event: String,
     #[serde(rename = "nextPId")]
@@ -438,13 +413,13 @@ pub struct UpdatedInfo {
     pub next_turn_start: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct RepairedUnit {
     pub units_id: String,
     pub units_hit_points: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Discovery {
     #[serde(default)]
     pub buildings: Vec<BuildingDiscovery>,
@@ -453,7 +428,7 @@ pub struct Discovery {
 }
 
 /// Complete building details including terrain information
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct BuildingDiscovery {
     #[serde(rename = "0")]
     pub id: u32,
