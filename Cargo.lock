@@ -18,8 +18,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "aw-core"
+name = "awbrn-core"
 version = "0.1.0"
+
+[[package]]
+name = "awbrn-map"
+version = "0.1.0"
+dependencies = [
+ "awbrn-core",
+ "insta",
+]
 
 [[package]]
 name = "awbw-replay"

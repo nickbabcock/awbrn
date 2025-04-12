@@ -1,0 +1,10 @@
+[package]
+name = "awbrn-map"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+awbrn-core.path = "../awbrn-core"
+
+[dev-dependencies]
+insta.workspace = true
