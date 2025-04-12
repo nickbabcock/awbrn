@@ -1,0 +1,21 @@
+---
+source: crates/awbrn-map/tests/snapshots.rs
+expression: map.to_string()
+input_file: assets/maps/155801.txt
+---
+^c@A-_[@aDl[B;L{<bB^a.
+;.aC.@}..@IK=^a^)J=@.l
+@.=@.^}^.a}^D-C.@L]{J@
+a-F;.aL{]{OJ^a..A-Ca^@
+>^=...@^@.o>^@..a@...a
+>.a@.^.a..D[B..@..^.@.
+>..A-a-C..,>=@.,<.a...
+a@^=...@.a)>]<<<,@=..@
+@..=@,(((])>a.@...=^@a
+...a.(,.@=),..A-a-C..)
+.@.^..@..D[B..a.^.@a.)
+a...@a..@^)i.@^@...=^)
+@^aA-C..a^LM{]{Ja.;H-a
+@L{]J@.A-B^}a.^}^.@=.@
+f.@=L>^a^=IK@..}@.Aa.;
+.a^Db({J;D[fBa@[_-C@c^

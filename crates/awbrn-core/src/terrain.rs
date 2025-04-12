@@ -1,4 +1,5 @@
 use std::convert::TryFrom;
+use std::fmt;
 
 /// Main terrain type enum that categorizes terrain by its primary function
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -997,17 +998,539 @@ impl From<Terrain> for TerrainId {
     }
 }
 
-impl TryFrom<u8> for TerrainId {
-    type Error = &'static str;
+/// Error type for converting from u8 to terrain types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TryFromTerrainError {
+    InvalidId(u8),
+}
+
+impl fmt::Display for TryFromTerrainError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TryFromTerrainError::InvalidId(id) => write!(f, "Invalid terrain ID: {}", id),
+        }
+    }
+}
+
+impl std::error::Error for TryFromTerrainError {}
+
+impl TryFromTerrainError {
+    pub fn invalid_id(&self) -> u8 {
+        match self {
+            TryFromTerrainError::InvalidId(id) => *id,
+        }
+    }
+}
+
+impl TryFrom<u8> for Terrain {
+    type Error = TryFromTerrainError;
 
     fn try_from(id: u8) -> Result<Self, Self::Error> {
         match id {
-            1..=57 => Ok(TerrainId(id)),
-            58..=80 => Err("Invalid terrain ID"),
-            90..=176 => Ok(TerrainId(id)),
-            177..=180 => Err("Invalid terrain ID"),
-            181..=216 => Ok(TerrainId(id)),
-            _ => Err("Terrain ID out of valid range"),
+            // Basic terrains
+            1 => Ok(Terrain::Plain),
+            2 => Ok(Terrain::Mountain),
+            3 => Ok(Terrain::Wood),
+
+            // Rivers
+            4 => Ok(Terrain::River(RiverType::Horizontal)),
+            5 => Ok(Terrain::River(RiverType::Vertical)),
+            6 => Ok(Terrain::River(RiverType::Cross)),
+            7 => Ok(Terrain::River(RiverType::ES)),
+            8 => Ok(Terrain::River(RiverType::SW)),
+            9 => Ok(Terrain::River(RiverType::WN)),
+            10 => Ok(Terrain::River(RiverType::NE)),
+            11 => Ok(Terrain::River(RiverType::ESW)),
+            12 => Ok(Terrain::River(RiverType::SWN)),
+            13 => Ok(Terrain::River(RiverType::WNE)),
+            14 => Ok(Terrain::River(RiverType::NES)),
+
+            // Roads
+            15 => Ok(Terrain::Road(RoadType::Horizontal)),
+            16 => Ok(Terrain::Road(RoadType::Vertical)),
+            17 => Ok(Terrain::Road(RoadType::Cross)),
+            18 => Ok(Terrain::Road(RoadType::ES)),
+            19 => Ok(Terrain::Road(RoadType::SW)),
+            20 => Ok(Terrain::Road(RoadType::WN)),
+            21 => Ok(Terrain::Road(RoadType::NE)),
+            22 => Ok(Terrain::Road(RoadType::ESW)),
+            23 => Ok(Terrain::Road(RoadType::SWN)),
+            24 => Ok(Terrain::Road(RoadType::WNE)),
+            25 => Ok(Terrain::Road(RoadType::NES)),
+
+            // Bridges
+            26 => Ok(Terrain::Bridge(BridgeType::Horizontal)),
+            27 => Ok(Terrain::Bridge(BridgeType::Vertical)),
+
+            // Sea
+            28 => Ok(Terrain::Sea),
+
+            // Shoals
+            29 => Ok(Terrain::Shoal(ShoalType::Horizontal)),
+            30 => Ok(Terrain::Shoal(ShoalType::HorizontalNorth)),
+            31 => Ok(Terrain::Shoal(ShoalType::Vertical)),
+            32 => Ok(Terrain::Shoal(ShoalType::VerticalEast)),
+            33 => Ok(Terrain::Reef),
+
+            // Properties
+            34 => Ok(Terrain::Property(Property::City(Faction::Neutral))),
+            35 => Ok(Terrain::Property(Property::Base(Faction::Neutral))),
+            36 => Ok(Terrain::Property(Property::Airport(Faction::Neutral))),
+            37 => Ok(Terrain::Property(Property::Port(Faction::Neutral))),
+
+            // Orange Star properties
+            38 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::OrangeStar,
+            )))),
+            39 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::OrangeStar,
+            )))),
+            40 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::OrangeStar,
+            )))),
+            41 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::OrangeStar,
+            )))),
+            42 => Ok(Terrain::Property(Property::HQ(PlayerFaction::OrangeStar))),
+
+            // Blue Moon properties
+            43 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::BlueMoon,
+            )))),
+            44 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::BlueMoon,
+            )))),
+            45 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::BlueMoon,
+            )))),
+            46 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::BlueMoon,
+            )))),
+            47 => Ok(Terrain::Property(Property::HQ(PlayerFaction::BlueMoon))),
+
+            // Green Earth properties
+            48 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::GreenEarth,
+            )))),
+            49 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::GreenEarth,
+            )))),
+            50 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::GreenEarth,
+            )))),
+            51 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::GreenEarth,
+            )))),
+            52 => Ok(Terrain::Property(Property::HQ(PlayerFaction::GreenEarth))),
+
+            // Yellow Comet properties
+            53 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::YellowComet,
+            )))),
+            54 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::YellowComet,
+            )))),
+            55 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::YellowComet,
+            )))),
+            56 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::YellowComet,
+            )))),
+            57 => Ok(Terrain::Property(Property::HQ(PlayerFaction::YellowComet))),
+
+            // Red Fire properties
+            81 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::RedFire,
+            )))),
+            82 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::RedFire,
+            )))),
+            83 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::RedFire,
+            )))),
+            84 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::RedFire,
+            )))),
+            85 => Ok(Terrain::Property(Property::HQ(PlayerFaction::RedFire))),
+
+            // Grey Sky properties
+            86 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::GreySky,
+            )))),
+            87 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::GreySky,
+            )))),
+            88 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::GreySky,
+            )))),
+            89 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::GreySky,
+            )))),
+            90 => Ok(Terrain::Property(Property::HQ(PlayerFaction::GreySky))),
+
+            // Black Hole properties
+            91 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::BlackHole,
+            )))),
+            92 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::BlackHole,
+            )))),
+            93 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::BlackHole,
+            )))),
+            94 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::BlackHole,
+            )))),
+            95 => Ok(Terrain::Property(Property::HQ(PlayerFaction::BlackHole))),
+
+            // Brown Desert properties
+            96 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::BrownDesert,
+            )))),
+            97 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::BrownDesert,
+            )))),
+            98 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::BrownDesert,
+            )))),
+            99 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::BrownDesert,
+            )))),
+            100 => Ok(Terrain::Property(Property::HQ(PlayerFaction::BrownDesert))),
+
+            // Pipes
+            101 => Ok(Terrain::Pipe(PipeType::Vertical)),
+            102 => Ok(Terrain::Pipe(PipeType::Horizontal)),
+            103 => Ok(Terrain::Pipe(PipeType::NE)),
+            104 => Ok(Terrain::Pipe(PipeType::ES)),
+            105 => Ok(Terrain::Pipe(PipeType::SW)),
+            106 => Ok(Terrain::Pipe(PipeType::WN)),
+            107 => Ok(Terrain::Pipe(PipeType::NorthEnd)),
+            108 => Ok(Terrain::Pipe(PipeType::EastEnd)),
+            109 => Ok(Terrain::Pipe(PipeType::SouthEnd)),
+            110 => Ok(Terrain::Pipe(PipeType::WestEnd)),
+
+            // Missile Silos
+            111 => Ok(Terrain::MissileSilo(MissileSiloStatus::Loaded)),
+            112 => Ok(Terrain::MissileSilo(MissileSiloStatus::Unloaded)),
+
+            // Pipe Seams
+            113 => Ok(Terrain::PipeSeam(PipeSeamType::Horizontal)),
+            114 => Ok(Terrain::PipeSeam(PipeSeamType::Vertical)),
+
+            // Pipe Rubble
+            115 => Ok(Terrain::PipeRubble(PipeRubbleType::Horizontal)),
+            116 => Ok(Terrain::PipeRubble(PipeRubbleType::Vertical)),
+
+            // Amber Blaze properties
+            117 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::AmberBlaze,
+            )))),
+            118 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::AmberBlaze,
+            )))),
+            119 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::AmberBlaze,
+            )))),
+            120 => Ok(Terrain::Property(Property::HQ(PlayerFaction::AmberBlaze))),
+            121 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::AmberBlaze,
+            )))),
+
+            // Jade Sun properties
+            122 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::JadeSun,
+            )))),
+            123 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::JadeSun,
+            )))),
+            124 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::JadeSun,
+            )))),
+            125 => Ok(Terrain::Property(Property::HQ(PlayerFaction::JadeSun))),
+            126 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::JadeSun,
+            )))),
+
+            // Com Towers
+            127 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::AmberBlaze,
+            )))),
+            128 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::BlackHole,
+            )))),
+            129 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::BlueMoon,
+            )))),
+            130 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::BrownDesert,
+            )))),
+            131 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::GreenEarth,
+            )))),
+            132 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::JadeSun,
+            )))),
+            133 => Ok(Terrain::Property(Property::ComTower(Faction::Neutral))),
+            134 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::OrangeStar,
+            )))),
+            135 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::RedFire,
+            )))),
+            136 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::YellowComet,
+            )))),
+            137 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::GreySky,
+            )))),
+
+            // Labs
+            138 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::AmberBlaze,
+            )))),
+            139 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::BlackHole,
+            )))),
+            140 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::BlueMoon,
+            )))),
+            141 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::BrownDesert,
+            )))),
+            142 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::GreenEarth,
+            )))),
+            143 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::GreySky,
+            )))),
+            144 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::JadeSun,
+            )))),
+            145 => Ok(Terrain::Property(Property::Lab(Faction::Neutral))),
+            146 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::OrangeStar,
+            )))),
+            147 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::RedFire,
+            )))),
+            148 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::YellowComet,
+            )))),
+
+            // Cobalt Ice properties
+            149 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::CobaltIce,
+            )))),
+            150 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::CobaltIce,
+            )))),
+            151 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::CobaltIce,
+            )))),
+            152 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::CobaltIce,
+            )))),
+            153 => Ok(Terrain::Property(Property::HQ(PlayerFaction::CobaltIce))),
+            154 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::CobaltIce,
+            )))),
+            155 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::CobaltIce,
+            )))),
+
+            // Pink Cosmos properties
+            156 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::PinkCosmos,
+            )))),
+            157 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::PinkCosmos,
+            )))),
+            158 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::PinkCosmos,
+            )))),
+            159 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::PinkCosmos,
+            )))),
+            160 => Ok(Terrain::Property(Property::HQ(PlayerFaction::PinkCosmos))),
+            161 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::PinkCosmos,
+            )))),
+            162 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::PinkCosmos,
+            )))),
+
+            // Teal Galaxy properties
+            163 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::TealGalaxy,
+            )))),
+            164 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::TealGalaxy,
+            )))),
+            165 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::TealGalaxy,
+            )))),
+            166 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::TealGalaxy,
+            )))),
+            167 => Ok(Terrain::Property(Property::HQ(PlayerFaction::TealGalaxy))),
+            168 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::TealGalaxy,
+            )))),
+            169 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::TealGalaxy,
+            )))),
+
+            // Purple Lightning properties
+            170 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::PurpleLightning,
+            )))),
+            171 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::PurpleLightning,
+            )))),
+            172 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::PurpleLightning,
+            )))),
+            173 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::PurpleLightning,
+            )))),
+            174 => Ok(Terrain::Property(Property::HQ(
+                PlayerFaction::PurpleLightning,
+            ))),
+            175 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::PurpleLightning,
+            )))),
+            176 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::PurpleLightning,
+            )))),
+
+            // Teleporter
+            195 => Ok(Terrain::Teleporter),
+
+            // Acid Rain properties
+            181 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::AcidRain,
+            )))),
+            182 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::AcidRain,
+            )))),
+            183 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::AcidRain,
+            )))),
+            184 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::AcidRain,
+            )))),
+            185 => Ok(Terrain::Property(Property::HQ(PlayerFaction::AcidRain))),
+            186 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::AcidRain,
+            )))),
+            187 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::AcidRain,
+            )))),
+
+            // White Nova properties
+            188 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::WhiteNova,
+            )))),
+            189 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::WhiteNova,
+            )))),
+            190 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::WhiteNova,
+            )))),
+            191 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::WhiteNova,
+            )))),
+            192 => Ok(Terrain::Property(Property::HQ(PlayerFaction::WhiteNova))),
+            193 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::WhiteNova,
+            )))),
+            194 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::WhiteNova,
+            )))),
+
+            // Azure Asteroid properties
+            196 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::AzureAsteroid,
+            )))),
+            197 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::AzureAsteroid,
+            )))),
+            198 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::AzureAsteroid,
+            )))),
+            199 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::AzureAsteroid,
+            )))),
+            200 => Ok(Terrain::Property(Property::HQ(
+                PlayerFaction::AzureAsteroid,
+            ))),
+            201 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::AzureAsteroid,
+            )))),
+            202 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::AzureAsteroid,
+            )))),
+
+            // Noir Eclipse properties
+            203 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::NoirEclipse,
+            )))),
+            204 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::NoirEclipse,
+            )))),
+            205 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::NoirEclipse,
+            )))),
+            206 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::NoirEclipse,
+            )))),
+            207 => Ok(Terrain::Property(Property::HQ(PlayerFaction::NoirEclipse))),
+            208 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::NoirEclipse,
+            )))),
+            209 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::NoirEclipse,
+            )))),
+
+            // Silver Claw properties
+            210 => Ok(Terrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::SilverClaw,
+            )))),
+            211 => Ok(Terrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::SilverClaw,
+            )))),
+            212 => Ok(Terrain::Property(Property::City(Faction::Player(
+                PlayerFaction::SilverClaw,
+            )))),
+            213 => Ok(Terrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::SilverClaw,
+            )))),
+            214 => Ok(Terrain::Property(Property::HQ(PlayerFaction::SilverClaw))),
+            215 => Ok(Terrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::SilverClaw,
+            )))),
+            216 => Ok(Terrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::SilverClaw,
+            )))),
+            _ => Err(TryFromTerrainError::InvalidId(id)),
+        }
+    }
+}
+
+/// Terrain that represents the graphical representation. One can have tall
+/// mountains and stubby mountains, but functionally they act the same.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GraphicalTerrain {
+    StubbyMoutain,
+    Terrain(Terrain),
+}
+
+impl GraphicalTerrain {
+    pub fn as_terrain(self) -> Terrain {
+        match self {
+            GraphicalTerrain::StubbyMoutain => Terrain::Mountain,
+            GraphicalTerrain::Terrain(terrain) => terrain,
         }
     }
 }
@@ -1241,17 +1764,6 @@ mod tests {
     }
 
     #[test]
-    fn test_terrain_conversion() {
-        // Test conversion from u8 to Terrain and back
-        let terrain = TerrainId::try_from(1).unwrap();
-        assert_eq!(terrain.0, 1);
-
-        // Test conversion for out of range ID
-        assert!(TerrainId::try_from(0).is_err());
-        assert!(TerrainId::try_from(217).is_err());
-    }
-
-    #[test]
     fn test_gameplay_terrain_type() {
         // Test that gameplay type correctly abstracts visual differences
         assert_eq!(
@@ -1285,5 +1797,53 @@ mod tests {
             Terrain::MissileSilo(MissileSiloStatus::Unloaded).gameplay_type(),
             GameplayTerrain::MissileSilo(MissileSiloStatus::Unloaded)
         );
+    }
+
+    #[test]
+    fn test_u8_to_terrain_conversion() {
+        // Test conversion from u8 to Terrain directly
+        assert_eq!(Terrain::try_from(1).unwrap(), Terrain::Plain);
+        assert_eq!(Terrain::try_from(2).unwrap(), Terrain::Mountain);
+        assert_eq!(Terrain::try_from(3).unwrap(), Terrain::Wood);
+
+        // Test rivers
+        assert_eq!(
+            Terrain::try_from(4).unwrap(),
+            Terrain::River(RiverType::Horizontal)
+        );
+        assert_eq!(
+            Terrain::try_from(14).unwrap(),
+            Terrain::River(RiverType::NES)
+        );
+
+        // Test properties
+        assert_eq!(
+            Terrain::try_from(34).unwrap(),
+            Terrain::Property(Property::City(Faction::Neutral))
+        );
+        assert_eq!(
+            Terrain::try_from(42).unwrap(),
+            Terrain::Property(Property::HQ(PlayerFaction::OrangeStar))
+        );
+
+        // Test other terrain types
+        assert_eq!(Terrain::try_from(28).unwrap(), Terrain::Sea);
+        assert_eq!(
+            Terrain::try_from(111).unwrap(),
+            Terrain::MissileSilo(MissileSiloStatus::Loaded)
+        );
+
+        // Test invalid IDs - specific error types
+        assert_eq!(
+            Terrain::try_from(58).unwrap_err(),
+            TryFromTerrainError::InvalidId(58)
+        );
+
+        // Test round trip conversion (u8 -> Terrain -> TerrainId -> u8)
+        for id in [1, 2, 3, 28, 34, 42, 111, 195] {
+            let terrain = Terrain::try_from(id).unwrap();
+            let terrain_id = TerrainId::from(terrain);
+            assert_eq!(terrain_id.0, id);
+        }
     }
 }
