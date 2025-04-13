@@ -1,5 +1,8 @@
-use crate::{MapError, Position};
-use awbrn_core::Terrain;
+use crate::{
+    MapError, Position,
+    pathfinding::{MovementMap, PathFinder},
+};
+use awbrn_core::{MovementTerrain, Terrain};
 use std::fmt;
 
 /// Represents a game map with terrain data
@@ -13,6 +16,14 @@ pub struct AwbwMap {
 }
 
 impl AwbwMap {
+    /// Creates a new map with specified dimensions and default terrain
+    pub fn new(width: usize, height: usize, default_terrain: Terrain) -> Self {
+        Self {
+            width,
+            terrain: vec![default_terrain; width * height],
+        }
+    }
+
     pub fn parse(data: &str) -> Result<Self, MapError> {
         let mut result = Vec::new();
         let mut width = 0;
@@ -74,9 +85,18 @@ impl AwbwMap {
         self.terrain.len() / self.width
     }
 
-    /// Get the terrain at the specified coordinates
-    pub fn terrain_at(&self, x: usize, y: usize) -> Option<Terrain> {
-        self.terrain.get(y * self.width + x).copied()
+    /// Get the terrain at the specified position
+    pub fn terrain_at(&self, pos: Position) -> Option<Terrain> {
+        if pos.x >= self.width || pos.y >= self.height() {
+            return None;
+        }
+
+        self.terrain.get(pos.y * self.width + pos.x).copied()
+    }
+
+    /// Set the terrain at a specific position
+    pub fn terrain_at_mut(&mut self, pos: Position) -> Option<&mut Terrain> {
+        self.terrain.get_mut(pos.y * self.width + pos.x)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (Position, Terrain)> {
@@ -85,6 +105,16 @@ impl AwbwMap {
             let x = idx % self.width;
             (Position::new(x, y), *terrain)
         })
+    }
+
+    pub fn pathfinder(&self) -> PathFinder<&Self> {
+        PathFinder::new(self)
+    }
+}
+
+impl MovementMap for AwbwMap {
+    fn terrain_at(&self, pos: Position) -> Option<MovementTerrain> {
+        self.terrain_at(pos).map(MovementTerrain::from)
     }
 }
 

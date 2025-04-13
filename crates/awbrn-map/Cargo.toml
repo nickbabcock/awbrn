@@ -8,3 +8,4 @@ awbrn-core.path = "../awbrn-core"
 
 [dev-dependencies]
 insta.workspace = true
+rstest.workspace = true

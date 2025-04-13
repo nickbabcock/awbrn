@@ -9,5 +9,6 @@ indexmap = { version = "2.9.0", features = ["serde"] }
 insta = { version = "1.42.2", features = ["glob", "serde", "json"] }
 phpserz = "0.1"
 rawzip = "0.1"
+rstest = "0.25.0"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
