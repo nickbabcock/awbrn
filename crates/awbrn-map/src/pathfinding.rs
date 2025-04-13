@@ -1,16 +1,28 @@
 use crate::Position;
 use awbrn_core::MovementTerrain;
-use std::collections::{HashMap, VecDeque, hash_map::Entry};
+use std::{cmp::Reverse, collections::BinaryHeap};
 
 /// A trait for maps that provide terrain information for pathfinding
 pub trait MovementMap {
     /// Get the terrain at the specified coordinates
     fn terrain_at(&self, pos: Position) -> Option<MovementTerrain>;
+
+    fn width(&self) -> usize;
+
+    fn height(&self) -> usize;
 }
 
 impl<T: MovementMap> MovementMap for &'_ T {
     fn terrain_at(&self, pos: Position) -> Option<MovementTerrain> {
         (**self).terrain_at(pos)
+    }
+
+    fn width(&self) -> usize {
+        (**self).width()
+    }
+
+    fn height(&self) -> usize {
+        (**self).height()
     }
 }
 
@@ -29,24 +41,28 @@ pub struct Reachable<'a, M> {
     map: &'a mut PathFinder<M>,
 }
 
-impl<M> Reachable<'_, M> {
-    pub fn positions(&self) -> &HashMap<Position, u8> {
-        &self.map.cost_map
-    }
-
+impl<M: MovementMap> Reachable<'_, M> {
     pub fn into_positions(self) -> impl Iterator<Item = (Position, u8)> {
-        self.map.cost_map.drain()
+        self.map
+            .cost_map
+            .drain(..)
+            .enumerate()
+            .filter_map(|(idx, cost)| cost.map(|c| (idx, c)))
+            .map(|(idx, cost)| {
+                let y = idx / self.map.map.width();
+                let x = idx % self.map.map.width();
+                (Position::new(x, y), cost)
+            })
     }
 }
 
 pub struct PathFinder<M> {
     map: M,
 
-    /// Queue for BFS
-    queue: VecDeque<(Position, u8)>,
+    queue: BinaryHeap<(Reverse<u8>, Position)>,
 
     /// Map of position to cost
-    cost_map: HashMap<Position, u8>,
+    cost_map: Vec<Option<u8>>,
 }
 
 impl<M: MovementMap> PathFinder<M> {
@@ -54,8 +70,8 @@ impl<M: MovementMap> PathFinder<M> {
     pub fn new(map: M) -> Self {
         Self {
             map,
-            queue: VecDeque::new(),
-            cost_map: HashMap::new(),
+            queue: BinaryHeap::new(),
+            cost_map: Vec::new(),
         }
     }
 
@@ -67,14 +83,30 @@ impl<M: MovementMap> PathFinder<M> {
         costs: impl TerrainCosts,
     ) -> Reachable<M> {
         self.cost_map.clear();
+        self.cost_map
+            .resize(self.map.height() * self.map.width(), None);
         self.queue.clear();
 
-        self.queue.push_back((start, 0u8));
-        self.cost_map.insert(start, 0);
+        if let Some(index) = self.cost_map.get_mut(start.y * self.map.width() + start.x) {
+            *index = Some(0);
+        } else {
+            return Reachable { map: self };
+        }
+
+        self.queue.push((Reverse(0), start));
 
         // Directions to explore: down, right, up, left
         let directions = [(0, 1), (1, 0), (0, -1), (-1, 0)];
-        while let Some((current, current_cost)) = self.queue.pop_front() {
+        while let Some((Reverse(current_cost), current)) = self.queue.pop() {
+            // Optimization: If we pop an element whose cost is already higher
+            // than a known shorter path to it, skip it. This happens if we
+            // added multiple entries for the same node to the queue before finding
+            // the absolute shortest path.
+            let index = current.y * self.map.width() + current.x;
+            if matches!(self.cost_map[index], Some(known_cost) if current_cost > known_cost) {
+                continue;
+            }
+
             for (dx, dy) in &directions {
                 let new_pos = current.movement(*dx, *dy);
 
@@ -82,24 +114,23 @@ impl<M: MovementMap> PathFinder<M> {
                     continue;
                 };
 
-                let entry = self.cost_map.entry(new_pos);
-                if let Entry::Occupied(occupied_entry) = &entry {
-                    let existing_cost = *occupied_entry.get();
-                    if existing_cost <= current_cost {
-                        continue;
-                    }
-                }
-
                 let Some(terrain_cost) = costs.cost(terrain) else {
                     continue;
                 };
+                let movement_cost = current_cost + terrain_cost;
 
-                let new_cost = current_cost + terrain_cost;
-
-                if new_cost <= movement_points {
-                    entry.insert_entry(new_cost);
-                    self.queue.push_back((new_pos, new_cost));
+                if movement_cost > movement_points {
+                    continue;
                 }
+
+                let index = new_pos.y * self.map.width() + new_pos.x;
+                match &mut self.cost_map[index] {
+                    Some(c) if movement_cost < *c => *c = movement_cost,
+                    Some(_) => continue,
+                    cost @ None => *cost = Some(movement_cost),
+                }
+
+                self.queue.push((Reverse(movement_cost), new_pos));
             }
         }
 
@@ -109,6 +140,8 @@ impl<M: MovementMap> PathFinder<M> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::AwbwMap;
     use awbrn_core::{MovementCost, MovementTerrain, RiverType, Terrain, UnitMovement};
@@ -140,7 +173,7 @@ mod tests {
         let costs = UnitMovementCosts { movement_type };
         let mut pathfinder = PathFinder::new(map);
         let reachable = pathfinder.reachable(start, movement_points, costs);
-        reachable.positions().clone()
+        reachable.into_positions().collect()
     }
 
     /// Helper to verify that positions are reachable with expected costs
@@ -290,7 +323,7 @@ mod tests {
         };
         let mut pathfinder = PathFinder::new(&map);
         let reachable = pathfinder.reachable(Position::new(1, 1), 5, costs);
-        let positions = reachable.positions();
+        let positions: HashMap<Position, u8> = reachable.into_positions().collect();
 
         // Should only be able to reach the starting position
         assert_eq!(positions.len(), 1);
@@ -309,11 +342,11 @@ mod tests {
             movement_type: UnitMovement::Foot,
         };
         let reachable1 = pathfinder.reachable(Position::new(0, 0), 3, &foot_costs);
-        let positions1 = reachable1.positions().clone();
+        let positions1: HashMap<Position, u8> = reachable1.into_positions().collect();
 
         // Test a different starting position with the same pathfinder
         let reachable2 = pathfinder.reachable(Position::new(4, 4), 2, &foot_costs);
-        let positions2 = reachable2.positions().clone();
+        let positions2: HashMap<Position, u8> = reachable2.into_positions().collect();
 
         // Results should be different
         assert_ne!(positions1.len(), positions2.len());
