@@ -80,6 +80,14 @@ impl MovementMap for AwbrnMap {
             .map(|x| x.as_terrain())
             .map(MovementTerrain::from)
     }
+
+    fn width(&self) -> usize {
+        self.width
+    }
+
+    fn height(&self) -> usize {
+        self.height()
+    }
 }
 
 #[cfg(test)]

@@ -116,6 +116,14 @@ impl MovementMap for AwbwMap {
     fn terrain_at(&self, pos: Position) -> Option<MovementTerrain> {
         self.terrain_at(pos).map(MovementTerrain::from)
     }
+
+    fn width(&self) -> usize {
+        self.width
+    }
+
+    fn height(&self) -> usize {
+        self.height()
+    }
 }
 
 impl fmt::Display for AwbwMap {
