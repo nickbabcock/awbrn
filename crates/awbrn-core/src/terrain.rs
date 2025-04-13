@@ -1535,6 +1535,43 @@ impl GraphicalTerrain {
     }
 }
 
+/// Movement terrain represents terrain types from a movement perspective,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(u8)]
+pub enum MovementTerrain {
+    Plains,         // Basic open terrain
+    Mountains,      // High elevation terrain
+    Woods,          // Forested terrain
+    Rivers,         // Water passages
+    Infrastructure, // Roads, bridges, properties
+    Sea,            // Ocean tiles
+    Shoals,         // Beach/coast tiles
+    Reefs,          // Shallow water with coral
+    Pipes,          // Pipe terrain
+    Teleport,       // Teleporter tiles
+}
+
+impl From<Terrain> for MovementTerrain {
+    /// Convert from detailed Terrain type to simplified MovementTerrain
+    fn from(terrain: Terrain) -> Self {
+        match terrain {
+            Terrain::Plain | Terrain::PipeRubble(_) => MovementTerrain::Plains,
+            Terrain::Mountain => MovementTerrain::Mountains,
+            Terrain::Wood => MovementTerrain::Woods,
+            Terrain::River(_) => MovementTerrain::Rivers,
+            Terrain::Sea => MovementTerrain::Sea,
+            Terrain::Shoal(_) => MovementTerrain::Shoals,
+            Terrain::Reef => MovementTerrain::Reefs,
+            Terrain::Road(_)
+            | Terrain::Bridge(_)
+            | Terrain::Property(_)
+            | Terrain::MissileSilo(_) => MovementTerrain::Infrastructure,
+            Terrain::Pipe(_) | Terrain::PipeSeam(_) => MovementTerrain::Pipes,
+            Terrain::Teleporter => MovementTerrain::Teleport,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1845,5 +1882,60 @@ mod tests {
             let terrain_id = TerrainId::from(terrain);
             assert_eq!(terrain_id.0, id);
         }
+    }
+
+    #[test]
+    fn test_movement_terrain() {
+        assert_eq!(
+            MovementTerrain::from(Terrain::Plain),
+            MovementTerrain::Plains
+        );
+        assert_eq!(
+            MovementTerrain::from(Terrain::Mountain),
+            MovementTerrain::Mountains
+        );
+        assert_eq!(MovementTerrain::from(Terrain::Wood), MovementTerrain::Woods);
+        assert_eq!(
+            MovementTerrain::from(Terrain::River(RiverType::Horizontal)),
+            MovementTerrain::Rivers
+        );
+        assert_eq!(MovementTerrain::from(Terrain::Sea), MovementTerrain::Sea);
+        assert_eq!(
+            MovementTerrain::from(Terrain::Shoal(ShoalType::Horizontal)),
+            MovementTerrain::Shoals
+        );
+        assert_eq!(MovementTerrain::from(Terrain::Reef), MovementTerrain::Reefs);
+        assert_eq!(
+            MovementTerrain::from(Terrain::Road(RoadType::Horizontal)),
+            MovementTerrain::Infrastructure
+        );
+        assert_eq!(
+            MovementTerrain::from(Terrain::Bridge(BridgeType::Vertical)),
+            MovementTerrain::Infrastructure
+        );
+        assert_eq!(
+            MovementTerrain::from(Terrain::MissileSilo(MissileSiloStatus::Loaded)),
+            MovementTerrain::Infrastructure
+        );
+        assert_eq!(
+            MovementTerrain::from(Terrain::MissileSilo(MissileSiloStatus::Unloaded)),
+            MovementTerrain::Infrastructure
+        );
+        assert_eq!(
+            MovementTerrain::from(Terrain::Pipe(PipeType::Vertical)),
+            MovementTerrain::Pipes
+        );
+        assert_eq!(
+            MovementTerrain::from(Terrain::PipeSeam(PipeSeamType::Horizontal)),
+            MovementTerrain::Pipes
+        );
+        assert_eq!(
+            MovementTerrain::from(Terrain::PipeRubble(PipeRubbleType::Horizontal)),
+            MovementTerrain::Plains
+        );
+        assert_eq!(
+            MovementTerrain::from(Terrain::Teleporter),
+            MovementTerrain::Teleport
+        );
     }
 }
