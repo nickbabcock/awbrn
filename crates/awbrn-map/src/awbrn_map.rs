@@ -1,5 +1,9 @@
-use crate::{Position, awbw_map::AwbwMap};
-use awbrn_core::{GraphicalTerrain, Terrain};
+use crate::{
+    Position,
+    awbw_map::AwbwMap,
+    pathfinding::{MovementMap, PathFinder},
+};
+use awbrn_core::{GraphicalTerrain, MovementTerrain, Terrain};
 
 /// Represents a game map with graphical terrain data
 #[derive(Debug, Clone, PartialEq)]
@@ -15,27 +19,31 @@ impl AwbrnMap {
     /// Convert an AwbwMap to an AwbrnMap, handling graphical differences
     pub fn from_map(map: &AwbwMap) -> Self {
         let width = map.width();
-        let mut terrain = map
+
+        let terrain = map
             .iter()
-            .map(|(_, t)| GraphicalTerrain::Terrain(t))
+            .map(|(pos, t)| match t {
+                Terrain::Mountain
+                    if matches!(
+                        map.terrain_at(pos.movement(0, -1)),
+                        Some(Terrain::Property(_) | Terrain::MissileSilo(_))
+                    ) =>
+                {
+                    GraphicalTerrain::StubbyMoutain
+                }
+                _ => GraphicalTerrain::Terrain(t),
+            })
             .collect::<Vec<_>>();
 
-        for (pos, terrain) in terrain.iter_mut().enumerate() {
-            let y = pos / width;
-            let x = pos % width;
-
-            if matches!(terrain, GraphicalTerrain::Terrain(Terrain::Mountain)) {
-                let ny = y.saturating_sub(1);
-                if matches!(
-                    map.terrain_at(x, ny),
-                    Some(Terrain::Property(_) | Terrain::MissileSilo(_))
-                ) {
-                    *terrain = GraphicalTerrain::StubbyMoutain;
-                }
-            }
-        }
-
         Self { width, terrain }
+    }
+
+    /// Create a new map with specified dimensions and default terrain
+    pub fn new(width: usize, height: usize, default_terrain: GraphicalTerrain) -> Self {
+        Self {
+            width,
+            terrain: vec![default_terrain; width * height],
+        }
     }
 
     /// Get the width of the map
@@ -48,9 +56,9 @@ impl AwbrnMap {
         self.terrain.len() / self.width
     }
 
-    /// Get the terrain at the specified coordinates
-    pub fn terrain_at(&self, x: usize, y: usize) -> Option<GraphicalTerrain> {
-        self.terrain.get(y * self.width + x).copied()
+    /// Get the terrain at the specified position
+    pub fn terrain_at(&self, pos: Position) -> Option<GraphicalTerrain> {
+        self.terrain.get(pos.y * self.width + pos.x).copied()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (Position, GraphicalTerrain)> {
@@ -59,6 +67,18 @@ impl AwbrnMap {
             let x = idx % self.width;
             (Position::new(x, y), *terrain)
         })
+    }
+
+    pub fn pathfinder(&self) -> PathFinder<&Self> {
+        PathFinder::new(self)
+    }
+}
+
+impl MovementMap for AwbrnMap {
+    fn terrain_at(&self, pos: Position) -> Option<MovementTerrain> {
+        self.terrain_at(pos)
+            .map(|x| x.as_terrain())
+            .map(MovementTerrain::from)
     }
 }
 

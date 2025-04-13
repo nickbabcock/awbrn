@@ -56,7 +56,7 @@ impl MovementCost {
         }
     }
 
-    pub fn cost(&self, movement_type: UnitMovement) -> Option<u8> {
+    pub const fn cost(&self, movement_type: UnitMovement) -> Option<u8> {
         self.costs[movement_type as usize]
     }
 }
