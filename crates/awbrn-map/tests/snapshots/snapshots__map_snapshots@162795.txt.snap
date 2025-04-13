@@ -1,0 +1,27 @@
+---
+source: crates/awbrn-map/tests/snapshots.rs
+expression: "format!(\"{}\\nstubby mountains: {}\", map, stubbies)"
+input_file: assets/maps/162795.txt
+---
+.c...).@a..a.c.a..a@.>...c.
+;..^a,aA--B.@@@.A--Ba,a^..;
+.^...[-C@*=^^@^^=*@D-[...^.
+af^.i[..a0DB^b^AC0a..[o.^la
+-B.@IK..=!|=@.@='&=..LJ@.A-
+fDBIKaA-C.aDB5ACa.D-BaLJACl
+..=P{{]J..@^DEC^@..I]{{N=..
+..D[BaD[a.@@^=^@@.a[CaA[C..
+...}DB@)..a*;=;*a..>@AC}...
+aB@LJ=<K.@IK2=2LJ@.L<=IK@Aa
+^=^1P]N_--?--3--?--_P]N1^=^
+aC@IK=(J.@LJ2=2IK@.I(=LJ@Da
+...}AC@)..a`;=;`a..>@DB}...
+..A[CaA[a.@@^=^@@.a[BaD[B..
+..=P{{]K..@^AGB^@..L]{{N=..
+qACLJaD-B.aAC5DBa.A-CaIKDBv
+-C.@LJ..=#|=@.@='$=..IK@.D-
+aq^.t[..a0AC^b^DB0a..[y.^va
+.^...[-B@`=^^@^^=`@A-[...^.
+;..^a,aD--C.@@@.D--Ca,a^..;
+.c...).@a..a.c.a..a@.>...c.
+stubby mountains: (0, 10), (1, 18), (12, 13), (14, 13), (25, 18), (26, 10)

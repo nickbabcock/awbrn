@@ -1,3 +1,5 @@
+use awbrn_core::GraphicalTerrain;
+use awbrn_map::Position;
 use insta::{assert_snapshot, glob};
 
 #[test]
@@ -15,6 +17,24 @@ fn test_map_snapshots() {
             ),
         };
 
-        assert_snapshot!(map.to_string())
+        let awbrn_map = awbrn_map::AwbrnMap::from_map(&map);
+        let mut stubby_mountains: Vec<Position> = awbrn_map
+            .iter()
+            .filter_map(|(pos, terrain)| {
+                if matches!(terrain, GraphicalTerrain::StubbyMoutain) {
+                    Some(pos)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        stubby_mountains.sort_unstable();
+        let stubbies = stubby_mountains
+            .iter()
+            .map(|pos| format!("({}, {})", pos.x, pos.y))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        assert_snapshot!(format!("{}\nstubby mountains: {}", map, stubbies))
     });
 }

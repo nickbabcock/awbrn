@@ -1,4 +1,4 @@
-use crate::MapError;
+use crate::{MapError, Position};
 use awbrn_core::Terrain;
 use std::fmt;
 
@@ -72,6 +72,19 @@ impl AwbwMap {
 
     pub fn height(&self) -> usize {
         self.terrain.len() / self.width
+    }
+
+    /// Get the terrain at the specified coordinates
+    pub fn terrain_at(&self, x: usize, y: usize) -> Option<Terrain> {
+        self.terrain.get(y * self.width + x).copied()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (Position, Terrain)> {
+        self.terrain.iter().enumerate().map(move |(idx, terrain)| {
+            let y = idx / self.width;
+            let x = idx % self.width;
+            (Position::new(x, y), *terrain)
+        })
     }
 }
 
