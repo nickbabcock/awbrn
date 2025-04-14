@@ -6,7 +6,8 @@ use std::io::BufWriter;
 fn test_replay_snapshots() {
     glob!("../../../assets/replays", "*.zip", |path| {
         let data = std::fs::read(path).unwrap();
-        let parsed = awbw_replay::parse_replay(&data[..]);
+        let parser = awbw_replay::ReplayParser::new();
+        let parsed = parser.parse(&data[..]);
 
         let replay = match parsed {
             Ok(x) => x,

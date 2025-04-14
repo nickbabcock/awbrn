@@ -43,6 +43,102 @@ where
     })
 }
 
+pub fn values_only<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    struct VecVisitor<T1> {
+        marker: PhantomData<Vec<T1>>,
+    }
+
+    impl<'de, T1> de::Visitor<'de> for VecVisitor<T1>
+    where
+        T1: Deserialize<'de>,
+    {
+        type Value = Vec<T1>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a map containing key value tuples")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::MapAccess<'de>,
+        {
+            let mut values = Vec::new();
+            while let Some(_ignored_key) = map.next_key::<de::IgnoredAny>()? {
+                let value: T1 = map.next_value()?;
+                values.push(value);
+            }
+
+            Ok(values)
+        }
+    }
+
+    deserializer.deserialize_map(VecVisitor {
+        marker: PhantomData,
+    })
+}
+
+pub fn bool_ynstr<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct BoolVisitor;
+
+    impl<'de> de::Visitor<'de> for BoolVisitor {
+        type Value = bool;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string representing a boolean value ('Y' or 'N')")
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_bytes(v.as_bytes())
+        }
+        fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(v.as_str())
+        }
+
+        fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(v)
+        }
+
+        fn visit_borrowed_bytes<E>(self, v: &'de [u8]) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_bytes(v)
+        }
+
+        fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            match v {
+                b"Y" => Ok(true),
+                b"N" => Ok(false),
+                _ => Err(E::custom(format!(
+                    "Invalid boolean value: {}",
+                    String::from_utf8_lossy(v)
+                ))),
+            }
+        }
+    }
+
+    deserializer.deserialize_str(BoolVisitor)
+}
+
 /// Helper trait for implementing special value deserializers
 trait SpecialValueDeserializer<T> {
     /// Check if a string represents the special value
@@ -475,5 +571,117 @@ mod tests {
 
         let deserialized: Hidden<TestStruct> = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized, Hidden::Hidden);
+    }
+
+    #[test]
+    fn test_values_only() {
+        // Use a #[derive(Deserialize)] struct to test values_only
+        #[derive(Debug, Deserialize, PartialEq, Eq)]
+        struct TestValues {
+            #[serde(deserialize_with = "values_only")]
+            values: Vec<String>,
+        }
+
+        // Test with simple string values
+        let json = r#"{"values": {"key1": "value1", "key2": "value2", "key3": "value3"}}"#;
+        let result: TestValues = serde_json::from_str(json).unwrap();
+
+        let values = result.values;
+        let expected = vec![
+            "value1".to_string(),
+            "value2".to_string(),
+            "value3".to_string(),
+        ];
+        assert_eq!(values, expected);
+    }
+
+    #[test]
+    fn test_values_only_numbers() {
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct TestNumbers {
+            #[serde(deserialize_with = "values_only")]
+            values: Vec<i32>,
+        }
+
+        let json = r#"{"values": {"a": 10, "b": 20, "c": 30}}"#;
+        let result: TestNumbers = serde_json::from_str(json).unwrap();
+
+        let values = result.values;
+        assert_eq!(values, vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn test_values_only_empty() {
+        #[derive(Debug, Deserialize, PartialEq, Eq)]
+        struct TestEmpty {
+            #[serde(deserialize_with = "values_only")]
+            values: Vec<String>,
+        }
+
+        let json = r#"{"values": {}}"#;
+        let result: TestEmpty = serde_json::from_str(&json).unwrap();
+
+        assert!(result.values.is_empty());
+    }
+
+    #[test]
+    fn test_values_only_complex() {
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct TestComplex {
+            #[serde(deserialize_with = "values_only")]
+            values: Vec<ComplexValue>,
+        }
+
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct ComplexValue {
+            id: u32,
+            name: String,
+        }
+
+        let json = r#"{
+            "values": {
+                "item1": {"id": 1, "name": "first"},
+                "item2": {"id": 2, "name": "second"}
+            }
+        }"#;
+
+        let result: TestComplex = serde_json::from_str(json).unwrap();
+
+        assert_eq!(result.values.len(), 2);
+        assert_eq!(
+            result.values[0],
+            ComplexValue {
+                id: 1,
+                name: "first".to_string()
+            }
+        );
+        assert_eq!(
+            result.values[1],
+            ComplexValue {
+                id: 2,
+                name: "second".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_bool_ynstr() {
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct TestBool {
+            #[serde(deserialize_with = "bool_ynstr")]
+            value: bool,
+        }
+
+        let json = r#"{"value": "Y"}"#;
+        let result: TestBool = serde_json::from_str(json).unwrap();
+        assert_eq!(result.value, true);
+
+        let json = r#"{"value": "N"}"#;
+        let result: TestBool = serde_json::from_str(json).unwrap();
+        assert_eq!(result.value, false);
+
+        let json = r#"{"value": "invalid"}"#;
+        let result: Result<TestBool, _> = serde_json::from_str(json);
+        assert!(result.is_err());
     }
 }
