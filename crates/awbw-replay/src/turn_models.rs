@@ -2,12 +2,12 @@ use crate::de::{Hidden, Masked};
 use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum TurnElement {
+pub enum TurnElement<'a> {
     Int(()),
-    Data(Vec<Action>),
+    Data(Vec<&'a [u8]>),
 }
 
-impl<'de> Deserialize<'de> for TurnElement {
+impl<'de> Deserialize<'de> for TurnElement<'de> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -15,7 +15,7 @@ impl<'de> Deserialize<'de> for TurnElement {
         struct ElementVisitor;
 
         impl<'de> serde::de::Visitor<'de> for ElementVisitor {
-            type Value = TurnElement;
+            type Value = TurnElement<'de>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("an integer or a data structure")
@@ -39,12 +39,11 @@ impl<'de> Deserialize<'de> for TurnElement {
                         None => return Ok(TurnElement::Data(elements)),
                     };
 
-                    let data: &[u8] = seq
+                    let data: &'de [u8] = seq
                         .next_element()?
-                        .ok_or_else(|| serde::de::Error::custom("Expected action"))?;
+                        .ok_or_else(|| serde::de::Error::custom("Expected action data"))?;
 
-                    let value = serde_json::from_slice(data).map_err(serde::de::Error::custom)?;
-                    elements.push(value);
+                    elements.push(data);
                 }
             }
         }
