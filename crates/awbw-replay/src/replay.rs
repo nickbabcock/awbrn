@@ -4,13 +4,14 @@ use crate::{
     game_models::AwbwGame,
     turn_models::{Action, TurnElement},
 };
+use phpserz::{PhpParser, PhpToken};
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, Read};
 
 #[derive(Debug, Serialize, PartialEq, Clone)]
 pub struct AwbwReplay {
     pub games: Vec<AwbwGame>,
-    pub turns: Vec<Vec<Action>>,
+    pub turns: Vec<Action>,
 }
 
 enum FileType {
@@ -91,9 +92,9 @@ impl ReplayParser {
                                 Ok(game) => game,
                                 Err(error) => {
                                     return Err(ReplayError {
-                                        kind: ReplayErrorKind::DeserializeTrack {
+                                        kind: ReplayErrorKind::Php {
                                             error,
-                                            path: track.path(),
+                                            path: Some(track.path()),
                                         },
                                     });
                                 }
@@ -106,39 +107,41 @@ impl ReplayParser {
                     }
                     FileType::Turn => {
                         let header = TurnHeader::from_slice(&buf).unwrap();
-                        let mut deser = phpserz::PhpDeserializer::new(header.data);
-                        let turn = if self.debug {
-                            let mut track = serde_path_to_error::Track::new();
-                            let path_deser =
-                                serde_path_to_error::Deserializer::new(&mut deser, &mut track);
-                            let data: Result<Vec<(u32, TurnElement)>, _> =
-                                deserialize_vec_pair(path_deser);
-                            match data {
-                                Ok(data) => data,
-                                Err(error) => {
-                                    return Err(ReplayError {
-                                        kind: ReplayErrorKind::DeserializeTrack {
-                                            error,
-                                            path: track.path(),
-                                        },
-                                    });
-                                }
-                            }
-                        } else {
-                            let data: Vec<(u32, TurnElement)> = deserialize_vec_pair(&mut deser)?;
-                            data
-                        };
 
-                        let actions: Vec<Action> = turn
+                        let mut deser = phpserz::PhpDeserializer::new(header.data);
+                        let data: Vec<(u32, TurnElement)> = deserialize_vec_pair(&mut deser)?;
+
+                        let action_json = data
                             .into_iter()
                             .find_map(|(_, element)| match element {
                                 TurnElement::Data(x) => Some(x),
                                 _ => None,
                             })
                             .into_iter()
-                            .flatten()
-                            .collect();
-                        turns.push(actions);
+                            .flatten();
+
+                        for json in action_json {
+                            let mut deser = serde_json::Deserializer::from_slice(json);
+                            let action = if self.debug {
+                                let mut track = serde_path_to_error::Track::new();
+                                let deser =
+                                    serde_path_to_error::Deserializer::new(&mut deser, &mut track);
+                                match Action::deserialize(deser) {
+                                    Ok(data) => data,
+                                    Err(error) => {
+                                        return Err(ReplayError {
+                                            kind: ReplayErrorKind::Json {
+                                                error,
+                                                path: Some(track.path()),
+                                            },
+                                        });
+                                    }
+                                }
+                            } else {
+                                Action::deserialize(&mut deser)?
+                            };
+                            turns.push(action);
+                        }
                     }
                 }
 
@@ -169,24 +172,20 @@ impl<'a> TurnHeader<'a> {
         let player_id = std::str::from_utf8(&player_id[..player_id.len() - 1]).ok()?;
         let player_id = player_id.parse::<u32>().ok()?;
 
-        let (day_kind, data) = data.split_first_chunk::<2>()?;
-        if day_kind != b"d:" {
+        let mut parser = PhpParser::new(data);
+
+        let PhpToken::Float(day) = parser.read_token().ok()? else {
             return None;
-        }
+        };
 
-        let day = data.iter().position(|&b| b == b'a')?;
-        let (day, data) = data.split_at(day);
-        let day = std::str::from_utf8(&day[..day.len() - 1]).ok()?;
-        let day = day.parse::<u32>().ok()?;
-
-        let (array_kind, data) = data.split_first_chunk::<2>()?;
+        let (array_kind, data) = data[parser.position()..].split_first_chunk::<2>()?;
         if array_kind != b"a:" {
             return None;
         }
 
         Some(TurnHeader {
             player_id,
-            day,
+            day: day as u32,
             data,
         })
     }
