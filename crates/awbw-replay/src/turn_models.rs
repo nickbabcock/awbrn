@@ -1,5 +1,7 @@
 use crate::de::{Hidden, Masked};
-use serde::{Deserialize, Deserializer, Serialize};
+use awbrn_core::{AwbwGamePlayerId, AwbwUnitId, Terrain};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TurnElement<'a> {
@@ -65,7 +67,7 @@ pub enum Action {
     Build {
         #[serde(rename = "newUnit")]
         new_unit: UnitMap,
-        discovered: indexmap::IndexMap<String, Option<Discovery>>,
+        discovered: indexmap::IndexMap<TargetedPlayer, Option<Discovery>>,
     },
     Capt {
         #[serde(rename = "Move", deserialize_with = "empty_field_action")]
@@ -122,11 +124,11 @@ pub enum Action {
         unit: UnitMap,
         #[serde(rename = "transportID")]
         transport_id: u32,
-        discovered: indexmap::IndexMap<String, Option<Discovery>>,
+        discovered: indexmap::IndexMap<TargetedPlayer, Option<Discovery>>,
     },
 }
 
-pub type UnitMap = indexmap::IndexMap<String, Hidden<UnitProperty>>;
+pub type UnitMap = indexmap::IndexMap<TargetedPlayer, Hidden<UnitProperty>>;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct UnitProperty {
@@ -172,11 +174,11 @@ pub struct PathTile {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct MoveAction {
     pub unit: UnitMap,
-    pub paths: indexmap::IndexMap<String, Vec<PathTile>>,
+    pub paths: indexmap::IndexMap<TargetedPlayer, Vec<PathTile>>,
     pub dist: u32,
     pub trapped: bool,
     #[serde(deserialize_with = "empty_field_action")]
-    pub discovered: Option<indexmap::IndexMap<String, Option<Discovery>>>,
+    pub discovered: Option<indexmap::IndexMap<TargetedPlayer, Option<Discovery>>>,
 }
 
 fn empty_field_action<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -226,21 +228,21 @@ where
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct LoadAction {
-    pub loaded: indexmap::IndexMap<String, Hidden<u32>>,
-    pub transport: indexmap::IndexMap<String, Hidden<u32>>,
+    pub loaded: indexmap::IndexMap<TargetedPlayer, Hidden<u32>>,
+    pub transport: indexmap::IndexMap<TargetedPlayer, Hidden<u32>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct CaptureAction {
     #[serde(rename = "buildingInfo")]
     pub building_info: BuildingInfo,
-    pub vision: indexmap::IndexMap<String, BuildingVision>,
-    pub income: Option<indexmap::IndexMap<String, PlayerIncome>>,
+    pub vision: indexmap::IndexMap<TargetedPlayer, BuildingVision>,
+    pub income: Option<indexmap::IndexMap<TargetedPlayer, PlayerIncome>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct PlayerIncome {
-    pub player: u32,
+    pub player: AwbwGamePlayerId,
     pub income: u32,
 }
 
@@ -270,20 +272,20 @@ pub struct JoinAction {
     #[serde(rename = "playerId")]
     pub player_id: u32,
     #[serde(rename = "newFunds")]
-    pub new_funds: indexmap::IndexMap<String, u32>,
+    pub new_funds: indexmap::IndexMap<TargetedPlayer, u32>,
     pub unit: UnitMap,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct SupplyAction {
-    pub unit: indexmap::IndexMap<String, Hidden<u32>>,
+    pub unit: indexmap::IndexMap<TargetedPlayer, Hidden<u32>>,
     pub rows: Vec<String>,
-    pub supplied: indexmap::IndexMap<String, Vec<String>>,
+    pub supplied: indexmap::IndexMap<TargetedPlayer, Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct AttackSeamAction {
-    pub unit: indexmap::IndexMap<String, AttackSeamCombat>,
+    pub unit: indexmap::IndexMap<TargetedPlayer, AttackSeamCombat>,
     pub buildings_hit_points: i32,
     pub buildings_terrain_id: u32,
     #[serde(rename = "seamX")]
@@ -303,7 +305,7 @@ pub struct AttackSeamCombat {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct PowerAction {
     #[serde(rename = "playerID")]
-    pub player_id: u32,
+    pub player_id: AwbwGamePlayerId,
     #[serde(rename = "coName")]
     pub co_name: String,
     #[serde(rename = "coPower")]
@@ -315,7 +317,7 @@ pub struct PowerAction {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct ResignAction {
     #[serde(rename = "playerId")]
-    pub player_id: u32,
+    pub player_id: AwbwGamePlayerId,
     pub message: String,
 }
 
@@ -324,13 +326,13 @@ pub struct NextTurnAction {
     #[serde(rename = "nextPId")]
     pub next_player_id: u32,
     #[serde(rename = "nextFunds")]
-    pub next_funds: indexmap::IndexMap<String, Hidden<u32>>,
+    pub next_funds: indexmap::IndexMap<TargetedPlayer, Hidden<u32>>,
     #[serde(rename = "nextTimer")]
     pub next_timer: u32,
     #[serde(rename = "nextWeather")]
     pub next_weather: String,
-    pub supplied: Option<indexmap::IndexMap<String, Vec<String>>>,
-    pub repaired: Option<indexmap::IndexMap<String, Vec<RepairedUnit>>>,
+    pub supplied: Option<indexmap::IndexMap<TargetedPlayer, Vec<AwbwUnitId>>>,
+    pub repaired: Option<indexmap::IndexMap<TargetedPlayer, Vec<RepairedUnit>>>,
     pub day: u32,
     #[serde(rename = "nextTurnStart")]
     pub next_turn_start: String,
@@ -349,7 +351,7 @@ pub struct GameOverAction {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct FireAction {
     #[serde(rename = "combatInfoVision")]
-    pub combat_info_vision: indexmap::IndexMap<String, CombatInfoVision>,
+    pub combat_info_vision: indexmap::IndexMap<TargetedPlayer, CombatInfoVision>,
     #[serde(rename = "copValues")]
     pub cop_values: CopValues,
 }
@@ -372,7 +374,7 @@ pub struct CombatInfo {
 pub struct CombatUnit {
     pub units_ammo: u32,
     pub units_hit_points: Option<f64>,
-    pub units_id: u32,
+    pub units_id: AwbwUnitId,
     pub units_x: u32,
     pub units_y: u32,
 }
@@ -386,7 +388,7 @@ pub struct CopValues {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct CopValueInfo {
     #[serde(rename = "playerId")]
-    pub player_id: u32,
+    pub player_id: AwbwGamePlayerId,
     #[serde(rename = "copValue")]
     pub cop_value: u32,
     #[serde(rename = "tagValue")]
@@ -400,13 +402,13 @@ pub struct UpdatedInfo {
     #[serde(rename = "nextPId")]
     pub next_player_id: u32,
     #[serde(rename = "nextFunds")]
-    pub next_funds: indexmap::IndexMap<String, Hidden<u32>>,
+    pub next_funds: indexmap::IndexMap<TargetedPlayer, Hidden<u32>>,
     #[serde(rename = "nextTimer")]
     pub next_timer: u32,
     #[serde(rename = "nextWeather")]
     pub next_weather: String,
-    pub supplied: Option<indexmap::IndexMap<String, Vec<String>>>,
-    pub repaired: Option<indexmap::IndexMap<String, Vec<RepairedUnit>>>,
+    pub supplied: Option<indexmap::IndexMap<TargetedPlayer, Vec<String>>>,
+    pub repaired: Option<indexmap::IndexMap<TargetedPlayer, Vec<RepairedUnit>>>,
     pub day: u32,
     #[serde(rename = "nextTurnStart")]
     pub next_turn_start: String,
@@ -435,10 +437,150 @@ pub struct BuildingDiscovery {
     pub buildings_x: u32,
     pub buildings_y: u32,
     pub buildings_capture: i32,
-    pub terrain_id: u32,
+    pub terrain_id: Terrain,
     pub terrain_name: String,
     pub terrain_defense: u32,
     pub is_occupied: bool,
     pub buildings_players_id: Option<u32>,
     pub buildings_team: Option<String>,
+}
+
+/// Players that receive the event
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TargetedPlayer {
+    /// All players receive the event
+    Global,
+
+    /// A specific player receives the event
+    Player(AwbwGamePlayerId),
+}
+
+impl Serialize for TargetedPlayer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            TargetedPlayer::Global => serializer.serialize_str("global"),
+            TargetedPlayer::Player(id) => id.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for TargetedPlayer {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct PlayerVisitor;
+
+        impl serde::de::Visitor<'_> for PlayerVisitor {
+            type Value = TargetedPlayer;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a string \"global\" or a player ID")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                if value == "global" {
+                    Ok(TargetedPlayer::Global)
+                } else {
+                    let val = value.parse::<u32>().map_err(|_| {
+                        E::custom(format!(
+                            "Expected \"global\" or a player ID number, got {}",
+                            value
+                        ))
+                    })?;
+                    Ok(TargetedPlayer::Player(AwbwGamePlayerId::new(val)))
+                }
+            }
+
+            fn visit_u32<E>(self, value: u32) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(TargetedPlayer::Player(AwbwGamePlayerId::new(value)))
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                let val = u32::try_from(value)
+                    .map_err(|_| E::custom(format!("Player ID out of range: {}", value)))?;
+                Ok(TargetedPlayer::Player(AwbwGamePlayerId::new(val)))
+            }
+
+            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                let val = u32::try_from(value)
+                    .map_err(|_| E::custom(format!("Player ID out of range: {}", value)))?;
+                Ok(TargetedPlayer::Player(AwbwGamePlayerId::new(val)))
+            }
+        }
+
+        // Use deserialize_any to support both string and number formats
+        deserializer.deserialize_any(PlayerVisitor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+
+    #[test]
+    fn test_global_or_player_serialize() {
+        // Test serializing Global variant
+        let global = TargetedPlayer::Global;
+        let serialized = serde_json::to_string(&global).unwrap();
+        assert_eq!(serialized, r#""global""#);
+
+        // Test serializing Player variant
+        let player_id = AwbwGamePlayerId::new(42);
+        let player = TargetedPlayer::Player(player_id);
+        let serialized = serde_json::to_string(&player).unwrap();
+        // The exact serialization format depends on how AwbwGamePlayerId serializes
+        // This assumes it serializes as a number
+        assert_eq!(serialized, r#"42"#);
+    }
+
+    #[test]
+    fn test_global_or_player_deserialize_global() {
+        // Test deserializing the string "global"
+        let deserialized: TargetedPlayer = serde_json::from_str(r#""global""#).unwrap();
+        assert_eq!(deserialized, TargetedPlayer::Global);
+    }
+
+    #[test]
+    fn test_global_or_player_deserialize_player_number() {
+        // Test deserializing a number
+        let deserialized: TargetedPlayer = serde_json::from_str("42").unwrap();
+        assert_eq!(
+            deserialized,
+            TargetedPlayer::Player(AwbwGamePlayerId::new(42))
+        );
+    }
+
+    #[test]
+    fn test_global_or_player_deserialize_player_string() {
+        // Test deserializing a string that contains a number
+        let deserialized: TargetedPlayer = serde_json::from_str(r#""42""#).unwrap();
+        assert_eq!(
+            deserialized,
+            TargetedPlayer::Player(AwbwGamePlayerId::new(42))
+        );
+    }
+
+    #[test]
+    fn test_global_or_player_deserialize_invalid() {
+        // Test deserializing an invalid string (not "global" and not a number)
+        let result = serde_json::from_str::<TargetedPlayer>(r#""invalid""#);
+        assert!(result.is_err());
+    }
 }
