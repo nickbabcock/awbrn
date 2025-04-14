@@ -1,3 +1,4 @@
+use serde::{Deserialize, Deserializer, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
 
@@ -238,6 +239,11 @@ impl Terrain {
         }
     }
 
+    /// Get the ID of terrain
+    pub fn id(&self) -> TerrainId {
+        TerrainId::from(*self)
+    }
+
     /// Get the faction that owns this property (if applicable)
     pub fn owner(&self) -> Option<Faction> {
         match self {
@@ -331,6 +337,29 @@ impl Terrain {
             Terrain::MissileSilo(status) => GameplayTerrain::MissileSilo(*status),
             Terrain::Teleporter => GameplayTerrain::Teleporter,
         }
+    }
+}
+
+/// Custom deserializer implementation to handle deserializing terrain from numeric IDs
+impl<'de> Deserialize<'de> for Terrain {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // First try to deserialize as a u8
+        let value = u8::deserialize(deserializer)?;
+
+        // Then use our TryFrom<u8> implementation
+        Terrain::try_from(value).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Serialize for Terrain {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_u8(self.id().0)
     }
 }
 
@@ -1937,5 +1966,77 @@ mod tests {
             MovementTerrain::from(Terrain::Teleporter),
             MovementTerrain::Teleport
         );
+    }
+
+    #[test]
+    fn test_terrain_deserialize() {
+        use serde_json::from_str;
+
+        // Test deserializing basic terrains
+        assert_eq!(from_str::<Terrain>("1").unwrap(), Terrain::Plain);
+        assert_eq!(from_str::<Terrain>("2").unwrap(), Terrain::Mountain);
+        assert_eq!(from_str::<Terrain>("3").unwrap(), Terrain::Wood);
+        assert_eq!(from_str::<Terrain>("28").unwrap(), Terrain::Sea);
+
+        // Test deserializing properties
+        assert_eq!(
+            from_str::<Terrain>("34").unwrap(),
+            Terrain::Property(Property::City(Faction::Neutral))
+        );
+        assert_eq!(
+            from_str::<Terrain>("42").unwrap(),
+            Terrain::Property(Property::HQ(PlayerFaction::OrangeStar))
+        );
+
+        // Test deserializing special terrains
+        assert_eq!(
+            from_str::<Terrain>("111").unwrap(),
+            Terrain::MissileSilo(MissileSiloStatus::Loaded)
+        );
+        assert_eq!(
+            from_str::<Terrain>("112").unwrap(),
+            Terrain::MissileSilo(MissileSiloStatus::Unloaded)
+        );
+
+        // Test deserializing invalid values
+        assert!(from_str::<Terrain>("0").is_err());
+        assert!(from_str::<Terrain>("999").is_err());
+    }
+
+    #[test]
+    fn test_terrain_deserialize_in_structs() {
+        use serde::{Deserialize, Serialize};
+        use serde_json::from_str;
+
+        #[derive(Debug, Serialize, Deserialize, PartialEq)]
+        struct TerrainCell {
+            terrain: Terrain,
+            x: i32,
+            y: i32,
+        }
+
+        // Test as part of a struct
+        let json = r#"{"terrain":28,"x":5,"y":10}"#;
+        let cell: TerrainCell = from_str(json).unwrap();
+
+        assert_eq!(cell.terrain, Terrain::Sea);
+        assert_eq!(cell.x, 5);
+        assert_eq!(cell.y, 10);
+
+        // Test multiple terrains in an array
+        let json = r#"[{"terrain":1,"x":0,"y":0},{"terrain":34,"x":1,"y":0}]"#;
+        let cells: Vec<TerrainCell> = from_str(json).unwrap();
+
+        assert_eq!(cells.len(), 2);
+        assert_eq!(cells[0].terrain, Terrain::Plain);
+        assert_eq!(
+            cells[1].terrain,
+            Terrain::Property(Property::City(Faction::Neutral))
+        );
+
+        // Test error handling with invalid terrain
+        let json = r#"{"terrain":999,"x":5,"y":10}"#;
+        let result: Result<TerrainCell, _> = from_str(json);
+        assert!(result.is_err());
     }
 }

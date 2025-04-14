@@ -1,6 +1,6 @@
 use crate::{
     de::deserialize_vec_pair,
-    errors,
+    errors::{self, ReplayError, ReplayErrorKind},
     game_models::AwbwGame,
     turn_models::{Action, TurnElement},
 };
@@ -18,81 +18,136 @@ enum FileType {
     Turn,
 }
 
-pub fn parse_replay(data: &[u8]) -> Result<AwbwReplay, errors::ReplayError> {
-    let zip = rawzip::ZipArchive::from_slice(data)?;
-    let mut files = Vec::new();
-    let mut entries = zip.entries();
-    while let Some(entry) = entries.next_entry()? {
-        if entry.is_dir() {
-            continue;
-        }
+#[derive(Debug, Default, Clone)]
+pub struct ReplayParser {
+    debug: bool,
+}
 
-        if entry.compression_method() != rawzip::CompressionMethod::Deflate {
-            continue;
-        }
-
-        files.push((entry.wayfinder(), entry.file_safe_path()?.into_owned()));
+impl ReplayParser {
+    pub fn new() -> Self {
+        ReplayParser::default()
     }
 
-    let mut games = Vec::new();
-    let mut turns = Vec::new();
-    let mut buf = Vec::new();
-
-    for (wayfinder, _) in files {
-        let entry = zip.get_entry(wayfinder)?;
-        let reader = flate2::bufread::DeflateDecoder::new(entry.data());
-        let reader = entry.verifying_reader(reader);
-        let mut reader = std::io::BufReader::new(reader);
-
-        let mut file_type = FileType::Game;
-        let mut file = 0;
-        loop {
-            let is_eof = reader.fill_buf().map(|buf| buf.is_empty())?;
-            if is_eof {
-                break;
-            }
-
-            let mut reader = flate2::bufread::GzDecoder::new(&mut reader);
-            buf.clear();
-
-            reader.read_to_end(&mut buf)?;
-
-            if file == 0 {
-                file_type = if buf.starts_with(b"p:") {
-                    FileType::Turn
-                } else {
-                    FileType::Game
-                }
-            }
-
-            match file_type {
-                FileType::Game => {
-                    let mut deser = phpserz::PhpDeserializer::new(&buf);
-                    let game: AwbwGame = AwbwGame::deserialize(&mut deser)?;
-                    games.push(game);
-                }
-                FileType::Turn => {
-                    let header = TurnHeader::from_slice(&buf).unwrap();
-                    let mut deser = phpserz::PhpDeserializer::new(header.data);
-                    let data: Vec<(u32, TurnElement)> = deserialize_vec_pair(&mut deser)?;
-                    let actions: Vec<Action> = data
-                        .into_iter()
-                        .find_map(|(_, element)| match element {
-                            TurnElement::Data(x) => Some(x),
-                            _ => None,
-                        })
-                        .into_iter()
-                        .flatten()
-                        .collect();
-                    turns.push(actions);
-                }
-            }
-
-            file += 1;
-        }
+    pub fn with_debug(mut self, debug: bool) -> Self {
+        self.debug = debug;
+        self
     }
 
-    Ok(AwbwReplay { games, turns })
+    pub fn parse(&self, data: &[u8]) -> Result<AwbwReplay, errors::ReplayError> {
+        let zip = rawzip::ZipArchive::from_slice(data)?;
+        let mut files = Vec::new();
+        let mut entries = zip.entries();
+        while let Some(entry) = entries.next_entry()? {
+            if entry.is_dir() {
+                continue;
+            }
+
+            if entry.compression_method() != rawzip::CompressionMethod::Deflate {
+                continue;
+            }
+
+            files.push((entry.wayfinder(), entry.file_safe_path()?.into_owned()));
+        }
+
+        let mut games = Vec::new();
+        let mut turns = Vec::new();
+        let mut buf = Vec::new();
+
+        for (wayfinder, _) in files {
+            let entry = zip.get_entry(wayfinder)?;
+            let reader = flate2::bufread::DeflateDecoder::new(entry.data());
+            let reader = entry.verifying_reader(reader);
+            let mut reader = std::io::BufReader::new(reader);
+
+            let mut file_type = FileType::Game;
+            let mut file = 0;
+            loop {
+                let is_eof = reader.fill_buf().map(|buf| buf.is_empty())?;
+                if is_eof {
+                    break;
+                }
+
+                let mut reader = flate2::bufread::GzDecoder::new(&mut reader);
+                buf.clear();
+
+                reader.read_to_end(&mut buf)?;
+
+                if file == 0 {
+                    file_type = if buf.starts_with(b"p:") {
+                        FileType::Turn
+                    } else {
+                        FileType::Game
+                    }
+                }
+
+                match file_type {
+                    FileType::Game => {
+                        let mut deser = phpserz::PhpDeserializer::new(&buf);
+                        let game = if self.debug {
+                            let mut track = serde_path_to_error::Track::new();
+                            let path_deser =
+                                serde_path_to_error::Deserializer::new(&mut deser, &mut track);
+                            match AwbwGame::deserialize(path_deser) {
+                                Ok(game) => game,
+                                Err(error) => {
+                                    return Err(ReplayError {
+                                        kind: ReplayErrorKind::DeserializeTrack {
+                                            error,
+                                            path: track.path(),
+                                        },
+                                    });
+                                }
+                            }
+                        } else {
+                            AwbwGame::deserialize(&mut deser)?
+                        };
+
+                        games.push(game);
+                    }
+                    FileType::Turn => {
+                        let header = TurnHeader::from_slice(&buf).unwrap();
+                        let mut deser = phpserz::PhpDeserializer::new(header.data);
+                        let turn = if self.debug {
+                            let mut track = serde_path_to_error::Track::new();
+                            let path_deser =
+                                serde_path_to_error::Deserializer::new(&mut deser, &mut track);
+                            let data: Result<Vec<(u32, TurnElement)>, _> =
+                                deserialize_vec_pair(path_deser);
+                            match data {
+                                Ok(data) => data,
+                                Err(error) => {
+                                    return Err(ReplayError {
+                                        kind: ReplayErrorKind::DeserializeTrack {
+                                            error,
+                                            path: track.path(),
+                                        },
+                                    });
+                                }
+                            }
+                        } else {
+                            let data: Vec<(u32, TurnElement)> = deserialize_vec_pair(&mut deser)?;
+                            data
+                        };
+
+                        let actions: Vec<Action> = turn
+                            .into_iter()
+                            .find_map(|(_, element)| match element {
+                                TurnElement::Data(x) => Some(x),
+                                _ => None,
+                            })
+                            .into_iter()
+                            .flatten()
+                            .collect();
+                        turns.push(actions);
+                    }
+                }
+
+                file += 1;
+            }
+        }
+
+        Ok(AwbwReplay { games, turns })
+    }
 }
 
 #[allow(dead_code)]
