@@ -38,6 +38,8 @@ dependencies = [
  "awbrn-core",
  "insta",
  "rstest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -619,7 +619,7 @@ mod tests {
         }
 
         let json = r#"{"values": {}}"#;
-        let result: TestEmpty = serde_json::from_str(&json).unwrap();
+        let result: TestEmpty = serde_json::from_str(json).unwrap();
 
         assert!(result.values.is_empty());
     }
@@ -674,11 +674,11 @@ mod tests {
 
         let json = r#"{"value": "Y"}"#;
         let result: TestBool = serde_json::from_str(json).unwrap();
-        assert_eq!(result.value, true);
+        assert!(result.value);
 
         let json = r#"{"value": "N"}"#;
         let result: TestBool = serde_json::from_str(json).unwrap();
-        assert_eq!(result.value, false);
+        assert!(!result.value);
 
         let json = r#"{"value": "invalid"}"#;
         let result: Result<TestBool, _> = serde_json::from_str(json);

@@ -3,6 +3,7 @@ use crate::{
     pathfinding::{MovementMap, PathFinder},
 };
 use awbrn_core::{MovementTerrain, Terrain};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Represents a game map with terrain data
@@ -24,7 +25,10 @@ impl AwbwMap {
         }
     }
 
-    pub fn parse(data: &str) -> Result<Self, MapError> {
+    /// Parses a Awbw text map
+    ///
+    /// Ref: https://awbw.amarriner.com/text_map.php?maps_id=162795
+    pub fn parse_txt(data: &str) -> Result<Self, MapError> {
         let mut result = Vec::new();
         let mut width = 0;
 
@@ -74,6 +78,48 @@ impl AwbwMap {
         Ok(AwbwMap {
             width,
             terrain: result,
+        })
+    }
+
+    /// Parses a Awbw JSON map
+    ///
+    /// Ref: https://awbw.amarriner.com/api/map/map_info.php?maps_id=162795
+    pub fn parse_json(data: &[u8]) -> Result<Self, MapError> {
+        let map_data =
+            serde_json::from_slice::<AwbwMapData>(data).map_err(|e| MapError::JsonDeserialize {
+                error: e.to_string(),
+            })?;
+
+        // Get dimensions from the column-major data
+        let column_count = map_data.terrain_map.len();
+        let row_count = map_data.terrain_map.first().map(|v| v.len()).unwrap_or(0);
+
+        // Check if all columns have the same height
+        for (idx, col) in map_data.terrain_map.iter().enumerate() {
+            if col.len() != row_count {
+                return Err(MapError::UnevenDimensions {
+                    expected: row_count,
+                    found: col.len(),
+                    row: idx,
+                });
+            }
+        }
+
+        if column_count == 0 || row_count == 0 {
+            return Err(MapError::EmptyMap);
+        }
+
+        // Transpose from column-major to row-major
+        let mut terrain = Vec::with_capacity(column_count * row_count);
+        for row_idx in 0..row_count {
+            for col_idx in 0..column_count {
+                terrain.push(map_data.terrain_map[col_idx][row_idx]);
+            }
+        }
+
+        Ok(AwbwMap {
+            width: column_count,
+            terrain,
         })
     }
 
@@ -152,6 +198,40 @@ impl fmt::Display for AwbwMap {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct AwbwMapData {
+    #[serde(rename = "Name")]
+    pub name: String,
+    #[serde(rename = "Author")]
+    pub author: String,
+    #[serde(rename = "Player Count")]
+    pub player_count: u32,
+    #[serde(rename = "Published Date")]
+    pub published_date: String,
+    #[serde(rename = "Size X")]
+    pub size_x: u32,
+    #[serde(rename = "Size Y")]
+    pub size_y: u32,
+    #[serde(rename = "Terrain Map")]
+    pub terrain_map: Vec<Vec<Terrain>>,
+    #[serde(rename = "Predeployed Units")]
+    pub predeployed_units: Vec<PredeployedUnit>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PredeployedUnit {
+    #[serde(rename = "Unit ID")]
+    pub unit_id: u32,
+    #[serde(rename = "Unit X")]
+    pub unit_x: u32,
+    #[serde(rename = "Unit Y")]
+    pub unit_y: u32,
+    #[serde(rename = "Unit HP")]
+    pub unit_hp: u32,
+    #[serde(rename = "Country Code")]
+    pub country_code: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,32 +239,32 @@ mod tests {
 
     #[test]
     fn test_parse_empty_input() {
-        let result = AwbwMap::parse("");
+        let result = AwbwMap::parse_txt("");
         assert!(matches!(result, Err(MapError::EmptyMap)));
     }
 
     #[test]
     fn test_parse_only_whitespace() {
-        let result = AwbwMap::parse("  \n  \t  ");
+        let result = AwbwMap::parse_txt("  \n  \t  ");
         assert!(matches!(result, Err(MapError::EmptyMap)));
     }
 
     #[test]
     fn test_parse_invalid_terrain_id_format() {
         // Test with non-numeric input
-        let result = AwbwMap::parse("1,2,3\n4,x,6");
+        let result = AwbwMap::parse_txt("1,2,3\n4,x,6");
         assert!(
             matches!(result, Err(MapError::ParseTerrainId { row: 1, col: 1, value }) if value == "x")
         );
 
         // Test with decimal number
-        let result = AwbwMap::parse("1,2,3\n4,5.5,6");
+        let result = AwbwMap::parse_txt("1,2,3\n4,5.5,6");
         assert!(
             matches!(result, Err(MapError::ParseTerrainId { row: 1, col: 1, value }) if value == "5.5")
         );
 
         // Test with negative number
-        let result = AwbwMap::parse("1,2,3\n4,-5,6");
+        let result = AwbwMap::parse_txt("1,2,3\n4,-5,6");
         assert!(
             matches!(result, Err(MapError::ParseTerrainId { row: 1, col: 1, value }) if value == "-5")
         );
@@ -193,7 +273,7 @@ mod tests {
     #[test]
     fn test_parse_invalid_terrain_id_value() {
         // Using terrain ID 255 which doesn't exist
-        let result = AwbwMap::parse("1,2,3\n4,255,6");
+        let result = AwbwMap::parse_txt("1,2,3\n4,255,6");
         assert!(matches!(
             result,
             Err(MapError::InvalidTerrain {
@@ -207,7 +287,7 @@ mod tests {
     #[test]
     fn test_parse_uneven_dimensions() {
         // Second row has 4 columns while first has 3
-        let result = AwbwMap::parse("1,2,3\n4,5,6,7");
+        let result = AwbwMap::parse_txt("1,2,3\n4,5,6,7");
         assert!(matches!(
             result,
             Err(MapError::UnevenDimensions {
@@ -218,7 +298,7 @@ mod tests {
         ));
 
         // Third row has 2 columns while first has 3
-        let result = AwbwMap::parse("1,2,3\n4,5,6\n7,8");
+        let result = AwbwMap::parse_txt("1,2,3\n4,5,6\n7,8");
         assert!(matches!(
             result,
             Err(MapError::UnevenDimensions {
@@ -232,7 +312,7 @@ mod tests {
     #[test]
     fn test_parse_with_empty_rows() {
         // Map with empty rows should skip them and parse successfully
-        let result = AwbwMap::parse("1,2,3\n\n4,5,6");
+        let result = AwbwMap::parse_txt("1,2,3\n\n4,5,6");
         assert!(result.is_ok());
 
         let map = result.unwrap();
@@ -243,7 +323,7 @@ mod tests {
     #[test]
     fn test_parse_with_whitespace() {
         // Test with whitespace around terrain IDs
-        let result = AwbwMap::parse(" 1, 2, 3 \n 4, 5, 6 ");
+        let result = AwbwMap::parse_txt(" 1, 2, 3 \n 4, 5, 6 ");
         assert!(result.is_ok());
 
         let map = result.unwrap();
@@ -255,7 +335,7 @@ mod tests {
     fn test_display_implementation() {
         // Create a small map with known terrain types
         let map_data = "1,2,3\n28,34,42"; // Plain, Mountain, Wood, Sea, Neutral City, Orange Star HQ
-        let map = AwbwMap::parse(map_data).unwrap();
+        let map = AwbwMap::parse_txt(map_data).unwrap();
 
         // Expected display output based on terrain symbols
         // Plain (.), Mountain (^), Wood (@)

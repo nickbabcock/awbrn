@@ -109,7 +109,7 @@ mod tests {
 
         // Load the 155801 map data
         let map_data = fs::read_to_string(map_path).unwrap();
-        let awbw_map = AwbwMap::parse(&map_data).unwrap();
+        let awbw_map = AwbwMap::parse_txt(&map_data).unwrap();
         let awbrn_map = AwbrnMap::from_map(&awbw_map);
 
         // Expected stubby mountain coordinates as a set of (x, y) tuples
