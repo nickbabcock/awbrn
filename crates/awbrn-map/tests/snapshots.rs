@@ -6,7 +6,7 @@ use insta::{assert_snapshot, glob};
 fn test_map_snapshots() {
     glob!("../../../assets/maps", "*.txt", |path| {
         let data = std::fs::read_to_string(path).unwrap();
-        let map = awbrn_map::AwbwMap::parse(&data[..]);
+        let map = awbrn_map::AwbwMap::parse_txt(&data[..]);
 
         let map = match map {
             Ok(x) => x,

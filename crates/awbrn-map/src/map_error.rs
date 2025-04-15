@@ -16,6 +16,10 @@ pub enum MapError {
         row: usize,
     },
     EmptyMap,
+    InvalidJson,
+    JsonDeserialize {
+        error: String,
+    },
 }
 
 impl std::fmt::Display for MapError {
@@ -41,6 +45,10 @@ impl std::fmt::Display for MapError {
                 row, expected, found
             ),
             MapError::EmptyMap => write!(f, "Map data is empty or contains no valid terrain"),
+            MapError::InvalidJson => write!(f, "Failed to parse JSON map data: invalid format"),
+            MapError::JsonDeserialize { error } => {
+                write!(f, "Failed to deserialize JSON map data: {}", error)
+            }
         }
     }
 }
