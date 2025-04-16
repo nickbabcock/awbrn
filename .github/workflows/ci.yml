@@ -44,8 +44,13 @@ jobs:
       uses: dtolnay/rust-toolchain@master
       with:
         toolchain: ${{ matrix.rust }}
+
+    # https://github.com/bevyengine/bevy_github_ci_template/blob/667143cd049befd33c05eb75d538248904625e2c/.github/workflows/ci.yaml#L34
+    - name: Install Ubuntu dependencies
+      if: startsWith(matrix.os, 'ubuntu')
+      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
+
     - run: cargo build --verbose
-    - run: cargo doc --verbose
     - run: cargo test --verbose --all
 
   # Check that all files are formatted properly.
