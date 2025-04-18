@@ -1,0 +1,31 @@
+[package]
+name = "awbrn-wasm"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bevy = { workspace = true, features = [
+    "bevy_asset",
+    "bevy_core_pipeline",
+    "bevy_log",
+    "bevy_render",
+    "bevy_sprite_picking_backend",
+    "bevy_sprite",
+    "bevy_state",
+    "bevy_window",
+    "png",
+    "std",
+    "webgpu",
+]}
+raw-window-handle.workspace = true
+serde-wasm-bindgen.workspace = true
+serde.workspace = true
+tsify-next.workspace = true
+wasm-bindgen.workspace = true
+web-sys.workspace = true
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

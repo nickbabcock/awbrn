@@ -52,6 +52,7 @@ jobs:
 
     - run: cargo build --verbose
     - run: cargo test --verbose --all
+    - run: cargo build -p awbrn-desktop
 
   # Check that all files are formatted properly.
   rustfmt:
@@ -80,3 +81,30 @@ jobs:
     - name: Build benchmark
       run: |
         cargo bench --manifest-path crates/awbrn-map/bench/Cargo.toml -- --test
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: stable
+        targets: wasm32-unknown-unknown
+    - name: Install wasm-pack
+      run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+    - name: Build WASM package
+      run: wasm-pack build crates/awbrn-wasm --target web
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: web/package.json
+    - name: Install web dependencies
+      working-directory: web
+      run: npm ci
+    - name: Build web project
+      working-directory: web
+      run: npm run build
