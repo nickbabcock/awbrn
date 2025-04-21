@@ -9,18 +9,18 @@ cd "$DIR"
 TEXTURES_DIR="${TEXTURES_DIR:-.}"
 
 montage -tile 64x -mode concatenate -gravity southeast -geometry '16x32>' -background transparent $(cat \
-   <(find "$TEXTURES_DIR/Map/AW2" -maxdepth 1 -type f -not -name "*_Snow*" -not -name "*_Rain*" | sort) \
+   <(find "$TEXTURES_DIR/Map/AW2" -maxdepth 1 -type f -not -name "*_Snow*" -not -name "*_Rain*" | sort -V) \
    <(echo "stubby.png") \
-   <(find "$TEXTURES_DIR/Map/AW2" -mindepth 2 -type f -not -name "*_Snow*" -not -name "*_Rain*" | sort) \
-   <(find "$TEXTURES_DIR/Map/AW2" -maxdepth 1 -type f -name "*_Snow*" | sort) \
+   <(find "$TEXTURES_DIR/Map/AW2" -mindepth 2 -type f -not -name "*_Snow*" -not -name "*_Rain*" | sort -V) \
+   <(find "$TEXTURES_DIR/Map/AW2" -maxdepth 1 -type f -name "*_Snow*" | sort -V) \
    <(echo "stubby-snow.png") \
-   <(find "$TEXTURES_DIR/Map/AW2" -mindepth 2 -type f -name "*_Snow*" | sort) \
-   <(find "$TEXTURES_DIR/Map/AW2" -maxdepth 1 -type f -name "*_Rain*" | sort) \
-   <(find "$TEXTURES_DIR/Map/AW2" -mindepth 2 -type f -name "*_Rain*" | sort)
+   <(find "$TEXTURES_DIR/Map/AW2" -mindepth 2 -type f -name "*_Snow*" | sort -V) \
+   <(find "$TEXTURES_DIR/Map/AW2" -maxdepth 1 -type f -name "*_Rain*" | sort -V) \
+   <(find "$TEXTURES_DIR/Map/AW2" -mindepth 2 -type f -name "*_Rain*" | sort -V)
 ) tiles.png
 
 montage -tile 64x -mode concatenate -gravity southeast -geometry '23x24>' -background transparent \
-    $(find "$TEXTURES_DIR/Units" -type f | sort) units.png
+    $(find "$TEXTURES_DIR/Units" -type f | sort -V) units.png
 
 # Optimize PNG files if optipng is available
 if command -v optipng &> /dev/null; then
