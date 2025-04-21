@@ -4,4 +4,18 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bevy.workspace = true
+bevy = { workspace = true, features = [
+    "bevy_asset",
+    "bevy_core_pipeline",
+    "bevy_log",
+    "bevy_render",
+    "bevy_sprite_picking_backend",
+    "bevy_sprite",
+    "bevy_state",
+    "bevy_window",
+    "bevy_winit",
+    "png",
+    "std",
+    "x11",
+]}
+

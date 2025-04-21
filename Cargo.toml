@@ -3,17 +3,22 @@ resolver = "3"
 members = [ "crates/*" ]
 
 [workspace.dependencies]
-bevy = "0.15.3"
+bevy = { version = "0.16.0-rc.5", default-features = false }
 flate2 = { version = "1.1.1", default-features = false, features = ["zlib-rs"] }
 highway = "1.3.0"
 indexmap = { version = "2.9.0", features = ["serde"] }
 insta = { version = "1.42.2", features = ["glob", "serde", "json"] }
 phpserz = "0.2"
+raw-window-handle = { version = "0.6.2", features = ["wasm-bindgen-0-2"] }
 rawzip = "0.1"
 rstest = "0.25.0"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 serde_path_to_error = "0.1.15"
+serde-wasm-bindgen = "0.6.5"
+tsify-next = { version =  "0.5.4", default-features = false, features = ["js"] }
+wasm-bindgen = "0.2.100"
+web-sys = { version = "0.3.77", features = ["OffscreenCanvas"] }
 
 # https://bevyengine.org/learn/quick-start/getting-started/setup/#compile-with-performance-optimizations
 # Enable a small amount of optimization in the dev profile.
