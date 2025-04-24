@@ -20,7 +20,7 @@ montage -tile 64x -mode concatenate -gravity southeast -geometry '16x32>' -backg
 ) tiles.png
 
 montage -tile 64x -mode concatenate -gravity southeast -geometry '23x24>' -background transparent \
-    $(find "$TEXTURES_DIR/Units" -type f | sort -V) units.png
+    $(find "$TEXTURES_DIR/Units" -type f | sort --ignore-case -V) units.png
 
 # Optimize PNG files if optipng is available
 if command -v optipng &> /dev/null; then
