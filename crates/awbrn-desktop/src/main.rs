@@ -1,8 +1,10 @@
+#![allow(dead_code)]
 use awbrn_core::{GraphicalTerrain, Terrain, Weather};
 use awbrn_map::{AwbrnMap, AwbwMap, Position};
 use bevy::prelude::*;
 use std::fs;
 use std::path::Path;
+use std::time::Duration;
 
 // Resource to track camera scale
 #[derive(Resource)]
@@ -10,9 +12,12 @@ struct CameraScale(f32);
 
 impl Default for CameraScale {
     fn default() -> Self {
-        CameraScale(1.0)
+        CameraScale(1.0) // Default to 1x zoom
     }
 }
+
+// Available zoom levels
+const ZOOM_LEVELS: [f32; 3] = [1.0, 1.5, 2.0];
 
 // Resource to track current weather
 #[derive(Resource)]
@@ -21,6 +26,18 @@ struct CurrentWeather(Weather);
 impl Default for CurrentWeather {
     fn default() -> Self {
         CurrentWeather(Weather::Clear)
+    }
+}
+
+// Add a resource to store the loaded map
+#[derive(Resource)]
+struct GameMap(AwbrnMap);
+
+impl Default for GameMap {
+    fn default() -> Self {
+        // This default is just a placeholder, it won't be used
+        let default_terrain = GraphicalTerrain::Terrain(Terrain::Plain);
+        GameMap(AwbrnMap::new(1, 1, default_terrain))
     }
 }
 
@@ -35,6 +52,141 @@ struct TerrainTile {
 #[derive(Component)]
 struct SelectedTile;
 
+// Components for animation
+#[derive(Component)]
+struct Animation {
+    frames: Vec<usize>,
+    frame_time: Duration,
+    timer: Timer,
+    current_frame: usize,
+}
+
+#[derive(Component)]
+struct AnimatedUnit;
+
+// Grid position abstraction to handle positioning on 16x16 grid
+struct GridPosition {
+    // Position on the grid
+    x: usize,
+    y: usize,
+    // Underlying entity dimensions
+    width: f32,
+    height: f32,
+    // Z-index for rendering order
+    z_index: f32,
+    // Alignment within the grid cell
+    h_align: HorizontalAlign,
+    v_align: VerticalAlign,
+}
+
+// Horizontal alignment options
+enum HorizontalAlign {
+    Left,
+    Center,
+    Right,
+}
+
+// Vertical alignment options
+enum VerticalAlign {
+    Top,
+    Center,
+    Bottom,
+}
+
+// Grid system to handle conversions between grid and world coordinates
+struct GridSystem {
+    // Tile size in pixels
+    tile_size: f32,
+    // Map dimensions
+    map_width: f32,
+    map_height: f32,
+    // Map origin (center of the map in world coordinates)
+    origin_x: f32,
+    origin_y: f32,
+}
+
+impl GridSystem {
+    // Create a new grid system with the given map dimensions
+    fn new(map_width: usize, map_height: usize) -> Self {
+        let tile_size = 16.0;
+        let width_f32 = map_width as f32;
+        let height_f32 = map_height as f32;
+
+        // Calculate map origin - this is where (0,0) would be in world coordinates
+        let origin_x = -width_f32 * tile_size / 2.0 + tile_size / 2.0;
+
+        // For the y-axis origin, we need to work with a strict 16x16 grid
+        let origin_y = height_f32 * tile_size / 2.0 - tile_size / 2.0;
+
+        Self {
+            tile_size,
+            map_width: width_f32,
+            map_height: height_f32,
+            origin_x,
+            origin_y,
+        }
+    }
+
+    // Calculate world position from grid position
+    fn grid_to_world(&self, grid_pos: &GridPosition) -> Vec3 {
+        // Base tile position (top-left corner in world coordinates)
+        let tile_x = self.origin_x + grid_pos.x as f32 * self.tile_size;
+        let tile_y = self.origin_y - grid_pos.y as f32 * self.tile_size;
+
+        // Apply horizontal alignment within the tile
+        let x_align_offset = match grid_pos.h_align {
+            HorizontalAlign::Left => 0.0,
+            HorizontalAlign::Center => (self.tile_size - grid_pos.width) / 2.0,
+            HorizontalAlign::Right => self.tile_size - grid_pos.width,
+        };
+
+        // Apply vertical alignment - using strict 16x16 grid
+        let y_align_offset = match grid_pos.v_align {
+            VerticalAlign::Top => 0.0,
+            VerticalAlign::Center => (self.tile_size - grid_pos.height) / 2.0,
+            VerticalAlign::Bottom => self.tile_size - grid_pos.height,
+        };
+
+        // Final world position
+        Vec3::new(
+            tile_x + x_align_offset,
+            tile_y + y_align_offset,
+            grid_pos.z_index,
+        )
+    }
+
+    // Create a grid position for a terrain tile
+    fn terrain_position(&self, x: usize, y: usize) -> GridPosition {
+        GridPosition {
+            x,
+            y,
+            width: 16.0,
+            height: 32.0, // Terrain tiles are 16x32 visually
+            z_index: 0.0,
+            h_align: HorizontalAlign::Left, // Left edge aligns with left edge of grid cell
+            v_align: VerticalAlign::Top,    // Top edge aligns with top edge of grid cell
+        }
+    }
+
+    // Create a grid position for a unit with southeast gravity
+    fn unit_position(&self, x: usize, y: usize) -> GridPosition {
+        let unit_width = 23.0;
+        let unit_height = 24.0;
+
+        // Units with southeast gravity need to align their bottom-right corner
+        // to the bottom-right of the 16x16 grid cell
+        GridPosition {
+            x,
+            y,
+            width: unit_width,
+            height: unit_height,
+            z_index: 1.0,                    // Units above terrain
+            h_align: HorizontalAlign::Right, // Right edge aligns with right edge of grid cell
+            v_align: VerticalAlign::Bottom,  // Bottom edge aligns with bottom edge of grid cell
+        }
+    }
+}
+
 fn main() {
     App::new()
         .add_plugins(
@@ -47,7 +199,8 @@ fn main() {
         )
         .init_resource::<CameraScale>()
         .init_resource::<CurrentWeather>()
-        .add_systems(Startup, (setup_camera, setup_map))
+        .init_resource::<GameMap>()
+        .add_systems(Startup, (setup_camera, setup_map, spawn_animated_unit))
         .add_systems(
             Update,
             (
@@ -55,13 +208,17 @@ fn main() {
                 handle_weather_toggle,
                 update_sprites_on_weather_change,
                 handle_tile_clicks,
+                animate_units,
             ),
         )
         .run();
 }
 
-fn setup_camera(mut commands: Commands) {
-    commands.spawn(Camera2d);
+fn setup_camera(mut commands: Commands, camera_scale: Res<CameraScale>) {
+    commands.spawn((
+        Camera2d,
+        Transform::from_scale(Vec3::splat(1.0 / camera_scale.0)),
+    ));
 }
 
 fn handle_camera_scaling(
@@ -69,21 +226,45 @@ fn handle_camera_scaling(
     mut camera_scale: ResMut<CameraScale>,
     mut query: Query<&mut Transform, With<Camera>>,
 ) {
-    let scale_delta = if keyboard_input.pressed(KeyCode::Equal) {
-        0.05 // Scale up when plus is pressed
-    } else if keyboard_input.pressed(KeyCode::Minus) {
-        -0.05 // Scale down when minus is pressed
+    // Check if we should change zoom level
+    let zoom_change = if keyboard_input.just_pressed(KeyCode::Equal) {
+        // Zoom in (move to next higher zoom level)
+        1
+    } else if keyboard_input.just_pressed(KeyCode::Minus) {
+        // Zoom out (move to next lower zoom level)
+        -1
     } else {
-        0.0 // No change
+        0 // No change
     };
 
-    if scale_delta != 0.0 {
+    if zoom_change != 0 {
+        // Find current zoom level index
+        let current_zoom = camera_scale.0;
+        let mut current_index = ZOOM_LEVELS
+            .iter()
+            .position(|&z| (z - current_zoom).abs() < 0.01)
+            .unwrap_or(0);
+
+        // Move to next/previous zoom level
+        if zoom_change > 0 {
+            // Zoom in - move to next higher zoom level
+            current_index = (current_index + 1).min(ZOOM_LEVELS.len() - 1);
+        } else {
+            // Zoom out - move to next lower zoom level
+            current_index = current_index.saturating_sub(1);
+        }
+
+        // Get the new zoom level
+        let new_zoom = ZOOM_LEVELS[current_index];
+
         // Update the camera scale resource
-        camera_scale.0 = (camera_scale.0 + scale_delta).clamp(0.2, 3.0);
+        camera_scale.0 = new_zoom;
+
+        info!("Camera zoom level changed to {:.1}x", new_zoom);
 
         // Apply the scale to the camera transform
         if let Ok(mut transform) = query.single_mut() {
-            transform.scale = Vec3::splat(1.0 / camera_scale.0);
+            transform.scale = Vec3::splat(1.0 / new_zoom);
         }
     }
 }
@@ -188,11 +369,30 @@ fn handle_tile_clicks(
     }
 }
 
+fn animate_units(time: Res<Time>, mut query: Query<(&mut Animation, &mut Sprite)>) {
+    for (mut animation, mut sprite) in query.iter_mut() {
+        // Update the timer
+        animation.timer.tick(time.delta());
+
+        // Check if we need to advance to the next frame
+        if animation.timer.just_finished() {
+            // Move to next frame
+            animation.current_frame = (animation.current_frame + 1) % animation.frames.len();
+
+            // Update the sprite's texture atlas index
+            if let Some(atlas) = &mut sprite.texture_atlas {
+                atlas.index = animation.frames[animation.current_frame];
+            }
+        }
+    }
+}
+
 fn setup_map(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
     current_weather: Res<CurrentWeather>,
+    mut game_map: ResMut<GameMap>,
 ) {
     // Get the workspace directory and asset paths
     let workspace_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -223,28 +423,30 @@ fn setup_map(
     // Log map info
     info!("Loaded map: {}x{}", awbrn_map.width(), awbrn_map.height());
 
+    // Store the map in the resource
+    game_map.0 = awbrn_map.clone();
+
     // Load the tileset
     let texture = asset_server.load("textures/tiles.png");
     let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 32), 64, 27, None, None);
     let texture_atlas_layout = texture_atlas_layouts.add(layout);
 
-    // Calculate grid display parameters
-    let tile_size = 16.0; // Assuming 16x16 tiles
-    let width = awbrn_map.width() as f32;
-    let height = awbrn_map.height() as f32;
-    let offset_x = -width * tile_size / 2.0 + tile_size / 2.0;
-    let offset_y = height * 32.0 / 2.0 - 32.0 / 2.0;
+    // Create a grid system for positioning
+    let grid = GridSystem::new(awbrn_map.width(), awbrn_map.height());
 
     // Spawn sprites for each map tile
     for y in 0..awbrn_map.height() {
         for x in 0..awbrn_map.width() {
-            let pos_x = offset_x + x as f32 * tile_size;
-            let pos_y = offset_y - y as f32 * tile_size;
-
             let position = Position::new(x, y);
             if let Some(terrain) = awbrn_map.terrain_at(position) {
                 // Calculate sprite index for this terrain
                 let sprite_index = awbrn_core::spritesheet_index(current_weather.0, terrain);
+
+                // Create a grid position for this terrain tile
+                let grid_pos = grid.terrain_position(x, y);
+
+                // Convert to world position
+                let world_pos = grid.grid_to_world(&grid_pos);
 
                 // Spawn terrain sprite with position information
                 commands.spawn((
@@ -255,7 +457,7 @@ fn setup_map(
                             index: sprite_index.index() as usize,
                         },
                     ),
-                    Transform::from_xyz(pos_x, pos_y, 0.0),
+                    Transform::from_xyz(world_pos.x, world_pos.y, world_pos.z),
                     TerrainTile {
                         terrain,
                         position: Position::new(x, y),
@@ -264,4 +466,78 @@ fn setup_map(
             }
         }
     }
+}
+
+fn spawn_animated_unit(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+    game_map: Res<GameMap>,
+) {
+    // Load the units texture
+    let texture = asset_server.load("textures/units.png");
+
+    // Create the texture atlas layout for units
+    // The sprites are 23x24 with 86 rows and 64 columns
+    let layout = TextureAtlasLayout::from_grid(UVec2::new(23, 24), 64, 86, None, None);
+    let texture_atlas_layout = texture_atlas_layouts.add(layout);
+
+    // Calculate the indices for the 4-frame animation
+    let row = 1;
+    let col = 54;
+    let frames_count = 4;
+
+    let frames = Vec::with_capacity(frames_count);
+    let mut frames = frames; // Avoid the 'move' issue
+
+    for i in 0..frames_count {
+        // Calculate the index in the texture atlas
+        let frame_index = row * 64 + (col + i);
+        frames.push(frame_index);
+    }
+
+    // Unit dimensions
+
+    // Define the grid position for the unit
+    let x = 13;
+    let y = 9;
+
+    // Create a grid system
+    let grid = GridSystem::new(game_map.0.width(), game_map.0.height());
+
+    // Create a grid position for the unit (with southeast gravity)
+    let grid_pos = grid.unit_position(x, y);
+
+    // Convert to world position
+    let world_pos = grid.grid_to_world(&grid_pos);
+
+    info!(
+        "Spawning unit at grid position ({}, {}), world pos: {:?}",
+        x, y, world_pos
+    );
+
+    // Create the animation component
+    let animation = Animation {
+        frames: frames.clone(),
+        frame_time: Duration::from_millis(500 / frames_count as u64),
+        timer: Timer::new(
+            Duration::from_millis(500 / frames_count as u64),
+            TimerMode::Repeating,
+        ),
+        current_frame: 0,
+    };
+
+    // Spawn the animated unit
+    commands.spawn((
+        Sprite::from_atlas_image(
+            texture,
+            TextureAtlas {
+                layout: texture_atlas_layout,
+                index: frames[0],
+            },
+        ),
+        Transform::from_xyz(world_pos.x, world_pos.y, world_pos.z),
+        animation,
+        AnimatedUnit,
+    ));
 }
