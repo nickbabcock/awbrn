@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+awbrn-core = { path = "../awbrn-core" }
+awbrn-map = { path = "../awbrn-map" }
 bevy = { workspace = true, features = [
     "bevy_asset",
     "bevy_core_pipeline",

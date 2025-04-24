@@ -278,7 +278,7 @@ impl Terrain {
             GameplayTerrain::Shoal => 0,
             GameplayTerrain::Reef => 1,
             GameplayTerrain::Property(property_category) => match property_category {
-                PropertyCategory::HQ(_) => 4,
+                Property::HQ(_) => 4,
                 _ => 3,
             },
             GameplayTerrain::Pipe => 1,
@@ -301,7 +301,7 @@ impl Terrain {
     pub fn is_sea(&self) -> bool {
         matches!(
             self.gameplay_type(),
-            GameplayTerrain::Sea | GameplayTerrain::Property(PropertyCategory::Port(_))
+            GameplayTerrain::Sea | GameplayTerrain::Property(Property::Port(_))
         )
     }
 
@@ -323,13 +323,13 @@ impl Terrain {
             Terrain::Shoal(_) => GameplayTerrain::Shoal,
             Terrain::Reef => GameplayTerrain::Reef,
             Terrain::Property(property) => GameplayTerrain::Property(match property {
-                Property::City(faction) => PropertyCategory::City(*faction),
-                Property::Base(faction) => PropertyCategory::Base(*faction),
-                Property::Airport(faction) => PropertyCategory::Airport(*faction),
-                Property::Port(faction) => PropertyCategory::Port(*faction),
-                Property::HQ(faction) => PropertyCategory::HQ(*faction),
-                Property::ComTower(faction) => PropertyCategory::ComTower(*faction),
-                Property::Lab(faction) => PropertyCategory::Lab(*faction),
+                Property::City(faction) => Property::City(*faction),
+                Property::Base(faction) => Property::Base(*faction),
+                Property::Airport(faction) => Property::Airport(*faction),
+                Property::Port(faction) => Property::Port(*faction),
+                Property::HQ(faction) => Property::HQ(*faction),
+                Property::ComTower(faction) => Property::ComTower(*faction),
+                Property::Lab(faction) => Property::Lab(*faction),
             }),
             Terrain::Pipe(_) => GameplayTerrain::Pipe,
             Terrain::PipeSeam(_) => GameplayTerrain::PipeSeam,
@@ -463,6 +463,30 @@ pub enum Property {
 }
 
 impl Property {
+    pub const fn faction(&self) -> Faction {
+        match self {
+            Property::City(faction) => *faction,
+            Property::Base(faction) => *faction,
+            Property::Airport(faction) => *faction,
+            Property::Port(faction) => *faction,
+            Property::ComTower(faction) => *faction,
+            Property::Lab(faction) => *faction,
+            Property::HQ(faction) => Faction::Player(*faction),
+        }
+    }
+
+    pub const fn kind(&self) -> PropertyKind {
+        match self {
+            Property::Airport(_) => PropertyKind::Airport,
+            Property::Base(_) => PropertyKind::Base,
+            Property::City(_) => PropertyKind::City,
+            Property::ComTower(_) => PropertyKind::ComTower,
+            Property::HQ(_) => PropertyKind::HQ,
+            Property::Lab(_) => PropertyKind::Lab,
+            Property::Port(_) => PropertyKind::Port,
+        }
+    }
+
     /// Get the name of this property type
     pub const fn name(&self) -> &'static str {
         match self {
@@ -624,27 +648,54 @@ impl Property {
     }
 }
 
+/// Property types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PropertyKind {
+    Airport,
+    Base,
+    City,
+    ComTower,
+    HQ,
+    Lab,
+    Port,
+}
+
+impl PropertyKind {
+    /// Get the previous property kind in the order of the property types
+    pub const fn prev(&self) -> PropertyKind {
+        match self {
+            PropertyKind::Airport => PropertyKind::Port,
+            PropertyKind::Base => PropertyKind::Airport,
+            PropertyKind::City => PropertyKind::Base,
+            PropertyKind::ComTower => PropertyKind::City,
+            PropertyKind::HQ => PropertyKind::ComTower,
+            PropertyKind::Lab => PropertyKind::HQ,
+            PropertyKind::Port => PropertyKind::Lab,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PlayerFaction {
-    OrangeStar,
-    BlueMoon,
-    GreenEarth,
-    YellowComet,
-    BlackHole,
-    RedFire,
-    GreySky,
-    BrownDesert,
-    AmberBlaze,
-    JadeSun,
-    CobaltIce,
-    PinkCosmos,
-    TealGalaxy,
-    PurpleLightning,
     AcidRain,
-    WhiteNova,
+    AmberBlaze,
     AzureAsteroid,
+    BlackHole,
+    BlueMoon,
+    BrownDesert,
+    CobaltIce,
+    GreenEarth,
+    GreySky,
+    JadeSun,
     NoirEclipse,
+    OrangeStar,
+    PinkCosmos,
+    PurpleLightning,
+    RedFire,
     SilverClaw,
+    TealGalaxy,
+    WhiteNova,
+    YellowComet,
 }
 
 impl PlayerFaction {
@@ -670,6 +721,32 @@ impl PlayerFaction {
             PlayerFaction::AzureAsteroid => "Azure Asteroid",
             PlayerFaction::NoirEclipse => "Noir Eclipse",
             PlayerFaction::SilverClaw => "Silver Claw",
+        }
+    }
+
+    /// Get the previous player faction alphabetically
+    #[inline]
+    pub const fn prev(&self) -> PlayerFaction {
+        match self {
+            PlayerFaction::AcidRain => PlayerFaction::YellowComet,
+            PlayerFaction::AmberBlaze => PlayerFaction::AcidRain,
+            PlayerFaction::AzureAsteroid => PlayerFaction::AmberBlaze,
+            PlayerFaction::BlackHole => PlayerFaction::AzureAsteroid,
+            PlayerFaction::BlueMoon => PlayerFaction::BlackHole,
+            PlayerFaction::BrownDesert => PlayerFaction::BlueMoon,
+            PlayerFaction::CobaltIce => PlayerFaction::BrownDesert,
+            PlayerFaction::GreenEarth => PlayerFaction::CobaltIce,
+            PlayerFaction::GreySky => PlayerFaction::GreenEarth,
+            PlayerFaction::JadeSun => PlayerFaction::GreySky,
+            PlayerFaction::NoirEclipse => PlayerFaction::JadeSun,
+            PlayerFaction::OrangeStar => PlayerFaction::NoirEclipse,
+            PlayerFaction::PinkCosmos => PlayerFaction::OrangeStar,
+            PlayerFaction::PurpleLightning => PlayerFaction::PinkCosmos,
+            PlayerFaction::RedFire => PlayerFaction::PurpleLightning,
+            PlayerFaction::SilverClaw => PlayerFaction::RedFire,
+            PlayerFaction::TealGalaxy => PlayerFaction::SilverClaw,
+            PlayerFaction::WhiteNova => PlayerFaction::TealGalaxy,
+            PlayerFaction::YellowComet => PlayerFaction::WhiteNova,
         }
     }
 }
@@ -715,26 +792,12 @@ pub enum GameplayTerrain {
     Sea,
     Shoal,
     Reef,
-    Property(PropertyCategory),
+    Property(Property),
     Pipe,
     PipeSeam,
     PipeRubble,
     MissileSilo(MissileSiloStatus),
     Teleporter,
-}
-
-/// PropertyCategory abstracts properties by their gameplay function
-/// and preserves ownership information and domain constraints
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PropertyCategory {
-    City(Faction),
-    Base(Faction),
-    Airport(Faction),
-    Port(Faction),
-    ComTower(Faction),
-    Lab(Faction),
-    // HQ can never be neutral - we enforce this with PlayerFaction
-    HQ(PlayerFaction),
 }
 
 impl TerrainId {
@@ -1845,12 +1908,12 @@ mod tests {
         // Test that gameplay type preserves property categories
         assert_eq!(
             Terrain::Property(Property::City(Faction::Neutral)).gameplay_type(),
-            GameplayTerrain::Property(PropertyCategory::City(Faction::Neutral))
+            GameplayTerrain::Property(Property::City(Faction::Neutral))
         );
 
         assert_eq!(
             Terrain::Property(Property::HQ(PlayerFaction::OrangeStar)).gameplay_type(),
-            GameplayTerrain::Property(PropertyCategory::HQ(PlayerFaction::OrangeStar))
+            GameplayTerrain::Property(Property::HQ(PlayerFaction::OrangeStar))
         );
 
         // Test that MissileSiloStatus is preserved

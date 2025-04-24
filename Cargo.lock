@@ -262,6 +262,8 @@ checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 name = "awbrn-core"
 version = "0.1.0"
 dependencies = [
+ "insta",
+ "rstest",
  "serde",
  "serde_json",
 ]
@@ -270,6 +272,8 @@ dependencies = [
 name = "awbrn-desktop"
 version = "0.1.0"
 dependencies = [
+ "awbrn-core",
+ "awbrn-map",
  "bevy",
 ]
 
