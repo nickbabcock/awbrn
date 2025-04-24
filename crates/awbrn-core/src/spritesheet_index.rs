@@ -117,7 +117,11 @@ pub const fn spritesheet_index(weather: Weather, terrain: GraphicalTerrain) -> S
                 },
                 Property::Airport(Faction::Player(PlayerFaction::NoirEclipse)) => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::PipeSeam(PipeSeamType::Vertical))).following(3),
                 Property::Airport(Faction::Player(PlayerFaction::PurpleLightning)) => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::Pipe(PipeType::WN))).following(3),
-                Property::Airport(Faction::Player(PlayerFaction::SilverClaw)) => SpritesheetIndex::new(567, 3),
+                Property::Airport(Faction::Player(PlayerFaction::SilverClaw)) => match weather {
+                    Weather::Clear => SpritesheetIndex::new(567, 3),
+                    Weather::Rain => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::Road(RoadType::WN))).following(3),
+                    Weather::Snow => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::Road(RoadType::WN))).following(3),
+                },
                 Property::Base(Faction::Player(faction @ PlayerFaction::PinkCosmos)) => spritesheet_index(weather, faction.owns(property.kind().prev())).following(4),
                 Property::HQ(faction @ PlayerFaction::CobaltIce) => spritesheet_index(weather, faction.owns(property.kind().prev())).following(22),
                 Property::HQ(faction @ PlayerFaction::RedFire) => spritesheet_index(weather, faction.owns(property.kind().prev())).following(12),
@@ -152,18 +156,30 @@ pub const fn spritesheet_index(weather: Weather, terrain: GraphicalTerrain) -> S
                 PipeType::WestEnd => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::Pipe(PipeType::Vertical))).following(1),
                 PipeType::WN => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::Pipe(PipeType::WestEnd))).following(1),
             },
-            Terrain::MissileSilo(missile_silo_status) => match missile_silo_status {
-                MissileSiloStatus::Loaded => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::Property(Property::Port(Faction::Neutral)))).following(1),
-                MissileSiloStatus::Unloaded => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::MissileSilo(MissileSiloStatus::Loaded))).following(1),
+            Terrain::MissileSilo(missile_silo_status) => match weather {
+                Weather::Clear =>  match missile_silo_status {
+                    MissileSiloStatus::Loaded => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::Property(Property::Port(Faction::Neutral)))).following(1),
+                    MissileSiloStatus::Unloaded => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::MissileSilo(MissileSiloStatus::Loaded))).following(1),
+                },
+                Weather::Rain | Weather::Snow =>  match missile_silo_status {
+                    MissileSiloStatus::Loaded => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::MissileSilo(MissileSiloStatus::Unloaded))).following(1),
+                    MissileSiloStatus::Unloaded => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::Property(Property::Port(Faction::Neutral)))).following(1),
+                },
             },
             Terrain::PipeSeam(pipe_seam_type) => match pipe_seam_type {
                 PipeSeamType::Horizontal => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::PipeRubble(PipeRubbleType::Horizontal))).following(1),
                 PipeSeamType::Vertical => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::PipeRubble(PipeRubbleType::Vertical))).following(1),
             },
-            Terrain::PipeRubble(pipe_rubble_type) => match pipe_rubble_type {
-                PipeRubbleType::Horizontal => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::Property(Property::ComTower(Faction::Neutral)))).following(1),
-                PipeRubbleType::Vertical => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::MissileSilo(MissileSiloStatus::Unloaded))).following(1),
-            },
+            Terrain::PipeRubble(pipe_rubble_type) => match weather {
+                Weather::Clear => match pipe_rubble_type {
+                    PipeRubbleType::Horizontal => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::Property(Property::ComTower(Faction::Neutral)))).following(1),
+                    PipeRubbleType::Vertical => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::MissileSilo(MissileSiloStatus::Unloaded))).following(1),
+                },
+                Weather::Rain | Weather::Snow => match pipe_rubble_type {
+                    PipeRubbleType::Horizontal => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::Property(Property::ComTower(Faction::Neutral)))).following(1),
+                    PipeRubbleType::Vertical => spritesheet_index(weather, GraphicalTerrain::Terrain(Terrain::MissileSilo(MissileSiloStatus::Loaded))).following(1),
+                },
+            } ,
             Terrain::Teleporter => {
                 SpritesheetIndex::single_frame(4)
             }

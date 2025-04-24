@@ -14,6 +14,27 @@ impl Default for CameraScale {
     }
 }
 
+// Resource to track current weather
+#[derive(Resource)]
+struct CurrentWeather(Weather);
+
+impl Default for CurrentWeather {
+    fn default() -> Self {
+        CurrentWeather(Weather::Clear)
+    }
+}
+
+// Component to store terrain data for each tile
+#[derive(Component)]
+struct TerrainTile {
+    terrain: GraphicalTerrain,
+    position: Position,
+}
+
+// Component to mark the currently selected tile
+#[derive(Component)]
+struct SelectedTile;
+
 fn main() {
     App::new()
         .add_plugins(
@@ -25,8 +46,17 @@ fn main() {
                 }),
         )
         .init_resource::<CameraScale>()
+        .init_resource::<CurrentWeather>()
         .add_systems(Startup, (setup_camera, setup_map))
-        .add_systems(Update, handle_camera_scaling)
+        .add_systems(
+            Update,
+            (
+                handle_camera_scaling,
+                handle_weather_toggle,
+                update_sprites_on_weather_change,
+                handle_tile_clicks,
+            ),
+        )
         .run();
 }
 
@@ -58,10 +88,111 @@ fn handle_camera_scaling(
     }
 }
 
+fn handle_weather_toggle(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut current_weather: ResMut<CurrentWeather>,
+) {
+    if keyboard_input.just_pressed(KeyCode::Space) {
+        // Toggle between Clear and Snow weather
+        current_weather.0 = match current_weather.0 {
+            Weather::Clear => Weather::Snow,
+            Weather::Snow => Weather::Rain,
+            Weather::Rain => Weather::Clear,
+        };
+        info!("Weather changed to: {:?}", current_weather.0);
+    }
+}
+
+fn update_sprites_on_weather_change(
+    current_weather: Res<CurrentWeather>,
+    mut query: Query<(&mut Sprite, &TerrainTile)>,
+) {
+    if current_weather.is_changed() {
+        for (mut sprite, terrain_tile) in query.iter_mut() {
+            let sprite_index =
+                awbrn_core::spritesheet_index(current_weather.0, terrain_tile.terrain);
+            if let Some(atlas) = &mut sprite.texture_atlas {
+                atlas.index = sprite_index.index() as usize;
+            }
+        }
+    }
+}
+
+// Handling sprite picking using direct mouse input
+fn handle_tile_clicks(
+    mouse_button_input: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window>,
+    camera_q: Query<(&Camera, &GlobalTransform)>,
+    tiles: Query<(Entity, &Transform, &TerrainTile)>,
+    mut commands: Commands,
+    selected: Query<Entity, With<SelectedTile>>,
+) {
+    // Only process on mouse click
+    if !mouse_button_input.just_pressed(MouseButton::Left) {
+        return;
+    }
+
+    // Get the primary window
+    let Ok(window) = windows.single() else {
+        return;
+    };
+
+    // Get the cursor position in the window
+    let Some(cursor_position) = window.cursor_position() else {
+        return;
+    };
+
+    // Get camera transform
+    let Ok((camera, camera_transform)) = camera_q.single() else {
+        return;
+    };
+
+    // Convert cursor position to world coordinates
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
+        return;
+    };
+
+    // Since we're in 2D, we can just use the ray's origin as our world position
+    let world_position = ray.origin.truncate();
+
+    // Remove the selection component from any previously selected tile
+    for entity in selected.iter() {
+        commands.entity(entity).remove::<SelectedTile>();
+    }
+
+    // Find the tile closest to the click position
+    let mut closest_distance = f32::MAX;
+    let mut closest_entity = None;
+
+    for (entity, transform, tile) in tiles.iter() {
+        let tile_pos = transform.translation.truncate();
+        let distance = world_position.distance(tile_pos);
+
+        // We consider this a hit if it's the closest one so far
+        if distance < closest_distance {
+            closest_distance = distance;
+            closest_entity = Some((entity, tile));
+        }
+    }
+
+    // If we found a tile and it's within a reasonable distance, mark it as selected
+    if let Some((entity, tile)) = closest_entity {
+        if closest_distance < 16.0 {
+            // Assuming the tile size is approximately 16 pixels
+            commands.entity(entity).insert(SelectedTile);
+            info!(
+                "Selected terrain at {:?}: {:?}",
+                tile.position, tile.terrain
+            );
+        }
+    }
+}
+
 fn setup_map(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+    current_weather: Res<CurrentWeather>,
 ) {
     // Get the workspace directory and asset paths
     let workspace_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -104,9 +235,6 @@ fn setup_map(
     let offset_x = -width * tile_size / 2.0 + tile_size / 2.0;
     let offset_y = height * 32.0 / 2.0 - 32.0 / 2.0;
 
-    // Set a default weather
-    let weather = Weather::Clear;
-
     // Spawn sprites for each map tile
     for y in 0..awbrn_map.height() {
         for x in 0..awbrn_map.width() {
@@ -116,18 +244,23 @@ fn setup_map(
             let position = Position::new(x, y);
             if let Some(terrain) = awbrn_map.terrain_at(position) {
                 // Calculate sprite index for this terrain
-                let sprite_index = awbrn_core::spritesheet_index(weather, terrain);
+                let sprite_index = awbrn_core::spritesheet_index(current_weather.0, terrain);
 
-                // Spawn terrain sprite
-                commands
-                    .spawn(Sprite::from_atlas_image(
+                // Spawn terrain sprite with position information
+                commands.spawn((
+                    Sprite::from_atlas_image(
                         texture.clone(),
                         TextureAtlas {
                             layout: texture_atlas_layout.clone(),
                             index: sprite_index.index() as usize,
                         },
-                    ))
-                    .insert(Transform::from_xyz(pos_x, pos_y, 0.0));
+                    ),
+                    Transform::from_xyz(pos_x, pos_y, 0.0),
+                    TerrainTile {
+                        terrain,
+                        position: Position::new(x, y),
+                    },
+                ));
             }
         }
     }
