@@ -1,5 +1,7 @@
 #![allow(dead_code)]
-use awbrn_core::{GraphicalTerrain, Terrain, Weather};
+use awbrn_core::PlayerFaction;
+use awbrn_core::Unit;
+use awbrn_core::{GraphicalTerrain, Terrain, Weather, unit_spritesheet_index};
 use awbrn_map::{AwbrnMap, AwbwMap, Position};
 use bevy::prelude::*;
 use std::fs;
@@ -58,7 +60,8 @@ struct SelectedTile;
 // Components for animation
 #[derive(Component)]
 struct Animation {
-    frames: Vec<usize>,
+    start_index: usize,
+    frames_count: usize,
     frame_time: Duration,
     timer: Timer,
     current_frame: usize,
@@ -257,11 +260,11 @@ fn animate_units(time: Res<Time>, mut query: Query<(&mut Animation, &mut Sprite)
         // Check if we need to advance to the next frame
         if animation.timer.just_finished() {
             // Move to next frame
-            animation.current_frame = (animation.current_frame + 1) % animation.frames.len();
+            animation.current_frame = (animation.current_frame + 1) % animation.frames_count;
 
             // Update the sprite's texture atlas index
             if let Some(atlas) = &mut sprite.texture_atlas {
-                atlas.index = animation.frames[animation.current_frame];
+                atlas.index = animation.start_index + animation.current_frame;
             }
         }
     }
@@ -378,21 +381,12 @@ fn spawn_animated_unit(
     let layout = TextureAtlasLayout::from_grid(UVec2::new(23, 24), 64, 86, None, None);
     let texture_atlas_layout = texture_atlas_layouts.add(layout);
 
-    // Calculate the indices for the 4-frame animation
-    let row = 1;
-    let col = 54;
-    let frames_count = 4;
-
-    let frames = Vec::with_capacity(frames_count);
-    let mut frames = frames; // Avoid the 'move' issue
-
-    for i in 0..frames_count {
-        // Calculate the index in the texture atlas
-        let frame_index = row * 64 + (col + i);
-        frames.push(frame_index);
-    }
-
-    // Unit dimensions
+    // Calculate the start index for the animation
+    let start_index = unit_spritesheet_index(
+        awbrn_core::GraphicalMovement::None,
+        Unit::Infantry,
+        PlayerFaction::BlackHole,
+    );
 
     // Define the grid position for the unit
     let x = 13;
@@ -422,10 +416,11 @@ fn spawn_animated_unit(
 
     // Create the animation component
     let animation = Animation {
-        frames: frames.clone(),
-        frame_time: Duration::from_millis(750 / frames_count as u64),
+        start_index: start_index.index() as usize,
+        frames_count: start_index.animation_frames() as usize,
+        frame_time: Duration::from_millis(750 / start_index.animation_frames() as u64),
         timer: Timer::new(
-            Duration::from_millis(750 / frames_count as u64),
+            Duration::from_millis(750 / start_index.animation_frames() as u64),
             TimerMode::Repeating,
         ),
         current_frame: 0,
@@ -437,7 +432,7 @@ fn spawn_animated_unit(
             texture,
             TextureAtlas {
                 layout: texture_atlas_layout,
-                index: frames[0],
+                index: start_index.index() as usize,
             },
         ),
         // Use the calculated final world position
