@@ -1,7 +1,7 @@
 use awbrn_core::{
-    BridgeType, Faction, GraphicalTerrain, MissileSiloStatus, PipeRubbleType, PipeSeamType,
-    PipeType, PlayerFaction, Property, PropertyKind, RiverType, RoadType, ShoalType, Terrain,
-    Weather, spritesheet_index,
+    BridgeType, Faction, GraphicalMovement, GraphicalTerrain, MissileSiloStatus, PipeRubbleType,
+    PipeSeamType, PipeType, PlayerFaction, Property, PropertyKind, RiverType, RoadType, ShoalType,
+    Terrain, Unit, Weather, spritesheet_index, unit_spritesheet_index,
 };
 use insta::assert_json_snapshot;
 use std::collections::{BTreeMap, HashMap};
@@ -217,6 +217,47 @@ fn get_all_graphical_terrains() -> Vec<GraphicalTerrain> {
     terrains
 }
 
+// Helper function to generate all Unit variants
+fn all_units() -> Vec<Unit> {
+    vec![
+        Unit::AntiAir,
+        Unit::APC,
+        Unit::Artillery,
+        Unit::BCopter,
+        Unit::Battleship,
+        Unit::BlackBoat,
+        Unit::BlackBomb,
+        Unit::Bomber,
+        Unit::Carrier,
+        Unit::Cruiser,
+        Unit::Fighter,
+        Unit::Infantry,
+        Unit::Lander,
+        Unit::MdTank,
+        Unit::Mech,
+        Unit::MegaTank,
+        Unit::Missile,
+        Unit::Neotank,
+        Unit::Piperunner,
+        Unit::Recon,
+        Unit::Rocket,
+        Unit::Stealth,
+        Unit::Sub,
+        Unit::TCopter,
+        Unit::Tank,
+    ]
+}
+
+// Helper function to generate all GraphicalMovement variants
+fn all_movements() -> Vec<GraphicalMovement> {
+    vec![
+        GraphicalMovement::None,
+        GraphicalMovement::Up,
+        GraphicalMovement::Down,
+        GraphicalMovement::Lateral,
+    ]
+}
+
 #[test]
 fn snapshot_all_sprite_indices() {
     // Test for all weather types
@@ -266,6 +307,71 @@ fn no_overlapping_indices_clear_weather() {
                     existing_terrain,
                     spritesheet_index(Weather::Clear, existing_terrain)
                 );
+            }
+        }
+    }
+}
+
+#[test]
+fn snapshot_all_unit_sprite_indices() {
+    // Get all possible combinations of parameters
+    let all_movements = all_movements();
+    let all_unit_types = all_units();
+    let all_factions = all_player_factions();
+
+    // Create a structured representation for snapshot testing
+    let mut snapshot_data = BTreeMap::new();
+
+    for movement in &all_movements {
+        let movement_name = format!("{:?}", movement);
+        let mut faction_indices = BTreeMap::new();
+
+        for faction in &all_factions {
+            let faction_name = format!("{:?}", faction);
+            let mut unit_indices = BTreeMap::new();
+
+            for unit in &all_unit_types {
+                let sprite = unit_spritesheet_index(*movement, *unit, *faction);
+                let unit_name = format!("{:?}", unit);
+
+                unit_indices.insert(unit_name, (sprite.index(), sprite.animation_frames()));
+            }
+
+            faction_indices.insert(faction_name, unit_indices);
+        }
+
+        snapshot_data.insert(movement_name, faction_indices);
+    }
+
+    // Create a snapshot of all unit sprite indices
+    assert_json_snapshot!("unit_sprite_indices", snapshot_data);
+}
+
+#[test]
+fn no_overlapping_unit_indices() {
+    let all_movements = all_movements();
+    let all_unit_types = all_units();
+    let all_factions = all_player_factions();
+    let mut index_map = HashMap::new();
+
+    for movement in &all_movements {
+        for faction in &all_factions {
+            for unit in &all_unit_types {
+                let sprite = unit_spritesheet_index(*movement, *unit, *faction);
+                let start_index = sprite.index();
+                let end_index = start_index + sprite.animation_frames() as u16;
+                let current_key = format!("{:?}_{:?}_{:?}", movement, unit, faction);
+
+                for i in start_index..end_index {
+                    if let Some((existing_key, existing_sprite)) =
+                        index_map.insert(i, (current_key.clone(), sprite))
+                    {
+                        panic!(
+                            "Overlap detected! Index {} is used by {} (Sprite: {:?}) and {} (Sprite: {:?})",
+                            i, current_key, sprite, existing_key, existing_sprite
+                        );
+                    }
+                }
             }
         }
     }

@@ -1,0 +1,7766 @@
+---
+source: crates/awbrn-core/tests/spritesheet_index_tests.rs
+expression: snapshot_data
+---
+{
+  "Down": {
+    "AcidRain": {
+      "APC": [
+        20,
+        3
+      ],
+      "AntiAir": [
+        7,
+        3
+      ],
+      "Artillery": [
+        33,
+        3
+      ],
+      "BCopter": [
+        43,
+        2
+      ],
+      "Battleship": [
+        53,
+        2
+      ],
+      "BlackBoat": [
+        64,
+        3
+      ],
+      "BlackBomb": [
+        75,
+        3
+      ],
+      "Bomber": [
+        87,
+        2
+      ],
+      "Carrier": [
+        95,
+        2
+      ],
+      "Cruiser": [
+        103,
+        2
+      ],
+      "Fighter": [
+        112,
+        3
+      ],
+      "Infantry": [
+        126,
+        4
+      ],
+      "Lander": [
+        138,
+        2
+      ],
+      "MdTank": [
+        149,
+        3
+      ],
+      "Mech": [
+        161,
+        4
+      ],
+      "MegaTank": [
+        176,
+        3
+      ],
+      "Missile": [
+        187,
+        3
+      ],
+      "Neotank": [
+        200,
+        3
+      ],
+      "Piperunner": [
+        211,
+        3
+      ],
+      "Recon": [
+        224,
+        3
+      ],
+      "Rocket": [
+        235,
+        3
+      ],
+      "Stealth": [
+        246,
+        3
+      ],
+      "Sub": [
+        258,
+        2
+      ],
+      "TCopter": [
+        269,
+        3
+      ],
+      "Tank": [
+        281,
+        2
+      ]
+    },
+    "AmberBlaze": {
+      "APC": [
+        305,
+        3
+      ],
+      "AntiAir": [
+        292,
+        3
+      ],
+      "Artillery": [
+        318,
+        3
+      ],
+      "BCopter": [
+        328,
+        2
+      ],
+      "Battleship": [
+        338,
+        2
+      ],
+      "BlackBoat": [
+        349,
+        3
+      ],
+      "BlackBomb": [
+        360,
+        3
+      ],
+      "Bomber": [
+        372,
+        2
+      ],
+      "Carrier": [
+        380,
+        2
+      ],
+      "Cruiser": [
+        388,
+        2
+      ],
+      "Fighter": [
+        397,
+        3
+      ],
+      "Infantry": [
+        411,
+        4
+      ],
+      "Lander": [
+        423,
+        2
+      ],
+      "MdTank": [
+        434,
+        3
+      ],
+      "Mech": [
+        446,
+        4
+      ],
+      "MegaTank": [
+        461,
+        3
+      ],
+      "Missile": [
+        472,
+        3
+      ],
+      "Neotank": [
+        485,
+        3
+      ],
+      "Piperunner": [
+        496,
+        3
+      ],
+      "Recon": [
+        509,
+        3
+      ],
+      "Rocket": [
+        520,
+        3
+      ],
+      "Stealth": [
+        531,
+        3
+      ],
+      "Sub": [
+        543,
+        2
+      ],
+      "TCopter": [
+        554,
+        3
+      ],
+      "Tank": [
+        566,
+        2
+      ]
+    },
+    "AzureAsteroid": {
+      "APC": [
+        590,
+        3
+      ],
+      "AntiAir": [
+        577,
+        3
+      ],
+      "Artillery": [
+        603,
+        3
+      ],
+      "BCopter": [
+        613,
+        2
+      ],
+      "Battleship": [
+        623,
+        2
+      ],
+      "BlackBoat": [
+        634,
+        3
+      ],
+      "BlackBomb": [
+        645,
+        3
+      ],
+      "Bomber": [
+        657,
+        2
+      ],
+      "Carrier": [
+        665,
+        2
+      ],
+      "Cruiser": [
+        673,
+        2
+      ],
+      "Fighter": [
+        682,
+        3
+      ],
+      "Infantry": [
+        696,
+        4
+      ],
+      "Lander": [
+        708,
+        2
+      ],
+      "MdTank": [
+        719,
+        3
+      ],
+      "Mech": [
+        731,
+        4
+      ],
+      "MegaTank": [
+        746,
+        3
+      ],
+      "Missile": [
+        757,
+        3
+      ],
+      "Neotank": [
+        770,
+        3
+      ],
+      "Piperunner": [
+        781,
+        3
+      ],
+      "Recon": [
+        794,
+        3
+      ],
+      "Rocket": [
+        805,
+        3
+      ],
+      "Stealth": [
+        816,
+        3
+      ],
+      "Sub": [
+        828,
+        2
+      ],
+      "TCopter": [
+        839,
+        3
+      ],
+      "Tank": [
+        851,
+        2
+      ]
+    },
+    "BlackHole": {
+      "APC": [
+        875,
+        3
+      ],
+      "AntiAir": [
+        862,
+        3
+      ],
+      "Artillery": [
+        888,
+        3
+      ],
+      "BCopter": [
+        898,
+        2
+      ],
+      "Battleship": [
+        908,
+        2
+      ],
+      "BlackBoat": [
+        919,
+        3
+      ],
+      "BlackBomb": [
+        930,
+        3
+      ],
+      "Bomber": [
+        942,
+        2
+      ],
+      "Carrier": [
+        950,
+        2
+      ],
+      "Cruiser": [
+        958,
+        2
+      ],
+      "Fighter": [
+        967,
+        3
+      ],
+      "Infantry": [
+        981,
+        4
+      ],
+      "Lander": [
+        993,
+        2
+      ],
+      "MdTank": [
+        1004,
+        3
+      ],
+      "Mech": [
+        1016,
+        4
+      ],
+      "MegaTank": [
+        1031,
+        3
+      ],
+      "Missile": [
+        1042,
+        3
+      ],
+      "Neotank": [
+        1055,
+        3
+      ],
+      "Piperunner": [
+        1066,
+        3
+      ],
+      "Recon": [
+        1079,
+        3
+      ],
+      "Rocket": [
+        1090,
+        3
+      ],
+      "Stealth": [
+        1101,
+        3
+      ],
+      "Sub": [
+        1113,
+        2
+      ],
+      "TCopter": [
+        1124,
+        3
+      ],
+      "Tank": [
+        1136,
+        2
+      ]
+    },
+    "BlueMoon": {
+      "APC": [
+        1160,
+        3
+      ],
+      "AntiAir": [
+        1147,
+        3
+      ],
+      "Artillery": [
+        1173,
+        3
+      ],
+      "BCopter": [
+        1183,
+        2
+      ],
+      "Battleship": [
+        1193,
+        2
+      ],
+      "BlackBoat": [
+        1204,
+        3
+      ],
+      "BlackBomb": [
+        1215,
+        3
+      ],
+      "Bomber": [
+        1227,
+        2
+      ],
+      "Carrier": [
+        1235,
+        2
+      ],
+      "Cruiser": [
+        1243,
+        2
+      ],
+      "Fighter": [
+        1252,
+        3
+      ],
+      "Infantry": [
+        1266,
+        4
+      ],
+      "Lander": [
+        1278,
+        2
+      ],
+      "MdTank": [
+        1289,
+        3
+      ],
+      "Mech": [
+        1301,
+        4
+      ],
+      "MegaTank": [
+        1316,
+        3
+      ],
+      "Missile": [
+        1327,
+        3
+      ],
+      "Neotank": [
+        1340,
+        3
+      ],
+      "Piperunner": [
+        1351,
+        3
+      ],
+      "Recon": [
+        1364,
+        3
+      ],
+      "Rocket": [
+        1375,
+        3
+      ],
+      "Stealth": [
+        1386,
+        3
+      ],
+      "Sub": [
+        1398,
+        2
+      ],
+      "TCopter": [
+        1409,
+        3
+      ],
+      "Tank": [
+        1421,
+        2
+      ]
+    },
+    "BrownDesert": {
+      "APC": [
+        1445,
+        3
+      ],
+      "AntiAir": [
+        1432,
+        3
+      ],
+      "Artillery": [
+        1458,
+        3
+      ],
+      "BCopter": [
+        1468,
+        2
+      ],
+      "Battleship": [
+        1478,
+        2
+      ],
+      "BlackBoat": [
+        1489,
+        3
+      ],
+      "BlackBomb": [
+        1500,
+        3
+      ],
+      "Bomber": [
+        1512,
+        2
+      ],
+      "Carrier": [
+        1520,
+        2
+      ],
+      "Cruiser": [
+        1528,
+        2
+      ],
+      "Fighter": [
+        1537,
+        3
+      ],
+      "Infantry": [
+        1551,
+        4
+      ],
+      "Lander": [
+        1563,
+        2
+      ],
+      "MdTank": [
+        1574,
+        3
+      ],
+      "Mech": [
+        1586,
+        4
+      ],
+      "MegaTank": [
+        1601,
+        3
+      ],
+      "Missile": [
+        1612,
+        3
+      ],
+      "Neotank": [
+        1625,
+        3
+      ],
+      "Piperunner": [
+        1636,
+        3
+      ],
+      "Recon": [
+        1649,
+        3
+      ],
+      "Rocket": [
+        1660,
+        3
+      ],
+      "Stealth": [
+        1671,
+        3
+      ],
+      "Sub": [
+        1683,
+        2
+      ],
+      "TCopter": [
+        1694,
+        3
+      ],
+      "Tank": [
+        1706,
+        2
+      ]
+    },
+    "CobaltIce": {
+      "APC": [
+        1730,
+        3
+      ],
+      "AntiAir": [
+        1717,
+        3
+      ],
+      "Artillery": [
+        1743,
+        3
+      ],
+      "BCopter": [
+        1753,
+        2
+      ],
+      "Battleship": [
+        1763,
+        2
+      ],
+      "BlackBoat": [
+        1774,
+        3
+      ],
+      "BlackBomb": [
+        1785,
+        3
+      ],
+      "Bomber": [
+        1797,
+        2
+      ],
+      "Carrier": [
+        1805,
+        2
+      ],
+      "Cruiser": [
+        1813,
+        2
+      ],
+      "Fighter": [
+        1822,
+        3
+      ],
+      "Infantry": [
+        1836,
+        4
+      ],
+      "Lander": [
+        1848,
+        2
+      ],
+      "MdTank": [
+        1859,
+        3
+      ],
+      "Mech": [
+        1871,
+        4
+      ],
+      "MegaTank": [
+        1886,
+        3
+      ],
+      "Missile": [
+        1897,
+        3
+      ],
+      "Neotank": [
+        1910,
+        3
+      ],
+      "Piperunner": [
+        1921,
+        3
+      ],
+      "Recon": [
+        1934,
+        3
+      ],
+      "Rocket": [
+        1945,
+        3
+      ],
+      "Stealth": [
+        1956,
+        3
+      ],
+      "Sub": [
+        1968,
+        2
+      ],
+      "TCopter": [
+        1979,
+        3
+      ],
+      "Tank": [
+        1991,
+        2
+      ]
+    },
+    "GreenEarth": {
+      "APC": [
+        2015,
+        3
+      ],
+      "AntiAir": [
+        2002,
+        3
+      ],
+      "Artillery": [
+        2028,
+        3
+      ],
+      "BCopter": [
+        2038,
+        2
+      ],
+      "Battleship": [
+        2048,
+        2
+      ],
+      "BlackBoat": [
+        2059,
+        3
+      ],
+      "BlackBomb": [
+        2070,
+        3
+      ],
+      "Bomber": [
+        2082,
+        2
+      ],
+      "Carrier": [
+        2090,
+        2
+      ],
+      "Cruiser": [
+        2098,
+        2
+      ],
+      "Fighter": [
+        2107,
+        3
+      ],
+      "Infantry": [
+        2121,
+        4
+      ],
+      "Lander": [
+        2133,
+        2
+      ],
+      "MdTank": [
+        2144,
+        3
+      ],
+      "Mech": [
+        2156,
+        4
+      ],
+      "MegaTank": [
+        2171,
+        3
+      ],
+      "Missile": [
+        2182,
+        3
+      ],
+      "Neotank": [
+        2195,
+        3
+      ],
+      "Piperunner": [
+        2206,
+        3
+      ],
+      "Recon": [
+        2219,
+        3
+      ],
+      "Rocket": [
+        2230,
+        3
+      ],
+      "Stealth": [
+        2241,
+        3
+      ],
+      "Sub": [
+        2253,
+        2
+      ],
+      "TCopter": [
+        2264,
+        3
+      ],
+      "Tank": [
+        2276,
+        2
+      ]
+    },
+    "GreySky": {
+      "APC": [
+        2300,
+        3
+      ],
+      "AntiAir": [
+        2287,
+        3
+      ],
+      "Artillery": [
+        2313,
+        3
+      ],
+      "BCopter": [
+        2323,
+        2
+      ],
+      "Battleship": [
+        2333,
+        2
+      ],
+      "BlackBoat": [
+        2344,
+        3
+      ],
+      "BlackBomb": [
+        2355,
+        3
+      ],
+      "Bomber": [
+        2367,
+        2
+      ],
+      "Carrier": [
+        2375,
+        2
+      ],
+      "Cruiser": [
+        2383,
+        2
+      ],
+      "Fighter": [
+        2392,
+        3
+      ],
+      "Infantry": [
+        2406,
+        4
+      ],
+      "Lander": [
+        2418,
+        2
+      ],
+      "MdTank": [
+        2429,
+        3
+      ],
+      "Mech": [
+        2441,
+        4
+      ],
+      "MegaTank": [
+        2456,
+        3
+      ],
+      "Missile": [
+        2467,
+        3
+      ],
+      "Neotank": [
+        2480,
+        3
+      ],
+      "Piperunner": [
+        2491,
+        3
+      ],
+      "Recon": [
+        2504,
+        3
+      ],
+      "Rocket": [
+        2515,
+        3
+      ],
+      "Stealth": [
+        2526,
+        3
+      ],
+      "Sub": [
+        2538,
+        2
+      ],
+      "TCopter": [
+        2549,
+        3
+      ],
+      "Tank": [
+        2561,
+        2
+      ]
+    },
+    "JadeSun": {
+      "APC": [
+        2585,
+        3
+      ],
+      "AntiAir": [
+        2572,
+        3
+      ],
+      "Artillery": [
+        2598,
+        3
+      ],
+      "BCopter": [
+        2608,
+        2
+      ],
+      "Battleship": [
+        2618,
+        2
+      ],
+      "BlackBoat": [
+        2629,
+        3
+      ],
+      "BlackBomb": [
+        2640,
+        3
+      ],
+      "Bomber": [
+        2652,
+        2
+      ],
+      "Carrier": [
+        2660,
+        2
+      ],
+      "Cruiser": [
+        2668,
+        2
+      ],
+      "Fighter": [
+        2677,
+        3
+      ],
+      "Infantry": [
+        2691,
+        4
+      ],
+      "Lander": [
+        2703,
+        2
+      ],
+      "MdTank": [
+        2714,
+        3
+      ],
+      "Mech": [
+        2726,
+        4
+      ],
+      "MegaTank": [
+        2741,
+        3
+      ],
+      "Missile": [
+        2752,
+        3
+      ],
+      "Neotank": [
+        2765,
+        3
+      ],
+      "Piperunner": [
+        2776,
+        3
+      ],
+      "Recon": [
+        2789,
+        3
+      ],
+      "Rocket": [
+        2800,
+        3
+      ],
+      "Stealth": [
+        2811,
+        3
+      ],
+      "Sub": [
+        2823,
+        2
+      ],
+      "TCopter": [
+        2834,
+        3
+      ],
+      "Tank": [
+        2846,
+        2
+      ]
+    },
+    "NoirEclipse": {
+      "APC": [
+        2870,
+        3
+      ],
+      "AntiAir": [
+        2857,
+        3
+      ],
+      "Artillery": [
+        2883,
+        3
+      ],
+      "BCopter": [
+        2893,
+        2
+      ],
+      "Battleship": [
+        2903,
+        2
+      ],
+      "BlackBoat": [
+        2914,
+        3
+      ],
+      "BlackBomb": [
+        2925,
+        3
+      ],
+      "Bomber": [
+        2937,
+        2
+      ],
+      "Carrier": [
+        2945,
+        2
+      ],
+      "Cruiser": [
+        2953,
+        2
+      ],
+      "Fighter": [
+        2962,
+        3
+      ],
+      "Infantry": [
+        2976,
+        4
+      ],
+      "Lander": [
+        2988,
+        2
+      ],
+      "MdTank": [
+        2999,
+        3
+      ],
+      "Mech": [
+        3011,
+        4
+      ],
+      "MegaTank": [
+        3026,
+        3
+      ],
+      "Missile": [
+        3037,
+        3
+      ],
+      "Neotank": [
+        3050,
+        3
+      ],
+      "Piperunner": [
+        3061,
+        3
+      ],
+      "Recon": [
+        3074,
+        3
+      ],
+      "Rocket": [
+        3085,
+        3
+      ],
+      "Stealth": [
+        3096,
+        3
+      ],
+      "Sub": [
+        3108,
+        2
+      ],
+      "TCopter": [
+        3119,
+        3
+      ],
+      "Tank": [
+        3131,
+        2
+      ]
+    },
+    "OrangeStar": {
+      "APC": [
+        3155,
+        3
+      ],
+      "AntiAir": [
+        3142,
+        3
+      ],
+      "Artillery": [
+        3168,
+        3
+      ],
+      "BCopter": [
+        3178,
+        2
+      ],
+      "Battleship": [
+        3188,
+        2
+      ],
+      "BlackBoat": [
+        3199,
+        3
+      ],
+      "BlackBomb": [
+        3210,
+        3
+      ],
+      "Bomber": [
+        3222,
+        2
+      ],
+      "Carrier": [
+        3230,
+        2
+      ],
+      "Cruiser": [
+        3238,
+        2
+      ],
+      "Fighter": [
+        3247,
+        3
+      ],
+      "Infantry": [
+        3261,
+        4
+      ],
+      "Lander": [
+        3273,
+        2
+      ],
+      "MdTank": [
+        3284,
+        3
+      ],
+      "Mech": [
+        3296,
+        4
+      ],
+      "MegaTank": [
+        3311,
+        3
+      ],
+      "Missile": [
+        3322,
+        3
+      ],
+      "Neotank": [
+        3335,
+        3
+      ],
+      "Piperunner": [
+        3346,
+        3
+      ],
+      "Recon": [
+        3359,
+        3
+      ],
+      "Rocket": [
+        3370,
+        3
+      ],
+      "Stealth": [
+        3381,
+        3
+      ],
+      "Sub": [
+        3393,
+        2
+      ],
+      "TCopter": [
+        3404,
+        3
+      ],
+      "Tank": [
+        3416,
+        2
+      ]
+    },
+    "PinkCosmos": {
+      "APC": [
+        3440,
+        3
+      ],
+      "AntiAir": [
+        3427,
+        3
+      ],
+      "Artillery": [
+        3453,
+        3
+      ],
+      "BCopter": [
+        3463,
+        2
+      ],
+      "Battleship": [
+        3473,
+        2
+      ],
+      "BlackBoat": [
+        3484,
+        3
+      ],
+      "BlackBomb": [
+        3495,
+        3
+      ],
+      "Bomber": [
+        3507,
+        2
+      ],
+      "Carrier": [
+        3515,
+        2
+      ],
+      "Cruiser": [
+        3523,
+        2
+      ],
+      "Fighter": [
+        3532,
+        3
+      ],
+      "Infantry": [
+        3546,
+        4
+      ],
+      "Lander": [
+        3558,
+        2
+      ],
+      "MdTank": [
+        3569,
+        3
+      ],
+      "Mech": [
+        3581,
+        4
+      ],
+      "MegaTank": [
+        3596,
+        3
+      ],
+      "Missile": [
+        3607,
+        3
+      ],
+      "Neotank": [
+        3620,
+        3
+      ],
+      "Piperunner": [
+        3631,
+        3
+      ],
+      "Recon": [
+        3644,
+        3
+      ],
+      "Rocket": [
+        3655,
+        3
+      ],
+      "Stealth": [
+        3666,
+        3
+      ],
+      "Sub": [
+        3678,
+        2
+      ],
+      "TCopter": [
+        3689,
+        3
+      ],
+      "Tank": [
+        3701,
+        2
+      ]
+    },
+    "PurpleLightning": {
+      "APC": [
+        3725,
+        3
+      ],
+      "AntiAir": [
+        3712,
+        3
+      ],
+      "Artillery": [
+        3738,
+        3
+      ],
+      "BCopter": [
+        3748,
+        2
+      ],
+      "Battleship": [
+        3758,
+        2
+      ],
+      "BlackBoat": [
+        3769,
+        3
+      ],
+      "BlackBomb": [
+        3780,
+        3
+      ],
+      "Bomber": [
+        3792,
+        2
+      ],
+      "Carrier": [
+        3800,
+        2
+      ],
+      "Cruiser": [
+        3808,
+        2
+      ],
+      "Fighter": [
+        3817,
+        3
+      ],
+      "Infantry": [
+        3831,
+        4
+      ],
+      "Lander": [
+        3843,
+        2
+      ],
+      "MdTank": [
+        3854,
+        3
+      ],
+      "Mech": [
+        3866,
+        4
+      ],
+      "MegaTank": [
+        3881,
+        3
+      ],
+      "Missile": [
+        3892,
+        3
+      ],
+      "Neotank": [
+        3905,
+        3
+      ],
+      "Piperunner": [
+        3916,
+        3
+      ],
+      "Recon": [
+        3929,
+        3
+      ],
+      "Rocket": [
+        3940,
+        3
+      ],
+      "Stealth": [
+        3951,
+        3
+      ],
+      "Sub": [
+        3963,
+        2
+      ],
+      "TCopter": [
+        3974,
+        3
+      ],
+      "Tank": [
+        3986,
+        2
+      ]
+    },
+    "RedFire": {
+      "APC": [
+        4010,
+        3
+      ],
+      "AntiAir": [
+        3997,
+        3
+      ],
+      "Artillery": [
+        4023,
+        3
+      ],
+      "BCopter": [
+        4033,
+        2
+      ],
+      "Battleship": [
+        4043,
+        2
+      ],
+      "BlackBoat": [
+        4054,
+        3
+      ],
+      "BlackBomb": [
+        4065,
+        3
+      ],
+      "Bomber": [
+        4077,
+        2
+      ],
+      "Carrier": [
+        4085,
+        2
+      ],
+      "Cruiser": [
+        4093,
+        2
+      ],
+      "Fighter": [
+        4102,
+        3
+      ],
+      "Infantry": [
+        4116,
+        4
+      ],
+      "Lander": [
+        4128,
+        2
+      ],
+      "MdTank": [
+        4139,
+        3
+      ],
+      "Mech": [
+        4151,
+        4
+      ],
+      "MegaTank": [
+        4166,
+        3
+      ],
+      "Missile": [
+        4177,
+        3
+      ],
+      "Neotank": [
+        4190,
+        3
+      ],
+      "Piperunner": [
+        4201,
+        3
+      ],
+      "Recon": [
+        4214,
+        3
+      ],
+      "Rocket": [
+        4225,
+        3
+      ],
+      "Stealth": [
+        4236,
+        3
+      ],
+      "Sub": [
+        4248,
+        2
+      ],
+      "TCopter": [
+        4259,
+        3
+      ],
+      "Tank": [
+        4271,
+        2
+      ]
+    },
+    "SilverClaw": {
+      "APC": [
+        4295,
+        3
+      ],
+      "AntiAir": [
+        4282,
+        3
+      ],
+      "Artillery": [
+        4308,
+        3
+      ],
+      "BCopter": [
+        4318,
+        2
+      ],
+      "Battleship": [
+        4328,
+        2
+      ],
+      "BlackBoat": [
+        4339,
+        3
+      ],
+      "BlackBomb": [
+        4350,
+        3
+      ],
+      "Bomber": [
+        4362,
+        2
+      ],
+      "Carrier": [
+        4370,
+        2
+      ],
+      "Cruiser": [
+        4378,
+        2
+      ],
+      "Fighter": [
+        4387,
+        3
+      ],
+      "Infantry": [
+        4401,
+        4
+      ],
+      "Lander": [
+        4413,
+        2
+      ],
+      "MdTank": [
+        4424,
+        3
+      ],
+      "Mech": [
+        4436,
+        4
+      ],
+      "MegaTank": [
+        4451,
+        3
+      ],
+      "Missile": [
+        4462,
+        3
+      ],
+      "Neotank": [
+        4475,
+        3
+      ],
+      "Piperunner": [
+        4486,
+        3
+      ],
+      "Recon": [
+        4499,
+        3
+      ],
+      "Rocket": [
+        4510,
+        3
+      ],
+      "Stealth": [
+        4521,
+        3
+      ],
+      "Sub": [
+        4533,
+        2
+      ],
+      "TCopter": [
+        4544,
+        3
+      ],
+      "Tank": [
+        4556,
+        2
+      ]
+    },
+    "TealGalaxy": {
+      "APC": [
+        4580,
+        3
+      ],
+      "AntiAir": [
+        4567,
+        3
+      ],
+      "Artillery": [
+        4593,
+        3
+      ],
+      "BCopter": [
+        4603,
+        2
+      ],
+      "Battleship": [
+        4613,
+        2
+      ],
+      "BlackBoat": [
+        4624,
+        3
+      ],
+      "BlackBomb": [
+        4635,
+        3
+      ],
+      "Bomber": [
+        4647,
+        2
+      ],
+      "Carrier": [
+        4655,
+        2
+      ],
+      "Cruiser": [
+        4663,
+        2
+      ],
+      "Fighter": [
+        4672,
+        3
+      ],
+      "Infantry": [
+        4686,
+        4
+      ],
+      "Lander": [
+        4698,
+        2
+      ],
+      "MdTank": [
+        4709,
+        3
+      ],
+      "Mech": [
+        4721,
+        4
+      ],
+      "MegaTank": [
+        4736,
+        3
+      ],
+      "Missile": [
+        4747,
+        3
+      ],
+      "Neotank": [
+        4760,
+        3
+      ],
+      "Piperunner": [
+        4771,
+        3
+      ],
+      "Recon": [
+        4784,
+        3
+      ],
+      "Rocket": [
+        4795,
+        3
+      ],
+      "Stealth": [
+        4806,
+        3
+      ],
+      "Sub": [
+        4818,
+        2
+      ],
+      "TCopter": [
+        4829,
+        3
+      ],
+      "Tank": [
+        4841,
+        2
+      ]
+    },
+    "WhiteNova": {
+      "APC": [
+        4865,
+        3
+      ],
+      "AntiAir": [
+        4852,
+        3
+      ],
+      "Artillery": [
+        4878,
+        3
+      ],
+      "BCopter": [
+        4888,
+        2
+      ],
+      "Battleship": [
+        4898,
+        2
+      ],
+      "BlackBoat": [
+        4909,
+        3
+      ],
+      "BlackBomb": [
+        4920,
+        3
+      ],
+      "Bomber": [
+        4932,
+        2
+      ],
+      "Carrier": [
+        4940,
+        2
+      ],
+      "Cruiser": [
+        4948,
+        2
+      ],
+      "Fighter": [
+        4957,
+        3
+      ],
+      "Infantry": [
+        4971,
+        4
+      ],
+      "Lander": [
+        4983,
+        2
+      ],
+      "MdTank": [
+        4994,
+        3
+      ],
+      "Mech": [
+        5006,
+        4
+      ],
+      "MegaTank": [
+        5021,
+        3
+      ],
+      "Missile": [
+        5032,
+        3
+      ],
+      "Neotank": [
+        5045,
+        3
+      ],
+      "Piperunner": [
+        5056,
+        3
+      ],
+      "Recon": [
+        5069,
+        3
+      ],
+      "Rocket": [
+        5080,
+        3
+      ],
+      "Stealth": [
+        5091,
+        3
+      ],
+      "Sub": [
+        5103,
+        2
+      ],
+      "TCopter": [
+        5114,
+        3
+      ],
+      "Tank": [
+        5126,
+        2
+      ]
+    },
+    "YellowComet": {
+      "APC": [
+        5150,
+        3
+      ],
+      "AntiAir": [
+        5137,
+        3
+      ],
+      "Artillery": [
+        5163,
+        3
+      ],
+      "BCopter": [
+        5173,
+        2
+      ],
+      "Battleship": [
+        5183,
+        2
+      ],
+      "BlackBoat": [
+        5194,
+        3
+      ],
+      "BlackBomb": [
+        5205,
+        3
+      ],
+      "Bomber": [
+        5217,
+        2
+      ],
+      "Carrier": [
+        5225,
+        2
+      ],
+      "Cruiser": [
+        5233,
+        2
+      ],
+      "Fighter": [
+        5242,
+        3
+      ],
+      "Infantry": [
+        5256,
+        4
+      ],
+      "Lander": [
+        5268,
+        2
+      ],
+      "MdTank": [
+        5279,
+        3
+      ],
+      "Mech": [
+        5291,
+        4
+      ],
+      "MegaTank": [
+        5306,
+        3
+      ],
+      "Missile": [
+        5317,
+        3
+      ],
+      "Neotank": [
+        5330,
+        3
+      ],
+      "Piperunner": [
+        5341,
+        3
+      ],
+      "Recon": [
+        5354,
+        3
+      ],
+      "Rocket": [
+        5365,
+        3
+      ],
+      "Stealth": [
+        5376,
+        3
+      ],
+      "Sub": [
+        5388,
+        2
+      ],
+      "TCopter": [
+        5399,
+        3
+      ],
+      "Tank": [
+        5411,
+        2
+      ]
+    }
+  },
+  "Lateral": {
+    "AcidRain": {
+      "APC": [
+        23,
+        3
+      ],
+      "AntiAir": [
+        10,
+        3
+      ],
+      "Artillery": [
+        36,
+        3
+      ],
+      "BCopter": [
+        45,
+        2
+      ],
+      "Battleship": [
+        55,
+        2
+      ],
+      "BlackBoat": [
+        67,
+        3
+      ],
+      "BlackBomb": [
+        78,
+        3
+      ],
+      "Bomber": [
+        89,
+        2
+      ],
+      "Carrier": [
+        97,
+        2
+      ],
+      "Cruiser": [
+        105,
+        2
+      ],
+      "Fighter": [
+        115,
+        3
+      ],
+      "Infantry": [
+        130,
+        4
+      ],
+      "Lander": [
+        140,
+        2
+      ],
+      "MdTank": [
+        152,
+        3
+      ],
+      "Mech": [
+        165,
+        4
+      ],
+      "MegaTank": [
+        179,
+        3
+      ],
+      "Missile": [
+        190,
+        3
+      ],
+      "Neotank": [
+        203,
+        3
+      ],
+      "Piperunner": [
+        214,
+        3
+      ],
+      "Recon": [
+        227,
+        3
+      ],
+      "Rocket": [
+        238,
+        3
+      ],
+      "Stealth": [
+        249,
+        3
+      ],
+      "Sub": [
+        260,
+        2
+      ],
+      "TCopter": [
+        272,
+        3
+      ],
+      "Tank": [
+        283,
+        2
+      ]
+    },
+    "AmberBlaze": {
+      "APC": [
+        308,
+        3
+      ],
+      "AntiAir": [
+        295,
+        3
+      ],
+      "Artillery": [
+        321,
+        3
+      ],
+      "BCopter": [
+        330,
+        2
+      ],
+      "Battleship": [
+        340,
+        2
+      ],
+      "BlackBoat": [
+        352,
+        3
+      ],
+      "BlackBomb": [
+        363,
+        3
+      ],
+      "Bomber": [
+        374,
+        2
+      ],
+      "Carrier": [
+        382,
+        2
+      ],
+      "Cruiser": [
+        390,
+        2
+      ],
+      "Fighter": [
+        400,
+        3
+      ],
+      "Infantry": [
+        415,
+        4
+      ],
+      "Lander": [
+        425,
+        2
+      ],
+      "MdTank": [
+        437,
+        3
+      ],
+      "Mech": [
+        450,
+        4
+      ],
+      "MegaTank": [
+        464,
+        3
+      ],
+      "Missile": [
+        475,
+        3
+      ],
+      "Neotank": [
+        488,
+        3
+      ],
+      "Piperunner": [
+        499,
+        3
+      ],
+      "Recon": [
+        512,
+        3
+      ],
+      "Rocket": [
+        523,
+        3
+      ],
+      "Stealth": [
+        534,
+        3
+      ],
+      "Sub": [
+        545,
+        2
+      ],
+      "TCopter": [
+        557,
+        3
+      ],
+      "Tank": [
+        568,
+        2
+      ]
+    },
+    "AzureAsteroid": {
+      "APC": [
+        593,
+        3
+      ],
+      "AntiAir": [
+        580,
+        3
+      ],
+      "Artillery": [
+        606,
+        3
+      ],
+      "BCopter": [
+        615,
+        2
+      ],
+      "Battleship": [
+        625,
+        2
+      ],
+      "BlackBoat": [
+        637,
+        3
+      ],
+      "BlackBomb": [
+        648,
+        3
+      ],
+      "Bomber": [
+        659,
+        2
+      ],
+      "Carrier": [
+        667,
+        2
+      ],
+      "Cruiser": [
+        675,
+        2
+      ],
+      "Fighter": [
+        685,
+        3
+      ],
+      "Infantry": [
+        700,
+        4
+      ],
+      "Lander": [
+        710,
+        2
+      ],
+      "MdTank": [
+        722,
+        3
+      ],
+      "Mech": [
+        735,
+        4
+      ],
+      "MegaTank": [
+        749,
+        3
+      ],
+      "Missile": [
+        760,
+        3
+      ],
+      "Neotank": [
+        773,
+        3
+      ],
+      "Piperunner": [
+        784,
+        3
+      ],
+      "Recon": [
+        797,
+        3
+      ],
+      "Rocket": [
+        808,
+        3
+      ],
+      "Stealth": [
+        819,
+        3
+      ],
+      "Sub": [
+        830,
+        2
+      ],
+      "TCopter": [
+        842,
+        3
+      ],
+      "Tank": [
+        853,
+        2
+      ]
+    },
+    "BlackHole": {
+      "APC": [
+        878,
+        3
+      ],
+      "AntiAir": [
+        865,
+        3
+      ],
+      "Artillery": [
+        891,
+        3
+      ],
+      "BCopter": [
+        900,
+        2
+      ],
+      "Battleship": [
+        910,
+        2
+      ],
+      "BlackBoat": [
+        922,
+        3
+      ],
+      "BlackBomb": [
+        933,
+        3
+      ],
+      "Bomber": [
+        944,
+        2
+      ],
+      "Carrier": [
+        952,
+        2
+      ],
+      "Cruiser": [
+        960,
+        2
+      ],
+      "Fighter": [
+        970,
+        3
+      ],
+      "Infantry": [
+        985,
+        4
+      ],
+      "Lander": [
+        995,
+        2
+      ],
+      "MdTank": [
+        1007,
+        3
+      ],
+      "Mech": [
+        1020,
+        4
+      ],
+      "MegaTank": [
+        1034,
+        3
+      ],
+      "Missile": [
+        1045,
+        3
+      ],
+      "Neotank": [
+        1058,
+        3
+      ],
+      "Piperunner": [
+        1069,
+        3
+      ],
+      "Recon": [
+        1082,
+        3
+      ],
+      "Rocket": [
+        1093,
+        3
+      ],
+      "Stealth": [
+        1104,
+        3
+      ],
+      "Sub": [
+        1115,
+        2
+      ],
+      "TCopter": [
+        1127,
+        3
+      ],
+      "Tank": [
+        1138,
+        2
+      ]
+    },
+    "BlueMoon": {
+      "APC": [
+        1163,
+        3
+      ],
+      "AntiAir": [
+        1150,
+        3
+      ],
+      "Artillery": [
+        1176,
+        3
+      ],
+      "BCopter": [
+        1185,
+        2
+      ],
+      "Battleship": [
+        1195,
+        2
+      ],
+      "BlackBoat": [
+        1207,
+        3
+      ],
+      "BlackBomb": [
+        1218,
+        3
+      ],
+      "Bomber": [
+        1229,
+        2
+      ],
+      "Carrier": [
+        1237,
+        2
+      ],
+      "Cruiser": [
+        1245,
+        2
+      ],
+      "Fighter": [
+        1255,
+        3
+      ],
+      "Infantry": [
+        1270,
+        4
+      ],
+      "Lander": [
+        1280,
+        2
+      ],
+      "MdTank": [
+        1292,
+        3
+      ],
+      "Mech": [
+        1305,
+        4
+      ],
+      "MegaTank": [
+        1319,
+        3
+      ],
+      "Missile": [
+        1330,
+        3
+      ],
+      "Neotank": [
+        1343,
+        3
+      ],
+      "Piperunner": [
+        1354,
+        3
+      ],
+      "Recon": [
+        1367,
+        3
+      ],
+      "Rocket": [
+        1378,
+        3
+      ],
+      "Stealth": [
+        1389,
+        3
+      ],
+      "Sub": [
+        1400,
+        2
+      ],
+      "TCopter": [
+        1412,
+        3
+      ],
+      "Tank": [
+        1423,
+        2
+      ]
+    },
+    "BrownDesert": {
+      "APC": [
+        1448,
+        3
+      ],
+      "AntiAir": [
+        1435,
+        3
+      ],
+      "Artillery": [
+        1461,
+        3
+      ],
+      "BCopter": [
+        1470,
+        2
+      ],
+      "Battleship": [
+        1480,
+        2
+      ],
+      "BlackBoat": [
+        1492,
+        3
+      ],
+      "BlackBomb": [
+        1503,
+        3
+      ],
+      "Bomber": [
+        1514,
+        2
+      ],
+      "Carrier": [
+        1522,
+        2
+      ],
+      "Cruiser": [
+        1530,
+        2
+      ],
+      "Fighter": [
+        1540,
+        3
+      ],
+      "Infantry": [
+        1555,
+        4
+      ],
+      "Lander": [
+        1565,
+        2
+      ],
+      "MdTank": [
+        1577,
+        3
+      ],
+      "Mech": [
+        1590,
+        4
+      ],
+      "MegaTank": [
+        1604,
+        3
+      ],
+      "Missile": [
+        1615,
+        3
+      ],
+      "Neotank": [
+        1628,
+        3
+      ],
+      "Piperunner": [
+        1639,
+        3
+      ],
+      "Recon": [
+        1652,
+        3
+      ],
+      "Rocket": [
+        1663,
+        3
+      ],
+      "Stealth": [
+        1674,
+        3
+      ],
+      "Sub": [
+        1685,
+        2
+      ],
+      "TCopter": [
+        1697,
+        3
+      ],
+      "Tank": [
+        1708,
+        2
+      ]
+    },
+    "CobaltIce": {
+      "APC": [
+        1733,
+        3
+      ],
+      "AntiAir": [
+        1720,
+        3
+      ],
+      "Artillery": [
+        1746,
+        3
+      ],
+      "BCopter": [
+        1755,
+        2
+      ],
+      "Battleship": [
+        1765,
+        2
+      ],
+      "BlackBoat": [
+        1777,
+        3
+      ],
+      "BlackBomb": [
+        1788,
+        3
+      ],
+      "Bomber": [
+        1799,
+        2
+      ],
+      "Carrier": [
+        1807,
+        2
+      ],
+      "Cruiser": [
+        1815,
+        2
+      ],
+      "Fighter": [
+        1825,
+        3
+      ],
+      "Infantry": [
+        1840,
+        4
+      ],
+      "Lander": [
+        1850,
+        2
+      ],
+      "MdTank": [
+        1862,
+        3
+      ],
+      "Mech": [
+        1875,
+        4
+      ],
+      "MegaTank": [
+        1889,
+        3
+      ],
+      "Missile": [
+        1900,
+        3
+      ],
+      "Neotank": [
+        1913,
+        3
+      ],
+      "Piperunner": [
+        1924,
+        3
+      ],
+      "Recon": [
+        1937,
+        3
+      ],
+      "Rocket": [
+        1948,
+        3
+      ],
+      "Stealth": [
+        1959,
+        3
+      ],
+      "Sub": [
+        1970,
+        2
+      ],
+      "TCopter": [
+        1982,
+        3
+      ],
+      "Tank": [
+        1993,
+        2
+      ]
+    },
+    "GreenEarth": {
+      "APC": [
+        2018,
+        3
+      ],
+      "AntiAir": [
+        2005,
+        3
+      ],
+      "Artillery": [
+        2031,
+        3
+      ],
+      "BCopter": [
+        2040,
+        2
+      ],
+      "Battleship": [
+        2050,
+        2
+      ],
+      "BlackBoat": [
+        2062,
+        3
+      ],
+      "BlackBomb": [
+        2073,
+        3
+      ],
+      "Bomber": [
+        2084,
+        2
+      ],
+      "Carrier": [
+        2092,
+        2
+      ],
+      "Cruiser": [
+        2100,
+        2
+      ],
+      "Fighter": [
+        2110,
+        3
+      ],
+      "Infantry": [
+        2125,
+        4
+      ],
+      "Lander": [
+        2135,
+        2
+      ],
+      "MdTank": [
+        2147,
+        3
+      ],
+      "Mech": [
+        2160,
+        4
+      ],
+      "MegaTank": [
+        2174,
+        3
+      ],
+      "Missile": [
+        2185,
+        3
+      ],
+      "Neotank": [
+        2198,
+        3
+      ],
+      "Piperunner": [
+        2209,
+        3
+      ],
+      "Recon": [
+        2222,
+        3
+      ],
+      "Rocket": [
+        2233,
+        3
+      ],
+      "Stealth": [
+        2244,
+        3
+      ],
+      "Sub": [
+        2255,
+        2
+      ],
+      "TCopter": [
+        2267,
+        3
+      ],
+      "Tank": [
+        2278,
+        2
+      ]
+    },
+    "GreySky": {
+      "APC": [
+        2303,
+        3
+      ],
+      "AntiAir": [
+        2290,
+        3
+      ],
+      "Artillery": [
+        2316,
+        3
+      ],
+      "BCopter": [
+        2325,
+        2
+      ],
+      "Battleship": [
+        2335,
+        2
+      ],
+      "BlackBoat": [
+        2347,
+        3
+      ],
+      "BlackBomb": [
+        2358,
+        3
+      ],
+      "Bomber": [
+        2369,
+        2
+      ],
+      "Carrier": [
+        2377,
+        2
+      ],
+      "Cruiser": [
+        2385,
+        2
+      ],
+      "Fighter": [
+        2395,
+        3
+      ],
+      "Infantry": [
+        2410,
+        4
+      ],
+      "Lander": [
+        2420,
+        2
+      ],
+      "MdTank": [
+        2432,
+        3
+      ],
+      "Mech": [
+        2445,
+        4
+      ],
+      "MegaTank": [
+        2459,
+        3
+      ],
+      "Missile": [
+        2470,
+        3
+      ],
+      "Neotank": [
+        2483,
+        3
+      ],
+      "Piperunner": [
+        2494,
+        3
+      ],
+      "Recon": [
+        2507,
+        3
+      ],
+      "Rocket": [
+        2518,
+        3
+      ],
+      "Stealth": [
+        2529,
+        3
+      ],
+      "Sub": [
+        2540,
+        2
+      ],
+      "TCopter": [
+        2552,
+        3
+      ],
+      "Tank": [
+        2563,
+        2
+      ]
+    },
+    "JadeSun": {
+      "APC": [
+        2588,
+        3
+      ],
+      "AntiAir": [
+        2575,
+        3
+      ],
+      "Artillery": [
+        2601,
+        3
+      ],
+      "BCopter": [
+        2610,
+        2
+      ],
+      "Battleship": [
+        2620,
+        2
+      ],
+      "BlackBoat": [
+        2632,
+        3
+      ],
+      "BlackBomb": [
+        2643,
+        3
+      ],
+      "Bomber": [
+        2654,
+        2
+      ],
+      "Carrier": [
+        2662,
+        2
+      ],
+      "Cruiser": [
+        2670,
+        2
+      ],
+      "Fighter": [
+        2680,
+        3
+      ],
+      "Infantry": [
+        2695,
+        4
+      ],
+      "Lander": [
+        2705,
+        2
+      ],
+      "MdTank": [
+        2717,
+        3
+      ],
+      "Mech": [
+        2730,
+        4
+      ],
+      "MegaTank": [
+        2744,
+        3
+      ],
+      "Missile": [
+        2755,
+        3
+      ],
+      "Neotank": [
+        2768,
+        3
+      ],
+      "Piperunner": [
+        2779,
+        3
+      ],
+      "Recon": [
+        2792,
+        3
+      ],
+      "Rocket": [
+        2803,
+        3
+      ],
+      "Stealth": [
+        2814,
+        3
+      ],
+      "Sub": [
+        2825,
+        2
+      ],
+      "TCopter": [
+        2837,
+        3
+      ],
+      "Tank": [
+        2848,
+        2
+      ]
+    },
+    "NoirEclipse": {
+      "APC": [
+        2873,
+        3
+      ],
+      "AntiAir": [
+        2860,
+        3
+      ],
+      "Artillery": [
+        2886,
+        3
+      ],
+      "BCopter": [
+        2895,
+        2
+      ],
+      "Battleship": [
+        2905,
+        2
+      ],
+      "BlackBoat": [
+        2917,
+        3
+      ],
+      "BlackBomb": [
+        2928,
+        3
+      ],
+      "Bomber": [
+        2939,
+        2
+      ],
+      "Carrier": [
+        2947,
+        2
+      ],
+      "Cruiser": [
+        2955,
+        2
+      ],
+      "Fighter": [
+        2965,
+        3
+      ],
+      "Infantry": [
+        2980,
+        4
+      ],
+      "Lander": [
+        2990,
+        2
+      ],
+      "MdTank": [
+        3002,
+        3
+      ],
+      "Mech": [
+        3015,
+        4
+      ],
+      "MegaTank": [
+        3029,
+        3
+      ],
+      "Missile": [
+        3040,
+        3
+      ],
+      "Neotank": [
+        3053,
+        3
+      ],
+      "Piperunner": [
+        3064,
+        3
+      ],
+      "Recon": [
+        3077,
+        3
+      ],
+      "Rocket": [
+        3088,
+        3
+      ],
+      "Stealth": [
+        3099,
+        3
+      ],
+      "Sub": [
+        3110,
+        2
+      ],
+      "TCopter": [
+        3122,
+        3
+      ],
+      "Tank": [
+        3133,
+        2
+      ]
+    },
+    "OrangeStar": {
+      "APC": [
+        3158,
+        3
+      ],
+      "AntiAir": [
+        3145,
+        3
+      ],
+      "Artillery": [
+        3171,
+        3
+      ],
+      "BCopter": [
+        3180,
+        2
+      ],
+      "Battleship": [
+        3190,
+        2
+      ],
+      "BlackBoat": [
+        3202,
+        3
+      ],
+      "BlackBomb": [
+        3213,
+        3
+      ],
+      "Bomber": [
+        3224,
+        2
+      ],
+      "Carrier": [
+        3232,
+        2
+      ],
+      "Cruiser": [
+        3240,
+        2
+      ],
+      "Fighter": [
+        3250,
+        3
+      ],
+      "Infantry": [
+        3265,
+        4
+      ],
+      "Lander": [
+        3275,
+        2
+      ],
+      "MdTank": [
+        3287,
+        3
+      ],
+      "Mech": [
+        3300,
+        4
+      ],
+      "MegaTank": [
+        3314,
+        3
+      ],
+      "Missile": [
+        3325,
+        3
+      ],
+      "Neotank": [
+        3338,
+        3
+      ],
+      "Piperunner": [
+        3349,
+        3
+      ],
+      "Recon": [
+        3362,
+        3
+      ],
+      "Rocket": [
+        3373,
+        3
+      ],
+      "Stealth": [
+        3384,
+        3
+      ],
+      "Sub": [
+        3395,
+        2
+      ],
+      "TCopter": [
+        3407,
+        3
+      ],
+      "Tank": [
+        3418,
+        2
+      ]
+    },
+    "PinkCosmos": {
+      "APC": [
+        3443,
+        3
+      ],
+      "AntiAir": [
+        3430,
+        3
+      ],
+      "Artillery": [
+        3456,
+        3
+      ],
+      "BCopter": [
+        3465,
+        2
+      ],
+      "Battleship": [
+        3475,
+        2
+      ],
+      "BlackBoat": [
+        3487,
+        3
+      ],
+      "BlackBomb": [
+        3498,
+        3
+      ],
+      "Bomber": [
+        3509,
+        2
+      ],
+      "Carrier": [
+        3517,
+        2
+      ],
+      "Cruiser": [
+        3525,
+        2
+      ],
+      "Fighter": [
+        3535,
+        3
+      ],
+      "Infantry": [
+        3550,
+        4
+      ],
+      "Lander": [
+        3560,
+        2
+      ],
+      "MdTank": [
+        3572,
+        3
+      ],
+      "Mech": [
+        3585,
+        4
+      ],
+      "MegaTank": [
+        3599,
+        3
+      ],
+      "Missile": [
+        3610,
+        3
+      ],
+      "Neotank": [
+        3623,
+        3
+      ],
+      "Piperunner": [
+        3634,
+        3
+      ],
+      "Recon": [
+        3647,
+        3
+      ],
+      "Rocket": [
+        3658,
+        3
+      ],
+      "Stealth": [
+        3669,
+        3
+      ],
+      "Sub": [
+        3680,
+        2
+      ],
+      "TCopter": [
+        3692,
+        3
+      ],
+      "Tank": [
+        3703,
+        2
+      ]
+    },
+    "PurpleLightning": {
+      "APC": [
+        3728,
+        3
+      ],
+      "AntiAir": [
+        3715,
+        3
+      ],
+      "Artillery": [
+        3741,
+        3
+      ],
+      "BCopter": [
+        3750,
+        2
+      ],
+      "Battleship": [
+        3760,
+        2
+      ],
+      "BlackBoat": [
+        3772,
+        3
+      ],
+      "BlackBomb": [
+        3783,
+        3
+      ],
+      "Bomber": [
+        3794,
+        2
+      ],
+      "Carrier": [
+        3802,
+        2
+      ],
+      "Cruiser": [
+        3810,
+        2
+      ],
+      "Fighter": [
+        3820,
+        3
+      ],
+      "Infantry": [
+        3835,
+        4
+      ],
+      "Lander": [
+        3845,
+        2
+      ],
+      "MdTank": [
+        3857,
+        3
+      ],
+      "Mech": [
+        3870,
+        4
+      ],
+      "MegaTank": [
+        3884,
+        3
+      ],
+      "Missile": [
+        3895,
+        3
+      ],
+      "Neotank": [
+        3908,
+        3
+      ],
+      "Piperunner": [
+        3919,
+        3
+      ],
+      "Recon": [
+        3932,
+        3
+      ],
+      "Rocket": [
+        3943,
+        3
+      ],
+      "Stealth": [
+        3954,
+        3
+      ],
+      "Sub": [
+        3965,
+        2
+      ],
+      "TCopter": [
+        3977,
+        3
+      ],
+      "Tank": [
+        3988,
+        2
+      ]
+    },
+    "RedFire": {
+      "APC": [
+        4013,
+        3
+      ],
+      "AntiAir": [
+        4000,
+        3
+      ],
+      "Artillery": [
+        4026,
+        3
+      ],
+      "BCopter": [
+        4035,
+        2
+      ],
+      "Battleship": [
+        4045,
+        2
+      ],
+      "BlackBoat": [
+        4057,
+        3
+      ],
+      "BlackBomb": [
+        4068,
+        3
+      ],
+      "Bomber": [
+        4079,
+        2
+      ],
+      "Carrier": [
+        4087,
+        2
+      ],
+      "Cruiser": [
+        4095,
+        2
+      ],
+      "Fighter": [
+        4105,
+        3
+      ],
+      "Infantry": [
+        4120,
+        4
+      ],
+      "Lander": [
+        4130,
+        2
+      ],
+      "MdTank": [
+        4142,
+        3
+      ],
+      "Mech": [
+        4155,
+        4
+      ],
+      "MegaTank": [
+        4169,
+        3
+      ],
+      "Missile": [
+        4180,
+        3
+      ],
+      "Neotank": [
+        4193,
+        3
+      ],
+      "Piperunner": [
+        4204,
+        3
+      ],
+      "Recon": [
+        4217,
+        3
+      ],
+      "Rocket": [
+        4228,
+        3
+      ],
+      "Stealth": [
+        4239,
+        3
+      ],
+      "Sub": [
+        4250,
+        2
+      ],
+      "TCopter": [
+        4262,
+        3
+      ],
+      "Tank": [
+        4273,
+        2
+      ]
+    },
+    "SilverClaw": {
+      "APC": [
+        4298,
+        3
+      ],
+      "AntiAir": [
+        4285,
+        3
+      ],
+      "Artillery": [
+        4311,
+        3
+      ],
+      "BCopter": [
+        4320,
+        2
+      ],
+      "Battleship": [
+        4330,
+        2
+      ],
+      "BlackBoat": [
+        4342,
+        3
+      ],
+      "BlackBomb": [
+        4353,
+        3
+      ],
+      "Bomber": [
+        4364,
+        2
+      ],
+      "Carrier": [
+        4372,
+        2
+      ],
+      "Cruiser": [
+        4380,
+        2
+      ],
+      "Fighter": [
+        4390,
+        3
+      ],
+      "Infantry": [
+        4405,
+        4
+      ],
+      "Lander": [
+        4415,
+        2
+      ],
+      "MdTank": [
+        4427,
+        3
+      ],
+      "Mech": [
+        4440,
+        4
+      ],
+      "MegaTank": [
+        4454,
+        3
+      ],
+      "Missile": [
+        4465,
+        3
+      ],
+      "Neotank": [
+        4478,
+        3
+      ],
+      "Piperunner": [
+        4489,
+        3
+      ],
+      "Recon": [
+        4502,
+        3
+      ],
+      "Rocket": [
+        4513,
+        3
+      ],
+      "Stealth": [
+        4524,
+        3
+      ],
+      "Sub": [
+        4535,
+        2
+      ],
+      "TCopter": [
+        4547,
+        3
+      ],
+      "Tank": [
+        4558,
+        2
+      ]
+    },
+    "TealGalaxy": {
+      "APC": [
+        4583,
+        3
+      ],
+      "AntiAir": [
+        4570,
+        3
+      ],
+      "Artillery": [
+        4596,
+        3
+      ],
+      "BCopter": [
+        4605,
+        2
+      ],
+      "Battleship": [
+        4615,
+        2
+      ],
+      "BlackBoat": [
+        4627,
+        3
+      ],
+      "BlackBomb": [
+        4638,
+        3
+      ],
+      "Bomber": [
+        4649,
+        2
+      ],
+      "Carrier": [
+        4657,
+        2
+      ],
+      "Cruiser": [
+        4665,
+        2
+      ],
+      "Fighter": [
+        4675,
+        3
+      ],
+      "Infantry": [
+        4690,
+        4
+      ],
+      "Lander": [
+        4700,
+        2
+      ],
+      "MdTank": [
+        4712,
+        3
+      ],
+      "Mech": [
+        4725,
+        4
+      ],
+      "MegaTank": [
+        4739,
+        3
+      ],
+      "Missile": [
+        4750,
+        3
+      ],
+      "Neotank": [
+        4763,
+        3
+      ],
+      "Piperunner": [
+        4774,
+        3
+      ],
+      "Recon": [
+        4787,
+        3
+      ],
+      "Rocket": [
+        4798,
+        3
+      ],
+      "Stealth": [
+        4809,
+        3
+      ],
+      "Sub": [
+        4820,
+        2
+      ],
+      "TCopter": [
+        4832,
+        3
+      ],
+      "Tank": [
+        4843,
+        2
+      ]
+    },
+    "WhiteNova": {
+      "APC": [
+        4868,
+        3
+      ],
+      "AntiAir": [
+        4855,
+        3
+      ],
+      "Artillery": [
+        4881,
+        3
+      ],
+      "BCopter": [
+        4890,
+        2
+      ],
+      "Battleship": [
+        4900,
+        2
+      ],
+      "BlackBoat": [
+        4912,
+        3
+      ],
+      "BlackBomb": [
+        4923,
+        3
+      ],
+      "Bomber": [
+        4934,
+        2
+      ],
+      "Carrier": [
+        4942,
+        2
+      ],
+      "Cruiser": [
+        4950,
+        2
+      ],
+      "Fighter": [
+        4960,
+        3
+      ],
+      "Infantry": [
+        4975,
+        4
+      ],
+      "Lander": [
+        4985,
+        2
+      ],
+      "MdTank": [
+        4997,
+        3
+      ],
+      "Mech": [
+        5010,
+        4
+      ],
+      "MegaTank": [
+        5024,
+        3
+      ],
+      "Missile": [
+        5035,
+        3
+      ],
+      "Neotank": [
+        5048,
+        3
+      ],
+      "Piperunner": [
+        5059,
+        3
+      ],
+      "Recon": [
+        5072,
+        3
+      ],
+      "Rocket": [
+        5083,
+        3
+      ],
+      "Stealth": [
+        5094,
+        3
+      ],
+      "Sub": [
+        5105,
+        2
+      ],
+      "TCopter": [
+        5117,
+        3
+      ],
+      "Tank": [
+        5128,
+        2
+      ]
+    },
+    "YellowComet": {
+      "APC": [
+        5153,
+        3
+      ],
+      "AntiAir": [
+        5140,
+        3
+      ],
+      "Artillery": [
+        5166,
+        3
+      ],
+      "BCopter": [
+        5175,
+        2
+      ],
+      "Battleship": [
+        5185,
+        2
+      ],
+      "BlackBoat": [
+        5197,
+        3
+      ],
+      "BlackBomb": [
+        5208,
+        3
+      ],
+      "Bomber": [
+        5219,
+        2
+      ],
+      "Carrier": [
+        5227,
+        2
+      ],
+      "Cruiser": [
+        5235,
+        2
+      ],
+      "Fighter": [
+        5245,
+        3
+      ],
+      "Infantry": [
+        5260,
+        4
+      ],
+      "Lander": [
+        5270,
+        2
+      ],
+      "MdTank": [
+        5282,
+        3
+      ],
+      "Mech": [
+        5295,
+        4
+      ],
+      "MegaTank": [
+        5309,
+        3
+      ],
+      "Missile": [
+        5320,
+        3
+      ],
+      "Neotank": [
+        5333,
+        3
+      ],
+      "Piperunner": [
+        5344,
+        3
+      ],
+      "Recon": [
+        5357,
+        3
+      ],
+      "Rocket": [
+        5368,
+        3
+      ],
+      "Stealth": [
+        5379,
+        3
+      ],
+      "Sub": [
+        5390,
+        2
+      ],
+      "TCopter": [
+        5402,
+        3
+      ],
+      "Tank": [
+        5413,
+        2
+      ]
+    }
+  },
+  "None": {
+    "AcidRain": {
+      "APC": [
+        13,
+        4
+      ],
+      "AntiAir": [
+        0,
+        4
+      ],
+      "Artillery": [
+        26,
+        4
+      ],
+      "BCopter": [
+        39,
+        2
+      ],
+      "Battleship": [
+        47,
+        4
+      ],
+      "BlackBoat": [
+        57,
+        4
+      ],
+      "BlackBomb": [
+        70,
+        2
+      ],
+      "Bomber": [
+        81,
+        4
+      ],
+      "Carrier": [
+        91,
+        2
+      ],
+      "Cruiser": [
+        99,
+        2
+      ],
+      "Fighter": [
+        107,
+        2
+      ],
+      "Infantry": [
+        118,
+        4
+      ],
+      "Lander": [
+        134,
+        2
+      ],
+      "MdTank": [
+        142,
+        4
+      ],
+      "Mech": [
+        155,
+        2
+      ],
+      "MegaTank": [
+        169,
+        4
+      ],
+      "Missile": [
+        182,
+        2
+      ],
+      "Neotank": [
+        193,
+        4
+      ],
+      "Piperunner": [
+        206,
+        2
+      ],
+      "Recon": [
+        217,
+        4
+      ],
+      "Rocket": [
+        230,
+        2
+      ],
+      "Stealth": [
+        241,
+        2
+      ],
+      "Sub": [
+        252,
+        4
+      ],
+      "TCopter": [
+        262,
+        4
+      ],
+      "Tank": [
+        275,
+        4
+      ]
+    },
+    "AmberBlaze": {
+      "APC": [
+        298,
+        4
+      ],
+      "AntiAir": [
+        285,
+        4
+      ],
+      "Artillery": [
+        311,
+        4
+      ],
+      "BCopter": [
+        324,
+        2
+      ],
+      "Battleship": [
+        332,
+        4
+      ],
+      "BlackBoat": [
+        342,
+        4
+      ],
+      "BlackBomb": [
+        355,
+        2
+      ],
+      "Bomber": [
+        366,
+        4
+      ],
+      "Carrier": [
+        376,
+        2
+      ],
+      "Cruiser": [
+        384,
+        2
+      ],
+      "Fighter": [
+        392,
+        2
+      ],
+      "Infantry": [
+        403,
+        4
+      ],
+      "Lander": [
+        419,
+        2
+      ],
+      "MdTank": [
+        427,
+        4
+      ],
+      "Mech": [
+        440,
+        2
+      ],
+      "MegaTank": [
+        454,
+        4
+      ],
+      "Missile": [
+        467,
+        2
+      ],
+      "Neotank": [
+        478,
+        4
+      ],
+      "Piperunner": [
+        491,
+        2
+      ],
+      "Recon": [
+        502,
+        4
+      ],
+      "Rocket": [
+        515,
+        2
+      ],
+      "Stealth": [
+        526,
+        2
+      ],
+      "Sub": [
+        537,
+        4
+      ],
+      "TCopter": [
+        547,
+        4
+      ],
+      "Tank": [
+        560,
+        4
+      ]
+    },
+    "AzureAsteroid": {
+      "APC": [
+        583,
+        4
+      ],
+      "AntiAir": [
+        570,
+        4
+      ],
+      "Artillery": [
+        596,
+        4
+      ],
+      "BCopter": [
+        609,
+        2
+      ],
+      "Battleship": [
+        617,
+        4
+      ],
+      "BlackBoat": [
+        627,
+        4
+      ],
+      "BlackBomb": [
+        640,
+        2
+      ],
+      "Bomber": [
+        651,
+        4
+      ],
+      "Carrier": [
+        661,
+        2
+      ],
+      "Cruiser": [
+        669,
+        2
+      ],
+      "Fighter": [
+        677,
+        2
+      ],
+      "Infantry": [
+        688,
+        4
+      ],
+      "Lander": [
+        704,
+        2
+      ],
+      "MdTank": [
+        712,
+        4
+      ],
+      "Mech": [
+        725,
+        2
+      ],
+      "MegaTank": [
+        739,
+        4
+      ],
+      "Missile": [
+        752,
+        2
+      ],
+      "Neotank": [
+        763,
+        4
+      ],
+      "Piperunner": [
+        776,
+        2
+      ],
+      "Recon": [
+        787,
+        4
+      ],
+      "Rocket": [
+        800,
+        2
+      ],
+      "Stealth": [
+        811,
+        2
+      ],
+      "Sub": [
+        822,
+        4
+      ],
+      "TCopter": [
+        832,
+        4
+      ],
+      "Tank": [
+        845,
+        4
+      ]
+    },
+    "BlackHole": {
+      "APC": [
+        868,
+        4
+      ],
+      "AntiAir": [
+        855,
+        4
+      ],
+      "Artillery": [
+        881,
+        4
+      ],
+      "BCopter": [
+        894,
+        2
+      ],
+      "Battleship": [
+        902,
+        4
+      ],
+      "BlackBoat": [
+        912,
+        4
+      ],
+      "BlackBomb": [
+        925,
+        2
+      ],
+      "Bomber": [
+        936,
+        4
+      ],
+      "Carrier": [
+        946,
+        2
+      ],
+      "Cruiser": [
+        954,
+        2
+      ],
+      "Fighter": [
+        962,
+        2
+      ],
+      "Infantry": [
+        973,
+        4
+      ],
+      "Lander": [
+        989,
+        2
+      ],
+      "MdTank": [
+        997,
+        4
+      ],
+      "Mech": [
+        1010,
+        2
+      ],
+      "MegaTank": [
+        1024,
+        4
+      ],
+      "Missile": [
+        1037,
+        2
+      ],
+      "Neotank": [
+        1048,
+        4
+      ],
+      "Piperunner": [
+        1061,
+        2
+      ],
+      "Recon": [
+        1072,
+        4
+      ],
+      "Rocket": [
+        1085,
+        2
+      ],
+      "Stealth": [
+        1096,
+        2
+      ],
+      "Sub": [
+        1107,
+        4
+      ],
+      "TCopter": [
+        1117,
+        4
+      ],
+      "Tank": [
+        1130,
+        4
+      ]
+    },
+    "BlueMoon": {
+      "APC": [
+        1153,
+        4
+      ],
+      "AntiAir": [
+        1140,
+        4
+      ],
+      "Artillery": [
+        1166,
+        4
+      ],
+      "BCopter": [
+        1179,
+        2
+      ],
+      "Battleship": [
+        1187,
+        4
+      ],
+      "BlackBoat": [
+        1197,
+        4
+      ],
+      "BlackBomb": [
+        1210,
+        2
+      ],
+      "Bomber": [
+        1221,
+        4
+      ],
+      "Carrier": [
+        1231,
+        2
+      ],
+      "Cruiser": [
+        1239,
+        2
+      ],
+      "Fighter": [
+        1247,
+        2
+      ],
+      "Infantry": [
+        1258,
+        4
+      ],
+      "Lander": [
+        1274,
+        2
+      ],
+      "MdTank": [
+        1282,
+        4
+      ],
+      "Mech": [
+        1295,
+        2
+      ],
+      "MegaTank": [
+        1309,
+        4
+      ],
+      "Missile": [
+        1322,
+        2
+      ],
+      "Neotank": [
+        1333,
+        4
+      ],
+      "Piperunner": [
+        1346,
+        2
+      ],
+      "Recon": [
+        1357,
+        4
+      ],
+      "Rocket": [
+        1370,
+        2
+      ],
+      "Stealth": [
+        1381,
+        2
+      ],
+      "Sub": [
+        1392,
+        4
+      ],
+      "TCopter": [
+        1402,
+        4
+      ],
+      "Tank": [
+        1415,
+        4
+      ]
+    },
+    "BrownDesert": {
+      "APC": [
+        1438,
+        4
+      ],
+      "AntiAir": [
+        1425,
+        4
+      ],
+      "Artillery": [
+        1451,
+        4
+      ],
+      "BCopter": [
+        1464,
+        2
+      ],
+      "Battleship": [
+        1472,
+        4
+      ],
+      "BlackBoat": [
+        1482,
+        4
+      ],
+      "BlackBomb": [
+        1495,
+        2
+      ],
+      "Bomber": [
+        1506,
+        4
+      ],
+      "Carrier": [
+        1516,
+        2
+      ],
+      "Cruiser": [
+        1524,
+        2
+      ],
+      "Fighter": [
+        1532,
+        2
+      ],
+      "Infantry": [
+        1543,
+        4
+      ],
+      "Lander": [
+        1559,
+        2
+      ],
+      "MdTank": [
+        1567,
+        4
+      ],
+      "Mech": [
+        1580,
+        2
+      ],
+      "MegaTank": [
+        1594,
+        4
+      ],
+      "Missile": [
+        1607,
+        2
+      ],
+      "Neotank": [
+        1618,
+        4
+      ],
+      "Piperunner": [
+        1631,
+        2
+      ],
+      "Recon": [
+        1642,
+        4
+      ],
+      "Rocket": [
+        1655,
+        2
+      ],
+      "Stealth": [
+        1666,
+        2
+      ],
+      "Sub": [
+        1677,
+        4
+      ],
+      "TCopter": [
+        1687,
+        4
+      ],
+      "Tank": [
+        1700,
+        4
+      ]
+    },
+    "CobaltIce": {
+      "APC": [
+        1723,
+        4
+      ],
+      "AntiAir": [
+        1710,
+        4
+      ],
+      "Artillery": [
+        1736,
+        4
+      ],
+      "BCopter": [
+        1749,
+        2
+      ],
+      "Battleship": [
+        1757,
+        4
+      ],
+      "BlackBoat": [
+        1767,
+        4
+      ],
+      "BlackBomb": [
+        1780,
+        2
+      ],
+      "Bomber": [
+        1791,
+        4
+      ],
+      "Carrier": [
+        1801,
+        2
+      ],
+      "Cruiser": [
+        1809,
+        2
+      ],
+      "Fighter": [
+        1817,
+        2
+      ],
+      "Infantry": [
+        1828,
+        4
+      ],
+      "Lander": [
+        1844,
+        2
+      ],
+      "MdTank": [
+        1852,
+        4
+      ],
+      "Mech": [
+        1865,
+        2
+      ],
+      "MegaTank": [
+        1879,
+        4
+      ],
+      "Missile": [
+        1892,
+        2
+      ],
+      "Neotank": [
+        1903,
+        4
+      ],
+      "Piperunner": [
+        1916,
+        2
+      ],
+      "Recon": [
+        1927,
+        4
+      ],
+      "Rocket": [
+        1940,
+        2
+      ],
+      "Stealth": [
+        1951,
+        2
+      ],
+      "Sub": [
+        1962,
+        4
+      ],
+      "TCopter": [
+        1972,
+        4
+      ],
+      "Tank": [
+        1985,
+        4
+      ]
+    },
+    "GreenEarth": {
+      "APC": [
+        2008,
+        4
+      ],
+      "AntiAir": [
+        1995,
+        4
+      ],
+      "Artillery": [
+        2021,
+        4
+      ],
+      "BCopter": [
+        2034,
+        2
+      ],
+      "Battleship": [
+        2042,
+        4
+      ],
+      "BlackBoat": [
+        2052,
+        4
+      ],
+      "BlackBomb": [
+        2065,
+        2
+      ],
+      "Bomber": [
+        2076,
+        4
+      ],
+      "Carrier": [
+        2086,
+        2
+      ],
+      "Cruiser": [
+        2094,
+        2
+      ],
+      "Fighter": [
+        2102,
+        2
+      ],
+      "Infantry": [
+        2113,
+        4
+      ],
+      "Lander": [
+        2129,
+        2
+      ],
+      "MdTank": [
+        2137,
+        4
+      ],
+      "Mech": [
+        2150,
+        2
+      ],
+      "MegaTank": [
+        2164,
+        4
+      ],
+      "Missile": [
+        2177,
+        2
+      ],
+      "Neotank": [
+        2188,
+        4
+      ],
+      "Piperunner": [
+        2201,
+        2
+      ],
+      "Recon": [
+        2212,
+        4
+      ],
+      "Rocket": [
+        2225,
+        2
+      ],
+      "Stealth": [
+        2236,
+        2
+      ],
+      "Sub": [
+        2247,
+        4
+      ],
+      "TCopter": [
+        2257,
+        4
+      ],
+      "Tank": [
+        2270,
+        4
+      ]
+    },
+    "GreySky": {
+      "APC": [
+        2293,
+        4
+      ],
+      "AntiAir": [
+        2280,
+        4
+      ],
+      "Artillery": [
+        2306,
+        4
+      ],
+      "BCopter": [
+        2319,
+        2
+      ],
+      "Battleship": [
+        2327,
+        4
+      ],
+      "BlackBoat": [
+        2337,
+        4
+      ],
+      "BlackBomb": [
+        2350,
+        2
+      ],
+      "Bomber": [
+        2361,
+        4
+      ],
+      "Carrier": [
+        2371,
+        2
+      ],
+      "Cruiser": [
+        2379,
+        2
+      ],
+      "Fighter": [
+        2387,
+        2
+      ],
+      "Infantry": [
+        2398,
+        4
+      ],
+      "Lander": [
+        2414,
+        2
+      ],
+      "MdTank": [
+        2422,
+        4
+      ],
+      "Mech": [
+        2435,
+        2
+      ],
+      "MegaTank": [
+        2449,
+        4
+      ],
+      "Missile": [
+        2462,
+        2
+      ],
+      "Neotank": [
+        2473,
+        4
+      ],
+      "Piperunner": [
+        2486,
+        2
+      ],
+      "Recon": [
+        2497,
+        4
+      ],
+      "Rocket": [
+        2510,
+        2
+      ],
+      "Stealth": [
+        2521,
+        2
+      ],
+      "Sub": [
+        2532,
+        4
+      ],
+      "TCopter": [
+        2542,
+        4
+      ],
+      "Tank": [
+        2555,
+        4
+      ]
+    },
+    "JadeSun": {
+      "APC": [
+        2578,
+        4
+      ],
+      "AntiAir": [
+        2565,
+        4
+      ],
+      "Artillery": [
+        2591,
+        4
+      ],
+      "BCopter": [
+        2604,
+        2
+      ],
+      "Battleship": [
+        2612,
+        4
+      ],
+      "BlackBoat": [
+        2622,
+        4
+      ],
+      "BlackBomb": [
+        2635,
+        2
+      ],
+      "Bomber": [
+        2646,
+        4
+      ],
+      "Carrier": [
+        2656,
+        2
+      ],
+      "Cruiser": [
+        2664,
+        2
+      ],
+      "Fighter": [
+        2672,
+        2
+      ],
+      "Infantry": [
+        2683,
+        4
+      ],
+      "Lander": [
+        2699,
+        2
+      ],
+      "MdTank": [
+        2707,
+        4
+      ],
+      "Mech": [
+        2720,
+        2
+      ],
+      "MegaTank": [
+        2734,
+        4
+      ],
+      "Missile": [
+        2747,
+        2
+      ],
+      "Neotank": [
+        2758,
+        4
+      ],
+      "Piperunner": [
+        2771,
+        2
+      ],
+      "Recon": [
+        2782,
+        4
+      ],
+      "Rocket": [
+        2795,
+        2
+      ],
+      "Stealth": [
+        2806,
+        2
+      ],
+      "Sub": [
+        2817,
+        4
+      ],
+      "TCopter": [
+        2827,
+        4
+      ],
+      "Tank": [
+        2840,
+        4
+      ]
+    },
+    "NoirEclipse": {
+      "APC": [
+        2863,
+        4
+      ],
+      "AntiAir": [
+        2850,
+        4
+      ],
+      "Artillery": [
+        2876,
+        4
+      ],
+      "BCopter": [
+        2889,
+        2
+      ],
+      "Battleship": [
+        2897,
+        4
+      ],
+      "BlackBoat": [
+        2907,
+        4
+      ],
+      "BlackBomb": [
+        2920,
+        2
+      ],
+      "Bomber": [
+        2931,
+        4
+      ],
+      "Carrier": [
+        2941,
+        2
+      ],
+      "Cruiser": [
+        2949,
+        2
+      ],
+      "Fighter": [
+        2957,
+        2
+      ],
+      "Infantry": [
+        2968,
+        4
+      ],
+      "Lander": [
+        2984,
+        2
+      ],
+      "MdTank": [
+        2992,
+        4
+      ],
+      "Mech": [
+        3005,
+        2
+      ],
+      "MegaTank": [
+        3019,
+        4
+      ],
+      "Missile": [
+        3032,
+        2
+      ],
+      "Neotank": [
+        3043,
+        4
+      ],
+      "Piperunner": [
+        3056,
+        2
+      ],
+      "Recon": [
+        3067,
+        4
+      ],
+      "Rocket": [
+        3080,
+        2
+      ],
+      "Stealth": [
+        3091,
+        2
+      ],
+      "Sub": [
+        3102,
+        4
+      ],
+      "TCopter": [
+        3112,
+        4
+      ],
+      "Tank": [
+        3125,
+        4
+      ]
+    },
+    "OrangeStar": {
+      "APC": [
+        3148,
+        4
+      ],
+      "AntiAir": [
+        3135,
+        4
+      ],
+      "Artillery": [
+        3161,
+        4
+      ],
+      "BCopter": [
+        3174,
+        2
+      ],
+      "Battleship": [
+        3182,
+        4
+      ],
+      "BlackBoat": [
+        3192,
+        4
+      ],
+      "BlackBomb": [
+        3205,
+        2
+      ],
+      "Bomber": [
+        3216,
+        4
+      ],
+      "Carrier": [
+        3226,
+        2
+      ],
+      "Cruiser": [
+        3234,
+        2
+      ],
+      "Fighter": [
+        3242,
+        2
+      ],
+      "Infantry": [
+        3253,
+        4
+      ],
+      "Lander": [
+        3269,
+        2
+      ],
+      "MdTank": [
+        3277,
+        4
+      ],
+      "Mech": [
+        3290,
+        2
+      ],
+      "MegaTank": [
+        3304,
+        4
+      ],
+      "Missile": [
+        3317,
+        2
+      ],
+      "Neotank": [
+        3328,
+        4
+      ],
+      "Piperunner": [
+        3341,
+        2
+      ],
+      "Recon": [
+        3352,
+        4
+      ],
+      "Rocket": [
+        3365,
+        2
+      ],
+      "Stealth": [
+        3376,
+        2
+      ],
+      "Sub": [
+        3387,
+        4
+      ],
+      "TCopter": [
+        3397,
+        4
+      ],
+      "Tank": [
+        3410,
+        4
+      ]
+    },
+    "PinkCosmos": {
+      "APC": [
+        3433,
+        4
+      ],
+      "AntiAir": [
+        3420,
+        4
+      ],
+      "Artillery": [
+        3446,
+        4
+      ],
+      "BCopter": [
+        3459,
+        2
+      ],
+      "Battleship": [
+        3467,
+        4
+      ],
+      "BlackBoat": [
+        3477,
+        4
+      ],
+      "BlackBomb": [
+        3490,
+        2
+      ],
+      "Bomber": [
+        3501,
+        4
+      ],
+      "Carrier": [
+        3511,
+        2
+      ],
+      "Cruiser": [
+        3519,
+        2
+      ],
+      "Fighter": [
+        3527,
+        2
+      ],
+      "Infantry": [
+        3538,
+        4
+      ],
+      "Lander": [
+        3554,
+        2
+      ],
+      "MdTank": [
+        3562,
+        4
+      ],
+      "Mech": [
+        3575,
+        2
+      ],
+      "MegaTank": [
+        3589,
+        4
+      ],
+      "Missile": [
+        3602,
+        2
+      ],
+      "Neotank": [
+        3613,
+        4
+      ],
+      "Piperunner": [
+        3626,
+        2
+      ],
+      "Recon": [
+        3637,
+        4
+      ],
+      "Rocket": [
+        3650,
+        2
+      ],
+      "Stealth": [
+        3661,
+        2
+      ],
+      "Sub": [
+        3672,
+        4
+      ],
+      "TCopter": [
+        3682,
+        4
+      ],
+      "Tank": [
+        3695,
+        4
+      ]
+    },
+    "PurpleLightning": {
+      "APC": [
+        3718,
+        4
+      ],
+      "AntiAir": [
+        3705,
+        4
+      ],
+      "Artillery": [
+        3731,
+        4
+      ],
+      "BCopter": [
+        3744,
+        2
+      ],
+      "Battleship": [
+        3752,
+        4
+      ],
+      "BlackBoat": [
+        3762,
+        4
+      ],
+      "BlackBomb": [
+        3775,
+        2
+      ],
+      "Bomber": [
+        3786,
+        4
+      ],
+      "Carrier": [
+        3796,
+        2
+      ],
+      "Cruiser": [
+        3804,
+        2
+      ],
+      "Fighter": [
+        3812,
+        2
+      ],
+      "Infantry": [
+        3823,
+        4
+      ],
+      "Lander": [
+        3839,
+        2
+      ],
+      "MdTank": [
+        3847,
+        4
+      ],
+      "Mech": [
+        3860,
+        2
+      ],
+      "MegaTank": [
+        3874,
+        4
+      ],
+      "Missile": [
+        3887,
+        2
+      ],
+      "Neotank": [
+        3898,
+        4
+      ],
+      "Piperunner": [
+        3911,
+        2
+      ],
+      "Recon": [
+        3922,
+        4
+      ],
+      "Rocket": [
+        3935,
+        2
+      ],
+      "Stealth": [
+        3946,
+        2
+      ],
+      "Sub": [
+        3957,
+        4
+      ],
+      "TCopter": [
+        3967,
+        4
+      ],
+      "Tank": [
+        3980,
+        4
+      ]
+    },
+    "RedFire": {
+      "APC": [
+        4003,
+        4
+      ],
+      "AntiAir": [
+        3990,
+        4
+      ],
+      "Artillery": [
+        4016,
+        4
+      ],
+      "BCopter": [
+        4029,
+        2
+      ],
+      "Battleship": [
+        4037,
+        4
+      ],
+      "BlackBoat": [
+        4047,
+        4
+      ],
+      "BlackBomb": [
+        4060,
+        2
+      ],
+      "Bomber": [
+        4071,
+        4
+      ],
+      "Carrier": [
+        4081,
+        2
+      ],
+      "Cruiser": [
+        4089,
+        2
+      ],
+      "Fighter": [
+        4097,
+        2
+      ],
+      "Infantry": [
+        4108,
+        4
+      ],
+      "Lander": [
+        4124,
+        2
+      ],
+      "MdTank": [
+        4132,
+        4
+      ],
+      "Mech": [
+        4145,
+        2
+      ],
+      "MegaTank": [
+        4159,
+        4
+      ],
+      "Missile": [
+        4172,
+        2
+      ],
+      "Neotank": [
+        4183,
+        4
+      ],
+      "Piperunner": [
+        4196,
+        2
+      ],
+      "Recon": [
+        4207,
+        4
+      ],
+      "Rocket": [
+        4220,
+        2
+      ],
+      "Stealth": [
+        4231,
+        2
+      ],
+      "Sub": [
+        4242,
+        4
+      ],
+      "TCopter": [
+        4252,
+        4
+      ],
+      "Tank": [
+        4265,
+        4
+      ]
+    },
+    "SilverClaw": {
+      "APC": [
+        4288,
+        4
+      ],
+      "AntiAir": [
+        4275,
+        4
+      ],
+      "Artillery": [
+        4301,
+        4
+      ],
+      "BCopter": [
+        4314,
+        2
+      ],
+      "Battleship": [
+        4322,
+        4
+      ],
+      "BlackBoat": [
+        4332,
+        4
+      ],
+      "BlackBomb": [
+        4345,
+        2
+      ],
+      "Bomber": [
+        4356,
+        4
+      ],
+      "Carrier": [
+        4366,
+        2
+      ],
+      "Cruiser": [
+        4374,
+        2
+      ],
+      "Fighter": [
+        4382,
+        2
+      ],
+      "Infantry": [
+        4393,
+        4
+      ],
+      "Lander": [
+        4409,
+        2
+      ],
+      "MdTank": [
+        4417,
+        4
+      ],
+      "Mech": [
+        4430,
+        2
+      ],
+      "MegaTank": [
+        4444,
+        4
+      ],
+      "Missile": [
+        4457,
+        2
+      ],
+      "Neotank": [
+        4468,
+        4
+      ],
+      "Piperunner": [
+        4481,
+        2
+      ],
+      "Recon": [
+        4492,
+        4
+      ],
+      "Rocket": [
+        4505,
+        2
+      ],
+      "Stealth": [
+        4516,
+        2
+      ],
+      "Sub": [
+        4527,
+        4
+      ],
+      "TCopter": [
+        4537,
+        4
+      ],
+      "Tank": [
+        4550,
+        4
+      ]
+    },
+    "TealGalaxy": {
+      "APC": [
+        4573,
+        4
+      ],
+      "AntiAir": [
+        4560,
+        4
+      ],
+      "Artillery": [
+        4586,
+        4
+      ],
+      "BCopter": [
+        4599,
+        2
+      ],
+      "Battleship": [
+        4607,
+        4
+      ],
+      "BlackBoat": [
+        4617,
+        4
+      ],
+      "BlackBomb": [
+        4630,
+        2
+      ],
+      "Bomber": [
+        4641,
+        4
+      ],
+      "Carrier": [
+        4651,
+        2
+      ],
+      "Cruiser": [
+        4659,
+        2
+      ],
+      "Fighter": [
+        4667,
+        2
+      ],
+      "Infantry": [
+        4678,
+        4
+      ],
+      "Lander": [
+        4694,
+        2
+      ],
+      "MdTank": [
+        4702,
+        4
+      ],
+      "Mech": [
+        4715,
+        2
+      ],
+      "MegaTank": [
+        4729,
+        4
+      ],
+      "Missile": [
+        4742,
+        2
+      ],
+      "Neotank": [
+        4753,
+        4
+      ],
+      "Piperunner": [
+        4766,
+        2
+      ],
+      "Recon": [
+        4777,
+        4
+      ],
+      "Rocket": [
+        4790,
+        2
+      ],
+      "Stealth": [
+        4801,
+        2
+      ],
+      "Sub": [
+        4812,
+        4
+      ],
+      "TCopter": [
+        4822,
+        4
+      ],
+      "Tank": [
+        4835,
+        4
+      ]
+    },
+    "WhiteNova": {
+      "APC": [
+        4858,
+        4
+      ],
+      "AntiAir": [
+        4845,
+        4
+      ],
+      "Artillery": [
+        4871,
+        4
+      ],
+      "BCopter": [
+        4884,
+        2
+      ],
+      "Battleship": [
+        4892,
+        4
+      ],
+      "BlackBoat": [
+        4902,
+        4
+      ],
+      "BlackBomb": [
+        4915,
+        2
+      ],
+      "Bomber": [
+        4926,
+        4
+      ],
+      "Carrier": [
+        4936,
+        2
+      ],
+      "Cruiser": [
+        4944,
+        2
+      ],
+      "Fighter": [
+        4952,
+        2
+      ],
+      "Infantry": [
+        4963,
+        4
+      ],
+      "Lander": [
+        4979,
+        2
+      ],
+      "MdTank": [
+        4987,
+        4
+      ],
+      "Mech": [
+        5000,
+        2
+      ],
+      "MegaTank": [
+        5014,
+        4
+      ],
+      "Missile": [
+        5027,
+        2
+      ],
+      "Neotank": [
+        5038,
+        4
+      ],
+      "Piperunner": [
+        5051,
+        2
+      ],
+      "Recon": [
+        5062,
+        4
+      ],
+      "Rocket": [
+        5075,
+        2
+      ],
+      "Stealth": [
+        5086,
+        2
+      ],
+      "Sub": [
+        5097,
+        4
+      ],
+      "TCopter": [
+        5107,
+        4
+      ],
+      "Tank": [
+        5120,
+        4
+      ]
+    },
+    "YellowComet": {
+      "APC": [
+        5143,
+        4
+      ],
+      "AntiAir": [
+        5130,
+        4
+      ],
+      "Artillery": [
+        5156,
+        4
+      ],
+      "BCopter": [
+        5169,
+        2
+      ],
+      "Battleship": [
+        5177,
+        4
+      ],
+      "BlackBoat": [
+        5187,
+        4
+      ],
+      "BlackBomb": [
+        5200,
+        2
+      ],
+      "Bomber": [
+        5211,
+        4
+      ],
+      "Carrier": [
+        5221,
+        2
+      ],
+      "Cruiser": [
+        5229,
+        2
+      ],
+      "Fighter": [
+        5237,
+        2
+      ],
+      "Infantry": [
+        5248,
+        4
+      ],
+      "Lander": [
+        5264,
+        2
+      ],
+      "MdTank": [
+        5272,
+        4
+      ],
+      "Mech": [
+        5285,
+        2
+      ],
+      "MegaTank": [
+        5299,
+        4
+      ],
+      "Missile": [
+        5312,
+        2
+      ],
+      "Neotank": [
+        5323,
+        4
+      ],
+      "Piperunner": [
+        5336,
+        2
+      ],
+      "Recon": [
+        5347,
+        4
+      ],
+      "Rocket": [
+        5360,
+        2
+      ],
+      "Stealth": [
+        5371,
+        2
+      ],
+      "Sub": [
+        5382,
+        4
+      ],
+      "TCopter": [
+        5392,
+        4
+      ],
+      "Tank": [
+        5405,
+        4
+      ]
+    }
+  },
+  "Up": {
+    "AcidRain": {
+      "APC": [
+        17,
+        3
+      ],
+      "AntiAir": [
+        4,
+        3
+      ],
+      "Artillery": [
+        30,
+        3
+      ],
+      "BCopter": [
+        41,
+        2
+      ],
+      "Battleship": [
+        51,
+        2
+      ],
+      "BlackBoat": [
+        61,
+        3
+      ],
+      "BlackBomb": [
+        72,
+        3
+      ],
+      "Bomber": [
+        85,
+        2
+      ],
+      "Carrier": [
+        93,
+        2
+      ],
+      "Cruiser": [
+        101,
+        2
+      ],
+      "Fighter": [
+        109,
+        3
+      ],
+      "Infantry": [
+        122,
+        4
+      ],
+      "Lander": [
+        136,
+        2
+      ],
+      "MdTank": [
+        146,
+        3
+      ],
+      "Mech": [
+        157,
+        4
+      ],
+      "MegaTank": [
+        173,
+        3
+      ],
+      "Missile": [
+        184,
+        3
+      ],
+      "Neotank": [
+        197,
+        3
+      ],
+      "Piperunner": [
+        208,
+        3
+      ],
+      "Recon": [
+        221,
+        3
+      ],
+      "Rocket": [
+        232,
+        3
+      ],
+      "Stealth": [
+        243,
+        3
+      ],
+      "Sub": [
+        256,
+        2
+      ],
+      "TCopter": [
+        266,
+        3
+      ],
+      "Tank": [
+        279,
+        2
+      ]
+    },
+    "AmberBlaze": {
+      "APC": [
+        302,
+        3
+      ],
+      "AntiAir": [
+        289,
+        3
+      ],
+      "Artillery": [
+        315,
+        3
+      ],
+      "BCopter": [
+        326,
+        2
+      ],
+      "Battleship": [
+        336,
+        2
+      ],
+      "BlackBoat": [
+        346,
+        3
+      ],
+      "BlackBomb": [
+        357,
+        3
+      ],
+      "Bomber": [
+        370,
+        2
+      ],
+      "Carrier": [
+        378,
+        2
+      ],
+      "Cruiser": [
+        386,
+        2
+      ],
+      "Fighter": [
+        394,
+        3
+      ],
+      "Infantry": [
+        407,
+        4
+      ],
+      "Lander": [
+        421,
+        2
+      ],
+      "MdTank": [
+        431,
+        3
+      ],
+      "Mech": [
+        442,
+        4
+      ],
+      "MegaTank": [
+        458,
+        3
+      ],
+      "Missile": [
+        469,
+        3
+      ],
+      "Neotank": [
+        482,
+        3
+      ],
+      "Piperunner": [
+        493,
+        3
+      ],
+      "Recon": [
+        506,
+        3
+      ],
+      "Rocket": [
+        517,
+        3
+      ],
+      "Stealth": [
+        528,
+        3
+      ],
+      "Sub": [
+        541,
+        2
+      ],
+      "TCopter": [
+        551,
+        3
+      ],
+      "Tank": [
+        564,
+        2
+      ]
+    },
+    "AzureAsteroid": {
+      "APC": [
+        587,
+        3
+      ],
+      "AntiAir": [
+        574,
+        3
+      ],
+      "Artillery": [
+        600,
+        3
+      ],
+      "BCopter": [
+        611,
+        2
+      ],
+      "Battleship": [
+        621,
+        2
+      ],
+      "BlackBoat": [
+        631,
+        3
+      ],
+      "BlackBomb": [
+        642,
+        3
+      ],
+      "Bomber": [
+        655,
+        2
+      ],
+      "Carrier": [
+        663,
+        2
+      ],
+      "Cruiser": [
+        671,
+        2
+      ],
+      "Fighter": [
+        679,
+        3
+      ],
+      "Infantry": [
+        692,
+        4
+      ],
+      "Lander": [
+        706,
+        2
+      ],
+      "MdTank": [
+        716,
+        3
+      ],
+      "Mech": [
+        727,
+        4
+      ],
+      "MegaTank": [
+        743,
+        3
+      ],
+      "Missile": [
+        754,
+        3
+      ],
+      "Neotank": [
+        767,
+        3
+      ],
+      "Piperunner": [
+        778,
+        3
+      ],
+      "Recon": [
+        791,
+        3
+      ],
+      "Rocket": [
+        802,
+        3
+      ],
+      "Stealth": [
+        813,
+        3
+      ],
+      "Sub": [
+        826,
+        2
+      ],
+      "TCopter": [
+        836,
+        3
+      ],
+      "Tank": [
+        849,
+        2
+      ]
+    },
+    "BlackHole": {
+      "APC": [
+        872,
+        3
+      ],
+      "AntiAir": [
+        859,
+        3
+      ],
+      "Artillery": [
+        885,
+        3
+      ],
+      "BCopter": [
+        896,
+        2
+      ],
+      "Battleship": [
+        906,
+        2
+      ],
+      "BlackBoat": [
+        916,
+        3
+      ],
+      "BlackBomb": [
+        927,
+        3
+      ],
+      "Bomber": [
+        940,
+        2
+      ],
+      "Carrier": [
+        948,
+        2
+      ],
+      "Cruiser": [
+        956,
+        2
+      ],
+      "Fighter": [
+        964,
+        3
+      ],
+      "Infantry": [
+        977,
+        4
+      ],
+      "Lander": [
+        991,
+        2
+      ],
+      "MdTank": [
+        1001,
+        3
+      ],
+      "Mech": [
+        1012,
+        4
+      ],
+      "MegaTank": [
+        1028,
+        3
+      ],
+      "Missile": [
+        1039,
+        3
+      ],
+      "Neotank": [
+        1052,
+        3
+      ],
+      "Piperunner": [
+        1063,
+        3
+      ],
+      "Recon": [
+        1076,
+        3
+      ],
+      "Rocket": [
+        1087,
+        3
+      ],
+      "Stealth": [
+        1098,
+        3
+      ],
+      "Sub": [
+        1111,
+        2
+      ],
+      "TCopter": [
+        1121,
+        3
+      ],
+      "Tank": [
+        1134,
+        2
+      ]
+    },
+    "BlueMoon": {
+      "APC": [
+        1157,
+        3
+      ],
+      "AntiAir": [
+        1144,
+        3
+      ],
+      "Artillery": [
+        1170,
+        3
+      ],
+      "BCopter": [
+        1181,
+        2
+      ],
+      "Battleship": [
+        1191,
+        2
+      ],
+      "BlackBoat": [
+        1201,
+        3
+      ],
+      "BlackBomb": [
+        1212,
+        3
+      ],
+      "Bomber": [
+        1225,
+        2
+      ],
+      "Carrier": [
+        1233,
+        2
+      ],
+      "Cruiser": [
+        1241,
+        2
+      ],
+      "Fighter": [
+        1249,
+        3
+      ],
+      "Infantry": [
+        1262,
+        4
+      ],
+      "Lander": [
+        1276,
+        2
+      ],
+      "MdTank": [
+        1286,
+        3
+      ],
+      "Mech": [
+        1297,
+        4
+      ],
+      "MegaTank": [
+        1313,
+        3
+      ],
+      "Missile": [
+        1324,
+        3
+      ],
+      "Neotank": [
+        1337,
+        3
+      ],
+      "Piperunner": [
+        1348,
+        3
+      ],
+      "Recon": [
+        1361,
+        3
+      ],
+      "Rocket": [
+        1372,
+        3
+      ],
+      "Stealth": [
+        1383,
+        3
+      ],
+      "Sub": [
+        1396,
+        2
+      ],
+      "TCopter": [
+        1406,
+        3
+      ],
+      "Tank": [
+        1419,
+        2
+      ]
+    },
+    "BrownDesert": {
+      "APC": [
+        1442,
+        3
+      ],
+      "AntiAir": [
+        1429,
+        3
+      ],
+      "Artillery": [
+        1455,
+        3
+      ],
+      "BCopter": [
+        1466,
+        2
+      ],
+      "Battleship": [
+        1476,
+        2
+      ],
+      "BlackBoat": [
+        1486,
+        3
+      ],
+      "BlackBomb": [
+        1497,
+        3
+      ],
+      "Bomber": [
+        1510,
+        2
+      ],
+      "Carrier": [
+        1518,
+        2
+      ],
+      "Cruiser": [
+        1526,
+        2
+      ],
+      "Fighter": [
+        1534,
+        3
+      ],
+      "Infantry": [
+        1547,
+        4
+      ],
+      "Lander": [
+        1561,
+        2
+      ],
+      "MdTank": [
+        1571,
+        3
+      ],
+      "Mech": [
+        1582,
+        4
+      ],
+      "MegaTank": [
+        1598,
+        3
+      ],
+      "Missile": [
+        1609,
+        3
+      ],
+      "Neotank": [
+        1622,
+        3
+      ],
+      "Piperunner": [
+        1633,
+        3
+      ],
+      "Recon": [
+        1646,
+        3
+      ],
+      "Rocket": [
+        1657,
+        3
+      ],
+      "Stealth": [
+        1668,
+        3
+      ],
+      "Sub": [
+        1681,
+        2
+      ],
+      "TCopter": [
+        1691,
+        3
+      ],
+      "Tank": [
+        1704,
+        2
+      ]
+    },
+    "CobaltIce": {
+      "APC": [
+        1727,
+        3
+      ],
+      "AntiAir": [
+        1714,
+        3
+      ],
+      "Artillery": [
+        1740,
+        3
+      ],
+      "BCopter": [
+        1751,
+        2
+      ],
+      "Battleship": [
+        1761,
+        2
+      ],
+      "BlackBoat": [
+        1771,
+        3
+      ],
+      "BlackBomb": [
+        1782,
+        3
+      ],
+      "Bomber": [
+        1795,
+        2
+      ],
+      "Carrier": [
+        1803,
+        2
+      ],
+      "Cruiser": [
+        1811,
+        2
+      ],
+      "Fighter": [
+        1819,
+        3
+      ],
+      "Infantry": [
+        1832,
+        4
+      ],
+      "Lander": [
+        1846,
+        2
+      ],
+      "MdTank": [
+        1856,
+        3
+      ],
+      "Mech": [
+        1867,
+        4
+      ],
+      "MegaTank": [
+        1883,
+        3
+      ],
+      "Missile": [
+        1894,
+        3
+      ],
+      "Neotank": [
+        1907,
+        3
+      ],
+      "Piperunner": [
+        1918,
+        3
+      ],
+      "Recon": [
+        1931,
+        3
+      ],
+      "Rocket": [
+        1942,
+        3
+      ],
+      "Stealth": [
+        1953,
+        3
+      ],
+      "Sub": [
+        1966,
+        2
+      ],
+      "TCopter": [
+        1976,
+        3
+      ],
+      "Tank": [
+        1989,
+        2
+      ]
+    },
+    "GreenEarth": {
+      "APC": [
+        2012,
+        3
+      ],
+      "AntiAir": [
+        1999,
+        3
+      ],
+      "Artillery": [
+        2025,
+        3
+      ],
+      "BCopter": [
+        2036,
+        2
+      ],
+      "Battleship": [
+        2046,
+        2
+      ],
+      "BlackBoat": [
+        2056,
+        3
+      ],
+      "BlackBomb": [
+        2067,
+        3
+      ],
+      "Bomber": [
+        2080,
+        2
+      ],
+      "Carrier": [
+        2088,
+        2
+      ],
+      "Cruiser": [
+        2096,
+        2
+      ],
+      "Fighter": [
+        2104,
+        3
+      ],
+      "Infantry": [
+        2117,
+        4
+      ],
+      "Lander": [
+        2131,
+        2
+      ],
+      "MdTank": [
+        2141,
+        3
+      ],
+      "Mech": [
+        2152,
+        4
+      ],
+      "MegaTank": [
+        2168,
+        3
+      ],
+      "Missile": [
+        2179,
+        3
+      ],
+      "Neotank": [
+        2192,
+        3
+      ],
+      "Piperunner": [
+        2203,
+        3
+      ],
+      "Recon": [
+        2216,
+        3
+      ],
+      "Rocket": [
+        2227,
+        3
+      ],
+      "Stealth": [
+        2238,
+        3
+      ],
+      "Sub": [
+        2251,
+        2
+      ],
+      "TCopter": [
+        2261,
+        3
+      ],
+      "Tank": [
+        2274,
+        2
+      ]
+    },
+    "GreySky": {
+      "APC": [
+        2297,
+        3
+      ],
+      "AntiAir": [
+        2284,
+        3
+      ],
+      "Artillery": [
+        2310,
+        3
+      ],
+      "BCopter": [
+        2321,
+        2
+      ],
+      "Battleship": [
+        2331,
+        2
+      ],
+      "BlackBoat": [
+        2341,
+        3
+      ],
+      "BlackBomb": [
+        2352,
+        3
+      ],
+      "Bomber": [
+        2365,
+        2
+      ],
+      "Carrier": [
+        2373,
+        2
+      ],
+      "Cruiser": [
+        2381,
+        2
+      ],
+      "Fighter": [
+        2389,
+        3
+      ],
+      "Infantry": [
+        2402,
+        4
+      ],
+      "Lander": [
+        2416,
+        2
+      ],
+      "MdTank": [
+        2426,
+        3
+      ],
+      "Mech": [
+        2437,
+        4
+      ],
+      "MegaTank": [
+        2453,
+        3
+      ],
+      "Missile": [
+        2464,
+        3
+      ],
+      "Neotank": [
+        2477,
+        3
+      ],
+      "Piperunner": [
+        2488,
+        3
+      ],
+      "Recon": [
+        2501,
+        3
+      ],
+      "Rocket": [
+        2512,
+        3
+      ],
+      "Stealth": [
+        2523,
+        3
+      ],
+      "Sub": [
+        2536,
+        2
+      ],
+      "TCopter": [
+        2546,
+        3
+      ],
+      "Tank": [
+        2559,
+        2
+      ]
+    },
+    "JadeSun": {
+      "APC": [
+        2582,
+        3
+      ],
+      "AntiAir": [
+        2569,
+        3
+      ],
+      "Artillery": [
+        2595,
+        3
+      ],
+      "BCopter": [
+        2606,
+        2
+      ],
+      "Battleship": [
+        2616,
+        2
+      ],
+      "BlackBoat": [
+        2626,
+        3
+      ],
+      "BlackBomb": [
+        2637,
+        3
+      ],
+      "Bomber": [
+        2650,
+        2
+      ],
+      "Carrier": [
+        2658,
+        2
+      ],
+      "Cruiser": [
+        2666,
+        2
+      ],
+      "Fighter": [
+        2674,
+        3
+      ],
+      "Infantry": [
+        2687,
+        4
+      ],
+      "Lander": [
+        2701,
+        2
+      ],
+      "MdTank": [
+        2711,
+        3
+      ],
+      "Mech": [
+        2722,
+        4
+      ],
+      "MegaTank": [
+        2738,
+        3
+      ],
+      "Missile": [
+        2749,
+        3
+      ],
+      "Neotank": [
+        2762,
+        3
+      ],
+      "Piperunner": [
+        2773,
+        3
+      ],
+      "Recon": [
+        2786,
+        3
+      ],
+      "Rocket": [
+        2797,
+        3
+      ],
+      "Stealth": [
+        2808,
+        3
+      ],
+      "Sub": [
+        2821,
+        2
+      ],
+      "TCopter": [
+        2831,
+        3
+      ],
+      "Tank": [
+        2844,
+        2
+      ]
+    },
+    "NoirEclipse": {
+      "APC": [
+        2867,
+        3
+      ],
+      "AntiAir": [
+        2854,
+        3
+      ],
+      "Artillery": [
+        2880,
+        3
+      ],
+      "BCopter": [
+        2891,
+        2
+      ],
+      "Battleship": [
+        2901,
+        2
+      ],
+      "BlackBoat": [
+        2911,
+        3
+      ],
+      "BlackBomb": [
+        2922,
+        3
+      ],
+      "Bomber": [
+        2935,
+        2
+      ],
+      "Carrier": [
+        2943,
+        2
+      ],
+      "Cruiser": [
+        2951,
+        2
+      ],
+      "Fighter": [
+        2959,
+        3
+      ],
+      "Infantry": [
+        2972,
+        4
+      ],
+      "Lander": [
+        2986,
+        2
+      ],
+      "MdTank": [
+        2996,
+        3
+      ],
+      "Mech": [
+        3007,
+        4
+      ],
+      "MegaTank": [
+        3023,
+        3
+      ],
+      "Missile": [
+        3034,
+        3
+      ],
+      "Neotank": [
+        3047,
+        3
+      ],
+      "Piperunner": [
+        3058,
+        3
+      ],
+      "Recon": [
+        3071,
+        3
+      ],
+      "Rocket": [
+        3082,
+        3
+      ],
+      "Stealth": [
+        3093,
+        3
+      ],
+      "Sub": [
+        3106,
+        2
+      ],
+      "TCopter": [
+        3116,
+        3
+      ],
+      "Tank": [
+        3129,
+        2
+      ]
+    },
+    "OrangeStar": {
+      "APC": [
+        3152,
+        3
+      ],
+      "AntiAir": [
+        3139,
+        3
+      ],
+      "Artillery": [
+        3165,
+        3
+      ],
+      "BCopter": [
+        3176,
+        2
+      ],
+      "Battleship": [
+        3186,
+        2
+      ],
+      "BlackBoat": [
+        3196,
+        3
+      ],
+      "BlackBomb": [
+        3207,
+        3
+      ],
+      "Bomber": [
+        3220,
+        2
+      ],
+      "Carrier": [
+        3228,
+        2
+      ],
+      "Cruiser": [
+        3236,
+        2
+      ],
+      "Fighter": [
+        3244,
+        3
+      ],
+      "Infantry": [
+        3257,
+        4
+      ],
+      "Lander": [
+        3271,
+        2
+      ],
+      "MdTank": [
+        3281,
+        3
+      ],
+      "Mech": [
+        3292,
+        4
+      ],
+      "MegaTank": [
+        3308,
+        3
+      ],
+      "Missile": [
+        3319,
+        3
+      ],
+      "Neotank": [
+        3332,
+        3
+      ],
+      "Piperunner": [
+        3343,
+        3
+      ],
+      "Recon": [
+        3356,
+        3
+      ],
+      "Rocket": [
+        3367,
+        3
+      ],
+      "Stealth": [
+        3378,
+        3
+      ],
+      "Sub": [
+        3391,
+        2
+      ],
+      "TCopter": [
+        3401,
+        3
+      ],
+      "Tank": [
+        3414,
+        2
+      ]
+    },
+    "PinkCosmos": {
+      "APC": [
+        3437,
+        3
+      ],
+      "AntiAir": [
+        3424,
+        3
+      ],
+      "Artillery": [
+        3450,
+        3
+      ],
+      "BCopter": [
+        3461,
+        2
+      ],
+      "Battleship": [
+        3471,
+        2
+      ],
+      "BlackBoat": [
+        3481,
+        3
+      ],
+      "BlackBomb": [
+        3492,
+        3
+      ],
+      "Bomber": [
+        3505,
+        2
+      ],
+      "Carrier": [
+        3513,
+        2
+      ],
+      "Cruiser": [
+        3521,
+        2
+      ],
+      "Fighter": [
+        3529,
+        3
+      ],
+      "Infantry": [
+        3542,
+        4
+      ],
+      "Lander": [
+        3556,
+        2
+      ],
+      "MdTank": [
+        3566,
+        3
+      ],
+      "Mech": [
+        3577,
+        4
+      ],
+      "MegaTank": [
+        3593,
+        3
+      ],
+      "Missile": [
+        3604,
+        3
+      ],
+      "Neotank": [
+        3617,
+        3
+      ],
+      "Piperunner": [
+        3628,
+        3
+      ],
+      "Recon": [
+        3641,
+        3
+      ],
+      "Rocket": [
+        3652,
+        3
+      ],
+      "Stealth": [
+        3663,
+        3
+      ],
+      "Sub": [
+        3676,
+        2
+      ],
+      "TCopter": [
+        3686,
+        3
+      ],
+      "Tank": [
+        3699,
+        2
+      ]
+    },
+    "PurpleLightning": {
+      "APC": [
+        3722,
+        3
+      ],
+      "AntiAir": [
+        3709,
+        3
+      ],
+      "Artillery": [
+        3735,
+        3
+      ],
+      "BCopter": [
+        3746,
+        2
+      ],
+      "Battleship": [
+        3756,
+        2
+      ],
+      "BlackBoat": [
+        3766,
+        3
+      ],
+      "BlackBomb": [
+        3777,
+        3
+      ],
+      "Bomber": [
+        3790,
+        2
+      ],
+      "Carrier": [
+        3798,
+        2
+      ],
+      "Cruiser": [
+        3806,
+        2
+      ],
+      "Fighter": [
+        3814,
+        3
+      ],
+      "Infantry": [
+        3827,
+        4
+      ],
+      "Lander": [
+        3841,
+        2
+      ],
+      "MdTank": [
+        3851,
+        3
+      ],
+      "Mech": [
+        3862,
+        4
+      ],
+      "MegaTank": [
+        3878,
+        3
+      ],
+      "Missile": [
+        3889,
+        3
+      ],
+      "Neotank": [
+        3902,
+        3
+      ],
+      "Piperunner": [
+        3913,
+        3
+      ],
+      "Recon": [
+        3926,
+        3
+      ],
+      "Rocket": [
+        3937,
+        3
+      ],
+      "Stealth": [
+        3948,
+        3
+      ],
+      "Sub": [
+        3961,
+        2
+      ],
+      "TCopter": [
+        3971,
+        3
+      ],
+      "Tank": [
+        3984,
+        2
+      ]
+    },
+    "RedFire": {
+      "APC": [
+        4007,
+        3
+      ],
+      "AntiAir": [
+        3994,
+        3
+      ],
+      "Artillery": [
+        4020,
+        3
+      ],
+      "BCopter": [
+        4031,
+        2
+      ],
+      "Battleship": [
+        4041,
+        2
+      ],
+      "BlackBoat": [
+        4051,
+        3
+      ],
+      "BlackBomb": [
+        4062,
+        3
+      ],
+      "Bomber": [
+        4075,
+        2
+      ],
+      "Carrier": [
+        4083,
+        2
+      ],
+      "Cruiser": [
+        4091,
+        2
+      ],
+      "Fighter": [
+        4099,
+        3
+      ],
+      "Infantry": [
+        4112,
+        4
+      ],
+      "Lander": [
+        4126,
+        2
+      ],
+      "MdTank": [
+        4136,
+        3
+      ],
+      "Mech": [
+        4147,
+        4
+      ],
+      "MegaTank": [
+        4163,
+        3
+      ],
+      "Missile": [
+        4174,
+        3
+      ],
+      "Neotank": [
+        4187,
+        3
+      ],
+      "Piperunner": [
+        4198,
+        3
+      ],
+      "Recon": [
+        4211,
+        3
+      ],
+      "Rocket": [
+        4222,
+        3
+      ],
+      "Stealth": [
+        4233,
+        3
+      ],
+      "Sub": [
+        4246,
+        2
+      ],
+      "TCopter": [
+        4256,
+        3
+      ],
+      "Tank": [
+        4269,
+        2
+      ]
+    },
+    "SilverClaw": {
+      "APC": [
+        4292,
+        3
+      ],
+      "AntiAir": [
+        4279,
+        3
+      ],
+      "Artillery": [
+        4305,
+        3
+      ],
+      "BCopter": [
+        4316,
+        2
+      ],
+      "Battleship": [
+        4326,
+        2
+      ],
+      "BlackBoat": [
+        4336,
+        3
+      ],
+      "BlackBomb": [
+        4347,
+        3
+      ],
+      "Bomber": [
+        4360,
+        2
+      ],
+      "Carrier": [
+        4368,
+        2
+      ],
+      "Cruiser": [
+        4376,
+        2
+      ],
+      "Fighter": [
+        4384,
+        3
+      ],
+      "Infantry": [
+        4397,
+        4
+      ],
+      "Lander": [
+        4411,
+        2
+      ],
+      "MdTank": [
+        4421,
+        3
+      ],
+      "Mech": [
+        4432,
+        4
+      ],
+      "MegaTank": [
+        4448,
+        3
+      ],
+      "Missile": [
+        4459,
+        3
+      ],
+      "Neotank": [
+        4472,
+        3
+      ],
+      "Piperunner": [
+        4483,
+        3
+      ],
+      "Recon": [
+        4496,
+        3
+      ],
+      "Rocket": [
+        4507,
+        3
+      ],
+      "Stealth": [
+        4518,
+        3
+      ],
+      "Sub": [
+        4531,
+        2
+      ],
+      "TCopter": [
+        4541,
+        3
+      ],
+      "Tank": [
+        4554,
+        2
+      ]
+    },
+    "TealGalaxy": {
+      "APC": [
+        4577,
+        3
+      ],
+      "AntiAir": [
+        4564,
+        3
+      ],
+      "Artillery": [
+        4590,
+        3
+      ],
+      "BCopter": [
+        4601,
+        2
+      ],
+      "Battleship": [
+        4611,
+        2
+      ],
+      "BlackBoat": [
+        4621,
+        3
+      ],
+      "BlackBomb": [
+        4632,
+        3
+      ],
+      "Bomber": [
+        4645,
+        2
+      ],
+      "Carrier": [
+        4653,
+        2
+      ],
+      "Cruiser": [
+        4661,
+        2
+      ],
+      "Fighter": [
+        4669,
+        3
+      ],
+      "Infantry": [
+        4682,
+        4
+      ],
+      "Lander": [
+        4696,
+        2
+      ],
+      "MdTank": [
+        4706,
+        3
+      ],
+      "Mech": [
+        4717,
+        4
+      ],
+      "MegaTank": [
+        4733,
+        3
+      ],
+      "Missile": [
+        4744,
+        3
+      ],
+      "Neotank": [
+        4757,
+        3
+      ],
+      "Piperunner": [
+        4768,
+        3
+      ],
+      "Recon": [
+        4781,
+        3
+      ],
+      "Rocket": [
+        4792,
+        3
+      ],
+      "Stealth": [
+        4803,
+        3
+      ],
+      "Sub": [
+        4816,
+        2
+      ],
+      "TCopter": [
+        4826,
+        3
+      ],
+      "Tank": [
+        4839,
+        2
+      ]
+    },
+    "WhiteNova": {
+      "APC": [
+        4862,
+        3
+      ],
+      "AntiAir": [
+        4849,
+        3
+      ],
+      "Artillery": [
+        4875,
+        3
+      ],
+      "BCopter": [
+        4886,
+        2
+      ],
+      "Battleship": [
+        4896,
+        2
+      ],
+      "BlackBoat": [
+        4906,
+        3
+      ],
+      "BlackBomb": [
+        4917,
+        3
+      ],
+      "Bomber": [
+        4930,
+        2
+      ],
+      "Carrier": [
+        4938,
+        2
+      ],
+      "Cruiser": [
+        4946,
+        2
+      ],
+      "Fighter": [
+        4954,
+        3
+      ],
+      "Infantry": [
+        4967,
+        4
+      ],
+      "Lander": [
+        4981,
+        2
+      ],
+      "MdTank": [
+        4991,
+        3
+      ],
+      "Mech": [
+        5002,
+        4
+      ],
+      "MegaTank": [
+        5018,
+        3
+      ],
+      "Missile": [
+        5029,
+        3
+      ],
+      "Neotank": [
+        5042,
+        3
+      ],
+      "Piperunner": [
+        5053,
+        3
+      ],
+      "Recon": [
+        5066,
+        3
+      ],
+      "Rocket": [
+        5077,
+        3
+      ],
+      "Stealth": [
+        5088,
+        3
+      ],
+      "Sub": [
+        5101,
+        2
+      ],
+      "TCopter": [
+        5111,
+        3
+      ],
+      "Tank": [
+        5124,
+        2
+      ]
+    },
+    "YellowComet": {
+      "APC": [
+        5147,
+        3
+      ],
+      "AntiAir": [
+        5134,
+        3
+      ],
+      "Artillery": [
+        5160,
+        3
+      ],
+      "BCopter": [
+        5171,
+        2
+      ],
+      "Battleship": [
+        5181,
+        2
+      ],
+      "BlackBoat": [
+        5191,
+        3
+      ],
+      "BlackBomb": [
+        5202,
+        3
+      ],
+      "Bomber": [
+        5215,
+        2
+      ],
+      "Carrier": [
+        5223,
+        2
+      ],
+      "Cruiser": [
+        5231,
+        2
+      ],
+      "Fighter": [
+        5239,
+        3
+      ],
+      "Infantry": [
+        5252,
+        4
+      ],
+      "Lander": [
+        5266,
+        2
+      ],
+      "MdTank": [
+        5276,
+        3
+      ],
+      "Mech": [
+        5287,
+        4
+      ],
+      "MegaTank": [
+        5303,
+        3
+      ],
+      "Missile": [
+        5314,
+        3
+      ],
+      "Neotank": [
+        5327,
+        3
+      ],
+      "Piperunner": [
+        5338,
+        3
+      ],
+      "Recon": [
+        5351,
+        3
+      ],
+      "Rocket": [
+        5362,
+        3
+      ],
+      "Stealth": [
+        5373,
+        3
+      ],
+      "Sub": [
+        5386,
+        2
+      ],
+      "TCopter": [
+        5396,
+        3
+      ],
+      "Tank": [
+        5409,
+        2
+      ]
+    }
+  }
+}
