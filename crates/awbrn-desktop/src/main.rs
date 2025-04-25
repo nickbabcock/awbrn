@@ -6,6 +6,9 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
+mod grid;
+use grid::GridSystem;
+
 // Resource to track camera scale
 #[derive(Resource)]
 struct CameraScale(f32);
@@ -63,129 +66,6 @@ struct Animation {
 
 #[derive(Component)]
 struct AnimatedUnit;
-
-// Grid position abstraction to handle positioning on 16x16 grid
-struct GridPosition {
-    // Position on the grid
-    x: usize,
-    y: usize,
-    // Underlying entity dimensions
-    width: f32,
-    height: f32,
-    // Z-index for rendering order
-    z_index: f32,
-    // Alignment within the grid cell
-    h_align: HorizontalAlign,
-    v_align: VerticalAlign,
-}
-
-// Horizontal alignment options
-enum HorizontalAlign {
-    Left,
-    Center,
-    Right,
-}
-
-// Vertical alignment options
-enum VerticalAlign {
-    Top,
-    Center,
-    Bottom,
-}
-
-// Grid system to handle conversions between grid and world coordinates
-struct GridSystem {
-    // Tile size in pixels
-    tile_size: f32,
-    // Map dimensions
-    map_width: f32,
-    map_height: f32,
-    // Map origin (center of the map in world coordinates)
-    origin_x: f32,
-    origin_y: f32,
-}
-
-impl GridSystem {
-    // Create a new grid system with the given map dimensions
-    fn new(map_width: usize, map_height: usize) -> Self {
-        let tile_size = 16.0;
-        let width_f32 = map_width as f32;
-        let height_f32 = map_height as f32;
-
-        // Calculate map origin - this is where (0,0) would be in world coordinates
-        let origin_x = -width_f32 * tile_size / 2.0 + tile_size / 2.0;
-
-        // For the y-axis origin, we need to work with a strict 16x16 grid
-        let origin_y = height_f32 * tile_size / 2.0 - tile_size / 2.0;
-
-        Self {
-            tile_size,
-            map_width: width_f32,
-            map_height: height_f32,
-            origin_x,
-            origin_y,
-        }
-    }
-
-    // Calculate world position from grid position
-    fn grid_to_world(&self, grid_pos: &GridPosition) -> Vec3 {
-        // Base tile position (top-left corner in world coordinates)
-        let tile_x = self.origin_x + grid_pos.x as f32 * self.tile_size;
-        let tile_y = self.origin_y - grid_pos.y as f32 * self.tile_size;
-
-        // Apply horizontal alignment within the tile
-        let x_align_offset = match grid_pos.h_align {
-            HorizontalAlign::Left => 0.0,
-            HorizontalAlign::Center => (self.tile_size - grid_pos.width) / 2.0,
-            HorizontalAlign::Right => self.tile_size - grid_pos.width,
-        };
-
-        // Apply vertical alignment - using strict 16x16 grid
-        let y_align_offset = match grid_pos.v_align {
-            VerticalAlign::Top => 0.0,
-            VerticalAlign::Center => (self.tile_size - grid_pos.height) / 2.0,
-            VerticalAlign::Bottom => self.tile_size - grid_pos.height,
-        };
-
-        // Final world position
-        Vec3::new(
-            tile_x + x_align_offset,
-            tile_y + y_align_offset,
-            grid_pos.z_index,
-        )
-    }
-
-    // Create a grid position for a terrain tile
-    fn terrain_position(&self, x: usize, y: usize) -> GridPosition {
-        GridPosition {
-            x,
-            y,
-            width: 16.0,
-            height: 32.0, // Terrain tiles are 16x32 visually
-            z_index: 0.0,
-            h_align: HorizontalAlign::Left, // Left edge aligns with left edge of grid cell
-            v_align: VerticalAlign::Top,    // Top edge aligns with top edge of grid cell
-        }
-    }
-
-    // Create a grid position for a unit with southeast gravity
-    fn unit_position(&self, x: usize, y: usize) -> GridPosition {
-        let unit_width = 23.0;
-        let unit_height = 24.0;
-
-        // Units with southeast gravity need to align their bottom-right corner
-        // to the bottom-right of the 16x16 grid cell
-        GridPosition {
-            x,
-            y,
-            width: unit_width,
-            height: unit_height,
-            z_index: 1.0,                    // Units above terrain
-            h_align: HorizontalAlign::Right, // Right edge aligns with right edge of grid cell
-            v_align: VerticalAlign::Bottom,  // Bottom edge aligns with bottom edge of grid cell
-        }
-    }
-}
 
 fn main() {
     App::new()
@@ -431,8 +311,17 @@ fn setup_map(
     let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 32), 64, 27, None, None);
     let texture_atlas_layout = texture_atlas_layouts.add(layout);
 
-    // Create a grid system for positioning
+    // Create a grid system for positioning (now returns local coords)
     let grid = GridSystem::new(awbrn_map.width(), awbrn_map.height());
+
+    // Calculate the offset needed to center the map in Bevy's world coordinates
+    let map_pixel_width = grid.map_width * GridSystem::TILE_SIZE;
+    let map_pixel_height = grid.map_height * GridSystem::TILE_SIZE;
+    // Bevy's origin is center, Y increases upwards.
+    // Our local grid origin is top-left, Y increases downwards.
+    // We want the center of our grid to align with Bevy's center (0,0).
+    // The top-left corner of our grid in Bevy coordinates should be:
+    let world_origin_offset = Vec3::new(-map_pixel_width / 2.0, map_pixel_height / 2.0, 0.0);
 
     // Spawn sprites for each map tile
     for y in 0..awbrn_map.height() {
@@ -445,8 +334,14 @@ fn setup_map(
                 // Create a grid position for this terrain tile
                 let grid_pos = grid.terrain_position(x, y);
 
-                // Convert to world position
-                let world_pos = grid.grid_to_world(&grid_pos);
+                // Convert to local world position (relative to top-left 0,0, Y down)
+                let local_pos = grid.grid_to_world(&grid_pos);
+
+                // Adjust local position to Bevy world coordinates:
+                // 1. Flip the Y coordinate (local Y down -> Bevy Y up)
+                // 2. Add the centering offset
+                let final_world_pos =
+                    world_origin_offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z);
 
                 // Spawn terrain sprite with position information
                 commands.spawn((
@@ -457,7 +352,8 @@ fn setup_map(
                             index: sprite_index.index() as usize,
                         },
                     ),
-                    Transform::from_xyz(world_pos.x, world_pos.y, world_pos.z),
+                    // Use the calculated final world position
+                    Transform::from_translation(final_world_pos),
                     TerrainTile {
                         terrain,
                         position: Position::new(x, y),
@@ -505,23 +401,31 @@ fn spawn_animated_unit(
     // Create a grid system
     let grid = GridSystem::new(game_map.0.width(), game_map.0.height());
 
+    // Calculate the centering offset (same logic as in setup_map)
+    let map_pixel_width = grid.map_width * GridSystem::TILE_SIZE;
+    let map_pixel_height = grid.map_height * GridSystem::TILE_SIZE;
+    let world_origin_offset = Vec3::new(-map_pixel_width / 2.0, map_pixel_height / 2.0, 0.0);
+
     // Create a grid position for the unit (with southeast gravity)
     let grid_pos = grid.unit_position(x, y);
 
-    // Convert to world position
-    let world_pos = grid.grid_to_world(&grid_pos);
+    // Convert to local world position (relative to top-left 0,0, Y down)
+    let local_pos = grid.grid_to_world(&grid_pos);
+
+    // Adjust local position to Bevy world coordinates
+    let final_world_pos = world_origin_offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z);
 
     info!(
-        "Spawning unit at grid position ({}, {}), world pos: {:?}",
-        x, y, world_pos
+        "Spawning unit at grid position ({}, {}), local pos: {:?}, final world pos: {:?}",
+        x, y, local_pos, final_world_pos
     );
 
     // Create the animation component
     let animation = Animation {
         frames: frames.clone(),
-        frame_time: Duration::from_millis(500 / frames_count as u64),
+        frame_time: Duration::from_millis(750 / frames_count as u64),
         timer: Timer::new(
-            Duration::from_millis(500 / frames_count as u64),
+            Duration::from_millis(750 / frames_count as u64),
             TimerMode::Repeating,
         ),
         current_frame: 0,
@@ -536,7 +440,8 @@ fn spawn_animated_unit(
                 index: frames[0],
             },
         ),
-        Transform::from_xyz(world_pos.x, world_pos.y, world_pos.z),
+        // Use the calculated final world position
+        Transform::from_translation(final_world_pos),
         animation,
         AnimatedUnit,
     ));

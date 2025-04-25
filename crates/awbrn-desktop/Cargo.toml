@@ -21,3 +21,6 @@ bevy = { workspace = true, features = [
     "x11",
 ]}
 
+[dev-dependencies]
+approx.workspace = true
+
