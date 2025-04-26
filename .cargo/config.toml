@@ -1,0 +1,2 @@
+[alias]
+spritesheet-list = "run --package xtask-spritesheet-list --"
