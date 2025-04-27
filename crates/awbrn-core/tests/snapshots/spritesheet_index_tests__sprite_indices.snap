@@ -5,15 +5,15 @@ expression: snapshot_data
 {
   "Clear": {
     "StubbyMoutain": [
-      6,
+      0,
       1
     ],
     "Terrain(Bridge(Horizontal))": [
-      427,
+      428,
       1
     ],
     "Terrain(Bridge(Vertical))": [
-      433,
+      434,
       1
     ],
     "Terrain(MissileSilo(Loaded))": [
@@ -25,7 +25,7 @@ expression: snapshot_data
       1
     ],
     "Terrain(Mountain)": [
-      1,
+      2,
       1
     ],
     "Terrain(Pipe(ES))": [
@@ -41,11 +41,11 @@ expression: snapshot_data
       1
     ],
     "Terrain(Pipe(NE))": [
-      350,
+      349,
       1
     ],
     "Terrain(Pipe(NorthEnd))": [
-      349,
+      350,
       1
     ],
     "Terrain(Pipe(SW))": [
@@ -85,7 +85,7 @@ expression: snapshot_data
       1
     ],
     "Terrain(Plain)": [
-      2,
+      3,
       1
     ],
     "Terrain(Property(Airport(Neutral)))": [
@@ -645,7 +645,7 @@ expression: snapshot_data
       2
     ],
     "Terrain(Reef)": [
-      3,
+      4,
       1
     ],
     "Terrain(River(Cross))": [
@@ -673,11 +673,11 @@ expression: snapshot_data
       1
     ],
     "Terrain(River(SW))": [
-      420,
+      419,
       1
     ],
     "Terrain(River(SWN))": [
-      419,
+      420,
       1
     ],
     "Terrain(River(Vertical))": [
@@ -685,11 +685,11 @@ expression: snapshot_data
       1
     ],
     "Terrain(River(WN))": [
-      423,
+      422,
       1
     ],
     "Terrain(River(WNE))": [
-      422,
+      423,
       1
     ],
     "Terrain(Road(Cross))": [
@@ -705,7 +705,7 @@ expression: snapshot_data
       1
     ],
     "Terrain(Road(Horizontal))": [
-      428,
+      427,
       1
     ],
     "Terrain(Road(NE))": [
@@ -717,23 +717,23 @@ expression: snapshot_data
       1
     ],
     "Terrain(Road(SW))": [
-      432,
-      1
-    ],
-    "Terrain(Road(SWN))": [
       431,
       1
     ],
+    "Terrain(Road(SWN))": [
+      432,
+      1
+    ],
     "Terrain(Road(Vertical))": [
-      434,
+      433,
       1
     ],
     "Terrain(Road(WN))": [
-      436,
+      435,
       1
     ],
     "Terrain(Road(WNE))": [
-      435,
+      436,
       1
     ],
     "Terrain(Sea)": [
@@ -757,33 +757,33 @@ expression: snapshot_data
       1
     ],
     "Terrain(Teleporter)": [
-      4,
+      5,
       1
     ],
     "Terrain(Wood)": [
-      5,
+      6,
       1
     ]
   },
   "Rain": {
     "StubbyMoutain": [
-      6,
+      0,
       1
     ],
     "Terrain(Bridge(Horizontal))": [
-      1588,
+      1589,
       1
     ],
     "Terrain(Bridge(Vertical))": [
-      1594,
+      1595,
       1
     ],
     "Terrain(MissileSilo(Loaded))": [
-      1434,
+      1433,
       1
     ],
     "Terrain(MissileSilo(Unloaded))": [
-      1433,
+      1434,
       1
     ],
     "Terrain(Mountain)": [
@@ -803,11 +803,11 @@ expression: snapshot_data
       1
     ],
     "Terrain(Pipe(NE))": [
-      1511,
+      1510,
       1
     ],
     "Terrain(Pipe(NorthEnd))": [
-      1510,
+      1511,
       1
     ],
     "Terrain(Pipe(SW))": [
@@ -1407,7 +1407,7 @@ expression: snapshot_data
       2
     ],
     "Terrain(Reef)": [
-      3,
+      4,
       1
     ],
     "Terrain(River(Cross))": [
@@ -1435,11 +1435,11 @@ expression: snapshot_data
       1
     ],
     "Terrain(River(SW))": [
-      1581,
+      1580,
       1
     ],
     "Terrain(River(SWN))": [
-      1580,
+      1581,
       1
     ],
     "Terrain(River(Vertical))": [
@@ -1447,11 +1447,11 @@ expression: snapshot_data
       1
     ],
     "Terrain(River(WN))": [
-      1584,
+      1583,
       1
     ],
     "Terrain(River(WNE))": [
-      1583,
+      1584,
       1
     ],
     "Terrain(Road(Cross))": [
@@ -1467,7 +1467,7 @@ expression: snapshot_data
       1
     ],
     "Terrain(Road(Horizontal))": [
-      1589,
+      1588,
       1
     ],
     "Terrain(Road(NE))": [
@@ -1479,23 +1479,23 @@ expression: snapshot_data
       1
     ],
     "Terrain(Road(SW))": [
-      1593,
-      1
-    ],
-    "Terrain(Road(SWN))": [
       1592,
       1
     ],
+    "Terrain(Road(SWN))": [
+      1593,
+      1
+    ],
     "Terrain(Road(Vertical))": [
-      1595,
+      1594,
       1
     ],
     "Terrain(Road(WN))": [
-      1597,
+      1596,
       1
     ],
     "Terrain(Road(WNE))": [
-      1596,
+      1597,
       1
     ],
     "Terrain(Sea)": [
@@ -1519,7 +1519,7 @@ expression: snapshot_data
       1
     ],
     "Terrain(Teleporter)": [
-      4,
+      5,
       1
     ],
     "Terrain(Wood)": [
@@ -1529,27 +1529,27 @@ expression: snapshot_data
   },
   "Snow": {
     "StubbyMoutain": [
-      652,
+      649,
       1
     ],
     "Terrain(Bridge(Horizontal))": [
-      1073,
+      1074,
       1
     ],
     "Terrain(Bridge(Vertical))": [
-      1079,
+      1080,
       1
     ],
     "Terrain(MissileSilo(Loaded))": [
-      919,
-      1
-    ],
-    "Terrain(MissileSilo(Unloaded))": [
       918,
       1
     ],
+    "Terrain(MissileSilo(Unloaded))": [
+      919,
+      1
+    ],
     "Terrain(Mountain)": [
-      649,
+      650,
       1
     ],
     "Terrain(Pipe(ES))": [
@@ -1565,11 +1565,11 @@ expression: snapshot_data
       1
     ],
     "Terrain(Pipe(NE))": [
-      996,
+      995,
       1
     ],
     "Terrain(Pipe(NorthEnd))": [
-      995,
+      996,
       1
     ],
     "Terrain(Pipe(SW))": [
@@ -1609,7 +1609,7 @@ expression: snapshot_data
       1
     ],
     "Terrain(Plain)": [
-      650,
+      651,
       1
     ],
     "Terrain(Property(Airport(Neutral)))": [
@@ -2169,7 +2169,7 @@ expression: snapshot_data
       2
     ],
     "Terrain(Reef)": [
-      3,
+      4,
       1
     ],
     "Terrain(River(Cross))": [
@@ -2197,11 +2197,11 @@ expression: snapshot_data
       1
     ],
     "Terrain(River(SW))": [
-      1066,
+      1065,
       1
     ],
     "Terrain(River(SWN))": [
-      1065,
+      1066,
       1
     ],
     "Terrain(River(Vertical))": [
@@ -2209,11 +2209,11 @@ expression: snapshot_data
       1
     ],
     "Terrain(River(WN))": [
-      1069,
+      1068,
       1
     ],
     "Terrain(River(WNE))": [
-      1068,
+      1069,
       1
     ],
     "Terrain(Road(Cross))": [
@@ -2229,7 +2229,7 @@ expression: snapshot_data
       1
     ],
     "Terrain(Road(Horizontal))": [
-      1074,
+      1073,
       1
     ],
     "Terrain(Road(NE))": [
@@ -2241,23 +2241,23 @@ expression: snapshot_data
       1
     ],
     "Terrain(Road(SW))": [
-      1078,
-      1
-    ],
-    "Terrain(Road(SWN))": [
       1077,
       1
     ],
+    "Terrain(Road(SWN))": [
+      1078,
+      1
+    ],
     "Terrain(Road(Vertical))": [
-      1080,
+      1079,
       1
     ],
     "Terrain(Road(WN))": [
-      1082,
+      1081,
       1
     ],
     "Terrain(Road(WNE))": [
-      1081,
+      1082,
       1
     ],
     "Terrain(Sea)": [
@@ -2281,11 +2281,11 @@ expression: snapshot_data
       1
     ],
     "Terrain(Teleporter)": [
-      4,
+      5,
       1
     ],
     "Terrain(Wood)": [
-      651,
+      652,
       1
     ]
   }
