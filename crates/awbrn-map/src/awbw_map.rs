@@ -90,37 +90,7 @@ impl AwbwMap {
                 error: e.to_string(),
             })?;
 
-        // Get dimensions from the column-major data
-        let column_count = map_data.terrain_map.len();
-        let row_count = map_data.terrain_map.first().map(|v| v.len()).unwrap_or(0);
-
-        // Check if all columns have the same height
-        for (idx, col) in map_data.terrain_map.iter().enumerate() {
-            if col.len() != row_count {
-                return Err(MapError::UnevenDimensions {
-                    expected: row_count,
-                    found: col.len(),
-                    row: idx,
-                });
-            }
-        }
-
-        if column_count == 0 || row_count == 0 {
-            return Err(MapError::EmptyMap);
-        }
-
-        // Transpose from column-major to row-major
-        let mut terrain = Vec::with_capacity(column_count * row_count);
-        for row_idx in 0..row_count {
-            for col_idx in 0..column_count {
-                terrain.push(map_data.terrain_map[col_idx][row_idx]);
-            }
-        }
-
-        Ok(AwbwMap {
-            width: column_count,
-            terrain,
-        })
+        AwbwMap::try_from(&map_data)
     }
 
     pub fn width(&self) -> usize {
@@ -216,6 +186,44 @@ pub struct AwbwMapData {
     pub terrain_map: Vec<Vec<Terrain>>,
     #[serde(rename = "Predeployed Units")]
     pub predeployed_units: Vec<PredeployedUnit>,
+}
+
+impl TryFrom<&'_ AwbwMapData> for AwbwMap {
+    type Error = MapError;
+
+    fn try_from(data: &AwbwMapData) -> Result<Self, Self::Error> {
+        // Get dimensions from the column-major data
+        let column_count = data.terrain_map.len();
+        let row_count = data.terrain_map.first().map(|v| v.len()).unwrap_or(0);
+
+        // Check if all columns have the same height
+        for (idx, col) in data.terrain_map.iter().enumerate() {
+            if col.len() != row_count {
+                return Err(MapError::UnevenDimensions {
+                    expected: row_count,
+                    found: col.len(),
+                    row: idx,
+                });
+            }
+        }
+
+        if column_count == 0 || row_count == 0 {
+            return Err(MapError::EmptyMap);
+        }
+
+        // Transpose from column-major to row-major
+        let mut terrain = Vec::with_capacity(column_count * row_count);
+        for row_idx in 0..row_count {
+            for col_idx in 0..column_count {
+                terrain.push(data.terrain_map[col_idx][row_idx]);
+            }
+        }
+
+        Ok(AwbwMap {
+            width: column_count,
+            terrain,
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize)]

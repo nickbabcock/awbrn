@@ -1,0 +1,14 @@
+[package]
+name = "awbrn-bevy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+awbrn-core = { path = "../awbrn-core" }
+awbrn-map = { path = "../awbrn-map" }
+bevy = { workspace = true, default-features = false }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+
+[dev-dependencies]
+approx.workspace = true

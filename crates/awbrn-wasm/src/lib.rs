@@ -1,5 +1,10 @@
+use awbrn_bevy::AwbrnPlugin;
 use bevy::{
     app::PluginsState,
+    input::{
+        ButtonState,
+        keyboard::{KeyboardInput, NativeKey},
+    },
     prelude::*,
     render::camera::{Projection, ScalingMode},
     window::{RawHandleWrapper, WindowResolution, WindowWrapper},
@@ -10,7 +15,7 @@ use web_sys::OffscreenCanvas;
 
 mod offscreen_window_handle;
 
-#[derive(Resource, Copy, Clone, Debug, Deserialize, Serialize, tsify_next::Tsify)]
+#[derive(Resource, Copy, Clone, Debug, Deserialize, Serialize, tsify::Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct CanvasSize {
     width: f32,
@@ -46,9 +51,8 @@ impl BevyApp {
                 }),
         )
         .add_systems(PreStartup, setup_added_window)
-        .add_systems(Startup, (setup_camera, setup_test_sprite));
-
-        app.insert_non_send_resource(canvas);
+        .add_plugins(AwbrnPlugin)
+        .insert_non_send_resource(canvas);
 
         BevyApp { app }
     }
@@ -84,27 +88,85 @@ impl BevyApp {
 
         // TODO: do we send a WindowResized event here?
     }
+
+    #[wasm_bindgen]
+    pub fn handle_key_down(&mut self, event: KeyboardEvent) {
+        let Ok((window, _)) = self
+            .app
+            .world_mut()
+            .query::<(Entity, &Window)>()
+            .single(self.app.world_mut())
+        else {
+            warn!("No window found for key down event");
+            return;
+        };
+
+        let code = match event.key.as_str() {
+            "-" => KeyCode::Minus,
+            "=" => KeyCode::Equal,
+            _ => {
+                warn!("Unhandled key down event: {}", event.key);
+                return;
+            }
+        };
+
+        let event = KeyboardInput {
+            key_code: code,
+            logical_key: bevy::input::keyboard::Key::Unidentified(NativeKey::Web(
+                event.key_code.into(),
+            )),
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: event.repeat,
+            window,
+        };
+
+        self.app.world_mut().send_event(event);
+    }
+
+    #[wasm_bindgen]
+    pub fn handle_key_up(&mut self, event: KeyboardEvent) {
+        let Ok((window, _)) = self
+            .app
+            .world_mut()
+            .query::<(Entity, &Window)>()
+            .single(self.app.world_mut())
+        else {
+            warn!("No window found for key up event");
+            return;
+        };
+
+        let code = match event.key.as_str() {
+            "-" => KeyCode::Minus,
+            "=" => KeyCode::Equal,
+            _ => {
+                warn!("Unhandled key down event: {}", event.key);
+                return;
+            }
+        };
+
+        let event: KeyboardInput = KeyboardInput {
+            key_code: code,
+            logical_key: bevy::input::keyboard::Key::Unidentified(NativeKey::Web(
+                event.key_code.into(),
+            )),
+            state: ButtonState::Released,
+            text: None,
+            repeat: event.repeat,
+            window,
+        };
+
+        self.app.world_mut().send_event(event);
+    }
 }
 
-fn setup_camera(mut commands: Commands) {
-    commands.spawn(Camera2d);
-}
-
-fn setup_test_sprite(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
-) {
-    let texture = asset_server.load("textures/tiles.png");
-    let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 32), 64, 27, None, None);
-    let texture_atlas_layout = texture_atlas_layouts.add(layout);
-    commands.spawn(Sprite::from_atlas_image(
-        texture,
-        TextureAtlas {
-            layout: texture_atlas_layout,
-            index: 1,
-        },
-    ));
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, tsify::Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyboardEvent {
+    key: String,
+    key_code: String,
+    repeat: bool,
 }
 
 #[wasm_bindgen]
