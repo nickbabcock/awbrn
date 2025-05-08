@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+awbrn-bevy = { path = "../awbrn-bevy" }
 awbrn-core = { path = "../awbrn-core" }
 awbrn-map = { path = "../awbrn-map" }
 bevy = { workspace = true, features = [
@@ -22,5 +23,3 @@ bevy = { workspace = true, features = [
 ]}
 
 [dev-dependencies]
-approx.workspace = true
-

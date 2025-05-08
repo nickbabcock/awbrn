@@ -259,6 +259,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
+name = "awbrn-bevy"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "awbrn-core",
+ "awbrn-map",
+ "bevy",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "awbrn-core"
 version = "0.1.0"
 dependencies = [
@@ -272,7 +284,7 @@ dependencies = [
 name = "awbrn-desktop"
 version = "0.1.0"
 dependencies = [
- "approx",
+ "awbrn-bevy",
  "awbrn-core",
  "awbrn-map",
  "bevy",
@@ -293,11 +305,12 @@ dependencies = [
 name = "awbrn-wasm"
 version = "0.1.0"
 dependencies = [
+ "awbrn-bevy",
  "bevy",
  "raw-window-handle",
  "serde",
  "serde-wasm-bindgen",
- "tsify-next",
+ "tsify",
  "wasm-bindgen",
  "web-sys",
 ]
@@ -3614,22 +3627,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "tsify-next"
+name = "tsify"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a8bf7232b89b86f63b5f0ef22c64960f9cf4fb52c6698f1e7f60de93bc3292f"
+checksum = "b2ec91b85e6c6592ed28636cb1dd1fac377ecbbeb170ff1d79f97aac5e38926d"
 dependencies = [
  "serde",
  "serde-wasm-bindgen",
- "tsify-next-macros",
+ "tsify-macros",
  "wasm-bindgen",
 ]
 
 [[package]]
-name = "tsify-next-macros"
+name = "tsify-macros"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab2d85ebe93eedca20d3fe6d65814c856467a649674aa7763ebd42e3bb815fec"
+checksum = "9a324606929ad11628a19206d7853807481dcaecd6c08be70a235930b8241955"
 dependencies = [
  "proc-macro2",
  "quote",

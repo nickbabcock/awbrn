@@ -19,6 +19,12 @@ export const createGame = async (
   return proxy({
     resize: (...args: Parameters<BevyApp["resize"]>) => {
       app.resize(...args);
-    }
-  })
+    },
+    handleKeyDown: (...args: Parameters<BevyApp["handle_key_down"]>) => {
+      app.handle_key_down(...args);
+    },
+    handleKeyUp: (...args: Parameters<BevyApp["handle_key_up"]>) => {
+      app.handle_key_up(...args);
+    },
+  });
 };
