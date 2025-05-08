@@ -21,3 +21,9 @@ pub struct AwbwUnitId(u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct AwbwMapId(u32);
+
+impl AwbwMapId {
+    pub fn as_u32(&self) -> u32 {
+        self.0
+    }
+}

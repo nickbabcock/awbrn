@@ -265,6 +265,7 @@ dependencies = [
  "approx",
  "awbrn-core",
  "awbrn-map",
+ "awbw-replay",
  "bevy",
  "serde",
  "serde_json",

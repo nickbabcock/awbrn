@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use crate::{
-    CameraScale, CurrentWeather, GameMap, GridSystem, JsonAssetPlugin, SelectedTile, TerrainTile,
+    AwbwReplayAsset, CameraScale, CurrentWeather, GameMap, GridSystem, JsonAssetPlugin,
+    ReplayAssetPlugin, SelectedTile, TerrainTile,
 };
 use awbrn_core::{PlayerFaction, Unit, Weather, unit_spritesheet_index};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
@@ -37,6 +38,7 @@ struct AnimatedUnit;
 #[derive(States, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
 enum AppState {
     #[default]
+    LoadingReplay,
     LoadingAssets,
     MapLoaded,
 }
@@ -45,12 +47,12 @@ pub struct AwbrnPlugin;
 
 impl Plugin for AwbrnPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(JsonAssetPlugin::<AwbwMapAsset>::new())
+        app.add_plugins((JsonAssetPlugin::<AwbwMapAsset>::new(), ReplayAssetPlugin))
             .init_resource::<CameraScale>()
             .init_resource::<CurrentWeather>()
             .init_resource::<GameMap>()
             .init_state::<AppState>()
-            .add_systems(Startup, (setup_camera, load_map))
+            .add_systems(Startup, (setup_camera, load_replay_system))
             .add_systems(
                 Update,
                 (
@@ -60,6 +62,7 @@ impl Plugin for AwbrnPlugin {
                     handle_tile_clicks,
                     animate_units,
                     check_map_asset_loaded.run_if(in_state(AppState::LoadingAssets)),
+                    check_replay_loaded.run_if(in_state(AppState::LoadingReplay)),
                 ),
             )
             .add_systems(
@@ -77,13 +80,59 @@ fn setup_camera(mut commands: Commands, camera_scale: Res<CameraScale>) {
     ));
 }
 
-// New system to load the map asset
-fn load_map(mut commands: Commands, asset_server: Res<AssetServer>) {
-    // Load the map using the asset system
-    let map_handle: Handle<AwbwMapAsset> = asset_server.load("maps/162795.json");
+// System to load and parse a replay at startup
+fn load_replay_system(mut commands: Commands, asset_server: Res<AssetServer>) {
+    info!("Loading replay file...");
 
-    // Store the handle in a resource
-    commands.insert_resource(MapAssetHandle(map_handle));
+    // Read the replay file from assets (hardcoded to 1362397.zip as specified)
+    let replay_path = "replays/1362397.zip";
+
+    // Use the asset server to load the replay file as an AwbwReplayAsset
+    let replay_handle: Handle<AwbwReplayAsset> = asset_server.load(replay_path);
+
+    // Store the handle to check when it's loaded
+    commands.insert_resource(ReplayAssetHandle(replay_handle));
+}
+
+// Resource to track the handle of the loading replay
+#[derive(Resource)]
+struct ReplayAssetHandle(Handle<AwbwReplayAsset>);
+
+// System to check if the replay is loaded and process it
+fn check_replay_loaded(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    replay_handle: Res<ReplayAssetHandle>,
+    replay_assets: Res<Assets<AwbwReplayAsset>>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    // Check if the replay asset has loaded
+    if let Some(replay_asset) = replay_assets.get(&replay_handle.0) {
+        // Get the parsed replay from the asset
+        let replay = &replay_asset.0;
+
+        // Check if we have at least one game
+        if let Some(first_game) = replay.games.first() {
+            let map_id = first_game.maps_id;
+            info!("Found map ID: {:?} in replay", map_id);
+
+            // Load the map using the asset system with the correct file name
+            let map_name = format!("maps/{}.json", map_id.as_u32());
+            let map_handle: Handle<AwbwMapAsset> = asset_server.load(&map_name);
+
+            // Store the handle in a resource
+            commands.insert_resource(MapAssetHandle(map_handle));
+
+            // Transition to asset loading state
+            next_state.set(AppState::LoadingAssets);
+        } else {
+            error!("No games found in replay");
+            // Fall back to default map for now
+            let map_handle: Handle<AwbwMapAsset> = asset_server.load("maps/162795.json");
+            commands.insert_resource(MapAssetHandle(map_handle));
+            next_state.set(AppState::LoadingAssets);
+        }
+    }
 }
 
 // Resource to hold the map handle
