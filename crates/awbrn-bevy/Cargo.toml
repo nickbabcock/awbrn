@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 awbrn-core = { path = "../awbrn-core" }
 awbrn-map = { path = "../awbrn-map" }
+awbw-replay = { path = "../awbw-replay" }
 bevy = { workspace = true, default-features = false }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

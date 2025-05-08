@@ -28,6 +28,15 @@ where
     }
 }
 
+impl<A> Default for JsonAssetPlugin<A>
+where
+    for<'de> A: serde::Deserialize<'de> + Asset,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Loads your asset type `A` from json files
 pub struct JsonAssetLoader<A> {
     _type: PhantomData<A>,
