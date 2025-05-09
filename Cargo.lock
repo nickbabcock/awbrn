@@ -307,6 +307,7 @@ name = "awbrn-wasm"
 version = "0.1.0"
 dependencies = [
  "awbrn-bevy",
+ "awbw-replay",
  "bevy",
  "raw-window-handle",
  "serde",
