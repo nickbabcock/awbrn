@@ -1,4 +1,5 @@
-use awbrn_bevy::AwbrnPlugin;
+use awbrn_bevy::{AppState, AwbrnPlugin, AwbwReplayAsset, ReplayAssetHandle};
+use awbw_replay::ReplayParser;
 use bevy::{
     app::PluginsState,
     input::{
@@ -170,6 +171,33 @@ impl BevyApp {
         };
 
         self.app.world_mut().send_event(event);
+    }
+
+    #[wasm_bindgen]
+    pub fn new_replay(&mut self, data: Vec<u8>) -> Result<(), JsError> {
+        let parser = ReplayParser::new();
+        let replay = parser.parse(&data)?;
+
+        // Create a replay asset for Bevy's asset system
+        let replay_asset = AwbwReplayAsset(replay);
+
+        // Get a handle to the asset by adding it to the assets collection
+        let handle = self
+            .app
+            .world_mut()
+            .resource_mut::<Assets<AwbwReplayAsset>>()
+            .add(replay_asset);
+
+        self.app
+            .world_mut()
+            .insert_resource(ReplayAssetHandle(handle));
+
+        self.app
+            .world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::LoadingReplay);
+
+        Ok(())
     }
 }
 

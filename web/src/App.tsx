@@ -3,8 +3,23 @@ import "./App.css";
 import { transfer, wrap } from "comlink";
 import { GameWorker } from "./worker_types";
 
+let gameInstance: Awaited<ReturnType<GameWorker["createGame"]>> | undefined;
+
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const handleReplayFileChange = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    if (file && gameInstance) {
+      try {
+        await gameInstance.newReplay(file);
+      } catch (error) {
+        console.error("Error loading replay:", error);
+      }
+    }
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -53,6 +68,8 @@ function App() {
           scaleFactor: window.devicePixelRatio,
         },
       );
+
+      gameInstance = game;
 
       const ro = new ResizeObserver((_entries) => {
         const bounds = container.getBoundingClientRect();
@@ -105,20 +122,55 @@ function App() {
   }, []);
 
   return (
-    <div
-      id="container"
-      style={{
-        width: "1000px",
-        height: "800px",
-        position: "absolute",
-        top: "0",
-        left: "0",
-        right: "0",
-        bottom: "0",
-      }}
-    >
-      <canvas ref={canvasRef} width={600} height={400} />
-    </div>
+    <>
+      <div
+        id="container"
+        style={{
+          width: "1000px",
+          height: "800px",
+          position: "absolute",
+          top: "0",
+          left: "0",
+          right: "0",
+          bottom: "0",
+        }}
+      >
+        <canvas ref={canvasRef} width={600} height={400} />
+      </div>
+      <div
+        style={{
+          position: "fixed",
+          bottom: "20px",
+          right: "20px",
+          zIndex: 10,
+          backgroundColor: "rgba(0,0,0,0.7)",
+          padding: "10px",
+          borderRadius: "5px",
+        }}
+      >
+        <label
+          htmlFor="replay-file-input"
+          style={{
+            color: "white",
+            display: "block",
+            marginBottom: "5px",
+            fontSize: "14px",
+          }}
+        >
+          Load Replay:
+        </label>
+        <input
+          id="replay-file-input"
+          type="file"
+          accept=".zip"
+          onChange={handleReplayFileChange}
+          style={{
+            color: "white",
+            fontSize: "14px",
+          }}
+        />
+      </div>
+    </>
   );
 }
 

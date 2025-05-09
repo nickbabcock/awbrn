@@ -26,5 +26,12 @@ export const createGame = async (
     handleKeyUp: (...args: Parameters<BevyApp["handle_key_up"]>) => {
       app.handle_key_up(...args);
     },
+    newReplay: async (file: File | FileSystemFileHandle) => {
+      const fileHandle =
+        file instanceof FileSystemFileHandle ? await file.getFile() : file;
+      const fileData = await fileHandle.arrayBuffer();
+      const fileBuffer = new Uint8Array(fileData);
+      app.new_replay(fileBuffer);
+    },
   });
 };

@@ -36,8 +36,9 @@ struct Animation {
 struct AnimatedUnit;
 
 #[derive(States, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
-enum AppState {
+pub enum AppState {
     #[default]
+    Idle,
     LoadingReplay,
     LoadingAssets,
     MapLoaded,
@@ -52,7 +53,7 @@ impl Plugin for AwbrnPlugin {
             .init_resource::<CurrentWeather>()
             .init_resource::<GameMap>()
             .init_state::<AppState>()
-            .add_systems(Startup, (setup_camera, load_replay_system))
+            .add_systems(Startup, setup_camera)
             .add_systems(
                 Update,
                 (
@@ -80,23 +81,9 @@ fn setup_camera(mut commands: Commands, camera_scale: Res<CameraScale>) {
     ));
 }
 
-// System to load and parse a replay at startup
-fn load_replay_system(mut commands: Commands, asset_server: Res<AssetServer>) {
-    info!("Loading replay file...");
-
-    // Read the replay file from assets (hardcoded to 1362397.zip as specified)
-    let replay_path = "replays/1362397.zip";
-
-    // Use the asset server to load the replay file as an AwbwReplayAsset
-    let replay_handle: Handle<AwbwReplayAsset> = asset_server.load(replay_path);
-
-    // Store the handle to check when it's loaded
-    commands.insert_resource(ReplayAssetHandle(replay_handle));
-}
-
 // Resource to track the handle of the loading replay
 #[derive(Resource)]
-struct ReplayAssetHandle(Handle<AwbwReplayAsset>);
+pub struct ReplayAssetHandle(pub Handle<AwbwReplayAsset>);
 
 // System to check if the replay is loaded and process it
 fn check_replay_loaded(
