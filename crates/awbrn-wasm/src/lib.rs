@@ -17,6 +17,16 @@ mod offscreen_window_handle;
 
 #[derive(Resource, Copy, Clone, Debug, Deserialize, Serialize, tsify::Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct CanvasDisplay {
+    width: f32,
+    height: f32,
+    scale_factor: f32,
+}
+
+#[derive(Resource, Copy, Clone, Debug, Deserialize, Serialize, tsify::Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct CanvasSize {
     width: f32,
     height: f32,
@@ -30,14 +40,17 @@ pub struct BevyApp {
 #[wasm_bindgen]
 impl BevyApp {
     #[wasm_bindgen(constructor)]
-    pub fn new(canvas: web_sys::OffscreenCanvas, canvas_size: CanvasSize) -> Self {
+    pub fn new(canvas: web_sys::OffscreenCanvas, display: CanvasDisplay) -> Self {
         let mut app = App::new();
+
+        let mut resolution = WindowResolution::new(display.width, display.height);
+        resolution.set_scale_factor_override(Some(display.scale_factor));
 
         app.add_plugins(
             DefaultPlugins
                 .set(bevy::window::WindowPlugin {
                     primary_window: Some(Window {
-                        resolution: WindowResolution::new(canvas_size.width, canvas_size.height),
+                        resolution,
                         ..Default::default()
                     }),
                     exit_condition: bevy::window::ExitCondition::DontExit,

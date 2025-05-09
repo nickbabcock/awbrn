@@ -14,10 +14,25 @@ function App() {
     // Create an OffscreenCanvas from the visible canvas
     const container = document.getElementById("container")!;
     const bounds = container.getBoundingClientRect();
-    canvas.width = bounds.width * window.devicePixelRatio;
-    canvas.height = bounds.height * window.devicePixelRatio;
-    canvas.style.width = `${bounds.width}px`;
-    canvas.style.height = `${bounds.height}px`;
+
+    const snapToDevicePixel = (size: number, ratio: number) => {
+      const physicalSize = Math.floor(size * ratio);
+      const logical = Math.floor(physicalSize / ratio);
+      return { logical, physical: physicalSize };
+    };
+    const snappedWidth = snapToDevicePixel(
+      bounds.width,
+      window.devicePixelRatio,
+    );
+    const snappedHeight = snapToDevicePixel(
+      bounds.height,
+      window.devicePixelRatio,
+    );
+
+    canvas.width = snappedWidth.physical;
+    canvas.height = snappedWidth.physical;
+    canvas.style.width = `${snappedWidth.logical}px`;
+    canvas.style.height = `${snappedHeight.logical}px`;
 
     const offscreenCanvas = canvas.transferControlToOffscreen();
     canvas.dataset.transferred = "true";
@@ -33,18 +48,30 @@ function App() {
       const game = await worker.createGame(
         transfer(offscreenCanvas, [offscreenCanvas]),
         {
-          width: bounds.width * window.devicePixelRatio,
-          height: bounds.height * window.devicePixelRatio,
+          width: snappedWidth.logical,
+          height: snappedHeight.logical,
+          scaleFactor: window.devicePixelRatio,
         },
       );
 
       const ro = new ResizeObserver((_entries) => {
         const bounds = container.getBoundingClientRect();
-        canvas.style.width = `${container.clientWidth}px`;
-        canvas.style.height = `${container.clientHeight}px`;
+
+        const snappedWidth = snapToDevicePixel(
+          bounds.width,
+          window.devicePixelRatio,
+        );
+        const snappedHeight = snapToDevicePixel(
+          bounds.height,
+          window.devicePixelRatio,
+        );
+
+        canvas.style.width = `${snappedWidth.logical}px`;
+        canvas.style.height = `${snappedHeight.logical}px`;
+
         game.resize({
-          width: bounds.width * window.devicePixelRatio,
-          height: bounds.height * window.devicePixelRatio,
+          width: snappedWidth.logical,
+          height: snappedHeight.logical,
         });
       });
       ro.observe(container);
@@ -81,8 +108,8 @@ function App() {
     <div
       id="container"
       style={{
-        width: "100%",
-        height: "100%",
+        width: "1000px",
+        height: "800px",
         position: "absolute",
         top: "0",
         left: "0",
