@@ -560,7 +560,7 @@ mod awbw_country_code {
     where
         S: Serializer,
     {
-        faction.to_country_code().serialize(serializer)
+        faction.country_code().serialize(serializer)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<PlayerFaction, D::Error>

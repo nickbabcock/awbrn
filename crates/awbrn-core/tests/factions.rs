@@ -31,7 +31,7 @@ fn test_country_code_is_reversible() {
     // Test that converting from a PlayerFaction to a country code and back
     // returns the original PlayerFaction
     for faction in all_player_factions() {
-        let country_code = faction.to_country_code();
+        let country_code = faction.country_code();
         let parsed_faction = PlayerFaction::from_country_code(country_code).unwrap();
         assert_eq!(
             faction, parsed_faction,
@@ -46,7 +46,7 @@ fn test_country_codes_are_unique() {
     // Test that no two PlayerFactions share the same country code
     let mut codes = HashSet::new();
     for faction in all_player_factions() {
-        let country_code = faction.to_country_code();
+        let country_code = faction.country_code();
         assert!(
             codes.insert(country_code),
             "Country code '{}' is used by multiple factions",
