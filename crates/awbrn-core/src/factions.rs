@@ -1,3 +1,5 @@
+use crate::AwbwFactionId;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PlayerFaction {
     AcidRain,
@@ -74,7 +76,7 @@ impl PlayerFaction {
     }
 
     /// Returns the faction's country code
-    pub const fn to_country_code(&self) -> &'static str {
+    pub const fn country_code(&self) -> &'static str {
         match self {
             PlayerFaction::AcidRain => "ar",
             PlayerFaction::AmberBlaze => "ab",
@@ -95,6 +97,59 @@ impl PlayerFaction {
             PlayerFaction::TealGalaxy => "tg",
             PlayerFaction::WhiteNova => "wn",
             PlayerFaction::YellowComet => "yc",
+        }
+    }
+
+    /// Get the AWBW country id
+    ///
+    /// Ref: https://github.com/DeamonHunter/AWBW-Replay-Player/blob/245879fd2b7d6286476fc8b21619dab25128daf0/AWBWApp.Resources/Json/Countries.json
+    pub const fn awbw_id(&self) -> AwbwFactionId {
+        match self {
+            PlayerFaction::OrangeStar => AwbwFactionId::new(1),
+            PlayerFaction::BlueMoon => AwbwFactionId::new(2),
+            PlayerFaction::GreenEarth => AwbwFactionId::new(3),
+            PlayerFaction::YellowComet => AwbwFactionId::new(4),
+            PlayerFaction::BlackHole => AwbwFactionId::new(5),
+            PlayerFaction::RedFire => AwbwFactionId::new(6),
+            PlayerFaction::GreySky => AwbwFactionId::new(7),
+            PlayerFaction::BrownDesert => AwbwFactionId::new(8),
+            PlayerFaction::AmberBlaze => AwbwFactionId::new(9),
+            PlayerFaction::JadeSun => AwbwFactionId::new(10),
+            PlayerFaction::CobaltIce => AwbwFactionId::new(16),
+            PlayerFaction::PinkCosmos => AwbwFactionId::new(17),
+            PlayerFaction::TealGalaxy => AwbwFactionId::new(19),
+            PlayerFaction::PurpleLightning => AwbwFactionId::new(20),
+            PlayerFaction::AcidRain => AwbwFactionId::new(21),
+            PlayerFaction::WhiteNova => AwbwFactionId::new(22),
+            PlayerFaction::AzureAsteroid => AwbwFactionId::new(23),
+            PlayerFaction::NoirEclipse => AwbwFactionId::new(24),
+            PlayerFaction::SilverClaw => AwbwFactionId::new(25),
+        }
+    }
+
+    /// Create a PlayerFaction from an AWBW faction ID
+    pub fn from_awbw_id(id: u8) -> Option<Self> {
+        match id {
+            1 => Some(PlayerFaction::OrangeStar),
+            2 => Some(PlayerFaction::BlueMoon),
+            3 => Some(PlayerFaction::GreenEarth),
+            4 => Some(PlayerFaction::YellowComet),
+            5 => Some(PlayerFaction::BlackHole),
+            6 => Some(PlayerFaction::RedFire),
+            7 => Some(PlayerFaction::GreySky),
+            8 => Some(PlayerFaction::BrownDesert),
+            9 => Some(PlayerFaction::AmberBlaze),
+            10 => Some(PlayerFaction::JadeSun),
+            16 => Some(PlayerFaction::CobaltIce),
+            17 => Some(PlayerFaction::PinkCosmos),
+            19 => Some(PlayerFaction::TealGalaxy),
+            20 => Some(PlayerFaction::PurpleLightning),
+            21 => Some(PlayerFaction::AcidRain),
+            22 => Some(PlayerFaction::WhiteNova),
+            23 => Some(PlayerFaction::AzureAsteroid),
+            24 => Some(PlayerFaction::NoirEclipse),
+            25 => Some(PlayerFaction::SilverClaw),
+            _ => None,
         }
     }
 

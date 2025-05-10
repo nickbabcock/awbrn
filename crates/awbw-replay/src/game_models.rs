@@ -1,6 +1,6 @@
 use crate::de::{bool_ynstr, values_only};
 use awbrn_core::{
-    AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId, AwbwUnitId, Terrain, Unit,
+    AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId, AwbwUnitId, PlayerFaction, Terrain, Unit,
 };
 use serde::{Deserialize, Serialize};
 
@@ -57,7 +57,9 @@ pub struct AwbwPlayer {
     // Global ID used across all games
     pub users_id: AwbwPlayerId,
     pub games_id: AwbwGameId,
-    pub countries_id: u32,
+
+    #[serde(alias = "countries_id", with = "player_faction_id")]
+    pub faction: PlayerFaction,
     pub co_id: u32,
     pub funds: u32,
     pub turn: Option<String>,
@@ -142,4 +144,25 @@ pub enum CoPower {
     Power,
     #[serde(rename = "S")]
     SuperPower,
+}
+
+mod player_faction_id {
+    use awbrn_core::PlayerFaction;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(x: &PlayerFaction, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        s.serialize_u8(x.awbw_id().as_u8())
+    }
+
+    pub fn deserialize<'de, D>(d: D) -> Result<PlayerFaction, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let x = u8::deserialize(d)?;
+        PlayerFaction::from_awbw_id(x)
+            .ok_or_else(|| serde::de::Error::custom(format!("Invalid faction ID: {}", x)))
+    }
 }
