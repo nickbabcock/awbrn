@@ -190,14 +190,14 @@ pub const fn unit_spritesheet_index(
         [2, 3, 3, 3], // Fighter
         [4, 4, 4, 4], // Infantry
         [2, 2, 2, 2], // Lander
-        [4, 3, 3, 3], // MDTank
+        [4, 3, 3, 3], // MdTank
         [2, 4, 4, 4], // Mech
         [4, 3, 3, 3], // MegaTank
         [2, 3, 3, 3], // Missle
         [4, 3, 3, 3], // NeoTank
         [2, 3, 3, 3], // Piperunner
         [4, 3, 3, 3], // Recon
-        [2, 3, 3, 3], // Piperunner
+        [2, 3, 3, 3], // Rocket
         [2, 3, 3, 3], // Stealth
         [4, 2, 2, 2], // Sub
         [4, 3, 3, 3], // Tank

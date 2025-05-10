@@ -427,6 +427,29 @@ where
     }
 }
 
+pub mod awbw_unit_name {
+    use awbrn_core::Unit;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(unit: &Unit, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(unit.name())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Unit, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let name: &str = Deserialize::deserialize(deserializer)?;
+        Unit::from_awbw_name(&name).ok_or(serde::de::Error::custom(format!(
+            "Unknown unit name: {}",
+            name
+        )))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

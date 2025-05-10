@@ -1,12 +1,14 @@
 use crate::de::{bool_ynstr, values_only};
-use awbrn_core::{AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId, AwbwUnitId, Terrain};
+use awbrn_core::{
+    AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId, AwbwUnitId, Terrain, Unit,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct AwbwGame {
     pub id: AwbwGameId,
     pub name: String,
-    pub password: String,
+    pub password: Option<String>,
     pub creator: AwbwPlayerId,
     pub start_date: String,
     pub end_date: Option<String>,
@@ -104,7 +106,8 @@ pub struct AwbwUnit {
     pub id: AwbwUnitId,
     pub games_id: AwbwGameId,
     pub players_id: AwbwGamePlayerId,
-    pub name: String,
+    #[serde(with = "crate::de::awbw_unit_name")]
+    pub name: Unit,
     pub movement_points: u32,
     pub vision: u32,
     pub fuel: u32,

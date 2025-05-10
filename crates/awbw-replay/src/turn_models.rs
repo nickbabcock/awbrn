@@ -1,5 +1,5 @@
 use crate::de::{Hidden, Masked};
-use awbrn_core::{AwbwGamePlayerId, AwbwUnitId, Terrain};
+use awbrn_core::{AwbwGamePlayerId, AwbwUnitId, PlayerFaction, Terrain, Unit};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
@@ -103,6 +103,13 @@ pub enum Action {
     },
     Move(MoveAction),
     Power(PowerAction),
+    Repair {
+        #[serde(rename = "Move")]
+        move_action: MoveAction,
+
+        #[serde(rename = "Repair")]
+        repair_action: RepairAction,
+    },
     Resign {
         #[serde(rename = "Resign")]
         resign_action: ResignAction,
@@ -135,7 +142,8 @@ pub struct UnitProperty {
     pub units_id: u32,
     pub units_games_id: Option<u32>,
     pub units_players_id: u32,
-    pub units_name: String,
+    #[serde(with = "crate::de::awbw_unit_name")]
+    pub units_name: Unit,
     pub units_movement_points: Option<u32>,
     pub units_vision: Option<u32>,
     pub units_fuel: Option<u32>,
@@ -159,7 +167,8 @@ pub struct UnitProperty {
     #[serde(default)]
     pub units_cargo2_units_id: Masked<u32>,
     pub units_carried: Option<String>,
-    pub countries_code: String,
+    #[serde(with = "awbw_country_code")]
+    pub countries_code: PlayerFaction,
 }
 
 /// A tile in a movement path
@@ -281,6 +290,13 @@ pub struct SupplyAction {
     pub unit: indexmap::IndexMap<TargetedPlayer, Hidden<u32>>,
     pub rows: Vec<String>,
     pub supplied: indexmap::IndexMap<TargetedPlayer, Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct RepairAction {
+    pub unit: indexmap::IndexMap<TargetedPlayer, Hidden<u32>>,
+    pub repaired: indexmap::IndexMap<TargetedPlayer, RepairedUnit2>,
+    pub funds: indexmap::IndexMap<TargetedPlayer, u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -421,6 +437,12 @@ pub struct RepairedUnit {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct RepairedUnit2 {
+    pub units_id: AwbwUnitId,
+    pub units_hit_points: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Discovery {
     #[serde(default)]
     pub buildings: Vec<BuildingDiscovery>,
@@ -526,6 +548,28 @@ impl<'de> Deserialize<'de> for TargetedPlayer {
 
         // Use deserialize_any to support both string and number formats
         deserializer.deserialize_any(PlayerVisitor)
+    }
+}
+
+mod awbw_country_code {
+    use awbrn_core::PlayerFaction;
+    use serde::de::Error;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(faction: &PlayerFaction, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        faction.to_country_code().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<PlayerFaction, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let code: &str = Deserialize::deserialize(deserializer)?;
+        PlayerFaction::from_country_code(&code)
+            .ok_or_else(|| D::Error::custom(format!("Invalid country code: {}", code)))
     }
 }
 
