@@ -1,3 +1,4 @@
+use crate::{Faction, PlayerFaction};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
@@ -671,106 +672,6 @@ impl PropertyKind {
             PropertyKind::HQ => PropertyKind::ComTower,
             PropertyKind::Lab => PropertyKind::HQ,
             PropertyKind::Port => PropertyKind::Lab,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PlayerFaction {
-    AcidRain,
-    AmberBlaze,
-    AzureAsteroid,
-    BlackHole,
-    BlueMoon,
-    BrownDesert,
-    CobaltIce,
-    GreenEarth,
-    GreySky,
-    JadeSun,
-    NoirEclipse,
-    OrangeStar,
-    PinkCosmos,
-    PurpleLightning,
-    RedFire,
-    SilverClaw,
-    TealGalaxy,
-    WhiteNova,
-    YellowComet,
-}
-
-impl PlayerFaction {
-    /// Get the display name of this faction
-    pub const fn name(&self) -> &'static str {
-        match self {
-            PlayerFaction::OrangeStar => "Orange Star",
-            PlayerFaction::BlueMoon => "Blue Moon",
-            PlayerFaction::GreenEarth => "Green Earth",
-            PlayerFaction::YellowComet => "Yellow Comet",
-            PlayerFaction::BlackHole => "Black Hole",
-            PlayerFaction::RedFire => "Red Fire",
-            PlayerFaction::GreySky => "Grey Sky",
-            PlayerFaction::BrownDesert => "Brown Desert",
-            PlayerFaction::AmberBlaze => "Amber Blaze",
-            PlayerFaction::JadeSun => "Jade Sun",
-            PlayerFaction::CobaltIce => "Cobalt Ice",
-            PlayerFaction::PinkCosmos => "Pink Cosmos",
-            PlayerFaction::TealGalaxy => "Teal Galaxy",
-            PlayerFaction::PurpleLightning => "Purple Lightning",
-            PlayerFaction::AcidRain => "Acid Rain",
-            PlayerFaction::WhiteNova => "White Nova",
-            PlayerFaction::AzureAsteroid => "Azure Asteroid",
-            PlayerFaction::NoirEclipse => "Noir Eclipse",
-            PlayerFaction::SilverClaw => "Silver Claw",
-        }
-    }
-
-    /// Get the previous player faction alphabetically
-    #[inline]
-    pub const fn prev(&self) -> PlayerFaction {
-        match self {
-            PlayerFaction::AcidRain => PlayerFaction::YellowComet,
-            PlayerFaction::AmberBlaze => PlayerFaction::AcidRain,
-            PlayerFaction::AzureAsteroid => PlayerFaction::AmberBlaze,
-            PlayerFaction::BlackHole => PlayerFaction::AzureAsteroid,
-            PlayerFaction::BlueMoon => PlayerFaction::BlackHole,
-            PlayerFaction::BrownDesert => PlayerFaction::BlueMoon,
-            PlayerFaction::CobaltIce => PlayerFaction::BrownDesert,
-            PlayerFaction::GreenEarth => PlayerFaction::CobaltIce,
-            PlayerFaction::GreySky => PlayerFaction::GreenEarth,
-            PlayerFaction::JadeSun => PlayerFaction::GreySky,
-            PlayerFaction::NoirEclipse => PlayerFaction::JadeSun,
-            PlayerFaction::OrangeStar => PlayerFaction::NoirEclipse,
-            PlayerFaction::PinkCosmos => PlayerFaction::OrangeStar,
-            PlayerFaction::PurpleLightning => PlayerFaction::PinkCosmos,
-            PlayerFaction::RedFire => PlayerFaction::PurpleLightning,
-            PlayerFaction::SilverClaw => PlayerFaction::RedFire,
-            PlayerFaction::TealGalaxy => PlayerFaction::SilverClaw,
-            PlayerFaction::WhiteNova => PlayerFaction::TealGalaxy,
-            PlayerFaction::YellowComet => PlayerFaction::WhiteNova,
-        }
-    }
-}
-
-// Add conversion between NonNeutralFaction and ArmyFaction
-impl From<PlayerFaction> for Faction {
-    fn from(faction: PlayerFaction) -> Self {
-        Faction::Player(faction)
-    }
-}
-
-/// Army factions in the game
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Faction {
-    Neutral,
-    Player(PlayerFaction),
-}
-
-impl Faction {
-    /// Get the display name of this faction
-    pub const fn name(&self) -> &'static str {
-        match self {
-            Faction::Neutral => "Neutral",
-            Faction::Player(faction) => faction.name(),
         }
     }
 }

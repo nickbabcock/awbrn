@@ -27,3 +27,6 @@ impl AwbwMapId {
         self.0
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct AwbwFactionId(u8);

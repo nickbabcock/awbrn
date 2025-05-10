@@ -2822,9 +2822,9 @@ checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
 
 [[package]]
 name = "phpserz"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f81fbe8684cb0e902c88a19ddd6fb4957c8942f813df10d889d92ea6c7bdb79a"
+checksum = "e0da4e70408c22836ac026edad796163c11ac30df8bec0852ab03cfe01240ee8"
 dependencies = [
  "fast-float2",
  "serde",
