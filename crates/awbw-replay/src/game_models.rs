@@ -52,7 +52,7 @@ pub struct AwbwGame {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct AwbwPlayer {
     // Player ID used in the game
-    pub id: AwbwPlayerId,
+    pub id: AwbwGamePlayerId,
 
     // Global ID used across all games
     pub users_id: AwbwPlayerId,

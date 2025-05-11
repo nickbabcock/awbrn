@@ -443,7 +443,7 @@ pub mod awbw_unit_name {
         D: Deserializer<'de>,
     {
         let name: &str = Deserialize::deserialize(deserializer)?;
-        Unit::from_awbw_name(&name).ok_or(serde::de::Error::custom(format!(
+        Unit::from_awbw_name(name).ok_or(serde::de::Error::custom(format!(
             "Unknown unit name: {}",
             name
         )))

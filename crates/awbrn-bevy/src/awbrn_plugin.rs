@@ -4,7 +4,7 @@ use crate::{
     AwbwReplayAsset, CameraScale, CurrentWeather, GameMap, GridSystem, JsonAssetPlugin,
     ReplayAssetPlugin, SelectedTile, TerrainTile,
 };
-use awbrn_core::{PlayerFaction, Unit, Weather, unit_spritesheet_index};
+use awbrn_core::{Weather, unit_spritesheet_index};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
 use bevy::prelude::*;
 use serde::Deserialize;
@@ -362,6 +362,8 @@ fn spawn_animated_unit(
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
     game_map: Res<GameMap>,
+    replay_assets: Res<Assets<AwbwReplayAsset>>,
+    replay_handle: Option<Res<ReplayAssetHandle>>,
 ) {
     // Load the units texture
     let texture = asset_server.load("textures/units.png");
@@ -371,17 +373,6 @@ fn spawn_animated_unit(
     let layout = TextureAtlasLayout::from_grid(UVec2::new(23, 24), 64, 86, None, None);
     let texture_atlas_layout = texture_atlas_layouts.add(layout);
 
-    // Calculate the start index for the animation
-    let start_index = unit_spritesheet_index(
-        awbrn_core::GraphicalMovement::None,
-        Unit::Infantry,
-        PlayerFaction::BlackHole,
-    );
-
-    // Define the grid position for the unit
-    let x = 13;
-    let y = 9;
-
     // Create a grid system
     let grid = GridSystem::new(game_map.width(), game_map.height());
 
@@ -390,44 +381,88 @@ fn spawn_animated_unit(
     let map_pixel_height = grid.map_height * GridSystem::TILE_SIZE;
     let world_origin_offset = Vec3::new(-map_pixel_width / 2.0, map_pixel_height / 2.0, 0.0);
 
-    // Create a grid position for the unit (with southeast gravity)
-    let grid_pos = grid.unit_position(x, y);
-
-    // Convert to local world position (relative to top-left 0,0, Y down)
-    let local_pos = grid.grid_to_world(&grid_pos);
-
-    // Adjust local position to Bevy world coordinates
-    let final_world_pos = world_origin_offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z);
-
-    info!(
-        "Spawning unit at grid position ({}, {}), local pos: {:?}, final world pos: {:?}",
-        x, y, local_pos, final_world_pos
-    );
-
-    // Create the animation component
-    let animation = Animation {
-        start_index: start_index.index() as usize,
-        frames_count: start_index.animation_frames() as usize,
-        frame_time: Duration::from_millis(750 / start_index.animation_frames() as u64),
-        timer: Timer::new(
-            Duration::from_millis(750 / start_index.animation_frames() as u64),
-            TimerMode::Repeating,
-        ),
-        current_frame: 0,
+    // Get units from replay data
+    let (players, replay_units) = if let Some(replay_handle) = replay_handle {
+        if let Some(replay_asset) = replay_assets.get(&replay_handle.0) {
+            // Get the first game from the replay
+            if let Some(first_game) = replay_asset.0.games.first() {
+                // Collect all units
+                info!("Found {} units in replay", first_game.units.len());
+                (&first_game.players, &first_game.units)
+            } else {
+                info!("No games found in replay, not spawning units");
+                return;
+            }
+        } else {
+            info!("Replay asset not loaded, not spawning units");
+            return;
+        }
+    } else {
+        info!("No replay handle available, not spawning units");
+        return;
     };
 
-    // Spawn the animated unit
-    commands.spawn((
-        Sprite::from_atlas_image(
-            texture,
-            TextureAtlas {
-                layout: texture_atlas_layout,
-                index: start_index.index() as usize,
-            },
-        ),
-        // Use the calculated final world position
-        Transform::from_translation(final_world_pos),
-        animation,
-        AnimatedUnit,
-    ));
+    // Spawn units from replay data
+    for unit in replay_units {
+        // Get the unit position
+        let x = unit.x as usize;
+        let y = unit.y as usize;
+
+        // Get player faction
+        // For now, use OrangeStar for all units as requested
+        let faction = players
+            .iter()
+            .find(|x| x.id == unit.players_id)
+            .unwrap()
+            .faction;
+
+        // Calculate the start index for the animation
+        let start_index =
+            unit_spritesheet_index(awbrn_core::GraphicalMovement::None, unit.name, faction);
+
+        // Create a grid position for the unit (with southeast gravity)
+        let grid_pos = grid.unit_position(x, y);
+
+        // Convert to local world position (relative to top-left 0,0, Y down)
+        let local_pos = grid.grid_to_world(&grid_pos);
+
+        // Adjust local position to Bevy world coordinates
+        let final_world_pos =
+            world_origin_offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z);
+
+        info!(
+            "Spawning {} unit at grid position ({}, {}), HP: {}",
+            unit.name.name(),
+            x,
+            y,
+            unit.hit_points
+        );
+
+        // Create the animation component
+        let animation = Animation {
+            start_index: start_index.index() as usize,
+            frames_count: start_index.animation_frames() as usize,
+            frame_time: Duration::from_millis(750 / start_index.animation_frames() as u64),
+            timer: Timer::new(
+                Duration::from_millis(750 / start_index.animation_frames() as u64),
+                TimerMode::Repeating,
+            ),
+            current_frame: 0,
+        };
+
+        // Spawn the animated unit
+        commands.spawn((
+            Sprite::from_atlas_image(
+                texture.clone(),
+                TextureAtlas {
+                    layout: texture_atlas_layout.clone(),
+                    index: start_index.index() as usize,
+                },
+            ),
+            // Use the calculated final world position
+            Transform::from_translation(final_world_pos),
+            animation,
+            AnimatedUnit,
+        ));
+    }
 }
