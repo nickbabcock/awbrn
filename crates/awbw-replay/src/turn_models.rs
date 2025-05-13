@@ -568,7 +568,7 @@ mod awbw_country_code {
         D: Deserializer<'de>,
     {
         let code: &str = Deserialize::deserialize(deserializer)?;
-        PlayerFaction::from_country_code(&code)
+        PlayerFaction::from_country_code(code)
             .ok_or_else(|| D::Error::custom(format!("Invalid country code: {}", code)))
     }
 }
