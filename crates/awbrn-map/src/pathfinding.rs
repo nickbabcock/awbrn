@@ -144,7 +144,7 @@ mod tests {
 
     use super::*;
     use crate::AwbwMap;
-    use awbrn_core::{MovementCost, MovementTerrain, RiverType, Terrain, UnitMovement};
+    use awbrn_core::{AwbwTerrain, MovementCost, MovementTerrain, RiverType, UnitMovement};
     use rstest::rstest;
 
     // Struct implementing TerrainCosts for testing
@@ -159,7 +159,7 @@ mod tests {
     }
 
     /// Test helper to create a map of the specified size and base terrain
-    fn create_test_map(width: usize, height: usize, base_terrain: Terrain) -> AwbwMap {
+    fn create_test_map(width: usize, height: usize, base_terrain: AwbwTerrain) -> AwbwMap {
         AwbwMap::new(width, height, base_terrain)
     }
 
@@ -223,7 +223,7 @@ mod tests {
         #[case] movement_points: u8,
         #[case] expected_positions: Vec<(Position, u8)>,
     ) {
-        let map = create_test_map(5, 5, Terrain::Plain);
+        let map = create_test_map(5, 5, AwbwTerrain::Plain);
         let positions =
             test_movement_pathfinder(&map, Position::new(0, 0), movement_type, movement_points);
 
@@ -257,7 +257,7 @@ mod tests {
         #[case] movement_points: u8,
         #[case] expected_positions: Vec<(Position, u8)>,
     ) {
-        let map = create_test_map(5, 5, Terrain::Plain);
+        let map = create_test_map(5, 5, AwbwTerrain::Plain);
         let positions = test_movement_pathfinder(&map, start_pos, movement_type, movement_points);
 
         assert_positions_with_costs(&positions, &expected_positions);
@@ -287,18 +287,20 @@ mod tests {
         #[case] expected_positions: Vec<(Position, u8)>,
     ) {
         // Create mixed terrain map with mountains, rivers, and sea
-        let mut map = AwbwMap::new(5, 5, Terrain::Plain);
+        let mut map = AwbwMap::new(5, 5, AwbwTerrain::Plain);
 
         // Set center as mountain
-        *map.terrain_at_mut(Position::new(2, 2)).unwrap() = Terrain::Mountain;
+        *map.terrain_at_mut(Position::new(2, 2)).unwrap() = AwbwTerrain::Mountain;
 
         // Add rivers (row 3)
-        *map.terrain_at_mut(Position::new(2, 3)).unwrap() = Terrain::River(RiverType::Horizontal);
-        *map.terrain_at_mut(Position::new(3, 3)).unwrap() = Terrain::River(RiverType::Horizontal);
+        *map.terrain_at_mut(Position::new(2, 3)).unwrap() =
+            AwbwTerrain::River(RiverType::Horizontal);
+        *map.terrain_at_mut(Position::new(3, 3)).unwrap() =
+            AwbwTerrain::River(RiverType::Horizontal);
 
         // Add sea (row 4)
-        *map.terrain_at_mut(Position::new(1, 4)).unwrap() = Terrain::Sea;
-        *map.terrain_at_mut(Position::new(2, 4)).unwrap() = Terrain::Sea;
+        *map.terrain_at_mut(Position::new(1, 4)).unwrap() = AwbwTerrain::Sea;
+        *map.terrain_at_mut(Position::new(2, 4)).unwrap() = AwbwTerrain::Sea;
 
         // Different starting positions based on unit type
         let start_pos = match movement_type {
@@ -312,10 +314,10 @@ mod tests {
 
     #[test]
     fn test_unreachable_terrain() {
-        let mut map = AwbwMap::new(3, 3, Terrain::Sea);
+        let mut map = AwbwMap::new(3, 3, AwbwTerrain::Sea);
 
         // Create a plain tile in the center
-        *map.terrain_at_mut(Position::new(1, 1)).unwrap() = Terrain::Plain;
+        *map.terrain_at_mut(Position::new(1, 1)).unwrap() = AwbwTerrain::Plain;
 
         // Test foot unit in the center - should be trapped by sea
         let costs = UnitMovementCosts {
@@ -332,7 +334,7 @@ mod tests {
 
     #[test]
     fn test_pathfinder_reuse() {
-        let map = AwbwMap::new(5, 5, Terrain::Plain);
+        let map = AwbwMap::new(5, 5, AwbwTerrain::Plain);
 
         // Create a PathFinder that we'll reuse
         let mut pathfinder = PathFinder::new(&map);
@@ -361,7 +363,7 @@ mod tests {
 
     #[test]
     fn test_into_positions() {
-        let map = AwbwMap::new(5, 5, Terrain::Plain);
+        let map = AwbwMap::new(5, 5, AwbwTerrain::Plain);
         let mut pathfinder = PathFinder::new(&map);
 
         // Create a context

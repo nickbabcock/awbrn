@@ -1,5 +1,5 @@
 use crate::de::{Hidden, Masked};
-use awbrn_core::{AwbwGamePlayerId, AwbwUnitId, PlayerFaction, Terrain, Unit};
+use awbrn_core::{AwbwGamePlayerId, AwbwTerrain, AwbwUnitId, PlayerFaction, Unit};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
@@ -459,7 +459,7 @@ pub struct BuildingDiscovery {
     pub buildings_x: u32,
     pub buildings_y: u32,
     pub buildings_capture: i32,
-    pub terrain_id: Terrain,
+    pub terrain_id: AwbwTerrain,
     pub terrain_name: String,
     pub terrain_defense: u32,
     pub is_occupied: bool,
