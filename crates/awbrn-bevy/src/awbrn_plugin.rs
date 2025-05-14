@@ -8,6 +8,12 @@ use awbrn_core::{Weather, unit_spritesheet_index};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
 use bevy::prelude::*;
 use serde::Deserialize;
+use std::sync::Arc;
+
+/// Trait for resolving map asset paths from map IDs
+pub trait MapAssetPathResolver: Send + Sync + 'static {
+    fn resolve_path(&self, map_id: u32) -> String;
+}
 
 // Define AwbwMap as an Asset
 #[derive(Asset, TypePath, Deserialize)]
@@ -44,7 +50,15 @@ pub enum AppState {
     MapLoaded,
 }
 
-pub struct AwbrnPlugin;
+pub struct AwbrnPlugin {
+    map_resolver: Arc<dyn MapAssetPathResolver>,
+}
+
+impl AwbrnPlugin {
+    pub fn new(map_resolver: Arc<dyn MapAssetPathResolver>) -> Self {
+        Self { map_resolver }
+    }
+}
 
 impl Plugin for AwbrnPlugin {
     fn build(&self, app: &mut App) {
@@ -53,6 +67,7 @@ impl Plugin for AwbrnPlugin {
             .init_resource::<CurrentWeather>()
             .init_resource::<GameMap>()
             .init_state::<AppState>()
+            .insert_resource(MapPathResolver(self.map_resolver.clone()))
             .add_systems(Startup, setup_camera)
             .add_systems(
                 Update,
@@ -73,6 +88,10 @@ impl Plugin for AwbrnPlugin {
     }
 }
 
+// Resource to store the map resolver
+#[derive(Resource, Clone)]
+struct MapPathResolver(Arc<dyn MapAssetPathResolver>);
+
 fn setup_camera(mut commands: Commands, camera_scale: Res<CameraScale>) {
     commands.spawn((
         Camera2d,
@@ -91,6 +110,7 @@ fn check_replay_loaded(
     asset_server: Res<AssetServer>,
     replay_handle: Res<ReplayAssetHandle>,
     replay_assets: Res<Assets<AwbwReplayAsset>>,
+    map_resolver: Res<MapPathResolver>,
     mut next_state: ResMut<NextState<AppState>>,
 ) {
     // Check if the replay asset has loaded
@@ -103,9 +123,9 @@ fn check_replay_loaded(
             let map_id = first_game.maps_id;
             info!("Found map ID: {:?} in replay", map_id);
 
-            // Load the map using the asset system with the correct file name
-            let map_name = format!("maps/{}.json", map_id.as_u32());
-            let map_handle: Handle<AwbwMapAsset> = asset_server.load(&map_name);
+            // Use the resolver to get the asset path
+            let asset_path = map_resolver.0.resolve_path(map_id.as_u32());
+            let map_handle: Handle<AwbwMapAsset> = asset_server.load(asset_path);
 
             // Store the handle in a resource
             commands.insert_resource(MapAssetHandle(map_handle));
@@ -114,8 +134,9 @@ fn check_replay_loaded(
             next_state.set(AppState::LoadingAssets);
         } else {
             error!("No games found in replay");
-            // Fall back to default map for now
-            let map_handle: Handle<AwbwMapAsset> = asset_server.load("maps/162795.json");
+            // Fall back to default map for now - also using the resolver
+            let asset_path = map_resolver.0.resolve_path(162795);
+            let map_handle: Handle<AwbwMapAsset> = asset_server.load(asset_path);
             commands.insert_resource(MapAssetHandle(map_handle));
             next_state.set(AppState::LoadingAssets);
         }
@@ -464,5 +485,22 @@ fn spawn_animated_unit(
             animation,
             AnimatedUnit,
         ));
+    }
+}
+
+/// Default implementation of MapAssetPathResolver that formats paths as "maps/{map_id}.json"
+pub struct DefaultMapAssetPathResolver;
+
+impl MapAssetPathResolver for DefaultMapAssetPathResolver {
+    fn resolve_path(&self, map_id: u32) -> String {
+        format!("maps/{}.json", map_id)
+    }
+}
+
+impl Default for AwbrnPlugin {
+    fn default() -> Self {
+        Self {
+            map_resolver: Arc::new(DefaultMapAssetPathResolver),
+        }
     }
 }

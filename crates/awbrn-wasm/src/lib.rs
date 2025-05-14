@@ -65,7 +65,7 @@ impl BevyApp {
                 }),
         )
         .add_systems(PreStartup, setup_added_window)
-        .add_plugins(AwbrnPlugin)
+        .add_plugins(AwbrnPlugin::default())
         .insert_non_send_resource(canvas);
 
         BevyApp { app }
