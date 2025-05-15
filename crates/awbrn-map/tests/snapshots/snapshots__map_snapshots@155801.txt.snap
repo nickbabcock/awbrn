@@ -1,6 +1,6 @@
 ---
 source: crates/awbrn-map/tests/snapshots.rs
-expression: "format!(\"{}\\nstubby mountains: {}\", map, stubbies)"
+expression: map.to_string()
 input_file: assets/maps/155801.txt
 ---
 ^c@A-_[@aDl[B;L{<bB^a.
@@ -19,4 +19,3 @@ a...@a..@^)i.@^@...=^)
 @L{]J@.A-B^}a.^}^.@=.@
 f.@=L>^a^=IK@..}@.Aa.;
 .a^Db({J;D[fBa@[_-C@c^
-stubby mountains: (3, 10), (13, 1), (14, 11), (16, 10), (16, 13), (21, 15)

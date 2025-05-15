@@ -2,7 +2,7 @@ use crate::{
     MapError, Position,
     pathfinding::{MovementMap, PathFinder},
 };
-use awbrn_core::{MovementTerrain, Terrain};
+use awbrn_core::{AwbwTerrain, MovementTerrain};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -13,12 +13,12 @@ pub struct AwbwMap {
     width: usize,
 
     /// Terrain data stored as a flattened 2D array (row-major order)
-    terrain: Vec<awbrn_core::Terrain>,
+    terrain: Vec<awbrn_core::AwbwTerrain>,
 }
 
 impl AwbwMap {
     /// Creates a new map with specified dimensions and default terrain
-    pub fn new(width: usize, height: usize, default_terrain: Terrain) -> Self {
+    pub fn new(width: usize, height: usize, default_terrain: AwbwTerrain) -> Self {
         Self {
             width,
             terrain: vec![default_terrain; width * height],
@@ -49,7 +49,7 @@ impl AwbwMap {
                         })?;
 
                 let terrain =
-                    Terrain::try_from(terrain_id).map_err(|_| MapError::InvalidTerrain {
+                    AwbwTerrain::try_from(terrain_id).map_err(|_| MapError::InvalidTerrain {
                         row: row_idx,
                         col: col_idx,
                         id: terrain_id,
@@ -102,7 +102,7 @@ impl AwbwMap {
     }
 
     /// Get the terrain at the specified position
-    pub fn terrain_at(&self, pos: Position) -> Option<Terrain> {
+    pub fn terrain_at(&self, pos: Position) -> Option<AwbwTerrain> {
         if pos.x >= self.width || pos.y >= self.height() {
             return None;
         }
@@ -111,11 +111,11 @@ impl AwbwMap {
     }
 
     /// Set the terrain at a specific position
-    pub fn terrain_at_mut(&mut self, pos: Position) -> Option<&mut Terrain> {
+    pub fn terrain_at_mut(&mut self, pos: Position) -> Option<&mut AwbwTerrain> {
         self.terrain.get_mut(pos.y * self.width + pos.x)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (Position, Terrain)> {
+    pub fn iter(&self) -> impl Iterator<Item = (Position, AwbwTerrain)> {
         self.terrain.iter().enumerate().map(move |(idx, terrain)| {
             let y = idx / self.width;
             let x = idx % self.width;
@@ -183,7 +183,7 @@ pub struct AwbwMapData {
     #[serde(rename = "Size Y")]
     pub size_y: u32,
     #[serde(rename = "Terrain Map")]
-    pub terrain_map: Vec<Vec<Terrain>>,
+    pub terrain_map: Vec<Vec<AwbwTerrain>>,
     #[serde(rename = "Predeployed Units")]
     pub predeployed_units: Vec<PredeployedUnit>,
 }

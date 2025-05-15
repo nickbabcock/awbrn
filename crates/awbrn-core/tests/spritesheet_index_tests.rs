@@ -1,7 +1,7 @@
 use awbrn_core::{
     BridgeType, Faction, GraphicalMovement, GraphicalTerrain, MissileSiloStatus, PipeRubbleType,
-    PipeSeamType, PipeType, PlayerFaction, Property, PropertyKind, RiverType, RoadType, ShoalType,
-    Terrain, Unit, Weather, spritesheet_index, unit_spritesheet_index,
+    PipeSeamType, PipeType, PlayerFaction, Property, PropertyKind, RiverType, RoadType, Unit,
+    Weather, spritesheet_index, unit_spritesheet_index,
 };
 use insta::assert_json_snapshot;
 use std::collections::{BTreeMap, HashMap};
@@ -83,16 +83,6 @@ fn all_bridge_types() -> Vec<BridgeType> {
     vec![BridgeType::Horizontal, BridgeType::Vertical]
 }
 
-// Helper function to generate all ShoalType variants
-fn all_shoal_types() -> Vec<ShoalType> {
-    vec![
-        ShoalType::Horizontal,
-        ShoalType::HorizontalNorth,
-        ShoalType::Vertical,
-        ShoalType::VerticalEast,
-    ]
-}
-
 // Helper function to generate all PipeType variants
 fn all_pipe_types() -> Vec<PipeType> {
     vec![
@@ -147,51 +137,45 @@ fn get_all_graphical_terrains() -> Vec<GraphicalTerrain> {
     terrains.push(GraphicalTerrain::StubbyMoutain);
 
     // Basic terrains
-    terrains.push(GraphicalTerrain::Terrain(Terrain::Plain));
-    terrains.push(GraphicalTerrain::Terrain(Terrain::Mountain));
-    terrains.push(GraphicalTerrain::Terrain(Terrain::Wood));
-    terrains.push(GraphicalTerrain::Terrain(Terrain::Sea));
-    terrains.push(GraphicalTerrain::Terrain(Terrain::Reef));
-    terrains.push(GraphicalTerrain::Terrain(Terrain::Teleporter));
+    terrains.push(GraphicalTerrain::Plain);
+    terrains.push(GraphicalTerrain::Mountain);
+    terrains.push(GraphicalTerrain::Wood);
+    terrains.push(GraphicalTerrain::Reef);
+    terrains.push(GraphicalTerrain::Teleporter);
 
     // Rivers
     for river_type in all_river_types() {
-        terrains.push(GraphicalTerrain::Terrain(Terrain::River(river_type)));
+        terrains.push(GraphicalTerrain::River(river_type));
     }
 
     // Roads
     for road_type in all_road_types() {
-        terrains.push(GraphicalTerrain::Terrain(Terrain::Road(road_type)));
+        terrains.push(GraphicalTerrain::Road(road_type));
     }
 
     // Bridges
     for bridge_type in all_bridge_types() {
-        terrains.push(GraphicalTerrain::Terrain(Terrain::Bridge(bridge_type)));
-    }
-
-    // Shoals
-    for shoal_type in all_shoal_types() {
-        terrains.push(GraphicalTerrain::Terrain(Terrain::Shoal(shoal_type)));
+        terrains.push(GraphicalTerrain::Bridge(bridge_type));
     }
 
     // Pipes
     for pipe_type in all_pipe_types() {
-        terrains.push(GraphicalTerrain::Terrain(Terrain::Pipe(pipe_type)));
+        terrains.push(GraphicalTerrain::Pipe(pipe_type));
     }
 
     // Missile Silos
     for status in all_missile_silo_statuses() {
-        terrains.push(GraphicalTerrain::Terrain(Terrain::MissileSilo(status)));
+        terrains.push(GraphicalTerrain::MissileSilo(status));
     }
 
     // Pipe Seams
     for seam_type in all_pipe_seam_types() {
-        terrains.push(GraphicalTerrain::Terrain(Terrain::PipeSeam(seam_type)));
+        terrains.push(GraphicalTerrain::PipeSeam(seam_type));
     }
 
     // Pipe Rubble
     for rubble_type in all_pipe_rubble_types() {
-        terrains.push(GraphicalTerrain::Terrain(Terrain::PipeRubble(rubble_type)));
+        terrains.push(GraphicalTerrain::PipeRubble(rubble_type));
     }
 
     // Properties
@@ -201,15 +185,17 @@ fn get_all_graphical_terrains() -> Vec<GraphicalTerrain> {
     for kind in &property_kinds {
         // Neutral Properties (except HQ)
         if *kind != PropertyKind::HQ {
-            terrains.push(GraphicalTerrain::Terrain(Terrain::Property(
-                create_property(kind, Faction::Neutral),
+            terrains.push(GraphicalTerrain::Property(create_property(
+                kind,
+                Faction::Neutral,
             )));
         }
 
         // Player Properties
         for faction in &player_factions {
-            terrains.push(GraphicalTerrain::Terrain(Terrain::Property(
-                create_property(kind, Faction::Player(*faction)),
+            terrains.push(GraphicalTerrain::Property(create_property(
+                kind,
+                Faction::Player(*faction),
             )));
         }
     }

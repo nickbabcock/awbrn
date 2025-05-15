@@ -1,4 +1,4 @@
-use awbrn_core::{GraphicalTerrain, Terrain, Weather};
+use awbrn_core::{GraphicalTerrain, Weather};
 use awbrn_map::{AwbrnMap, Position};
 use bevy::prelude::*;
 
@@ -68,7 +68,7 @@ pub struct GameMap(AwbrnMap);
 
 impl Default for GameMap {
     fn default() -> Self {
-        let default_terrain = GraphicalTerrain::Terrain(Terrain::Plain);
+        let default_terrain = GraphicalTerrain::Plain;
         GameMap(AwbrnMap::new(1, 1, default_terrain))
     }
 }

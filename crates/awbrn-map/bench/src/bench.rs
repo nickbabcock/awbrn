@@ -10,7 +10,7 @@ impl TerrainCosts for TestMovement {
 }
 
 fn parser(c: &mut Criterion) {
-    let map = awbrn_map::AwbwMap::new(40, 40, awbrn_core::Terrain::Plain);
+    let map = awbrn_map::AwbwMap::new(40, 40, awbrn_core::AwbwTerrain::Plain);
     let mut pathfinder = map.pathfinder();
     let mut group = c.benchmark_group("pathfinding");
     group.bench_function(BenchmarkId::from_parameter("sidewinder-fighter"), |b| {

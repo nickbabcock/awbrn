@@ -1,6 +1,7 @@
 use crate::de::{bool_ynstr, values_only};
 use awbrn_core::{
-    AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId, AwbwUnitId, PlayerFaction, Terrain, Unit,
+    AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId, AwbwTerrain, AwbwUnitId, PlayerFaction,
+    Unit,
 };
 use serde::{Deserialize, Serialize};
 
@@ -95,7 +96,7 @@ pub struct AwbwPlayer {
 pub struct AwbwBuilding {
     pub id: u32,
     pub games_id: u32,
-    pub terrain_id: Terrain,
+    pub terrain_id: AwbwTerrain,
     pub x: u32,
     pub y: u32,
     pub capture: u32,
