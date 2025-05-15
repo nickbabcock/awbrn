@@ -79,20 +79,30 @@ impl AwbrnMap {
         }
     }
 
+    fn is_land(terrain: Option<AwbwTerrain>) -> bool {
+        !matches!(
+            terrain,
+            None | Some(
+                AwbwTerrain::Bridge(_)
+                    | AwbwTerrain::River(_)
+                    | AwbwTerrain::Reef
+                    | AwbwTerrain::Sea
+                    | AwbwTerrain::Shoal(_)
+            )
+        )
+    }
+
     /// Determine the sea direction based on neighboring tiles
     fn determine_sea_direction(nearby: &NearbyTiles) -> SeaDirection {
-        let is_land =
-            |terrain: Option<AwbwTerrain>| -> bool { terrain.is_some_and(|t| t.is_land()) };
-
         // Check for land in each direction
-        let n = is_land(nearby.north);
-        let e = is_land(nearby.east);
-        let s = is_land(nearby.south);
-        let w = is_land(nearby.west);
-        let nw = is_land(nearby.north_west);
-        let ne = is_land(nearby.north_east);
-        let se = is_land(nearby.south_east);
-        let sw = is_land(nearby.south_west);
+        let n = AwbrnMap::is_land(nearby.north);
+        let e = AwbrnMap::is_land(nearby.east);
+        let s = AwbrnMap::is_land(nearby.south);
+        let w = AwbrnMap::is_land(nearby.west);
+        let nw = AwbrnMap::is_land(nearby.north_west);
+        let ne = AwbrnMap::is_land(nearby.north_east);
+        let se = AwbrnMap::is_land(nearby.south_east);
+        let sw = AwbrnMap::is_land(nearby.south_west);
 
         // Full circle
         if n && e && s && w {
@@ -262,18 +272,15 @@ impl AwbrnMap {
 
     /// Determine the shoal direction based on neighboring tiles
     fn determine_shoal_direction(nearby: &NearbyTiles) -> ShoalDirection {
-        let is_land =
-            |terrain: Option<AwbwTerrain>| -> bool { terrain.is_some_and(|t| t.is_land()) };
-
         let is_shoal = |terrain: Option<AwbwTerrain>| -> bool {
             terrain.is_some_and(|t| matches!(t, AwbwTerrain::Shoal(_)))
         };
 
         // Check for land and shoal in each direction
-        let n_land = is_land(nearby.north);
-        let e_land = is_land(nearby.east);
-        let s_land = is_land(nearby.south);
-        let w_land = is_land(nearby.west);
+        let n_land = AwbrnMap::is_land(nearby.north);
+        let e_land = AwbrnMap::is_land(nearby.east);
+        let s_land = AwbrnMap::is_land(nearby.south);
+        let w_land = AwbrnMap::is_land(nearby.west);
 
         let n_shoal = is_shoal(nearby.north);
         let e_shoal = is_shoal(nearby.east);
