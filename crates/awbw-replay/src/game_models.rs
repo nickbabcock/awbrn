@@ -27,10 +27,11 @@ pub struct AwbwGame {
     pub fog: String,
     pub comment: Option<String>,
     #[serde(rename = "type")]
-    pub game_type: String,
+    pub game_type: MatchType,
     pub boot_interval: i32,
     pub starting_funds: u32,
-    pub official: String,
+    #[serde(deserialize_with = "bool_ynstr")]
+    pub official: bool,
     pub min_rating: u32,
     pub max_rating: Option<u32>,
     pub league: Option<String>,
@@ -52,13 +53,9 @@ pub struct AwbwGame {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct AwbwPlayer {
-    // Player ID used in the game
     pub id: AwbwGamePlayerId,
-
-    // Global ID used across all games
     pub users_id: AwbwPlayerId,
     pub games_id: AwbwGameId,
-
     #[serde(alias = "countries_id", with = "player_faction_id")]
     pub faction: PlayerFaction,
     pub co_id: u32,
@@ -166,4 +163,20 @@ mod player_faction_id {
         PlayerFaction::from_awbw_id(x)
             .ok_or_else(|| serde::de::Error::custom(format!("Invalid faction ID: {}", x)))
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub enum MatchType {
+    #[serde(rename = "L")]
+    League,
+    #[serde(rename = "N")]
+    Normal,
+    #[serde(rename = "A")]
+    Tag,
+    #[serde(rename = "V")]
+    LiveQueue,
+    #[serde(rename = "W")]
+    LiveLeague,
+    #[serde(other)]
+    Unknown,
 }
