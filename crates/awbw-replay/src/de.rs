@@ -159,6 +159,21 @@ pub enum Hidden<T> {
     Visible(T),
 }
 
+impl<T> Hidden<T> {
+    /// Check if the value is hidden
+    pub fn is_hidden(&self) -> bool {
+        matches!(self, Hidden::Hidden)
+    }
+
+    /// Get the inner value if visible
+    pub fn get_value(&self) -> Option<&T> {
+        match self {
+            Hidden::Visible(value) => Some(value),
+            Hidden::Hidden => None,
+        }
+    }
+}
+
 impl<T> SpecialValueDeserializer<T> for Hidden<T> {
     fn is_special(value: &str) -> bool {
         value.is_empty()
@@ -179,6 +194,21 @@ pub enum Masked<T> {
     #[default]
     Masked,
     Visible(T),
+}
+
+impl<T> Masked<T> {
+    /// Check if the value is masked
+    pub fn is_masked(&self) -> bool {
+        matches!(self, Masked::Masked)
+    }
+
+    /// Get the inner value if visible
+    pub fn get_value(&self) -> Option<&T> {
+        match self {
+            Masked::Visible(value) => Some(value),
+            Masked::Masked => None,
+        }
+    }
 }
 
 impl<T> SpecialValueDeserializer<T> for Masked<T> {
