@@ -1,8 +1,9 @@
 mod de;
 mod errors;
-mod game_models;
+pub mod game_models;
 mod replay;
-mod turn_models;
+pub mod turn_models;
 
+pub use de::{Hidden, Masked};
 pub use errors::*;
 pub use replay::*;
