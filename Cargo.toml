@@ -11,7 +11,7 @@ indexmap = { version = "2.9.0", features = ["serde"] }
 insta = { version = "1.42.2", features = ["glob", "serde", "json"] }
 phpserz = "0.2.1"
 raw-window-handle = { version = "0.6.2", features = ["wasm-bindgen-0-2"] }
-rawzip = "0.1"
+rawzip = "0.2"
 ehttp = { version = "0.5.0", default-features = false, features = ["native-async"] }
 rstest = "0.25.0"
 serde = { version = "1.0.219", features = ["derive"] }
