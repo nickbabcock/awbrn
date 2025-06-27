@@ -1,0 +1,752 @@
+{
+    "Infantry": {
+        "Name": "Infantry",
+        "AWBWId": 1,
+        "MaxFuel": 99,
+        "MaxAmmo": 0,
+        "FuelUsagePerTurn": 0,
+        "Vision": 2,
+        "MovementRange": 3,
+        "AttackRange": {"x": 1, "y": 1},
+        "Cost": 1000,
+        "MovementType": "LightInf",
+        "SecondWeapon": false,
+        "Symbol": "A",
+        "IdleAnimation": {
+            "Texture": "Infantry",
+            "Frames": [160, 160, 320, 160]
+        },
+        "MoveSideAnimation": {
+            "Texture": "Infantry_MSide",
+            "Frames": [120, 120, 120, 120]
+        },
+        "MoveUpAnimation": {
+            "Texture": "Infantry_MUp",
+            "Frames": [120, 120, 120, 120]
+        },
+        "MoveDownAnimation": {
+            "Texture": "Infantry_MDown",
+            "Frames": [120, 120, 120, 120]
+        }
+    },
+    "Mech": {
+        "Name": "Mech",
+        "AWBWId": 2,
+        "MaxFuel": 70,
+        "MaxAmmo": 3,
+        "FuelUsagePerTurn": 0,
+        "Vision": 2,
+        "MovementRange": 2,
+        "AttackRange": {"x": 1, "y": 1},
+        "Cost": 3000,
+        "MovementType": "HeavyInf",
+        "SecondWeapon": true,
+        "Symbol": "B",
+        "IdleAnimation": {
+            "Texture": "Mech",
+            "Frames": [480, 320]
+        },
+        "MoveSideAnimation": {
+            "Texture": "Mech_MSide",
+            "Frames": [120, 120, 120, 120]
+        },
+        "MoveUpAnimation": {
+            "Texture": "Mech_MUp",
+            "Frames": [120, 120, 120, 120]
+        },
+        "MoveDownAnimation": {
+            "Texture": "Mech_MDown",
+            "Frames": [120, 120, 120, 120]
+        }
+    },
+    "Md.Tank": {
+        "Name": "Md.Tank",
+        "AWBWId": 3,
+        "MaxFuel": 50,
+        "MaxAmmo": 8,
+        "FuelUsagePerTurn": 0,
+        "Vision": 1,
+        "MovementRange": 5,
+        "AttackRange": {"x": 1, "y": 1},
+        "Cost": 16000,
+        "MovementType": "Tread",
+        "SecondWeapon": true,
+        "Symbol": "C",
+        "IdleAnimation": {
+            "Texture": "MdTank",
+            "Frames": [160, 160, 320, 160]
+        },
+        "MoveSideAnimation": {
+            "Texture": "MdTank_MSide",
+            "Frames": [80, 80, 80]
+        },
+        "MoveUpAnimation": {
+            "Texture": "MdTank_MUp",
+            "Frames": [80, 80, 80]
+        },
+        "MoveDownAnimation": {
+            "Texture": "MdTank_MDown",
+            "Frames": [80, 80, 80]
+        }
+    },
+    "Tank": {
+        "Name": "Tank",
+        "AWBWId": 4,
+        "MaxFuel": 70,
+        "MaxAmmo": 9,
+        "FuelUsagePerTurn": 0,
+        "Vision": 3,
+        "MovementRange": 6,
+        "AttackRange": {"x": 1, "y": 1},
+        "Cost": 7000,
+        "MovementType": "Tread",
+        "SecondWeapon": true,
+        "Symbol": "D",
+        "IdleAnimation": {
+            "Texture": "Tank",
+            "Frames": [160, 160, 320, 160]
+        },
+        "MoveSideAnimation": {
+            "Texture": "Tank_MSide",
+            "Frames": [80, 80, 80]
+        },
+        "MoveUpAnimation": {
+            "Texture": "Tank_MUp",
+            "Frames": [80, 80, 80]
+        },
+        "MoveDownAnimation": {
+            "Texture": "Tank_MDown",
+            "Frames": [80, 80, 80]
+        }
+    },
+    "Recon": {
+        "Name": "Recon",
+        "AWBWId": 5,
+        "MaxFuel": 80,
+        "MaxAmmo": 0,
+        "FuelUsagePerTurn": 0,
+        "Vision": 5,
+        "MovementRange": 8,
+        "AttackRange": {"x": 1, "y": 1},
+        "Cost": 4000,
+        "MovementType": "Tire",
+        "SecondWeapon": false,
+        "Symbol": "E",
+        "IdleAnimation": {
+            "Texture": "Recon",
+            "Frames": [160, 160, 320, 160]
+        },
+        "MoveSideAnimation": {
+            "Texture": "Recon_MSide",
+            "Frames": [80, 80, 80]
+        },
+        "MoveUpAnimation": {
+            "Texture": "Recon_MUp",
+            "Frames": [80, 80, 80]
+        },
+        "MoveDownAnimation": {
+            "Texture": "Recon_MDown",
+            "Frames": [80, 80, 80]
+        }
+    },
+    "APC": {
+        "Name": "APC",
+        "AWBWId": 6,
+        "MaxFuel": 70,
+        "MaxAmmo": 0,
+        "FuelUsagePerTurn": 0,
+        "Vision": 1,
+        "MovementRange": 6,
+        "AttackRange": {"x": 0, "y": 0},
+        "Cost": 5000,
+        "MovementType": "Tread",
+        "SecondWeapon": false,
+        "Symbol": "F",
+        "IdleAnimation": {
+            "Texture": "APC",
+            "Frames": [160, 160, 320, 160]
+        },
+        "MoveSideAnimation": {
+            "Texture": "APC_MSide",
+            "Frames": [80, 80, 80]
+        },
+        "MoveUpAnimation": {
+            "Texture": "APC_MUp",
+            "Frames": [80, 80, 80]
+        },
+        "MoveDownAnimation": {
+            "Texture": "APC_MDown",
+            "Frames": [80, 80, 80]
+        }
+    },
+    "Artillery": {
+        "Name": "Artillery",
+        "AWBWId": 7,
+        "MaxFuel": 50,
+        "MaxAmmo": 9,
+        "FuelUsagePerTurn": 0,
+        "Vision": 1,
+        "MovementRange": 5,
+        "AttackRange": {"x": 2, "y": 3},
+        "Cost": 6000,
+        "MovementType": "Tread",
+        "SecondWeapon": false,
+        "Symbol": "G",
+        "IdleAnimation": {
+            "Texture": "Artillery",
+            "Frames": [160, 160, 320, 160]
+        },
+        "MoveSideAnimation": {
+            "Texture": "Artillery_MSide",
+            "Frames": [80, 80, 80]
+        },
+        "MoveUpAnimation": {
+            "Texture": "Artillery_MUp",
+            "Frames": [80, 80, 80]
+        },
+        "MoveDownAnimation": {
+            "Texture": "Artillery_MDown",
+            "Frames": [80, 80, 80]
+        }
+    },
+    "Rocket": {
+        "Name": "Rocket",
+        "AWBWId": 8,
+        "MaxFuel": 50,
+        "MaxAmmo": 6,
+        "FuelUsagePerTurn": 0,
+        "Vision": 1,
+        "MovementRange": 5,
+        "AttackRange": {"x": 3, "y": 5},
+        "Cost": 15000,
+        "MovementType": "Tire",
+        "SecondWeapon": false,
+        "Symbol": "H",
+        "IdleAnimation": {
+            "Texture": "Rocket",
+            "Frames": [320, 480]
+        },
+        "MoveSideAnimation": {
+            "Texture": "Rocket_MSide",
+            "Frames": [80, 80, 80]
+        },
+        "MoveUpAnimation": {
+            "Texture": "Rocket_MUp",
+            "Frames": [80, 80, 80]
+        },
+        "MoveDownAnimation": {
+            "Texture": "Rocket_MDown",
+            "Frames": [80, 80, 80]
+        }
+    },
+    "Anti-Air": {
+        "Name": "Anti-Air",
+        "AWBWId": 9,
+        "MaxFuel": 60,
+        "MaxAmmo": 9,
+        "FuelUsagePerTurn": 0,
+        "Vision": 2,
+        "MovementRange": 6,
+        "AttackRange": {"x": 1, "y": 1},
+        "Cost": 8000,
+        "MovementType": "Tread",
+        "SecondWeapon": false,
+        "Symbol": "I",
+        "IdleAnimation": {
+            "Texture": "Anti-Air",
+            "Frames": [160, 160, 320, 160]
+        },
+        "MoveSideAnimation": {
+            "Texture": "Anti-Air_MSide",
+            "Frames": [80, 80, 80]
+        },
+        "MoveUpAnimation": {
+            "Texture": "Anti-Air_MUp",
+            "Frames": [80, 80, 80]
+        },
+        "MoveDownAnimation": {
+            "Texture": "Anti-Air_MDown",
+            "Frames": [80, 80, 80]
+        }
+    },
+    "Missile": {
+        "Name": "Missile",
+        "AWBWId": 10,
+        "MaxFuel": 50,
+        "MaxAmmo": 6,
+        "FuelUsagePerTurn": 0,
+        "Vision": 5,
+        "MovementRange": 4,
+        "AttackRange": {"x": 3, "y": 5},
+        "Cost": 12000,
+        "MovementType": "Tire",
+        "SecondWeapon": false,
+        "Symbol": "J",
+        "IdleAnimation": {
+            "Texture": "Missile",
+            "Frames": [480, 320]
+        },
+        "MoveSideAnimation": {
+            "Texture": "Missile_MSide",
+            "Frames": [80, 80, 80]
+        },
+        "MoveUpAnimation": {
+            "Texture": "Missile_MUp",
+            "Frames": [80, 80, 80]
+        },
+        "MoveDownAnimation": {
+            "Texture": "Missile_MDown",
+            "Frames": [80, 80, 80]
+        }
+    },
+    "Fighter": {
+        "Name": "Fighter",
+        "AWBWId": 11,
+        "MaxFuel": 99,
+        "MaxAmmo": 9,
+        "FuelUsagePerTurn": 5,
+        "Vision": 2,
+        "MovementRange": 9,
+        "AttackRange": {"x": 1, "y": 1},
+        "Cost": 20000,
+        "MovementType": "Air",
+        "SecondWeapon": false,
+        "Symbol": "L",
+        "IdleAnimation": {
+            "Texture": "Fighter",
+            "Frames": [320, 480]
+        },
+        "MoveSideAnimation": {
+            "Texture": "Fighter_MSide",
+            "Frames": [120, 120, 120]
+        },
+        "MoveUpAnimation": {
+            "Texture": "Fighter_MUp",
+            "Frames": [120, 120, 120]
+        },
+        "MoveDownAnimation": {
+            "Texture": "Fighter_MDown",
+            "Frames": [120, 120, 120]
+        }
+    },
+    "Bomber": {
+        "Name": "Bomber",
+        "AWBWId": 12,
+        "MaxFuel": 99,
+        "MaxAmmo": 9,
+        "FuelUsagePerTurn": 5,
+        "Vision": 2,
+        "MovementRange": 7,
+        "AttackRange": {"x": 1, "y": 1},
+        "Cost": 22000,
+        "MovementType": "Air",
+        "SecondWeapon": false,
+        "Symbol": "M",
+        "IdleAnimation": {
+            "Texture": "Bomber",
+            "Frames": [480, 320]
+        },
+        "MoveSideAnimation": {
+            "Texture": "Bomber_MSide",
+            "Frames": [120, 120, 120]
+        },
+        "MoveUpAnimation": {
+            "Texture": "Bomber_MUp",
+            "Frames": [120, 120, 120]
+        },
+        "MoveDownAnimation": {
+            "Texture": "Bomber_MDown",
+            "Frames": [120, 120, 120]
+        }
+    },
+    "B-Copter": {
+        "Name": "B-Copter",
+        "AWBWId": 13,
+        "MaxFuel": 99,
+        "MaxAmmo": 6,
+        "FuelUsagePerTurn": 2,
+        "Vision": 3,
+        "MovementRange": 6,
+        "AttackRange": {"x": 1, "y": 1},
+        "Cost": 9000,
+        "MovementType": "Air",
+        "SecondWeapon": true,
+        "Symbol": "N",
+        "IdleAnimation": {
+            "Texture": "B-Copter",
+            "Frames": [160, 160, 320, 160]
+        },
+        "MoveSideAnimation": {
+            "Texture": "B-Copter_MSide",
+            "Frames": [30, 30]
+        },
+        "MoveUpAnimation": {
+            "Texture": "B-Copter_MUp",
+            "Frames": [30, 30]
+        },
+        "MoveDownAnimation": {
+            "Texture": "B-Copter_MDown",
+            "Frames": [30, 30]
+        }
+    },
+    "T-Copter": {
+        "Name": "T-Copter",
+        "AWBWId": 14,
+        "MaxFuel": 99,
+        "MaxAmmo": 0,
+        "FuelUsagePerTurn": 2,
+        "Vision": 2,
+        "MovementRange": 6,
+        "AttackRange": {"x": 0, "y": 0},
+        "Cost": 5000,
+        "MovementType": "Air",
+        "SecondWeapon": false,
+        "Symbol": "O",
+        "IdleAnimation": {
+            "Texture": "T-Copter",
+            "Frames": [160, 160, 320, 160]
+        },
+        "MoveSideAnimation": {
+            "Texture": "T-Copter_MSide",
+            "Frames": [30, 30]
+        },
+        "MoveUpAnimation": {
+            "Texture": "T-Copter_MUp",
+            "Frames": [30, 30]
+        },
+        "MoveDownAnimation": {
+            "Texture": "T-Copter_MDown",
+            "Frames": [30, 30]
+        }
+    },
+    "Battleship": {
+        "Name": "Battleship",
+        "AWBWId": 15,
+        "MaxFuel": 99,
+        "MaxAmmo": 9,
+        "FuelUsagePerTurn": 1,
+        "Vision": 2,
+        "MovementRange": 5,
+        "AttackRange": {"x": 2, "y": 6},
+        "Cost": 28000,
+        "MovementType": "Sea",
+        "SecondWeapon": false,
+        "Symbol": "P",
+        "IdleAnimation": {
+            "Texture": "Battleship",
+            "Frames": [320, 480]
+        },
+        "MoveSideAnimation": {
+            "Texture": "Battleship_MSide",
+            "Frames": [480, 160]
+        },
+        "MoveUpAnimation": {
+            "Texture": "Battleship_MUp",
+            "Frames": [480, 160]
+        },
+        "MoveDownAnimation": {
+            "Texture": "Battleship_MDown",
+            "Frames": [480, 160]
+        }
+    },
+    "Cruiser": {
+        "Name": "Cruiser",
+        "AWBWId": 16,
+        "MaxFuel": 99,
+        "MaxAmmo": 9,
+        "FuelUsagePerTurn": 1,
+        "Vision": 3,
+        "MovementRange": 6,
+        "AttackRange": {"x": 1, "y": 1},
+        "Cost": 18000,
+        "MovementType": "Sea",
+        "SecondWeapon": false,
+        "Symbol": "Q",
+        "IdleAnimation": {
+            "Texture": "Cruiser",
+            "Frames": [480, 320]
+        },
+        "MoveSideAnimation": {
+            "Texture": "Cruiser_MSide",
+            "Frames": [160, 480]
+        },
+        "MoveUpAnimation": {
+            "Texture": "Cruiser_MUp",
+            "Frames": [480, 160]
+        },
+        "MoveDownAnimation": {
+            "Texture": "Cruiser_MDown",
+            "Frames": [480, 160]
+        }
+    },
+    "Lander": {
+        "Name": "Lander",
+        "AWBWId": 17,
+        "MaxFuel": 99,
+        "MaxAmmo": 0,
+        "FuelUsagePerTurn": 1,
+        "Vision": 1,
+        "MovementRange": 6,
+        "AttackRange": {"x": 0, "y": 0},
+        "Cost": 12000,
+        "MovementType": "Lander",
+        "SecondWeapon": false,
+        "Symbol": "R",
+        "IdleAnimation": {
+            "Texture": "Lander",
+            "Frames": [320, 480]
+        },
+        "MoveSideAnimation": {
+            "Texture": "Lander_MSide",
+            "Frames": [480, 160]
+        },
+        "MoveUpAnimation": {
+            "Texture": "Lander_MUp",
+            "Frames": [480, 160]
+        },
+        "MoveDownAnimation": {
+            "Texture": "Lander_MDown",
+            "Frames": [480, 160]
+        }
+    },
+    "Sub": {
+        "Name": "Sub",
+        "AWBWId": 18,
+        "MaxFuel": 60,
+        "MaxAmmo": 6,
+        "FuelUsagePerTurn": 1,
+        "Vision": 5,
+        "MovementRange": 5,
+        "AttackRange": {"x": 1, "y": 1},
+        "Cost": 20000,
+        "MovementType": "Sea",
+        "SecondWeapon": false,
+        "Symbol": "S",
+        "IdleAnimation": {
+            "Texture": "Sub",
+            "Frames": [160, 160, 320, 160]
+        },
+        "MoveSideAnimation": {
+            "Texture": "Sub_MSide",
+            "Frames": [480, 160]
+        },
+        "MoveUpAnimation": {
+            "Texture": "Sub_MUp",
+            "Frames": [480, 160]
+        },
+        "MoveDownAnimation": {
+            "Texture": "Sub_MDown",
+            "Frames": [480, 160]
+        }
+    },
+    "Black Boat": {
+        "Name": "Black Boat",
+        "AWBWId": 28,
+        "MaxFuel": 60,
+        "MaxAmmo": 0,
+        "FuelUsagePerTurn": 1,
+        "Vision": 1,
+        "MovementRange": 7,
+        "AttackRange": {"x": 0, "y": 0},
+        "Cost": 7500,
+        "MovementType": "Lander",
+        "SecondWeapon": false,
+        "Symbol": "A",
+        "IdleAnimation": {
+            "Texture": "BlackBoat",
+            "Frames": [320, 160, 160, 160]
+        },
+        "MoveSideAnimation": {
+            "Texture": "BlackBoat_MSide",
+            "Frames": [480, 160]
+        },
+        "MoveUpAnimation": {
+            "Texture": "BlackBoat_MUp",
+            "Frames": [480, 160]
+        },
+        "MoveDownAnimation": {
+            "Texture": "BlackBoat_MDown",
+            "Frames": [480, 160]
+        }
+    },
+    "Carrier": {
+        "Name": "Carrier",
+        "AWBWId": 29,
+        "MaxFuel": 99,
+        "MaxAmmo": 9,
+        "FuelUsagePerTurn": 1,
+        "Vision": 4,
+        "MovementRange": 5,
+        "AttackRange": {"x": 3, "y": 8},
+        "Cost": 30000,
+        "MovementType": "Sea",
+        "SecondWeapon": false,
+        "Symbol": "B",
+        "IdleAnimation": {
+            "Texture": "Carrier",
+            "Frames": [320, 480]
+        },
+        "MoveSideAnimation": {
+            "Texture": "Carrier_MSide",
+            "Frames": [480, 160]
+        },
+        "MoveUpAnimation": {
+            "Texture": "Carrier_MUp",
+            "Frames": [480, 160]
+        },
+        "MoveDownAnimation": {
+            "Texture": "Carrier_MDown",
+            "Frames": [480, 160]
+        }
+    },
+    "Stealth": {
+        "Name": "Stealth",
+        "AWBWId": 30,
+        "MaxFuel": 60,
+        "MaxAmmo": 6,
+        "FuelUsagePerTurn": 5,
+        "Vision": 4,
+        "MovementRange": 6,
+        "AttackRange": {"x": 1, "y": 1},
+        "Cost": 24000,
+        "MovementType": "Air",
+        "SecondWeapon": false,
+        "Symbol": "D",
+        "IdleAnimation": {
+            "Texture": "Stealth",
+            "Frames": [480, 320]
+        },
+        "MoveSideAnimation": {
+            "Texture": "Stealth_MSide",
+            "Frames": [120, 120, 120]
+        },
+        "MoveUpAnimation": {
+            "Texture": "Stealth_MUp",
+            "Frames": [120, 120, 120]
+        },
+        "MoveDownAnimation": {
+            "Texture": "Stealth_MDown",
+            "Frames": [120, 120, 120]
+        }
+    },
+    "Neotank": {
+        "Name": "Neotank",
+        "AWBWId": 46,
+        "MaxFuel": 99,
+        "MaxAmmo": 9,
+        "FuelUsagePerTurn": 0,
+        "Vision": 1,
+        "MovementRange": 6,
+        "AttackRange": {"x": 1, "y": 1},
+        "Cost": 22000,
+        "MovementType": "Tread",
+        "SecondWeapon": true,
+        "Symbol": "T",
+        "IdleAnimation": {
+            "Texture": "NeoTank",
+            "Frames": [160, 160, 320, 160]
+        },
+        "MoveSideAnimation": {
+            "Texture": "NeoTank_MSide",
+            "Frames": [80, 80, 80]
+        },
+        "MoveUpAnimation": {
+            "Texture": "NeoTank_MUp",
+            "Frames": [80, 80, 80]
+        },
+        "MoveDownAnimation": {
+            "Texture": "NeoTank_MDown",
+            "Frames": [80, 80, 80]
+        }
+    },
+    "Piperunner": {
+        "Name": "Piperunner",
+        "AWBWId": 960900,
+        "MaxFuel": 99,
+        "MaxAmmo": 9,
+        "FuelUsagePerTurn": 0,
+        "Vision": 4,
+        "MovementRange": 9,
+        "AttackRange": {"x": 2, "y": 5},
+        "Cost": 20000,
+        "MovementType": "Pipe",
+        "SecondWeapon": true,
+        "Symbol": "U",
+        "IdleAnimation": {
+            "Texture": "PipeRunner",
+            "Frames": [480, 320]
+        },
+        "MoveSideAnimation": {
+            "Texture": "PipeRunner_MSide",
+            "Frames": [80, 80, 80]
+        },
+        "MoveUpAnimation": {
+            "Texture": "PipeRunner_MUp",
+            "Frames": [80, 80, 80]
+        },
+        "MoveDownAnimation": {
+            "Texture": "PipeRunner_MDown",
+            "Frames": [80, 80, 80]
+        }
+    },
+    "Black Bomb": {
+        "Name": "Black Bomb",
+        "AWBWId": 968731,
+        "MaxFuel": 45,
+        "MaxAmmo": 0,
+        "FuelUsagePerTurn": 5,
+        "Vision": 1,
+        "MovementRange": 9,
+        "AttackRange": {"x": 0, "y": 0}, //Technically has a range of 1-3 but that would imply it can counter attack
+        "Cost": 25000,
+        "MovementType": "Air",
+        "SecondWeapon": false,
+        "Symbol": "V",
+        "IdleAnimation": {
+            "Texture": "BlackBomb",
+            "Frames": [220, 220, 220, 220]
+        },
+        "MoveSideAnimation": {
+            "Texture": "BlackBomb_MSide",
+            "Frames": [120, 120, 120]
+        },
+        "MoveUpAnimation": {
+            "Texture": "BlackBomb_MUp",
+            "Frames": [120, 120, 120]
+        },
+        "MoveDownAnimation": {
+            "Texture": "BlackBomb_MDown",
+            "Frames": [120, 120, 120]
+        }
+    },
+    "Mega Tank": {
+        "Name": "Mega Tank",
+        "AWBWId": 1141438,
+        "MaxFuel": 50,
+        "MaxAmmo": 3,
+        "FuelUsagePerTurn": 0,
+        "Vision": 1,
+        "MovementRange": 4,
+        "AttackRange": {"x": 1, "y": 1},
+        "Cost": 28000,
+        "MovementType": "Tread",
+        "SecondWeapon": true,
+        "Symbol": "Z",
+        "IdleAnimation": {
+            "Texture": "MegaTank",
+            "Frames": [160, 160, 320, 160]
+        },
+        "MoveSideAnimation": {
+            "Texture": "MegaTank_MSide",
+            "Frames": [80, 80, 80]
+        },
+        "MoveUpAnimation": {
+            "Texture": "MegaTank_MUp",
+            "Frames": [80, 80, 80]
+        },
+        "MoveDownAnimation": {
+            "Texture": "MegaTank_MDown",
+            "Frames": [80, 80, 80]
+        }
+    }
+}
