@@ -1,4 +1,6 @@
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, strum::EnumCount, strum::VariantArray,
+)]
 pub enum Unit {
     AntiAir,
     APC,
@@ -17,8 +19,8 @@ pub enum Unit {
     Mech,
     MegaTank,
     Missile,
-    Neotank,
-    Piperunner,
+    NeoTank,
+    PipeRunner,
     Recon,
     Rocket,
     Stealth,
@@ -48,8 +50,8 @@ impl Unit {
             Unit::Mech => "Mech",
             Unit::MegaTank => "Mega Tank",
             Unit::Missile => "Missile",
-            Unit::Neotank => "Neo Tank",
-            Unit::Piperunner => "Piperunner",
+            Unit::NeoTank => "Neo Tank",
+            Unit::PipeRunner => "Piperunner",
             Unit::Recon => "Recon",
             Unit::Rocket => "Rocket",
             Unit::Stealth => "Stealth",
@@ -79,8 +81,8 @@ impl Unit {
             "Mech" => Some(Unit::Mech),
             "Mega Tank" => Some(Unit::MegaTank),
             "Missile" => Some(Unit::Missile),
-            "Neotank" => Some(Unit::Neotank),
-            "Piperunner" => Some(Unit::Piperunner),
+            "Neotank" => Some(Unit::NeoTank),
+            "Piperunner" => Some(Unit::PipeRunner),
             "Recon" => Some(Unit::Recon),
             "Rocket" => Some(Unit::Rocket),
             "Stealth" => Some(Unit::Stealth),
@@ -94,7 +96,7 @@ impl Unit {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub enum GraphicalMovement {
-    None,
+    Idle,
     Up,
     Down,
     Lateral,

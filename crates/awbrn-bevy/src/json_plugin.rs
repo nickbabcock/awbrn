@@ -1,6 +1,5 @@
 use bevy::app::{App, Plugin};
-use bevy::asset::io::Reader;
-use bevy::asset::{Asset, AssetApp, AssetLoader, LoadContext};
+use bevy::asset::{Asset, AssetApp, AssetLoader, LoadContext, io::Reader};
 use serde_json::from_slice;
 use std::marker::PhantomData;
 

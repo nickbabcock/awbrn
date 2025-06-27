@@ -295,75 +295,16 @@ pub const fn spritesheet_index(weather: Weather, terrain: GraphicalTerrain) -> S
     }
 }
 
-pub const fn unit_spritesheet_index(
+pub fn unit_spritesheet_index(
     movement: GraphicalMovement,
     unit: Unit,
     faction: PlayerFaction,
 ) -> SpritesheetIndex {
-    const IND: [[u16; 4]; 25] = [
-        [4, 3, 3, 3], // Anti-air
-        [4, 3, 3, 3], // APC
-        [4, 3, 3, 3], // Artillery
-        [2, 2, 2, 2], // Battleship
-        [4, 2, 2, 2], // BlackBoat
-        [4, 3, 3, 3], // Bomb
-        [2, 3, 3, 3], // Bomber
-        [4, 2, 2, 2], // B-Copter
-        [2, 2, 2, 2], // Carrier
-        [2, 2, 2, 2], // Cruiser
-        [2, 3, 3, 3], // Fighter
-        [4, 4, 4, 4], // Infantry
-        [2, 2, 2, 2], // Lander
-        [4, 3, 3, 3], // MdTank
-        [2, 4, 4, 4], // Mech
-        [4, 3, 3, 3], // MegaTank
-        [2, 3, 3, 3], // Missle
-        [4, 3, 3, 3], // NeoTank
-        [2, 3, 3, 3], // Piperunner
-        [4, 3, 3, 3], // Recon
-        [2, 3, 3, 3], // Rocket
-        [2, 3, 3, 3], // Stealth
-        [4, 2, 2, 2], // Sub
-        [4, 3, 3, 3], // Tank
-        [4, 2, 2, 2], // T-Copter
-    ];
-
-    let mut total: u16 = 0;
-    let mut i = 0;
-    while i < IND.len() {
-        total += IND[i][0];
-        total += IND[i][1];
-        total += IND[i][2];
-        total += IND[i][3];
-        i += 1;
-    }
-
-    let faction_index = total * faction.index() as u16;
-
-    i = 0;
-    let mut unit_offset = 0;
-    while i < unit.index() {
-        unit_offset += IND[i][0];
-        unit_offset += IND[i][1];
-        unit_offset += IND[i][2];
-        unit_offset += IND[i][3];
-        i += 1;
-    }
-
-    let (offset, animation_frames) = match movement {
-        GraphicalMovement::None => (0, IND[unit.index()][0]),
-        GraphicalMovement::Up => (IND[unit.index()][0], IND[unit.index()][1]),
-        GraphicalMovement::Down => (
-            IND[unit.index()][1] + IND[unit.index()][0],
-            IND[unit.index()][2],
-        ),
-        GraphicalMovement::Lateral => (
-            IND[unit.index()][2] + IND[unit.index()][1] + IND[unit.index()][0],
-            IND[unit.index()][3],
-        ),
-    };
-
-    SpritesheetIndex::new(faction_index + unit_offset + offset, animation_frames as u8)
+    let animation_frames = crate::get_unit_animation_frames(movement, unit, faction);
+    SpritesheetIndex::new(
+        animation_frames.start_index(),
+        animation_frames.frame_count() as u8,
+    )
 }
 
 impl PlayerFaction {
@@ -379,62 +320,6 @@ impl PlayerFaction {
             PropertyKind::Port => Property::Port(Faction::Player(*self)),
         };
         GraphicalTerrain::Property(prop)
-    }
-
-    const fn index(&self) -> usize {
-        match self {
-            PlayerFaction::AcidRain => 0,
-            PlayerFaction::AmberBlaze => 1,
-            PlayerFaction::AzureAsteroid => 2,
-            PlayerFaction::BlackHole => 3,
-            PlayerFaction::BlueMoon => 4,
-            PlayerFaction::BrownDesert => 5,
-            PlayerFaction::CobaltIce => 6,
-            PlayerFaction::GreenEarth => 7,
-            PlayerFaction::GreySky => 8,
-            PlayerFaction::JadeSun => 9,
-            PlayerFaction::NoirEclipse => 10,
-            PlayerFaction::OrangeStar => 11,
-            PlayerFaction::PinkCosmos => 12,
-            PlayerFaction::PurpleLightning => 13,
-            PlayerFaction::RedFire => 14,
-            PlayerFaction::SilverClaw => 15,
-            PlayerFaction::TealGalaxy => 16,
-            PlayerFaction::WhiteNova => 17,
-            PlayerFaction::YellowComet => 18,
-        }
-    }
-}
-
-impl Unit {
-    const fn index(&self) -> usize {
-        match self {
-            Unit::AntiAir => 0,
-            Unit::APC => 1,
-            Unit::Artillery => 2,
-            Unit::BCopter => 3,
-            Unit::Battleship => 4,
-            Unit::BlackBoat => 5,
-            Unit::BlackBomb => 6,
-            Unit::Bomber => 7,
-            Unit::Carrier => 8,
-            Unit::Cruiser => 9,
-            Unit::Fighter => 10,
-            Unit::Infantry => 11,
-            Unit::Lander => 12,
-            Unit::MdTank => 13,
-            Unit::Mech => 14,
-            Unit::MegaTank => 15,
-            Unit::Missile => 16,
-            Unit::Neotank => 17,
-            Unit::Piperunner => 18,
-            Unit::Recon => 19,
-            Unit::Rocket => 20,
-            Unit::Stealth => 21,
-            Unit::Sub => 22,
-            Unit::TCopter => 23,
-            Unit::Tank => 24,
-        }
     }
 }
 

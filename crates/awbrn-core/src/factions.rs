@@ -2,7 +2,7 @@ use crate::AwbwFactionId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PlayerFaction {
-    AcidRain,
+    AcidRain = 0,
     AmberBlaze,
     AzureAsteroid,
     BlackHole,
@@ -177,6 +177,11 @@ impl PlayerFaction {
             PlayerFaction::WhiteNova => PlayerFaction::TealGalaxy,
             PlayerFaction::YellowComet => PlayerFaction::WhiteNova,
         }
+    }
+
+    #[inline]
+    pub const fn index(&self) -> u8 {
+        *self as u8
     }
 }
 
