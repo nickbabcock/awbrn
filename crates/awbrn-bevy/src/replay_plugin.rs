@@ -1,7 +1,6 @@
 use awbw_replay::{AwbwReplay, ReplayError, ReplayParser};
 use bevy::app::{App, Plugin};
-use bevy::asset::io::Reader;
-use bevy::asset::{Asset, AssetApp, AssetLoader, LoadContext};
+use bevy::asset::{Asset, AssetApp, AssetLoader, LoadContext, io::Reader};
 use bevy::prelude::TypePath;
 
 /// Wrapper around AwbwReplay to make it a Bevy Asset

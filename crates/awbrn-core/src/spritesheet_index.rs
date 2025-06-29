@@ -10,6 +10,40 @@ pub struct SpritesheetIndex {
     animation_frames: u8,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnimationFrames {
+    pub start_index: u16,
+    pub frame_durations: Vec<u32>, // Duration in milliseconds for each frame
+}
+
+impl AnimationFrames {
+    pub fn new(start_index: u16, frame_durations: Vec<u32>) -> Self {
+        Self {
+            start_index,
+            frame_durations,
+        }
+    }
+
+    pub fn uniform(start_index: u16, frame_count: u8, duration_ms: u32) -> Self {
+        Self {
+            start_index,
+            frame_durations: vec![duration_ms; frame_count as usize],
+        }
+    }
+
+    pub fn frame_count(&self) -> usize {
+        self.frame_durations.len()
+    }
+
+    pub fn total_duration(&self) -> u32 {
+        self.frame_durations.iter().sum()
+    }
+
+    pub fn frame_duration(&self, frame_index: usize) -> Option<u32> {
+        self.frame_durations.get(frame_index).copied()
+    }
+}
+
 impl SpritesheetIndex {
     #[inline]
     const fn single_frame(index: u16) -> Self {
@@ -40,6 +74,11 @@ impl SpritesheetIndex {
             index: self.index() + self.animation_frames() as u16,
             animation_frames,
         }
+    }
+
+    // Convert to AnimationFrames with uniform timing
+    pub fn to_uniform_animation_frames(&self, frame_duration_ms: u32) -> AnimationFrames {
+        AnimationFrames::uniform(self.index, self.animation_frames, frame_duration_ms)
     }
 }
 
@@ -295,75 +334,16 @@ pub const fn spritesheet_index(weather: Weather, terrain: GraphicalTerrain) -> S
     }
 }
 
-pub const fn unit_spritesheet_index(
+pub fn unit_spritesheet_index(
     movement: GraphicalMovement,
     unit: Unit,
     faction: PlayerFaction,
 ) -> SpritesheetIndex {
-    const IND: [[u16; 4]; 25] = [
-        [4, 3, 3, 3], // Anti-air
-        [4, 3, 3, 3], // APC
-        [4, 3, 3, 3], // Artillery
-        [2, 2, 2, 2], // Battleship
-        [4, 2, 2, 2], // BlackBoat
-        [4, 3, 3, 3], // Bomb
-        [2, 3, 3, 3], // Bomber
-        [4, 2, 2, 2], // B-Copter
-        [2, 2, 2, 2], // Carrier
-        [2, 2, 2, 2], // Cruiser
-        [2, 3, 3, 3], // Fighter
-        [4, 4, 4, 4], // Infantry
-        [2, 2, 2, 2], // Lander
-        [4, 3, 3, 3], // MdTank
-        [2, 4, 4, 4], // Mech
-        [4, 3, 3, 3], // MegaTank
-        [2, 3, 3, 3], // Missle
-        [4, 3, 3, 3], // NeoTank
-        [2, 3, 3, 3], // Piperunner
-        [4, 3, 3, 3], // Recon
-        [2, 3, 3, 3], // Rocket
-        [2, 3, 3, 3], // Stealth
-        [4, 2, 2, 2], // Sub
-        [4, 3, 3, 3], // Tank
-        [4, 2, 2, 2], // T-Copter
-    ];
-
-    let mut total: u16 = 0;
-    let mut i = 0;
-    while i < IND.len() {
-        total += IND[i][0];
-        total += IND[i][1];
-        total += IND[i][2];
-        total += IND[i][3];
-        i += 1;
-    }
-
-    let faction_index = total * faction.index() as u16;
-
-    i = 0;
-    let mut unit_offset = 0;
-    while i < unit.index() {
-        unit_offset += IND[i][0];
-        unit_offset += IND[i][1];
-        unit_offset += IND[i][2];
-        unit_offset += IND[i][3];
-        i += 1;
-    }
-
-    let (offset, animation_frames) = match movement {
-        GraphicalMovement::None => (0, IND[unit.index()][0]),
-        GraphicalMovement::Up => (IND[unit.index()][0], IND[unit.index()][1]),
-        GraphicalMovement::Down => (
-            IND[unit.index()][1] + IND[unit.index()][0],
-            IND[unit.index()][2],
-        ),
-        GraphicalMovement::Lateral => (
-            IND[unit.index()][2] + IND[unit.index()][1] + IND[unit.index()][0],
-            IND[unit.index()][3],
-        ),
-    };
-
-    SpritesheetIndex::new(faction_index + unit_offset + offset, animation_frames as u8)
+    let animation_frames = crate::get_unit_animation_frames(movement, unit, faction);
+    SpritesheetIndex::new(
+        animation_frames.start_index(),
+        animation_frames.frame_count() as u8,
+    )
 }
 
 impl PlayerFaction {
@@ -381,7 +361,7 @@ impl PlayerFaction {
         GraphicalTerrain::Property(prop)
     }
 
-    const fn index(&self) -> usize {
+    pub const fn index(&self) -> usize {
         match self {
             PlayerFaction::AcidRain => 0,
             PlayerFaction::AmberBlaze => 1,
@@ -407,7 +387,7 @@ impl PlayerFaction {
 }
 
 impl Unit {
-    const fn index(&self) -> usize {
+    pub const fn index(&self) -> usize {
         match self {
             Unit::AntiAir => 0,
             Unit::APC => 1,
@@ -426,8 +406,8 @@ impl Unit {
             Unit::Mech => 14,
             Unit::MegaTank => 15,
             Unit::Missile => 16,
-            Unit::Neotank => 17,
-            Unit::Piperunner => 18,
+            Unit::NeoTank => 17,
+            Unit::PipeRunner => 18,
             Unit::Recon => 19,
             Unit::Rocket => 20,
             Unit::Stealth => 21,
