@@ -4,9 +4,16 @@ use crate::{
     AwbwReplayAsset, CameraScale, CurrentWeather, GameMap, GridSystem, JsonAssetPlugin,
     ReplayAssetPlugin, SelectedTile, TerrainTile,
 };
-use awbrn_core::{Weather, unit_spritesheet_index};
+use awbrn_core::{Weather, get_unit_animation_frames};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
 use bevy::prelude::*;
+use bevy::{
+    asset::{AssetServer, Assets},
+    prelude::{Msaa, error, info},
+    sprite::Sprite,
+    state::{condition::in_state, state::OnEnter, state::States},
+    window::Window,
+};
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -30,12 +37,10 @@ impl AwbwMapAsset {
 // Components for animation
 #[derive(Component)]
 struct Animation {
-    start_index: usize,
-    frames_count: usize,
-    #[expect(dead_code)]
-    frame_time: Duration,
-    timer: Timer,
-    current_frame: usize,
+    start_index: u16,
+    frame_durations: [u16; 4], // Duration in milliseconds for each frame
+    current_frame: u8,
+    frame_timer: Timer,
 }
 
 #[derive(Component)]
@@ -296,16 +301,37 @@ fn handle_tile_clicks(
 fn animate_units(time: Res<Time>, mut query: Query<(&mut Animation, &mut Sprite)>) {
     for (mut animation, mut sprite) in query.iter_mut() {
         // Update the timer
-        animation.timer.tick(time.delta());
+        animation.frame_timer.tick(time.delta());
 
         // Check if we need to advance to the next frame
-        if animation.timer.just_finished() {
-            // Move to next frame
-            animation.current_frame = (animation.current_frame + 1) % animation.frames_count;
+        if animation.frame_timer.just_finished() {
+            // Find the next frame with non-zero duration
+            let start_frame = animation.current_frame;
+            loop {
+                animation.current_frame =
+                    (animation.current_frame + 1) % animation.frame_durations.len() as u8;
+
+                // If we've cycled back to start, break to avoid infinite loop
+                if animation.current_frame == start_frame {
+                    break;
+                }
+
+                // If we found a frame with non-zero duration, use it
+                if animation.frame_durations[animation.current_frame as usize] > 0 {
+                    break;
+                }
+            }
 
             // Update the sprite's texture atlas index
             if let Some(atlas) = &mut sprite.texture_atlas {
-                atlas.index = animation.start_index + animation.current_frame;
+                atlas.index = animation.start_index as usize + animation.current_frame as usize;
+            }
+
+            // Set the timer for the next frame duration
+            let next_duration = animation.frame_durations[animation.current_frame as usize];
+            if next_duration > 0 {
+                animation.frame_timer =
+                    Timer::new(Duration::from_millis(next_duration as u64), TimerMode::Once);
             }
         }
     }
@@ -391,7 +417,7 @@ fn spawn_animated_unit(
 
     // Create the texture atlas layout for units
     // The sprites are 23x24 with 86 rows and 64 columns
-    let layout = TextureAtlasLayout::from_grid(UVec2::new(23, 24), 64, 86, None, None);
+    let layout = TextureAtlasLayout::from_grid(UVec2::new(23, 24), 64, 86, None, Some(uvec2(1, 0)));
     let texture_atlas_layout = texture_atlas_layouts.add(layout);
 
     // Create a grid system
@@ -430,16 +456,15 @@ fn spawn_animated_unit(
         let y = unit.y as usize;
 
         // Get player faction
-        // For now, use OrangeStar for all units as requested
         let faction = players
             .iter()
             .find(|x| x.id == unit.players_id)
             .unwrap()
             .faction;
 
-        // Calculate the start index for the animation
-        let start_index =
-            unit_spritesheet_index(awbrn_core::GraphicalMovement::None, unit.name, faction);
+        // Get animation data using the new system
+        let animation_frames =
+            get_unit_animation_frames(awbrn_core::GraphicalMovement::Idle, unit.name, faction);
 
         // Create a grid position for the unit (with southeast gravity)
         let grid_pos = grid.unit_position(x, y);
@@ -452,23 +477,25 @@ fn spawn_animated_unit(
             world_origin_offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z);
 
         info!(
-            "Spawning {} unit at grid position ({}, {}), HP: {}",
+            "Spawning {} unit at grid position ({}, {}), HP: {}, frame count: {}",
             unit.name.name(),
             x,
             y,
-            unit.hit_points
+            unit.hit_points,
+            animation_frames.frame_count()
         );
 
-        // Create the animation component
+        // Create the animation component with variable frame timing
+        let frame_durations = animation_frames.raw();
+
         let animation = Animation {
-            start_index: start_index.index() as usize,
-            frames_count: start_index.animation_frames() as usize,
-            frame_time: Duration::from_millis(750 / start_index.animation_frames() as u64),
-            timer: Timer::new(
-                Duration::from_millis(750 / start_index.animation_frames() as u64),
-                TimerMode::Repeating,
-            ),
+            start_index: animation_frames.start_index(),
+            frame_durations,
             current_frame: 0,
+            frame_timer: Timer::new(
+                Duration::from_millis(frame_durations[0] as u64),
+                TimerMode::Once,
+            ),
         };
 
         // Spawn the animated unit
@@ -477,7 +504,7 @@ fn spawn_animated_unit(
                 texture.clone(),
                 TextureAtlas {
                     layout: texture_atlas_layout.clone(),
-                    index: start_index.index() as usize,
+                    index: animation_frames.start_index() as usize,
                 },
             ),
             // Use the calculated final world position
