@@ -10,13 +10,24 @@ export const createGame = async (
   await initialized;
   const app = new BevyApp(...args);
 
+  let animationId: number;
+
   function update() {
     app.update();
-    requestAnimationFrame(update);
+    animationId = requestAnimationFrame(update);
   }
-  requestAnimationFrame(update);
+  animationId = requestAnimationFrame(update);
 
   return proxy({
+    pause: () => {
+      console.log("Pausing game");
+      cancelAnimationFrame(animationId);
+    },
+    resume: () => {
+      console.log("Resuming game");
+      cancelAnimationFrame(animationId);
+      update();
+    },
     resize: (...args: Parameters<BevyApp["resize"]>) => {
       app.resize(...args);
     },
