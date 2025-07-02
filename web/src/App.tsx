@@ -112,6 +112,17 @@ function App() {
           repeat: event.repeat,
         });
       });
+
+      // Pause game when tab is not visible
+      const handleVisibilityChange = () => {
+        if (document.hidden) {
+          game.pause();
+        } else {
+          game.resume();
+        }
+      };
+
+      document.addEventListener("visibilitychange", handleVisibilityChange);
     };
 
     setupGame();
