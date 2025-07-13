@@ -47,7 +47,8 @@ impl ReplayParser {
                 continue;
             }
 
-            files.push((entry.wayfinder(), entry.file_safe_path()?.into_owned()));
+            let file_name = String::from(entry.file_path().try_normalize()?);
+            files.push((entry.wayfinder(), file_name));
         }
 
         let mut games = Vec::new();
