@@ -44,7 +44,18 @@ struct Animation {
 }
 
 #[derive(Component)]
+struct TerrainAnimation {
+    start_index: u16,
+    frame_count: u8,
+    current_frame: u8,
+    frame_timer: Timer,
+}
+
+#[derive(Component)]
 struct AnimatedUnit;
+
+#[derive(Component)]
+struct AnimatedTerrain;
 
 #[derive(States, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
 pub enum AppState {
@@ -82,6 +93,7 @@ impl Plugin for AwbrnPlugin {
                     update_sprites_on_weather_change,
                     handle_tile_clicks,
                     animate_units,
+                    animate_terrain,
                     check_map_asset_loaded.run_if(in_state(AppState::LoadingAssets)),
                     check_replay_loaded.run_if(in_state(AppState::LoadingReplay)),
                 ),
@@ -215,12 +227,33 @@ fn handle_weather_toggle(
 
 fn update_sprites_on_weather_change(
     current_weather: Res<CurrentWeather>,
-    mut query: Query<(&mut Sprite, &TerrainTile)>,
+    mut static_query: Query<(&mut Sprite, &TerrainTile), Without<TerrainAnimation>>,
+    mut animated_query: Query<
+        (&mut Sprite, &TerrainTile, &mut TerrainAnimation),
+        With<TerrainAnimation>,
+    >,
 ) {
     if current_weather.is_changed() {
-        for (mut sprite, terrain_tile) in query.iter_mut() {
+        // Update static terrain sprites
+        for (mut sprite, terrain_tile) in static_query.iter_mut() {
             let sprite_index =
                 awbrn_core::spritesheet_index(current_weather.weather(), terrain_tile.terrain);
+            if let Some(atlas) = &mut sprite.texture_atlas {
+                atlas.index = sprite_index.index() as usize;
+            }
+        }
+
+        // Update animated terrain sprites and their animation data
+        for (mut sprite, terrain_tile, mut animation) in animated_query.iter_mut() {
+            let sprite_index =
+                awbrn_core::spritesheet_index(current_weather.weather(), terrain_tile.terrain);
+
+            // Update animation parameters
+            animation.start_index = sprite_index.index();
+            animation.frame_count = sprite_index.animation_frames();
+            animation.current_frame = 0;
+
+            // Update sprite to show first frame of new weather
             if let Some(atlas) = &mut sprite.texture_atlas {
                 atlas.index = sprite_index.index() as usize;
             }
@@ -337,6 +370,25 @@ fn animate_units(time: Res<Time>, mut query: Query<(&mut Animation, &mut Sprite)
     }
 }
 
+fn animate_terrain(time: Res<Time>, mut query: Query<(&mut TerrainAnimation, &mut Sprite)>) {
+    for (mut animation, mut sprite) in query.iter_mut() {
+        animation.frame_timer.tick(time.delta());
+
+        // Check if we need to advance to the next frame
+        if animation.frame_timer.just_finished() {
+            // Move to the next frame, cycling back to 0 when we reach the end
+            animation.current_frame = (animation.current_frame + 1) % animation.frame_count;
+
+            // Update the sprite's texture atlas index
+            if let Some(atlas) = &mut sprite.texture_atlas {
+                atlas.index = animation.start_index as usize + animation.current_frame as usize;
+            }
+
+            animation.frame_timer = Timer::new(Duration::from_millis(300), TimerMode::Once);
+        }
+    }
+}
+
 // Extracted the map setup into a separate function for reuse
 fn setup_map_visuals(
     mut commands: Commands,
@@ -383,8 +435,8 @@ fn setup_map_visuals(
                 let final_world_pos =
                     world_origin_offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z);
 
-                // Spawn terrain sprite with position information
-                commands.spawn((
+                // Check if terrain has multiple animation frames
+                let mut entity_commands = commands.spawn((
                     Sprite::from_atlas_image(
                         texture.clone(),
                         TextureAtlas {
@@ -399,6 +451,19 @@ fn setup_map_visuals(
                         position: Position::new(x, y),
                     },
                 ));
+
+                // Add animation component if terrain has multiple frames
+                if sprite_index.animation_frames() > 1 {
+                    entity_commands.insert((
+                        TerrainAnimation {
+                            start_index: sprite_index.index(),
+                            frame_count: sprite_index.animation_frames(),
+                            current_frame: 0,
+                            frame_timer: Timer::new(Duration::from_millis(300), TimerMode::Once),
+                        },
+                        AnimatedTerrain,
+                    ));
+                }
             }
         }
     }
