@@ -139,7 +139,7 @@ pub type UnitMap = indexmap::IndexMap<TargetedPlayer, Hidden<UnitProperty>>;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct UnitProperty {
-    pub units_id: u32,
+    pub units_id: AwbwUnitId,
     pub units_games_id: Option<u32>,
     pub units_players_id: u32,
     #[serde(with = "crate::de::awbw_unit_name")]

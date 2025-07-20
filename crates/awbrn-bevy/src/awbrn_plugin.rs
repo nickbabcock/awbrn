@@ -29,13 +29,14 @@
 //! ```
 
 use crate::{
-    CameraScale, CurrentWeather, GameMap, GridSystem, JsonAssetPlugin, SelectedTile, TerrainTile,
+    AwbwUnitId, CameraScale, CurrentWeather, Faction, GameMap, GridSystem, JsonAssetPlugin,
+    SelectedTile, SpriteSize, StrongIdMap, TerrainTile, Unit,
 };
 use awbrn_core::{Weather, get_unit_animation_frames};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
 use awbw_replay::{AwbwReplay, ReplayParser};
-use bevy::prelude::*;
 use bevy::state::state::SubStates;
+use bevy::{log, prelude::*};
 use serde::Deserialize;
 use std::{sync::Arc, time::Duration};
 
@@ -73,8 +74,45 @@ struct TerrainAnimation {
     frame_timer: Timer,
 }
 
-#[derive(Component)]
-struct AnimatedUnit;
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+#[require(Transform)]
+pub struct MapPosition(pub Position);
+
+impl MapPosition {
+    pub fn new(x: usize, y: usize) -> Self {
+        Self(Position::new(x, y))
+    }
+
+    pub fn x(&self) -> usize {
+        self.0.x
+    }
+
+    pub fn y(&self) -> usize {
+        self.0.y
+    }
+
+    pub fn position(&self) -> Position {
+        self.0
+    }
+}
+
+impl From<Position> for MapPosition {
+    fn from(position: Position) -> Self {
+        Self(position)
+    }
+}
+
+impl From<MapPosition> for Position {
+    fn from(position: MapPosition) -> Self {
+        position.0
+    }
+}
+
+impl AsRef<Position> for MapPosition {
+    fn as_ref(&self) -> &Position {
+        &self.0
+    }
+}
 
 #[derive(Component)]
 struct AnimatedTerrain;
@@ -132,10 +170,13 @@ impl Plugin for AwbrnPlugin {
             .init_resource::<CameraScale>()
             .init_resource::<CurrentWeather>()
             .init_resource::<GameMap>()
+            .init_resource::<StrongIdMap<AwbwUnitId>>()
             .init_state::<AppState>()
             .init_state::<GameMode>()
             .add_sub_state::<LoadingState>()
             .insert_resource(MapPathResolver(self.map_resolver.clone()))
+            .add_observer(on_map_position_insert)
+            .add_observer(handle_unit_spawn)
             .add_systems(Startup, setup_camera)
             // Shared systems (run in any game mode)
             .add_systems(
@@ -158,7 +199,7 @@ impl Plugin for AwbrnPlugin {
             // Game mode setup systems
             .add_systems(
                 OnEnter(LoadingState::Complete),
-                (setup_map_visuals, spawn_animated_unit)
+                (setup_map_visuals, spawn_animated_unit, init_replay_state)
                     .chain()
                     .run_if(in_state(GameMode::Replay)),
             )
@@ -509,13 +550,86 @@ fn handle_game_input() {
     // - Game actions (attack, wait, etc.)
 }
 
-// Placeholder system for replay-specific controls
-fn handle_replay_controls() {
-    // TODO: Implement replay-specific controls
-    // This would handle things like:
-    // - Play/pause replay
-    // - Step forward/backward through turns
-    // - Replay speed control
+#[derive(Debug, Resource)]
+struct ReplayState {
+    turn: u32,
+}
+
+fn handle_replay_controls(
+    mut commands: Commands,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut replay_state: ResMut<ReplayState>,
+    loaded_replay: Res<LoadedReplay>,
+    units: Res<StrongIdMap<AwbwUnitId>>,
+) {
+    if !keyboard_input.just_pressed(KeyCode::ArrowRight) {
+        return;
+    }
+
+    let Some(turn) = loaded_replay.0.turns.get(replay_state.turn as usize) else {
+        info!("Reached the end of the replay turns");
+        return;
+    };
+
+    match turn {
+        awbw_replay::turn_models::Action::Build {
+            new_unit,
+            discovered: _discovered,
+        } => {
+            for (_, unit) in new_unit.iter() {
+                let Some(unit) = unit.get_value() else {
+                    continue;
+                };
+
+                let Some(x) = unit.units_x else { continue };
+                let Some(y) = unit.units_y else { continue };
+
+                // Get player faction from replay data
+                let Some(first_game) = loaded_replay.0.games.first() else {
+                    continue;
+                };
+
+                let faction = first_game
+                    .players
+                    .iter()
+                    .find(|p| p.id.as_u32() == unit.units_players_id)
+                    .map(|p| p.faction)
+                    .unwrap_or(awbrn_core::PlayerFaction::OrangeStar);
+
+                commands.spawn((
+                    MapPosition::new(x as usize, y as usize),
+                    Faction(faction),
+                    AwbwUnitId(unit.units_id),
+                    Unit(unit.units_name),
+                ));
+            }
+        }
+        awbw_replay::turn_models::Action::Move(mov) => {
+            for (_player, unit) in mov.unit.iter() {
+                let Some(unit) = unit.get_value() else {
+                    continue;
+                };
+
+                let Some(entity) = units.get(&AwbwUnitId(unit.units_id)) else {
+                    warn!(
+                        "Unit with ID {} not found in unit storage",
+                        unit.units_id.as_u32()
+                    );
+                    continue;
+                };
+
+                let Some(x) = unit.units_x else { continue };
+                let Some(y) = unit.units_y else { continue };
+
+                commands
+                    .entity(entity)
+                    .insert(MapPosition::new(x as usize, y as usize));
+            }
+        }
+        _ => {}
+    }
+
+    replay_state.turn += 1;
 }
 
 // Extracted the map setup into a separate function for reuse
@@ -531,18 +645,6 @@ fn setup_map_visuals(
     let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 32), 64, 27, None, None);
     let texture_atlas_layout = texture_atlas_layouts.add(layout);
 
-    // Create a grid system for positioning using the retrieved AwbrnMap reference
-    let grid = GridSystem::new(game_map.width(), game_map.height());
-
-    // Calculate the offset needed to center the map in Bevy's world coordinates
-    let map_pixel_width = grid.map_width * GridSystem::TILE_SIZE;
-    let map_pixel_height = grid.map_height * GridSystem::TILE_SIZE;
-    // Bevy's origin is center, Y increases upwards.
-    // Our local grid origin is top-left, Y increases downwards.
-    // We want the center of our grid to align with Bevy's center (0,0).
-    // The top-left corner of our grid in Bevy coordinates should be:
-    let world_origin_offset = Vec3::new(-map_pixel_width / 2.0, map_pixel_height / 2.0, 0.0);
-
     // Spawn sprites for each map tile
     for y in 0..game_map.height() {
         for x in 0..game_map.width() {
@@ -552,19 +654,7 @@ fn setup_map_visuals(
                 let sprite_index =
                     awbrn_core::spritesheet_index(current_weather.weather(), terrain);
 
-                // Create a grid position for this terrain tile
-                let grid_pos = grid.terrain_position(x, y);
-
-                // Convert to local world position (relative to top-left 0,0, Y down)
-                let local_pos = grid.grid_to_world(&grid_pos);
-
-                // Adjust local position to Bevy world coordinates:
-                // 1. Flip the Y coordinate (local Y down -> Bevy Y up)
-                // 2. Add the centering offset
-                let final_world_pos =
-                    world_origin_offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z);
-
-                // Check if terrain has multiple animation frames
+                // Create the terrain entity with MapPosition - Transform is automatically required and will be updated by sync system
                 let mut entity_commands = commands.spawn((
                     Sprite::from_atlas_image(
                         texture.clone(),
@@ -573,8 +663,7 @@ fn setup_map_visuals(
                             index: sprite_index.index() as usize,
                         },
                     ),
-                    // Use the calculated final world position
-                    Transform::from_translation(final_world_pos),
+                    MapPosition::new(x, y), // Transform automatically included
                     TerrainTile {
                         terrain,
                         position: Position::new(x, y),
@@ -598,32 +687,9 @@ fn setup_map_visuals(
     }
 }
 
-fn spawn_animated_unit(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
-    game_map: Res<GameMap>,
-    loaded_replay: Res<LoadedReplay>,
-) {
-    // Load the units texture
-    let texture = asset_server.load("textures/units.png");
-
-    // Create the texture atlas layout for units
-    // The sprites are 23x24 with 86 rows and 64 columns
-    let layout = TextureAtlasLayout::from_grid(UVec2::new(23, 24), 64, 86, None, Some(uvec2(1, 0)));
-    let texture_atlas_layout = texture_atlas_layouts.add(layout);
-
-    // Create a grid system
-    let grid = GridSystem::new(game_map.width(), game_map.height());
-
-    // Calculate the centering offset (same logic as in setup_map)
-    let map_pixel_width = grid.map_width * GridSystem::TILE_SIZE;
-    let map_pixel_height = grid.map_height * GridSystem::TILE_SIZE;
-    let world_origin_offset = Vec3::new(-map_pixel_width / 2.0, map_pixel_height / 2.0, 0.0);
-
+fn spawn_animated_unit(mut commands: Commands, loaded_replay: Res<LoadedReplay>) {
     // Get units from replay data
     let (players, replay_units) = if let Some(first_game) = loaded_replay.0.games.first() {
-        // Collect all units
         info!("Found {} units in replay", first_game.units.len());
         (&first_game.players, &first_game.units)
     } else {
@@ -631,70 +697,119 @@ fn spawn_animated_unit(
         return;
     };
 
-    // Spawn units from replay data
+    // Create spawn requests for all units from replay data
     for unit in replay_units {
-        // Get the unit position
-        let x = unit.x as usize;
-        let y = unit.y as usize;
-
-        // Get player faction
         let faction = players
             .iter()
-            .find(|x| x.id == unit.players_id)
+            .find(|p| p.id == unit.players_id)
             .unwrap()
             .faction;
 
-        // Get animation data using the new system
-        let animation_frames =
-            get_unit_animation_frames(awbrn_core::GraphicalMovement::Idle, unit.name, faction);
-
-        // Create a grid position for the unit (with southeast gravity)
-        let grid_pos = grid.unit_position(x, y);
-
-        // Convert to local world position (relative to top-left 0,0, Y down)
-        let local_pos = grid.grid_to_world(&grid_pos);
-
-        // Adjust local position to Bevy world coordinates
-        let final_world_pos =
-            world_origin_offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z);
-
-        info!(
-            "Spawning {} unit at grid position ({}, {}), HP: {}, frame count: {}",
-            unit.name.name(),
-            x,
-            y,
-            unit.hit_points,
-            animation_frames.frame_count()
-        );
-
-        // Create the animation component with variable frame timing
-        let frame_durations = animation_frames.raw();
-
-        let animation = Animation {
-            start_index: animation_frames.start_index(),
-            frame_durations,
-            current_frame: 0,
-            frame_timer: Timer::new(
-                Duration::from_millis(frame_durations[0] as u64),
-                TimerMode::Once,
-            ),
-        };
-
-        // Spawn the animated unit
         commands.spawn((
-            Sprite::from_atlas_image(
-                texture.clone(),
-                TextureAtlas {
-                    layout: texture_atlas_layout.clone(),
-                    index: animation_frames.start_index() as usize,
-                },
-            ),
-            // Use the calculated final world position
-            Transform::from_translation(final_world_pos),
-            animation,
-            AnimatedUnit,
+            MapPosition::new(unit.x as usize, unit.y as usize),
+            Faction(faction),
+            AwbwUnitId(unit.id),
+            Unit(unit.name),
         ));
     }
+}
+
+fn init_replay_state(mut commands: Commands) {
+    commands.insert_resource(ReplayState { turn: 0 });
+}
+
+fn handle_unit_spawn(
+    trigger: Trigger<OnInsert, AwbwUnitId>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+    mut map: ResMut<StrongIdMap<AwbwUnitId>>,
+    mut query: Query<(&Unit, &Faction, &AwbwUnitId)>,
+) {
+    // Load the units texture
+    let texture = asset_server.load("textures/units.png");
+
+    // Create the texture atlas layout for units
+    let layout = TextureAtlasLayout::from_grid(UVec2::new(23, 24), 64, 86, None, Some(uvec2(1, 0)));
+    let texture_atlas_layout = texture_atlas_layouts.add(layout);
+
+    let entity = trigger.target();
+    let Ok((unit, faction, unit_id)) = query.get_mut(entity) else {
+        warn!("Unit entity {:?} not found in query", entity);
+        return;
+    };
+
+    log::info!(
+        "Spawning unit {:?} of type {:?} for faction {:?} at entity {:?}",
+        unit_id,
+        unit.0,
+        faction.0,
+        entity
+    );
+
+    map.insert(*unit_id, entity);
+
+    // Get animation data
+    let animation_frames =
+        get_unit_animation_frames(awbrn_core::GraphicalMovement::Idle, unit.0, faction.0);
+
+    // Create the animation component
+    let frame_durations = animation_frames.raw();
+    let animation = Animation {
+        start_index: animation_frames.start_index(),
+        frame_durations,
+        current_frame: 0,
+        frame_timer: Timer::new(
+            Duration::from_millis(frame_durations[0] as u64),
+            TimerMode::Once,
+        ),
+    };
+
+    commands.entity(entity).insert((
+        Sprite::from_atlas_image(
+            texture,
+            TextureAtlas {
+                layout: texture_atlas_layout,
+                index: animation_frames.start_index() as usize,
+            },
+        ),
+        animation,
+    ));
+}
+
+fn on_map_position_insert(
+    trigger: Trigger<OnInsert, MapPosition>,
+    mut query: Query<(&mut Transform, &SpriteSize, &MapPosition)>,
+    game_map: Res<GameMap>,
+) {
+    let entity = trigger.target();
+
+    let Ok((mut transform, sprite_size, map_position)) = query.get_mut(entity) else {
+        warn!("Entity {:?} not found in query for MapPosition", entity);
+        return;
+    };
+
+    // Create grid system for position calculations
+    let grid = GridSystem::new(game_map.width(), game_map.height());
+    let map_pixel_width = grid.map_width * GridSystem::TILE_SIZE;
+    let map_pixel_height = grid.map_height * GridSystem::TILE_SIZE;
+    let world_origin_offset = Vec3::new(-map_pixel_width / 2.0, map_pixel_height / 2.0, 0.0);
+
+    // Use the grid system's sprite_position method
+    let grid_pos = grid.sprite_position((*map_position).into(), sprite_size);
+
+    let local_pos = grid.grid_to_world(&grid_pos);
+    let final_world_pos = world_origin_offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z);
+
+    transform.translation = final_world_pos;
+
+    info!(
+        "Observer: Updated Transform for entity {:?} to position ({}, {}) -> {:?}",
+        entity,
+        map_position.x(),
+        map_position.y(),
+        final_world_pos
+    );
 }
 
 /// Default implementation of MapAssetPathResolver that formats paths as "maps/{map_id}.json"
@@ -711,5 +826,98 @@ impl Default for AwbrnPlugin {
         Self {
             map_resolver: Arc::new(DefaultMapAssetPathResolver),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test MapPosition -> Transform observer including updates
+    #[test]
+    fn test_map_position_observer() {
+        let mut app = App::new();
+
+        // Add required systems and resources
+        app.add_observer(on_map_position_insert)
+            .init_resource::<GameMap>();
+
+        // Test Case 1: Initial spawn - observer should trigger immediately
+        let terrain_entity = app
+            .world_mut()
+            .spawn((
+                MapPosition::new(5, 3),
+                TerrainTile {
+                    terrain: awbrn_core::GraphicalTerrain::Plain,
+                    position: Position::new(5, 3),
+                },
+            ))
+            .id();
+
+        let unit_entity = app
+            .world_mut()
+            .spawn((MapPosition::new(8, 2), Unit(awbrn_core::Unit::Infantry)))
+            .id();
+
+        // Run one update to process any events from observer
+        app.update();
+
+        // Verify initial positioning with snapshots
+        let terrain_transform = *app
+            .world()
+            .entity(terrain_entity)
+            .get::<Transform>()
+            .unwrap();
+        let unit_transform = *app.world().entity(unit_entity).get::<Transform>().unwrap();
+
+        assert!(
+            terrain_transform
+                .translation
+                .abs_diff_eq(Vec3::new(72.0, -32.0, 0.0), 0.1)
+        );
+        assert!(
+            unit_transform
+                .translation
+                .abs_diff_eq(Vec3::new(116.5, -20.0, 1.0), 0.1)
+        );
+
+        // Test Case 2: Update MapPosition - observer should trigger on component replacement
+        app.world_mut()
+            .entity_mut(terrain_entity)
+            .insert(MapPosition::new(1, 7));
+        app.world_mut()
+            .entity_mut(unit_entity)
+            .insert(MapPosition::new(9, 1));
+
+        app.update();
+
+        // Verify updated positioning with snapshots
+        let updated_terrain_transform = *app
+            .world()
+            .entity(terrain_entity)
+            .get::<Transform>()
+            .unwrap();
+        let updated_unit_transform = *app.world().entity(unit_entity).get::<Transform>().unwrap();
+
+        assert!(
+            updated_terrain_transform
+                .translation
+                .abs_diff_eq(Vec3::new(8.0, -96.0, 0.0), 0.1)
+        );
+        assert!(
+            updated_unit_transform
+                .translation
+                .abs_diff_eq(Vec3::new(132.5, -4.0, 1.0), 0.1)
+        );
+
+        // Verify positions actually changed
+        assert_ne!(
+            terrain_transform.translation, updated_terrain_transform.translation,
+            "Terrain transform should change when MapPosition is updated"
+        );
+        assert_ne!(
+            unit_transform.translation, updated_unit_transform.translation,
+            "Unit transform should change when MapPosition is updated"
+        );
     }
 }

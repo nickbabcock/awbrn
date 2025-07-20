@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use awbrn_core::{GraphicalTerrain, Weather};
 use awbrn_map::{AwbrnMap, Position};
 use bevy::prelude::*;
@@ -91,8 +93,25 @@ impl GameMap {
     }
 }
 
-// Component to store terrain data for each tile
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AwbwUnitId(pub awbrn_core::AwbwUnitId);
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[require(SpriteSize { width: 23.0, height: 24.0, z_index: 1 })]
+pub struct Unit(pub awbrn_core::Unit);
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Faction(pub awbrn_core::PlayerFaction);
+
+#[derive(Component, Copy, Clone)]
+pub struct SpriteSize {
+    pub width: f32,
+    pub height: f32,
+    pub z_index: u8,
+}
+
 #[derive(Component)]
+#[require(SpriteSize { width: 16.0, height: 32.0, z_index: 0 })]
 pub struct TerrainTile {
     pub terrain: GraphicalTerrain,
     pub position: Position,
@@ -101,3 +120,33 @@ pub struct TerrainTile {
 // Component to mark the currently selected tile
 #[derive(Component)]
 pub struct SelectedTile;
+
+#[derive(Debug, Resource)]
+pub struct StrongIdMap<T> {
+    units: HashMap<T, Entity>,
+}
+
+impl<T> StrongIdMap<T>
+where
+    T: Eq + std::hash::Hash,
+{
+    pub fn insert(&mut self, strong_id: T, entity: Entity) {
+        self.units.insert(strong_id, entity);
+    }
+
+    pub fn get(&self, strong_id: &T) -> Option<Entity> {
+        self.units.get(strong_id).copied()
+    }
+
+    pub fn remove(&mut self, strong_id: T) -> Option<Entity> {
+        self.units.remove(&strong_id)
+    }
+}
+
+impl<T> Default for StrongIdMap<T> {
+    fn default() -> Self {
+        Self {
+            units: HashMap::new(),
+        }
+    }
+}

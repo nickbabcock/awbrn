@@ -1,3 +1,5 @@
+use crate::SpriteSize;
+use awbrn_map::Position;
 use bevy::prelude::*;
 
 // Horizontal alignment options
@@ -78,30 +80,14 @@ impl GridSystem {
         )
     }
 
-    /// Create a grid position for a terrain tile
-    pub fn terrain_position(&self, x: usize, y: usize) -> GridPosition {
+    /// Create a grid position based on sprite size with flexible positioning
+    pub fn sprite_position(&self, position: Position, sprite_size: &SpriteSize) -> GridPosition {
         GridPosition {
-            x,
-            y,
-            width: 16.0,
-            height: 32.0,
-            z_index: 0.0,
-            h_align: HorizontalAlign::Center,
-            v_align: VerticalAlign::Center,
-        }
-    }
-
-    /// Create a grid position for a unit
-    pub fn unit_position(&self, x: usize, y: usize) -> GridPosition {
-        let unit_width = 23.0;
-        let unit_height = 24.0;
-
-        GridPosition {
-            x,
-            y,
-            width: unit_width,
-            height: unit_height,
-            z_index: 1.0,
+            x: position.x,
+            y: position.y,
+            width: sprite_size.width,
+            height: sprite_size.height,
+            z_index: sprite_size.z_index as f32,
             h_align: HorizontalAlign::Center,
             v_align: VerticalAlign::Center,
         }
@@ -114,37 +100,14 @@ mod tests {
     use approx::assert_relative_eq;
 
     #[test]
-    fn test_terrain_position() {
-        let grid = GridSystem::new(10, 10);
-        let pos = grid.terrain_position(3, 4);
-
-        assert_eq!(pos.x, 3);
-        assert_eq!(pos.y, 4);
-        assert_eq!(pos.width, 16.0);
-        assert_eq!(pos.height, 32.0);
-        assert_eq!(pos.z_index, 0.0);
-        assert_eq!(pos.h_align, HorizontalAlign::Center);
-        assert_eq!(pos.v_align, VerticalAlign::Center);
-    }
-
-    #[test]
-    fn test_unit_position() {
-        let grid = GridSystem::new(10, 10);
-        let pos = grid.unit_position(3, 4);
-
-        assert_eq!(pos.x, 3);
-        assert_eq!(pos.y, 4);
-        assert_eq!(pos.width, 23.0);
-        assert_eq!(pos.height, 24.0);
-        assert_eq!(pos.z_index, 1.0);
-        assert_eq!(pos.h_align, HorizontalAlign::Center);
-        assert_eq!(pos.v_align, VerticalAlign::Center);
-    }
-
-    #[test]
     fn test_grid_to_world_terrain_origin() {
         let grid = GridSystem::new(10, 10);
-        let pos = grid.terrain_position(0, 0);
+        let terrain_sprite = SpriteSize {
+            width: 16.0,
+            height: 32.0,
+            z_index: 0,
+        };
+        let pos = grid.sprite_position(Position::new(0, 0), &terrain_sprite);
         let local_pos = grid.grid_to_world(&pos);
         assert_relative_eq!(local_pos.x, 0.0, epsilon = 0.001);
         assert_relative_eq!(local_pos.y, -8.0, epsilon = 0.001);
@@ -154,7 +117,12 @@ mod tests {
     #[test]
     fn test_grid_to_world_unit_origin() {
         let grid = GridSystem::new(10, 10);
-        let pos = grid.unit_position(0, 0);
+        let unit_sprite = SpriteSize {
+            width: 23.0,
+            height: 24.0,
+            z_index: 1,
+        };
+        let pos = grid.sprite_position(Position::new(0, 0), &unit_sprite);
         let local_pos = grid.grid_to_world(&pos);
         assert_relative_eq!(local_pos.x, -3.5, epsilon = 0.001);
         assert_relative_eq!(local_pos.y, -4.0, epsilon = 0.001);
@@ -164,7 +132,12 @@ mod tests {
     #[test]
     fn test_grid_to_world_terrain() {
         let grid = GridSystem::new(10, 10);
-        let pos = grid.terrain_position(3, 4);
+        let terrain_sprite = SpriteSize {
+            width: 16.0,
+            height: 32.0,
+            z_index: 0,
+        };
+        let pos = grid.sprite_position(Position::new(3, 4), &terrain_sprite);
         let local_pos = grid.grid_to_world(&pos);
         assert_relative_eq!(local_pos.x, 48.0, epsilon = 0.001);
         assert_relative_eq!(local_pos.y, 56.0, epsilon = 0.001);
@@ -174,10 +147,58 @@ mod tests {
     #[test]
     fn test_grid_to_world_unit() {
         let grid = GridSystem::new(10, 10);
-        let pos = grid.unit_position(3, 4);
+        let unit_sprite = SpriteSize {
+            width: 23.0,
+            height: 24.0,
+            z_index: 1,
+        };
+        let pos = grid.sprite_position(Position::new(3, 4), &unit_sprite);
         let local_pos = grid.grid_to_world(&pos);
         assert_relative_eq!(local_pos.x, 44.5, epsilon = 0.001);
         assert_relative_eq!(local_pos.y, 60.0, epsilon = 0.001);
         assert_relative_eq!(local_pos.z, 1.0, epsilon = 0.001);
+    }
+
+    #[test]
+    fn test_sprite_position() {
+        let grid = GridSystem::new(10, 10);
+
+        // Test terrain-like sprite (z_index: 0)
+        let terrain_sprite = SpriteSize {
+            width: 16.0,
+            height: 32.0,
+            z_index: 0,
+        };
+        let terrain_pos = grid.sprite_position(Position::new(2, 3), &terrain_sprite);
+        assert_eq!(terrain_pos.x, 2);
+        assert_eq!(terrain_pos.y, 3);
+        assert_eq!(terrain_pos.width, 16.0);
+        assert_eq!(terrain_pos.height, 32.0);
+        assert_eq!(terrain_pos.z_index, 0.0);
+
+        // Test unit-like sprite (z_index: 1)
+        let unit_sprite = SpriteSize {
+            width: 23.0,
+            height: 24.0,
+            z_index: 1,
+        };
+        let unit_pos = grid.sprite_position(Position::new(5, 7), &unit_sprite);
+        assert_eq!(unit_pos.x, 5);
+        assert_eq!(unit_pos.y, 7);
+        assert_eq!(unit_pos.width, 23.0);
+        assert_eq!(unit_pos.height, 24.0);
+        assert_eq!(unit_pos.z_index, 1.0);
+
+        // Test world positioning with terrain sprite
+        let local_pos = grid.grid_to_world(&terrain_pos);
+        assert_relative_eq!(local_pos.x, 32.0, epsilon = 0.001); // 2 * 16 + 0 (centered)
+        assert_relative_eq!(local_pos.y, 40.0, epsilon = 0.001); // 3 * 16 - 8 (centered vertically)
+        assert_relative_eq!(local_pos.z, 0.0, epsilon = 0.001);
+
+        // Test world positioning with unit sprite
+        let unit_local_pos = grid.grid_to_world(&unit_pos);
+        assert_relative_eq!(unit_local_pos.x, 76.5, epsilon = 0.001); // 5 * 16 - 3.5 (centered)
+        assert_relative_eq!(unit_local_pos.y, 108.0, epsilon = 0.001); // 7 * 16 - 4 (centered)
+        assert_relative_eq!(unit_local_pos.z, 1.0, epsilon = 0.001);
     }
 }
