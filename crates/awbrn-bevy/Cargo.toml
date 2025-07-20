@@ -7,7 +7,13 @@ edition = "2024"
 awbrn-core = { path = "../awbrn-core" }
 awbrn-map = { path = "../awbrn-map" }
 awbw-replay = { path = "../awbw-replay" }
-bevy = { workspace = true, default-features = false }
+bevy = { workspace = true, features = [
+    "bevy_asset",
+    "bevy_log",
+    "bevy_sprite",
+    "bevy_state",
+    "bevy_window",
+]}
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 
