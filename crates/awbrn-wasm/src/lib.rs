@@ -117,6 +117,8 @@ impl BevyApp {
         let code = match event.key.as_str() {
             "-" => KeyCode::Minus,
             "=" => KeyCode::Equal,
+            "ArrowRight" => KeyCode::ArrowRight,
+            "ArrowLeft" => KeyCode::ArrowLeft,
             _ => {
                 warn!("Unhandled key down event: {}", event.key);
                 return;
@@ -152,6 +154,8 @@ impl BevyApp {
         let code = match event.key.as_str() {
             "-" => KeyCode::Minus,
             "=" => KeyCode::Equal,
+            "ArrowRight" => KeyCode::ArrowRight,
+            "ArrowLeft" => KeyCode::ArrowLeft,
             _ => {
                 warn!("Unhandled key down event: {}", event.key);
                 return;
