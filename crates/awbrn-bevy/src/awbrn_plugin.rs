@@ -1,21 +1,43 @@
-use std::time::Duration;
+//! Bevy plugin for AWBRN with support for multiple game modes.
+//!
+//! ```mermaid
+//! stateDiagram-v2
+//!     [*] --> Menu
+//!
+//!     state AppState {
+//!         Menu --> Loading : ReplayToLoad resource<br/>or PendingGameStart resource
+//!         Loading --> InGame : LoadingState Complete
+//!         InGame --> Menu : User action
+//!
+//!         state Loading {
+//!             [*] --> LoadingReplay : Replay mode
+//!             [*] --> LoadingAssets : Game mode or<br/>after replay parsed
+//!             LoadingReplay --> LoadingAssets : Replay parsed<br/>map loading starts
+//!             LoadingAssets --> Complete : Map loaded
+//!             Complete --> [*] : Transition to InGame
+//!         }
+//!     }
+//!
+//!     state GameMode {
+//!         None --> Replay : ReplayToLoad resource
+//!         None --> Game : PendingGameStart resource
+//!         Replay --> None : Reset
+//!         Game --> None : Reset
+//!     }
+//!
+//!     note right of GameMode : Independent state<br/>determines active systems<br/>in InGame
+//! ```
 
 use crate::{
-    AwbwReplayAsset, CameraScale, CurrentWeather, GameMap, GridSystem, JsonAssetPlugin,
-    ReplayAssetPlugin, SelectedTile, TerrainTile,
+    CameraScale, CurrentWeather, GameMap, GridSystem, JsonAssetPlugin, SelectedTile, TerrainTile,
 };
 use awbrn_core::{Weather, get_unit_animation_frames};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
+use awbw_replay::{AwbwReplay, ReplayParser};
 use bevy::prelude::*;
-use bevy::{
-    asset::{AssetServer, Assets},
-    prelude::{Msaa, error, info},
-    sprite::Sprite,
-    state::{condition::in_state, state::OnEnter, state::States},
-    window::Window,
-};
+use bevy::state::state::SubStates;
 use serde::Deserialize;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 /// Trait for resolving map asset paths from map IDs
 pub trait MapAssetPathResolver: Send + Sync + 'static {
@@ -25,7 +47,7 @@ pub trait MapAssetPathResolver: Send + Sync + 'static {
 // Define AwbwMap as an Asset
 #[derive(Asset, TypePath, Deserialize)]
 #[serde(transparent)]
-struct AwbwMapAsset(AwbwMapData);
+pub struct AwbwMapAsset(AwbwMapData);
 
 impl AwbwMapAsset {
     // Convert to AwbwMap
@@ -60,11 +82,39 @@ struct AnimatedTerrain;
 #[derive(States, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
 pub enum AppState {
     #[default]
-    Idle,
+    Menu,
+    Loading,
+    InGame,
+}
+
+#[derive(States, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
+pub enum GameMode {
+    #[default]
+    None,
+    Replay,
+    Game,
+}
+
+#[derive(SubStates, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
+#[source(AppState = AppState::Loading)]
+pub enum LoadingState {
+    #[default]
     LoadingReplay,
     LoadingAssets,
-    MapLoaded,
+    Complete,
 }
+
+// Resource containing the raw replay data to parse and load
+#[derive(Resource)]
+pub struct ReplayToLoad(pub Vec<u8>);
+
+// Resource containing the loaded replay data
+#[derive(Resource)]
+pub struct LoadedReplay(pub AwbwReplay);
+
+// Resource to mark that a new game should be started
+#[derive(Resource)]
+pub struct PendingGameStart(pub Handle<AwbwMapAsset>);
 
 pub struct AwbrnPlugin {
     map_resolver: Arc<dyn MapAssetPathResolver>,
@@ -78,13 +128,16 @@ impl AwbrnPlugin {
 
 impl Plugin for AwbrnPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((JsonAssetPlugin::<AwbwMapAsset>::new(), ReplayAssetPlugin))
+        app.add_plugins(JsonAssetPlugin::<AwbwMapAsset>::new())
             .init_resource::<CameraScale>()
             .init_resource::<CurrentWeather>()
             .init_resource::<GameMap>()
             .init_state::<AppState>()
+            .init_state::<GameMode>()
+            .add_sub_state::<LoadingState>()
             .insert_resource(MapPathResolver(self.map_resolver.clone()))
             .add_systems(Startup, setup_camera)
+            // Shared systems (run in any game mode)
             .add_systems(
                 Update,
                 (
@@ -94,14 +147,47 @@ impl Plugin for AwbrnPlugin {
                     handle_tile_clicks,
                     animate_units,
                     animate_terrain,
-                    check_map_asset_loaded.run_if(in_state(AppState::LoadingAssets)),
-                    check_replay_loaded.run_if(in_state(AppState::LoadingReplay)),
-                ),
+                )
+                    .run_if(in_state(AppState::InGame)),
+            )
+            // Replay-specific systems
+            .add_systems(
+                Update,
+                check_map_asset_loaded.run_if(in_state(LoadingState::LoadingAssets)),
+            )
+            // Game mode setup systems
+            .add_systems(
+                OnEnter(LoadingState::Complete),
+                (setup_map_visuals, spawn_animated_unit)
+                    .chain()
+                    .run_if(in_state(GameMode::Replay)),
             )
             .add_systems(
-                OnEnter(AppState::MapLoaded),
-                (setup_map_visuals, spawn_animated_unit),
-            );
+                OnEnter(LoadingState::Complete),
+                setup_map_visuals.run_if(in_state(GameMode::Game)),
+            )
+            // Game-specific systems (would handle unit movement, turn logic, etc.)
+            .add_systems(
+                Update,
+                (
+                    // Placeholder for game-specific systems
+                    handle_game_input,
+                )
+                    .run_if(in_state(GameMode::Game).and(in_state(AppState::InGame))),
+            )
+            // Replay-specific systems (would handle replay controls, playback, etc.)
+            .add_systems(
+                Update,
+                (
+                    // Placeholder for replay-specific systems
+                    handle_replay_controls,
+                )
+                    .run_if(in_state(GameMode::Replay).and(in_state(AppState::InGame))),
+            )
+            // Resource-based detection systems
+            .add_systems(Update, (detect_replay_to_load, detect_pending_game_start))
+            // State transition systems
+            .add_systems(OnEnter(LoadingState::Complete), transition_to_in_game);
     }
 }
 
@@ -109,55 +195,80 @@ impl Plugin for AwbrnPlugin {
 #[derive(Resource, Clone)]
 struct MapPathResolver(Arc<dyn MapAssetPathResolver>);
 
+// System to transition from loading complete to in-game
+fn transition_to_in_game(mut next_app_state: ResMut<NextState<AppState>>) {
+    next_app_state.set(AppState::InGame);
+}
+
+// Resource-based detection systems for managing game modes
+fn detect_replay_to_load(
+    mut commands: Commands,
+    replay_to_load: Option<Res<ReplayToLoad>>,
+    mut app_state: ResMut<NextState<AppState>>,
+    mut game_mode_state: ResMut<NextState<GameMode>>,
+    mut loading_state: ResMut<NextState<LoadingState>>,
+    map_resolver: Res<MapPathResolver>,
+    asset_server: Res<AssetServer>,
+) {
+    let Some(replay_res) = replay_to_load else {
+        return;
+    };
+    commands.remove_resource::<ReplayToLoad>();
+
+    let parser = ReplayParser::new();
+    let replay = match parser.parse(&replay_res.0) {
+        Ok(replay) => replay,
+        Err(e) => {
+            error!("Failed to parse replay: {:?}", e);
+            return;
+        }
+    };
+
+    // Start loading the map for the first game
+    if let Some(first_game) = replay.games.first() {
+        let map_id = first_game.maps_id;
+        info!("Found map ID: {:?} in replay", map_id);
+
+        let asset_path = map_resolver.0.resolve_path(map_id.as_u32());
+        let map_handle: Handle<AwbwMapAsset> = asset_server.load(asset_path);
+        commands.insert_resource(MapAssetHandle(map_handle));
+    } else {
+        error!("No games found in replay");
+        let asset_path = map_resolver.0.resolve_path(162795);
+        let map_handle: Handle<AwbwMapAsset> = asset_server.load(asset_path);
+        commands.insert_resource(MapAssetHandle(map_handle));
+    }
+
+    // Store the parsed replay data directly as a resource
+    commands.insert_resource(LoadedReplay(replay));
+    game_mode_state.set(GameMode::Replay);
+    app_state.set(AppState::Loading);
+    loading_state.set(LoadingState::LoadingAssets);
+    info!("Started loading replay mode");
+}
+
+fn detect_pending_game_start(
+    mut commands: Commands,
+    pending_game: Option<Res<PendingGameStart>>,
+    mut app_state: ResMut<NextState<AppState>>,
+    mut game_mode_state: ResMut<NextState<GameMode>>,
+    mut loading_state: ResMut<NextState<LoadingState>>,
+) {
+    let Some(pending) = pending_game else { return };
+    commands.insert_resource(MapAssetHandle(pending.0.clone()));
+    commands.remove_resource::<PendingGameStart>();
+    game_mode_state.set(GameMode::Game);
+    app_state.set(AppState::Loading);
+    loading_state.set(LoadingState::LoadingAssets);
+    info!("Started game mode");
+}
+
 fn setup_camera(mut commands: Commands, camera_scale: Res<CameraScale>) {
     commands.spawn((
         Camera2d,
         Transform::from_scale(Vec3::splat(1.0 / camera_scale.scale())),
         Msaa::Off, // https://github.com/bevyengine/bevy/discussions/3748#discussioncomment-5565500
     ));
-}
-
-// Resource to track the handle of the loading replay
-#[derive(Resource)]
-pub struct ReplayAssetHandle(pub Handle<AwbwReplayAsset>);
-
-// System to check if the replay is loaded and process it
-fn check_replay_loaded(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    replay_handle: Res<ReplayAssetHandle>,
-    replay_assets: Res<Assets<AwbwReplayAsset>>,
-    map_resolver: Res<MapPathResolver>,
-    mut next_state: ResMut<NextState<AppState>>,
-) {
-    // Check if the replay asset has loaded
-    if let Some(replay_asset) = replay_assets.get(&replay_handle.0) {
-        // Get the parsed replay from the asset
-        let replay = &replay_asset.0;
-
-        // Check if we have at least one game
-        if let Some(first_game) = replay.games.first() {
-            let map_id = first_game.maps_id;
-            info!("Found map ID: {:?} in replay", map_id);
-
-            // Use the resolver to get the asset path
-            let asset_path = map_resolver.0.resolve_path(map_id.as_u32());
-            let map_handle: Handle<AwbwMapAsset> = asset_server.load(asset_path);
-
-            // Store the handle in a resource
-            commands.insert_resource(MapAssetHandle(map_handle));
-
-            // Transition to asset loading state
-            next_state.set(AppState::LoadingAssets);
-        } else {
-            error!("No games found in replay");
-            // Fall back to default map for now - also using the resolver
-            let asset_path = map_resolver.0.resolve_path(162795);
-            let map_handle: Handle<AwbwMapAsset> = asset_server.load(asset_path);
-            commands.insert_resource(MapAssetHandle(map_handle));
-            next_state.set(AppState::LoadingAssets);
-        }
-    }
 }
 
 // Resource to hold the map handle
@@ -169,7 +280,7 @@ fn check_map_asset_loaded(
     map_handle: Res<MapAssetHandle>,
     awbw_maps: Res<Assets<AwbwMapAsset>>,
     mut game_map: ResMut<GameMap>,
-    mut next_state: ResMut<NextState<AppState>>,
+    mut next_state: ResMut<NextState<LoadingState>>,
 ) {
     let Some(awbw_map_asset) = awbw_maps.get(&map_handle.0) else {
         return;
@@ -179,13 +290,13 @@ fn check_map_asset_loaded(
     let awbrn_map = AwbrnMap::from_map(&awbw_map);
 
     info!(
-        "Map asset processed: {}x{}. Transitioning to MapLoaded state.",
+        "Map asset processed: {}x{}. Transitioning to Complete state.",
         awbrn_map.width(),
         awbrn_map.height()
     );
 
     game_map.set(awbrn_map);
-    next_state.set(AppState::MapLoaded);
+    next_state.set(LoadingState::Complete);
 }
 
 fn handle_camera_scaling(
@@ -389,6 +500,24 @@ fn animate_terrain(time: Res<Time>, mut query: Query<(&mut TerrainAnimation, &mu
     }
 }
 
+// Placeholder system for game-specific input handling
+fn handle_game_input() {
+    // TODO: Implement game-specific input handling
+    // This would handle things like:
+    // - Unit selection and movement
+    // - Turn management
+    // - Game actions (attack, wait, etc.)
+}
+
+// Placeholder system for replay-specific controls
+fn handle_replay_controls() {
+    // TODO: Implement replay-specific controls
+    // This would handle things like:
+    // - Play/pause replay
+    // - Step forward/backward through turns
+    // - Replay speed control
+}
+
 // Extracted the map setup into a separate function for reuse
 fn setup_map_visuals(
     mut commands: Commands,
@@ -474,8 +603,7 @@ fn spawn_animated_unit(
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
     game_map: Res<GameMap>,
-    replay_assets: Res<Assets<AwbwReplayAsset>>,
-    replay_handle: Option<Res<ReplayAssetHandle>>,
+    loaded_replay: Res<LoadedReplay>,
 ) {
     // Load the units texture
     let texture = asset_server.load("textures/units.png");
@@ -494,23 +622,12 @@ fn spawn_animated_unit(
     let world_origin_offset = Vec3::new(-map_pixel_width / 2.0, map_pixel_height / 2.0, 0.0);
 
     // Get units from replay data
-    let (players, replay_units) = if let Some(replay_handle) = replay_handle {
-        if let Some(replay_asset) = replay_assets.get(&replay_handle.0) {
-            // Get the first game from the replay
-            if let Some(first_game) = replay_asset.0.games.first() {
-                // Collect all units
-                info!("Found {} units in replay", first_game.units.len());
-                (&first_game.players, &first_game.units)
-            } else {
-                info!("No games found in replay, not spawning units");
-                return;
-            }
-        } else {
-            info!("Replay asset not loaded, not spawning units");
-            return;
-        }
+    let (players, replay_units) = if let Some(first_game) = loaded_replay.0.games.first() {
+        // Collect all units
+        info!("Found {} units in replay", first_game.units.len());
+        (&first_game.players, &first_game.units)
     } else {
-        info!("No replay handle available, not spawning units");
+        info!("No games found in replay, not spawning units");
         return;
     };
 

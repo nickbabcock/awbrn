@@ -1,6 +1,5 @@
 use crate::web_asset_plugin::{WebAssetPlugin, WebMapAssetPathResolver};
-use awbrn_bevy::{AppState, AwbrnPlugin, AwbwReplayAsset, ReplayAssetHandle};
-use awbw_replay::ReplayParser;
+use awbrn_bevy::{AwbrnPlugin, ReplayToLoad};
 use bevy::{asset::AssetMetaCheck, prelude::*};
 use std::{fs, sync::Arc};
 
@@ -23,12 +22,7 @@ impl Plugin for AwbrnDesktopPlugin {
     }
 }
 
-fn handle_file_drop(
-    mut commands: Commands,
-    mut file_drop_events: EventReader<FileDragAndDrop>,
-    mut assets: ResMut<Assets<AwbwReplayAsset>>,
-    mut next_state: ResMut<NextState<AppState>>,
-) {
+fn handle_file_drop(mut commands: Commands, mut file_drop_events: EventReader<FileDragAndDrop>) {
     for event in file_drop_events.read() {
         let FileDragAndDrop::DroppedFile { path_buf, .. } = event else {
             continue;
@@ -42,22 +36,7 @@ fn handle_file_drop(
             }
         };
 
-        let parser = ReplayParser::new();
-        let replay = match parser.parse(&data) {
-            Ok(replay) => replay,
-            Err(e) => {
-                error!("Failed to parse replay file: {:?}", e);
-                continue;
-            }
-        };
-
-        // Create a replay asset for Bevy's asset system
-        let replay_asset = AwbwReplayAsset(replay);
-
-        // Get a handle to the asset by adding it to the assets collection
-        let handle = assets.add(replay_asset);
-
-        commands.insert_resource(ReplayAssetHandle(handle));
-        next_state.set(AppState::LoadingReplay);
+        // Signal that a new replay should be loaded (parsing will happen in Bevy)
+        commands.insert_resource(ReplayToLoad(data));
     }
 }
