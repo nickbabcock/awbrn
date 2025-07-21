@@ -17,5 +17,9 @@ bevy = { workspace = true, features = [
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 
+[target.'cfg(target_family = "wasm")'.dependencies]
+tsify.workspace = true
+wasm-bindgen.workspace = true
+
 [dev-dependencies]
 approx.workspace = true

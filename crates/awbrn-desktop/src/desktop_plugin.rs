@@ -1,7 +1,46 @@
 use crate::web_asset_plugin::{WebAssetPlugin, WebMapAssetPathResolver};
-use awbrn_bevy::{AwbrnPlugin, ReplayToLoad};
+use awbrn_bevy::{AwbrnPlugin, EventBus, ExternalEvent, GameEvent, ReplayToLoad};
 use bevy::{asset::AssetMetaCheck, prelude::*};
 use std::{fs, sync::Arc};
+
+/// Desktop EventBus implementation that logs events to console
+pub struct DesktopEventBus;
+
+impl EventBus<GameEvent> for DesktopEventBus {
+    fn publish_event(&self, event: &ExternalEvent<GameEvent>) {
+        match &event.payload {
+            GameEvent::NewDay(day_event) => {
+                info!("🌅 New Day: Day {}", day_event.day);
+            }
+            GameEvent::UnitMoved(move_event) => {
+                info!(
+                    "🚶 Unit {} moved from ({}, {}) to ({}, {})",
+                    move_event.unit_id,
+                    move_event.from_x,
+                    move_event.from_y,
+                    move_event.to_x,
+                    move_event.to_y
+                );
+            }
+            GameEvent::UnitBuilt(build_event) => {
+                info!(
+                    "🏗️ Unit {} ({}) built at ({}, {}) by player {}",
+                    build_event.unit_id,
+                    build_event.unit_type,
+                    build_event.x,
+                    build_event.y,
+                    build_event.player_id
+                );
+            }
+            GameEvent::TileSelected(select_event) => {
+                info!(
+                    "👆 Tile selected at ({}, {}) - terrain: {}",
+                    select_event.x, select_event.y, select_event.terrain_type
+                );
+            }
+        }
+    }
+}
 
 pub struct AwbrnDesktopPlugin;
 
@@ -17,7 +56,10 @@ impl Plugin for AwbrnDesktopPlugin {
                         ..AssetPlugin::default()
                     }),
             )
-            .add_plugins(AwbrnPlugin::new(Arc::new(WebMapAssetPathResolver)))
+            .add_plugins(
+                AwbrnPlugin::new(Arc::new(WebMapAssetPathResolver))
+                    .with_event_bus(Arc::new(DesktopEventBus)),
+            )
             .add_systems(Update, handle_file_drop);
     }
 }

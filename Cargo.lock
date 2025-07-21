@@ -270,6 +270,8 @@ dependencies = [
  "bevy",
  "serde",
  "serde_json",
+ "tsify",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -313,6 +315,7 @@ dependencies = [
  "awbrn-bevy",
  "awbw-replay",
  "bevy",
+ "js-sys",
  "raw-window-handle",
  "serde",
  "serde-wasm-bindgen",

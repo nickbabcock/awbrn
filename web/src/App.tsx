@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import "./App.css";
-import { transfer, wrap } from "comlink";
+import { proxy, transfer, wrap } from "comlink";
 import { GameWorker } from "./worker_types";
+import { GameEvent } from "awbrn-wasm";
 
 let gameInstance: Awaited<ReturnType<GameWorker["createGame"]>> | undefined;
 
@@ -67,6 +68,9 @@ function App() {
           height: snappedHeight.logical,
           scaleFactor: window.devicePixelRatio,
         },
+        proxy((event: GameEvent) => {
+          console.log("Game event:", event);
+        })
       );
 
       gameInstance = game;
