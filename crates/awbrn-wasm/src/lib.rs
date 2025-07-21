@@ -1,4 +1,4 @@
-use awbrn_bevy::{AwbrnPlugin, ReplayToLoad};
+use awbrn_bevy::{AwbrnPlugin, EventBus, ExternalEvent, GameEvent, ReplayToLoad};
 use bevy::{
     app::PluginsState,
     input::{
@@ -10,10 +10,42 @@ use bevy::{
     window::{RawHandleWrapper, WindowResolution, WindowWrapper},
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 use web_sys::OffscreenCanvas;
 
 mod offscreen_window_handle;
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(typescript_type = "(event: GameEvent) => void")]
+    pub type GameEventCallback;
+}
+
+/// WASM EventBus implementation that sends events to JavaScript
+pub struct WasmEventBus {
+    callback: js_sys::Function,
+}
+
+// SAFETY: In WASM, everything runs on a single thread, so Send + Sync are safe
+unsafe impl Send for WasmEventBus {}
+unsafe impl Sync for WasmEventBus {}
+
+impl WasmEventBus {
+    pub fn new(callback: js_sys::Function) -> Self {
+        Self { callback }
+    }
+}
+
+impl EventBus<GameEvent> for WasmEventBus {
+    fn publish_event(&self, event: &ExternalEvent<GameEvent>) {
+        // Serialize the event directly to JsValue using serde-wasm-bindgen
+        let Ok(js_value) = serde_wasm_bindgen::to_value(&event.payload) else {
+            return;
+        };
+        let _ = self.callback.call1(&JsValue::NULL, &js_value);
+    }
+}
 
 #[derive(Resource, Copy, Clone, Debug, Deserialize, Serialize, tsify::Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
@@ -40,7 +72,11 @@ pub struct BevyApp {
 #[wasm_bindgen]
 impl BevyApp {
     #[wasm_bindgen(constructor)]
-    pub fn new(canvas: web_sys::OffscreenCanvas, display: CanvasDisplay) -> Self {
+    pub fn new(
+        canvas: web_sys::OffscreenCanvas,
+        display: CanvasDisplay,
+        event_callback: Option<GameEventCallback>,
+    ) -> Self {
         let mut app = App::new();
 
         let mut resolution = WindowResolution::new(display.width, display.height);
@@ -63,9 +99,18 @@ impl BevyApp {
                     ..AssetPlugin::default()
                 }),
         )
-        .add_systems(PreStartup, setup_added_window)
-        .add_plugins(AwbrnPlugin::default())
-        .insert_non_send_resource(canvas);
+        .add_systems(PreStartup, setup_added_window);
+
+        let mut awbrn_plugin = AwbrnPlugin::default();
+        if let Some(callback) = event_callback {
+            let js_value: JsValue = callback.into();
+            let js_function: js_sys::Function = js_value.into();
+            let event_bus = Arc::new(WasmEventBus::new(js_function));
+            awbrn_plugin = awbrn_plugin.with_event_bus(event_bus);
+        }
+
+        app.add_plugins(awbrn_plugin)
+            .insert_non_send_resource(canvas);
 
         BevyApp { app }
     }

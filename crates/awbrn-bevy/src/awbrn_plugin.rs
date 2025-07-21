@@ -37,7 +37,7 @@ use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
 use awbw_replay::{AwbwReplay, ReplayParser};
 use bevy::state::state::SubStates;
 use bevy::{log, prelude::*};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 
 /// Trait for resolving map asset paths from map IDs
@@ -154,19 +154,32 @@ pub struct LoadedReplay(pub AwbwReplay);
 #[derive(Resource)]
 pub struct PendingGameStart(pub Handle<AwbwMapAsset>);
 
+/// Type alias for external events containing game events
+pub type ExternalGameEvent = ExternalEvent<GameEvent>;
+
 pub struct AwbrnPlugin {
     map_resolver: Arc<dyn MapAssetPathResolver>,
+    event_bus: Option<Arc<dyn EventBus<GameEvent>>>,
 }
 
 impl AwbrnPlugin {
     pub fn new(map_resolver: Arc<dyn MapAssetPathResolver>) -> Self {
-        Self { map_resolver }
+        Self {
+            map_resolver,
+            event_bus: None,
+        }
+    }
+
+    pub fn with_event_bus(mut self, event_bus: Arc<dyn EventBus<GameEvent>>) -> Self {
+        self.event_bus = Some(event_bus);
+        self
     }
 }
 
 impl Plugin for AwbrnPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(JsonAssetPlugin::<AwbwMapAsset>::new())
+        let mut app_builder = app
+            .add_plugins(JsonAssetPlugin::<AwbwMapAsset>::new())
             .init_resource::<CameraScale>()
             .init_resource::<CurrentWeather>()
             .init_resource::<GameMap>()
@@ -175,9 +188,19 @@ impl Plugin for AwbrnPlugin {
             .init_state::<GameMode>()
             .add_sub_state::<LoadingState>()
             .insert_resource(MapPathResolver(self.map_resolver.clone()))
+            .add_event::<ExternalGameEvent>()
             .add_observer(on_map_position_insert)
             .add_observer(handle_unit_spawn)
-            .add_systems(Startup, setup_camera)
+            .add_systems(Startup, setup_camera);
+
+        // Only add event bus if provided
+        if let Some(ref event_bus) = self.event_bus {
+            app_builder = app_builder
+                .insert_resource(EventBusResource(event_bus.clone()))
+                .add_systems(Update, event_forwarder::<GameEvent>);
+        }
+
+        app_builder
             // Shared systems (run in any game mode)
             .add_systems(
                 Update,
@@ -230,6 +253,60 @@ impl Plugin for AwbrnPlugin {
             // State transition systems
             .add_systems(OnEnter(LoadingState::Complete), transition_to_in_game);
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct NewDay {
+    pub day: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct UnitMoved {
+    pub unit_id: u32,
+    pub from_x: usize,
+    pub from_y: usize,
+    pub to_x: usize,
+    pub to_y: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct UnitBuilt {
+    pub unit_id: u32,
+    pub unit_type: String,
+    pub x: usize,
+    pub y: usize,
+    pub player_id: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct TileSelected {
+    pub x: usize,
+    pub y: usize,
+    pub terrain_type: String,
+}
+
+/// Union type for all game events that can be sent to external systems
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(tag = "type")]
+pub enum GameEvent {
+    NewDay(NewDay),
+    UnitMoved(UnitMoved),
+    UnitBuilt(UnitBuilt),
+    TileSelected(TileSelected),
 }
 
 // Resource to store the map resolver
@@ -421,6 +498,7 @@ fn handle_tile_clicks(
     tiles: Query<(Entity, &Transform, &TerrainTile)>,
     mut commands: Commands,
     selected: Query<Entity, With<SelectedTile>>,
+    mut event_writer: EventWriter<ExternalGameEvent>,
 ) {
     // Only process on mouse click
     if !mouse_button_input.just_pressed(MouseButton::Left) {
@@ -479,6 +557,15 @@ fn handle_tile_clicks(
                 "Selected terrain at {:?}: {:?}",
                 tile.position, tile.terrain
             );
+
+            // Send tile selected event
+            event_writer.write(ExternalGameEvent {
+                payload: GameEvent::TileSelected(TileSelected {
+                    x: tile.position.x,
+                    y: tile.position.y,
+                    terrain_type: format!("{:?}", tile.terrain),
+                }),
+            });
         }
     }
 }
@@ -561,6 +648,8 @@ fn handle_replay_controls(
     mut replay_state: ResMut<ReplayState>,
     loaded_replay: Res<LoadedReplay>,
     units: Res<StrongIdMap<AwbwUnitId>>,
+    mut event_writer: EventWriter<ExternalGameEvent>,
+    position_query: Query<&MapPosition>,
 ) {
     if !keyboard_input.just_pressed(KeyCode::ArrowRight) {
         return;
@@ -602,6 +691,17 @@ fn handle_replay_controls(
                     AwbwUnitId(unit.units_id),
                     Unit(unit.units_name),
                 ));
+
+                // Send unit built event
+                event_writer.write(ExternalGameEvent {
+                    payload: GameEvent::UnitBuilt(UnitBuilt {
+                        unit_id: unit.units_id.as_u32(),
+                        unit_type: format!("{:?}", unit.units_name),
+                        x: x as usize,
+                        y: y as usize,
+                        player_id: unit.units_players_id,
+                    }),
+                });
             }
         }
         awbw_replay::turn_models::Action::Move(mov) => {
@@ -621,9 +721,25 @@ fn handle_replay_controls(
                 let Some(x) = unit.units_x else { continue };
                 let Some(y) = unit.units_y else { continue };
 
+                // Get current position before updating it (if it exists)
+                let old_position = position_query.get(entity).ok();
+
                 commands
                     .entity(entity)
                     .insert(MapPosition::new(x as usize, y as usize));
+
+                // Send unit moved event if we had a previous position
+                if let Some(old_pos) = old_position {
+                    event_writer.write(ExternalGameEvent {
+                        payload: GameEvent::UnitMoved(UnitMoved {
+                            unit_id: unit.units_id.as_u32(),
+                            from_x: old_pos.x(),
+                            from_y: old_pos.y(),
+                            to_x: x as usize,
+                            to_y: y as usize,
+                        }),
+                    });
+                }
             }
         }
         _ => {}
@@ -812,6 +928,36 @@ fn on_map_position_insert(
     );
 }
 
+pub trait EventBus<T: Serialize + Send + Sync + 'static>: Send + Sync {
+    /// Publish an event to the bus
+    fn publish_event(&self, payload: &ExternalEvent<T>);
+}
+
+#[derive(Resource)]
+pub struct EventBusResource<T>(pub Arc<dyn EventBus<T>>);
+
+impl<T> EventBusResource<T> {
+    pub fn new(bus: Arc<dyn EventBus<T>>) -> Self {
+        Self(bus)
+    }
+}
+
+#[derive(Event, Debug, Clone)]
+pub struct ExternalEvent<T: Serialize + Send + Sync + 'static> {
+    pub payload: T,
+}
+
+pub fn event_forwarder<T: Serialize + Send + Sync + 'static>(
+    mut events: EventReader<ExternalEvent<T>>,
+    bus: Option<Res<EventBusResource<T>>>,
+) {
+    let Some(bus) = bus else { return };
+
+    for event in events.read() {
+        bus.0.publish_event(event);
+    }
+}
+
 /// Default implementation of MapAssetPathResolver that formats paths as "maps/{map_id}.json"
 pub struct DefaultMapAssetPathResolver;
 
@@ -825,6 +971,7 @@ impl Default for AwbrnPlugin {
     fn default() -> Self {
         Self {
             map_resolver: Arc::new(DefaultMapAssetPathResolver),
+            event_bus: None,
         }
     }
 }
