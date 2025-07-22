@@ -260,7 +260,7 @@ impl Plugin for AwbrnPlugin {
 #[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct NewDay {
-    pub day: i32,
+    pub day: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -640,6 +640,7 @@ fn handle_game_input() {
 #[derive(Debug, Resource)]
 struct ReplayState {
     turn: u32,
+    day: u32,
 }
 
 fn handle_replay_controls(
@@ -742,6 +743,16 @@ fn handle_replay_controls(
                 }
             }
         }
+        awbw_replay::turn_models::Action::End { updated_info } => {
+            if updated_info.day != replay_state.day {
+                replay_state.day = updated_info.day;
+                event_writer.write(ExternalGameEvent {
+                    payload: GameEvent::NewDay(NewDay {
+                        day: updated_info.day,
+                    }),
+                });
+            }
+        }
         _ => {}
     }
 
@@ -831,7 +842,7 @@ fn spawn_animated_unit(mut commands: Commands, loaded_replay: Res<LoadedReplay>)
 }
 
 fn init_replay_state(mut commands: Commands) {
-    commands.insert_resource(ReplayState { turn: 0 });
+    commands.insert_resource(ReplayState { turn: 0, day: 1 });
 }
 
 fn handle_unit_spawn(

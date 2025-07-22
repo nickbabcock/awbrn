@@ -3,11 +3,14 @@ import "./App.css";
 import { proxy, transfer, wrap } from "comlink";
 import { GameWorker } from "./worker_types";
 import { GameEvent } from "awbrn-wasm";
+import { useGameStore, useGameActions } from "./store";
 
 let gameInstance: Awaited<ReturnType<GameWorker["createGame"]>> | undefined;
 
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const currentDay = useGameStore((state) => state.currentDay);
+  const { setCurrentDay } = useGameActions();
 
   const handleReplayFileChange = async (
     event: React.ChangeEvent<HTMLInputElement>,
@@ -69,7 +72,16 @@ function App() {
           scaleFactor: window.devicePixelRatio,
         },
         proxy((event: GameEvent) => {
-          console.log("Game event:", event);
+          switch (event.type) {
+            case "NewDay": {
+              console.log(`New day: ${event.day}`);
+              setCurrentDay(event.day);
+              break;
+            }
+            default: {
+              break;
+            }
+          }
         })
       );
 
@@ -151,6 +163,22 @@ function App() {
         }}
       >
         <canvas ref={canvasRef} width={600} height={400} />
+      </div>
+      <div
+        style={{
+          position: "fixed",
+          top: "20px",
+          left: "20px",
+          zIndex: 10,
+          backgroundColor: "rgba(0,0,0,0.7)",
+          padding: "10px",
+          borderRadius: "5px",
+          color: "white",
+          fontSize: "16px",
+          fontWeight: "bold",
+        }}
+      >
+        Day: {currentDay}
       </div>
       <div
         style={{
