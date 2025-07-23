@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import "./App.css";
 import { proxy, transfer, wrap } from "comlink";
 import { GameWorker } from "./worker_types";
-import { GameEvent } from "awbrn-wasm";
+import { GameEvent } from "./wasm/awbrn_wasm";
 import { useGameStore, useGameActions } from "./store";
 
 let gameInstance: Awaited<ReturnType<GameWorker["createGame"]>> | undefined;

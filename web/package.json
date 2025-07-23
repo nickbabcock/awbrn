@@ -10,7 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "awbrn-wasm": "file:../crates/awbrn-wasm/pkg",
     "comlink": "^4.4.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

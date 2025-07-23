@@ -92,16 +92,8 @@ jobs:
       with:
         toolchain: stable
         targets: wasm32-unknown-unknown
-    - name: Install wasm-pack
-      run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-    - name: Build WASM package
-      run: wasm-pack build crates/awbrn-wasm --target web
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '22'
-        cache: 'npm'
-        cache-dependency-path: web/package.json
+    - uses: jdx/mise-action@v2
+    - run: mise run build-wasm
     - name: Install web dependencies
       working-directory: web
       run: npm ci
