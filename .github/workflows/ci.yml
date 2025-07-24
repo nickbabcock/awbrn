@@ -50,9 +50,34 @@ jobs:
       if: startsWith(matrix.os, 'ubuntu')
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
 
-    - run: cargo build --verbose
-    - run: cargo test --verbose --all
-    - run: cargo build -p awbrn-desktop
+    - run: cargo test --locked --workspace --all-targets --profile ci --no-fail-fast --verbose
+      if: matrix.build != 'win-msvc'
+    - run: cargo test --locked --workspace --all-targets --profile ci --no-fail-fast --verbose -p awbrn-desktop --no-default-features && cargo test --locked --workspace --all-targets --profile ci --no-fail-fast --verbose --exclude awbrn-desktop
+      if: matrix.build == 'win-msvc'
+
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - build: stable
+          os: ubuntu-latest
+          rust: stable
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
+
+    # https://github.com/bevyengine/bevy_github_ci_template/blob/667143cd049befd33c05eb75d538248904625e2c/.github/workflows/ci.yaml#L34
+    - name: Install Ubuntu dependencies
+      if: startsWith(matrix.os, 'ubuntu')
+      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
+
+    - run: cargo build --profile ci --locked --verbose -p awbrn-desktop
 
   # Check that all files are formatted properly.
   rustfmt:
@@ -93,7 +118,9 @@ jobs:
         toolchain: stable
         targets: wasm32-unknown-unknown
     - uses: jdx/mise-action@v2
-    - run: mise run build-wasm
+    - run: |
+        cargo build --locked --profile ci --target wasm32-unknown-unknown --verbose -p awbrn-wasm
+        wasm-bindgen --target web ./target/wasm32-unknown-unknown/ci/awbrn_wasm.wasm --out-dir ./web/src/wasm
     - name: Install web dependencies
       working-directory: web
       run: npm ci
