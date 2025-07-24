@@ -3,6 +3,9 @@ name = "awbrn-desktop"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["bevy/dynamic_linking"]
+
 [dependencies]
 awbrn-bevy = { path = "../awbrn-bevy" }
 awbrn-core = { path = "../awbrn-core" }
@@ -25,3 +28,6 @@ bevy = { workspace = true, features = [
 ehttp.workspace = true
 
 [dev-dependencies]
+
+[package.metadata.awbrn-desktop.release]
+default-features = false
