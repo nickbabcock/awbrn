@@ -1,4 +1,4 @@
-use crate::de::{bool_ynstr, values_only};
+use crate::de::{bool_ynstr, deserialize_sub_dive, non_negative_u32, values_only};
 use awbrn_core::{
     AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId, AwbwTerrain, AwbwUnitId, PlayerFaction,
     Unit,
@@ -46,7 +46,8 @@ pub struct AwbwGame {
     pub buildings: Vec<AwbwBuilding>,
     #[serde(deserialize_with = "values_only")]
     pub units: Vec<AwbwUnit>,
-    pub timers_initial: u32,
+    #[serde(deserialize_with = "non_negative_u32")]
+    pub timers_initial: Option<u32>,
     pub timers_increment: u32,
     pub timers_max_turn: u32,
 }
@@ -112,7 +113,7 @@ pub struct AwbwUnit {
     pub vision: u32,
     pub fuel: u32,
     pub fuel_per_turn: u32,
-    #[serde(deserialize_with = "bool_ynstr")]
+    #[serde(deserialize_with = "deserialize_sub_dive")]
     pub sub_dive: bool,
     pub ammo: u32,
     pub short_range: u32,

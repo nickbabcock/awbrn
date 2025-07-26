@@ -139,6 +139,64 @@ where
     deserializer.deserialize_str(BoolVisitor)
 }
 
+pub fn deserialize_sub_dive<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct BoolVisitor;
+
+    impl<'de> de::Visitor<'de> for BoolVisitor {
+        type Value = bool;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string representing a sub dive")
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_bytes(v.as_bytes())
+        }
+        fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(v.as_str())
+        }
+
+        fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(v)
+        }
+
+        fn visit_borrowed_bytes<E>(self, v: &'de [u8]) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_bytes(v)
+        }
+
+        fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            match v {
+                b"D" | b"Y" => Ok(true),
+                b"N" | b"R" => Ok(false),
+                _ => Err(E::custom(format!(
+                    "Invalid boolean value: {}",
+                    String::from_utf8_lossy(v)
+                ))),
+            }
+        }
+    }
+
+    deserializer.deserialize_str(BoolVisitor)
+}
+
 /// Helper trait for implementing special value deserializers
 trait SpecialValueDeserializer<T> {
     /// Check if a string represents the special value
@@ -457,6 +515,23 @@ where
     }
 }
 
+pub fn non_negative_u32<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    let value = i32::deserialize(deserializer)?;
+    match value {
+        -1 => Ok(None),
+        n if n >= 0 => Ok(Some(n as u32)),
+        _ => Err(D::Error::custom(format!(
+            "Invalid value: {}, expected -1 or non-negative number",
+            value
+        ))),
+    }
+}
+
 pub mod awbw_unit_name {
     use awbrn_core::Unit;
     use serde::{Deserialize, Deserializer, Serializer};
@@ -735,6 +810,64 @@ mod tests {
 
         let json = r#"{"value": "invalid"}"#;
         let result: Result<TestBool, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_bool_ndstr() {
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct TestBool {
+            #[serde(deserialize_with = "deserialize_sub_dive")]
+            value: bool,
+        }
+
+        let json = r#"{"value": "D"}"#;
+        let result: TestBool = serde_json::from_str(json).unwrap();
+        assert!(result.value);
+
+        let json = r#"{"value": "Y"}"#;
+        let result: TestBool = serde_json::from_str(json).unwrap();
+        assert!(result.value);
+
+        let json = r#"{"value": "N"}"#;
+        let result: TestBool = serde_json::from_str(json).unwrap();
+        assert!(!result.value);
+
+        let json = r#"{"value": "R"}"#;
+        let result: TestBool = serde_json::from_str(json).unwrap();
+        assert!(!result.value);
+
+        let json = r#"{"value": "invalid"}"#;
+        let result: Result<TestBool, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_option_neg_one_none() {
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct TestTimer {
+            #[serde(deserialize_with = "non_negative_u32")]
+            timer: Option<u32>,
+        }
+
+        // Test -1 becomes None
+        let json = r#"{"timer": -1}"#;
+        let result: TestTimer = serde_json::from_str(json).unwrap();
+        assert_eq!(result.timer, None);
+
+        // Test positive value becomes Some
+        let json = r#"{"timer": 300}"#;
+        let result: TestTimer = serde_json::from_str(json).unwrap();
+        assert_eq!(result.timer, Some(300));
+
+        // Test zero becomes Some(0)
+        let json = r#"{"timer": 0}"#;
+        let result: TestTimer = serde_json::from_str(json).unwrap();
+        assert_eq!(result.timer, Some(0));
+
+        // Test negative value other than -1 fails
+        let json = r#"{"timer": -5}"#;
+        let result: Result<TestTimer, _> = serde_json::from_str(json);
         assert!(result.is_err());
     }
 }

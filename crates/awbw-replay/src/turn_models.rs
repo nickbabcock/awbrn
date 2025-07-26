@@ -88,15 +88,15 @@ pub enum Action {
         fire_action: FireAction,
     },
     Join {
-        #[serde(rename = "Move")]
-        move_action: MoveAction,
+        #[serde(rename = "Move", deserialize_with = "empty_field_action")]
+        move_action: Option<MoveAction>,
 
         #[serde(rename = "Join")]
         join_action: JoinAction,
     },
     Load {
-        #[serde(rename = "Move")]
-        move_action: MoveAction,
+        #[serde(rename = "Move", deserialize_with = "empty_field_action")]
+        move_action: Option<MoveAction>,
 
         #[serde(rename = "Load")]
         load_action: LoadAction,
@@ -104,8 +104,8 @@ pub enum Action {
     Move(MoveAction),
     Power(PowerAction),
     Repair {
-        #[serde(rename = "Move")]
-        move_action: MoveAction,
+        #[serde(rename = "Move", deserialize_with = "empty_field_action")]
+        move_action: Option<MoveAction>,
 
         #[serde(rename = "Repair")]
         repair_action: RepairAction,
@@ -121,8 +121,8 @@ pub enum Action {
         game_over_action: Option<GameOverAction>,
     },
     Supply {
-        #[serde(rename = "Move")]
-        move_action: MoveAction,
+        #[serde(rename = "Move", deserialize_with = "empty_field_action")]
+        move_action: Option<MoveAction>,
 
         #[serde(rename = "Supply")]
         supply_action: SupplyAction,
@@ -132,6 +132,18 @@ pub enum Action {
         #[serde(rename = "transportID")]
         transport_id: u32,
         discovered: indexmap::IndexMap<TargetedPlayer, Option<Discovery>>,
+    },
+    Delete {
+        #[serde(rename = "Delete")]
+        delete_action: DeleteAction,
+    },
+    Hide {
+        #[serde(rename = "Move", deserialize_with = "empty_field_action")]
+        move_action: Option<MoveAction>,
+    },
+    Unhide {
+        #[serde(rename = "Move", deserialize_with = "empty_field_action")]
+        move_action: Option<MoveAction>,
     },
 }
 
@@ -188,6 +200,12 @@ pub struct MoveAction {
     pub trapped: bool,
     #[serde(deserialize_with = "empty_field_action")]
     pub discovered: Option<indexmap::IndexMap<TargetedPlayer, Option<Discovery>>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct DeleteAction {
+    #[serde(rename = "unitId")]
+    pub unit_id: Option<indexmap::IndexMap<TargetedPlayer, Hidden<AwbwUnitId>>>,
 }
 
 fn empty_field_action<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -296,7 +314,7 @@ pub struct SupplyAction {
 pub struct RepairAction {
     pub unit: indexmap::IndexMap<TargetedPlayer, Hidden<u32>>,
     pub repaired: indexmap::IndexMap<TargetedPlayer, RepairedUnit2>,
-    pub funds: indexmap::IndexMap<TargetedPlayer, u32>,
+    pub funds: indexmap::IndexMap<TargetedPlayer, Hidden<u32>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -315,7 +333,7 @@ pub struct AttackSeamCombat {
     #[serde(rename = "hasVision")]
     pub has_vision: bool,
     #[serde(rename = "combatInfo")]
-    pub combat_info: CombatUnit,
+    pub combat_info: Masked<CombatUnit>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -382,8 +400,8 @@ pub struct CombatInfoVision {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct CombatInfo {
-    pub attacker: CombatUnit,
-    pub defender: CombatUnit,
+    pub attacker: Masked<CombatUnit>,
+    pub defender: Masked<CombatUnit>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -475,6 +493,9 @@ pub enum TargetedPlayer {
 
     /// A specific player receives the event
     Player(AwbwGamePlayerId),
+
+    /// A team represented by a single capital letter
+    Team(u8),
 }
 
 impl Serialize for TargetedPlayer {
@@ -485,6 +506,7 @@ impl Serialize for TargetedPlayer {
         match self {
             TargetedPlayer::Global => serializer.serialize_str("global"),
             TargetedPlayer::Player(id) => id.serialize(serializer),
+            TargetedPlayer::Team(c) => serializer.serialize_str(&c.to_string()),
         }
     }
 }
@@ -500,7 +522,7 @@ impl<'de> Deserialize<'de> for TargetedPlayer {
             type Value = TargetedPlayer;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a string \"global\" or a player ID")
+                formatter.write_str("a string \"global\", a team letter (A-Z), or a player ID")
             }
 
             fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
@@ -508,16 +530,22 @@ impl<'de> Deserialize<'de> for TargetedPlayer {
                 E: serde::de::Error,
             {
                 if value == "global" {
-                    Ok(TargetedPlayer::Global)
-                } else {
-                    let val = value.parse::<u32>().map_err(|_| {
-                        E::custom(format!(
-                            "Expected \"global\" or a player ID number, got {}",
-                            value
-                        ))
-                    })?;
-                    Ok(TargetedPlayer::Player(AwbwGamePlayerId::new(val)))
+                    return Ok(TargetedPlayer::Global);
                 }
+
+                if let Ok(val) = value.parse::<u32>() {
+                    return Ok(TargetedPlayer::Player(AwbwGamePlayerId::new(val)));
+                }
+
+                let bytes = value.as_bytes();
+                if bytes.len() == 1 && bytes[0].is_ascii_uppercase() {
+                    return Ok(TargetedPlayer::Team(bytes[0]));
+                }
+
+                Err(E::custom(format!(
+                    "Expected \"global\", a team letter (A-Z), or a player ID number, got {}",
+                    value
+                )))
             }
 
             fn visit_u32<E>(self, value: u32) -> Result<Self::Value, E>
@@ -621,9 +649,23 @@ mod tests {
     }
 
     #[test]
+    fn test_global_or_player_deserialize_team() {
+        // Test deserializing a team letter
+        let deserialized: TargetedPlayer = serde_json::from_str(r#""A""#).unwrap();
+        assert_eq!(deserialized, TargetedPlayer::Team(b'A'));
+
+        let deserialized: TargetedPlayer = serde_json::from_str(r#""Z""#).unwrap();
+        assert_eq!(deserialized, TargetedPlayer::Team(b'Z'));
+    }
+
+    #[test]
     fn test_global_or_player_deserialize_invalid() {
-        // Test deserializing an invalid string (not "global" and not a number)
+        // Test deserializing an invalid string (not "global", not a team letter, and not a number)
         let result = serde_json::from_str::<TargetedPlayer>(r#""invalid""#);
+        assert!(result.is_err());
+
+        // Test lowercase letter should fail
+        let result = serde_json::from_str::<TargetedPlayer>(r#""a""#);
         assert!(result.is_err());
     }
 }
