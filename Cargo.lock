@@ -3237,9 +3237,9 @@ dependencies = [
 
 [[package]]
 name = "rawzip"
-version = "0.3.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15175d688c45677b5c1973398e0682a3efd381d3c7c0ccce86791d998986fac7"
+checksum = "439c3cea2f04ab9cf078fab95c153af562df27cca8fbf88c0a7499c3f389ce23"
 
 [[package]]
 name = "rectangle-pack"
