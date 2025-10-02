@@ -81,7 +81,7 @@ impl<M: MovementMap> PathFinder<M> {
         start: Position,
         movement_points: u8,
         costs: impl TerrainCosts,
-    ) -> Reachable<M> {
+    ) -> Reachable<'_, M> {
         self.cost_map.clear();
         self.cost_map
             .resize(self.map.height() * self.map.width(), None);

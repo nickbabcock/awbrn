@@ -35,6 +35,7 @@ use crate::{
 use awbrn_core::{Weather, get_unit_animation_frames};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
 use awbw_replay::{AwbwReplay, ReplayParser};
+use bevy::sprite::Anchor;
 use bevy::state::state::SubStates;
 use bevy::{log, prelude::*};
 use serde::{Deserialize, Serialize};
@@ -188,7 +189,7 @@ impl Plugin for AwbrnPlugin {
             .init_state::<GameMode>()
             .add_sub_state::<LoadingState>()
             .insert_resource(MapPathResolver(self.map_resolver.clone()))
-            .add_event::<ExternalGameEvent>()
+            .add_message::<ExternalGameEvent>()
             .add_observer(on_map_position_insert)
             .add_observer(handle_unit_spawn)
             .add_systems(Startup, setup_camera);
@@ -498,7 +499,7 @@ fn handle_tile_clicks(
     tiles: Query<(Entity, &Transform, &TerrainTile)>,
     mut commands: Commands,
     selected: Query<Entity, With<SelectedTile>>,
-    mut event_writer: EventWriter<ExternalGameEvent>,
+    mut event_writer: MessageWriter<ExternalGameEvent>,
 ) {
     // Only process on mouse click
     if !mouse_button_input.just_pressed(MouseButton::Left) {
@@ -649,7 +650,7 @@ fn handle_replay_controls(
     mut replay_state: ResMut<ReplayState>,
     loaded_replay: Res<LoadedReplay>,
     units: Res<StrongIdMap<AwbwUnitId>>,
-    mut event_writer: EventWriter<ExternalGameEvent>,
+    mut event_writer: MessageWriter<ExternalGameEvent>,
     position_query: Query<&MapPosition>,
 ) {
     if !keyboard_input.just_pressed(KeyCode::ArrowRight) {
@@ -790,6 +791,7 @@ fn setup_map_visuals(
                             index: sprite_index.index() as usize,
                         },
                     ),
+                    Anchor::default(),
                     MapPosition::new(x, y), // Transform automatically included
                     TerrainTile {
                         terrain,
@@ -846,7 +848,7 @@ fn init_replay_state(mut commands: Commands) {
 }
 
 fn handle_unit_spawn(
-    trigger: Trigger<OnInsert, AwbwUnitId>,
+    trigger: On<Insert, AwbwUnitId>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
@@ -860,7 +862,7 @@ fn handle_unit_spawn(
     let layout = TextureAtlasLayout::from_grid(UVec2::new(23, 24), 64, 86, None, Some(uvec2(1, 0)));
     let texture_atlas_layout = texture_atlas_layouts.add(layout);
 
-    let entity = trigger.target();
+    let entity = trigger.entity;
     let Ok((unit, faction, unit_id)) = query.get_mut(entity) else {
         warn!("Unit entity {:?} not found in query", entity);
         return;
@@ -900,16 +902,17 @@ fn handle_unit_spawn(
                 index: animation_frames.start_index() as usize,
             },
         ),
+        Anchor::default(),
         animation,
     ));
 }
 
 fn on_map_position_insert(
-    trigger: Trigger<OnInsert, MapPosition>,
+    trigger: On<Insert, MapPosition>,
     mut query: Query<(&mut Transform, &SpriteSize, &MapPosition)>,
     game_map: Res<GameMap>,
 ) {
-    let entity = trigger.target();
+    let entity = trigger.entity;
 
     let Ok((mut transform, sprite_size, map_position)) = query.get_mut(entity) else {
         warn!("Entity {:?} not found in query for MapPosition", entity);
@@ -953,13 +956,13 @@ impl<T> EventBusResource<T> {
     }
 }
 
-#[derive(Event, Debug, Clone)]
+#[derive(Message, Debug, Clone)]
 pub struct ExternalEvent<T: Serialize + Send + Sync + 'static> {
     pub payload: T,
 }
 
 pub fn event_forwarder<T: Serialize + Send + Sync + 'static>(
-    mut events: EventReader<ExternalEvent<T>>,
+    mut events: MessageReader<ExternalEvent<T>>,
     bus: Option<Res<EventBusResource<T>>>,
 ) {
     let Some(bus) = bus else { return };

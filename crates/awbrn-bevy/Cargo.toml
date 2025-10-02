@@ -9,8 +9,10 @@ awbrn-map = { path = "../awbrn-map" }
 awbw-replay = { path = "../awbw-replay" }
 bevy = { workspace = true, features = [
     "bevy_asset",
+    "bevy_camera",
     "bevy_log",
     "bevy_sprite",
+    "bevy_sprite_render",
     "bevy_state",
     "bevy_window",
 ]}

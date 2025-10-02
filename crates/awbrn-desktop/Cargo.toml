@@ -18,6 +18,7 @@ bevy = { workspace = true, features = [
     "bevy_render",
     "bevy_sprite_picking_backend",
     "bevy_sprite",
+    "bevy_sprite_render",
     "bevy_state",
     "bevy_window",
     "bevy_winit",
