@@ -11,17 +11,20 @@ awbrn-bevy = { path = "../awbrn-bevy" }
 awbw-replay = { path = "../awbw-replay" }
 bevy = { workspace = true, features = [
     "bevy_asset",
+    "bevy_camera",
     "bevy_core_pipeline",
     "bevy_log",
     "bevy_render",
     "bevy_sprite_picking_backend",
     "bevy_sprite",
+    "bevy_sprite_render",
     "bevy_state",
     "bevy_window",
     "png",
     "std",
     "webgpu",
 ]}
+getrandom = { version = "0.3", features = ["wasm_js"] }
 js-sys.workspace = true
 raw-window-handle.workspace = true
 serde-wasm-bindgen.workspace = true

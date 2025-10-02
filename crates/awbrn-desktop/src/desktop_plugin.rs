@@ -64,7 +64,7 @@ impl Plugin for AwbrnDesktopPlugin {
     }
 }
 
-fn handle_file_drop(mut commands: Commands, mut file_drop_events: EventReader<FileDragAndDrop>) {
+fn handle_file_drop(mut commands: Commands, mut file_drop_events: MessageReader<FileDragAndDrop>) {
     for event in file_drop_events.read() {
         let FileDragAndDrop::DroppedFile { path_buf, .. } = event else {
             continue;

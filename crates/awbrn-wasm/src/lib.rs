@@ -6,7 +6,6 @@ use bevy::{
         keyboard::{KeyboardInput, NativeKey},
     },
     prelude::*,
-    render::camera::{Projection, ScalingMode},
     window::{RawHandleWrapper, WindowResolution, WindowWrapper},
 };
 use serde::{Deserialize, Serialize};
@@ -79,7 +78,7 @@ impl BevyApp {
     ) -> Self {
         let mut app = App::new();
 
-        let mut resolution = WindowResolution::new(display.width, display.height);
+        let mut resolution = WindowResolution::new(display.width as u32, display.height as u32);
         resolution.set_scale_factor_override(Some(display.scale_factor));
 
         app.add_plugins(
@@ -140,7 +139,7 @@ impl BevyApp {
         for (_camera, mut projection) in world.query::<(&Camera, &mut Projection)>().iter_mut(world)
         {
             if let Projection::Orthographic(ref mut ortho) = *projection {
-                ortho.scaling_mode = ScalingMode::WindowSize;
+                ortho.scaling_mode = bevy::camera::ScalingMode::WindowSize;
             }
         }
 
@@ -181,7 +180,7 @@ impl BevyApp {
             window,
         };
 
-        self.app.world_mut().send_event(event);
+        self.app.world_mut().write_message(event);
     }
 
     #[wasm_bindgen]
@@ -218,7 +217,7 @@ impl BevyApp {
             window,
         };
 
-        self.app.world_mut().send_event(event);
+        self.app.world_mut().write_message(event);
     }
 
     #[wasm_bindgen]
