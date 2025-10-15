@@ -11,7 +11,7 @@ highway = "1.3.0"
 indexmap = { version = "2.9.0", features = ["serde"] }
 insta = { version = "1.42.2", features = ["glob", "serde", "json"] }
 js-sys = "0.3.77"
-phpserz = "0.2.1"
+phpserz = "0.2.2"
 raw-window-handle = { version = "0.6.2", features = ["wasm-bindgen-0-2"] }
 rawzip = "0.4.1"
 rstest = "0.25.0"
