@@ -1,0 +1,8 @@
+---
+source: crates/awbw-replay/tests/snapshots.rs
+expression: snapshot
+input_file: assets/replays/1468032_landfall_2025-12-22.zip
+---
+{
+  "checksum": "0x9241bd137f9cc0b9a5a3ccacddd079dcda76cbe19a41ceeefa78c2d9224f7d62"
+}
