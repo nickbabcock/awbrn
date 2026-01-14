@@ -1,5 +1,7 @@
 use awbrn_bevy::MapAssetPathResolver;
-use bevy::asset::io::{AssetReader, AssetReaderError, AssetSource, PathStream, Reader, VecReader};
+use bevy::asset::io::{
+    AssetReader, AssetReaderError, AssetSourceBuilder, PathStream, Reader, VecReader,
+};
 use bevy::prelude::*;
 use bevy::tasks::ConditionalSendFuture;
 use std::path::Path;
@@ -13,7 +15,7 @@ impl Plugin for WebAssetPlugin {
     fn build(&self, app: &mut App) {
         app.register_asset_source(
             "https",
-            AssetSource::build().with_reader(move || Box::new(WebAssetReader)),
+            AssetSourceBuilder::new(move || Box::new(WebAssetReader)),
         );
     }
 }
