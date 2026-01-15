@@ -419,6 +419,7 @@ dependencies = [
 name = "awbrn-core"
 version = "0.1.0"
 dependencies = [
+ "awbrn-types",
  "insta",
  "rstest",
  "serde",
@@ -447,6 +448,13 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "awbrn-types"
+version = "0.1.0"
+dependencies = [
+ "strum",
 ]
 
 [[package]]
@@ -5983,10 +5991,13 @@ name = "xtask-assets"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "awbrn-types",
  "image",
+ "indexmap",
  "oxipng",
  "serde",
  "serde_json",
+ "strum",
 ]
 
 [[package]]
