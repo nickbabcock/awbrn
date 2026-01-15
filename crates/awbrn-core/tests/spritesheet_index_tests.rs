@@ -27,6 +27,7 @@ fn all_player_factions() -> Vec<PlayerFaction> {
         PlayerFaction::RedFire,
         PlayerFaction::SilverClaw,
         PlayerFaction::TealGalaxy,
+        PlayerFaction::UmberWilds,
         PlayerFaction::WhiteNova,
         PlayerFaction::YellowComet,
     ]

@@ -1,0 +1,3 @@
+[submodule "assets/AWBW-Replay-Player"]
+	path = assets/AWBW-Replay-Player
+	url = https://github.com/DeamonHunter/AWBW-Replay-Player

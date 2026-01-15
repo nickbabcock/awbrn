@@ -1,0 +1,843 @@
+use anyhow::{Context, Result, anyhow};
+use image::RgbaImage;
+use oxipng::{InFile, Options, OutFile};
+use serde::Deserialize;
+use serde::de::DeserializeOwned;
+use std::collections::{BTreeMap, HashMap};
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+const TILESHEET_COLUMNS: u32 = 64;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum WeatherKind {
+    Clear,
+    Snow,
+    Rain,
+}
+
+impl WeatherKind {
+    const ALL: [WeatherKind; 3] = [WeatherKind::Clear, WeatherKind::Snow, WeatherKind::Rain];
+
+    fn as_rust(&self) -> &'static str {
+        match self {
+            WeatherKind::Clear => "Clear",
+            WeatherKind::Snow => "Snow",
+            WeatherKind::Rain => "Rain",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+enum FactionKey {
+    Neutral,
+    Player(String),
+}
+
+impl FactionKey {
+    fn as_rust(&self) -> String {
+        match self {
+            FactionKey::Neutral => "Faction::Neutral".to_string(),
+            FactionKey::Player(name) => format!("Faction::Player(PlayerFaction::{name})"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+enum PropertyKind {
+    Airport,
+    Base,
+    City,
+    ComTower,
+    HQ,
+    Lab,
+    Port,
+}
+
+impl PropertyKind {
+    fn as_rust(&self) -> &'static str {
+        match self {
+            PropertyKind::Airport => "Airport",
+            PropertyKind::Base => "Base",
+            PropertyKind::City => "City",
+            PropertyKind::ComTower => "ComTower",
+            PropertyKind::HQ => "HQ",
+            PropertyKind::Lab => "Lab",
+            PropertyKind::Port => "Port",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+enum TerrainKey {
+    StubbyMountain,
+    Plain,
+    Mountain,
+    Wood,
+    Reef,
+    River(String),
+    Road(String),
+    Bridge(String),
+    Sea(String),
+    Shoal(String),
+    Property {
+        kind: PropertyKind,
+        faction: FactionKey,
+    },
+    Pipe(String),
+    PipeSeam(String),
+    PipeRubble(String),
+    MissileSilo(String),
+    Teleporter,
+}
+
+impl TerrainKey {
+    fn sort_key(&self) -> String {
+        match self {
+            TerrainKey::StubbyMountain => "0000-stubby".to_string(),
+            TerrainKey::Plain => "0001-plain".to_string(),
+            TerrainKey::Mountain => "0002-mountain".to_string(),
+            TerrainKey::Wood => "0003-wood".to_string(),
+            TerrainKey::Reef => "0004-reef".to_string(),
+            TerrainKey::River(name) => format!("river-{name}"),
+            TerrainKey::Road(name) => format!("road-{name}"),
+            TerrainKey::Bridge(name) => format!("bridge-{name}"),
+            TerrainKey::Sea(name) => format!("sea-{name}"),
+            TerrainKey::Shoal(name) => format!("shoal-{name}"),
+            TerrainKey::Property { kind, faction } => format!("property-{:?}-{:?}", kind, faction),
+            TerrainKey::Pipe(name) => format!("pipe-{name}"),
+            TerrainKey::PipeSeam(name) => format!("pipeseam-{name}"),
+            TerrainKey::PipeRubble(name) => format!("piperubble-{name}"),
+            TerrainKey::MissileSilo(name) => format!("missilesilo-{name}"),
+            TerrainKey::Teleporter => "teleporter".to_string(),
+        }
+    }
+
+    fn rust_pattern(&self) -> String {
+        match self {
+            TerrainKey::StubbyMountain => "GraphicalTerrain::StubbyMoutain".to_string(),
+            TerrainKey::Plain => "GraphicalTerrain::Plain".to_string(),
+            TerrainKey::Mountain => "GraphicalTerrain::Mountain".to_string(),
+            TerrainKey::Wood => "GraphicalTerrain::Wood".to_string(),
+            TerrainKey::Reef => "GraphicalTerrain::Reef".to_string(),
+            TerrainKey::River(name) => format!("GraphicalTerrain::River(RiverType::{name})"),
+            TerrainKey::Road(name) => format!("GraphicalTerrain::Road(RoadType::{name})"),
+            TerrainKey::Bridge(name) => format!("GraphicalTerrain::Bridge(BridgeType::{name})"),
+            TerrainKey::Sea(name) => format!("GraphicalTerrain::Sea(SeaDirection::{name})"),
+            TerrainKey::Shoal(name) => format!("GraphicalTerrain::Shoal(ShoalDirection::{name})"),
+            TerrainKey::Property { kind, faction } => match kind {
+                PropertyKind::HQ => match faction {
+                    FactionKey::Player(name) => {
+                        format!("GraphicalTerrain::Property(Property::HQ(PlayerFaction::{name}))")
+                    }
+                    FactionKey::Neutral => {
+                        panic!("Neutral HQ is not supported when generating spritesheet")
+                    }
+                },
+                _ => format!(
+                    "GraphicalTerrain::Property(Property::{}({}))",
+                    kind.as_rust(),
+                    faction.as_rust()
+                ),
+            },
+            TerrainKey::Pipe(name) => format!("GraphicalTerrain::Pipe(PipeType::{name})"),
+            TerrainKey::PipeSeam(name) => {
+                format!("GraphicalTerrain::PipeSeam(PipeSeamType::{name})")
+            }
+            TerrainKey::PipeRubble(name) => {
+                format!("GraphicalTerrain::PipeRubble(PipeRubbleType::{name})")
+            }
+            TerrainKey::MissileSilo(name) => {
+                format!("GraphicalTerrain::MissileSilo(MissileSiloStatus::{name})")
+            }
+            TerrainKey::Teleporter => "GraphicalTerrain::Teleporter".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum TextureSource {
+    Classic,
+    Aw2,
+    Custom(PathBuf),
+}
+
+#[derive(Debug, Clone)]
+struct WeatherTexture {
+    texture_key: String,
+    source: TextureSource,
+}
+
+#[derive(Debug, Clone)]
+struct WeatherTextures {
+    clear: WeatherTexture,
+    snow: Option<WeatherTexture>,
+    rain: Option<WeatherTexture>,
+}
+
+#[derive(Debug, Clone)]
+struct TileMetadata {
+    awbw_id: u16,
+    terrain: TerrainKey,
+    textures: WeatherTextures,
+    frames: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct SpriteIndex {
+    start_index: u16,
+    frames: u8,
+}
+
+#[derive(Debug, Deserialize)]
+struct TextureSet {
+    #[serde(rename = "Clear")]
+    clear: String,
+    #[serde(rename = "Rain")]
+    rain: Option<String>,
+    #[serde(rename = "Snow")]
+    snow: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TileEntry {
+    #[serde(rename = "AWBWID")]
+    awbw_id: u16,
+    #[serde(rename = "TerrainType")]
+    _terrain_type: String,
+    #[serde(rename = "Textures")]
+    textures: TextureSet,
+}
+
+#[derive(Debug, Deserialize)]
+struct BuildingEntry {
+    #[serde(rename = "AWBWID")]
+    awbw_id: u16,
+    #[serde(rename = "BuildingType")]
+    building_type: String,
+    #[serde(rename = "CountryID")]
+    country_id: Option<u16>,
+    #[serde(default, rename = "frames")]
+    frames: Vec<u32>,
+    #[serde(rename = "Textures")]
+    textures: TextureSet,
+}
+
+fn main() -> Result<()> {
+    let args: Vec<String> = env::args().collect();
+    match args.get(1).map(String::as_str) {
+        Some("tiles") => run_tiles(),
+        _ => {
+            eprintln!(
+                "Usage: {} tiles",
+                args.first().map(String::as_str).unwrap_or("xtask-assets")
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
+fn run_tiles() -> Result<()> {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+    let assets_root = repo_root.join("assets/AWBW-Replay-Player/AWBWApp.Resources");
+    let tiles_path = assets_root.join("Json/Tiles.json");
+    let buildings_path = assets_root.join("Json/Buildings.json");
+    let textures_classic = assets_root.join("Textures/Map/Classic");
+    let textures_aw2 = assets_root.join("Textures/Map/AW2");
+    let stubby_path = repo_root.join("assets/textures/stubby.png");
+    let stubby_snow_path = repo_root.join("assets/textures/stubby-snow.png");
+    let tilesheet_path = repo_root.join("assets/textures/tiles.png");
+    let generated_dir = repo_root.join("crates/awbrn-core/src/generated");
+
+    let tiles_map: BTreeMap<String, TileEntry> = load_json_map(&tiles_path)?;
+    let buildings_map: BTreeMap<String, BuildingEntry> = load_json_map(&buildings_path)?;
+
+    let mut tiles = Vec::new();
+
+    for (name, entry) in tiles_map {
+        let terrain = terrain_from_tile(&name, &entry)?;
+        tiles.push(TileMetadata {
+            awbw_id: entry.awbw_id,
+            terrain,
+            textures: WeatherTextures {
+                clear: WeatherTexture {
+                    texture_key: entry.textures.clear,
+                    source: TextureSource::Classic,
+                },
+                snow: entry.textures.snow.map(|texture_key| WeatherTexture {
+                    texture_key,
+                    source: TextureSource::Classic,
+                }),
+                rain: entry.textures.rain.map(|texture_key| WeatherTexture {
+                    texture_key,
+                    source: TextureSource::Classic,
+                }),
+            },
+            frames: 1,
+        });
+    }
+
+    for (name, entry) in buildings_map {
+        let Some(terrain) = terrain_from_building(&name, &entry)? else {
+            continue;
+        };
+        let frames = if entry.frames.is_empty() {
+            1
+        } else {
+            entry
+                .frames
+                .len()
+                .try_into()
+                .map_err(|_| anyhow!("Animation frames exceed 255 for {name}"))?
+        };
+
+        tiles.push(TileMetadata {
+            awbw_id: entry.awbw_id,
+            terrain,
+            textures: WeatherTextures {
+                clear: WeatherTexture {
+                    texture_key: entry.textures.clear,
+                    source: TextureSource::Aw2,
+                },
+                snow: entry.textures.snow.map(|texture_key| WeatherTexture {
+                    texture_key,
+                    source: TextureSource::Aw2,
+                }),
+                rain: entry.textures.rain.map(|texture_key| WeatherTexture {
+                    texture_key,
+                    source: TextureSource::Aw2,
+                }),
+            },
+            frames,
+        });
+    }
+
+    tiles.push(TileMetadata {
+        awbw_id: 0,
+        terrain: TerrainKey::StubbyMountain,
+        textures: WeatherTextures {
+            clear: WeatherTexture {
+                texture_key: "stubby".to_string(),
+                source: TextureSource::Custom(stubby_path),
+            },
+            snow: Some(WeatherTexture {
+                texture_key: "stubby-snow".to_string(),
+                source: TextureSource::Custom(stubby_snow_path),
+            }),
+            rain: None,
+        },
+        frames: 1,
+    });
+
+    let mut terrain_map = HashMap::new();
+    for tile in tiles {
+        let terrain = tile.terrain.clone();
+        if terrain_map.insert(terrain.clone(), tile).is_some() {
+            return Err(anyhow!("Duplicate terrain mapping for {:?}", terrain));
+        }
+    }
+
+    add_sea_alias(&mut terrain_map, "E_S", "S_E")?;
+    add_sea_alias(&mut terrain_map, "E_W", "W_E")?;
+
+    let mut ordered_tiles: Vec<TileMetadata> = terrain_map.values().cloned().collect();
+    ordered_tiles.sort_by(|a, b| {
+        a.awbw_id
+            .cmp(&b.awbw_id)
+            .then_with(|| a.terrain.sort_key().cmp(&b.terrain.sort_key()))
+    });
+
+    let mut sprite_indices: HashMap<(TerrainKey, WeatherKind), SpriteIndex> = HashMap::new();
+    let mut clear_frames = Vec::new();
+    let mut snow_frames = Vec::new();
+    let mut rain_frames = Vec::new();
+
+    let mut clear_index: u16 = 0;
+    for tile in &ordered_tiles {
+        let sprite = SpriteIndex {
+            start_index: clear_index,
+            frames: tile.frames,
+        };
+        sprite_indices.insert((tile.terrain.clone(), WeatherKind::Clear), sprite);
+        clear_index += tile.frames as u16;
+        add_frames(
+            &mut clear_frames,
+            &textures_classic,
+            &textures_aw2,
+            tile,
+            WeatherKind::Clear,
+        )?;
+    }
+
+    let mut snow_index = clear_index;
+    for tile in &ordered_tiles {
+        if tile.textures.snow.is_some() {
+            let sprite = SpriteIndex {
+                start_index: snow_index,
+                frames: tile.frames,
+            };
+            sprite_indices.insert((tile.terrain.clone(), WeatherKind::Snow), sprite);
+            snow_index += tile.frames as u16;
+            add_frames(
+                &mut snow_frames,
+                &textures_classic,
+                &textures_aw2,
+                tile,
+                WeatherKind::Snow,
+            )?;
+        }
+    }
+
+    let mut rain_index = snow_index;
+    for tile in &ordered_tiles {
+        if tile.textures.rain.is_some() {
+            let sprite = SpriteIndex {
+                start_index: rain_index,
+                frames: tile.frames,
+            };
+            sprite_indices.insert((tile.terrain.clone(), WeatherKind::Rain), sprite);
+            rain_index += tile.frames as u16;
+            add_frames(
+                &mut rain_frames,
+                &textures_classic,
+                &textures_aw2,
+                tile,
+                WeatherKind::Rain,
+            )?;
+        }
+    }
+
+    let mut all_frames = Vec::new();
+    all_frames.extend(clear_frames);
+    all_frames.extend(snow_frames);
+    all_frames.extend(rain_frames);
+
+    build_tilesheet(&all_frames, &tilesheet_path)?;
+    optimize_png(&tilesheet_path)?;
+
+    fs::create_dir_all(&generated_dir).context("Creating generated output directory")?;
+    let spritesheet_rs = generated_dir.join("spritesheet_index.rs");
+    let spritesheet_contents = render_spritesheet_index(&ordered_tiles, &sprite_indices);
+    fs::write(&spritesheet_rs, spritesheet_contents).context("Writing spritesheet_index.rs")?;
+
+    Ok(())
+}
+
+fn load_json_map<T: DeserializeOwned>(path: &Path) -> Result<BTreeMap<String, T>> {
+    let content =
+        fs::read_to_string(path).with_context(|| format!("Reading {}", path.display()))?;
+    let filtered = strip_json_comments(&content);
+    serde_json::from_str(&filtered).with_context(|| format!("Parsing {}", path.display()))
+}
+
+fn add_sea_alias(
+    terrain_map: &mut HashMap<TerrainKey, TileMetadata>,
+    source: &str,
+    alias: &str,
+) -> Result<()> {
+    let source_key = TerrainKey::Sea(source.to_string());
+    let alias_key = TerrainKey::Sea(alias.to_string());
+
+    if terrain_map.contains_key(&alias_key) {
+        return Ok(());
+    }
+
+    let source_tile = terrain_map
+        .get(&source_key)
+        .cloned()
+        .ok_or_else(|| anyhow!("Missing sea texture for {source}"))?;
+
+    let mut alias_tile = source_tile.clone();
+    alias_tile.terrain = alias_key;
+    terrain_map.insert(alias_tile.terrain.clone(), alias_tile);
+    Ok(())
+}
+
+fn strip_json_comments(content: &str) -> String {
+    let mut output = String::new();
+    let mut in_block = false;
+
+    for line in content.lines() {
+        let mut remainder = line;
+        loop {
+            if in_block {
+                if let Some(end) = remainder.find("*/") {
+                    remainder = &remainder[end + 2..];
+                    in_block = false;
+                } else {
+                    break;
+                }
+            } else if let Some(start) = remainder.find("/*") {
+                let (before, rest) = remainder.split_at(start);
+                let trimmed = if let Some((prefix, _)) = before.split_once("//") {
+                    prefix
+                } else {
+                    before
+                };
+                output.push_str(trimmed);
+                remainder = &rest[2..];
+                in_block = true;
+            } else {
+                let trimmed = if let Some((prefix, _)) = remainder.split_once("//") {
+                    prefix
+                } else {
+                    remainder
+                };
+                output.push_str(trimmed);
+                break;
+            }
+        }
+        output.push('\n');
+    }
+
+    output
+}
+
+fn terrain_from_tile(name: &str, entry: &TileEntry) -> Result<TerrainKey> {
+    let texture = entry.textures.clear.as_str();
+    if texture == "Plain" {
+        return Ok(TerrainKey::Plain);
+    }
+    if texture == "Mountain" {
+        return Ok(TerrainKey::Mountain);
+    }
+    if texture == "Wood" {
+        return Ok(TerrainKey::Wood);
+    }
+    if texture == "Reef" {
+        return Ok(TerrainKey::Reef);
+    }
+    if texture == "Teleporter" {
+        return Ok(TerrainKey::Teleporter);
+    }
+    if texture.starts_with("River/") {
+        let variant = river_or_road_variant(texture.trim_start_matches("River/"))?;
+        return Ok(TerrainKey::River(variant));
+    }
+    if texture.starts_with("Road/") {
+        let suffix = texture.trim_start_matches("Road/");
+        if suffix.starts_with('H') && suffix.contains("Bridge") {
+            return Ok(TerrainKey::Bridge("Horizontal".to_string()));
+        }
+        if suffix.starts_with('V') && suffix.contains("Bridge") {
+            return Ok(TerrainKey::Bridge("Vertical".to_string()));
+        }
+        let variant = river_or_road_variant(suffix)?;
+        return Ok(TerrainKey::Road(variant));
+    }
+    if texture.starts_with("Sea/") {
+        let variant = texture.trim_start_matches("Sea/").replace('-', "_");
+        return Ok(TerrainKey::Sea(variant));
+    }
+    if texture.starts_with("Shoal/") {
+        let variant = texture.trim_start_matches("Shoal/").replace('-', "");
+        return Ok(TerrainKey::Shoal(variant));
+    }
+    if texture.starts_with("Pipe/") {
+        let variant = pipe_variant(texture.trim_start_matches("Pipe/"))?;
+        return Ok(TerrainKey::Pipe(variant));
+    }
+    if texture.starts_with("Neutral/HRubble") {
+        return Ok(TerrainKey::PipeRubble("Horizontal".to_string()));
+    }
+    if texture.starts_with("Neutral/VRubble") {
+        return Ok(TerrainKey::PipeRubble("Vertical".to_string()));
+    }
+    if texture.starts_with("Neutral/SiloEmpty") {
+        return Ok(TerrainKey::MissileSilo("Unloaded".to_string()));
+    }
+
+    Err(anyhow!(
+        "Unrecognized tile entry {name} with texture {texture}"
+    ))
+}
+
+fn terrain_from_building(name: &str, entry: &BuildingEntry) -> Result<Option<TerrainKey>> {
+    let building_type = entry.building_type.as_str();
+    match building_type {
+        "City" | "Base" | "Airport" | "Port" | "HQ" | "ComTower" | "Lab" => {
+            let kind = match building_type {
+                "City" => PropertyKind::City,
+                "Base" => PropertyKind::Base,
+                "Airport" => PropertyKind::Airport,
+                "Port" => PropertyKind::Port,
+                "HQ" => PropertyKind::HQ,
+                "ComTower" => PropertyKind::ComTower,
+                "Lab" => PropertyKind::Lab,
+                _ => return Err(anyhow!("Unknown property type {building_type}")),
+            };
+
+            let faction = match entry.country_id {
+                Some(id) => match player_faction_from_awbw_id(id) {
+                    Some(name) => FactionKey::Player(name.to_string()),
+                    None => {
+                        eprintln!("Skipping building {name} with unsupported country id {id}");
+                        return Ok(None);
+                    }
+                },
+                None => FactionKey::Neutral,
+            };
+
+            if matches!(kind, PropertyKind::HQ) && matches!(faction, FactionKey::Neutral) {
+                return Err(anyhow!("HQ cannot be neutral for {name}"));
+            }
+
+            Ok(Some(TerrainKey::Property { kind, faction }))
+        }
+        "Missile" => Ok(Some(TerrainKey::MissileSilo("Loaded".to_string()))),
+        "PipeSeam" => {
+            let suffix = entry.textures.clear.as_str();
+            if suffix.contains("HSeam") {
+                return Ok(Some(TerrainKey::PipeSeam("Horizontal".to_string())));
+            }
+            if suffix.contains("VSeam") {
+                return Ok(Some(TerrainKey::PipeSeam("Vertical".to_string())));
+            }
+            Err(anyhow!("Unknown pipe seam texture for {name}"))
+        }
+        other => Err(anyhow!("Unsupported building type {other} for {name}")),
+    }
+}
+
+fn river_or_road_variant(suffix: &str) -> Result<String> {
+    match suffix {
+        "H" => Ok("Horizontal".to_string()),
+        "V" => Ok("Vertical".to_string()),
+        "C" => Ok("Cross".to_string()),
+        "ES" | "SW" | "WN" | "NE" | "ESW" | "SWN" | "WNE" | "NES" => Ok(suffix.to_string()),
+        other => Err(anyhow!("Unknown river/road variant {other}")),
+    }
+}
+
+fn pipe_variant(suffix: &str) -> Result<String> {
+    match suffix {
+        "V" => Ok("Vertical".to_string()),
+        "H" => Ok("Horizontal".to_string()),
+        "NE" | "ES" | "SW" | "WN" => Ok(suffix.to_string()),
+        "NEnd" => Ok("NorthEnd".to_string()),
+        "EEnd" => Ok("EastEnd".to_string()),
+        "SEnd" => Ok("SouthEnd".to_string()),
+        "WEnd" => Ok("WestEnd".to_string()),
+        other => Err(anyhow!("Unknown pipe variant {other}")),
+    }
+}
+
+fn player_faction_from_awbw_id(id: u16) -> Option<&'static str> {
+    match id {
+        1 => Some("OrangeStar"),
+        2 => Some("BlueMoon"),
+        3 => Some("GreenEarth"),
+        4 => Some("YellowComet"),
+        5 => Some("BlackHole"),
+        6 => Some("RedFire"),
+        7 => Some("GreySky"),
+        8 => Some("BrownDesert"),
+        9 => Some("AmberBlaze"),
+        10 => Some("JadeSun"),
+        16 => Some("CobaltIce"),
+        17 => Some("PinkCosmos"),
+        19 => Some("TealGalaxy"),
+        20 => Some("PurpleLightning"),
+        21 => Some("AcidRain"),
+        22 => Some("WhiteNova"),
+        23 => Some("AzureAsteroid"),
+        24 => Some("NoirEclipse"),
+        25 => Some("SilverClaw"),
+        26 => Some("UmberWilds"),
+        _ => None,
+    }
+}
+
+fn add_frames(
+    output: &mut Vec<PathBuf>,
+    classic_root: &Path,
+    aw2_root: &Path,
+    tile: &TileMetadata,
+    weather: WeatherKind,
+) -> Result<()> {
+    let texture = match weather {
+        WeatherKind::Clear => &tile.textures.clear,
+        WeatherKind::Snow => tile
+            .textures
+            .snow
+            .as_ref()
+            .ok_or_else(|| anyhow!("Missing snow texture"))?,
+        WeatherKind::Rain => tile
+            .textures
+            .rain
+            .as_ref()
+            .ok_or_else(|| anyhow!("Missing rain texture"))?,
+    };
+
+    for frame in 0..tile.frames {
+        let path = resolve_texture_path(texture, classic_root, aw2_root, frame, tile.frames)?;
+        if !path.exists() {
+            return Err(anyhow!("Missing texture file {}", path.display()));
+        }
+        output.push(path);
+    }
+
+    Ok(())
+}
+
+fn resolve_texture_path(
+    texture: &WeatherTexture,
+    classic_root: &Path,
+    aw2_root: &Path,
+    frame: u8,
+    frames: u8,
+) -> Result<PathBuf> {
+    match &texture.source {
+        TextureSource::Classic => {
+            build_frame_path(classic_root, &texture.texture_key, frame, frames)
+        }
+        TextureSource::Aw2 => build_frame_path(aw2_root, &texture.texture_key, frame, frames),
+        TextureSource::Custom(path) => {
+            if frames != 1 {
+                return Err(anyhow!(
+                    "Custom texture {} cannot be animated",
+                    path.display()
+                ));
+            }
+            Ok(path.clone())
+        }
+    }
+}
+
+fn build_frame_path(base_dir: &Path, texture_key: &str, frame: u8, frames: u8) -> Result<PathBuf> {
+    let has_numeric_suffix = texture_key
+        .rsplit_once('-')
+        .and_then(|(_, suffix)| suffix.parse::<u32>().ok())
+        .is_some();
+
+    if frames == 1 {
+        let base_path = base_dir.join(format!("{texture_key}.png"));
+        if base_path.exists() {
+            return Ok(base_path);
+        }
+        if !has_numeric_suffix {
+            let fallback = base_dir.join(format!("{texture_key}-0.png"));
+            if fallback.exists() {
+                return Ok(fallback);
+            }
+        }
+        Ok(base_path)
+    } else {
+        if has_numeric_suffix {
+            return Err(anyhow!(
+                "Animated texture key already has numeric suffix: {texture_key}"
+            ));
+        }
+        Ok(base_dir.join(format!("{texture_key}-{frame}.png")))
+    }
+}
+
+fn build_tilesheet(paths: &[PathBuf], output_path: &Path) -> Result<()> {
+    let mut images = Vec::new();
+    let mut max_width = 0;
+    let mut max_height = 0;
+
+    for path in paths {
+        let image = image::open(path).with_context(|| format!("Loading {}", path.display()))?;
+        let rgba = image.to_rgba8();
+        let (width, height) = rgba.dimensions();
+        max_width = max_width.max(width);
+        max_height = max_height.max(height);
+        images.push((path.clone(), rgba));
+    }
+
+    if images.is_empty() {
+        return Err(anyhow!("No tile images were collected for the tilesheet"));
+    }
+
+    let cols = TILESHEET_COLUMNS.max(1);
+    let rows = (images.len() as u32).div_ceil(cols).max(1);
+    let sheet_width = cols * max_width;
+    let sheet_height = rows * max_height;
+
+    let mut sheet = RgbaImage::new(sheet_width, sheet_height);
+
+    for (index, (_path, image)) in images.into_iter().enumerate() {
+        let col = (index as u32) % cols;
+        let row = (index as u32) / cols;
+        let base_x = col * max_width;
+        let base_y = row * max_height;
+        let x_offset = max_width.saturating_sub(image.width());
+        let y_offset = max_height.saturating_sub(image.height());
+        let x = base_x + x_offset;
+        let y = base_y + y_offset;
+        image::imageops::overlay(&mut sheet, &image, x.into(), y.into());
+    }
+
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).context("Creating tilesheet output directory")?;
+    }
+
+    sheet
+        .save(output_path)
+        .with_context(|| format!("Saving tilesheet to {}", output_path.display()))?;
+
+    Ok(())
+}
+
+fn optimize_png(path: &Path) -> Result<()> {
+    let options = Options::from_preset(3);
+    oxipng::optimize(
+        &InFile::Path(path.to_path_buf()),
+        &OutFile::Path {
+            path: Some(path.to_path_buf()),
+            preserve_attrs: false,
+        },
+        &options,
+    )
+    .map(|_| ())
+    .with_context(|| format!("Optimizing png {}", path.display()))
+}
+
+fn render_spritesheet_index(
+    tiles: &[TileMetadata],
+    sprite_indices: &HashMap<(TerrainKey, WeatherKind), SpriteIndex>,
+) -> String {
+    let mut output = String::new();
+    output.push_str("// This file is @generated by xtask-assets.\n\n");
+    output.push_str("#[rustfmt::skip]\n");
+    output.push_str(
+        "pub const fn spritesheet_index(weather: Weather, terrain: GraphicalTerrain) -> SpritesheetIndex {\n",
+    );
+    output.push_str("    match terrain {\n");
+
+    for tile in tiles {
+        let pattern = tile.terrain.rust_pattern();
+        output.push_str(&format!("        {pattern} => match weather {{\n"));
+        for weather in WeatherKind::ALL {
+            let sprite = sprite_index_for(sprite_indices, &tile.terrain, weather);
+            output.push_str(&format!(
+                "            Weather::{} => SpritesheetIndex::new({}, {}),\n",
+                weather.as_rust(),
+                sprite.start_index,
+                sprite.frames
+            ));
+        }
+        output.push_str("        },\n");
+    }
+
+    output.push_str("    }\n}\n");
+    output
+}
+
+fn sprite_index_for(
+    sprite_indices: &HashMap<(TerrainKey, WeatherKind), SpriteIndex>,
+    terrain: &TerrainKey,
+    weather: WeatherKind,
+) -> SpriteIndex {
+    sprite_indices
+        .get(&(terrain.clone(), weather))
+        .copied()
+        .unwrap_or_else(|| {
+            sprite_indices
+                .get(&(terrain.clone(), WeatherKind::Clear))
+                .copied()
+                .expect("Missing clear texture")
+        })
+}

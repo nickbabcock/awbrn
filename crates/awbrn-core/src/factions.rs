@@ -19,6 +19,7 @@ pub enum PlayerFaction {
     RedFire,
     SilverClaw,
     TealGalaxy,
+    UmberWilds,
     WhiteNova,
     YellowComet,
 }
@@ -46,6 +47,7 @@ impl PlayerFaction {
             PlayerFaction::AzureAsteroid => "Azure Asteroid",
             PlayerFaction::NoirEclipse => "Noir Eclipse",
             PlayerFaction::SilverClaw => "Silver Claw",
+            PlayerFaction::UmberWilds => "Umber Wilds",
         }
     }
 
@@ -69,6 +71,7 @@ impl PlayerFaction {
             "rf" => Some(PlayerFaction::RedFire),
             "sc" => Some(PlayerFaction::SilverClaw),
             "tg" => Some(PlayerFaction::TealGalaxy),
+            "uw" => Some(PlayerFaction::UmberWilds),
             "wn" => Some(PlayerFaction::WhiteNova),
             "yc" => Some(PlayerFaction::YellowComet),
             _ => None,
@@ -95,6 +98,7 @@ impl PlayerFaction {
             PlayerFaction::RedFire => "rf",
             PlayerFaction::SilverClaw => "sc",
             PlayerFaction::TealGalaxy => "tg",
+            PlayerFaction::UmberWilds => "uw",
             PlayerFaction::WhiteNova => "wn",
             PlayerFaction::YellowComet => "yc",
         }
@@ -124,6 +128,7 @@ impl PlayerFaction {
             PlayerFaction::AzureAsteroid => AwbwFactionId::new(23),
             PlayerFaction::NoirEclipse => AwbwFactionId::new(24),
             PlayerFaction::SilverClaw => AwbwFactionId::new(25),
+            PlayerFaction::UmberWilds => AwbwFactionId::new(26),
         }
     }
 
@@ -149,6 +154,7 @@ impl PlayerFaction {
             23 => Some(PlayerFaction::AzureAsteroid),
             24 => Some(PlayerFaction::NoirEclipse),
             25 => Some(PlayerFaction::SilverClaw),
+            26 => Some(PlayerFaction::UmberWilds),
             _ => None,
         }
     }
@@ -174,7 +180,8 @@ impl PlayerFaction {
             PlayerFaction::RedFire => PlayerFaction::PurpleLightning,
             PlayerFaction::SilverClaw => PlayerFaction::RedFire,
             PlayerFaction::TealGalaxy => PlayerFaction::SilverClaw,
-            PlayerFaction::WhiteNova => PlayerFaction::TealGalaxy,
+            PlayerFaction::UmberWilds => PlayerFaction::TealGalaxy,
+            PlayerFaction::WhiteNova => PlayerFaction::UmberWilds,
             PlayerFaction::YellowComet => PlayerFaction::WhiteNova,
         }
     }

@@ -235,6 +235,7 @@ fn player_faction_to_char(player_faction: awbrn_core::PlayerFaction) -> char {
         awbrn_core::PlayerFaction::TealGalaxy => 'T',
         awbrn_core::PlayerFaction::PurpleLightning => 'L',
         awbrn_core::PlayerFaction::AcidRain => 'I',
+        awbrn_core::PlayerFaction::UmberWilds => 'U',
         awbrn_core::PlayerFaction::WhiteNova => 'W',
         awbrn_core::PlayerFaction::AzureAsteroid => 'Z',
         awbrn_core::PlayerFaction::NoirEclipse => 'E',

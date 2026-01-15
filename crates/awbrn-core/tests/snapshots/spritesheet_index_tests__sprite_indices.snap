@@ -5,19 +5,19 @@ expression: snapshot_data
 {
   "Clear": {
     "Bridge(Horizontal)": [
-      428,
+      26,
       1
     ],
     "Bridge(Vertical)": [
-      434,
+      27,
       1
     ],
     "MissileSilo(Loaded)": [
-      272,
+      193,
       1
     ],
     "MissileSilo(Unloaded)": [
-      273,
+      194,
       1
     ],
     "Mountain": [
@@ -25,711 +25,739 @@ expression: snapshot_data
       1
     ],
     "Pipe(ES)": [
-      347,
+      186,
       1
     ],
     "Pipe(EastEnd)": [
-      346,
+      190,
       1
     ],
     "Pipe(Horizontal)": [
-      348,
+      184,
       1
     ],
     "Pipe(NE)": [
-      349,
+      185,
       1
     ],
     "Pipe(NorthEnd)": [
-      350,
+      189,
       1
     ],
     "Pipe(SW)": [
-      352,
+      187,
       1
     ],
     "Pipe(SouthEnd)": [
-      351,
+      191,
       1
     ],
     "Pipe(Vertical)": [
-      353,
+      183,
       1
     ],
     "Pipe(WN)": [
-      355,
+      188,
       1
     ],
     "Pipe(WestEnd)": [
-      354,
+      192,
       1
     ],
     "PipeRubble(Horizontal)": [
-      268,
+      197,
       1
     ],
     "PipeRubble(Vertical)": [
-      274,
+      198,
       1
     ],
     "PipeSeam(Horizontal)": [
-      269,
+      195,
       1
     ],
     "PipeSeam(Vertical)": [
-      275,
+      196,
       1
     ],
     "Plain": [
-      3,
+      1,
       1
     ],
     "Property(Airport(Neutral))": [
-      264,
+      36,
       1
     ],
     "Property(Airport(Player(AcidRain)))": [
-      7,
+      408,
       3
     ],
     "Property(Airport(Player(AmberBlaze)))": [
-      31,
+      199,
       3
     ],
     "Property(Airport(Player(AzureAsteroid)))": [
-      55,
+      449,
       3
     ],
     "Property(Airport(Player(BlackHole)))": [
-      79,
-      3
-    ],
-    "Property(Airport(Player(BlueMoon)))": [
-      103,
-      3
-    ],
-    "Property(Airport(Player(BrownDesert)))": [
-      127,
-      3
-    ],
-    "Property(Airport(Player(CobaltIce)))": [
-      149,
-      3
-    ],
-    "Property(Airport(Player(GreenEarth)))": [
-      192,
-      3
-    ],
-    "Property(Airport(Player(GreySky)))": [
-      216,
-      3
-    ],
-    "Property(Airport(Player(JadeSun)))": [
-      240,
-      3
-    ],
-    "Property(Airport(Player(NoirEclipse)))": [
-      276,
-      3
-    ],
-    "Property(Airport(Player(OrangeStar)))": [
-      300,
-      3
-    ],
-    "Property(Airport(Player(PinkCosmos)))": [
-      324,
-      3
-    ],
-    "Property(Airport(Player(PurpleLightning)))": [
-      356,
-      3
-    ],
-    "Property(Airport(Player(RedFire)))": [
-      380,
-      3
-    ],
-    "Property(Airport(Player(SilverClaw)))": [
-      567,
-      3
-    ],
-    "Property(Airport(Player(TealGalaxy)))": [
-      593,
-      3
-    ],
-    "Property(Airport(Player(WhiteNova)))": [
-      617,
-      2
-    ],
-    "Property(Airport(Player(YellowComet)))": [
-      633,
-      2
-    ],
-    "Property(Base(Neutral))": [
-      265,
-      1
-    ],
-    "Property(Base(Player(AcidRain)))": [
-      10,
-      6
-    ],
-    "Property(Base(Player(AmberBlaze)))": [
-      34,
-      6
-    ],
-    "Property(Base(Player(AzureAsteroid)))": [
-      58,
-      6
-    ],
-    "Property(Base(Player(BlackHole)))": [
-      82,
-      6
-    ],
-    "Property(Base(Player(BlueMoon)))": [
-      106,
-      6
-    ],
-    "Property(Base(Player(BrownDesert)))": [
-      130,
-      4
-    ],
-    "Property(Base(Player(CobaltIce)))": [
-      152,
-      6
-    ],
-    "Property(Base(Player(GreenEarth)))": [
-      195,
-      6
-    ],
-    "Property(Base(Player(GreySky)))": [
-      219,
-      6
-    ],
-    "Property(Base(Player(JadeSun)))": [
-      243,
-      6
-    ],
-    "Property(Base(Player(NoirEclipse)))": [
-      279,
-      6
-    ],
-    "Property(Base(Player(OrangeStar)))": [
-      303,
-      6
-    ],
-    "Property(Base(Player(PinkCosmos)))": [
-      327,
-      4
-    ],
-    "Property(Base(Player(PurpleLightning)))": [
-      359,
-      6
-    ],
-    "Property(Base(Player(RedFire)))": [
-      383,
-      6
-    ],
-    "Property(Base(Player(SilverClaw)))": [
-      570,
-      6
-    ],
-    "Property(Base(Player(TealGalaxy)))": [
-      596,
-      6
-    ],
-    "Property(Base(Player(WhiteNova)))": [
-      619,
-      4
-    ],
-    "Property(Base(Player(YellowComet)))": [
-      635,
-      4
-    ],
-    "Property(City(Neutral))": [
-      266,
-      1
-    ],
-    "Property(City(Player(AcidRain)))": [
-      16,
-      3
-    ],
-    "Property(City(Player(AmberBlaze)))": [
-      40,
-      3
-    ],
-    "Property(City(Player(AzureAsteroid)))": [
-      64,
-      3
-    ],
-    "Property(City(Player(BlackHole)))": [
-      88,
-      3
-    ],
-    "Property(City(Player(BlueMoon)))": [
-      112,
-      3
-    ],
-    "Property(City(Player(BrownDesert)))": [
-      134,
-      3
-    ],
-    "Property(City(Player(CobaltIce)))": [
       158,
       3
     ],
-    "Property(City(Player(GreenEarth)))": [
-      201,
+    "Property(Airport(Player(BlueMoon)))": [
+      65,
       3
     ],
-    "Property(City(Player(GreySky)))": [
-      225,
+    "Property(Airport(Player(BrownDesert)))": [
+      174,
       3
     ],
-    "Property(City(Player(JadeSun)))": [
-      249,
+    "Property(Airport(Player(CobaltIce)))": [
+      295,
       3
     ],
-    "Property(City(Player(NoirEclipse)))": [
-      285,
+    "Property(Airport(Player(GreenEarth)))": [
+      83,
       3
     ],
-    "Property(City(Player(OrangeStar)))": [
-      309,
-      3
-    ],
-    "Property(City(Player(PinkCosmos)))": [
-      331,
-      3
-    ],
-    "Property(City(Player(PurpleLightning)))": [
-      365,
-      3
-    ],
-    "Property(City(Player(RedFire)))": [
-      389,
-      3
-    ],
-    "Property(City(Player(SilverClaw)))": [
-      576,
-      3
-    ],
-    "Property(City(Player(TealGalaxy)))": [
-      602,
-      3
-    ],
-    "Property(City(Player(WhiteNova)))": [
-      623,
-      2
-    ],
-    "Property(City(Player(YellowComet)))": [
-      639,
-      2
-    ],
-    "Property(ComTower(Neutral))": [
-      267,
-      1
-    ],
-    "Property(ComTower(Player(AcidRain)))": [
-      19,
-      3
-    ],
-    "Property(ComTower(Player(AmberBlaze)))": [
-      43,
-      3
-    ],
-    "Property(ComTower(Player(AzureAsteroid)))": [
-      67,
-      3
-    ],
-    "Property(ComTower(Player(BlackHole)))": [
-      91,
-      3
-    ],
-    "Property(ComTower(Player(BlueMoon)))": [
-      115,
-      3
-    ],
-    "Property(ComTower(Player(BrownDesert)))": [
-      137,
-      3
-    ],
-    "Property(ComTower(Player(CobaltIce)))": [
-      161,
-      3
-    ],
-    "Property(ComTower(Player(GreenEarth)))": [
-      204,
-      3
-    ],
-    "Property(ComTower(Player(GreySky)))": [
-      228,
-      3
-    ],
-    "Property(ComTower(Player(JadeSun)))": [
-      252,
-      3
-    ],
-    "Property(ComTower(Player(NoirEclipse)))": [
-      288,
-      3
-    ],
-    "Property(ComTower(Player(OrangeStar)))": [
-      312,
-      3
-    ],
-    "Property(ComTower(Player(PinkCosmos)))": [
-      334,
-      3
-    ],
-    "Property(ComTower(Player(PurpleLightning)))": [
-      368,
-      3
-    ],
-    "Property(ComTower(Player(RedFire)))": [
-      392,
-      3
-    ],
-    "Property(ComTower(Player(SilverClaw)))": [
-      579,
-      3
-    ],
-    "Property(ComTower(Player(TealGalaxy)))": [
-      605,
-      3
-    ],
-    "Property(ComTower(Player(WhiteNova)))": [
-      625,
-      2
-    ],
-    "Property(ComTower(Player(YellowComet)))": [
-      641,
-      2
-    ],
-    "Property(HQ(AcidRain))": [
-      22,
-      3
-    ],
-    "Property(HQ(AmberBlaze))": [
-      46,
-      3
-    ],
-    "Property(HQ(AzureAsteroid))": [
-      70,
-      3
-    ],
-    "Property(HQ(BlackHole))": [
-      94,
-      3
-    ],
-    "Property(HQ(BlueMoon))": [
-      118,
-      3
-    ],
-    "Property(HQ(BrownDesert))": [
+    "Property(Airport(Player(GreySky)))": [
       140,
       3
     ],
-    "Property(HQ(CobaltIce))": [
+    "Property(Airport(Player(JadeSun)))": [
+      217,
+      3
+    ],
+    "Property(Airport(Player(NoirEclipse)))": [
+      473,
+      3
+    ],
+    "Property(Airport(Player(OrangeStar)))": [
+      47,
+      3
+    ],
+    "Property(Airport(Player(PinkCosmos)))": [
+      338,
+      3
+    ],
+    "Property(Airport(Player(PurpleLightning)))": [
+      384,
+      3
+    ],
+    "Property(Airport(Player(RedFire)))": [
+      113,
+      3
+    ],
+    "Property(Airport(Player(SilverClaw)))": [
+      497,
+      3
+    ],
+    "Property(Airport(Player(TealGalaxy)))": [
+      360,
+      3
+    ],
+    "Property(Airport(Player(UmberWilds)))": [
+      523,
+      3
+    ],
+    "Property(Airport(Player(WhiteNova)))": [
+      432,
+      2
+    ],
+    "Property(Airport(Player(YellowComet)))": [
+      98,
+      2
+    ],
+    "Property(Base(Neutral))": [
+      35,
+      1
+    ],
+    "Property(Base(Player(AcidRain)))": [
+      411,
+      6
+    ],
+    "Property(Base(Player(AmberBlaze)))": [
+      202,
+      6
+    ],
+    "Property(Base(Player(AzureAsteroid)))": [
+      452,
+      6
+    ],
+    "Property(Base(Player(BlackHole)))": [
+      152,
+      6
+    ],
+    "Property(Base(Player(BlueMoon)))": [
+      59,
+      6
+    ],
+    "Property(Base(Player(BrownDesert)))": [
+      170,
+      4
+    ],
+    "Property(Base(Player(CobaltIce)))": [
+      298,
+      6
+    ],
+    "Property(Base(Player(GreenEarth)))": [
+      77,
+      6
+    ],
+    "Property(Base(Player(GreySky)))": [
+      134,
+      6
+    ],
+    "Property(Base(Player(JadeSun)))": [
+      220,
+      6
+    ],
+    "Property(Base(Player(NoirEclipse)))": [
+      476,
+      6
+    ],
+    "Property(Base(Player(OrangeStar)))": [
+      41,
+      6
+    ],
+    "Property(Base(Player(PinkCosmos)))": [
+      341,
+      4
+    ],
+    "Property(Base(Player(PurpleLightning)))": [
+      387,
+      6
+    ],
+    "Property(Base(Player(RedFire)))": [
+      107,
+      6
+    ],
+    "Property(Base(Player(SilverClaw)))": [
+      500,
+      6
+    ],
+    "Property(Base(Player(TealGalaxy)))": [
+      363,
+      6
+    ],
+    "Property(Base(Player(UmberWilds)))": [
+      526,
+      6
+    ],
+    "Property(Base(Player(WhiteNova)))": [
+      434,
+      4
+    ],
+    "Property(Base(Player(YellowComet)))": [
+      94,
+      4
+    ],
+    "Property(City(Neutral))": [
+      34,
+      1
+    ],
+    "Property(City(Player(AcidRain)))": [
+      417,
+      3
+    ],
+    "Property(City(Player(AmberBlaze)))": [
+      208,
+      3
+    ],
+    "Property(City(Player(AzureAsteroid)))": [
+      458,
+      3
+    ],
+    "Property(City(Player(BlackHole)))": [
+      149,
+      3
+    ],
+    "Property(City(Player(BlueMoon)))": [
+      56,
+      3
+    ],
+    "Property(City(Player(BrownDesert)))": [
+      167,
+      3
+    ],
+    "Property(City(Player(CobaltIce)))": [
+      304,
+      3
+    ],
+    "Property(City(Player(GreenEarth)))": [
+      74,
+      3
+    ],
+    "Property(City(Player(GreySky)))": [
+      131,
+      3
+    ],
+    "Property(City(Player(JadeSun)))": [
+      226,
+      3
+    ],
+    "Property(City(Player(NoirEclipse)))": [
+      482,
+      3
+    ],
+    "Property(City(Player(OrangeStar)))": [
+      38,
+      3
+    ],
+    "Property(City(Player(PinkCosmos)))": [
+      345,
+      3
+    ],
+    "Property(City(Player(PurpleLightning)))": [
+      393,
+      3
+    ],
+    "Property(City(Player(RedFire)))": [
+      104,
+      3
+    ],
+    "Property(City(Player(SilverClaw)))": [
+      506,
+      3
+    ],
+    "Property(City(Player(TealGalaxy)))": [
+      369,
+      3
+    ],
+    "Property(City(Player(UmberWilds)))": [
+      532,
+      3
+    ],
+    "Property(City(Player(WhiteNova)))": [
+      438,
+      2
+    ],
+    "Property(City(Player(YellowComet)))": [
+      92,
+      2
+    ],
+    "Property(ComTower(Neutral))": [
+      253,
+      1
+    ],
+    "Property(ComTower(Player(AcidRain)))": [
+      420,
+      3
+    ],
+    "Property(ComTower(Player(AmberBlaze)))": [
+      235,
+      3
+    ],
+    "Property(ComTower(Player(AzureAsteroid)))": [
+      461,
+      3
+    ],
+    "Property(ComTower(Player(BlackHole)))": [
+      238,
+      3
+    ],
+    "Property(ComTower(Player(BlueMoon)))": [
+      241,
+      3
+    ],
+    "Property(ComTower(Player(BrownDesert)))": [
+      244,
+      3
+    ],
+    "Property(ComTower(Player(CobaltIce)))": [
+      307,
+      3
+    ],
+    "Property(ComTower(Player(GreenEarth)))": [
+      247,
+      3
+    ],
+    "Property(ComTower(Player(GreySky)))": [
+      262,
+      3
+    ],
+    "Property(ComTower(Player(JadeSun)))": [
+      250,
+      3
+    ],
+    "Property(ComTower(Player(NoirEclipse)))": [
+      485,
+      3
+    ],
+    "Property(ComTower(Player(OrangeStar)))": [
+      254,
+      3
+    ],
+    "Property(ComTower(Player(PinkCosmos)))": [
+      348,
+      3
+    ],
+    "Property(ComTower(Player(PurpleLightning)))": [
+      396,
+      3
+    ],
+    "Property(ComTower(Player(RedFire)))": [
+      257,
+      3
+    ],
+    "Property(ComTower(Player(SilverClaw)))": [
+      509,
+      3
+    ],
+    "Property(ComTower(Player(TealGalaxy)))": [
+      372,
+      3
+    ],
+    "Property(ComTower(Player(UmberWilds)))": [
+      535,
+      3
+    ],
+    "Property(ComTower(Player(WhiteNova)))": [
+      440,
+      2
+    ],
+    "Property(ComTower(Player(YellowComet)))": [
+      260,
+      2
+    ],
+    "Property(HQ(AcidRain))": [
+      423,
+      3
+    ],
+    "Property(HQ(AmberBlaze))": [
+      211,
+      3
+    ],
+    "Property(HQ(AzureAsteroid))": [
+      464,
+      3
+    ],
+    "Property(HQ(BlackHole))": [
       164,
+      3
+    ],
+    "Property(HQ(BlueMoon))": [
+      71,
+      3
+    ],
+    "Property(HQ(BrownDesert))": [
+      180,
+      3
+    ],
+    "Property(HQ(CobaltIce))": [
+      310,
       22
     ],
     "Property(HQ(GreenEarth))": [
-      207,
+      89,
       3
     ],
     "Property(HQ(GreySky))": [
-      231,
-      3
-    ],
-    "Property(HQ(JadeSun))": [
-      255,
-      3
-    ],
-    "Property(HQ(NoirEclipse))": [
-      291,
-      3
-    ],
-    "Property(HQ(OrangeStar))": [
-      315,
-      3
-    ],
-    "Property(HQ(PinkCosmos))": [
-      337,
-      3
-    ],
-    "Property(HQ(PurpleLightning))": [
-      371,
-      3
-    ],
-    "Property(HQ(RedFire))": [
-      395,
-      12
-    ],
-    "Property(HQ(SilverClaw))": [
-      582,
-      5
-    ],
-    "Property(HQ(TealGalaxy))": [
-      608,
-      3
-    ],
-    "Property(HQ(WhiteNova))": [
-      627,
-      2
-    ],
-    "Property(HQ(YellowComet))": [
-      643,
-      2
-    ],
-    "Property(Lab(Neutral))": [
-      270,
-      1
-    ],
-    "Property(Lab(Player(AcidRain)))": [
-      25,
-      3
-    ],
-    "Property(Lab(Player(AmberBlaze)))": [
-      49,
-      3
-    ],
-    "Property(Lab(Player(AzureAsteroid)))": [
-      73,
-      3
-    ],
-    "Property(Lab(Player(BlackHole)))": [
-      97,
-      3
-    ],
-    "Property(Lab(Player(BlueMoon)))": [
-      121,
-      3
-    ],
-    "Property(Lab(Player(BrownDesert)))": [
-      143,
-      3
-    ],
-    "Property(Lab(Player(CobaltIce)))": [
-      186,
-      3
-    ],
-    "Property(Lab(Player(GreenEarth)))": [
-      210,
-      3
-    ],
-    "Property(Lab(Player(GreySky)))": [
-      234,
-      3
-    ],
-    "Property(Lab(Player(JadeSun)))": [
-      258,
-      3
-    ],
-    "Property(Lab(Player(NoirEclipse)))": [
-      294,
-      3
-    ],
-    "Property(Lab(Player(OrangeStar)))": [
-      318,
-      3
-    ],
-    "Property(Lab(Player(PinkCosmos)))": [
-      340,
-      3
-    ],
-    "Property(Lab(Player(PurpleLightning)))": [
-      374,
-      3
-    ],
-    "Property(Lab(Player(RedFire)))": [
-      407,
-      3
-    ],
-    "Property(Lab(Player(SilverClaw)))": [
-      587,
-      3
-    ],
-    "Property(Lab(Player(TealGalaxy)))": [
-      611,
-      3
-    ],
-    "Property(Lab(Player(WhiteNova)))": [
-      629,
-      2
-    ],
-    "Property(Lab(Player(YellowComet)))": [
-      645,
-      2
-    ],
-    "Property(Port(Neutral))": [
-      271,
-      1
-    ],
-    "Property(Port(Player(AcidRain)))": [
-      28,
-      3
-    ],
-    "Property(Port(Player(AmberBlaze)))": [
-      52,
-      3
-    ],
-    "Property(Port(Player(AzureAsteroid)))": [
-      76,
-      3
-    ],
-    "Property(Port(Player(BlackHole)))": [
-      100,
-      3
-    ],
-    "Property(Port(Player(BlueMoon)))": [
-      124,
-      3
-    ],
-    "Property(Port(Player(BrownDesert)))": [
       146,
       3
     ],
+    "Property(HQ(JadeSun))": [
+      229,
+      3
+    ],
+    "Property(HQ(NoirEclipse))": [
+      488,
+      3
+    ],
+    "Property(HQ(OrangeStar))": [
+      53,
+      3
+    ],
+    "Property(HQ(PinkCosmos))": [
+      351,
+      3
+    ],
+    "Property(HQ(PurpleLightning))": [
+      399,
+      3
+    ],
+    "Property(HQ(RedFire))": [
+      119,
+      12
+    ],
+    "Property(HQ(SilverClaw))": [
+      512,
+      5
+    ],
+    "Property(HQ(TealGalaxy))": [
+      375,
+      3
+    ],
+    "Property(HQ(UmberWilds))": [
+      538,
+      7
+    ],
+    "Property(HQ(WhiteNova))": [
+      442,
+      2
+    ],
+    "Property(HQ(YellowComet))": [
+      102,
+      2
+    ],
+    "Property(Lab(Neutral))": [
+      286,
+      1
+    ],
+    "Property(Lab(Player(AcidRain)))": [
+      426,
+      3
+    ],
+    "Property(Lab(Player(AmberBlaze)))": [
+      265,
+      3
+    ],
+    "Property(Lab(Player(AzureAsteroid)))": [
+      467,
+      3
+    ],
+    "Property(Lab(Player(BlackHole)))": [
+      268,
+      3
+    ],
+    "Property(Lab(Player(BlueMoon)))": [
+      271,
+      3
+    ],
+    "Property(Lab(Player(BrownDesert)))": [
+      274,
+      3
+    ],
+    "Property(Lab(Player(CobaltIce)))": [
+      332,
+      3
+    ],
+    "Property(Lab(Player(GreenEarth)))": [
+      277,
+      3
+    ],
+    "Property(Lab(Player(GreySky)))": [
+      280,
+      3
+    ],
+    "Property(Lab(Player(JadeSun)))": [
+      283,
+      3
+    ],
+    "Property(Lab(Player(NoirEclipse)))": [
+      491,
+      3
+    ],
+    "Property(Lab(Player(OrangeStar)))": [
+      287,
+      3
+    ],
+    "Property(Lab(Player(PinkCosmos)))": [
+      354,
+      3
+    ],
+    "Property(Lab(Player(PurpleLightning)))": [
+      402,
+      3
+    ],
+    "Property(Lab(Player(RedFire)))": [
+      290,
+      3
+    ],
+    "Property(Lab(Player(SilverClaw)))": [
+      517,
+      3
+    ],
+    "Property(Lab(Player(TealGalaxy)))": [
+      378,
+      3
+    ],
+    "Property(Lab(Player(UmberWilds)))": [
+      545,
+      3
+    ],
+    "Property(Lab(Player(WhiteNova)))": [
+      444,
+      2
+    ],
+    "Property(Lab(Player(YellowComet)))": [
+      293,
+      2
+    ],
+    "Property(Port(Neutral))": [
+      37,
+      1
+    ],
+    "Property(Port(Player(AcidRain)))": [
+      429,
+      3
+    ],
+    "Property(Port(Player(AmberBlaze)))": [
+      214,
+      3
+    ],
+    "Property(Port(Player(AzureAsteroid)))": [
+      470,
+      3
+    ],
+    "Property(Port(Player(BlackHole)))": [
+      161,
+      3
+    ],
+    "Property(Port(Player(BlueMoon)))": [
+      68,
+      3
+    ],
+    "Property(Port(Player(BrownDesert)))": [
+      177,
+      3
+    ],
     "Property(Port(Player(CobaltIce)))": [
-      189,
+      335,
       3
     ],
     "Property(Port(Player(GreenEarth)))": [
-      213,
+      86,
       3
     ],
     "Property(Port(Player(GreySky)))": [
-      237,
+      143,
       3
     ],
     "Property(Port(Player(JadeSun)))": [
-      261,
+      232,
       3
     ],
     "Property(Port(Player(NoirEclipse)))": [
-      297,
+      494,
       3
     ],
     "Property(Port(Player(OrangeStar)))": [
-      321,
+      50,
       3
     ],
     "Property(Port(Player(PinkCosmos)))": [
-      343,
+      357,
       3
     ],
     "Property(Port(Player(PurpleLightning)))": [
-      377,
+      405,
       3
     ],
     "Property(Port(Player(RedFire)))": [
-      410,
+      116,
       3
     ],
     "Property(Port(Player(SilverClaw)))": [
-      590,
+      520,
       3
     ],
     "Property(Port(Player(TealGalaxy)))": [
-      614,
+      381,
+      3
+    ],
+    "Property(Port(Player(UmberWilds)))": [
+      548,
       3
     ],
     "Property(Port(Player(WhiteNova)))": [
-      631,
+      446,
       2
     ],
     "Property(Port(Player(YellowComet)))": [
-      647,
+      100,
       2
     ],
     "Reef": [
-      4,
+      33,
       1
     ],
     "River(Cross)": [
-      413,
+      6,
       1
     ],
     "River(ES)": [
-      414,
+      7,
       1
     ],
     "River(ESW)": [
-      415,
+      11,
       1
     ],
     "River(Horizontal)": [
-      416,
+      4,
       1
     ],
     "River(NE)": [
-      417,
+      10,
       1
     ],
     "River(NES)": [
-      418,
+      14,
       1
     ],
     "River(SW)": [
-      419,
+      8,
       1
     ],
     "River(SWN)": [
-      420,
+      12,
       1
     ],
     "River(Vertical)": [
-      421,
+      5,
       1
     ],
     "River(WN)": [
-      422,
+      9,
       1
     ],
     "River(WNE)": [
-      423,
+      13,
       1
     ],
     "Road(Cross)": [
-      424,
+      17,
       1
     ],
     "Road(ES)": [
-      425,
+      18,
       1
     ],
     "Road(ESW)": [
-      426,
+      22,
       1
     ],
     "Road(Horizontal)": [
-      427,
+      15,
       1
     ],
     "Road(NE)": [
-      429,
+      21,
       1
     ],
     "Road(NES)": [
-      430,
+      25,
       1
     ],
     "Road(SW)": [
-      431,
+      19,
       1
     ],
     "Road(SWN)": [
-      432,
+      23,
       1
     ],
     "Road(Vertical)": [
-      433,
+      16,
       1
     ],
     "Road(WN)": [
-      435,
+      20,
       1
     ],
     "Road(WNE)": [
-      436,
+      24,
       1
     ],
     "StubbyMoutain": [
@@ -737,741 +765,769 @@ expression: snapshot_data
       1
     ],
     "Teleporter": [
-      5,
+      448,
       1
     ],
     "Wood": [
-      6,
+      3,
       1
     ]
   },
   "Rain": {
     "Bridge(Horizontal)": [
-      1589,
+      1376,
       1
     ],
     "Bridge(Vertical)": [
-      1595,
+      1377,
       1
     ],
     "MissileSilo(Loaded)": [
-      1433,
+      1543,
       1
     ],
     "MissileSilo(Unloaded)": [
-      1434,
+      1544,
       1
     ],
     "Mountain": [
-      1165,
+      1352,
       1
     ],
     "Pipe(ES)": [
-      1508,
+      1536,
       1
     ],
     "Pipe(EastEnd)": [
-      1507,
+      1540,
       1
     ],
     "Pipe(Horizontal)": [
-      1509,
+      1534,
       1
     ],
     "Pipe(NE)": [
-      1510,
+      1535,
       1
     ],
     "Pipe(NorthEnd)": [
-      1511,
+      1539,
       1
     ],
     "Pipe(SW)": [
-      1513,
+      1537,
       1
     ],
     "Pipe(SouthEnd)": [
-      1512,
+      1541,
       1
     ],
     "Pipe(Vertical)": [
-      1514,
+      1533,
       1
     ],
     "Pipe(WN)": [
-      1516,
+      1538,
       1
     ],
     "Pipe(WestEnd)": [
-      1515,
+      1542,
       1
     ],
     "PipeRubble(Horizontal)": [
-      1429,
+      1547,
       1
     ],
     "PipeRubble(Vertical)": [
-      1435,
+      1548,
       1
     ],
     "PipeSeam(Horizontal)": [
-      1430,
+      1545,
       1
     ],
     "PipeSeam(Vertical)": [
-      1436,
+      1546,
       1
     ],
     "Plain": [
-      1166,
+      1351,
       1
     ],
     "Property(Airport(Neutral))": [
-      1425,
+      1386,
       1
     ],
     "Property(Airport(Player(AcidRain)))": [
-      1168,
+      1758,
       3
     ],
     "Property(Airport(Player(AmberBlaze)))": [
-      1192,
+      1549,
       3
     ],
     "Property(Airport(Player(AzureAsteroid)))": [
-      1216,
+      1798,
       3
     ],
     "Property(Airport(Player(BlackHole)))": [
-      1240,
+      1508,
       3
     ],
     "Property(Airport(Player(BlueMoon)))": [
-      1264,
+      1415,
       3
     ],
     "Property(Airport(Player(BrownDesert)))": [
-      1288,
+      1524,
       3
     ],
     "Property(Airport(Player(CobaltIce)))": [
-      1310,
-      3
-    ],
-    "Property(Airport(Player(GreenEarth)))": [
-      1353,
-      3
-    ],
-    "Property(Airport(Player(GreySky)))": [
-      1377,
-      3
-    ],
-    "Property(Airport(Player(JadeSun)))": [
-      1401,
-      3
-    ],
-    "Property(Airport(Player(NoirEclipse)))": [
-      1437,
-      3
-    ],
-    "Property(Airport(Player(OrangeStar)))": [
-      1461,
-      3
-    ],
-    "Property(Airport(Player(PinkCosmos)))": [
-      1485,
-      3
-    ],
-    "Property(Airport(Player(PurpleLightning)))": [
-      1517,
-      3
-    ],
-    "Property(Airport(Player(RedFire)))": [
-      1541,
-      3
-    ],
-    "Property(Airport(Player(SilverClaw)))": [
-      1598,
-      3
-    ],
-    "Property(Airport(Player(TealGalaxy)))": [
-      1624,
-      3
-    ],
-    "Property(Airport(Player(WhiteNova)))": [
-      1648,
-      2
-    ],
-    "Property(Airport(Player(YellowComet)))": [
-      1664,
-      2
-    ],
-    "Property(Base(Neutral))": [
-      1426,
-      1
-    ],
-    "Property(Base(Player(AcidRain)))": [
-      1171,
-      6
-    ],
-    "Property(Base(Player(AmberBlaze)))": [
-      1195,
-      6
-    ],
-    "Property(Base(Player(AzureAsteroid)))": [
-      1219,
-      6
-    ],
-    "Property(Base(Player(BlackHole)))": [
-      1243,
-      6
-    ],
-    "Property(Base(Player(BlueMoon)))": [
-      1267,
-      6
-    ],
-    "Property(Base(Player(BrownDesert)))": [
-      1291,
-      4
-    ],
-    "Property(Base(Player(CobaltIce)))": [
-      1313,
-      6
-    ],
-    "Property(Base(Player(GreenEarth)))": [
-      1356,
-      6
-    ],
-    "Property(Base(Player(GreySky)))": [
-      1380,
-      6
-    ],
-    "Property(Base(Player(JadeSun)))": [
-      1404,
-      6
-    ],
-    "Property(Base(Player(NoirEclipse)))": [
-      1440,
-      6
-    ],
-    "Property(Base(Player(OrangeStar)))": [
-      1464,
-      6
-    ],
-    "Property(Base(Player(PinkCosmos)))": [
-      1488,
-      4
-    ],
-    "Property(Base(Player(PurpleLightning)))": [
-      1520,
-      6
-    ],
-    "Property(Base(Player(RedFire)))": [
-      1544,
-      6
-    ],
-    "Property(Base(Player(SilverClaw)))": [
-      1601,
-      6
-    ],
-    "Property(Base(Player(TealGalaxy)))": [
-      1627,
-      6
-    ],
-    "Property(Base(Player(WhiteNova)))": [
-      1650,
-      4
-    ],
-    "Property(Base(Player(YellowComet)))": [
-      1666,
-      4
-    ],
-    "Property(City(Neutral))": [
-      1427,
-      1
-    ],
-    "Property(City(Player(AcidRain)))": [
-      1177,
-      3
-    ],
-    "Property(City(Player(AmberBlaze)))": [
-      1201,
-      3
-    ],
-    "Property(City(Player(AzureAsteroid)))": [
-      1225,
-      3
-    ],
-    "Property(City(Player(BlackHole)))": [
-      1249,
-      3
-    ],
-    "Property(City(Player(BlueMoon)))": [
-      1273,
-      3
-    ],
-    "Property(City(Player(BrownDesert)))": [
-      1295,
-      3
-    ],
-    "Property(City(Player(CobaltIce)))": [
-      1319,
-      3
-    ],
-    "Property(City(Player(GreenEarth)))": [
-      1362,
-      3
-    ],
-    "Property(City(Player(GreySky)))": [
-      1386,
-      3
-    ],
-    "Property(City(Player(JadeSun)))": [
-      1410,
-      3
-    ],
-    "Property(City(Player(NoirEclipse)))": [
-      1446,
-      3
-    ],
-    "Property(City(Player(OrangeStar)))": [
-      1470,
-      3
-    ],
-    "Property(City(Player(PinkCosmos)))": [
-      1492,
-      3
-    ],
-    "Property(City(Player(PurpleLightning)))": [
-      1526,
-      3
-    ],
-    "Property(City(Player(RedFire)))": [
-      1550,
-      3
-    ],
-    "Property(City(Player(SilverClaw)))": [
-      1607,
-      3
-    ],
-    "Property(City(Player(TealGalaxy)))": [
-      1633,
-      3
-    ],
-    "Property(City(Player(WhiteNova)))": [
-      1654,
-      2
-    ],
-    "Property(City(Player(YellowComet)))": [
-      1670,
-      2
-    ],
-    "Property(ComTower(Neutral))": [
-      1428,
-      1
-    ],
-    "Property(ComTower(Player(AcidRain)))": [
-      1180,
-      3
-    ],
-    "Property(ComTower(Player(AmberBlaze)))": [
-      1204,
-      3
-    ],
-    "Property(ComTower(Player(AzureAsteroid)))": [
-      1228,
-      3
-    ],
-    "Property(ComTower(Player(BlackHole)))": [
-      1252,
-      3
-    ],
-    "Property(ComTower(Player(BlueMoon)))": [
-      1276,
-      3
-    ],
-    "Property(ComTower(Player(BrownDesert)))": [
-      1298,
-      3
-    ],
-    "Property(ComTower(Player(CobaltIce)))": [
-      1322,
-      3
-    ],
-    "Property(ComTower(Player(GreenEarth)))": [
-      1365,
-      3
-    ],
-    "Property(ComTower(Player(GreySky)))": [
-      1389,
-      3
-    ],
-    "Property(ComTower(Player(JadeSun)))": [
-      1413,
-      3
-    ],
-    "Property(ComTower(Player(NoirEclipse)))": [
-      1449,
-      3
-    ],
-    "Property(ComTower(Player(OrangeStar)))": [
-      1473,
-      3
-    ],
-    "Property(ComTower(Player(PinkCosmos)))": [
-      1495,
-      3
-    ],
-    "Property(ComTower(Player(PurpleLightning)))": [
-      1529,
-      3
-    ],
-    "Property(ComTower(Player(RedFire)))": [
-      1553,
-      3
-    ],
-    "Property(ComTower(Player(SilverClaw)))": [
-      1610,
-      3
-    ],
-    "Property(ComTower(Player(TealGalaxy)))": [
-      1636,
-      3
-    ],
-    "Property(ComTower(Player(WhiteNova)))": [
-      1656,
-      2
-    ],
-    "Property(ComTower(Player(YellowComet)))": [
-      1672,
-      2
-    ],
-    "Property(HQ(AcidRain))": [
-      1183,
-      3
-    ],
-    "Property(HQ(AmberBlaze))": [
-      1207,
-      3
-    ],
-    "Property(HQ(AzureAsteroid))": [
-      1231,
-      3
-    ],
-    "Property(HQ(BlackHole))": [
-      1255,
-      3
-    ],
-    "Property(HQ(BlueMoon))": [
-      1279,
-      3
-    ],
-    "Property(HQ(BrownDesert))": [
-      1301,
-      3
-    ],
-    "Property(HQ(CobaltIce))": [
-      1325,
-      22
-    ],
-    "Property(HQ(GreenEarth))": [
-      1368,
-      3
-    ],
-    "Property(HQ(GreySky))": [
-      1392,
-      3
-    ],
-    "Property(HQ(JadeSun))": [
-      1416,
-      3
-    ],
-    "Property(HQ(NoirEclipse))": [
-      1452,
-      3
-    ],
-    "Property(HQ(OrangeStar))": [
-      1476,
-      3
-    ],
-    "Property(HQ(PinkCosmos))": [
-      1498,
-      3
-    ],
-    "Property(HQ(PurpleLightning))": [
-      1532,
-      3
-    ],
-    "Property(HQ(RedFire))": [
-      1556,
-      12
-    ],
-    "Property(HQ(SilverClaw))": [
-      1613,
-      5
-    ],
-    "Property(HQ(TealGalaxy))": [
-      1639,
-      3
-    ],
-    "Property(HQ(WhiteNova))": [
-      1658,
-      2
-    ],
-    "Property(HQ(YellowComet))": [
-      1674,
-      2
-    ],
-    "Property(Lab(Neutral))": [
-      1431,
-      1
-    ],
-    "Property(Lab(Player(AcidRain)))": [
-      1186,
-      3
-    ],
-    "Property(Lab(Player(AmberBlaze)))": [
-      1210,
-      3
-    ],
-    "Property(Lab(Player(AzureAsteroid)))": [
-      1234,
-      3
-    ],
-    "Property(Lab(Player(BlackHole)))": [
-      1258,
-      3
-    ],
-    "Property(Lab(Player(BlueMoon)))": [
-      1282,
-      3
-    ],
-    "Property(Lab(Player(BrownDesert)))": [
-      1304,
-      3
-    ],
-    "Property(Lab(Player(CobaltIce)))": [
-      1347,
-      3
-    ],
-    "Property(Lab(Player(GreenEarth)))": [
-      1371,
-      3
-    ],
-    "Property(Lab(Player(GreySky)))": [
-      1395,
-      3
-    ],
-    "Property(Lab(Player(JadeSun)))": [
-      1419,
-      3
-    ],
-    "Property(Lab(Player(NoirEclipse)))": [
-      1455,
-      3
-    ],
-    "Property(Lab(Player(OrangeStar)))": [
-      1479,
-      3
-    ],
-    "Property(Lab(Player(PinkCosmos)))": [
-      1501,
-      3
-    ],
-    "Property(Lab(Player(PurpleLightning)))": [
-      1535,
-      3
-    ],
-    "Property(Lab(Player(RedFire)))": [
-      1568,
-      3
-    ],
-    "Property(Lab(Player(SilverClaw)))": [
-      1618,
-      3
-    ],
-    "Property(Lab(Player(TealGalaxy)))": [
-      1642,
-      3
-    ],
-    "Property(Lab(Player(WhiteNova)))": [
-      1660,
-      2
-    ],
-    "Property(Lab(Player(YellowComet)))": [
-      1676,
-      2
-    ],
-    "Property(Port(Neutral))": [
-      1432,
-      1
-    ],
-    "Property(Port(Player(AcidRain)))": [
-      1189,
-      3
-    ],
-    "Property(Port(Player(AmberBlaze)))": [
-      1213,
-      3
-    ],
-    "Property(Port(Player(AzureAsteroid)))": [
-      1237,
-      3
-    ],
-    "Property(Port(Player(BlackHole)))": [
-      1261,
-      3
-    ],
-    "Property(Port(Player(BlueMoon)))": [
-      1285,
-      3
-    ],
-    "Property(Port(Player(BrownDesert)))": [
-      1307,
-      3
-    ],
-    "Property(Port(Player(CobaltIce)))": [
-      1350,
-      3
-    ],
-    "Property(Port(Player(GreenEarth)))": [
-      1374,
-      3
-    ],
-    "Property(Port(Player(GreySky)))": [
-      1398,
-      3
-    ],
-    "Property(Port(Player(JadeSun)))": [
-      1422,
-      3
-    ],
-    "Property(Port(Player(NoirEclipse)))": [
-      1458,
-      3
-    ],
-    "Property(Port(Player(OrangeStar)))": [
-      1482,
-      3
-    ],
-    "Property(Port(Player(PinkCosmos)))": [
-      1504,
-      3
-    ],
-    "Property(Port(Player(PurpleLightning)))": [
-      1538,
-      3
-    ],
-    "Property(Port(Player(RedFire)))": [
-      1571,
-      3
-    ],
-    "Property(Port(Player(SilverClaw)))": [
-      1621,
-      3
-    ],
-    "Property(Port(Player(TealGalaxy)))": [
       1645,
       3
     ],
+    "Property(Airport(Player(GreenEarth)))": [
+      1433,
+      3
+    ],
+    "Property(Airport(Player(GreySky)))": [
+      1490,
+      3
+    ],
+    "Property(Airport(Player(JadeSun)))": [
+      1567,
+      3
+    ],
+    "Property(Airport(Player(NoirEclipse)))": [
+      1822,
+      3
+    ],
+    "Property(Airport(Player(OrangeStar)))": [
+      1397,
+      3
+    ],
+    "Property(Airport(Player(PinkCosmos)))": [
+      1688,
+      3
+    ],
+    "Property(Airport(Player(PurpleLightning)))": [
+      1734,
+      3
+    ],
+    "Property(Airport(Player(RedFire)))": [
+      1463,
+      3
+    ],
+    "Property(Airport(Player(SilverClaw)))": [
+      1846,
+      3
+    ],
+    "Property(Airport(Player(TealGalaxy)))": [
+      1710,
+      3
+    ],
+    "Property(Airport(Player(UmberWilds)))": [
+      1872,
+      3
+    ],
+    "Property(Airport(Player(WhiteNova)))": [
+      1782,
+      2
+    ],
+    "Property(Airport(Player(YellowComet)))": [
+      1448,
+      2
+    ],
+    "Property(Base(Neutral))": [
+      1385,
+      1
+    ],
+    "Property(Base(Player(AcidRain)))": [
+      1761,
+      6
+    ],
+    "Property(Base(Player(AmberBlaze)))": [
+      1552,
+      6
+    ],
+    "Property(Base(Player(AzureAsteroid)))": [
+      1801,
+      6
+    ],
+    "Property(Base(Player(BlackHole)))": [
+      1502,
+      6
+    ],
+    "Property(Base(Player(BlueMoon)))": [
+      1409,
+      6
+    ],
+    "Property(Base(Player(BrownDesert)))": [
+      1520,
+      4
+    ],
+    "Property(Base(Player(CobaltIce)))": [
+      1648,
+      6
+    ],
+    "Property(Base(Player(GreenEarth)))": [
+      1427,
+      6
+    ],
+    "Property(Base(Player(GreySky)))": [
+      1484,
+      6
+    ],
+    "Property(Base(Player(JadeSun)))": [
+      1570,
+      6
+    ],
+    "Property(Base(Player(NoirEclipse)))": [
+      1825,
+      6
+    ],
+    "Property(Base(Player(OrangeStar)))": [
+      1391,
+      6
+    ],
+    "Property(Base(Player(PinkCosmos)))": [
+      1691,
+      4
+    ],
+    "Property(Base(Player(PurpleLightning)))": [
+      1737,
+      6
+    ],
+    "Property(Base(Player(RedFire)))": [
+      1457,
+      6
+    ],
+    "Property(Base(Player(SilverClaw)))": [
+      1849,
+      6
+    ],
+    "Property(Base(Player(TealGalaxy)))": [
+      1713,
+      6
+    ],
+    "Property(Base(Player(UmberWilds)))": [
+      1875,
+      6
+    ],
+    "Property(Base(Player(WhiteNova)))": [
+      1784,
+      4
+    ],
+    "Property(Base(Player(YellowComet)))": [
+      1444,
+      4
+    ],
+    "Property(City(Neutral))": [
+      1384,
+      1
+    ],
+    "Property(City(Player(AcidRain)))": [
+      1767,
+      3
+    ],
+    "Property(City(Player(AmberBlaze)))": [
+      1558,
+      3
+    ],
+    "Property(City(Player(AzureAsteroid)))": [
+      1807,
+      3
+    ],
+    "Property(City(Player(BlackHole)))": [
+      1499,
+      3
+    ],
+    "Property(City(Player(BlueMoon)))": [
+      1406,
+      3
+    ],
+    "Property(City(Player(BrownDesert)))": [
+      1517,
+      3
+    ],
+    "Property(City(Player(CobaltIce)))": [
+      1654,
+      3
+    ],
+    "Property(City(Player(GreenEarth)))": [
+      1424,
+      3
+    ],
+    "Property(City(Player(GreySky)))": [
+      1481,
+      3
+    ],
+    "Property(City(Player(JadeSun)))": [
+      1576,
+      3
+    ],
+    "Property(City(Player(NoirEclipse)))": [
+      1831,
+      3
+    ],
+    "Property(City(Player(OrangeStar)))": [
+      1388,
+      3
+    ],
+    "Property(City(Player(PinkCosmos)))": [
+      1695,
+      3
+    ],
+    "Property(City(Player(PurpleLightning)))": [
+      1743,
+      3
+    ],
+    "Property(City(Player(RedFire)))": [
+      1454,
+      3
+    ],
+    "Property(City(Player(SilverClaw)))": [
+      1855,
+      3
+    ],
+    "Property(City(Player(TealGalaxy)))": [
+      1719,
+      3
+    ],
+    "Property(City(Player(UmberWilds)))": [
+      1881,
+      3
+    ],
+    "Property(City(Player(WhiteNova)))": [
+      1788,
+      2
+    ],
+    "Property(City(Player(YellowComet)))": [
+      1442,
+      2
+    ],
+    "Property(ComTower(Neutral))": [
+      1603,
+      1
+    ],
+    "Property(ComTower(Player(AcidRain)))": [
+      1770,
+      3
+    ],
+    "Property(ComTower(Player(AmberBlaze)))": [
+      1585,
+      3
+    ],
+    "Property(ComTower(Player(AzureAsteroid)))": [
+      1810,
+      3
+    ],
+    "Property(ComTower(Player(BlackHole)))": [
+      1588,
+      3
+    ],
+    "Property(ComTower(Player(BlueMoon)))": [
+      1591,
+      3
+    ],
+    "Property(ComTower(Player(BrownDesert)))": [
+      1594,
+      3
+    ],
+    "Property(ComTower(Player(CobaltIce)))": [
+      1657,
+      3
+    ],
+    "Property(ComTower(Player(GreenEarth)))": [
+      1597,
+      3
+    ],
+    "Property(ComTower(Player(GreySky)))": [
+      1612,
+      3
+    ],
+    "Property(ComTower(Player(JadeSun)))": [
+      1600,
+      3
+    ],
+    "Property(ComTower(Player(NoirEclipse)))": [
+      1834,
+      3
+    ],
+    "Property(ComTower(Player(OrangeStar)))": [
+      1604,
+      3
+    ],
+    "Property(ComTower(Player(PinkCosmos)))": [
+      1698,
+      3
+    ],
+    "Property(ComTower(Player(PurpleLightning)))": [
+      1746,
+      3
+    ],
+    "Property(ComTower(Player(RedFire)))": [
+      1607,
+      3
+    ],
+    "Property(ComTower(Player(SilverClaw)))": [
+      1858,
+      3
+    ],
+    "Property(ComTower(Player(TealGalaxy)))": [
+      1722,
+      3
+    ],
+    "Property(ComTower(Player(UmberWilds)))": [
+      1884,
+      3
+    ],
+    "Property(ComTower(Player(WhiteNova)))": [
+      1790,
+      2
+    ],
+    "Property(ComTower(Player(YellowComet)))": [
+      1610,
+      2
+    ],
+    "Property(HQ(AcidRain))": [
+      1773,
+      3
+    ],
+    "Property(HQ(AmberBlaze))": [
+      1561,
+      3
+    ],
+    "Property(HQ(AzureAsteroid))": [
+      1813,
+      3
+    ],
+    "Property(HQ(BlackHole))": [
+      1514,
+      3
+    ],
+    "Property(HQ(BlueMoon))": [
+      1421,
+      3
+    ],
+    "Property(HQ(BrownDesert))": [
+      1530,
+      3
+    ],
+    "Property(HQ(CobaltIce))": [
+      1660,
+      22
+    ],
+    "Property(HQ(GreenEarth))": [
+      1439,
+      3
+    ],
+    "Property(HQ(GreySky))": [
+      1496,
+      3
+    ],
+    "Property(HQ(JadeSun))": [
+      1579,
+      3
+    ],
+    "Property(HQ(NoirEclipse))": [
+      1837,
+      3
+    ],
+    "Property(HQ(OrangeStar))": [
+      1403,
+      3
+    ],
+    "Property(HQ(PinkCosmos))": [
+      1701,
+      3
+    ],
+    "Property(HQ(PurpleLightning))": [
+      1749,
+      3
+    ],
+    "Property(HQ(RedFire))": [
+      1469,
+      12
+    ],
+    "Property(HQ(SilverClaw))": [
+      1861,
+      5
+    ],
+    "Property(HQ(TealGalaxy))": [
+      1725,
+      3
+    ],
+    "Property(HQ(UmberWilds))": [
+      1887,
+      7
+    ],
+    "Property(HQ(WhiteNova))": [
+      1792,
+      2
+    ],
+    "Property(HQ(YellowComet))": [
+      1452,
+      2
+    ],
+    "Property(Lab(Neutral))": [
+      1636,
+      1
+    ],
+    "Property(Lab(Player(AcidRain)))": [
+      1776,
+      3
+    ],
+    "Property(Lab(Player(AmberBlaze)))": [
+      1615,
+      3
+    ],
+    "Property(Lab(Player(AzureAsteroid)))": [
+      1816,
+      3
+    ],
+    "Property(Lab(Player(BlackHole)))": [
+      1618,
+      3
+    ],
+    "Property(Lab(Player(BlueMoon)))": [
+      1621,
+      3
+    ],
+    "Property(Lab(Player(BrownDesert)))": [
+      1624,
+      3
+    ],
+    "Property(Lab(Player(CobaltIce)))": [
+      1682,
+      3
+    ],
+    "Property(Lab(Player(GreenEarth)))": [
+      1627,
+      3
+    ],
+    "Property(Lab(Player(GreySky)))": [
+      1630,
+      3
+    ],
+    "Property(Lab(Player(JadeSun)))": [
+      1633,
+      3
+    ],
+    "Property(Lab(Player(NoirEclipse)))": [
+      1840,
+      3
+    ],
+    "Property(Lab(Player(OrangeStar)))": [
+      1637,
+      3
+    ],
+    "Property(Lab(Player(PinkCosmos)))": [
+      1704,
+      3
+    ],
+    "Property(Lab(Player(PurpleLightning)))": [
+      1752,
+      3
+    ],
+    "Property(Lab(Player(RedFire)))": [
+      1640,
+      3
+    ],
+    "Property(Lab(Player(SilverClaw)))": [
+      1866,
+      3
+    ],
+    "Property(Lab(Player(TealGalaxy)))": [
+      1728,
+      3
+    ],
+    "Property(Lab(Player(UmberWilds)))": [
+      1894,
+      3
+    ],
+    "Property(Lab(Player(WhiteNova)))": [
+      1794,
+      2
+    ],
+    "Property(Lab(Player(YellowComet)))": [
+      1643,
+      2
+    ],
+    "Property(Port(Neutral))": [
+      1387,
+      1
+    ],
+    "Property(Port(Player(AcidRain)))": [
+      1779,
+      3
+    ],
+    "Property(Port(Player(AmberBlaze)))": [
+      1564,
+      3
+    ],
+    "Property(Port(Player(AzureAsteroid)))": [
+      1819,
+      3
+    ],
+    "Property(Port(Player(BlackHole)))": [
+      1511,
+      3
+    ],
+    "Property(Port(Player(BlueMoon)))": [
+      1418,
+      3
+    ],
+    "Property(Port(Player(BrownDesert)))": [
+      1527,
+      3
+    ],
+    "Property(Port(Player(CobaltIce)))": [
+      1685,
+      3
+    ],
+    "Property(Port(Player(GreenEarth)))": [
+      1436,
+      3
+    ],
+    "Property(Port(Player(GreySky)))": [
+      1493,
+      3
+    ],
+    "Property(Port(Player(JadeSun)))": [
+      1582,
+      3
+    ],
+    "Property(Port(Player(NoirEclipse)))": [
+      1843,
+      3
+    ],
+    "Property(Port(Player(OrangeStar)))": [
+      1400,
+      3
+    ],
+    "Property(Port(Player(PinkCosmos)))": [
+      1707,
+      3
+    ],
+    "Property(Port(Player(PurpleLightning)))": [
+      1755,
+      3
+    ],
+    "Property(Port(Player(RedFire)))": [
+      1466,
+      3
+    ],
+    "Property(Port(Player(SilverClaw)))": [
+      1869,
+      3
+    ],
+    "Property(Port(Player(TealGalaxy)))": [
+      1731,
+      3
+    ],
+    "Property(Port(Player(UmberWilds)))": [
+      1897,
+      3
+    ],
     "Property(Port(Player(WhiteNova)))": [
-      1662,
+      1796,
       2
     ],
     "Property(Port(Player(YellowComet)))": [
-      1678,
+      1450,
       2
     ],
     "Reef": [
-      4,
+      1383,
       1
     ],
     "River(Cross)": [
-      1574,
+      1356,
       1
     ],
     "River(ES)": [
-      1575,
+      1357,
       1
     ],
     "River(ESW)": [
-      1576,
+      1361,
       1
     ],
     "River(Horizontal)": [
-      1577,
+      1354,
       1
     ],
     "River(NE)": [
-      1578,
+      1360,
       1
     ],
     "River(NES)": [
-      1579,
+      1364,
       1
     ],
     "River(SW)": [
-      1580,
+      1358,
       1
     ],
     "River(SWN)": [
-      1581,
+      1362,
       1
     ],
     "River(Vertical)": [
-      1582,
+      1355,
       1
     ],
     "River(WN)": [
-      1583,
+      1359,
       1
     ],
     "River(WNE)": [
-      1584,
+      1363,
       1
     ],
     "Road(Cross)": [
-      1585,
+      1367,
       1
     ],
     "Road(ES)": [
-      1586,
+      1368,
       1
     ],
     "Road(ESW)": [
-      1587,
+      1372,
       1
     ],
     "Road(Horizontal)": [
-      1588,
+      1365,
       1
     ],
     "Road(NE)": [
-      1590,
+      1371,
       1
     ],
     "Road(NES)": [
-      1591,
+      1375,
       1
     ],
     "Road(SW)": [
-      1592,
+      1369,
       1
     ],
     "Road(SWN)": [
-      1593,
+      1373,
       1
     ],
     "Road(Vertical)": [
-      1594,
+      1366,
       1
     ],
     "Road(WN)": [
-      1596,
+      1370,
       1
     ],
     "Road(WNE)": [
-      1597,
+      1374,
       1
     ],
     "StubbyMoutain": [
@@ -1479,753 +1535,781 @@ expression: snapshot_data
       1
     ],
     "Teleporter": [
-      5,
+      448,
       1
     ],
     "Wood": [
-      1167,
+      1353,
       1
     ]
   },
   "Snow": {
     "Bridge(Horizontal)": [
-      1074,
+      702,
       1
     ],
     "Bridge(Vertical)": [
-      1080,
+      703,
       1
     ],
     "MissileSilo(Loaded)": [
-      918,
+      869,
       1
     ],
     "MissileSilo(Unloaded)": [
-      919,
+      870,
       1
     ],
     "Mountain": [
-      650,
+      678,
       1
     ],
     "Pipe(ES)": [
-      993,
+      862,
       1
     ],
     "Pipe(EastEnd)": [
-      992,
+      866,
       1
     ],
     "Pipe(Horizontal)": [
-      994,
+      860,
       1
     ],
     "Pipe(NE)": [
-      995,
+      861,
       1
     ],
     "Pipe(NorthEnd)": [
-      996,
+      865,
       1
     ],
     "Pipe(SW)": [
-      998,
+      863,
       1
     ],
     "Pipe(SouthEnd)": [
-      997,
+      867,
       1
     ],
     "Pipe(Vertical)": [
-      999,
+      859,
       1
     ],
     "Pipe(WN)": [
-      1001,
+      864,
       1
     ],
     "Pipe(WestEnd)": [
-      1000,
+      868,
       1
     ],
     "PipeRubble(Horizontal)": [
-      914,
+      873,
       1
     ],
     "PipeRubble(Vertical)": [
-      920,
+      874,
       1
     ],
     "PipeSeam(Horizontal)": [
-      915,
+      871,
       1
     ],
     "PipeSeam(Vertical)": [
-      921,
+      872,
       1
     ],
     "Plain": [
-      651,
+      677,
       1
     ],
     "Property(Airport(Neutral))": [
-      910,
+      712,
       1
     ],
     "Property(Airport(Player(AcidRain)))": [
-      653,
+      1084,
       3
     ],
     "Property(Airport(Player(AmberBlaze)))": [
-      677,
+      875,
       3
     ],
     "Property(Airport(Player(AzureAsteroid)))": [
-      701,
-      3
-    ],
-    "Property(Airport(Player(BlackHole)))": [
-      725,
-      3
-    ],
-    "Property(Airport(Player(BlueMoon)))": [
-      749,
-      3
-    ],
-    "Property(Airport(Player(BrownDesert)))": [
-      773,
-      3
-    ],
-    "Property(Airport(Player(CobaltIce)))": [
-      795,
-      3
-    ],
-    "Property(Airport(Player(GreenEarth)))": [
-      838,
-      3
-    ],
-    "Property(Airport(Player(GreySky)))": [
-      862,
-      3
-    ],
-    "Property(Airport(Player(JadeSun)))": [
-      886,
-      3
-    ],
-    "Property(Airport(Player(NoirEclipse)))": [
-      922,
-      3
-    ],
-    "Property(Airport(Player(OrangeStar)))": [
-      946,
-      3
-    ],
-    "Property(Airport(Player(PinkCosmos)))": [
-      970,
-      3
-    ],
-    "Property(Airport(Player(PurpleLightning)))": [
-      1002,
-      3
-    ],
-    "Property(Airport(Player(RedFire)))": [
-      1026,
-      3
-    ],
-    "Property(Airport(Player(SilverClaw)))": [
-      1083,
-      3
-    ],
-    "Property(Airport(Player(TealGalaxy)))": [
-      1109,
-      3
-    ],
-    "Property(Airport(Player(WhiteNova)))": [
-      1133,
-      2
-    ],
-    "Property(Airport(Player(YellowComet)))": [
-      1149,
-      2
-    ],
-    "Property(Base(Neutral))": [
-      911,
-      1
-    ],
-    "Property(Base(Player(AcidRain)))": [
-      656,
-      6
-    ],
-    "Property(Base(Player(AmberBlaze)))": [
-      680,
-      6
-    ],
-    "Property(Base(Player(AzureAsteroid)))": [
-      704,
-      6
-    ],
-    "Property(Base(Player(BlackHole)))": [
-      728,
-      6
-    ],
-    "Property(Base(Player(BlueMoon)))": [
-      752,
-      6
-    ],
-    "Property(Base(Player(BrownDesert)))": [
-      776,
-      4
-    ],
-    "Property(Base(Player(CobaltIce)))": [
-      798,
-      6
-    ],
-    "Property(Base(Player(GreenEarth)))": [
-      841,
-      6
-    ],
-    "Property(Base(Player(GreySky)))": [
-      865,
-      6
-    ],
-    "Property(Base(Player(JadeSun)))": [
-      889,
-      6
-    ],
-    "Property(Base(Player(NoirEclipse)))": [
-      925,
-      6
-    ],
-    "Property(Base(Player(OrangeStar)))": [
-      949,
-      6
-    ],
-    "Property(Base(Player(PinkCosmos)))": [
-      973,
-      4
-    ],
-    "Property(Base(Player(PurpleLightning)))": [
-      1005,
-      6
-    ],
-    "Property(Base(Player(RedFire)))": [
-      1029,
-      6
-    ],
-    "Property(Base(Player(SilverClaw)))": [
-      1086,
-      6
-    ],
-    "Property(Base(Player(TealGalaxy)))": [
-      1112,
-      6
-    ],
-    "Property(Base(Player(WhiteNova)))": [
-      1135,
-      4
-    ],
-    "Property(Base(Player(YellowComet)))": [
-      1151,
-      4
-    ],
-    "Property(City(Neutral))": [
-      912,
-      1
-    ],
-    "Property(City(Player(AcidRain)))": [
-      662,
-      3
-    ],
-    "Property(City(Player(AmberBlaze)))": [
-      686,
-      3
-    ],
-    "Property(City(Player(AzureAsteroid)))": [
-      710,
-      3
-    ],
-    "Property(City(Player(BlackHole)))": [
-      734,
-      3
-    ],
-    "Property(City(Player(BlueMoon)))": [
-      758,
-      3
-    ],
-    "Property(City(Player(BrownDesert)))": [
-      780,
-      3
-    ],
-    "Property(City(Player(CobaltIce)))": [
-      804,
-      3
-    ],
-    "Property(City(Player(GreenEarth)))": [
-      847,
-      3
-    ],
-    "Property(City(Player(GreySky)))": [
-      871,
-      3
-    ],
-    "Property(City(Player(JadeSun)))": [
-      895,
-      3
-    ],
-    "Property(City(Player(NoirEclipse)))": [
-      931,
-      3
-    ],
-    "Property(City(Player(OrangeStar)))": [
-      955,
-      3
-    ],
-    "Property(City(Player(PinkCosmos)))": [
-      977,
-      3
-    ],
-    "Property(City(Player(PurpleLightning)))": [
-      1011,
-      3
-    ],
-    "Property(City(Player(RedFire)))": [
-      1035,
-      3
-    ],
-    "Property(City(Player(SilverClaw)))": [
-      1092,
-      3
-    ],
-    "Property(City(Player(TealGalaxy)))": [
-      1118,
-      3
-    ],
-    "Property(City(Player(WhiteNova)))": [
-      1139,
-      2
-    ],
-    "Property(City(Player(YellowComet)))": [
-      1155,
-      2
-    ],
-    "Property(ComTower(Neutral))": [
-      913,
-      1
-    ],
-    "Property(ComTower(Player(AcidRain)))": [
-      665,
-      3
-    ],
-    "Property(ComTower(Player(AmberBlaze)))": [
-      689,
-      3
-    ],
-    "Property(ComTower(Player(AzureAsteroid)))": [
-      713,
-      3
-    ],
-    "Property(ComTower(Player(BlackHole)))": [
-      737,
-      3
-    ],
-    "Property(ComTower(Player(BlueMoon)))": [
-      761,
-      3
-    ],
-    "Property(ComTower(Player(BrownDesert)))": [
-      783,
-      3
-    ],
-    "Property(ComTower(Player(CobaltIce)))": [
-      807,
-      3
-    ],
-    "Property(ComTower(Player(GreenEarth)))": [
-      850,
-      3
-    ],
-    "Property(ComTower(Player(GreySky)))": [
-      874,
-      3
-    ],
-    "Property(ComTower(Player(JadeSun)))": [
-      898,
-      3
-    ],
-    "Property(ComTower(Player(NoirEclipse)))": [
-      934,
-      3
-    ],
-    "Property(ComTower(Player(OrangeStar)))": [
-      958,
-      3
-    ],
-    "Property(ComTower(Player(PinkCosmos)))": [
-      980,
-      3
-    ],
-    "Property(ComTower(Player(PurpleLightning)))": [
-      1014,
-      3
-    ],
-    "Property(ComTower(Player(RedFire)))": [
-      1038,
-      3
-    ],
-    "Property(ComTower(Player(SilverClaw)))": [
-      1095,
-      3
-    ],
-    "Property(ComTower(Player(TealGalaxy)))": [
-      1121,
-      3
-    ],
-    "Property(ComTower(Player(WhiteNova)))": [
-      1141,
-      2
-    ],
-    "Property(ComTower(Player(YellowComet)))": [
-      1157,
-      2
-    ],
-    "Property(HQ(AcidRain))": [
-      668,
-      3
-    ],
-    "Property(HQ(AmberBlaze))": [
-      692,
-      3
-    ],
-    "Property(HQ(AzureAsteroid))": [
-      716,
-      3
-    ],
-    "Property(HQ(BlackHole))": [
-      740,
-      3
-    ],
-    "Property(HQ(BlueMoon))": [
-      764,
-      3
-    ],
-    "Property(HQ(BrownDesert))": [
-      786,
-      3
-    ],
-    "Property(HQ(CobaltIce))": [
-      810,
-      22
-    ],
-    "Property(HQ(GreenEarth))": [
-      853,
-      3
-    ],
-    "Property(HQ(GreySky))": [
-      877,
-      3
-    ],
-    "Property(HQ(JadeSun))": [
-      901,
-      3
-    ],
-    "Property(HQ(NoirEclipse))": [
-      937,
-      3
-    ],
-    "Property(HQ(OrangeStar))": [
-      961,
-      3
-    ],
-    "Property(HQ(PinkCosmos))": [
-      983,
-      3
-    ],
-    "Property(HQ(PurpleLightning))": [
-      1017,
-      3
-    ],
-    "Property(HQ(RedFire))": [
-      1041,
-      12
-    ],
-    "Property(HQ(SilverClaw))": [
-      1098,
-      5
-    ],
-    "Property(HQ(TealGalaxy))": [
       1124,
       3
     ],
-    "Property(HQ(WhiteNova))": [
-      1143,
-      2
-    ],
-    "Property(HQ(YellowComet))": [
-      1159,
-      2
-    ],
-    "Property(Lab(Neutral))": [
-      916,
-      1
-    ],
-    "Property(Lab(Player(AcidRain)))": [
-      671,
+    "Property(Airport(Player(BlackHole)))": [
+      834,
       3
     ],
-    "Property(Lab(Player(AmberBlaze)))": [
-      695,
+    "Property(Airport(Player(BlueMoon)))": [
+      741,
       3
     ],
-    "Property(Lab(Player(AzureAsteroid)))": [
-      719,
+    "Property(Airport(Player(BrownDesert)))": [
+      850,
       3
     ],
-    "Property(Lab(Player(BlackHole)))": [
-      743,
+    "Property(Airport(Player(CobaltIce)))": [
+      971,
       3
     ],
-    "Property(Lab(Player(BlueMoon)))": [
-      767,
+    "Property(Airport(Player(GreenEarth)))": [
+      759,
       3
     ],
-    "Property(Lab(Player(BrownDesert)))": [
+    "Property(Airport(Player(GreySky)))": [
+      816,
+      3
+    ],
+    "Property(Airport(Player(JadeSun)))": [
+      893,
+      3
+    ],
+    "Property(Airport(Player(NoirEclipse)))": [
+      1148,
+      3
+    ],
+    "Property(Airport(Player(OrangeStar)))": [
+      723,
+      3
+    ],
+    "Property(Airport(Player(PinkCosmos)))": [
+      1014,
+      3
+    ],
+    "Property(Airport(Player(PurpleLightning)))": [
+      1060,
+      3
+    ],
+    "Property(Airport(Player(RedFire)))": [
       789,
       3
     ],
-    "Property(Lab(Player(CobaltIce)))": [
-      832,
+    "Property(Airport(Player(SilverClaw)))": [
+      1172,
       3
     ],
-    "Property(Lab(Player(GreenEarth)))": [
+    "Property(Airport(Player(TealGalaxy)))": [
+      1036,
+      3
+    ],
+    "Property(Airport(Player(UmberWilds)))": [
+      1198,
+      3
+    ],
+    "Property(Airport(Player(WhiteNova)))": [
+      1108,
+      2
+    ],
+    "Property(Airport(Player(YellowComet)))": [
+      774,
+      2
+    ],
+    "Property(Base(Neutral))": [
+      711,
+      1
+    ],
+    "Property(Base(Player(AcidRain)))": [
+      1087,
+      6
+    ],
+    "Property(Base(Player(AmberBlaze)))": [
+      878,
+      6
+    ],
+    "Property(Base(Player(AzureAsteroid)))": [
+      1127,
+      6
+    ],
+    "Property(Base(Player(BlackHole)))": [
+      828,
+      6
+    ],
+    "Property(Base(Player(BlueMoon)))": [
+      735,
+      6
+    ],
+    "Property(Base(Player(BrownDesert)))": [
+      846,
+      4
+    ],
+    "Property(Base(Player(CobaltIce)))": [
+      974,
+      6
+    ],
+    "Property(Base(Player(GreenEarth)))": [
+      753,
+      6
+    ],
+    "Property(Base(Player(GreySky)))": [
+      810,
+      6
+    ],
+    "Property(Base(Player(JadeSun)))": [
+      896,
+      6
+    ],
+    "Property(Base(Player(NoirEclipse)))": [
+      1151,
+      6
+    ],
+    "Property(Base(Player(OrangeStar)))": [
+      717,
+      6
+    ],
+    "Property(Base(Player(PinkCosmos)))": [
+      1017,
+      4
+    ],
+    "Property(Base(Player(PurpleLightning)))": [
+      1063,
+      6
+    ],
+    "Property(Base(Player(RedFire)))": [
+      783,
+      6
+    ],
+    "Property(Base(Player(SilverClaw)))": [
+      1175,
+      6
+    ],
+    "Property(Base(Player(TealGalaxy)))": [
+      1039,
+      6
+    ],
+    "Property(Base(Player(UmberWilds)))": [
+      1201,
+      6
+    ],
+    "Property(Base(Player(WhiteNova)))": [
+      1110,
+      4
+    ],
+    "Property(Base(Player(YellowComet)))": [
+      770,
+      4
+    ],
+    "Property(City(Neutral))": [
+      710,
+      1
+    ],
+    "Property(City(Player(AcidRain)))": [
+      1093,
+      3
+    ],
+    "Property(City(Player(AmberBlaze)))": [
+      884,
+      3
+    ],
+    "Property(City(Player(AzureAsteroid)))": [
+      1133,
+      3
+    ],
+    "Property(City(Player(BlackHole)))": [
+      825,
+      3
+    ],
+    "Property(City(Player(BlueMoon)))": [
+      732,
+      3
+    ],
+    "Property(City(Player(BrownDesert)))": [
+      843,
+      3
+    ],
+    "Property(City(Player(CobaltIce)))": [
+      980,
+      3
+    ],
+    "Property(City(Player(GreenEarth)))": [
+      750,
+      3
+    ],
+    "Property(City(Player(GreySky)))": [
+      807,
+      3
+    ],
+    "Property(City(Player(JadeSun)))": [
+      902,
+      3
+    ],
+    "Property(City(Player(NoirEclipse)))": [
+      1157,
+      3
+    ],
+    "Property(City(Player(OrangeStar)))": [
+      714,
+      3
+    ],
+    "Property(City(Player(PinkCosmos)))": [
+      1021,
+      3
+    ],
+    "Property(City(Player(PurpleLightning)))": [
+      1069,
+      3
+    ],
+    "Property(City(Player(RedFire)))": [
+      780,
+      3
+    ],
+    "Property(City(Player(SilverClaw)))": [
+      1181,
+      3
+    ],
+    "Property(City(Player(TealGalaxy)))": [
+      1045,
+      3
+    ],
+    "Property(City(Player(UmberWilds)))": [
+      1207,
+      3
+    ],
+    "Property(City(Player(WhiteNova)))": [
+      1114,
+      2
+    ],
+    "Property(City(Player(YellowComet)))": [
+      768,
+      2
+    ],
+    "Property(ComTower(Neutral))": [
+      929,
+      1
+    ],
+    "Property(ComTower(Player(AcidRain)))": [
+      1096,
+      3
+    ],
+    "Property(ComTower(Player(AmberBlaze)))": [
+      911,
+      3
+    ],
+    "Property(ComTower(Player(AzureAsteroid)))": [
+      1136,
+      3
+    ],
+    "Property(ComTower(Player(BlackHole)))": [
+      914,
+      3
+    ],
+    "Property(ComTower(Player(BlueMoon)))": [
+      917,
+      3
+    ],
+    "Property(ComTower(Player(BrownDesert)))": [
+      920,
+      3
+    ],
+    "Property(ComTower(Player(CobaltIce)))": [
+      983,
+      3
+    ],
+    "Property(ComTower(Player(GreenEarth)))": [
+      923,
+      3
+    ],
+    "Property(ComTower(Player(GreySky)))": [
+      938,
+      3
+    ],
+    "Property(ComTower(Player(JadeSun)))": [
+      926,
+      3
+    ],
+    "Property(ComTower(Player(NoirEclipse)))": [
+      1160,
+      3
+    ],
+    "Property(ComTower(Player(OrangeStar)))": [
+      930,
+      3
+    ],
+    "Property(ComTower(Player(PinkCosmos)))": [
+      1024,
+      3
+    ],
+    "Property(ComTower(Player(PurpleLightning)))": [
+      1072,
+      3
+    ],
+    "Property(ComTower(Player(RedFire)))": [
+      933,
+      3
+    ],
+    "Property(ComTower(Player(SilverClaw)))": [
+      1184,
+      3
+    ],
+    "Property(ComTower(Player(TealGalaxy)))": [
+      1048,
+      3
+    ],
+    "Property(ComTower(Player(UmberWilds)))": [
+      1210,
+      3
+    ],
+    "Property(ComTower(Player(WhiteNova)))": [
+      1116,
+      2
+    ],
+    "Property(ComTower(Player(YellowComet)))": [
+      936,
+      2
+    ],
+    "Property(HQ(AcidRain))": [
+      1099,
+      3
+    ],
+    "Property(HQ(AmberBlaze))": [
+      887,
+      3
+    ],
+    "Property(HQ(AzureAsteroid))": [
+      1139,
+      3
+    ],
+    "Property(HQ(BlackHole))": [
+      840,
+      3
+    ],
+    "Property(HQ(BlueMoon))": [
+      747,
+      3
+    ],
+    "Property(HQ(BrownDesert))": [
       856,
       3
     ],
+    "Property(HQ(CobaltIce))": [
+      986,
+      22
+    ],
+    "Property(HQ(GreenEarth))": [
+      765,
+      3
+    ],
+    "Property(HQ(GreySky))": [
+      822,
+      3
+    ],
+    "Property(HQ(JadeSun))": [
+      905,
+      3
+    ],
+    "Property(HQ(NoirEclipse))": [
+      1163,
+      3
+    ],
+    "Property(HQ(OrangeStar))": [
+      729,
+      3
+    ],
+    "Property(HQ(PinkCosmos))": [
+      1027,
+      3
+    ],
+    "Property(HQ(PurpleLightning))": [
+      1075,
+      3
+    ],
+    "Property(HQ(RedFire))": [
+      795,
+      12
+    ],
+    "Property(HQ(SilverClaw))": [
+      1187,
+      5
+    ],
+    "Property(HQ(TealGalaxy))": [
+      1051,
+      3
+    ],
+    "Property(HQ(UmberWilds))": [
+      1213,
+      7
+    ],
+    "Property(HQ(WhiteNova))": [
+      1118,
+      2
+    ],
+    "Property(HQ(YellowComet))": [
+      778,
+      2
+    ],
+    "Property(Lab(Neutral))": [
+      962,
+      1
+    ],
+    "Property(Lab(Player(AcidRain)))": [
+      1102,
+      3
+    ],
+    "Property(Lab(Player(AmberBlaze)))": [
+      941,
+      3
+    ],
+    "Property(Lab(Player(AzureAsteroid)))": [
+      1142,
+      3
+    ],
+    "Property(Lab(Player(BlackHole)))": [
+      944,
+      3
+    ],
+    "Property(Lab(Player(BlueMoon)))": [
+      947,
+      3
+    ],
+    "Property(Lab(Player(BrownDesert)))": [
+      950,
+      3
+    ],
+    "Property(Lab(Player(CobaltIce)))": [
+      1008,
+      3
+    ],
+    "Property(Lab(Player(GreenEarth)))": [
+      953,
+      3
+    ],
     "Property(Lab(Player(GreySky)))": [
-      880,
+      956,
       3
     ],
     "Property(Lab(Player(JadeSun)))": [
-      904,
+      959,
       3
     ],
     "Property(Lab(Player(NoirEclipse)))": [
-      940,
+      1166,
       3
     ],
     "Property(Lab(Player(OrangeStar)))": [
-      964,
+      963,
       3
     ],
     "Property(Lab(Player(PinkCosmos)))": [
-      986,
+      1030,
       3
     ],
     "Property(Lab(Player(PurpleLightning)))": [
-      1020,
+      1078,
       3
     ],
     "Property(Lab(Player(RedFire)))": [
-      1053,
+      966,
       3
     ],
     "Property(Lab(Player(SilverClaw)))": [
-      1103,
+      1192,
       3
     ],
     "Property(Lab(Player(TealGalaxy)))": [
-      1127,
+      1054,
+      3
+    ],
+    "Property(Lab(Player(UmberWilds)))": [
+      1220,
       3
     ],
     "Property(Lab(Player(WhiteNova)))": [
-      1145,
+      1120,
       2
     ],
     "Property(Lab(Player(YellowComet)))": [
-      1161,
+      969,
       2
     ],
     "Property(Port(Neutral))": [
-      917,
+      713,
       1
     ],
     "Property(Port(Player(AcidRain)))": [
-      674,
+      1105,
       3
     ],
     "Property(Port(Player(AmberBlaze)))": [
-      698,
+      890,
       3
     ],
     "Property(Port(Player(AzureAsteroid)))": [
-      722,
+      1145,
       3
     ],
     "Property(Port(Player(BlackHole)))": [
-      746,
+      837,
       3
     ],
     "Property(Port(Player(BlueMoon)))": [
-      770,
+      744,
       3
     ],
     "Property(Port(Player(BrownDesert)))": [
-      792,
+      853,
       3
     ],
     "Property(Port(Player(CobaltIce)))": [
-      835,
+      1011,
       3
     ],
     "Property(Port(Player(GreenEarth)))": [
-      859,
+      762,
       3
     ],
     "Property(Port(Player(GreySky)))": [
-      883,
+      819,
       3
     ],
     "Property(Port(Player(JadeSun)))": [
-      907,
+      908,
       3
     ],
     "Property(Port(Player(NoirEclipse)))": [
-      943,
+      1169,
       3
     ],
     "Property(Port(Player(OrangeStar)))": [
-      967,
+      726,
       3
     ],
     "Property(Port(Player(PinkCosmos)))": [
-      989,
+      1033,
       3
     ],
     "Property(Port(Player(PurpleLightning)))": [
-      1023,
+      1081,
       3
     ],
     "Property(Port(Player(RedFire)))": [
-      1056,
+      792,
       3
     ],
     "Property(Port(Player(SilverClaw)))": [
-      1106,
+      1195,
       3
     ],
     "Property(Port(Player(TealGalaxy)))": [
-      1130,
+      1057,
+      3
+    ],
+    "Property(Port(Player(UmberWilds)))": [
+      1223,
       3
     ],
     "Property(Port(Player(WhiteNova)))": [
-      1147,
+      1122,
       2
     ],
     "Property(Port(Player(YellowComet)))": [
-      1163,
+      776,
       2
     ],
     "Reef": [
-      4,
+      709,
       1
     ],
     "River(Cross)": [
-      1059,
+      682,
       1
     ],
     "River(ES)": [
-      1060,
+      683,
       1
     ],
     "River(ESW)": [
-      1061,
+      687,
       1
     ],
     "River(Horizontal)": [
-      1062,
+      680,
       1
     ],
     "River(NE)": [
-      1063,
+      686,
       1
     ],
     "River(NES)": [
-      1064,
+      690,
       1
     ],
     "River(SW)": [
-      1065,
+      684,
       1
     ],
     "River(SWN)": [
-      1066,
+      688,
       1
     ],
     "River(Vertical)": [
-      1067,
+      681,
       1
     ],
     "River(WN)": [
-      1068,
+      685,
       1
     ],
     "River(WNE)": [
-      1069,
+      689,
       1
     ],
     "Road(Cross)": [
-      1070,
+      693,
       1
     ],
     "Road(ES)": [
-      1071,
+      694,
       1
     ],
     "Road(ESW)": [
-      1072,
+      698,
       1
     ],
     "Road(Horizontal)": [
-      1073,
+      691,
       1
     ],
     "Road(NE)": [
-      1075,
+      697,
       1
     ],
     "Road(NES)": [
-      1076,
+      701,
       1
     ],
     "Road(SW)": [
-      1077,
+      695,
       1
     ],
     "Road(SWN)": [
-      1078,
+      699,
       1
     ],
     "Road(Vertical)": [
-      1079,
+      692,
       1
     ],
     "Road(WN)": [
-      1081,
+      696,
       1
     ],
     "Road(WNE)": [
-      1082,
+      700,
       1
     ],
     "StubbyMoutain": [
-      649,
+      676,
       1
     ],
     "Teleporter": [
-      5,
+      448,
       1
     ],
     "Wood": [
-      652,
+      679,
       1
     ]
   }

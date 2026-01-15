@@ -668,6 +668,17 @@ impl From<AwbwTerrain> for AwbwTerrainId {
                 Property::HQ(PlayerFaction::SilverClaw) => AwbwTerrainId(214),
                 Property::Lab(Faction::Player(PlayerFaction::SilverClaw)) => AwbwTerrainId(215),
                 Property::Port(Faction::Player(PlayerFaction::SilverClaw)) => AwbwTerrainId(216),
+
+                // Umber Wilds properties
+                Property::Airport(Faction::Player(PlayerFaction::UmberWilds)) => AwbwTerrainId(217),
+                Property::Base(Faction::Player(PlayerFaction::UmberWilds)) => AwbwTerrainId(218),
+                Property::City(Faction::Player(PlayerFaction::UmberWilds)) => AwbwTerrainId(219),
+                Property::ComTower(Faction::Player(PlayerFaction::UmberWilds)) => {
+                    AwbwTerrainId(220)
+                }
+                Property::HQ(PlayerFaction::UmberWilds) => AwbwTerrainId(221),
+                Property::Lab(Faction::Player(PlayerFaction::UmberWilds)) => AwbwTerrainId(222),
+                Property::Port(Faction::Player(PlayerFaction::UmberWilds)) => AwbwTerrainId(223),
             },
 
             // Pipes
@@ -1246,6 +1257,29 @@ impl TryFrom<u8> for AwbwTerrain {
             )))),
             216 => Ok(AwbwTerrain::Property(Property::Port(Faction::Player(
                 PlayerFaction::SilverClaw,
+            )))),
+
+            // Umber Wilds properties
+            217 => Ok(AwbwTerrain::Property(Property::Airport(Faction::Player(
+                PlayerFaction::UmberWilds,
+            )))),
+            218 => Ok(AwbwTerrain::Property(Property::Base(Faction::Player(
+                PlayerFaction::UmberWilds,
+            )))),
+            219 => Ok(AwbwTerrain::Property(Property::City(Faction::Player(
+                PlayerFaction::UmberWilds,
+            )))),
+            220 => Ok(AwbwTerrain::Property(Property::ComTower(Faction::Player(
+                PlayerFaction::UmberWilds,
+            )))),
+            221 => Ok(AwbwTerrain::Property(Property::HQ(
+                PlayerFaction::UmberWilds,
+            ))),
+            222 => Ok(AwbwTerrain::Property(Property::Lab(Faction::Player(
+                PlayerFaction::UmberWilds,
+            )))),
+            223 => Ok(AwbwTerrain::Property(Property::Port(Faction::Player(
+                PlayerFaction::UmberWilds,
             )))),
             _ => Err(TryFromTerrainError::InvalidId(id)),
         }
