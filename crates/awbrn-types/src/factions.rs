@@ -191,3 +191,26 @@ impl PlayerFaction {
         *self as u8
     }
 }
+
+/// Army factions in the game
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Faction {
+    Neutral,
+    Player(PlayerFaction),
+}
+
+impl From<PlayerFaction> for Faction {
+    fn from(faction: PlayerFaction) -> Self {
+        Faction::Player(faction)
+    }
+}
+
+impl Faction {
+    /// Get the display name of this faction
+    pub const fn name(&self) -> &'static str {
+        match self {
+            Faction::Neutral => "Neutral",
+            Faction::Player(faction) => faction.name(),
+        }
+    }
+}
