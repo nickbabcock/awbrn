@@ -30,9 +30,9 @@
 
 use crate::{
     AwbwUnitId, CameraScale, CurrentWeather, Faction, GameMap, GridSystem, JsonAssetPlugin,
-    SelectedTile, SpriteSize, StrongIdMap, TerrainTile, Unit,
+    MapBackdrop, SelectedTile, SpriteSize, StrongIdMap, TerrainTile, Unit,
 };
-use awbrn_core::{Weather, get_unit_animation_frames};
+use awbrn_core::{GraphicalTerrain, Weather, get_unit_animation_frames};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
 use awbw_replay::{AwbwReplay, ReplayParser};
 use bevy::sprite::Anchor;
@@ -208,7 +208,9 @@ impl Plugin for AwbrnPlugin {
                 (
                     handle_camera_scaling,
                     handle_weather_toggle,
-                    update_sprites_on_weather_change,
+                    update_backdrop_on_weather_change,
+                    update_static_terrain_on_weather_change,
+                    update_animated_terrain_on_weather_change,
                     handle_tile_clicks,
                     animate_units,
                     animate_terrain,
@@ -455,38 +457,67 @@ fn handle_weather_toggle(
     }
 }
 
-fn update_sprites_on_weather_change(
+fn update_backdrop_on_weather_change(
     current_weather: Res<CurrentWeather>,
-    mut static_query: Query<(&mut Sprite, &TerrainTile), Without<TerrainAnimation>>,
-    mut animated_query: Query<
-        (&mut Sprite, &TerrainTile, &mut TerrainAnimation),
-        With<TerrainAnimation>,
+    mut backdrop_query: Query<&mut Sprite, (With<MapBackdrop>, Without<TerrainTile>)>,
+) {
+    if !current_weather.is_changed() {
+        return;
+    }
+
+    let plain_index =
+        awbrn_core::spritesheet_index(current_weather.weather(), GraphicalTerrain::Plain);
+
+    for mut sprite in backdrop_query.iter_mut() {
+        if let Some(atlas) = &mut sprite.texture_atlas {
+            atlas.index = plain_index.index() as usize;
+        }
+    }
+}
+
+fn update_static_terrain_on_weather_change(
+    current_weather: Res<CurrentWeather>,
+    mut static_query: Query<
+        (&mut Sprite, &TerrainTile),
+        (Without<TerrainAnimation>, Without<MapBackdrop>),
     >,
 ) {
-    if current_weather.is_changed() {
-        // Update static terrain sprites
-        for (mut sprite, terrain_tile) in static_query.iter_mut() {
-            let sprite_index =
-                awbrn_core::spritesheet_index(current_weather.weather(), terrain_tile.terrain);
-            if let Some(atlas) = &mut sprite.texture_atlas {
-                atlas.index = sprite_index.index() as usize;
-            }
+    if !current_weather.is_changed() {
+        return;
+    }
+
+    for (mut sprite, terrain_tile) in static_query.iter_mut() {
+        let sprite_index =
+            awbrn_core::spritesheet_index(current_weather.weather(), terrain_tile.terrain);
+        if let Some(atlas) = &mut sprite.texture_atlas {
+            atlas.index = sprite_index.index() as usize;
         }
+    }
+}
 
-        // Update animated terrain sprites and their animation data
-        for (mut sprite, terrain_tile, mut animation) in animated_query.iter_mut() {
-            let sprite_index =
-                awbrn_core::spritesheet_index(current_weather.weather(), terrain_tile.terrain);
+fn update_animated_terrain_on_weather_change(
+    current_weather: Res<CurrentWeather>,
+    mut animated_query: Query<
+        (&mut Sprite, &TerrainTile, &mut TerrainAnimation),
+        (With<TerrainAnimation>, Without<MapBackdrop>),
+    >,
+) {
+    if !current_weather.is_changed() {
+        return;
+    }
 
-            // Update animation parameters
-            animation.start_index = sprite_index.index();
-            animation.frame_count = sprite_index.animation_frames();
-            animation.current_frame = 0;
+    for (mut sprite, terrain_tile, mut animation) in animated_query.iter_mut() {
+        let sprite_index =
+            awbrn_core::spritesheet_index(current_weather.weather(), terrain_tile.terrain);
 
-            // Update sprite to show first frame of new weather
-            if let Some(atlas) = &mut sprite.texture_atlas {
-                atlas.index = sprite_index.index() as usize;
-            }
+        // Update animation parameters
+        animation.start_index = sprite_index.index();
+        animation.frame_count = sprite_index.animation_frames();
+        animation.current_frame = 0;
+
+        // Update sprite to show first frame of new weather
+        if let Some(atlas) = &mut sprite.texture_atlas {
+            atlas.index = sprite_index.index() as usize;
         }
     }
 }
@@ -772,12 +803,27 @@ fn setup_map_visuals(
     let texture = asset_server.load("textures/tiles.png");
     let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 32), 64, 27, None, None);
     let texture_atlas_layout = texture_atlas_layouts.add(layout);
+    let plain_index =
+        awbrn_core::spritesheet_index(current_weather.weather(), GraphicalTerrain::Plain);
 
     // Spawn sprites for each map tile
     for y in 0..game_map.height() {
         for x in 0..game_map.width() {
             let position = Position::new(x, y);
             if let Some(terrain) = game_map.terrain_at(position) {
+                commands.spawn((
+                    Sprite::from_atlas_image(
+                        texture.clone(),
+                        TextureAtlas {
+                            layout: texture_atlas_layout.clone(),
+                            index: plain_index.index() as usize,
+                        },
+                    ),
+                    Anchor::default(),
+                    MapPosition::new(x, y),
+                    MapBackdrop,
+                ));
+
                 // Calculate sprite index for this terrain
                 let sprite_index =
                     awbrn_core::spritesheet_index(current_weather.weather(), terrain);
@@ -929,7 +975,9 @@ fn on_map_position_insert(
     let grid_pos = grid.sprite_position((*map_position).into(), sprite_size);
 
     let local_pos = grid.grid_to_world(&grid_pos);
-    let final_world_pos = world_origin_offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z);
+    let z_offset = map_position.y() as f32 * 0.001;
+    let final_world_pos =
+        world_origin_offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z + z_offset);
 
     transform.translation = final_world_pos;
 
