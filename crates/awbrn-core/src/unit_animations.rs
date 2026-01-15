@@ -1,4 +1,4 @@
-use crate::{GraphicalMovement, PlayerFaction, Unit};
+use crate::{GraphicalMovement, PlayerFaction, SpritesheetIndex, Unit};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnitAnimationData {
@@ -129,6 +129,15 @@ pub fn get_unit_animation_frames(
     let frame_durations = unit_data.get_frames_for_movement(movement);
 
     UnitAnimationFrames::new(unit_sprite_index, frame_durations)
+}
+
+pub fn unit_spritesheet_index(
+    movement: GraphicalMovement,
+    unit: Unit,
+    faction: PlayerFaction,
+) -> SpritesheetIndex {
+    let frames = get_unit_animation_frames(movement, unit, faction);
+    SpritesheetIndex::new(frames.start_index(), frames.frame_count() as u8)
 }
 
 fn calculate_movement_offset(movement: GraphicalMovement, unit: Unit) -> u16 {

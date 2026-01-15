@@ -1,5 +1,5 @@
 [alias]
-spritesheet-list = "run --package xtask-spritesheet-list --"
+xtask-assets = "run --package xtask-assets --"
 
 [target.wasm32-unknown-unknown]
 rustflags = [

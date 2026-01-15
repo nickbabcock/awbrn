@@ -1738,7 +1738,7 @@ expression: snapshot_data
         3
       ]
     },
-    "WhiteNova": {
+    "UmberWilds": {
       "APC": [
         4921,
         3
@@ -1840,7 +1840,7 @@ expression: snapshot_data
         3
       ]
     },
-    "YellowComet": {
+    "WhiteNova": {
       "APC": [
         5206,
         3
@@ -1939,6 +1939,108 @@ expression: snapshot_data
       ],
       "Tank": [
         5180,
+        3
+      ]
+    },
+    "YellowComet": {
+      "APC": [
+        5491,
+        3
+      ],
+      "AntiAir": [
+        5528,
+        3
+      ],
+      "Artillery": [
+        5504,
+        3
+      ],
+      "BCopter": [
+        5573,
+        2
+      ],
+      "Battleship": [
+        5591,
+        2
+      ],
+      "BlackBoat": [
+        5627,
+        2
+      ],
+      "BlackBomb": [
+        5681,
+        3
+      ],
+      "Bomber": [
+        5561,
+        3
+      ],
+      "Carrier": [
+        5635,
+        2
+      ],
+      "Cruiser": [
+        5599,
+        2
+      ],
+      "Fighter": [
+        5550,
+        3
+      ],
+      "Infantry": [
+        5423,
+        4
+      ],
+      "Lander": [
+        5607,
+        2
+      ],
+      "MdTank": [
+        5452,
+        3
+      ],
+      "Mech": [
+        5437,
+        4
+      ],
+      "MegaTank": [
+        5694,
+        3
+      ],
+      "Missile": [
+        5539,
+        3
+      ],
+      "NeoTank": [
+        5657,
+        3
+      ],
+      "PipeRunner": [
+        5668,
+        3
+      ],
+      "Recon": [
+        5478,
+        3
+      ],
+      "Rocket": [
+        5515,
+        3
+      ],
+      "Stealth": [
+        5644,
+        3
+      ],
+      "Sub": [
+        5617,
+        2
+      ],
+      "TCopter": [
+        5583,
+        2
+      ],
+      "Tank": [
+        5465,
         3
       ]
     }
@@ -3678,7 +3780,7 @@ expression: snapshot_data
         4
       ]
     },
-    "WhiteNova": {
+    "UmberWilds": {
       "APC": [
         4914,
         4
@@ -3780,7 +3882,7 @@ expression: snapshot_data
         4
       ]
     },
-    "YellowComet": {
+    "WhiteNova": {
       "APC": [
         5199,
         4
@@ -3879,6 +3981,108 @@ expression: snapshot_data
       ],
       "Tank": [
         5173,
+        4
+      ]
+    },
+    "YellowComet": {
+      "APC": [
+        5484,
+        4
+      ],
+      "AntiAir": [
+        5521,
+        4
+      ],
+      "Artillery": [
+        5497,
+        4
+      ],
+      "BCopter": [
+        5567,
+        4
+      ],
+      "Battleship": [
+        5587,
+        2
+      ],
+      "BlackBoat": [
+        5621,
+        4
+      ],
+      "BlackBomb": [
+        5674,
+        4
+      ],
+      "Bomber": [
+        5556,
+        2
+      ],
+      "Carrier": [
+        5631,
+        2
+      ],
+      "Cruiser": [
+        5595,
+        2
+      ],
+      "Fighter": [
+        5545,
+        2
+      ],
+      "Infantry": [
+        5415,
+        4
+      ],
+      "Lander": [
+        5603,
+        2
+      ],
+      "MdTank": [
+        5445,
+        4
+      ],
+      "Mech": [
+        5431,
+        2
+      ],
+      "MegaTank": [
+        5687,
+        4
+      ],
+      "Missile": [
+        5534,
+        2
+      ],
+      "NeoTank": [
+        5650,
+        4
+      ],
+      "PipeRunner": [
+        5663,
+        2
+      ],
+      "Recon": [
+        5471,
+        4
+      ],
+      "Rocket": [
+        5510,
+        2
+      ],
+      "Stealth": [
+        5639,
+        2
+      ],
+      "Sub": [
+        5611,
+        4
+      ],
+      "TCopter": [
+        5577,
+        4
+      ],
+      "Tank": [
+        5458,
         4
       ]
     }
@@ -5618,7 +5822,7 @@ expression: snapshot_data
         3
       ]
     },
-    "WhiteNova": {
+    "UmberWilds": {
       "APC": [
         4924,
         3
@@ -5720,7 +5924,7 @@ expression: snapshot_data
         3
       ]
     },
-    "YellowComet": {
+    "WhiteNova": {
       "APC": [
         5209,
         3
@@ -5819,6 +6023,108 @@ expression: snapshot_data
       ],
       "Tank": [
         5183,
+        3
+      ]
+    },
+    "YellowComet": {
+      "APC": [
+        5494,
+        3
+      ],
+      "AntiAir": [
+        5531,
+        3
+      ],
+      "Artillery": [
+        5507,
+        3
+      ],
+      "BCopter": [
+        5575,
+        2
+      ],
+      "Battleship": [
+        5593,
+        2
+      ],
+      "BlackBoat": [
+        5629,
+        2
+      ],
+      "BlackBomb": [
+        5684,
+        3
+      ],
+      "Bomber": [
+        5564,
+        3
+      ],
+      "Carrier": [
+        5637,
+        2
+      ],
+      "Cruiser": [
+        5601,
+        2
+      ],
+      "Fighter": [
+        5553,
+        3
+      ],
+      "Infantry": [
+        5427,
+        4
+      ],
+      "Lander": [
+        5609,
+        2
+      ],
+      "MdTank": [
+        5455,
+        3
+      ],
+      "Mech": [
+        5441,
+        4
+      ],
+      "MegaTank": [
+        5697,
+        3
+      ],
+      "Missile": [
+        5542,
+        3
+      ],
+      "NeoTank": [
+        5660,
+        3
+      ],
+      "PipeRunner": [
+        5671,
+        3
+      ],
+      "Recon": [
+        5481,
+        3
+      ],
+      "Rocket": [
+        5518,
+        3
+      ],
+      "Stealth": [
+        5647,
+        3
+      ],
+      "Sub": [
+        5619,
+        2
+      ],
+      "TCopter": [
+        5585,
+        2
+      ],
+      "Tank": [
+        5468,
         3
       ]
     }
@@ -7558,7 +7864,7 @@ expression: snapshot_data
         3
       ]
     },
-    "WhiteNova": {
+    "UmberWilds": {
       "APC": [
         4918,
         3
@@ -7660,7 +7966,7 @@ expression: snapshot_data
         3
       ]
     },
-    "YellowComet": {
+    "WhiteNova": {
       "APC": [
         5203,
         3
@@ -7759,6 +8065,108 @@ expression: snapshot_data
       ],
       "Tank": [
         5177,
+        3
+      ]
+    },
+    "YellowComet": {
+      "APC": [
+        5488,
+        3
+      ],
+      "AntiAir": [
+        5525,
+        3
+      ],
+      "Artillery": [
+        5501,
+        3
+      ],
+      "BCopter": [
+        5571,
+        2
+      ],
+      "Battleship": [
+        5589,
+        2
+      ],
+      "BlackBoat": [
+        5625,
+        2
+      ],
+      "BlackBomb": [
+        5678,
+        3
+      ],
+      "Bomber": [
+        5558,
+        3
+      ],
+      "Carrier": [
+        5633,
+        2
+      ],
+      "Cruiser": [
+        5597,
+        2
+      ],
+      "Fighter": [
+        5547,
+        3
+      ],
+      "Infantry": [
+        5419,
+        4
+      ],
+      "Lander": [
+        5605,
+        2
+      ],
+      "MdTank": [
+        5449,
+        3
+      ],
+      "Mech": [
+        5433,
+        4
+      ],
+      "MegaTank": [
+        5691,
+        3
+      ],
+      "Missile": [
+        5536,
+        3
+      ],
+      "NeoTank": [
+        5654,
+        3
+      ],
+      "PipeRunner": [
+        5665,
+        3
+      ],
+      "Recon": [
+        5475,
+        3
+      ],
+      "Rocket": [
+        5512,
+        3
+      ],
+      "Stealth": [
+        5641,
+        3
+      ],
+      "Sub": [
+        5615,
+        2
+      ],
+      "TCopter": [
+        5581,
+        2
+      ],
+      "Tank": [
+        5462,
         3
       ]
     }

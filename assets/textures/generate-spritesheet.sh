@@ -8,11 +8,7 @@ cd "$DIR"
 # Fill in with the path to AWBW-Replay-Player/AWBWApp.Resources/Textures
 TEXTURES_DIR="${TEXTURES_DIR:-.}"
 
-cd "$TEXTURES_DIR/Map/AW2"
-montage -tile 64x -mode concatenate -gravity southeast -geometry '16x32>' -background transparent \
-  $(cd "$DIR" && cargo spritesheet-list "$TEXTURES_DIR/Map/AW2") "$DIR/tiles.png"
-
-cd -
+(cd "$DIR/../.." && cargo xtask-assets tiles)
 
 # Use the filtered list for montage
 montage -tile 64x -mode concatenate -gravity southeast -geometry '23x24>' -background transparent \
