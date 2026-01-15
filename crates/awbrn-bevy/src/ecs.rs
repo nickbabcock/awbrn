@@ -107,8 +107,12 @@ pub struct Faction(pub awbrn_core::PlayerFaction);
 pub struct SpriteSize {
     pub width: f32,
     pub height: f32,
-    pub z_index: u8,
+    pub z_index: i8,
 }
+
+#[derive(Component)]
+#[require(SpriteSize { width: 16.0, height: 32.0, z_index: -1 })]
+pub struct MapBackdrop;
 
 #[derive(Component)]
 #[require(SpriteSize { width: 16.0, height: 32.0, z_index: 0 })]
