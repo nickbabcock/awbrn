@@ -79,6 +79,29 @@ jobs:
 
     - run: cargo build --profile ci --locked --verbose -p awbrn-desktop
 
+  # Ensures that our assets pipeline results in the same generated files on
+  # linux and windows.
+  assets:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: stable
+    - uses: jdx/mise-action@v2
+    - name: Build assets
+      run: mise run assets
+    - name: Ensure no git diff
+      run: git diff --exit-code
+
   # Check that all files are formatted properly.
   rustfmt:
     runs-on: ubuntu-latest

@@ -22,3 +22,10 @@ description = "Run the desktop app"
 run = [
     "cargo run --package awbrn-desktop"
 ]
+
+[tasks."assets"]
+description = "Compile assets"
+run = [
+    "cargo xtask-assets tiles",
+    "cargo xtask-assets units"
+]
