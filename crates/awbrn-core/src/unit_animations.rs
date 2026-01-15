@@ -107,7 +107,7 @@ impl UnitAnimationFrames {
 }
 
 // Build-time generated data
-include!("./unit_animation_data.rs");
+include!("./generated/unit_animation_data.rs");
 
 /// Calculate sprite index and animation frames for a unit
 pub fn get_unit_animation_frames(
@@ -119,7 +119,7 @@ pub fn get_unit_animation_frames(
     let frames_per_faction = UnitAnimationData::TOTAL_FRAMES as u16;
 
     // Each faction's sprites start at faction_index * frames_per_faction
-    let faction_offset = frames_per_faction * u16::from(faction.index());
+    let faction_offset = frames_per_faction * faction_index(faction);
 
     // Calculate offset within this unit's animations based on movement type
     let movement_offset = calculate_movement_offset(movement, unit);

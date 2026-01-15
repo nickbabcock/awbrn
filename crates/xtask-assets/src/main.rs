@@ -1,14 +1,18 @@
 use anyhow::{Context, Result, anyhow};
+use awbrn_types::{PlayerFaction, Unit};
 use image::RgbaImage;
+use indexmap::IndexMap;
 use oxipng::{InFile, Options, OutFile};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use strum::VariantArray;
 
 const TILESHEET_COLUMNS: u32 = 64;
+const UNITSHEET_COLUMNS: u32 = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum WeatherKind {
@@ -224,13 +228,134 @@ struct BuildingEntry {
     textures: TextureSet,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+struct UnitAnimationEntry {
+    #[serde(rename = "Texture")]
+    texture: String,
+    #[serde(rename = "Frames")]
+    frames: Vec<u16>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct UnitEntry {
+    #[serde(rename = "Name")]
+    _name: String,
+    #[serde(rename = "IdleAnimation")]
+    idle: UnitAnimationEntry,
+    #[serde(rename = "MoveUpAnimation")]
+    move_up: UnitAnimationEntry,
+    #[serde(rename = "MoveDownAnimation")]
+    move_down: UnitAnimationEntry,
+    #[serde(rename = "MoveSideAnimation")]
+    move_side: UnitAnimationEntry,
+}
+
+#[derive(Debug, Clone)]
+struct UnitDefinition {
+    unit: Unit,
+    idle: UnitAnimationEntry,
+    move_up: UnitAnimationEntry,
+    move_down: UnitAnimationEntry,
+    move_side: UnitAnimationEntry,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FactionDefinition {
+    faction: PlayerFaction,
+    folder: &'static str,
+}
+
+const UNIT_FACTIONS: [FactionDefinition; 20] = [
+    FactionDefinition {
+        faction: PlayerFaction::AcidRain,
+        folder: "AcidRain",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::AmberBlaze,
+        folder: "AmberBlossom",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::AzureAsteroid,
+        folder: "AzureAsteroid",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::BlackHole,
+        folder: "BlackHole",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::BlueMoon,
+        folder: "BlueMoon",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::BrownDesert,
+        folder: "BrownDesert",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::CobaltIce,
+        folder: "CobaltIce",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::GreenEarth,
+        folder: "GreenEarth",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::GreySky,
+        folder: "GreySky",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::JadeSun,
+        folder: "JadeSun",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::NoirEclipse,
+        folder: "NoirEclipse",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::OrangeStar,
+        folder: "OrangeStar",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::PinkCosmos,
+        folder: "PinkCosmos",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::PurpleLightning,
+        folder: "PurpleLightning",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::RedFire,
+        folder: "RedFire",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::SilverClaw,
+        folder: "SilverClaw",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::TealGalaxy,
+        folder: "TealGalaxy",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::UmberWilds,
+        folder: "UmberWilds",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::WhiteNova,
+        folder: "WhiteNova",
+    },
+    FactionDefinition {
+        faction: PlayerFaction::YellowComet,
+        folder: "YellowComet",
+    },
+];
+
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("tiles") => run_tiles(),
+        Some("units") => run_units(),
         _ => {
             eprintln!(
-                "Usage: {} tiles",
+                "Usage: {} [tiles|units]",
                 args.first().map(String::as_str).unwrap_or("xtask-assets")
             );
             std::process::exit(1);
@@ -413,7 +538,7 @@ fn run_tiles() -> Result<()> {
     all_frames.extend(snow_frames);
     all_frames.extend(rain_frames);
 
-    build_tilesheet(&all_frames, &tilesheet_path)?;
+    build_spritesheet(&all_frames, &tilesheet_path, TILESHEET_COLUMNS)?;
     optimize_png(&tilesheet_path)?;
 
     fs::create_dir_all(&generated_dir).context("Creating generated output directory")?;
@@ -424,11 +549,203 @@ fn run_tiles() -> Result<()> {
     Ok(())
 }
 
+fn run_units() -> Result<()> {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+    let assets_root = repo_root.join("assets/AWBW-Replay-Player/AWBWApp.Resources");
+    let units_path = assets_root.join("Json/Units.json");
+    let textures_root = assets_root.join("Textures/Units");
+    let unitsheet_path = repo_root.join("assets/textures/units.png");
+    let generated_dir = repo_root.join("crates/awbrn-core/src/generated");
+
+    validate_unit_faction_order()?;
+
+    let units_in_order = load_units_in_order(&units_path)?;
+    let unit_definitions = build_unit_definitions(units_in_order)?;
+
+    let unit_frame_paths = collect_unit_frames(&unit_definitions, &textures_root)?;
+    build_spritesheet(&unit_frame_paths, &unitsheet_path, UNITSHEET_COLUMNS)?;
+    optimize_png(&unitsheet_path)?;
+
+    fs::create_dir_all(&generated_dir).context("Creating generated output directory")?;
+    let units_rs = generated_dir.join("unit_animation_data.rs");
+    let units_contents = render_unit_animation_data(&unit_definitions);
+    fs::write(&units_rs, units_contents).context("Writing unit_animation_data.rs")?;
+
+    Ok(())
+}
+
 fn load_json_map<T: DeserializeOwned>(path: &Path) -> Result<BTreeMap<String, T>> {
     let content =
         fs::read_to_string(path).with_context(|| format!("Reading {}", path.display()))?;
     let filtered = strip_json_comments(&content);
     serde_json::from_str(&filtered).with_context(|| format!("Parsing {}", path.display()))
+}
+
+fn validate_unit_faction_order() -> Result<()> {
+    for (index, entry) in UNIT_FACTIONS.iter().enumerate() {
+        let expected = index as u8;
+        let actual = entry.faction.index();
+        if actual != expected {
+            return Err(anyhow!(
+                "Unit faction order mismatch for {:?}: expected {expected}, got {actual}",
+                entry.faction
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn load_units_in_order(path: &Path) -> Result<Vec<(String, UnitEntry)>> {
+    let content =
+        fs::read_to_string(path).with_context(|| format!("Reading {}", path.display()))?;
+    let filtered = strip_json_comments(&content);
+    let entries: IndexMap<String, UnitEntry> =
+        serde_json::from_str(&filtered).with_context(|| format!("Parsing {}", path.display()))?;
+
+    Ok(entries.into_iter().collect())
+}
+
+fn build_unit_definitions(units: Vec<(String, UnitEntry)>) -> Result<Vec<UnitDefinition>> {
+    let mut seen = HashSet::new();
+    let mut definitions = Vec::new();
+
+    for (name, entry) in units {
+        let unit = Unit::from_awbw_name(&name)
+            .ok_or_else(|| anyhow!("Unknown unit name in Units.json: {name}"))?;
+        if !seen.insert(unit) {
+            return Err(anyhow!("Duplicate unit definition for {name}"));
+        }
+
+        let total_frames = unit_total_frames(&entry);
+        if total_frames > 16 {
+            return Err(anyhow!("Unit {name} has {total_frames} frames (max 16)"));
+        }
+
+        definitions.push(UnitDefinition {
+            unit,
+            idle: entry.idle,
+            move_up: entry.move_up,
+            move_down: entry.move_down,
+            move_side: entry.move_side,
+        });
+    }
+
+    for unit in Unit::VARIANTS {
+        if !seen.contains(unit) {
+            return Err(anyhow!("Missing unit definition for {unit:?}"));
+        }
+    }
+
+    Ok(definitions)
+}
+
+fn collect_unit_frames(units: &[UnitDefinition], textures_root: &Path) -> Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+
+    for faction in UNIT_FACTIONS {
+        let faction_root = textures_root.join(faction.folder);
+        for unit in units {
+            for animation in unit_animations_in_order(unit) {
+                for frame in 0..animation.frames.len() {
+                    let path = resolve_unit_frame_path(&faction_root, animation, frame);
+                    if !path.exists() {
+                        return Err(anyhow!("Missing texture file {}", path.display()));
+                    }
+                    paths.push(path);
+                }
+            }
+        }
+    }
+
+    Ok(paths)
+}
+
+fn unit_animations_in_order(unit: &UnitDefinition) -> [&UnitAnimationEntry; 4] {
+    [&unit.idle, &unit.move_up, &unit.move_down, &unit.move_side]
+}
+
+fn resolve_unit_frame_path(
+    base_dir: &Path,
+    animation: &UnitAnimationEntry,
+    frame: usize,
+) -> PathBuf {
+    if animation.frames.len() == 1 {
+        let base_path = base_dir.join(format!("{}.png", animation.texture));
+        if base_path.exists() {
+            return base_path;
+        }
+        return base_dir.join(format!("{}-0.png", animation.texture));
+    }
+
+    base_dir.join(format!("{}-{}.png", animation.texture, frame))
+}
+
+fn unit_total_frames(entry: &UnitEntry) -> usize {
+    entry.idle.frames.len()
+        + entry.move_up.frames.len()
+        + entry.move_down.frames.len()
+        + entry.move_side.frames.len()
+}
+
+fn unit_definition_total_frames(entry: &UnitDefinition) -> usize {
+    entry.idle.frames.len()
+        + entry.move_up.frames.len()
+        + entry.move_down.frames.len()
+        + entry.move_side.frames.len()
+}
+
+fn render_unit_animation_data(units: &[UnitDefinition]) -> String {
+    let mut output = String::new();
+    output.push_str("// This file is @generated by xtask-assets.\n\n");
+    output.push_str("fn get_animation_data(unit: Unit) -> (u16, UnitAnimationData) {\n");
+    output.push_str("    match unit {\n");
+
+    let mut offset: u16 = 0;
+    for unit in units {
+        let unit_name = format!("{:?}", unit.unit);
+        let idle_frames = format_frame_list(&unit.idle.frames);
+        let move_up_frames = format_frame_list(&unit.move_up.frames);
+        let move_down_frames = format_frame_list(&unit.move_down.frames);
+        let move_side_frames = format_frame_list(&unit.move_side.frames);
+
+        output.push_str(&format!(
+            "        Unit::{unit_name} => ({offset}, UnitAnimationData::new(\n"
+        ));
+        output.push_str(&format!("            &[{idle_frames}],\n"));
+        output.push_str(&format!("            &[{move_up_frames}],\n"));
+        output.push_str(&format!("            &[{move_down_frames}],\n"));
+        output.push_str(&format!("            &[{move_side_frames}],\n"));
+        output.push_str("        )),\n");
+
+        let total_frames = unit_definition_total_frames(unit);
+        offset = offset
+            .checked_add(total_frames as u16)
+            .unwrap_or_else(|| panic!("Unit animation frame count overflow"));
+    }
+
+    output.push_str("    }\n}\n\n");
+    output.push_str("fn faction_index(faction: PlayerFaction) -> u16 {\n");
+    output.push_str("    match faction {\n");
+    for (index, entry) in UNIT_FACTIONS.iter().enumerate() {
+        let faction_name = format!("{:?}", entry.faction);
+        output.push_str(&format!(
+            "        PlayerFaction::{faction_name} => {index},\n"
+        ));
+    }
+    output.push_str("    }\n}\n\n");
+
+    output.push_str("impl UnitAnimationData {\n");
+    output.push_str(&format!("    pub const TOTAL_FRAMES: usize = {offset};\n"));
+    output.push_str("}\n");
+    output
+}
+
+fn format_frame_list(frames: &[u16]) -> String {
+    frames
+        .iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn add_sea_alias(
@@ -733,7 +1050,7 @@ fn build_frame_path(base_dir: &Path, texture_key: &str, frame: u8, frames: u8) -
     }
 }
 
-fn build_tilesheet(paths: &[PathBuf], output_path: &Path) -> Result<()> {
+fn build_spritesheet(paths: &[PathBuf], output_path: &Path, columns: u32) -> Result<()> {
     let mut images = Vec::new();
     let mut max_width = 0;
     let mut max_height = 0;
@@ -748,10 +1065,10 @@ fn build_tilesheet(paths: &[PathBuf], output_path: &Path) -> Result<()> {
     }
 
     if images.is_empty() {
-        return Err(anyhow!("No tile images were collected for the tilesheet"));
+        return Err(anyhow!("No sprites were collected for the spritesheet"));
     }
 
-    let cols = TILESHEET_COLUMNS.max(1);
+    let cols = columns.max(1);
     let rows = (images.len() as u32).div_ceil(cols).max(1);
     let sheet_width = cols * max_width;
     let sheet_height = rows * max_height;
@@ -771,12 +1088,12 @@ fn build_tilesheet(paths: &[PathBuf], output_path: &Path) -> Result<()> {
     }
 
     if let Some(parent) = output_path.parent() {
-        fs::create_dir_all(parent).context("Creating tilesheet output directory")?;
+        fs::create_dir_all(parent).context("Creating spritesheet output directory")?;
     }
 
     sheet
         .save(output_path)
-        .with_context(|| format!("Saving tilesheet to {}", output_path.display()))?;
+        .with_context(|| format!("Saving spritesheet to {}", output_path.display()))?;
 
     Ok(())
 }
