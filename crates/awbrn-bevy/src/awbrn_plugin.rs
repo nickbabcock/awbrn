@@ -30,7 +30,7 @@
 
 use crate::{
     AwbwUnitId, CameraScale, CurrentWeather, Faction, GameMap, GridSystem, JsonAssetPlugin,
-    MapBackdrop, SelectedTile, SpriteSize, StrongIdMap, TerrainTile, Unit,
+    MapBackdrop, SelectedTile, SpriteSize, StrongIdMap, TerrainTile, UiAtlasAsset, Unit,
 };
 use awbrn_core::{GraphicalTerrain, Weather, get_unit_animation_frames};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
@@ -181,6 +181,7 @@ impl Plugin for AwbrnPlugin {
     fn build(&self, app: &mut App) {
         let mut app_builder = app
             .add_plugins(JsonAssetPlugin::<AwbwMapAsset>::new())
+            .add_plugins(JsonAssetPlugin::<UiAtlasAsset>::new())
             .init_resource::<CameraScale>()
             .init_resource::<CurrentWeather>()
             .init_resource::<GameMap>()
