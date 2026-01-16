@@ -32,7 +32,9 @@ use crate::{
     AwbwUnitId, CameraScale, CurrentWeather, Faction, GameMap, GridSystem, JsonAssetPlugin,
     MapBackdrop, SelectedTile, SpriteSize, StrongIdMap, TerrainTile, UiAtlasAsset, Unit,
 };
-use awbrn_core::{GraphicalTerrain, Weather, get_unit_animation_frames};
+use awbrn_core::{
+    GraphicalTerrain, Weather, get_terrain_animation_frames, get_unit_animation_frames,
+};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
 use awbw_replay::{AwbwReplay, ReplayParser};
 use bevy::sprite::Anchor;
@@ -73,6 +75,7 @@ struct TerrainAnimation {
     frame_count: u8,
     current_frame: u8,
     frame_timer: Timer,
+    frame_durations: Option<Vec<u16>>,
 }
 
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
@@ -656,7 +659,16 @@ fn animate_terrain(time: Res<Time>, mut query: Query<(&mut TerrainAnimation, &mu
                 atlas.index = animation.start_index as usize + animation.current_frame as usize;
             }
 
-            animation.frame_timer = Timer::new(Duration::from_millis(300), TimerMode::Once);
+            // Get next frame duration (variable if available, else 300ms)
+            let next_duration = animation
+                .frame_durations
+                .as_ref()
+                .and_then(|durations| durations.get(animation.current_frame as usize).copied())
+                .unwrap_or(300);
+
+            // Reset timer with new duration
+            animation.frame_timer =
+                Timer::new(Duration::from_millis(next_duration as u64), TimerMode::Once);
         }
     }
 }
@@ -854,12 +866,26 @@ fn setup_map_visuals(
 
                 // Add animation component if terrain has multiple frames
                 if sprite_index.animation_frames() > 1 {
+                    // Get variable frame timing data if available
+                    let frame_durations = get_terrain_animation_frames(terrain)
+                        .map(|frames| frames.durations().to_vec());
+
+                    // Get initial duration (first frame's timing, or default 300ms)
+                    let initial_duration = frame_durations
+                        .as_ref()
+                        .and_then(|durations| durations.first().copied())
+                        .unwrap_or(300);
+
                     entity_commands.insert((
                         TerrainAnimation {
                             start_index: sprite_index.index(),
                             frame_count: sprite_index.animation_frames(),
                             current_frame: 0,
-                            frame_timer: Timer::new(Duration::from_millis(300), TimerMode::Once),
+                            frame_timer: Timer::new(
+                                Duration::from_millis(initial_duration as u64),
+                                TimerMode::Once,
+                            ),
+                            frame_durations,
                         },
                         AnimatedTerrain,
                     ));
