@@ -5997,9 +5997,11 @@ dependencies = [
  "image",
  "indexmap",
  "oxipng",
+ "rectangle-pack",
  "serde",
  "serde_json",
  "strum",
+ "walkdir",
 ]
 
 [[package]]

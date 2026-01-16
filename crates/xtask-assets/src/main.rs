@@ -3,13 +3,18 @@ use awbrn_types::{PlayerFaction, Unit};
 use image::RgbaImage;
 use indexmap::IndexMap;
 use oxipng::{InFile, Options, OutFile};
-use serde::Deserialize;
+use rectangle_pack::{
+    GroupedRectsToPlace, PackedLocation, RectToInsert, TargetBin, contains_smallest_box,
+    pack_rects, volume_heuristic,
+};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use strum::VariantArray;
+use walkdir::WalkDir;
 
 const TILESHEET_COLUMNS: u32 = 64;
 const UNITSHEET_COLUMNS: u32 = 64;
@@ -194,6 +199,35 @@ struct SpriteIndex {
     frames: u8,
 }
 
+#[derive(Debug)]
+struct UiSprite {
+    name: String,
+    image: RgbaImage,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Debug, Serialize)]
+struct UiAtlasSize {
+    width: u32,
+    height: u32,
+}
+
+#[derive(Debug, Serialize)]
+struct UiAtlasSprite {
+    name: String,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Debug, Serialize)]
+struct UiAtlasData {
+    size: UiAtlasSize,
+    sprites: Vec<UiAtlasSprite>,
+}
+
 #[derive(Debug, Deserialize)]
 struct TextureSet {
     #[serde(rename = "Clear")]
@@ -353,9 +387,10 @@ fn main() -> Result<()> {
     match args.get(1).map(String::as_str) {
         Some("tiles") => run_tiles(),
         Some("units") => run_units(),
+        Some("ui") => run_ui(),
         _ => {
             eprintln!(
-                "Usage: {} [tiles|units]",
+                "Usage: {} [tiles|units|ui]",
                 args.first().map(String::as_str).unwrap_or("xtask-assets")
             );
             std::process::exit(1);
@@ -577,6 +612,200 @@ fn run_units() -> Result<()> {
     let units_rs = generated_dir.join("unit_animation_data.rs");
     let units_contents = render_unit_animation_data(&unit_definitions);
     fs::write(&units_rs, units_contents).context("Writing unit_animation_data.rs")?;
+
+    Ok(())
+}
+
+fn run_ui() -> Result<()> {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+    let assets_root = repo_root.join("assets/AWBW-Replay-Player/AWBWApp.Resources");
+    let ui_root = assets_root.join("Textures/UI");
+    let atlas_path = repo_root.join("assets/textures/ui.png");
+    let data_path = repo_root.join("assets/data/ui_atlas.json");
+
+    let sprites = collect_ui_sprites(&ui_root)?;
+    let (atlas_width, atlas_height, placements) = pack_ui_sprites(&sprites)?;
+
+    build_ui_atlas(
+        &sprites,
+        &placements,
+        &atlas_path,
+        atlas_width,
+        atlas_height,
+    )?;
+    optimize_png(&atlas_path)?;
+
+    write_ui_atlas_data(&sprites, &placements, atlas_width, atlas_height, &data_path)?;
+
+    Ok(())
+}
+
+fn collect_ui_sprites(ui_root: &Path) -> Result<Vec<UiSprite>> {
+    let mut sprites = Vec::new();
+
+    for entry in WalkDir::new(ui_root).into_iter().filter_map(Result::ok) {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("png") {
+            continue;
+        }
+        let relative = path
+            .strip_prefix(ui_root)
+            .with_context(|| format!("Resolving relative path for {}", path.display()))?;
+        if relative
+            .components()
+            .next()
+            .is_some_and(|component| component.as_os_str() == "Power")
+        {
+            continue;
+        }
+        if relative
+            .components()
+            .next()
+            .is_some_and(|component| component.as_os_str() == "Health")
+        {
+            continue;
+        }
+        let name = relative.to_string_lossy().replace('\\', "/");
+
+        let image = image::open(path).with_context(|| format!("Loading {}", path.display()))?;
+        let rgba = image.to_rgba8();
+        let (width, height) = rgba.dimensions();
+
+        sprites.push(UiSprite {
+            name,
+            image: rgba,
+            width,
+            height,
+        });
+    }
+
+    sprites.sort_by(|a, b| a.name.cmp(&b.name));
+
+    if sprites.is_empty() {
+        return Err(anyhow!("No UI sprites found in {}", ui_root.display()));
+    }
+
+    Ok(sprites)
+}
+
+fn pack_ui_sprites(sprites: &[UiSprite]) -> Result<(u32, u32, HashMap<String, PackedLocation>)> {
+    let total_area: u32 = sprites
+        .iter()
+        .map(|sprite| sprite.width * sprite.height)
+        .sum();
+    let max_width = sprites.iter().map(|sprite| sprite.width).max().unwrap_or(1);
+    let max_height = sprites
+        .iter()
+        .map(|sprite| sprite.height)
+        .max()
+        .unwrap_or(1);
+    let mut side = ((total_area as f64).sqrt().ceil() as u32).max(1);
+    side = side.max(max_width).max(max_height);
+
+    let mut rects_to_place: GroupedRectsToPlace<String, ()> = GroupedRectsToPlace::new();
+    for sprite in sprites {
+        rects_to_place.push_rect(
+            sprite.name.clone(),
+            None,
+            RectToInsert::new(sprite.width, sprite.height, 1),
+        );
+    }
+
+    loop {
+        let mut target_bins = BTreeMap::new();
+        target_bins.insert(0u32, TargetBin::new(side, side, 1));
+
+        match pack_rects(
+            &rects_to_place,
+            &mut target_bins,
+            &volume_heuristic,
+            &contains_smallest_box,
+        ) {
+            Ok(result) => {
+                let placements = result
+                    .packed_locations()
+                    .into_iter()
+                    .map(|(name, (_bin_id, location))| (name.clone(), *location))
+                    .collect();
+                return Ok((side, side, placements));
+            }
+            Err(_) => {
+                side += 1;
+            }
+        }
+    }
+}
+
+fn build_ui_atlas(
+    sprites: &[UiSprite],
+    placements: &HashMap<String, PackedLocation>,
+    output_path: &Path,
+    width: u32,
+    height: u32,
+) -> Result<()> {
+    let mut atlas = RgbaImage::new(width, height);
+
+    for sprite in sprites {
+        let placement = placements
+            .get(&sprite.name)
+            .ok_or_else(|| anyhow!("Missing placement for {}", sprite.name))?;
+        image::imageops::overlay(
+            &mut atlas,
+            &sprite.image,
+            placement.x().into(),
+            placement.y().into(),
+        );
+    }
+
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).context("Creating UI atlas output directory")?;
+    }
+
+    atlas
+        .save(output_path)
+        .with_context(|| format!("Saving UI atlas to {}", output_path.display()))?;
+
+    Ok(())
+}
+
+fn write_ui_atlas_data(
+    sprites: &[UiSprite],
+    placements: &HashMap<String, PackedLocation>,
+    width: u32,
+    height: u32,
+    output_path: &Path,
+) -> Result<()> {
+    let mut entries = Vec::new();
+
+    for sprite in sprites {
+        let placement = placements
+            .get(&sprite.name)
+            .ok_or_else(|| anyhow!("Missing placement for {}", sprite.name))?;
+
+        entries.push(UiAtlasSprite {
+            name: sprite.name.clone(),
+            x: placement.x(),
+            y: placement.y(),
+            width: sprite.width,
+            height: sprite.height,
+        });
+    }
+
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let data = UiAtlasData {
+        size: UiAtlasSize { width, height },
+        sprites: entries,
+    };
+
+    let content = serde_json::to_string_pretty(&data).context("Serializing UI atlas data")?;
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).context("Creating UI atlas data directory")?;
+    }
+    fs::write(output_path, content).context("Writing UI atlas data")?;
 
     Ok(())
 }
