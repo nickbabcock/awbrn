@@ -801,7 +801,13 @@ fn setup_map_visuals(
 ) {
     // Load the tileset
     let texture = asset_server.load("textures/tiles.png");
-    let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 32), 64, 27, None, None);
+    let layout = TextureAtlasLayout::from_grid(
+        UVec2::new(16, 32),
+        awbrn_core::TILESHEET_COLUMNS,
+        awbrn_core::TILESHEET_ROWS,
+        None,
+        None,
+    );
     let texture_atlas_layout = texture_atlas_layouts.add(layout);
     let plain_index =
         awbrn_core::spritesheet_index(current_weather.weather(), GraphicalTerrain::Plain);
