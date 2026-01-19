@@ -117,6 +117,22 @@ jobs:
       run: |
         cargo fmt --all -- --check
 
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: stable
+        components: clippy
+    - name: Install Ubuntu dependencies
+      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
+    - name: Run clippy
+      run: |
+        cargo clippy --all-targets --all-features -- -D warnings
+
   testbench:
     runs-on: ubuntu-latest
     steps:

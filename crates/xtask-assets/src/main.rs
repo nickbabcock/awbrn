@@ -727,7 +727,7 @@ fn pack_ui_sprites(sprites: &[UiSprite]) -> Result<(u32, u32, HashMap<String, Pa
             Ok(result) => {
                 let placements = result
                     .packed_locations()
-                    .into_iter()
+                    .iter()
                     .map(|(name, (_bin_id, location))| (name.clone(), *location))
                     .collect();
                 return Ok((side, side, placements));

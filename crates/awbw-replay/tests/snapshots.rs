@@ -38,7 +38,7 @@ fn test_replay_snapshots() {
             let data = match ReplayEntriesKind::classify(entry_reader).unwrap() {
                 ReplayEntriesKind::Game(mut game_entries) => {
                     let mut entries = 0;
-                    while let Some(_) = game_entries.next_entry(&mut sink).unwrap() {
+                    while game_entries.next_entry(&mut sink).unwrap().is_some() {
                         entries += 1;
                     }
                     ZipEntryKind::Game { count: entries }
@@ -66,7 +66,7 @@ fn test_replay_snapshots() {
             file_entries.push(ZipEntry {
                 file_path: String::from(entry.file_path().try_normalize().unwrap().as_str()),
                 file_size: entry.uncompressed_size_hint(),
-                data: data,
+                data,
             });
         }
 
