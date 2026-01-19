@@ -151,6 +151,24 @@ pub enum Action {
     },
 }
 
+impl Action {
+    pub fn move_action(&self) -> Option<&MoveAction> {
+        match self {
+            Action::Move(action) => Some(action),
+            Action::AttackSeam { move_action, .. } => move_action.as_ref(),
+            Action::Capt { move_action, .. } => move_action.as_ref(),
+            Action::Fire { move_action, .. } => move_action.as_ref(),
+            Action::Join { move_action, .. } => move_action.as_ref(),
+            Action::Load { move_action, .. } => move_action.as_ref(),
+            Action::Repair { move_action, .. } => move_action.as_ref(),
+            Action::Supply { move_action, .. } => move_action.as_ref(),
+            Action::Hide { move_action, .. } => move_action.as_ref(),
+            Action::Unhide { move_action, .. } => move_action.as_ref(),
+            _ => None,
+        }
+    }
+}
+
 pub type UnitMap = indexmap::IndexMap<TargetedPlayer, Hidden<UnitProperty>>;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
