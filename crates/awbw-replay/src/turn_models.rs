@@ -145,6 +145,10 @@ pub enum Action {
         #[serde(rename = "Move", deserialize_with = "empty_field_action")]
         move_action: Option<MoveAction>,
     },
+    Tag {
+        #[serde(rename = "updatedInfo")]
+        updated_info: UpdatedInfo,
+    },
 }
 
 pub type UnitMap = indexmap::IndexMap<TargetedPlayer, Hidden<UnitProperty>>;
