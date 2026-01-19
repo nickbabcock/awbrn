@@ -125,6 +125,14 @@ pub struct TerrainTile {
 #[derive(Component)]
 pub struct SelectedTile;
 
+/// Component to mark an entity as capturing a building
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Capturing;
+
+/// Component to track the capturing indicator sprite child entity
+#[derive(Component, Debug)]
+pub struct CapturingIndicator(pub Entity);
+
 #[derive(Debug, Resource)]
 pub struct StrongIdMap<T> {
     units: HashMap<T, Entity>,
@@ -153,4 +161,12 @@ impl<T> Default for StrongIdMap<T> {
             units: HashMap::new(),
         }
     }
+}
+
+/// Resource to store loaded UI atlas for reuse
+#[derive(Resource)]
+pub struct UiAtlasResource {
+    pub handle: Handle<crate::UiAtlasAsset>,
+    pub texture: Handle<Image>,
+    pub layout: Handle<TextureAtlasLayout>,
 }

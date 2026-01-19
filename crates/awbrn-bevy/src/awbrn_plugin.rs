@@ -29,12 +29,14 @@
 //! ```
 
 use crate::{
-    AwbwUnitId, CameraScale, CurrentWeather, Faction, GameMap, GridSystem, JsonAssetPlugin,
-    MapBackdrop, SelectedTile, SpriteSize, StrongIdMap, TerrainTile, UiAtlasAsset, Unit,
+    AwbwUnitId, CameraScale, Capturing, CapturingIndicator, CurrentWeather, Faction, GameMap,
+    GridSystem, JsonAssetPlugin, MapBackdrop, SelectedTile, SpriteSize, StrongIdMap, TerrainTile,
+    UiAtlasAsset, UiAtlasResource, Unit,
 };
-use awbrn_core::{GraphicalTerrain, Weather, get_unit_animation_frames};
+use awbrn_core::{GraphicalTerrain, Property, Weather, get_unit_animation_frames};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
 use awbw_replay::{AwbwReplay, ReplayParser};
+use bevy::ecs::entity::EntityHashMap;
 use bevy::sprite::Anchor;
 use bevy::state::state::SubStates;
 use bevy::{log, prelude::*};
@@ -158,6 +160,105 @@ pub struct PendingGameStart(pub Handle<AwbwMapAsset>);
 /// Type alias for external events containing game events
 pub type ExternalGameEvent = ExternalEvent<GameEvent>;
 
+/// Observer that triggers when Capturing component is removed - cleans up the indicator
+fn on_capturing_remove(
+    trigger: On<Remove, Capturing>,
+    mut commands: Commands,
+    query: Query<&CapturingIndicator>,
+) {
+    let entity = trigger.entity;
+
+    // Get the indicator child entity if it exists
+    if let Ok(indicator) = query.get(entity) {
+        commands.entity(indicator.0).despawn();
+        log::info!("Removed capturing indicator from entity {:?}", entity);
+    }
+}
+
+/// System to spawn capturing indicators when UI atlas is loaded
+fn spawn_deferred_capturing_indicators(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+    ui_atlas_assets: Res<Assets<UiAtlasAsset>>,
+    ui_atlas_resource: Option<Res<UiAtlasResource>>,
+    query: Query<Entity, (With<Capturing>, Without<CapturingIndicator>)>,
+) {
+    // Only process if we have entities waiting for indicators
+    if query.is_empty() {
+        return;
+    }
+
+    // Initialize or get resource
+    let (atlas_handle, texture_handle, layout_handle) = if let Some(res) = &ui_atlas_resource {
+        (res.handle.clone(), res.texture.clone(), res.layout.clone())
+    } else {
+        // First time - load assets
+        let atlas: Handle<UiAtlasAsset> = asset_server.load("data/ui_atlas.json");
+        let texture = asset_server.load("textures/ui.png");
+
+        commands.insert_resource(UiAtlasResource {
+            handle: atlas.clone(),
+            texture: texture.clone(),
+            layout: Handle::default(),
+        });
+        return; // Wait for next frame
+    };
+
+    // Wait for UI atlas to load
+    let Some(ui_atlas) = ui_atlas_assets.get(&atlas_handle) else {
+        return;
+    };
+
+    // Create layout if needed
+    let layout = if layout_handle.id() == Handle::default().id() {
+        let new_layout = ui_atlas.layout();
+        let new_handle = texture_atlas_layouts.add(new_layout);
+
+        // Update resource with new layout handle
+        commands.insert_resource(UiAtlasResource {
+            handle: atlas_handle.clone(),
+            texture: texture_handle.clone(),
+            layout: new_handle.clone(),
+        });
+        new_handle
+    } else {
+        layout_handle
+    };
+
+    // Get sprite index
+    let index_map = ui_atlas.index_map();
+    let Some(&sprite_index) = index_map.get("Capturing.png") else {
+        log::error!("Capturing.png not found in UI atlas");
+        return;
+    };
+
+    // Spawn indicators for all waiting entities
+    for entity in query.iter() {
+        let offset = Vec3::new(0.0, -8.0, 1.0);
+
+        let indicator_entity = commands
+            .spawn((
+                Sprite::from_atlas_image(
+                    texture_handle.clone(),
+                    TextureAtlas {
+                        layout: layout.clone(),
+                        index: sprite_index,
+                    },
+                ),
+                Transform::from_translation(offset),
+                ChildOf(entity),
+            ))
+            .id();
+
+        commands
+            .entity(entity)
+            .insert(CapturingIndicator(indicator_entity));
+
+        log::info!("Spawned capturing indicator for entity {:?}", entity);
+    }
+}
+
 pub struct AwbrnPlugin {
     map_resolver: Arc<dyn MapAssetPathResolver>,
     event_bus: Option<Arc<dyn EventBus<GameEvent>>>,
@@ -193,6 +294,7 @@ impl Plugin for AwbrnPlugin {
             .add_message::<ExternalGameEvent>()
             .add_observer(on_map_position_insert)
             .add_observer(handle_unit_spawn)
+            .add_observer(on_capturing_remove)
             .add_systems(Startup, setup_camera);
 
         // Only add event bus if provided
@@ -215,6 +317,7 @@ impl Plugin for AwbrnPlugin {
                     handle_tile_clicks,
                     animate_units,
                     animate_terrain,
+                    spawn_deferred_capturing_indicators,
                 )
                     .run_if(in_state(AppState::InGame)),
             )
@@ -683,7 +786,7 @@ fn handle_game_input() {
 }
 
 #[derive(Debug, Resource)]
-struct ReplayState {
+pub struct ReplayState {
     turn: u32,
     day: u32,
 }
@@ -696,6 +799,9 @@ fn handle_replay_controls(
     units: Res<StrongIdMap<AwbwUnitId>>,
     mut event_writer: MessageWriter<ExternalGameEvent>,
     position_query: Query<&MapPosition>,
+    units2: Query<(Entity, &MapPosition, &Faction), With<AwbwUnitId>>,
+    mut terrain_query: Query<(Entity, &mut TerrainTile, &mut Sprite)>,
+    current_weather: Res<CurrentWeather>,
 ) {
     if !keyboard_input.just_pressed(KeyCode::ArrowRight) {
         return;
@@ -705,6 +811,46 @@ fn handle_replay_controls(
         info!("Reached the end of the replay turns");
         return;
     };
+
+    let mut entity_new_positions = EntityHashMap::new();
+    if let Some(mov) = turn.move_action() {
+        for (_player, unit) in mov.unit.iter() {
+            let Some(unit) = unit.get_value() else {
+                continue;
+            };
+
+            let Some(entity) = units.get(&AwbwUnitId(unit.units_id)) else {
+                warn!(
+                    "Unit with ID {} not found in unit storage",
+                    unit.units_id.as_u32()
+                );
+                continue;
+            };
+
+            let Some(x) = unit.units_x else { continue };
+            let Some(y) = unit.units_y else { continue };
+
+            // Get current position before updating it (if it exists)
+            let old_position = position_query.get(entity).ok();
+            let new_position = MapPosition::new(x as usize, y as usize);
+
+            commands.entity(entity).insert(new_position);
+            entity_new_positions.insert(entity, new_position);
+
+            // Send unit moved event if we had a previous position
+            if let Some(old_pos) = old_position {
+                event_writer.write(ExternalGameEvent {
+                    payload: GameEvent::UnitMoved(UnitMoved {
+                        unit_id: unit.units_id.as_u32(),
+                        from_x: old_pos.x(),
+                        from_y: old_pos.y(),
+                        to_x: x as usize,
+                        to_y: y as usize,
+                    }),
+                });
+            }
+        }
+    }
 
     match turn {
         awbw_replay::turn_models::Action::Build {
@@ -750,43 +896,100 @@ fn handle_replay_controls(
                 });
             }
         }
-        awbw_replay::turn_models::Action::Move(mov) => {
-            for (_player, unit) in mov.unit.iter() {
-                let Some(unit) = unit.get_value() else {
-                    continue;
-                };
+        awbw_replay::turn_models::Action::Capt {
+            move_action: _move_action,
+            capture_action,
+        } => {
+            let building_pos = Position::new(
+                capture_action.building_info.buildings_x as usize,
+                capture_action.building_info.buildings_y as usize,
+            );
 
-                let Some(entity) = units.get(&AwbwUnitId(unit.units_id)) else {
-                    warn!(
-                        "Unit with ID {} not found in unit storage",
-                        unit.units_id.as_u32()
-                    );
-                    continue;
-                };
+            let mut found = 0;
+            let mut capturing_unit_faction = None;
 
-                let Some(x) = unit.units_x else { continue };
-                let Some(y) = unit.units_y else { continue };
+            for (entity, MapPosition(pos), Faction(faction)) in units2.iter() {
+                // The units query won't see the deferred command execution so
+                // we need to check the overrides
+                let pos = entity_new_positions
+                    .get(&entity)
+                    .map(|p| p.position())
+                    .unwrap_or(*pos);
 
-                // Get current position before updating it (if it exists)
-                let old_position = position_query.get(entity).ok();
+                if pos == building_pos {
+                    found += 1;
+                    capturing_unit_faction = Some(*faction);
 
-                commands
-                    .entity(entity)
-                    .insert(MapPosition::new(x as usize, y as usize));
-
-                // Send unit moved event if we had a previous position
-                if let Some(old_pos) = old_position {
-                    event_writer.write(ExternalGameEvent {
-                        payload: GameEvent::UnitMoved(UnitMoved {
-                            unit_id: unit.units_id.as_u32(),
-                            from_x: old_pos.x(),
-                            from_y: old_pos.y(),
-                            to_x: x as usize,
-                            to_y: y as usize,
-                        }),
-                    });
+                    if capture_action.building_info.buildings_capture >= 20 {
+                        commands.entity(entity).remove::<Capturing>();
+                    } else {
+                        commands.entity(entity).insert(Capturing);
+                    }
                 }
             }
+
+            if found != 1 {
+                warn!(
+                    "Expected exactly one unit capturing at position {:?}, found {}",
+                    building_pos, found
+                );
+            }
+
+            // If capture is complete (>= 20), flip the building to the capturing unit's faction
+            if capture_action.building_info.buildings_capture >= 20 {
+                if let Some(faction) = capturing_unit_faction {
+                    for (_terrain_entity, mut terrain_tile, mut sprite) in terrain_query.iter_mut()
+                    {
+                        if terrain_tile.position == building_pos {
+                            // Check if this is a property that can be captured
+                            if let GraphicalTerrain::Property(property) = terrain_tile.terrain {
+                                let new_property = match property {
+                                    Property::City(_) => {
+                                        Property::City(awbrn_core::Faction::Player(faction))
+                                    }
+                                    Property::Base(_) => {
+                                        Property::Base(awbrn_core::Faction::Player(faction))
+                                    }
+                                    Property::Airport(_) => {
+                                        Property::Airport(awbrn_core::Faction::Player(faction))
+                                    }
+                                    Property::Port(_) => {
+                                        Property::Port(awbrn_core::Faction::Player(faction))
+                                    }
+                                    Property::ComTower(_) => {
+                                        Property::ComTower(awbrn_core::Faction::Player(faction))
+                                    }
+                                    Property::Lab(_) => {
+                                        Property::Lab(awbrn_core::Faction::Player(faction))
+                                    }
+                                    Property::HQ(_) => Property::HQ(faction),
+                                };
+
+                                terrain_tile.terrain = GraphicalTerrain::Property(new_property);
+
+                                // Update sprite to show new faction
+                                let sprite_index = awbrn_core::spritesheet_index(
+                                    current_weather.weather(),
+                                    terrain_tile.terrain,
+                                );
+                                if let Some(atlas) = &mut sprite.texture_atlas {
+                                    atlas.index = sprite_index.index() as usize;
+                                }
+
+                                log::info!(
+                                    "Captured building at {:?} flipped to {:?}",
+                                    building_pos,
+                                    faction
+                                );
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        awbw_replay::turn_models::Action::Move(_) => {
+            // Handled via [`Action::move_action`]
         }
         awbw_replay::turn_models::Action::End { updated_info } => {
             if updated_info.day != replay_state.day {
