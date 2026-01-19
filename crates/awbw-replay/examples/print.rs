@@ -7,7 +7,13 @@ fn main() {
     let mut buffer = Vec::new();
     stdin.read_to_end(&mut buffer).expect("to read from stdin");
     let parser = ReplayParser::new().with_debug(true);
-    let replay = parser.parse(&buffer).expect("to parse replay");
+    let replay = match parser.parse(&buffer) {
+        Ok(replay) => replay,
+        Err(e) => {
+            eprintln!("Error parsing replay: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     let stdout = std::io::stdout();
     let handle = stdout.lock();

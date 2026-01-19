@@ -186,7 +186,7 @@ impl<'a> ReplayEntry<'a, GameKind> {
 impl<'a> ReplayEntry<'a, TurnKind> {
     pub fn parse(&self) -> Result<TurnContent<'a>, errors::ReplayError> {
         TurnContent::from_slice(self.data).ok_or(ReplayError {
-            kind: ReplayErrorKind::InvalidTurnData,
+            kind: ReplayErrorKind::InvalidTurnData { context: None },
         })
     }
 }
@@ -213,11 +213,12 @@ impl ReplayParser {
         let mut turns = Vec::new();
         let mut buf = Vec::new();
 
-        for file_entry in file.iter() {
+        for (file_entry_index, file_entry) in file.iter().enumerate() {
             let reader = std::io::BufReader::new(file_entry.get_reader()?);
 
             match ReplayEntriesKind::classify(reader)? {
                 ReplayEntriesKind::Game(mut entries) => {
+                    let mut game_index = 0;
                     while let Some(entry) = entries.next_entry(&mut buf)? {
                         let mut deser = entry.deserializer();
                         let game = if self.debug {
@@ -228,18 +229,49 @@ impl ReplayParser {
                                 kind: ReplayErrorKind::Php {
                                     error,
                                     path: Some(track.path()),
+                                    context: Some(errors::DeserializationContext {
+                                        file_entry_index,
+                                        entry_kind: errors::EntryKind::Game { game_index },
+                                    }),
                                 },
                             })?
                         } else {
-                            AwbwGame::deserialize(&mut deser)?
+                            AwbwGame::deserialize(&mut deser).map_err(|error| ReplayError {
+                                kind: ReplayErrorKind::Php {
+                                    error,
+                                    path: None,
+                                    context: Some(errors::DeserializationContext {
+                                        file_entry_index,
+                                        entry_kind: errors::EntryKind::Game { game_index },
+                                    }),
+                                },
+                            })?
                         };
 
                         games.push(game);
+                        game_index += 1;
                     }
                 }
                 ReplayEntriesKind::Turn(mut entries) => {
+                    let mut turn_index = 0;
                     while let Some(entry) = entries.next_entry(&mut buf)? {
-                        let turn = entry.parse()?;
+                        let turn = entry.parse().map_err(|_| ReplayError {
+                            kind: ReplayErrorKind::InvalidTurnData {
+                                context: Some(errors::DeserializationContext {
+                                    file_entry_index,
+                                    entry_kind: errors::EntryKind::Turn {
+                                        turn_index,
+                                        player_id: 0,
+                                        day: 0,
+                                        action_index: None,
+                                    },
+                                }),
+                            },
+                        })?;
+
+                        let player_id = turn.player_id();
+                        let day = turn.day();
+
                         for element in turn.actions()? {
                             let mut deser = element.deserializer();
                             let action = if self.debug {
@@ -250,13 +282,37 @@ impl ReplayParser {
                                     kind: ReplayErrorKind::Json {
                                         error,
                                         path: Some(track.path()),
+                                        context: Some(errors::DeserializationContext {
+                                            file_entry_index,
+                                            entry_kind: errors::EntryKind::Turn {
+                                                turn_index,
+                                                player_id,
+                                                day,
+                                                action_index: Some(turns.len()),
+                                            },
+                                        }),
                                     },
                                 })?
                             } else {
-                                Action::deserialize(&mut deser)?
+                                Action::deserialize(&mut deser).map_err(|error| ReplayError {
+                                    kind: ReplayErrorKind::Json {
+                                        error,
+                                        path: None,
+                                        context: Some(errors::DeserializationContext {
+                                            file_entry_index,
+                                            entry_kind: errors::EntryKind::Turn {
+                                                turn_index,
+                                                player_id,
+                                                day,
+                                                action_index: Some(turns.len()),
+                                            },
+                                        }),
+                                    },
+                                })?
                             };
                             turns.push(action);
                         }
+                        turn_index += 1;
                     }
                 }
             }
