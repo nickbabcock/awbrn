@@ -1,3 +1,23 @@
+/// Context information about where a deserialization error occurred
+#[derive(Debug, Clone)]
+pub struct DeserializationContext {
+    pub file_entry_index: usize,
+    pub entry_kind: EntryKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum EntryKind {
+    Game {
+        game_index: usize,
+    },
+    Turn {
+        turn_index: usize,
+        player_id: u32,
+        day: u32,
+        action_index: Option<usize>,
+    },
+}
+
 #[derive(Debug)]
 pub struct ReplayError {
     pub(crate) kind: ReplayErrorKind,
@@ -10,12 +30,16 @@ pub enum ReplayErrorKind {
     Php {
         error: phpserz::Error,
         path: Option<serde_path_to_error::Path>,
+        context: Option<DeserializationContext>,
     },
     Json {
         error: serde_json::Error,
         path: Option<serde_path_to_error::Path>,
+        context: Option<DeserializationContext>,
     },
-    InvalidTurnData,
+    InvalidTurnData {
+        context: Option<DeserializationContext>,
+    },
 }
 
 impl std::error::Error for ReplayError {
@@ -25,7 +49,7 @@ impl std::error::Error for ReplayError {
             ReplayErrorKind::Io(err) => Some(err),
             ReplayErrorKind::Php { error, .. } => Some(error),
             ReplayErrorKind::Json { error, .. } => Some(error),
-            ReplayErrorKind::InvalidTurnData => None,
+            ReplayErrorKind::InvalidTurnData { .. } => None,
         }
     }
 }
@@ -35,21 +59,68 @@ impl std::fmt::Display for ReplayError {
         match &self.kind {
             ReplayErrorKind::Zip(err) => write!(f, "Zip error: {}", err),
             ReplayErrorKind::Io(err) => write!(f, "IO error: {}", err),
-            ReplayErrorKind::Php { error, path } => {
-                if let Some(path) = path {
-                    write!(f, "PHP error at {}: {}", path, error)
-                } else {
-                    write!(f, "PHP error: {}", error)
+            ReplayErrorKind::Php {
+                error,
+                path,
+                context,
+            } => {
+                write!(f, "PHP error")?;
+                if let Some(ctx) = context {
+                    write!(f, " at {}", ctx)?;
                 }
-            }
-            ReplayErrorKind::Json { error, path } => {
                 if let Some(path) = path {
-                    write!(f, "JSON error at {}: {}", path, error)
-                } else {
-                    write!(f, "JSON error: {}", error)
+                    write!(f, " (field: {})", path)?;
                 }
+                write!(f, ": {}", error)
             }
-            ReplayErrorKind::InvalidTurnData => write!(f, "Invalid turn data"),
+            ReplayErrorKind::Json {
+                error,
+                path,
+                context,
+            } => {
+                write!(f, "JSON error")?;
+                if let Some(ctx) = context {
+                    write!(f, " at {}", ctx)?;
+                }
+                if let Some(path) = path {
+                    write!(f, " (field: {})", path)?;
+                }
+                write!(f, ": {}", error)
+            }
+            ReplayErrorKind::InvalidTurnData { context } => {
+                write!(f, "Invalid turn data")?;
+                if let Some(ctx) = context {
+                    write!(f, " at {}", ctx)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for DeserializationContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "file[{}]", self.file_entry_index)?;
+        match &self.entry_kind {
+            EntryKind::Game { game_index } => {
+                write!(f, " game[{}]", game_index)
+            }
+            EntryKind::Turn {
+                turn_index,
+                player_id,
+                day,
+                action_index,
+            } => {
+                write!(
+                    f,
+                    " turn[{}] (player={}, day={})",
+                    turn_index, player_id, day
+                )?;
+                if let Some(idx) = action_index {
+                    write!(f, " action[{}]", idx)?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -76,6 +147,7 @@ impl From<phpserz::Error> for ReplayError {
             kind: ReplayErrorKind::Php {
                 error: err,
                 path: None,
+                context: None,
             },
         }
     }
@@ -84,7 +156,11 @@ impl From<phpserz::Error> for ReplayError {
 impl From<serde_json::Error> for ReplayError {
     fn from(error: serde_json::Error) -> Self {
         ReplayError {
-            kind: ReplayErrorKind::Json { error, path: None },
+            kind: ReplayErrorKind::Json {
+                error,
+                path: None,
+                context: None,
+            },
         }
     }
 }
