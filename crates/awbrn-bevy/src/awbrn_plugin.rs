@@ -476,12 +476,16 @@ fn update_backdrop_on_weather_change(
     }
 }
 
+type StaticTerrainQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static mut Sprite, &'static TerrainTile),
+    (Without<TerrainAnimation>, Without<MapBackdrop>),
+>;
+
 fn update_static_terrain_on_weather_change(
     current_weather: Res<CurrentWeather>,
-    mut static_query: Query<
-        (&mut Sprite, &TerrainTile),
-        (Without<TerrainAnimation>, Without<MapBackdrop>),
-    >,
+    mut static_query: StaticTerrainQuery,
 ) {
     if !current_weather.is_changed() {
         return;
@@ -496,12 +500,20 @@ fn update_static_terrain_on_weather_change(
     }
 }
 
+type AnimatedTerrainQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static mut Sprite,
+        &'static TerrainTile,
+        &'static mut TerrainAnimation,
+    ),
+    (With<TerrainAnimation>, Without<MapBackdrop>),
+>;
+
 fn update_animated_terrain_on_weather_change(
     current_weather: Res<CurrentWeather>,
-    mut animated_query: Query<
-        (&mut Sprite, &TerrainTile, &mut TerrainAnimation),
-        (With<TerrainAnimation>, Without<MapBackdrop>),
-    >,
+    mut animated_query: AnimatedTerrainQuery,
 ) {
     if !current_weather.is_changed() {
         return;
@@ -582,24 +594,24 @@ fn handle_tile_clicks(
     }
 
     // If we found a tile and it's within a reasonable distance, mark it as selected
-    if let Some((entity, tile)) = closest_entity {
-        if closest_distance < 16.0 {
-            // Assuming the tile size is approximately 16 pixels
-            commands.entity(entity).insert(SelectedTile);
-            info!(
-                "Selected terrain at {:?}: {:?}",
-                tile.position, tile.terrain
-            );
+    if let Some((entity, tile)) = closest_entity
+        && closest_distance < 16.0
+    {
+        // Assuming the tile size is approximately 16 pixels
+        commands.entity(entity).insert(SelectedTile);
+        info!(
+            "Selected terrain at {:?}: {:?}",
+            tile.position, tile.terrain
+        );
 
-            // Send tile selected event
-            event_writer.write(ExternalGameEvent {
-                payload: GameEvent::TileSelected(TileSelected {
-                    x: tile.position.x,
-                    y: tile.position.y,
-                    terrain_type: format!("{:?}", tile.terrain),
-                }),
-            });
-        }
+        // Send tile selected event
+        event_writer.write(ExternalGameEvent {
+            payload: GameEvent::TileSelected(TileSelected {
+                x: tile.position.x,
+                y: tile.position.y,
+                terrain_type: format!("{:?}", tile.terrain),
+            }),
+        });
     }
 }
 

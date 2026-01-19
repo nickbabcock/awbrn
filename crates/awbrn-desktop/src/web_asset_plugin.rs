@@ -41,13 +41,12 @@ impl WebAssetReader {
     pub(crate) async fn get(&self, path: &Path) -> Result<Box<dyn Reader>, AssetReaderError> {
         let uri = WebAssetReader::uri(path);
         let request = ehttp::Request::get(&uri);
-        let response = ehttp::fetch_async(request).await.map_err(|e| {
-            AssetReaderError::Io(Arc::new(std::io::Error::new(std::io::ErrorKind::Other, e)))
-        })?;
+        let response = ehttp::fetch_async(request)
+            .await
+            .map_err(|e| AssetReaderError::Io(Arc::new(std::io::Error::other(e))))?;
 
         if !response.ok {
-            return Err(AssetReaderError::Io(Arc::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Err(AssetReaderError::Io(Arc::new(std::io::Error::other(
                 "Failed to fetch asset",
             ))));
         }

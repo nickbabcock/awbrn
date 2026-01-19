@@ -134,16 +134,15 @@ fn create_property(kind: &PropertyKind, faction: Faction) -> Property {
 
 // Generates all variants of GraphicalTerrain
 fn get_all_graphical_terrains() -> Vec<GraphicalTerrain> {
-    let mut terrains = Vec::new();
-
-    terrains.push(GraphicalTerrain::StubbyMoutain);
-
-    // Basic terrains
-    terrains.push(GraphicalTerrain::Plain);
-    terrains.push(GraphicalTerrain::Mountain);
-    terrains.push(GraphicalTerrain::Wood);
-    terrains.push(GraphicalTerrain::Reef);
-    terrains.push(GraphicalTerrain::Teleporter);
+    let mut terrains = vec![
+        GraphicalTerrain::StubbyMoutain,
+        // Basic terrains
+        GraphicalTerrain::Plain,
+        GraphicalTerrain::Mountain,
+        GraphicalTerrain::Wood,
+        GraphicalTerrain::Reef,
+        GraphicalTerrain::Teleporter,
+    ];
 
     // Rivers
     for river_type in all_river_types() {
