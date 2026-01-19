@@ -4,5 +4,171 @@ expression: snapshot
 input_file: assets/replays/1419680.zip
 ---
 {
-  "checksum": "0x086503d643f3edbf5a30ebd9359a6ef93fcb3f39ebbc2b42698a4bac74a68fcf"
+  "checksum": "0x086503d643f3edbf5a30ebd9359a6ef93fcb3f39ebbc2b42698a4bac74a68fcf",
+  "file_entries": [
+    {
+      "data": {
+        "Game": {
+          "count": 29
+        }
+      },
+      "file_path": "1419680",
+      "file_size": 72559
+    },
+    {
+      "data": {
+        "Turn": {
+          "turns": [
+            {
+              "day": 1,
+              "elements": 3,
+              "player_id": 3313081
+            },
+            {
+              "day": 1,
+              "elements": 4,
+              "player_id": 3313080
+            },
+            {
+              "day": 2,
+              "elements": 4,
+              "player_id": 3313081
+            },
+            {
+              "day": 2,
+              "elements": 5,
+              "player_id": 3313080
+            },
+            {
+              "day": 3,
+              "elements": 6,
+              "player_id": 3313081
+            },
+            {
+              "day": 3,
+              "elements": 7,
+              "player_id": 3313080
+            },
+            {
+              "day": 4,
+              "elements": 8,
+              "player_id": 3313081
+            },
+            {
+              "day": 4,
+              "elements": 9,
+              "player_id": 3313080
+            },
+            {
+              "day": 5,
+              "elements": 11,
+              "player_id": 3313081
+            },
+            {
+              "day": 5,
+              "elements": 11,
+              "player_id": 3313080
+            },
+            {
+              "day": 6,
+              "elements": 13,
+              "player_id": 3313081
+            },
+            {
+              "day": 6,
+              "elements": 14,
+              "player_id": 3313080
+            },
+            {
+              "day": 7,
+              "elements": 17,
+              "player_id": 3313081
+            },
+            {
+              "day": 7,
+              "elements": 17,
+              "player_id": 3313080
+            },
+            {
+              "day": 8,
+              "elements": 19,
+              "player_id": 3313081
+            },
+            {
+              "day": 8,
+              "elements": 20,
+              "player_id": 3313080
+            },
+            {
+              "day": 9,
+              "elements": 23,
+              "player_id": 3313081
+            },
+            {
+              "day": 9,
+              "elements": 23,
+              "player_id": 3313080
+            },
+            {
+              "day": 10,
+              "elements": 21,
+              "player_id": 3313081
+            },
+            {
+              "day": 10,
+              "elements": 27,
+              "player_id": 3313080
+            },
+            {
+              "day": 11,
+              "elements": 32,
+              "player_id": 3313081
+            },
+            {
+              "day": 11,
+              "elements": 42,
+              "player_id": 3313080
+            },
+            {
+              "day": 12,
+              "elements": 36,
+              "player_id": 3313081
+            },
+            {
+              "day": 12,
+              "elements": 56,
+              "player_id": 3313080
+            },
+            {
+              "day": 13,
+              "elements": 46,
+              "player_id": 3313081
+            },
+            {
+              "day": 13,
+              "elements": 50,
+              "player_id": 3313080
+            },
+            {
+              "day": 14,
+              "elements": 40,
+              "player_id": 3313081
+            },
+            {
+              "day": 14,
+              "elements": 59,
+              "player_id": 3313080
+            },
+            {
+              "day": 15,
+              "elements": 8,
+              "player_id": 3313081
+            }
+          ]
+        }
+      },
+      "file_path": "a1419680",
+      "file_size": 57389
+    }
+  ]
 }
