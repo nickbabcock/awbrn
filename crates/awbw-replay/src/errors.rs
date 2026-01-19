@@ -15,6 +15,7 @@ pub enum ReplayErrorKind {
         error: serde_json::Error,
         path: Option<serde_path_to_error::Path>,
     },
+    InvalidTurnData,
 }
 
 impl std::error::Error for ReplayError {
@@ -24,6 +25,7 @@ impl std::error::Error for ReplayError {
             ReplayErrorKind::Io(err) => Some(err),
             ReplayErrorKind::Php { error, .. } => Some(error),
             ReplayErrorKind::Json { error, .. } => Some(error),
+            ReplayErrorKind::InvalidTurnData => None,
         }
     }
 }
@@ -47,6 +49,7 @@ impl std::fmt::Display for ReplayError {
                     write!(f, "JSON error: {}", error)
                 }
             }
+            ReplayErrorKind::InvalidTurnData => write!(f, "Invalid turn data"),
         }
     }
 }

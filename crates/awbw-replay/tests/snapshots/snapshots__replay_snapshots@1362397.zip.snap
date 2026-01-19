@@ -4,5 +4,546 @@ expression: snapshot
 input_file: assets/replays/1362397.zip
 ---
 {
-  "checksum": "0x83d937497ea7c8adfdeaaf92df2542bf6d6de5056bbff2f0922c49123b09021a"
+  "checksum": "0x83d937497ea7c8adfdeaaf92df2542bf6d6de5056bbff2f0922c49123b09021a",
+  "file_entries": [
+    {
+      "data": {
+        "Game": {
+          "count": 104
+        }
+      },
+      "file_path": "1362397",
+      "file_size": 406934
+    },
+    {
+      "data": {
+        "Turn": {
+          "turns": [
+            {
+              "day": 1,
+              "elements": 3,
+              "player_id": 3189394
+            },
+            {
+              "day": 1,
+              "elements": 3,
+              "player_id": 3189812
+            },
+            {
+              "day": 1,
+              "elements": 3,
+              "player_id": 3189442
+            },
+            {
+              "day": 1,
+              "elements": 2,
+              "player_id": 3192682
+            },
+            {
+              "day": 1,
+              "elements": 10,
+              "player_id": 3189356
+            },
+            {
+              "day": 2,
+              "elements": 5,
+              "player_id": 3189394
+            },
+            {
+              "day": 2,
+              "elements": 5,
+              "player_id": 3189812
+            },
+            {
+              "day": 2,
+              "elements": 5,
+              "player_id": 3189442
+            },
+            {
+              "day": 2,
+              "elements": 4,
+              "player_id": 3192682
+            },
+            {
+              "day": 2,
+              "elements": 16,
+              "player_id": 3189356
+            },
+            {
+              "day": 3,
+              "elements": 7,
+              "player_id": 3189394
+            },
+            {
+              "day": 3,
+              "elements": 7,
+              "player_id": 3189812
+            },
+            {
+              "day": 3,
+              "elements": 7,
+              "player_id": 3189442
+            },
+            {
+              "day": 3,
+              "elements": 6,
+              "player_id": 3192682
+            },
+            {
+              "day": 3,
+              "elements": 21,
+              "player_id": 3189356
+            },
+            {
+              "day": 4,
+              "elements": 9,
+              "player_id": 3189394
+            },
+            {
+              "day": 4,
+              "elements": 9,
+              "player_id": 3189812
+            },
+            {
+              "day": 4,
+              "elements": 9,
+              "player_id": 3189442
+            },
+            {
+              "day": 4,
+              "elements": 8,
+              "player_id": 3192682
+            },
+            {
+              "day": 4,
+              "elements": 25,
+              "player_id": 3189356
+            },
+            {
+              "day": 5,
+              "elements": 12,
+              "player_id": 3189394
+            },
+            {
+              "day": 5,
+              "elements": 11,
+              "player_id": 3189812
+            },
+            {
+              "day": 5,
+              "elements": 10,
+              "player_id": 3189442
+            },
+            {
+              "day": 5,
+              "elements": 9,
+              "player_id": 3192682
+            },
+            {
+              "day": 5,
+              "elements": 30,
+              "player_id": 3189356
+            },
+            {
+              "day": 6,
+              "elements": 12,
+              "player_id": 3189394
+            },
+            {
+              "day": 6,
+              "elements": 12,
+              "player_id": 3189812
+            },
+            {
+              "day": 6,
+              "elements": 7,
+              "player_id": 3189442
+            },
+            {
+              "day": 6,
+              "elements": 11,
+              "player_id": 3192682
+            },
+            {
+              "day": 6,
+              "elements": 37,
+              "player_id": 3189356
+            },
+            {
+              "day": 7,
+              "elements": 15,
+              "player_id": 3189394
+            },
+            {
+              "day": 7,
+              "elements": 14,
+              "player_id": 3189812
+            },
+            {
+              "day": 7,
+              "elements": 7,
+              "player_id": 3189442
+            },
+            {
+              "day": 7,
+              "elements": 12,
+              "player_id": 3192682
+            },
+            {
+              "day": 7,
+              "elements": 42,
+              "player_id": 3189356
+            },
+            {
+              "day": 8,
+              "elements": 19,
+              "player_id": 3189394
+            },
+            {
+              "day": 8,
+              "elements": 16,
+              "player_id": 3189812
+            },
+            {
+              "day": 8,
+              "elements": 13,
+              "player_id": 3189442
+            },
+            {
+              "day": 8,
+              "elements": 12,
+              "player_id": 3192682
+            },
+            {
+              "day": 8,
+              "elements": 46,
+              "player_id": 3189356
+            },
+            {
+              "day": 9,
+              "elements": 21,
+              "player_id": 3189394
+            },
+            {
+              "day": 9,
+              "elements": 16,
+              "player_id": 3189812
+            },
+            {
+              "day": 9,
+              "elements": 14,
+              "player_id": 3189442
+            },
+            {
+              "day": 9,
+              "elements": 14,
+              "player_id": 3192682
+            },
+            {
+              "day": 9,
+              "elements": 51,
+              "player_id": 3189356
+            },
+            {
+              "day": 10,
+              "elements": 20,
+              "player_id": 3189394
+            },
+            {
+              "day": 10,
+              "elements": 14,
+              "player_id": 3189812
+            },
+            {
+              "day": 10,
+              "elements": 15,
+              "player_id": 3189442
+            },
+            {
+              "day": 10,
+              "elements": 12,
+              "player_id": 3192682
+            },
+            {
+              "day": 10,
+              "elements": 48,
+              "player_id": 3189356
+            },
+            {
+              "day": 11,
+              "elements": 22,
+              "player_id": 3189394
+            },
+            {
+              "day": 11,
+              "elements": 18,
+              "player_id": 3189812
+            },
+            {
+              "day": 11,
+              "elements": 17,
+              "player_id": 3189442
+            },
+            {
+              "day": 11,
+              "elements": 12,
+              "player_id": 3192682
+            },
+            {
+              "day": 11,
+              "elements": 46,
+              "player_id": 3189356
+            },
+            {
+              "day": 12,
+              "elements": 22,
+              "player_id": 3189394
+            },
+            {
+              "day": 12,
+              "elements": 8,
+              "player_id": 3189812
+            },
+            {
+              "day": 12,
+              "elements": 18,
+              "player_id": 3189442
+            },
+            {
+              "day": 12,
+              "elements": 8,
+              "player_id": 3192682
+            },
+            {
+              "day": 12,
+              "elements": 49,
+              "player_id": 3189356
+            },
+            {
+              "day": 13,
+              "elements": 20,
+              "player_id": 3189394
+            },
+            {
+              "day": 13,
+              "elements": 19,
+              "player_id": 3189812
+            },
+            {
+              "day": 13,
+              "elements": 15,
+              "player_id": 3189442
+            },
+            {
+              "day": 13,
+              "elements": 7,
+              "player_id": 3192682
+            },
+            {
+              "day": 13,
+              "elements": 44,
+              "player_id": 3189356
+            },
+            {
+              "day": 14,
+              "elements": 24,
+              "player_id": 3189394
+            },
+            {
+              "day": 14,
+              "elements": 16,
+              "player_id": 3189812
+            },
+            {
+              "day": 14,
+              "elements": 12,
+              "player_id": 3189442
+            },
+            {
+              "day": 14,
+              "elements": 8,
+              "player_id": 3192682
+            },
+            {
+              "day": 14,
+              "elements": 50,
+              "player_id": 3189356
+            },
+            {
+              "day": 15,
+              "elements": 23,
+              "player_id": 3189394
+            },
+            {
+              "day": 15,
+              "elements": 14,
+              "player_id": 3189812
+            },
+            {
+              "day": 15,
+              "elements": 12,
+              "player_id": 3189442
+            },
+            {
+              "day": 15,
+              "elements": 6,
+              "player_id": 3192682
+            },
+            {
+              "day": 15,
+              "elements": 50,
+              "player_id": 3189356
+            },
+            {
+              "day": 16,
+              "elements": 24,
+              "player_id": 3189394
+            },
+            {
+              "day": 16,
+              "elements": 11,
+              "player_id": 3189812
+            },
+            {
+              "day": 16,
+              "elements": 13,
+              "player_id": 3189442
+            },
+            {
+              "day": 16,
+              "elements": 7,
+              "player_id": 3192682
+            },
+            {
+              "day": 16,
+              "elements": 50,
+              "player_id": 3189356
+            },
+            {
+              "day": 17,
+              "elements": 24,
+              "player_id": 3189394
+            },
+            {
+              "day": 17,
+              "elements": 13,
+              "player_id": 3189812
+            },
+            {
+              "day": 17,
+              "elements": 11,
+              "player_id": 3189442
+            },
+            {
+              "day": 17,
+              "elements": 9,
+              "player_id": 3192682
+            },
+            {
+              "day": 17,
+              "elements": 50,
+              "player_id": 3189356
+            },
+            {
+              "day": 18,
+              "elements": 25,
+              "player_id": 3189394
+            },
+            {
+              "day": 18,
+              "elements": 13,
+              "player_id": 3189812
+            },
+            {
+              "day": 18,
+              "elements": 12,
+              "player_id": 3189442
+            },
+            {
+              "day": 18,
+              "elements": 9,
+              "player_id": 3192682
+            },
+            {
+              "day": 18,
+              "elements": 54,
+              "player_id": 3189356
+            },
+            {
+              "day": 19,
+              "elements": 23,
+              "player_id": 3189394
+            },
+            {
+              "day": 19,
+              "elements": 9,
+              "player_id": 3189812
+            },
+            {
+              "day": 19,
+              "elements": 12,
+              "player_id": 3189442
+            },
+            {
+              "day": 19,
+              "elements": 8,
+              "player_id": 3192682
+            },
+            {
+              "day": 19,
+              "elements": 49,
+              "player_id": 3189356
+            },
+            {
+              "day": 20,
+              "elements": 15,
+              "player_id": 3189394
+            },
+            {
+              "day": 20,
+              "elements": 8,
+              "player_id": 3189812
+            },
+            {
+              "day": 20,
+              "elements": 11,
+              "player_id": 3189442
+            },
+            {
+              "day": 20,
+              "elements": 8,
+              "player_id": 3192682
+            },
+            {
+              "day": 20,
+              "elements": 48,
+              "player_id": 3189356
+            },
+            {
+              "day": 21,
+              "elements": 1,
+              "player_id": 3189394
+            },
+            {
+              "day": 21,
+              "elements": 1,
+              "player_id": 3189812
+            },
+            {
+              "day": 21,
+              "elements": 1,
+              "player_id": 3189442
+            },
+            {
+              "day": 21,
+              "elements": 1,
+              "player_id": 3192682
+            }
+          ]
+        }
+      },
+      "file_path": "a1362397",
+      "file_size": 203714
+    }
+  ]
 }

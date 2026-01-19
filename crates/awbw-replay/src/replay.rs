@@ -5,6 +5,7 @@ use crate::{
     turn_models::{Action, TurnElement},
 };
 use phpserz::{PhpParser, PhpToken};
+use rawzip::{ZipSliceArchive, path::ZipFilePath};
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, Read};
 
@@ -14,9 +15,180 @@ pub struct AwbwReplay {
     pub turns: Vec<Action>,
 }
 
-enum FileType {
-    Game,
-    Turn,
+#[derive(Debug)]
+struct ZipFileEntry {
+    wayfinder: rawzip::ZipArchiveEntryWayfinder,
+    file_name_range: (usize, usize),
+}
+
+#[derive(Debug)]
+pub struct ReplayFile<R> {
+    zip: ZipSliceArchive<R>,
+    file_entries: Vec<ZipFileEntry>,
+    file_name_data: Vec<u8>,
+}
+
+impl<R: AsRef<[u8]>> ReplayFile<R> {
+    pub fn open(data: R) -> Result<Self, errors::ReplayError> {
+        let zip = rawzip::ZipArchive::from_slice(data)?;
+        let mut files = Vec::new();
+        let mut entries = zip.entries();
+        let mut file_name_data = Vec::new();
+        while let Some(entry) = entries.next_entry()? {
+            if entry.is_dir() {
+                continue;
+            }
+
+            if entry.compression_method() != rawzip::CompressionMethod::Deflate {
+                continue;
+            }
+
+            let start = file_name_data.len();
+            file_name_data.extend_from_slice(entry.file_path().as_bytes());
+            let end = file_name_data.len();
+            files.push(ZipFileEntry {
+                wayfinder: entry.wayfinder(),
+                file_name_range: (start, end),
+            })
+        }
+
+        Ok(ReplayFile {
+            zip,
+            file_entries: files,
+            file_name_data,
+        })
+    }
+
+    pub fn iter(&self) -> ReplayFileIterator<'_, R> {
+        ReplayFileIterator {
+            file: self,
+            index: 0,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ReplayFileIterator<'a, R: AsRef<[u8]>> {
+    file: &'a ReplayFile<R>,
+    index: usize,
+}
+
+impl<'a, R: AsRef<[u8]>> Iterator for ReplayFileIterator<'a, R> {
+    type Item = ReplayFileEntry<'a, R>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let entry = self.file.file_entries.get(self.index)?;
+        let file_name = &self.file.file_name_data[entry.file_name_range.0..entry.file_name_range.1];
+        self.index += 1;
+        Some(ReplayFileEntry {
+            wayfinder: entry.wayfinder,
+            file: self.file,
+            file_name,
+        })
+    }
+}
+
+pub struct ReplayFileEntry<'a, R: AsRef<[u8]>> {
+    wayfinder: rawzip::ZipArchiveEntryWayfinder,
+    file_name: &'a [u8],
+    file: &'a ReplayFile<R>,
+}
+
+impl<'a, R: AsRef<[u8]>> ReplayFileEntry<'a, R> {
+    pub fn file_path(&self) -> ZipFilePath<rawzip::path::RawPath<'a>> {
+        ZipFilePath::from_bytes(self.file_name)
+    }
+
+    pub fn uncompressed_size_hint(&self) -> u64 {
+        self.wayfinder.uncompressed_size_hint()
+    }
+
+    pub fn get_reader(&self) -> Result<impl Read, errors::ReplayError> {
+        let entry = self.file.zip.get_entry(self.wayfinder)?;
+        let reader = flate2::bufread::DeflateDecoder::new(entry.data());
+        Ok(entry.verifying_reader(reader))
+    }
+}
+
+pub struct GameKind;
+pub struct TurnKind;
+
+pub enum ReplayEntriesKind<R> {
+    Game(ReplayEntries<GameKind, R>),
+    Turn(ReplayEntries<TurnKind, R>),
+}
+
+impl<R: BufRead> ReplayEntriesKind<R> {
+    pub fn classify(mut reader: R) -> Result<Self, errors::ReplayError> {
+        let buf = reader.fill_buf()?;
+        let mut decoder = flate2::bufread::GzDecoder::new(buf);
+        let mut peek_data = [0u8; 2];
+        decoder.read_exact(&mut peek_data)?;
+        if peek_data == *b"p:" {
+            Ok(ReplayEntriesKind::Turn(ReplayEntries {
+                reader,
+                marker: std::marker::PhantomData,
+            }))
+        } else {
+            Ok(ReplayEntriesKind::Game(ReplayEntries {
+                reader,
+                marker: std::marker::PhantomData,
+            }))
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ReplayEntries<T, R> {
+    reader: R,
+    marker: std::marker::PhantomData<T>,
+}
+
+impl<T, R: BufRead> ReplayEntries<T, R> {
+    pub fn next_entry<'a>(
+        &mut self,
+        sink: &'a mut Vec<u8>,
+    ) -> Result<Option<ReplayEntry<'a, T>>, errors::ReplayError> {
+        let is_eof = self.reader.fill_buf().map(|buf| buf.is_empty())?;
+        if is_eof {
+            return Ok(None);
+        }
+
+        let mut reader = flate2::bufread::GzDecoder::new(&mut self.reader);
+        sink.clear();
+        reader.read_to_end(sink)?;
+
+        Ok(Some(ReplayEntry {
+            data: sink,
+            marker: std::marker::PhantomData,
+        }))
+    }
+}
+
+#[derive(Debug)]
+pub struct ReplayEntry<'a, T> {
+    data: &'a [u8],
+    marker: std::marker::PhantomData<T>,
+}
+
+impl<'a, T> ReplayEntry<'a, T> {
+    pub fn data(&self) -> &'a [u8] {
+        self.data
+    }
+}
+
+impl<'a> ReplayEntry<'a, GameKind> {
+    pub fn deserializer(&self) -> phpserz::PhpDeserializer<'a> {
+        phpserz::PhpDeserializer::new(self.data())
+    }
+}
+
+impl<'a> ReplayEntry<'a, TurnKind> {
+    pub fn parse(&self) -> Result<TurnContent<'a>, errors::ReplayError> {
+        TurnContent::from_slice(self.data).ok_or(ReplayError {
+            kind: ReplayErrorKind::InvalidTurnData,
+        })
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -35,109 +207,51 @@ impl ReplayParser {
     }
 
     pub fn parse(&self, data: &[u8]) -> Result<AwbwReplay, errors::ReplayError> {
-        let zip = rawzip::ZipArchive::from_slice(data)?;
-        let mut files = Vec::new();
-        let mut entries = zip.entries();
-        while let Some(entry) = entries.next_entry()? {
-            if entry.is_dir() {
-                continue;
-            }
-
-            if entry.compression_method() != rawzip::CompressionMethod::Deflate {
-                continue;
-            }
-
-            let file_name = String::from(entry.file_path().try_normalize()?);
-            files.push((entry.wayfinder(), file_name));
-        }
+        let file = ReplayFile::open(data)?;
 
         let mut games = Vec::new();
         let mut turns = Vec::new();
         let mut buf = Vec::new();
 
-        for (wayfinder, _) in files {
-            let entry = zip.get_entry(wayfinder)?;
-            let reader = flate2::bufread::DeflateDecoder::new(entry.data());
-            let reader = entry.verifying_reader(reader);
-            let mut reader = std::io::BufReader::new(reader);
+        for file_entry in file.iter() {
+            let reader = std::io::BufReader::new(file_entry.get_reader()?);
 
-            let mut file_type = FileType::Game;
-            let mut file = 0;
-            loop {
-                let is_eof = reader.fill_buf().map(|buf| buf.is_empty())?;
-                if is_eof {
-                    break;
-                }
-
-                let mut reader = flate2::bufread::GzDecoder::new(&mut reader);
-                buf.clear();
-
-                reader.read_to_end(&mut buf)?;
-
-                if file == 0 {
-                    file_type = if buf.starts_with(b"p:") {
-                        FileType::Turn
-                    } else {
-                        FileType::Game
-                    }
-                }
-
-                match file_type {
-                    FileType::Game => {
-                        let mut deser = phpserz::PhpDeserializer::new(&buf);
+            match ReplayEntriesKind::classify(reader)? {
+                ReplayEntriesKind::Game(mut entries) => {
+                    while let Some(entry) = entries.next_entry(&mut buf)? {
+                        let mut deser = entry.deserializer();
                         let game = if self.debug {
                             let mut track = serde_path_to_error::Track::new();
                             let path_deser =
                                 serde_path_to_error::Deserializer::new(&mut deser, &mut track);
-                            match AwbwGame::deserialize(path_deser) {
-                                Ok(game) => game,
-                                Err(error) => {
-                                    return Err(ReplayError {
-                                        kind: ReplayErrorKind::Php {
-                                            error,
-                                            path: Some(track.path()),
-                                        },
-                                    });
-                                }
-                            }
+                            AwbwGame::deserialize(path_deser).map_err(|error| ReplayError {
+                                kind: ReplayErrorKind::Php {
+                                    error,
+                                    path: Some(track.path()),
+                                },
+                            })?
                         } else {
                             AwbwGame::deserialize(&mut deser)?
                         };
 
                         games.push(game);
                     }
-                    FileType::Turn => {
-                        let header = TurnHeader::from_slice(&buf).unwrap();
-
-                        let mut deser = phpserz::PhpDeserializer::new(header.data);
-                        let data: Vec<(u32, TurnElement)> = deserialize_vec_pair(&mut deser)?;
-
-                        let action_json = data
-                            .into_iter()
-                            .find_map(|(_, element)| match element {
-                                TurnElement::Data(x) => Some(x),
-                                _ => None,
-                            })
-                            .into_iter()
-                            .flatten();
-
-                        for json in action_json {
-                            let mut deser = serde_json::Deserializer::from_slice(json);
+                }
+                ReplayEntriesKind::Turn(mut entries) => {
+                    while let Some(entry) = entries.next_entry(&mut buf)? {
+                        let turn = entry.parse()?;
+                        for element in turn.actions()? {
+                            let mut deser = element.deserializer();
                             let action = if self.debug {
                                 let mut track = serde_path_to_error::Track::new();
-                                let deser =
+                                let path_deser =
                                     serde_path_to_error::Deserializer::new(&mut deser, &mut track);
-                                match Action::deserialize(deser) {
-                                    Ok(data) => data,
-                                    Err(error) => {
-                                        return Err(ReplayError {
-                                            kind: ReplayErrorKind::Json {
-                                                error,
-                                                path: Some(track.path()),
-                                            },
-                                        });
-                                    }
-                                }
+                                Action::deserialize(path_deser).map_err(|error| ReplayError {
+                                    kind: ReplayErrorKind::Json {
+                                        error,
+                                        path: Some(track.path()),
+                                    },
+                                })?
                             } else {
                                 Action::deserialize(&mut deser)?
                             };
@@ -145,8 +259,6 @@ impl ReplayParser {
                         }
                     }
                 }
-
-                file += 1;
             }
         }
 
@@ -154,14 +266,13 @@ impl ReplayParser {
     }
 }
 
-#[allow(dead_code)]
-struct TurnHeader<'a> {
+pub struct TurnContent<'a> {
     player_id: u32,
     day: u32,
     data: &'a [u8],
 }
 
-impl<'a> TurnHeader<'a> {
+impl<'a> TurnContent<'a> {
     fn from_slice(data: &'a [u8]) -> Option<Self> {
         let (player_kind, data) = data.split_first_chunk::<2>()?;
         if player_kind != b"p:" {
@@ -184,11 +295,55 @@ impl<'a> TurnHeader<'a> {
             return None;
         }
 
-        Some(TurnHeader {
+        Some(TurnContent {
             player_id,
             day: day as u32,
             data,
         })
+    }
+
+    pub fn data(&self) -> &[u8] {
+        self.data
+    }
+
+    pub fn player_id(&self) -> u32 {
+        self.player_id
+    }
+
+    pub fn day(&self) -> u32 {
+        self.day
+    }
+
+    pub fn actions(&'a self) -> Result<impl Iterator<Item = ActionData<'a>>, errors::ReplayError> {
+        let mut deser = phpserz::PhpDeserializer::new(self.data());
+        let data: Vec<(u32, TurnElement<'a>)> = deserialize_vec_pair(&mut deser)?;
+
+        let result = data
+            .into_iter()
+            .find_map(|(_, element)| match element {
+                TurnElement::Data(x) => Some(x),
+                _ => None,
+            })
+            .into_iter()
+            .flatten()
+            .map(|data| ActionData { data });
+
+        Ok(result)
+    }
+}
+
+#[derive(Debug)]
+pub struct ActionData<'a> {
+    data: &'a [u8],
+}
+
+impl<'a> ActionData<'a> {
+    pub fn data(&self) -> &[u8] {
+        self.data
+    }
+
+    pub fn deserializer(&self) -> serde_json::Deserializer<serde_json::de::SliceRead<'a>> {
+        serde_json::Deserializer::from_slice(self.data)
     }
 }
 
@@ -199,7 +354,7 @@ mod tests {
     #[test]
     fn test_turn_header() {
         let data = b"p:3189812;d:11;a:HELLO_WORLD";
-        let header = TurnHeader::from_slice(data).unwrap();
+        let header = TurnContent::from_slice(data).unwrap();
         assert_eq!(header.player_id, 3189812);
         assert_eq!(header.day, 11);
         assert_eq!(header.data, b"HELLO_WORLD");
