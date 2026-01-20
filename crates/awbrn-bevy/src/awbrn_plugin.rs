@@ -791,6 +791,7 @@ pub struct ReplayState {
     day: u32,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_replay_controls(
     mut commands: Commands,
     keyboard_input: Res<ButtonInput<KeyCode>>,
@@ -936,53 +937,52 @@ fn handle_replay_controls(
             }
 
             // If capture is complete (>= 20), flip the building to the capturing unit's faction
-            if capture_action.building_info.buildings_capture >= 20 {
-                if let Some(faction) = capturing_unit_faction {
-                    for (_terrain_entity, mut terrain_tile, mut sprite) in terrain_query.iter_mut()
-                    {
-                        if terrain_tile.position == building_pos {
-                            // Check if this is a property that can be captured
-                            if let GraphicalTerrain::Property(property) = terrain_tile.terrain {
-                                let new_property = match property {
-                                    Property::City(_) => {
-                                        Property::City(awbrn_core::Faction::Player(faction))
-                                    }
-                                    Property::Base(_) => {
-                                        Property::Base(awbrn_core::Faction::Player(faction))
-                                    }
-                                    Property::Airport(_) => {
-                                        Property::Airport(awbrn_core::Faction::Player(faction))
-                                    }
-                                    Property::Port(_) => {
-                                        Property::Port(awbrn_core::Faction::Player(faction))
-                                    }
-                                    Property::ComTower(_) => {
-                                        Property::ComTower(awbrn_core::Faction::Player(faction))
-                                    }
-                                    Property::Lab(_) => {
-                                        Property::Lab(awbrn_core::Faction::Player(faction))
-                                    }
-                                    Property::HQ(_) => Property::HQ(faction),
-                                };
-
-                                terrain_tile.terrain = GraphicalTerrain::Property(new_property);
-
-                                // Update sprite to show new faction
-                                let sprite_index = awbrn_core::spritesheet_index(
-                                    current_weather.weather(),
-                                    terrain_tile.terrain,
-                                );
-                                if let Some(atlas) = &mut sprite.texture_atlas {
-                                    atlas.index = sprite_index.index() as usize;
+            if capture_action.building_info.buildings_capture >= 20
+                && let Some(faction) = capturing_unit_faction
+            {
+                for (_terrain_entity, mut terrain_tile, mut sprite) in terrain_query.iter_mut() {
+                    if terrain_tile.position == building_pos {
+                        // Check if this is a property that can be captured
+                        if let GraphicalTerrain::Property(property) = terrain_tile.terrain {
+                            let new_property = match property {
+                                Property::City(_) => {
+                                    Property::City(awbrn_core::Faction::Player(faction))
                                 }
+                                Property::Base(_) => {
+                                    Property::Base(awbrn_core::Faction::Player(faction))
+                                }
+                                Property::Airport(_) => {
+                                    Property::Airport(awbrn_core::Faction::Player(faction))
+                                }
+                                Property::Port(_) => {
+                                    Property::Port(awbrn_core::Faction::Player(faction))
+                                }
+                                Property::ComTower(_) => {
+                                    Property::ComTower(awbrn_core::Faction::Player(faction))
+                                }
+                                Property::Lab(_) => {
+                                    Property::Lab(awbrn_core::Faction::Player(faction))
+                                }
+                                Property::HQ(_) => Property::HQ(faction),
+                            };
 
-                                log::info!(
-                                    "Captured building at {:?} flipped to {:?}",
-                                    building_pos,
-                                    faction
-                                );
-                                break;
+                            terrain_tile.terrain = GraphicalTerrain::Property(new_property);
+
+                            // Update sprite to show new faction
+                            let sprite_index = awbrn_core::spritesheet_index(
+                                current_weather.weather(),
+                                terrain_tile.terrain,
+                            );
+                            if let Some(atlas) = &mut sprite.texture_atlas {
+                                atlas.index = sprite_index.index() as usize;
                             }
+
+                            log::info!(
+                                "Captured building at {:?} flipped to {:?}",
+                                building_pos,
+                                faction
+                            );
+                            break;
                         }
                     }
                 }
