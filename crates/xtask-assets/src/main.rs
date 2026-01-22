@@ -646,10 +646,14 @@ fn run_ui() -> Result<()> {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
     let assets_root = repo_root.join("assets/AWBW-Replay-Player/AWBWApp.Resources");
     let ui_root = assets_root.join("Textures/UI");
+    let effects_root = assets_root.join("Textures/Effects");
     let atlas_path = repo_root.join("assets/textures/ui.png");
     let data_path = repo_root.join("assets/data/ui_atlas.json");
 
-    let sprites = collect_ui_sprites(&ui_root)?;
+    let mut sprites = collect_ui_sprites(&ui_root)?;
+    let effect_sprites = collect_ui_effect_sprites(&effects_root)?;
+    sprites.extend(effect_sprites);
+    sprites.sort_by(|a, b| a.name.cmp(&b.name));
     let (atlas_width, atlas_height, placements) = pack_ui_sprites(&sprites)?;
 
     build_ui_atlas(
@@ -715,6 +719,27 @@ fn collect_ui_sprites(ui_root: &Path) -> Result<Vec<UiSprite>> {
 
     if sprites.is_empty() {
         return Err(anyhow!("No UI sprites found in {}", ui_root.display()));
+    }
+
+    Ok(sprites)
+}
+
+fn collect_ui_effect_sprites(effects_root: &Path) -> Result<Vec<UiSprite>> {
+    let effect_files = ["Select.png", "Supplied.png", "TileCursor.png"];
+    let mut sprites = Vec::new();
+
+    for file_name in effect_files {
+        let path = effects_root.join(file_name);
+        let image = image::open(&path).with_context(|| format!("Loading {}", path.display()))?;
+        let rgba = image.to_rgba8();
+        let (width, height) = rgba.dimensions();
+
+        sprites.push(UiSprite {
+            name: format!("Effects/{file_name}"),
+            image: rgba,
+            width,
+            height,
+        });
     }
 
     Ok(sprites)
