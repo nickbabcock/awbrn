@@ -133,6 +133,46 @@ pub struct Capturing;
 #[derive(Component, Debug)]
 pub struct CapturingIndicator(pub Entity);
 
+/// Component to mark an entity as carrying cargo (up to 2 units)
+#[derive(Component, Debug, Clone, PartialEq, Eq, Default)]
+pub struct HasCargo {
+    pub cargo: [Option<AwbwUnitId>; 2],
+}
+
+impl HasCargo {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_cargo(&mut self, unit_id: AwbwUnitId) -> bool {
+        // Find first empty slot
+        if let Some(slot) = self.cargo.iter_mut().find(|slot| slot.is_none()) {
+            *slot = Some(unit_id);
+            true
+        } else {
+            false // No empty slots
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cargo.iter().all(|slot| slot.is_none())
+    }
+
+    pub fn remove_cargo(&mut self, unit_id: AwbwUnitId) -> bool {
+        // Find and remove the cargo
+        if let Some(slot) = self.cargo.iter_mut().find(|slot| **slot == Some(unit_id)) {
+            *slot = None;
+            true
+        } else {
+            false // Not found in cargo
+        }
+    }
+}
+
+/// Component to track the cargo indicator sprite child entity
+#[derive(Component, Debug)]
+pub struct CargoIndicator(pub Entity);
+
 #[derive(Debug, Resource)]
 pub struct StrongIdMap<T> {
     units: HashMap<T, Entity>,
