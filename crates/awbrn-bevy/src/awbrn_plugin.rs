@@ -30,9 +30,9 @@
 
 use crate::replay_turn::{ReplayState, ReplayTurnCommand};
 use crate::{
-    AwbwUnitId, CameraScale, Capturing, CapturingIndicator, CurrentWeather, Faction, GameMap,
-    GridSystem, JsonAssetPlugin, MapBackdrop, SelectedTile, SpriteSize, StrongIdMap, TerrainTile,
-    UiAtlasAsset, UiAtlasResource, Unit,
+    AwbwUnitId, CameraScale, Capturing, CapturingIndicator, CargoIndicator, CurrentWeather,
+    Faction, GameMap, GridSystem, HasCargo, JsonAssetPlugin, MapBackdrop, SelectedTile, SpriteSize,
+    StrongIdMap, TerrainTile, UiAtlasAsset, UiAtlasResource, Unit,
 };
 use awbrn_core::{GraphicalTerrain, Weather, get_unit_animation_frames};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
@@ -175,6 +175,36 @@ fn on_capturing_remove(
     }
 }
 
+/// Observer that triggers when HasCargo component is removed - cleans up the indicator
+fn on_cargo_remove(
+    trigger: On<Remove, HasCargo>,
+    mut commands: Commands,
+    query: Query<&CargoIndicator>,
+) {
+    let entity = trigger.entity;
+
+    if let Ok(indicator) = query.get(entity) {
+        commands.entity(indicator.0).despawn();
+    }
+}
+
+/// System to automatically remove HasCargo component when it becomes empty.
+/// Uses change detection to only check when HasCargo is modified.
+fn cleanup_empty_cargo(
+    mut commands: Commands,
+    query: Query<(Entity, &HasCargo), Changed<HasCargo>>,
+) {
+    for (entity, has_cargo) in query.iter() {
+        if has_cargo.is_empty() {
+            commands.entity(entity).remove::<HasCargo>();
+            log::info!(
+                "Transport entity {:?} cargo is empty, removing HasCargo component",
+                entity
+            );
+        }
+    }
+}
+
 /// System to spawn capturing indicators when UI atlas is loaded
 fn spawn_deferred_capturing_indicators(
     mut commands: Commands,
@@ -259,6 +289,90 @@ fn spawn_deferred_capturing_indicators(
     }
 }
 
+/// System to spawn cargo indicators when UI atlas is loaded
+fn spawn_deferred_cargo_indicators(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+    ui_atlas_assets: Res<Assets<UiAtlasAsset>>,
+    ui_atlas_resource: Option<Res<UiAtlasResource>>,
+    query: Query<Entity, (With<HasCargo>, Without<CargoIndicator>)>,
+) {
+    // Only process if we have entities waiting for indicators
+    if query.is_empty() {
+        return;
+    }
+
+    // Initialize or get resource
+    let (atlas_handle, texture_handle, layout_handle) = if let Some(res) = &ui_atlas_resource {
+        (res.handle.clone(), res.texture.clone(), res.layout.clone())
+    } else {
+        // First time - load assets
+        let atlas: Handle<UiAtlasAsset> = asset_server.load("data/ui_atlas.json");
+        let texture = asset_server.load("textures/ui.png");
+
+        commands.insert_resource(UiAtlasResource {
+            handle: atlas.clone(),
+            texture: texture.clone(),
+            layout: Handle::default(),
+        });
+        return; // Wait for next frame
+    };
+
+    // Wait for UI atlas to load
+    let Some(ui_atlas) = ui_atlas_assets.get(&atlas_handle) else {
+        return;
+    };
+
+    // Create layout if needed
+    let layout = if layout_handle.id() == Handle::default().id() {
+        let new_layout = ui_atlas.layout();
+        let new_handle = texture_atlas_layouts.add(new_layout);
+
+        // Update resource with new layout handle
+        commands.insert_resource(UiAtlasResource {
+            handle: atlas_handle.clone(),
+            texture: texture_handle.clone(),
+            layout: new_handle.clone(),
+        });
+        new_handle
+    } else {
+        layout_handle
+    };
+
+    // Get sprite index
+    let index_map = ui_atlas.index_map();
+    let Some(&sprite_index) = index_map.get("HasCargo.png") else {
+        log::error!("HasCargo.png not found in UI atlas");
+        return;
+    };
+
+    // Spawn indicators for all waiting entities
+    for entity in query.iter() {
+        let offset = Vec3::new(0.0, -8.0, 1.0);
+
+        let indicator_entity = commands
+            .spawn((
+                Sprite::from_atlas_image(
+                    texture_handle.clone(),
+                    TextureAtlas {
+                        layout: layout.clone(),
+                        index: sprite_index,
+                    },
+                ),
+                Transform::from_translation(offset),
+                ChildOf(entity),
+            ))
+            .id();
+
+        commands
+            .entity(entity)
+            .insert(CargoIndicator(indicator_entity));
+
+        log::info!("Spawned cargo indicator for entity {:?}", entity);
+    }
+}
+
 pub struct AwbrnPlugin {
     map_resolver: Arc<dyn MapAssetPathResolver>,
     event_bus: Option<Arc<dyn EventBus<GameEvent>>>,
@@ -295,6 +409,7 @@ impl Plugin for AwbrnPlugin {
             .add_observer(on_map_position_insert)
             .add_observer(handle_unit_spawn)
             .add_observer(on_capturing_remove)
+            .add_observer(on_cargo_remove)
             .add_systems(Startup, setup_camera);
 
         // Only add event bus if provided
@@ -318,6 +433,8 @@ impl Plugin for AwbrnPlugin {
                     animate_units,
                     animate_terrain,
                     spawn_deferred_capturing_indicators,
+                    spawn_deferred_cargo_indicators,
+                    cleanup_empty_cargo,
                 )
                     .run_if(in_state(AppState::InGame)),
             )

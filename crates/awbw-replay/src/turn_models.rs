@@ -130,7 +130,7 @@ pub enum Action {
     Unload {
         unit: UnitMap,
         #[serde(rename = "transportID")]
-        transport_id: u32,
+        transport_id: AwbwUnitId,
         discovered: indexmap::IndexMap<TargetedPlayer, Option<Discovery>>,
     },
     Delete {
@@ -277,8 +277,8 @@ where
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct LoadAction {
-    pub loaded: indexmap::IndexMap<TargetedPlayer, Hidden<u32>>,
-    pub transport: indexmap::IndexMap<TargetedPlayer, Hidden<u32>>,
+    pub loaded: indexmap::IndexMap<TargetedPlayer, Hidden<AwbwUnitId>>,
+    pub transport: indexmap::IndexMap<TargetedPlayer, Hidden<AwbwUnitId>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
