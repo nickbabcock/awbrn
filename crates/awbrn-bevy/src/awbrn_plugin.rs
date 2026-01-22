@@ -28,15 +28,15 @@
 //!     note right of GameMode : Independent state<br/>determines active systems<br/>in InGame
 //! ```
 
+use crate::replay_turn::{ReplayState, ReplayTurnCommand};
 use crate::{
     AwbwUnitId, CameraScale, Capturing, CapturingIndicator, CurrentWeather, Faction, GameMap,
     GridSystem, JsonAssetPlugin, MapBackdrop, SelectedTile, SpriteSize, StrongIdMap, TerrainTile,
     UiAtlasAsset, UiAtlasResource, Unit,
 };
-use awbrn_core::{GraphicalTerrain, Property, Weather, get_unit_animation_frames};
+use awbrn_core::{GraphicalTerrain, Weather, get_unit_animation_frames};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
 use awbw_replay::{AwbwReplay, ReplayParser};
-use bevy::ecs::entity::EntityHashMap;
 use bevy::sprite::Anchor;
 use bevy::state::state::SubStates;
 use bevy::{log, prelude::*};
@@ -785,225 +785,27 @@ fn handle_game_input() {
     // - Game actions (attack, wait, etc.)
 }
 
-#[derive(Debug, Resource)]
-pub struct ReplayState {
-    turn: u32,
-    day: u32,
-}
-
-#[allow(clippy::too_many_arguments)]
 fn handle_replay_controls(
     mut commands: Commands,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut replay_state: ResMut<ReplayState>,
     loaded_replay: Res<LoadedReplay>,
-    units: Res<StrongIdMap<AwbwUnitId>>,
-    mut event_writer: MessageWriter<ExternalGameEvent>,
-    position_query: Query<&MapPosition>,
-    units2: Query<(Entity, &MapPosition, &Faction), With<AwbwUnitId>>,
-    mut terrain_query: Query<(Entity, &mut TerrainTile, &mut Sprite)>,
-    current_weather: Res<CurrentWeather>,
 ) {
     if !keyboard_input.just_pressed(KeyCode::ArrowRight) {
         return;
     }
 
-    let Some(turn) = loaded_replay.0.turns.get(replay_state.turn as usize) else {
+    let Some(action) = loaded_replay
+        .0
+        .turns
+        .get(replay_state.turn as usize)
+        .cloned()
+    else {
         info!("Reached the end of the replay turns");
         return;
     };
 
-    let mut entity_new_positions = EntityHashMap::new();
-    if let Some(mov) = turn.move_action() {
-        for (_player, unit) in mov.unit.iter() {
-            let Some(unit) = unit.get_value() else {
-                continue;
-            };
-
-            let Some(entity) = units.get(&AwbwUnitId(unit.units_id)) else {
-                warn!(
-                    "Unit with ID {} not found in unit storage",
-                    unit.units_id.as_u32()
-                );
-                continue;
-            };
-
-            let Some(x) = unit.units_x else { continue };
-            let Some(y) = unit.units_y else { continue };
-
-            // Get current position before updating it (if it exists)
-            let old_position = position_query.get(entity).ok();
-            let new_position = MapPosition::new(x as usize, y as usize);
-
-            commands.entity(entity).insert(new_position);
-            entity_new_positions.insert(entity, new_position);
-
-            // Send unit moved event if we had a previous position
-            if let Some(old_pos) = old_position {
-                event_writer.write(ExternalGameEvent {
-                    payload: GameEvent::UnitMoved(UnitMoved {
-                        unit_id: unit.units_id.as_u32(),
-                        from_x: old_pos.x(),
-                        from_y: old_pos.y(),
-                        to_x: x as usize,
-                        to_y: y as usize,
-                    }),
-                });
-            }
-        }
-    }
-
-    match turn {
-        awbw_replay::turn_models::Action::Build {
-            new_unit,
-            discovered: _discovered,
-        } => {
-            for (_, unit) in new_unit.iter() {
-                let Some(unit) = unit.get_value() else {
-                    continue;
-                };
-
-                let Some(x) = unit.units_x else { continue };
-                let Some(y) = unit.units_y else { continue };
-
-                // Get player faction from replay data
-                let Some(first_game) = loaded_replay.0.games.first() else {
-                    continue;
-                };
-
-                let faction = first_game
-                    .players
-                    .iter()
-                    .find(|p| p.id.as_u32() == unit.units_players_id)
-                    .map(|p| p.faction)
-                    .unwrap_or(awbrn_core::PlayerFaction::OrangeStar);
-
-                commands.spawn((
-                    MapPosition::new(x as usize, y as usize),
-                    Faction(faction),
-                    AwbwUnitId(unit.units_id),
-                    Unit(unit.units_name),
-                ));
-
-                // Send unit built event
-                event_writer.write(ExternalGameEvent {
-                    payload: GameEvent::UnitBuilt(UnitBuilt {
-                        unit_id: unit.units_id.as_u32(),
-                        unit_type: format!("{:?}", unit.units_name),
-                        x: x as usize,
-                        y: y as usize,
-                        player_id: unit.units_players_id,
-                    }),
-                });
-            }
-        }
-        awbw_replay::turn_models::Action::Capt {
-            move_action: _move_action,
-            capture_action,
-        } => {
-            let building_pos = Position::new(
-                capture_action.building_info.buildings_x as usize,
-                capture_action.building_info.buildings_y as usize,
-            );
-
-            let mut found = 0;
-            let mut capturing_unit_faction = None;
-
-            for (entity, MapPosition(pos), Faction(faction)) in units2.iter() {
-                // The units query won't see the deferred command execution so
-                // we need to check the overrides
-                let pos = entity_new_positions
-                    .get(&entity)
-                    .map(|p| p.position())
-                    .unwrap_or(*pos);
-
-                if pos == building_pos {
-                    found += 1;
-                    capturing_unit_faction = Some(*faction);
-
-                    if capture_action.building_info.buildings_capture >= 20 {
-                        commands.entity(entity).remove::<Capturing>();
-                    } else {
-                        commands.entity(entity).insert(Capturing);
-                    }
-                }
-            }
-
-            if found != 1 {
-                warn!(
-                    "Expected exactly one unit capturing at position {:?}, found {}",
-                    building_pos, found
-                );
-            }
-
-            // If capture is complete (>= 20), flip the building to the capturing unit's faction
-            if capture_action.building_info.buildings_capture >= 20
-                && let Some(faction) = capturing_unit_faction
-            {
-                for (_terrain_entity, mut terrain_tile, mut sprite) in terrain_query.iter_mut() {
-                    if terrain_tile.position == building_pos {
-                        // Check if this is a property that can be captured
-                        if let GraphicalTerrain::Property(property) = terrain_tile.terrain {
-                            let new_property = match property {
-                                Property::City(_) => {
-                                    Property::City(awbrn_core::Faction::Player(faction))
-                                }
-                                Property::Base(_) => {
-                                    Property::Base(awbrn_core::Faction::Player(faction))
-                                }
-                                Property::Airport(_) => {
-                                    Property::Airport(awbrn_core::Faction::Player(faction))
-                                }
-                                Property::Port(_) => {
-                                    Property::Port(awbrn_core::Faction::Player(faction))
-                                }
-                                Property::ComTower(_) => {
-                                    Property::ComTower(awbrn_core::Faction::Player(faction))
-                                }
-                                Property::Lab(_) => {
-                                    Property::Lab(awbrn_core::Faction::Player(faction))
-                                }
-                                Property::HQ(_) => Property::HQ(faction),
-                            };
-
-                            terrain_tile.terrain = GraphicalTerrain::Property(new_property);
-
-                            // Update sprite to show new faction
-                            let sprite_index = awbrn_core::spritesheet_index(
-                                current_weather.weather(),
-                                terrain_tile.terrain,
-                            );
-                            if let Some(atlas) = &mut sprite.texture_atlas {
-                                atlas.index = sprite_index.index() as usize;
-                            }
-
-                            log::info!(
-                                "Captured building at {:?} flipped to {:?}",
-                                building_pos,
-                                faction
-                            );
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        awbw_replay::turn_models::Action::Move(_) => {
-            // Handled via [`Action::move_action`]
-        }
-        awbw_replay::turn_models::Action::End { updated_info } => {
-            if updated_info.day != replay_state.day {
-                replay_state.day = updated_info.day;
-                event_writer.write(ExternalGameEvent {
-                    payload: GameEvent::NewDay(NewDay {
-                        day: updated_info.day,
-                    }),
-                });
-            }
-        }
-        _ => {}
-    }
-
+    commands.queue(ReplayTurnCommand { action });
     replay_state.turn += 1;
 }
 
@@ -1112,7 +914,7 @@ fn spawn_animated_unit(mut commands: Commands, loaded_replay: Res<LoadedReplay>)
 }
 
 fn init_replay_state(mut commands: Commands) {
-    commands.insert_resource(ReplayState { turn: 0, day: 1 });
+    commands.init_resource::<ReplayState>();
 }
 
 fn handle_unit_spawn(
