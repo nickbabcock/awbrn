@@ -37,6 +37,7 @@ use crate::{
 use awbrn_core::{GraphicalTerrain, Weather, get_unit_animation_frames};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
 use awbw_replay::{AwbwReplay, ReplayParser};
+use bevy::ecs::system::SystemParam;
 use bevy::sprite::Anchor;
 use bevy::state::state::SubStates;
 use bevy::{log, prelude::*};
@@ -157,8 +158,68 @@ pub struct LoadedReplay(pub AwbwReplay);
 #[derive(Resource)]
 pub struct PendingGameStart(pub Handle<AwbwMapAsset>);
 
+// Resource to hold UI atlas handles during loading
+#[derive(Resource)]
+struct PendingUiAtlas {
+    atlas: Handle<UiAtlasAsset>,
+    texture: Handle<Image>,
+}
+
 /// Type alias for external events containing game events
 pub type ExternalGameEvent = ExternalEvent<GameEvent>;
+
+/// System parameter that bundles UI atlas resource and assets for convenient access.
+///
+/// This allows systems and observers to access the UI atlas with a single parameter
+/// and provides helper methods for creating sprites.
+#[derive(SystemParam)]
+struct UiAtlas<'w> {
+    atlas_res: Res<'w, UiAtlasResource>,
+    atlas_assets: Res<'w, Assets<UiAtlasAsset>>,
+}
+
+impl<'w> UiAtlas<'w> {
+    pub fn cargo_sprite(&self) -> impl Bundle {
+        (
+            Transform::from_translation(Vec3::new(0.0, -8.0, 1.0)),
+            self.sprite_for("HasCargo.png"),
+        )
+    }
+
+    pub fn capturing_sprite(&self) -> impl Bundle {
+        (
+            Transform::from_translation(Vec3::new(0.0, -8.0, 1.0)),
+            self.sprite_for("Capturing.png"),
+        )
+    }
+
+    /// Creates a sprite from the UI atlas for the given sprite name.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the UI atlas is not loaded or if the sprite name is not found.
+    /// This is acceptable because this should only be called after the UI atlas
+    /// is fully loaded during the Complete loading state.
+    fn sprite_for(&self, sprite_name: &str) -> Sprite {
+        let ui_atlas = self
+            .atlas_assets
+            .get(&self.atlas_res.handle)
+            .expect("UI atlas should be loaded");
+
+        let index_map = ui_atlas.index_map();
+        let sprite_index = *index_map
+            .get(sprite_name)
+            .unwrap_or_else(|| panic!("{} not found in UI atlas", sprite_name));
+
+        Sprite::from_atlas_image(
+            self.atlas_res.texture.clone(),
+            TextureAtlas {
+                layout: self.atlas_res.layout.clone(),
+                index: sprite_index,
+            },
+        )
+    }
+}
 
 /// Observer that triggers when Capturing component is removed - cleans up the indicator
 fn on_capturing_remove(
@@ -188,6 +249,36 @@ fn on_cargo_remove(
     }
 }
 
+/// Observer that triggers when Capturing component is inserted - spawns the indicator
+fn on_capturing_insert(trigger: On<Insert, Capturing>, mut commands: Commands, ui_atlas: UiAtlas) {
+    let entity = trigger.entity;
+
+    let indicator_entity = commands
+        .spawn((ui_atlas.capturing_sprite(), ChildOf(entity)))
+        .id();
+
+    commands
+        .entity(entity)
+        .insert(CapturingIndicator(indicator_entity));
+
+    log::info!("Spawned capturing indicator for entity {:?}", entity);
+}
+
+/// Observer that triggers when HasCargo component is inserted - spawns the indicator
+fn on_cargo_insert(trigger: On<Insert, HasCargo>, mut commands: Commands, ui_atlas: UiAtlas) {
+    let entity = trigger.entity;
+
+    let indicator_entity = commands
+        .spawn((ui_atlas.cargo_sprite(), ChildOf(entity)))
+        .id();
+
+    commands
+        .entity(entity)
+        .insert(CargoIndicator(indicator_entity));
+
+    log::info!("Spawned cargo indicator for entity {:?}", entity);
+}
+
 /// System to automatically remove HasCargo component when it becomes empty.
 /// Uses change detection to only check when HasCargo is modified.
 fn cleanup_empty_cargo(
@@ -202,174 +293,6 @@ fn cleanup_empty_cargo(
                 entity
             );
         }
-    }
-}
-
-/// System to spawn capturing indicators when UI atlas is loaded
-fn spawn_deferred_capturing_indicators(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
-    ui_atlas_assets: Res<Assets<UiAtlasAsset>>,
-    ui_atlas_resource: Option<Res<UiAtlasResource>>,
-    query: Query<Entity, (With<Capturing>, Without<CapturingIndicator>)>,
-) {
-    // Only process if we have entities waiting for indicators
-    if query.is_empty() {
-        return;
-    }
-
-    // Initialize or get resource
-    let (atlas_handle, texture_handle, layout_handle) = if let Some(res) = &ui_atlas_resource {
-        (res.handle.clone(), res.texture.clone(), res.layout.clone())
-    } else {
-        // First time - load assets
-        let atlas: Handle<UiAtlasAsset> = asset_server.load("data/ui_atlas.json");
-        let texture = asset_server.load("textures/ui.png");
-
-        commands.insert_resource(UiAtlasResource {
-            handle: atlas.clone(),
-            texture: texture.clone(),
-            layout: Handle::default(),
-        });
-        return; // Wait for next frame
-    };
-
-    // Wait for UI atlas to load
-    let Some(ui_atlas) = ui_atlas_assets.get(&atlas_handle) else {
-        return;
-    };
-
-    // Create layout if needed
-    let layout = if layout_handle.id() == Handle::default().id() {
-        let new_layout = ui_atlas.layout();
-        let new_handle = texture_atlas_layouts.add(new_layout);
-
-        // Update resource with new layout handle
-        commands.insert_resource(UiAtlasResource {
-            handle: atlas_handle.clone(),
-            texture: texture_handle.clone(),
-            layout: new_handle.clone(),
-        });
-        new_handle
-    } else {
-        layout_handle
-    };
-
-    // Get sprite index
-    let index_map = ui_atlas.index_map();
-    let Some(&sprite_index) = index_map.get("Capturing.png") else {
-        log::error!("Capturing.png not found in UI atlas");
-        return;
-    };
-
-    // Spawn indicators for all waiting entities
-    for entity in query.iter() {
-        let offset = Vec3::new(0.0, -8.0, 1.0);
-
-        let indicator_entity = commands
-            .spawn((
-                Sprite::from_atlas_image(
-                    texture_handle.clone(),
-                    TextureAtlas {
-                        layout: layout.clone(),
-                        index: sprite_index,
-                    },
-                ),
-                Transform::from_translation(offset),
-                ChildOf(entity),
-            ))
-            .id();
-
-        commands
-            .entity(entity)
-            .insert(CapturingIndicator(indicator_entity));
-
-        log::info!("Spawned capturing indicator for entity {:?}", entity);
-    }
-}
-
-/// System to spawn cargo indicators when UI atlas is loaded
-fn spawn_deferred_cargo_indicators(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
-    ui_atlas_assets: Res<Assets<UiAtlasAsset>>,
-    ui_atlas_resource: Option<Res<UiAtlasResource>>,
-    query: Query<Entity, (With<HasCargo>, Without<CargoIndicator>)>,
-) {
-    // Only process if we have entities waiting for indicators
-    if query.is_empty() {
-        return;
-    }
-
-    // Initialize or get resource
-    let (atlas_handle, texture_handle, layout_handle) = if let Some(res) = &ui_atlas_resource {
-        (res.handle.clone(), res.texture.clone(), res.layout.clone())
-    } else {
-        // First time - load assets
-        let atlas: Handle<UiAtlasAsset> = asset_server.load("data/ui_atlas.json");
-        let texture = asset_server.load("textures/ui.png");
-
-        commands.insert_resource(UiAtlasResource {
-            handle: atlas.clone(),
-            texture: texture.clone(),
-            layout: Handle::default(),
-        });
-        return; // Wait for next frame
-    };
-
-    // Wait for UI atlas to load
-    let Some(ui_atlas) = ui_atlas_assets.get(&atlas_handle) else {
-        return;
-    };
-
-    // Create layout if needed
-    let layout = if layout_handle.id() == Handle::default().id() {
-        let new_layout = ui_atlas.layout();
-        let new_handle = texture_atlas_layouts.add(new_layout);
-
-        // Update resource with new layout handle
-        commands.insert_resource(UiAtlasResource {
-            handle: atlas_handle.clone(),
-            texture: texture_handle.clone(),
-            layout: new_handle.clone(),
-        });
-        new_handle
-    } else {
-        layout_handle
-    };
-
-    // Get sprite index
-    let index_map = ui_atlas.index_map();
-    let Some(&sprite_index) = index_map.get("HasCargo.png") else {
-        log::error!("HasCargo.png not found in UI atlas");
-        return;
-    };
-
-    // Spawn indicators for all waiting entities
-    for entity in query.iter() {
-        let offset = Vec3::new(0.0, -8.0, 1.0);
-
-        let indicator_entity = commands
-            .spawn((
-                Sprite::from_atlas_image(
-                    texture_handle.clone(),
-                    TextureAtlas {
-                        layout: layout.clone(),
-                        index: sprite_index,
-                    },
-                ),
-                Transform::from_translation(offset),
-                ChildOf(entity),
-            ))
-            .id();
-
-        commands
-            .entity(entity)
-            .insert(CargoIndicator(indicator_entity));
-
-        log::info!("Spawned cargo indicator for entity {:?}", entity);
     }
 }
 
@@ -410,6 +333,8 @@ impl Plugin for AwbrnPlugin {
             .add_observer(handle_unit_spawn)
             .add_observer(on_capturing_remove)
             .add_observer(on_cargo_remove)
+            .add_observer(on_capturing_insert)
+            .add_observer(on_cargo_insert)
             .add_systems(Startup, setup_camera);
 
         // Only add event bus if provided
@@ -432,8 +357,6 @@ impl Plugin for AwbrnPlugin {
                     handle_tile_clicks,
                     animate_units,
                     animate_terrain,
-                    spawn_deferred_capturing_indicators,
-                    spawn_deferred_cargo_indicators,
                     cleanup_empty_cargo,
                 )
                     .run_if(in_state(AppState::InGame)),
@@ -441,9 +364,10 @@ impl Plugin for AwbrnPlugin {
             // Replay-specific systems
             .add_systems(
                 Update,
-                check_map_asset_loaded.run_if(in_state(LoadingState::LoadingAssets)),
+                check_assets_loaded.run_if(in_state(LoadingState::LoadingAssets)),
             )
             // Game mode setup systems
+            .add_systems(OnEnter(LoadingState::Complete), setup_ui_atlas)
             .add_systems(
                 OnEnter(LoadingState::Complete),
                 (setup_map_visuals, spawn_animated_unit, init_replay_state)
@@ -581,6 +505,14 @@ fn detect_replay_to_load(
         commands.insert_resource(MapAssetHandle(map_handle));
     }
 
+    // Start loading UI atlas
+    let ui_atlas_handle = asset_server.load("data/ui_atlas.json");
+    let ui_texture_handle = asset_server.load("textures/ui.png");
+    commands.insert_resource(PendingUiAtlas {
+        atlas: ui_atlas_handle,
+        texture: ui_texture_handle,
+    });
+
     // Store the parsed replay data directly as a resource
     commands.insert_resource(LoadedReplay(replay));
     game_mode_state.set(GameMode::Replay);
@@ -595,10 +527,20 @@ fn detect_pending_game_start(
     mut app_state: ResMut<NextState<AppState>>,
     mut game_mode_state: ResMut<NextState<GameMode>>,
     mut loading_state: ResMut<NextState<LoadingState>>,
+    asset_server: Res<AssetServer>,
 ) {
     let Some(pending) = pending_game else { return };
     commands.insert_resource(MapAssetHandle(pending.0.clone()));
     commands.remove_resource::<PendingGameStart>();
+
+    // Start loading UI atlas
+    let ui_atlas_handle = asset_server.load("data/ui_atlas.json");
+    let ui_texture_handle = asset_server.load("textures/ui.png");
+    commands.insert_resource(PendingUiAtlas {
+        atlas: ui_atlas_handle,
+        texture: ui_texture_handle,
+    });
+
     game_mode_state.set(GameMode::Game);
     app_state.set(AppState::Loading);
     loading_state.set(LoadingState::LoadingAssets);
@@ -617,28 +559,63 @@ fn setup_camera(mut commands: Commands, camera_scale: Res<CameraScale>) {
 #[derive(Resource)]
 struct MapAssetHandle(Handle<AwbwMapAsset>);
 
-// System to check if map asset is loaded and then transition state
-fn check_map_asset_loaded(
+// System to check if map and UI atlas assets are loaded and then transition state
+fn check_assets_loaded(
     map_handle: Res<MapAssetHandle>,
+    pending_ui: Res<PendingUiAtlas>,
     awbw_maps: Res<Assets<AwbwMapAsset>>,
+    ui_atlas_assets: Res<Assets<UiAtlasAsset>>,
     mut game_map: ResMut<GameMap>,
     mut next_state: ResMut<NextState<LoadingState>>,
 ) {
+    // Check map is loaded
     let Some(awbw_map_asset) = awbw_maps.get(&map_handle.0) else {
         return;
     };
 
+    // Check UI atlas is loaded
+    if ui_atlas_assets.get(&pending_ui.atlas).is_none() {
+        return;
+    }
+
+    // Both loaded - process map and transition
     let awbw_map = awbw_map_asset.to_awbw_map();
     let awbrn_map = AwbrnMap::from_map(&awbw_map);
 
     info!(
-        "Map asset processed: {}x{}. Transitioning to Complete state.",
+        "Map asset processed: {}x{}. UI atlas loaded. Transitioning to Complete state.",
         awbrn_map.width(),
         awbrn_map.height()
     );
 
     game_map.set(awbrn_map);
     next_state.set(LoadingState::Complete);
+}
+
+// System that runs on LoadingState::Complete to setup UI atlas resource
+fn setup_ui_atlas(
+    mut commands: Commands,
+    pending_ui: Res<PendingUiAtlas>,
+    ui_atlas_assets: Res<Assets<UiAtlasAsset>>,
+    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+) {
+    // Atlas is guaranteed to be loaded at this point
+    let ui_atlas = ui_atlas_assets
+        .get(&pending_ui.atlas)
+        .expect("UI atlas should be loaded before setup");
+
+    // Create the texture atlas layout
+    let layout = ui_atlas.layout();
+    let layout_handle = texture_atlas_layouts.add(layout);
+
+    // Store in resource for observers to use
+    commands.insert_resource(UiAtlasResource {
+        handle: pending_ui.atlas.clone(),
+        texture: pending_ui.texture.clone(),
+        layout: layout_handle,
+    });
+
+    info!("UI atlas resource initialized");
 }
 
 fn handle_camera_scaling(
