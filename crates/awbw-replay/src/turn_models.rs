@@ -195,7 +195,7 @@ pub struct UnitProperty {
     pub units_moved: Option<u32>,
     pub units_capture: Option<u32>,
     pub units_fired: Option<u32>,
-    pub units_hit_points: f64,
+    pub units_hit_points: AwbwHpDisplay,
     #[serde(default)]
     pub units_cargo1_units_id: Masked<u32>,
     #[serde(default)]
@@ -203,6 +203,24 @@ pub struct UnitProperty {
     pub units_carried: Option<String>,
     #[serde(with = "awbw_country_code")]
     pub countries_code: PlayerFaction,
+}
+
+/// Unit hit points in Awbw replays are only tracked in deciles [0-10]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Copy)]
+pub struct AwbwHpDisplay(u8);
+
+impl AwbwHpDisplay {
+    pub fn value(&self) -> u8 {
+        self.0
+    }
+
+    pub fn is_full_health(&self) -> bool {
+        self.0 >= 10
+    }
+
+    pub fn is_destroyed(&self) -> bool {
+        self.0 == 0
+    }
 }
 
 /// A tile in a movement path
@@ -429,7 +447,7 @@ pub struct CombatInfo {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct CombatUnit {
     pub units_ammo: u32,
-    pub units_hit_points: Option<f64>,
+    pub units_hit_points: Option<AwbwHpDisplay>,
     pub units_id: AwbwUnitId,
     pub units_x: u32,
     pub units_y: u32,
@@ -473,13 +491,13 @@ pub struct UpdatedInfo {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct RepairedUnit {
     pub units_id: String,
-    pub units_hit_points: u32,
+    pub units_hit_points: AwbwHpDisplay,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct RepairedUnit2 {
     pub units_id: AwbwUnitId,
-    pub units_hit_points: u32,
+    pub units_hit_points: AwbwHpDisplay,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]

@@ -7,14 +7,14 @@
 use awbrn_core::{GraphicalTerrain, PlayerFaction, Property};
 use awbrn_map::Position;
 use awbw_replay::turn_models::{
-    Action, CaptureAction, LoadAction, MoveAction, UnitMap, UpdatedInfo,
+    Action, CaptureAction, CombatUnit, FireAction, LoadAction, MoveAction, UnitMap, UpdatedInfo,
 };
 use bevy::log;
 use bevy::prelude::*;
 
 use crate::{
-    AwbwUnitId, Capturing, CurrentWeather, Faction, HasCargo, LoadedReplay, MapPosition,
-    StrongIdMap, TerrainTile, Unit,
+    AwbwUnitId, Capturing, CurrentWeather, Faction, GraphicalHp, HasCargo, LoadedReplay,
+    MapPosition, StrongIdMap, TerrainTile, Unit,
 };
 
 /// Resource tracking the current state of replay playback.
@@ -56,6 +56,10 @@ impl Command for ReplayTurnCommand {
                 unit, transport_id, ..
             } => Self::apply_unload(unit, *transport_id, world),
             Action::End { updated_info } => Self::apply_end(updated_info, world),
+            Action::Fire {
+                move_action: _move_action,
+                fire_action,
+            } => Self::apply_fire(fire_action, world),
             Action::Move(_) => {} // Already handled via move_action()
             _ => log::warn!("Unhandled action: {:?}", self.action),
         }
@@ -333,6 +337,57 @@ impl ReplayTurnCommand {
             log::warn!(
                 "Transport {} does not have HasCargo component",
                 transport_id_core.as_u32()
+            );
+        }
+    }
+
+    /// Processes a fire action, updating unit health from combat results.
+    fn apply_fire(fire_action: &FireAction, world: &mut World) {
+        // Iterate over all players' combat vision
+        for (_player, combat_vision) in fire_action.combat_info_vision.iter() {
+            let combat_info = &combat_vision.combat_info;
+
+            // Process attacker HP update
+            if let Some(attacker_unit) = combat_info.attacker.get_value() {
+                Self::update_unit_hp(world, attacker_unit);
+            }
+
+            // Process defender HP update
+            if let Some(defender_unit) = combat_info.defender.get_value() {
+                Self::update_unit_hp(world, defender_unit);
+            }
+        }
+    }
+
+    /// Helper to update a single unit's HP from CombatUnit data
+    fn update_unit_hp(world: &mut World, combat_unit: &CombatUnit) {
+        let unit_id = AwbwUnitId(combat_unit.units_id);
+
+        // Get entity from StrongIdMap
+        let entity = {
+            let units = world.resource::<StrongIdMap<AwbwUnitId>>();
+            units.get(&unit_id)
+        };
+
+        let Some(entity) = entity else {
+            log::warn!(
+                "Unit entity not found for ID: {}",
+                combat_unit.units_id.as_u32()
+            );
+            return;
+        };
+
+        // Extract HP value if present
+        if let Some(hp_display) = combat_unit.units_hit_points {
+            let hp_value = hp_display.value();
+
+            // Insert or update GraphicalHp component
+            world.entity_mut(entity).insert(GraphicalHp(hp_value));
+
+            log::info!(
+                "Updated unit {} HP to {}",
+                combat_unit.units_id.as_u32(),
+                hp_value
             );
         }
     }

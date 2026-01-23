@@ -210,3 +210,25 @@ pub struct UiAtlasResource {
     pub texture: Handle<Image>,
     pub layout: Handle<TextureAtlasLayout>,
 }
+
+#[derive(Debug, Component, Clone, Copy, PartialEq, Eq, Hash)]
+#[component(immutable)]
+pub struct GraphicalHp(pub u8);
+
+impl GraphicalHp {
+    pub fn value(&self) -> u8 {
+        self.0
+    }
+
+    pub fn is_full_health(&self) -> bool {
+        self.0 >= 10
+    }
+
+    pub fn is_destroyed(&self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// Component to track the health indicator sprite child entity
+#[derive(Component, Debug)]
+pub struct HealthIndicator(pub Entity);
