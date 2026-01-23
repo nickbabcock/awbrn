@@ -28,7 +28,7 @@
 //!     note right of GameMode : Independent state<br/>determines active systems<br/>in InGame
 //! ```
 
-use crate::replay_turn::{ReplayState, ReplayTurnCommand};
+use crate::replay_turn::{ReplayState, ReplayTurnCommand, UndoTurnCommand};
 use crate::{
     AwbwUnitId, CameraScale, Capturing, CapturingIndicator, CargoIndicator, CurrentWeather,
     Faction, GameMap, GraphicalHp, GridSystem, HasCargo, HealthIndicator, JsonAssetPlugin,
@@ -1010,22 +1010,26 @@ fn handle_replay_controls(
     mut replay_state: ResMut<ReplayState>,
     loaded_replay: Res<LoadedReplay>,
 ) {
-    if !keyboard_input.just_pressed(KeyCode::ArrowRight) {
-        return;
+    // Forward with ArrowRight
+    if keyboard_input.just_pressed(KeyCode::ArrowRight) {
+        let Some(action) = loaded_replay
+            .0
+            .turns
+            .get(replay_state.turn as usize)
+            .cloned()
+        else {
+            info!("Reached the end of the replay turns");
+            return;
+        };
+
+        commands.queue(ReplayTurnCommand { action });
+        replay_state.turn += 1;
     }
 
-    let Some(action) = loaded_replay
-        .0
-        .turns
-        .get(replay_state.turn as usize)
-        .cloned()
-    else {
-        info!("Reached the end of the replay turns");
-        return;
-    };
-
-    commands.queue(ReplayTurnCommand { action });
-    replay_state.turn += 1;
+    // Undo with ArrowLeft
+    if keyboard_input.just_pressed(KeyCode::ArrowLeft) {
+        commands.queue(UndoTurnCommand);
+    }
 }
 
 // Extracted the map setup into a separate function for reuse
