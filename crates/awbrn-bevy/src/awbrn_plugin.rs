@@ -31,8 +31,9 @@
 use crate::replay_turn::{ReplayState, ReplayTurnCommand};
 use crate::{
     AwbwUnitId, CameraScale, Capturing, CapturingIndicator, CargoIndicator, CurrentWeather,
-    Faction, GameMap, GridSystem, HasCargo, JsonAssetPlugin, MapBackdrop, SelectedTile, SpriteSize,
-    StrongIdMap, TerrainTile, UiAtlasAsset, UiAtlasResource, Unit,
+    Faction, GameMap, GraphicalHp, GridSystem, HasCargo, HealthIndicator, JsonAssetPlugin,
+    MapBackdrop, SelectedTile, SpriteSize, StrongIdMap, TerrainTile, UiAtlasAsset, UiAtlasResource,
+    Unit,
 };
 use awbrn_core::{GraphicalTerrain, Weather, get_unit_animation_frames};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
@@ -193,6 +194,13 @@ impl<'w> UiAtlas<'w> {
         )
     }
 
+    pub fn health_sprite(&self, sprite_name: &str) -> impl Bundle {
+        (
+            Transform::from_translation(Vec3::new(7.5, -8.0, 1.0)),
+            self.sprite_for(sprite_name),
+        )
+    }
+
     /// Creates a sprite from the UI atlas for the given sprite name.
     ///
     /// # Panics
@@ -279,6 +287,67 @@ fn on_cargo_insert(trigger: On<Insert, HasCargo>, mut commands: Commands, ui_atl
     log::info!("Spawned cargo indicator for entity {:?}", entity);
 }
 
+/// Observer that triggers when GraphicalHp component is inserted
+fn on_health_insert(
+    trigger: On<Insert, GraphicalHp>,
+    mut commands: Commands,
+    ui_atlas: UiAtlas,
+    query: Query<&GraphicalHp>,
+) {
+    let entity = trigger.entity;
+
+    // Get the HP value
+    let Ok(hp) = query.get(entity) else {
+        log::warn!("GraphicalHp component not found for entity {:?}", entity);
+        return;
+    };
+
+    // Don't show indicator for full health (10 HP)
+    if hp.is_full_health() {
+        return;
+    }
+
+    // Don't show indicator for destroyed units (0 HP)
+    if hp.is_destroyed() {
+        log::warn!("Unit {:?} has 0 HP", entity);
+        return;
+    }
+
+    // Spawn health indicator sprite
+    let hp_value = hp.value();
+    let sprite_name = format!("Healthv2/{}.png", hp_value);
+
+    let indicator_entity = commands
+        .spawn((ui_atlas.health_sprite(&sprite_name), ChildOf(entity)))
+        .id();
+
+    commands
+        .entity(entity)
+        .insert(HealthIndicator(indicator_entity));
+
+    log::info!(
+        "Spawned health indicator for entity {:?} with HP {}",
+        entity,
+        hp_value
+    );
+}
+
+/// Observer that triggers when GraphicalHp component is removed
+fn on_health_remove(
+    trigger: On<Remove, GraphicalHp>,
+    mut commands: Commands,
+    query: Query<&HealthIndicator>,
+) {
+    let entity = trigger.entity;
+
+    // Get the indicator child entity if it exists
+    if let Ok(indicator) = query.get(entity) {
+        commands.entity(indicator.0).despawn();
+        commands.entity(entity).remove::<HealthIndicator>();
+        log::info!("Removed health indicator from entity {:?}", entity);
+    }
+}
+
 /// System to automatically remove HasCargo component when it becomes empty.
 /// Uses change detection to only check when HasCargo is modified.
 fn cleanup_empty_cargo(
@@ -293,6 +362,59 @@ fn cleanup_empty_cargo(
                 entity
             );
         }
+    }
+}
+
+/// System to update health indicator when GraphicalHp value changes
+fn update_health_indicator(
+    mut commands: Commands,
+    ui_atlas: UiAtlas,
+    query: Query<(Entity, &GraphicalHp, Option<&HealthIndicator>), Changed<GraphicalHp>>,
+) {
+    for (entity, hp, indicator) in query.iter() {
+        // Despawn old indicator if it exists
+        if let Some(indicator) = indicator {
+            commands.entity(indicator.0).despawn();
+        }
+
+        // If full health now, remove HealthIndicator component if present
+        if hp.is_full_health() {
+            if indicator.is_some() {
+                commands.entity(entity).remove::<HealthIndicator>();
+                log::info!(
+                    "Unit {:?} restored to full health, removing indicator",
+                    entity
+                );
+            }
+            continue;
+        }
+
+        // If destroyed, remove indicator if present
+        if hp.is_destroyed() {
+            if indicator.is_some() {
+                commands.entity(entity).remove::<HealthIndicator>();
+            }
+            log::warn!("Unit {:?} destroyed (0 HP)", entity);
+            continue;
+        }
+
+        // Spawn new indicator with updated HP
+        let hp_value = hp.value();
+        let sprite_name = format!("Healthv2/{}.png", hp_value);
+
+        let new_indicator = commands
+            .spawn((ui_atlas.health_sprite(&sprite_name), ChildOf(entity)))
+            .id();
+
+        commands
+            .entity(entity)
+            .insert(HealthIndicator(new_indicator));
+
+        log::info!(
+            "Updated health indicator for entity {:?} to HP {}",
+            entity,
+            hp_value
+        );
     }
 }
 
@@ -335,6 +457,8 @@ impl Plugin for AwbrnPlugin {
             .add_observer(on_cargo_remove)
             .add_observer(on_capturing_insert)
             .add_observer(on_cargo_insert)
+            .add_observer(on_health_insert)
+            .add_observer(on_health_remove)
             .add_systems(Startup, setup_camera);
 
         // Only add event bus if provided
@@ -358,6 +482,7 @@ impl Plugin for AwbrnPlugin {
                     animate_units,
                     animate_terrain,
                     cleanup_empty_cargo,
+                    update_health_indicator,
                 )
                     .run_if(in_state(AppState::InGame)),
             )
