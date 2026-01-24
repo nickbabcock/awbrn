@@ -93,14 +93,14 @@ impl GameMap {
     }
 }
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AwbwUnitId(pub awbrn_core::AwbwUnitId);
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[require(SpriteSize { width: 23.0, height: 24.0, z_index: 1 })]
 pub struct Unit(pub awbrn_core::Unit);
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Faction(pub awbrn_core::PlayerFaction);
 
 #[derive(Component, Copy, Clone)]
@@ -134,7 +134,7 @@ pub struct Capturing;
 pub struct CapturingIndicator(pub Entity);
 
 /// Component to mark an entity as carrying cargo (up to 2 units)
-#[derive(Component, Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Component, Reflect, Debug, Clone, PartialEq, Eq, Default)]
 pub struct HasCargo {
     pub cargo: [Option<AwbwUnitId>; 2],
 }

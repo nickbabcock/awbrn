@@ -79,7 +79,7 @@ struct TerrainAnimation {
     frame_timer: Timer,
 }
 
-#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Component, Reflect, Clone, Copy, PartialEq, Eq, Debug)]
 #[require(Transform)]
 pub struct MapPosition(pub Position);
 
@@ -418,6 +418,99 @@ fn update_health_indicator(
     }
 }
 
+/// System to update unit sprite when Faction changes
+fn update_unit_on_faction_change(
+    mut query: Query<(&Unit, &Faction, &mut Sprite, &mut Animation), Changed<Faction>>,
+) {
+    for (unit, faction, mut sprite, mut animation) in query.iter_mut() {
+        // Get new animation frames for the updated faction
+        let animation_frames =
+            get_unit_animation_frames(awbrn_core::GraphicalMovement::Idle, unit.0, faction.0);
+
+        // Update animation component
+        animation.start_index = animation_frames.start_index();
+        animation.frame_durations = animation_frames.raw();
+        animation.current_frame = 0;
+        animation.frame_timer = Timer::new(
+            Duration::from_millis(animation_frames.raw()[0] as u64),
+            TimerMode::Once,
+        );
+
+        // Update sprite to show first frame of new faction
+        if let Some(atlas) = &mut sprite.texture_atlas {
+            atlas.index = animation_frames.start_index() as usize;
+        }
+
+        log::info!(
+            "Updated unit {:?} sprite to faction {:?}",
+            unit.0,
+            faction.0
+        );
+    }
+}
+
+/// System to update unit sprite when Unit type changes
+fn update_unit_on_type_change(
+    mut query: Query<(&Unit, &Faction, &mut Sprite, &mut Animation), Changed<Unit>>,
+) {
+    for (unit, faction, mut sprite, mut animation) in query.iter_mut() {
+        // Get new animation frames for the updated unit type
+        let animation_frames =
+            get_unit_animation_frames(awbrn_core::GraphicalMovement::Idle, unit.0, faction.0);
+
+        // Update animation component
+        animation.start_index = animation_frames.start_index();
+        animation.frame_durations = animation_frames.raw();
+        animation.current_frame = 0;
+        animation.frame_timer = Timer::new(
+            Duration::from_millis(animation_frames.raw()[0] as u64),
+            TimerMode::Once,
+        );
+
+        // Update sprite to show first frame of new unit type
+        if let Some(atlas) = &mut sprite.texture_atlas {
+            atlas.index = animation_frames.start_index() as usize;
+        }
+
+        log::info!(
+            "Updated sprite to unit type {:?} for faction {:?}",
+            unit.0,
+            faction.0
+        );
+    }
+}
+
+/// System to update Transform when MapPosition changes
+fn update_transform_on_position_change(
+    mut query: Query<(&mut Transform, &SpriteSize, &MapPosition), Changed<MapPosition>>,
+    game_map: Res<GameMap>,
+) {
+    for (mut transform, sprite_size, map_position) in query.iter_mut() {
+        // Create grid system for position calculations
+        let grid = GridSystem::new(game_map.width(), game_map.height());
+        let map_pixel_width = grid.map_width * GridSystem::TILE_SIZE;
+        let map_pixel_height = grid.map_height * GridSystem::TILE_SIZE;
+        let world_origin_offset = Vec3::new(-map_pixel_width / 2.0, map_pixel_height / 2.0, 0.0);
+
+        // Use the grid system's sprite_position method
+        let grid_pos = grid.sprite_position((*map_position).into(), sprite_size);
+
+        let local_pos = grid.grid_to_world(&grid_pos);
+        let z_offset = map_position.y() as f32 * 0.001;
+        let final_world_pos =
+            world_origin_offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z + z_offset);
+
+        transform.translation = final_world_pos;
+
+        log::info!(
+            "Updated Transform for position ({}, {}) -> {:?}",
+            map_position.x(),
+            map_position.y(),
+            final_world_pos
+        );
+    }
+}
+
 pub struct AwbrnPlugin {
     map_resolver: Arc<dyn MapAssetPathResolver>,
     event_bus: Option<Arc<dyn EventBus<GameEvent>>>,
@@ -451,6 +544,11 @@ impl Plugin for AwbrnPlugin {
             .add_sub_state::<LoadingState>()
             .insert_resource(MapPathResolver(self.map_resolver.clone()))
             .add_message::<ExternalGameEvent>()
+            .register_type::<AwbwUnitId>()
+            .register_type::<HasCargo>()
+            .register_type::<MapPosition>()
+            .register_type::<Faction>()
+            .register_type::<Unit>()
             .add_observer(on_map_position_insert)
             .add_observer(handle_unit_spawn)
             .add_observer(on_capturing_remove)
@@ -483,6 +581,9 @@ impl Plugin for AwbrnPlugin {
                     animate_terrain,
                     cleanup_empty_cargo,
                     update_health_indicator,
+                    update_unit_on_faction_change,
+                    update_unit_on_type_change,
+                    update_transform_on_position_change,
                 )
                     .run_if(in_state(AppState::InGame)),
             )
