@@ -42,9 +42,9 @@ run = [
 ]
 
 [tasks."dev:desktop"]
-description = "Run the desktop app with inspector"
+description = "Run the desktop app with devtools"
 run = [
-    "cargo run --package awbrn-desktop --features debug-inspector"
+    "cargo run --package awbrn-desktop --features debug"
 ]
 
 [tasks."assets"]
