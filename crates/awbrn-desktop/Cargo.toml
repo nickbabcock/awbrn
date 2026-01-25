@@ -5,6 +5,7 @@ edition = "2024"
 
 [features]
 default = ["bevy/dynamic_linking"]
+debug-inspector = ["dep:bevy-inspector-egui"]
 
 [dependencies]
 awbrn-bevy = { path = "../awbrn-bevy" }
@@ -15,6 +16,7 @@ bevy = { workspace = true, features = [
     "bevy_asset",
     "bevy_core_pipeline",
     "bevy_log",
+    "bevy_mikktspace", # for https://github.com/jakobhellermann/bevy-inspector-egui/issues/307
     "bevy_render",
     "bevy_sprite_render",
     "bevy_sprite",
@@ -26,6 +28,7 @@ bevy = { workspace = true, features = [
     "std",
     "x11",
 ]}
+bevy-inspector-egui = { workspace = true, optional = true }
 ehttp.workspace = true
 
 [dev-dependencies]

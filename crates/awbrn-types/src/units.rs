@@ -1,6 +1,7 @@
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, strum::EnumCount, strum::VariantArray,
 )]
+#[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum Unit {
     AntiAir,
     APC,

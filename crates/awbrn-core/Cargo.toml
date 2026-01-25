@@ -3,6 +3,10 @@ name = "awbrn-core"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+bevy = ["awbrn-types/bevy"]
+
 [dependencies]
 awbrn-types = { path = "../awbrn-types" }
 serde.workspace = true

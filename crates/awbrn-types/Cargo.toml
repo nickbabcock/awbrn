@@ -3,7 +3,12 @@ name = "awbrn-types"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+bevy = ["dep:bevy"]
+
 [dependencies]
+bevy = { workspace = true, optional = true }
 serde.workspace = true
 strum.workspace = true
 

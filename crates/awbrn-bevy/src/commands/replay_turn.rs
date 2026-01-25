@@ -125,7 +125,15 @@ impl ReplayTurnCommand {
                 .map(|p| p.faction)
                 .unwrap_or(PlayerFaction::OrangeStar);
 
+            let unit_name = format!(
+                "{} - {} - {}",
+                faction.country_code(),
+                unit.units_name.name(),
+                unit.units_id.as_u32()
+            );
+
             world.spawn((
+                Name::new(unit_name),
                 MapPosition::new(x as usize, y as usize),
                 Faction(faction),
                 AwbwUnitId(unit.units_id),
