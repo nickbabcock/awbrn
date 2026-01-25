@@ -82,7 +82,7 @@ function App() {
               break;
             }
           }
-        })
+        }),
       );
 
       gameInstance = game;
