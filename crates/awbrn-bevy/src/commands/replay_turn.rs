@@ -14,7 +14,7 @@ use bevy::prelude::*;
 
 use crate::{
     AwbwUnitId, Capturing, CurrentWeather, Faction, GraphicalHp, HasCargo, LoadedReplay,
-    MapPosition, StrongIdMap, TerrainTile, Unit,
+    MapPosition, StrongIdMap, TerrainTile, Unit, UnitActive,
 };
 
 /// Resource tracking the current state of replay playback.
@@ -94,6 +94,9 @@ impl ReplayTurnCommand {
             // Immediate mutation - visible to subsequent queries!
             let new_position = MapPosition::new(x as usize, y as usize);
             world.entity_mut(entity).insert(new_position);
+
+            // Mark unit as inactive (has acted this turn)
+            world.entity_mut(entity).remove::<UnitActive>();
         }
     }
 
@@ -173,7 +176,7 @@ impl ReplayTurnCommand {
         }
     }
 
-    /// Processes an End turn action, updating the day counter.
+    /// Processes an End turn action, updating the day counter, and re-activating units
     fn apply_end(updated_info: &UpdatedInfo, world: &mut World) {
         let current_day = {
             let replay_state = world.resource::<ReplayState>();
@@ -183,6 +186,8 @@ impl ReplayTurnCommand {
         if updated_info.day != current_day {
             world.resource_mut::<ReplayState>().day = updated_info.day;
         }
+
+        Self::activate_all_units(world);
     }
 
     /// Processes a load action, hiding the loaded unit and marking the transport as carrying cargo.
@@ -351,13 +356,18 @@ impl ReplayTurnCommand {
 
     /// Processes a fire action, updating unit health from combat results.
     fn apply_fire(fire_action: &FireAction, world: &mut World) {
+        let mut attacker_entity = None;
+
         // Iterate over all players' combat vision
         for (_player, combat_vision) in fire_action.combat_info_vision.iter() {
             let combat_info = &combat_vision.combat_info;
 
-            // Process attacker HP update
+            // Process attacker HP update and track the entity
             if let Some(attacker_unit) = combat_info.attacker.get_value() {
-                Self::update_unit_hp(world, attacker_unit);
+                let entity = Self::update_unit_hp(world, attacker_unit);
+                if attacker_entity.is_none() {
+                    attacker_entity = entity;
+                }
             }
 
             // Process defender HP update
@@ -365,10 +375,16 @@ impl ReplayTurnCommand {
                 Self::update_unit_hp(world, defender_unit);
             }
         }
+
+        // Mark attacker as inactive (has acted this turn)
+        if let Some(entity) = attacker_entity {
+            world.entity_mut(entity).remove::<UnitActive>();
+        }
     }
 
-    /// Helper to update a single unit's HP from CombatUnit data
-    fn update_unit_hp(world: &mut World, combat_unit: &CombatUnit) {
+    /// Helper to update a single unit's HP from CombatUnit data.
+    /// Returns the entity if found, None otherwise.
+    fn update_unit_hp(world: &mut World, combat_unit: &CombatUnit) -> Option<Entity> {
         let unit_id = AwbwUnitId(combat_unit.units_id);
 
         // Get entity from StrongIdMap
@@ -382,7 +398,7 @@ impl ReplayTurnCommand {
                 "Unit entity not found for ID: {}",
                 combat_unit.units_id.as_u32()
             );
-            return;
+            return None;
         };
 
         // Extract HP value if present
@@ -398,6 +414,8 @@ impl ReplayTurnCommand {
                 hp_value
             );
         }
+
+        Some(entity)
     }
 
     /// Flips a building to a new faction after capture completion.
@@ -437,6 +455,23 @@ impl ReplayTurnCommand {
                 log::info!("Captured building at {:?} flipped to {:?}", pos, faction);
                 break;
             }
+        }
+    }
+
+    /// Activates all units by adding UnitActive component.
+    /// Called at the start of a new turn.
+    fn activate_all_units(world: &mut World) {
+        let unit_entities: Vec<Entity> = {
+            let mut query = world.query_filtered::<Entity, With<Unit>>();
+            query.iter(world).collect()
+        };
+
+        for entity in &unit_entities {
+            world.entity_mut(*entity).insert(UnitActive);
+        }
+
+        if !unit_entities.is_empty() {
+            log::info!("Activated {} units for new turn", unit_entities.len());
         }
     }
 }

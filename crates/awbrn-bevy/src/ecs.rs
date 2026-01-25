@@ -232,3 +232,8 @@ impl GraphicalHp {
 /// Component to track the health indicator sprite child entity
 #[derive(Component, Debug)]
 pub struct HealthIndicator(pub Entity);
+
+/// Component to mark a unit that can receive orders this turn.
+/// Units without this component have already acted and appear grey/frozen.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnitActive;

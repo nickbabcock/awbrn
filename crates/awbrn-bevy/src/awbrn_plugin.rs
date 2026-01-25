@@ -33,7 +33,7 @@ use crate::{
     AwbwUnitId, CameraScale, Capturing, CapturingIndicator, CargoIndicator, CurrentWeather,
     Faction, GameMap, GraphicalHp, GridSystem, HasCargo, HealthIndicator, JsonAssetPlugin,
     MapBackdrop, SelectedTile, SpriteSize, StrongIdMap, TerrainTile, UiAtlasAsset, UiAtlasResource,
-    Unit,
+    Unit, UnitActive,
 };
 use awbrn_core::{GraphicalTerrain, Weather, get_unit_animation_frames};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
@@ -44,6 +44,9 @@ use bevy::state::state::SubStates;
 use bevy::{log, prelude::*};
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
+
+/// Color used for inactive units
+const INACTIVE_UNIT_COLOR: Color = Color::srgb(0.67, 0.67, 0.67);
 
 /// Trait for resolving map asset paths from map IDs
 pub trait MapAssetPathResolver: Send + Sync + 'static {
@@ -348,6 +351,56 @@ fn on_health_remove(
     }
 }
 
+/// Observer that triggers when UnitActive component is removed - applies grey filter and freezes animation
+fn on_unit_active_remove(
+    trigger: On<Remove, UnitActive>,
+    mut commands: Commands,
+    mut query: Query<&mut Sprite>,
+) {
+    let entity = trigger.entity;
+
+    let Ok(mut sprite) = query.get_mut(entity) else {
+        return;
+    };
+
+    // Apply grey filter and stop animation
+    sprite.color = INACTIVE_UNIT_COLOR;
+    commands.entity(entity).remove::<Animation>();
+}
+
+/// Observer that triggers when UnitActive component is inserted - restores animation and color
+fn on_unit_active_insert(
+    trigger: On<Insert, UnitActive>,
+    mut commands: Commands,
+    mut query: Query<(&Unit, &Faction, &mut Sprite)>,
+) {
+    let entity = trigger.entity;
+
+    let Ok((unit, faction, mut sprite)) = query.get_mut(entity) else {
+        return;
+    };
+
+    // Restore normal color
+    sprite.color = Color::WHITE;
+
+    // Restore idle animation
+    let animation_frames =
+        get_unit_animation_frames(awbrn_core::GraphicalMovement::Idle, unit.0, faction.0);
+
+    let frame_durations = animation_frames.raw();
+    let animation = Animation {
+        start_index: animation_frames.start_index(),
+        frame_durations,
+        current_frame: 0,
+        frame_timer: Timer::new(
+            Duration::from_millis(frame_durations[0] as u64),
+            TimerMode::Once,
+        ),
+    };
+
+    commands.entity(entity).insert(animation);
+}
+
 /// System to automatically remove HasCargo component when it becomes empty.
 /// Uses change detection to only check when HasCargo is modified.
 fn cleanup_empty_cargo(
@@ -557,6 +610,8 @@ impl Plugin for AwbrnPlugin {
             .add_observer(on_cargo_insert)
             .add_observer(on_health_insert)
             .add_observer(on_health_remove)
+            .add_observer(on_unit_active_remove)
+            .add_observer(on_unit_active_insert)
             .add_systems(Startup, setup_camera);
 
         // Only add event bus if provided
@@ -1229,6 +1284,7 @@ fn spawn_animated_unit(mut commands: Commands, loaded_replay: Res<LoadedReplay>)
             Faction(faction),
             AwbwUnitId(unit.id),
             Unit(unit.name),
+            UnitActive,
         ));
     }
 }
@@ -1243,7 +1299,7 @@ fn handle_unit_spawn(
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
     mut map: ResMut<StrongIdMap<AwbwUnitId>>,
-    mut query: Query<(&Unit, &Faction, &AwbwUnitId)>,
+    mut query: Query<(&Unit, &Faction, &AwbwUnitId, Has<UnitActive>)>,
 ) {
     // Load the units texture
     let texture = asset_server.load("textures/units.png");
@@ -1253,7 +1309,7 @@ fn handle_unit_spawn(
     let texture_atlas_layout = texture_atlas_layouts.add(layout);
 
     let entity = trigger.entity;
-    let Ok((unit, faction, unit_id)) = query.get_mut(entity) else {
+    let Ok((unit, faction, unit_id, has_active)) = query.get_mut(entity) else {
         warn!("Unit entity {:?} not found in query", entity);
         return;
     };
@@ -1272,29 +1328,39 @@ fn handle_unit_spawn(
     let animation_frames =
         get_unit_animation_frames(awbrn_core::GraphicalMovement::Idle, unit.0, faction.0);
 
-    // Create the animation component
-    let frame_durations = animation_frames.raw();
-    let animation = Animation {
-        start_index: animation_frames.start_index(),
-        frame_durations,
-        current_frame: 0,
-        frame_timer: Timer::new(
-            Duration::from_millis(frame_durations[0] as u64),
-            TimerMode::Once,
-        ),
+    // Determine visual state based on UnitActive component
+    let (color, should_animate) = if has_active {
+        (Color::WHITE, true)
+    } else {
+        (INACTIVE_UNIT_COLOR, false)
     };
 
-    commands.entity(entity).insert((
-        Sprite::from_atlas_image(
-            texture,
-            TextureAtlas {
-                layout: texture_atlas_layout,
-                index: animation_frames.start_index() as usize,
-            },
-        ),
-        Anchor::default(),
-        animation,
-    ));
+    let mut sprite = Sprite::from_atlas_image(
+        texture,
+        TextureAtlas {
+            layout: texture_atlas_layout,
+            index: animation_frames.start_index() as usize,
+        },
+    );
+    sprite.color = color;
+
+    let mut entity_commands = commands.entity(entity);
+    entity_commands.insert((sprite, Anchor::default()));
+
+    // Only add animation if unit is active
+    if should_animate {
+        let frame_durations = animation_frames.raw();
+        let animation = Animation {
+            start_index: animation_frames.start_index(),
+            frame_durations,
+            current_frame: 0,
+            frame_timer: Timer::new(
+                Duration::from_millis(frame_durations[0] as u64),
+                TimerMode::Once,
+            ),
+        };
+        entity_commands.insert(animation);
+    }
 }
 
 fn on_map_position_insert(
