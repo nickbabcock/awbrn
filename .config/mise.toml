@@ -1,4 +1,5 @@
 [tools]
+"aqua:pnpm" = { version = "10.28.1" }
 "node" = { version = "24.11.1" }
 "github:rustwasm/wasm-bindgen" = { version = "0.2.106", extract_all = "true" }
 "github:WebAssembly/binaryen" = { version = "version_125", extract_all = "true", bin_path = "bin" }
@@ -10,11 +11,28 @@ run = [
     "wasm-bindgen --target web ./target/wasm32-unknown-unknown/release/awbrn_wasm.wasm --out-dir ./web/src/wasm"
 ]
 
+[tasks."build:wasm:ci"]
+hide = true
+run = [
+    "cargo build --locked --profile ci --target wasm32-unknown-unknown --verbose -p awbrn-wasm",
+    "wasm-bindgen --target web ./target/wasm32-unknown-unknown/ci/awbrn_wasm.wasm --out-dir ./web/src/wasm"
+]
+
+[tasks."build:web"]
+description = "Build the web frontend for ci"
+wait_for = ["build:wasm:ci", "build:wasm"]
+depends = ["pnpm-install"]
+dir = "web"
+run = [
+    "pnpm run build"
+]
+
+
 [tasks."dev:web"]
 description = "Run the web server"
 dir = "web"
 run = [
-    "npm run dev"
+    "pnpm run dev"
 ]
 
 [tasks."desktop"]
@@ -35,4 +53,33 @@ run = [
     "cargo xtask-assets tiles",
     "cargo xtask-assets units",
     "cargo xtask-assets ui"
+]
+
+[tasks.pnpm-install]
+run = "pnpm install --optimistic-repeat-install"
+sources = ["pnpm-lock.yaml"]
+hide = true
+
+[tasks.lint]
+description = "Lint the web and Rust code. Run before creating PR"
+depends = ["pnpm-install"]
+run = [
+    "cargo clippy --all-targets --all-features --workspace -- -D warnings",
+    "pnpm run lint --deny-warnings"
+]
+
+[tasks.format]
+description = "Format code"
+depends = ["pnpm-install"]
+run = [
+    "cargo fmt --all",
+    "pnpm run format",
+]
+
+[tasks."format:check"]
+description = "Check that code is formatted"
+depends = ["pnpm-install"]
+run = [
+    "cargo fmt --all --check",
+    "pnpm run format:check",
 ]

@@ -103,7 +103,7 @@ jobs:
       run: git diff --exit-code
 
   # Check that all files are formatted properly.
-  rustfmt:
+  format-check:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
@@ -113,11 +113,10 @@ jobs:
       with:
         toolchain: stable
         components: rustfmt
-    - name: Check formatting
-      run: |
-        cargo fmt --all -- --check
+    - uses: jdx/mise-action@v2
+    - run: mise run format:check
 
-  clippy:
+  lint:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
@@ -127,11 +126,11 @@ jobs:
       with:
         toolchain: stable
         components: clippy
+    - uses: jdx/mise-action@v2
     - name: Install Ubuntu dependencies
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
     - name: Run clippy
-      run: |
-        cargo clippy --all-targets --all-features -- -D warnings
+      run: mise run lint
 
   testbench:
     runs-on: ubuntu-latest
@@ -157,12 +156,4 @@ jobs:
         toolchain: stable
         targets: wasm32-unknown-unknown
     - uses: jdx/mise-action@v2
-    - run: |
-        cargo build --locked --profile ci --target wasm32-unknown-unknown --verbose -p awbrn-wasm
-        wasm-bindgen --target web ./target/wasm32-unknown-unknown/ci/awbrn_wasm.wasm --out-dir ./web/src/wasm
-    - name: Install web dependencies
-      working-directory: web
-      run: npm ci
-    - name: Build web project
-      working-directory: web
-      run: npm run build
+    - run: 'mise run build:wasm:ci ::: build:web'
