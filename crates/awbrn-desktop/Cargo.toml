@@ -5,7 +5,7 @@ edition = "2024"
 
 [features]
 default = ["bevy/dynamic_linking"]
-debug-inspector = ["dep:bevy-inspector-egui"]
+debug = ["dep:bevy-inspector-egui", "dep:bevy_mod_debugdump"]
 
 [dependencies]
 awbrn-bevy = { path = "../awbrn-bevy" }
@@ -29,6 +29,7 @@ bevy = { workspace = true, features = [
     "x11",
 ]}
 bevy-inspector-egui = { workspace = true, optional = true }
+bevy_mod_debugdump = { version = "0.15", optional = true }
 ehttp.workspace = true
 
 [dev-dependencies]
