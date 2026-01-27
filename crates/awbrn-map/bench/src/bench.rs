@@ -25,7 +25,8 @@ fn parser(c: &mut Criterion) {
         b.iter(|| {
             let reachable = pathfinder.reachable(Position::new(15, 15), 3, TestMovement);
             let count = reachable.into_positions().count();
-            black_box(count);        });
+            black_box(count);
+        });
     });
 
     group.finish();

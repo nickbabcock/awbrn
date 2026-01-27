@@ -17,9 +17,12 @@ harness = false
 path = "src/bench.rs"
 
 [dependencies]
-criterion = "0.5.1"
+criterion = { version = "0.5.1", default-features = false }
 awbrn-map = { path = ".." }
 awbrn-core = { path = "../../awbrn-core" }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+criterion = { version = "0.5.1", default-features = true }
 
 [profile.release]
 debug = true
