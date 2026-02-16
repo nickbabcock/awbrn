@@ -3,9 +3,9 @@ on:
   pull_request:
   push:
     branches:
-    - master
+      - master
   schedule:
-  - cron: '00 01 * * *'
+    - cron: "00 01 * * *"
 
 # principle of least privilege
 # https://github.com/BurntSushi/jiff/blob/86bff5f10fd3bf24a8fc77b5199dc4f0ca4e2c88/.github/workflows/ci.yml#L10
@@ -19,41 +19,38 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - build: stable
-          os: ubuntu-latest
-          rust: stable
-        - build: beta
-          os: ubuntu-latest
-          rust: beta
-        - build: nightly
-          os: ubuntu-latest
-          rust: nightly
-        - build: macos
-          os: macos-latest
-          rust: stable
-        - build: win-msvc
-          os: windows-latest
-          rust: stable
-        - build: linux-arm64
-          os: ubuntu-24.04-arm
-          rust: stable
+          - build: stable
+            os: ubuntu-latest
+            rust: stable
+          - build: beta
+            os: ubuntu-latest
+            rust: beta
+          - build: nightly
+            os: ubuntu-latest
+            rust: nightly
+          - build: macos
+            os: macos-latest
+            rust: stable
+          - build: win-msvc
+            os: windows-latest
+            rust: stable
+          - build: linux-arm64
+            os: ubuntu-24.04-arm
+            rust: stable
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: ${{ matrix.rust }}
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
 
-    # https://github.com/bevyengine/bevy_github_ci_template/blob/667143cd049befd33c05eb75d538248904625e2c/.github/workflows/ci.yaml#L34
-    - name: Install Ubuntu dependencies
-      if: startsWith(matrix.os, 'ubuntu')
-      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
+      # https://github.com/bevyengine/bevy_github_ci_template/blob/667143cd049befd33c05eb75d538248904625e2c/.github/workflows/ci.yaml#L34
+      - name: Install Ubuntu dependencies
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
 
-    - run: cargo test --locked --workspace --all-targets --profile ci --no-fail-fast --verbose
-      if: matrix.build != 'win-msvc'
-    - run: cargo test --locked --workspace --all-targets --profile ci --no-fail-fast --verbose -p awbrn-desktop --no-default-features && cargo test --locked --workspace --all-targets --profile ci --no-fail-fast --verbose --exclude awbrn-desktop
-      if: matrix.build == 'win-msvc'
+      - run: cargo test --locked --workspace --all-targets --profile ci --no-fail-fast --verbose
 
   build:
     runs-on: ${{ matrix.os }}
@@ -61,23 +58,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - build: stable
-          os: ubuntu-latest
-          rust: stable
+          - build: stable
+            os: ubuntu-latest
+            rust: stable
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: ${{ matrix.rust }}
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
 
-    # https://github.com/bevyengine/bevy_github_ci_template/blob/667143cd049befd33c05eb75d538248904625e2c/.github/workflows/ci.yaml#L34
-    - name: Install Ubuntu dependencies
-      if: startsWith(matrix.os, 'ubuntu')
-      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
+      # https://github.com/bevyengine/bevy_github_ci_template/blob/667143cd049befd33c05eb75d538248904625e2c/.github/workflows/ci.yaml#L34
+      - name: Install Ubuntu dependencies
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
 
-    - run: cargo build --profile ci --locked --verbose -p awbrn-desktop
+      - run: cargo build --profile ci --locked --verbose --workspace
 
   # Ensures that our assets pipeline results in the same generated files on
   # linux and windows.
@@ -88,72 +85,72 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        submodules: true
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: stable
-    - uses: jdx/mise-action@v2
-    - name: Build assets
-      run: mise run assets
-    - name: Ensure no git diff
-      run: git diff --exit-code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - uses: jdx/mise-action@v2
+      - name: Build assets
+        run: mise run assets
+      - name: Ensure no git diff
+        run: git diff --exit-code
 
   # Check that all files are formatted properly.
   format-check:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: stable
-        components: rustfmt
-    - uses: jdx/mise-action@v2
-    - run: mise run format:check
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: rustfmt
+      - uses: jdx/mise-action@v2
+      - run: mise run format:check
 
   lint:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: stable
-        components: clippy
-    - uses: jdx/mise-action@v2
-    - name: Install Ubuntu dependencies
-      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
-    - name: Run clippy
-      run: mise run lint
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: jdx/mise-action@v2
+      - name: Install Ubuntu dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
+      - name: Run clippy
+        run: mise run lint
 
   testbench:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: stable
-    - name: Build benchmark
-      run: |
-        cargo bench --manifest-path crates/awbrn-map/bench/Cargo.toml -- --test
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - name: Build benchmark
+        run: |
+          cargo bench --manifest-path crates/awbrn-map/bench/Cargo.toml -- --test
 
   web:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: stable
-        targets: wasm32-unknown-unknown
-    - uses: jdx/mise-action@v2
-    - run: 'mise run build:wasm:ci ::: build:web'
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+      - uses: jdx/mise-action@v2
+      - run: "mise run build:wasm:ci ::: build:web"

@@ -5,16 +5,21 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:tauri": "vite --mode tauri",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "build:tauri": "tsc -b && vite build --mode tauri",
+    "preview": "vite preview",
+    "tauri": "tauri"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.10.1",
     "comlink": "4.4.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "zustand": "5.0.10"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.10.0",
     "@types/node": "catalog:",
     "@types/react": "19.2.9",
     "@types/react-dom": "19.2.3",

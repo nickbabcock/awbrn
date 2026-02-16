@@ -44,5 +44,8 @@ export const createGame = async (
       const fileBuffer = new Uint8Array(fileData);
       app.new_replay(fileBuffer);
     },
+    newReplayData: async (data: Uint8Array) => {
+      app.new_replay(data);
+    },
   });
 };

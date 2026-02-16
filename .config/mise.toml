@@ -37,14 +37,18 @@ run = [
 
 [tasks."desktop"]
 description = "Run the desktop app"
+dir = "web"
+depends = ["pnpm-install"]
 run = [
-    "cargo run --package awbrn-desktop"
+    "pnpm tauri dev"
 ]
 
 [tasks."dev:desktop"]
 description = "Run the desktop app with inspector"
+dir = "web"
+depends = ["pnpm-install"]
 run = [
-    "cargo run --package awbrn-desktop --features debug-inspector"
+    "pnpm tauri dev -- --features debug-inspector"
 ]
 
 [tasks."assets"]

@@ -43,6 +43,7 @@ export default defineConfig({
       },
     },
   ],
+  envPrefix: ["VITE_", "TAURI_ENV_"],
   server: {
     fs: {
       allow: [".."],
