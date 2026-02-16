@@ -1,0 +1,38 @@
+[package]
+name = "awbrn-desktop"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+debug-inspector = ["dep:bevy-inspector-egui"]
+
+[lib]
+name = "awbrn_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.4", features = [] }
+
+[dependencies]
+awbrn-bevy = { path = "../../crates/awbrn-bevy" }
+bevy = { version = "0.18.0", default-features = false, features = [
+    "bevy_asset",
+    "bevy_core_pipeline",
+    "bevy_log",
+    "bevy_mikktspace",
+    "bevy_render",
+    "bevy_sprite_render",
+    "bevy_sprite",
+    "bevy_state",
+    "bevy_window",
+    "png",
+    "sprite_picking",
+    "std",
+] }
+bevy-inspector-egui = { version = "0.36", default-features = false, features = ["bevy_render"], optional = true }
+ehttp = { version = "0.6.0", default-features = false, features = ["native-async"] }
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+tauri = { version = "2.10.0", features = ["macos-private-api"] }
+tauri-plugin-log = "2"

@@ -20,7 +20,7 @@ impl Plugin for WebAssetPlugin {
     }
 }
 
-pub(crate) struct WebMapAssetPathResolver;
+pub struct WebMapAssetPathResolver;
 
 impl MapAssetPathResolver for WebMapAssetPathResolver {
     fn resolve_path(&self, map_id: u32) -> String {
@@ -34,16 +34,16 @@ impl MapAssetPathResolver for WebMapAssetPathResolver {
 pub struct WebAssetReader;
 
 impl WebAssetReader {
-    pub(crate) fn uri(path: &Path) -> String {
+    fn uri(path: &Path) -> String {
         format!("https://{}", path.display())
     }
 
-    pub(crate) async fn get(&self, path: &Path) -> Result<Box<dyn Reader>, AssetReaderError> {
-        let uri = WebAssetReader::uri(path);
+    async fn get(&self, path: &Path) -> Result<Box<dyn Reader>, AssetReaderError> {
+        let uri = Self::uri(path);
         let request = ehttp::Request::get(&uri);
         let response = ehttp::fetch_async(request)
             .await
-            .map_err(|e| AssetReaderError::Io(Arc::new(std::io::Error::other(e))))?;
+            .map_err(|error| AssetReaderError::Io(Arc::new(std::io::Error::other(error))))?;
 
         if !response.ok {
             return Err(AssetReaderError::Io(Arc::new(std::io::Error::other(
@@ -64,9 +64,7 @@ impl AssetReader for WebAssetReader {
     }
 
     async fn read_meta<'a>(&'a self, path: &'a Path) -> Result<Box<dyn Reader>, AssetReaderError> {
-        Err(AssetReaderError::NotFound(PathBuf::from(
-            WebAssetReader::uri(path),
-        )))
+        Err(AssetReaderError::NotFound(PathBuf::from(Self::uri(path))))
     }
 
     async fn is_directory<'a>(&'a self, _path: &'a Path) -> Result<bool, AssetReaderError> {
@@ -77,8 +75,6 @@ impl AssetReader for WebAssetReader {
         &'a self,
         path: &'a Path,
     ) -> Result<Box<PathStream>, AssetReaderError> {
-        Err(AssetReaderError::NotFound(PathBuf::from(
-            WebAssetReader::uri(path),
-        )))
+        Err(AssetReaderError::NotFound(PathBuf::from(Self::uri(path))))
     }
 }

@@ -13,7 +13,6 @@ use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 use web_sys::OffscreenCanvas;
 
-mod keyboard;
 mod offscreen_window_handle;
 
 #[wasm_bindgen]
@@ -159,7 +158,7 @@ impl BevyApp {
             return;
         };
 
-        let code = keyboard::from_web_code(event.key_code.as_str());
+        let code = awbrn_bevy::from_web_code(event.key_code.as_str());
         let event = KeyboardInput {
             key_code: code,
             logical_key: bevy::input::keyboard::Key::Unidentified(NativeKey::Web(
@@ -186,7 +185,7 @@ impl BevyApp {
             return;
         };
 
-        let code = keyboard::from_web_code(event.key_code.as_str());
+        let code = awbrn_bevy::from_web_code(event.key_code.as_str());
         let event: KeyboardInput = KeyboardInput {
             key_code: code,
             logical_key: bevy::input::keyboard::Key::Unidentified(NativeKey::Web(

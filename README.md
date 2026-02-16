@@ -9,4 +9,4 @@ mise run assets
 mise run desktop
 ```
 
-Drop replay onto window (eg: `assets/replays`)
+Use the replay file picker in the app to load a replay (eg: from `assets/replays`).

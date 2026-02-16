@@ -1,4 +1,4 @@
-use bevy::input::keyboard::KeyCode;
+use bevy::input::keyboard::{KeyCode, NativeKeyCode};
 
 pub fn from_web_code(code: &str) -> KeyCode {
     match code {
@@ -196,6 +196,6 @@ pub fn from_web_code(code: &str) -> KeyCode {
         "F33" => KeyCode::F33,
         "F34" => KeyCode::F34,
         "F35" => KeyCode::F35,
-        _ => KeyCode::Unidentified(bevy::input::keyboard::NativeKeyCode::Unidentified),
+        _ => KeyCode::Unidentified(NativeKeyCode::Unidentified),
     }
 }
