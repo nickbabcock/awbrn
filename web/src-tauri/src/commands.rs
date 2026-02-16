@@ -32,6 +32,7 @@ struct InteractionState {
     mouse_buttons: [bool; 3],
     wheel_lines: f32,
     pressed_keys: HashSet<String>,
+    latched_pressed_keys: HashSet<String>,
     window_metrics: Option<WindowMetrics>,
 }
 
@@ -49,12 +50,14 @@ impl AppState {
             .map(|mut guard| {
                 let wheel_lines = guard.wheel_lines;
                 guard.wheel_lines = 0.0;
+                let mut pressed_keys = guard.pressed_keys.clone();
+                pressed_keys.extend(guard.latched_pressed_keys.drain());
 
                 InteractionSnapshot {
                     cursor: guard.cursor,
                     mouse_buttons: guard.mouse_buttons,
                     wheel_lines,
-                    pressed_keys: guard.pressed_keys.clone(),
+                    pressed_keys,
                     window_metrics: guard.window_metrics,
                 }
             })
@@ -108,7 +111,8 @@ impl AppState {
             .map_err(|_| "Failed to lock interaction state".to_string())?;
 
         if pressed {
-            guard.pressed_keys.insert(code);
+            guard.pressed_keys.insert(code.clone());
+            guard.latched_pressed_keys.insert(code);
         } else {
             guard.pressed_keys.remove(&code);
         }

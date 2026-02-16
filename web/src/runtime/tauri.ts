@@ -17,6 +17,13 @@ export class TauriRuntime implements GameRuntime {
     });
 
     await this.sendWindowMetrics(container);
+    enableKeyboardCapture(container);
+
+    const focusContainer = () => {
+      window.focus();
+      container.focus({ preventScroll: true });
+    };
+    focusContainer();
 
     this.resizeObserver = new ResizeObserver(() => {
       void this.sendWindowMetrics(container);
@@ -27,6 +34,18 @@ export class TauriRuntime implements GameRuntime {
       "resize",
       () => {
         void this.sendWindowMetrics(container);
+      },
+      { signal: this.abortController.signal },
+    );
+
+    window.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (isInteractiveTarget(event.target)) {
+          return;
+        }
+
+        focusContainer();
       },
       { signal: this.abortController.signal },
     );
@@ -114,31 +133,33 @@ export class TauriRuntime implements GameRuntime {
       { signal: this.abortController.signal, passive: false },
     );
 
-    window.addEventListener(
+    document.addEventListener(
       "keydown",
       (event) => {
-        if (event.repeat || this.pressedKeys.has(event.code)) {
+        const code = normalizeKeyboardCode(event);
+        if (!code || event.repeat || this.pressedKeys.has(code)) {
           return;
         }
 
-        this.pressedKeys.add(event.code);
+        this.pressedKeys.add(code);
         void invoke<void>("interaction_key", {
-          code: event.code,
+          code,
           pressed: true,
         });
       },
       { signal: this.abortController.signal },
     );
 
-    window.addEventListener(
+    document.addEventListener(
       "keyup",
       (event) => {
-        if (!this.pressedKeys.delete(event.code)) {
+        const code = normalizeKeyboardCode(event);
+        if (!code || !this.pressedKeys.delete(code)) {
           return;
         }
 
         void invoke<void>("interaction_key", {
-          code: event.code,
+          code,
           pressed: false,
         });
       },
@@ -217,6 +238,12 @@ export class TauriRuntime implements GameRuntime {
   }
 }
 
+function enableKeyboardCapture(container: HTMLElement): void {
+  if (container.tabIndex < 0) {
+    container.tabIndex = 0;
+  }
+}
+
 function normalizeMouseButton(button: number): number | null {
   return button >= 0 && button <= 2 ? button : null;
 }
@@ -240,4 +267,24 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   }
 
   return target.closest("[data-map-input-stop='true']") !== null;
+}
+
+function normalizeKeyboardCode(event: KeyboardEvent): string | null {
+  const candidate = event.code || event.key;
+  if (!candidate) {
+    return null;
+  }
+
+  switch (candidate) {
+    case "Left":
+      return "ArrowLeft";
+    case "Right":
+      return "ArrowRight";
+    case "Up":
+      return "ArrowUp";
+    case "Down":
+      return "ArrowDown";
+    default:
+      return candidate;
+  }
 }

@@ -5,7 +5,12 @@ mod web_asset_plugin;
 use awbrn_bevy::ReplayToLoad;
 use bevy::{
     app::{App, PluginsState},
-    input::{ButtonInput, keyboard::KeyCode, mouse::MouseButton},
+    ecs::entity::Entity,
+    input::{
+        ButtonInput, ButtonState,
+        keyboard::{Key, KeyboardInput, NativeKey},
+        mouse::MouseButton,
+    },
     math::Vec2,
     prelude::Window,
 };
@@ -56,8 +61,8 @@ impl RuntimeState {
         }
 
         {
-            let mut window_query = world.query::<&mut Window>();
-            if let Some(mut window) = window_query.iter_mut(world).next() {
+            let mut window_query = world.query::<(Entity, &mut Window)>();
+            if let Some((_window_entity, mut window)) = window_query.iter_mut(world).next() {
                 if let Some(metrics) = snapshot.window_metrics {
                     let width = metrics.width.max(1.0);
                     let height = metrics.height.max(1.0);
@@ -94,7 +99,8 @@ impl RuntimeState {
         }
 
         {
-            let mut keyboard_input = world.resource_mut::<ButtonInput<KeyCode>>();
+            let mut window_query = world.query::<(Entity, &Window)>();
+            let window_entity = window_query.iter(world).next().map(|(entity, _)| entity);
 
             let keys_to_release: Vec<_> = self
                 .applied_input
@@ -103,7 +109,16 @@ impl RuntimeState {
                 .cloned()
                 .collect();
             for code in keys_to_release {
-                keyboard_input.release(awbrn_bevy::from_web_code(&code));
+                if let Some(window_entity) = window_entity {
+                    world.write_message(KeyboardInput {
+                        key_code: awbrn_bevy::from_web_code(&code),
+                        logical_key: Key::Unidentified(NativeKey::Web(code.clone().into())),
+                        state: ButtonState::Released,
+                        text: None,
+                        repeat: false,
+                        window: window_entity,
+                    });
+                }
             }
 
             let keys_to_press: Vec<_> = snapshot
@@ -112,7 +127,16 @@ impl RuntimeState {
                 .cloned()
                 .collect();
             for code in keys_to_press {
-                keyboard_input.press(awbrn_bevy::from_web_code(&code));
+                if let Some(window_entity) = window_entity {
+                    world.write_message(KeyboardInput {
+                        key_code: awbrn_bevy::from_web_code(&code),
+                        logical_key: Key::Unidentified(NativeKey::Web(code.clone().into())),
+                        state: ButtonState::Pressed,
+                        text: None,
+                        repeat: false,
+                        window: window_entity,
+                    });
+                }
             }
         }
 
@@ -176,16 +200,24 @@ pub fn run() {
         }
     });
 
-    let main_window = tauri_app
-        .get_webview_window("main")
-        .expect("main window should exist");
-    let mut runtime_state = RuntimeState::new(tauri_app.handle().clone(), main_window);
-
     let target_frame_duration = Duration::from_secs_f64(1.0 / 60.0);
     let mut last_frame = Instant::now();
+    let mut runtime_state: Option<RuntimeState> = None;
 
     tauri_app.run(move |app_handle, event| match event {
         RunEvent::MainEventsCleared => {
+            if runtime_state.is_none() {
+                let window = app_handle
+                    .get_webview_window("main")
+                    .or_else(|| app_handle.webview_windows().into_values().next());
+
+                let Some(window) = window else {
+                    return;
+                };
+
+                runtime_state = Some(RuntimeState::new(app_handle.clone(), window));
+            }
+
             if last_frame.elapsed() < target_frame_duration {
                 return;
             }
@@ -196,8 +228,10 @@ pub fn run() {
             let snapshot = state.take_interaction_snapshot();
             let pending_replay = state.take_pending_replay();
 
-            runtime_state.apply_snapshot(snapshot, pending_replay);
-            runtime_state.update();
+            if let Some(runtime_state) = runtime_state.as_mut() {
+                runtime_state.apply_snapshot(snapshot, pending_replay);
+                runtime_state.update();
+            }
         }
         _ => {}
     });
