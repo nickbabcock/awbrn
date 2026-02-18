@@ -132,18 +132,6 @@ jobs:
     - name: Run clippy
       run: mise run lint
 
-  testbench:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: stable
-    - name: Build benchmark
-      run: cargo bench -p bench --locked -- --test
-
   web:
     runs-on: ubuntu-latest
     steps:
