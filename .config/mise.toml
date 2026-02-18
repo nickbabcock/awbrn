@@ -4,6 +4,9 @@
 "github:rustwasm/wasm-bindgen" = { version = "0.2.106", extract_all = "true" }
 "github:WebAssembly/binaryen" = { version = "version_125", extract_all = "true", bin_path = "bin" }
 
+[env]
+_.path = ['{{config_root}}/.config/bin']
+
 [tasks."build:wasm"]
 description = "Build the Wasm bundle"
 run = [
@@ -82,4 +85,14 @@ depends = ["pnpm-install"]
 run = [
     "cargo fmt --all --check",
     "pnpm run format:check",
+]
+
+[tasks."bench:wasm"]
+description = "Run benchmarks in wasm"
+env.CARGO_TARGET_WASM32_WASIP1_RUNNER = "wasmer run --volume {{config_root}} --"
+env.CC_wasm32_wasip1 = "wasiclang"
+env.CXX_wasm32_wasip1 = "wasiclang++"
+run = [
+    "rustup target add wasm32-wasip1",
+    "cargo bench -p bench --bench awbrn-bench-criterion --target wasm32-wasip1",
 ]
