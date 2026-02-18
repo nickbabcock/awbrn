@@ -1,0 +1,21 @@
+[package]
+name = "bench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+bench = false
+
+[dependencies]
+awbrn-core = { path = "../awbrn-core" }
+awbrn-map = { path = "../awbrn-map" }
+criterion = { workspace = true }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+criterion = { workspace = true, default-features = true }
+
+[[bench]]
+name = "awbrn-bench-criterion"
+harness = false
+path = "src/criterion_main.rs"
