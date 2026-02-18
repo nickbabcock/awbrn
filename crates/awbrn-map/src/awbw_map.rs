@@ -12,6 +12,9 @@ pub struct AwbwMap {
     /// Width of the map in tiles
     width: usize,
 
+    /// Height of the map in tiles
+    height: usize,
+
     /// Terrain data stored as a flattened 2D array (row-major order)
     terrain: Vec<awbrn_core::AwbwTerrain>,
 }
@@ -21,6 +24,7 @@ impl AwbwMap {
     pub fn new(width: usize, height: usize, default_terrain: AwbwTerrain) -> Self {
         Self {
             width,
+            height,
             terrain: vec![default_terrain; width * height],
         }
     }
@@ -75,8 +79,10 @@ impl AwbwMap {
             return Err(MapError::EmptyMap);
         }
 
+        let height = result.len() / width;
         Ok(AwbwMap {
             width,
+            height,
             terrain: result,
         })
     }
@@ -98,7 +104,7 @@ impl AwbwMap {
     }
 
     pub fn height(&self) -> usize {
-        self.terrain.len() / self.width
+        self.height
     }
 
     /// Get the terrain at the specified position
@@ -129,8 +135,14 @@ impl AwbwMap {
 }
 
 impl MovementMap for AwbwMap {
+    #[inline(always)]
     fn terrain_at(&self, pos: Position) -> Option<MovementTerrain> {
         self.terrain_at(pos).map(MovementTerrain::from)
+    }
+
+    #[inline(always)]
+    fn terrain_at_flat(&self, flat_idx: usize) -> MovementTerrain {
+        MovementTerrain::from(self.terrain[flat_idx])
     }
 
     fn width(&self) -> usize {
@@ -221,6 +233,7 @@ impl TryFrom<&'_ AwbwMapData> for AwbwMap {
 
         Ok(AwbwMap {
             width: column_count,
+            height: row_count,
             terrain,
         })
     }

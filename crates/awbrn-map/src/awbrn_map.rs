@@ -11,6 +11,9 @@ pub struct AwbrnMap {
     /// Width of the map in tiles
     width: usize,
 
+    /// Height of the map in tiles
+    height: usize,
+
     /// Graphical terrain data stored as a flattened 2D array (row-major order)
     terrain: Vec<GraphicalTerrain>,
 }
@@ -452,13 +455,18 @@ impl AwbrnMap {
             })
             .collect::<Vec<_>>();
 
-        Self { width, terrain }
+        Self {
+            width,
+            height: map.height(),
+            terrain,
+        }
     }
 
     /// Create a new map with specified dimensions and default terrain
     pub fn new(width: usize, height: usize, default_terrain: GraphicalTerrain) -> Self {
         Self {
             width,
+            height,
             terrain: vec![default_terrain; width * height],
         }
     }
@@ -470,7 +478,7 @@ impl AwbrnMap {
 
     /// Get the height of the map
     pub fn height(&self) -> usize {
-        self.terrain.len() / self.width
+        self.height
     }
 
     /// Get the terrain at the specified position
@@ -492,10 +500,16 @@ impl AwbrnMap {
 }
 
 impl MovementMap for AwbrnMap {
+    #[inline(always)]
     fn terrain_at(&self, pos: Position) -> Option<MovementTerrain> {
         self.terrain_at(pos)
             .map(|x| x.as_terrain())
             .map(MovementTerrain::from)
+    }
+
+    #[inline(always)]
+    fn terrain_at_flat(&self, flat_idx: usize) -> MovementTerrain {
+        MovementTerrain::from(self.terrain[flat_idx].as_terrain())
     }
 
     fn width(&self) -> usize {
