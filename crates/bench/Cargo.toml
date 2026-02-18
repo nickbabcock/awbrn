@@ -13,9 +13,15 @@ awbrn-map = { path = "../awbrn-map" }
 criterion = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
+gungraun = { workspace = true }
 criterion = { workspace = true, default-features = true }
 
 [[bench]]
 name = "awbrn-bench-criterion"
 harness = false
 path = "src/criterion_main.rs"
+
+[[bench]]
+name = "awbrn-bench-gungraun"
+harness = false
+path = "src/gungraun_main.rs"

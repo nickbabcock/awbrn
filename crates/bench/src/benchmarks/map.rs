@@ -42,3 +42,28 @@ pub mod criterion_benches {
 
     criterion::criterion_group!(map_benches, pathfinding);
 }
+
+#[cfg(not(target_family = "wasm"))]
+pub mod gungraun_benches {
+    use super::*;
+    use awbrn_map::AwbwMap;
+    use gungraun::{library_benchmark, library_benchmark_group};
+
+    fn setup(movement: u8) -> (AwbwMap, u8) {
+        (
+            AwbwMap::new(40, 40, awbrn_core::AwbwTerrain::Plain),
+            movement,
+        )
+    }
+
+    #[library_benchmark(setup = setup)]
+    #[bench::sidewinder_fighter(11u8)]
+    #[bench::infantry(3u8)]
+    fn pathfinding((map, movement): (AwbwMap, u8)) -> usize {
+        let mut pathfinder = map.pathfinder();
+        let reachable = pathfinder.reachable(Position::new(15, 15), movement, TestMovement);
+        reachable.into_positions().count()
+    }
+
+    library_benchmark_group!(name = map_benches, benchmarks = [pathfinding,]);
+}
