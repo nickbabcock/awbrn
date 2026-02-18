@@ -142,8 +142,7 @@ jobs:
       with:
         toolchain: stable
     - name: Build benchmark
-      run: |
-        cargo bench --manifest-path crates/awbrn-map/bench/Cargo.toml -- --test
+      run: cargo bench -p bench -- --test
 
   web:
     runs-on: ubuntu-latest
