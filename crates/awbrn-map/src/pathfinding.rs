@@ -1,11 +1,13 @@
 use crate::Position;
 use awbrn_core::MovementTerrain;
-use std::{cmp::Reverse, collections::BinaryHeap};
 
 /// A trait for maps that provide terrain information for pathfinding
 pub trait MovementMap {
     /// Get the terrain at the specified coordinates
     fn terrain_at(&self, pos: Position) -> Option<MovementTerrain>;
+
+    /// Get terrain at a pre-validated flat index (caller ensures idx < width * height)
+    fn terrain_at_flat(&self, flat_idx: usize) -> MovementTerrain;
 
     fn width(&self) -> usize;
 
@@ -15,6 +17,10 @@ pub trait MovementMap {
 impl<T: MovementMap> MovementMap for &'_ T {
     fn terrain_at(&self, pos: Position) -> Option<MovementTerrain> {
         (**self).terrain_at(pos)
+    }
+
+    fn terrain_at_flat(&self, flat_idx: usize) -> MovementTerrain {
+        (**self).terrain_at_flat(flat_idx)
     }
 
     fn width(&self) -> usize {
@@ -39,39 +45,65 @@ impl<T: TerrainCosts> TerrainCosts for &'_ T {
 
 pub struct Reachable<'a, M> {
     map: &'a mut PathFinder<M>,
+    map_width: usize,
 }
 
-impl<M: MovementMap> Reachable<'_, M> {
-    pub fn into_positions(self) -> impl Iterator<Item = (Position, u8)> {
-        self.map
-            .cost_map
-            .drain(..)
-            .enumerate()
-            .filter_map(|(idx, cost)| cost.map(|c| (idx, c)))
-            .map(|(idx, cost)| {
-                let y = idx / self.map.map.width();
-                let x = idx % self.map.map.width();
-                (Position::new(x, y), cost)
-            })
+struct PositionIter<'a, M> {
+    pathfinder: &'a mut PathFinder<M>,
+    cursor: usize,
+    map_width: usize,
+}
+
+impl<M: MovementMap> Iterator for PositionIter<'_, M> {
+    type Item = (Position, u8);
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.pathfinder.visited.len().saturating_sub(self.cursor);
+        (remaining, Some(remaining))
+    }
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let flat_idx = self.pathfinder.visited.get(self.cursor).copied()? as usize;
+        self.cursor += 1;
+        let cost = self.pathfinder.cost_map[flat_idx];
+        let y = flat_idx / self.map_width;
+        let x = flat_idx % self.map_width;
+        Some((Position::new(x, y), cost))
+    }
+}
+
+impl<'a, M: MovementMap> Reachable<'a, M> {
+    pub fn into_positions(self) -> impl Iterator<Item = (Position, u8)> + 'a {
+        PositionIter {
+            pathfinder: self.map,
+            cursor: 0,
+            map_width: self.map_width,
+        }
     }
 }
 
 pub struct PathFinder<M> {
     map: M,
 
-    queue: BinaryHeap<(Reverse<u8>, Position)>,
+    /// Bucket queue indexed by movement cost (Dial's algorithm)
+    buckets: Vec<Vec<u32>>,
 
-    /// Map of position to cost
-    cost_map: Vec<Option<u8>>,
+    /// Movement cost per flat index; u8::MAX means unvisited
+    cost_map: Vec<u8>,
+
+    /// Flat indices of all cells reached during the current search
+    visited: Vec<u32>,
 }
 
 impl<M: MovementMap> PathFinder<M> {
     /// Create a new PathFinder
     pub fn new(map: M) -> Self {
+        let map_size = map.width() * map.height();
         Self {
             map,
-            queue: BinaryHeap::new(),
-            cost_map: Vec::new(),
+            buckets: Vec::with_capacity(256),
+            cost_map: Vec::with_capacity(map_size),
+            visited: Vec::with_capacity(map_size),
         }
     }
 
@@ -82,59 +114,124 @@ impl<M: MovementMap> PathFinder<M> {
         movement_points: u8,
         costs: impl TerrainCosts,
     ) -> Reachable<'_, M> {
-        self.cost_map.clear();
-        self.cost_map
-            .resize(self.map.height() * self.map.width(), None);
-        self.queue.clear();
+        let map_width = self.map.width();
+        let map_size = self.map.height() * map_width;
 
-        if let Some(index) = self.cost_map.get_mut(start.y * self.map.width() + start.x) {
-            *index = Some(0);
+        self.visited.clear();
+
+        // First call: allocate and initialize cost_map
+        if self.cost_map.len() != map_size {
+            self.cost_map.clear();
+            self.cost_map.resize(map_size, u8::MAX);
         } else {
-            return Reachable { map: self };
+            self.cost_map.fill(u8::MAX);
         }
 
-        self.queue.push((Reverse(0), start));
+        let num_buckets = movement_points as usize + 1;
+        if self.buckets.len() < num_buckets {
+            // New bucket Vecs get initial capacity to reduce reallocation churn
+            let bucket_capacity = (map_size / num_buckets).max(16);
+            self.buckets
+                .resize_with(num_buckets, || Vec::with_capacity(bucket_capacity));
+        }
+        for bucket in self.buckets[..num_buckets].iter_mut() {
+            bucket.clear();
+        }
 
-        // Directions to explore: down, right, up, left
-        let directions = [(0, 1), (1, 0), (0, -1), (-1, 0)];
-        while let Some((Reverse(current_cost), current)) = self.queue.pop() {
-            // Optimization: If we pop an element whose cost is already higher
-            // than a known shorter path to it, skip it. This happens if we
-            // added multiple entries for the same node to the queue before finding
-            // the absolute shortest path.
-            let index = current.y * self.map.width() + current.x;
-            if matches!(self.cost_map[index], Some(known_cost) if current_cost > known_cost) {
+        let start_idx = start.y * map_width + start.x;
+        if start_idx >= map_size {
+            return Reachable {
+                map: self,
+                map_width,
+            };
+        }
+
+        self.cost_map[start_idx] = 0;
+        self.visited.push(start_idx as u32);
+        self.buckets[0].push(start_idx as u32);
+
+        let map_height = self.map.height();
+        let mut current_cost = 0usize;
+
+        while current_cost < num_buckets {
+            if self.buckets[current_cost].is_empty() {
+                current_cost += 1;
                 continue;
             }
 
-            for (dx, dy) in &directions {
-                let new_pos = current.movement(*dx, *dy);
+            // Take the batch to avoid borrow conflicts when 0-cost edges push back to this bucket
+            let mut batch = std::mem::take(&mut self.buckets[current_cost]);
 
-                let Some(terrain) = self.map.terrain_at(new_pos) else {
-                    continue;
-                };
+            for &flat_idx in &batch {
+                let flat_idx = flat_idx as usize;
 
-                let Some(terrain_cost) = costs.cost(terrain) else {
-                    continue;
-                };
-                let movement_cost = current_cost + terrain_cost;
-
-                if movement_cost > movement_points {
+                // Skip stale entries: a better path was found after this entry was enqueued
+                if self.cost_map[flat_idx] != current_cost as u8 {
                     continue;
                 }
 
-                let index = new_pos.y * self.map.width() + new_pos.x;
-                match &mut self.cost_map[index] {
-                    Some(c) if movement_cost < *c => *c = movement_cost,
-                    Some(_) => continue,
-                    cost @ None => *cost = Some(movement_cost),
-                }
+                // x for left/right boundary checks; y for up/down
+                let x = flat_idx % map_width;
+                let y = flat_idx / map_width;
 
-                self.queue.push((Reverse(movement_cost), new_pos));
+                if x + 1 < map_width {
+                    self.relax_neighbor(&costs, current_cost, num_buckets, flat_idx + 1);
+                }
+                if x > 0 {
+                    self.relax_neighbor(&costs, current_cost, num_buckets, flat_idx - 1);
+                }
+                if y + 1 < map_height {
+                    self.relax_neighbor(&costs, current_cost, num_buckets, flat_idx + map_width);
+                }
+                if y > 0 {
+                    self.relax_neighbor(&costs, current_cost, num_buckets, flat_idx - map_width);
+                }
+            }
+
+            batch.clear();
+            // Check for 0-cost edge additions that landed back in the current bucket
+            let remaining = std::mem::take(&mut self.buckets[current_cost]);
+            if remaining.is_empty() {
+                self.buckets[current_cost] = batch; // return capacity for reuse
+                current_cost += 1;
+            } else {
+                // 0-cost edges added new entries; process them before advancing
+                self.buckets[current_cost] = remaining;
             }
         }
 
-        Reachable { map: self }
+        Reachable {
+            map: self,
+            map_width,
+        }
+    }
+
+    /// edge relaxation
+    #[inline(always)]
+    fn relax_neighbor(
+        &mut self,
+        costs: &impl TerrainCosts,
+        current_cost: usize,
+        num_buckets: usize,
+        new_flat: usize,
+    ) {
+        let terrain = self.map.terrain_at_flat(new_flat);
+        if let Some(terrain_cost) = costs.cost(terrain) {
+            let movement_cost = current_cost + terrain_cost as usize;
+            if movement_cost < num_buckets {
+                let c = self.cost_map[new_flat];
+                if c == u8::MAX {
+                    // First visit to this cell
+                    self.cost_map[new_flat] = movement_cost as u8;
+                    self.visited.push(new_flat as u32);
+                    self.buckets[movement_cost].push(new_flat as u32);
+                } else if movement_cost < c as usize {
+                    // Better path found
+                    self.cost_map[new_flat] = movement_cost as u8;
+                    self.buckets[movement_cost].push(new_flat as u32);
+                }
+            }
+        }
     }
 }
 
@@ -387,5 +484,29 @@ mod tests {
 
         // Verify diagonal positions have cost 2
         assert!(positions.contains(&(Position::new(1, 1), 2)));
+    }
+
+    #[test]
+    fn test_into_positions_size_hint() {
+        let map = AwbwMap::new(5, 5, AwbwTerrain::Plain);
+        let mut pathfinder = PathFinder::new(&map);
+
+        let foot_costs = UnitMovementCosts {
+            movement_type: UnitMovement::Foot,
+        };
+        let reachable = pathfinder.reachable(Position::new(0, 0), 2, &foot_costs);
+        let mut iter = reachable.into_positions();
+
+        assert_eq!(iter.size_hint(), (6, Some(6)));
+
+        assert!(iter.next().is_some());
+        assert_eq!(iter.size_hint(), (5, Some(5)));
+
+        for _ in 0..5 {
+            assert!(iter.next().is_some());
+        }
+
+        assert_eq!(iter.size_hint(), (0, Some(0)));
+        assert_eq!(iter.next(), None);
     }
 }
