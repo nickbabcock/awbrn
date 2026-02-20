@@ -10,6 +10,7 @@ bench = false
 [dependencies]
 awbrn-core = { path = "../awbrn-core" }
 awbrn-map = { path = "../awbrn-map" }
+awbw-replay = { path = "../awbw-replay" }
 criterion = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
