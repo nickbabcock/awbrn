@@ -193,6 +193,10 @@ where
     pub fn remove(&mut self, strong_id: T) -> Option<Entity> {
         self.units.remove(&strong_id)
     }
+
+    pub fn clear(&mut self) {
+        self.units.clear();
+    }
 }
 
 impl<T> Default for StrongIdMap<T> {
