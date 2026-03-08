@@ -831,7 +831,11 @@ fn detect_pending_game_start(
 fn setup_camera(mut commands: Commands, camera_scale: Res<CameraScale>) {
     commands.spawn((
         Camera2d,
-        Transform::from_scale(Vec3::splat(1.0 / camera_scale.scale())),
+        Projection::Orthographic(OrthographicProjection {
+            scaling_mode: bevy::camera::ScalingMode::WindowSize,
+            scale: 1.0 / camera_scale.scale(),
+            ..OrthographicProjection::default_2d()
+        }),
         Msaa::Off, // https://github.com/bevyengine/bevy/discussions/3748#discussioncomment-5565500
     ));
 }
@@ -902,7 +906,7 @@ fn setup_ui_atlas(
 fn handle_camera_scaling(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut camera_scale: ResMut<CameraScale>,
-    mut query: Query<&mut Transform, With<Camera>>,
+    mut query: Query<&mut Projection, With<Camera>>,
 ) {
     let new_zoom = if keyboard_input.just_pressed(KeyCode::Equal) {
         camera_scale.zoom_in()
@@ -914,9 +918,11 @@ fn handle_camera_scaling(
 
     *camera_scale = new_zoom;
 
-    // Apply the scale to the camera transform
-    if let Ok(mut transform) = query.single_mut() {
-        transform.scale = Vec3::splat(1.0 / camera_scale.scale());
+    // Bevy recommends zooming orthographic cameras via projection scale.
+    if let Ok(mut projection) = query.single_mut()
+        && let Projection::Orthographic(orthographic) = &mut *projection
+    {
+        orthographic.scale = 1.0 / camera_scale.scale();
     }
 }
 
