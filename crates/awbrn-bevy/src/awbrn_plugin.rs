@@ -33,7 +33,7 @@ use crate::{
     AwbwUnitId, CameraScale, Capturing, CapturingIndicator, CargoIndicator, CurrentWeather,
     Faction, GameMap, GraphicalHp, GridSystem, HasCargo, HealthIndicator, JsonAssetPlugin,
     MapBackdrop, SelectedTile, SpriteSize, StrongIdMap, TerrainTile, UiAtlasAsset, UiAtlasResource,
-    Unit, UnitActive,
+    Unit, UnitActive, UnitAtlasResource,
 };
 use awbrn_core::{GraphicalTerrain, Weather, get_unit_animation_frames};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
@@ -612,7 +612,7 @@ impl Plugin for AwbrnPlugin {
             .add_observer(on_health_remove)
             .add_observer(on_unit_active_remove)
             .add_observer(on_unit_active_insert)
-            .add_systems(Startup, setup_camera);
+            .add_systems(Startup, (setup_camera, setup_unit_atlas));
 
         // Only add event bus if provided
         if let Some(ref event_bus) = self.event_bus {
@@ -834,6 +834,18 @@ fn setup_camera(mut commands: Commands, camera_scale: Res<CameraScale>) {
         Transform::from_scale(Vec3::splat(1.0 / camera_scale.scale())),
         Msaa::Off, // https://github.com/bevyengine/bevy/discussions/3748#discussioncomment-5565500
     ));
+}
+
+fn setup_unit_atlas(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+) {
+    let texture = asset_server.load("textures/units.png");
+    let layout = TextureAtlasLayout::from_grid(UVec2::new(23, 24), 64, 86, None, Some(uvec2(1, 0)));
+    let layout = texture_atlas_layouts.add(layout);
+
+    commands.insert_resource(UnitAtlasResource { texture, layout });
 }
 
 // Resource to hold the map handle
@@ -1296,18 +1308,10 @@ fn init_replay_state(mut commands: Commands) {
 fn handle_unit_spawn(
     trigger: On<Insert, AwbwUnitId>,
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+    unit_atlas: Res<UnitAtlasResource>,
     mut map: ResMut<StrongIdMap<AwbwUnitId>>,
     mut query: Query<(&Unit, &Faction, &AwbwUnitId, Has<UnitActive>)>,
 ) {
-    // Load the units texture
-    let texture = asset_server.load("textures/units.png");
-
-    // Create the texture atlas layout for units
-    let layout = TextureAtlasLayout::from_grid(UVec2::new(23, 24), 64, 86, None, Some(uvec2(1, 0)));
-    let texture_atlas_layout = texture_atlas_layouts.add(layout);
-
     let entity = trigger.entity;
     let Ok((unit, faction, unit_id, has_active)) = query.get_mut(entity) else {
         warn!("Unit entity {:?} not found in query", entity);
@@ -1336,9 +1340,9 @@ fn handle_unit_spawn(
     };
 
     let mut sprite = Sprite::from_atlas_image(
-        texture,
+        unit_atlas.texture.clone(),
         TextureAtlas {
-            layout: texture_atlas_layout,
+            layout: unit_atlas.layout.clone(),
             index: animation_frames.start_index() as usize,
         },
     );
