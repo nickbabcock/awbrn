@@ -211,6 +211,13 @@ pub struct UiAtlasResource {
     pub layout: Handle<TextureAtlasLayout>,
 }
 
+/// Resource to store the unit sprite atlas for reuse.
+#[derive(Resource)]
+pub struct UnitAtlasResource {
+    pub texture: Handle<Image>,
+    pub layout: Handle<TextureAtlasLayout>,
+}
+
 #[derive(Debug, Component, Clone, Copy, PartialEq, Eq, Hash)]
 #[component(immutable)]
 pub struct GraphicalHp(pub u8);
