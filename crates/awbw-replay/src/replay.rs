@@ -1,8 +1,7 @@
 use crate::{
-    de::deserialize_vec_pair,
     errors::{self, ReplayError, ReplayErrorKind},
     game_models::AwbwGame,
-    turn_models::{Action, TurnElement},
+    turn_models::Action,
 };
 use phpserz::{PhpParser, PhpToken};
 use rawzip::{ZipSliceArchive, path::ZipFilePath};
@@ -372,19 +371,10 @@ impl<'a> TurnContent<'a> {
 
     pub fn actions(&'a self) -> Result<impl Iterator<Item = ActionData<'a>>, errors::ReplayError> {
         let mut deser = phpserz::PhpDeserializer::new(self.data());
-        let data: Vec<(u32, TurnElement<'a>)> = deserialize_vec_pair(&mut deser)?;
+        let (_, _, action_data): (serde::de::IgnoredAny, serde::de::IgnoredAny, Vec<&'a [u8]>) =
+            Deserialize::deserialize(&mut deser)?;
 
-        let result = data
-            .into_iter()
-            .find_map(|(_, element)| match element {
-                TurnElement::Data(x) => Some(x),
-                _ => None,
-            })
-            .into_iter()
-            .flatten()
-            .map(|data| ActionData { data });
-
-        Ok(result)
+        Ok(action_data.into_iter().map(|data| ActionData { data }))
     }
 }
 
@@ -414,5 +404,22 @@ mod tests {
         assert_eq!(header.player_id, 3189812);
         assert_eq!(header.day, 11);
         assert_eq!(header.data, b"HELLO_WORLD");
+    }
+
+    #[test]
+    fn test_turn_actions_with_multiple_entries() {
+        let data =
+            b"p:3189394;d:1;a:a:3:{i:0;i:3189394;i:1;i:1;i:2;a:3:{i:0;s:2:\"aa\";i:1;s:2:\"bb\";i:2;s:2:\"cc\";}}";
+        let turn = TurnContent::from_slice(data).unwrap();
+        let actions = turn
+            .actions()
+            .unwrap()
+            .map(|action| action.data().to_vec())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            actions,
+            vec![b"aa".to_vec(), b"bb".to_vec(), b"cc".to_vec()]
+        );
     }
 }
