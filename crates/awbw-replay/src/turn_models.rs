@@ -3,57 +3,6 @@ use awbrn_core::{AwbwGamePlayerId, AwbwTerrain, AwbwUnitId, PlayerFaction, Unit}
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum TurnElement<'a> {
-    Int(()),
-    Data(Vec<&'a [u8]>),
-}
-
-impl<'de> Deserialize<'de> for TurnElement<'de> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct ElementVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for ElementVisitor {
-            type Value = TurnElement<'de>;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("an integer or a data structure")
-            }
-
-            fn visit_i64<E>(self, _value: i64) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(TurnElement::Int(()))
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: serde::de::SeqAccess<'de>,
-            {
-                let mut elements = Vec::new();
-                loop {
-                    let _index = match seq.next_element::<u32>()? {
-                        Some(elem) => elem,
-                        None => return Ok(TurnElement::Data(elements)),
-                    };
-
-                    let data: &'de [u8] = seq
-                        .next_element()?
-                        .ok_or_else(|| serde::de::Error::custom("Expected action data"))?;
-
-                    elements.push(data);
-                }
-            }
-        }
-
-        deserializer.deserialize_any(ElementVisitor)
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 #[serde(tag = "action")]
 pub enum Action {
