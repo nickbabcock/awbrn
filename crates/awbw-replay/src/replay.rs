@@ -4,7 +4,7 @@ use crate::{
     turn_models::Action,
 };
 use phpserz::{PhpParser, PhpToken};
-use rawzip::{ZipSliceArchive, path::ZipFilePath};
+use rawzip::{ZipSliceArchive, ZipVerification, path::ZipFilePath};
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, Read};
 
@@ -105,7 +105,33 @@ impl<'a, R: AsRef<[u8]>> ReplayFileEntry<'a, R> {
     pub fn get_reader(&self) -> Result<impl Read, errors::ReplayError> {
         let entry = self.file.zip.get_entry(self.wayfinder)?;
         let reader = flate2::bufread::DeflateDecoder::new(entry.data());
-        Ok(entry.verifying_reader(reader))
+
+        // Use flate2 to verify the CRC as it delegates to CRC implementations
+        // that can take advantage of hardware acceleration when available.
+        Ok(VerifyingReader {
+            reader: flate2::CrcReader::new(reader),
+            verifier: entry.claim_verifier(),
+        })
+    }
+}
+
+struct VerifyingReader<'a> {
+    reader: flate2::CrcReader<flate2::bufread::DeflateDecoder<&'a [u8]>>,
+    verifier: rawzip::ZipVerification,
+}
+
+impl Read for VerifyingReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.reader.read(buf)?;
+        if n == 0 {
+            self.verifier
+                .valid(ZipVerification {
+                    crc: self.reader.crc().sum(),
+                    uncompressed_size: self.reader.get_ref().total_out(),
+                })
+                .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
+        }
+        Ok(n)
     }
 }
 
