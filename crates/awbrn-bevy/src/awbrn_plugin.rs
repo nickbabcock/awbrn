@@ -37,7 +37,7 @@ use crate::{
 };
 use awbrn_core::{GraphicalTerrain, Weather, get_unit_animation_frames};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
-use awbw_replay::{AwbwReplay, ReplayParser};
+use awbw_replay::{AwbwReplay, ReplayParser, game_models::AwbwBuilding};
 use bevy::ecs::system::SystemParam;
 use bevy::sprite::Anchor;
 use bevy::state::state::SubStates;
@@ -862,6 +862,7 @@ fn check_assets_loaded(
     pending_ui: Res<PendingUiAtlas>,
     awbw_maps: Res<Assets<AwbwMapAsset>>,
     ui_atlas_assets: Res<Assets<UiAtlasAsset>>,
+    loaded_replay: Option<Res<LoadedReplay>>,
     mut game_map: ResMut<GameMap>,
     mut next_state: ResMut<NextState<LoadingState>>,
 ) {
@@ -876,7 +877,12 @@ fn check_assets_loaded(
     }
 
     // Both loaded - process map and transition
-    let awbw_map = awbw_map_asset.to_awbw_map();
+    let mut awbw_map = awbw_map_asset.to_awbw_map();
+    if let Some(replay) = loaded_replay
+        && let Some(first_game) = replay.0.games.first()
+    {
+        apply_replay_building_overrides(&mut awbw_map, &first_game.buildings);
+    }
     let awbrn_map = AwbrnMap::from_map(&awbw_map);
 
     info!(
@@ -887,6 +893,21 @@ fn check_assets_loaded(
 
     game_map.set(awbrn_map);
     next_state.set(LoadingState::Complete);
+}
+
+fn apply_replay_building_overrides(map: &mut AwbwMap, buildings: &[AwbwBuilding]) {
+    for building in buildings {
+        let position = Position::new(building.x as usize, building.y as usize);
+        let Some(terrain) = map.terrain_at_mut(position) else {
+            warn!(
+                "Skipping replay building override at out-of-bounds position {:?}",
+                position
+            );
+            continue;
+        };
+
+        *terrain = building.terrain_id;
+    }
 }
 
 // System that runs on LoadingState::Complete to setup UI atlas resource
@@ -1461,6 +1482,7 @@ impl Default for AwbrnPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use awbrn_core::{AwbwTerrain, Faction as TerrainFaction, PlayerFaction, Property};
 
     /// Test MapPosition -> Transform observer including updates
     #[test]
@@ -1547,6 +1569,64 @@ mod tests {
         assert_ne!(
             unit_transform.translation, updated_unit_transform.translation,
             "Unit transform should change when MapPosition is updated"
+        );
+    }
+
+    #[test]
+    fn test_apply_replay_building_overrides_updates_owned_property_terrain() {
+        let mut map = AwbwMap::new(3, 3, AwbwTerrain::Plain);
+        *map.terrain_at_mut(Position::new(1, 1)).unwrap() =
+            AwbwTerrain::Property(Property::City(TerrainFaction::Neutral));
+
+        apply_replay_building_overrides(
+            &mut map,
+            &[AwbwBuilding {
+                id: 1,
+                games_id: 7,
+                terrain_id: AwbwTerrain::Property(Property::City(TerrainFaction::Player(
+                    PlayerFaction::BlueMoon,
+                ))),
+                x: 1,
+                y: 1,
+                capture: 20,
+                last_capture: 20,
+                last_updated: "2026-03-14".to_string(),
+            }],
+        );
+
+        assert_eq!(
+            map.terrain_at(Position::new(1, 1)),
+            Some(AwbwTerrain::Property(Property::City(
+                TerrainFaction::Player(PlayerFaction::BlueMoon)
+            )))
+        );
+    }
+
+    #[test]
+    fn test_apply_replay_building_overrides_ignores_out_of_bounds_positions() {
+        let mut map = AwbwMap::new(2, 2, AwbwTerrain::Plain);
+
+        apply_replay_building_overrides(
+            &mut map,
+            &[AwbwBuilding {
+                id: 1,
+                games_id: 7,
+                terrain_id: AwbwTerrain::Property(Property::HQ(PlayerFaction::PurpleLightning)),
+                x: 99,
+                y: 99,
+                capture: 20,
+                last_capture: 20,
+                last_updated: "2026-03-14".to_string(),
+            }],
+        );
+
+        assert_eq!(
+            map.terrain_at(Position::new(0, 0)),
+            Some(AwbwTerrain::Plain)
+        );
+        assert_eq!(
+            map.terrain_at(Position::new(1, 1)),
+            Some(AwbwTerrain::Plain)
         );
     }
 }
