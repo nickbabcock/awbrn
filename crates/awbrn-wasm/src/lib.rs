@@ -62,6 +62,7 @@ pub struct CanvasDisplay {
 pub struct CanvasSize {
     width: f32,
     height: f32,
+    scale_factor: f64,
 }
 
 #[wasm_bindgen]
@@ -79,7 +80,10 @@ impl BevyApp {
     ) -> Self {
         let mut app = App::new();
 
-        let mut resolution = WindowResolution::new(display.width as u32, display.height as u32);
+        let mut resolution = WindowResolution::new(
+            (display.width * display.scale_factor).round() as u32,
+            (display.height * display.scale_factor).round() as u32,
+        );
         resolution.set_scale_factor_override(Some(display.scale_factor));
 
         app.add_plugins(
@@ -130,9 +134,18 @@ impl BevyApp {
     #[wasm_bindgen]
     pub fn resize(&mut self, size: CanvasSize) {
         let world = self.app.world_mut();
+        let scale_factor = size.scale_factor as f32;
+
+        if let Some(canvas) = world.get_non_send_resource_mut::<OffscreenCanvas>() {
+            canvas.set_width((size.width * scale_factor).round() as u32);
+            canvas.set_height((size.height * scale_factor).round() as u32);
+        }
 
         // Update window resolutions
         for mut window in world.query::<&mut Window>().iter_mut(world) {
+            window
+                .resolution
+                .set_scale_factor_override(Some(scale_factor));
             window.resolution.set(size.width, size.height);
         }
 

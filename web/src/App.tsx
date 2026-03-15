@@ -47,6 +47,8 @@ function App() {
       bounds.height,
       window.devicePixelRatio,
     );
+    let logicalCanvasWidth = snappedWidth.logical;
+    let logicalCanvasHeight = snappedHeight.logical;
 
     canvas.width = snappedWidth.physical;
     canvas.height = snappedHeight.physical;
@@ -104,12 +106,15 @@ function App() {
           window.devicePixelRatio,
         );
 
+        logicalCanvasWidth = snappedWidth.logical;
+        logicalCanvasHeight = snappedHeight.logical;
         canvas.style.width = `${snappedWidth.logical}px`;
         canvas.style.height = `${snappedHeight.logical}px`;
 
         game.resize({
           width: snappedWidth.logical,
           height: snappedHeight.logical,
+          scaleFactor: window.devicePixelRatio,
         });
       });
       ro.observe(container);
@@ -146,9 +151,17 @@ function App() {
       document.addEventListener("visibilitychange", handleVisibilityChange);
 
       canvas.addEventListener("mousemove", (event) => {
-        const scaledX = event.offsetX * window.devicePixelRatio;
-        const scaledY = event.offsetY * window.devicePixelRatio;
-        game.handleMouseMove(scaledX, scaledY);
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+          return;
+        }
+
+        const x =
+          ((event.clientX - rect.left) / rect.width) * logicalCanvasWidth;
+        const y =
+          ((event.clientY - rect.top) / rect.height) * logicalCanvasHeight;
+
+        game.handleMouseMove(x, y);
       });
 
       canvas.addEventListener("mouseleave", () => {
