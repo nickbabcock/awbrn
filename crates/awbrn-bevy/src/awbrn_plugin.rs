@@ -539,6 +539,20 @@ fn update_unit_on_type_change(
     }
 }
 
+/// Compute the world-space offset that centers the map's visual content on the
+/// camera origin (0, 0). Sprites use center anchors, so we shift by half a tile
+/// on x. Terrain sprites are 32 px tall on 16 px tiles, so the first row's tall
+/// portion extends one full tile above the grid – shift by a full tile on y.
+fn world_origin_offset(grid: &GridSystem) -> Vec3 {
+    let map_pixel_width = grid.map_width * GridSystem::TILE_SIZE;
+    let map_pixel_height = grid.map_height * GridSystem::TILE_SIZE;
+    Vec3::new(
+        -map_pixel_width / 2.0 + GridSystem::TILE_SIZE / 2.0,
+        map_pixel_height / 2.0 - GridSystem::TILE_SIZE,
+        0.0,
+    )
+}
+
 /// System to update Transform when MapPosition changes
 fn update_transform_on_position_change(
     mut query: Query<(&mut Transform, &SpriteSize, &MapPosition), Changed<MapPosition>>,
@@ -547,17 +561,14 @@ fn update_transform_on_position_change(
     for (mut transform, sprite_size, map_position) in query.iter_mut() {
         // Create grid system for position calculations
         let grid = GridSystem::new(game_map.width(), game_map.height());
-        let map_pixel_width = grid.map_width * GridSystem::TILE_SIZE;
-        let map_pixel_height = grid.map_height * GridSystem::TILE_SIZE;
-        let world_origin_offset = Vec3::new(-map_pixel_width / 2.0, map_pixel_height / 2.0, 0.0);
+        let offset = world_origin_offset(&grid);
 
         // Use the grid system's sprite_position method
         let grid_pos = grid.sprite_position((*map_position).into(), sprite_size);
 
         let local_pos = grid.grid_to_world(&grid_pos);
         let z_offset = map_position.y() as f32 * 0.001;
-        let final_world_pos =
-            world_origin_offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z + z_offset);
+        let final_world_pos = offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z + z_offset);
 
         transform.translation = final_world_pos;
 
@@ -655,7 +666,10 @@ impl Plugin for AwbrnPlugin {
                 check_assets_loaded.run_if(in_state(LoadingState::LoadingAssets)),
             )
             // Game mode setup systems
-            .add_systems(OnEnter(LoadingState::Complete), setup_ui_atlas)
+            .add_systems(
+                OnEnter(LoadingState::Complete),
+                (setup_ui_atlas, emit_map_dimensions),
+            )
             .add_systems(
                 OnEnter(LoadingState::Complete),
                 spawn_tile_cursor.after(setup_ui_atlas),
@@ -737,6 +751,15 @@ pub struct TileSelected {
     pub terrain_type: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct MapDimensions {
+    pub width: f32,
+    pub height: f32,
+}
+
 /// Union type for all game events that can be sent to external systems
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
@@ -747,6 +770,7 @@ pub enum GameEvent {
     UnitMoved(UnitMoved),
     UnitBuilt(UnitBuilt),
     TileSelected(TileSelected),
+    MapDimensions(MapDimensions),
 }
 
 // Resource to store the map resolver
@@ -947,10 +971,32 @@ fn setup_ui_atlas(
     info!("UI atlas resource initialized");
 }
 
+fn compute_map_dimensions(game_map: &GameMap, camera_scale: &CameraScale) -> MapDimensions {
+    // Extra tile of height accounts for terrain sprites (16x32) overhanging their
+    // 16px tile by one full tile above the first row.
+    MapDimensions {
+        width: game_map.width() as f32 * GridSystem::TILE_SIZE * camera_scale.scale(),
+        height: (game_map.height() as f32 + 1.0) * GridSystem::TILE_SIZE * camera_scale.scale(),
+    }
+}
+
+fn emit_map_dimensions(
+    game_map: Res<GameMap>,
+    camera_scale: Res<CameraScale>,
+    mut event_writer: MessageWriter<ExternalGameEvent>,
+) {
+    let dims = compute_map_dimensions(&game_map, &camera_scale);
+    event_writer.write(ExternalGameEvent {
+        payload: GameEvent::MapDimensions(dims),
+    });
+}
+
 fn handle_camera_scaling(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut camera_scale: ResMut<CameraScale>,
     mut query: Query<&mut Projection, With<Camera>>,
+    game_map: Res<GameMap>,
+    mut event_writer: MessageWriter<ExternalGameEvent>,
 ) {
     let new_zoom = if keyboard_input.just_pressed(KeyCode::Equal) {
         camera_scale.zoom_in()
@@ -968,6 +1014,11 @@ fn handle_camera_scaling(
     {
         orthographic.scale = 1.0 / camera_scale.scale();
     }
+
+    let dims = compute_map_dimensions(&game_map, &camera_scale);
+    event_writer.write(ExternalGameEvent {
+        payload: GameEvent::MapDimensions(dims),
+    });
 }
 
 fn handle_weather_toggle(
@@ -1518,17 +1569,14 @@ fn on_map_position_insert(
 
     // Create grid system for position calculations
     let grid = GridSystem::new(game_map.width(), game_map.height());
-    let map_pixel_width = grid.map_width * GridSystem::TILE_SIZE;
-    let map_pixel_height = grid.map_height * GridSystem::TILE_SIZE;
-    let world_origin_offset = Vec3::new(-map_pixel_width / 2.0, map_pixel_height / 2.0, 0.0);
+    let offset = world_origin_offset(&grid);
 
     // Use the grid system's sprite_position method
     let grid_pos = grid.sprite_position((*map_position).into(), sprite_size);
 
     let local_pos = grid.grid_to_world(&grid_pos);
     let z_offset = map_position.y() as f32 * 0.001;
-    let final_world_pos =
-        world_origin_offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z + z_offset);
+    let final_world_pos = offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z + z_offset);
 
     transform.translation = final_world_pos;
 
@@ -1637,12 +1685,12 @@ mod tests {
         assert!(
             terrain_transform
                 .translation
-                .abs_diff_eq(Vec3::new(72.0, -32.0, 0.0), 0.1)
+                .abs_diff_eq(Vec3::new(80.0, -48.0, 0.0), 0.1)
         );
         assert!(
             unit_transform
                 .translation
-                .abs_diff_eq(Vec3::new(116.5, -20.0, 1.0), 0.1)
+                .abs_diff_eq(Vec3::new(124.5, -36.0, 1.0), 0.1)
         );
 
         // Test Case 2: Update MapPosition - observer should trigger on component replacement
@@ -1666,12 +1714,12 @@ mod tests {
         assert!(
             updated_terrain_transform
                 .translation
-                .abs_diff_eq(Vec3::new(8.0, -96.0, 0.0), 0.1)
+                .abs_diff_eq(Vec3::new(16.0, -112.0, 0.0), 0.1)
         );
         assert!(
             updated_unit_transform
                 .translation
-                .abs_diff_eq(Vec3::new(132.5, -4.0, 1.0), 0.1)
+                .abs_diff_eq(Vec3::new(140.5, -20.0, 1.0), 0.1)
         );
 
         // Verify positions actually changed

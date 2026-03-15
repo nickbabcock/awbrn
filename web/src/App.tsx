@@ -49,7 +49,7 @@ function App() {
     );
 
     canvas.width = snappedWidth.physical;
-    canvas.height = snappedWidth.physical;
+    canvas.height = snappedHeight.physical;
     canvas.style.width = `${snappedWidth.logical}px`;
     canvas.style.height = `${snappedHeight.logical}px`;
 
@@ -76,6 +76,11 @@ function App() {
             case "NewDay": {
               console.log(`New day: ${event.day}`);
               setCurrentDay(event.day);
+              break;
+            }
+            case "MapDimensions": {
+              container.style.width = `${event.width}px`;
+              container.style.height = `${event.height}px`;
               break;
             }
             default: {
@@ -163,16 +168,17 @@ function App() {
       <div
         id="container"
         style={{
-          width: "1000px",
-          height: "800px",
           position: "absolute",
           top: "0",
           left: "0",
-          right: "0",
-          bottom: "0",
         }}
       >
-        <canvas ref={canvasRef} width={600} height={400} />
+        <canvas
+          ref={canvasRef}
+          width={600}
+          height={400}
+          style={{ display: "block" }}
+        />
       </div>
       <div
         style={{
