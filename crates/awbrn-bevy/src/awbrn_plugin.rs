@@ -39,6 +39,7 @@ use awbrn_core::{GraphicalTerrain, Weather, get_unit_animation_frames};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
 use awbw_replay::{AwbwReplay, ReplayParser, game_models::AwbwBuilding};
 use bevy::ecs::system::SystemParam;
+use bevy::input::{ButtonState, keyboard::KeyboardInput};
 use bevy::sprite::Anchor;
 use bevy::state::state::SubStates;
 use bevy::{log, prelude::*};
@@ -157,6 +158,11 @@ pub struct ReplayToLoad(pub Vec<u8>);
 // Resource containing the loaded replay data
 #[derive(Resource)]
 pub struct LoadedReplay(pub AwbwReplay);
+
+#[derive(Default)]
+struct ReplayControlState {
+    suppress_exhausted_repeat: bool,
+}
 
 // Resource to mark that a new game should be started
 #[derive(Resource)]
@@ -1199,28 +1205,65 @@ fn handle_game_input() {
     // - Game actions (attack, wait, etc.)
 }
 
-fn handle_replay_controls(
-    mut commands: Commands,
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut replay_state: ResMut<ReplayState>,
-    loaded_replay: Res<LoadedReplay>,
-) {
-    if !keyboard_input.just_pressed(KeyCode::ArrowRight) {
-        return;
-    }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReplayAdvanceResult {
+    Advanced,
+    Exhausted,
+}
 
+fn advance_replay_action(
+    commands: &mut Commands,
+    replay_state: &mut ReplayState,
+    loaded_replay: &LoadedReplay,
+) -> ReplayAdvanceResult {
     let Some(action) = loaded_replay
         .0
         .turns
         .get(replay_state.turn as usize)
         .cloned()
     else {
-        info!("Reached the end of the replay turns");
-        return;
+        return ReplayAdvanceResult::Exhausted;
     };
 
     commands.queue(ReplayTurnCommand { action });
     replay_state.turn += 1;
+
+    ReplayAdvanceResult::Advanced
+}
+
+fn handle_replay_controls(
+    mut commands: Commands,
+    mut keyboard_input: MessageReader<KeyboardInput>,
+    mut replay_control: Local<ReplayControlState>,
+    mut replay_state: ResMut<ReplayState>,
+    loaded_replay: Res<LoadedReplay>,
+) {
+    for event in keyboard_input.read() {
+        if event.key_code != KeyCode::ArrowRight {
+            continue;
+        }
+
+        match event.state {
+            ButtonState::Released => {
+                replay_control.suppress_exhausted_repeat = false;
+            }
+            ButtonState::Pressed => {
+                if event.repeat && replay_control.suppress_exhausted_repeat {
+                    continue;
+                }
+
+                match advance_replay_action(&mut commands, &mut replay_state, &loaded_replay) {
+                    ReplayAdvanceResult::Advanced => {
+                        replay_control.suppress_exhausted_repeat = false;
+                    }
+                    ReplayAdvanceResult::Exhausted => {
+                        info!("Reached the end of the replay turns");
+                        replay_control.suppress_exhausted_repeat = true;
+                    }
+                }
+            }
+        }
+    }
 }
 
 // Extracted the map setup into a separate function for reuse
@@ -1482,7 +1525,10 @@ impl Default for AwbrnPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use awbrn_core::AwbwGamePlayerId;
     use awbrn_core::{AwbwTerrain, Faction as TerrainFaction, PlayerFaction, Property};
+    use awbw_replay::turn_models::{Action, PowerAction};
+    use bevy::input::keyboard::{Key, NativeKey};
 
     /// Test MapPosition -> Transform observer including updates
     #[test]
@@ -1628,5 +1674,107 @@ mod tests {
             map.terrain_at(Position::new(1, 1)),
             Some(AwbwTerrain::Plain)
         );
+    }
+
+    #[test]
+    fn replay_press_advances_immediately() {
+        let mut app = replay_controls_test_app(2);
+
+        send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, false);
+        app.update();
+
+        assert_eq!(app.world().resource::<ReplayState>().turn, 1);
+    }
+
+    #[test]
+    fn replay_repeat_presses_advance_one_action_each() {
+        let mut app = replay_controls_test_app(3);
+
+        send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, false);
+        send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, true);
+        send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, true);
+        app.update();
+
+        assert_eq!(app.world().resource::<ReplayState>().turn, 3);
+    }
+
+    #[test]
+    fn replay_ignores_unrelated_and_release_events() {
+        let mut app = replay_controls_test_app(2);
+
+        send_key_event(&mut app, KeyCode::Space, ButtonState::Pressed, false);
+        send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Released, false);
+        app.update();
+
+        assert_eq!(app.world().resource::<ReplayState>().turn, 0);
+    }
+
+    #[test]
+    fn replay_repeat_events_stop_at_end_until_release() {
+        let mut app = replay_controls_test_app(1);
+
+        send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, false);
+        app.update();
+        assert_eq!(app.world().resource::<ReplayState>().turn, 1);
+
+        send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, true);
+        send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, true);
+        app.update();
+
+        assert_eq!(app.world().resource::<ReplayState>().turn, 1);
+    }
+
+    #[test]
+    fn replay_release_clears_end_suppression() {
+        let mut app = replay_controls_test_app(1);
+
+        send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, false);
+        app.update();
+        assert_eq!(app.world().resource::<ReplayState>().turn, 1);
+
+        send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, true);
+        app.update();
+        assert_eq!(app.world().resource::<ReplayState>().turn, 1);
+
+        send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Released, false);
+        app.update();
+
+        app.world_mut().resource_mut::<ReplayState>().turn = 0;
+        send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, false);
+        app.update();
+
+        assert_eq!(app.world().resource::<ReplayState>().turn, 1);
+    }
+
+    fn replay_controls_test_app(action_count: usize) -> App {
+        let mut app = App::new();
+        app.add_message::<KeyboardInput>();
+        app.add_systems(Update, handle_replay_controls);
+        app.insert_resource(ReplayState::default());
+        app.insert_resource(LoadedReplay(AwbwReplay {
+            games: Vec::new(),
+            turns: vec![test_replay_action(); action_count],
+        }));
+        app
+    }
+
+    fn send_key_event(app: &mut App, key_code: KeyCode, state: ButtonState, repeat: bool) {
+        app.world_mut().write_message(KeyboardInput {
+            key_code,
+            logical_key: Key::Unidentified(NativeKey::Unidentified),
+            state,
+            text: None,
+            repeat,
+            window: Entity::PLACEHOLDER,
+        });
+    }
+
+    fn test_replay_action() -> Action {
+        Action::Power(PowerAction {
+            player_id: AwbwGamePlayerId::new(1),
+            co_name: "Test CO".to_string(),
+            co_power: "N".to_string(),
+            power_name: "Test Power".to_string(),
+        })
     }
 }
