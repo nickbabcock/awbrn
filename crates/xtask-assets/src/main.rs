@@ -745,15 +745,22 @@ fn collect_ui_effect_sprites(effects_root: &Path) -> Result<Vec<UiSprite>> {
     Ok(sprites)
 }
 
+const UI_ATLAS_PADDING: u32 = 1;
+
 fn pack_ui_sprites(sprites: &[UiSprite]) -> Result<(u32, u32, HashMap<String, PackedLocation>)> {
+    let p = UI_ATLAS_PADDING * 2;
     let total_area: u32 = sprites
         .iter()
-        .map(|sprite| sprite.width * sprite.height)
+        .map(|sprite| (sprite.width + p) * (sprite.height + p))
         .sum();
-    let max_width = sprites.iter().map(|sprite| sprite.width).max().unwrap_or(1);
+    let max_width = sprites
+        .iter()
+        .map(|sprite| sprite.width + p)
+        .max()
+        .unwrap_or(1);
     let max_height = sprites
         .iter()
-        .map(|sprite| sprite.height)
+        .map(|sprite| sprite.height + p)
         .max()
         .unwrap_or(1);
     let mut side = ((total_area as f64).sqrt().ceil() as u32).max(1);
@@ -764,7 +771,7 @@ fn pack_ui_sprites(sprites: &[UiSprite]) -> Result<(u32, u32, HashMap<String, Pa
         rects_to_place.push_rect(
             sprite.name.clone(),
             None,
-            RectToInsert::new(sprite.width, sprite.height, 1),
+            RectToInsert::new(sprite.width + p, sprite.height + p, 1),
         );
     }
 
@@ -809,8 +816,8 @@ fn build_ui_atlas(
         image::imageops::overlay(
             &mut atlas,
             &sprite.image,
-            placement.x().into(),
-            placement.y().into(),
+            (placement.x() + UI_ATLAS_PADDING).into(),
+            (placement.y() + UI_ATLAS_PADDING).into(),
         );
     }
 
@@ -841,8 +848,8 @@ fn write_ui_atlas_data(
 
         entries.push(UiAtlasSprite {
             name: sprite.name.clone(),
-            x: placement.x(),
-            y: placement.y(),
+            x: placement.x() + UI_ATLAS_PADDING,
+            y: placement.y() + UI_ATLAS_PADDING,
             width: sprite.width,
             height: sprite.height,
         });

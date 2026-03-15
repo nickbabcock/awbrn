@@ -202,6 +202,32 @@ impl BevyApp {
     }
 
     #[wasm_bindgen]
+    pub fn handle_mouse_move(&mut self, x: f32, y: f32) {
+        let Ok(mut window) = self
+            .app
+            .world_mut()
+            .query::<&mut Window>()
+            .single_mut(self.app.world_mut())
+        else {
+            return;
+        };
+        window.set_cursor_position(Some(Vec2::new(x, y)));
+    }
+
+    #[wasm_bindgen]
+    pub fn handle_mouse_leave(&mut self) {
+        let Ok(mut window) = self
+            .app
+            .world_mut()
+            .query::<&mut Window>()
+            .single_mut(self.app.world_mut())
+        else {
+            return;
+        };
+        window.set_cursor_position(None);
+    }
+
+    #[wasm_bindgen]
     pub fn new_replay(&mut self, data: Vec<u8>) -> Result<(), JsError> {
         // Signal that a new replay should be loaded
         self.app.world_mut().insert_resource(ReplayToLoad(data));

@@ -37,6 +37,12 @@ export const createGame = async (
     handleKeyUp: (...args: Parameters<BevyApp["handle_key_up"]>) => {
       app.handle_key_up(...args);
     },
+    handleMouseMove: (x: number, y: number) => {
+      app.handle_mouse_move(x, y);
+    },
+    handleMouseLeave: () => {
+      app.handle_mouse_leave();
+    },
     newReplay: async (file: File | FileSystemFileHandle) => {
       const fileHandle =
         file instanceof FileSystemFileHandle ? await file.getFile() : file;
