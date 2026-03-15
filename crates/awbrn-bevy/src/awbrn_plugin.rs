@@ -28,14 +28,17 @@
 //!     note right of GameMode : Independent state<br/>determines active systems<br/>in InGame
 //! ```
 
-use crate::replay_turn::{ReplayState, ReplayTurnCommand};
+use crate::replay_turn::{
+    ReplayAdvanceLock, ReplayFollowupCommand, ReplayState, ReplayTurnCommand, UnitPathAnimation,
+    action_requires_path_animation, movement_direction,
+};
 use crate::{
     AwbwUnitId, CameraScale, Capturing, CapturingIndicator, CargoIndicator, CurrentWeather,
     Faction, GameMap, GraphicalHp, GridSystem, HasCargo, HealthIndicator, JsonAssetPlugin,
     MapBackdrop, SelectedTile, SpriteSize, StrongIdMap, TerrainTile, TileCursor, UiAtlasAsset,
     UiAtlasResource, Unit, UnitActive, UnitAtlasResource,
 };
-use awbrn_core::{GraphicalTerrain, Weather, get_unit_animation_frames};
+use awbrn_core::{GraphicalMovement, GraphicalTerrain, Weather, get_unit_animation_frames};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
 use awbw_replay::{AwbwReplay, ReplayParser, game_models::AwbwBuilding};
 use bevy::ecs::system::SystemParam;
@@ -553,23 +556,146 @@ fn world_origin_offset(grid: &GridSystem) -> Vec3 {
     )
 }
 
+fn map_position_to_world_translation(
+    sprite_size: &SpriteSize,
+    map_position: MapPosition,
+    game_map: &GameMap,
+) -> Vec3 {
+    let grid = GridSystem::new(game_map.width(), game_map.height());
+    let offset = world_origin_offset(&grid);
+    let grid_pos = grid.sprite_position(map_position.into(), sprite_size);
+    let local_pos = grid.grid_to_world(&grid_pos);
+    let z_offset = map_position.y() as f32 * 0.001;
+
+    offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z + z_offset)
+}
+
+fn position_to_world_translation(
+    sprite_size: &SpriteSize,
+    position: Position,
+    game_map: &GameMap,
+) -> Vec3 {
+    map_position_to_world_translation(sprite_size, position.into(), game_map)
+}
+
+fn unit_animation_for(
+    unit: Unit,
+    faction: Faction,
+    movement: GraphicalMovement,
+) -> (awbrn_core::UnitAnimationFrames, Animation) {
+    let animation_frames = get_unit_animation_frames(movement, unit.0, faction.0);
+    let frame_durations = animation_frames.raw();
+    let animation = Animation {
+        start_index: animation_frames.start_index(),
+        frame_durations,
+        current_frame: 0,
+        frame_timer: Timer::new(
+            Duration::from_millis(frame_durations[0] as u64),
+            TimerMode::Once,
+        ),
+    };
+
+    (animation_frames, animation)
+}
+
+#[derive(Clone, Copy)]
+struct UnitVisualState {
+    unit: Unit,
+    faction: Faction,
+    flip_x: bool,
+}
+
+fn flip_x_for_movement(idle_flip_x: bool, movement: GraphicalMovement) -> bool {
+    match movement {
+        GraphicalMovement::Idle => idle_flip_x,
+        GraphicalMovement::Up | GraphicalMovement::Down => false,
+        GraphicalMovement::Lateral => idle_flip_x,
+    }
+}
+
+fn flip_x_for_lateral_direction(moving_right: bool) -> bool {
+    !moving_right
+}
+
+fn set_unit_pose(
+    sprite: &mut Sprite,
+    visual_state: UnitVisualState,
+    movement: GraphicalMovement,
+) -> awbrn_core::UnitAnimationFrames {
+    let animation_frames =
+        get_unit_animation_frames(movement, visual_state.unit.0, visual_state.faction.0);
+    sprite.flip_x = visual_state.flip_x;
+    if let Some(atlas) = &mut sprite.texture_atlas {
+        atlas.index = animation_frames.start_index() as usize;
+    }
+    animation_frames
+}
+
+fn set_unit_animation_state(
+    commands: &mut Commands,
+    entity: Entity,
+    sprite: &mut Sprite,
+    animation: Option<Mut<Animation>>,
+    visual_state: UnitVisualState,
+    movement: GraphicalMovement,
+) {
+    set_unit_pose(sprite, visual_state, movement);
+    let (_, new_animation) = unit_animation_for(visual_state.unit, visual_state.faction, movement);
+    sprite.color = Color::WHITE;
+
+    if let Some(mut animation) = animation {
+        animation.start_index = new_animation.start_index;
+        animation.frame_durations = new_animation.frame_durations;
+        animation.current_frame = 0;
+        animation.frame_timer = new_animation.frame_timer;
+    } else {
+        commands.entity(entity).insert(new_animation);
+    }
+}
+
+fn restore_unit_visual_state(
+    commands: &mut Commands,
+    entity: Entity,
+    sprite: &mut Sprite,
+    animation: Option<Mut<Animation>>,
+    visual_state: UnitVisualState,
+    has_active: bool,
+) {
+    set_unit_pose(sprite, visual_state, GraphicalMovement::Idle);
+    if has_active {
+        set_unit_animation_state(
+            commands,
+            entity,
+            sprite,
+            animation,
+            visual_state,
+            GraphicalMovement::Idle,
+        );
+    } else {
+        sprite.color = INACTIVE_UNIT_COLOR;
+        commands.entity(entity).remove::<Animation>();
+    }
+}
+
 /// System to update Transform when MapPosition changes
+type MapPositionTransformQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static mut Transform,
+        &'static SpriteSize,
+        &'static MapPosition,
+    ),
+    (Changed<MapPosition>, Without<UnitPathAnimation>),
+>;
+
 fn update_transform_on_position_change(
-    mut query: Query<(&mut Transform, &SpriteSize, &MapPosition), Changed<MapPosition>>,
+    mut query: MapPositionTransformQuery,
     game_map: Res<GameMap>,
 ) {
     for (mut transform, sprite_size, map_position) in query.iter_mut() {
-        // Create grid system for position calculations
-        let grid = GridSystem::new(game_map.width(), game_map.height());
-        let offset = world_origin_offset(&grid);
-
-        // Use the grid system's sprite_position method
-        let grid_pos = grid.sprite_position((*map_position).into(), sprite_size);
-
-        let local_pos = grid.grid_to_world(&grid_pos);
-        let z_offset = map_position.y() as f32 * 0.001;
-        let final_world_pos = offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z + z_offset);
-
+        let final_world_pos =
+            map_position_to_world_translation(sprite_size, *map_position, game_map.as_ref());
         transform.translation = final_world_pos;
 
         log::info!(
@@ -609,6 +735,7 @@ impl Plugin for AwbrnPlugin {
             .init_resource::<CurrentWeather>()
             .init_resource::<GameMap>()
             .init_resource::<StrongIdMap<AwbwUnitId>>()
+            .init_resource::<ReplayAdvanceLock>()
             .init_state::<AppState>()
             .init_state::<GameMode>()
             .add_sub_state::<LoadingState>()
@@ -649,7 +776,6 @@ impl Plugin for AwbrnPlugin {
                     update_static_terrain_on_weather_change,
                     update_animated_terrain_on_weather_change,
                     handle_tile_clicks,
-                    animate_units,
                     animate_terrain,
                     cleanup_empty_cargo,
                     update_health_indicator,
@@ -661,6 +787,11 @@ impl Plugin for AwbrnPlugin {
                     .run_if(in_state(AppState::InGame)),
             )
             // Replay-specific systems
+            .add_systems(
+                Update,
+                (animate_unit_paths.before(animate_units), animate_units)
+                    .run_if(in_state(AppState::InGame)),
+            )
             .add_systems(
                 Update,
                 check_assets_loaded.run_if(in_state(LoadingState::LoadingAssets)),
@@ -1310,6 +1441,157 @@ fn animate_units(time: Res<Time>, mut query: Query<(&mut Animation, &mut Sprite)
     }
 }
 
+type UnitPathAnimationQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static mut Transform,
+        &'static SpriteSize,
+        &'static mut UnitPathAnimation,
+        &'static mut Sprite,
+        &'static Unit,
+        &'static Faction,
+        Option<&'static mut Animation>,
+        Has<UnitActive>,
+    ),
+>;
+
+fn animate_unit_paths(
+    mut commands: Commands,
+    time: Res<Time>,
+    game_map: Res<GameMap>,
+    mut replay_lock: ResMut<ReplayAdvanceLock>,
+    mut query: UnitPathAnimationQuery,
+) {
+    for (
+        entity,
+        mut transform,
+        sprite_size,
+        mut path_animation,
+        mut sprite,
+        unit,
+        faction,
+        animation,
+        has_active,
+    ) in &mut query
+    {
+        let idle_visual_state = UnitVisualState {
+            unit: *unit,
+            faction: *faction,
+            flip_x: path_animation.idle_flip_x,
+        };
+
+        if path_animation.path.len() < 2 {
+            commands.entity(entity).remove::<UnitPathAnimation>();
+            restore_unit_visual_state(
+                &mut commands,
+                entity,
+                &mut sprite,
+                animation,
+                idle_visual_state,
+                has_active,
+            );
+            continue;
+        }
+
+        let segment_count = path_animation.path.len() - 1;
+        let total_secs = path_animation
+            .total_duration
+            .as_secs_f32()
+            .max(f32::EPSILON);
+        let previous_elapsed = path_animation.elapsed;
+        path_animation.elapsed =
+            (path_animation.elapsed + time.delta()).min(path_animation.total_duration);
+
+        let progress = path_animation.elapsed.as_secs_f32() / total_secs;
+        let segment_progress = progress * segment_count as f32;
+        let segment_index = if progress >= 1.0 {
+            segment_count - 1
+        } else {
+            segment_progress.floor() as usize
+        };
+        let segment_t = if progress >= 1.0 {
+            1.0
+        } else {
+            segment_progress - segment_index as f32
+        };
+
+        let moving_right = if segment_index + 1 < path_animation.path.len() {
+            path_animation.path[segment_index + 1].x > path_animation.path[segment_index].x
+        } else {
+            false
+        };
+        let movement = if segment_index + 1 < path_animation.path.len() {
+            movement_direction(
+                path_animation.path[segment_index],
+                path_animation.path[segment_index + 1],
+            )
+        } else {
+            path_animation.current_movement
+        };
+        let flip_x = if matches!(movement, GraphicalMovement::Lateral) {
+            flip_x_for_lateral_direction(moving_right)
+        } else {
+            flip_x_for_movement(path_animation.idle_flip_x, movement)
+        };
+        let moving_visual_state = UnitVisualState {
+            unit: *unit,
+            faction: *faction,
+            flip_x,
+        };
+
+        if previous_elapsed.is_zero()
+            || segment_index != path_animation.current_segment
+            || movement != path_animation.current_movement
+        {
+            path_animation.current_segment = segment_index;
+            path_animation.current_movement = movement;
+            set_unit_animation_state(
+                &mut commands,
+                entity,
+                &mut sprite,
+                animation,
+                moving_visual_state,
+                movement,
+            );
+        }
+
+        let start_world = position_to_world_translation(
+            sprite_size,
+            path_animation.path[segment_index],
+            game_map.as_ref(),
+        );
+        let end_world = position_to_world_translation(
+            sprite_size,
+            path_animation.path[segment_index + 1],
+            game_map.as_ref(),
+        );
+        transform.translation = start_world.lerp(end_world, segment_t);
+
+        if path_animation.elapsed >= path_animation.total_duration {
+            transform.translation = position_to_world_translation(
+                sprite_size,
+                *path_animation.path.last().unwrap(),
+                game_map.as_ref(),
+            );
+            commands.entity(entity).remove::<UnitPathAnimation>();
+            restore_unit_visual_state(
+                &mut commands,
+                entity,
+                &mut sprite,
+                None,
+                idle_visual_state,
+                has_active,
+            );
+
+            if let Some(action) = replay_lock.release_for(entity) {
+                commands.queue(ReplayFollowupCommand { action });
+            }
+        }
+    }
+}
+
 fn animate_terrain(time: Res<Time>, mut query: Query<(&mut TerrainAnimation, &mut Sprite)>) {
     for (mut animation, mut sprite) in query.iter_mut() {
         animation.frame_timer.tick(time.delta());
@@ -1341,6 +1623,7 @@ fn handle_game_input() {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ReplayAdvanceResult {
     Advanced,
+    AdvancedWithLock,
     Exhausted,
 }
 
@@ -1361,7 +1644,17 @@ fn advance_replay_action(
     commands.queue(ReplayTurnCommand { action });
     replay_state.turn += 1;
 
-    ReplayAdvanceResult::Advanced
+    if action_requires_path_animation(
+        loaded_replay
+            .0
+            .turns
+            .get((replay_state.turn - 1) as usize)
+            .expect("queued replay action should still exist"),
+    ) {
+        ReplayAdvanceResult::AdvancedWithLock
+    } else {
+        ReplayAdvanceResult::Advanced
+    }
 }
 
 fn handle_replay_controls(
@@ -1370,7 +1663,10 @@ fn handle_replay_controls(
     mut replay_control: Local<ReplayControlState>,
     mut replay_state: ResMut<ReplayState>,
     loaded_replay: Res<LoadedReplay>,
+    replay_lock: Res<ReplayAdvanceLock>,
 ) {
+    let mut replay_blocked = replay_lock.is_active();
+
     for event in keyboard_input.read() {
         if event.key_code != KeyCode::ArrowRight {
             continue;
@@ -1381,6 +1677,10 @@ fn handle_replay_controls(
                 replay_control.suppress_exhausted_repeat = false;
             }
             ButtonState::Pressed => {
+                if replay_blocked {
+                    continue;
+                }
+
                 if event.repeat && replay_control.suppress_exhausted_repeat {
                     continue;
                 }
@@ -1388,6 +1688,10 @@ fn handle_replay_controls(
                 match advance_replay_action(&mut commands, &mut replay_state, &loaded_replay) {
                     ReplayAdvanceResult::Advanced => {
                         replay_control.suppress_exhausted_repeat = false;
+                    }
+                    ReplayAdvanceResult::AdvancedWithLock => {
+                        replay_control.suppress_exhausted_repeat = false;
+                        replay_blocked = true;
                     }
                     ReplayAdvanceResult::Exhausted => {
                         info!("Reached the end of the replay turns");
@@ -1506,6 +1810,7 @@ fn spawn_animated_unit(mut commands: Commands, loaded_replay: Res<LoadedReplay>)
 
 fn init_replay_state(mut commands: Commands) {
     commands.init_resource::<ReplayState>();
+    commands.insert_resource(ReplayAdvanceLock::default());
 }
 
 fn handle_unit_spawn(
@@ -1572,26 +1877,28 @@ fn handle_unit_spawn(
 
 fn on_map_position_insert(
     trigger: On<Insert, MapPosition>,
-    mut query: Query<(&mut Transform, &SpriteSize, &MapPosition)>,
+    mut query: Query<(
+        &mut Transform,
+        &SpriteSize,
+        &MapPosition,
+        Has<UnitPathAnimation>,
+    )>,
     game_map: Res<GameMap>,
 ) {
     let entity = trigger.entity;
 
-    let Ok((mut transform, sprite_size, map_position)) = query.get_mut(entity) else {
+    let Ok((mut transform, sprite_size, map_position, has_path_animation)) = query.get_mut(entity)
+    else {
         warn!("Entity {:?} not found in query for MapPosition", entity);
         return;
     };
 
-    // Create grid system for position calculations
-    let grid = GridSystem::new(game_map.width(), game_map.height());
-    let offset = world_origin_offset(&grid);
+    if has_path_animation {
+        return;
+    }
 
-    // Use the grid system's sprite_position method
-    let grid_pos = grid.sprite_position((*map_position).into(), sprite_size);
-
-    let local_pos = grid.grid_to_world(&grid_pos);
-    let z_offset = map_position.y() as f32 * 0.001;
-    let final_world_pos = offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z + z_offset);
+    let final_world_pos =
+        map_position_to_world_translation(sprite_size, *map_position, game_map.as_ref());
 
     transform.translation = final_world_pos;
 
@@ -1656,9 +1963,18 @@ impl Default for AwbrnPlugin {
 mod tests {
     use super::*;
     use awbrn_core::AwbwGamePlayerId;
-    use awbrn_core::{AwbwTerrain, Faction as TerrainFaction, PlayerFaction, Property};
-    use awbw_replay::turn_models::{Action, PowerAction};
+    use awbrn_core::{
+        AwbwTerrain, AwbwUnitId as CoreUnitId, Faction as TerrainFaction, PlayerFaction, Property,
+    };
+    use awbw_replay::turn_models::{
+        Action, AwbwHpDisplay, BuildingInfo, CaptureAction, CombatInfo, CombatInfoVision,
+        CombatUnit, CopValueInfo, CopValues, FireAction, MoveAction, PowerAction, TargetedPlayer,
+        UnitProperty,
+    };
+    use awbw_replay::{Hidden, Masked};
     use bevy::input::keyboard::{Key, NativeKey};
+    use indexmap::IndexMap;
+    use std::time::Duration;
 
     /// Test MapPosition -> Transform observer including updates
     #[test]
@@ -1876,14 +2192,254 @@ mod tests {
         assert_eq!(app.world().resource::<ReplayState>().turn, 1);
     }
 
+    #[test]
+    fn replay_move_action_blocks_additional_presses_in_same_frame() {
+        let mut app = replay_controls_test_app_with_actions(vec![
+            test_move_action(),
+            test_replay_action(),
+            test_replay_action(),
+        ]);
+
+        send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, false);
+        send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, true);
+        send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, true);
+        app.update();
+
+        assert_eq!(app.world().resource::<ReplayState>().turn, 1);
+    }
+
+    #[test]
+    fn animated_move_visits_intermediate_tiles_and_releases_lock() {
+        let mut app = replay_animation_test_app();
+        let unit_entity = spawn_test_unit(
+            &mut app,
+            Position::new(8, 33),
+            CoreUnitId::new(173623341),
+            PlayerFaction::GreenEarth,
+        );
+        app.update();
+
+        let start_translation = app
+            .world()
+            .entity(unit_entity)
+            .get::<Transform>()
+            .unwrap()
+            .translation;
+
+        ReplayTurnCommand {
+            action: test_move_action(),
+        }
+        .apply(app.world_mut());
+
+        assert!(
+            app.world()
+                .entity(unit_entity)
+                .contains::<UnitPathAnimation>()
+        );
+        assert_eq!(
+            app.world()
+                .entity(unit_entity)
+                .get::<MapPosition>()
+                .unwrap()
+                .position(),
+            Position::new(7, 32)
+        );
+        assert_eq!(
+            app.world().resource::<ReplayAdvanceLock>().active_entity(),
+            Some(unit_entity)
+        );
+        assert_eq!(
+            app.world()
+                .entity(unit_entity)
+                .get::<Transform>()
+                .unwrap()
+                .translation,
+            start_translation
+        );
+
+        app.world_mut()
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_millis(50));
+        app.update();
+
+        let mid_translation = app
+            .world()
+            .entity(unit_entity)
+            .get::<Transform>()
+            .unwrap()
+            .translation;
+        assert_ne!(mid_translation, start_translation);
+
+        app.world_mut()
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_millis(100));
+        app.update();
+
+        let expected_final = position_to_world_translation(
+            app.world().entity(unit_entity).get::<SpriteSize>().unwrap(),
+            Position::new(7, 32),
+            app.world().resource::<GameMap>(),
+        );
+        let final_translation = app
+            .world()
+            .entity(unit_entity)
+            .get::<Transform>()
+            .unwrap()
+            .translation;
+        assert!(
+            final_translation.abs_diff_eq(expected_final, 0.05),
+            "unexpected final translation: {final_translation:?}"
+        );
+        let final_sprite = app.world().entity(unit_entity).get::<Sprite>().unwrap();
+        assert!(!final_sprite.flip_x);
+        assert_eq!(
+            final_sprite.texture_atlas.as_ref().unwrap().index,
+            get_unit_animation_frames(
+                GraphicalMovement::Idle,
+                awbrn_core::Unit::Infantry,
+                PlayerFaction::GreenEarth
+            )
+            .start_index() as usize
+        );
+        assert!(
+            !app.world()
+                .entity(unit_entity)
+                .contains::<UnitPathAnimation>()
+        );
+        assert!(!app.world().resource::<ReplayAdvanceLock>().is_active());
+    }
+
+    #[test]
+    fn capture_followup_waits_for_move_completion() {
+        let mut app = replay_animation_test_app();
+        let unit_entity = spawn_test_unit(
+            &mut app,
+            Position::new(2, 2),
+            CoreUnitId::new(1),
+            PlayerFaction::OrangeStar,
+        );
+        spawn_test_property(&mut app, Position::new(2, 1));
+        app.update();
+
+        ReplayTurnCommand {
+            action: test_capture_action(),
+        }
+        .apply(app.world_mut());
+
+        assert!(!app.world().entity(unit_entity).contains::<Capturing>());
+
+        app.world_mut()
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_millis(150));
+        app.update();
+
+        assert!(app.world().entity(unit_entity).contains::<Capturing>());
+    }
+
+    #[test]
+    fn fire_followup_waits_for_move_completion() {
+        let mut app = replay_animation_test_app();
+        let attacker = spawn_test_unit(
+            &mut app,
+            Position::new(4, 4),
+            CoreUnitId::new(10),
+            PlayerFaction::OrangeStar,
+        );
+        let defender = spawn_test_unit(
+            &mut app,
+            Position::new(5, 4),
+            CoreUnitId::new(11),
+            PlayerFaction::BlueMoon,
+        );
+        app.update();
+
+        ReplayTurnCommand {
+            action: test_fire_action(),
+        }
+        .apply(app.world_mut());
+
+        assert!(app.world().entity(attacker).get::<GraphicalHp>().is_none());
+        assert!(app.world().entity(defender).get::<GraphicalHp>().is_none());
+
+        app.world_mut()
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_millis(150));
+        app.update();
+
+        assert_eq!(
+            app.world()
+                .entity(attacker)
+                .get::<GraphicalHp>()
+                .unwrap()
+                .value(),
+            8
+        );
+        assert_eq!(
+            app.world()
+                .entity(defender)
+                .get::<GraphicalHp>()
+                .unwrap()
+                .value(),
+            5
+        );
+    }
+
+    #[test]
+    fn lateral_animation_uses_faction_facing_and_restores_idle_pose() {
+        let mut app = replay_animation_test_app();
+        let unit_entity = spawn_test_unit(
+            &mut app,
+            Position::new(4, 4),
+            CoreUnitId::new(42),
+            PlayerFaction::BlueMoon,
+        );
+        app.update();
+
+        ReplayTurnCommand {
+            action: test_move_action_for(CoreUnitId::new(42), 1, 5, 4, &[(4, 4), (5, 4)]),
+        }
+        .apply(app.world_mut());
+
+        app.world_mut()
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_millis(75));
+        app.update();
+
+        let moving_sprite = app.world().entity(unit_entity).get::<Sprite>().unwrap();
+        assert!(!moving_sprite.flip_x);
+
+        app.world_mut()
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_millis(75));
+        app.update();
+
+        let final_sprite = app.world().entity(unit_entity).get::<Sprite>().unwrap();
+        assert!(!final_sprite.flip_x);
+        assert_eq!(
+            final_sprite.texture_atlas.as_ref().unwrap().index,
+            get_unit_animation_frames(
+                GraphicalMovement::Idle,
+                awbrn_core::Unit::Infantry,
+                PlayerFaction::BlueMoon
+            )
+            .start_index() as usize
+        );
+    }
+
     fn replay_controls_test_app(action_count: usize) -> App {
+        replay_controls_test_app_with_actions(vec![test_replay_action(); action_count])
+    }
+
+    fn replay_controls_test_app_with_actions(actions: Vec<Action>) -> App {
         let mut app = App::new();
         app.add_message::<KeyboardInput>();
         app.add_systems(Update, handle_replay_controls);
         app.insert_resource(ReplayState::default());
+        app.insert_resource(ReplayAdvanceLock::default());
+        app.insert_resource(StrongIdMap::<AwbwUnitId>::default());
         app.insert_resource(LoadedReplay(AwbwReplay {
             games: Vec::new(),
-            turns: vec![test_replay_action(); action_count],
+            turns: actions,
         }));
         app
     }
@@ -1906,5 +2462,267 @@ mod tests {
             co_power: "N".to_string(),
             power_name: "Test Power".to_string(),
         })
+    }
+
+    fn replay_animation_test_app() -> App {
+        let mut app = App::new();
+        app.insert_resource(Time::<()>::default());
+        app.init_resource::<GameMap>();
+        app.init_resource::<StrongIdMap<AwbwUnitId>>();
+        app.insert_resource(ReplayAdvanceLock::default());
+        app.add_observer(on_map_position_insert);
+        app.add_observer(on_unit_active_remove);
+        app.add_systems(
+            Update,
+            (animate_unit_paths, update_transform_on_position_change),
+        );
+
+        app.world_mut().resource_mut::<GameMap>().set(AwbrnMap::new(
+            40,
+            40,
+            GraphicalTerrain::Plain,
+        ));
+
+        app
+    }
+
+    fn spawn_test_unit(
+        app: &mut App,
+        position: Position,
+        unit_id: CoreUnitId,
+        faction: PlayerFaction,
+    ) -> Entity {
+        let entity = app
+            .world_mut()
+            .spawn((
+                MapPosition::from(position),
+                Transform::default(),
+                Sprite::from_atlas_image(
+                    Handle::default(),
+                    TextureAtlas {
+                        layout: Handle::default(),
+                        index: 0,
+                    },
+                ),
+                Unit(awbrn_core::Unit::Infantry),
+                Faction(faction),
+                AwbwUnitId(unit_id),
+                UnitActive,
+            ))
+            .id();
+
+        app.world_mut()
+            .resource_mut::<StrongIdMap<AwbwUnitId>>()
+            .insert(AwbwUnitId(unit_id), entity);
+
+        entity
+    }
+
+    fn spawn_test_property(app: &mut App, position: Position) {
+        app.world_mut().spawn((
+            MapPosition::from(position),
+            Transform::default(),
+            Sprite::from_atlas_image(
+                Handle::default(),
+                TextureAtlas {
+                    layout: Handle::default(),
+                    index: 0,
+                },
+            ),
+            TerrainTile {
+                terrain: GraphicalTerrain::Property(Property::City(TerrainFaction::Neutral)),
+                position,
+            },
+        ));
+    }
+
+    fn test_move_action() -> Action {
+        test_move_action_for(
+            CoreUnitId::new(173623341),
+            3276855,
+            7,
+            32,
+            &[(8, 33), (7, 33), (7, 32)],
+        )
+    }
+
+    fn test_move_action_for(
+        unit_id: CoreUnitId,
+        player_id: u32,
+        final_x: u32,
+        final_y: u32,
+        path: &[(u32, u32)],
+    ) -> Action {
+        Action::Move(MoveAction {
+            unit: IndexMap::from([(
+                TargetedPlayer::Global,
+                Hidden::Visible(test_unit_property(
+                    unit_id.as_u32(),
+                    player_id,
+                    awbrn_core::Unit::Infantry,
+                    final_x,
+                    final_y,
+                )),
+            )]),
+            paths: IndexMap::from([(
+                TargetedPlayer::Global,
+                path.iter()
+                    .map(|&(x, y)| awbw_replay::turn_models::PathTile {
+                        unit_visible: true,
+                        x,
+                        y,
+                    })
+                    .collect(),
+            )]),
+            dist: 3,
+            trapped: false,
+            discovered: None,
+        })
+    }
+
+    fn test_capture_action() -> Action {
+        Action::Capt {
+            move_action: Some(MoveAction {
+                unit: IndexMap::from([(
+                    TargetedPlayer::Global,
+                    Hidden::Visible(test_unit_property(1, 1, awbrn_core::Unit::Infantry, 2, 1)),
+                )]),
+                paths: IndexMap::from([(
+                    TargetedPlayer::Global,
+                    vec![
+                        awbw_replay::turn_models::PathTile {
+                            unit_visible: true,
+                            x: 2,
+                            y: 2,
+                        },
+                        awbw_replay::turn_models::PathTile {
+                            unit_visible: true,
+                            x: 2,
+                            y: 1,
+                        },
+                    ],
+                )]),
+                dist: 1,
+                trapped: false,
+                discovered: None,
+            }),
+            capture_action: CaptureAction {
+                building_info: BuildingInfo {
+                    buildings_capture: 10,
+                    buildings_id: 99,
+                    buildings_x: 2,
+                    buildings_y: 1,
+                    buildings_team: None,
+                },
+                vision: IndexMap::new(),
+                income: None,
+            },
+        }
+    }
+
+    fn test_fire_action() -> Action {
+        Action::Fire {
+            move_action: Some(MoveAction {
+                unit: IndexMap::from([(
+                    TargetedPlayer::Global,
+                    Hidden::Visible(test_unit_property(10, 1, awbrn_core::Unit::Infantry, 5, 4)),
+                )]),
+                paths: IndexMap::from([(
+                    TargetedPlayer::Global,
+                    vec![
+                        awbw_replay::turn_models::PathTile {
+                            unit_visible: true,
+                            x: 4,
+                            y: 4,
+                        },
+                        awbw_replay::turn_models::PathTile {
+                            unit_visible: true,
+                            x: 5,
+                            y: 4,
+                        },
+                    ],
+                )]),
+                dist: 1,
+                trapped: false,
+                discovered: None,
+            }),
+            fire_action: FireAction {
+                combat_info_vision: IndexMap::from([(
+                    TargetedPlayer::Global,
+                    CombatInfoVision {
+                        has_vision: true,
+                        combat_info: CombatInfo {
+                            attacker: Masked::Visible(CombatUnit {
+                                units_ammo: 0,
+                                units_hit_points: Some(test_hp(8)),
+                                units_id: CoreUnitId::new(10),
+                                units_x: 5,
+                                units_y: 4,
+                            }),
+                            defender: Masked::Visible(CombatUnit {
+                                units_ammo: 0,
+                                units_hit_points: Some(test_hp(5)),
+                                units_id: CoreUnitId::new(11),
+                                units_x: 5,
+                                units_y: 4,
+                            }),
+                        },
+                    },
+                )]),
+                cop_values: CopValues {
+                    attacker: CopValueInfo {
+                        player_id: AwbwGamePlayerId::new(1),
+                        cop_value: 0,
+                        tag_value: None,
+                    },
+                    defender: CopValueInfo {
+                        player_id: AwbwGamePlayerId::new(2),
+                        cop_value: 0,
+                        tag_value: None,
+                    },
+                },
+            },
+        }
+    }
+
+    fn test_unit_property(
+        unit_id: u32,
+        player_id: u32,
+        unit_name: awbrn_core::Unit,
+        x: u32,
+        y: u32,
+    ) -> UnitProperty {
+        UnitProperty {
+            units_id: CoreUnitId::new(unit_id),
+            units_games_id: Some(1403019),
+            units_players_id: player_id,
+            units_name: unit_name,
+            units_movement_points: Some(3),
+            units_vision: Some(2),
+            units_fuel: Some(99),
+            units_fuel_per_turn: Some(0),
+            units_sub_dive: "N".to_string(),
+            units_ammo: Some(0),
+            units_short_range: Some(0),
+            units_long_range: Some(0),
+            units_second_weapon: Some("N".to_string()),
+            units_symbol: Some("G".to_string()),
+            units_cost: Some(1000),
+            units_movement_type: "F".to_string(),
+            units_x: Some(x),
+            units_y: Some(y),
+            units_moved: Some(1),
+            units_capture: Some(0),
+            units_fired: Some(0),
+            units_hit_points: test_hp(10),
+            units_cargo1_units_id: Default::default(),
+            units_cargo2_units_id: Default::default(),
+            units_carried: Some("N".to_string()),
+            countries_code: PlayerFaction::OrangeStar,
+        }
+    }
+
+    fn test_hp(value: u8) -> AwbwHpDisplay {
+        serde_json::from_value(serde_json::json!(value)).unwrap()
     }
 }

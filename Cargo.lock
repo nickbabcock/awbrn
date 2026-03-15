@@ -452,6 +452,7 @@ dependencies = [
  "awbrn-map",
  "awbw-replay",
  "bevy",
+ "indexmap",
  "serde",
  "serde_json",
  "tsify",

@@ -25,3 +25,4 @@ wasm-bindgen.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
+indexmap.workspace = true
