@@ -32,7 +32,34 @@ impl Default for ReplayState {
     }
 }
 
-pub const UNIT_PATH_ANIMATION_TOTAL_MS: u64 = 150;
+/// Multiplier for replay path-related animation timing.
+///
+/// Values greater than `1.0` speed animations up by shortening their durations.
+pub const REPLAY_PATH_ANIMATION_SPEED_FACTOR: f32 = 1.5;
+pub const UNIT_PATH_SINGLE_SEGMENT_MS: u64 = 400;
+pub const UNIT_PATH_EDGE_SEGMENT_MS: u64 = 350;
+pub const UNIT_PATH_INTERIOR_SEGMENT_MS: u64 = 140;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReplayPathTile {
+    pub position: Position,
+    pub unit_visible: bool,
+}
+
+#[derive(Component, Debug, Clone)]
+pub struct PendingCourseArrows {
+    pub path: Vec<ReplayPathTile>,
+}
+
+pub fn scaled_animation_duration(base_ms: u64) -> Duration {
+    let speed = REPLAY_PATH_ANIMATION_SPEED_FACTOR.max(f32::EPSILON);
+    if (speed - 1.0).abs() < f32::EPSILON {
+        return Duration::from_millis(base_ms);
+    }
+
+    let nanos = ((base_ms as f64 * 1_000_000.0) / speed as f64).round() as u64;
+    Duration::from_nanos(nanos)
+}
 
 #[derive(Resource, Debug, Default)]
 pub struct ReplayAdvanceLock {
@@ -67,6 +94,7 @@ impl ReplayAdvanceLock {
 #[derive(Component, Debug, Clone)]
 pub struct UnitPathAnimation {
     pub path: Vec<Position>,
+    pub segment_durations: Vec<Duration>,
     pub total_duration: Duration,
     pub elapsed: Duration,
     pub current_segment: usize,
@@ -75,14 +103,18 @@ pub struct UnitPathAnimation {
 }
 
 impl UnitPathAnimation {
-    pub fn new(path: Vec<Position>, total_duration: Duration, idle_flip_x: bool) -> Option<Self> {
+    pub fn new(path: Vec<Position>, idle_flip_x: bool) -> Option<Self> {
         if path.len() < 2 {
             return None;
         }
 
+        let segment_durations = unit_path_segment_durations(path.len())?;
+        let total_duration = segment_durations.iter().copied().sum();
+
         Some(Self {
             current_movement: movement_direction(path[0], path[1]),
             path,
+            segment_durations,
             total_duration,
             elapsed: Duration::ZERO,
             current_segment: 0,
@@ -168,13 +200,10 @@ impl ReplayTurnCommand {
             .get::<Sprite>()
             .map(|sprite| sprite.flip_x)
             .unwrap_or(false);
-        let animated_path = global_path_positions(move_action).and_then(|path| {
-            UnitPathAnimation::new(
-                path,
-                Duration::from_millis(UNIT_PATH_ANIMATION_TOTAL_MS),
-                idle_flip_x,
-            )
-        });
+        let path_tiles = global_path_tiles(move_action);
+        let animated_path = path_tiles
+            .as_ref()
+            .and_then(|path| UnitPathAnimation::new(path_positions(path), idle_flip_x));
 
         let mut entity_mut = world.entity_mut(entity);
         if position_changed {
@@ -183,6 +212,9 @@ impl ReplayTurnCommand {
 
         if let Some(path_animation) = animated_path {
             entity_mut.insert((path_animation, new_position));
+            if let Some(path) = path_tiles {
+                entity_mut.insert(PendingCourseArrows { path });
+            }
             entity_mut.remove::<UnitActive>();
 
             let deferred_action = match action {
@@ -607,7 +639,7 @@ impl ReplayTurnCommand {
 pub fn action_requires_path_animation(action: &Action) -> bool {
     action
         .move_action()
-        .and_then(global_path_positions)
+        .and_then(global_path_tiles)
         .is_some_and(|path| path.len() >= 2)
 }
 
@@ -621,11 +653,40 @@ pub fn movement_direction(from: Position, to: Position) -> GraphicalMovement {
     }
 }
 
-fn global_path_positions(move_action: &MoveAction) -> Option<Vec<Position>> {
+pub fn unit_path_segment_durations(path_len: usize) -> Option<Vec<Duration>> {
+    if path_len < 2 {
+        return None;
+    }
+
+    let segment_count = path_len - 1;
+    if segment_count == 1 {
+        return Some(vec![scaled_animation_duration(UNIT_PATH_SINGLE_SEGMENT_MS)]);
+    }
+
+    let total_duration_ms = UNIT_PATH_EDGE_SEGMENT_MS * 2
+        + UNIT_PATH_INTERIOR_SEGMENT_MS * segment_count.saturating_sub(2) as u64;
+    let per_segment_ms = total_duration_ms / segment_count as u64;
+    let remainder_ms = total_duration_ms % segment_count as u64;
+    let mut durations = vec![scaled_animation_duration(per_segment_ms); segment_count];
+    if let Some(last) = durations.last_mut() {
+        *last += scaled_animation_duration(remainder_ms);
+    }
+
+    Some(durations)
+}
+
+fn path_positions(path: &[ReplayPathTile]) -> Vec<Position> {
+    path.iter().map(|tile| tile.position).collect()
+}
+
+fn global_path_tiles(move_action: &MoveAction) -> Option<Vec<ReplayPathTile>> {
     // TODO: replace Global-only path extraction with fog-aware targeted player selection.
     move_action.paths.get(&TargetedPlayer::Global).map(|path| {
         path.iter()
-            .map(|tile| Position::new(tile.x as usize, tile.y as usize))
+            .map(|tile| ReplayPathTile {
+                position: Position::new(tile.x as usize, tile.y as usize),
+                unit_visible: tile.unit_visible,
+            })
             .collect()
     })
 }
@@ -638,6 +699,27 @@ mod tests {
         Action, BuildingInfo, CaptureAction, MoveAction, PathTile, TargetedPlayer, UnitProperty,
     };
     use awbw_replay::{Hidden, Masked};
+
+    #[test]
+    fn one_step_paths_use_reference_single_segment_duration() {
+        let durations = unit_path_segment_durations(2).expect("two-tile path should animate");
+
+        assert_eq!(durations, vec![scaled_animation_duration(400)]);
+    }
+
+    #[test]
+    fn multi_step_paths_use_reference_edge_and_interior_durations() {
+        let durations = unit_path_segment_durations(4).expect("four-tile path should animate");
+
+        assert_eq!(
+            durations,
+            vec![
+                scaled_animation_duration(280),
+                scaled_animation_duration(280),
+                scaled_animation_duration(280),
+            ]
+        );
+    }
 
     #[test]
     fn moving_to_a_new_tile_clears_capturing() {
@@ -736,6 +818,57 @@ mod tests {
 
         assert!(!app.world().entity(unit_entity).contains::<Capturing>());
         assert!(!app.world().entity(unit_entity).contains::<UnitActive>());
+    }
+
+    #[test]
+    fn moving_unit_requests_course_arrows_with_visibility_data() {
+        let mut app = replay_turn_test_app();
+        let unit_entity = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
+
+        ReplayTurnCommand {
+            action: Action::Move(MoveAction {
+                unit: [(
+                    TargetedPlayer::Global,
+                    Hidden::Visible(test_unit_property(CoreUnitId::new(1), 4, 2)),
+                )]
+                .into(),
+                paths: [(
+                    TargetedPlayer::Global,
+                    vec![
+                        PathTile {
+                            unit_visible: true,
+                            x: 2,
+                            y: 2,
+                        },
+                        PathTile {
+                            unit_visible: false,
+                            x: 3,
+                            y: 2,
+                        },
+                        PathTile {
+                            unit_visible: true,
+                            x: 4,
+                            y: 2,
+                        },
+                    ],
+                )]
+                .into(),
+                dist: 2,
+                trapped: false,
+                discovered: None,
+            }),
+        }
+        .apply(app.world_mut());
+
+        let pending = app
+            .world()
+            .entity(unit_entity)
+            .get::<PendingCourseArrows>()
+            .expect("move should request course arrows");
+
+        assert_eq!(pending.path.len(), 3);
+        assert_eq!(pending.path[1].position, Position::new(3, 2));
+        assert!(!pending.path[1].unit_visible);
     }
 
     fn replay_turn_test_app() -> App {

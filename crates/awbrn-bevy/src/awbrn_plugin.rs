@@ -29,8 +29,9 @@
 //! ```
 
 use crate::replay_turn::{
-    ReplayAdvanceLock, ReplayFollowupCommand, ReplayState, ReplayTurnCommand, UnitPathAnimation,
-    action_requires_path_animation, movement_direction,
+    PendingCourseArrows, ReplayAdvanceLock, ReplayFollowupCommand, ReplayPathTile, ReplayState,
+    ReplayTurnCommand, UnitPathAnimation, action_requires_path_animation, movement_direction,
+    scaled_animation_duration,
 };
 use crate::{
     AwbwUnitId, CameraScale, Capturing, CapturingIndicator, CargoIndicator, CurrentWeather,
@@ -51,6 +52,16 @@ use std::{sync::Arc, time::Duration};
 
 /// Color used for inactive units
 const INACTIVE_UNIT_COLOR: Color = Color::srgb(0.67, 0.67, 0.67);
+const COURSE_ARROW_LAYER_OFFSET: f32 = 0.5;
+const COURSE_ARROW_BASE_SCALE: f32 = 0.8;
+const COURSE_ARROW_REVEAL_MS: u64 = 75;
+const COURSE_ARROW_LIFETIME_MS: u64 = 250;
+const COURSE_ARROW_STAGGER_MS: u64 = 25;
+const COURSE_ARROW_SPRITE_SIZE: SpriteSize = SpriteSize {
+    width: 16.0,
+    height: 16.0,
+    z_index: 0,
+};
 
 /// Trait for resolving map asset paths from map IDs
 pub trait MapAssetPathResolver: Send + Sync + 'static {
@@ -84,6 +95,43 @@ struct TerrainAnimation {
     frame_count: u8,
     current_frame: u8,
     frame_timer: Timer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CourseArrowSpriteKind {
+    Body,
+    Curved,
+    Tip,
+}
+
+impl CourseArrowSpriteKind {
+    fn sprite_name(self) -> &'static str {
+        match self {
+            Self::Body => "Arrow_Body.png",
+            Self::Curved => "Arrow_Curved.png",
+            Self::Tip => "Arrow_Tip.png",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct CourseArrowSpawn {
+    kind: CourseArrowSpriteKind,
+    position: Position,
+    rotation_degrees: f32,
+    start_delay: Duration,
+}
+
+#[allow(dead_code)]
+#[derive(Component, Debug, Clone, Copy)]
+struct CourseArrowPiece {
+    owner: Entity,
+    kind: CourseArrowSpriteKind,
+    rotation_degrees: f32,
+    start_delay: Duration,
+    reveal_duration: Duration,
+    total_duration: Duration,
+    elapsed: Duration,
 }
 
 #[derive(Component, Reflect, Clone, Copy, PartialEq, Eq, Debug)]
@@ -578,6 +626,138 @@ fn position_to_world_translation(
     map_position_to_world_translation(sprite_size, position.into(), game_map)
 }
 
+fn ease_out_quint(progress: f32) -> f32 {
+    1.0 - (1.0 - progress.clamp(0.0, 1.0)).powi(5)
+}
+
+fn build_course_arrow_spawns(path: &[ReplayPathTile]) -> Vec<CourseArrowSpawn> {
+    if path.len() < 2 {
+        return Vec::new();
+    }
+
+    let mut spawns = Vec::with_capacity(path.len().saturating_sub(1));
+
+    for i in 1..path.len() - 1 {
+        let current = path[i];
+        if !current.unit_visible {
+            continue;
+        }
+
+        let prev = path[i - 1];
+        let next = path[i + 1];
+        let start_delay = scaled_animation_duration((i as u64 - 1) * COURSE_ARROW_STAGGER_MS);
+
+        let (kind, rotation_degrees) = if !next.unit_visible {
+            let head_diff_x = current.position.x as isize - prev.position.x as isize;
+            let head_diff_y = current.position.y as isize - prev.position.y as isize;
+            let rotation_degrees = if head_diff_x > 0 {
+                90.0
+            } else if head_diff_x < 0 {
+                -90.0
+            } else if head_diff_y > 0 {
+                0.0
+            } else {
+                180.0
+            };
+
+            (CourseArrowSpriteKind::Tip, rotation_degrees)
+        } else {
+            let diff_x = next.position.x as isize - prev.position.x as isize;
+            let diff_y = next.position.y as isize - prev.position.y as isize;
+
+            if diff_x.abs() >= 2 {
+                (
+                    CourseArrowSpriteKind::Body,
+                    if diff_x > 0 { 90.0 } else { -90.0 },
+                )
+            } else if diff_y.abs() >= 2 {
+                (
+                    CourseArrowSpriteKind::Body,
+                    if diff_y > 0 { 180.0 } else { 0.0 },
+                )
+            } else {
+                let prev_to_current_x = current.position.x as isize - prev.position.x as isize;
+                let prev_to_current_y = current.position.y as isize - prev.position.y as isize;
+
+                let connects_north = prev_to_current_y > 0
+                    || current.position.y as isize - next.position.y as isize > 0;
+                let connects_east = prev_to_current_x < 0
+                    || next.position.x as isize - current.position.x as isize > 0;
+                let connects_south = prev_to_current_y < 0
+                    || next.position.y as isize - current.position.y as isize > 0;
+                let connects_west = prev_to_current_x > 0
+                    || current.position.x as isize - next.position.x as isize > 0;
+
+                let rotation_degrees = if connects_west && connects_north {
+                    0.0
+                } else if connects_north && connects_east {
+                    -90.0
+                } else if connects_east && connects_south {
+                    180.0
+                } else if connects_south && connects_west {
+                    90.0
+                } else {
+                    unreachable!("turn piece must connect exactly two orthogonal directions");
+                };
+
+                (CourseArrowSpriteKind::Curved, rotation_degrees)
+            }
+        };
+
+        spawns.push(CourseArrowSpawn {
+            kind,
+            position: current.position,
+            rotation_degrees,
+            start_delay,
+        });
+    }
+
+    let before_head = path[path.len() - 2];
+    let head = path[path.len() - 1];
+    if head.unit_visible {
+        let head_diff_x = head.position.x as isize - before_head.position.x as isize;
+        let head_diff_y = head.position.y as isize - before_head.position.y as isize;
+        let rotation_degrees = if head_diff_x > 0 {
+            90.0
+        } else if head_diff_x < 0 {
+            -90.0
+        } else if head_diff_y > 0 {
+            0.0
+        } else {
+            180.0
+        };
+
+        spawns.push(CourseArrowSpawn {
+            kind: CourseArrowSpriteKind::Tip,
+            position: head.position,
+            rotation_degrees,
+            start_delay: scaled_animation_duration(
+                (path.len() as u64 - 2) * COURSE_ARROW_STAGGER_MS,
+            ),
+        });
+    }
+
+    spawns
+}
+
+fn current_segment_and_progress(path_animation: &UnitPathAnimation) -> (usize, f32) {
+    let last_segment = path_animation.segment_durations.len().saturating_sub(1);
+    if path_animation.elapsed >= path_animation.total_duration {
+        return (last_segment, 1.0);
+    }
+
+    let mut elapsed = path_animation.elapsed;
+    for (index, segment_duration) in path_animation.segment_durations.iter().enumerate() {
+        if elapsed < *segment_duration {
+            let segment_secs = segment_duration.as_secs_f32().max(f32::EPSILON);
+            return (index, elapsed.as_secs_f32() / segment_secs);
+        }
+        elapsed = elapsed.saturating_sub(*segment_duration);
+    }
+
+    (last_segment, 1.0)
+}
+
 fn unit_animation_for(
     unit: Unit,
     faction: Faction,
@@ -789,7 +969,12 @@ impl Plugin for AwbrnPlugin {
             // Replay-specific systems
             .add_systems(
                 Update,
-                (animate_unit_paths.before(animate_units), animate_units)
+                (
+                    spawn_pending_course_arrows.before(animate_course_arrows),
+                    animate_course_arrows,
+                    animate_unit_paths.before(animate_units),
+                    animate_units,
+                )
                     .run_if(in_state(AppState::InGame)),
             )
             .add_systems(
@@ -1441,6 +1626,86 @@ fn animate_units(time: Res<Time>, mut query: Query<(&mut Animation, &mut Sprite)
     }
 }
 
+fn spawn_pending_course_arrows(
+    mut commands: Commands,
+    ui_atlas: UiAtlas,
+    game_map: Res<GameMap>,
+    pending: Query<(Entity, &PendingCourseArrows), Added<PendingCourseArrows>>,
+    existing_arrows: Query<(Entity, &CourseArrowPiece)>,
+) {
+    for (owner, pending) in &pending {
+        for (entity, arrow) in &existing_arrows {
+            if arrow.owner == owner {
+                commands.entity(entity).despawn();
+            }
+        }
+
+        for spawn in build_course_arrow_spawns(&pending.path) {
+            let mut transform = Transform::from_translation(
+                position_to_world_translation(
+                    &COURSE_ARROW_SPRITE_SIZE,
+                    spawn.position,
+                    game_map.as_ref(),
+                ) + Vec3::new(0.0, 0.0, COURSE_ARROW_LAYER_OFFSET),
+            );
+            transform.rotation = Quat::from_rotation_z(spawn.rotation_degrees.to_radians());
+            transform.scale = Vec3::splat(COURSE_ARROW_BASE_SCALE);
+
+            commands.spawn((
+                ui_atlas.sprite_for(spawn.kind.sprite_name()),
+                transform,
+                Visibility::Hidden,
+                CourseArrowPiece {
+                    owner,
+                    kind: spawn.kind,
+                    rotation_degrees: spawn.rotation_degrees,
+                    start_delay: spawn.start_delay,
+                    reveal_duration: scaled_animation_duration(COURSE_ARROW_REVEAL_MS),
+                    total_duration: scaled_animation_duration(COURSE_ARROW_LIFETIME_MS),
+                    elapsed: Duration::ZERO,
+                },
+            ));
+        }
+
+        commands.entity(owner).remove::<PendingCourseArrows>();
+    }
+}
+
+fn animate_course_arrows(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(
+        Entity,
+        &mut CourseArrowPiece,
+        &mut Transform,
+        &mut Visibility,
+    )>,
+) {
+    for (entity, mut arrow, mut transform, mut visibility) in &mut query {
+        arrow.elapsed += time.delta();
+
+        if arrow.elapsed < arrow.start_delay {
+            *visibility = Visibility::Hidden;
+            continue;
+        }
+
+        *visibility = Visibility::Visible;
+        let visible_elapsed = arrow.elapsed.saturating_sub(arrow.start_delay);
+        let reveal_progress = if arrow.reveal_duration.is_zero() {
+            1.0
+        } else {
+            visible_elapsed.as_secs_f32() / arrow.reveal_duration.as_secs_f32()
+        };
+        let scale = COURSE_ARROW_BASE_SCALE
+            + (1.0 - COURSE_ARROW_BASE_SCALE) * ease_out_quint(reveal_progress);
+        transform.scale = Vec3::splat(scale);
+
+        if visible_elapsed >= arrow.total_duration {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
 type UnitPathAnimationQuery<'w, 's> = Query<
     'w,
     's,
@@ -1495,27 +1760,10 @@ fn animate_unit_paths(
             continue;
         }
 
-        let segment_count = path_animation.path.len() - 1;
-        let total_secs = path_animation
-            .total_duration
-            .as_secs_f32()
-            .max(f32::EPSILON);
         let previous_elapsed = path_animation.elapsed;
         path_animation.elapsed =
             (path_animation.elapsed + time.delta()).min(path_animation.total_duration);
-
-        let progress = path_animation.elapsed.as_secs_f32() / total_secs;
-        let segment_progress = progress * segment_count as f32;
-        let segment_index = if progress >= 1.0 {
-            segment_count - 1
-        } else {
-            segment_progress.floor() as usize
-        };
-        let segment_t = if progress >= 1.0 {
-            1.0
-        } else {
-            segment_progress - segment_index as f32
-        };
+        let (segment_index, segment_t) = current_segment_and_progress(&path_animation);
 
         let moving_right = if segment_index + 1 < path_animation.path.len() {
             path_animation.path[segment_index + 1].x > path_animation.path[segment_index].x
@@ -2209,6 +2457,143 @@ mod tests {
     }
 
     #[test]
+    fn course_arrow_generation_matches_reference_rotations() {
+        let straight = build_course_arrow_spawns(&[
+            ReplayPathTile {
+                position: Position::new(1, 1),
+                unit_visible: true,
+            },
+            ReplayPathTile {
+                position: Position::new(2, 1),
+                unit_visible: true,
+            },
+            ReplayPathTile {
+                position: Position::new(3, 1),
+                unit_visible: true,
+            },
+        ]);
+        assert_eq!(straight.len(), 2);
+        assert_eq!(straight[0].kind, CourseArrowSpriteKind::Body);
+        assert_eq!(straight[0].rotation_degrees, 90.0);
+        assert_eq!(straight[1].kind, CourseArrowSpriteKind::Tip);
+        assert_eq!(straight[1].rotation_degrees, 90.0);
+
+        let curved = build_course_arrow_spawns(&[
+            ReplayPathTile {
+                position: Position::new(3, 3),
+                unit_visible: true,
+            },
+            ReplayPathTile {
+                position: Position::new(2, 3),
+                unit_visible: true,
+            },
+            ReplayPathTile {
+                position: Position::new(2, 2),
+                unit_visible: true,
+            },
+        ]);
+        assert_eq!(curved.len(), 2);
+        assert_eq!(curved[0].kind, CourseArrowSpriteKind::Curved);
+        assert_eq!(curved[0].rotation_degrees, -90.0);
+        assert_eq!(curved[1].kind, CourseArrowSpriteKind::Tip);
+        assert_eq!(curved[1].rotation_degrees, 180.0);
+    }
+
+    #[test]
+    fn course_arrow_generation_skips_hidden_tiles() {
+        let spawns = build_course_arrow_spawns(&[
+            ReplayPathTile {
+                position: Position::new(1, 1),
+                unit_visible: true,
+            },
+            ReplayPathTile {
+                position: Position::new(2, 1),
+                unit_visible: false,
+            },
+            ReplayPathTile {
+                position: Position::new(3, 1),
+                unit_visible: true,
+            },
+        ]);
+
+        assert_eq!(spawns.len(), 1);
+        assert_eq!(spawns[0].kind, CourseArrowSpriteKind::Tip);
+        assert_eq!(spawns[0].position, Position::new(3, 1));
+    }
+
+    #[test]
+    fn hidden_tail_promotes_last_visible_middle_tile_to_tip() {
+        let spawns = build_course_arrow_spawns(&[
+            ReplayPathTile {
+                position: Position::new(1, 1),
+                unit_visible: true,
+            },
+            ReplayPathTile {
+                position: Position::new(2, 1),
+                unit_visible: true,
+            },
+            ReplayPathTile {
+                position: Position::new(3, 1),
+                unit_visible: false,
+            },
+        ]);
+
+        assert_eq!(spawns.len(), 1);
+        assert_eq!(spawns[0].kind, CourseArrowSpriteKind::Tip);
+        assert_eq!(spawns[0].position, Position::new(2, 1));
+        assert_eq!(spawns[0].start_delay, scaled_animation_duration(0));
+        assert_eq!(spawns[0].rotation_degrees, 90.0);
+    }
+
+    #[test]
+    fn s_curve_generates_complementary_curve_rotations() {
+        let spawns = build_course_arrow_spawns(&[
+            ReplayPathTile {
+                position: Position::new(0, 0),
+                unit_visible: true,
+            },
+            ReplayPathTile {
+                position: Position::new(1, 0),
+                unit_visible: true,
+            },
+            ReplayPathTile {
+                position: Position::new(1, 1),
+                unit_visible: true,
+            },
+            ReplayPathTile {
+                position: Position::new(2, 1),
+                unit_visible: true,
+            },
+        ]);
+
+        assert_eq!(spawns.len(), 3);
+        assert_eq!(spawns[0].kind, CourseArrowSpriteKind::Curved);
+        assert_eq!(spawns[0].rotation_degrees, 90.0);
+        assert_eq!(spawns[1].kind, CourseArrowSpriteKind::Curved);
+        assert_eq!(spawns[1].rotation_degrees, -90.0);
+        assert_eq!(spawns[2].kind, CourseArrowSpriteKind::Tip);
+        assert_eq!(spawns[2].rotation_degrees, 90.0);
+    }
+
+    #[test]
+    fn leftward_tip_points_left() {
+        let spawns = build_course_arrow_spawns(&[
+            ReplayPathTile {
+                position: Position::new(3, 1),
+                unit_visible: true,
+            },
+            ReplayPathTile {
+                position: Position::new(2, 1),
+                unit_visible: true,
+            },
+        ]);
+
+        assert_eq!(spawns.len(), 1);
+        assert_eq!(spawns[0].kind, CourseArrowSpriteKind::Tip);
+        assert_eq!(spawns[0].rotation_degrees, -90.0);
+    }
+
+    #[test]
     fn animated_move_visits_intermediate_tiles_and_releases_lock() {
         let mut app = replay_animation_test_app();
         let unit_entity = spawn_test_unit(
@@ -2272,7 +2657,7 @@ mod tests {
 
         app.world_mut()
             .resource_mut::<Time<()>>()
-            .advance_by(Duration::from_millis(100));
+            .advance_by(Duration::from_millis(650));
         app.update();
 
         let expected_final = position_to_world_translation(
@@ -2310,6 +2695,66 @@ mod tests {
     }
 
     #[test]
+    fn move_action_spawns_and_expires_course_arrows_in_world_space() {
+        let mut app = replay_animation_test_app();
+        let unit_entity = spawn_test_unit(
+            &mut app,
+            Position::new(8, 33),
+            CoreUnitId::new(173623341),
+            PlayerFaction::GreenEarth,
+        );
+        app.update();
+
+        ReplayTurnCommand {
+            action: test_move_action(),
+        }
+        .apply(app.world_mut());
+        app.update();
+
+        let arrows = course_arrows(&mut app);
+        assert_eq!(arrows.len(), 2);
+
+        let curved = arrows
+            .iter()
+            .find(|(piece, _, _)| piece.kind == CourseArrowSpriteKind::Curved)
+            .expect("curve tile should spawn");
+        assert!(matches!(curved.1, Visibility::Visible));
+        assert!((curved.2.scale.x - COURSE_ARROW_BASE_SCALE).abs() < 0.001);
+
+        let tip = arrows
+            .iter()
+            .find(|(piece, _, _)| piece.kind == CourseArrowSpriteKind::Tip)
+            .expect("tip tile should spawn");
+        assert!(matches!(tip.1, Visibility::Hidden));
+
+        let unit_z = app
+            .world()
+            .entity(unit_entity)
+            .get::<Transform>()
+            .unwrap()
+            .translation
+            .z;
+        assert!(curved.2.translation.z > 0.0);
+        assert!(curved.2.translation.z < unit_z);
+
+        app.world_mut()
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_millis(25));
+        app.update();
+
+        for (_, visibility, _) in course_arrows(&mut app) {
+            assert!(matches!(visibility, Visibility::Visible));
+        }
+
+        app.world_mut()
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_millis(300));
+        app.update();
+
+        assert!(course_arrows(&mut app).is_empty());
+    }
+
+    #[test]
     fn capture_followup_waits_for_move_completion() {
         let mut app = replay_animation_test_app();
         let unit_entity = spawn_test_unit(
@@ -2330,7 +2775,7 @@ mod tests {
 
         app.world_mut()
             .resource_mut::<Time<()>>()
-            .advance_by(Duration::from_millis(150));
+            .advance_by(Duration::from_millis(400));
         app.update();
 
         assert!(app.world().entity(unit_entity).contains::<Capturing>());
@@ -2363,7 +2808,7 @@ mod tests {
 
         app.world_mut()
             .resource_mut::<Time<()>>()
-            .advance_by(Duration::from_millis(150));
+            .advance_by(Duration::from_millis(400));
         app.update();
 
         assert_eq!(
@@ -2402,7 +2847,7 @@ mod tests {
 
         app.world_mut()
             .resource_mut::<Time<()>>()
-            .advance_by(Duration::from_millis(75));
+            .advance_by(Duration::from_millis(200));
         app.update();
 
         let moving_sprite = app.world().entity(unit_entity).get::<Sprite>().unwrap();
@@ -2410,7 +2855,7 @@ mod tests {
 
         app.world_mut()
             .resource_mut::<Time<()>>()
-            .advance_by(Duration::from_millis(75));
+            .advance_by(Duration::from_millis(200));
         app.update();
 
         let final_sprite = app.world().entity(unit_entity).get::<Sprite>().unwrap();
@@ -2469,12 +2914,19 @@ mod tests {
         app.insert_resource(Time::<()>::default());
         app.init_resource::<GameMap>();
         app.init_resource::<StrongIdMap<AwbwUnitId>>();
+        app.init_resource::<Assets<UiAtlasAsset>>();
+        app.init_resource::<Assets<TextureAtlasLayout>>();
         app.insert_resource(ReplayAdvanceLock::default());
         app.add_observer(on_map_position_insert);
         app.add_observer(on_unit_active_remove);
         app.add_systems(
             Update,
-            (animate_unit_paths, update_transform_on_position_change),
+            (
+                spawn_pending_course_arrows.before(animate_course_arrows),
+                animate_course_arrows,
+                animate_unit_paths,
+                update_transform_on_position_change,
+            ),
         );
 
         app.world_mut().resource_mut::<GameMap>().set(AwbrnMap::new(
@@ -2482,8 +2934,70 @@ mod tests {
             40,
             GraphicalTerrain::Plain,
         ));
+        insert_test_ui_atlas(&mut app);
 
         app
+    }
+
+    fn insert_test_ui_atlas(app: &mut App) {
+        let atlas_handle = {
+            let mut assets = app.world_mut().resource_mut::<Assets<UiAtlasAsset>>();
+            assets.add(UiAtlasAsset {
+                size: crate::UiAtlasSize {
+                    width: 48,
+                    height: 16,
+                },
+                sprites: vec![
+                    crate::UiAtlasSprite {
+                        name: "Arrow_Body.png".to_string(),
+                        x: 0,
+                        y: 0,
+                        width: 16,
+                        height: 16,
+                    },
+                    crate::UiAtlasSprite {
+                        name: "Arrow_Curved.png".to_string(),
+                        x: 16,
+                        y: 0,
+                        width: 16,
+                        height: 16,
+                    },
+                    crate::UiAtlasSprite {
+                        name: "Arrow_Tip.png".to_string(),
+                        x: 32,
+                        y: 0,
+                        width: 16,
+                        height: 16,
+                    },
+                ],
+            })
+        };
+        let layout_handle = {
+            let mut layouts = app.world_mut().resource_mut::<Assets<TextureAtlasLayout>>();
+            layouts.add(TextureAtlasLayout::from_grid(
+                UVec2::new(16, 16),
+                3,
+                1,
+                None,
+                None,
+            ))
+        };
+
+        app.world_mut().insert_resource(UiAtlasResource {
+            handle: atlas_handle,
+            texture: Handle::default(),
+            layout: layout_handle,
+        });
+    }
+
+    fn course_arrows(app: &mut App) -> Vec<(CourseArrowPiece, Visibility, Transform)> {
+        let mut query = app
+            .world_mut()
+            .query::<(&CourseArrowPiece, &Visibility, &Transform)>();
+        query
+            .iter(app.world())
+            .map(|(piece, visibility, transform)| (*piece, *visibility, *transform))
+            .collect()
     }
 
     fn spawn_test_unit(
