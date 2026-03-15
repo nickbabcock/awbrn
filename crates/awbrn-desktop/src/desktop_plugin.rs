@@ -38,6 +38,9 @@ impl EventBus<GameEvent> for DesktopEventBus {
                     select_event.x, select_event.y, select_event.terrain_type
                 );
             }
+            GameEvent::MapDimensions(dims) => {
+                info!("Map dimensions: {}x{}", dims.width, dims.height);
+            }
         }
     }
 }
