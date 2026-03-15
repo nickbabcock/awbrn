@@ -54,3 +54,11 @@ fn test_country_codes_are_unique() {
         );
     }
 }
+
+#[test]
+fn test_default_facing_direction_matches_reference_data() {
+    assert!(PlayerFaction::OrangeStar.faces_right());
+    assert!(!PlayerFaction::BlueMoon.faces_right());
+    assert!(PlayerFaction::GreenEarth.faces_right());
+    assert!(!PlayerFaction::YellowComet.faces_right());
+}

@@ -191,6 +191,34 @@ impl PlayerFaction {
     pub const fn index(&self) -> u8 {
         *self as u8
     }
+
+    /// Returns whether this faction's default unit facing direction is right.
+    ///
+    /// Ref: `AWBW-Replay-Player/AWBWApp.Resources/Json/Countries.json`
+    pub const fn faces_right(&self) -> bool {
+        match self {
+            PlayerFaction::AcidRain => false,
+            PlayerFaction::AmberBlaze => false,
+            PlayerFaction::AzureAsteroid => true,
+            PlayerFaction::BlackHole => false,
+            PlayerFaction::BlueMoon => false,
+            PlayerFaction::BrownDesert => true,
+            PlayerFaction::CobaltIce => true,
+            PlayerFaction::GreenEarth => true,
+            PlayerFaction::GreySky => true,
+            PlayerFaction::JadeSun => true,
+            PlayerFaction::NoirEclipse => false,
+            PlayerFaction::OrangeStar => true,
+            PlayerFaction::PinkCosmos => false,
+            PlayerFaction::PurpleLightning => true,
+            PlayerFaction::RedFire => false,
+            PlayerFaction::SilverClaw => false,
+            PlayerFaction::TealGalaxy => false,
+            PlayerFaction::UmberWilds => true,
+            PlayerFaction::WhiteNova => true,
+            PlayerFaction::YellowComet => false,
+        }
+    }
 }
 
 /// Army factions in the game

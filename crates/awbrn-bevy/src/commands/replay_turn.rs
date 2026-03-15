@@ -4,13 +4,15 @@
 //! immediate mutations that are visible to subsequent queries within the same
 //! command execution.
 
-use awbrn_core::{GraphicalTerrain, PlayerFaction, Property};
+use awbrn_core::{GraphicalMovement, GraphicalTerrain, PlayerFaction, Property};
 use awbrn_map::Position;
 use awbw_replay::turn_models::{
-    Action, CaptureAction, CombatUnit, FireAction, LoadAction, MoveAction, UnitMap, UpdatedInfo,
+    Action, CaptureAction, CombatUnit, FireAction, LoadAction, MoveAction, TargetedPlayer, UnitMap,
+    UpdatedInfo,
 };
 use bevy::log;
 use bevy::prelude::*;
+use std::time::Duration;
 
 use crate::{
     AwbwUnitId, Capturing, CurrentWeather, Faction, GraphicalHp, HasCargo, LoadedReplay,
@@ -30,6 +32,75 @@ impl Default for ReplayState {
     }
 }
 
+pub const UNIT_PATH_ANIMATION_TOTAL_MS: u64 = 150;
+
+#[derive(Resource, Debug, Default)]
+pub struct ReplayAdvanceLock {
+    active_entity: Option<Entity>,
+    deferred_action: Option<Action>,
+}
+
+impl ReplayAdvanceLock {
+    pub fn is_active(&self) -> bool {
+        self.active_entity.is_some()
+    }
+
+    pub fn activate(&mut self, entity: Entity, deferred_action: Option<Action>) {
+        self.active_entity = Some(entity);
+        self.deferred_action = deferred_action;
+    }
+
+    pub fn active_entity(&self) -> Option<Entity> {
+        self.active_entity
+    }
+
+    pub fn release_for(&mut self, entity: Entity) -> Option<Action> {
+        if self.active_entity != Some(entity) {
+            return None;
+        }
+
+        self.active_entity = None;
+        self.deferred_action.take()
+    }
+}
+
+#[derive(Component, Debug, Clone)]
+pub struct UnitPathAnimation {
+    pub path: Vec<Position>,
+    pub total_duration: Duration,
+    pub elapsed: Duration,
+    pub current_segment: usize,
+    pub current_movement: GraphicalMovement,
+    pub idle_flip_x: bool,
+}
+
+impl UnitPathAnimation {
+    pub fn new(path: Vec<Position>, total_duration: Duration, idle_flip_x: bool) -> Option<Self> {
+        if path.len() < 2 {
+            return None;
+        }
+
+        Some(Self {
+            current_movement: movement_direction(path[0], path[1]),
+            path,
+            total_duration,
+            elapsed: Duration::ZERO,
+            current_segment: 0,
+            idle_flip_x,
+        })
+    }
+}
+
+pub struct ReplayFollowupCommand {
+    pub action: Action,
+}
+
+impl Command for ReplayFollowupCommand {
+    fn apply(self, world: &mut World) {
+        ReplayTurnCommand::apply_non_move_action(&self.action, world);
+    }
+}
+
 /// A custom Command for processing replay turn actions.
 ///
 /// This command gets `&mut World` access, allowing immediate mutations that
@@ -43,12 +114,105 @@ pub struct ReplayTurnCommand {
 impl Command for ReplayTurnCommand {
     fn apply(self, world: &mut World) {
         // Apply movement first (many actions have move_action)
-        if let Some(mov) = self.action.move_action() {
-            Self::apply_move(mov, world);
+        if let Some(mov) = self.action.move_action()
+            && Self::apply_move(mov, &self.action, world)
+        {
+            return;
         }
 
-        // Dispatch to action-specific handler
-        match &self.action {
+        Self::apply_non_move_action(&self.action, world);
+    }
+}
+
+impl ReplayTurnCommand {
+    /// Processes unit movement from a MoveAction.
+    fn apply_move(move_action: &MoveAction, action: &Action, world: &mut World) -> bool {
+        let Some(unit_data) = move_action.unit.get(&TargetedPlayer::Global) else {
+            log::warn!("Move action missing global targeted player unit data");
+            return false;
+        };
+
+        let Some(unit) = unit_data.get_value() else {
+            log::warn!("Move action global unit data is hidden");
+            return false;
+        };
+
+        let Some(x) = unit.units_x else {
+            return false;
+        };
+        let Some(y) = unit.units_y else {
+            return false;
+        };
+
+        let entity = {
+            let units = world.resource::<StrongIdMap<AwbwUnitId>>();
+            units.get(&AwbwUnitId(unit.units_id))
+        };
+
+        let Some(entity) = entity else {
+            log::warn!(
+                "Unit with ID {} not found in unit storage",
+                unit.units_id.as_u32()
+            );
+            return false;
+        };
+
+        let new_position = MapPosition::new(x as usize, y as usize);
+        let position_changed = world
+            .entity(entity)
+            .get::<MapPosition>()
+            .map(|position| *position != new_position)
+            .unwrap_or(true);
+        let idle_flip_x = world
+            .entity(entity)
+            .get::<Sprite>()
+            .map(|sprite| sprite.flip_x)
+            .unwrap_or(false);
+        let animated_path = global_path_positions(move_action).and_then(|path| {
+            UnitPathAnimation::new(
+                path,
+                Duration::from_millis(UNIT_PATH_ANIMATION_TOTAL_MS),
+                idle_flip_x,
+            )
+        });
+
+        let mut entity_mut = world.entity_mut(entity);
+        if position_changed {
+            entity_mut.remove::<Capturing>();
+        }
+
+        if let Some(path_animation) = animated_path {
+            entity_mut.insert((path_animation, new_position));
+            entity_mut.remove::<UnitActive>();
+
+            let deferred_action = match action {
+                Action::Move(_) => None,
+                _ => Some(action.clone()),
+            };
+
+            world
+                .resource_mut::<ReplayAdvanceLock>()
+                .activate(entity, deferred_action);
+
+            log::info!(
+                "Started path animation for unit {} across {} tiles",
+                unit.units_id.as_u32(),
+                move_action
+                    .paths
+                    .get(&TargetedPlayer::Global)
+                    .map_or(0, Vec::len)
+            );
+            return true;
+        }
+
+        entity_mut.insert(new_position);
+        entity_mut.remove::<UnitActive>();
+
+        false
+    }
+
+    pub(crate) fn apply_non_move_action(action: &Action, world: &mut World) {
+        match action {
             Action::Build { new_unit, .. } => Self::apply_build(new_unit, world),
             Action::Capt { capture_action, .. } => Self::apply_capture(capture_action, world),
             Action::Load { load_action, .. } => Self::apply_load(load_action, world),
@@ -56,60 +220,9 @@ impl Command for ReplayTurnCommand {
                 unit, transport_id, ..
             } => Self::apply_unload(unit, *transport_id, world),
             Action::End { updated_info } => Self::apply_end(updated_info, world),
-            Action::Fire {
-                move_action: _move_action,
-                fire_action,
-            } => Self::apply_fire(fire_action, world),
-            Action::Move(_) => {} // Already handled via move_action()
-            _ => log::warn!("Unhandled action: {:?}", self.action),
-        }
-    }
-}
-
-impl ReplayTurnCommand {
-    /// Processes unit movement from a MoveAction.
-    fn apply_move(move_action: &MoveAction, world: &mut World) {
-        for (_player, unit_data) in move_action.unit.iter() {
-            let Some(unit) = unit_data.get_value() else {
-                continue;
-            };
-
-            let Some(x) = unit.units_x else { continue };
-            let Some(y) = unit.units_y else { continue };
-
-            // Get entity from resource (borrow ends after this block)
-            let entity = {
-                let units = world.resource::<StrongIdMap<AwbwUnitId>>();
-                units.get(&AwbwUnitId(unit.units_id))
-            };
-
-            let Some(entity) = entity else {
-                log::warn!(
-                    "Unit with ID {} not found in unit storage",
-                    unit.units_id.as_u32()
-                );
-                continue;
-            };
-
-            let destination = Position::new(x as usize, y as usize);
-            let position_changed = world
-                .entity(entity)
-                .get::<MapPosition>()
-                .map(|position| position.position() != destination)
-                .unwrap_or(true);
-
-            let mut entity_mut = world.entity_mut(entity);
-
-            // Leaving the property cancels any in-progress capture.
-            if position_changed {
-                entity_mut.remove::<Capturing>();
-            }
-
-            // Immediate mutation - visible to subsequent queries!
-            entity_mut.insert(MapPosition::from(destination));
-
-            // Mark unit as inactive (has acted this turn)
-            entity_mut.remove::<UnitActive>();
+            Action::Fire { fire_action, .. } => Self::apply_fire(fire_action, world),
+            Action::Move(_) => {}
+            _ => log::warn!("Unhandled action: {:?}", action),
         }
     }
 
@@ -489,6 +602,32 @@ impl ReplayTurnCommand {
     }
 }
 
+pub fn action_requires_path_animation(action: &Action) -> bool {
+    action
+        .move_action()
+        .and_then(global_path_positions)
+        .is_some_and(|path| path.len() >= 2)
+}
+
+pub fn movement_direction(from: Position, to: Position) -> GraphicalMovement {
+    if from.y > to.y {
+        GraphicalMovement::Up
+    } else if from.y < to.y {
+        GraphicalMovement::Down
+    } else {
+        GraphicalMovement::Lateral
+    }
+}
+
+fn global_path_positions(move_action: &MoveAction) -> Option<Vec<Position>> {
+    // TODO: replace Global-only path extraction with fog-aware targeted player selection.
+    move_action.paths.get(&TargetedPlayer::Global).map(|path| {
+        path.iter()
+            .map(|tile| Position::new(tile.x as usize, tile.y as usize))
+            .collect()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -535,7 +674,7 @@ mod tests {
     }
 
     #[test]
-    fn capture_action_reapplies_capturing_after_move() {
+    fn capture_action_reapplies_capturing_after_move_completion() {
         let mut app = replay_turn_test_app();
         let unit_entity = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
         app.world_mut().entity_mut(unit_entity).insert(Capturing);
@@ -553,12 +692,25 @@ mod tests {
                 .position(),
             Position::new(3, 2)
         );
+        assert!(!app.world().entity(unit_entity).contains::<Capturing>());
+
+        let deferred_action = app
+            .world_mut()
+            .resource_mut::<ReplayAdvanceLock>()
+            .release_for(unit_entity)
+            .expect("capture action should be deferred while the move animates");
+        ReplayFollowupCommand {
+            action: deferred_action,
+        }
+        .apply(app.world_mut());
+
         assert!(app.world().entity(unit_entity).contains::<Capturing>());
     }
 
     fn replay_turn_test_app() -> App {
         let mut app = App::new();
         app.insert_resource(StrongIdMap::<AwbwUnitId>::default());
+        app.insert_resource(ReplayAdvanceLock::default());
         app
     }
 
