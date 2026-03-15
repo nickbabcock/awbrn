@@ -1269,6 +1269,35 @@ fn spawn_tile_cursor(mut commands: Commands, ui_atlas: UiAtlas) {
     ));
 }
 
+const TILE_CORE_SPRITE_SIZE: SpriteSize = SpriteSize {
+    width: GridSystem::TILE_SIZE,
+    height: GridSystem::TILE_SIZE,
+    z_index: 10,
+};
+
+fn world_to_map_position(world_pos: Vec2, game_map: &GameMap) -> Option<MapPosition> {
+    let map_w = game_map.width() as f32;
+    let map_h = game_map.height() as f32;
+    let tile = GridSystem::TILE_SIZE;
+
+    // The gameplay tile core is a 16x16 rect aligned to the bottom half of the
+    // 16x32 terrain sprite. Use the core rect's top-left corner as the inverse origin.
+    let origin_x = -map_w * tile / 2.0;
+    let origin_y = map_h * tile / 2.0 - tile / 2.0;
+
+    let gx_f = (world_pos.x - origin_x) / tile;
+    let gy_f = (origin_y - world_pos.y) / tile;
+
+    if gx_f < 0.0 || gy_f < 0.0 || gx_f >= map_w || gy_f >= map_h {
+        return None;
+    }
+
+    Some(MapPosition::new(
+        gx_f.floor() as usize,
+        gy_f.floor() as usize,
+    ))
+}
+
 fn update_tile_cursor(
     windows: Query<&Window>,
     camera_q: Query<(&Camera, &GlobalTransform)>,
@@ -1291,34 +1320,20 @@ fn update_tile_cursor(
         *visibility = Visibility::Hidden;
         return;
     };
-    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else {
+    let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) else {
         *visibility = Visibility::Hidden;
         return;
     };
-    let world_pos = ray.origin.truncate();
-
-    let map_w = game_map.width() as f32;
-    let map_h = game_map.height() as f32;
-    let tile = GridSystem::TILE_SIZE;
-
-    // Tile sprites are Bevy-centered at (-W*8 + gx*16, H*8 - gy*16).
-    // Add tile/2 so floor() snaps to the nearest tile center rather than corner.
-    let gx_f = (world_pos.x + map_w * tile / 2.0 + tile / 2.0) / tile;
-    let gy_f = (map_h * tile / 2.0 + tile / 2.0 - world_pos.y) / tile;
-
-    if gx_f < 0.0 || gy_f < 0.0 || gx_f >= map_w || gy_f >= map_h {
+    let Some(map_position) = world_to_map_position(world_pos, game_map.as_ref()) else {
         *visibility = Visibility::Hidden;
         return;
-    }
+    };
+    let center =
+        map_position_to_world_translation(&TILE_CORE_SPRITE_SIZE, map_position, game_map.as_ref());
 
-    let gx = gx_f.floor() as usize;
-    let gy = gy_f.floor() as usize;
-
-    let center_x = -map_w * tile / 2.0 + gx as f32 * tile;
-    let center_y = map_h * tile / 2.0 - gy as f32 * tile;
-
-    transform.translation.x = center_x;
-    transform.translation.y = center_y;
+    transform.translation.x = center.x;
+    transform.translation.y = center.y;
+    transform.translation.z = TILE_CORE_SPRITE_SIZE.z_index as f32;
     *visibility = Visibility::Visible;
 }
 
@@ -2061,6 +2076,52 @@ mod tests {
         assert_ne!(
             unit_transform.translation, updated_unit_transform.translation,
             "Unit transform should change when MapPosition is updated"
+        );
+    }
+
+    #[test]
+    fn test_tile_cursor_math_matches_tile_centers() {
+        let mut game_map = GameMap::default();
+        game_map.set(AwbrnMap::new(3, 2, awbrn_core::GraphicalTerrain::Plain));
+
+        for pos in [
+            MapPosition::new(0, 0),
+            MapPosition::new(1, 0),
+            MapPosition::new(0, 1),
+            MapPosition::new(2, 1),
+        ] {
+            let world_pos =
+                map_position_to_world_translation(&TILE_CORE_SPRITE_SIZE, pos, &game_map)
+                    .truncate();
+
+            assert_eq!(world_to_map_position(world_pos, &game_map), Some(pos));
+            assert_eq!(
+                world_to_map_position(world_pos + Vec2::new(-3.0, 3.0), &game_map),
+                Some(pos)
+            );
+            assert_eq!(
+                world_to_map_position(world_pos + Vec2::new(3.0, -3.0), &game_map),
+                Some(pos)
+            );
+        }
+
+        assert!(
+            map_position_to_world_translation(
+                &TILE_CORE_SPRITE_SIZE,
+                MapPosition::new(0, 0),
+                &game_map,
+            )
+            .truncate()
+            .abs_diff_eq(Vec2::new(-16.0, 0.0), 0.001)
+        );
+        assert!(
+            map_position_to_world_translation(
+                &TILE_CORE_SPRITE_SIZE,
+                MapPosition::new(2, 1),
+                &game_map,
+            )
+            .truncate()
+            .abs_diff_eq(Vec2::new(16.0, -16.0), 0.001)
         );
     }
 
