@@ -292,6 +292,8 @@ impl ReplayTurnCommand {
             return;
         };
 
+        world.entity_mut(entity).remove::<UnitActive>();
+
         if capture_action.building_info.buildings_capture >= 20 {
             // Capture complete - remove Capturing component and flip building
             world.entity_mut(entity).remove::<Capturing>();
@@ -707,9 +709,39 @@ mod tests {
         assert!(app.world().entity(unit_entity).contains::<Capturing>());
     }
 
+    #[test]
+    fn stationary_capture_marks_unit_inactive() {
+        let mut app = replay_turn_test_app();
+        let unit_entity = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
+
+        ReplayTurnCommand {
+            action: test_stationary_capture_action(Position::new(2, 2), 10),
+        }
+        .apply(app.world_mut());
+
+        assert!(app.world().entity(unit_entity).contains::<Capturing>());
+        assert!(!app.world().entity(unit_entity).contains::<UnitActive>());
+    }
+
+    #[test]
+    fn stationary_capture_completion_marks_unit_inactive() {
+        let mut app = replay_turn_test_app();
+        let unit_entity = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
+        app.world_mut().entity_mut(unit_entity).insert(Capturing);
+
+        ReplayTurnCommand {
+            action: test_stationary_capture_action(Position::new(2, 2), 20),
+        }
+        .apply(app.world_mut());
+
+        assert!(!app.world().entity(unit_entity).contains::<Capturing>());
+        assert!(!app.world().entity(unit_entity).contains::<UnitActive>());
+    }
+
     fn replay_turn_test_app() -> App {
         let mut app = App::new();
         app.insert_resource(StrongIdMap::<AwbwUnitId>::default());
+        app.insert_resource(CurrentWeather::default());
         app.insert_resource(ReplayAdvanceLock::default());
         app
     }
@@ -798,6 +830,23 @@ mod tests {
             capture_action: CaptureAction {
                 building_info: BuildingInfo {
                     buildings_capture: 10,
+                    buildings_id: 99,
+                    buildings_x: building_position.x as u32,
+                    buildings_y: building_position.y as u32,
+                    buildings_team: None,
+                },
+                vision: Default::default(),
+                income: None,
+            },
+        }
+    }
+
+    fn test_stationary_capture_action(building_position: Position, capture_amount: i32) -> Action {
+        Action::Capt {
+            move_action: None,
+            capture_action: CaptureAction {
+                building_info: BuildingInfo {
+                    buildings_capture: capture_amount,
                     buildings_id: 99,
                     buildings_x: building_position.x as u32,
                     buildings_y: building_position.y as u32,
