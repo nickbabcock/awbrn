@@ -91,12 +91,25 @@ impl ReplayTurnCommand {
                 continue;
             };
 
+            let destination = Position::new(x as usize, y as usize);
+            let position_changed = world
+                .entity(entity)
+                .get::<MapPosition>()
+                .map(|position| position.position() != destination)
+                .unwrap_or(true);
+
+            let mut entity_mut = world.entity_mut(entity);
+
+            // Leaving the property cancels any in-progress capture.
+            if position_changed {
+                entity_mut.remove::<Capturing>();
+            }
+
             // Immediate mutation - visible to subsequent queries!
-            let new_position = MapPosition::new(x as usize, y as usize);
-            world.entity_mut(entity).insert(new_position);
+            entity_mut.insert(MapPosition::from(destination));
 
             // Mark unit as inactive (has acted this turn)
-            world.entity_mut(entity).remove::<UnitActive>();
+            entity_mut.remove::<UnitActive>();
         }
     }
 
@@ -473,5 +486,209 @@ impl ReplayTurnCommand {
         if !unit_entities.is_empty() {
             log::info!("Activated {} units for new turn", unit_entities.len());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use awbrn_core::{AwbwUnitId as CoreUnitId, PlayerFaction};
+    use awbw_replay::turn_models::{
+        Action, BuildingInfo, CaptureAction, MoveAction, PathTile, TargetedPlayer, UnitProperty,
+    };
+    use awbw_replay::{Hidden, Masked};
+
+    #[test]
+    fn moving_to_a_new_tile_clears_capturing() {
+        let mut app = replay_turn_test_app();
+        let unit_entity = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
+        app.world_mut().entity_mut(unit_entity).insert(Capturing);
+
+        ReplayTurnCommand {
+            action: test_move_action(CoreUnitId::new(1), 3, 2, &[(2, 2), (3, 2)], 1),
+        }
+        .apply(app.world_mut());
+
+        assert_eq!(
+            app.world()
+                .entity(unit_entity)
+                .get::<MapPosition>()
+                .unwrap()
+                .position(),
+            Position::new(3, 2)
+        );
+        assert!(!app.world().entity(unit_entity).contains::<Capturing>());
+    }
+
+    #[test]
+    fn stationary_move_preserves_capturing() {
+        let mut app = replay_turn_test_app();
+        let unit_entity = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
+        app.world_mut().entity_mut(unit_entity).insert(Capturing);
+
+        ReplayTurnCommand {
+            action: test_move_action(CoreUnitId::new(1), 2, 2, &[(2, 2)], 0),
+        }
+        .apply(app.world_mut());
+
+        assert!(app.world().entity(unit_entity).contains::<Capturing>());
+    }
+
+    #[test]
+    fn capture_action_reapplies_capturing_after_move() {
+        let mut app = replay_turn_test_app();
+        let unit_entity = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
+        app.world_mut().entity_mut(unit_entity).insert(Capturing);
+
+        ReplayTurnCommand {
+            action: test_capture_action(CoreUnitId::new(1), Position::new(3, 2)),
+        }
+        .apply(app.world_mut());
+
+        assert_eq!(
+            app.world()
+                .entity(unit_entity)
+                .get::<MapPosition>()
+                .unwrap()
+                .position(),
+            Position::new(3, 2)
+        );
+        assert!(app.world().entity(unit_entity).contains::<Capturing>());
+    }
+
+    fn replay_turn_test_app() -> App {
+        let mut app = App::new();
+        app.insert_resource(StrongIdMap::<AwbwUnitId>::default());
+        app
+    }
+
+    fn spawn_test_unit(app: &mut App, position: Position, unit_id: CoreUnitId) -> Entity {
+        let entity = app
+            .world_mut()
+            .spawn((
+                MapPosition::from(position),
+                Unit(awbrn_core::Unit::Infantry),
+                Faction(PlayerFaction::OrangeStar),
+                AwbwUnitId(unit_id),
+                UnitActive,
+            ))
+            .id();
+
+        app.world_mut()
+            .resource_mut::<StrongIdMap<AwbwUnitId>>()
+            .insert(AwbwUnitId(unit_id), entity);
+
+        entity
+    }
+
+    fn test_move_action(
+        unit_id: CoreUnitId,
+        final_x: u32,
+        final_y: u32,
+        path: &[(u32, u32)],
+        dist: u32,
+    ) -> Action {
+        Action::Move(MoveAction {
+            unit: [(
+                TargetedPlayer::Global,
+                Hidden::Visible(test_unit_property(unit_id, final_x, final_y)),
+            )]
+            .into(),
+            paths: [(
+                TargetedPlayer::Global,
+                path.iter()
+                    .map(|&(x, y)| PathTile {
+                        unit_visible: true,
+                        x,
+                        y,
+                    })
+                    .collect::<Vec<_>>(),
+            )]
+            .into(),
+            dist,
+            trapped: false,
+            discovered: None,
+        })
+    }
+
+    fn test_capture_action(unit_id: CoreUnitId, building_position: Position) -> Action {
+        Action::Capt {
+            move_action: Some(MoveAction {
+                unit: [(
+                    TargetedPlayer::Global,
+                    Hidden::Visible(test_unit_property(
+                        unit_id,
+                        building_position.x as u32,
+                        building_position.y as u32,
+                    )),
+                )]
+                .into(),
+                paths: [(
+                    TargetedPlayer::Global,
+                    vec![
+                        PathTile {
+                            unit_visible: true,
+                            x: 2,
+                            y: 2,
+                        },
+                        PathTile {
+                            unit_visible: true,
+                            x: building_position.x as u32,
+                            y: building_position.y as u32,
+                        },
+                    ],
+                )]
+                .into(),
+                dist: 1,
+                trapped: false,
+                discovered: None,
+            }),
+            capture_action: CaptureAction {
+                building_info: BuildingInfo {
+                    buildings_capture: 10,
+                    buildings_id: 99,
+                    buildings_x: building_position.x as u32,
+                    buildings_y: building_position.y as u32,
+                    buildings_team: None,
+                },
+                vision: Default::default(),
+                income: None,
+            },
+        }
+    }
+
+    fn test_unit_property(unit_id: CoreUnitId, x: u32, y: u32) -> UnitProperty {
+        UnitProperty {
+            units_id: unit_id,
+            units_games_id: Some(1403019),
+            units_players_id: 1,
+            units_name: awbrn_core::Unit::Infantry,
+            units_movement_points: Some(3),
+            units_vision: Some(2),
+            units_fuel: Some(99),
+            units_fuel_per_turn: Some(0),
+            units_sub_dive: "N".to_string(),
+            units_ammo: Some(0),
+            units_short_range: Some(0),
+            units_long_range: Some(0),
+            units_second_weapon: Some("N".to_string()),
+            units_symbol: Some("G".to_string()),
+            units_cost: Some(1000),
+            units_movement_type: "F".to_string(),
+            units_x: Some(x),
+            units_y: Some(y),
+            units_moved: Some(1),
+            units_capture: Some(0),
+            units_fired: Some(0),
+            units_hit_points: test_hp(10),
+            units_cargo1_units_id: Masked::Masked,
+            units_cargo2_units_id: Masked::Masked,
+            units_carried: Some("N".to_string()),
+            countries_code: PlayerFaction::OrangeStar,
+        }
+    }
+
+    fn test_hp(value: u8) -> awbw_replay::turn_models::AwbwHpDisplay {
+        serde_json::from_value(serde_json::json!(value)).unwrap()
     }
 }
