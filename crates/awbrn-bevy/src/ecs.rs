@@ -125,6 +125,10 @@ pub struct TerrainTile {
 #[derive(Component)]
 pub struct SelectedTile;
 
+/// Marker component for the tile hover cursor sprite entity.
+#[derive(Component)]
+pub struct TileCursor;
+
 /// Component to mark an entity as capturing a building
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Capturing;

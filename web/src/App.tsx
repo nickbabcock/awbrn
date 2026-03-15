@@ -139,6 +139,16 @@ function App() {
       };
 
       document.addEventListener("visibilitychange", handleVisibilityChange);
+
+      canvas.addEventListener("mousemove", (event) => {
+        const scaledX = event.offsetX * window.devicePixelRatio;
+        const scaledY = event.offsetY * window.devicePixelRatio;
+        game.handleMouseMove(scaledX, scaledY);
+      });
+
+      canvas.addEventListener("mouseleave", () => {
+        game.handleMouseLeave();
+      });
     };
 
     setupGame();

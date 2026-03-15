@@ -32,8 +32,8 @@ use crate::replay_turn::{ReplayState, ReplayTurnCommand};
 use crate::{
     AwbwUnitId, CameraScale, Capturing, CapturingIndicator, CargoIndicator, CurrentWeather,
     Faction, GameMap, GraphicalHp, GridSystem, HasCargo, HealthIndicator, JsonAssetPlugin,
-    MapBackdrop, SelectedTile, SpriteSize, StrongIdMap, TerrainTile, UiAtlasAsset, UiAtlasResource,
-    Unit, UnitActive, UnitAtlasResource,
+    MapBackdrop, SelectedTile, SpriteSize, StrongIdMap, TerrainTile, TileCursor, UiAtlasAsset,
+    UiAtlasResource, Unit, UnitActive, UnitAtlasResource,
 };
 use awbrn_core::{GraphicalTerrain, Weather, get_unit_animation_frames};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
@@ -639,6 +639,7 @@ impl Plugin for AwbrnPlugin {
                     update_unit_on_faction_change,
                     update_unit_on_type_change,
                     update_transform_on_position_change,
+                    update_tile_cursor,
                 )
                     .run_if(in_state(AppState::InGame)),
             )
@@ -649,6 +650,10 @@ impl Plugin for AwbrnPlugin {
             )
             // Game mode setup systems
             .add_systems(OnEnter(LoadingState::Complete), setup_ui_atlas)
+            .add_systems(
+                OnEnter(LoadingState::Complete),
+                spawn_tile_cursor.after(setup_ui_atlas),
+            )
             .add_systems(
                 OnEnter(LoadingState::Complete),
                 (setup_map_visuals, spawn_animated_unit, init_replay_state)
@@ -1050,6 +1055,68 @@ fn update_animated_terrain_on_weather_change(
             atlas.index = sprite_index.index() as usize;
         }
     }
+}
+
+fn spawn_tile_cursor(mut commands: Commands, ui_atlas: UiAtlas) {
+    commands.spawn((
+        ui_atlas.sprite_for("Effects/TileCursor.png"),
+        Transform::from_translation(Vec3::new(0.0, 0.0, 10.0)),
+        Visibility::Hidden,
+        TileCursor,
+    ));
+}
+
+fn update_tile_cursor(
+    windows: Query<&Window>,
+    camera_q: Query<(&Camera, &GlobalTransform)>,
+    game_map: Res<GameMap>,
+    mut cursor_q: Query<(&mut Transform, &mut Visibility), With<TileCursor>>,
+) {
+    let Ok((mut transform, mut visibility)) = cursor_q.single_mut() else {
+        return;
+    };
+
+    let Ok(window) = windows.single() else {
+        *visibility = Visibility::Hidden;
+        return;
+    };
+    let Ok((camera, camera_transform)) = camera_q.single() else {
+        *visibility = Visibility::Hidden;
+        return;
+    };
+    let Some(cursor_pos) = window.cursor_position() else {
+        *visibility = Visibility::Hidden;
+        return;
+    };
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else {
+        *visibility = Visibility::Hidden;
+        return;
+    };
+    let world_pos = ray.origin.truncate();
+
+    let map_w = game_map.width() as f32;
+    let map_h = game_map.height() as f32;
+    let tile = GridSystem::TILE_SIZE;
+
+    // Tile sprites are Bevy-centered at (-W*8 + gx*16, H*8 - gy*16).
+    // Add tile/2 so floor() snaps to the nearest tile center rather than corner.
+    let gx_f = (world_pos.x + map_w * tile / 2.0 + tile / 2.0) / tile;
+    let gy_f = (map_h * tile / 2.0 + tile / 2.0 - world_pos.y) / tile;
+
+    if gx_f < 0.0 || gy_f < 0.0 || gx_f >= map_w || gy_f >= map_h {
+        *visibility = Visibility::Hidden;
+        return;
+    }
+
+    let gx = gx_f.floor() as usize;
+    let gy = gy_f.floor() as usize;
+
+    let center_x = -map_w * tile / 2.0 + gx as f32 * tile;
+    let center_y = map_h * tile / 2.0 - gy as f32 * tile;
+
+    transform.translation.x = center_x;
+    transform.translation.y = center_y;
+    *visibility = Visibility::Visible;
 }
 
 // Handling sprite picking using direct mouse input
