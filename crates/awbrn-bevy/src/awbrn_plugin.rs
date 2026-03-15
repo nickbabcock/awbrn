@@ -881,7 +881,22 @@ fn setup_unit_atlas(
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
     let texture = asset_server.load("textures/units.png");
-    let layout = TextureAtlasLayout::from_grid(UVec2::new(23, 24), 64, 86, None, Some(uvec2(1, 0)));
+    let layout = TextureAtlasLayout::from_grid(
+        UVec2::new(
+            awbrn_core::UNIT_SPRITE_WIDTH,
+            awbrn_core::UNIT_SPRITE_HEIGHT,
+        ),
+        awbrn_core::UNIT_SPRITESHEET_COLUMNS,
+        awbrn_core::UNIT_SPRITESHEET_ROWS,
+        Some(UVec2::new(
+            awbrn_core::UNIT_SPRITESHEET_PADDING_X,
+            awbrn_core::UNIT_SPRITESHEET_PADDING_Y,
+        )),
+        Some(UVec2::new(
+            awbrn_core::UNIT_SPRITESHEET_OFFSET_X,
+            awbrn_core::UNIT_SPRITESHEET_OFFSET_Y,
+        )),
+    );
     let layout = texture_atlas_layouts.add(layout);
 
     commands.insert_resource(UnitAtlasResource { texture, layout });
