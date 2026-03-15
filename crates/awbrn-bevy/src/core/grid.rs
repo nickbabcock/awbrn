@@ -1,4 +1,4 @@
-use crate::SpriteSize;
+use crate::core::SpriteSize;
 use awbrn_map::Position;
 use bevy::prelude::*;
 
