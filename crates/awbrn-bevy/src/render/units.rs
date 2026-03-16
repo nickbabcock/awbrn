@@ -188,22 +188,6 @@ pub(crate) fn on_unit_active_insert(
     commands.entity(entity).insert(animation);
 }
 
-/// System to automatically remove HasCargo component when it becomes empty.
-pub(crate) fn cleanup_empty_cargo(
-    mut commands: Commands,
-    query: Query<(Entity, &HasCargo), Changed<HasCargo>>,
-) {
-    for (entity, has_cargo) in query.iter() {
-        if has_cargo.is_empty() {
-            commands.entity(entity).remove::<HasCargo>();
-            log::info!(
-                "Transport entity {:?} cargo is empty, removing HasCargo component",
-                entity
-            );
-        }
-    }
-}
-
 /// System to update health indicator when GraphicalHp value changes
 pub(crate) fn update_health_indicator(
     mut commands: Commands,
@@ -381,7 +365,6 @@ impl Plugin for UnitRenderingPlugin {
             .add_systems(
                 Update,
                 (
-                    cleanup_empty_cargo,
                     update_health_indicator,
                     update_unit_on_faction_change,
                     update_unit_on_type_change,

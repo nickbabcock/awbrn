@@ -1,4 +1,6 @@
 use crate::core::SpriteSize;
+use bevy::ecs::entity::MapEntities;
+use bevy::ecs::relationship::RelationshipSourceCollection;
 use bevy::prelude::*;
 
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -17,20 +19,31 @@ pub struct UnitActive;
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Capturing;
 
-/// Component to mark an entity as carrying cargo (up to 2 units).
-/// Stores entity references directly rather than mode-specific IDs.
-#[derive(Component, Reflect, Debug, Clone, PartialEq, Eq, Default)]
-pub struct HasCargo {
-    pub cargo: [Option<Entity>; 2],
-}
+/// Relationship component placed on carried units, pointing to their transport.
+#[derive(Component)]
+#[relationship(relationship_target = HasCargo)]
+pub struct CarriedBy(pub Entity);
 
-impl HasCargo {
-    pub fn new() -> Self {
-        Self::default()
+/// Fixed-capacity collection for up to 2 cargo entities.
+#[derive(Debug, Clone)]
+pub struct Cargo(pub [Option<Entity>; 2]);
+
+impl RelationshipSourceCollection for Cargo {
+    type SourceIter<'a> =
+        core::iter::Copied<core::iter::Flatten<core::slice::Iter<'a, Option<Entity>>>>;
+
+    fn new() -> Self {
+        Cargo([None; 2])
     }
 
-    pub fn add_cargo(&mut self, entity: Entity) -> bool {
-        if let Some(slot) = self.cargo.iter_mut().find(|slot| slot.is_none()) {
+    fn with_capacity(_capacity: usize) -> Self {
+        Self::new()
+    }
+
+    fn reserve(&mut self, _additional: usize) {}
+
+    fn add(&mut self, entity: Entity) -> bool {
+        if let Some(slot) = self.0.iter_mut().find(|slot| slot.is_none()) {
             *slot = Some(entity);
             true
         } else {
@@ -38,19 +51,50 @@ impl HasCargo {
         }
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.cargo.iter().all(|slot| slot.is_none())
-    }
-
-    pub fn remove_cargo(&mut self, entity: Entity) -> bool {
-        if let Some(slot) = self.cargo.iter_mut().find(|slot| **slot == Some(entity)) {
+    fn remove(&mut self, entity: Entity) -> bool {
+        if let Some(slot) = self.0.iter_mut().find(|slot| **slot == Some(entity)) {
             *slot = None;
             true
         } else {
             false
         }
     }
+
+    fn iter(&self) -> Self::SourceIter<'_> {
+        self.0.iter().flatten().copied()
+    }
+
+    fn len(&self) -> usize {
+        self.0.iter().filter(|slot| slot.is_some()).count()
+    }
+
+    fn clear(&mut self) {
+        self.0 = [None; 2];
+    }
+
+    fn shrink_to_fit(&mut self) {}
+
+    fn extend_from_iter(&mut self, entities: impl IntoIterator<Item = Entity>) {
+        for entity in entities {
+            if !self.add(entity) {
+                break;
+            }
+        }
+    }
 }
+
+impl MapEntities for Cargo {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+        for entity in self.0.iter_mut().flatten() {
+            *entity = entity_mapper.get_mapped(*entity);
+        }
+    }
+}
+
+/// Relationship target on transports, auto-maintained by Bevy when `CarriedBy` is added/removed.
+#[derive(Component)]
+#[relationship_target(relationship = CarriedBy)]
+pub struct HasCargo(Cargo);
 
 #[derive(Debug, Component, Clone, Copy, PartialEq, Eq, Hash)]
 #[component(immutable)]
