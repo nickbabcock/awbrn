@@ -4,7 +4,7 @@ pub mod map;
 pub mod units;
 
 use awbrn_map::Position;
-use bevy::{log, prelude::*};
+use bevy::prelude::*;
 
 pub use grid::*;
 pub use id_index::*;
@@ -22,6 +22,7 @@ pub struct SpriteSize {
 }
 
 #[derive(Component, Reflect, Clone, Copy, PartialEq, Eq, Debug)]
+#[component(immutable)]
 #[require(Transform)]
 pub struct MapPosition(pub Position);
 
@@ -134,39 +135,6 @@ pub(crate) fn on_map_position_insert(
     );
 }
 
-/// System to update Transform when MapPosition changes
-type MapPositionTransformQuery<'w, 's> = Query<
-    'w,
-    's,
-    (
-        &'static mut Transform,
-        &'static SpriteSize,
-        &'static MapPosition,
-    ),
-    (
-        Changed<MapPosition>,
-        Without<crate::render::animation::UnitPathAnimation>,
-    ),
->;
-
-pub(crate) fn update_transform_on_position_change(
-    mut query: MapPositionTransformQuery,
-    game_map: Res<GameMap>,
-) {
-    for (mut transform, sprite_size, map_position) in query.iter_mut() {
-        let final_world_pos =
-            map_position_to_world_translation(sprite_size, *map_position, game_map.as_ref());
-        transform.translation = final_world_pos;
-
-        log::info!(
-            "Updated Transform for position ({}, {}) -> {:?}",
-            map_position.x(),
-            map_position.y(),
-            final_world_pos
-        );
-    }
-}
-
 pub struct CorePlugin;
 
 impl Plugin for CorePlugin {
@@ -179,11 +147,7 @@ impl Plugin for CorePlugin {
             .register_type::<Faction>()
             .register_type::<Unit>()
             .add_observer(on_map_position_insert)
-            .add_observer(units::on_unit_destroyed)
-            .add_systems(
-                Update,
-                update_transform_on_position_change.run_if(in_state(AppState::InGame)),
-            );
+            .add_observer(units::on_unit_destroyed);
     }
 }
 

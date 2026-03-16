@@ -8,7 +8,7 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[component(on_add = on_awbw_unit_id_add, on_remove = on_awbw_unit_id_remove)]
+#[component(immutable, on_add = on_awbw_unit_id_add, on_remove = on_awbw_unit_id_remove)]
 pub struct AwbwUnitId(pub awbrn_core::AwbwUnitId);
 
 fn on_awbw_unit_id_add(mut world: DeferredWorld, context: HookContext) {

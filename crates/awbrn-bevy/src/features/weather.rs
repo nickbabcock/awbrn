@@ -43,10 +43,6 @@ pub(crate) fn update_backdrop_on_weather_change(
     current_weather: Res<CurrentWeather>,
     mut backdrop_query: Query<&mut Sprite, (With<MapBackdrop>, Without<TerrainTile>)>,
 ) {
-    if !current_weather.is_changed() {
-        return;
-    }
-
     let plain_index = awbrn_core::spritesheet_index(
         current_weather.weather(),
         awbrn_core::GraphicalTerrain::Plain,
@@ -70,10 +66,6 @@ pub(crate) fn update_static_terrain_on_weather_change(
     current_weather: Res<CurrentWeather>,
     mut static_query: StaticTerrainQuery,
 ) {
-    if !current_weather.is_changed() {
-        return;
-    }
-
     for (mut sprite, terrain_tile) in static_query.iter_mut() {
         let sprite_index =
             awbrn_core::spritesheet_index(current_weather.weather(), terrain_tile.terrain);
@@ -98,10 +90,6 @@ pub(crate) fn update_animated_terrain_on_weather_change(
     current_weather: Res<CurrentWeather>,
     mut animated_query: AnimatedTerrainQuery,
 ) {
-    if !current_weather.is_changed() {
-        return;
-    }
-
     for (mut sprite, terrain_tile, mut animation) in animated_query.iter_mut() {
         let sprite_index =
             awbrn_core::spritesheet_index(current_weather.weather(), terrain_tile.terrain);
@@ -133,9 +121,13 @@ impl Plugin for WeatherPlugin {
             Update,
             (
                 handle_weather_toggle,
-                update_backdrop_on_weather_change,
-                update_static_terrain_on_weather_change,
-                update_animated_terrain_on_weather_change,
+                (
+                    update_backdrop_on_weather_change,
+                    update_static_terrain_on_weather_change,
+                    update_animated_terrain_on_weather_change,
+                )
+                    .run_if(resource_changed::<CurrentWeather>)
+                    .after(handle_weather_toggle),
             )
                 .run_if(in_state(crate::core::AppState::InGame)),
         );

@@ -36,6 +36,7 @@ pub struct ReplayPathTile {
 }
 
 #[derive(Component, Debug, Clone)]
+#[component(storage = "SparseSet")]
 pub struct PendingCourseArrows {
     pub path: Vec<ReplayPathTile>,
 }
@@ -273,48 +274,55 @@ fn current_segment_and_progress(path_animation: &UnitPathAnimation) -> (usize, f
 }
 
 pub(crate) fn spawn_pending_course_arrows(
+    trigger: On<Insert, PendingCourseArrows>,
     mut commands: Commands,
     ui_atlas: UiAtlas,
     game_map: Res<GameMap>,
-    pending: Query<(Entity, &PendingCourseArrows), Added<PendingCourseArrows>>,
+    query: Query<&PendingCourseArrows>,
     existing_arrows: Query<(Entity, &CourseArrowPiece)>,
 ) {
-    for (owner, pending) in &pending {
-        for (entity, arrow) in &existing_arrows {
-            if arrow.owner == owner {
-                commands.entity(entity).despawn();
-            }
+    let owner = trigger.entity;
+
+    let Ok(pending) = query.get(owner) else {
+        return;
+    };
+
+    for (entity, arrow) in &existing_arrows {
+        if arrow.owner == owner {
+            commands.entity(entity).despawn();
         }
-
-        for spawn in build_course_arrow_spawns(&pending.path) {
-            let mut transform = Transform::from_translation(
-                position_to_world_translation(
-                    &COURSE_ARROW_SPRITE_SIZE,
-                    spawn.position,
-                    game_map.as_ref(),
-                ) + Vec3::new(0.0, 0.0, COURSE_ARROW_LAYER_OFFSET),
-            );
-            transform.rotation = Quat::from_rotation_z(spawn.rotation_degrees.to_radians());
-            transform.scale = Vec3::splat(COURSE_ARROW_BASE_SCALE);
-
-            commands.spawn((
-                ui_atlas.sprite_for(spawn.kind.sprite_name()),
-                transform,
-                Visibility::Hidden,
-                CourseArrowPiece {
-                    owner,
-                    kind: spawn.kind,
-                    rotation_degrees: spawn.rotation_degrees,
-                    start_delay: spawn.start_delay,
-                    reveal_duration: scaled_animation_duration(COURSE_ARROW_REVEAL_MS),
-                    total_duration: scaled_animation_duration(COURSE_ARROW_LIFETIME_MS),
-                    elapsed: Duration::ZERO,
-                },
-            ));
-        }
-
-        commands.entity(owner).remove::<PendingCourseArrows>();
     }
+
+    let spawns = build_course_arrow_spawns(&pending.path);
+
+    for spawn in spawns {
+        let mut transform = Transform::from_translation(
+            position_to_world_translation(
+                &COURSE_ARROW_SPRITE_SIZE,
+                spawn.position,
+                game_map.as_ref(),
+            ) + Vec3::new(0.0, 0.0, COURSE_ARROW_LAYER_OFFSET),
+        );
+        transform.rotation = Quat::from_rotation_z(spawn.rotation_degrees.to_radians());
+        transform.scale = Vec3::splat(COURSE_ARROW_BASE_SCALE);
+
+        commands.spawn((
+            ui_atlas.sprite_for(spawn.kind.sprite_name()),
+            transform,
+            Visibility::Hidden,
+            CourseArrowPiece {
+                owner,
+                kind: spawn.kind,
+                rotation_degrees: spawn.rotation_degrees,
+                start_delay: spawn.start_delay,
+                reveal_duration: scaled_animation_duration(COURSE_ARROW_REVEAL_MS),
+                total_duration: scaled_animation_duration(COURSE_ARROW_LIFETIME_MS),
+                elapsed: Duration::ZERO,
+            },
+        ));
+    }
+
+    commands.entity(owner).remove::<PendingCourseArrows>();
 }
 
 pub(crate) fn animate_course_arrows(
@@ -490,10 +498,9 @@ pub struct NavigationPlugin;
 
 impl Plugin for NavigationPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.add_observer(spawn_pending_course_arrows).add_systems(
             Update,
             (
-                spawn_pending_course_arrows.before(animate_course_arrows),
                 animate_course_arrows,
                 animate_unit_paths.before(crate::render::animation::animate_units),
             )

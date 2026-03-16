@@ -58,20 +58,17 @@ pub(crate) struct PendingUiAtlas {
 
 pub(crate) fn detect_replay_to_load(
     mut commands: Commands,
-    replay_to_load: Option<Res<ReplayToLoad>>,
+    replay_to_load: Res<ReplayToLoad>,
     mut app_state: ResMut<NextState<AppState>>,
     mut game_mode_state: ResMut<NextState<GameMode>>,
     mut loading_state: ResMut<NextState<LoadingState>>,
     map_resolver: Res<MapPathResolver>,
     asset_server: Res<AssetServer>,
 ) {
-    let Some(replay_res) = replay_to_load else {
-        return;
-    };
     commands.remove_resource::<ReplayToLoad>();
 
     let parser = ReplayParser::new();
-    let replay = match parser.parse(&replay_res.0) {
+    let replay = match parser.parse(&replay_to_load.0) {
         Ok(replay) => replay,
         Err(e) => {
             error!("Failed to parse replay: {:?}", e);
@@ -109,14 +106,13 @@ pub(crate) fn detect_replay_to_load(
 
 pub(crate) fn detect_pending_game_start(
     mut commands: Commands,
-    pending_game: Option<Res<PendingGameStart>>,
+    pending_game: Res<PendingGameStart>,
     mut app_state: ResMut<NextState<AppState>>,
     mut game_mode_state: ResMut<NextState<GameMode>>,
     mut loading_state: ResMut<NextState<LoadingState>>,
     asset_server: Res<AssetServer>,
 ) {
-    let Some(pending) = pending_game else { return };
-    commands.insert_resource(MapAssetHandle(pending.0.clone()));
+    commands.insert_resource(MapAssetHandle(pending_game.0.clone()));
     commands.remove_resource::<PendingGameStart>();
 
     let ui_atlas_handle = asset_server.load("data/ui_atlas.json");
@@ -227,7 +223,13 @@ impl Plugin for LoadingPlugin {
                 Update,
                 check_assets_loaded.run_if(in_state(LoadingState::LoadingAssets)),
             )
-            .add_systems(Update, (detect_replay_to_load, detect_pending_game_start))
+            .add_systems(
+                Update,
+                (
+                    detect_replay_to_load.run_if(resource_exists::<ReplayToLoad>),
+                    detect_pending_game_start.run_if(resource_exists::<PendingGameStart>),
+                ),
+            )
             .add_systems(
                 OnEnter(LoadingState::Complete),
                 (setup_ui_atlas, transition_to_in_game),
