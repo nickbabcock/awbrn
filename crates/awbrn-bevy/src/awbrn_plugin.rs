@@ -601,7 +601,7 @@ mod tests {
             .translation
             .z;
         assert!(curved.2.translation.z > 0.0);
-        assert!(curved.2.translation.z < unit_z);
+        assert!(curved.2.translation.z > unit_z);
 
         app.world_mut()
             .resource_mut::<Time<()>>()

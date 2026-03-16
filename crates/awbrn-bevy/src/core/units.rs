@@ -1,4 +1,4 @@
-use crate::core::SpriteSize;
+use crate::core::{RenderLayer, SpriteSize};
 use bevy::ecs::entity::MapEntities;
 use bevy::ecs::relationship::RelationshipSourceCollection;
 use bevy::prelude::*;
@@ -14,7 +14,7 @@ pub(crate) fn on_unit_destroyed(trigger: On<UnitDestroyed>, mut commands: Comman
 
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[component(immutable)]
-#[require(SpriteSize { width: 23.0, height: 24.0, z_index: 1 })]
+#[require(SpriteSize { width: 23.0, height: 24.0, z_index: RenderLayer::UNIT })]
 pub struct Unit(pub awbrn_core::Unit);
 
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]

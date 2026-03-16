@@ -1,6 +1,6 @@
 use crate::core::grid::GridSystem;
 use crate::core::map::{GameMap, TerrainTile};
-use crate::core::{MapPosition, SpriteSize, map_position_to_world_translation};
+use crate::core::{MapPosition, RenderLayer, SpriteSize, map_position_to_world_translation};
 use crate::features::event_bus::{ExternalGameEvent, GameEvent, TileSelected};
 use crate::render::UiAtlas;
 use bevy::prelude::*;
@@ -16,8 +16,17 @@ pub struct TileCursor;
 pub(crate) const TILE_CORE_SPRITE_SIZE: SpriteSize = SpriteSize {
     width: GridSystem::TILE_SIZE,
     height: GridSystem::TILE_SIZE,
-    z_index: 10,
+    z_index: RenderLayer::CURSOR,
 };
+
+fn tile_cursor_bundle(ui_atlas: UiAtlas) -> impl Bundle {
+    (
+        ui_atlas.sprite_for("Effects/TileCursor.png"),
+        Transform::from_translation(Vec3::new(0.0, 0.0, TILE_CORE_SPRITE_SIZE.z_index as f32)),
+        Visibility::Hidden,
+        TileCursor,
+    )
+}
 
 pub(crate) fn world_to_map_position(world_pos: Vec2, game_map: &GameMap) -> Option<MapPosition> {
     let map_w = game_map.width() as f32;
@@ -41,12 +50,7 @@ pub(crate) fn world_to_map_position(world_pos: Vec2, game_map: &GameMap) -> Opti
 }
 
 pub(crate) fn spawn_tile_cursor(mut commands: Commands, ui_atlas: UiAtlas) {
-    commands.spawn((
-        ui_atlas.sprite_for("Effects/TileCursor.png"),
-        Transform::from_translation(Vec3::new(0.0, 0.0, 10.0)),
-        Visibility::Hidden,
-        TileCursor,
-    ));
+    commands.spawn(tile_cursor_bundle(ui_atlas));
 }
 
 pub(crate) fn update_tile_cursor(
