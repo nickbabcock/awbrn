@@ -1,13 +1,14 @@
 mod awbrn_plugin;
-mod commands;
-mod ecs;
-mod grid;
+pub mod core;
+pub mod features;
 mod json_plugin;
+pub mod loading;
+pub mod modes;
+pub mod render;
 mod ui_atlas;
 
-pub use awbrn_plugin::*;
-pub use commands::*;
-pub use ecs::*;
-pub use grid::*;
+pub use awbrn_plugin::AwbrnPlugin;
+pub use features::event_bus::{EventBus, ExternalEvent, GameEvent};
 pub use json_plugin::*;
+pub use loading::{MapAssetPathResolver, ReplayToLoad};
 pub use ui_atlas::*;

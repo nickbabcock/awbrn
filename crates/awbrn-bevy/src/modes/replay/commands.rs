@@ -4,62 +4,24 @@
 //! immediate mutations that are visible to subsequent queries within the same
 //! command execution.
 
-use awbrn_core::{GraphicalMovement, GraphicalTerrain, PlayerFaction, Property};
+use awbrn_core::{GraphicalTerrain, PlayerFaction, Property};
 use awbrn_map::Position;
 use awbw_replay::turn_models::{
     Action, CaptureAction, CombatUnit, FireAction, LoadAction, MoveAction, TargetedPlayer, UnitMap,
     UpdatedInfo,
 };
-use bevy::log;
-use bevy::prelude::*;
-use std::time::Duration;
+use bevy::{log, prelude::*};
 
-use crate::{
-    AwbwUnitId, Capturing, CurrentWeather, Faction, GraphicalHp, HasCargo, LoadedReplay,
-    MapPosition, StrongIdMap, TerrainTile, Unit, UnitActive,
+use crate::core::map::TerrainTile;
+use crate::core::{
+    Capturing, Faction, GraphicalHp, HasCargo, MapPosition, StrongIdMap, Unit, UnitActive,
 };
-
-/// Resource tracking the current state of replay playback.
-#[derive(Resource)]
-pub struct ReplayState {
-    pub turn: u32,
-    pub day: u32,
-}
-
-impl Default for ReplayState {
-    fn default() -> Self {
-        Self { turn: 0, day: 1 }
-    }
-}
-
-/// Multiplier for replay path-related animation timing.
-///
-/// Values greater than `1.0` speed animations up by shortening their durations.
-pub const REPLAY_PATH_ANIMATION_SPEED_FACTOR: f32 = 1.5;
-pub const UNIT_PATH_SINGLE_SEGMENT_MS: u64 = 400;
-pub const UNIT_PATH_EDGE_SEGMENT_MS: u64 = 350;
-pub const UNIT_PATH_INTERIOR_SEGMENT_MS: u64 = 140;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ReplayPathTile {
-    pub position: Position,
-    pub unit_visible: bool,
-}
-
-#[derive(Component, Debug, Clone)]
-pub struct PendingCourseArrows {
-    pub path: Vec<ReplayPathTile>,
-}
-
-pub fn scaled_animation_duration(base_ms: u64) -> Duration {
-    let speed = REPLAY_PATH_ANIMATION_SPEED_FACTOR.max(f32::EPSILON);
-    if (speed - 1.0).abs() < f32::EPSILON {
-        return Duration::from_millis(base_ms);
-    }
-
-    let nanos = ((base_ms as f64 * 1_000_000.0) / speed as f64).round() as u64;
-    Duration::from_nanos(nanos)
-}
+use crate::features::navigation::{PendingCourseArrows, global_path_tiles, path_positions};
+use crate::features::weather::CurrentWeather;
+use crate::loading::LoadedReplay;
+use crate::modes::replay::AwbwUnitId;
+use crate::modes::replay::state::ReplayState;
+use crate::render::animation::UnitPathAnimation;
 
 #[derive(Resource, Debug, Default)]
 pub struct ReplayAdvanceLock {
@@ -91,38 +53,6 @@ impl ReplayAdvanceLock {
     }
 }
 
-#[derive(Component, Debug, Clone)]
-pub struct UnitPathAnimation {
-    pub path: Vec<Position>,
-    pub segment_durations: Vec<Duration>,
-    pub total_duration: Duration,
-    pub elapsed: Duration,
-    pub current_segment: usize,
-    pub current_movement: GraphicalMovement,
-    pub idle_flip_x: bool,
-}
-
-impl UnitPathAnimation {
-    pub fn new(path: Vec<Position>, idle_flip_x: bool) -> Option<Self> {
-        if path.len() < 2 {
-            return None;
-        }
-
-        let segment_durations = unit_path_segment_durations(path.len())?;
-        let total_duration = segment_durations.iter().copied().sum();
-
-        Some(Self {
-            current_movement: movement_direction(path[0], path[1]),
-            path,
-            segment_durations,
-            total_duration,
-            elapsed: Duration::ZERO,
-            current_segment: 0,
-            idle_flip_x,
-        })
-    }
-}
-
 pub struct ReplayFollowupCommand {
     pub action: Action,
 }
@@ -134,18 +64,12 @@ impl Command for ReplayFollowupCommand {
 }
 
 /// A custom Command for processing replay turn actions.
-///
-/// This command gets `&mut World` access, allowing immediate mutations that
-/// are visible to subsequent queries within the same `apply()` call. This
-/// eliminates the need for workarounds like `EntityHashMap` to track deferred
-/// position changes.
 pub struct ReplayTurnCommand {
     pub action: Action,
 }
 
 impl Command for ReplayTurnCommand {
     fn apply(self, world: &mut World) {
-        // Apply movement first (many actions have move_action)
         if let Some(mov) = self.action.move_action()
             && Self::apply_move(mov, &self.action, world)
         {
@@ -157,7 +81,6 @@ impl Command for ReplayTurnCommand {
 }
 
 impl ReplayTurnCommand {
-    /// Processes unit movement from a MoveAction.
     fn apply_move(move_action: &MoveAction, action: &Action, world: &mut World) -> bool {
         let Some(unit_data) = move_action.unit.get(&TargetedPlayer::Global) else {
             log::warn!("Move action missing global targeted player unit data");
@@ -258,9 +181,7 @@ impl ReplayTurnCommand {
         }
     }
 
-    /// Spawns new units from a Build action.
     fn apply_build(new_unit: &UnitMap, world: &mut World) {
-        // Get the loaded replay to look up player factions
         let players = {
             let loaded_replay = world.resource::<LoadedReplay>();
             loaded_replay
@@ -279,7 +200,6 @@ impl ReplayTurnCommand {
             let Some(x) = unit.units_x else { continue };
             let Some(y) = unit.units_y else { continue };
 
-            // Get player faction from replay data
             let faction = players
                 .iter()
                 .find(|p| p.id.as_u32() == unit.units_players_id)
@@ -303,14 +223,12 @@ impl ReplayTurnCommand {
         }
     }
 
-    /// Processes a capture action, updating the capturing unit and potentially flipping the building.
     fn apply_capture(capture_action: &CaptureAction, world: &mut World) {
         let building_pos = Position::new(
             capture_action.building_info.buildings_x as usize,
             capture_action.building_info.buildings_y as usize,
         );
 
-        // Find unit at the building position - query sees updated positions from apply_move!
         let capturing_unit = {
             let mut query = world.query::<(Entity, &MapPosition, &Faction)>();
             query
@@ -327,16 +245,13 @@ impl ReplayTurnCommand {
         world.entity_mut(entity).remove::<UnitActive>();
 
         if capture_action.building_info.buildings_capture >= 20 {
-            // Capture complete - remove Capturing component and flip building
             world.entity_mut(entity).remove::<Capturing>();
             Self::flip_building(world, building_pos, faction);
         } else {
-            // Capture in progress - add Capturing component
             world.entity_mut(entity).insert(Capturing);
         }
     }
 
-    /// Processes an End turn action, updating the day counter, and re-activating units
     fn apply_end(updated_info: &UpdatedInfo, world: &mut World) {
         let current_day = {
             let replay_state = world.resource::<ReplayState>();
@@ -350,15 +265,12 @@ impl ReplayTurnCommand {
         Self::activate_all_units(world);
     }
 
-    /// Processes a load action, hiding the loaded unit and marking the transport as carrying cargo.
     fn apply_load(load_action: &LoadAction, world: &mut World) {
-        // Extract loaded unit ID (from awbrn_core)
         let loaded_unit_id = load_action
             .loaded
             .values()
             .find_map(|hidden| hidden.get_value().copied());
 
-        // Extract transport unit ID (from awbrn_core)
         let transport_unit_id = load_action
             .transport
             .values()
@@ -374,11 +286,9 @@ impl ReplayTurnCommand {
             return;
         };
 
-        // Wrap in crate's AwbwUnitId for lookup
         let loaded_id = AwbwUnitId(loaded_id_core);
         let transport_id = AwbwUnitId(transport_id_core);
 
-        // Get entities from resource
         let (loaded_entity, transport_entity) = {
             let units = world.resource::<StrongIdMap<AwbwUnitId>>();
             (units.get(&loaded_id), units.get(&transport_id))
@@ -400,16 +310,14 @@ impl ReplayTurnCommand {
             return;
         };
 
-        // Hide the loaded unit
         world.entity_mut(loaded_entity).insert(Visibility::Hidden);
 
-        // Add or update HasCargo component on transport
         let mut transport_mut = world.entity_mut(transport_entity);
         let success = if let Some(mut has_cargo) = transport_mut.get_mut::<HasCargo>() {
-            has_cargo.add_cargo(loaded_id)
+            has_cargo.add_cargo(loaded_entity)
         } else {
             let mut has_cargo = HasCargo::new();
-            let success = has_cargo.add_cargo(loaded_id);
+            let success = has_cargo.add_cargo(loaded_entity);
             transport_mut.insert(has_cargo);
             success
         };
@@ -429,13 +337,11 @@ impl ReplayTurnCommand {
         }
     }
 
-    /// Processes an unload action, making the unloaded unit visible and removing it from cargo.
     fn apply_unload(
         unit_map: &UnitMap,
         transport_id_core: awbrn_core::AwbwUnitId,
         world: &mut World,
     ) {
-        // Extract unloaded unit data
         let unloaded_unit = unit_map.values().find_map(|hidden| hidden.get_value());
 
         let Some(unit) = unloaded_unit else {
@@ -453,11 +359,9 @@ impl ReplayTurnCommand {
             return;
         };
 
-        // Wrap IDs in crate's AwbwUnitId for lookup
         let unloaded_id = AwbwUnitId(unit.units_id);
         let transport_id = AwbwUnitId(transport_id_core);
 
-        // Get entities from resource
         let (unloaded_entity, transport_entity) = {
             let units = world.resource::<StrongIdMap<AwbwUnitId>>();
             (units.get(&unloaded_id), units.get(&transport_id))
@@ -479,16 +383,14 @@ impl ReplayTurnCommand {
             return;
         };
 
-        // Make the unit visible and update its position
         world
             .entity_mut(unloaded_entity)
             .insert(Visibility::Inherited)
             .insert(MapPosition::new(x as usize, y as usize));
 
-        // Remove unit from transport's cargo
         let mut transport_mut = world.entity_mut(transport_entity);
         if let Some(mut has_cargo) = transport_mut.get_mut::<HasCargo>() {
-            let removed = has_cargo.remove_cargo(unloaded_id);
+            let removed = has_cargo.remove_cargo(unloaded_entity);
 
             if removed {
                 log::info!(
@@ -498,7 +400,6 @@ impl ReplayTurnCommand {
                     x,
                     y
                 );
-                // Note: Cleanup of empty HasCargo is handled by cleanup_empty_cargo system
             } else {
                 log::warn!(
                     "Unit {} was not in transport {}'s cargo",
@@ -514,15 +415,12 @@ impl ReplayTurnCommand {
         }
     }
 
-    /// Processes a fire action, updating unit health from combat results.
     fn apply_fire(fire_action: &FireAction, world: &mut World) {
         let mut attacker_entity = None;
 
-        // Iterate over all players' combat vision
         for (_player, combat_vision) in fire_action.combat_info_vision.iter() {
             let combat_info = &combat_vision.combat_info;
 
-            // Process attacker HP update and track the entity
             if let Some(attacker_unit) = combat_info.attacker.get_value() {
                 let entity = Self::update_unit_hp(world, attacker_unit);
                 if attacker_entity.is_none() {
@@ -530,24 +428,19 @@ impl ReplayTurnCommand {
                 }
             }
 
-            // Process defender HP update
             if let Some(defender_unit) = combat_info.defender.get_value() {
                 Self::update_unit_hp(world, defender_unit);
             }
         }
 
-        // Mark attacker as inactive (has acted this turn)
         if let Some(entity) = attacker_entity {
             world.entity_mut(entity).remove::<UnitActive>();
         }
     }
 
-    /// Helper to update a single unit's HP from CombatUnit data.
-    /// Returns the entity if found, None otherwise.
     fn update_unit_hp(world: &mut World, combat_unit: &CombatUnit) -> Option<Entity> {
         let unit_id = AwbwUnitId(combat_unit.units_id);
 
-        // Get entity from StrongIdMap
         let entity = {
             let units = world.resource::<StrongIdMap<AwbwUnitId>>();
             units.get(&unit_id)
@@ -561,11 +454,8 @@ impl ReplayTurnCommand {
             return None;
         };
 
-        // Extract HP value if present
         if let Some(hp_display) = combat_unit.units_hit_points {
             let hp_value = hp_display.value();
-
-            // Insert or update GraphicalHp component
             world.entity_mut(entity).insert(GraphicalHp(hp_value));
 
             log::info!(
@@ -578,19 +468,15 @@ impl ReplayTurnCommand {
         Some(entity)
     }
 
-    /// Flips a building to a new faction after capture completion.
     fn flip_building(world: &mut World, pos: Position, faction: PlayerFaction) {
-        // Get current weather for sprite lookup
         let weather = world.resource::<CurrentWeather>().weather();
 
-        // Find and update the terrain tile at this position
         let mut query = world.query::<(Entity, &mut TerrainTile, &mut Sprite)>();
         for (_terrain_entity, mut terrain_tile, mut sprite) in query.iter_mut(world) {
             if terrain_tile.position != pos {
                 continue;
             }
 
-            // Check if this is a property that can be captured
             if let GraphicalTerrain::Property(property) = terrain_tile.terrain {
                 let new_property = match property {
                     Property::City(_) => Property::City(awbrn_core::Faction::Player(faction)),
@@ -606,7 +492,6 @@ impl ReplayTurnCommand {
 
                 terrain_tile.terrain = GraphicalTerrain::Property(new_property);
 
-                // Update sprite to show new faction
                 let sprite_index = awbrn_core::spritesheet_index(weather, terrain_tile.terrain);
                 if let Some(atlas) = &mut sprite.texture_atlas {
                     atlas.index = sprite_index.index() as usize;
@@ -618,8 +503,6 @@ impl ReplayTurnCommand {
         }
     }
 
-    /// Activates all units by adding UnitActive component.
-    /// Called at the start of a new turn.
     fn activate_all_units(world: &mut World) {
         let unit_entities: Vec<Entity> = {
             let mut query = world.query_filtered::<Entity, With<Unit>>();
@@ -636,59 +519,35 @@ impl ReplayTurnCommand {
     }
 }
 
-pub fn action_requires_path_animation(action: &Action) -> bool {
-    action
-        .move_action()
-        .and_then(global_path_tiles)
-        .is_some_and(|path| path.len() >= 2)
-}
-
-pub fn movement_direction(from: Position, to: Position) -> GraphicalMovement {
-    if from.y > to.y {
-        GraphicalMovement::Up
-    } else if from.y < to.y {
-        GraphicalMovement::Down
+pub(crate) fn spawn_replay_units(mut commands: Commands, loaded_replay: Res<LoadedReplay>) {
+    let (players, replay_units) = if let Some(first_game) = loaded_replay.0.games.first() {
+        info!("Found {} units in replay", first_game.units.len());
+        (&first_game.players, &first_game.units)
     } else {
-        GraphicalMovement::Lateral
+        info!("No games found in replay, not spawning units");
+        return;
+    };
+
+    for unit in replay_units {
+        let faction = players
+            .iter()
+            .find(|p| p.id == unit.players_id)
+            .unwrap()
+            .faction;
+
+        commands.spawn((
+            MapPosition::new(unit.x as usize, unit.y as usize),
+            Faction(faction),
+            AwbwUnitId(unit.id),
+            Unit(unit.name),
+            UnitActive,
+        ));
     }
 }
 
-pub fn unit_path_segment_durations(path_len: usize) -> Option<Vec<Duration>> {
-    if path_len < 2 {
-        return None;
-    }
-
-    let segment_count = path_len - 1;
-    if segment_count == 1 {
-        return Some(vec![scaled_animation_duration(UNIT_PATH_SINGLE_SEGMENT_MS)]);
-    }
-
-    let total_duration_ms = UNIT_PATH_EDGE_SEGMENT_MS * 2
-        + UNIT_PATH_INTERIOR_SEGMENT_MS * segment_count.saturating_sub(2) as u64;
-    let per_segment_ms = total_duration_ms / segment_count as u64;
-    let remainder_ms = total_duration_ms % segment_count as u64;
-    let mut durations = vec![scaled_animation_duration(per_segment_ms); segment_count];
-    if let Some(last) = durations.last_mut() {
-        *last += scaled_animation_duration(remainder_ms);
-    }
-
-    Some(durations)
-}
-
-fn path_positions(path: &[ReplayPathTile]) -> Vec<Position> {
-    path.iter().map(|tile| tile.position).collect()
-}
-
-fn global_path_tiles(move_action: &MoveAction) -> Option<Vec<ReplayPathTile>> {
-    // TODO: replace Global-only path extraction with fog-aware targeted player selection.
-    move_action.paths.get(&TargetedPlayer::Global).map(|path| {
-        path.iter()
-            .map(|tile| ReplayPathTile {
-                position: Position::new(tile.x as usize, tile.y as usize),
-                unit_visible: tile.unit_visible,
-            })
-            .collect()
-    })
+pub(crate) fn init_replay_state(mut commands: Commands) {
+    commands.init_resource::<ReplayState>();
+    commands.insert_resource(ReplayAdvanceLock::default());
 }
 
 #[cfg(test)]
@@ -702,15 +561,15 @@ mod tests {
 
     #[test]
     fn one_step_paths_use_reference_single_segment_duration() {
+        use crate::features::navigation::{scaled_animation_duration, unit_path_segment_durations};
         let durations = unit_path_segment_durations(2).expect("two-tile path should animate");
-
         assert_eq!(durations, vec![scaled_animation_duration(400)]);
     }
 
     #[test]
     fn multi_step_paths_use_reference_edge_and_interior_durations() {
+        use crate::features::navigation::{scaled_animation_duration, unit_path_segment_durations};
         let durations = unit_path_segment_durations(4).expect("four-tile path should animate");
-
         assert_eq!(
             durations,
             vec![
