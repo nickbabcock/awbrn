@@ -3,40 +3,26 @@ pub(crate) mod controls;
 pub(crate) mod state;
 
 use crate::core::{AppState, GameMode, StrongIdMap};
-use bevy::{log, prelude::*};
+use bevy::ecs::lifecycle::HookContext;
+use bevy::ecs::world::DeferredWorld;
+use bevy::prelude::*;
 
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[component(on_add = on_awbw_unit_id_add, on_remove = on_awbw_unit_id_remove)]
 pub struct AwbwUnitId(pub awbrn_core::AwbwUnitId);
 
-/// Observer that triggers when AwbwUnitId is inserted - adds to the replay-specific entity index
-fn on_awbw_unit_id_insert(
-    trigger: On<Insert, AwbwUnitId>,
-    mut map: ResMut<StrongIdMap<AwbwUnitId>>,
-    query: Query<&AwbwUnitId>,
-) {
-    let entity = trigger.entity;
-    let Ok(unit_id) = query.get(entity) else {
-        warn!("AwbwUnitId component not found for entity {:?}", entity);
-        return;
-    };
-
-    log::info!("Indexing unit {:?} at entity {:?}", unit_id, entity);
-
-    map.insert(*unit_id, entity);
+fn on_awbw_unit_id_add(mut world: DeferredWorld, context: HookContext) {
+    let unit_id = *world.get::<AwbwUnitId>(context.entity).unwrap();
+    world
+        .resource_mut::<StrongIdMap<AwbwUnitId>>()
+        .insert(unit_id, context.entity);
 }
 
-/// Observer that triggers when AwbwUnitId is removed - cleans up the replay-specific entity index
-fn on_awbw_unit_id_remove(
-    trigger: On<Remove, AwbwUnitId>,
-    mut map: ResMut<StrongIdMap<AwbwUnitId>>,
-    query: Query<&AwbwUnitId>,
-) {
-    let entity = trigger.entity;
-    let Ok(unit_id) = query.get(entity) else {
-        warn!("AwbwUnitId component not found for entity {:?}", entity);
-        return;
-    };
-    map.remove(*unit_id);
+fn on_awbw_unit_id_remove(mut world: DeferredWorld, context: HookContext) {
+    let unit_id = *world.get::<AwbwUnitId>(context.entity).unwrap();
+    world
+        .resource_mut::<StrongIdMap<AwbwUnitId>>()
+        .remove(unit_id);
 }
 
 pub struct ReplayPlugin;
@@ -46,8 +32,6 @@ impl Plugin for ReplayPlugin {
         app.init_resource::<StrongIdMap<AwbwUnitId>>()
             .init_resource::<commands::ReplayAdvanceLock>()
             .register_type::<AwbwUnitId>()
-            .add_observer(on_awbw_unit_id_insert)
-            .add_observer(on_awbw_unit_id_remove)
             .add_systems(
                 Update,
                 controls::handle_replay_controls

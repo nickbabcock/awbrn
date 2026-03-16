@@ -179,6 +179,7 @@ impl Plugin for CorePlugin {
             .register_type::<Faction>()
             .register_type::<Unit>()
             .add_observer(on_map_position_insert)
+            .add_observer(units::on_unit_destroyed)
             .add_systems(
                 Update,
                 update_transform_on_position_change.run_if(in_state(AppState::InGame)),

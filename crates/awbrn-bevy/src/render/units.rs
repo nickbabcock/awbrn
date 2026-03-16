@@ -29,8 +29,7 @@ pub(crate) fn on_capturing_remove(
     let entity = trigger.entity;
 
     if let Ok(indicator) = query.get(entity) {
-        commands.entity(indicator.0).despawn();
-        log::info!("Removed capturing indicator from entity {:?}", entity);
+        commands.entity(indicator.0).try_despawn();
     }
 }
 
@@ -43,7 +42,7 @@ pub(crate) fn on_cargo_remove(
     let entity = trigger.entity;
 
     if let Ok(indicator) = query.get(entity) {
-        commands.entity(indicator.0).despawn();
+        commands.entity(indicator.0).try_despawn();
     }
 }
 
@@ -62,8 +61,6 @@ pub(crate) fn on_capturing_insert(
     commands
         .entity(entity)
         .insert(CapturingIndicator(indicator_entity));
-
-    log::info!("Spawned capturing indicator for entity {:?}", entity);
 }
 
 /// Observer that triggers when HasCargo component is inserted - spawns the indicator
@@ -81,8 +78,6 @@ pub(crate) fn on_cargo_insert(
     commands
         .entity(entity)
         .insert(CargoIndicator(indicator_entity));
-
-    log::info!("Spawned cargo indicator for entity {:?}", entity);
 }
 
 /// Observer that triggers when GraphicalHp component is inserted
@@ -99,12 +94,7 @@ pub(crate) fn on_health_insert(
         return;
     };
 
-    if hp.is_full_health() {
-        return;
-    }
-
-    if hp.is_destroyed() {
-        log::warn!("Unit {:?} has 0 HP", entity);
+    if hp.is_full_health() || hp.is_destroyed() {
         return;
     }
 
@@ -135,9 +125,8 @@ pub(crate) fn on_health_remove(
     let entity = trigger.entity;
 
     if let Ok(indicator) = query.get(entity) {
-        commands.entity(indicator.0).despawn();
-        commands.entity(entity).remove::<HealthIndicator>();
-        log::info!("Removed health indicator from entity {:?}", entity);
+        commands.entity(indicator.0).try_despawn();
+        commands.entity(entity).try_remove::<HealthIndicator>();
     }
 }
 
@@ -154,7 +143,7 @@ pub(crate) fn on_unit_active_remove(
     };
 
     sprite.color = INACTIVE_UNIT_COLOR;
-    commands.entity(entity).remove::<Animation>();
+    commands.entity(entity).try_remove::<Animation>();
 }
 
 /// Observer that triggers when UnitActive component is inserted - restores animation and color
@@ -199,22 +188,10 @@ pub(crate) fn update_health_indicator(
             commands.entity(indicator.0).despawn();
         }
 
-        if hp.is_full_health() {
-            if indicator.is_some() {
-                commands.entity(entity).remove::<HealthIndicator>();
-                log::info!(
-                    "Unit {:?} restored to full health, removing indicator",
-                    entity
-                );
-            }
-            continue;
-        }
-
-        if hp.is_destroyed() {
+        if hp.is_full_health() || hp.is_destroyed() {
             if indicator.is_some() {
                 commands.entity(entity).remove::<HealthIndicator>();
             }
-            log::warn!("Unit {:?} destroyed (0 HP)", entity);
             continue;
         }
 
