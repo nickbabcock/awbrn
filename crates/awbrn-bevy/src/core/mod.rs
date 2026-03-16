@@ -176,7 +176,6 @@ impl Plugin for CorePlugin {
             .init_state::<GameMode>()
             .add_sub_state::<LoadingState>()
             .register_type::<MapPosition>()
-            .register_type::<HasCargo>()
             .register_type::<Faction>()
             .register_type::<Unit>()
             .add_observer(on_map_position_insert)

@@ -14,7 +14,7 @@ use bevy::{log, prelude::*};
 
 use crate::core::map::TerrainTile;
 use crate::core::{
-    Capturing, Faction, GraphicalHp, HasCargo, MapPosition, StrongIdMap, Unit, UnitActive,
+    Capturing, CarriedBy, Faction, GraphicalHp, MapPosition, StrongIdMap, Unit, UnitActive,
 };
 use crate::features::navigation::{PendingCourseArrows, global_path_tiles, path_positions};
 use crate::features::weather::CurrentWeather;
@@ -310,31 +310,15 @@ impl ReplayTurnCommand {
             return;
         };
 
-        world.entity_mut(loaded_entity).insert(Visibility::Hidden);
+        world
+            .entity_mut(loaded_entity)
+            .insert((Visibility::Hidden, CarriedBy(transport_entity)));
 
-        let mut transport_mut = world.entity_mut(transport_entity);
-        let success = if let Some(mut has_cargo) = transport_mut.get_mut::<HasCargo>() {
-            has_cargo.add_cargo(loaded_entity)
-        } else {
-            let mut has_cargo = HasCargo::new();
-            let success = has_cargo.add_cargo(loaded_entity);
-            transport_mut.insert(has_cargo);
-            success
-        };
-
-        if success {
-            log::info!(
-                "Loaded unit {} into transport {}",
-                loaded_id_core.as_u32(),
-                transport_id_core.as_u32()
-            );
-        } else {
-            log::warn!(
-                "Transport {} is at full capacity (2 units), could not load unit {}",
-                transport_id_core.as_u32(),
-                loaded_id_core.as_u32()
-            );
-        }
+        log::info!(
+            "Loaded unit {} into transport {}",
+            loaded_id_core.as_u32(),
+            transport_id_core.as_u32()
+        );
     }
 
     fn apply_unload(
@@ -360,11 +344,10 @@ impl ReplayTurnCommand {
         };
 
         let unloaded_id = AwbwUnitId(unit.units_id);
-        let transport_id = AwbwUnitId(transport_id_core);
 
-        let (unloaded_entity, transport_entity) = {
+        let unloaded_entity = {
             let units = world.resource::<StrongIdMap<AwbwUnitId>>();
-            (units.get(&unloaded_id), units.get(&transport_id))
+            units.get(&unloaded_id)
         };
 
         let Some(unloaded_entity) = unloaded_entity else {
@@ -375,44 +358,19 @@ impl ReplayTurnCommand {
             return;
         };
 
-        let Some(transport_entity) = transport_entity else {
-            log::warn!(
-                "Transport unit entity not found for ID: {}",
-                transport_id_core.as_u32()
-            );
-            return;
-        };
-
         world
             .entity_mut(unloaded_entity)
             .insert(Visibility::Inherited)
-            .insert(MapPosition::new(x as usize, y as usize));
+            .insert(MapPosition::new(x as usize, y as usize))
+            .remove::<CarriedBy>();
 
-        let mut transport_mut = world.entity_mut(transport_entity);
-        if let Some(mut has_cargo) = transport_mut.get_mut::<HasCargo>() {
-            let removed = has_cargo.remove_cargo(unloaded_entity);
-
-            if removed {
-                log::info!(
-                    "Unloaded unit {} from transport {} at ({}, {})",
-                    unit.units_id.as_u32(),
-                    transport_id_core.as_u32(),
-                    x,
-                    y
-                );
-            } else {
-                log::warn!(
-                    "Unit {} was not in transport {}'s cargo",
-                    unit.units_id.as_u32(),
-                    transport_id_core.as_u32()
-                );
-            }
-        } else {
-            log::warn!(
-                "Transport {} does not have HasCargo component",
-                transport_id_core.as_u32()
-            );
-        }
+        log::info!(
+            "Unloaded unit {} from transport {} at ({}, {})",
+            unit.units_id.as_u32(),
+            transport_id_core.as_u32(),
+            x,
+            y
+        );
     }
 
     fn apply_fire(fire_action: &FireAction, world: &mut World) {
