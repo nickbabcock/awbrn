@@ -109,6 +109,15 @@ pub(crate) fn update_animated_terrain_on_weather_change(
         animation.start_index = sprite_index.index();
         animation.frame_count = sprite_index.animation_frames();
         animation.current_frame = 0;
+        let initial_duration = animation
+            .frame_durations
+            .as_ref()
+            .map(|f| f.get_duration(0))
+            .unwrap_or(300);
+        animation.frame_timer = Timer::new(
+            std::time::Duration::from_millis(initial_duration as u64),
+            TimerMode::Once,
+        );
 
         if let Some(atlas) = &mut sprite.texture_atlas {
             atlas.index = sprite_index.index() as usize;

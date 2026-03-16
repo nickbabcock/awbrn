@@ -17,6 +17,7 @@ pub(crate) struct TerrainAnimation {
     pub(crate) frame_count: u8,
     pub(crate) current_frame: u8,
     pub(crate) frame_timer: Timer,
+    pub(crate) frame_durations: Option<awbrn_core::TerrainAnimationFrames>,
 }
 
 /// Component for unit path movement animation
@@ -202,7 +203,13 @@ pub(crate) fn animate_terrain(
                 atlas.index = animation.start_index as usize + animation.current_frame as usize;
             }
 
-            animation.frame_timer = Timer::new(Duration::from_millis(300), TimerMode::Once);
+            let next_duration = animation
+                .frame_durations
+                .as_ref()
+                .map(|f| f.get_duration(animation.current_frame))
+                .unwrap_or(300);
+            animation.frame_timer =
+                Timer::new(Duration::from_millis(next_duration as u64), TimerMode::Once);
         }
     }
 }
