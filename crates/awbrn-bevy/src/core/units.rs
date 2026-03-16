@@ -3,6 +3,15 @@ use bevy::ecs::entity::MapEntities;
 use bevy::ecs::relationship::RelationshipSourceCollection;
 use bevy::prelude::*;
 
+#[derive(EntityEvent)]
+pub struct UnitDestroyed {
+    pub entity: Entity,
+}
+
+pub(crate) fn on_unit_destroyed(trigger: On<UnitDestroyed>, mut commands: Commands) {
+    commands.entity(trigger.entity).despawn();
+}
+
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[require(SpriteSize { width: 23.0, height: 24.0, z_index: 1 })]
 pub struct Unit(pub awbrn_core::Unit);

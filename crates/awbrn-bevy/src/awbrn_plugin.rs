@@ -215,8 +215,7 @@ pub(crate) mod test_helpers {
         unit_id: CoreUnitId,
         faction: PlayerFaction,
     ) -> Entity {
-        let entity = app
-            .world_mut()
+        app.world_mut()
             .spawn((
                 MapPosition::from(position),
                 Transform::default(),
@@ -232,13 +231,7 @@ pub(crate) mod test_helpers {
                 AwbwUnitId(unit_id),
                 UnitActive,
             ))
-            .id();
-
-        app.world_mut()
-            .resource_mut::<StrongIdMap<AwbwUnitId>>()
-            .insert(AwbwUnitId(unit_id), entity);
-
-        entity
+            .id()
     }
 
     pub(crate) fn spawn_test_property(app: &mut App, position: Position) {

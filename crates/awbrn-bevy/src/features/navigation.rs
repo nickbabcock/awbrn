@@ -13,7 +13,7 @@ use std::time::Duration;
 use crate::modes::replay::commands::{ReplayAdvanceLock, ReplayFollowupCommand};
 
 /// Multiplier for replay path-related animation timing.
-pub const REPLAY_PATH_ANIMATION_SPEED_FACTOR: f32 = 1.5;
+pub const REPLAY_PATH_ANIMATION_SPEED_FACTOR: f32 = 3.0;
 pub const UNIT_PATH_SINGLE_SEGMENT_MS: u64 = 400;
 pub const UNIT_PATH_EDGE_SEGMENT_MS: u64 = 350;
 pub const UNIT_PATH_INTERIOR_SEGMENT_MS: u64 = 140;

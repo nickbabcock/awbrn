@@ -15,6 +15,7 @@ use bevy::{log, prelude::*};
 use crate::core::map::TerrainTile;
 use crate::core::{
     Capturing, CarriedBy, Faction, GraphicalHp, MapPosition, StrongIdMap, Unit, UnitActive,
+    UnitDestroyed,
 };
 use crate::features::navigation::{PendingCourseArrows, global_path_tiles, path_positions};
 use crate::features::weather::CurrentWeather;
@@ -416,6 +417,13 @@ impl ReplayTurnCommand {
             let hp_value = hp_display.value();
             world.entity_mut(entity).insert(GraphicalHp(hp_value));
 
+            if hp_value == 0 {
+                world
+                    .entity_mut(entity)
+                    .trigger(|entity| UnitDestroyed { entity });
+                return None;
+            }
+
             log::info!(
                 "Updated unit {} HP to {}",
                 combat_unit.units_id.as_u32(),
@@ -513,7 +521,8 @@ mod tests {
     use super::*;
     use awbrn_core::{AwbwUnitId as CoreUnitId, PlayerFaction};
     use awbw_replay::turn_models::{
-        Action, BuildingInfo, CaptureAction, MoveAction, PathTile, TargetedPlayer, UnitProperty,
+        Action, BuildingInfo, CaptureAction, CombatInfo, CombatInfoVision, CombatUnit,
+        CopValueInfo, CopValues, FireAction, MoveAction, PathTile, TargetedPlayer, UnitProperty,
     };
     use awbw_replay::{Hidden, Masked};
 
@@ -688,6 +697,74 @@ mod tests {
         assert!(!pending.path[1].unit_visible);
     }
 
+    #[test]
+    fn fire_action_despawns_unit_at_zero_hp() {
+        let mut app = replay_turn_test_app();
+        app.add_observer(crate::core::units::on_unit_destroyed);
+        let attacker = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
+        let defender = spawn_test_unit(&mut app, Position::new(3, 2), CoreUnitId::new(2));
+
+        let fire = Action::Fire {
+            move_action: None,
+            fire_action: FireAction {
+                combat_info_vision: [(
+                    TargetedPlayer::Global,
+                    CombatInfoVision {
+                        has_vision: true,
+                        combat_info: CombatInfo {
+                            attacker: Masked::Visible(CombatUnit {
+                                units_ammo: 0,
+                                units_hit_points: Some(test_hp(8)),
+                                units_id: CoreUnitId::new(1),
+                                units_x: 2,
+                                units_y: 2,
+                            }),
+                            defender: Masked::Visible(CombatUnit {
+                                units_ammo: 0,
+                                units_hit_points: Some(test_hp(0)),
+                                units_id: CoreUnitId::new(2),
+                                units_x: 3,
+                                units_y: 2,
+                            }),
+                        },
+                    },
+                )]
+                .into(),
+                cop_values: CopValues {
+                    attacker: CopValueInfo {
+                        player_id: awbrn_core::AwbwGamePlayerId::new(1),
+                        cop_value: 0,
+                        tag_value: None,
+                    },
+                    defender: CopValueInfo {
+                        player_id: awbrn_core::AwbwGamePlayerId::new(2),
+                        cop_value: 0,
+                        tag_value: None,
+                    },
+                },
+            },
+        };
+
+        ReplayTurnCommand { action: fire }.apply(app.world_mut());
+
+        assert!(
+            app.world().get_entity(defender).is_err(),
+            "defender with 0 HP should be despawned"
+        );
+        assert_eq!(
+            app.world()
+                .entity(attacker)
+                .get::<GraphicalHp>()
+                .unwrap()
+                .value(),
+            8
+        );
+        assert!(
+            !app.world().entity(attacker).contains::<UnitActive>(),
+            "attacker should be marked inactive"
+        );
+    }
+
     fn replay_turn_test_app() -> App {
         let mut app = App::new();
         app.insert_resource(StrongIdMap::<AwbwUnitId>::default());
@@ -697,8 +774,7 @@ mod tests {
     }
 
     fn spawn_test_unit(app: &mut App, position: Position, unit_id: CoreUnitId) -> Entity {
-        let entity = app
-            .world_mut()
+        app.world_mut()
             .spawn((
                 MapPosition::from(position),
                 Unit(awbrn_core::Unit::Infantry),
@@ -706,13 +782,7 @@ mod tests {
                 AwbwUnitId(unit_id),
                 UnitActive,
             ))
-            .id();
-
-        app.world_mut()
-            .resource_mut::<StrongIdMap<AwbwUnitId>>()
-            .insert(AwbwUnitId(unit_id), entity);
-
-        entity
+            .id()
     }
 
     fn test_move_action(
