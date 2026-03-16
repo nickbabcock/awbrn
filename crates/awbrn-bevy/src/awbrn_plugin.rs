@@ -136,15 +136,8 @@ pub(crate) mod test_helpers {
         app.insert_resource(CurrentWeather::default());
         app.add_observer(on_map_position_insert);
         app.add_observer(on_unit_active_remove);
-        app.add_systems(
-            Update,
-            (
-                spawn_pending_course_arrows.before(animate_course_arrows),
-                animate_course_arrows,
-                animate_unit_paths,
-                update_transform_on_position_change,
-            ),
-        );
+        app.add_observer(spawn_pending_course_arrows);
+        app.add_systems(Update, (animate_course_arrows, animate_unit_paths));
 
         app.world_mut().resource_mut::<GameMap>().set(AwbrnMap::new(
             40,

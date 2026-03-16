@@ -22,6 +22,7 @@ pub(crate) struct TerrainAnimation {
 
 /// Component for unit path movement animation
 #[derive(Component, Debug, Clone)]
+#[component(storage = "SparseSet")]
 pub struct UnitPathAnimation {
     pub path: Vec<awbrn_map::Position>,
     pub segment_durations: Vec<Duration>,

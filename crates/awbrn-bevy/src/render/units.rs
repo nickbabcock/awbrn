@@ -177,95 +177,30 @@ pub(crate) fn on_unit_active_insert(
     commands.entity(entity).insert(animation);
 }
 
-/// System to update health indicator when GraphicalHp value changes
-pub(crate) fn update_health_indicator(
-    mut commands: Commands,
-    ui_atlas: UiAtlas,
-    query: Query<(Entity, &GraphicalHp, Option<&HealthIndicator>), Changed<GraphicalHp>>,
+/// Observer that triggers when Faction is inserted - updates sprite and animation
+pub(crate) fn on_faction_insert(
+    trigger: On<Insert, Faction>,
+    mut query: Query<(&Unit, &Faction, &mut Sprite, Option<&mut Animation>)>,
 ) {
-    for (entity, hp, indicator) in query.iter() {
-        if let Some(indicator) = indicator {
-            commands.entity(indicator.0).despawn();
-        }
+    let entity = trigger.entity;
+    let Ok((unit, faction, mut sprite, animation)) = query.get_mut(entity) else {
+        return;
+    };
 
-        if hp.is_full_health() || hp.is_destroyed() {
-            if indicator.is_some() {
-                commands.entity(entity).remove::<HealthIndicator>();
-            }
-            continue;
-        }
+    let animation_frames =
+        get_unit_animation_frames(awbrn_core::GraphicalMovement::Idle, unit.0, faction.0);
 
-        let hp_value = hp.value();
-        let sprite_name = format!("Healthv2/{}.png", hp_value);
-
-        let new_indicator = commands
-            .spawn((ui_atlas.health_sprite(&sprite_name), ChildOf(entity)))
-            .id();
-
-        commands
-            .entity(entity)
-            .insert(HealthIndicator(new_indicator));
-
-        log::info!(
-            "Updated health indicator for entity {:?} to HP {}",
-            entity,
-            hp_value
-        );
+    if let Some(atlas) = &mut sprite.texture_atlas {
+        atlas.index = animation_frames.start_index() as usize;
     }
-}
 
-/// System to update unit sprite when Faction changes
-pub(crate) fn update_unit_on_faction_change(
-    mut query: Query<(&Unit, &Faction, &mut Sprite, &mut Animation), Changed<Faction>>,
-) {
-    for (unit, faction, mut sprite, mut animation) in query.iter_mut() {
-        let animation_frames =
-            get_unit_animation_frames(awbrn_core::GraphicalMovement::Idle, unit.0, faction.0);
-
+    if let Some(mut animation) = animation {
         animation.start_index = animation_frames.start_index();
         animation.frame_durations = animation_frames.raw();
         animation.current_frame = 0;
         animation.frame_timer = Timer::new(
             Duration::from_millis(animation_frames.raw()[0] as u64),
             TimerMode::Once,
-        );
-
-        if let Some(atlas) = &mut sprite.texture_atlas {
-            atlas.index = animation_frames.start_index() as usize;
-        }
-
-        log::info!(
-            "Updated unit {:?} sprite to faction {:?}",
-            unit.0,
-            faction.0
-        );
-    }
-}
-
-/// System to update unit sprite when Unit type changes
-pub(crate) fn update_unit_on_type_change(
-    mut query: Query<(&Unit, &Faction, &mut Sprite, &mut Animation), Changed<Unit>>,
-) {
-    for (unit, faction, mut sprite, mut animation) in query.iter_mut() {
-        let animation_frames =
-            get_unit_animation_frames(awbrn_core::GraphicalMovement::Idle, unit.0, faction.0);
-
-        animation.start_index = animation_frames.start_index();
-        animation.frame_durations = animation_frames.raw();
-        animation.current_frame = 0;
-        animation.frame_timer = Timer::new(
-            Duration::from_millis(animation_frames.raw()[0] as u64),
-            TimerMode::Once,
-        );
-
-        if let Some(atlas) = &mut sprite.texture_atlas {
-            atlas.index = animation_frames.start_index() as usize;
-        }
-
-        log::info!(
-            "Updated sprite to unit type {:?} for faction {:?}",
-            unit.0,
-            faction.0
         );
     }
 }
@@ -339,14 +274,6 @@ impl Plugin for UnitRenderingPlugin {
             .add_observer(on_unit_active_remove)
             .add_observer(on_unit_active_insert)
             .add_observer(handle_unit_spawn)
-            .add_systems(
-                Update,
-                (
-                    update_health_indicator,
-                    update_unit_on_faction_change,
-                    update_unit_on_type_change,
-                )
-                    .run_if(in_state(crate::core::AppState::InGame)),
-            );
+            .add_observer(on_faction_insert);
     }
 }

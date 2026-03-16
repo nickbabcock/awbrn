@@ -13,19 +13,23 @@ pub(crate) fn on_unit_destroyed(trigger: On<UnitDestroyed>, mut commands: Comman
 }
 
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[component(immutable)]
 #[require(SpriteSize { width: 23.0, height: 24.0, z_index: 1 })]
 pub struct Unit(pub awbrn_core::Unit);
 
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[component(immutable)]
 pub struct Faction(pub awbrn_core::PlayerFaction);
 
 /// Component to mark a unit that can receive orders this turn.
 /// Units without this component have already acted and appear grey/frozen.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+#[component(storage = "SparseSet")]
 pub struct UnitActive;
 
 /// Component to mark an entity as capturing a building
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[component(storage = "SparseSet")]
 pub struct Capturing;
 
 /// Relationship component placed on carried units, pointing to their transport.
