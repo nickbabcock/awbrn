@@ -1,12 +1,14 @@
 use crate::core::{
     Capturing, Faction, GraphicalHp, HasCargo, INACTIVE_UNIT_COLOR, Unit, UnitActive,
 };
-use crate::render::animation::Animation;
+use crate::render::animation::{
+    Animation, UnitPathAnimation, UnitVisualState, restore_unit_visual_state,
+};
 use crate::render::{UiAtlas, UnitAtlasResource};
 use awbrn_core::get_unit_animation_frames;
+use bevy::ecs::query::QueryData;
 use bevy::sprite::Anchor;
 use bevy::{log, prelude::*};
-use std::time::Duration;
 
 /// Component to track the capturing indicator sprite child entity
 #[derive(Component, Debug)]
@@ -19,6 +21,22 @@ pub struct CargoIndicator(pub Entity);
 /// Component to track the health indicator sprite child entity
 #[derive(Component, Debug)]
 pub struct HealthIndicator(pub Entity);
+
+#[derive(QueryData)]
+#[query_data(mutable)]
+struct IdleUnitVisualQuery {
+    entity: Entity,
+    unit: &'static Unit,
+    faction: &'static Faction,
+    sprite: &'static mut Sprite,
+    animation: Option<&'static mut Animation>,
+    has_active: Has<UnitActive>,
+}
+
+type IdleUnitVisualFilter = (
+    Without<UnitPathAnimation>,
+    Or<(Changed<Unit>, Changed<Faction>, Changed<UnitActive>)>,
+);
 
 /// Observer that triggers when Capturing component is removed - cleans up the indicator
 pub(crate) fn on_capturing_remove(
@@ -146,66 +164,43 @@ pub(crate) fn on_unit_active_remove(
     commands.entity(entity).try_remove::<Animation>();
 }
 
-/// Observer that triggers when UnitActive component is inserted - restores animation and color
+/// Observer that triggers when UnitActive component is inserted - restores active coloring.
 pub(crate) fn on_unit_active_insert(
     trigger: On<Insert, UnitActive>,
-    mut commands: Commands,
-    mut query: Query<(&Unit, &Faction, &mut Sprite)>,
+    mut query: Query<&mut Sprite>,
 ) {
     let entity = trigger.entity;
 
-    let Ok((unit, faction, mut sprite)) = query.get_mut(entity) else {
+    let Ok(mut sprite) = query.get_mut(entity) else {
         return;
     };
 
     sprite.color = Color::WHITE;
-
-    let animation_frames =
-        get_unit_animation_frames(awbrn_core::GraphicalMovement::Idle, unit.0, faction.0);
-
-    let frame_durations = animation_frames.raw();
-    let animation = Animation {
-        start_index: animation_frames.start_index(),
-        frame_durations,
-        current_frame: 0,
-        frame_timer: Timer::new(
-            Duration::from_millis(frame_durations[0] as u64),
-            TimerMode::Once,
-        ),
-    };
-
-    commands.entity(entity).insert(animation);
 }
 
-/// Observer that triggers when Faction is inserted - updates sprite and animation
-pub(crate) fn on_faction_insert(
-    trigger: On<Insert, Faction>,
-    mut query: Query<(&Unit, &Faction, &mut Sprite, Option<&mut Animation>)>,
+/// Recomputes idle unit animation when the derived inputs change.
+fn sync_unit_animation(
+    mut commands: Commands,
+    mut query: Query<IdleUnitVisualQuery, IdleUnitVisualFilter>,
 ) {
-    let entity = trigger.entity;
-    let Ok((unit, faction, mut sprite, animation)) = query.get_mut(entity) else {
-        return;
-    };
-
-    let animation_frames =
-        get_unit_animation_frames(awbrn_core::GraphicalMovement::Idle, unit.0, faction.0);
-
-    if let Some(atlas) = &mut sprite.texture_atlas {
-        atlas.index = animation_frames.start_index() as usize;
-    }
-
-    if let Some(mut animation) = animation {
-        animation.start_index = animation_frames.start_index();
-        animation.frame_durations = animation_frames.raw();
-        animation.current_frame = 0;
-        animation.frame_timer = Timer::new(
-            Duration::from_millis(animation_frames.raw()[0] as u64),
-            TimerMode::Once,
+    for mut unit_visual in &mut query {
+        let visual_state = UnitVisualState {
+            unit: *unit_visual.unit,
+            faction: *unit_visual.faction,
+            flip_x: unit_visual.sprite.flip_x,
+        };
+        restore_unit_visual_state(
+            &mut commands,
+            unit_visual.entity,
+            &mut unit_visual.sprite,
+            unit_visual.animation,
+            visual_state,
+            unit_visual.has_active,
         );
     }
 }
 
-/// Observer that handles unit spawning - creates sprite and animation
+/// Observer that handles unit spawning - creates the base sprite bundle.
 pub(crate) fn handle_unit_spawn(
     trigger: On<Insert, Unit>,
     mut commands: Commands,
@@ -228,10 +223,10 @@ pub(crate) fn handle_unit_spawn(
     let animation_frames =
         get_unit_animation_frames(awbrn_core::GraphicalMovement::Idle, unit.0, faction.0);
 
-    let (color, should_animate) = if has_active {
-        (Color::WHITE, true)
+    let color = if has_active {
+        Color::WHITE
     } else {
-        (INACTIVE_UNIT_COLOR, false)
+        INACTIVE_UNIT_COLOR
     };
 
     let mut sprite = Sprite::from_atlas_image(
@@ -243,22 +238,7 @@ pub(crate) fn handle_unit_spawn(
     );
     sprite.color = color;
 
-    let mut entity_commands = commands.entity(entity);
-    entity_commands.insert((sprite, Anchor::default()));
-
-    if should_animate {
-        let frame_durations = animation_frames.raw();
-        let animation = Animation {
-            start_index: animation_frames.start_index(),
-            frame_durations,
-            current_frame: 0,
-            frame_timer: Timer::new(
-                Duration::from_millis(frame_durations[0] as u64),
-                TimerMode::Once,
-            ),
-        };
-        entity_commands.insert(animation);
-    }
+    commands.entity(entity).insert((sprite, Anchor::default()));
 }
 
 pub struct UnitRenderingPlugin;
@@ -274,6 +254,169 @@ impl Plugin for UnitRenderingPlugin {
             .add_observer(on_unit_active_remove)
             .add_observer(on_unit_active_insert)
             .add_observer(handle_unit_spawn)
-            .add_observer(on_faction_insert);
+            .add_systems(
+                Update,
+                sync_unit_animation
+                    .after(crate::features::navigation::animate_unit_paths)
+                    .before(crate::render::animation::animate_units)
+                    .run_if(in_state(crate::core::AppState::InGame)),
+            );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use awbrn_core::{GraphicalMovement, PlayerFaction};
+
+    fn unit_render_test_app() -> App {
+        let mut app = App::new();
+        app.insert_resource(UnitAtlasResource {
+            texture: Handle::default(),
+            layout: Handle::default(),
+        });
+        app.add_observer(on_unit_active_remove)
+            .add_observer(on_unit_active_insert)
+            .add_observer(handle_unit_spawn)
+            .add_systems(Update, sync_unit_animation);
+        app
+    }
+
+    fn spawn_test_unit(app: &mut App, faction: PlayerFaction, active: bool) -> Entity {
+        let entity = app
+            .world_mut()
+            .spawn((Unit(awbrn_core::Unit::Infantry), Faction(faction)))
+            .id();
+
+        if active {
+            app.world_mut().entity_mut(entity).insert(UnitActive);
+        }
+
+        entity
+    }
+
+    #[test]
+    fn active_unit_spawn_inserts_idle_animation() {
+        let mut app = unit_render_test_app();
+        let entity = spawn_test_unit(&mut app, PlayerFaction::GreenEarth, true);
+
+        app.update();
+
+        let expected = get_unit_animation_frames(
+            GraphicalMovement::Idle,
+            awbrn_core::Unit::Infantry,
+            PlayerFaction::GreenEarth,
+        );
+        let sprite = app.world().entity(entity).get::<Sprite>().unwrap();
+        let animation = app.world().entity(entity).get::<Animation>().unwrap();
+
+        assert_eq!(sprite.color, Color::WHITE);
+        assert_eq!(
+            sprite.texture_atlas.as_ref().unwrap().index,
+            expected.start_index() as usize
+        );
+        assert_eq!(animation.start_index, expected.start_index());
+        assert_eq!(animation.frame_durations, expected.raw());
+        assert_eq!(animation.current_frame, 0);
+    }
+
+    #[test]
+    fn inactive_unit_spawn_stays_grey_and_unanimated() {
+        let mut app = unit_render_test_app();
+        let entity = spawn_test_unit(&mut app, PlayerFaction::GreenEarth, false);
+
+        app.update();
+
+        let expected = get_unit_animation_frames(
+            GraphicalMovement::Idle,
+            awbrn_core::Unit::Infantry,
+            PlayerFaction::GreenEarth,
+        );
+        let sprite = app.world().entity(entity).get::<Sprite>().unwrap();
+
+        assert_eq!(sprite.color, INACTIVE_UNIT_COLOR);
+        assert_eq!(
+            sprite.texture_atlas.as_ref().unwrap().index,
+            expected.start_index() as usize
+        );
+        assert!(app.world().entity(entity).get::<Animation>().is_none());
+    }
+
+    #[test]
+    fn reinserting_unit_active_refreshes_idle_animation() {
+        let mut app = unit_render_test_app();
+        let entity = spawn_test_unit(&mut app, PlayerFaction::GreenEarth, true);
+
+        app.update();
+
+        {
+            let mut entity_mut = app.world_mut().entity_mut(entity);
+            let mut animation = entity_mut.get_mut::<Animation>().unwrap();
+            animation.start_index = 999;
+            animation.current_frame = 3;
+        }
+
+        app.world_mut().entity_mut(entity).insert(UnitActive);
+        app.update();
+
+        let expected = get_unit_animation_frames(
+            GraphicalMovement::Idle,
+            awbrn_core::Unit::Infantry,
+            PlayerFaction::GreenEarth,
+        );
+        let animation = app.world().entity(entity).get::<Animation>().unwrap();
+
+        assert_eq!(animation.start_index, expected.start_index());
+        assert_eq!(animation.frame_durations, expected.raw());
+        assert_eq!(animation.current_frame, 0);
+    }
+
+    #[test]
+    fn faction_change_updates_active_and_inactive_idle_state() {
+        let mut app = unit_render_test_app();
+        let active_entity = spawn_test_unit(&mut app, PlayerFaction::GreenEarth, true);
+        let inactive_entity = spawn_test_unit(&mut app, PlayerFaction::GreenEarth, false);
+
+        app.update();
+
+        app.world_mut()
+            .entity_mut(active_entity)
+            .insert(Faction(PlayerFaction::BlueMoon));
+        app.world_mut()
+            .entity_mut(inactive_entity)
+            .insert(Faction(PlayerFaction::BlueMoon));
+        app.update();
+
+        let expected = get_unit_animation_frames(
+            GraphicalMovement::Idle,
+            awbrn_core::Unit::Infantry,
+            PlayerFaction::BlueMoon,
+        );
+
+        let active_sprite = app.world().entity(active_entity).get::<Sprite>().unwrap();
+        let active_animation = app
+            .world()
+            .entity(active_entity)
+            .get::<Animation>()
+            .unwrap();
+        assert_eq!(
+            active_sprite.texture_atlas.as_ref().unwrap().index,
+            expected.start_index() as usize
+        );
+        assert_eq!(active_animation.start_index, expected.start_index());
+        assert_eq!(active_sprite.color, Color::WHITE);
+
+        let inactive_sprite = app.world().entity(inactive_entity).get::<Sprite>().unwrap();
+        assert_eq!(
+            inactive_sprite.texture_atlas.as_ref().unwrap().index,
+            expected.start_index() as usize
+        );
+        assert_eq!(inactive_sprite.color, INACTIVE_UNIT_COLOR);
+        assert!(
+            app.world()
+                .entity(inactive_entity)
+                .get::<Animation>()
+                .is_none()
+        );
     }
 }
