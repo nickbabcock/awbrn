@@ -14,6 +14,18 @@ pub use units::*;
 /// Color used for inactive units
 pub const INACTIVE_UNIT_COLOR: Color = Color::srgb(0.67, 0.67, 0.67);
 
+/// Z-layer ordering for rendering. Higher values render on top.
+/// Within each layer, a small y-based offset (0.001 per row) provides depth sorting.
+pub struct RenderLayer;
+
+impl RenderLayer {
+    pub const BACKDROP: i8 = 0;
+    pub const TERRAIN: i8 = 1;
+    pub const UNIT: i8 = 2;
+    pub const COURSE_ARROW: i8 = 3;
+    pub const CURSOR: i8 = 10;
+}
+
 #[derive(Component, Copy, Clone)]
 pub struct SpriteSize {
     pub width: f32,
@@ -216,12 +228,12 @@ mod tests {
         assert!(
             terrain_transform
                 .translation
-                .abs_diff_eq(Vec3::new(80.0, -48.0, 0.0), 0.1)
+                .abs_diff_eq(Vec3::new(80.0, -48.0, 1.0), 0.1)
         );
         assert!(
             unit_transform
                 .translation
-                .abs_diff_eq(Vec3::new(124.5, -36.0, 1.0), 0.1)
+                .abs_diff_eq(Vec3::new(124.5, -36.0, 2.0), 0.1)
         );
 
         app.world_mut()
@@ -243,12 +255,12 @@ mod tests {
         assert!(
             updated_terrain_transform
                 .translation
-                .abs_diff_eq(Vec3::new(16.0, -112.0, 0.0), 0.1)
+                .abs_diff_eq(Vec3::new(16.0, -112.0, 1.0), 0.1)
         );
         assert!(
             updated_unit_transform
                 .translation
-                .abs_diff_eq(Vec3::new(140.5, -20.0, 1.0), 0.1)
+                .abs_diff_eq(Vec3::new(140.5, -20.0, 2.0), 0.1)
         );
 
         assert_ne!(

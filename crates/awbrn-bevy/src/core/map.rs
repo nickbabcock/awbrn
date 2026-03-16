@@ -1,10 +1,10 @@
-use crate::core::SpriteSize;
+use crate::core::{RenderLayer, SpriteSize};
 use awbrn_core::GraphicalTerrain;
 use awbrn_map::{AwbrnMap, Position};
 use bevy::prelude::*;
 
 #[derive(Component)]
-#[require(SpriteSize { width: 16.0, height: 32.0, z_index: 0 })]
+#[require(SpriteSize { width: 16.0, height: 32.0, z_index: RenderLayer::TERRAIN })]
 pub struct TerrainTile {
     pub terrain: GraphicalTerrain,
     pub position: Position,

@@ -1,5 +1,5 @@
 use crate::core::map::{GameMap, TerrainTile};
-use crate::core::{MapPosition, SpriteSize};
+use crate::core::{MapPosition, RenderLayer, SpriteSize};
 use crate::render::animation::TerrainAnimation;
 use awbrn_core::GraphicalTerrain;
 use awbrn_map::Position;
@@ -8,7 +8,7 @@ use bevy::sprite::Anchor;
 use std::time::Duration;
 
 #[derive(Component)]
-#[require(SpriteSize { width: 16.0, height: 32.0, z_index: -1 })]
+#[require(SpriteSize { width: 16.0, height: 32.0, z_index: RenderLayer::BACKDROP })]
 pub struct MapBackdrop;
 
 #[derive(Component)]

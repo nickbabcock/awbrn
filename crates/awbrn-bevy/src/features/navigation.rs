@@ -1,5 +1,7 @@
 use crate::core::map::GameMap;
-use crate::core::{Faction, SpriteSize, Unit, UnitActive, position_to_world_translation};
+use crate::core::{
+    Faction, RenderLayer, SpriteSize, Unit, UnitActive, position_to_world_translation,
+};
 use crate::render::UiAtlas;
 use crate::render::animation::{
     Animation, UnitPathAnimation, UnitVisualState, ease_out_quint, flip_x_for_lateral_direction,
@@ -26,7 +28,7 @@ pub(crate) const COURSE_ARROW_STAGGER_MS: u64 = 25;
 pub(crate) const COURSE_ARROW_SPRITE_SIZE: SpriteSize = SpriteSize {
     width: 16.0,
     height: 16.0,
-    z_index: 0,
+    z_index: RenderLayer::COURSE_ARROW,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
