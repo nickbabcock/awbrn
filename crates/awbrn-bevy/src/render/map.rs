@@ -70,12 +70,21 @@ pub(crate) fn setup_map_visuals(
                 ));
 
                 if sprite_index.animation_frames() > 1 {
+                    let frame_durations = awbrn_core::get_terrain_animation_frames(terrain);
+                    let initial_duration = frame_durations
+                        .as_ref()
+                        .map(|f| f.get_duration(0))
+                        .unwrap_or(300);
                     entity_commands.insert((
                         TerrainAnimation {
                             start_index: sprite_index.index(),
                             frame_count: sprite_index.animation_frames(),
                             current_frame: 0,
-                            frame_timer: Timer::new(Duration::from_millis(300), TimerMode::Once),
+                            frame_timer: Timer::new(
+                                Duration::from_millis(initial_duration as u64),
+                                TimerMode::Once,
+                            ),
+                            frame_durations,
                         },
                         AnimatedTerrain,
                     ));
