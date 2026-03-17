@@ -20,20 +20,20 @@ pub(crate) fn advance_replay_action(
     let Some(action) = loaded_replay
         .0
         .turns
-        .get(replay_state.turn as usize)
+        .get(replay_state.next_action_index as usize)
         .cloned()
     else {
         return ReplayAdvanceResult::Exhausted;
     };
 
     commands.queue(ReplayTurnCommand { action });
-    replay_state.turn += 1;
+    replay_state.next_action_index += 1;
 
     if action_requires_path_animation(
         loaded_replay
             .0
             .turns
-            .get((replay_state.turn - 1) as usize)
+            .get((replay_state.next_action_index - 1) as usize)
             .expect("queued replay action should still exist"),
     ) {
         ReplayAdvanceResult::AdvancedWithLock
@@ -105,7 +105,7 @@ mod tests {
         send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, false);
         app.update();
 
-        assert_eq!(app.world().resource::<ReplayState>().turn, 1);
+        assert_eq!(app.world().resource::<ReplayState>().next_action_index, 1);
     }
 
     #[test]
@@ -117,7 +117,7 @@ mod tests {
         send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, true);
         app.update();
 
-        assert_eq!(app.world().resource::<ReplayState>().turn, 3);
+        assert_eq!(app.world().resource::<ReplayState>().next_action_index, 3);
     }
 
     #[test]
@@ -128,7 +128,7 @@ mod tests {
         send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Released, false);
         app.update();
 
-        assert_eq!(app.world().resource::<ReplayState>().turn, 0);
+        assert_eq!(app.world().resource::<ReplayState>().next_action_index, 0);
     }
 
     #[test]
@@ -137,13 +137,13 @@ mod tests {
 
         send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, false);
         app.update();
-        assert_eq!(app.world().resource::<ReplayState>().turn, 1);
+        assert_eq!(app.world().resource::<ReplayState>().next_action_index, 1);
 
         send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, true);
         send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, true);
         app.update();
 
-        assert_eq!(app.world().resource::<ReplayState>().turn, 1);
+        assert_eq!(app.world().resource::<ReplayState>().next_action_index, 1);
     }
 
     #[test]
@@ -152,20 +152,22 @@ mod tests {
 
         send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, false);
         app.update();
-        assert_eq!(app.world().resource::<ReplayState>().turn, 1);
+        assert_eq!(app.world().resource::<ReplayState>().next_action_index, 1);
 
         send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, true);
         app.update();
-        assert_eq!(app.world().resource::<ReplayState>().turn, 1);
+        assert_eq!(app.world().resource::<ReplayState>().next_action_index, 1);
 
         send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Released, false);
         app.update();
 
-        app.world_mut().resource_mut::<ReplayState>().turn = 0;
+        app.world_mut()
+            .resource_mut::<ReplayState>()
+            .next_action_index = 0;
         send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, false);
         app.update();
 
-        assert_eq!(app.world().resource::<ReplayState>().turn, 1);
+        assert_eq!(app.world().resource::<ReplayState>().next_action_index, 1);
     }
 
     #[test]
@@ -181,7 +183,7 @@ mod tests {
         send_key_event(&mut app, KeyCode::ArrowRight, ButtonState::Pressed, true);
         app.update();
 
-        assert_eq!(app.world().resource::<ReplayState>().turn, 1);
+        assert_eq!(app.world().resource::<ReplayState>().next_action_index, 1);
     }
 
     fn replay_controls_test_app(action_count: usize) -> App {

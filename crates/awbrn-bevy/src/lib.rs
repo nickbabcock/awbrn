@@ -5,6 +5,7 @@ mod json_plugin;
 pub mod loading;
 pub mod modes;
 pub mod render;
+pub mod snapshot;
 mod ui_atlas;
 
 pub use awbrn_plugin::AwbrnPlugin;

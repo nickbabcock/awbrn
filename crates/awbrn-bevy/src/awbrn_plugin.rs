@@ -89,16 +89,22 @@ impl Plugin for AwbrnPlugin {
         app.add_systems(
             OnEnter(LoadingState::Complete),
             (
-                crate::render::map::setup_map_visuals,
-                crate::modes::replay::commands::spawn_replay_units,
-                crate::modes::replay::commands::init_replay_state,
+                crate::modes::replay::bootstrap::initialize_replay_semantic_world,
+                crate::render::map::setup_map_backdrops,
+                crate::render::map::setup_terrain_visuals,
             )
                 .chain()
                 .run_if(in_state(GameMode::Replay)),
         );
         app.add_systems(
             OnEnter(LoadingState::Complete),
-            crate::render::map::setup_map_visuals.run_if(in_state(GameMode::Game)),
+            (
+                crate::core::map::initialize_terrain_semantic_world,
+                crate::render::map::setup_map_backdrops,
+                crate::render::map::setup_terrain_visuals,
+            )
+                .chain()
+                .run_if(in_state(GameMode::Game)),
         );
     }
 }

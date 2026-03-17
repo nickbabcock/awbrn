@@ -223,6 +223,7 @@ impl PlayerFaction {
 
 /// Army factions in the game
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum Faction {
     Neutral,
     Player(PlayerFaction),

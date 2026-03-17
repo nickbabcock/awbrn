@@ -101,6 +101,28 @@ pub enum Action {
 }
 
 impl Action {
+    pub fn kind_name(&self) -> &'static str {
+        match self {
+            Action::AttackSeam { .. } => "AttackSeam",
+            Action::Build { .. } => "Build",
+            Action::Capt { .. } => "Capt",
+            Action::End { .. } => "End",
+            Action::Fire { .. } => "Fire",
+            Action::Join { .. } => "Join",
+            Action::Load { .. } => "Load",
+            Action::Move(_) => "Move",
+            Action::Power(_) => "Power",
+            Action::Repair { .. } => "Repair",
+            Action::Resign { .. } => "Resign",
+            Action::Supply { .. } => "Supply",
+            Action::Unload { .. } => "Unload",
+            Action::Delete { .. } => "Delete",
+            Action::Hide { .. } => "Hide",
+            Action::Unhide { .. } => "Unhide",
+            Action::Tag { .. } => "Tag",
+        }
+    }
+
     pub fn move_action(&self) -> Option<&MoveAction> {
         match self {
             Action::Move(action) => Some(action),

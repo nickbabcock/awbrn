@@ -476,44 +476,20 @@ impl ReplayTurnCommand {
         };
 
         for entity in &unit_entities {
-            world.entity_mut(*entity).insert(UnitActive);
+            let Ok(mut entity_mut) = world.get_entity_mut(*entity) else {
+                warn!(
+                    "expected entity from query missing when setting UnitActive: {:?}",
+                    entity
+                );
+                continue;
+            };
+            entity_mut.insert(UnitActive);
         }
 
         if !unit_entities.is_empty() {
             log::info!("Activated {} units for new turn", unit_entities.len());
         }
     }
-}
-
-pub(crate) fn spawn_replay_units(mut commands: Commands, loaded_replay: Res<LoadedReplay>) {
-    let (players, replay_units) = if let Some(first_game) = loaded_replay.0.games.first() {
-        info!("Found {} units in replay", first_game.units.len());
-        (&first_game.players, &first_game.units)
-    } else {
-        info!("No games found in replay, not spawning units");
-        return;
-    };
-
-    for unit in replay_units {
-        let faction = players
-            .iter()
-            .find(|p| p.id == unit.players_id)
-            .unwrap()
-            .faction;
-
-        commands.spawn((
-            MapPosition::new(unit.x as usize, unit.y as usize),
-            Faction(faction),
-            AwbwUnitId(unit.id),
-            Unit(unit.name),
-            UnitActive,
-        ));
-    }
-}
-
-pub(crate) fn init_replay_state(mut commands: Commands) {
-    commands.init_resource::<ReplayState>();
-    commands.insert_resource(ReplayAdvanceLock::default());
 }
 
 #[cfg(test)]

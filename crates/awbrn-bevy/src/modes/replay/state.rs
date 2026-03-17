@@ -1,15 +1,19 @@
 use bevy::prelude::*;
 
 /// Resource tracking the current state of replay playback.
-#[derive(Resource)]
+#[derive(Resource, Reflect, Debug, Clone, Copy, PartialEq, Eq)]
+#[reflect(Resource)]
 pub struct ReplayState {
-    pub turn: u32,
+    pub next_action_index: u32,
     pub day: u32,
 }
 
 impl Default for ReplayState {
     fn default() -> Self {
-        Self { turn: 0, day: 1 }
+        Self {
+            next_action_index: 0,
+            day: 1,
+        }
     }
 }
 

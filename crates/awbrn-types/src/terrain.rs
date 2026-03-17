@@ -2,6 +2,7 @@ use crate::{AwbwTerrain, Faction, PlayerFaction};
 
 /// Status of the missile silo
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum MissileSiloStatus {
     Loaded,
     Unloaded,
@@ -9,6 +10,7 @@ pub enum MissileSiloStatus {
 
 /// River configurations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum RiverType {
     Horizontal, // HRiver
     Vertical,   // VRiver
@@ -25,6 +27,7 @@ pub enum RiverType {
 
 /// Road configurations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum RoadType {
     Horizontal, // HRoad
     Vertical,   // VRoad
@@ -41,6 +44,7 @@ pub enum RoadType {
 
 /// Bridge types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum BridgeType {
     Horizontal,
     Vertical,
@@ -48,6 +52,7 @@ pub enum BridgeType {
 
 /// Shoal types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum ShoalType {
     Horizontal,
     HorizontalNorth,
@@ -57,6 +62,7 @@ pub enum ShoalType {
 
 /// Sea configurations based on the variants file
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 #[expect(non_camel_case_types)]
 pub enum SeaDirection {
     E,
@@ -112,6 +118,7 @@ pub enum SeaDirection {
 
 /// Shoal configurations based on the variants file
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum ShoalDirection {
     AE,
     AEAS,
@@ -198,6 +205,7 @@ pub enum ShoalDirection {
 
 /// Pipe configurations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum PipeType {
     Vertical,
     Horizontal,
@@ -213,6 +221,7 @@ pub enum PipeType {
 
 /// Pipe seam types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum PipeSeamType {
     Horizontal,
     Vertical,
@@ -220,6 +229,7 @@ pub enum PipeSeamType {
 
 /// Pipe rubble types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum PipeRubbleType {
     Horizontal,
     Vertical,
@@ -227,6 +237,7 @@ pub enum PipeRubbleType {
 
 /// Property types combining building type and owner
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum Property {
     // Regular properties that can be neutral
     City(Faction),
@@ -484,6 +495,7 @@ pub enum GameplayTerrain {
 /// Terrain that represents the graphical representation. One can have tall
 /// mountains and stubby mountains, but functionally they act the same.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum GraphicalTerrain {
     // Basic terrains
     StubbyMoutain,

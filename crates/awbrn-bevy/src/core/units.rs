@@ -1,5 +1,6 @@
 use crate::core::{RenderLayer, SpriteSize};
 use bevy::ecs::entity::MapEntities;
+use bevy::ecs::reflect::ReflectMapEntities;
 use bevy::ecs::relationship::RelationshipSourceCollection;
 use bevy::prelude::*;
 
@@ -14,39 +15,46 @@ pub(crate) fn on_unit_destroyed(trigger: On<UnitDestroyed>, mut commands: Comman
 
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[component(immutable)]
+#[reflect(Component)]
 #[require(SpriteSize { width: 23.0, height: 24.0, z_index: RenderLayer::UNIT })]
 pub struct Unit(pub awbrn_core::Unit);
 
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[component(immutable)]
+#[reflect(Component)]
 pub struct Faction(pub awbrn_core::PlayerFaction);
 
 /// Component to mark a unit that can receive orders this turn.
 /// Units without this component have already acted and appear grey/frozen.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq)]
 #[component(storage = "SparseSet")]
+#[reflect(Component)]
 pub struct UnitActive;
 
 /// Component to mark an entity as capturing a building
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[component(storage = "SparseSet")]
+#[reflect(Component)]
 pub struct Capturing;
 
 /// Relationship component placed on carried units, pointing to their transport.
-#[derive(Component)]
+#[derive(Component, Reflect, MapEntities, Debug, Clone, Copy, PartialEq, Eq)]
+#[reflect(Component, MapEntities)]
 #[relationship(relationship_target = HasCargo)]
-pub struct CarriedBy(pub Entity);
+pub struct CarriedBy(#[entities] pub Entity);
 
-/// Fixed-capacity collection for up to 2 cargo entities.
-#[derive(Debug, Clone)]
-pub struct Cargo(pub [Option<Entity>; 2]);
+const CARGO_CAPACITY: usize = 2;
+
+/// Fixed-capacity collection for cargo entities.
+#[derive(Reflect, Debug, Clone, PartialEq, Eq)]
+pub struct Cargo(pub [Option<Entity>; CARGO_CAPACITY]);
 
 impl RelationshipSourceCollection for Cargo {
     type SourceIter<'a> =
         core::iter::Copied<core::iter::Flatten<core::slice::Iter<'a, Option<Entity>>>>;
 
     fn new() -> Self {
-        Cargo([None; 2])
+        Cargo([None; CARGO_CAPACITY])
     }
 
     fn with_capacity(_capacity: usize) -> Self {
@@ -82,7 +90,7 @@ impl RelationshipSourceCollection for Cargo {
     }
 
     fn clear(&mut self) {
-        self.0 = [None; 2];
+        self.0 = [None; CARGO_CAPACITY];
     }
 
     fn shrink_to_fit(&mut self) {}
@@ -105,12 +113,14 @@ impl MapEntities for Cargo {
 }
 
 /// Relationship target on transports, auto-maintained by Bevy when `CarriedBy` is added/removed.
-#[derive(Component)]
+#[derive(Component, Reflect, MapEntities, Debug, Clone, PartialEq, Eq)]
+#[reflect(Component, MapEntities)]
 #[relationship_target(relationship = CarriedBy)]
 pub struct HasCargo(Cargo);
 
-#[derive(Debug, Component, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Component, Reflect, Clone, Copy, PartialEq, Eq, Hash)]
 #[component(immutable)]
+#[reflect(Component)]
 pub struct GraphicalHp(pub u8);
 
 impl GraphicalHp {
