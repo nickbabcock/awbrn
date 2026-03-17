@@ -3,25 +3,16 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,css}\"",
-    "format:check": "prettier --check \"**/*.{js,jsx,ts,tsx,css}\"",
+    "format": "oxfmt web",
+    "format:check": "oxfmt --check web",
     "lint": "oxlint",
     "typecheck": "tsc --build"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "oxfmt": "0.41.0",
     "oxlint": "1.41.0",
-    "prettier-plugin-tailwindcss": "0.7.2",
-    "prettier": "3.8.1",
     "typescript": "catalog:"
-  },
-  "prettier": {
-    "plugins": [
-      "prettier-plugin-tailwindcss"
-    ],
-    "tailwindFunctions": [
-      "cx"
-    ]
   },
   "packageManager": "pnpm@10.28.1"
 }

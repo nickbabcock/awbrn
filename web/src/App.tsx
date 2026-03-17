@@ -12,9 +12,7 @@ function App() {
   const currentDay = useGameStore((state) => state.currentDay);
   const { setCurrentDay } = useGameActions();
 
-  const handleReplayFileChange = async (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleReplayFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && gameInstance) {
       try {
@@ -39,14 +37,8 @@ function App() {
       const logical = Math.floor(physicalSize / ratio);
       return { logical, physical: physicalSize };
     };
-    const snappedWidth = snapToDevicePixel(
-      bounds.width,
-      window.devicePixelRatio,
-    );
-    const snappedHeight = snapToDevicePixel(
-      bounds.height,
-      window.devicePixelRatio,
-    );
+    const snappedWidth = snapToDevicePixel(bounds.width, window.devicePixelRatio);
+    const snappedHeight = snapToDevicePixel(bounds.height, window.devicePixelRatio);
     let logicalCanvasWidth = snappedWidth.logical;
     let logicalCanvasHeight = snappedHeight.logical;
 
@@ -97,14 +89,8 @@ function App() {
       const ro = new ResizeObserver((_entries) => {
         const bounds = container.getBoundingClientRect();
 
-        const snappedWidth = snapToDevicePixel(
-          bounds.width,
-          window.devicePixelRatio,
-        );
-        const snappedHeight = snapToDevicePixel(
-          bounds.height,
-          window.devicePixelRatio,
-        );
+        const snappedWidth = snapToDevicePixel(bounds.width, window.devicePixelRatio);
+        const snappedHeight = snapToDevicePixel(bounds.height, window.devicePixelRatio);
 
         logicalCanvasWidth = snappedWidth.logical;
         logicalCanvasHeight = snappedHeight.logical;
@@ -156,10 +142,8 @@ function App() {
           return;
         }
 
-        const x =
-          ((event.clientX - rect.left) / rect.width) * logicalCanvasWidth;
-        const y =
-          ((event.clientY - rect.top) / rect.height) * logicalCanvasHeight;
+        const x = ((event.clientX - rect.left) / rect.width) * logicalCanvasWidth;
+        const y = ((event.clientY - rect.top) / rect.height) * logicalCanvasHeight;
 
         game.handleMouseMove(x, y);
       });
@@ -186,12 +170,7 @@ function App() {
           left: "0",
         }}
       >
-        <canvas
-          ref={canvasRef}
-          width={600}
-          height={400}
-          style={{ display: "block" }}
-        />
+        <canvas ref={canvasRef} width={600} height={400} style={{ display: "block" }} />
       </div>
       <div
         style={{

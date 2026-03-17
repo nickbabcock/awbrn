@@ -22,9 +22,7 @@ export default defineConfig({
           }
 
           const mapId = match[1];
-          server.config.logger.info(
-            `Intercepting request for map ${mapId}.json`,
-          );
+          server.config.logger.info(`Intercepting request for map ${mapId}.json`);
 
           const resp = await fetch(
             `https://awbw.amarriner.com/api/map/map_info.php?maps_id=${mapId}`,

@@ -4,9 +4,7 @@ import { proxy } from "comlink";
 
 const initialized = init({ module_or_path: wasmPath });
 
-export const createGame = async (
-  ...args: ConstructorParameters<typeof BevyApp>
-) => {
+export const createGame = async (...args: ConstructorParameters<typeof BevyApp>) => {
   await initialized;
   const app = new BevyApp(...args);
 
@@ -44,8 +42,7 @@ export const createGame = async (
       app.handle_mouse_leave();
     },
     newReplay: async (file: File | FileSystemFileHandle) => {
-      const fileHandle =
-        file instanceof FileSystemFileHandle ? await file.getFile() : file;
+      const fileHandle = file instanceof FileSystemFileHandle ? await file.getFile() : file;
       const fileData = await fileHandle.arrayBuffer();
       const fileBuffer = new Uint8Array(fileData);
       app.new_replay(fileBuffer);
