@@ -14,6 +14,17 @@ pub struct TerrainTile {
     pub terrain: GraphicalTerrain,
 }
 
+/// Terrain HP is used for destructible terrain like pipe seams.
+#[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[reflect(Component)]
+pub struct TerrainHp(pub u8);
+
+impl TerrainHp {
+    pub fn value(&self) -> u8 {
+        self.0
+    }
+}
+
 /// Add a resource to store the loaded map
 #[derive(Resource)]
 pub struct GameMap(AwbrnMap);
@@ -40,6 +51,14 @@ impl GameMap {
 
     pub fn terrain_at(&self, position: Position) -> Option<GraphicalTerrain> {
         self.0.terrain_at(position)
+    }
+
+    pub fn set_terrain(
+        &mut self,
+        position: Position,
+        terrain: GraphicalTerrain,
+    ) -> Option<GraphicalTerrain> {
+        self.0.set_terrain(position, terrain)
     }
 }
 

@@ -486,6 +486,21 @@ impl AwbrnMap {
         self.terrain.get(pos.y * self.width + pos.x).copied()
     }
 
+    /// Set the terrain at the specified position, returning the previous terrain.
+    pub fn set_terrain(
+        &mut self,
+        pos: Position,
+        terrain: GraphicalTerrain,
+    ) -> Option<GraphicalTerrain> {
+        if pos.x >= self.width || pos.y >= self.height {
+            return None;
+        }
+        let slot = self.terrain.get_mut(pos.y * self.width + pos.x)?;
+        let previous = *slot;
+        *slot = terrain;
+        Some(previous)
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (Position, GraphicalTerrain)> {
         self.terrain.iter().enumerate().map(move |(idx, terrain)| {
             let y = idx / self.width;
