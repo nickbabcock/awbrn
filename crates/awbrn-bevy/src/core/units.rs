@@ -17,6 +17,7 @@ pub(crate) fn on_unit_destroyed(trigger: On<UnitDestroyed>, mut commands: Comman
 #[component(immutable)]
 #[reflect(Component)]
 #[require(SpriteSize { width: 23.0, height: 24.0, z_index: RenderLayer::UNIT })]
+/// `Unit` must only exist on entities that also have `MapPosition`.
 pub struct Unit(pub awbrn_core::Unit);
 
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]

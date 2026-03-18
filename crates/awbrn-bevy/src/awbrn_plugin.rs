@@ -123,6 +123,7 @@ pub(crate) mod test_helpers {
     pub(crate) fn replay_animation_test_app() -> App {
         let mut app = App::new();
         app.insert_resource(Time::<()>::default());
+        app.insert_resource(BoardIndex::new(40, 40));
         app.init_resource::<GameMap>();
         app.init_resource::<StrongIdMap<AwbwUnitId>>();
         app.init_resource::<Assets<crate::UiAtlasAsset>>();

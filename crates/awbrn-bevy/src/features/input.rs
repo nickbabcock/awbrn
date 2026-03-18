@@ -1,8 +1,11 @@
 use crate::core::grid::GridSystem;
 use crate::core::map::{GameMap, TerrainTile};
-use crate::core::{MapPosition, RenderLayer, SpriteSize, map_position_to_world_translation};
+use crate::core::{
+    BoardIndex, MapPosition, RenderLayer, SpriteSize, map_position_to_world_translation,
+};
 use crate::features::event_bus::{ExternalGameEvent, GameEvent, TileSelected};
 use crate::render::UiAtlas;
+use awbrn_map::Position;
 use bevy::prelude::*;
 
 /// Component to mark the currently selected tile
@@ -12,6 +15,11 @@ pub struct SelectedTile;
 /// Marker component for the tile hover cursor sprite entity.
 #[derive(Component)]
 pub struct TileCursor;
+
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MapPositionClicked {
+    pub position: Position,
+}
 
 pub(crate) const TILE_CORE_SPRITE_SIZE: SpriteSize = SpriteSize {
     width: GridSystem::TILE_SIZE,
@@ -93,14 +101,12 @@ pub(crate) fn update_tile_cursor(
     *visibility = Visibility::Visible;
 }
 
-pub(crate) fn handle_tile_clicks(
+pub(crate) fn detect_map_clicks(
     mouse_button_input: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     camera_q: Query<(&Camera, &GlobalTransform)>,
-    tiles: Query<(Entity, &Transform, &TerrainTile, &MapPosition)>,
-    mut commands: Commands,
-    selected: Query<Entity, With<SelectedTile>>,
-    mut event_writer: MessageWriter<ExternalGameEvent>,
+    game_map: Res<GameMap>,
+    mut click_writer: MessageWriter<MapPositionClicked>,
 ) {
     if !mouse_button_input.just_pressed(MouseButton::Left) {
         return;
@@ -123,51 +129,61 @@ pub(crate) fn handle_tile_clicks(
     };
 
     let world_position = ray.origin.truncate();
+    let Some(map_position) = world_to_map_position(world_position, game_map.as_ref()) else {
+        return;
+    };
+
+    click_writer.write(MapPositionClicked {
+        position: map_position.position(),
+    });
+}
+
+pub(crate) fn handle_tile_clicks(
+    board_index: Res<BoardIndex>,
+    tiles: Query<&TerrainTile>,
+    mut commands: Commands,
+    selected: Query<Entity, With<SelectedTile>>,
+    mut click_reader: MessageReader<MapPositionClicked>,
+    mut event_writer: MessageWriter<ExternalGameEvent>,
+) {
+    let Some(MapPositionClicked { position }) = click_reader.read().last().copied() else {
+        return;
+    };
 
     for entity in selected.iter() {
         commands.entity(entity).remove::<SelectedTile>();
     }
 
-    let mut closest_distance = f32::MAX;
-    let mut closest_entity = None;
+    let Ok(terrain_entity) = board_index.terrain_entity(position) else {
+        return;
+    };
+    let Ok(tile) = tiles.get(terrain_entity) else {
+        return;
+    };
 
-    for (entity, transform, tile, map_position) in tiles.iter() {
-        let tile_pos = transform.translation.truncate();
-        let distance = world_position.distance(tile_pos);
+    commands.entity(terrain_entity).insert(SelectedTile);
+    info!("Selected terrain at {:?}: {:?}", position, tile.terrain);
 
-        if distance < closest_distance {
-            closest_distance = distance;
-            closest_entity = Some((entity, tile, map_position));
-        }
-    }
-
-    if let Some((entity, tile, map_position)) = closest_entity
-        && closest_distance < 16.0
-    {
-        commands.entity(entity).insert(SelectedTile);
-        info!(
-            "Selected terrain at {:?}: {:?}",
-            map_position.position(),
-            tile.terrain
-        );
-
-        event_writer.write(ExternalGameEvent {
-            payload: GameEvent::TileSelected(TileSelected {
-                x: map_position.x(),
-                y: map_position.y(),
-                terrain_type: format!("{:?}", tile.terrain),
-            }),
-        });
-    }
+    event_writer.write(ExternalGameEvent {
+        payload: GameEvent::TileSelected(TileSelected {
+            x: position.x,
+            y: position.y,
+            terrain_type: format!("{:?}", tile.terrain),
+        }),
+    });
 }
 
 pub struct InputPlugin;
 
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
+        app.add_message::<MapPositionClicked>();
         app.add_systems(
             Update,
-            (handle_tile_clicks, update_tile_cursor)
+            (
+                (detect_map_clicks, handle_tile_clicks).chain(),
+                update_tile_cursor,
+            )
                 .run_if(in_state(crate::core::AppState::InGame)),
         );
     }

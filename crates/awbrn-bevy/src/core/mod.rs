@@ -1,11 +1,15 @@
+pub mod board_index;
 pub mod grid;
 pub mod id_index;
 pub mod map;
 pub mod units;
 
 use awbrn_map::Position;
+use bevy::ecs::lifecycle::HookContext;
+use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 
+pub use board_index::*;
 pub use grid::*;
 pub use id_index::*;
 pub use map::*;
@@ -34,7 +38,11 @@ pub struct SpriteSize {
 }
 
 #[derive(Component, Reflect, Clone, Copy, PartialEq, Eq, Debug)]
-#[component(immutable)]
+#[component(
+    immutable,
+    on_insert = on_map_position_insert_into_board_index,
+    on_replace = on_map_position_replace_in_board_index
+)]
 #[reflect(Component)]
 #[require(Transform)]
 pub struct MapPosition(pub Position);
@@ -72,6 +80,60 @@ impl From<MapPosition> for Position {
 impl AsRef<Position> for MapPosition {
     fn as_ref(&self) -> &Position {
         &self.0
+    }
+}
+
+fn on_map_position_insert_into_board_index(
+    mut world: DeferredWorld,
+    HookContext { entity, .. }: HookContext,
+) {
+    let Some(position) = world.get::<MapPosition>(entity).copied() else {
+        return;
+    };
+
+    let has_unit = world.get::<Unit>(entity).is_some();
+    let has_terrain = world.get::<TerrainTile>(entity).is_some();
+
+    if has_unit && has_terrain {
+        warn!(
+            "Entity {:?} has both Unit and TerrainTile at {:?}; indexing both is invalid ECS state",
+            entity,
+            position.position()
+        );
+    }
+
+    if has_unit {
+        board_index::add_unit_to_board_index(world.reborrow(), entity, position.position());
+    }
+    if has_terrain {
+        board_index::add_terrain_to_board_index(world, entity, position.position());
+    }
+}
+
+fn on_map_position_replace_in_board_index(
+    mut world: DeferredWorld,
+    HookContext { entity, .. }: HookContext,
+) {
+    let Some(position) = world.get::<MapPosition>(entity).copied() else {
+        return;
+    };
+
+    let has_unit = world.get::<Unit>(entity).is_some();
+    let has_terrain = world.get::<TerrainTile>(entity).is_some();
+
+    if has_unit && has_terrain {
+        warn!(
+            "Entity {:?} has both Unit and TerrainTile at {:?}; removing both from BoardIndex",
+            entity,
+            position.position()
+        );
+    }
+
+    if has_unit {
+        board_index::remove_unit_from_board_index(world.reborrow(), entity, position.position());
+    }
+    if has_terrain {
+        board_index::remove_terrain_from_board_index(world, entity, position.position());
     }
 }
 
@@ -153,6 +215,7 @@ pub struct CorePlugin;
 impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GameMap>()
+            .init_resource::<BoardIndex>()
             .init_state::<AppState>()
             .init_state::<GameMode>()
             .add_sub_state::<LoadingState>()
