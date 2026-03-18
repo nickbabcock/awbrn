@@ -1,7 +1,7 @@
 [tools]
 "aqua:pnpm" = { version = "10.28.1" }
 "node" = { version = "24.11.1" }
-"github:rustwasm/wasm-bindgen" = { version = "0.2.106", extract_all = "true" }
+"github:rustwasm/wasm-bindgen" = { version = "0.2.114", extract_all = "true" }
 "github:WebAssembly/binaryen" = { version = "version_125", extract_all = "true", bin_path = "bin" }
 
 [env]
