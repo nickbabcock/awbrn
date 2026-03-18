@@ -163,7 +163,7 @@ pub(crate) fn check_assets_loaded(
     next_state.set(LoadingState::Complete);
 }
 
-pub(crate) fn apply_replay_building_overrides(map: &mut AwbwMap, buildings: &[AwbwBuilding]) {
+pub fn apply_replay_building_overrides(map: &mut AwbwMap, buildings: &[AwbwBuilding]) {
     for building in buildings {
         let position = Position::new(building.x as usize, building.y as usize);
         let Some(terrain) = map.terrain_at_mut(position) else {

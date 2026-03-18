@@ -35,6 +35,7 @@ pub struct SpriteSize {
 
 #[derive(Component, Reflect, Clone, Copy, PartialEq, Eq, Debug)]
 #[component(immutable)]
+#[reflect(Component)]
 #[require(Transform)]
 pub struct MapPosition(pub Position);
 
