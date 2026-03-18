@@ -221,6 +221,14 @@ mod tests {
             co_name: "Test CO".to_string(),
             co_power: "N".to_string(),
             power_name: "Test Power".to_string(),
+            players_cop: 0,
+            global: None,
+            hp_change: None,
+            unit_replace: None,
+            unit_add: None,
+            player_replace: None,
+            missile_coords: None,
+            weather: None,
         })
     }
 

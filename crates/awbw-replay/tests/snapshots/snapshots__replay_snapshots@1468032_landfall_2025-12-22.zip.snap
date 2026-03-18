@@ -4,7 +4,7 @@ expression: snapshot
 input_file: assets/replays/1468032_landfall_2025-12-22.zip
 ---
 {
-  "checksum": "0x021d5bdee3475d801eb22cf0904c13258727560f445b5c52ff73b65a72904e63",
+  "checksum": "0x87a34136c5a95ba45b5ee3cba4e52dad74c08f01bbfa9b06ec5678ed013569e3",
   "file_entries": [
     {
       "data": {

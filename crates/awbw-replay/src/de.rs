@@ -493,6 +493,73 @@ where
     }
 }
 
+/// Deserializes a `u32` that the server may encode as either a number or a quoted string.
+/// Useful in missile coordinates from Rachel CO power.
+pub fn str_or_u32<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct Visitor;
+
+    impl de::Visitor<'_> for Visitor {
+        type Value = u32;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("u32 or string-encoded u32")
+        }
+
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<u32, E> {
+            u32::try_from(v).map_err(|_| E::custom(format!("u32 out of range: {v}")))
+        }
+
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<u32, E> {
+            u32::try_from(v).map_err(|_| E::custom(format!("expected non-negative u32: {v}")))
+        }
+
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<u32, E> {
+            v.parse()
+                .map_err(|_| E::custom(format!("expected u32 string, got {v:?}")))
+        }
+    }
+
+    deserializer.deserialize_any(Visitor)
+}
+
+/// Deserializes a field that the server encodes as either `""` (absent) or an object.
+/// Maps `""` to `None` and `{...}` to `Some(T)`.
+pub fn empty_str_or_struct<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    struct Visitor<T>(PhantomData<T>);
+
+    impl<'de, T: Deserialize<'de>> de::Visitor<'de> for Visitor<T> {
+        type Value = Option<T>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("an empty string or object")
+        }
+
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+            if v.is_empty() {
+                Ok(None)
+            } else {
+                Err(E::custom(format!(
+                    "expected empty string or object, got {v:?}"
+                )))
+            }
+        }
+
+        fn visit_map<A: de::MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+            let deser = de::value::MapAccessDeserializer::new(map);
+            Ok(Some(T::deserialize(deser)?))
+        }
+    }
+
+    deserializer.deserialize_any(Visitor(PhantomData))
+}
+
 pub mod awbw_unit_name {
     use awbrn_core::Unit;
     use serde::{Deserialize, Deserializer, Serializer};
