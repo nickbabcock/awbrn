@@ -1,22 +1,19 @@
 import { useEffect, useRef } from "react";
 import "./App.css";
-import { proxy, transfer, wrap } from "comlink";
-import { GameWorker } from "./worker_types";
-import { GameEvent } from "./wasm/awbrn_wasm";
-import { useGameStore, useGameActions } from "./store";
-
-let gameInstance: Awaited<ReturnType<GameWorker["createGame"]>> | undefined;
+import { gameRunner } from "./game_runner";
+import { useGameStore } from "./store";
 
 function App() {
+  const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const currentDay = useGameStore((state) => state.currentDay);
-  const { setCurrentDay } = useGameActions();
 
   const handleReplayFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file && gameInstance) {
+    if (file) {
       try {
-        await gameInstance.newReplay(file);
+        await gameRunner.loadReplay(file);
+        canvasRef.current?.focus({ preventScroll: true });
       } catch (error) {
         console.error("Error loading replay:", error);
       }
@@ -25,152 +22,36 @@ function App() {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    if (canvas.dataset.transferred === "true") return;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
 
-    // Create an OffscreenCanvas from the visible canvas
-    const container = document.getElementById("container")!;
-    const bounds = container.getBoundingClientRect();
-
-    const snapToDevicePixel = (size: number, ratio: number) => {
-      const physicalSize = Math.floor(size * ratio);
-      const logical = Math.floor(physicalSize / ratio);
-      return { logical, physical: physicalSize };
-    };
-    const snappedWidth = snapToDevicePixel(bounds.width, window.devicePixelRatio);
-    const snappedHeight = snapToDevicePixel(bounds.height, window.devicePixelRatio);
-    let logicalCanvasWidth = snappedWidth.logical;
-    let logicalCanvasHeight = snappedHeight.logical;
-
-    canvas.width = snappedWidth.physical;
-    canvas.height = snappedHeight.physical;
-    canvas.style.width = `${snappedWidth.logical}px`;
-    canvas.style.height = `${snappedHeight.logical}px`;
-
-    const offscreenCanvas = canvas.transferControlToOffscreen();
-    canvas.dataset.transferred = "true";
-
-    const webWorker = new Worker(new URL("./worker.ts", import.meta.url), {
-      type: "module",
+    gameRunner.attachCanvas({ canvas, container }).catch((error) => {
+      console.error("Error attaching game runner:", error);
     });
 
-    let abortController = new AbortController();
-    let worker = wrap<GameWorker>(webWorker);
-
-    const setupGame = async () => {
-      const game = await worker.createGame(
-        transfer(offscreenCanvas, [offscreenCanvas]),
-        {
-          width: snappedWidth.logical,
-          height: snappedHeight.logical,
-          scaleFactor: window.devicePixelRatio,
-        },
-        proxy((event: GameEvent) => {
-          switch (event.type) {
-            case "NewDay": {
-              console.log(`New day: ${event.day}`);
-              setCurrentDay(event.day);
-              break;
-            }
-            case "MapDimensions": {
-              container.style.width = `${event.width}px`;
-              container.style.height = `${event.height}px`;
-              break;
-            }
-            default: {
-              break;
-            }
-          }
-        }),
-      );
-
-      gameInstance = game;
-
-      const ro = new ResizeObserver((_entries) => {
-        const bounds = container.getBoundingClientRect();
-
-        const snappedWidth = snapToDevicePixel(bounds.width, window.devicePixelRatio);
-        const snappedHeight = snapToDevicePixel(bounds.height, window.devicePixelRatio);
-
-        logicalCanvasWidth = snappedWidth.logical;
-        logicalCanvasHeight = snappedHeight.logical;
-        canvas.style.width = `${snappedWidth.logical}px`;
-        canvas.style.height = `${snappedHeight.logical}px`;
-
-        game.resize({
-          width: snappedWidth.logical,
-          height: snappedHeight.logical,
-          scaleFactor: window.devicePixelRatio,
-        });
-      });
-      ro.observe(container);
-
-      document.addEventListener(
-        "keydown",
-        (event) => {
-          game.handleKeyDown({
-            key: event.key,
-            keyCode: event.code,
-            repeat: event.repeat,
-          });
-        },
-        { signal: abortController.signal },
-      );
-
-      document.addEventListener("keyup", (event) => {
-        game.handleKeyUp({
-          key: event.key,
-          keyCode: event.code,
-          repeat: event.repeat,
-        });
-      });
-
-      // Pause game when tab is not visible
-      const handleVisibilityChange = () => {
-        if (document.hidden) {
-          game.pause();
-        } else {
-          game.resume();
-        }
-      };
-
-      document.addEventListener("visibilitychange", handleVisibilityChange);
-
-      canvas.addEventListener("mousemove", (event) => {
-        const rect = canvas.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) {
-          return;
-        }
-
-        const x = ((event.clientX - rect.left) / rect.width) * logicalCanvasWidth;
-        const y = ((event.clientY - rect.top) / rect.height) * logicalCanvasHeight;
-
-        game.handleMouseMove(x, y);
-      });
-
-      canvas.addEventListener("mouseleave", () => {
-        game.handleMouseLeave();
-      });
+    return () => {
+      gameRunner.detachCanvas(canvas);
     };
-
-    setupGame();
-
-    // return () => {
-    //   abortController.abort();
-    // };
   }, []);
 
   return (
     <>
       <div
-        id="container"
+        ref={containerRef}
         style={{
           position: "absolute",
           top: "0",
           left: "0",
         }}
       >
-        <canvas ref={canvasRef} width={600} height={400} style={{ display: "block" }} />
+        <canvas
+          className="game-canvas"
+          ref={canvasRef}
+          width={600}
+          height={400}
+          tabIndex={0}
+          style={{ display: "block" }}
+        />
       </div>
       <div
         style={{

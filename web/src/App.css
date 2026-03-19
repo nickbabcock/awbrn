@@ -4,3 +4,8 @@
   padding: 2rem;
   text-align: center;
 }
+
+.game-canvas:focus,
+.game-canvas:focus-visible {
+  outline: none;
+}
