@@ -91,7 +91,6 @@ impl Plugin for AwbrnPlugin {
             (
                 crate::modes::replay::bootstrap::initialize_replay_semantic_world,
                 crate::render::map::setup_map_backdrops,
-                crate::render::map::setup_terrain_visuals,
             )
                 .chain()
                 .run_if(in_state(GameMode::Replay)),
@@ -101,7 +100,6 @@ impl Plugin for AwbrnPlugin {
             (
                 crate::core::map::initialize_terrain_semantic_world,
                 crate::render::map::setup_map_backdrops,
-                crate::render::map::setup_terrain_visuals,
             )
                 .chain()
                 .run_if(in_state(GameMode::Game)),
@@ -119,8 +117,8 @@ pub(crate) mod test_helpers {
     use crate::features::weather::CurrentWeather;
     use crate::modes::replay::AwbwUnitId;
     use crate::modes::replay::commands::ReplayAdvanceLock;
-    use crate::render::UiAtlasResource;
     use crate::render::units::on_unit_active_remove;
+    use crate::render::{TerrainAtlasResource, UiAtlasResource};
     use awbrn_core::{AwbwUnitId as CoreUnitId, GraphicalTerrain, PlayerFaction, Property};
     use awbrn_map::{AwbrnMap, Position};
     use awbw_replay::turn_models::{
@@ -140,7 +138,12 @@ pub(crate) mod test_helpers {
         app.init_resource::<Assets<TextureAtlasLayout>>();
         app.insert_resource(ReplayAdvanceLock::default());
         app.insert_resource(CurrentWeather::default());
+        app.insert_resource(TerrainAtlasResource {
+            texture: Handle::default(),
+            layout: Handle::default(),
+        });
         app.add_observer(on_map_position_insert);
+        app.add_observer(crate::render::map::on_terrain_tile_insert);
         app.add_observer(on_unit_active_remove);
         app.add_observer(spawn_pending_course_arrows);
         app.add_systems(Update, (animate_course_arrows, animate_unit_paths));
@@ -246,7 +249,6 @@ pub(crate) mod test_helpers {
             ),
             crate::core::map::TerrainTile {
                 terrain: GraphicalTerrain::Property(Property::City(awbrn_core::Faction::Neutral)),
-                position,
             },
         ));
     }

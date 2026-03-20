@@ -97,7 +97,7 @@ pub(crate) fn handle_tile_clicks(
     mouse_button_input: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     camera_q: Query<(&Camera, &GlobalTransform)>,
-    tiles: Query<(Entity, &Transform, &TerrainTile)>,
+    tiles: Query<(Entity, &Transform, &TerrainTile, &MapPosition)>,
     mut commands: Commands,
     selected: Query<Entity, With<SelectedTile>>,
     mut event_writer: MessageWriter<ExternalGameEvent>,
@@ -131,29 +131,30 @@ pub(crate) fn handle_tile_clicks(
     let mut closest_distance = f32::MAX;
     let mut closest_entity = None;
 
-    for (entity, transform, tile) in tiles.iter() {
+    for (entity, transform, tile, map_position) in tiles.iter() {
         let tile_pos = transform.translation.truncate();
         let distance = world_position.distance(tile_pos);
 
         if distance < closest_distance {
             closest_distance = distance;
-            closest_entity = Some((entity, tile));
+            closest_entity = Some((entity, tile, map_position));
         }
     }
 
-    if let Some((entity, tile)) = closest_entity
+    if let Some((entity, tile, map_position)) = closest_entity
         && closest_distance < 16.0
     {
         commands.entity(entity).insert(SelectedTile);
         info!(
             "Selected terrain at {:?}: {:?}",
-            tile.position, tile.terrain
+            map_position.position(),
+            tile.terrain
         );
 
         event_writer.write(ExternalGameEvent {
             payload: GameEvent::TileSelected(TileSelected {
-                x: tile.position.x,
-                y: tile.position.y,
+                x: map_position.x(),
+                y: map_position.y(),
                 terrain_type: format!("{:?}", tile.terrain),
             }),
         });

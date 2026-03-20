@@ -1,5 +1,4 @@
 use crate::core::map::TerrainTile;
-use crate::render::animation::TerrainAnimation;
 use crate::render::map::MapBackdrop;
 use awbrn_core::Weather;
 use bevy::prelude::*;
@@ -39,9 +38,20 @@ pub(crate) fn handle_weather_toggle(
     }
 }
 
-pub(crate) fn update_backdrop_on_weather_change(
+/// Re-insert each TerrainTile to trigger the on_terrain_tile_insert observer,
+/// which re-derives sprite and animation state from the current weather.
+pub(crate) fn refresh_terrain_on_weather_change(
+    terrain_query: Query<(Entity, &TerrainTile)>,
+    mut commands: Commands,
+) {
+    for (entity, terrain_tile) in &terrain_query {
+        commands.entity(entity).insert(*terrain_tile);
+    }
+}
+
+pub(crate) fn refresh_backdrops_on_weather_change(
     current_weather: Res<CurrentWeather>,
-    mut backdrop_query: Query<&mut Sprite, (With<MapBackdrop>, Without<TerrainTile>)>,
+    mut backdrop_query: Query<&mut Sprite, With<MapBackdrop>>,
 ) {
     let plain_index = awbrn_core::spritesheet_index(
         current_weather.weather(),
@@ -55,64 +65,6 @@ pub(crate) fn update_backdrop_on_weather_change(
     }
 }
 
-type StaticTerrainQuery<'w, 's> = Query<
-    'w,
-    's,
-    (&'static mut Sprite, &'static TerrainTile),
-    (Without<TerrainAnimation>, Without<MapBackdrop>),
->;
-
-pub(crate) fn update_static_terrain_on_weather_change(
-    current_weather: Res<CurrentWeather>,
-    mut static_query: StaticTerrainQuery,
-) {
-    for (mut sprite, terrain_tile) in static_query.iter_mut() {
-        let sprite_index =
-            awbrn_core::spritesheet_index(current_weather.weather(), terrain_tile.terrain);
-        if let Some(atlas) = &mut sprite.texture_atlas {
-            atlas.index = sprite_index.index() as usize;
-        }
-    }
-}
-
-type AnimatedTerrainQuery<'w, 's> = Query<
-    'w,
-    's,
-    (
-        &'static mut Sprite,
-        &'static TerrainTile,
-        &'static mut TerrainAnimation,
-    ),
-    (With<TerrainAnimation>, Without<MapBackdrop>),
->;
-
-pub(crate) fn update_animated_terrain_on_weather_change(
-    current_weather: Res<CurrentWeather>,
-    mut animated_query: AnimatedTerrainQuery,
-) {
-    for (mut sprite, terrain_tile, mut animation) in animated_query.iter_mut() {
-        let sprite_index =
-            awbrn_core::spritesheet_index(current_weather.weather(), terrain_tile.terrain);
-
-        animation.start_index = sprite_index.index();
-        animation.frame_count = sprite_index.animation_frames();
-        animation.current_frame = 0;
-        let initial_duration = animation
-            .frame_durations
-            .as_ref()
-            .map(|f| f.get_duration(0))
-            .unwrap_or(300);
-        animation.frame_timer = Timer::new(
-            std::time::Duration::from_millis(initial_duration as u64),
-            TimerMode::Once,
-        );
-
-        if let Some(atlas) = &mut sprite.texture_atlas {
-            atlas.index = sprite_index.index() as usize;
-        }
-    }
-}
-
 pub struct WeatherPlugin;
 
 impl Plugin for WeatherPlugin {
@@ -122,9 +74,8 @@ impl Plugin for WeatherPlugin {
             (
                 handle_weather_toggle,
                 (
-                    update_backdrop_on_weather_change,
-                    update_static_terrain_on_weather_change,
-                    update_animated_terrain_on_weather_change,
+                    refresh_terrain_on_weather_change,
+                    refresh_backdrops_on_weather_change,
                 )
                     .run_if(resource_changed::<CurrentWeather>)
                     .after(handle_weather_toggle),
