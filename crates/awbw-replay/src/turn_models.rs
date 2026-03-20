@@ -301,7 +301,9 @@ pub struct BuildingVision {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Coordinate {
+    #[serde(deserialize_with = "crate::de::str_or_u32")]
     pub x: u32,
+    #[serde(deserialize_with = "crate::de::str_or_u32")]
     pub y: u32,
 }
 
@@ -357,6 +359,155 @@ pub struct PowerAction {
     pub co_power: String,
     #[serde(rename = "powerName")]
     pub power_name: String,
+
+    /// leftover CO power meter after activation
+    #[serde(rename = "playersCOP")]
+    pub players_cop: u32,
+
+    /// Global stat boosts applied to all of the activating player's units
+    #[serde(rename = "global", default, skip_serializing_if = "Option::is_none")]
+    pub global: Option<GlobalStatBoost>,
+
+    /// Bulk HP/fuel changes applied to all units of specified players
+    #[serde(rename = "hpChange", default, skip_serializing_if = "Option::is_none")]
+    pub hp_change: Option<HpChange>,
+
+    /// Per-unit stat overrides (used by Jess fuel refill, Rachel missile damage, etc.)
+    #[serde(
+        rename = "unitReplace",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub unit_replace: Option<indexmap::IndexMap<TargetedPlayer, UnitReplaceGroup>>,
+
+    /// Units spawned by the power (Sensei only)
+    #[serde(rename = "unitAdd", default, skip_serializing_if = "Option::is_none")]
+    pub unit_add: Option<indexmap::IndexMap<TargetedPlayer, UnitAddGroup>>,
+
+    /// Per-player fund/meter changes (Sasha only)
+    #[serde(
+        rename = "playerReplace",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub player_replace: Option<
+        indexmap::IndexMap<TargetedPlayer, indexmap::IndexMap<TargetedPlayer, PlayerChange>>,
+    >,
+
+    #[serde(
+        rename = "missileCoords",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub missile_coords: Option<Vec<Coordinate>>,
+
+    #[serde(rename = "weather", default, skip_serializing_if = "Option::is_none")]
+    pub weather: Option<WeatherChange>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct WeatherChange {
+    #[serde(rename = "weatherCode")]
+    pub weather_code: WeatherCode,
+    #[serde(rename = "weatherName")]
+    pub weather_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub enum WeatherCode {
+    #[serde(rename = "R")]
+    Rain,
+    #[serde(rename = "S")]
+    Snow,
+}
+
+/// Movement/vision boosts applied globally to the activating player's units
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct GlobalStatBoost {
+    pub units_movement_points: i32,
+    pub units_vision: i32,
+}
+
+/// Bulk HP and fuel changes applied to all units of specified players.
+/// Both fields are optional in the JSON — they appear as `""` when absent.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct HpChange {
+    #[serde(
+        rename = "hpGain",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::de::empty_str_or_struct",
+        default
+    )]
+    pub hp_gain: Option<HpEffect>,
+    #[serde(
+        rename = "hpLoss",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::de::empty_str_or_struct",
+        default
+    )]
+    pub hp_loss: Option<HpEffect>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct HpEffect {
+    pub players: Vec<AwbwGamePlayerId>,
+    /// HP delta (positive = gain, negative = loss)
+    pub hp: i32,
+    /// Fuel multiplier (1.0 = full refill, 0.5 = halved)
+    pub units_fuel: f64,
+}
+
+/// A group of unit stat overrides scoped to a TargetedPlayer
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct UnitReplaceGroup {
+    pub units: Option<Vec<UnitChange>>,
+}
+
+/// Sparse unit stat override — only the fields that changed are present
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct UnitChange {
+    pub units_id: AwbwUnitId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub units_hit_points: Option<AwbwHpDisplay>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub units_ammo: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub units_fuel: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub units_movement_points: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub units_long_range: Option<u32>,
+    /// -1 = stunned (Von Bolt), 0 = reactivated (Eagle), absent = unchanged
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub units_moved: Option<i32>,
+}
+
+/// Units spawned by a power (Sensei's Copter Command / Great Journey)
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct UnitAddGroup {
+    #[serde(rename = "playerId")]
+    pub player_id: AwbwGamePlayerId,
+    #[serde(rename = "unitName", with = "crate::de::awbw_unit_name")]
+    pub unit_name: Unit,
+    pub units: Vec<NewUnit>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct NewUnit {
+    pub units_id: AwbwUnitId,
+    pub units_x: u32,
+    pub units_y: u32,
+}
+
+/// Per-player fund/meter changes applied by a power (Sasha only)
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct PlayerChange {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub players_funds: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub players_co_power: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags_co_power: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -617,6 +768,118 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_global_stat_boost() {
+        let json = r#"{
+            "playerID": 3189356, "coName": "Koal", "coPower": "Y",
+            "powerName": "Forced March", "playersCOP": 30000,
+            "global": {"units_movement_points": 1, "units_vision": 0}
+        }"#;
+        let action: PowerAction = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            action.global,
+            Some(GlobalStatBoost {
+                units_movement_points: 1,
+                units_vision: 0
+            })
+        );
+    }
+
+    #[test]
+    fn test_hp_change_gain_only() {
+        let json = r#"{
+            "playerID": 3276843, "coName": "Andy", "coPower": "S",
+            "powerName": "Hyper Upgrade", "playersCOP": 0,
+            "hpChange": {
+                "hpGain": {"players": [3276843], "hp": 5, "units_fuel": 1},
+                "hpLoss": ""
+            }
+        }"#;
+        let action: PowerAction = serde_json::from_str(json).unwrap();
+        let hpc = action.hp_change.unwrap();
+        assert!(hpc.hp_loss.is_none());
+        let gain = hpc.hp_gain.unwrap();
+        assert_eq!(gain.hp, 5);
+        assert_eq!(gain.units_fuel, 1.0);
+    }
+
+    #[test]
+    fn test_hp_change_loss_with_fuel_fraction() {
+        let json = r#"{
+            "playerID": 3279740, "coName": "Drake", "coPower": "S",
+            "powerName": "Typhoon", "playersCOP": 0,
+            "hpChange": {
+                "hpGain": "",
+                "hpLoss": {"players": [3277011, 3276855], "hp": -2, "units_fuel": 0.5}
+            }
+        }"#;
+        let action: PowerAction = serde_json::from_str(json).unwrap();
+        let hpc = action.hp_change.unwrap();
+        assert!(hpc.hp_gain.is_none());
+        let loss = hpc.hp_loss.unwrap();
+        assert_eq!(loss.hp, -2);
+        assert_eq!(loss.units_fuel, 0.5);
+        assert_eq!(loss.players.len(), 2);
+    }
+
+    #[test]
+    fn test_unit_replace() {
+        let json = r#"{
+            "playerID": 3707970, "coName": "Rachel", "coPower": "S",
+            "powerName": "Covering Fire", "playersCOP": 0,
+            "unitReplace": {
+                "global": {"units": [
+                    {"units_id": 190042235, "units_hit_points": 4},
+                    {"units_id": 190522630, "units_movement_points": 7, "units_ammo": 9, "units_fuel": 70}
+                ]}
+            }
+        }"#;
+        let action: PowerAction = serde_json::from_str(json).unwrap();
+        let replace = action.unit_replace.unwrap();
+        let group = &replace[&TargetedPlayer::Global];
+        let units = group.units.as_ref().unwrap();
+        assert_eq!(units[0].units_id, AwbwUnitId::new(190042235));
+        assert_eq!(units[0].units_hit_points, Some(AwbwHpDisplay(4)));
+        assert_eq!(units[1].units_movement_points, Some(7));
+    }
+
+    #[test]
+    fn test_unit_add() {
+        let json = r#"{
+            "playerID": 3313081, "coName": "Sensei", "coPower": "Y",
+            "powerName": "Copter Command", "playersCOP": 47500,
+            "unitAdd": {
+                "global": {
+                    "playerId": 3313081, "unitName": "Infantry",
+                    "units": [{"units_id": 175117046, "units_x": 0, "units_y": 11}]
+                }
+            }
+        }"#;
+        let action: PowerAction = serde_json::from_str(json).unwrap();
+        let add = action.unit_add.unwrap();
+        let group = &add[&TargetedPlayer::Global];
+        assert_eq!(group.unit_name, Unit::Infantry);
+        assert_eq!(group.units[0].units_x, 0);
+        assert_eq!(group.units[0].units_y, 11);
+    }
+
+    #[test]
+    fn test_player_replace() {
+        let json = r#"{
+            "playerID": 3653682, "coName": "Sasha", "coPower": "Y",
+            "powerName": "Market Crash", "playersCOP": 115000,
+            "playerReplace": {
+                "global": {"3654564": {"players_co_power": 0}}
+            }
+        }"#;
+        let action: PowerAction = serde_json::from_str(json).unwrap();
+        let pr = action.player_replace.unwrap();
+        let global = &pr[&TargetedPlayer::Global];
+        let target_id = AwbwGamePlayerId::new(3654564);
+        let change = &global[&TargetedPlayer::Player(target_id)];
+        assert_eq!(change.players_co_power, Some(0));
+    }
+
+    #[test]
     fn test_global_or_player_serialize() {
         // Test serializing Global variant
         let global = TargetedPlayer::Global;
@@ -667,6 +930,69 @@ mod tests {
 
         let deserialized: TargetedPlayer = serde_json::from_str(r#""Z""#).unwrap();
         assert_eq!(deserialized, TargetedPlayer::Team(b'Z'));
+    }
+
+    #[test]
+    fn test_weather_change() {
+        let json = r#"{
+            "playerID": 3252473,
+            "coName": "Olaf",
+            "coPower": "S",
+            "powerName": "Winter Fury",
+            "playersCOP": 0,
+            "weather": {"weatherCode": "S", "weatherName": "Snow"}
+        }"#;
+        let action: PowerAction = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            action.weather,
+            Some(WeatherChange {
+                weather_code: WeatherCode::Snow,
+                weather_name: "Snow".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_weather_absent() {
+        let json = r#"{
+            "playerID": 3189356,
+            "coName": "Koal",
+            "coPower": "Y",
+            "powerName": "Forced March",
+            "playersCOP": 30000
+        }"#;
+        let action: PowerAction = serde_json::from_str(json).unwrap();
+        assert!(action.weather.is_none());
+    }
+
+    #[test]
+    fn test_missile_coords_string_encoded() {
+        let json = r#"{
+            "playerID": 3707970,
+            "coName": "Rachel",
+            "coPower": "S",
+            "powerName": "Covering Fire",
+            "playersCOP": 0,
+            "missileCoords": [{"x": "4", "y": "16"}, {"x": "18", "y": "14"}]
+        }"#;
+        let action: PowerAction = serde_json::from_str(json).unwrap();
+        let coords = action.missile_coords.unwrap();
+        assert_eq!(coords.len(), 2);
+        assert_eq!(coords[0], Coordinate { x: 4, y: 16 });
+        assert_eq!(coords[1], Coordinate { x: 18, y: 14 });
+    }
+
+    #[test]
+    fn test_missile_coords_absent() {
+        let json = r#"{
+            "playerID": 3189356,
+            "coName": "Koal",
+            "coPower": "Y",
+            "powerName": "Forced March",
+            "playersCOP": 30000
+        }"#;
+        let action: PowerAction = serde_json::from_str(json).unwrap();
+        assert!(action.missile_coords.is_none());
     }
 
     #[test]
