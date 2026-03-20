@@ -1,8 +1,47 @@
-import init, { BevyApp } from "./wasm/awbrn_wasm";
+import init, {
+  type CanvasDisplay,
+  type CanvasSize,
+  type KeyboardEvent,
+  type MouseButtonEvent,
+  BevyApp,
+} from "./wasm/awbrn_wasm";
 import wasmPath from "./wasm/awbrn_wasm_bg.wasm?url";
 import { proxy } from "comlink";
 
 const initialized = init({ module_or_path: wasmPath });
+
+export type GameDisplay = CanvasDisplay;
+export type GameSize = CanvasSize;
+export type GameKeyboardInput = KeyboardEvent;
+
+export interface GamePointerInput {
+  button: number;
+  x: number;
+  y: number;
+}
+
+export interface GamePointerPosition {
+  x: number;
+  y: number;
+}
+
+export interface GameInstance {
+  pause: () => void;
+  resume: () => void;
+  resize: (size: GameSize) => void;
+  handleKeyDown: (event: GameKeyboardInput) => void;
+  handleKeyUp: (event: GameKeyboardInput) => void;
+  handlePointerMove: (position: GamePointerPosition) => void;
+  handlePointerDown: (event: GamePointerInput) => void;
+  handlePointerUp: (event: GamePointerInput) => void;
+  handlePointerLeave: () => void;
+  handleBlur: () => void;
+  newReplay: (file: File | FileSystemFileHandle) => Promise<void>;
+}
+
+const toMouseButtonEvent = (event: GamePointerInput): MouseButtonEvent => ({
+  button: event.button,
+});
 
 export const createGame = async (...args: ConstructorParameters<typeof BevyApp>) => {
   await initialized;
@@ -16,7 +55,7 @@ export const createGame = async (...args: ConstructorParameters<typeof BevyApp>)
   }
   animationId = requestAnimationFrame(update);
 
-  return proxy({
+  return proxy<GameInstance>({
     pause: () => {
       console.log("Pausing game");
       cancelAnimationFrame(animationId);
@@ -35,11 +74,22 @@ export const createGame = async (...args: ConstructorParameters<typeof BevyApp>)
     handleKeyUp: (...args: Parameters<BevyApp["handle_key_up"]>) => {
       app.handle_key_up(...args);
     },
-    handleMouseMove: (x: number, y: number) => {
+    handlePointerMove: ({ x, y }: GamePointerPosition) => {
       app.handle_mouse_move(x, y);
     },
-    handleMouseLeave: () => {
+    handlePointerDown: (event: GamePointerInput) => {
+      app.handle_mouse_move(event.x, event.y);
+      app.handle_mouse_down(toMouseButtonEvent(event));
+    },
+    handlePointerUp: (event: GamePointerInput) => {
+      app.handle_mouse_move(event.x, event.y);
+      app.handle_mouse_up(toMouseButtonEvent(event));
+    },
+    handlePointerLeave: () => {
       app.handle_mouse_leave();
+    },
+    handleBlur: () => {
+      app.handle_canvas_blur();
     },
     newReplay: async (file: File | FileSystemFileHandle) => {
       const fileHandle = file instanceof FileSystemFileHandle ? await file.getFile() : file;

@@ -3,10 +3,11 @@ use bevy::{
     app::PluginsState,
     input::{
         ButtonState,
-        keyboard::{KeyboardInput, NativeKey},
+        keyboard::{KeyboardFocusLost, KeyboardInput, NativeKey},
+        mouse::{MouseButton, MouseButtonInput},
     },
     prelude::*,
-    window::{RawHandleWrapper, WindowResolution, WindowWrapper},
+    window::{CursorLeft, CursorMoved, RawHandleWrapper, WindowResolution, WindowWrapper},
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -63,6 +64,13 @@ pub struct CanvasSize {
     width: f32,
     height: f32,
     scale_factor: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, tsify::Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct MouseButtonEvent {
+    button: i16,
 }
 
 #[wasm_bindgen]
@@ -216,28 +224,60 @@ impl BevyApp {
 
     #[wasm_bindgen]
     pub fn handle_mouse_move(&mut self, x: f32, y: f32) {
-        let Ok(mut window) = self
-            .app
-            .world_mut()
-            .query::<&mut Window>()
-            .single_mut(self.app.world_mut())
-        else {
+        let world = self.app.world_mut();
+        let Some(window) = primary_window_entity(world) else {
             return;
         };
-        window.set_cursor_position(Some(Vec2::new(x, y)));
+        let position = Vec2::new(x, y);
+        let previous = update_cursor_position(world, window, Some(position));
+
+        let _ = world.write_message(CursorMoved {
+            window,
+            position,
+            delta: previous.map(|previous| position - previous),
+        });
+    }
+
+    #[wasm_bindgen]
+    pub fn handle_mouse_down(&mut self, event: MouseButtonEvent) {
+        let world = self.app.world_mut();
+        let Some(window) = primary_window_entity(world) else {
+            return;
+        };
+        let _ = world.write_message(MouseButtonInput {
+            button: mouse_button_from_web(event.button),
+            state: ButtonState::Pressed,
+            window,
+        });
+    }
+
+    #[wasm_bindgen]
+    pub fn handle_mouse_up(&mut self, event: MouseButtonEvent) {
+        let world = self.app.world_mut();
+        let Some(window) = primary_window_entity(world) else {
+            return;
+        };
+        let _ = world.write_message(MouseButtonInput {
+            button: mouse_button_from_web(event.button),
+            state: ButtonState::Released,
+            window,
+        });
     }
 
     #[wasm_bindgen]
     pub fn handle_mouse_leave(&mut self) {
-        let Ok(mut window) = self
-            .app
-            .world_mut()
-            .query::<&mut Window>()
-            .single_mut(self.app.world_mut())
-        else {
+        let world = self.app.world_mut();
+        let Some(window) = primary_window_entity(world) else {
             return;
         };
-        window.set_cursor_position(None);
+
+        update_cursor_position(world, window, None);
+        let _ = world.write_message(CursorLeft { window });
+    }
+
+    #[wasm_bindgen]
+    pub fn handle_canvas_blur(&mut self) {
+        let _ = self.app.world_mut().write_message(KeyboardFocusLost);
     }
 
     #[wasm_bindgen]
@@ -256,6 +296,49 @@ pub struct KeyboardEvent {
     key: String,
     key_code: String,
     repeat: bool,
+}
+
+fn primary_window_entity(world: &mut World) -> Option<Entity> {
+    let mut query = world.query_filtered::<Entity, With<Window>>();
+    let Ok(window) = query.single(world) else {
+        warn!("No window found for input event");
+        return None;
+    };
+
+    Some(window)
+}
+
+fn update_cursor_position(
+    world: &mut World,
+    window: Entity,
+    position: Option<Vec2>,
+) -> Option<Vec2> {
+    let previous = world
+        .get::<Window>(window)
+        .and_then(Window::cursor_position);
+
+    let Some(mut window_ref) = world.get_mut::<Window>(window) else {
+        warn!("Window entity {:?} missing for input event", window);
+        return previous;
+    };
+
+    window_ref.set_cursor_position(position);
+    previous
+}
+
+fn mouse_button_from_web(button: i16) -> MouseButton {
+    match button {
+        0 => MouseButton::Left,
+        1 => MouseButton::Middle,
+        2 => MouseButton::Right,
+        3 => MouseButton::Back,
+        4 => MouseButton::Forward,
+        value if value >= 0 => MouseButton::Other(value as u16),
+        value => {
+            warn!("Ignoring unexpected negative mouse button value {value}, mapping to Left");
+            MouseButton::Left
+        }
+    }
 }
 
 #[wasm_bindgen]
