@@ -1,5 +1,4 @@
 use crate::core::map::TerrainTile;
-use crate::render::map::MapBackdrop;
 use awbrn_core::Weather;
 use bevy::prelude::*;
 
@@ -49,22 +48,6 @@ pub(crate) fn refresh_terrain_on_weather_change(
     }
 }
 
-pub(crate) fn refresh_backdrops_on_weather_change(
-    current_weather: Res<CurrentWeather>,
-    mut backdrop_query: Query<&mut Sprite, With<MapBackdrop>>,
-) {
-    let plain_index = awbrn_core::spritesheet_index(
-        current_weather.weather(),
-        awbrn_core::GraphicalTerrain::Plain,
-    );
-
-    for mut sprite in backdrop_query.iter_mut() {
-        if let Some(atlas) = &mut sprite.texture_atlas {
-            atlas.index = plain_index.index() as usize;
-        }
-    }
-}
-
 pub struct WeatherPlugin;
 
 impl Plugin for WeatherPlugin {
@@ -73,10 +56,7 @@ impl Plugin for WeatherPlugin {
             Update,
             (
                 handle_weather_toggle,
-                (
-                    refresh_terrain_on_weather_change,
-                    refresh_backdrops_on_weather_change,
-                )
+                refresh_terrain_on_weather_change
                     .run_if(resource_changed::<CurrentWeather>)
                     .after(handle_weather_toggle),
             )

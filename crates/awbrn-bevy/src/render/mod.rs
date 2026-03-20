@@ -5,7 +5,6 @@ pub mod units;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
-pub use map::MapBackdrop;
 pub use units::{CapturingIndicator, CargoIndicator, HealthIndicator};
 
 /// Resource to store loaded UI atlas for reuse
