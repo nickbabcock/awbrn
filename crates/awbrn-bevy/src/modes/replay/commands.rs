@@ -17,6 +17,7 @@ use crate::core::{
     Capturing, CarriedBy, Faction, GraphicalHp, MapPosition, StrongIdMap, Unit, UnitActive,
     UnitDestroyed,
 };
+use crate::features::event_bus::{ExternalGameEvent, GameEvent, NewDay};
 use crate::features::navigation::{PendingCourseArrows, global_path_tiles, path_positions};
 use crate::features::weather::CurrentWeather;
 use crate::loading::LoadedReplay;
@@ -261,6 +262,11 @@ impl ReplayTurnCommand {
 
         if updated_info.day != current_day {
             world.resource_mut::<ReplayState>().day = updated_info.day;
+            world.write_message(ExternalGameEvent {
+                payload: GameEvent::NewDay(NewDay {
+                    day: updated_info.day,
+                }),
+            });
         }
 
         Self::activate_all_units(world);
