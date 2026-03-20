@@ -6,12 +6,12 @@ use awbrn_map::{AwbrnMap, Position};
 use bevy::prelude::*;
 
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq)]
+#[component(immutable)]
 #[reflect(Component)]
 #[require(SpriteSize { width: 16.0, height: 32.0, z_index: RenderLayer::TERRAIN })]
 #[require(ReplaySnapshotEntity)]
 pub struct TerrainTile {
     pub terrain: GraphicalTerrain,
-    pub position: Position,
 }
 
 /// Add a resource to store the loaded map
@@ -60,13 +60,13 @@ pub fn initialize_terrain_semantic_world(world: &mut World) {
                     let position = Position::new(x, y);
                     game_map
                         .terrain_at(position)
-                        .map(|terrain| TerrainTile { terrain, position })
+                        .map(|terrain| (position, TerrainTile { terrain }))
                 })
             })
             .collect()
     };
 
-    for terrain_tile in terrain_tiles {
-        world.spawn((MapPosition::from(terrain_tile.position), terrain_tile));
+    for (position, terrain_tile) in terrain_tiles {
+        world.spawn((MapPosition::from(position), terrain_tile));
     }
 }

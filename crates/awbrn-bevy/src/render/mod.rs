@@ -23,6 +23,13 @@ pub struct UnitAtlasResource {
     pub layout: Handle<TextureAtlasLayout>,
 }
 
+/// Resource to store the terrain sprite atlas for reuse.
+#[derive(Resource)]
+pub struct TerrainAtlasResource {
+    pub texture: Handle<Image>,
+    pub layout: Handle<TextureAtlasLayout>,
+}
+
 /// System parameter that bundles UI atlas resource and assets for convenient access.
 #[derive(SystemParam)]
 pub(crate) struct UiAtlas<'w> {

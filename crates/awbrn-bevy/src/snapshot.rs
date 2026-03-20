@@ -278,16 +278,23 @@ fn semantic_id_map(
 }
 
 fn semantic_id_for_entity(entity: &DynamicEntity) -> Result<String, ReplaySemanticSnapshotError> {
+    let mut terrain_entity = false;
+    let mut map_position = None;
+
     for component in &entity.components {
         if let Some(unit_id) = component.try_downcast_ref::<AwbwUnitId>() {
             return Ok(format!("unit:{}", unit_id.0.as_u32()));
         }
-        if let Some(terrain_tile) = component.try_downcast_ref::<TerrainTile>() {
-            return Ok(format!(
-                "terrain:{},{}",
-                terrain_tile.position.x, terrain_tile.position.y
-            ));
+        if component.try_downcast_ref::<TerrainTile>().is_some() {
+            terrain_entity = true;
         }
+        if let Some(position) = component.try_downcast_ref::<MapPosition>() {
+            map_position = Some(position.position());
+        }
+    }
+
+    if terrain_entity && let Some(position) = map_position {
+        return Ok(format!("terrain:{},{}", position.x, position.y));
     }
 
     Err(ReplaySemanticSnapshotError::MissingSemanticIdentity(
@@ -363,7 +370,7 @@ mod tests {
     use crate::features::CurrentWeather;
     use crate::modes::replay::ReplayPlugin;
     use awbrn_core::{GraphicalTerrain, PlayerFaction};
-    use awbrn_map::{AwbrnMap, Position};
+    use awbrn_map::AwbrnMap;
     use bevy::state::app::StatesPlugin;
     use bevy::{ecs::entity::MapEntities, ecs::reflect::ReflectMapEntities};
 
@@ -384,7 +391,6 @@ mod tests {
             MapPosition::new(0, 0),
             TerrainTile {
                 terrain: GraphicalTerrain::Plain,
-                position: Position::new(0, 0),
             },
         ));
         app.world_mut().spawn((
@@ -471,7 +477,6 @@ mod tests {
             MapPosition::new(0, 0),
             TerrainTile {
                 terrain: GraphicalTerrain::Plain,
-                position: Position::new(0, 0),
             },
         ));
 
@@ -531,7 +536,6 @@ mod tests {
             MapPosition::new(0, 0),
             TerrainTile {
                 terrain: GraphicalTerrain::Plain,
-                position: Position::new(0, 0),
             },
         ));
 

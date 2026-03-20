@@ -207,7 +207,6 @@ mod tests {
                 MapPosition::new(5, 3),
                 crate::core::map::TerrainTile {
                     terrain: awbrn_core::GraphicalTerrain::Plain,
-                    position: Position::new(5, 3),
                 },
             ))
             .id();

@@ -19,7 +19,6 @@ use crate::core::{
 };
 use crate::features::event_bus::{ExternalGameEvent, GameEvent, NewDay};
 use crate::features::navigation::{PendingCourseArrows, global_path_tiles, path_positions};
-use crate::features::weather::CurrentWeather;
 use crate::loading::LoadedReplay;
 use crate::modes::replay::AwbwUnitId;
 use crate::modes::replay::state::ReplayState;
@@ -441,11 +440,9 @@ impl ReplayTurnCommand {
     }
 
     fn flip_building(world: &mut World, pos: Position, faction: PlayerFaction) {
-        let weather = world.resource::<CurrentWeather>().weather();
-
-        let mut query = world.query::<(Entity, &mut TerrainTile, &mut Sprite)>();
-        for (_terrain_entity, mut terrain_tile, mut sprite) in query.iter_mut(world) {
-            if terrain_tile.position != pos {
+        let mut query = world.query::<(Entity, &MapPosition, &TerrainTile)>();
+        for (terrain_entity, map_position, terrain_tile) in query.iter(world) {
+            if map_position.position() != pos {
                 continue;
             }
 
@@ -462,12 +459,9 @@ impl ReplayTurnCommand {
                     Property::HQ(_) => Property::HQ(faction),
                 };
 
-                terrain_tile.terrain = GraphicalTerrain::Property(new_property);
-
-                let sprite_index = awbrn_core::spritesheet_index(weather, terrain_tile.terrain);
-                if let Some(atlas) = &mut sprite.texture_atlas {
-                    atlas.index = sprite_index.index() as usize;
-                }
+                world.entity_mut(terrain_entity).insert(TerrainTile {
+                    terrain: GraphicalTerrain::Property(new_property),
+                });
 
                 log::info!("Captured building at {:?} flipped to {:?}", pos, faction);
                 break;
@@ -501,7 +495,12 @@ impl ReplayTurnCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use awbrn_core::{AwbwUnitId as CoreUnitId, PlayerFaction};
+    use crate::features::weather::CurrentWeather;
+    use crate::render::TerrainAtlasResource;
+    use crate::render::map::{AnimatedTerrain, on_terrain_tile_insert};
+    use awbrn_core::{
+        AwbwUnitId as CoreUnitId, Faction as TerrainFaction, PlayerFaction, Property,
+    };
     use awbw_replay::turn_models::{
         Action, BuildingInfo, CaptureAction, CombatInfo, CombatInfoVision, CombatUnit,
         CopValueInfo, CopValues, FireAction, MoveAction, PathTile, TargetedPlayer, UnitProperty,
@@ -752,6 +751,11 @@ mod tests {
         app.insert_resource(StrongIdMap::<AwbwUnitId>::default());
         app.insert_resource(CurrentWeather::default());
         app.insert_resource(ReplayAdvanceLock::default());
+        app.insert_resource(TerrainAtlasResource {
+            texture: Handle::default(),
+            layout: Handle::default(),
+        });
+        app.add_observer(on_terrain_tile_insert);
         app
     }
 
@@ -893,5 +897,53 @@ mod tests {
 
     fn test_hp(value: u8) -> awbw_replay::turn_models::AwbwHpDisplay {
         serde_json::from_value(serde_json::json!(value)).unwrap()
+    }
+
+    #[test]
+    fn capture_completion_replaces_terrain_tile_and_refreshes_visuals() {
+        let mut app = replay_turn_test_app();
+        let property_entity = app
+            .world_mut()
+            .spawn((
+                MapPosition::new(2, 2),
+                TerrainTile {
+                    terrain: GraphicalTerrain::Property(Property::City(TerrainFaction::Neutral)),
+                },
+            ))
+            .id();
+        spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
+
+        ReplayTurnCommand {
+            action: test_stationary_capture_action(Position::new(2, 2), 20),
+        }
+        .apply(app.world_mut());
+
+        let terrain_tile = app
+            .world()
+            .entity(property_entity)
+            .get::<TerrainTile>()
+            .unwrap();
+        let sprite = app.world().entity(property_entity).get::<Sprite>().unwrap();
+        let atlas = sprite.texture_atlas.as_ref().unwrap();
+
+        assert_eq!(
+            terrain_tile.terrain,
+            GraphicalTerrain::Property(Property::City(TerrainFaction::Player(
+                PlayerFaction::OrangeStar,
+            )))
+        );
+        assert_eq!(
+            atlas.index,
+            awbrn_core::spritesheet_index(
+                app.world().resource::<CurrentWeather>().weather(),
+                terrain_tile.terrain,
+            )
+            .index() as usize
+        );
+        assert!(
+            app.world()
+                .entity(property_entity)
+                .contains::<AnimatedTerrain>()
+        );
     }
 }
