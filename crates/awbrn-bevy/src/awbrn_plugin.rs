@@ -88,21 +88,12 @@ impl Plugin for AwbrnPlugin {
         );
         app.add_systems(
             OnEnter(LoadingState::Complete),
-            (
-                crate::modes::replay::bootstrap::initialize_replay_semantic_world,
-                crate::render::map::setup_map_backdrops,
-            )
-                .chain()
+            crate::modes::replay::bootstrap::initialize_replay_semantic_world
                 .run_if(in_state(GameMode::Replay)),
         );
         app.add_systems(
             OnEnter(LoadingState::Complete),
-            (
-                crate::core::map::initialize_terrain_semantic_world,
-                crate::render::map::setup_map_backdrops,
-            )
-                .chain()
-                .run_if(in_state(GameMode::Game)),
+            crate::core::map::initialize_terrain_semantic_world.run_if(in_state(GameMode::Game)),
         );
     }
 }
