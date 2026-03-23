@@ -4,15 +4,15 @@
 //! immediate mutations that are visible to subsequent queries within the same
 //! command execution.
 
-use awbrn_core::{GraphicalTerrain, PlayerFaction, Property};
+use awbrn_core::{AwbwTerrain, GraphicalTerrain, PlayerFaction, Property};
 use awbrn_map::Position;
 use awbw_replay::turn_models::{
-    Action, CaptureAction, CombatUnit, FireAction, LoadAction, MoveAction, TargetedPlayer, UnitMap,
-    UpdatedInfo,
+    Action, AttackSeamAction, AttackSeamCombat, CaptureAction, CombatUnit, FireAction, LoadAction,
+    MoveAction, TargetedPlayer, UnitMap, UpdatedInfo,
 };
 use bevy::{log, prelude::*};
 
-use crate::core::map::TerrainTile;
+use crate::core::map::{TerrainHp, TerrainTile};
 use crate::core::{
     BoardIndex, Capturing, CarriedBy, Faction, GraphicalHp, MapPosition, StrongIdMap, Unit,
     UnitActive, UnitDestroyed,
@@ -169,6 +169,9 @@ impl ReplayTurnCommand {
 
     pub(crate) fn apply_non_move_action(action: &Action, world: &mut World) {
         match action {
+            Action::AttackSeam {
+                attack_seam_action, ..
+            } => Self::apply_attack_seam(attack_seam_action, world),
             Action::Build { new_unit, .. } => Self::apply_build(new_unit, world),
             Action::Capt { capture_action, .. } => Self::apply_capture(capture_action, world),
             Action::Load { load_action, .. } => Self::apply_load(load_action, world),
@@ -179,6 +182,56 @@ impl ReplayTurnCommand {
             Action::Fire { fire_action, .. } => Self::apply_fire(fire_action, world),
             Action::Move(_) => {}
             _ => log::warn!("Unhandled action: {:?}", action),
+        }
+    }
+
+    fn apply_attack_seam(attack_seam_action: &AttackSeamAction, world: &mut World) {
+        let attacker_entity = attack_seam_action
+            .unit
+            .values()
+            .find_map(Self::visible_attack_seam_combat)
+            .and_then(|combat_unit| Self::update_unit_hp(world, combat_unit));
+
+        let Some(new_terrain) =
+            Self::pipe_terrain_from_replay(attack_seam_action.buildings_terrain_id)
+        else {
+            log::warn!(
+                "Unsupported AttackSeam terrain ID {} at ({}, {})",
+                attack_seam_action.buildings_terrain_id,
+                attack_seam_action.seam_x,
+                attack_seam_action.seam_y
+            );
+            if let Some(entity) = attacker_entity {
+                world.entity_mut(entity).remove::<UnitActive>();
+            }
+            return;
+        };
+
+        let terrain_hp = match new_terrain {
+            GraphicalTerrain::PipeSeam(_) => u8::try_from(attack_seam_action.buildings_hit_points)
+                .ok()
+                .map(TerrainHp),
+            GraphicalTerrain::PipeRubble(_) => None,
+            _ => None,
+        };
+
+        if matches!(new_terrain, GraphicalTerrain::PipeSeam(_)) && terrain_hp.is_none() {
+            log::warn!(
+                "AttackSeam left seam terrain with invalid HP {} at ({}, {})",
+                attack_seam_action.buildings_hit_points,
+                attack_seam_action.seam_x,
+                attack_seam_action.seam_y
+            );
+        }
+
+        let seam_position = Position::new(
+            attack_seam_action.seam_x as usize,
+            attack_seam_action.seam_y as usize,
+        );
+        Self::set_terrain_at(world, seam_position, new_terrain, terrain_hp);
+
+        if let Some(entity) = attacker_entity {
+            world.entity_mut(entity).remove::<UnitActive>();
         }
     }
 
@@ -446,6 +499,57 @@ impl ReplayTurnCommand {
         Some(entity)
     }
 
+    fn visible_attack_seam_combat(combat: &AttackSeamCombat) -> Option<&CombatUnit> {
+        combat.combat_info.get_value()
+    }
+
+    fn pipe_terrain_from_replay(buildings_terrain_id: u32) -> Option<GraphicalTerrain> {
+        let terrain_id = u8::try_from(buildings_terrain_id).ok()?;
+        let terrain = AwbwTerrain::try_from(terrain_id).ok()?;
+        match terrain {
+            AwbwTerrain::PipeSeam(pipe_seam_type) => {
+                Some(GraphicalTerrain::PipeSeam(pipe_seam_type))
+            }
+            AwbwTerrain::PipeRubble(pipe_rubble_type) => {
+                Some(GraphicalTerrain::PipeRubble(pipe_rubble_type))
+            }
+            _ => None,
+        }
+    }
+
+    fn set_terrain_at(
+        world: &mut World,
+        pos: Position,
+        new_terrain: GraphicalTerrain,
+        terrain_hp: Option<TerrainHp>,
+    ) {
+        let terrain_entity = world.resource::<BoardIndex>().terrain_entity(pos).ok();
+
+        let Some(terrain_entity) = terrain_entity else {
+            log::warn!("No terrain entity found at {:?}", pos);
+            return;
+        };
+
+        let map_updated = world
+            .resource_mut::<crate::core::map::GameMap>()
+            .set_terrain(pos, new_terrain)
+            .is_some();
+        if !map_updated {
+            log::warn!("No GameMap tile found at {:?}", pos);
+            return;
+        }
+
+        let mut entity = world.entity_mut(terrain_entity);
+        entity.insert(TerrainTile {
+            terrain: new_terrain,
+        });
+        if let Some(terrain_hp) = terrain_hp {
+            entity.insert(terrain_hp);
+        } else {
+            entity.remove::<TerrainHp>();
+        }
+    }
+
     fn flip_building(world: &mut World, pos: Position, faction: PlayerFaction) {
         let terrain_entity = world.resource::<BoardIndex>().terrain_entity(pos).ok();
 
@@ -512,11 +616,14 @@ mod tests {
     use crate::render::TerrainAtlasResource;
     use crate::render::map::{AnimatedTerrain, on_terrain_tile_insert};
     use awbrn_core::{
-        AwbwUnitId as CoreUnitId, Faction as TerrainFaction, PlayerFaction, Property,
+        AwbwUnitId as CoreUnitId, Faction as TerrainFaction, GraphicalTerrain, PipeRubbleType,
+        PipeSeamType, PlayerFaction, Property,
     };
+    use awbrn_map::AwbrnMap;
     use awbw_replay::turn_models::{
-        Action, BuildingInfo, CaptureAction, CombatInfo, CombatInfoVision, CombatUnit,
-        CopValueInfo, CopValues, FireAction, MoveAction, PathTile, TargetedPlayer, UnitProperty,
+        Action, AttackSeamAction, AttackSeamCombat, BuildingInfo, CaptureAction, CombatInfo,
+        CombatInfoVision, CombatUnit, CopValueInfo, CopValues, FireAction, MoveAction, PathTile,
+        TargetedPlayer, UnitProperty,
     };
     use awbw_replay::{Hidden, Masked};
 
@@ -759,10 +866,115 @@ mod tests {
         );
     }
 
+    #[test]
+    fn attack_seam_updates_remaining_terrain_hp() {
+        let mut app = replay_turn_test_app();
+        let attacker = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
+        spawn_test_terrain(
+            &mut app,
+            Position::new(4, 2),
+            GraphicalTerrain::PipeSeam(PipeSeamType::Vertical),
+            Some(TerrainHp(99)),
+        );
+
+        ReplayTurnCommand {
+            action: test_attack_seam_action(
+                CoreUnitId::new(1),
+                Position::new(4, 2),
+                55,
+                GraphicalTerrain::PipeSeam(PipeSeamType::Vertical),
+                8,
+            ),
+        }
+        .apply(app.world_mut());
+
+        let terrain_entity = terrain_entity_at(&mut app, Position::new(4, 2));
+        let terrain = app
+            .world()
+            .entity(terrain_entity)
+            .get::<TerrainTile>()
+            .unwrap();
+        let terrain_hp = app
+            .world()
+            .entity(terrain_entity)
+            .get::<TerrainHp>()
+            .unwrap();
+
+        assert_eq!(
+            terrain.terrain,
+            GraphicalTerrain::PipeSeam(PipeSeamType::Vertical)
+        );
+        assert_eq!(terrain_hp.value(), 55);
+        assert_eq!(
+            app.world()
+                .resource::<crate::core::map::GameMap>()
+                .terrain_at(Position::new(4, 2)),
+            Some(GraphicalTerrain::PipeSeam(PipeSeamType::Vertical))
+        );
+        assert_eq!(
+            app.world()
+                .entity(attacker)
+                .get::<GraphicalHp>()
+                .unwrap()
+                .value(),
+            8
+        );
+        assert!(!app.world().entity(attacker).contains::<UnitActive>());
+    }
+
+    #[test]
+    fn attack_seam_turns_destroyed_seam_into_rubble() {
+        let mut app = replay_turn_test_app();
+        spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
+        spawn_test_terrain(
+            &mut app,
+            Position::new(4, 2),
+            GraphicalTerrain::PipeSeam(PipeSeamType::Vertical),
+            Some(TerrainHp(3)),
+        );
+
+        ReplayTurnCommand {
+            action: test_attack_seam_action(
+                CoreUnitId::new(1),
+                Position::new(4, 2),
+                -5,
+                GraphicalTerrain::PipeRubble(PipeRubbleType::Vertical),
+                8,
+            ),
+        }
+        .apply(app.world_mut());
+
+        let terrain_entity = terrain_entity_at(&mut app, Position::new(4, 2));
+        let terrain = app
+            .world()
+            .entity(terrain_entity)
+            .get::<TerrainTile>()
+            .unwrap();
+
+        assert_eq!(
+            terrain.terrain,
+            GraphicalTerrain::PipeRubble(PipeRubbleType::Vertical)
+        );
+        assert!(
+            app.world()
+                .entity(terrain_entity)
+                .get::<TerrainHp>()
+                .is_none(),
+            "destroyed seam should not retain terrain HP"
+        );
+        assert_eq!(
+            app.world()
+                .resource::<crate::core::map::GameMap>()
+                .terrain_at(Position::new(4, 2)),
+            Some(GraphicalTerrain::PipeRubble(PipeRubbleType::Vertical))
+        );
+    }
+
     fn replay_turn_test_app() -> App {
         let mut app = App::new();
         app.insert_resource(BoardIndex::new(40, 40));
         app.insert_resource(StrongIdMap::<AwbwUnitId>::default());
+        app.insert_resource(crate::core::map::GameMap::default());
         app.insert_resource(CurrentWeather::default());
         app.insert_resource(ReplayAdvanceLock::default());
         app.insert_resource(TerrainAtlasResource {
@@ -783,6 +995,38 @@ mod tests {
                 UnitActive,
             ))
             .id()
+    }
+
+    fn spawn_test_terrain(
+        app: &mut App,
+        position: Position,
+        terrain: GraphicalTerrain,
+        terrain_hp: Option<TerrainHp>,
+    ) -> Entity {
+        let width = position.x + 1;
+        let height = position.y + 1;
+        let mut map = AwbrnMap::new(width, height, GraphicalTerrain::Plain);
+        map.set_terrain(position, terrain);
+        app.world_mut()
+            .resource_mut::<crate::core::map::GameMap>()
+            .set(map);
+
+        let mut entity = app
+            .world_mut()
+            .spawn((MapPosition::from(position), TerrainTile { terrain }));
+        if let Some(terrain_hp) = terrain_hp {
+            entity.insert(terrain_hp);
+        }
+        entity.id()
+    }
+
+    fn terrain_entity_at(app: &mut App, position: Position) -> Entity {
+        let mut query = app.world_mut().query::<(Entity, &MapPosition)>();
+        query
+            .iter(app.world())
+            .find(|(_, map_pos)| map_pos.position() == position)
+            .map(|(entity, _)| entity)
+            .unwrap()
     }
 
     fn test_move_action(
@@ -874,6 +1118,46 @@ mod tests {
                 },
                 vision: Default::default(),
                 income: None,
+            },
+        }
+    }
+
+    fn test_attack_seam_action(
+        unit_id: CoreUnitId,
+        seam_position: Position,
+        buildings_hit_points: i32,
+        terrain: GraphicalTerrain,
+        unit_hp: u8,
+    ) -> Action {
+        let buildings_terrain_id = match terrain {
+            GraphicalTerrain::PipeSeam(PipeSeamType::Horizontal) => 113,
+            GraphicalTerrain::PipeSeam(PipeSeamType::Vertical) => 114,
+            GraphicalTerrain::PipeRubble(PipeRubbleType::Horizontal) => 115,
+            GraphicalTerrain::PipeRubble(PipeRubbleType::Vertical) => 116,
+            _ => unreachable!("test only supports seam terrain variants"),
+        };
+
+        Action::AttackSeam {
+            move_action: None,
+            attack_seam_action: AttackSeamAction {
+                unit: [(
+                    TargetedPlayer::Global,
+                    AttackSeamCombat {
+                        has_vision: true,
+                        combat_info: Masked::Visible(CombatUnit {
+                            units_ammo: 0,
+                            units_hit_points: Some(test_hp(unit_hp)),
+                            units_id: unit_id,
+                            units_x: seam_position.x as u32,
+                            units_y: seam_position.y as u32,
+                        }),
+                    },
+                )]
+                .into(),
+                buildings_hit_points,
+                buildings_terrain_id,
+                seam_x: seam_position.x as u32,
+                seam_y: seam_position.y as u32,
             },
         }
     }

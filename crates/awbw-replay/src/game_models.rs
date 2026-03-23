@@ -97,6 +97,10 @@ pub struct AwbwBuilding {
     pub terrain_id: AwbwTerrain,
     pub x: u32,
     pub y: u32,
+    /// AWBW overloads this wire field:
+    /// capturable buildings use it for capture progress, while pipe seams use
+    /// it for seam HP. Internal gameplay state should translate that overload
+    /// into separate concepts immediately.
     pub capture: u32,
     pub last_capture: u32,
     pub last_updated: String,

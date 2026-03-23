@@ -11,7 +11,7 @@ use bevy::scene::{DynamicEntity, DynamicScene, DynamicSceneBuilder, SceneFilter,
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::core::map::TerrainTile;
+use crate::core::map::{TerrainHp, TerrainTile};
 use crate::core::{Capturing, Faction, GraphicalHp, HasCargo, MapPosition, Unit, UnitActive};
 use crate::modes::replay::AwbwUnitId;
 use crate::modes::replay::state::ReplayState;
@@ -119,6 +119,8 @@ impl Plugin for ReplaySnapshotPlugin {
             .register_type_data::<MapPosition, ReplaySemanticComponentType>()
             .register_type::<TerrainTile>()
             .register_type_data::<TerrainTile, ReplaySemanticComponentType>()
+            .register_type::<TerrainHp>()
+            .register_type_data::<TerrainHp, ReplaySemanticComponentType>()
             .register_type::<Unit>()
             .register_type_data::<Unit, ReplaySemanticComponentType>()
             .register_type::<Faction>()
@@ -392,6 +394,7 @@ mod tests {
             TerrainTile {
                 terrain: GraphicalTerrain::Plain,
             },
+            TerrainHp(55),
         ));
         app.world_mut().spawn((
             ReplaySnapshotEntity,
@@ -495,6 +498,38 @@ mod tests {
                 .iter()
                 .all(|component| !component.type_path.ends_with("ReplaySnapshotEntity"))
         );
+    }
+
+    #[test]
+    fn canonicalizer_includes_terrain_hp() {
+        let mut app = snapshot_test_app();
+        app.world_mut().insert_resource(ReplayState::default());
+
+        app.world_mut().spawn((
+            ReplaySnapshotEntity,
+            MapPosition::new(0, 0),
+            TerrainTile {
+                terrain: GraphicalTerrain::Plain,
+            },
+            TerrainHp(55),
+        ));
+
+        let snapshot = capture_replay_semantic_snapshot(app.world_mut()).unwrap();
+        let type_registry = app.world().resource::<AppTypeRegistry>().read();
+        let canonical = canonicalize_replay_semantic_snapshot(&snapshot, &type_registry).unwrap();
+        let terrain = canonical
+            .entities
+            .iter()
+            .find(|entity| entity.id == "terrain:0,0")
+            .unwrap();
+
+        let terrain_hp = terrain
+            .components
+            .iter()
+            .find(|component| component.type_path.ends_with("TerrainHp"))
+            .unwrap();
+
+        assert_eq!(terrain_hp.value, Value::Number(55.into()));
     }
 
     #[test]
