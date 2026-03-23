@@ -5,7 +5,7 @@ pub mod units;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
-pub use units::{CapturingIndicator, CargoIndicator, HealthIndicator};
+pub use units::{OverlayBlink, OverlayKind, OverlayVisual, UnitOverlayRegistry};
 
 /// Resource to store loaded UI atlas for reuse
 #[derive(Resource)]
@@ -37,27 +37,6 @@ pub(crate) struct UiAtlas<'w> {
 }
 
 impl<'w> UiAtlas<'w> {
-    pub fn cargo_sprite(&self) -> impl Bundle {
-        (
-            Transform::from_translation(Vec3::new(0.0, -8.0, 1.0)),
-            self.sprite_for("HasCargo.png"),
-        )
-    }
-
-    pub fn capturing_sprite(&self) -> impl Bundle {
-        (
-            Transform::from_translation(Vec3::new(0.0, -8.0, 1.0)),
-            self.sprite_for("Capturing.png"),
-        )
-    }
-
-    pub fn health_sprite(&self, sprite_name: &str) -> impl Bundle {
-        (
-            Transform::from_translation(Vec3::new(7.5, -8.0, 1.0)),
-            self.sprite_for(sprite_name),
-        )
-    }
-
     /// Creates a sprite from the UI atlas for the given sprite name.
     ///
     /// # Panics
