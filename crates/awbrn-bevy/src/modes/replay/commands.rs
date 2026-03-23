@@ -453,32 +453,26 @@ impl ReplayTurnCommand {
             return;
         };
 
-        let Some(new_terrain) = ({
-            let entity_ref = world.entity(terrain_entity);
-            let terrain_tile = entity_ref.get::<TerrainTile>().unwrap();
+        let entity_ref = world.entity(terrain_entity);
+        let terrain_tile = entity_ref.get::<TerrainTile>().unwrap();
 
-            match terrain_tile.terrain {
-                GraphicalTerrain::Property(property) => {
-                    let new_property = match property {
-                        Property::City(_) => Property::City(awbrn_core::Faction::Player(faction)),
-                        Property::Base(_) => Property::Base(awbrn_core::Faction::Player(faction)),
-                        Property::Airport(_) => {
-                            Property::Airport(awbrn_core::Faction::Player(faction))
-                        }
-                        Property::Port(_) => Property::Port(awbrn_core::Faction::Player(faction)),
-                        Property::ComTower(_) => {
-                            Property::ComTower(awbrn_core::Faction::Player(faction))
-                        }
-                        Property::Lab(_) => Property::Lab(awbrn_core::Faction::Player(faction)),
-                        Property::HQ(_) => Property::HQ(faction),
-                    };
+        let new_terrain = match terrain_tile.terrain {
+            GraphicalTerrain::Property(property) => {
+                let new_property = match property {
+                    Property::City(_) => Property::City(awbrn_core::Faction::Player(faction)),
+                    Property::Base(_) => Property::Base(awbrn_core::Faction::Player(faction)),
+                    Property::Airport(_) => Property::Airport(awbrn_core::Faction::Player(faction)),
+                    Property::Port(_) => Property::Port(awbrn_core::Faction::Player(faction)),
+                    Property::ComTower(_) => {
+                        Property::ComTower(awbrn_core::Faction::Player(faction))
+                    }
+                    Property::Lab(_) => Property::Lab(awbrn_core::Faction::Player(faction)),
+                    Property::HQ(_) => Property::HQ(faction),
+                };
 
-                    Some(GraphicalTerrain::Property(new_property))
-                }
-                _ => None,
+                GraphicalTerrain::Property(new_property)
             }
-        }) else {
-            return;
+            _ => return,
         };
 
         world.entity_mut(terrain_entity).insert(TerrainTile {
