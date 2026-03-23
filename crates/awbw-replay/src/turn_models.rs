@@ -320,13 +320,13 @@ pub struct JoinAction {
 pub struct SupplyAction {
     pub unit: indexmap::IndexMap<TargetedPlayer, Hidden<u32>>,
     pub rows: Vec<String>,
-    pub supplied: indexmap::IndexMap<TargetedPlayer, Vec<String>>,
+    pub supplied: indexmap::IndexMap<TargetedPlayer, Vec<AwbwUnitId>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct RepairAction {
     pub unit: indexmap::IndexMap<TargetedPlayer, Hidden<u32>>,
-    pub repaired: indexmap::IndexMap<TargetedPlayer, RepairedUnit2>,
+    pub repaired: indexmap::IndexMap<TargetedPlayer, RepairedUnit>,
     pub funds: indexmap::IndexMap<TargetedPlayer, Hidden<u32>>,
 }
 
@@ -603,7 +603,7 @@ pub struct UpdatedInfo {
     pub next_timer: u32,
     #[serde(rename = "nextWeather")]
     pub next_weather: String,
-    pub supplied: Option<indexmap::IndexMap<TargetedPlayer, Vec<String>>>,
+    pub supplied: Option<indexmap::IndexMap<TargetedPlayer, Vec<AwbwUnitId>>>,
     pub repaired: Option<indexmap::IndexMap<TargetedPlayer, Vec<RepairedUnit>>>,
     pub day: u32,
     #[serde(rename = "nextTurnStart")]
@@ -612,12 +612,6 @@ pub struct UpdatedInfo {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct RepairedUnit {
-    pub units_id: String,
-    pub units_hit_points: AwbwHpDisplay,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
-pub struct RepairedUnit2 {
     pub units_id: AwbwUnitId,
     pub units_hit_points: AwbwHpDisplay,
 }
@@ -860,6 +854,55 @@ mod tests {
         assert_eq!(group.unit_name, Unit::Infantry);
         assert_eq!(group.units[0].units_x, 0);
         assert_eq!(group.units[0].units_y, 11);
+    }
+
+    #[test]
+    fn test_supply_action_parses_string_unit_ids() {
+        let json = r#"{
+            "unit": {"global": 170404311},
+            "rows": ["170319279"],
+            "supplied": {
+                "3189356": ["170319279"],
+                "3189394": ["170319279"],
+                "3189442": []
+            }
+        }"#;
+        let action: SupplyAction = serde_json::from_str(json).unwrap();
+
+        assert_eq!(
+            action.supplied[&TargetedPlayer::Player(AwbwGamePlayerId::new(3189356))],
+            vec![AwbwUnitId::new(170319279)]
+        );
+        assert!(
+            action.supplied[&TargetedPlayer::Player(AwbwGamePlayerId::new(3189442))].is_empty()
+        );
+    }
+
+    #[test]
+    fn test_updated_info_parses_string_supplied_and_repaired_ids() {
+        let json = r#"{
+            "event": "NextTurn",
+            "nextPId": 3189812,
+            "nextFunds": {"global": 17400},
+            "nextTimer": 1260250,
+            "nextWeather": "C",
+            "supplied": {"global": ["170319279"]},
+            "repaired": {
+                "global": [{"units_id": "170480506", "units_hit_points": 4}]
+            },
+            "day": 18,
+            "nextTurnStart": "2025-03-12 00:00:00"
+        }"#;
+        let updated: UpdatedInfo = serde_json::from_str(json).unwrap();
+
+        assert_eq!(
+            updated.supplied.unwrap()[&TargetedPlayer::Global],
+            vec![AwbwUnitId::new(170319279)]
+        );
+        assert_eq!(
+            updated.repaired.unwrap()[&TargetedPlayer::Global][0].units_id,
+            AwbwUnitId::new(170480506)
+        );
     }
 
     #[test]

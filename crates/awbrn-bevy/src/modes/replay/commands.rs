@@ -8,17 +8,20 @@ use awbrn_core::{AwbwTerrain, GraphicalTerrain, PlayerFaction, Property};
 use awbrn_map::Position;
 use awbw_replay::turn_models::{
     Action, AttackSeamAction, AttackSeamCombat, CaptureAction, CombatUnit, FireAction, LoadAction,
-    MoveAction, TargetedPlayer, UnitMap, UpdatedInfo,
+    MoveAction, RepairAction, RepairedUnit, SupplyAction, TargetedPlayer, UnitMap, UnitProperty,
+    UpdatedInfo,
 };
 use bevy::{log, prelude::*};
 
 use crate::core::map::{TerrainHp, TerrainTile};
 use crate::core::{
-    BoardIndex, Capturing, CarriedBy, Faction, GraphicalHp, MapPosition, StrongIdMap, Unit,
-    UnitActive, UnitDestroyed,
+    Ammo, BoardIndex, Capturing, CarriedBy, Faction, Fuel, GraphicalHp, MapPosition, StrongIdMap,
+    Unit, UnitActive, UnitDestroyed,
 };
 use crate::features::event_bus::{ExternalGameEvent, GameEvent, NewDay};
-use crate::features::navigation::{PendingCourseArrows, global_path_tiles, path_positions};
+use crate::features::navigation::{
+    PendingCourseArrows, path_positions, replay_move_view, replay_path_tiles,
+};
 use crate::loading::LoadedReplay;
 use crate::modes::replay::AwbwUnitId;
 use crate::modes::replay::state::ReplayState;
@@ -83,13 +86,8 @@ impl Command for ReplayTurnCommand {
 
 impl ReplayTurnCommand {
     fn apply_move(move_action: &MoveAction, action: &Action, world: &mut World) -> bool {
-        let Some(unit_data) = move_action.unit.get(&TargetedPlayer::Global) else {
-            log::warn!("Move action missing global targeted player unit data");
-            return false;
-        };
-
-        let Some(unit) = unit_data.get_value() else {
-            log::warn!("Move action global unit data is hidden");
+        let Some((targeted_player, unit)) = replay_move_view(move_action) else {
+            log::warn!("Move action missing visible targeted player unit data");
             return false;
         };
 
@@ -113,6 +111,8 @@ impl ReplayTurnCommand {
             return false;
         };
 
+        Self::update_unit_resources_from_property(world, entity, unit);
+
         let new_position = MapPosition::new(x as usize, y as usize);
         let position_changed = world
             .entity(entity)
@@ -124,10 +124,11 @@ impl ReplayTurnCommand {
             .get::<Sprite>()
             .map(|sprite| sprite.flip_x)
             .unwrap_or(false);
-        let path_tiles = global_path_tiles(move_action);
+        let path_tiles = replay_path_tiles(move_action, targeted_player);
         let animated_path = path_tiles
             .as_ref()
             .and_then(|path| UnitPathAnimation::new(path_positions(path), idle_flip_x));
+        let path_tile_count = path_tiles.as_ref().map_or(0, Vec::len);
 
         let mut entity_mut = world.entity_mut(entity);
         if position_changed {
@@ -153,10 +154,7 @@ impl ReplayTurnCommand {
             log::info!(
                 "Started path animation for unit {} across {} tiles",
                 unit.units_id.as_u32(),
-                move_action
-                    .paths
-                    .get(&TargetedPlayer::Global)
-                    .map_or(0, Vec::len)
+                path_tile_count
             );
             return true;
         }
@@ -180,6 +178,8 @@ impl ReplayTurnCommand {
             } => Self::apply_unload(unit, *transport_id, world),
             Action::End { updated_info } => Self::apply_end(updated_info, world),
             Action::Fire { fire_action, .. } => Self::apply_fire(fire_action, world),
+            Action::Repair { repair_action, .. } => Self::apply_repair(repair_action, world),
+            Action::Supply { supply_action, .. } => Self::apply_supply(supply_action, world),
             Action::Move(_) => {}
             _ => log::warn!("Unhandled action: {:?}", action),
         }
@@ -190,7 +190,7 @@ impl ReplayTurnCommand {
             .unit
             .values()
             .find_map(Self::visible_attack_seam_combat)
-            .and_then(|combat_unit| Self::update_unit_hp(world, combat_unit));
+            .and_then(|combat_unit| Self::update_combat_unit_state(world, combat_unit));
 
         let Some(new_terrain) =
             Self::pipe_terrain_from_replay(attack_seam_action.buildings_terrain_id)
@@ -273,6 +273,8 @@ impl ReplayTurnCommand {
                 Faction(faction),
                 AwbwUnitId(unit.units_id),
                 Unit(unit.units_name),
+                Fuel(unit.units_fuel.unwrap_or(unit.units_name.max_fuel())),
+                Ammo(unit.units_ammo.unwrap_or(unit.units_name.max_ammo())),
             ));
         }
     }
@@ -327,6 +329,7 @@ impl ReplayTurnCommand {
             });
         }
 
+        Self::apply_end_resource_updates(updated_info, world);
         Self::activate_all_units(world);
     }
 
@@ -446,14 +449,14 @@ impl ReplayTurnCommand {
             let combat_info = &combat_vision.combat_info;
 
             if let Some(attacker_unit) = combat_info.attacker.get_value() {
-                let entity = Self::update_unit_hp(world, attacker_unit);
+                let entity = Self::update_combat_unit_state(world, attacker_unit);
                 if attacker_entity.is_none() {
                     attacker_entity = entity;
                 }
             }
 
             if let Some(defender_unit) = combat_info.defender.get_value() {
-                Self::update_unit_hp(world, defender_unit);
+                Self::update_combat_unit_state(world, defender_unit);
             }
         }
 
@@ -462,7 +465,39 @@ impl ReplayTurnCommand {
         }
     }
 
-    fn update_unit_hp(world: &mut World, combat_unit: &CombatUnit) -> Option<Entity> {
+    fn apply_repair(repair_action: &RepairAction, world: &mut World) {
+        let Some(repairing_id) =
+            Self::targeted_hidden_value(&repair_action.unit).map(awbrn_core::AwbwUnitId::new)
+        else {
+            log::warn!("Repair action missing repairing unit ID");
+            return;
+        };
+
+        let Some(repaired) = Self::targeted_value(&repair_action.repaired).cloned() else {
+            log::warn!("Repair action missing repaired unit payload");
+            return;
+        };
+
+        Self::apply_repaired_unit(world, &repaired);
+        Self::mark_unit_inactive(world, repairing_id);
+    }
+
+    fn apply_supply(supply_action: &SupplyAction, world: &mut World) {
+        let Some(supplying_id) =
+            Self::targeted_hidden_value(&supply_action.unit).map(awbrn_core::AwbwUnitId::new)
+        else {
+            log::warn!("Supply action missing supplying unit ID");
+            return;
+        };
+
+        for supplied_id in Self::targeted_vec_union(&supply_action.supplied) {
+            Self::refill_unit_resources_by_id(world, supplied_id);
+        }
+
+        Self::mark_unit_inactive(world, supplying_id);
+    }
+
+    fn update_combat_unit_state(world: &mut World, combat_unit: &CombatUnit) -> Option<Entity> {
         let unit_id = AwbwUnitId(combat_unit.units_id);
 
         let entity = {
@@ -477,6 +512,10 @@ impl ReplayTurnCommand {
             );
             return None;
         };
+
+        world
+            .entity_mut(entity)
+            .insert(Ammo(combat_unit.units_ammo));
 
         if let Some(hp_display) = combat_unit.units_hit_points {
             let hp_value = hp_display.value();
@@ -497,6 +536,133 @@ impl ReplayTurnCommand {
         }
 
         Some(entity)
+    }
+
+    fn apply_end_resource_updates(updated_info: &UpdatedInfo, world: &mut World) {
+        if let Some(supplied) = &updated_info.supplied {
+            for supplied_id in Self::targeted_vec_union(supplied) {
+                Self::refill_unit_resources_by_id(world, supplied_id);
+            }
+        }
+
+        if let Some(repaired) = &updated_info.repaired {
+            for repaired_unit in Self::targeted_vec_union(repaired) {
+                Self::apply_repaired_unit(world, &repaired_unit);
+            }
+        }
+    }
+
+    fn apply_repaired_unit(world: &mut World, repaired: &RepairedUnit) {
+        let unit_id = AwbwUnitId(repaired.units_id);
+        let entity = {
+            let units = world.resource::<StrongIdMap<AwbwUnitId>>();
+            units.get(&unit_id)
+        };
+
+        let Some(entity) = entity else {
+            log::warn!(
+                "Repaired unit entity not found for ID: {}",
+                repaired.units_id.as_u32()
+            );
+            return;
+        };
+
+        let hp_value = repaired.units_hit_points.value();
+        world.entity_mut(entity).insert(GraphicalHp(hp_value));
+
+        if hp_value == 0 {
+            world
+                .entity_mut(entity)
+                .trigger(|entity| UnitDestroyed { entity });
+            return;
+        }
+
+        Self::refill_unit_resources(world, entity);
+    }
+
+    fn update_unit_resources_from_property(world: &mut World, entity: Entity, unit: &UnitProperty) {
+        let mut entity_mut = world.entity_mut(entity);
+        if let Some(fuel) = unit.units_fuel {
+            entity_mut.insert(Fuel(fuel));
+        }
+        if let Some(ammo) = unit.units_ammo {
+            entity_mut.insert(Ammo(ammo));
+        }
+    }
+
+    fn refill_unit_resources_by_id(world: &mut World, unit_id: awbrn_core::AwbwUnitId) {
+        let entity = {
+            let units = world.resource::<StrongIdMap<AwbwUnitId>>();
+            units.get(&AwbwUnitId(unit_id))
+        };
+
+        let Some(entity) = entity else {
+            log::warn!("Unit entity not found for ID: {}", unit_id.as_u32());
+            return;
+        };
+
+        Self::refill_unit_resources(world, entity);
+    }
+
+    fn refill_unit_resources(world: &mut World, entity: Entity) {
+        let Some(unit) = world.get::<Unit>(entity).copied() else {
+            log::warn!(
+                "Cannot refill resources for entity {:?} without Unit",
+                entity
+            );
+            return;
+        };
+
+        world
+            .entity_mut(entity)
+            .insert((Fuel(unit.0.max_fuel()), Ammo(unit.0.max_ammo())));
+    }
+
+    fn mark_unit_inactive(world: &mut World, unit_id: awbrn_core::AwbwUnitId) {
+        let entity = {
+            let units = world.resource::<StrongIdMap<AwbwUnitId>>();
+            units.get(&AwbwUnitId(unit_id))
+        };
+
+        let Some(entity) = entity else {
+            log::warn!("Unit entity not found for ID: {}", unit_id.as_u32());
+            return;
+        };
+
+        world.entity_mut(entity).remove::<UnitActive>();
+    }
+
+    fn targeted_hidden_value<T: Copy>(
+        values: &indexmap::IndexMap<TargetedPlayer, awbw_replay::Hidden<T>>,
+    ) -> Option<T> {
+        values
+            .get(&TargetedPlayer::Global)
+            .and_then(|value: &awbw_replay::Hidden<T>| value.get_value().copied())
+            .or_else(|| {
+                values
+                    .values()
+                    .find_map(|value: &awbw_replay::Hidden<T>| value.get_value().copied())
+            })
+    }
+
+    fn targeted_value<T>(values: &indexmap::IndexMap<TargetedPlayer, T>) -> Option<&T> {
+        values
+            .get(&TargetedPlayer::Global)
+            .or_else(|| values.values().next())
+    }
+
+    fn targeted_vec_union<T: Clone + PartialEq>(
+        values: &indexmap::IndexMap<TargetedPlayer, Vec<T>>,
+    ) -> Vec<T> {
+        let mut combined: Vec<T> = Vec::new();
+        for value_list in values.values() {
+            for value in value_list {
+                if !combined.contains(value) {
+                    combined.push(value.clone());
+                }
+            }
+        }
+        combined
     }
 
     fn visible_attack_seam_combat(combat: &AttackSeamCombat) -> Option<&CombatUnit> {
@@ -612,6 +778,7 @@ impl ReplayTurnCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::{Ammo, Fuel};
     use crate::features::weather::CurrentWeather;
     use crate::render::TerrainAtlasResource;
     use crate::render::map::{AnimatedTerrain, on_terrain_tile_insert};
@@ -623,7 +790,7 @@ mod tests {
     use awbw_replay::turn_models::{
         Action, AttackSeamAction, AttackSeamCombat, BuildingInfo, CaptureAction, CombatInfo,
         CombatInfoVision, CombatUnit, CopValueInfo, CopValues, FireAction, MoveAction, PathTile,
-        TargetedPlayer, UnitProperty,
+        RepairAction, RepairedUnit, SupplyAction, TargetedPlayer, UnitProperty, UpdatedInfo,
     };
     use awbw_replay::{Hidden, Masked};
 
@@ -799,6 +966,412 @@ mod tests {
     }
 
     #[test]
+    fn moving_unit_updates_resource_components_from_replay_payload() {
+        let mut app = replay_turn_test_app();
+        let unit_entity = spawn_test_unit_kind(
+            &mut app,
+            Position::new(2, 2),
+            CoreUnitId::new(1),
+            awbrn_core::Unit::Tank,
+            PlayerFaction::OrangeStar,
+        );
+
+        ReplayTurnCommand {
+            action: Action::Move(MoveAction {
+                unit: [(
+                    TargetedPlayer::Global,
+                    Hidden::Visible(test_unit_property_with_resources(
+                        CoreUnitId::new(1),
+                        2,
+                        2,
+                        awbrn_core::Unit::Tank,
+                        37,
+                        5,
+                    )),
+                )]
+                .into(),
+                paths: [(
+                    TargetedPlayer::Global,
+                    vec![PathTile {
+                        unit_visible: true,
+                        x: 2,
+                        y: 2,
+                    }],
+                )]
+                .into(),
+                dist: 0,
+                trapped: false,
+                discovered: None,
+            }),
+        }
+        .apply(app.world_mut());
+
+        assert_eq!(
+            app.world().entity(unit_entity).get::<Fuel>(),
+            Some(&Fuel(37))
+        );
+        assert_eq!(
+            app.world().entity(unit_entity).get::<Ammo>(),
+            Some(&Ammo(5))
+        );
+    }
+
+    #[test]
+    fn player_targeted_paths_still_request_animation_lock() {
+        assert!(crate::features::navigation::action_requires_path_animation(
+            &Action::Move(test_player_targeted_move_action(
+                CoreUnitId::new(1),
+                2,
+                2,
+                &[(1, 2), (2, 2)],
+                1,
+            ))
+        ));
+    }
+
+    #[test]
+    fn move_uses_path_tiles_from_the_same_targeted_view_as_unit_state() {
+        let mut app = replay_turn_test_app();
+        let unit_entity = spawn_test_unit(&mut app, Position::new(1, 2), CoreUnitId::new(1));
+
+        ReplayTurnCommand {
+            action: Action::Move(MoveAction {
+                unit: [
+                    (
+                        TargetedPlayer::Player(awbrn_core::AwbwGamePlayerId::new(11)),
+                        Hidden::Hidden,
+                    ),
+                    (
+                        TargetedPlayer::Player(awbrn_core::AwbwGamePlayerId::new(10)),
+                        Hidden::Visible(test_unit_property(CoreUnitId::new(1), 2, 2)),
+                    ),
+                ]
+                .into(),
+                paths: [
+                    (
+                        TargetedPlayer::Player(awbrn_core::AwbwGamePlayerId::new(11)),
+                        vec![
+                            PathTile {
+                                unit_visible: false,
+                                x: 1,
+                                y: 2,
+                            },
+                            PathTile {
+                                unit_visible: false,
+                                x: 4,
+                                y: 2,
+                            },
+                        ],
+                    ),
+                    (
+                        TargetedPlayer::Player(awbrn_core::AwbwGamePlayerId::new(10)),
+                        vec![
+                            PathTile {
+                                unit_visible: true,
+                                x: 1,
+                                y: 2,
+                            },
+                            PathTile {
+                                unit_visible: true,
+                                x: 2,
+                                y: 2,
+                            },
+                        ],
+                    ),
+                ]
+                .into(),
+                dist: 1,
+                trapped: false,
+                discovered: None,
+            }),
+        }
+        .apply(app.world_mut());
+
+        assert_eq!(
+            app.world().entity(unit_entity).get::<MapPosition>(),
+            Some(&MapPosition::new(2, 2))
+        );
+        let pending = app
+            .world()
+            .entity(unit_entity)
+            .get::<PendingCourseArrows>()
+            .expect("move should request course arrows from the selected view");
+        assert_eq!(pending.path.len(), 2);
+        assert_eq!(pending.path[1].position, Position::new(2, 2));
+        assert!(pending.path[1].unit_visible);
+    }
+
+    #[test]
+    fn stationary_supply_refills_supplied_units_and_inactivates_supplier() {
+        let mut app = replay_turn_test_app();
+        let supplier = spawn_test_unit_kind(
+            &mut app,
+            Position::new(2, 2),
+            CoreUnitId::new(1),
+            awbrn_core::Unit::APC,
+            PlayerFaction::OrangeStar,
+        );
+        let target = spawn_test_unit_kind(
+            &mut app,
+            Position::new(2, 1),
+            CoreUnitId::new(2),
+            awbrn_core::Unit::Tank,
+            PlayerFaction::OrangeStar,
+        );
+        app.world_mut()
+            .entity_mut(target)
+            .insert((Fuel(10), Ammo(1)));
+
+        ReplayTurnCommand {
+            action: Action::Supply {
+                move_action: None,
+                supply_action: SupplyAction {
+                    unit: [(TargetedPlayer::Global, Hidden::Visible(1))].into(),
+                    rows: vec!["2".to_string()],
+                    supplied: [
+                        (
+                            TargetedPlayer::Player(awbrn_core::AwbwGamePlayerId::new(10)),
+                            vec![CoreUnitId::new(2)],
+                        ),
+                        (
+                            TargetedPlayer::Player(awbrn_core::AwbwGamePlayerId::new(11)),
+                            vec![],
+                        ),
+                    ]
+                    .into(),
+                },
+            },
+        }
+        .apply(app.world_mut());
+
+        assert_eq!(app.world().entity(target).get::<Fuel>(), Some(&Fuel(70)));
+        assert_eq!(app.world().entity(target).get::<Ammo>(), Some(&Ammo(9)));
+        assert!(!app.world().entity(supplier).contains::<UnitActive>());
+    }
+
+    #[test]
+    fn stationary_supply_merges_global_and_player_specific_targets() {
+        let mut app = replay_turn_test_app();
+        let supplier = spawn_test_unit_kind(
+            &mut app,
+            Position::new(2, 2),
+            CoreUnitId::new(1),
+            awbrn_core::Unit::APC,
+            PlayerFaction::OrangeStar,
+        );
+        let global_target = spawn_test_unit_kind(
+            &mut app,
+            Position::new(2, 1),
+            CoreUnitId::new(2),
+            awbrn_core::Unit::Tank,
+            PlayerFaction::OrangeStar,
+        );
+        let player_target = spawn_test_unit_kind(
+            &mut app,
+            Position::new(3, 1),
+            CoreUnitId::new(3),
+            awbrn_core::Unit::Tank,
+            PlayerFaction::OrangeStar,
+        );
+        app.world_mut()
+            .entity_mut(global_target)
+            .insert((Fuel(10), Ammo(1)));
+        app.world_mut()
+            .entity_mut(player_target)
+            .insert((Fuel(9), Ammo(2)));
+
+        ReplayTurnCommand {
+            action: Action::Supply {
+                move_action: None,
+                supply_action: SupplyAction {
+                    unit: [(TargetedPlayer::Global, Hidden::Visible(1))].into(),
+                    rows: vec!["2".to_string()],
+                    supplied: [
+                        (TargetedPlayer::Global, vec![CoreUnitId::new(2)]),
+                        (
+                            TargetedPlayer::Player(awbrn_core::AwbwGamePlayerId::new(10)),
+                            vec![CoreUnitId::new(3)],
+                        ),
+                    ]
+                    .into(),
+                },
+            },
+        }
+        .apply(app.world_mut());
+
+        assert_eq!(
+            app.world().entity(global_target).get::<Fuel>(),
+            Some(&Fuel(70))
+        );
+        assert_eq!(
+            app.world().entity(global_target).get::<Ammo>(),
+            Some(&Ammo(9))
+        );
+        assert_eq!(
+            app.world().entity(player_target).get::<Fuel>(),
+            Some(&Fuel(70))
+        );
+        assert_eq!(
+            app.world().entity(player_target).get::<Ammo>(),
+            Some(&Ammo(9))
+        );
+        assert!(!app.world().entity(supplier).contains::<UnitActive>());
+    }
+
+    #[test]
+    fn move_then_supply_uses_player_targeted_move_payloads() {
+        let mut app = replay_turn_test_app();
+        let supplier = spawn_test_unit_kind(
+            &mut app,
+            Position::new(2, 3),
+            CoreUnitId::new(1),
+            awbrn_core::Unit::APC,
+            PlayerFaction::OrangeStar,
+        );
+        let target = spawn_test_unit_kind(
+            &mut app,
+            Position::new(2, 1),
+            CoreUnitId::new(2),
+            awbrn_core::Unit::Tank,
+            PlayerFaction::OrangeStar,
+        );
+        app.world_mut()
+            .entity_mut(target)
+            .insert((Fuel(10), Ammo(1)));
+
+        ReplayTurnCommand {
+            action: Action::Supply {
+                move_action: Some(test_player_targeted_move_action_with_resources(
+                    test_unit_property_with_resources(
+                        CoreUnitId::new(1),
+                        2,
+                        2,
+                        awbrn_core::Unit::APC,
+                        55,
+                        0,
+                    ),
+                    &[(2, 3), (2, 2)],
+                    1,
+                )),
+                supply_action: SupplyAction {
+                    unit: [(TargetedPlayer::Global, Hidden::Visible(1))].into(),
+                    rows: vec!["2".to_string()],
+                    supplied: [(TargetedPlayer::Global, vec![CoreUnitId::new(2)])].into(),
+                },
+            },
+        }
+        .apply(app.world_mut());
+
+        assert_eq!(
+            app.world().entity(supplier).get::<MapPosition>(),
+            Some(&MapPosition::new(2, 2))
+        );
+        assert!(
+            app.world()
+                .entity(supplier)
+                .contains::<PendingCourseArrows>()
+        );
+        assert_eq!(app.world().entity(target).get::<Fuel>(), Some(&Fuel(10)));
+
+        let deferred_action = app
+            .world_mut()
+            .resource_mut::<ReplayAdvanceLock>()
+            .release_for(supplier)
+            .expect("move + supply should defer the non-move action");
+
+        ReplayFollowupCommand {
+            action: deferred_action,
+        }
+        .apply(app.world_mut());
+
+        assert_eq!(app.world().entity(target).get::<Fuel>(), Some(&Fuel(70)));
+        assert_eq!(app.world().entity(target).get::<Ammo>(), Some(&Ammo(9)));
+        assert!(!app.world().entity(supplier).contains::<UnitActive>());
+    }
+
+    #[test]
+    fn move_then_supply_refills_on_followup() {
+        let mut app = replay_turn_test_app();
+        let supplier = spawn_test_unit_kind(
+            &mut app,
+            Position::new(2, 3),
+            CoreUnitId::new(1),
+            awbrn_core::Unit::APC,
+            PlayerFaction::OrangeStar,
+        );
+        let target = spawn_test_unit_kind(
+            &mut app,
+            Position::new(2, 1),
+            CoreUnitId::new(2),
+            awbrn_core::Unit::Tank,
+            PlayerFaction::OrangeStar,
+        );
+        app.world_mut()
+            .entity_mut(target)
+            .insert((Fuel(10), Ammo(1)));
+
+        ReplayTurnCommand {
+            action: Action::Supply {
+                move_action: Some(MoveAction {
+                    unit: [(
+                        TargetedPlayer::Global,
+                        Hidden::Visible(test_unit_property_with_resources(
+                            CoreUnitId::new(1),
+                            2,
+                            2,
+                            awbrn_core::Unit::APC,
+                            55,
+                            0,
+                        )),
+                    )]
+                    .into(),
+                    paths: [(
+                        TargetedPlayer::Global,
+                        vec![
+                            PathTile {
+                                unit_visible: true,
+                                x: 2,
+                                y: 3,
+                            },
+                            PathTile {
+                                unit_visible: true,
+                                x: 2,
+                                y: 2,
+                            },
+                        ],
+                    )]
+                    .into(),
+                    dist: 1,
+                    trapped: false,
+                    discovered: None,
+                }),
+                supply_action: SupplyAction {
+                    unit: [(TargetedPlayer::Global, Hidden::Visible(1))].into(),
+                    rows: vec!["2".to_string()],
+                    supplied: [(TargetedPlayer::Global, vec![CoreUnitId::new(2)])].into(),
+                },
+            },
+        }
+        .apply(app.world_mut());
+
+        assert_eq!(app.world().entity(target).get::<Fuel>(), Some(&Fuel(10)));
+        let deferred_action = app
+            .world_mut()
+            .resource_mut::<ReplayAdvanceLock>()
+            .release_for(supplier)
+            .expect("move + supply should defer the non-move action");
+
+        ReplayFollowupCommand {
+            action: deferred_action,
+        }
+        .apply(app.world_mut());
+
+        assert_eq!(app.world().entity(target).get::<Fuel>(), Some(&Fuel(70)));
+        assert_eq!(app.world().entity(target).get::<Ammo>(), Some(&Ammo(9)));
+        assert!(!app.world().entity(supplier).contains::<UnitActive>());
+    }
+
+    #[test]
     fn fire_action_despawns_unit_at_zero_hp() {
         let mut app = replay_turn_test_app();
         app.add_observer(crate::core::units::on_unit_destroyed);
@@ -814,14 +1387,14 @@ mod tests {
                         has_vision: true,
                         combat_info: CombatInfo {
                             attacker: Masked::Visible(CombatUnit {
-                                units_ammo: 0,
+                                units_ammo: 4,
                                 units_hit_points: Some(test_hp(8)),
                                 units_id: CoreUnitId::new(1),
                                 units_x: 2,
                                 units_y: 2,
                             }),
                             defender: Masked::Visible(CombatUnit {
-                                units_ammo: 0,
+                                units_ammo: 2,
                                 units_hit_points: Some(test_hp(0)),
                                 units_id: CoreUnitId::new(2),
                                 units_x: 3,
@@ -860,10 +1433,133 @@ mod tests {
                 .value(),
             8
         );
+        assert_eq!(app.world().entity(attacker).get::<Ammo>(), Some(&Ammo(4)));
         assert!(
             !app.world().entity(attacker).contains::<UnitActive>(),
             "attacker should be marked inactive"
         );
+    }
+
+    #[test]
+    fn repair_refills_resources_and_sets_repaired_hp() {
+        let mut app = replay_turn_test_app();
+        let repairer = spawn_test_unit_kind(
+            &mut app,
+            Position::new(2, 2),
+            CoreUnitId::new(1),
+            awbrn_core::Unit::APC,
+            PlayerFaction::OrangeStar,
+        );
+        let repaired = spawn_test_unit_kind(
+            &mut app,
+            Position::new(2, 1),
+            CoreUnitId::new(2),
+            awbrn_core::Unit::Tank,
+            PlayerFaction::OrangeStar,
+        );
+        app.world_mut()
+            .entity_mut(repaired)
+            .insert((Fuel(5), Ammo(1), GraphicalHp(3)));
+
+        ReplayTurnCommand {
+            action: Action::Repair {
+                move_action: None,
+                repair_action: RepairAction {
+                    unit: [(TargetedPlayer::Global, Hidden::Visible(1))].into(),
+                    repaired: [(
+                        TargetedPlayer::Player(awbrn_core::AwbwGamePlayerId::new(10)),
+                        RepairedUnit {
+                            units_id: CoreUnitId::new(2),
+                            units_hit_points: test_hp(7),
+                        },
+                    )]
+                    .into(),
+                    funds: [(TargetedPlayer::Global, Hidden::Visible(0))].into(),
+                },
+            },
+        }
+        .apply(app.world_mut());
+
+        assert_eq!(app.world().entity(repaired).get::<Fuel>(), Some(&Fuel(70)));
+        assert_eq!(app.world().entity(repaired).get::<Ammo>(), Some(&Ammo(9)));
+        assert_eq!(
+            app.world().entity(repaired).get::<GraphicalHp>(),
+            Some(&GraphicalHp(7))
+        );
+        assert!(!app.world().entity(repairer).contains::<UnitActive>());
+    }
+
+    #[test]
+    fn end_updates_supplied_and_repaired_units_before_reactivation() {
+        let mut app = replay_turn_test_app();
+        app.insert_resource(ReplayState {
+            next_action_index: 0,
+            day: 1,
+        });
+        let supplied = spawn_test_unit_kind(
+            &mut app,
+            Position::new(2, 2),
+            CoreUnitId::new(1),
+            awbrn_core::Unit::Tank,
+            PlayerFaction::OrangeStar,
+        );
+        let repaired = spawn_test_unit_kind(
+            &mut app,
+            Position::new(3, 2),
+            CoreUnitId::new(2),
+            awbrn_core::Unit::Tank,
+            PlayerFaction::OrangeStar,
+        );
+        app.world_mut()
+            .entity_mut(supplied)
+            .insert((Fuel(9), Ammo(1)));
+        app.world_mut()
+            .entity_mut(repaired)
+            .insert((Fuel(6), Ammo(2), GraphicalHp(4)));
+        app.world_mut().entity_mut(supplied).remove::<UnitActive>();
+        app.world_mut().entity_mut(repaired).remove::<UnitActive>();
+
+        ReplayTurnCommand::apply_end(
+            &UpdatedInfo {
+                event: "NextTurn".to_string(),
+                next_player_id: 1,
+                next_funds: [(TargetedPlayer::Global, Hidden::Visible(0))].into(),
+                next_timer: 0,
+                next_weather: "C".to_string(),
+                supplied: Some(
+                    [(
+                        TargetedPlayer::Player(awbrn_core::AwbwGamePlayerId::new(10)),
+                        vec![CoreUnitId::new(1)],
+                    )]
+                    .into(),
+                ),
+                repaired: Some(
+                    [(
+                        TargetedPlayer::Global,
+                        vec![RepairedUnit {
+                            units_id: CoreUnitId::new(2),
+                            units_hit_points: test_hp(6),
+                        }],
+                    )]
+                    .into(),
+                ),
+                day: 2,
+                next_turn_start: "2025-01-01 00:00:00".to_string(),
+            },
+            app.world_mut(),
+        );
+
+        assert_eq!(app.world().entity(supplied).get::<Fuel>(), Some(&Fuel(70)));
+        assert_eq!(app.world().entity(supplied).get::<Ammo>(), Some(&Ammo(9)));
+        assert_eq!(app.world().entity(repaired).get::<Fuel>(), Some(&Fuel(70)));
+        assert_eq!(app.world().entity(repaired).get::<Ammo>(), Some(&Ammo(9)));
+        assert_eq!(
+            app.world().entity(repaired).get::<GraphicalHp>(),
+            Some(&GraphicalHp(6))
+        );
+        assert!(app.world().entity(supplied).contains::<UnitActive>());
+        assert!(app.world().entity(repaired).contains::<UnitActive>());
+        assert_eq!(app.world().resource::<ReplayState>().day, 2);
     }
 
     #[test]
@@ -986,12 +1682,30 @@ mod tests {
     }
 
     fn spawn_test_unit(app: &mut App, position: Position, unit_id: CoreUnitId) -> Entity {
+        spawn_test_unit_kind(
+            app,
+            position,
+            unit_id,
+            awbrn_core::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+        )
+    }
+
+    fn spawn_test_unit_kind(
+        app: &mut App,
+        position: Position,
+        unit_id: CoreUnitId,
+        unit: awbrn_core::Unit,
+        faction: PlayerFaction,
+    ) -> Entity {
         app.world_mut()
             .spawn((
                 MapPosition::from(position),
-                Unit(awbrn_core::Unit::Infantry),
-                Faction(PlayerFaction::OrangeStar),
+                Unit(unit),
+                Faction(faction),
                 AwbwUnitId(unit_id),
+                Fuel(unit.max_fuel()),
+                Ammo(unit.max_ammo()),
                 UnitActive,
             ))
             .id()
@@ -1057,6 +1771,52 @@ mod tests {
             trapped: false,
             discovered: None,
         })
+    }
+
+    fn test_player_targeted_move_action(
+        unit_id: CoreUnitId,
+        final_x: u32,
+        final_y: u32,
+        path: &[(u32, u32)],
+        dist: u32,
+    ) -> MoveAction {
+        test_player_targeted_move_action_with_resources(
+            test_unit_property_with_resources(
+                unit_id,
+                final_x,
+                final_y,
+                awbrn_core::Unit::Infantry,
+                99,
+                0,
+            ),
+            path,
+            dist,
+        )
+    }
+
+    fn test_player_targeted_move_action_with_resources(
+        unit: UnitProperty,
+        path: &[(u32, u32)],
+        dist: u32,
+    ) -> MoveAction {
+        let player = TargetedPlayer::Player(awbrn_core::AwbwGamePlayerId::new(10));
+        MoveAction {
+            unit: [(player, Hidden::Visible(unit))].into(),
+            paths: [(
+                player,
+                path.iter()
+                    .map(|&(x, y)| PathTile {
+                        unit_visible: true,
+                        x,
+                        y,
+                    })
+                    .collect::<Vec<_>>(),
+            )]
+            .into(),
+            dist,
+            trapped: false,
+            discovered: None,
+        }
     }
 
     fn test_capture_action(unit_id: CoreUnitId, building_position: Position) -> Action {
@@ -1163,17 +1923,28 @@ mod tests {
     }
 
     fn test_unit_property(unit_id: CoreUnitId, x: u32, y: u32) -> UnitProperty {
+        test_unit_property_with_resources(unit_id, x, y, awbrn_core::Unit::Infantry, 99, 0)
+    }
+
+    fn test_unit_property_with_resources(
+        unit_id: CoreUnitId,
+        x: u32,
+        y: u32,
+        unit_name: awbrn_core::Unit,
+        fuel: u32,
+        ammo: u32,
+    ) -> UnitProperty {
         UnitProperty {
             units_id: unit_id,
             units_games_id: Some(1403019),
             units_players_id: 1,
-            units_name: awbrn_core::Unit::Infantry,
+            units_name: unit_name,
             units_movement_points: Some(3),
             units_vision: Some(2),
-            units_fuel: Some(99),
+            units_fuel: Some(fuel),
             units_fuel_per_turn: Some(0),
             units_sub_dive: "N".to_string(),
-            units_ammo: Some(0),
+            units_ammo: Some(ammo),
             units_short_range: Some(0),
             units_long_range: Some(0),
             units_second_weapon: Some("N".to_string()),

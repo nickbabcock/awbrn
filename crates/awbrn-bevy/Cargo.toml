@@ -17,6 +17,7 @@ bevy = { workspace = true, features = [
     "bevy_state",
     "bevy_window",
 ]}
+indexmap.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 
@@ -28,4 +29,3 @@ wasm-bindgen.workspace = true
 approx.workspace = true
 highway.workspace = true
 insta.workspace = true
-indexmap.workspace = true

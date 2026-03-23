@@ -222,6 +222,8 @@ impl Plugin for CorePlugin {
             .register_type::<MapPosition>()
             .register_type::<Faction>()
             .register_type::<Unit>()
+            .register_type::<Fuel>()
+            .register_type::<Ammo>()
             .add_observer(on_map_position_insert)
             .add_observer(units::on_unit_destroyed);
     }
