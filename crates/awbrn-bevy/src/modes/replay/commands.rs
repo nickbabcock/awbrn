@@ -14,8 +14,8 @@ use bevy::{log, prelude::*};
 
 use crate::core::map::TerrainTile;
 use crate::core::{
-    Capturing, CarriedBy, Faction, GraphicalHp, MapPosition, StrongIdMap, Unit, UnitActive,
-    UnitDestroyed,
+    BoardIndex, Capturing, CarriedBy, Faction, GraphicalHp, MapPosition, StrongIdMap, Unit,
+    UnitActive, UnitDestroyed,
 };
 use crate::features::event_bus::{ExternalGameEvent, GameEvent, NewDay};
 use crate::features::navigation::{PendingCourseArrows, global_path_tiles, path_positions};
@@ -231,11 +231,17 @@ impl ReplayTurnCommand {
         );
 
         let capturing_unit = {
-            let mut query = world.query::<(Entity, &MapPosition, &Faction)>();
-            query
-                .iter(world)
-                .find(|(_, pos, _)| pos.position() == building_pos)
-                .map(|(e, _, f)| (e, f.0))
+            match world
+                .resource::<BoardIndex>()
+                .unit_entity(building_pos)
+                .ok()
+                .flatten()
+            {
+                Some(entity) => world
+                    .get::<Faction>(entity)
+                    .map(|faction| (entity, faction.0)),
+                None => None,
+            }
         };
 
         let Some((entity, faction)) = capturing_unit else {
@@ -318,7 +324,8 @@ impl ReplayTurnCommand {
 
         world
             .entity_mut(loaded_entity)
-            .insert((Visibility::Hidden, CarriedBy(transport_entity)));
+            .insert((Visibility::Hidden, CarriedBy(transport_entity)))
+            .remove::<MapPosition>();
 
         log::info!(
             "Loaded unit {} into transport {}",
@@ -440,33 +447,45 @@ impl ReplayTurnCommand {
     }
 
     fn flip_building(world: &mut World, pos: Position, faction: PlayerFaction) {
-        let mut query = world.query::<(Entity, &MapPosition, &TerrainTile)>();
-        for (terrain_entity, map_position, terrain_tile) in query.iter(world) {
-            if map_position.position() != pos {
-                continue;
+        let terrain_entity = world.resource::<BoardIndex>().terrain_entity(pos).ok();
+
+        let Some(terrain_entity) = terrain_entity else {
+            return;
+        };
+
+        let Some(new_terrain) = ({
+            let entity_ref = world.entity(terrain_entity);
+            let terrain_tile = entity_ref.get::<TerrainTile>().unwrap();
+
+            match terrain_tile.terrain {
+                GraphicalTerrain::Property(property) => {
+                    let new_property = match property {
+                        Property::City(_) => Property::City(awbrn_core::Faction::Player(faction)),
+                        Property::Base(_) => Property::Base(awbrn_core::Faction::Player(faction)),
+                        Property::Airport(_) => {
+                            Property::Airport(awbrn_core::Faction::Player(faction))
+                        }
+                        Property::Port(_) => Property::Port(awbrn_core::Faction::Player(faction)),
+                        Property::ComTower(_) => {
+                            Property::ComTower(awbrn_core::Faction::Player(faction))
+                        }
+                        Property::Lab(_) => Property::Lab(awbrn_core::Faction::Player(faction)),
+                        Property::HQ(_) => Property::HQ(faction),
+                    };
+
+                    Some(GraphicalTerrain::Property(new_property))
+                }
+                _ => None,
             }
+        }) else {
+            return;
+        };
 
-            if let GraphicalTerrain::Property(property) = terrain_tile.terrain {
-                let new_property = match property {
-                    Property::City(_) => Property::City(awbrn_core::Faction::Player(faction)),
-                    Property::Base(_) => Property::Base(awbrn_core::Faction::Player(faction)),
-                    Property::Airport(_) => Property::Airport(awbrn_core::Faction::Player(faction)),
-                    Property::Port(_) => Property::Port(awbrn_core::Faction::Player(faction)),
-                    Property::ComTower(_) => {
-                        Property::ComTower(awbrn_core::Faction::Player(faction))
-                    }
-                    Property::Lab(_) => Property::Lab(awbrn_core::Faction::Player(faction)),
-                    Property::HQ(_) => Property::HQ(faction),
-                };
+        world.entity_mut(terrain_entity).insert(TerrainTile {
+            terrain: new_terrain,
+        });
 
-                world.entity_mut(terrain_entity).insert(TerrainTile {
-                    terrain: GraphicalTerrain::Property(new_property),
-                });
-
-                log::info!("Captured building at {:?} flipped to {:?}", pos, faction);
-                break;
-            }
-        }
+        log::info!("Captured building at {:?} flipped to {:?}", pos, faction);
     }
 
     fn activate_all_units(world: &mut World) {
@@ -748,6 +767,7 @@ mod tests {
 
     fn replay_turn_test_app() -> App {
         let mut app = App::new();
+        app.insert_resource(BoardIndex::new(40, 40));
         app.insert_resource(StrongIdMap::<AwbwUnitId>::default());
         app.insert_resource(CurrentWeather::default());
         app.insert_resource(ReplayAdvanceLock::default());
@@ -944,6 +964,66 @@ mod tests {
             app.world()
                 .entity(property_entity)
                 .contains::<AnimatedTerrain>()
+        );
+    }
+
+    #[test]
+    fn load_action_removes_map_position_from_carried_units() {
+        use awbw_replay::turn_models::LoadAction;
+
+        let mut app = replay_turn_test_app();
+        let transport = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
+        let cargo = spawn_test_unit(&mut app, Position::new(2, 3), CoreUnitId::new(2));
+
+        ReplayTurnCommand::apply_load(
+            &LoadAction {
+                loaded: [(TargetedPlayer::Global, Hidden::Visible(CoreUnitId::new(2)))].into(),
+                transport: [(TargetedPlayer::Global, Hidden::Visible(CoreUnitId::new(1)))].into(),
+            },
+            app.world_mut(),
+        );
+
+        assert!(app.world().entity(cargo).get::<MapPosition>().is_none());
+        assert_eq!(
+            app.world().entity(cargo).get::<CarriedBy>(),
+            Some(&CarriedBy(transport))
+        );
+    }
+
+    #[test]
+    fn unload_action_restores_map_position() {
+        let mut app = replay_turn_test_app();
+        let transport = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
+        let cargo = spawn_test_unit(&mut app, Position::new(2, 3), CoreUnitId::new(2));
+
+        app.world_mut()
+            .entity_mut(cargo)
+            .insert(CarriedBy(transport))
+            .insert(Visibility::Hidden)
+            .remove::<MapPosition>();
+
+        ReplayTurnCommand::apply_unload(
+            &[(
+                TargetedPlayer::Global,
+                Hidden::Visible(test_unit_property(CoreUnitId::new(2), 4, 1)),
+            )]
+            .into(),
+            CoreUnitId::new(1),
+            app.world_mut(),
+        );
+
+        assert_eq!(
+            app.world()
+                .entity(cargo)
+                .get::<MapPosition>()
+                .unwrap()
+                .position(),
+            Position::new(4, 1)
+        );
+        assert!(app.world().entity(cargo).get::<CarriedBy>().is_none());
+        assert_eq!(
+            app.world().entity(cargo).get::<Visibility>(),
+            Some(&Visibility::Inherited)
         );
     }
 }

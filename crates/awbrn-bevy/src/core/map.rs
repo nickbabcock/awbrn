@@ -1,5 +1,4 @@
-use crate::core::MapPosition;
-use crate::core::{RenderLayer, SpriteSize};
+use crate::core::{BoardIndex, MapPosition, RenderLayer, SpriteSize};
 use crate::snapshot::ReplaySnapshotEntity;
 use awbrn_core::GraphicalTerrain;
 use awbrn_map::{AwbrnMap, Position};
@@ -10,6 +9,7 @@ use bevy::prelude::*;
 #[reflect(Component)]
 #[require(SpriteSize { width: 16.0, height: 32.0, z_index: RenderLayer::TERRAIN })]
 #[require(ReplaySnapshotEntity)]
+/// `TerrainTile` must only exist on entities that also have `MapPosition`.
 pub struct TerrainTile {
     pub terrain: GraphicalTerrain,
 }
@@ -52,19 +52,27 @@ pub fn initialize_terrain_semantic_world(world: &mut World) {
         let _ = world.despawn(entity);
     }
 
-    let terrain_tiles: Vec<_> = {
+    let (map_width, map_height, terrain_tiles): (usize, usize, Vec<_>) = {
         let game_map = world.resource::<GameMap>();
-        (0..game_map.height())
-            .flat_map(|y| {
-                (0..game_map.width()).filter_map(move |x| {
-                    let position = Position::new(x, y);
-                    game_map
-                        .terrain_at(position)
-                        .map(|terrain| (position, TerrainTile { terrain }))
+        (
+            game_map.width(),
+            game_map.height(),
+            (0..game_map.height())
+                .flat_map(|y| {
+                    (0..game_map.width()).filter_map(move |x| {
+                        let position = Position::new(x, y);
+                        game_map
+                            .terrain_at(position)
+                            .map(|terrain| (position, TerrainTile { terrain }))
+                    })
                 })
-            })
-            .collect()
+                .collect(),
+        )
     };
+
+    world
+        .resource_mut::<BoardIndex>()
+        .reset(map_width, map_height);
 
     for (position, terrain_tile) in terrain_tiles {
         world.spawn((MapPosition::from(position), terrain_tile));
