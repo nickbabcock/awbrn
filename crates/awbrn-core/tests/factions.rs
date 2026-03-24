@@ -56,7 +56,7 @@ fn test_country_codes_are_unique() {
 }
 
 #[test]
-fn test_default_facing_direction_matches_reference_data() {
+fn test_default_facing_direction_matches_expected_data() {
     assert!(PlayerFaction::OrangeStar.faces_right());
     assert!(!PlayerFaction::BlueMoon.faces_right());
     assert!(PlayerFaction::GreenEarth.faces_right());

@@ -413,12 +413,26 @@ pub struct WeatherChange {
     pub weather_name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Copy)]
 pub enum WeatherCode {
+    #[serde(rename = "C", alias = "c")]
+    Clear,
     #[serde(rename = "R")]
+    #[serde(alias = "r")]
     Rain,
     #[serde(rename = "S")]
+    #[serde(alias = "s")]
     Snow,
+}
+
+impl From<WeatherCode> for awbrn_core::Weather {
+    fn from(value: WeatherCode) -> Self {
+        match value {
+            WeatherCode::Clear => awbrn_core::Weather::Clear,
+            WeatherCode::Rain => awbrn_core::Weather::Rain,
+            WeatherCode::Snow => awbrn_core::Weather::Snow,
+        }
+    }
 }
 
 /// Movement/vision boosts applied globally to the activating player's units
@@ -526,7 +540,7 @@ pub struct NextTurnAction {
     #[serde(rename = "nextTimer")]
     pub next_timer: u32,
     #[serde(rename = "nextWeather")]
-    pub next_weather: String,
+    pub next_weather: WeatherCode,
     pub supplied: Option<indexmap::IndexMap<TargetedPlayer, Vec<AwbwUnitId>>>,
     pub repaired: Option<indexmap::IndexMap<TargetedPlayer, Vec<RepairedUnit>>>,
     pub day: u32,
@@ -602,7 +616,7 @@ pub struct UpdatedInfo {
     #[serde(rename = "nextTimer")]
     pub next_timer: u32,
     #[serde(rename = "nextWeather")]
-    pub next_weather: String,
+    pub next_weather: WeatherCode,
     pub supplied: Option<indexmap::IndexMap<TargetedPlayer, Vec<AwbwUnitId>>>,
     pub repaired: Option<indexmap::IndexMap<TargetedPlayer, Vec<RepairedUnit>>>,
     pub day: u32,
@@ -894,6 +908,7 @@ mod tests {
             "nextTurnStart": "2025-03-12 00:00:00"
         }"#;
         let updated: UpdatedInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(updated.next_weather, WeatherCode::Clear);
 
         assert_eq!(
             updated.supplied.unwrap()[&TargetedPlayer::Global],
@@ -1006,6 +1021,42 @@ mod tests {
         }"#;
         let action: PowerAction = serde_json::from_str(json).unwrap();
         assert!(action.weather.is_none());
+    }
+
+    #[test]
+    fn test_next_weather_parses_lowercase_weather_code() {
+        let json = r#"{
+            "event": "NextTurn",
+            "nextPId": 3189812,
+            "nextFunds": {"global": 17400},
+            "nextTimer": 1260250,
+            "nextWeather": "r",
+            "supplied": null,
+            "repaired": null,
+            "day": 18,
+            "nextTurnStart": "2025-03-12 00:00:00"
+        }"#;
+        let updated: UpdatedInfo = serde_json::from_str(json).unwrap();
+
+        assert_eq!(updated.next_weather, WeatherCode::Rain);
+    }
+
+    #[test]
+    fn test_next_weather_parses_clear_weather_code() {
+        let json = r#"{
+            "event": "NextTurn",
+            "nextPId": 3189812,
+            "nextFunds": {"global": 17400},
+            "nextTimer": 1260250,
+            "nextWeather": "c",
+            "supplied": null,
+            "repaired": null,
+            "day": 18,
+            "nextTurnStart": "2025-03-12 00:00:00"
+        }"#;
+        let updated: UpdatedInfo = serde_json::from_str(json).unwrap();
+
+        assert_eq!(updated.next_weather, WeatherCode::Clear);
     }
 
     #[test]

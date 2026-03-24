@@ -49,19 +49,24 @@ pub(crate) fn handle_replay_controls(
     mut replay_state: ResMut<ReplayState>,
     loaded_replay: Res<LoadedReplay>,
     replay_lock: Res<ReplayAdvanceLock>,
+    fog_params: (
+        ResMut<super::fog::ReplayViewpoint>,
+        Res<super::fog::ReplayPlayerRegistry>,
+    ),
 ) {
+    let (mut viewpoint, registry) = fog_params;
     let mut replay_blocked = replay_lock.is_active();
 
     for event in keyboard_input.read() {
-        if event.key_code != KeyCode::ArrowRight {
+        if event.state != ButtonState::Pressed {
+            if event.key_code == KeyCode::ArrowRight {
+                replay_control.suppress_exhausted_repeat = false;
+            }
             continue;
         }
 
-        match event.state {
-            ButtonState::Released => {
-                replay_control.suppress_exhausted_repeat = false;
-            }
-            ButtonState::Pressed => {
+        match event.key_code {
+            KeyCode::ArrowRight => {
                 if replay_blocked {
                     continue;
                 }
@@ -84,6 +89,44 @@ pub(crate) fn handle_replay_controls(
                     }
                 }
             }
+            KeyCode::Digit0 | KeyCode::Numpad0 => {
+                viewpoint.set_if_neq(super::fog::ReplayViewpoint::Spectator);
+            }
+            KeyCode::Tab => {
+                viewpoint.set_if_neq(super::fog::ReplayViewpoint::ActivePlayer);
+            }
+            key @ (KeyCode::Digit1
+            | KeyCode::Digit2
+            | KeyCode::Digit3
+            | KeyCode::Digit4
+            | KeyCode::Digit5
+            | KeyCode::Digit6
+            | KeyCode::Digit7
+            | KeyCode::Digit8
+            | KeyCode::Numpad1
+            | KeyCode::Numpad2
+            | KeyCode::Numpad3
+            | KeyCode::Numpad4
+            | KeyCode::Numpad5
+            | KeyCode::Numpad6
+            | KeyCode::Numpad7
+            | KeyCode::Numpad8) => {
+                let index = match key {
+                    KeyCode::Digit1 | KeyCode::Numpad1 => 0,
+                    KeyCode::Digit2 | KeyCode::Numpad2 => 1,
+                    KeyCode::Digit3 | KeyCode::Numpad3 => 2,
+                    KeyCode::Digit4 | KeyCode::Numpad4 => 3,
+                    KeyCode::Digit5 | KeyCode::Numpad5 => 4,
+                    KeyCode::Digit6 | KeyCode::Numpad6 => 5,
+                    KeyCode::Digit7 | KeyCode::Numpad7 => 6,
+                    KeyCode::Digit8 | KeyCode::Numpad8 => 7,
+                    _ => unreachable!(),
+                };
+                if let Some(player_id) = registry.player_id_at_index(index) {
+                    viewpoint.set_if_neq(super::fog::ReplayViewpoint::Player(player_id));
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -201,6 +244,15 @@ mod tests {
             games: Vec::new(),
             turns: actions,
         }));
+        app.init_resource::<crate::features::fog::FogOfWarMap>();
+        app.init_resource::<crate::features::fog::FogActive>();
+        app.init_resource::<crate::features::fog::FriendlyFactions>();
+        app.init_resource::<crate::modes::replay::fog::ReplayFogEnabled>();
+        app.init_resource::<crate::modes::replay::fog::ReplayTerrainKnowledge>();
+        app.init_resource::<crate::modes::replay::fog::ReplayViewpoint>();
+        app.init_resource::<crate::modes::replay::fog::ReplayPlayerRegistry>();
+        app.init_resource::<crate::modes::replay::PowerVisionBoosts>();
+        app.add_observer(crate::modes::replay::fog::on_replay_fog_dirty);
         app
     }
 

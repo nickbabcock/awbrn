@@ -12,11 +12,13 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::core::map::{TerrainHp, TerrainTile};
+use crate::core::units::VisionRange;
 use crate::core::{
     Ammo, Capturing, Faction, Fuel, GraphicalHp, HasCargo, MapPosition, Unit, UnitActive,
 };
 use crate::modes::replay::AwbwUnitId;
 use crate::modes::replay::state::ReplayState;
+use awbrn_core::AwbwGamePlayerId;
 
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[reflect(Component)]
@@ -43,6 +45,7 @@ impl<T> bevy::reflect::FromType<T> for ReplaySemanticResourceType {
 pub struct ReplaySemanticSnapshot {
     pub next_action_index: u32,
     pub day: u32,
+    pub active_player_id: Option<AwbwGamePlayerId>,
     pub scene: DynamicScene,
 }
 
@@ -96,6 +99,7 @@ impl Error for ReplaySemanticSnapshotError {}
 pub struct CanonicalReplaySnapshot {
     pub next_action_index: u32,
     pub day: u32,
+    pub active_player_id: Option<AwbwGamePlayerId>,
     pub resources: Vec<CanonicalSceneEntry>,
     pub entities: Vec<CanonicalReplayEntity>,
 }
@@ -139,6 +143,8 @@ impl Plugin for ReplaySnapshotPlugin {
             .register_type_data::<Fuel, ReplaySemanticComponentType>()
             .register_type::<Ammo>()
             .register_type_data::<Ammo, ReplaySemanticComponentType>()
+            .register_type::<VisionRange>()
+            .register_type_data::<VisionRange, ReplaySemanticComponentType>()
             .register_type::<crate::core::CarriedBy>()
             .register_type_data::<crate::core::CarriedBy, ReplaySemanticComponentType>()
             .register_type::<HasCargo>()
@@ -151,11 +157,15 @@ impl Plugin for ReplaySnapshotPlugin {
 pub fn capture_replay_semantic_snapshot(
     world: &mut World,
 ) -> Result<ReplaySemanticSnapshot, ReplaySemanticSnapshotError> {
-    let (next_action_index, day) = {
+    let (next_action_index, day, active_player_id) = {
         let replay_state = world
             .get_resource::<ReplayState>()
             .ok_or(ReplaySemanticSnapshotError::MissingReplayState)?;
-        (replay_state.next_action_index, replay_state.day)
+        (
+            replay_state.next_action_index,
+            replay_state.day,
+            replay_state.active_player_id,
+        )
     };
     let entities: Vec<Entity> = {
         let mut query = world.query_filtered::<Entity, With<ReplaySnapshotEntity>>();
@@ -175,6 +185,7 @@ pub fn capture_replay_semantic_snapshot(
     Ok(ReplaySemanticSnapshot {
         next_action_index,
         day,
+        active_player_id,
         scene,
     })
 }
@@ -197,11 +208,30 @@ pub fn restore_replay_semantic_snapshot(
         .scene
         .write_to_world_with(world, &mut entity_map, &type_registry)?;
 
+    if let Some(mut replay_state) = world.get_resource_mut::<ReplayState>() {
+        replay_state.next_action_index = snapshot.next_action_index;
+        replay_state.day = snapshot.day;
+        replay_state.active_player_id = snapshot.active_player_id;
+    } else {
+        world.insert_resource(ReplayState {
+            next_action_index: snapshot.next_action_index,
+            day: snapshot.day,
+            active_player_id: snapshot.active_player_id,
+        });
+    }
+
     // `ReplaySnapshotEntity` is intentionally excluded from `ReplaySemanticComponentType`
     // extraction, so restore must reapply it.
     let restored_entities: Vec<Entity> = entity_map.values().copied().collect();
     for entity in restored_entities {
         world.entity_mut(entity).insert(ReplaySnapshotEntity);
+    }
+
+    if world.contains_resource::<crate::features::FogActive>()
+        && world.contains_resource::<crate::features::FriendlyFactions>()
+        && world.contains_resource::<crate::features::FogOfWarMap>()
+    {
+        world.trigger(crate::modes::replay::fog::ReplayFogDirty);
     }
 
     Ok(())
@@ -235,6 +265,7 @@ pub fn canonicalize_replay_semantic_snapshot(
     Ok(CanonicalReplaySnapshot {
         next_action_index: snapshot.next_action_index,
         day: snapshot.day,
+        active_player_id: snapshot.active_player_id,
         resources,
         entities,
     })
@@ -377,7 +408,7 @@ mod tests {
     use crate::core::{Ammo, CorePlugin, Fuel, MapPosition};
     use crate::features::CurrentWeather;
     use crate::modes::replay::ReplayPlugin;
-    use awbrn_core::{GraphicalTerrain, PlayerFaction};
+    use awbrn_core::{AwbwGamePlayerId, GraphicalTerrain, PlayerFaction};
     use awbrn_map::AwbrnMap;
     use bevy::state::app::StatesPlugin;
     use bevy::{ecs::entity::MapEntities, ecs::reflect::ReflectMapEntities};
@@ -392,6 +423,7 @@ mod tests {
         app.world_mut().insert_resource(ReplayState {
             next_action_index: 7,
             day: 3,
+            active_player_id: None,
         });
 
         app.world_mut().spawn((
@@ -428,11 +460,33 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_restore_preserves_active_player_id() {
+        let mut app = snapshot_test_app();
+        app.world_mut().insert_resource(ReplayState {
+            next_action_index: 7,
+            day: 3,
+            active_player_id: Some(AwbwGamePlayerId::new(42)),
+        });
+
+        let snapshot = capture_replay_semantic_snapshot(app.world_mut()).unwrap();
+        assert_eq!(snapshot.active_player_id, Some(AwbwGamePlayerId::new(42)));
+
+        let mut restored = snapshot_test_app();
+        restore_replay_semantic_snapshot(restored.world_mut(), &snapshot).unwrap();
+
+        assert_eq!(
+            restored.world().resource::<ReplayState>().active_player_id,
+            Some(AwbwGamePlayerId::new(42))
+        );
+    }
+
+    #[test]
     fn canonicalizer_rewrites_entity_refs_to_semantic_ids() {
         let mut app = snapshot_test_app();
         app.world_mut().insert_resource(ReplayState {
             next_action_index: 1,
             day: 1,
+            active_player_id: None,
         });
 
         let transport = app
@@ -551,6 +605,7 @@ mod tests {
             Unit(awbrn_core::Unit::Tank),
             Fuel(37),
             Ammo(5),
+            VisionRange(6),
         ));
 
         let snapshot = capture_replay_semantic_snapshot(app.world_mut()).unwrap();
@@ -572,9 +627,15 @@ mod tests {
             .iter()
             .find(|component| component.type_path.ends_with("Ammo"))
             .unwrap();
+        let vision_range = unit
+            .components
+            .iter()
+            .find(|component| component.type_path.ends_with("VisionRange"))
+            .unwrap();
 
         assert_eq!(fuel.value, Value::Number(37.into()));
         assert_eq!(ammo.value, Value::Number(5.into()));
+        assert_eq!(vision_range.value, Value::Number(6.into()));
     }
 
     #[test]

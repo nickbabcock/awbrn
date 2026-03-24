@@ -19,6 +19,9 @@ pub struct MapBackdrop;
 #[derive(Component)]
 pub(crate) struct AnimatedTerrain;
 
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TerrainVisualOverride(pub Option<GraphicalTerrain>);
+
 #[derive(Resource, Clone)]
 pub(crate) struct BackdropTexturesResource {
     clear: Handle<Image>,
@@ -140,12 +143,12 @@ pub(crate) fn refresh_map_backdrop_on_weather_change(
 pub(crate) fn on_terrain_tile_insert(
     trigger: On<Insert, TerrainTile>,
     mut commands: Commands,
-    terrain_tiles: Query<&TerrainTile>,
+    terrain_tiles: Query<(&TerrainTile, Option<&TerrainVisualOverride>)>,
     current_weather: Option<Res<CurrentWeather>>,
     terrain_atlas: Res<TerrainAtlasResource>,
 ) {
     let entity = trigger.entity;
-    let Ok(terrain_tile) = terrain_tiles.get(entity) else {
+    let Ok((terrain_tile, visual_override)) = terrain_tiles.get(entity) else {
         warn!("TerrainTile entity {:?} not found in query", entity);
         return;
     };
@@ -158,7 +161,37 @@ pub(crate) fn on_terrain_tile_insert(
         commands.entity(entity),
         &terrain_atlas,
         weather,
-        terrain_tile.terrain,
+        visual_override
+            .and_then(|override_tile| override_tile.0)
+            .unwrap_or(terrain_tile.terrain),
+    );
+}
+
+pub(crate) fn on_terrain_visual_override_insert(
+    trigger: On<Insert, TerrainVisualOverride>,
+    mut commands: Commands,
+    terrain_tiles: Query<(&TerrainTile, &TerrainVisualOverride)>,
+    current_weather: Option<Res<CurrentWeather>>,
+    terrain_atlas: Res<TerrainAtlasResource>,
+) {
+    let entity = trigger.entity;
+    let Ok((terrain_tile, visual_override)) = terrain_tiles.get(entity) else {
+        warn!(
+            "TerrainVisualOverride entity {:?} missing TerrainTile or override",
+            entity
+        );
+        return;
+    };
+
+    let weather = current_weather
+        .as_ref()
+        .map_or(awbrn_core::Weather::Clear, |weather| weather.weather());
+
+    insert_terrain_visual(
+        commands.entity(entity),
+        &terrain_atlas,
+        weather,
+        visual_override.0.unwrap_or(terrain_tile.terrain),
     );
 }
 
@@ -276,7 +309,8 @@ impl Plugin for MapVisualsPlugin {
                     .run_if(resource_changed::<CurrentWeather>)
                     .run_if(in_state(AppState::InGame)),
             )
-            .add_observer(on_terrain_tile_insert);
+            .add_observer(on_terrain_tile_insert)
+            .add_observer(on_terrain_visual_override_insert);
     }
 }
 

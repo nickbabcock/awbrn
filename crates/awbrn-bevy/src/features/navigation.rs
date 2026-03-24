@@ -7,7 +7,7 @@ use crate::render::animation::{
     Animation, UnitPathAnimation, UnitVisualState, ease_out_quint, flip_x_for_lateral_direction,
     flip_x_for_movement, restore_unit_visual_state, set_unit_animation_state,
 };
-use awbrn_core::GraphicalMovement;
+use awbrn_core::{GraphicalMovement, UnitDomain};
 use awbrn_map::Position;
 use awbw_replay::Hidden;
 use awbw_replay::turn_models::{MoveAction, TargetedPlayer, UnitProperty};
@@ -399,6 +399,7 @@ type UnitPathAnimationQuery<'w, 's> = Query<
         &'static Faction,
         Option<&'static mut Animation>,
         Has<UnitActive>,
+        &'static mut Visibility,
     ),
 >;
 
@@ -407,8 +408,14 @@ pub(crate) fn animate_unit_paths(
     time: Res<Time>,
     game_map: Res<GameMap>,
     mut replay_lock: ResMut<ReplayAdvanceLock>,
+    fog_params: (
+        Res<crate::features::fog::FogOfWarMap>,
+        Res<crate::features::fog::FogActive>,
+        Res<crate::features::fog::FriendlyFactions>,
+    ),
     mut query: UnitPathAnimationQuery,
 ) {
+    let (fog_map, fog_active, friendly) = fog_params;
     for (
         entity,
         mut transform,
@@ -419,6 +426,7 @@ pub(crate) fn animate_unit_paths(
         faction,
         animation,
         has_active,
+        mut visibility,
     ) in &mut query
     {
         let idle_visual_state = UnitVisualState {
@@ -468,6 +476,7 @@ pub(crate) fn animate_unit_paths(
             faction: *faction,
             flip_x,
         };
+        let unit_is_air = unit.0.domain() == UnitDomain::Air;
 
         if previous_elapsed.is_zero()
             || segment_index != path_animation.current_segment
@@ -484,6 +493,21 @@ pub(crate) fn animate_unit_paths(
                 movement,
             );
         }
+
+        // Per-tile fog visibility: enemy units appear/disappear as they cross
+        // visible tile boundaries during path animation.
+        let from_pos = path_animation.path[segment_index];
+        let to_pos = path_animation.path[segment_index + 1];
+        let visible_to_viewer = !fog_active.0
+            || friendly.0.contains(&faction.0)
+            || fog_map.is_unit_visible(from_pos, unit_is_air)
+            || fog_map.is_unit_visible(to_pos, unit_is_air);
+        let target = if visible_to_viewer {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        visibility.set_if_neq(target);
 
         let start_world = position_to_world_translation(
             sprite_size,
@@ -513,8 +537,21 @@ pub(crate) fn animate_unit_paths(
                 has_active,
             );
 
-            if let Some(action) = replay_lock.release_for(entity) {
-                commands.queue(ReplayFollowupCommand { action });
+            let final_visible_to_viewer = !fog_active.0
+                || friendly.0.contains(&faction.0)
+                || fog_map.is_unit_visible(*path_animation.path.last().unwrap(), unit_is_air);
+            let final_target = if final_visible_to_viewer {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+            visibility.set_if_neq(final_target);
+
+            if let Some(followup) = replay_lock.release_for(entity) {
+                commands.queue(ReplayFollowupCommand {
+                    action: followup.action,
+                    recompute_fog: followup.recompute_fog,
+                });
             }
         }
     }
@@ -540,7 +577,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn course_arrow_generation_matches_reference_rotations() {
+    fn course_arrow_generation_matches_expected_rotations() {
         let straight = build_course_arrow_spawns(&[
             ReplayPathTile {
                 position: Position::new(1, 1),
