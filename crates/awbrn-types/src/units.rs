@@ -93,6 +93,66 @@ impl Unit {
             _ => None,
         }
     }
+
+    pub const fn max_fuel(&self) -> u32 {
+        match self {
+            Unit::AntiAir => 60,
+            Unit::APC => 70,
+            Unit::Artillery => 50,
+            Unit::BCopter => 99,
+            Unit::Battleship => 99,
+            Unit::BlackBoat => 60,
+            Unit::BlackBomb => 45,
+            Unit::Bomber => 99,
+            Unit::Carrier => 99,
+            Unit::Cruiser => 99,
+            Unit::Fighter => 99,
+            Unit::Infantry => 99,
+            Unit::Lander => 99,
+            Unit::MdTank => 50,
+            Unit::Mech => 70,
+            Unit::MegaTank => 50,
+            Unit::Missile => 50,
+            Unit::NeoTank => 99,
+            Unit::PipeRunner => 99,
+            Unit::Recon => 80,
+            Unit::Rocket => 50,
+            Unit::Stealth => 60,
+            Unit::Sub => 60,
+            Unit::TCopter => 99,
+            Unit::Tank => 70,
+        }
+    }
+
+    pub const fn max_ammo(&self) -> u32 {
+        match self {
+            Unit::AntiAir => 9,
+            Unit::APC => 0,
+            Unit::Artillery => 9,
+            Unit::BCopter => 6,
+            Unit::Battleship => 9,
+            Unit::BlackBoat => 0,
+            Unit::BlackBomb => 0,
+            Unit::Bomber => 9,
+            Unit::Carrier => 9,
+            Unit::Cruiser => 9,
+            Unit::Fighter => 9,
+            Unit::Infantry => 0,
+            Unit::Lander => 0,
+            Unit::MdTank => 8,
+            Unit::Mech => 3,
+            Unit::MegaTank => 3,
+            Unit::Missile => 6,
+            Unit::NeoTank => 9,
+            Unit::PipeRunner => 9,
+            Unit::Recon => 0,
+            Unit::Rocket => 6,
+            Unit::Stealth => 6,
+            Unit::Sub => 6,
+            Unit::TCopter => 0,
+            Unit::Tank => 9,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]

@@ -9,6 +9,8 @@ use crate::render::animation::{
 };
 use awbrn_core::GraphicalMovement;
 use awbrn_map::Position;
+use awbw_replay::Hidden;
+use awbw_replay::turn_models::{MoveAction, TargetedPlayer, UnitProperty};
 use bevy::prelude::*;
 use std::time::Duration;
 
@@ -56,7 +58,10 @@ pub fn scaled_animation_duration(base_ms: u64) -> Duration {
 pub fn action_requires_path_animation(action: &awbw_replay::turn_models::Action) -> bool {
     action
         .move_action()
-        .and_then(global_path_tiles)
+        .and_then(|move_action| {
+            let (targeted_player, _) = replay_move_view(move_action)?;
+            replay_path_tiles(move_action, targeted_player)
+        })
         .is_some_and(|path| path.len() >= 2)
 }
 
@@ -96,18 +101,37 @@ pub(crate) fn path_positions(path: &[ReplayPathTile]) -> Vec<Position> {
     path.iter().map(|tile| tile.position).collect()
 }
 
-pub(crate) fn global_path_tiles(
-    move_action: &awbw_replay::turn_models::MoveAction,
-) -> Option<Vec<ReplayPathTile>> {
-    use awbw_replay::turn_models::TargetedPlayer;
-    move_action.paths.get(&TargetedPlayer::Global).map(|path| {
-        path.iter()
-            .map(|tile| ReplayPathTile {
-                position: Position::new(tile.x as usize, tile.y as usize),
-                unit_visible: tile.unit_visible,
+pub(crate) fn replay_move_view(
+    move_action: &MoveAction,
+) -> Option<(TargetedPlayer, &UnitProperty)> {
+    move_action
+        .unit
+        .get(&TargetedPlayer::Global)
+        .and_then(Hidden::get_value)
+        .map(|unit| (TargetedPlayer::Global, unit))
+        .or_else(|| {
+            move_action.unit.iter().find_map(|(targeted_player, unit)| {
+                unit.get_value().map(|unit| (*targeted_player, unit))
             })
-            .collect()
-    })
+        })
+}
+
+pub(crate) fn replay_path_tiles(
+    move_action: &MoveAction,
+    targeted_player: TargetedPlayer,
+) -> Option<Vec<ReplayPathTile>> {
+    move_action
+        .paths
+        .get(&TargetedPlayer::Global)
+        .or_else(|| move_action.paths.get(&targeted_player))
+        .map(|path| {
+            path.iter()
+                .map(|tile| ReplayPathTile {
+                    position: Position::new(tile.x as usize, tile.y as usize),
+                    unit_visible: tile.unit_visible,
+                })
+                .collect()
+        })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

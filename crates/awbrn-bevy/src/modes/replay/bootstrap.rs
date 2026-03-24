@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::core::map::{TerrainHp, TerrainTile, initialize_terrain_semantic_world};
-use crate::core::{Faction, MapPosition, Unit, UnitActive};
+use crate::core::{Ammo, Faction, Fuel, MapPosition, Unit, UnitActive};
 use crate::loading::LoadedReplay;
 use crate::modes::replay::AwbwUnitId;
 use crate::modes::replay::commands::ReplayAdvanceLock;
@@ -48,6 +48,8 @@ pub fn initialize_replay_semantic_world(world: &mut World) {
                         Faction(faction),
                         AwbwUnitId(unit.id),
                         Unit(unit.name),
+                        Fuel(unit.fuel),
+                        Ammo(unit.ammo),
                         UnitActive,
                     )
                 })

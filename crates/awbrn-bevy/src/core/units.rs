@@ -137,3 +137,25 @@ impl GraphicalHp {
         self.0 == 0
     }
 }
+
+#[derive(Debug, Component, Reflect, Clone, Copy, PartialEq, Eq, Hash)]
+#[component(immutable)]
+#[reflect(Component)]
+pub struct Fuel(pub u32);
+
+impl Fuel {
+    pub fn value(&self) -> u32 {
+        self.0
+    }
+}
+
+#[derive(Debug, Component, Reflect, Clone, Copy, PartialEq, Eq, Hash)]
+#[component(immutable)]
+#[reflect(Component)]
+pub struct Ammo(pub u32);
+
+impl Ammo {
+    pub fn value(&self) -> u32 {
+        self.0
+    }
+}

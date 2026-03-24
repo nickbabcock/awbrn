@@ -12,7 +12,9 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::core::map::{TerrainHp, TerrainTile};
-use crate::core::{Capturing, Faction, GraphicalHp, HasCargo, MapPosition, Unit, UnitActive};
+use crate::core::{
+    Ammo, Capturing, Faction, Fuel, GraphicalHp, HasCargo, MapPosition, Unit, UnitActive,
+};
 use crate::modes::replay::AwbwUnitId;
 use crate::modes::replay::state::ReplayState;
 
@@ -133,6 +135,10 @@ impl Plugin for ReplaySnapshotPlugin {
             .register_type_data::<Capturing, ReplaySemanticComponentType>()
             .register_type::<GraphicalHp>()
             .register_type_data::<GraphicalHp, ReplaySemanticComponentType>()
+            .register_type::<Fuel>()
+            .register_type_data::<Fuel, ReplaySemanticComponentType>()
+            .register_type::<Ammo>()
+            .register_type_data::<Ammo, ReplaySemanticComponentType>()
             .register_type::<crate::core::CarriedBy>()
             .register_type_data::<crate::core::CarriedBy, ReplaySemanticComponentType>()
             .register_type::<HasCargo>()
@@ -368,7 +374,7 @@ fn canonical_scene_entry(
 mod tests {
     use super::*;
     use crate::core::map::GameMap;
-    use crate::core::{CorePlugin, MapPosition};
+    use crate::core::{Ammo, CorePlugin, Fuel, MapPosition};
     use crate::features::CurrentWeather;
     use crate::modes::replay::ReplayPlugin;
     use awbrn_core::{GraphicalTerrain, PlayerFaction};
@@ -530,6 +536,45 @@ mod tests {
             .unwrap();
 
         assert_eq!(terrain_hp.value, Value::Number(55.into()));
+    }
+
+    #[test]
+    fn canonicalizer_includes_unit_resources() {
+        let mut app = snapshot_test_app();
+        app.world_mut().insert_resource(ReplayState::default());
+
+        app.world_mut().spawn((
+            ReplaySnapshotEntity,
+            MapPosition::new(1, 0),
+            Faction(PlayerFaction::OrangeStar),
+            AwbwUnitId(awbrn_core::AwbwUnitId::new(7)),
+            Unit(awbrn_core::Unit::Tank),
+            Fuel(37),
+            Ammo(5),
+        ));
+
+        let snapshot = capture_replay_semantic_snapshot(app.world_mut()).unwrap();
+        let type_registry = app.world().resource::<AppTypeRegistry>().read();
+        let canonical = canonicalize_replay_semantic_snapshot(&snapshot, &type_registry).unwrap();
+        let unit = canonical
+            .entities
+            .iter()
+            .find(|entity| entity.id == "unit:7")
+            .unwrap();
+
+        let fuel = unit
+            .components
+            .iter()
+            .find(|component| component.type_path.ends_with("Fuel"))
+            .unwrap();
+        let ammo = unit
+            .components
+            .iter()
+            .find(|component| component.type_path.ends_with("Ammo"))
+            .unwrap();
+
+        assert_eq!(fuel.value, Value::Number(37.into()));
+        assert_eq!(ammo.value, Value::Number(5.into()));
     }
 
     #[test]
