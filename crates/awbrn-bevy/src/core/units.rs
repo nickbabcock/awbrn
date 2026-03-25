@@ -38,6 +38,12 @@ pub struct UnitActive;
 #[reflect(Component)]
 pub struct Capturing;
 
+/// Marker for a unit that is hiding (submarine dive or stealth activation).
+#[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[component(storage = "SparseSet")]
+#[reflect(Component)]
+pub struct Hiding;
+
 /// Relationship component placed on carried units, pointing to their transport.
 #[derive(Component, Reflect, MapEntities, Debug, Clone, Copy, PartialEq, Eq)]
 #[reflect(Component, MapEntities)]

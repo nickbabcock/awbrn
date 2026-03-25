@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use std::collections::HashSet;
 
 use crate::core::units::CarriedBy;
-use crate::core::{Faction, MapPosition, Unit};
+use crate::core::{Faction, Hiding, MapPosition, Unit};
 use crate::render::animation::UnitPathAnimation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -205,18 +205,20 @@ pub fn apply_fog_to_units(
     fog_map: Res<FogOfWarMap>,
     fog_active: Res<FogActive>,
     friendly: Res<FriendlyFactions>,
-    mut units: Query<(&Faction, &Unit, &MapPosition, &mut Visibility), FogUnitFilter>,
+    mut units: Query<(&Faction, &Unit, &MapPosition, &mut Visibility, Has<Hiding>), FogUnitFilter>,
 ) {
     if !fog_active.0 {
-        for (_, _, _, mut vis) in &mut units {
+        for (_, _, _, mut vis, _) in &mut units {
             vis.set_if_neq(Visibility::Inherited);
         }
         return;
     }
 
-    for (faction, unit, pos, mut vis) in &mut units {
-        let visible_to_viewer = friendly.0.contains(&faction.0)
-            || fog_map.is_unit_visible(pos.position(), unit.0.domain() == UnitDomain::Air);
+    for (faction, unit, pos, mut vis, is_hiding) in &mut units {
+        let is_friendly = friendly.0.contains(&faction.0);
+        let visible_to_viewer = is_friendly
+            || (!is_hiding
+                && fog_map.is_unit_visible(pos.position(), unit.0.domain() == UnitDomain::Air));
         let target = if visible_to_viewer {
             Visibility::Inherited
         } else {

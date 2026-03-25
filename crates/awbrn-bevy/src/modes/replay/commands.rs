@@ -16,8 +16,8 @@ use bevy::{log, prelude::*};
 use crate::core::map::{TerrainHp, TerrainTile};
 use crate::core::units::VisionRange;
 use crate::core::{
-    Ammo, BoardIndex, Capturing, CarriedBy, Faction, Fuel, GraphicalHp, MapPosition, StrongIdMap,
-    Unit, UnitActive, UnitDestroyed,
+    Ammo, BoardIndex, Capturing, CarriedBy, Faction, Fuel, GraphicalHp, Hiding, MapPosition,
+    StrongIdMap, Unit, UnitActive, UnitDestroyed,
 };
 use crate::features::event_bus::{ExternalGameEvent, GameEvent, NewDay};
 use crate::features::navigation::{
@@ -260,6 +260,8 @@ impl ReplayTurnCommand {
             Action::Repair { repair_action, .. } => Self::apply_repair(repair_action, world),
             Action::Supply { supply_action, .. } => Self::apply_supply(supply_action, world),
             Action::Join { join_action, .. } => Self::apply_join(join_action, world),
+            Action::Hide { move_action } => Self::apply_hide(move_action.as_ref(), world),
+            Action::Unhide { move_action } => Self::apply_unhide(move_action.as_ref(), world),
             Action::Move(_) => {}
             _ => log::warn!("Unhandled action: {:?}", action),
         }
@@ -655,6 +657,60 @@ impl ReplayTurnCommand {
         }
 
         world.entity_mut(surviving_entity).remove::<UnitActive>();
+    }
+
+    fn apply_hide(move_action: Option<&MoveAction>, world: &mut World) {
+        let Some(mov) = move_action else {
+            log::warn!("Hide action missing move data");
+            return;
+        };
+
+        let Some((_, unit)) = replay_move_view(mov) else {
+            log::warn!("Hide action missing visible unit data");
+            return;
+        };
+
+        let entity = {
+            let units = world.resource::<StrongIdMap<AwbwUnitId>>();
+            units.get(&AwbwUnitId(unit.units_id))
+        };
+
+        if let Some(entity) = entity {
+            world.entity_mut(entity).insert(Hiding);
+            log::info!("Unit {} is now hiding", unit.units_id.as_u32());
+        } else {
+            log::warn!(
+                "Hide unit entity not found for ID: {}",
+                unit.units_id.as_u32()
+            );
+        }
+    }
+
+    fn apply_unhide(move_action: Option<&MoveAction>, world: &mut World) {
+        let Some(mov) = move_action else {
+            log::warn!("Unhide action missing move data");
+            return;
+        };
+
+        let Some((_, unit)) = replay_move_view(mov) else {
+            log::warn!("Unhide action missing visible unit data");
+            return;
+        };
+
+        let entity = {
+            let units = world.resource::<StrongIdMap<AwbwUnitId>>();
+            units.get(&AwbwUnitId(unit.units_id))
+        };
+
+        if let Some(entity) = entity {
+            world.entity_mut(entity).remove::<Hiding>();
+            log::info!("Unit {} is no longer hiding", unit.units_id.as_u32());
+        } else {
+            log::warn!(
+                "Unhide unit entity not found for ID: {}",
+                unit.units_id.as_u32()
+            );
+        }
     }
 
     fn update_combat_unit_state(world: &mut World, combat_unit: &CombatUnit) -> Option<Entity> {
@@ -2161,6 +2217,75 @@ mod tests {
             None,
             "source tile should be cleared once the joining unit is despawned"
         );
+    }
+
+    #[test]
+    fn hide_action_inserts_hiding_component() {
+        let mut app = replay_turn_test_app();
+        let unit_entity = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
+
+        ReplayTurnCommand {
+            action: Action::Hide {
+                move_action: Some(MoveAction {
+                    unit: [(
+                        TargetedPlayer::Global,
+                        Hidden::Visible(test_unit_property(CoreUnitId::new(1), 2, 2)),
+                    )]
+                    .into(),
+                    paths: [(
+                        TargetedPlayer::Global,
+                        vec![PathTile {
+                            unit_visible: true,
+                            x: 2,
+                            y: 2,
+                        }],
+                    )]
+                    .into(),
+                    dist: 0,
+                    trapped: false,
+                    discovered: None,
+                }),
+            },
+        }
+        .apply(app.world_mut());
+
+        assert!(app.world().entity(unit_entity).contains::<Hiding>());
+        assert!(!app.world().entity(unit_entity).contains::<UnitActive>());
+    }
+
+    #[test]
+    fn unhide_action_removes_hiding_component() {
+        let mut app = replay_turn_test_app();
+        let unit_entity = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
+        app.world_mut().entity_mut(unit_entity).insert(Hiding);
+
+        ReplayTurnCommand {
+            action: Action::Unhide {
+                move_action: Some(MoveAction {
+                    unit: [(
+                        TargetedPlayer::Global,
+                        Hidden::Visible(test_unit_property(CoreUnitId::new(1), 2, 2)),
+                    )]
+                    .into(),
+                    paths: [(
+                        TargetedPlayer::Global,
+                        vec![PathTile {
+                            unit_visible: true,
+                            x: 2,
+                            y: 2,
+                        }],
+                    )]
+                    .into(),
+                    dist: 0,
+                    trapped: false,
+                    discovered: None,
+                }),
+            },
+        }
+        .apply(app.world_mut());
+
+        assert!(!app.world().entity(unit_entity).contains::<Hiding>());
+        assert!(!app.world().entity(unit_entity).contains::<UnitActive>());
     }
 
     #[test]
