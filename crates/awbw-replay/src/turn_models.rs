@@ -314,6 +314,8 @@ pub struct JoinAction {
     #[serde(rename = "newFunds")]
     pub new_funds: indexmap::IndexMap<TargetedPlayer, u32>,
     pub unit: UnitMap,
+    #[serde(rename = "joinID")]
+    pub join_id: indexmap::IndexMap<TargetedPlayer, Hidden<u32>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]

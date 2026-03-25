@@ -4,7 +4,7 @@ expression: snapshot
 input_file: assets/replays/1391406.zip
 ---
 {
-  "checksum": "0xf1c6c371f9801a680dfcc148118014575bb2c25e532c1b63adf057235d261298",
+  "checksum": "0x899e1026ebdd0d759964623bc350049856613abcd4fadb0cd440bcd33c517038",
   "file_entries": [
     {
       "data": {
