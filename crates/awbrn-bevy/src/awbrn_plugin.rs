@@ -95,6 +95,10 @@ impl Plugin for AwbrnPlugin {
             OnEnter(LoadingState::Complete),
             crate::core::map::initialize_terrain_semantic_world.run_if(in_state(GameMode::Game)),
         );
+        app.add_systems(
+            OnEnter(LoadingState::Complete),
+            crate::render::fog_overlay::spawn_fog_overlay_tiles,
+        );
     }
 }
 
