@@ -1,10 +1,13 @@
 use bevy::prelude::*;
 
 use crate::core::map::{TerrainHp, TerrainTile, initialize_terrain_semantic_world};
-use crate::core::{Ammo, Faction, Fuel, MapPosition, Unit, UnitActive};
+use crate::core::units::VisionRange;
+use crate::core::{Ammo, Faction, Fuel, GameMap, MapPosition, Unit, UnitActive};
+use crate::features::fog::{FogActive, FogOfWarMap, FriendlyFactions};
 use crate::loading::LoadedReplay;
 use crate::modes::replay::AwbwUnitId;
 use crate::modes::replay::commands::ReplayAdvanceLock;
+use crate::modes::replay::fog::{ReplayFogEnabled, ReplayPlayerRegistry, ReplayTerrainKnowledge};
 use crate::modes::replay::state::ReplayState;
 use awbrn_core::PlayerFaction;
 use awbrn_map::Position;
@@ -25,11 +28,19 @@ pub fn initialize_replay_semantic_world(world: &mut World) {
         }
     }
 
-    let replay_units = world
+    let (replay_units, fog_enabled, player_registry, first_player_id) = world
         .get_resource::<LoadedReplay>()
         .and_then(|loaded_replay| loaded_replay.0.games.first())
         .map(|first_game| {
-            first_game
+            let fog_enabled = first_game.fog;
+            let registry = ReplayPlayerRegistry::from_players(&first_game.players, first_game.team);
+            let first_player_id = first_game
+                .players
+                .iter()
+                .min_by_key(|p| p.order)
+                .map(|p| p.id);
+
+            let units = first_game
                 .units
                 .iter()
                 .map(|unit| {
@@ -50,10 +61,13 @@ pub fn initialize_replay_semantic_world(world: &mut World) {
                         Unit(unit.name),
                         Fuel(unit.fuel),
                         Ammo(unit.ammo),
+                        VisionRange(unit.vision),
                         UnitActive,
                     )
                 })
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+
+            (units, fog_enabled, registry, first_player_id)
         })
         .unwrap_or_default();
 
@@ -61,7 +75,28 @@ pub fn initialize_replay_semantic_world(world: &mut World) {
         world.spawn(replay_unit);
     }
 
-    world.insert_resource(ReplayState::default());
+    // Initialize fog resources
+    let (map_width, map_height, terrain_knowledge) = {
+        let game_map = world.resource::<GameMap>();
+        (
+            game_map.width(),
+            game_map.height(),
+            ReplayTerrainKnowledge::from_map_and_registry(game_map, &player_registry),
+        )
+    };
+    world
+        .resource_mut::<FogOfWarMap>()
+        .reset(map_width, map_height);
+    world.insert_resource(ReplayFogEnabled(fog_enabled));
+    world.insert_resource(player_registry);
+    world.insert_resource(terrain_knowledge);
+    world.insert_resource(FogActive(false)); // Spectator by default
+    world.insert_resource(FriendlyFactions::default());
+
+    world.insert_resource(ReplayState {
+        active_player_id: first_player_id,
+        ..ReplayState::default()
+    });
     world.insert_resource(ReplayAdvanceLock::default());
 }
 
@@ -156,7 +191,12 @@ mod tests {
 
     fn bootstrap_test_app() -> App {
         let mut app = App::new();
-        app.add_plugins((StatesPlugin, CorePlugin, ReplayPlugin));
+        app.add_plugins((
+            StatesPlugin,
+            CorePlugin,
+            ReplayPlugin,
+            crate::features::fog::FogPlugin,
+        ));
         app
     }
 

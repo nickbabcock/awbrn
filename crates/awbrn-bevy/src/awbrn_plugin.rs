@@ -134,8 +134,18 @@ pub(crate) mod test_helpers {
             texture: Handle::default(),
             layout: Handle::default(),
         });
+        app.init_resource::<crate::features::fog::FogOfWarMap>();
+        app.init_resource::<crate::features::fog::FogActive>();
+        app.init_resource::<crate::features::fog::FriendlyFactions>();
+        app.init_resource::<crate::modes::replay::fog::ReplayFogEnabled>();
+        app.init_resource::<crate::modes::replay::fog::ReplayTerrainKnowledge>();
+        app.init_resource::<crate::modes::replay::fog::ReplayViewpoint>();
+        app.init_resource::<crate::modes::replay::fog::ReplayPlayerRegistry>();
+        app.init_resource::<crate::modes::replay::PowerVisionBoosts>();
+        app.insert_resource(crate::modes::replay::ReplayState::default());
         app.add_observer(on_map_position_insert);
         app.add_observer(crate::render::map::on_terrain_tile_insert);
+        app.add_observer(crate::modes::replay::fog::on_replay_fog_dirty);
         app.add_observer(on_unit_active_remove);
         app.add_observer(spawn_pending_course_arrows);
         app.add_systems(Update, (animate_course_arrows, animate_unit_paths));
@@ -404,7 +414,7 @@ pub(crate) mod test_helpers {
         }
     }
 
-    fn test_unit_property(
+    pub(crate) fn test_unit_property(
         unit_id: u32,
         player_id: u32,
         unit_name: awbrn_core::Unit,
@@ -456,7 +466,10 @@ mod tests {
         AwbwUnitId as CoreUnitId, GraphicalMovement, PlayerFaction, get_unit_animation_frames,
     };
     use awbrn_map::Position;
+    use awbw_replay::Hidden;
+    use awbw_replay::turn_models::{Action, MoveAction, TargetedPlayer};
     use bevy::prelude::*;
+    use indexmap::IndexMap;
     use std::time::Duration;
 
     #[test]
@@ -618,6 +631,109 @@ mod tests {
         app.update();
 
         assert!(course_arrows(&mut app).is_empty());
+    }
+
+    #[test]
+    fn animating_units_unhide_when_fog_is_disabled_mid_animation() {
+        let mut app = replay_animation_test_app();
+        let unit_entity = spawn_test_unit(
+            &mut app,
+            Position::new(8, 33),
+            CoreUnitId::new(173623341),
+            PlayerFaction::GreenEarth,
+        );
+        app.update();
+
+        let path_animation = crate::render::animation::UnitPathAnimation::new(
+            vec![Position::new(8, 33), Position::new(7, 33)],
+            false,
+        )
+        .expect("two-tile path should animate");
+
+        app.world_mut()
+            .entity_mut(unit_entity)
+            .insert((path_animation, Visibility::Hidden));
+        app.world_mut()
+            .resource_mut::<crate::features::fog::FogActive>()
+            .0 = false;
+        app.update();
+
+        assert!(matches!(
+            app.world().entity(unit_entity).get::<Visibility>(),
+            Some(Visibility::Inherited)
+        ));
+    }
+
+    #[test]
+    fn hidden_enemy_moves_do_not_spawn_visible_animation_or_arrows() {
+        let mut app = replay_animation_test_app();
+        let unit_entity = spawn_test_unit(
+            &mut app,
+            Position::new(8, 33),
+            CoreUnitId::new(173623341),
+            PlayerFaction::GreenEarth,
+        );
+        app.world_mut()
+            .resource_mut::<crate::features::fog::FogActive>()
+            .0 = true;
+        app.world_mut()
+            .resource_mut::<crate::features::fog::FriendlyFactions>()
+            .0 = std::collections::HashSet::from([PlayerFaction::OrangeStar]);
+
+        ReplayTurnCommand {
+            action: Action::Move(MoveAction {
+                unit: IndexMap::from([(
+                    TargetedPlayer::Global,
+                    Hidden::Visible(test_unit_property(
+                        173623341,
+                        3276855,
+                        awbrn_core::Unit::Infantry,
+                        7,
+                        32,
+                    )),
+                )]),
+                paths: IndexMap::from([(
+                    TargetedPlayer::Global,
+                    vec![
+                        awbw_replay::turn_models::PathTile {
+                            unit_visible: false,
+                            x: 8,
+                            y: 33,
+                        },
+                        awbw_replay::turn_models::PathTile {
+                            unit_visible: false,
+                            x: 7,
+                            y: 33,
+                        },
+                        awbw_replay::turn_models::PathTile {
+                            unit_visible: false,
+                            x: 7,
+                            y: 32,
+                        },
+                    ],
+                )]),
+                dist: 3,
+                trapped: false,
+                discovered: None,
+            }),
+        }
+        .apply(app.world_mut());
+
+        assert!(
+            !app.world()
+                .entity(unit_entity)
+                .contains::<crate::render::animation::UnitPathAnimation>()
+        );
+        assert!(
+            !app.world()
+                .entity(unit_entity)
+                .contains::<crate::features::navigation::PendingCourseArrows>()
+        );
+        assert_eq!(
+            app.world().entity(unit_entity).get::<MapPosition>(),
+            Some(&MapPosition::new(7, 32))
+        );
+        assert!(!app.world().resource::<ReplayAdvanceLock>().is_active());
     }
 
     #[test]

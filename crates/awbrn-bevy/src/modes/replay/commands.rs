@@ -8,12 +8,13 @@ use awbrn_core::{AwbwTerrain, GraphicalTerrain, PlayerFaction, Property};
 use awbrn_map::Position;
 use awbw_replay::turn_models::{
     Action, AttackSeamAction, AttackSeamCombat, CaptureAction, CombatUnit, FireAction, LoadAction,
-    MoveAction, RepairAction, RepairedUnit, SupplyAction, TargetedPlayer, UnitMap, UnitProperty,
-    UpdatedInfo,
+    MoveAction, PowerAction, RepairAction, RepairedUnit, SupplyAction, TargetedPlayer, UnitMap,
+    UnitProperty, UpdatedInfo,
 };
 use bevy::{log, prelude::*};
 
 use crate::core::map::{TerrainHp, TerrainTile};
+use crate::core::units::VisionRange;
 use crate::core::{
     Ammo, BoardIndex, Capturing, CarriedBy, Faction, Fuel, GraphicalHp, MapPosition, StrongIdMap,
     Unit, UnitActive, UnitDestroyed,
@@ -24,13 +25,16 @@ use crate::features::navigation::{
 };
 use crate::loading::LoadedReplay;
 use crate::modes::replay::AwbwUnitId;
+use crate::modes::replay::PowerVisionBoosts;
 use crate::modes::replay::state::ReplayState;
 use crate::render::animation::UnitPathAnimation;
+use crate::render::map::TerrainVisualOverride;
 
 #[derive(Resource, Debug, Default)]
 pub struct ReplayAdvanceLock {
     active_entity: Option<Entity>,
     deferred_action: Option<Action>,
+    recompute_fog: bool,
 }
 
 impl ReplayAdvanceLock {
@@ -38,32 +42,53 @@ impl ReplayAdvanceLock {
         self.active_entity.is_some()
     }
 
-    pub fn activate(&mut self, entity: Entity, deferred_action: Option<Action>) {
+    pub fn activate(
+        &mut self,
+        entity: Entity,
+        deferred_action: Option<Action>,
+        recompute_fog: bool,
+    ) {
         self.active_entity = Some(entity);
         self.deferred_action = deferred_action;
+        self.recompute_fog = recompute_fog;
     }
 
     pub fn active_entity(&self) -> Option<Entity> {
         self.active_entity
     }
 
-    pub fn release_for(&mut self, entity: Entity) -> Option<Action> {
+    pub fn release_for(&mut self, entity: Entity) -> Option<ReplayAnimationFollowup> {
         if self.active_entity != Some(entity) {
             return None;
         }
 
         self.active_entity = None;
-        self.deferred_action.take()
+        Some(ReplayAnimationFollowup {
+            action: self.deferred_action.take(),
+            recompute_fog: std::mem::take(&mut self.recompute_fog),
+        })
     }
 }
 
+#[derive(Debug)]
+pub struct ReplayAnimationFollowup {
+    pub action: Option<Action>,
+    pub recompute_fog: bool,
+}
+
 pub struct ReplayFollowupCommand {
-    pub action: Action,
+    pub action: Option<Action>,
+    pub recompute_fog: bool,
 }
 
 impl Command for ReplayFollowupCommand {
     fn apply(self, world: &mut World) {
-        ReplayTurnCommand::apply_non_move_action(&self.action, world);
+        if let Some(action) = &self.action {
+            ReplayTurnCommand::apply_non_move_action(action, world);
+        }
+        if self.recompute_fog {
+            world.trigger(super::fog::ReplayFogDirty);
+        }
     }
 }
 
@@ -77,10 +102,13 @@ impl Command for ReplayTurnCommand {
         if let Some(mov) = self.action.move_action()
             && Self::apply_move(mov, &self.action, world)
         {
+            // Move started a path animation — fog recompute happens in
+            // ReplayFollowupCommand after animation completes.
             return;
         }
 
         Self::apply_non_move_action(&self.action, world);
+        world.trigger(super::fog::ReplayFogDirty);
     }
 }
 
@@ -125,19 +153,23 @@ impl ReplayTurnCommand {
             .map(|sprite| sprite.flip_x)
             .unwrap_or(false);
         let path_tiles = replay_path_tiles(move_action, targeted_player);
+        let current_view_path = path_tiles.as_deref().map(Self::path_tiles_for_current_view);
         let animated_path = path_tiles
             .as_ref()
             .and_then(|path| UnitPathAnimation::new(path_positions(path), idle_flip_x));
         let path_tile_count = path_tiles.as_ref().map_or(0, Vec::len);
+        let should_animate_for_viewer = current_view_path
+            .as_ref()
+            .is_none_or(|path| path.iter().any(|tile| tile.unit_visible));
 
         let mut entity_mut = world.entity_mut(entity);
         if position_changed {
             entity_mut.remove::<Capturing>();
         }
 
-        if let Some(path_animation) = animated_path {
+        if should_animate_for_viewer && let Some(path_animation) = animated_path {
             entity_mut.insert((path_animation, new_position));
-            if let Some(path) = path_tiles {
+            if let Some(path) = current_view_path {
                 entity_mut.insert(PendingCourseArrows { path });
             }
             entity_mut.remove::<UnitActive>();
@@ -149,7 +181,7 @@ impl ReplayTurnCommand {
 
             world
                 .resource_mut::<ReplayAdvanceLock>()
-                .activate(entity, deferred_action);
+                .activate(entity, deferred_action, true);
 
             log::info!(
                 "Started path animation for unit {} across {} tiles",
@@ -165,6 +197,12 @@ impl ReplayTurnCommand {
         false
     }
 
+    fn path_tiles_for_current_view(
+        path: &[crate::features::navigation::ReplayPathTile],
+    ) -> Vec<crate::features::navigation::ReplayPathTile> {
+        path.to_vec()
+    }
+
     pub(crate) fn apply_non_move_action(action: &Action, world: &mut World) {
         match action {
             Action::AttackSeam {
@@ -178,6 +216,7 @@ impl ReplayTurnCommand {
             } => Self::apply_unload(unit, *transport_id, world),
             Action::End { updated_info } => Self::apply_end(updated_info, world),
             Action::Fire { fire_action, .. } => Self::apply_fire(fire_action, world),
+            Action::Power(power_action) => Self::apply_power(power_action, world),
             Action::Repair { repair_action, .. } => Self::apply_repair(repair_action, world),
             Action::Supply { supply_action, .. } => Self::apply_supply(supply_action, world),
             Action::Move(_) => {}
@@ -275,6 +314,7 @@ impl ReplayTurnCommand {
                 Unit(unit.units_name),
                 Fuel(unit.units_fuel.unwrap_or(unit.units_name.max_fuel())),
                 Ammo(unit.units_ammo.unwrap_or(unit.units_name.max_ammo())),
+                VisionRange(unit.units_vision.unwrap_or(1)),
             ));
         }
     }
@@ -329,7 +369,27 @@ impl ReplayTurnCommand {
             });
         }
 
+        // Track active player for fog viewpoint
+        let next_player_id = awbrn_core::AwbwGamePlayerId::new(updated_info.next_player_id);
+        world.resource_mut::<ReplayState>().active_player_id = Some(next_player_id);
+
+        if let Some(mut power_vision_boosts) = world.get_resource_mut::<PowerVisionBoosts>() {
+            power_vision_boosts.0.clear();
+        }
+
         Self::apply_end_resource_updates(updated_info, world);
+
+        // If viewpoint is ActivePlayer, update friendly factions for the new player
+        let viewpoint = world
+            .resource::<crate::modes::replay::fog::ReplayViewpoint>()
+            .clone();
+        if matches!(
+            viewpoint,
+            crate::modes::replay::fog::ReplayViewpoint::ActivePlayer
+        ) {
+            super::fog::sync_viewpoint(world);
+        }
+
         Self::activate_all_units(world);
     }
 
@@ -539,6 +599,10 @@ impl ReplayTurnCommand {
     }
 
     fn apply_end_resource_updates(updated_info: &UpdatedInfo, world: &mut World) {
+        world
+            .resource_mut::<crate::features::weather::CurrentWeather>()
+            .set(updated_info.next_weather.into());
+
         if let Some(supplied) = &updated_info.supplied {
             for supplied_id in Self::targeted_vec_union(supplied) {
                 Self::refill_unit_resources_by_id(world, supplied_id);
@@ -580,6 +644,35 @@ impl ReplayTurnCommand {
         Self::refill_unit_resources(world, entity);
     }
 
+    fn apply_power(power_action: &PowerAction, world: &mut World) {
+        if let Some(weather) = &power_action.weather {
+            world
+                .resource_mut::<crate::features::weather::CurrentWeather>()
+                .set(weather.weather_code.into());
+        }
+
+        if let Some(global) = &power_action.global
+            && global.units_vision != 0
+        {
+            let maybe_faction = world
+                .resource::<crate::modes::replay::fog::ReplayPlayerRegistry>()
+                .faction_for_player(power_action.player_id);
+
+            let Some(faction) = maybe_faction else {
+                log::warn!(
+                    "Power action player {:?} missing from replay registry",
+                    power_action.player_id
+                );
+                return;
+            };
+
+            let mut power_vision_boosts = world
+                .get_resource_mut::<PowerVisionBoosts>()
+                .expect("ReplayPlugin should initialize PowerVisionBoosts");
+            *power_vision_boosts.0.entry(faction).or_insert(0) += global.units_vision;
+        }
+    }
+
     fn update_unit_resources_from_property(world: &mut World, entity: Entity, unit: &UnitProperty) {
         let mut entity_mut = world.entity_mut(entity);
         if let Some(fuel) = unit.units_fuel {
@@ -587,6 +680,9 @@ impl ReplayTurnCommand {
         }
         if let Some(ammo) = unit.units_ammo {
             entity_mut.insert(Ammo(ammo));
+        }
+        if let Some(vision) = unit.units_vision {
+            entity_mut.insert(VisionRange(vision.max(1)));
         }
     }
 
@@ -696,6 +792,25 @@ impl ReplayTurnCommand {
             return;
         };
 
+        let (displayed_terrain, tile_hidden) = {
+            let entity_ref = world.entity(terrain_entity);
+            let current_terrain = entity_ref
+                .get::<TerrainTile>()
+                .map(|tile| tile.terrain)
+                .unwrap_or(new_terrain);
+            let displayed_terrain = entity_ref
+                .get::<TerrainVisualOverride>()
+                .and_then(|override_terrain| override_terrain.0)
+                .unwrap_or(current_terrain);
+            let tile_hidden = world
+                .get_resource::<crate::features::FogActive>()
+                .is_some_and(|fog_active| fog_active.0)
+                && world
+                    .get_resource::<crate::features::FogOfWarMap>()
+                    .is_some_and(|fog_map| fog_map.is_fogged(pos));
+            (displayed_terrain, tile_hidden)
+        };
+
         let map_updated = world
             .resource_mut::<crate::core::map::GameMap>()
             .set_terrain(pos, new_terrain)
@@ -706,6 +821,9 @@ impl ReplayTurnCommand {
         }
 
         let mut entity = world.entity_mut(terrain_entity);
+        entity.insert(TerrainVisualOverride(
+            (tile_hidden && displayed_terrain != new_terrain).then_some(displayed_terrain),
+        ));
         entity.insert(TerrainTile {
             terrain: new_terrain,
         });
@@ -745,9 +863,7 @@ impl ReplayTurnCommand {
             _ => return,
         };
 
-        world.entity_mut(terrain_entity).insert(TerrainTile {
-            terrain: new_terrain,
-        });
+        Self::set_terrain_at(world, pos, new_terrain, None);
 
         log::info!("Captured building at {:?} flipped to {:?}", pos, faction);
     }
@@ -780,29 +896,34 @@ mod tests {
     use super::*;
     use crate::core::{Ammo, Fuel};
     use crate::features::weather::CurrentWeather;
+    use crate::loading::LoadedReplay;
     use crate::render::TerrainAtlasResource;
+    use crate::render::map::TerrainVisualOverride;
     use crate::render::map::{AnimatedTerrain, on_terrain_tile_insert};
     use awbrn_core::{
         AwbwUnitId as CoreUnitId, Faction as TerrainFaction, GraphicalTerrain, PipeRubbleType,
         PipeSeamType, PlayerFaction, Property,
     };
     use awbrn_map::AwbrnMap;
+    use awbw_replay::AwbwReplay;
+    use awbw_replay::game_models::{AwbwPlayer, CoPower};
     use awbw_replay::turn_models::{
         Action, AttackSeamAction, AttackSeamCombat, BuildingInfo, CaptureAction, CombatInfo,
-        CombatInfoVision, CombatUnit, CopValueInfo, CopValues, FireAction, MoveAction, PathTile,
-        RepairAction, RepairedUnit, SupplyAction, TargetedPlayer, UnitProperty, UpdatedInfo,
+        CombatInfoVision, CombatUnit, CopValueInfo, CopValues, FireAction, GlobalStatBoost,
+        MoveAction, PathTile, PowerAction, RepairAction, RepairedUnit, SupplyAction,
+        TargetedPlayer, UnitProperty, UpdatedInfo, WeatherChange, WeatherCode,
     };
     use awbw_replay::{Hidden, Masked};
 
     #[test]
-    fn one_step_paths_use_reference_single_segment_duration() {
+    fn one_step_paths_use_expected_single_segment_duration() {
         use crate::features::navigation::{scaled_animation_duration, unit_path_segment_durations};
         let durations = unit_path_segment_durations(2).expect("two-tile path should animate");
         assert_eq!(durations, vec![scaled_animation_duration(400)]);
     }
 
     #[test]
-    fn multi_step_paths_use_reference_edge_and_interior_durations() {
+    fn multi_step_paths_use_expected_edge_and_interior_durations() {
         use crate::features::navigation::{scaled_animation_duration, unit_path_segment_durations};
         let durations = unit_path_segment_durations(4).expect("four-tile path should animate");
         assert_eq!(
@@ -878,7 +999,8 @@ mod tests {
             .release_for(unit_entity)
             .expect("capture action should be deferred while the move animates");
         ReplayFollowupCommand {
-            action: deferred_action,
+            action: deferred_action.action,
+            recompute_fog: deferred_action.recompute_fog,
         }
         .apply(app.world_mut());
 
@@ -1102,6 +1224,73 @@ mod tests {
     }
 
     #[test]
+    fn replay_hidden_enemy_paths_do_not_spawn_viewer_animation() {
+        let mut app = replay_turn_test_app();
+        let unit_entity = spawn_test_unit_kind(
+            &mut app,
+            Position::new(1, 2),
+            CoreUnitId::new(1),
+            awbrn_core::Unit::Infantry,
+            PlayerFaction::BlueMoon,
+        );
+        app.world_mut()
+            .resource_mut::<crate::features::FogActive>()
+            .0 = true;
+        app.world_mut()
+            .resource_mut::<crate::features::FriendlyFactions>()
+            .0 = std::collections::HashSet::from([PlayerFaction::OrangeStar]);
+        app.world_mut()
+            .resource_mut::<crate::features::FogOfWarMap>()
+            .reset(40, 40);
+        app.world_mut()
+            .resource_mut::<crate::features::FogOfWarMap>()
+            .reveal(Position::new(2, 2));
+
+        ReplayTurnCommand {
+            action: Action::Move(MoveAction {
+                unit: [(
+                    TargetedPlayer::Global,
+                    Hidden::Visible(test_unit_property(CoreUnitId::new(1), 2, 2)),
+                )]
+                .into(),
+                paths: [(
+                    TargetedPlayer::Global,
+                    vec![
+                        PathTile {
+                            unit_visible: false,
+                            x: 1,
+                            y: 2,
+                        },
+                        PathTile {
+                            unit_visible: false,
+                            x: 2,
+                            y: 2,
+                        },
+                    ],
+                )]
+                .into(),
+                dist: 1,
+                trapped: false,
+                discovered: None,
+            }),
+        }
+        .apply(app.world_mut());
+
+        assert!(
+            !app.world()
+                .entity(unit_entity)
+                .contains::<PendingCourseArrows>(),
+            "all-hidden replay path masks should suppress course arrows"
+        );
+        assert!(
+            !app.world()
+                .entity(unit_entity)
+                .contains::<crate::render::animation::UnitPathAnimation>(),
+            "all-hidden replay path masks should suppress unit path animation"
+        );
+    }
+
+    #[test]
     fn stationary_supply_refills_supplied_units_and_inactivates_supplier() {
         let mut app = replay_turn_test_app();
         let supplier = spawn_test_unit_kind(
@@ -1280,7 +1469,8 @@ mod tests {
             .expect("move + supply should defer the non-move action");
 
         ReplayFollowupCommand {
-            action: deferred_action,
+            action: deferred_action.action,
+            recompute_fog: deferred_action.recompute_fog,
         }
         .apply(app.world_mut());
 
@@ -1362,7 +1552,8 @@ mod tests {
             .expect("move + supply should defer the non-move action");
 
         ReplayFollowupCommand {
-            action: deferred_action,
+            action: deferred_action.action,
+            recompute_fog: deferred_action.recompute_fog,
         }
         .apply(app.world_mut());
 
@@ -1490,11 +1681,181 @@ mod tests {
     }
 
     #[test]
+    fn build_spawns_units_with_vision_range() {
+        let mut app = replay_turn_test_app();
+        app.insert_resource(LoadedReplay(AwbwReplay {
+            games: Vec::new(),
+            turns: Vec::new(),
+        }));
+
+        ReplayTurnCommand {
+            action: Action::Build {
+                new_unit: [(
+                    TargetedPlayer::Global,
+                    Hidden::Visible(test_unit_property(CoreUnitId::new(7), 4, 5)),
+                )]
+                .into(),
+                discovered: Default::default(),
+            },
+        }
+        .apply(app.world_mut());
+
+        let mut query = app.world_mut().query::<(&AwbwUnitId, &VisionRange)>();
+        let (_, vision_range) = query
+            .iter(app.world())
+            .find(|(unit_id, _)| unit_id.0 == CoreUnitId::new(7))
+            .expect("built unit should exist");
+
+        assert_eq!(vision_range.0, 2);
+    }
+
+    #[test]
+    fn power_action_updates_weather_and_active_player_vision() {
+        let mut app = replay_turn_test_app();
+        let boosted = spawn_test_unit_kind(
+            &mut app,
+            Position::new(2, 2),
+            CoreUnitId::new(1),
+            awbrn_core::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+        );
+        let unaffected = spawn_test_unit_kind(
+            &mut app,
+            Position::new(3, 2),
+            CoreUnitId::new(2),
+            awbrn_core::Unit::Infantry,
+            PlayerFaction::BlueMoon,
+        );
+        app.world_mut().insert_resource(
+            crate::modes::replay::fog::ReplayPlayerRegistry::from_players(
+                &[AwbwPlayer {
+                    id: awbrn_core::AwbwGamePlayerId::new(1),
+                    users_id: awbrn_core::AwbwPlayerId::new(100),
+                    games_id: awbrn_core::AwbwGameId::new(1),
+                    faction: PlayerFaction::OrangeStar,
+                    co_id: 0,
+                    funds: 0,
+                    turn: None,
+                    email: None,
+                    uniq_id: None,
+                    eliminated: false,
+                    last_read: String::new(),
+                    last_read_broadcasts: None,
+                    emailpress: None,
+                    signature: None,
+                    co_power: 0,
+                    co_power_on: CoPower::None,
+                    order: 1,
+                    accept_draw: false,
+                    co_max_power: 0,
+                    co_max_spower: 0,
+                    co_image: None,
+                    team: "1".to_string(),
+                    aet_count: 0,
+                    turn_start: String::new(),
+                    turn_clock: 0,
+                    tags_co_id: None,
+                    tags_co_power: None,
+                    tags_co_max_power: None,
+                    tags_co_max_spower: None,
+                    interface: false,
+                }],
+                false,
+            ),
+        );
+        app.world_mut().entity_mut(boosted).insert(VisionRange(2));
+        app.world_mut()
+            .entity_mut(unaffected)
+            .insert(VisionRange(4));
+
+        ReplayTurnCommand {
+            action: Action::Power(PowerAction {
+                player_id: awbrn_core::AwbwGamePlayerId::new(1),
+                co_name: "Drake".to_string(),
+                co_power: "Power".to_string(),
+                power_name: "Typhoon".to_string(),
+                players_cop: 0,
+                global: Some(GlobalStatBoost {
+                    units_movement_points: 0,
+                    units_vision: 1,
+                }),
+                hp_change: None,
+                unit_replace: None,
+                unit_add: None,
+                player_replace: None,
+                missile_coords: None,
+                weather: Some(WeatherChange {
+                    weather_code: WeatherCode::Rain,
+                    weather_name: "Rain".to_string(),
+                }),
+            }),
+        }
+        .apply(app.world_mut());
+
+        assert_eq!(
+            app.world().resource::<CurrentWeather>().weather(),
+            awbrn_core::Weather::Rain
+        );
+        assert_eq!(
+            app.world().entity(boosted).get::<VisionRange>(),
+            Some(&VisionRange(2))
+        );
+        assert_eq!(
+            app.world().entity(unaffected).get::<VisionRange>(),
+            Some(&VisionRange(4))
+        );
+        assert_eq!(
+            app.world()
+                .resource::<PowerVisionBoosts>()
+                .0
+                .get(&PlayerFaction::OrangeStar),
+            Some(&1)
+        );
+    }
+
+    #[test]
+    fn end_clears_power_vision_boosts_and_applies_next_weather() {
+        let mut app = replay_turn_test_app();
+        app.world_mut()
+            .resource_mut::<PowerVisionBoosts>()
+            .0
+            .insert(PlayerFaction::OrangeStar, 2);
+        app.world_mut()
+            .resource_mut::<CurrentWeather>()
+            .set(awbrn_core::Weather::Rain);
+
+        ReplayTurnCommand::apply_end(
+            &UpdatedInfo {
+                event: "NextTurn".to_string(),
+                next_player_id: 2,
+                next_funds: [(TargetedPlayer::Global, Hidden::Visible(0))].into(),
+                next_timer: 0,
+                next_weather: WeatherCode::Clear,
+                supplied: None,
+                repaired: None,
+                day: 1,
+                next_turn_start: String::new(),
+            },
+            app.world_mut(),
+        );
+
+        assert!(
+            app.world().resource::<PowerVisionBoosts>().0.is_empty(),
+            "temporary power vision boosts should end with the turn"
+        );
+        assert_eq!(
+            app.world().resource::<CurrentWeather>().weather(),
+            awbrn_core::Weather::Clear
+        );
+    }
+
+    #[test]
     fn end_updates_supplied_and_repaired_units_before_reactivation() {
         let mut app = replay_turn_test_app();
         app.insert_resource(ReplayState {
             next_action_index: 0,
             day: 1,
+            active_player_id: None,
         });
         let supplied = spawn_test_unit_kind(
             &mut app,
@@ -1525,7 +1886,7 @@ mod tests {
                 next_player_id: 1,
                 next_funds: [(TargetedPlayer::Global, Hidden::Visible(0))].into(),
                 next_timer: 0,
-                next_weather: "C".to_string(),
+                next_weather: WeatherCode::Clear,
                 supplied: Some(
                     [(
                         TargetedPlayer::Player(awbrn_core::AwbwGamePlayerId::new(10)),
@@ -1677,7 +2038,17 @@ mod tests {
             texture: Handle::default(),
             layout: Handle::default(),
         });
+        app.init_resource::<crate::features::fog::FogOfWarMap>();
+        app.init_resource::<crate::features::fog::FogActive>();
+        app.init_resource::<crate::features::fog::FriendlyFactions>();
+        app.init_resource::<crate::modes::replay::fog::ReplayFogEnabled>();
+        app.init_resource::<crate::modes::replay::fog::ReplayTerrainKnowledge>();
+        app.init_resource::<crate::modes::replay::fog::ReplayViewpoint>();
+        app.init_resource::<crate::modes::replay::fog::ReplayPlayerRegistry>();
+        app.init_resource::<PowerVisionBoosts>();
+        app.insert_resource(ReplayState::default());
         app.add_observer(on_terrain_tile_insert);
+        app.add_observer(crate::modes::replay::fog::on_replay_fog_dirty);
         app
     }
 
@@ -1971,15 +2342,12 @@ mod tests {
     #[test]
     fn capture_completion_replaces_terrain_tile_and_refreshes_visuals() {
         let mut app = replay_turn_test_app();
-        let property_entity = app
-            .world_mut()
-            .spawn((
-                MapPosition::new(2, 2),
-                TerrainTile {
-                    terrain: GraphicalTerrain::Property(Property::City(TerrainFaction::Neutral)),
-                },
-            ))
-            .id();
+        let property_entity = spawn_test_terrain(
+            &mut app,
+            Position::new(2, 2),
+            GraphicalTerrain::Property(Property::City(TerrainFaction::Neutral)),
+            None,
+        );
         spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
 
         ReplayTurnCommand {
@@ -2013,6 +2381,59 @@ mod tests {
             app.world()
                 .entity(property_entity)
                 .contains::<AnimatedTerrain>()
+        );
+    }
+
+    #[test]
+    fn hidden_capture_preserves_last_known_building_visual_same_frame() {
+        let mut app = replay_turn_test_app();
+        let property_entity = spawn_test_terrain(
+            &mut app,
+            Position::new(2, 2),
+            GraphicalTerrain::Property(Property::City(TerrainFaction::Neutral)),
+            None,
+        );
+        spawn_test_unit_kind(
+            &mut app,
+            Position::new(2, 2),
+            CoreUnitId::new(1),
+            awbrn_core::Unit::Infantry,
+            PlayerFaction::BlueMoon,
+        );
+        app.world_mut()
+            .resource_mut::<crate::features::FogActive>()
+            .0 = true;
+        app.world_mut()
+            .resource_mut::<crate::features::FriendlyFactions>()
+            .0 = std::collections::HashSet::from([PlayerFaction::OrangeStar]);
+
+        ReplayTurnCommand {
+            action: test_stationary_capture_action(Position::new(2, 2), 20),
+        }
+        .apply(app.world_mut());
+
+        let terrain_tile = app
+            .world()
+            .entity(property_entity)
+            .get::<TerrainTile>()
+            .unwrap();
+        let visual_override = app
+            .world()
+            .entity(property_entity)
+            .get::<TerrainVisualOverride>()
+            .unwrap();
+
+        assert_eq!(
+            terrain_tile.terrain,
+            GraphicalTerrain::Property(Property::City(TerrainFaction::Player(
+                PlayerFaction::BlueMoon,
+            )))
+        );
+        assert_eq!(
+            *visual_override,
+            TerrainVisualOverride(Some(GraphicalTerrain::Property(Property::City(
+                TerrainFaction::Neutral,
+            ))))
         );
     }
 

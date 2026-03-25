@@ -6,6 +6,10 @@ use bevy::prelude::*;
 pub struct ReplayState {
     pub next_action_index: u32,
     pub day: u32,
+    /// The player whose turn it currently is. Set at bootstrap from turn order
+    /// and updated by `apply_end()` from `UpdatedInfo.next_player_id`.
+    #[reflect(ignore)]
+    pub active_player_id: Option<awbrn_core::AwbwGamePlayerId>,
 }
 
 impl Default for ReplayState {
@@ -13,6 +17,7 @@ impl Default for ReplayState {
         Self {
             next_action_index: 0,
             day: 1,
+            active_player_id: None,
         }
     }
 }

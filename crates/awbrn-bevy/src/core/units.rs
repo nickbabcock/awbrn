@@ -16,7 +16,7 @@ pub(crate) fn on_unit_destroyed(trigger: On<UnitDestroyed>, mut commands: Comman
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[component(immutable)]
 #[reflect(Component)]
-#[require(SpriteSize { width: 23.0, height: 24.0, z_index: RenderLayer::UNIT })]
+#[require(SpriteSize { width: 23.0, height: 24.0, z_index: RenderLayer::UNIT }, Visibility)]
 /// `Unit` must only exist on entities that also have `MapPosition`.
 pub struct Unit(pub awbrn_core::Unit);
 
@@ -159,3 +159,8 @@ impl Ammo {
         self.0
     }
 }
+
+#[derive(Debug, Component, Reflect, Clone, Copy, PartialEq, Eq, Hash)]
+#[component(immutable)]
+#[reflect(Component)]
+pub struct VisionRange(pub u32);

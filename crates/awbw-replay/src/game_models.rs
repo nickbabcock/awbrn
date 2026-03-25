@@ -21,10 +21,12 @@ pub struct AwbwGame {
     pub win_condition: Option<String>,
     pub turn: u32,
     pub day: u32,
-    pub active: String,
+    #[serde(deserialize_with = "bool_ynstr")]
+    pub active: bool,
     pub funds: u32,
     pub capture_win: u32,
-    pub fog: String,
+    #[serde(deserialize_with = "bool_ynstr")]
+    pub fog: bool,
     pub comment: Option<String>,
     #[serde(rename = "type")]
     pub game_type: MatchType,
@@ -35,7 +37,8 @@ pub struct AwbwGame {
     pub min_rating: u32,
     pub max_rating: Option<u32>,
     pub league: Option<String>,
-    pub team: String,
+    #[serde(deserialize_with = "bool_ynstr")]
+    pub team: bool,
     pub aet_interval: i32,
     pub aet_date: String,
     #[serde(deserialize_with = "bool_ynstr")]

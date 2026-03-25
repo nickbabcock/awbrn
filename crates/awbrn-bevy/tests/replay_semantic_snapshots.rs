@@ -42,7 +42,12 @@ fn replay_semantic_snapshots_1362397() {
     apply_replay_building_overrides(&mut awbw_map, &replay.games.first().unwrap().buildings);
 
     let mut app = App::new();
-    app.add_plugins((StatesPlugin, CorePlugin, ReplayPlugin));
+    app.add_plugins((
+        StatesPlugin,
+        CorePlugin,
+        ReplayPlugin,
+        awbrn_bevy::features::fog::FogPlugin,
+    ));
     app.insert_resource(CurrentWeather::default());
     app.insert_resource(LoadedReplay(replay));
     app.world_mut()
@@ -93,8 +98,12 @@ fn settle_replay_semantics(world: &mut World) {
             replay_lock.release_for(active_entity)
         };
 
-        if let Some(action) = deferred_action {
-            ReplayFollowupCommand { action }.apply(world);
+        if let Some(followup) = deferred_action {
+            ReplayFollowupCommand {
+                action: followup.action,
+                recompute_fog: followup.recompute_fog,
+            }
+            .apply(world);
         }
     }
 }

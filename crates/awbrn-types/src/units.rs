@@ -30,6 +30,14 @@ pub enum Unit {
     Tank,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
+pub enum UnitDomain {
+    Ground,
+    Air,
+    Sea,
+}
+
 impl Unit {
     /// Get the display name of this unit
     pub const fn name(&self) -> &'static str {
@@ -91,6 +99,24 @@ impl Unit {
             "T-Copter" => Some(Unit::TCopter),
             "Tank" => Some(Unit::Tank),
             _ => None,
+        }
+    }
+
+    pub const fn domain(self) -> UnitDomain {
+        match self {
+            Unit::BCopter
+            | Unit::BlackBomb
+            | Unit::Bomber
+            | Unit::Fighter
+            | Unit::Stealth
+            | Unit::TCopter => UnitDomain::Air,
+            Unit::Battleship
+            | Unit::BlackBoat
+            | Unit::Carrier
+            | Unit::Cruiser
+            | Unit::Lander
+            | Unit::Sub => UnitDomain::Sea,
+            _ => UnitDomain::Ground,
         }
     }
 
