@@ -167,13 +167,22 @@ impl ReplayTurnCommand {
             .as_ref()
             .is_none_or(|path| path.iter().any(|tile| tile.unit_visible));
 
+        // Load actions will remove the unit from the board entirely, so skip
+        // inserting MapPosition at the destination to avoid evicting the
+        // transport from the BoardIndex.
+        let is_load = matches!(action, Action::Load { .. });
+
         let mut entity_mut = world.entity_mut(entity);
         if position_changed {
             entity_mut.remove::<Capturing>();
         }
 
         if should_animate_for_viewer && let Some(path_animation) = animated_path {
-            entity_mut.insert((path_animation, new_position));
+            if is_load {
+                entity_mut.insert(path_animation);
+            } else {
+                entity_mut.insert((path_animation, new_position));
+            }
             if let Some(path) = current_view_path {
                 entity_mut.insert(PendingCourseArrows { path });
             }
@@ -196,7 +205,9 @@ impl ReplayTurnCommand {
             return true;
         }
 
-        entity_mut.insert(new_position);
+        if !is_load {
+            entity_mut.insert(new_position);
+        }
         entity_mut.remove::<UnitActive>();
 
         false
@@ -2484,6 +2495,99 @@ mod tests {
         assert_eq!(
             app.world().entity(cargo).get::<CarriedBy>(),
             Some(&CarriedBy(transport))
+        );
+    }
+
+    #[test]
+    fn move_then_load_preserves_transport_in_board_index() {
+        use awbw_replay::turn_models::LoadAction;
+
+        let mut app = replay_turn_test_app();
+        let transport = spawn_test_unit_kind(
+            &mut app,
+            Position::new(2, 2),
+            CoreUnitId::new(1),
+            awbrn_core::Unit::APC,
+            PlayerFaction::OrangeStar,
+        );
+        let cargo = spawn_test_unit(&mut app, Position::new(2, 3), CoreUnitId::new(2));
+
+        // Verify initial board index state
+        let board = app.world().resource::<BoardIndex>();
+        assert_eq!(
+            board.unit_entity(Position::new(2, 2)).unwrap(),
+            Some(transport)
+        );
+        assert_eq!(board.unit_entity(Position::new(2, 3)).unwrap(), Some(cargo));
+
+        // Execute move-then-load: infantry at (2,3) moves to (2,2) and loads into APC
+        ReplayTurnCommand {
+            action: Action::Load {
+                move_action: Some(MoveAction {
+                    unit: [(
+                        TargetedPlayer::Global,
+                        Hidden::Visible(test_unit_property(CoreUnitId::new(2), 2, 2)),
+                    )]
+                    .into(),
+                    paths: [(
+                        TargetedPlayer::Global,
+                        vec![
+                            PathTile {
+                                unit_visible: true,
+                                x: 2,
+                                y: 3,
+                            },
+                            PathTile {
+                                unit_visible: true,
+                                x: 2,
+                                y: 2,
+                            },
+                        ],
+                    )]
+                    .into(),
+                    dist: 1,
+                    trapped: false,
+                    discovered: None,
+                }),
+                load_action: LoadAction {
+                    loaded: [(TargetedPlayer::Global, Hidden::Visible(CoreUnitId::new(2)))].into(),
+                    transport: [(TargetedPlayer::Global, Hidden::Visible(CoreUnitId::new(1)))]
+                        .into(),
+                },
+            },
+        }
+        .apply(app.world_mut());
+
+        // Release the deferred load action (move animation was started)
+        let deferred = app
+            .world_mut()
+            .resource_mut::<ReplayAdvanceLock>()
+            .release_for(cargo)
+            .expect("load action should be deferred while the move animates");
+        ReplayFollowupCommand {
+            action: deferred.action,
+            recompute_fog: deferred.recompute_fog,
+        }
+        .apply(app.world_mut());
+
+        // Verify cargo is loaded and removed from board
+        assert!(app.world().entity(cargo).get::<MapPosition>().is_none());
+        assert_eq!(
+            app.world().entity(cargo).get::<CarriedBy>(),
+            Some(&CarriedBy(transport))
+        );
+
+        // The transport must still be registered in the board index at its position
+        let board = app.world().resource::<BoardIndex>();
+        assert_eq!(
+            board.unit_entity(Position::new(2, 2)).unwrap(),
+            Some(transport),
+            "Transport should still be in board index after loading cargo"
+        );
+        assert_eq!(
+            board.unit_entity(Position::new(2, 3)).unwrap(),
+            None,
+            "Cargo's original position should be cleared from board index"
         );
     }
 
