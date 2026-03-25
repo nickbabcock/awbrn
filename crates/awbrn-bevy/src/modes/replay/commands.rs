@@ -153,7 +153,12 @@ impl ReplayTurnCommand {
             .map(|sprite| sprite.flip_x)
             .unwrap_or(false);
         let path_tiles = replay_path_tiles(move_action, targeted_player);
-        let current_view_path = path_tiles.as_deref().map(Self::path_tiles_for_current_view);
+        let unit_faction = world.entity(entity).get::<Faction>().unwrap().0;
+        let unit_is_air =
+            world.entity(entity).get::<Unit>().unwrap().0.domain() == awbrn_core::UnitDomain::Air;
+        let current_view_path = path_tiles
+            .as_deref()
+            .map(|path| Self::path_tiles_for_current_view(path, world, unit_faction, unit_is_air));
         let animated_path = path_tiles
             .as_ref()
             .and_then(|path| UnitPathAnimation::new(path_positions(path), idle_flip_x));
@@ -199,8 +204,30 @@ impl ReplayTurnCommand {
 
     fn path_tiles_for_current_view(
         path: &[crate::features::navigation::ReplayPathTile],
+        world: &World,
+        unit_faction: awbrn_core::PlayerFaction,
+        unit_is_air: bool,
     ) -> Vec<crate::features::navigation::ReplayPathTile> {
-        path.to_vec()
+        use crate::features::fog::{FogActive, FogOfWarMap, FriendlyFactions};
+
+        let fog_active = world.resource::<FogActive>();
+        if !fog_active.0 {
+            return path.to_vec();
+        }
+
+        let friendly = world.resource::<FriendlyFactions>();
+        if friendly.0.contains(&unit_faction) {
+            return path.to_vec();
+        }
+
+        let fog_map = world.resource::<FogOfWarMap>();
+        path.iter()
+            .map(|tile| crate::features::navigation::ReplayPathTile {
+                position: tile.position,
+                unit_visible: tile.unit_visible
+                    && fog_map.is_unit_visible(tile.position, unit_is_air),
+            })
+            .collect()
     }
 
     pub(crate) fn apply_non_move_action(action: &Action, world: &mut World) {

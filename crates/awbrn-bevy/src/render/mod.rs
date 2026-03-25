@@ -1,4 +1,5 @@
 pub mod animation;
+pub mod fog_overlay;
 pub mod map;
 pub mod units;
 
@@ -71,6 +72,7 @@ impl Plugin for RenderPlugin {
             units::UnitRenderingPlugin,
             map::MapVisualsPlugin,
             animation::AnimationPlugin,
+            fog_overlay::FogOverlayPlugin,
         ));
     }
 }

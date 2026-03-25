@@ -336,7 +336,16 @@ pub struct ReplayFogQueries<'w, 's> {
         ),
         Without<CarriedBy>,
     >,
-    terrain_query: Query<'w, 's, (Entity, &'static MapPosition), With<TerrainTile>>,
+    terrain_query: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static MapPosition,
+            Option<&'static TerrainVisualOverride>,
+        ),
+        With<TerrainTile>,
+    >,
 }
 
 pub fn on_replay_fog_dirty(
@@ -348,10 +357,12 @@ pub fn on_replay_fog_dirty(
     let Some(game_map) = resources.game_map.as_deref() else {
         return;
     };
-    let terrain_entities: Vec<(Entity, Position)> = queries
+    let terrain_entities: Vec<(Entity, Position, Option<TerrainVisualOverride>)> = queries
         .terrain_query
         .iter()
-        .map(|(entity, position)| (entity, position.position()))
+        .map(|(entity, position, current_override)| {
+            (entity, position.position(), current_override.copied())
+        })
         .collect();
 
     if !resources.fog_active.0 {
@@ -440,56 +451,52 @@ fn current_knowledge_key_from_state(
 
 fn refresh_terrain_knowledge_from_state(
     commands: &mut Commands,
-    terrain_entities: &[(Entity, Position)],
+    terrain_entities: &[(Entity, Position, Option<TerrainVisualOverride>)],
     current_key: Option<ReplayKnowledgeKey>,
     game_map: &crate::core::GameMap,
     fog_map: &FogOfWarMap,
     knowledge: &mut ReplayTerrainKnowledge,
 ) {
     if current_key.is_none() {
-        for (entity, _) in terrain_entities {
-            commands.entity(*entity).insert(TerrainVisualOverride(None));
+        let desired = TerrainVisualOverride(None);
+        for (entity, _, current) in terrain_entities {
+            if *current != Some(desired) {
+                commands.entity(*entity).insert(desired);
+            }
         }
         return;
     }
 
     let current_key = current_key.unwrap();
-    let terrain_states: Vec<(Entity, Position, bool, Option<GraphicalTerrain>)> = {
-        terrain_entities
-            .iter()
-            .map(|(entity, position)| {
-                (
-                    *entity,
-                    *position,
-                    fog_map.is_fogged(*position),
-                    game_map.terrain_at(*position),
-                )
-            })
-            .collect()
-    };
-
     let Some(known_terrain) = knowledge.by_view.get_mut(&current_key) else {
         return;
     };
 
-    for (_, position, is_fogged, actual_terrain) in &terrain_states {
-        if !is_fogged && let Some(actual_terrain) = actual_terrain {
-            known_terrain.insert(*position, *actual_terrain);
+    // First pass: update knowledge for revealed tiles
+    for (_, position, _) in terrain_entities {
+        if !fog_map.is_fogged(*position)
+            && let Some(actual) = game_map.terrain_at(*position)
+        {
+            known_terrain.insert(*position, actual);
         }
     }
 
-    for (entity, position, is_fogged, actual_terrain) in &terrain_states {
-        let visual_override = if *is_fogged {
-            match (known_terrain.get(position).copied(), *actual_terrain) {
+    // Second pass: set visual overrides only when changed
+    for (entity, position, current_override) in terrain_entities {
+        let is_fogged = fog_map.is_fogged(*position);
+        let visual_override = if is_fogged {
+            let actual_terrain = game_map.terrain_at(*position);
+            match (known_terrain.get(position).copied(), actual_terrain) {
                 (Some(known), Some(actual)) if known != actual => Some(known),
                 _ => None,
             }
         } else {
             None
         };
-        commands
-            .entity(*entity)
-            .insert(TerrainVisualOverride(visual_override));
+        let desired = TerrainVisualOverride(visual_override);
+        if *current_override != Some(desired) {
+            commands.entity(*entity).insert(desired);
+        }
     }
 }
 
