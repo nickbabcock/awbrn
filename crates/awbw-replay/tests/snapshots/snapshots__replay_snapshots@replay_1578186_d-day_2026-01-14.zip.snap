@@ -4,7 +4,7 @@ expression: snapshot
 input_file: assets/replays/replay_1578186_d-day_2026-01-14.zip
 ---
 {
-  "checksum": "0x9523e2ea2a7800306f246b65c8a155396ea5a51137ed6f561ecd3bb0d8f0c50e",
+  "checksum": "0xeb25d357479935ada49cefe4556fafb4eb7c7079008e8e033603f4b9c2a827e6",
   "file_entries": [
     {
       "data": {

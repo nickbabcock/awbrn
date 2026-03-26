@@ -7,9 +7,9 @@
 use awbrn_core::{AwbwTerrain, GraphicalTerrain, PlayerFaction, Property};
 use awbrn_map::Position;
 use awbw_replay::turn_models::{
-    Action, AttackSeamAction, AttackSeamCombat, CaptureAction, CombatUnit, FireAction, LoadAction,
-    MoveAction, PowerAction, RepairAction, RepairedUnit, SupplyAction, TargetedPlayer, UnitMap,
-    UnitProperty, UpdatedInfo,
+    Action, AttackSeamAction, AttackSeamCombat, CaptureAction, CombatUnit, FireAction, JoinAction,
+    LoadAction, MoveAction, PowerAction, RepairAction, RepairedUnit, SupplyAction, TargetedPlayer,
+    UnitMap, UnitProperty, UpdatedInfo,
 };
 use bevy::{log, prelude::*};
 
@@ -167,10 +167,12 @@ impl ReplayTurnCommand {
             .as_ref()
             .is_none_or(|path| path.iter().any(|tile| tile.unit_visible));
 
-        // Load actions will remove the unit from the board entirely, so skip
-        // inserting MapPosition at the destination to avoid evicting the
-        // transport from the BoardIndex.
-        let is_load = matches!(action, Action::Load { .. });
+        // Load actions remove the unit from the board entirely, and joins
+        // resolve by despawning the moving unit into the survivor. In both
+        // cases, skip inserting MapPosition at the destination so BoardIndex
+        // keeps pointing at the entity that should remain there.
+        let skip_destination_map_position =
+            matches!(action, Action::Load { .. } | Action::Join { .. });
 
         let mut entity_mut = world.entity_mut(entity);
         if position_changed {
@@ -178,7 +180,7 @@ impl ReplayTurnCommand {
         }
 
         if should_animate_for_viewer && let Some(path_animation) = animated_path {
-            if is_load {
+            if skip_destination_map_position {
                 entity_mut.insert(path_animation);
             } else {
                 entity_mut.insert((path_animation, new_position));
@@ -205,7 +207,7 @@ impl ReplayTurnCommand {
             return true;
         }
 
-        if !is_load {
+        if !skip_destination_map_position {
             entity_mut.insert(new_position);
         }
         entity_mut.remove::<UnitActive>();
@@ -257,6 +259,7 @@ impl ReplayTurnCommand {
             Action::Power(power_action) => Self::apply_power(power_action, world),
             Action::Repair { repair_action, .. } => Self::apply_repair(repair_action, world),
             Action::Supply { supply_action, .. } => Self::apply_supply(supply_action, world),
+            Action::Join { join_action, .. } => Self::apply_join(join_action, world),
             Action::Move(_) => {}
             _ => log::warn!("Unhandled action: {:?}", action),
         }
@@ -593,6 +596,65 @@ impl ReplayTurnCommand {
         }
 
         Self::mark_unit_inactive(world, supplying_id);
+    }
+
+    fn apply_join(join_action: &JoinAction, world: &mut World) {
+        let surviving_unit = join_action.unit.values().find_map(|h| h.get_value());
+
+        let Some(unit) = surviving_unit else {
+            log::warn!("Join action missing surviving unit data");
+            return;
+        };
+
+        let surviving_id = AwbwUnitId(unit.units_id);
+        let surviving_entity = {
+            let units = world.resource::<StrongIdMap<AwbwUnitId>>();
+            units.get(&surviving_id)
+        };
+
+        let Some(surviving_entity) = surviving_entity else {
+            log::warn!(
+                "Surviving unit entity not found for ID: {}",
+                unit.units_id.as_u32()
+            );
+            return;
+        };
+
+        let hp_value = unit.units_hit_points.value();
+        world
+            .entity_mut(surviving_entity)
+            .insert(GraphicalHp(hp_value));
+        Self::update_unit_resources_from_property(world, surviving_entity, unit);
+
+        let Some(joining_id) =
+            Self::targeted_hidden_value(&join_action.join_id).map(awbrn_core::AwbwUnitId::new)
+        else {
+            log::warn!("Join action missing joining unit ID");
+            world.entity_mut(surviving_entity).remove::<UnitActive>();
+            return;
+        };
+
+        let joining_entity = {
+            let units = world.resource::<StrongIdMap<AwbwUnitId>>();
+            units.get(&AwbwUnitId(joining_id))
+        };
+
+        if let Some(joining_entity) = joining_entity {
+            world.despawn(joining_entity);
+            log::info!(
+                "Unit {} joined into unit {} (HP: {})",
+                joining_id.as_u32(),
+                unit.units_id.as_u32(),
+                hp_value,
+            );
+        } else {
+            log::warn!(
+                "Joining unit entity not found for ID: {}",
+                joining_id.as_u32()
+            );
+        }
+
+        world.entity_mut(surviving_entity).remove::<UnitActive>();
     }
 
     fn update_combat_unit_state(world: &mut World, combat_unit: &CombatUnit) -> Option<Entity> {
@@ -948,7 +1010,7 @@ mod tests {
     use awbw_replay::turn_models::{
         Action, AttackSeamAction, AttackSeamCombat, BuildingInfo, CaptureAction, CombatInfo,
         CombatInfoVision, CombatUnit, CopValueInfo, CopValues, FireAction, GlobalStatBoost,
-        MoveAction, PathTile, PowerAction, RepairAction, RepairedUnit, SupplyAction,
+        JoinAction, MoveAction, PathTile, PowerAction, RepairAction, RepairedUnit, SupplyAction,
         TargetedPlayer, UnitProperty, UpdatedInfo, WeatherChange, WeatherCode,
     };
     use awbw_replay::{Hidden, Masked};
@@ -1959,6 +2021,146 @@ mod tests {
         assert!(app.world().entity(supplied).contains::<UnitActive>());
         assert!(app.world().entity(repaired).contains::<UnitActive>());
         assert_eq!(app.world().resource::<ReplayState>().day, 2);
+    }
+
+    #[test]
+    fn join_action_despawns_joining_unit_and_updates_survivor() {
+        let mut app = replay_turn_test_app();
+        let surviving = spawn_test_unit(&mut app, Position::new(3, 3), CoreUnitId::new(1));
+        let joining = spawn_test_unit(&mut app, Position::new(3, 3), CoreUnitId::new(2));
+
+        ReplayTurnCommand {
+            action: Action::Join {
+                move_action: None,
+                join_action: JoinAction {
+                    player_id: 1,
+                    new_funds: [(TargetedPlayer::Global, 5000)].into(),
+                    unit: [(
+                        TargetedPlayer::Global,
+                        Hidden::Visible(test_unit_property_with_resources(
+                            CoreUnitId::new(1),
+                            3,
+                            3,
+                            awbrn_core::Unit::Infantry,
+                            90,
+                            0,
+                        )),
+                    )]
+                    .into(),
+                    join_id: [(TargetedPlayer::Global, Hidden::Visible(2))].into(),
+                },
+            },
+        }
+        .apply(app.world_mut());
+
+        assert!(
+            app.world().get_entity(joining).is_err(),
+            "joining unit should be despawned"
+        );
+        assert_eq!(app.world().entity(surviving).get::<Fuel>(), Some(&Fuel(90)));
+        assert!(!app.world().entity(surviving).contains::<UnitActive>());
+    }
+
+    #[test]
+    fn move_then_join_preserves_survivor_in_board_index() {
+        let mut app = replay_turn_test_app();
+        let destination = Position::new(2, 2);
+        let source = Position::new(2, 3);
+        let surviving = spawn_test_unit(&mut app, destination, CoreUnitId::new(1));
+        let joining = spawn_test_unit(&mut app, source, CoreUnitId::new(2));
+
+        let board = app.world().resource::<BoardIndex>();
+        assert_eq!(board.unit_entity(destination).unwrap(), Some(surviving));
+        assert_eq!(board.unit_entity(source).unwrap(), Some(joining));
+
+        ReplayTurnCommand {
+            action: Action::Join {
+                move_action: Some(MoveAction {
+                    unit: [(
+                        TargetedPlayer::Global,
+                        Hidden::Visible(test_unit_property(CoreUnitId::new(2), 2, 2)),
+                    )]
+                    .into(),
+                    paths: [(
+                        TargetedPlayer::Global,
+                        vec![
+                            PathTile {
+                                unit_visible: true,
+                                x: 2,
+                                y: 3,
+                            },
+                            PathTile {
+                                unit_visible: true,
+                                x: 2,
+                                y: 2,
+                            },
+                        ],
+                    )]
+                    .into(),
+                    dist: 1,
+                    trapped: false,
+                    discovered: None,
+                }),
+                join_action: JoinAction {
+                    player_id: 1,
+                    new_funds: [(TargetedPlayer::Global, 5000)].into(),
+                    unit: [(
+                        TargetedPlayer::Global,
+                        Hidden::Visible(test_unit_property_with_resources(
+                            CoreUnitId::new(1),
+                            2,
+                            2,
+                            awbrn_core::Unit::Infantry,
+                            90,
+                            0,
+                        )),
+                    )]
+                    .into(),
+                    join_id: [(TargetedPlayer::Global, Hidden::Visible(2))].into(),
+                },
+            },
+        }
+        .apply(app.world_mut());
+
+        let board = app.world().resource::<BoardIndex>();
+        assert_eq!(
+            board.unit_entity(destination).unwrap(),
+            Some(surviving),
+            "survivor should remain indexed at the occupied join destination"
+        );
+        assert_eq!(
+            board.unit_entity(source).unwrap(),
+            Some(joining),
+            "joining unit should remain indexed at its source tile until despawn"
+        );
+
+        let deferred = app
+            .world_mut()
+            .resource_mut::<ReplayAdvanceLock>()
+            .release_for(joining)
+            .expect("join action should be deferred while the move animates");
+        ReplayFollowupCommand {
+            action: deferred.action,
+            recompute_fog: deferred.recompute_fog,
+        }
+        .apply(app.world_mut());
+
+        assert!(
+            app.world().get_entity(joining).is_err(),
+            "joining unit should be despawned after the join resolves"
+        );
+        assert_eq!(
+            app.world().entity(surviving).get::<MapPosition>(),
+            Some(&MapPosition::from(destination))
+        );
+
+        let board = app.world().resource::<BoardIndex>();
+        assert_eq!(board.unit_entity(destination).unwrap(), Some(surviving));
+        assert_eq!(
+            board.unit_entity(source).unwrap(),
+            None,
+            "source tile should be cleared once the joining unit is despawned"
+        );
     }
 
     #[test]
