@@ -1,5 +1,5 @@
 use crate::core::{
-    Capturing, Faction, GraphicalHp, HasCargo, INACTIVE_UNIT_COLOR, Unit, UnitActive,
+    Capturing, Faction, GraphicalHp, HasCargo, Hiding, INACTIVE_UNIT_COLOR, Unit, UnitActive,
 };
 use crate::render::animation::{
     Animation, UnitPathAnimation, UnitVisualState, restore_unit_visual_state,
@@ -15,6 +15,7 @@ pub enum OverlayKind {
     Health,
     Capturing,
     Cargo,
+    Dive,
     LowAmmo,
     LowFuel,
 }
@@ -24,6 +25,7 @@ pub struct UnitOverlayRegistry {
     health: Option<Entity>,
     capturing: Option<Entity>,
     cargo: Option<Entity>,
+    dive: Option<Entity>,
     low_ammo: Option<Entity>,
     low_fuel: Option<Entity>,
 }
@@ -46,6 +48,7 @@ impl UnitOverlayRegistry {
             OverlayKind::Health => &self.health,
             OverlayKind::Capturing => &self.capturing,
             OverlayKind::Cargo => &self.cargo,
+            OverlayKind::Dive => &self.dive,
             OverlayKind::LowAmmo => &self.low_ammo,
             OverlayKind::LowFuel => &self.low_fuel,
         }
@@ -56,6 +59,7 @@ impl UnitOverlayRegistry {
             OverlayKind::Health => &mut self.health,
             OverlayKind::Capturing => &mut self.capturing,
             OverlayKind::Cargo => &mut self.cargo,
+            OverlayKind::Dive => &mut self.dive,
             OverlayKind::LowAmmo => &mut self.low_ammo,
             OverlayKind::LowFuel => &mut self.low_fuel,
         }
@@ -124,6 +128,10 @@ fn capturing_overlay() -> OverlaySpec {
 
 fn cargo_overlay() -> OverlaySpec {
     OverlaySpec::new("HasCargo.png", Vec3::new(0.0, -8.0, 1.0))
+}
+
+fn dive_overlay() -> OverlaySpec {
+    OverlaySpec::new("Dive.png", Vec3::new(0.0, -8.0, 1.0))
 }
 
 fn spawn_overlay_entity(
@@ -299,6 +307,54 @@ pub(crate) fn on_cargo_remove(
     );
 }
 
+/// Sync dive overlay when a unit hides.
+pub(crate) fn on_hiding_insert(
+    trigger: On<Insert, Hiding>,
+    commands: Commands,
+    ui_atlas: UiAtlas,
+    mut unit_query: Query<&mut UnitOverlayRegistry>,
+    overlay_query: Query<(&mut Sprite, &mut Transform, Option<&mut OverlayBlink>)>,
+) {
+    let entity = trigger.entity;
+    let Ok(mut registry) = unit_query.get_mut(entity) else {
+        return;
+    };
+
+    reconcile_overlay(
+        entity,
+        &mut registry,
+        OverlayKind::Dive,
+        Some(dive_overlay()),
+        commands,
+        ui_atlas,
+        overlay_query,
+    );
+}
+
+/// Sync dive overlay when a unit unhides.
+pub(crate) fn on_hiding_remove(
+    trigger: On<Remove, Hiding>,
+    commands: Commands,
+    ui_atlas: UiAtlas,
+    mut unit_query: Query<&mut UnitOverlayRegistry>,
+    overlay_query: Query<(&mut Sprite, &mut Transform, Option<&mut OverlayBlink>)>,
+) {
+    let entity = trigger.entity;
+    let Ok(mut registry) = unit_query.get_mut(entity) else {
+        return;
+    };
+
+    reconcile_overlay(
+        entity,
+        &mut registry,
+        OverlayKind::Dive,
+        None,
+        commands,
+        ui_atlas,
+        overlay_query,
+    );
+}
+
 /// Sync health overlay whenever graphical HP changes.
 pub(crate) fn on_health_insert(
     trigger: On<Insert, GraphicalHp>,
@@ -467,8 +523,10 @@ impl Plugin for UnitRenderingPlugin {
         app.register_required_components::<Unit, UnitOverlayRegistry>()
             .add_observer(on_capturing_remove)
             .add_observer(on_cargo_remove)
+            .add_observer(on_hiding_remove)
             .add_observer(on_capturing_insert)
             .add_observer(on_cargo_insert)
+            .add_observer(on_hiding_insert)
             .add_observer(on_health_insert)
             .add_observer(on_health_remove)
             .add_observer(on_unit_active_remove)
@@ -539,6 +597,13 @@ mod tests {
                     width: 8,
                     height: 8,
                 },
+                crate::UiAtlasSprite {
+                    name: "Dive.png".to_string(),
+                    x: 40,
+                    y: 0,
+                    width: 8,
+                    height: 8,
+                },
             ],
         });
 
@@ -559,6 +624,8 @@ mod tests {
             .add_observer(on_capturing_remove)
             .add_observer(on_cargo_insert)
             .add_observer(on_cargo_remove)
+            .add_observer(on_hiding_insert)
+            .add_observer(on_hiding_remove)
             .add_observer(on_health_insert)
             .add_observer(on_health_remove)
             .add_observer(handle_unit_spawn)
