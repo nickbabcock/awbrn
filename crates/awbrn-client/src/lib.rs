@@ -4,6 +4,7 @@ pub mod features;
 mod json_plugin;
 pub mod loading;
 pub mod modes;
+pub mod projection;
 pub mod render;
 pub mod snapshot;
 mod ui_atlas;
