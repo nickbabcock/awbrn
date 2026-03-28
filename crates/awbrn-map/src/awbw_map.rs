@@ -2,7 +2,7 @@ use crate::{
     MapError, Position,
     pathfinding::{MovementMap, PathFinder},
 };
-use awbrn_core::{AwbwTerrain, MovementTerrain};
+use awbrn_types::{AwbwTerrain, MovementTerrain};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -16,7 +16,7 @@ pub struct AwbwMap {
     height: usize,
 
     /// Terrain data stored as a flattened 2D array (row-major order)
-    terrain: Vec<awbrn_core::AwbwTerrain>,
+    terrain: Vec<awbrn_types::AwbwTerrain>,
 }
 
 impl AwbwMap {

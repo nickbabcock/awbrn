@@ -8,7 +8,7 @@ publish = false
 bench = false
 
 [dependencies]
-awbrn-core = { path = "../awbrn-core" }
+awbrn-types = { path = "../awbrn-types" }
 awbrn-map = { path = "../awbrn-map" }
 awbw-replay = { path = "../awbw-replay" }
 criterion = { workspace = true }

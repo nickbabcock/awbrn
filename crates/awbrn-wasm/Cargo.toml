@@ -7,7 +7,7 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-awbrn-bevy = { path = "../awbrn-bevy" }
+awbrn-client = { path = "../awbrn-client" }
 awbw-replay = { path = "../awbw-replay" }
 bevy = { workspace = true, features = [
     "bevy_asset",

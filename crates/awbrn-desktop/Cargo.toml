@@ -8,8 +8,7 @@ default = ["bevy/dynamic_linking"]
 debug-inspector = ["dep:bevy-inspector-egui"]
 
 [dependencies]
-awbrn-bevy = { path = "../awbrn-bevy" }
-awbrn-core = { path = "../awbrn-core" }
+awbrn-client = { path = "../awbrn-client" }
 awbrn-map = { path = "../awbrn-map" }
 awbw-replay = { path = "../awbw-replay" }
 bevy = { workspace = true, features = [

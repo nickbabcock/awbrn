@@ -1,4 +1,4 @@
-use awbrn_bevy::MapAssetPathResolver;
+use awbrn_client::MapAssetPathResolver;
 use bevy::asset::io::{
     AssetReader, AssetReaderError, AssetSourceBuilder, PathStream, Reader, VecReader,
 };

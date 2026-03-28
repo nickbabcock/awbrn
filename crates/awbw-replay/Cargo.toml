@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-awbrn-core.path = "../awbrn-core"
+awbrn-types.path = "../awbrn-types"
 flate2.workspace = true
 indexmap.workspace = true
 phpserz.workspace = true

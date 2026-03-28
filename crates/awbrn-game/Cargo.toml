@@ -1,0 +1,16 @@
+[package]
+name = "awbrn-game"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+awbrn-types = { path = "../awbrn-types", features = ["bevy"] }
+awbrn-map = { path = "../awbrn-map", features = ["bevy"] }
+awbw-replay = { path = "../awbw-replay" }
+bevy = { workspace = true, features = ["std", "bevy_log", "bevy_scene"] }
+indexmap.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+awbw-replay = { path = "../awbw-replay" }
+serde_json.workspace = true

@@ -7,7 +7,7 @@ edition = "2024"
 bevy = ["dep:bevy"]
 
 [dependencies]
-awbrn-core.path = "../awbrn-core"
+awbrn-types.path = "../awbrn-types"
 bevy = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true

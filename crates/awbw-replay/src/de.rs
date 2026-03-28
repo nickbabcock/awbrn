@@ -561,7 +561,7 @@ where
 }
 
 pub mod awbw_unit_name {
-    use awbrn_core::Unit;
+    use awbrn_types::Unit;
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(unit: &Unit, serializer: S) -> Result<S::Ok, S::Error>
