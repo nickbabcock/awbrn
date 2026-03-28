@@ -515,6 +515,7 @@ dependencies = [
  "bevy",
  "indexmap",
  "insta",
+ "serde",
  "serde_json",
 ]
 

@@ -10,9 +10,10 @@ use awbrn_client::modes::replay::commands::{
     ReplayAdvanceLock, ReplayFollowupCommand, ReplayTurnCommand,
 };
 use awbrn_client::render::UiAtlasResource;
-use awbrn_client::snapshot::{CanonicalReplaySnapshot, canonicalize_replay_semantic_snapshot};
 use awbrn_game::replay::ReplayState;
-use awbrn_game::snapshot::capture_game_snapshot;
+use awbrn_game::snapshot::{
+    CanonicalReplaySnapshot, canonicalize_replay_semantic_snapshot, capture_game_snapshot,
+};
 use awbrn_game::world::GameMap;
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
 use awbw_replay::ReplayParser;
