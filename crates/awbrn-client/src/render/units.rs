@@ -1,12 +1,12 @@
 use crate::core::INACTIVE_UNIT_COLOR;
 use crate::modes::replay::navigation;
+use crate::projection::{ClientProjectionSet, ProjectedUnitOverlayFlags, ProjectedUnitRenderState};
 use crate::render::animation::{
     Animation, UnitPathAnimation, UnitVisualState, restore_unit_visual_state,
 };
 use crate::render::{UiAtlas, UnitAtlasResource};
 use awbrn_content::get_unit_animation_frames;
-use awbrn_game::world::{Capturing, Faction, GraphicalHp, HasCargo, Hiding, Unit, UnitActive};
-use bevy::ecs::query::QueryData;
+use awbrn_game::world::{Faction, Unit, UnitActive};
 use bevy::sprite::Anchor;
 use bevy::{log, prelude::*};
 
@@ -95,31 +95,26 @@ impl OverlaySpec {
     }
 }
 
-#[derive(QueryData)]
-#[query_data(mutable)]
-struct IdleUnitVisualQuery {
-    entity: Entity,
-    unit: &'static Unit,
-    faction: &'static Faction,
-    sprite: &'static mut Sprite,
-    animation: Option<&'static mut Animation>,
-    has_active: Has<UnitActive>,
-}
-
-type IdleUnitVisualFilter = (
-    Without<UnitPathAnimation>,
-    Or<(Changed<Unit>, Changed<Faction>, Changed<UnitActive>)>,
+type ProjectedUnitRenderQueryItem<'a> = (
+    Entity,
+    &'a ProjectedUnitRenderState,
+    &'a mut Sprite,
+    Option<&'a mut Animation>,
+    &'a mut Visibility,
+    &'a mut UnitOverlayRegistry,
+    Has<UnitPathAnimation>,
 );
 
-fn health_overlay(hp: &GraphicalHp) -> Option<OverlaySpec> {
-    if hp.is_full_health() || hp.is_destroyed() {
-        return None;
-    }
+type ProjectedUnitRenderFilter = (
+    Or<(
+        Added<ProjectedUnitRenderState>,
+        Changed<ProjectedUnitRenderState>,
+    )>,
+    Without<OverlayVisual>,
+);
 
-    Some(OverlaySpec::new(
-        format!("Healthv2/{}.png", hp.value()),
-        Vec3::new(7.5, -8.0, 1.0),
-    ))
+fn health_overlay(value: u8) -> OverlaySpec {
+    OverlaySpec::new(format!("Healthv2/{}.png", value), Vec3::new(7.5, -8.0, 1.0))
 }
 
 fn capturing_overlay() -> OverlaySpec {
@@ -160,15 +155,18 @@ fn reconcile_overlay(
     registry: &mut UnitOverlayRegistry,
     kind: OverlayKind,
     desired: Option<OverlaySpec>,
-    mut commands: Commands,
-    ui_atlas: UiAtlas,
-    mut overlay_query: Query<(&mut Sprite, &mut Transform, Option<&mut OverlayBlink>)>,
+    commands: &mut Commands,
+    ui_atlas: &UiAtlas,
+    overlay_query: &mut Query<
+        (&mut Sprite, &mut Transform, Option<&mut OverlayBlink>),
+        With<OverlayVisual>,
+    >,
 ) {
     match desired {
         Some(spec) => {
             let Some(existing) = registry.overlay(kind) else {
                 let overlay_entity =
-                    spawn_overlay_entity(&mut commands, unit_entity, kind, &spec, &ui_atlas);
+                    spawn_overlay_entity(commands, unit_entity, kind, &spec, ui_atlas);
                 registry.set_overlay(kind, overlay_entity);
                 return;
             };
@@ -199,7 +197,7 @@ fn reconcile_overlay(
 
             if !overlay_updated {
                 let overlay_entity =
-                    spawn_overlay_entity(&mut commands, unit_entity, kind, &spec, &ui_atlas);
+                    spawn_overlay_entity(commands, unit_entity, kind, &spec, ui_atlas);
                 registry.set_overlay(kind, overlay_entity);
             }
         }
@@ -211,250 +209,106 @@ fn reconcile_overlay(
     }
 }
 
-/// Sync capturing overlay when capturing starts.
-pub(crate) fn on_capturing_insert(
-    trigger: On<Insert, Capturing>,
-    commands: Commands,
-    ui_atlas: UiAtlas,
-    mut unit_query: Query<&mut UnitOverlayRegistry>,
-    overlay_query: Query<(&mut Sprite, &mut Transform, Option<&mut OverlayBlink>)>,
+fn sync_projected_overlays(
+    entity: Entity,
+    overlays: ProjectedUnitOverlayFlags,
+    registry: &mut UnitOverlayRegistry,
+    commands: &mut Commands,
+    ui_atlas: &UiAtlas,
+    overlay_query: &mut Query<
+        (&mut Sprite, &mut Transform, Option<&mut OverlayBlink>),
+        With<OverlayVisual>,
+    >,
 ) {
-    let entity = trigger.entity;
-    let Ok(mut registry) = unit_query.get_mut(entity) else {
-        return;
-    };
-
     reconcile_overlay(
         entity,
-        &mut registry,
-        OverlayKind::Capturing,
-        Some(capturing_overlay()),
-        commands,
-        ui_atlas,
-        overlay_query,
-    );
-}
-
-/// Sync capturing overlay when capturing ends.
-pub(crate) fn on_capturing_remove(
-    trigger: On<Remove, Capturing>,
-    commands: Commands,
-    ui_atlas: UiAtlas,
-    mut unit_query: Query<&mut UnitOverlayRegistry>,
-    overlay_query: Query<(&mut Sprite, &mut Transform, Option<&mut OverlayBlink>)>,
-) {
-    let entity = trigger.entity;
-    let Ok(mut registry) = unit_query.get_mut(entity) else {
-        return;
-    };
-
-    reconcile_overlay(
-        entity,
-        &mut registry,
-        OverlayKind::Capturing,
-        None,
-        commands,
-        ui_atlas,
-        overlay_query,
-    );
-}
-
-/// Sync cargo overlay when cargo becomes present.
-pub(crate) fn on_cargo_insert(
-    trigger: On<Insert, HasCargo>,
-    commands: Commands,
-    ui_atlas: UiAtlas,
-    mut unit_query: Query<&mut UnitOverlayRegistry>,
-    overlay_query: Query<(&mut Sprite, &mut Transform, Option<&mut OverlayBlink>)>,
-) {
-    let entity = trigger.entity;
-    let Ok(mut registry) = unit_query.get_mut(entity) else {
-        return;
-    };
-
-    reconcile_overlay(
-        entity,
-        &mut registry,
-        OverlayKind::Cargo,
-        Some(cargo_overlay()),
-        commands,
-        ui_atlas,
-        overlay_query,
-    );
-}
-
-/// Sync cargo overlay when cargo becomes empty.
-pub(crate) fn on_cargo_remove(
-    trigger: On<Remove, HasCargo>,
-    commands: Commands,
-    ui_atlas: UiAtlas,
-    mut unit_query: Query<&mut UnitOverlayRegistry>,
-    overlay_query: Query<(&mut Sprite, &mut Transform, Option<&mut OverlayBlink>)>,
-) {
-    let entity = trigger.entity;
-    let Ok(mut registry) = unit_query.get_mut(entity) else {
-        return;
-    };
-
-    reconcile_overlay(
-        entity,
-        &mut registry,
-        OverlayKind::Cargo,
-        None,
-        commands,
-        ui_atlas,
-        overlay_query,
-    );
-}
-
-/// Sync dive overlay when a unit hides.
-pub(crate) fn on_hiding_insert(
-    trigger: On<Insert, Hiding>,
-    commands: Commands,
-    ui_atlas: UiAtlas,
-    mut unit_query: Query<&mut UnitOverlayRegistry>,
-    overlay_query: Query<(&mut Sprite, &mut Transform, Option<&mut OverlayBlink>)>,
-) {
-    let entity = trigger.entity;
-    let Ok(mut registry) = unit_query.get_mut(entity) else {
-        return;
-    };
-
-    reconcile_overlay(
-        entity,
-        &mut registry,
-        OverlayKind::Dive,
-        Some(dive_overlay()),
-        commands,
-        ui_atlas,
-        overlay_query,
-    );
-}
-
-/// Sync dive overlay when a unit unhides.
-pub(crate) fn on_hiding_remove(
-    trigger: On<Remove, Hiding>,
-    commands: Commands,
-    ui_atlas: UiAtlas,
-    mut unit_query: Query<&mut UnitOverlayRegistry>,
-    overlay_query: Query<(&mut Sprite, &mut Transform, Option<&mut OverlayBlink>)>,
-) {
-    let entity = trigger.entity;
-    let Ok(mut registry) = unit_query.get_mut(entity) else {
-        return;
-    };
-
-    reconcile_overlay(
-        entity,
-        &mut registry,
-        OverlayKind::Dive,
-        None,
-        commands,
-        ui_atlas,
-        overlay_query,
-    );
-}
-
-/// Sync health overlay whenever graphical HP changes.
-pub(crate) fn on_health_insert(
-    trigger: On<Insert, GraphicalHp>,
-    commands: Commands,
-    ui_atlas: UiAtlas,
-    mut unit_query: Query<(&GraphicalHp, &mut UnitOverlayRegistry)>,
-    overlay_query: Query<(&mut Sprite, &mut Transform, Option<&mut OverlayBlink>)>,
-) {
-    let entity = trigger.entity;
-    let Ok((hp, mut registry)) = unit_query.get_mut(entity) else {
-        log::warn!(
-            "GraphicalHp or UnitOverlayRegistry component not found for entity {:?}",
-            entity
-        );
-        return;
-    };
-
-    reconcile_overlay(
-        entity,
-        &mut registry,
+        registry,
         OverlayKind::Health,
-        health_overlay(hp),
+        overlays.health.map(health_overlay),
         commands,
         ui_atlas,
         overlay_query,
     );
-}
-
-/// Remove health overlay when graphical HP is removed.
-pub(crate) fn on_health_remove(
-    trigger: On<Remove, GraphicalHp>,
-    commands: Commands,
-    ui_atlas: UiAtlas,
-    mut unit_query: Query<&mut UnitOverlayRegistry>,
-    overlay_query: Query<(&mut Sprite, &mut Transform, Option<&mut OverlayBlink>)>,
-) {
-    let entity = trigger.entity;
-    let Ok(mut registry) = unit_query.get_mut(entity) else {
-        return;
-    };
-
     reconcile_overlay(
         entity,
-        &mut registry,
-        OverlayKind::Health,
-        None,
+        registry,
+        OverlayKind::Capturing,
+        overlays.capturing.then(capturing_overlay),
+        commands,
+        ui_atlas,
+        overlay_query,
+    );
+    reconcile_overlay(
+        entity,
+        registry,
+        OverlayKind::Cargo,
+        overlays.cargo.then(cargo_overlay),
+        commands,
+        ui_atlas,
+        overlay_query,
+    );
+    reconcile_overlay(
+        entity,
+        registry,
+        OverlayKind::Dive,
+        overlays.dive.then(dive_overlay),
         commands,
         ui_atlas,
         overlay_query,
     );
 }
 
-/// Observer that triggers when UnitActive component is removed - applies grey filter and freezes animation
-pub(crate) fn on_unit_active_remove(
-    trigger: On<Remove, UnitActive>,
+pub(crate) fn sync_projected_unit_render_state(
     mut commands: Commands,
-    mut query: Query<&mut Sprite>,
+    ui_atlas: UiAtlas,
+    mut units: Query<ProjectedUnitRenderQueryItem<'_>, ProjectedUnitRenderFilter>,
+    mut overlay_query: Query<
+        (&mut Sprite, &mut Transform, Option<&mut OverlayBlink>),
+        With<OverlayVisual>,
+    >,
 ) {
-    let entity = trigger.entity;
+    for (
+        entity,
+        projected,
+        mut sprite,
+        animation,
+        mut visibility,
+        mut registry,
+        has_path_animation,
+    ) in &mut units
+    {
+        if has_path_animation {
+            continue;
+        }
 
-    let Ok(mut sprite) = query.get_mut(entity) else {
-        return;
-    };
+        let target = if projected.visible {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        visibility.set_if_neq(target);
 
-    sprite.color = INACTIVE_UNIT_COLOR;
-    commands.entity(entity).try_remove::<Animation>();
-}
-
-/// Observer that triggers when UnitActive component is inserted - restores active coloring.
-pub(crate) fn on_unit_active_insert(
-    trigger: On<Insert, UnitActive>,
-    mut query: Query<&mut Sprite>,
-) {
-    let entity = trigger.entity;
-
-    let Ok(mut sprite) = query.get_mut(entity) else {
-        return;
-    };
-
-    sprite.color = Color::WHITE;
-}
-
-/// Recomputes idle unit animation when the derived inputs change.
-fn sync_unit_animation(
-    mut commands: Commands,
-    mut query: Query<IdleUnitVisualQuery, IdleUnitVisualFilter>,
-) {
-    for mut unit_visual in &mut query {
         let visual_state = UnitVisualState {
-            unit: *unit_visual.unit,
-            faction: *unit_visual.faction,
-            flip_x: unit_visual.sprite.flip_x,
+            unit: projected.unit,
+            faction: projected.faction,
+            flip_x: sprite.flip_x,
         };
         restore_unit_visual_state(
             &mut commands,
-            unit_visual.entity,
-            &mut unit_visual.sprite,
-            unit_visual.animation,
+            entity,
+            &mut sprite,
+            animation,
             visual_state,
-            unit_visual.has_active,
+            projected.active,
+        );
+
+        sync_projected_overlays(
+            entity,
+            projected.overlays,
+            &mut registry,
+            &mut commands,
+            &ui_atlas,
+            &mut overlay_query,
         );
     }
 }
@@ -513,7 +367,9 @@ pub(crate) fn handle_unit_spawn(
     );
     sprite.color = color;
 
-    commands.entity(entity).insert((sprite, Anchor::default()));
+    commands
+        .entity(entity)
+        .insert((sprite, Anchor::default(), Visibility::Hidden));
 }
 
 pub struct UnitRenderingPlugin;
@@ -521,21 +377,12 @@ pub struct UnitRenderingPlugin;
 impl Plugin for UnitRenderingPlugin {
     fn build(&self, app: &mut App) {
         app.register_required_components::<Unit, UnitOverlayRegistry>()
-            .add_observer(on_capturing_remove)
-            .add_observer(on_cargo_remove)
-            .add_observer(on_hiding_remove)
-            .add_observer(on_capturing_insert)
-            .add_observer(on_cargo_insert)
-            .add_observer(on_hiding_insert)
-            .add_observer(on_health_insert)
-            .add_observer(on_health_remove)
-            .add_observer(on_unit_active_remove)
-            .add_observer(on_unit_active_insert)
             .add_observer(handle_unit_spawn)
             .add_systems(
                 Update,
                 (
-                    sync_unit_animation
+                    sync_projected_unit_render_state
+                        .in_set(ClientProjectionSet::SyncRender)
                         .after(navigation::animate_unit_paths)
                         .before(crate::render::animation::animate_units),
                     animate_blinking_overlays,
@@ -548,8 +395,11 @@ impl Plugin for UnitRenderingPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::projection::project_unit_render_state;
     use crate::render::UiAtlasResource;
-    use awbrn_game::world::CarriedBy;
+    use awbrn_game::world::{
+        Capturing, CarriedBy, FogActive, FogOfWarMap, FriendlyFactions, GraphicalHp, UnitActive,
+    };
     use awbrn_types::{GraphicalMovement, PlayerFaction};
     use bevy::asset::Assets;
 
@@ -617,19 +467,20 @@ mod tests {
             layout: Handle::default(),
         });
         app.insert_resource(atlas_assets);
+        app.init_resource::<FogOfWarMap>();
+        app.init_resource::<FogActive>();
+        app.init_resource::<FriendlyFactions>();
         app.register_required_components::<Unit, UnitOverlayRegistry>()
-            .add_observer(on_unit_active_remove)
-            .add_observer(on_unit_active_insert)
-            .add_observer(on_capturing_insert)
-            .add_observer(on_capturing_remove)
-            .add_observer(on_cargo_insert)
-            .add_observer(on_cargo_remove)
-            .add_observer(on_hiding_insert)
-            .add_observer(on_hiding_remove)
-            .add_observer(on_health_insert)
-            .add_observer(on_health_remove)
             .add_observer(handle_unit_spawn)
-            .add_systems(Update, sync_unit_animation);
+            .add_systems(
+                Update,
+                (
+                    project_unit_render_state,
+                    sync_projected_unit_render_state
+                        .before(crate::render::animation::animate_units),
+                )
+                    .chain(),
+            );
         app
     }
 

@@ -228,11 +228,10 @@ pub(crate) fn on_carried_by_add(trigger: On<Insert, CarriedBy>, mut commands: Co
     commands.entity(trigger.entity).insert(Visibility::Hidden);
 }
 
-/// Observer: when `CarriedBy` is removed from an entity, reveal it visually.
+/// Observer: when `CarriedBy` is removed from an entity, keep it hidden until
+/// the projection pass decides whether the unloaded unit is actually visible.
 pub(crate) fn on_carried_by_remove(trigger: On<Remove, CarriedBy>, mut commands: Commands) {
-    commands
-        .entity(trigger.entity)
-        .insert(Visibility::Inherited);
+    commands.entity(trigger.entity).insert(Visibility::Hidden);
 }
 
 /// Observer: forward `NewDay` game events to the external event bus.
@@ -245,8 +244,8 @@ pub(crate) fn on_new_day(trigger: On<NewDay>, mut event_writer: MessageWriter<Ex
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::projection::{ProjectedTerrainRenderState, project_terrain_render_state};
     use crate::render::TerrainAtlasResource;
-    use crate::render::map::TerrainVisualOverride;
     use crate::render::map::{
         AnimatedTerrain, sync_all_terrain_visuals_on_weather_change, sync_changed_terrain_visuals,
     };
@@ -1021,6 +1020,7 @@ mod tests {
         }
         .apply(app.world_mut());
         app.world_mut().flush();
+        app.update();
 
         let terrain_tile = app
             .world()
@@ -1030,7 +1030,7 @@ mod tests {
         let visual_override = app
             .world()
             .entity(property_entity)
-            .get::<TerrainVisualOverride>()
+            .get::<ProjectedTerrainRenderState>()
             .unwrap();
 
         assert_eq!(
@@ -1041,9 +1041,9 @@ mod tests {
         );
         assert_eq!(
             *visual_override,
-            TerrainVisualOverride(Some(GraphicalTerrain::Property(Property::City(
+            ProjectedTerrainRenderState(GraphicalTerrain::Property(Property::City(
                 TerrainFaction::Neutral,
-            ))))
+            )))
         );
     }
 
@@ -1071,10 +1071,12 @@ mod tests {
         app.add_systems(
             Update,
             (
+                project_terrain_render_state,
                 sync_changed_terrain_visuals,
                 sync_all_terrain_visuals_on_weather_change
                     .run_if(resource_changed::<CurrentWeather>),
-            ),
+            )
+                .chain(),
         );
         app
     }

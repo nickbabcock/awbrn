@@ -15,7 +15,6 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::features::weather::CurrentWeather;
-use crate::render::map::TerrainVisualOverride;
 
 #[derive(SystemParam)]
 pub struct ReplayFogResources<'w, 's> {
@@ -45,46 +44,24 @@ pub struct ReplayFogQueries<'w, 's> {
         ),
         Without<CarriedBy>,
     >,
-    terrain_query: Query<
-        'w,
-        's,
-        (
-            Entity,
-            &'static MapPosition,
-            Option<&'static TerrainVisualOverride>,
-        ),
-        With<TerrainTile>,
-    >,
+    terrain_query: Query<'w, 's, &'static MapPosition, With<TerrainTile>>,
 }
 
 pub fn on_replay_fog_dirty(
     _: On<ReplayFogDirty>,
-    mut commands: Commands,
     mut resources: ReplayFogResources,
     queries: ReplayFogQueries,
 ) {
     let Some(game_map) = resources.game_map.as_deref() else {
         return;
     };
-    let terrain_entities: Vec<(Entity, Position, Option<TerrainVisualOverride>)> = queries
+    let terrain_positions: Vec<Position> = queries
         .terrain_query
         .iter()
-        .map(|(entity, position, current_override)| {
-            (entity, position.position(), current_override.copied())
-        })
+        .map(MapPosition::position)
         .collect();
 
     if !resources.fog_active.0 {
-        if let Some(mut knowledge) = resources.knowledge {
-            refresh_terrain_knowledge_from_state(
-                &mut commands,
-                &terrain_entities,
-                None,
-                game_map,
-                &resources.fog_map,
-                &mut knowledge,
-            );
-        }
         return;
     }
 
@@ -116,11 +93,12 @@ pub fn on_replay_fog_dirty(
         &mut resources.fog_map,
     );
 
-    if let (Some(viewpoint), Some(registry), Some(replay_state), Some(mut knowledge)) = (
+    let mut knowledge = resources.knowledge;
+    if let (Some(viewpoint), Some(registry), Some(replay_state), Some(knowledge)) = (
         resources.viewpoint,
         resources.registry,
         resources.replay_state,
-        resources.knowledge,
+        knowledge.as_mut(),
     ) {
         let current_key = current_knowledge_key_from_state(
             resources.fog_active.0,
@@ -129,17 +107,16 @@ pub fn on_replay_fog_dirty(
             &registry,
         );
         refresh_terrain_knowledge_from_state(
-            &mut commands,
-            &terrain_entities,
+            &terrain_positions,
             current_key,
             game_map,
             &resources.fog_map,
-            &mut knowledge,
+            knowledge,
         );
     }
 }
 
-fn current_knowledge_key_from_state(
+pub(crate) fn current_knowledge_key_from_state(
     fog_active: bool,
     viewpoint: &ReplayViewpoint,
     replay_state: &ReplayState,
@@ -159,20 +136,13 @@ fn current_knowledge_key_from_state(
 }
 
 fn refresh_terrain_knowledge_from_state(
-    commands: &mut Commands,
-    terrain_entities: &[(Entity, Position, Option<TerrainVisualOverride>)],
+    terrain_positions: &[Position],
     current_key: Option<ReplayKnowledgeKey>,
     game_map: &GameMap,
     fog_map: &FogOfWarMap,
     knowledge: &mut ReplayTerrainKnowledge,
 ) {
     if current_key.is_none() {
-        let desired = TerrainVisualOverride(None);
-        for (entity, _, current) in terrain_entities {
-            if *current != Some(desired) {
-                commands.entity(*entity).insert(desired);
-            }
-        }
         return;
     }
 
@@ -181,28 +151,11 @@ fn refresh_terrain_knowledge_from_state(
         return;
     };
 
-    for (_, position, _) in terrain_entities {
+    for position in terrain_positions {
         if !fog_map.is_fogged(*position)
             && let Some(actual) = game_map.terrain_at(*position)
         {
             known_terrain.insert(*position, actual);
-        }
-    }
-
-    for (entity, position, current_override) in terrain_entities {
-        let is_fogged = fog_map.is_fogged(*position);
-        let visual_override = if is_fogged {
-            let actual_terrain = game_map.terrain_at(*position);
-            match (known_terrain.get(position).copied(), actual_terrain) {
-                (Some(known), Some(actual)) if known != actual => Some(known),
-                _ => None,
-            }
-        } else {
-            None
-        };
-        let desired = TerrainVisualOverride(visual_override);
-        if *current_override != Some(desired) {
-            commands.entity(*entity).insert(desired);
         }
     }
 }
@@ -211,7 +164,7 @@ fn refresh_terrain_knowledge_from_state(
 mod tests {
     use super::*;
     use crate::features::weather::CurrentWeather;
-    use crate::render::map::TerrainVisualOverride;
+    use crate::projection::{ProjectedTerrainRenderState, project_terrain_render_state};
     use awbrn_game::MapPosition;
     use awbrn_game::world::{Faction, GameMap, TerrainTile, Unit, VisionRange};
     use awbrn_map::AwbrnMap;
@@ -347,7 +300,6 @@ mod tests {
                 TerrainTile {
                     terrain: actual_terrain,
                 },
-                TerrainVisualOverride(None),
             ))
             .id();
 
@@ -355,8 +307,10 @@ mod tests {
         app.update();
 
         assert_eq!(
-            app.world().entity(entity).get::<TerrainVisualOverride>(),
-            Some(&TerrainVisualOverride(Some(known_terrain)))
+            app.world()
+                .entity(entity)
+                .get::<ProjectedTerrainRenderState>(),
+            Some(&ProjectedTerrainRenderState(known_terrain))
         );
 
         app.world_mut().spawn((
@@ -369,8 +323,10 @@ mod tests {
         app.update();
 
         assert_eq!(
-            app.world().entity(entity).get::<TerrainVisualOverride>(),
-            Some(&TerrainVisualOverride(None))
+            app.world()
+                .entity(entity)
+                .get::<ProjectedTerrainRenderState>(),
+            Some(&ProjectedTerrainRenderState(actual_terrain))
         );
     }
 
@@ -395,6 +351,7 @@ mod tests {
         app.insert_resource(ReplayState::default());
         app.insert_resource(CurrentWeather::default());
         app.add_observer(on_replay_fog_dirty);
+        app.add_systems(Update, project_terrain_render_state);
         app
     }
 }

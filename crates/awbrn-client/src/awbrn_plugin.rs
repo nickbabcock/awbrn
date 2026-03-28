@@ -68,8 +68,9 @@ impl Plugin for AwbrnPlugin {
         app.add_plugins((
             crate::core::CorePlugin,
             LoadingPlugin::new(self.map_resolver.clone()),
-            crate::render::RenderPlugin,
             crate::features::FeaturesPlugin,
+            crate::projection::ClientProjectionPlugin,
+            crate::render::RenderPlugin,
             crate::modes::replay::ReplayPlugin,
             crate::modes::play::PlayPlugin,
         ));
@@ -111,8 +112,9 @@ pub(crate) mod test_helpers {
     use crate::modes::replay::navigation::{
         CourseArrowPiece, animate_course_arrows, animate_unit_paths, spawn_pending_course_arrows,
     };
-    use crate::render::units::on_unit_active_remove;
-    use crate::render::{TerrainAtlasResource, UiAtlasResource};
+    use crate::projection::{project_terrain_render_state, project_unit_render_state};
+    use crate::render::units::{handle_unit_spawn, sync_projected_unit_render_state};
+    use crate::render::{TerrainAtlasResource, UiAtlasResource, UnitAtlasResource};
     use awbrn_game::MapPosition;
     use awbrn_game::replay::{AwbwUnitId, PowerVisionBoosts, ReplayState};
     use awbrn_game::world::*;
@@ -140,6 +142,10 @@ pub(crate) mod test_helpers {
             texture: Handle::default(),
             layout: Handle::default(),
         });
+        app.insert_resource(UnitAtlasResource {
+            texture: Handle::default(),
+            layout: Handle::default(),
+        });
         app.init_resource::<crate::features::fog::FogOfWarMap>();
         app.init_resource::<crate::features::fog::FogActive>();
         app.init_resource::<crate::features::fog::FriendlyFactions>();
@@ -159,6 +165,8 @@ pub(crate) mod test_helpers {
         app.world_mut()
             .register_required_components::<Unit, Visibility>();
         app.world_mut()
+            .register_required_components::<Unit, crate::render::UnitOverlayRegistry>();
+        app.world_mut()
             .register_required_components_with::<TerrainTile, SpriteSize>(|| SpriteSize {
                 width: 16.0,
                 height: 32.0,
@@ -167,17 +175,21 @@ pub(crate) mod test_helpers {
         app.world_mut()
             .register_required_components::<MapPosition, Transform>();
         app.add_observer(crate::modes::replay::fog::on_replay_fog_dirty);
-        app.add_observer(on_unit_active_remove);
+        app.add_observer(handle_unit_spawn);
         app.add_observer(spawn_pending_course_arrows);
         app.add_systems(
             Update,
             (
+                project_unit_render_state,
+                project_terrain_render_state,
                 crate::render::map::sync_changed_terrain_visuals,
                 crate::render::map::sync_all_terrain_visuals_on_weather_change
                     .run_if(resource_changed::<CurrentWeather>),
+                sync_projected_unit_render_state.before(crate::render::animation::animate_units),
                 animate_course_arrows,
                 animate_unit_paths,
-            ),
+            )
+                .chain(),
         );
 
         app.world_mut().resource_mut::<GameMap>().set(AwbrnMap::new(

@@ -1,9 +1,10 @@
 use crate::core::grid::GridSystem;
 use crate::core::{AppState, RenderLayer};
 use crate::features::weather::CurrentWeather;
+use crate::projection::{ClientProjectionSet, ProjectedTerrainRenderState};
 use crate::render::TerrainAtlasResource;
 use crate::render::animation::TerrainAnimation;
-use awbrn_game::world::{GameMap, TerrainTile};
+use awbrn_game::world::GameMap;
 use awbrn_types::GraphicalTerrain;
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor, TextureFormatPixelInfo};
@@ -19,9 +20,6 @@ pub struct MapBackdrop;
 
 #[derive(Component)]
 pub(crate) struct AnimatedTerrain;
-
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct TerrainVisualOverride(pub Option<GraphicalTerrain>);
 
 #[derive(Resource, Clone)]
 pub(crate) struct BackdropTexturesResource {
@@ -141,21 +139,11 @@ pub(crate) fn refresh_map_backdrop_on_weather_change(
     material.texture = Some(backdrop_textures.texture_for(current_weather.weather()));
 }
 
-fn rendered_terrain(
-    terrain_tile: &TerrainTile,
-    visual_override: Option<&TerrainVisualOverride>,
-) -> GraphicalTerrain {
-    visual_override
-        .and_then(|override_tile| override_tile.0)
-        .unwrap_or(terrain_tile.terrain)
-}
-
-type TerrainVisualItem<'a> = (Entity, &'a TerrainTile, Option<&'a TerrainVisualOverride>);
-type ChangedTerrainVisualFilter = Or<(Changed<TerrainTile>, Changed<TerrainVisualOverride>)>;
+type TerrainVisualItem<'a> = (Entity, &'a ProjectedTerrainRenderState);
 
 pub(crate) fn sync_changed_terrain_visuals(
     mut commands: Commands,
-    terrain_tiles: Query<TerrainVisualItem<'_>, ChangedTerrainVisualFilter>,
+    terrain_tiles: Query<TerrainVisualItem<'_>, Changed<ProjectedTerrainRenderState>>,
     current_weather: Option<Res<CurrentWeather>>,
     terrain_atlas: Res<TerrainAtlasResource>,
 ) {
@@ -163,30 +151,30 @@ pub(crate) fn sync_changed_terrain_visuals(
         .as_ref()
         .map_or(awbrn_types::Weather::Clear, |weather| weather.weather());
 
-    for (entity, terrain_tile, visual_override) in &terrain_tiles {
+    for (entity, projected_state) in &terrain_tiles {
         insert_terrain_visual(
             commands.entity(entity),
             &terrain_atlas,
             weather,
-            rendered_terrain(terrain_tile, visual_override),
+            projected_state.0,
         );
     }
 }
 
 pub(crate) fn sync_all_terrain_visuals_on_weather_change(
     mut commands: Commands,
-    terrain_tiles: Query<(Entity, &TerrainTile, Option<&TerrainVisualOverride>)>,
+    terrain_tiles: Query<(Entity, &ProjectedTerrainRenderState)>,
     current_weather: Res<CurrentWeather>,
     terrain_atlas: Res<TerrainAtlasResource>,
 ) {
     let weather = current_weather.weather();
 
-    for (entity, terrain_tile, visual_override) in &terrain_tiles {
+    for (entity, projected_state) in &terrain_tiles {
         insert_terrain_visual(
             commands.entity(entity),
             &terrain_atlas,
             weather,
-            rendered_terrain(terrain_tile, visual_override),
+            projected_state.0,
         );
     }
 }
@@ -306,11 +294,14 @@ impl Plugin for MapVisualsPlugin {
             )
             .add_systems(
                 Update,
-                sync_changed_terrain_visuals.run_if(resource_exists::<TerrainAtlasResource>),
+                sync_changed_terrain_visuals
+                    .in_set(ClientProjectionSet::SyncRender)
+                    .run_if(resource_exists::<TerrainAtlasResource>),
             )
             .add_systems(
                 Update,
                 sync_all_terrain_visuals_on_weather_change
+                    .in_set(ClientProjectionSet::SyncRender)
                     .run_if(resource_exists::<TerrainAtlasResource>)
                     .run_if(resource_changed::<CurrentWeather>),
             );
@@ -320,6 +311,10 @@ impl Plugin for MapVisualsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::features::{FogActive, FogOfWarMap, FriendlyFactions};
+    use crate::projection::project_terrain_render_state;
+    use awbrn_game::MapPosition;
+    use awbrn_game::world::TerrainTile;
     use awbrn_types::{Faction, PlayerFaction, Property, SeaDirection, Weather};
     use bevy::ecs::system::RunSystemOnce;
     use bevy::mesh::VertexAttributeValues;
@@ -331,13 +326,18 @@ mod tests {
             texture: Handle::default(),
             layout: Handle::default(),
         });
+        app.init_resource::<FogOfWarMap>();
+        app.init_resource::<FogActive>();
+        app.init_resource::<FriendlyFactions>();
         app.add_systems(
             Update,
             (
+                project_terrain_render_state,
                 sync_changed_terrain_visuals,
                 sync_all_terrain_visuals_on_weather_change
                     .run_if(resource_changed::<CurrentWeather>),
-            ),
+            )
+                .chain(),
         );
         app
     }
@@ -348,9 +348,12 @@ mod tests {
 
         let entity = app
             .world_mut()
-            .spawn(TerrainTile {
-                terrain: GraphicalTerrain::Plain,
-            })
+            .spawn((
+                MapPosition::new(0, 0),
+                TerrainTile {
+                    terrain: GraphicalTerrain::Plain,
+                },
+            ))
             .id();
         app.update();
 
@@ -382,11 +385,14 @@ mod tests {
 
         let entity = app
             .world_mut()
-            .spawn(TerrainTile {
-                terrain: GraphicalTerrain::Property(Property::City(Faction::Player(
-                    PlayerFaction::OrangeStar,
-                ))),
-            })
+            .spawn((
+                MapPosition::new(0, 0),
+                TerrainTile {
+                    terrain: GraphicalTerrain::Property(Property::City(Faction::Player(
+                        PlayerFaction::OrangeStar,
+                    ))),
+                },
+            ))
             .id();
         app.update();
 
@@ -447,22 +453,26 @@ mod tests {
     }
 
     #[test]
-    fn terrain_visual_override_refreshes_sprite_state() {
+    fn projected_terrain_state_refreshes_sprite_state() {
         let mut app = terrain_render_test_app();
 
         let entity = app
             .world_mut()
-            .spawn(TerrainTile {
-                terrain: GraphicalTerrain::Plain,
-            })
+            .spawn((
+                MapPosition::new(0, 0),
+                TerrainTile {
+                    terrain: GraphicalTerrain::Plain,
+                },
+            ))
             .id();
         app.update();
 
+        app.world_mut().entity_mut(entity).remove::<TerrainTile>();
         app.world_mut()
             .entity_mut(entity)
-            .insert(TerrainVisualOverride(Some(GraphicalTerrain::Sea(
+            .insert(ProjectedTerrainRenderState(GraphicalTerrain::Sea(
                 SeaDirection::N_E_S_W,
-            ))));
+            )));
         app.update();
 
         let sprite = app.world().entity(entity).get::<Sprite>().unwrap();
@@ -484,9 +494,12 @@ mod tests {
 
         let entity = app
             .world_mut()
-            .spawn(TerrainTile {
-                terrain: GraphicalTerrain::Plain,
-            })
+            .spawn((
+                MapPosition::new(0, 0),
+                TerrainTile {
+                    terrain: GraphicalTerrain::Plain,
+                },
+            ))
             .id();
         app.update();
 
