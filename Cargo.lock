@@ -462,12 +462,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "awbrn-bevy"
+name = "awbrn-client"
 version = "0.1.0"
 dependencies = [
  "approx",
- "awbrn-core",
+ "awbrn-content",
+ "awbrn-game",
  "awbrn-map",
+ "awbrn-types",
  "awbw-replay",
  "bevy",
  "highway",
@@ -480,7 +482,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "awbrn-core"
+name = "awbrn-content"
 version = "0.1.0"
 dependencies = [
  "awbrn-types",
@@ -495,8 +497,7 @@ dependencies = [
 name = "awbrn-desktop"
 version = "0.1.0"
 dependencies = [
- "awbrn-bevy",
- "awbrn-core",
+ "awbrn-client",
  "awbrn-map",
  "awbw-replay",
  "bevy",
@@ -505,10 +506,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "awbrn-game"
+version = "0.1.0"
+dependencies = [
+ "awbrn-map",
+ "awbrn-types",
+ "awbw-replay",
+ "bevy",
+ "indexmap",
+ "insta",
+ "serde_json",
+]
+
+[[package]]
 name = "awbrn-map"
 version = "0.1.0"
 dependencies = [
- "awbrn-core",
+ "awbrn-types",
  "bevy",
  "insta",
  "rstest",
@@ -530,7 +544,7 @@ dependencies = [
 name = "awbrn-wasm"
 version = "0.1.0"
 dependencies = [
- "awbrn-bevy",
+ "awbrn-client",
  "awbw-replay",
  "bevy",
  "getrandom 0.3.4",
@@ -547,7 +561,7 @@ dependencies = [
 name = "awbw-replay"
 version = "0.1.0"
 dependencies = [
- "awbrn-core",
+ "awbrn-types",
  "flate2",
  "highway",
  "indexmap",
@@ -569,8 +583,8 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 name = "bench"
 version = "0.1.0"
 dependencies = [
- "awbrn-core",
  "awbrn-map",
+ "awbrn-types",
  "awbw-replay",
  "criterion",
  "gungraun",

@@ -3,7 +3,7 @@ use crate::{
     awbw_map::AwbwMap,
     pathfinding::{MovementMap, PathFinder},
 };
-use awbrn_core::{AwbwTerrain, GraphicalTerrain, MovementTerrain, SeaDirection, ShoalDirection};
+use awbrn_types::{AwbwTerrain, GraphicalTerrain, MovementTerrain, SeaDirection, ShoalDirection};
 
 /// Represents a game map with graphical terrain data
 #[derive(Debug, Clone, PartialEq)]

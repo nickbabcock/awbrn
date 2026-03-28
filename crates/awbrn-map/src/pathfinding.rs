@@ -1,5 +1,5 @@
 use crate::Position;
-use awbrn_core::MovementTerrain;
+use awbrn_types::MovementTerrain;
 
 /// A trait for maps that provide terrain information for pathfinding
 pub trait MovementMap {
@@ -241,7 +241,7 @@ mod tests {
 
     use super::*;
     use crate::AwbwMap;
-    use awbrn_core::{AwbwTerrain, MovementCost, MovementTerrain, RiverType, UnitMovement};
+    use awbrn_types::{AwbwTerrain, MovementCost, MovementTerrain, RiverType, UnitMovement};
     use rstest::rstest;
 
     // Struct implementing TerrainCosts for testing

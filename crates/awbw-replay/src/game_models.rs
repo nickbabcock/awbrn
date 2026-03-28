@@ -1,5 +1,5 @@
 use crate::de::{bool_ynstr, deserialize_sub_dive, non_negative_u32, values_only};
-use awbrn_core::{
+use awbrn_types::{
     AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId, AwbwTerrain, AwbwUnitId, PlayerFaction,
     Unit,
 };
@@ -153,7 +153,7 @@ pub enum CoPower {
 }
 
 mod player_faction_id {
-    use awbrn_core::PlayerFaction;
+    use awbrn_types::PlayerFaction;
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(x: &PlayerFaction, s: S) -> Result<S::Ok, S::Error>

@@ -444,7 +444,7 @@ fn run_tiles() -> Result<()> {
     let stubby_path = repo_root.join("assets/textures/stubby.png");
     let stubby_snow_path = repo_root.join("assets/textures/stubby-snow.png");
     let tilesheet_path = repo_root.join("assets/textures/tiles.png");
-    let generated_dir = repo_root.join("crates/awbrn-core/src/generated");
+    let generated_dir = repo_root.join("crates/awbrn-content/src/generated");
 
     let tiles_map: BTreeMap<String, TileEntry> = load_json_map(&tiles_path)?;
     let buildings_map: BTreeMap<String, BuildingEntry> = load_json_map(&buildings_path)?;
@@ -650,7 +650,7 @@ fn run_units() -> Result<()> {
     let units_path = assets_root.join("Json/Units.json");
     let textures_root = assets_root.join("Textures/Units");
     let unitsheet_path = repo_root.join("assets/textures/units.png");
-    let generated_dir = repo_root.join("crates/awbrn-core/src/generated");
+    let generated_dir = repo_root.join("crates/awbrn-content/src/generated");
 
     validate_unit_faction_order()?;
 

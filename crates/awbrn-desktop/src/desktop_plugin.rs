@@ -1,5 +1,5 @@
 use crate::web_asset_plugin::{WebAssetPlugin, WebMapAssetPathResolver};
-use awbrn_bevy::{AwbrnPlugin, EventBus, ExternalEvent, GameEvent, ReplayToLoad};
+use awbrn_client::{AwbrnPlugin, EventBus, ExternalEvent, GameEvent, ReplayToLoad};
 use bevy::{asset::AssetMetaCheck, prelude::*};
 use std::{fs, sync::Arc};
 

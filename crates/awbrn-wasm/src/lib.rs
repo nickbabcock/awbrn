@@ -1,4 +1,4 @@
-use awbrn_bevy::{AwbrnPlugin, EventBus, ExternalEvent, GameEvent, ReplayToLoad};
+use awbrn_client::{AwbrnPlugin, EventBus, ExternalEvent, GameEvent, ReplayToLoad};
 use bevy::{
     app::PluginsState,
     input::{

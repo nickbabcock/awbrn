@@ -1,5 +1,5 @@
-use awbrn_core::GraphicalTerrain;
 use awbrn_map::Position;
+use awbrn_types::GraphicalTerrain;
 use insta::{assert_snapshot, glob};
 use std::fmt::Write;
 
@@ -73,17 +73,17 @@ fn terrain_to_chars(terrain: GraphicalTerrain) -> String {
         // Rivers with different configurations
         GraphicalTerrain::River(river_type) => {
             let second_char = match river_type {
-                awbrn_core::RiverType::Horizontal => 'H',
-                awbrn_core::RiverType::Vertical => 'V',
-                awbrn_core::RiverType::Cross => 'C',
-                awbrn_core::RiverType::ES => 'E',
-                awbrn_core::RiverType::SW => 'S',
-                awbrn_core::RiverType::WN => 'W',
-                awbrn_core::RiverType::NE => 'N',
-                awbrn_core::RiverType::ESW => '1',
-                awbrn_core::RiverType::SWN => '2',
-                awbrn_core::RiverType::WNE => '3',
-                awbrn_core::RiverType::NES => '4',
+                awbrn_types::RiverType::Horizontal => 'H',
+                awbrn_types::RiverType::Vertical => 'V',
+                awbrn_types::RiverType::Cross => 'C',
+                awbrn_types::RiverType::ES => 'E',
+                awbrn_types::RiverType::SW => 'S',
+                awbrn_types::RiverType::WN => 'W',
+                awbrn_types::RiverType::NE => 'N',
+                awbrn_types::RiverType::ESW => '1',
+                awbrn_types::RiverType::SWN => '2',
+                awbrn_types::RiverType::WNE => '3',
+                awbrn_types::RiverType::NES => '4',
             };
             format!("R{}", second_char)
         }
@@ -91,17 +91,17 @@ fn terrain_to_chars(terrain: GraphicalTerrain) -> String {
         // Roads with different configurations
         GraphicalTerrain::Road(road_type) => {
             let second_char = match road_type {
-                awbrn_core::RoadType::Horizontal => 'H',
-                awbrn_core::RoadType::Vertical => 'V',
-                awbrn_core::RoadType::Cross => 'C',
-                awbrn_core::RoadType::ES => 'E',
-                awbrn_core::RoadType::SW => 'S',
-                awbrn_core::RoadType::WN => 'W',
-                awbrn_core::RoadType::NE => 'N',
-                awbrn_core::RoadType::ESW => '1',
-                awbrn_core::RoadType::SWN => '2',
-                awbrn_core::RoadType::WNE => '3',
-                awbrn_core::RoadType::NES => '4',
+                awbrn_types::RoadType::Horizontal => 'H',
+                awbrn_types::RoadType::Vertical => 'V',
+                awbrn_types::RoadType::Cross => 'C',
+                awbrn_types::RoadType::ES => 'E',
+                awbrn_types::RoadType::SW => 'S',
+                awbrn_types::RoadType::WN => 'W',
+                awbrn_types::RoadType::NE => 'N',
+                awbrn_types::RoadType::ESW => '1',
+                awbrn_types::RoadType::SWN => '2',
+                awbrn_types::RoadType::WNE => '3',
+                awbrn_types::RoadType::NES => '4',
             };
             format!("D{}", second_char)
         }
@@ -109,57 +109,57 @@ fn terrain_to_chars(terrain: GraphicalTerrain) -> String {
         // Bridges
         GraphicalTerrain::Bridge(bridge_type) => {
             let second_char = match bridge_type {
-                awbrn_core::BridgeType::Horizontal => 'H',
-                awbrn_core::BridgeType::Vertical => 'V',
+                awbrn_types::BridgeType::Horizontal => 'H',
+                awbrn_types::BridgeType::Vertical => 'V',
             };
             format!("B{}", second_char)
         }
 
         // Properties
         GraphicalTerrain::Property(property) => match property {
-            awbrn_core::Property::City(faction) => {
+            awbrn_types::Property::City(faction) => {
                 let faction_char = match faction {
-                    awbrn_core::Faction::Neutral => 'N',
-                    awbrn_core::Faction::Player(player) => player_faction_to_char(player),
+                    awbrn_types::Faction::Neutral => 'N',
+                    awbrn_types::Faction::Player(player) => player_faction_to_char(player),
                 };
                 format!("C{}", faction_char)
             }
-            awbrn_core::Property::Base(faction) => {
+            awbrn_types::Property::Base(faction) => {
                 let faction_char = match faction {
-                    awbrn_core::Faction::Neutral => 'N',
-                    awbrn_core::Faction::Player(player) => player_faction_to_char(player),
+                    awbrn_types::Faction::Neutral => 'N',
+                    awbrn_types::Faction::Player(player) => player_faction_to_char(player),
                 };
                 format!("B{}", faction_char)
             }
-            awbrn_core::Property::Airport(faction) => {
+            awbrn_types::Property::Airport(faction) => {
                 let faction_char = match faction {
-                    awbrn_core::Faction::Neutral => 'N',
-                    awbrn_core::Faction::Player(player) => player_faction_to_char(player),
+                    awbrn_types::Faction::Neutral => 'N',
+                    awbrn_types::Faction::Player(player) => player_faction_to_char(player),
                 };
                 format!("A{}", faction_char)
             }
-            awbrn_core::Property::Port(faction) => {
+            awbrn_types::Property::Port(faction) => {
                 let faction_char = match faction {
-                    awbrn_core::Faction::Neutral => 'N',
-                    awbrn_core::Faction::Player(player) => player_faction_to_char(player),
+                    awbrn_types::Faction::Neutral => 'N',
+                    awbrn_types::Faction::Player(player) => player_faction_to_char(player),
                 };
                 format!("P{}", faction_char)
             }
-            awbrn_core::Property::ComTower(faction) => {
+            awbrn_types::Property::ComTower(faction) => {
                 let faction_char = match faction {
-                    awbrn_core::Faction::Neutral => 'N',
-                    awbrn_core::Faction::Player(player) => player_faction_to_char(player),
+                    awbrn_types::Faction::Neutral => 'N',
+                    awbrn_types::Faction::Player(player) => player_faction_to_char(player),
                 };
                 format!("T{}", faction_char)
             }
-            awbrn_core::Property::Lab(faction) => {
+            awbrn_types::Property::Lab(faction) => {
                 let faction_char = match faction {
-                    awbrn_core::Faction::Neutral => 'N',
-                    awbrn_core::Faction::Player(player) => player_faction_to_char(player),
+                    awbrn_types::Faction::Neutral => 'N',
+                    awbrn_types::Faction::Player(player) => player_faction_to_char(player),
                 };
                 format!("L{}", faction_char)
             }
-            awbrn_core::Property::HQ(player_faction) => {
+            awbrn_types::Property::HQ(player_faction) => {
                 format!("H{}", player_faction_to_char(player_faction))
             }
         },
@@ -167,30 +167,30 @@ fn terrain_to_chars(terrain: GraphicalTerrain) -> String {
         // Pipes and related structures
         GraphicalTerrain::Pipe(pipe_type) => {
             let second_char = match pipe_type {
-                awbrn_core::PipeType::Vertical => 'V',
-                awbrn_core::PipeType::Horizontal => 'H',
-                awbrn_core::PipeType::NE => 'N',
-                awbrn_core::PipeType::ES => 'E',
-                awbrn_core::PipeType::SW => 'S',
-                awbrn_core::PipeType::WN => 'W',
-                awbrn_core::PipeType::NorthEnd => '1',
-                awbrn_core::PipeType::EastEnd => '2',
-                awbrn_core::PipeType::SouthEnd => '3',
-                awbrn_core::PipeType::WestEnd => '4',
+                awbrn_types::PipeType::Vertical => 'V',
+                awbrn_types::PipeType::Horizontal => 'H',
+                awbrn_types::PipeType::NE => 'N',
+                awbrn_types::PipeType::ES => 'E',
+                awbrn_types::PipeType::SW => 'S',
+                awbrn_types::PipeType::WN => 'W',
+                awbrn_types::PipeType::NorthEnd => '1',
+                awbrn_types::PipeType::EastEnd => '2',
+                awbrn_types::PipeType::SouthEnd => '3',
+                awbrn_types::PipeType::WestEnd => '4',
             };
             format!("P{}", second_char)
         }
         GraphicalTerrain::PipeSeam(seam_type) => {
             let second_char = match seam_type {
-                awbrn_core::PipeSeamType::Horizontal => 'H',
-                awbrn_core::PipeSeamType::Vertical => 'V',
+                awbrn_types::PipeSeamType::Horizontal => 'H',
+                awbrn_types::PipeSeamType::Vertical => 'V',
             };
             format!("S{}", second_char)
         }
         GraphicalTerrain::PipeRubble(rubble_type) => {
             let second_char = match rubble_type {
-                awbrn_core::PipeRubbleType::Horizontal => 'H',
-                awbrn_core::PipeRubbleType::Vertical => 'V',
+                awbrn_types::PipeRubbleType::Horizontal => 'H',
+                awbrn_types::PipeRubbleType::Vertical => 'V',
             };
             format!("U{}", second_char)
         }
@@ -198,8 +198,8 @@ fn terrain_to_chars(terrain: GraphicalTerrain) -> String {
         // Special terrains
         GraphicalTerrain::MissileSilo(status) => {
             let second_char = match status {
-                awbrn_core::MissileSiloStatus::Loaded => 'L',
-                awbrn_core::MissileSiloStatus::Unloaded => 'U',
+                awbrn_types::MissileSiloStatus::Loaded => 'L',
+                awbrn_types::MissileSiloStatus::Unloaded => 'U',
             };
             format!("M{}", second_char)
         }
@@ -218,169 +218,169 @@ fn terrain_to_chars(terrain: GraphicalTerrain) -> String {
 }
 
 /// Convert a PlayerFaction to a single character representation
-fn player_faction_to_char(player_faction: awbrn_core::PlayerFaction) -> char {
+fn player_faction_to_char(player_faction: awbrn_types::PlayerFaction) -> char {
     match player_faction {
-        awbrn_core::PlayerFaction::OrangeStar => 'O',
-        awbrn_core::PlayerFaction::BlueMoon => 'B',
-        awbrn_core::PlayerFaction::GreenEarth => 'G',
-        awbrn_core::PlayerFaction::YellowComet => 'Y',
-        awbrn_core::PlayerFaction::BlackHole => 'K',
-        awbrn_core::PlayerFaction::RedFire => 'R',
-        awbrn_core::PlayerFaction::GreySky => 'S',
-        awbrn_core::PlayerFaction::BrownDesert => 'D',
-        awbrn_core::PlayerFaction::AmberBlaze => 'A',
-        awbrn_core::PlayerFaction::JadeSun => 'J',
-        awbrn_core::PlayerFaction::CobaltIce => 'C',
-        awbrn_core::PlayerFaction::PinkCosmos => 'P',
-        awbrn_core::PlayerFaction::TealGalaxy => 'T',
-        awbrn_core::PlayerFaction::PurpleLightning => 'L',
-        awbrn_core::PlayerFaction::AcidRain => 'I',
-        awbrn_core::PlayerFaction::UmberWilds => 'U',
-        awbrn_core::PlayerFaction::WhiteNova => 'W',
-        awbrn_core::PlayerFaction::AzureAsteroid => 'Z',
-        awbrn_core::PlayerFaction::NoirEclipse => 'E',
-        awbrn_core::PlayerFaction::SilverClaw => 'V',
+        awbrn_types::PlayerFaction::OrangeStar => 'O',
+        awbrn_types::PlayerFaction::BlueMoon => 'B',
+        awbrn_types::PlayerFaction::GreenEarth => 'G',
+        awbrn_types::PlayerFaction::YellowComet => 'Y',
+        awbrn_types::PlayerFaction::BlackHole => 'K',
+        awbrn_types::PlayerFaction::RedFire => 'R',
+        awbrn_types::PlayerFaction::GreySky => 'S',
+        awbrn_types::PlayerFaction::BrownDesert => 'D',
+        awbrn_types::PlayerFaction::AmberBlaze => 'A',
+        awbrn_types::PlayerFaction::JadeSun => 'J',
+        awbrn_types::PlayerFaction::CobaltIce => 'C',
+        awbrn_types::PlayerFaction::PinkCosmos => 'P',
+        awbrn_types::PlayerFaction::TealGalaxy => 'T',
+        awbrn_types::PlayerFaction::PurpleLightning => 'L',
+        awbrn_types::PlayerFaction::AcidRain => 'I',
+        awbrn_types::PlayerFaction::UmberWilds => 'U',
+        awbrn_types::PlayerFaction::WhiteNova => 'W',
+        awbrn_types::PlayerFaction::AzureAsteroid => 'Z',
+        awbrn_types::PlayerFaction::NoirEclipse => 'E',
+        awbrn_types::PlayerFaction::SilverClaw => 'V',
     }
 }
 
 /// Convert a SeaDirection to a unique index
-fn sea_direction_to_index(direction: awbrn_core::SeaDirection) -> char {
+fn sea_direction_to_index(direction: awbrn_types::SeaDirection) -> char {
     match direction {
-        awbrn_core::SeaDirection::E => '1',
-        awbrn_core::SeaDirection::E_NW => '2',
-        awbrn_core::SeaDirection::E_NW_SW => '3',
-        awbrn_core::SeaDirection::E_S => '4',
-        awbrn_core::SeaDirection::E_S_NW => '5',
-        awbrn_core::SeaDirection::E_S_W => '6',
-        awbrn_core::SeaDirection::E_SW => '7',
-        awbrn_core::SeaDirection::E_W => '8',
-        awbrn_core::SeaDirection::N => '9',
-        awbrn_core::SeaDirection::N_E => 'a',
-        awbrn_core::SeaDirection::N_E_S => 'b',
-        awbrn_core::SeaDirection::N_E_S_W => 'c',
-        awbrn_core::SeaDirection::N_E_SW => 'd',
-        awbrn_core::SeaDirection::N_E_W => 'e',
-        awbrn_core::SeaDirection::N_S => 'f',
-        awbrn_core::SeaDirection::N_S_W => 'g',
-        awbrn_core::SeaDirection::N_SE => 'h',
-        awbrn_core::SeaDirection::N_SE_SW => 'i',
-        awbrn_core::SeaDirection::N_SW => 'j',
-        awbrn_core::SeaDirection::N_W => 'k',
-        awbrn_core::SeaDirection::N_W_SE => 'l',
-        awbrn_core::SeaDirection::NE => 'm',
-        awbrn_core::SeaDirection::NE_SE => 'n',
-        awbrn_core::SeaDirection::NE_SE_SW => 'o',
-        awbrn_core::SeaDirection::NE_SW => 'p',
-        awbrn_core::SeaDirection::NW => 'q',
-        awbrn_core::SeaDirection::NW_NE => 'r',
-        awbrn_core::SeaDirection::NW_NE_SE => 's',
-        awbrn_core::SeaDirection::NW_NE_SE_SW => 't',
-        awbrn_core::SeaDirection::NW_NE_SW => 'u',
-        awbrn_core::SeaDirection::NW_SE => 'v',
-        awbrn_core::SeaDirection::NW_SE_SW => 'w',
-        awbrn_core::SeaDirection::NW_SW => 'x',
-        awbrn_core::SeaDirection::S => 'y',
-        awbrn_core::SeaDirection::S_E => 'z',
-        awbrn_core::SeaDirection::S_NE => 'A',
-        awbrn_core::SeaDirection::S_NW => 'B',
-        awbrn_core::SeaDirection::S_NW_NE => 'C',
-        awbrn_core::SeaDirection::S_W => 'D',
-        awbrn_core::SeaDirection::S_W_NE => 'E',
-        awbrn_core::SeaDirection::SE => 'F',
-        awbrn_core::SeaDirection::SE_SW => 'G',
-        awbrn_core::SeaDirection::SW => 'H',
-        awbrn_core::SeaDirection::Sea => '0',
-        awbrn_core::SeaDirection::W => 'I',
-        awbrn_core::SeaDirection::W_E => 'J',
-        awbrn_core::SeaDirection::W_NE => 'K',
-        awbrn_core::SeaDirection::W_NE_SE => 'L',
-        awbrn_core::SeaDirection::W_SE => 'M',
+        awbrn_types::SeaDirection::E => '1',
+        awbrn_types::SeaDirection::E_NW => '2',
+        awbrn_types::SeaDirection::E_NW_SW => '3',
+        awbrn_types::SeaDirection::E_S => '4',
+        awbrn_types::SeaDirection::E_S_NW => '5',
+        awbrn_types::SeaDirection::E_S_W => '6',
+        awbrn_types::SeaDirection::E_SW => '7',
+        awbrn_types::SeaDirection::E_W => '8',
+        awbrn_types::SeaDirection::N => '9',
+        awbrn_types::SeaDirection::N_E => 'a',
+        awbrn_types::SeaDirection::N_E_S => 'b',
+        awbrn_types::SeaDirection::N_E_S_W => 'c',
+        awbrn_types::SeaDirection::N_E_SW => 'd',
+        awbrn_types::SeaDirection::N_E_W => 'e',
+        awbrn_types::SeaDirection::N_S => 'f',
+        awbrn_types::SeaDirection::N_S_W => 'g',
+        awbrn_types::SeaDirection::N_SE => 'h',
+        awbrn_types::SeaDirection::N_SE_SW => 'i',
+        awbrn_types::SeaDirection::N_SW => 'j',
+        awbrn_types::SeaDirection::N_W => 'k',
+        awbrn_types::SeaDirection::N_W_SE => 'l',
+        awbrn_types::SeaDirection::NE => 'm',
+        awbrn_types::SeaDirection::NE_SE => 'n',
+        awbrn_types::SeaDirection::NE_SE_SW => 'o',
+        awbrn_types::SeaDirection::NE_SW => 'p',
+        awbrn_types::SeaDirection::NW => 'q',
+        awbrn_types::SeaDirection::NW_NE => 'r',
+        awbrn_types::SeaDirection::NW_NE_SE => 's',
+        awbrn_types::SeaDirection::NW_NE_SE_SW => 't',
+        awbrn_types::SeaDirection::NW_NE_SW => 'u',
+        awbrn_types::SeaDirection::NW_SE => 'v',
+        awbrn_types::SeaDirection::NW_SE_SW => 'w',
+        awbrn_types::SeaDirection::NW_SW => 'x',
+        awbrn_types::SeaDirection::S => 'y',
+        awbrn_types::SeaDirection::S_E => 'z',
+        awbrn_types::SeaDirection::S_NE => 'A',
+        awbrn_types::SeaDirection::S_NW => 'B',
+        awbrn_types::SeaDirection::S_NW_NE => 'C',
+        awbrn_types::SeaDirection::S_W => 'D',
+        awbrn_types::SeaDirection::S_W_NE => 'E',
+        awbrn_types::SeaDirection::SE => 'F',
+        awbrn_types::SeaDirection::SE_SW => 'G',
+        awbrn_types::SeaDirection::SW => 'H',
+        awbrn_types::SeaDirection::Sea => '0',
+        awbrn_types::SeaDirection::W => 'I',
+        awbrn_types::SeaDirection::W_E => 'J',
+        awbrn_types::SeaDirection::W_NE => 'K',
+        awbrn_types::SeaDirection::W_NE_SE => 'L',
+        awbrn_types::SeaDirection::W_SE => 'M',
     }
 }
 
 /// Convert a ShoalDirection to a unique index
-fn shoal_direction_to_index(direction: awbrn_core::ShoalDirection) -> char {
+fn shoal_direction_to_index(direction: awbrn_types::ShoalDirection) -> char {
     match direction {
-        awbrn_core::ShoalDirection::AE => '1',
-        awbrn_core::ShoalDirection::AEAS => '2',
-        awbrn_core::ShoalDirection::AEASAW => '3',
-        awbrn_core::ShoalDirection::AEASW => '4',
-        awbrn_core::ShoalDirection::AEAW => '5',
-        awbrn_core::ShoalDirection::AES => '6',
-        awbrn_core::ShoalDirection::AESAW => '7',
-        awbrn_core::ShoalDirection::AESW => '8',
-        awbrn_core::ShoalDirection::AEW => '9',
-        awbrn_core::ShoalDirection::AN => 'a',
-        awbrn_core::ShoalDirection::ANAE => 'b',
-        awbrn_core::ShoalDirection::ANAEAS => 'c',
-        awbrn_core::ShoalDirection::ANAEASAW => 'd',
-        awbrn_core::ShoalDirection::ANAEASW => 'e',
-        awbrn_core::ShoalDirection::ANAEAW => 'f',
-        awbrn_core::ShoalDirection::ANAES => 'g',
-        awbrn_core::ShoalDirection::ANAESAW => 'h',
-        awbrn_core::ShoalDirection::ANAESW => 'i',
-        awbrn_core::ShoalDirection::ANAEW => 'j',
-        awbrn_core::ShoalDirection::ANAS => 'k',
-        awbrn_core::ShoalDirection::ANASAW => 'l',
-        awbrn_core::ShoalDirection::ANASW => 'm',
-        awbrn_core::ShoalDirection::ANAW => 'n',
-        awbrn_core::ShoalDirection::ANE => 'o',
-        awbrn_core::ShoalDirection::ANEAS => 'p',
-        awbrn_core::ShoalDirection::ANEASAW => 'q',
-        awbrn_core::ShoalDirection::ANEASW => 'r',
-        awbrn_core::ShoalDirection::ANEAW => 's',
-        awbrn_core::ShoalDirection::ANES => 't',
-        awbrn_core::ShoalDirection::ANESAW => 'u',
-        awbrn_core::ShoalDirection::ANESW => 'v',
-        awbrn_core::ShoalDirection::ANEW => 'w',
-        awbrn_core::ShoalDirection::ANS => 'x',
-        awbrn_core::ShoalDirection::ANSAW => 'y',
-        awbrn_core::ShoalDirection::ANSW => 'z',
-        awbrn_core::ShoalDirection::ANW => 'A',
-        awbrn_core::ShoalDirection::AS => 'B',
-        awbrn_core::ShoalDirection::ASAW => 'C',
-        awbrn_core::ShoalDirection::ASW => 'D',
-        awbrn_core::ShoalDirection::AW => 'E',
-        awbrn_core::ShoalDirection::C => 'F',
-        awbrn_core::ShoalDirection::E => 'G',
-        awbrn_core::ShoalDirection::EAS => 'H',
-        awbrn_core::ShoalDirection::EASAW => 'I',
-        awbrn_core::ShoalDirection::EASW => 'J',
-        awbrn_core::ShoalDirection::EAW => 'K',
-        awbrn_core::ShoalDirection::ES => 'L',
-        awbrn_core::ShoalDirection::ESAW => 'M',
-        awbrn_core::ShoalDirection::ESW => 'N',
-        awbrn_core::ShoalDirection::EW => 'O',
-        awbrn_core::ShoalDirection::N => 'P',
-        awbrn_core::ShoalDirection::NAE => 'Q',
-        awbrn_core::ShoalDirection::NAEAS => 'R',
-        awbrn_core::ShoalDirection::NAEASAW => 'S',
-        awbrn_core::ShoalDirection::NAEASW => 'T',
-        awbrn_core::ShoalDirection::NAEAW => 'U',
-        awbrn_core::ShoalDirection::NAES => 'V',
-        awbrn_core::ShoalDirection::NAESAW => 'W',
-        awbrn_core::ShoalDirection::NAESW => 'X',
-        awbrn_core::ShoalDirection::NAEW => 'Y',
-        awbrn_core::ShoalDirection::NAS => 'Z',
-        awbrn_core::ShoalDirection::NASAW => '0',
-        awbrn_core::ShoalDirection::NASW => '!',
-        awbrn_core::ShoalDirection::NAW => '@',
-        awbrn_core::ShoalDirection::NE => '#',
-        awbrn_core::ShoalDirection::NEAS => '$',
-        awbrn_core::ShoalDirection::NEASAW => '%',
-        awbrn_core::ShoalDirection::NEASW => '^',
-        awbrn_core::ShoalDirection::NEAW => '&',
-        awbrn_core::ShoalDirection::NES => '*',
-        awbrn_core::ShoalDirection::NESAW => '(',
-        awbrn_core::ShoalDirection::NESW => ')',
-        awbrn_core::ShoalDirection::NEW => '-',
-        awbrn_core::ShoalDirection::NS => '+',
-        awbrn_core::ShoalDirection::NSAW => '=',
-        awbrn_core::ShoalDirection::NSW => '[',
-        awbrn_core::ShoalDirection::NW => ']',
-        awbrn_core::ShoalDirection::S => '{',
-        awbrn_core::ShoalDirection::SAW => '}',
-        awbrn_core::ShoalDirection::SW => ':',
-        awbrn_core::ShoalDirection::W => ';',
+        awbrn_types::ShoalDirection::AE => '1',
+        awbrn_types::ShoalDirection::AEAS => '2',
+        awbrn_types::ShoalDirection::AEASAW => '3',
+        awbrn_types::ShoalDirection::AEASW => '4',
+        awbrn_types::ShoalDirection::AEAW => '5',
+        awbrn_types::ShoalDirection::AES => '6',
+        awbrn_types::ShoalDirection::AESAW => '7',
+        awbrn_types::ShoalDirection::AESW => '8',
+        awbrn_types::ShoalDirection::AEW => '9',
+        awbrn_types::ShoalDirection::AN => 'a',
+        awbrn_types::ShoalDirection::ANAE => 'b',
+        awbrn_types::ShoalDirection::ANAEAS => 'c',
+        awbrn_types::ShoalDirection::ANAEASAW => 'd',
+        awbrn_types::ShoalDirection::ANAEASW => 'e',
+        awbrn_types::ShoalDirection::ANAEAW => 'f',
+        awbrn_types::ShoalDirection::ANAES => 'g',
+        awbrn_types::ShoalDirection::ANAESAW => 'h',
+        awbrn_types::ShoalDirection::ANAESW => 'i',
+        awbrn_types::ShoalDirection::ANAEW => 'j',
+        awbrn_types::ShoalDirection::ANAS => 'k',
+        awbrn_types::ShoalDirection::ANASAW => 'l',
+        awbrn_types::ShoalDirection::ANASW => 'm',
+        awbrn_types::ShoalDirection::ANAW => 'n',
+        awbrn_types::ShoalDirection::ANE => 'o',
+        awbrn_types::ShoalDirection::ANEAS => 'p',
+        awbrn_types::ShoalDirection::ANEASAW => 'q',
+        awbrn_types::ShoalDirection::ANEASW => 'r',
+        awbrn_types::ShoalDirection::ANEAW => 's',
+        awbrn_types::ShoalDirection::ANES => 't',
+        awbrn_types::ShoalDirection::ANESAW => 'u',
+        awbrn_types::ShoalDirection::ANESW => 'v',
+        awbrn_types::ShoalDirection::ANEW => 'w',
+        awbrn_types::ShoalDirection::ANS => 'x',
+        awbrn_types::ShoalDirection::ANSAW => 'y',
+        awbrn_types::ShoalDirection::ANSW => 'z',
+        awbrn_types::ShoalDirection::ANW => 'A',
+        awbrn_types::ShoalDirection::AS => 'B',
+        awbrn_types::ShoalDirection::ASAW => 'C',
+        awbrn_types::ShoalDirection::ASW => 'D',
+        awbrn_types::ShoalDirection::AW => 'E',
+        awbrn_types::ShoalDirection::C => 'F',
+        awbrn_types::ShoalDirection::E => 'G',
+        awbrn_types::ShoalDirection::EAS => 'H',
+        awbrn_types::ShoalDirection::EASAW => 'I',
+        awbrn_types::ShoalDirection::EASW => 'J',
+        awbrn_types::ShoalDirection::EAW => 'K',
+        awbrn_types::ShoalDirection::ES => 'L',
+        awbrn_types::ShoalDirection::ESAW => 'M',
+        awbrn_types::ShoalDirection::ESW => 'N',
+        awbrn_types::ShoalDirection::EW => 'O',
+        awbrn_types::ShoalDirection::N => 'P',
+        awbrn_types::ShoalDirection::NAE => 'Q',
+        awbrn_types::ShoalDirection::NAEAS => 'R',
+        awbrn_types::ShoalDirection::NAEASAW => 'S',
+        awbrn_types::ShoalDirection::NAEASW => 'T',
+        awbrn_types::ShoalDirection::NAEAW => 'U',
+        awbrn_types::ShoalDirection::NAES => 'V',
+        awbrn_types::ShoalDirection::NAESAW => 'W',
+        awbrn_types::ShoalDirection::NAESW => 'X',
+        awbrn_types::ShoalDirection::NAEW => 'Y',
+        awbrn_types::ShoalDirection::NAS => 'Z',
+        awbrn_types::ShoalDirection::NASAW => '0',
+        awbrn_types::ShoalDirection::NASW => '!',
+        awbrn_types::ShoalDirection::NAW => '@',
+        awbrn_types::ShoalDirection::NE => '#',
+        awbrn_types::ShoalDirection::NEAS => '$',
+        awbrn_types::ShoalDirection::NEASAW => '%',
+        awbrn_types::ShoalDirection::NEASW => '^',
+        awbrn_types::ShoalDirection::NEAW => '&',
+        awbrn_types::ShoalDirection::NES => '*',
+        awbrn_types::ShoalDirection::NESAW => '(',
+        awbrn_types::ShoalDirection::NESW => ')',
+        awbrn_types::ShoalDirection::NEW => '-',
+        awbrn_types::ShoalDirection::NS => '+',
+        awbrn_types::ShoalDirection::NSAW => '=',
+        awbrn_types::ShoalDirection::NSW => '[',
+        awbrn_types::ShoalDirection::NW => ']',
+        awbrn_types::ShoalDirection::S => '{',
+        awbrn_types::ShoalDirection::SAW => '}',
+        awbrn_types::ShoalDirection::SW => ':',
+        awbrn_types::ShoalDirection::W => ';',
     }
 }

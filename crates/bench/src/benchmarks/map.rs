@@ -3,7 +3,7 @@ use awbrn_map::{Position, TerrainCosts};
 struct TestMovement;
 
 impl TerrainCosts for TestMovement {
-    fn cost(&self, _terrain: awbrn_core::MovementTerrain) -> Option<u8> {
+    fn cost(&self, _terrain: awbrn_types::MovementTerrain) -> Option<u8> {
         Some(1)
     }
 }
@@ -26,7 +26,7 @@ pub mod criterion_benches {
     use std::hint::black_box;
 
     fn pathfinding(c: &mut Criterion) {
-        let map = awbrn_map::AwbwMap::new(40, 40, awbrn_core::AwbwTerrain::Plain);
+        let map = awbrn_map::AwbwMap::new(40, 40, awbrn_types::AwbwTerrain::Plain);
         let mut pathfinder = map.pathfinder();
         let mut group = c.benchmark_group("pathfinding");
         group.bench_function(BenchmarkId::from_parameter("sidewinder-fighter"), |b| {
@@ -51,7 +51,7 @@ pub mod gungraun_benches {
 
     fn setup(movement: u8) -> (AwbwMap, u8) {
         (
-            AwbwMap::new(40, 40, awbrn_core::AwbwTerrain::Plain),
+            AwbwMap::new(40, 40, awbrn_types::AwbwTerrain::Plain),
             movement,
         )
     }

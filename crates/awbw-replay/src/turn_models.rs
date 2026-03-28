@@ -1,5 +1,5 @@
 use crate::de::{Hidden, Masked};
-use awbrn_core::{AwbwGamePlayerId, AwbwTerrain, AwbwUnitId, PlayerFaction, Unit};
+use awbrn_types::{AwbwGamePlayerId, AwbwTerrain, AwbwUnitId, PlayerFaction, Unit};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
@@ -427,12 +427,12 @@ pub enum WeatherCode {
     Snow,
 }
 
-impl From<WeatherCode> for awbrn_core::Weather {
+impl From<WeatherCode> for awbrn_types::Weather {
     fn from(value: WeatherCode) -> Self {
         match value {
-            WeatherCode::Clear => awbrn_core::Weather::Clear,
-            WeatherCode::Rain => awbrn_core::Weather::Rain,
-            WeatherCode::Snow => awbrn_core::Weather::Snow,
+            WeatherCode::Clear => awbrn_types::Weather::Clear,
+            WeatherCode::Rain => awbrn_types::Weather::Rain,
+            WeatherCode::Snow => awbrn_types::Weather::Snow,
         }
     }
 }
@@ -752,7 +752,7 @@ impl<'de> Deserialize<'de> for TargetedPlayer {
 }
 
 mod awbw_country_code {
-    use awbrn_core::PlayerFaction;
+    use awbrn_types::PlayerFaction;
     use serde::de::Error;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
