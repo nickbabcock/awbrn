@@ -1,11 +1,120 @@
 #root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  min-height: 100vh;
 }
 
 .game-canvas:focus,
 .game-canvas:focus-visible {
   outline: none;
+}
+
+.game-surface {
+  left: 0;
+  position: absolute;
+  top: 0;
+}
+
+.hud-panel {
+  backdrop-filter: blur(8px);
+  background: rgba(11, 16, 26, 0.82);
+  border: 1px solid rgba(203, 214, 255, 0.18);
+  border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
+  color: #eff3ff;
+  position: fixed;
+  z-index: 10;
+}
+
+.day-panel {
+  font-size: 16px;
+  font-weight: 700;
+  left: 20px;
+  padding: 10px 14px;
+  top: 20px;
+}
+
+.roster-panel {
+  max-height: calc(100vh - 120px);
+  overflow: auto;
+  padding: 14px;
+  right: 20px;
+  top: 20px;
+  width: 320px;
+}
+
+.roster-title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.roster-subtitle,
+.roster-empty,
+.roster-player-meta,
+.file-label {
+  color: rgba(239, 243, 255, 0.78);
+  font-size: 13px;
+}
+
+.roster-subtitle {
+  margin-bottom: 12px;
+}
+
+.roster-list {
+  display: grid;
+  gap: 10px;
+}
+
+.roster-player {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto 1fr;
+  padding: 10px;
+}
+
+.roster-player-portraits {
+  display: flex;
+  gap: 6px;
+}
+
+.roster-player-headline {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.co-portrait {
+  background-repeat: no-repeat;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  image-rendering: pixelated;
+  overflow: hidden;
+}
+
+.co-portrait--fallback {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.08);
+  display: flex;
+  font-size: 14px;
+  font-weight: 700;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.file-panel {
+  bottom: 20px;
+  padding: 10px 12px;
+  right: 20px;
+}
+
+.file-label {
+  display: block;
+  margin-bottom: 6px;
 }

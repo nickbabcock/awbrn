@@ -1,0 +1,302 @@
+{
+  "size": {
+    "width": 256,
+    "height": 128
+  },
+  "cellWidth": 32,
+  "cellHeight": 32,
+  "columns": 8,
+  "rows": 4,
+  "portraits": [
+    {
+      "index": 0,
+      "key": "andy",
+      "displayName": "Andy",
+      "awbwId": 1,
+      "x": 0,
+      "y": 0,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 1,
+      "key": "grit",
+      "displayName": "Grit",
+      "awbwId": 2,
+      "x": 32,
+      "y": 0,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 2,
+      "key": "kanbei",
+      "displayName": "Kanbei",
+      "awbwId": 3,
+      "x": 64,
+      "y": 0,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 3,
+      "key": "drake",
+      "displayName": "Drake",
+      "awbwId": 5,
+      "x": 96,
+      "y": 0,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 4,
+      "key": "max",
+      "displayName": "Max",
+      "awbwId": 7,
+      "x": 128,
+      "y": 0,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 5,
+      "key": "sami",
+      "displayName": "Sami",
+      "awbwId": 8,
+      "x": 160,
+      "y": 0,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 6,
+      "key": "olaf",
+      "displayName": "Olaf",
+      "awbwId": 9,
+      "x": 192,
+      "y": 0,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 7,
+      "key": "eagle",
+      "displayName": "Eagle",
+      "awbwId": 10,
+      "x": 224,
+      "y": 0,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 8,
+      "key": "adder",
+      "displayName": "Adder",
+      "awbwId": 11,
+      "x": 0,
+      "y": 32,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 9,
+      "key": "hawke",
+      "displayName": "Hawke",
+      "awbwId": 12,
+      "x": 32,
+      "y": 32,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 10,
+      "key": "sensei",
+      "displayName": "Sensei",
+      "awbwId": 13,
+      "x": 64,
+      "y": 32,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 11,
+      "key": "jess",
+      "displayName": "Jess",
+      "awbwId": 14,
+      "x": 96,
+      "y": 32,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 12,
+      "key": "colin",
+      "displayName": "Colin",
+      "awbwId": 15,
+      "x": 128,
+      "y": 32,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 13,
+      "key": "lash",
+      "displayName": "Lash",
+      "awbwId": 16,
+      "x": 160,
+      "y": 32,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 14,
+      "key": "hachi",
+      "displayName": "Hachi",
+      "awbwId": 17,
+      "x": 192,
+      "y": 32,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 15,
+      "key": "sonja",
+      "displayName": "Sonja",
+      "awbwId": 18,
+      "x": 224,
+      "y": 32,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 16,
+      "key": "sasha",
+      "displayName": "Sasha",
+      "awbwId": 19,
+      "x": 0,
+      "y": 64,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 17,
+      "key": "grimm",
+      "displayName": "Grimm",
+      "awbwId": 20,
+      "x": 32,
+      "y": 64,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 18,
+      "key": "koal",
+      "displayName": "Koal",
+      "awbwId": 21,
+      "x": 64,
+      "y": 64,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 19,
+      "key": "jake",
+      "displayName": "Jake",
+      "awbwId": 22,
+      "x": 96,
+      "y": 64,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 20,
+      "key": "kindle",
+      "displayName": "Kindle",
+      "awbwId": 23,
+      "x": 128,
+      "y": 64,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 21,
+      "key": "nell",
+      "displayName": "Nell",
+      "awbwId": 24,
+      "x": 160,
+      "y": 64,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 22,
+      "key": "flak",
+      "displayName": "Flak",
+      "awbwId": 25,
+      "x": 192,
+      "y": 64,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 23,
+      "key": "jugger",
+      "displayName": "Jugger",
+      "awbwId": 26,
+      "x": 224,
+      "y": 64,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 24,
+      "key": "javier",
+      "displayName": "Javier",
+      "awbwId": 27,
+      "x": 0,
+      "y": 96,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 25,
+      "key": "rachel",
+      "displayName": "Rachel",
+      "awbwId": 28,
+      "x": 32,
+      "y": 96,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 26,
+      "key": "sturm",
+      "displayName": "Sturm",
+      "awbwId": 29,
+      "x": 64,
+      "y": 96,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 27,
+      "key": "von-bolt",
+      "displayName": "Von Bolt",
+      "awbwId": 30,
+      "x": 96,
+      "y": 96,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "index": 28,
+      "key": "no-co",
+      "displayName": "No CO",
+      "awbwId": 31,
+      "x": 128,
+      "y": 96,
+      "width": 32,
+      "height": 32
+    }
+  ]
+}

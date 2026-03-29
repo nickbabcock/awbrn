@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use awbrn_types::{PlayerFaction, Unit};
-use image::RgbaImage;
+use image::{GenericImageView, RgbaImage};
 use indexmap::IndexMap;
 use oxipng::{InFile, Options, OutFile};
 use rectangle_pack::{
@@ -19,6 +19,9 @@ use walkdir::WalkDir;
 const TILESHEET_COLUMNS: u32 = 64;
 const UNITSHEET_COLUMNS: u32 = 64;
 const UNIT_SPRITESHEET_BLEED: u32 = 1;
+const CO_PORTRAIT_COLUMNS: u32 = 8;
+const CO_PORTRAIT_WIDTH: u32 = 32;
+const CO_PORTRAIT_HEIGHT: u32 = 32;
 
 #[derive(Debug, Clone, Copy)]
 struct SpritesheetBuild {
@@ -298,6 +301,14 @@ struct UnitEntry {
     move_side: UnitAnimationEntry,
 }
 
+#[derive(Debug, Deserialize)]
+struct CombatOfficerEntry {
+    #[serde(rename = "Name")]
+    name: String,
+    #[serde(rename = "AWBWID")]
+    awbw_id: u32,
+}
+
 #[derive(Debug, Clone)]
 struct UnitDefinition {
     unit: Unit,
@@ -311,6 +322,40 @@ struct UnitDefinition {
 struct FactionDefinition {
     faction: PlayerFaction,
     folder: &'static str,
+}
+
+#[derive(Debug, Clone)]
+struct CoPortraitDefinition {
+    awbw_id: u32,
+    display_name: String,
+    key: String,
+    image_path: PathBuf,
+}
+
+#[derive(Debug, Serialize)]
+struct CoPortraitAtlasEntry {
+    index: u32,
+    key: String,
+    #[serde(rename = "displayName")]
+    display_name: String,
+    #[serde(rename = "awbwId")]
+    awbw_id: u32,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Debug, Serialize)]
+struct CoPortraitAtlasData {
+    size: UiAtlasSize,
+    #[serde(rename = "cellWidth")]
+    cell_width: u32,
+    #[serde(rename = "cellHeight")]
+    cell_height: u32,
+    columns: u32,
+    rows: u32,
+    portraits: Vec<CoPortraitAtlasEntry>,
 }
 
 const UNIT_FACTIONS: [FactionDefinition; 20] = [
@@ -402,9 +447,10 @@ fn main() -> Result<()> {
         Some("tiles") => run_tiles(),
         Some("units") => run_units(),
         Some("ui") => run_ui(),
+        Some("co") | Some("co-portraits") => run_co_portraits(),
         _ => {
             eprintln!(
-                "Usage: {} [tiles|units|ui]",
+                "Usage: {} [tiles|units|ui|co]",
                 args.first().map(String::as_str).unwrap_or("xtask-assets")
             );
             std::process::exit(1);
@@ -424,12 +470,16 @@ fn sync_web_texture(repo_root: &Path, filename: &str) -> Result<()> {
 }
 
 fn sync_web_ui_atlas(repo_root: &Path) -> Result<()> {
+    sync_web_data(repo_root, "ui_atlas.json")
+}
+
+fn sync_web_data(repo_root: &Path, filename: &str) -> Result<()> {
     let web_data_dir = repo_root.join("web/public/assets/data");
     fs::create_dir_all(&web_data_dir).context("Creating web data directory")?;
 
-    let source = repo_root.join("assets/data/ui_atlas.json");
-    let target = web_data_dir.join("ui_atlas.json");
-    fs::copy(&source, &target).context("Copying ui_atlas.json to web assets")?;
+    let source = repo_root.join("assets/data").join(filename);
+    let target = web_data_dir.join(filename);
+    fs::copy(&source, &target).with_context(|| format!("Copying {filename} to web assets"))?;
 
     Ok(())
 }
@@ -707,6 +757,41 @@ fn run_ui() -> Result<()> {
     Ok(())
 }
 
+fn run_co_portraits() -> Result<()> {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+    let assets_root = repo_root.join("assets/AWBW-Replay-Player/AWBWApp.Resources");
+    let co_json_path = assets_root.join("Json/COs.json");
+    let co_textures_root = assets_root.join("Textures/CO");
+    let sheet_path = repo_root.join("assets/textures/co_portraits.png");
+    let data_path = repo_root.join("assets/data/co_portraits.json");
+    let generated_dir = repo_root.join("crates/awbrn-content/src/generated");
+
+    let co_map: BTreeMap<String, CombatOfficerEntry> = load_json_map(&co_json_path)?;
+    let portraits = collect_co_portraits(&co_map, &co_textures_root)?;
+    let paths = portraits
+        .iter()
+        .map(|portrait| portrait.image_path.clone())
+        .collect::<Vec<_>>();
+    let spritesheet = build_spritesheet(&paths, &sheet_path, CO_PORTRAIT_COLUMNS, 0)?;
+    optimize_png(&sheet_path)?;
+
+    let co_portrait_data = build_co_portrait_data(&portraits, spritesheet)?;
+    write_co_portrait_data(&co_portrait_data, &data_path)?;
+
+    fs::create_dir_all(&generated_dir).context("Creating generated output directory")?;
+    let generated_path = generated_dir.join("co_portraits.rs");
+    fs::write(
+        &generated_path,
+        render_co_portrait_lookup(&portraits, spritesheet),
+    )
+    .context("Writing co_portraits.rs")?;
+
+    sync_web_texture(&repo_root, "co_portraits.png")?;
+    sync_web_data(&repo_root, "co_portraits.json")?;
+
+    Ok(())
+}
+
 fn collect_ui_sprites(ui_root: &Path) -> Result<Vec<UiSprite>> {
     let mut sprites = Vec::new();
 
@@ -777,6 +862,72 @@ fn collect_ui_effect_sprites(effects_root: &Path) -> Result<Vec<UiSprite>> {
     }
 
     Ok(sprites)
+}
+
+fn collect_co_portraits(
+    co_map: &BTreeMap<String, CombatOfficerEntry>,
+    co_textures_root: &Path,
+) -> Result<Vec<CoPortraitDefinition>> {
+    let mut portraits = Vec::new();
+    let mut seen_ids = HashSet::new();
+    let mut seen_keys = HashSet::new();
+    let mut expected_files = HashSet::new();
+
+    for entry in co_map.values() {
+        if !seen_ids.insert(entry.awbw_id) {
+            return Err(anyhow!("Duplicate CO AWBWID {}", entry.awbw_id));
+        }
+
+        let key = slugify_name(&entry.name);
+        if !seen_keys.insert(key.clone()) {
+            return Err(anyhow!("Duplicate CO portrait key {}", key));
+        }
+
+        let file_name = format!("{}-Small.png", entry.name);
+        let image_path = co_textures_root.join(&file_name);
+        if !image_path.exists() {
+            return Err(anyhow!(
+                "Missing CO portrait {} for {}",
+                image_path.display(),
+                entry.name
+            ));
+        }
+        expected_files.insert(file_name);
+
+        portraits.push(CoPortraitDefinition {
+            awbw_id: entry.awbw_id,
+            display_name: entry.name.clone(),
+            key,
+            image_path,
+        });
+    }
+
+    for entry in fs::read_dir(co_textures_root)
+        .with_context(|| format!("Reading {}", co_textures_root.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("png") {
+            continue;
+        }
+        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if file_name.ends_with("-Small.png") && !expected_files.contains(file_name) {
+            return Err(anyhow!(
+                "Unexpected CO portrait source file {}",
+                path.display()
+            ));
+        }
+    }
+
+    portraits.sort_by(|a, b| {
+        a.awbw_id
+            .cmp(&b.awbw_id)
+            .then_with(|| a.display_name.cmp(&b.display_name))
+    });
+
+    Ok(portraits)
 }
 
 const UI_ATLAS_PADDING: u32 = 1;
@@ -1109,6 +1260,23 @@ fn format_frame_list(frames: &[u16]) -> String {
         .map(|value| value.to_string())
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn slugify_name(name: &str) -> String {
+    let mut slug = String::new();
+    let mut last_was_dash = false;
+
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            last_was_dash = false;
+        } else if !last_was_dash {
+            slug.push('-');
+            last_was_dash = true;
+        }
+    }
+
+    slug.trim_matches('-').to_string()
 }
 
 fn add_sea_alias(
@@ -1531,6 +1699,145 @@ fn optimize_png(path: &Path) -> Result<()> {
     )
     .map(|_| ())
     .with_context(|| format!("Optimizing png {}", path.display()))
+}
+
+fn write_co_portrait_data(data: &CoPortraitAtlasData, output_path: &Path) -> Result<()> {
+    let content =
+        serde_json::to_string_pretty(data).context("Serializing CO portrait atlas data")?;
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).context("Creating CO portrait atlas data directory")?;
+    }
+    fs::write(output_path, content).context("Writing CO portrait atlas data")?;
+    Ok(())
+}
+
+fn build_co_portrait_data(
+    portraits: &[CoPortraitDefinition],
+    spritesheet: SpritesheetBuild,
+) -> Result<CoPortraitAtlasData> {
+    validate_co_portrait_dimensions(portraits, spritesheet)?;
+
+    let mut entries = Vec::with_capacity(portraits.len());
+
+    for (index, portrait) in portraits.iter().enumerate() {
+        let index = index as u32;
+        let x = portrait_cell_x(index, spritesheet);
+        let y = portrait_cell_y(index, spritesheet);
+        entries.push(CoPortraitAtlasEntry {
+            index,
+            key: portrait.key.clone(),
+            display_name: portrait.display_name.clone(),
+            awbw_id: portrait.awbw_id,
+            x,
+            y,
+            width: spritesheet.cell_width,
+            height: spritesheet.cell_height,
+        });
+    }
+
+    Ok(CoPortraitAtlasData {
+        size: UiAtlasSize {
+            width: spritesheet.columns * (spritesheet.cell_width + spritesheet.padding_x),
+            height: spritesheet.rows * (spritesheet.cell_height + spritesheet.padding_y),
+        },
+        cell_width: spritesheet.cell_width,
+        cell_height: spritesheet.cell_height,
+        columns: spritesheet.columns,
+        rows: spritesheet.rows,
+        portraits: entries,
+    })
+}
+
+fn portrait_cell_x(index: u32, spritesheet: SpritesheetBuild) -> u32 {
+    let col = index % spritesheet.columns;
+    col * (spritesheet.cell_width + spritesheet.padding_x) + spritesheet.offset_x
+}
+
+fn portrait_cell_y(index: u32, spritesheet: SpritesheetBuild) -> u32 {
+    let row = index / spritesheet.columns;
+    row * (spritesheet.cell_height + spritesheet.padding_y) + spritesheet.offset_y
+}
+
+fn validate_co_portrait_dimensions(
+    portraits: &[CoPortraitDefinition],
+    spritesheet: SpritesheetBuild,
+) -> Result<()> {
+    if spritesheet.cell_width != CO_PORTRAIT_WIDTH || spritesheet.cell_height != CO_PORTRAIT_HEIGHT
+    {
+        return Err(anyhow!(
+            "CO portrait spritesheet must use {}x{} cells, got {}x{}",
+            CO_PORTRAIT_WIDTH,
+            CO_PORTRAIT_HEIGHT,
+            spritesheet.cell_width,
+            spritesheet.cell_height
+        ));
+    }
+
+    for portrait in portraits {
+        let image = image::open(&portrait.image_path)
+            .with_context(|| format!("Loading {}", portrait.image_path.display()))?;
+        let (width, height) = image.dimensions();
+        if width != CO_PORTRAIT_WIDTH || height != CO_PORTRAIT_HEIGHT {
+            return Err(anyhow!(
+                "CO portrait {} must be {}x{}, got {}x{}",
+                portrait.image_path.display(),
+                CO_PORTRAIT_WIDTH,
+                CO_PORTRAIT_HEIGHT,
+                width,
+                height
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn render_co_portrait_lookup(
+    portraits: &[CoPortraitDefinition],
+    spritesheet: SpritesheetBuild,
+) -> String {
+    let mut output = String::new();
+    output.push_str("// This file is @generated by xtask-assets.\n\n");
+    output.push_str(&format!(
+        "pub const CO_PORTRAIT_COLUMNS: u32 = {};\n",
+        spritesheet.columns
+    ));
+    output.push_str(&format!(
+        "pub const CO_PORTRAIT_ROWS: u32 = {};\n",
+        spritesheet.rows
+    ));
+    output.push_str(&format!(
+        "pub const CO_PORTRAIT_WIDTH: u32 = {};\n",
+        spritesheet.cell_width
+    ));
+    output.push_str(&format!(
+        "pub const CO_PORTRAIT_HEIGHT: u32 = {};\n",
+        spritesheet.cell_height
+    ));
+    output.push_str(&format!(
+        "pub const CO_PORTRAITS: [CoPortraitMetadata; {}] = [\n",
+        portraits.len()
+    ));
+    for portrait in portraits {
+        output.push_str(&format!(
+            "    CoPortraitMetadata::new(\"{}\", \"{}\", {}),\n",
+            portrait.key, portrait.display_name, portrait.awbw_id
+        ));
+    }
+    output.push_str("];\n\n");
+    output.push_str(
+        "pub const fn co_portrait_by_awbw_id(awbw_id: u32) -> Option<CoPortraitMetadata> {\n",
+    );
+    output.push_str("    match awbw_id {\n");
+    for portrait in portraits {
+        output.push_str(&format!(
+            "        {} => Some(CoPortraitMetadata::new(\"{}\", \"{}\", {})),\n",
+            portrait.awbw_id, portrait.key, portrait.display_name, portrait.awbw_id
+        ));
+    }
+    output.push_str("        _ => None,\n");
+    output.push_str("    }\n}\n");
+    output
 }
 
 fn render_spritesheet_index(

@@ -41,6 +41,14 @@ impl EventBus<GameEvent> for DesktopEventBus {
             GameEvent::MapDimensions(dims) => {
                 info!("Map dimensions: {}x{}", dims.width, dims.height);
             }
+            GameEvent::ReplayLoaded(replay) => {
+                info!(
+                    "Replay loaded: game {} map {} with {} players",
+                    replay.game_id,
+                    replay.map_id,
+                    replay.players.len()
+                );
+            }
         }
     }
 }
