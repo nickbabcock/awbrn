@@ -458,32 +458,6 @@ fn main() -> Result<()> {
     }
 }
 
-fn sync_web_texture(repo_root: &Path, filename: &str) -> Result<()> {
-    let web_textures_dir = repo_root.join("web/public/assets/textures");
-    fs::create_dir_all(&web_textures_dir).context("Creating web textures directory")?;
-
-    let source = repo_root.join("assets/textures").join(filename);
-    let target = web_textures_dir.join(filename);
-    fs::copy(&source, &target).with_context(|| format!("Copying {} to web assets", filename))?;
-
-    Ok(())
-}
-
-fn sync_web_ui_atlas(repo_root: &Path) -> Result<()> {
-    sync_web_data(repo_root, "ui_atlas.json")
-}
-
-fn sync_web_data(repo_root: &Path, filename: &str) -> Result<()> {
-    let web_data_dir = repo_root.join("web/public/assets/data");
-    fs::create_dir_all(&web_data_dir).context("Creating web data directory")?;
-
-    let source = repo_root.join("assets/data").join(filename);
-    let target = web_data_dir.join(filename);
-    fs::copy(&source, &target).with_context(|| format!("Copying {filename} to web assets"))?;
-
-    Ok(())
-}
-
 fn run_tiles() -> Result<()> {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
     let assets_root = repo_root.join("assets/AWBW-Replay-Player/AWBWApp.Resources");
@@ -689,8 +663,6 @@ fn run_tiles() -> Result<()> {
     fs::write(&terrain_anim_rs, terrain_anim_contents)
         .context("Writing terrain_animation_data.rs")?;
 
-    sync_web_texture(&repo_root, "tiles.png")?;
-
     Ok(())
 }
 
@@ -721,8 +693,6 @@ fn run_units() -> Result<()> {
     let units_contents = render_unit_animation_data(&unit_definitions, unitsheet);
     fs::write(&units_rs, units_contents).context("Writing unit_animation_data.rs")?;
 
-    sync_web_texture(&repo_root, "units.png")?;
-
     Ok(())
 }
 
@@ -750,9 +720,6 @@ fn run_ui() -> Result<()> {
     optimize_png(&atlas_path)?;
 
     write_ui_atlas_data(&sprites, &placements, atlas_width, atlas_height, &data_path)?;
-
-    sync_web_texture(&repo_root, "ui.png")?;
-    sync_web_ui_atlas(&repo_root)?;
 
     Ok(())
 }
@@ -785,9 +752,6 @@ fn run_co_portraits() -> Result<()> {
         render_co_portrait_lookup(&portraits, spritesheet),
     )
     .context("Writing co_portraits.rs")?;
-
-    sync_web_texture(&repo_root, "co_portraits.png")?;
-    sync_web_data(&repo_root, "co_portraits.json")?;
 
     Ok(())
 }

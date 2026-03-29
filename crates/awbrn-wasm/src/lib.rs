@@ -1,4 +1,6 @@
-use awbrn_client::{AwbrnPlugin, EventBus, ExternalEvent, GameEvent, ReplayToLoad};
+use awbrn_client::{
+    AwbrnPlugin, EventBus, ExternalEvent, GameEvent, ReplayToLoad, StaticAssetPathResolver,
+};
 use bevy::{
     app::PluginsState,
     input::{
@@ -10,7 +12,7 @@ use bevy::{
     window::{CursorLeft, CursorMoved, RawHandleWrapper, WindowResolution, WindowWrapper},
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 use wasm_bindgen::prelude::*;
 use web_sys::OffscreenCanvas;
 
@@ -73,6 +75,32 @@ pub struct MouseButtonEvent {
     button: i16,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, tsify::Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct GameAssetConfig {
+    static_asset_urls: BTreeMap<String, String>,
+}
+
+struct WasmStaticAssetPathResolver {
+    entries: BTreeMap<String, String>,
+}
+
+impl WasmStaticAssetPathResolver {
+    fn new(entries: BTreeMap<String, String>) -> Self {
+        Self { entries }
+    }
+}
+
+impl StaticAssetPathResolver for WasmStaticAssetPathResolver {
+    fn resolve_path(&self, logical_path: &str) -> String {
+        self.entries
+            .get(logical_path)
+            .cloned()
+            .unwrap_or_else(|| logical_path.to_string())
+    }
+}
+
 #[wasm_bindgen]
 pub struct BevyApp {
     app: App,
@@ -84,6 +112,7 @@ impl BevyApp {
     pub fn new(
         canvas: web_sys::OffscreenCanvas,
         display: CanvasDisplay,
+        asset_config: GameAssetConfig,
         event_callback: Option<GameEventCallback>,
     ) -> Self {
         let mut app = App::new();
@@ -113,7 +142,9 @@ impl BevyApp {
         )
         .add_systems(PreStartup, setup_added_window);
 
-        let mut awbrn_plugin = AwbrnPlugin::default();
+        let mut awbrn_plugin = AwbrnPlugin::default().with_static_asset_resolver(Arc::new(
+            WasmStaticAssetPathResolver::new(asset_config.static_asset_urls),
+        ));
         if let Some(callback) = event_callback {
             let js_value: JsValue = callback.into();
             let js_function: js_sys::Function = js_value.into();

@@ -30,13 +30,16 @@
 
 use crate::core::{GameMode, LoadingState};
 use crate::features::event_bus::{EventBus, EventBusPlugin, GameEvent};
-use crate::loading::{LoadingPlugin, MapAssetPathResolver};
+use crate::loading::{
+    DefaultStaticAssetPathResolver, LoadingPlugin, MapAssetPathResolver, StaticAssetPathResolver,
+};
 use awbrn_game::world::initialize_terrain_semantic_world;
 use bevy::prelude::*;
 use std::sync::Arc;
 
 pub struct AwbrnPlugin {
     map_resolver: Arc<dyn MapAssetPathResolver>,
+    static_asset_resolver: Arc<dyn StaticAssetPathResolver>,
     event_bus: Option<Arc<dyn EventBus<GameEvent>>>,
 }
 
@@ -44,8 +47,17 @@ impl AwbrnPlugin {
     pub fn new(map_resolver: Arc<dyn MapAssetPathResolver>) -> Self {
         Self {
             map_resolver,
+            static_asset_resolver: Arc::new(DefaultStaticAssetPathResolver),
             event_bus: None,
         }
+    }
+
+    pub fn with_static_asset_resolver(
+        mut self,
+        static_asset_resolver: Arc<dyn StaticAssetPathResolver>,
+    ) -> Self {
+        self.static_asset_resolver = static_asset_resolver;
+        self
     }
 
     pub fn with_event_bus(mut self, event_bus: Arc<dyn EventBus<GameEvent>>) -> Self {
@@ -58,6 +70,7 @@ impl Default for AwbrnPlugin {
     fn default() -> Self {
         Self {
             map_resolver: Arc::new(crate::loading::DefaultMapAssetPathResolver),
+            static_asset_resolver: Arc::new(DefaultStaticAssetPathResolver),
             event_bus: None,
         }
     }
@@ -67,7 +80,10 @@ impl Plugin for AwbrnPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
             crate::core::CorePlugin,
-            LoadingPlugin::new(self.map_resolver.clone()),
+            LoadingPlugin::new(
+                self.map_resolver.clone(),
+                self.static_asset_resolver.clone(),
+            ),
             crate::features::FeaturesPlugin,
             crate::projection::ClientProjectionPlugin,
             crate::render::RenderPlugin,

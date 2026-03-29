@@ -55,7 +55,8 @@ description = "Compile assets"
 run = [
     "cargo xtask-assets tiles",
     "cargo xtask-assets units",
-    "cargo xtask-assets ui"
+    "cargo xtask-assets ui",
+    "cargo xtask-assets co"
 ]
 
 [tasks.pnpm-install]

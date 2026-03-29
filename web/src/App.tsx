@@ -11,7 +11,7 @@ function App() {
   const currentDay = useGameStore((state) => state.currentDay);
   const replayRoster = useGameStore((state) => state.replayRoster);
   const gameActions = useGameActions();
-  const [portraitCatalog, setPortraitCatalog] = useState<CoPortraitCatalog | null>(null);
+  const [portraitCatalog] = useState<CoPortraitCatalog>(() => loadCoPortraitCatalog());
 
   const handleReplayFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -38,24 +38,6 @@ function App() {
 
     return () => {
       gameRunner.detachCanvas(canvas);
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    loadCoPortraitCatalog()
-      .then((catalog) => {
-        if (!cancelled) {
-          setPortraitCatalog(catalog);
-        }
-      })
-      .catch((error) => {
-        console.error("Error loading CO portrait catalog:", error);
-      });
-
-    return () => {
-      cancelled = true;
     };
   }, []);
 

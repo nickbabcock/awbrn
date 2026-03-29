@@ -1,4 +1,4 @@
-use crate::web_asset_plugin::{WebAssetPlugin, WebMapAssetPathResolver};
+use crate::web_asset_plugin::WebMapAssetPathResolver;
 use awbrn_client::{AwbrnPlugin, EventBus, ExternalEvent, GameEvent, ReplayToLoad};
 use bevy::{asset::AssetMetaCheck, prelude::*};
 use std::{fs, sync::Arc};
@@ -57,21 +57,20 @@ pub struct AwbrnDesktopPlugin;
 
 impl Plugin for AwbrnDesktopPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(WebAssetPlugin)
-            .add_plugins(
-                DefaultPlugins
-                    .set(ImagePlugin::default_nearest())
-                    .set(AssetPlugin {
-                        file_path: String::from("../../assets"),
-                        meta_check: AssetMetaCheck::Never,
-                        ..AssetPlugin::default()
-                    }),
-            )
-            .add_plugins(
-                AwbrnPlugin::new(Arc::new(WebMapAssetPathResolver))
-                    .with_event_bus(Arc::new(DesktopEventBus)),
-            )
-            .add_systems(Update, handle_file_drop);
+        app.add_plugins(
+            DefaultPlugins
+                .set(ImagePlugin::default_nearest())
+                .set(AssetPlugin {
+                    file_path: String::from("../../assets"),
+                    meta_check: AssetMetaCheck::Never,
+                    ..AssetPlugin::default()
+                }),
+        )
+        .add_plugins(
+            AwbrnPlugin::new(Arc::new(WebMapAssetPathResolver))
+                .with_event_bus(Arc::new(DesktopEventBus)),
+        )
+        .add_systems(Update, handle_file_drop);
     }
 }
 

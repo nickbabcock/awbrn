@@ -137,10 +137,14 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        submodules: true
     - name: Install Rust
       uses: dtolnay/rust-toolchain@master
       with:
         toolchain: stable
         targets: wasm32-unknown-unknown
     - uses: jdx/mise-action@v2
+    - name: Build assets
+      run: mise run assets
     - run: 'mise run build:wasm:ci ::: build:web'
