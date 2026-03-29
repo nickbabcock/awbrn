@@ -9,6 +9,8 @@ awbrn-map = { path = "../awbrn-map", features = ["bevy"] }
 awbw-replay = { path = "../awbw-replay" }
 bevy = { workspace = true, features = ["std", "bevy_log", "bevy_scene"] }
 indexmap.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
