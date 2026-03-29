@@ -22,13 +22,14 @@ bevy = { workspace = true, features = [
     "bevy_state",
     "bevy_window",
     "bevy_winit",
+    "http",
+    "https",
     "png",
     "sprite_picking",
     "std",
     "x11",
 ]}
 bevy-inspector-egui = { workspace = true, optional = true }
-ehttp.workspace = true
 
 [dev-dependencies]
 

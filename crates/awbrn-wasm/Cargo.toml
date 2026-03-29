@@ -13,6 +13,8 @@ bevy = { workspace = true, features = [
     "bevy_asset",
     "bevy_camera",
     "bevy_core_pipeline",
+    "http",
+    "https",
     "bevy_log",
     "bevy_render",
     "bevy_sprite_render",

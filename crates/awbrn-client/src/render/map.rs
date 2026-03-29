@@ -1,6 +1,7 @@
 use crate::core::grid::GridSystem;
 use crate::core::{AppState, RenderLayer};
 use crate::features::weather::CurrentWeather;
+use crate::loading::ClientAssetLoader;
 use crate::projection::{ClientProjectionSet, ProjectedTerrainRenderState};
 use crate::render::TerrainAtlasResource;
 use crate::render::animation::TerrainAnimation;
@@ -44,10 +45,10 @@ const BACKDROP_TILE_SIZE: u32 = 16;
 
 pub(crate) fn setup_terrain_atlas(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    asset_loader: ClientAssetLoader,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    let texture = asset_server.load("textures/tiles.png");
+    let texture = asset_loader.load_terrain_texture();
     let layout = texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
         UVec2::new(16, 32),
         awbrn_content::TILESHEET_COLUMNS,

@@ -1,5 +1,6 @@
 use crate::core::grid::GridSystem;
 use crate::features::event_bus::{ExternalGameEvent, GameEvent, MapDimensions};
+use crate::loading::ClientAssetLoader;
 use crate::render::UnitAtlasResource;
 use awbrn_game::world::GameMap;
 use bevy::prelude::*;
@@ -57,10 +58,10 @@ pub(crate) fn setup_camera(mut commands: Commands, camera_scale: Res<CameraScale
 
 pub(crate) fn setup_unit_atlas(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    asset_loader: ClientAssetLoader,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    let texture = asset_server.load("textures/units.png");
+    let texture = asset_loader.load_unit_texture();
     let layout = TextureAtlasLayout::from_grid(
         UVec2::new(
             awbrn_content::UNIT_SPRITE_WIDTH,

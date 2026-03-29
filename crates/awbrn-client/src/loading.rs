@@ -7,6 +7,7 @@ use awbrn_game::world::GameMap;
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
 use awbw_replay::game_models::AwbwPlayer;
 use awbw_replay::{AwbwReplay, ReplayParser, game_models::AwbwBuilding};
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -22,6 +23,20 @@ pub struct DefaultMapAssetPathResolver;
 impl MapAssetPathResolver for DefaultMapAssetPathResolver {
     fn resolve_path(&self, map_id: u32) -> String {
         format!("maps/{}.json", map_id)
+    }
+}
+
+/// Trait for resolving static asset paths from logical asset keys.
+pub trait StaticAssetPathResolver: Send + Sync + 'static {
+    fn resolve_path(&self, logical_path: &str) -> String;
+}
+
+/// Default implementation of StaticAssetPathResolver.
+pub struct DefaultStaticAssetPathResolver;
+
+impl StaticAssetPathResolver for DefaultStaticAssetPathResolver {
+    fn resolve_path(&self, logical_path: &str) -> String {
+        logical_path.to_string()
     }
 }
 
@@ -50,6 +65,9 @@ pub struct PendingGameStart(pub Handle<AwbwMapAsset>);
 #[derive(Resource, Clone)]
 pub(crate) struct MapPathResolver(pub(crate) Arc<dyn MapAssetPathResolver>);
 
+#[derive(Resource, Clone)]
+pub(crate) struct StaticPathResolver(pub(crate) Arc<dyn StaticAssetPathResolver>);
+
 #[derive(Resource)]
 pub(crate) struct MapAssetHandle(Handle<AwbwMapAsset>);
 
@@ -62,14 +80,69 @@ pub(crate) struct PendingUiAtlas {
 #[derive(Resource)]
 struct PendingReplayLoadedEvent(ReplayLoaded);
 
+#[derive(SystemParam)]
+pub(crate) struct LoadingTransitions<'w, 's> {
+    app_state: ResMut<'w, NextState<AppState>>,
+    game_mode_state: ResMut<'w, NextState<GameMode>>,
+    loading_state: ResMut<'w, NextState<LoadingState>>,
+    _marker: std::marker::PhantomData<&'s ()>,
+}
+
+impl LoadingTransitions<'_, '_> {
+    fn begin_loading(&mut self, game_mode: GameMode) {
+        self.game_mode_state.set(game_mode);
+        self.app_state.set(AppState::Loading);
+        self.loading_state.set(LoadingState::LoadingAssets);
+    }
+}
+
+#[derive(SystemParam)]
+pub(crate) struct ClientAssetLoader<'w, 's> {
+    map_resolver: Res<'w, MapPathResolver>,
+    static_resolver: Res<'w, StaticPathResolver>,
+    asset_server: Res<'w, AssetServer>,
+    _marker: std::marker::PhantomData<&'s ()>,
+}
+
+impl ClientAssetLoader<'_, '_> {
+    pub fn load_map(&self, map_id: u32) -> Handle<AwbwMapAsset> {
+        let asset_path = self.map_resolver.0.resolve_path(map_id);
+        self.asset_server.load(asset_path)
+    }
+
+    fn load_static<A: Asset>(&self, logical_path: &str) -> Handle<A> {
+        let asset_path = self.static_resolver.0.resolve_path(logical_path);
+        self.asset_server.load(asset_path)
+    }
+
+    pub fn load_ui_texture(&self) -> Handle<Image> {
+        self.load_static("textures/ui.png")
+    }
+
+    pub fn load_ui_atlas(&self) -> Handle<UiAtlasAsset> {
+        self.load_static("data/ui_atlas.json")
+    }
+
+    pub fn load_unit_texture(&self) -> Handle<Image> {
+        self.load_static("textures/units.png")
+    }
+
+    pub fn load_terrain_texture(&self) -> Handle<Image> {
+        self.load_static("textures/tiles.png")
+    }
+
+    fn load_pending_ui_atlas(&self) -> PendingUiAtlas {
+        let atlas = self.load_ui_atlas();
+        let texture = self.load_ui_texture();
+        PendingUiAtlas { atlas, texture }
+    }
+}
+
 pub(crate) fn detect_replay_to_load(
     mut commands: Commands,
     replay_to_load: Res<ReplayToLoad>,
-    mut app_state: ResMut<NextState<AppState>>,
-    mut game_mode_state: ResMut<NextState<GameMode>>,
-    mut loading_state: ResMut<NextState<LoadingState>>,
-    map_resolver: Res<MapPathResolver>,
-    asset_server: Res<AssetServer>,
+    mut transitions: LoadingTransitions,
+    asset_loader: ClientAssetLoader,
 ) {
     commands.remove_resource::<ReplayToLoad>();
 
@@ -90,27 +163,18 @@ pub(crate) fn detect_replay_to_load(
         let map_id = first_game.maps_id;
         info!("Found map ID: {:?} in replay", map_id);
 
-        let asset_path = map_resolver.0.resolve_path(map_id.as_u32());
-        let map_handle: Handle<AwbwMapAsset> = asset_server.load(asset_path);
+        let map_handle = asset_loader.load_map(map_id.as_u32());
         commands.insert_resource(MapAssetHandle(map_handle));
     } else {
         error!("No games found in replay");
-        let asset_path = map_resolver.0.resolve_path(162795);
-        let map_handle: Handle<AwbwMapAsset> = asset_server.load(asset_path);
+        let map_handle = asset_loader.load_map(162795);
         commands.insert_resource(MapAssetHandle(map_handle));
     }
 
-    let ui_atlas_handle = asset_server.load("data/ui_atlas.json");
-    let ui_texture_handle = asset_server.load("textures/ui.png");
-    commands.insert_resource(PendingUiAtlas {
-        atlas: ui_atlas_handle,
-        texture: ui_texture_handle,
-    });
+    commands.insert_resource(asset_loader.load_pending_ui_atlas());
 
     commands.insert_resource(LoadedReplay(replay));
-    game_mode_state.set(GameMode::Replay);
-    app_state.set(AppState::Loading);
-    loading_state.set(LoadingState::LoadingAssets);
+    transitions.begin_loading(GameMode::Replay);
     info!("Started loading replay mode");
 }
 
@@ -128,24 +192,15 @@ fn emit_pending_replay_loaded_event(
 pub(crate) fn detect_pending_game_start(
     mut commands: Commands,
     pending_game: Res<PendingGameStart>,
-    mut app_state: ResMut<NextState<AppState>>,
-    mut game_mode_state: ResMut<NextState<GameMode>>,
-    mut loading_state: ResMut<NextState<LoadingState>>,
-    asset_server: Res<AssetServer>,
+    mut transitions: LoadingTransitions,
+    asset_loader: ClientAssetLoader,
 ) {
     commands.insert_resource(MapAssetHandle(pending_game.0.clone()));
     commands.remove_resource::<PendingGameStart>();
 
-    let ui_atlas_handle = asset_server.load("data/ui_atlas.json");
-    let ui_texture_handle = asset_server.load("textures/ui.png");
-    commands.insert_resource(PendingUiAtlas {
-        atlas: ui_atlas_handle,
-        texture: ui_texture_handle,
-    });
+    commands.insert_resource(asset_loader.load_pending_ui_atlas());
 
-    game_mode_state.set(GameMode::Game);
-    app_state.set(AppState::Loading);
-    loading_state.set(LoadingState::LoadingAssets);
+    transitions.begin_loading(GameMode::Game);
     info!("Started game mode");
 }
 
@@ -281,11 +336,18 @@ pub(crate) fn transition_to_in_game(mut next_app_state: ResMut<NextState<AppStat
 
 pub struct LoadingPlugin {
     map_resolver: Arc<dyn MapAssetPathResolver>,
+    static_asset_resolver: Arc<dyn StaticAssetPathResolver>,
 }
 
 impl LoadingPlugin {
-    pub fn new(map_resolver: Arc<dyn MapAssetPathResolver>) -> Self {
-        Self { map_resolver }
+    pub fn new(
+        map_resolver: Arc<dyn MapAssetPathResolver>,
+        static_asset_resolver: Arc<dyn StaticAssetPathResolver>,
+    ) -> Self {
+        Self {
+            map_resolver,
+            static_asset_resolver,
+        }
     }
 }
 
@@ -294,6 +356,7 @@ impl Plugin for LoadingPlugin {
         app.add_plugins(crate::JsonAssetPlugin::<AwbwMapAsset>::new())
             .add_plugins(crate::JsonAssetPlugin::<UiAtlasAsset>::new())
             .insert_resource(MapPathResolver(self.map_resolver.clone()))
+            .insert_resource(StaticPathResolver(self.static_asset_resolver.clone()))
             .add_systems(
                 Update,
                 check_assets_loaded.run_if(in_state(LoadingState::LoadingAssets)),
@@ -320,6 +383,51 @@ mod tests {
     use awbrn_types::{AwbwTerrain, Faction as TerrainFaction, PlayerFaction, Property};
     use awbw_replay::AwbwReplay;
     use awbw_replay::game_models::{AwbwGame, AwbwPlayer, CoPower, MatchType};
+    use std::collections::HashMap;
+
+    struct MappingStaticAssetPathResolver {
+        entries: HashMap<String, String>,
+    }
+
+    impl StaticAssetPathResolver for MappingStaticAssetPathResolver {
+        fn resolve_path(&self, logical_path: &str) -> String {
+            self.entries
+                .get(logical_path)
+                .cloned()
+                .unwrap_or_else(|| logical_path.to_string())
+        }
+    }
+
+    #[test]
+    fn default_static_asset_resolver_returns_logical_path() {
+        let resolver = DefaultStaticAssetPathResolver;
+
+        assert_eq!(resolver.resolve_path("textures/ui.png"), "textures/ui.png");
+    }
+
+    #[test]
+    fn mapping_static_asset_resolver_returns_override_when_present() {
+        let resolver = MappingStaticAssetPathResolver {
+            entries: HashMap::from([(
+                "textures/ui.png".to_string(),
+                "https://cdn.example.com/ui-123.png".to_string(),
+            )]),
+        };
+
+        assert_eq!(
+            resolver.resolve_path("textures/ui.png"),
+            "https://cdn.example.com/ui-123.png"
+        );
+    }
+
+    #[test]
+    fn mapping_static_asset_resolver_falls_back_to_logical_path_when_missing() {
+        let resolver = MappingStaticAssetPathResolver {
+            entries: HashMap::new(),
+        };
+
+        assert_eq!(resolver.resolve_path("textures/ui.png"), "textures/ui.png");
+    }
 
     #[test]
     fn test_apply_replay_building_overrides_updates_owned_property_terrain() {

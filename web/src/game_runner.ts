@@ -1,4 +1,5 @@
 import { proxy, transfer, wrap } from "comlink";
+import { gameAssetConfig } from "./asset_manifest";
 import type { GameWorker } from "./worker_types";
 import type { GameEvent } from "./wasm/awbrn_wasm";
 import { useGameStore } from "./store";
@@ -84,6 +85,7 @@ class GameRunner {
         .createGame(
           transfer(offscreenCanvas, [offscreenCanvas]),
           size,
+          gameAssetConfig,
           proxy((event: GameEvent) => {
             this.handleGameEvent(event);
           }),
