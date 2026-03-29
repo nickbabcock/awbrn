@@ -1,0 +1,62 @@
+.new-game-page {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: calc(100vh - var(--nav-height));
+  padding: var(--space-5);
+}
+
+.coming-soon-card {
+  background: var(--surface-panel);
+  border: var(--panel-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel);
+  max-width: 480px;
+  overflow: hidden;
+  text-align: center;
+  width: 100%;
+}
+
+.cs-header {
+  align-items: center;
+  background: var(--faction-os);
+  border-bottom: var(--border-base) solid var(--faction-os-dark);
+  display: flex;
+  gap: var(--space-3);
+  justify-content: center;
+  padding: var(--space-5) var(--space-4);
+}
+
+.cs-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.cs-title {
+  color: var(--text-on-color);
+  font-family: var(--font-pixel);
+  font-size: var(--text-pixel-lg);
+  letter-spacing: var(--tracking-wide);
+  line-height: var(--leading-pixel);
+  margin: 0;
+}
+
+.cs-body {
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: var(--text-body-md);
+  line-height: var(--leading-body);
+  margin: 0;
+  padding: var(--space-6) var(--space-6) var(--space-4);
+}
+
+.cs-status {
+  color: var(--text-muted);
+  font-family: var(--font-pixel);
+  font-size: var(--text-pixel-xs);
+  letter-spacing: var(--tracking-wider);
+  margin: 0;
+  padding: var(--space-4) var(--space-6) var(--space-6);
+  text-transform: uppercase;
+  animation: aw-cursor-blink 1.2s step-end infinite;
+}

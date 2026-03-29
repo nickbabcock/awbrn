@@ -9,9 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/nunito": "5.2.7",
+    "@fontsource/press-start-2p": "5.2.7",
     "comlink": "4.4.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-router-dom": "^7.13.2",
     "zustand": "5.0.10"
   },
   "devDependencies": {

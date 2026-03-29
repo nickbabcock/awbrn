@@ -1,16 +1,21 @@
+@import "./design-system.css";
+
+/* ==========================================================================
+   BASE STYLES — Warm cartridge-hardware body, cream briefing-paper panels
+   ========================================================================== */
+
 :root {
-  font-family:
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
-  line-height: 1.5;
+  font-family: var(--font-body);
+  line-height: var(--leading-body);
   font-weight: 400;
-  color: #eff3ff;
-  background:
-    radial-gradient(circle at top left, rgba(64, 115, 198, 0.28), transparent 32%),
-    linear-gradient(180deg, #111827 0%, #09111d 100%);
+  color: var(--text-primary);
+  /* Warm dark brown body — the hardware color of a GBA/DS cartridge */
+  background-color: var(--surface-base);
+  /* Faint tactical map grid — earth-toned lines on warm dark background */
+  background-image:
+    linear-gradient(var(--chrome-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--chrome-grid) 1px, transparent 1px);
+  background-size: 32px 32px;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -29,31 +34,73 @@ body {
   min-height: 100vh;
 }
 
+/* ==========================================================================
+   BASE CONTROLS
+   ========================================================================== */
+
 input,
 button {
   font: inherit;
 }
 
 input[type="file"] {
-  color: #eff3ff;
-  font-size: 13px;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: var(--text-body-sm);
 }
 
+/* Chunky raised button — AW menu button with hard plastic 3D shadow */
 button {
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: rgba(255, 255, 255, 0.08);
+  background: var(--surface-panel);
+  border: var(--border-thick) solid var(--chrome-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-btn);
+  color: var(--text-primary);
   cursor: pointer;
-  transition: border-color 0.25s;
+  font-family: var(--font-pixel);
+  font-size: var(--text-pixel-xs);
+  letter-spacing: var(--tracking-pixel);
+  line-height: var(--leading-pixel);
+  padding: var(--panel-pad-sm);
+  transition:
+    background var(--anim-fast) var(--ease-out),
+    box-shadow var(--anim-fast) var(--ease-out),
+    transform var(--anim-fast) var(--ease-out);
 }
+
 button:hover {
-  border-color: rgba(255, 255, 255, 0.28);
+  background: var(--surface-panel-alt, #f5e8c0);
+  box-shadow: var(--shadow-btn-hover);
 }
-button:focus,
+
+button:active {
+  box-shadow: var(--shadow-btn-active);
+  transform: translateY(3px);
+}
+
 button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  outline: var(--border-base) solid var(--faction-yc);
+  outline-offset: 3px;
+}
+
+/* ==========================================================================
+   SCROLLBAR — Warm earthy scrollbars
+   ========================================================================== */
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--surface-inset, #e8d8a8);
+  border-radius: var(--radius-pill);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--chrome-border-mid);
+  border-radius: var(--radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--chrome-border);
 }

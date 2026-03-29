@@ -1,6 +1,15 @@
+/* ==========================================================================
+   APP STYLES — HUD panels floating over the Advance Wars game canvas
+   Built on the AWBRN "Cozy Conflict" design system (warm + iconic)
+   ========================================================================== */
+
 #root {
   min-height: 100vh;
 }
+
+/* ==========================================================================
+   GAME SURFACE
+   ========================================================================== */
 
 .game-canvas:focus,
 .game-canvas:focus-visible {
@@ -13,108 +22,262 @@
   top: 0;
 }
 
-.hud-panel {
-  backdrop-filter: blur(8px);
-  background: rgba(11, 16, 26, 0.82);
-  border: 1px solid rgba(203, 214, 255, 0.18);
-  border-radius: 12px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
-  color: #eff3ff;
-  position: fixed;
-  z-index: 10;
+/* ── Empty State — shown before any replay is loaded ─────────────── */
+
+.game-empty-state {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  inset: 0;
+  justify-content: center;
+  pointer-events: none;
+  position: absolute;
 }
 
-.day-panel {
-  font-size: 16px;
-  font-weight: 700;
-  left: 20px;
-  padding: 10px 14px;
-  top: 20px;
+.ges-wordmark {
+  display: flex;
+  font-family: var(--font-pixel);
+  font-size: clamp(32px, 6vw, 56px);
+  gap: 2px;
+  line-height: 1;
+  margin: 0;
 }
 
-.roster-panel {
-  max-height: calc(100vh - 120px);
-  overflow: auto;
-  padding: 14px;
-  right: 20px;
-  top: 20px;
-  width: 320px;
+.ges-wordmark > span {
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.6);
 }
 
-.roster-title {
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  margin-bottom: 4px;
+.ges-os {
+  color: var(--faction-os);
+}
+.ges-bm {
+  color: var(--faction-bm);
+}
+.ges-ge {
+  color: var(--faction-ge);
+}
+.ges-yc {
+  color: var(--faction-yc);
+}
+.ges-bh {
+  color: var(--faction-bh);
+}
+
+.ges-subtitle {
+  color: rgba(255, 245, 220, 0.8);
+  font-family: var(--font-body);
+  font-size: var(--text-body-lg);
+  font-weight: 800;
+  letter-spacing: var(--tracking-wide);
+  margin: 0;
   text-transform: uppercase;
 }
 
-.roster-subtitle,
-.roster-empty,
-.roster-player-meta,
-.file-label {
-  color: rgba(239, 243, 255, 0.78);
-  font-size: 13px;
+.ges-prompt {
+  color: rgba(255, 245, 220, 0.4);
+  font-family: var(--font-pixel);
+  font-size: var(--text-pixel-xs);
+  letter-spacing: var(--tracking-pixel);
+  line-height: var(--leading-pixel);
+  margin: 0;
+  animation: aw-cursor-blink 1.4s step-end infinite;
+}
+
+/* ==========================================================================
+   HUD PANEL — Base panel component
+   Solid warm cream, thick dark-brown ink outline, hard plastic drop shadow.
+   No blur/transparency — these are briefing-room paper panels, not glass.
+   ========================================================================== */
+
+.hud-panel {
+  background: var(--surface-panel);
+  border: var(--panel-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel);
+  color: var(--text-primary);
+  position: fixed;
+  z-index: var(--z-hud);
+}
+
+/* ==========================================================================
+   DAY PANEL — Top-left mission readout
+   Orange Star red fill: the iconic army color, bold as a unit HP badge.
+   White pixel font: every digit reads like a game-board counter.
+   ========================================================================== */
+
+.day-panel {
+  background: var(--faction-os);
+  border-color: var(--faction-os-dark);
+  /* Inner shine: light hitting the raised top surface of a plastic counter */
+  box-shadow:
+    var(--shadow-panel),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  color: var(--text-on-color);
+  font-family: var(--font-pixel);
+  font-size: var(--text-pixel-md);
+  left: var(--hud-margin);
+  line-height: var(--leading-pixel);
+  padding: var(--panel-pad-md);
+  top: calc(var(--nav-height) + var(--hud-margin));
+  animation: aw-slide-in-top var(--anim-slow) var(--ease-bounce) both;
+}
+
+/* ==========================================================================
+   ROSTER PANEL — Player briefing sheet, top-right
+   ========================================================================== */
+
+.roster-panel {
+  animation: aw-slide-in-right var(--anim-slow) var(--ease-bounce) both;
+  animation-delay: var(--anim-fast);
+  font-family: var(--font-body);
+  max-height: calc(100vh - var(--nav-height) - 80px);
+  overflow: auto;
+  padding: var(--panel-pad-lg);
+  right: var(--hud-margin);
+  top: calc(var(--nav-height) + var(--hud-margin));
+  width: var(--roster-width);
+}
+
+/* Title bar — full-bleed Blue Moon blue header band
+   Negative margins punch through the panel padding to reach the edges */
+.roster-title {
+  background: var(--faction-bm);
+  border-bottom: var(--border-base) solid var(--faction-bm-dark);
+  border-radius: calc(var(--radius-lg) - var(--border-thick))
+    calc(var(--radius-lg) - var(--border-thick)) 0 0;
+  color: var(--text-on-color);
+  font-family: var(--font-pixel);
+  font-size: var(--text-pixel-sm);
+  letter-spacing: var(--tracking-wide);
+  line-height: var(--leading-pixel);
+  margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-5)) var(--space-3);
+  padding: var(--space-2) var(--space-5);
+  text-transform: uppercase;
 }
 
 .roster-subtitle {
-  margin-bottom: 12px;
+  color: var(--text-secondary);
+  font-size: var(--text-body-sm);
+  margin-bottom: var(--space-3);
+}
+
+.roster-empty {
+  color: var(--text-muted);
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-body);
 }
 
 .roster-list {
   display: grid;
-  gap: 10px;
+  gap: var(--space-2);
 }
+
+/* ==========================================================================
+   PLAYER CARD
+   Cream card with a warm inner border. Left stripe accepts --player-faction
+   custom property for per-player faction color (set inline from JS).
+   ========================================================================== */
 
 .roster-player {
   align-items: center;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
+  background: var(--surface-panel-alt, #f5e8c0);
+  border: var(--border-base) solid var(--chrome-border-mid);
+  border-left: var(--border-chunky) solid var(--player-faction, var(--faction-neutral));
+  border-radius: var(--radius-md);
+  box-shadow: inset 0 1px 0 var(--chrome-shine);
   display: grid;
-  gap: 12px;
+  gap: var(--space-3);
   grid-template-columns: auto 1fr;
-  padding: 10px;
+  padding: var(--space-2) var(--space-3);
+  transition:
+    border-color var(--anim-fast) var(--ease-out),
+    box-shadow var(--anim-fast) var(--ease-out);
+}
+
+.roster-player:hover {
+  border-color: var(--chrome-border);
+  border-left-color: var(--player-faction, var(--faction-neutral));
+  box-shadow:
+    inset 0 1px 0 var(--chrome-shine),
+    var(--shadow-sm);
 }
 
 .roster-player-portraits {
   display: flex;
-  gap: 6px;
+  gap: var(--space-1);
 }
 
 .roster-player-headline {
-  font-size: 14px;
-  font-weight: 700;
-  margin-bottom: 2px;
+  color: var(--text-primary);
+  font-family: var(--font-pixel);
+  font-size: var(--text-pixel-xs);
+  line-height: var(--leading-pixel);
+  margin-bottom: var(--space-1);
 }
+
+.roster-player-meta {
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: var(--text-body-xs, 11px);
+}
+
+/* ==========================================================================
+   CO PORTRAIT
+   ========================================================================== */
 
 .co-portrait {
   background-repeat: no-repeat;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 6px;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  border: var(--border-base) solid var(--chrome-border);
+  border-radius: var(--radius-sm);
+  box-shadow:
+    var(--shadow-unit),
+    inset 0 1px 0 var(--chrome-shine);
   image-rendering: pixelated;
   overflow: hidden;
+  transition: box-shadow var(--anim-fast) var(--ease-out);
+}
+
+.co-portrait:hover {
+  box-shadow:
+    var(--shadow-unit),
+    inset 0 1px 0 var(--chrome-shine),
+    var(--shadow-glow-bm);
 }
 
 .co-portrait--fallback {
   align-items: center;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--surface-inset, #e8d8a8);
+  color: var(--text-muted);
   display: flex;
-  font-size: 14px;
-  font-weight: 700;
+  font-family: var(--font-pixel);
+  font-size: var(--text-pixel-xs);
   height: 32px;
   justify-content: center;
   width: 32px;
 }
 
+/* ==========================================================================
+   FILE PANEL — Bottom-right replay loader
+   Blue Moon fill on the left stripe, matches the "data loading" faction.
+   ========================================================================== */
+
 .file-panel {
-  bottom: 20px;
-  padding: 10px 12px;
-  right: 20px;
+  animation: aw-slide-in-right var(--anim-slow) var(--ease-bounce) both;
+  animation-delay: calc(var(--anim-fast) * 2);
+  border-left: var(--border-chunky) solid var(--faction-bm);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  bottom: var(--hud-margin);
+  padding: var(--panel-pad-sm);
+  right: var(--hud-margin);
 }
 
 .file-label {
+  color: var(--text-secondary);
   display: block;
-  margin-bottom: 6px;
+  font-family: var(--font-pixel);
+  font-size: var(--text-pixel-xs);
+  letter-spacing: var(--tracking-pixel);
+  line-height: var(--leading-pixel);
+  margin-bottom: var(--space-1);
 }
