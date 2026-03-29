@@ -1,20 +1,27 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./App.css";
+import { CoPortrait } from "./CoPortrait";
+import { loadCoPortraitCatalog, type CoPortraitCatalog } from "./co_portraits";
 import { gameRunner } from "./game_runner";
-import { useGameStore } from "./store";
+import { useGameActions, useGameStore } from "./store";
 
 function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const currentDay = useGameStore((state) => state.currentDay);
+  const replayRoster = useGameStore((state) => state.replayRoster);
+  const gameActions = useGameActions();
+  const [portraitCatalog, setPortraitCatalog] = useState<CoPortraitCatalog | null>(null);
 
   const handleReplayFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      gameActions.setReplayRoster(null);
       try {
         await gameRunner.loadReplay(file);
         canvasRef.current?.focus({ preventScroll: true });
       } catch (error) {
+        gameActions.setReplayRoster(null);
         console.error("Error loading replay:", error);
       }
     }
@@ -34,16 +41,27 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    loadCoPortraitCatalog()
+      .then((catalog) => {
+        if (!cancelled) {
+          setPortraitCatalog(catalog);
+        }
+      })
+      .catch((error) => {
+        console.error("Error loading CO portrait catalog:", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <>
-      <div
-        ref={containerRef}
-        style={{
-          position: "absolute",
-          top: "0",
-          left: "0",
-        }}
-      >
+      <div className="game-surface" ref={containerRef}>
         <canvas
           className="game-canvas"
           ref={canvasRef}
@@ -53,54 +71,57 @@ function App() {
           style={{ display: "block" }}
         />
       </div>
-      <div
-        style={{
-          position: "fixed",
-          top: "20px",
-          left: "20px",
-          zIndex: 10,
-          backgroundColor: "rgba(0,0,0,0.7)",
-          padding: "10px",
-          borderRadius: "5px",
-          color: "white",
-          fontSize: "16px",
-          fontWeight: "bold",
-        }}
-      >
-        Day: {currentDay}
-      </div>
-      <div
-        style={{
-          position: "fixed",
-          bottom: "20px",
-          right: "20px",
-          zIndex: 10,
-          backgroundColor: "rgba(0,0,0,0.7)",
-          padding: "10px",
-          borderRadius: "5px",
-        }}
-      >
-        <label
-          htmlFor="replay-file-input"
-          style={{
-            color: "white",
-            display: "block",
-            marginBottom: "5px",
-            fontSize: "14px",
-          }}
-        >
+      <div className="hud-panel day-panel">Day: {currentDay}</div>
+      <aside className="hud-panel roster-panel">
+        <div className="roster-title">Replay Roster</div>
+        {replayRoster ? (
+          <>
+            <div className="roster-subtitle">
+              Game {replayRoster.gameId} · Map {replayRoster.mapId}
+            </div>
+            <div className="roster-list">
+              {replayRoster.players.map((player) => (
+                <div className="roster-player" key={player.playerId}>
+                  <div className="roster-player-portraits">
+                    <CoPortrait
+                      catalog={portraitCatalog}
+                      coKey={player.coKey}
+                      fallbackLabel={player.coName ?? "?"}
+                    />
+                    {player.tagCoKey ? (
+                      <CoPortrait
+                        catalog={portraitCatalog}
+                        coKey={player.tagCoKey}
+                        fallbackLabel={player.tagCoName ?? "?"}
+                      />
+                    ) : null}
+                  </div>
+                  <div className="roster-player-copy">
+                    <div className="roster-player-headline">
+                      P{player.order} · {player.coName ?? "Unknown CO"}
+                    </div>
+                    <div className="roster-player-meta">
+                      {player.factionName}
+                      {player.team ? ` · Team ${player.team}` : ""}
+                      {player.eliminated ? " · Eliminated" : ""}
+                    </div>
+                    {player.tagCoName ? (
+                      <div className="roster-player-meta">Tag: {player.tagCoName}</div>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="roster-empty">Load a replay to inspect player CO portraits.</div>
+        )}
+      </aside>
+      <div className="hud-panel file-panel">
+        <label className="file-label" htmlFor="replay-file-input">
           Load Replay:
         </label>
-        <input
-          id="replay-file-input"
-          type="file"
-          accept=".zip"
-          onChange={handleReplayFileChange}
-          style={{
-            color: "white",
-            fontSize: "14px",
-          }}
-        />
+        <input id="replay-file-input" type="file" accept=".zip" onChange={handleReplayFileChange} />
       </div>
     </>
   );

@@ -246,6 +246,10 @@ class GameRunner {
         this.applyMapDimensions();
         break;
       }
+      case "ReplayLoaded": {
+        useGameStore.getState().actions.setReplayRoster(event);
+        break;
+      }
       default: {
         break;
       }

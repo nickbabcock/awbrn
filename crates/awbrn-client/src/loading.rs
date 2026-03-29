@@ -1,8 +1,11 @@
 use crate::UiAtlasAsset;
 use crate::core::{AppState, GameMode, LoadingState};
+use crate::features::event_bus::{ExternalGameEvent, GameEvent, ReplayLoaded, ReplayLoadedPlayer};
 use crate::render::UiAtlasResource;
+use awbrn_content::co_portrait_by_awbw_id;
 use awbrn_game::world::GameMap;
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
+use awbw_replay::game_models::AwbwPlayer;
 use awbw_replay::{AwbwReplay, ReplayParser, game_models::AwbwBuilding};
 use bevy::prelude::*;
 use serde::Deserialize;
@@ -56,6 +59,9 @@ pub(crate) struct PendingUiAtlas {
     pub(crate) texture: Handle<Image>,
 }
 
+#[derive(Resource)]
+struct PendingReplayLoadedEvent(ReplayLoaded);
+
 pub(crate) fn detect_replay_to_load(
     mut commands: Commands,
     replay_to_load: Res<ReplayToLoad>,
@@ -75,6 +81,10 @@ pub(crate) fn detect_replay_to_load(
             return;
         }
     };
+
+    if let Some(replay_loaded) = replay_loaded_event(&replay) {
+        commands.insert_resource(PendingReplayLoadedEvent(replay_loaded));
+    }
 
     if let Some(first_game) = replay.games.first() {
         let map_id = first_game.maps_id;
@@ -102,6 +112,17 @@ pub(crate) fn detect_replay_to_load(
     app_state.set(AppState::Loading);
     loading_state.set(LoadingState::LoadingAssets);
     info!("Started loading replay mode");
+}
+
+fn emit_pending_replay_loaded_event(
+    mut commands: Commands,
+    pending_event: Res<PendingReplayLoadedEvent>,
+    mut event_writer: MessageWriter<ExternalGameEvent>,
+) {
+    event_writer.write(ExternalGameEvent {
+        payload: GameEvent::ReplayLoaded(pending_event.0.clone()),
+    });
+    commands.remove_resource::<PendingReplayLoadedEvent>();
 }
 
 pub(crate) fn detect_pending_game_start(
@@ -178,6 +199,60 @@ pub fn apply_replay_building_overrides(map: &mut AwbwMap, buildings: &[AwbwBuild
     }
 }
 
+fn replay_loaded_event(replay: &AwbwReplay) -> Option<ReplayLoaded> {
+    let first_game = replay.games.first()?;
+    let mut players = first_game.players.clone();
+    players.sort_by_key(|player| player.order);
+
+    Some(ReplayLoaded {
+        game_id: first_game.id.as_u32(),
+        map_id: first_game.maps_id.as_u32(),
+        day: first_game.day,
+        fog: first_game.fog,
+        team_game: first_game.team,
+        players: players
+            .iter()
+            .map(|player| replay_loaded_player(player, first_game.team))
+            .collect(),
+    })
+}
+
+fn replay_loaded_player(player: &AwbwPlayer, team_game: bool) -> ReplayLoadedPlayer {
+    let co = co_portrait_by_awbw_id(player.co_id);
+    if co.is_none() {
+        warn!(
+            "Unknown active CO id {} for replay player {}",
+            player.co_id,
+            player.id.as_u32()
+        );
+    }
+
+    let tag_co = player.tags_co_id.and_then(|co_id| {
+        let portrait = co_portrait_by_awbw_id(co_id);
+        if portrait.is_none() {
+            warn!(
+                "Unknown tag CO id {} for replay player {}",
+                co_id,
+                player.id.as_u32()
+            );
+        }
+        portrait
+    });
+
+    ReplayLoadedPlayer {
+        player_id: player.id.as_u32(),
+        order: player.order,
+        team: team_game.then(|| player.team.clone()),
+        eliminated: player.eliminated,
+        faction_code: player.faction.country_code().to_string(),
+        faction_name: player.faction.name().to_string(),
+        co_key: co.map(|portrait| portrait.key().to_string()),
+        co_name: co.map(|portrait| portrait.display_name().to_string()),
+        tag_co_key: tag_co.map(|portrait| portrait.key().to_string()),
+        tag_co_name: tag_co.map(|portrait| portrait.display_name().to_string()),
+    }
+}
+
 pub(crate) fn setup_ui_atlas(
     mut commands: Commands,
     pending_ui: Res<PendingUiAtlas>,
@@ -228,6 +303,8 @@ impl Plugin for LoadingPlugin {
                 (
                     detect_replay_to_load.run_if(resource_exists::<ReplayToLoad>),
                     detect_pending_game_start.run_if(resource_exists::<PendingGameStart>),
+                    emit_pending_replay_loaded_event
+                        .run_if(resource_exists::<PendingReplayLoadedEvent>),
                 ),
             )
             .add_systems(
@@ -241,6 +318,8 @@ impl Plugin for LoadingPlugin {
 mod tests {
     use super::*;
     use awbrn_types::{AwbwTerrain, Faction as TerrainFaction, PlayerFaction, Property};
+    use awbw_replay::AwbwReplay;
+    use awbw_replay::game_models::{AwbwGame, AwbwPlayer, CoPower, MatchType};
 
     #[test]
     fn test_apply_replay_building_overrides_updates_owned_property_terrain() {
@@ -298,5 +377,170 @@ mod tests {
             map.terrain_at(Position::new(1, 1)),
             Some(AwbwTerrain::Plain)
         );
+    }
+
+    #[test]
+    fn replay_loaded_event_resolves_cos_and_sorts_players() {
+        let replay = AwbwReplay {
+            games: vec![AwbwGame {
+                id: awbrn_types::AwbwGameId::new(7),
+                name: "Test Replay".to_string(),
+                password: None,
+                creator: awbrn_types::AwbwPlayerId::new(99),
+                start_date: "2026-03-28".to_string(),
+                end_date: None,
+                activity_date: "2026-03-28".to_string(),
+                maps_id: awbrn_types::AwbwMapId::new(162795),
+                weather_type: "Clear".to_string(),
+                weather_start: None,
+                weather_code: "C".to_string(),
+                win_condition: None,
+                turn: 1,
+                day: 4,
+                active: true,
+                funds: 1000,
+                capture_win: 0,
+                fog: true,
+                comment: None,
+                game_type: MatchType::Tag,
+                boot_interval: 0,
+                starting_funds: 1000,
+                official: false,
+                min_rating: 0,
+                max_rating: None,
+                league: None,
+                team: true,
+                aet_interval: 0,
+                aet_date: "2026-03-28".to_string(),
+                use_powers: true,
+                players: vec![
+                    test_player(2, 2, PlayerFaction::BlueMoon, 30, Some(31), "B"),
+                    test_player(1, 1, PlayerFaction::OrangeStar, 11, None, "A"),
+                ],
+                buildings: Vec::new(),
+                units: Vec::new(),
+                timers_initial: None,
+                timers_increment: 0,
+                timers_max_turn: 0,
+            }],
+            turns: Vec::new(),
+        };
+
+        let replay_loaded = replay_loaded_event(&replay).expect("replay should emit roster event");
+        assert_eq!(replay_loaded.game_id, 7);
+        assert_eq!(replay_loaded.map_id, 162795);
+        assert_eq!(replay_loaded.day, 4);
+        assert_eq!(replay_loaded.players.len(), 2);
+        assert_eq!(replay_loaded.players[0].player_id, 1);
+        assert_eq!(replay_loaded.players[0].co_key.as_deref(), Some("adder"));
+        assert_eq!(replay_loaded.players[0].co_name.as_deref(), Some("Adder"));
+        assert_eq!(replay_loaded.players[0].team.as_deref(), Some("A"));
+        assert_eq!(replay_loaded.players[1].co_key.as_deref(), Some("von-bolt"));
+        assert_eq!(
+            replay_loaded.players[1].tag_co_key.as_deref(),
+            Some("no-co")
+        );
+    }
+
+    #[test]
+    fn replay_loaded_event_uses_null_for_unknown_cos() {
+        let replay = AwbwReplay {
+            games: vec![AwbwGame {
+                id: awbrn_types::AwbwGameId::new(9),
+                name: "Unknown CO Replay".to_string(),
+                password: None,
+                creator: awbrn_types::AwbwPlayerId::new(99),
+                start_date: "2026-03-28".to_string(),
+                end_date: None,
+                activity_date: "2026-03-28".to_string(),
+                maps_id: awbrn_types::AwbwMapId::new(162795),
+                weather_type: "Clear".to_string(),
+                weather_start: None,
+                weather_code: "C".to_string(),
+                win_condition: None,
+                turn: 1,
+                day: 1,
+                active: true,
+                funds: 1000,
+                capture_win: 0,
+                fog: false,
+                comment: None,
+                game_type: MatchType::Normal,
+                boot_interval: 0,
+                starting_funds: 1000,
+                official: false,
+                min_rating: 0,
+                max_rating: None,
+                league: None,
+                team: false,
+                aet_interval: 0,
+                aet_date: "2026-03-28".to_string(),
+                use_powers: true,
+                players: vec![test_player(
+                    1,
+                    1,
+                    PlayerFaction::OrangeStar,
+                    999,
+                    Some(888),
+                    "A",
+                )],
+                buildings: Vec::new(),
+                units: Vec::new(),
+                timers_initial: None,
+                timers_increment: 0,
+                timers_max_turn: 0,
+            }],
+            turns: Vec::new(),
+        };
+
+        let replay_loaded = replay_loaded_event(&replay).expect("replay should emit roster event");
+        assert_eq!(replay_loaded.players.len(), 1);
+        assert_eq!(replay_loaded.players[0].co_key, None);
+        assert_eq!(replay_loaded.players[0].co_name, None);
+        assert_eq!(replay_loaded.players[0].tag_co_key, None);
+        assert_eq!(replay_loaded.players[0].tag_co_name, None);
+        assert_eq!(replay_loaded.players[0].team, None);
+    }
+
+    fn test_player(
+        player_id: u32,
+        order: u32,
+        faction: PlayerFaction,
+        co_id: u32,
+        tag_co_id: Option<u32>,
+        team: &str,
+    ) -> AwbwPlayer {
+        AwbwPlayer {
+            id: awbrn_types::AwbwGamePlayerId::new(player_id),
+            users_id: awbrn_types::AwbwPlayerId::new(100 + player_id),
+            games_id: awbrn_types::AwbwGameId::new(1),
+            faction,
+            co_id,
+            funds: 0,
+            turn: None,
+            email: None,
+            uniq_id: None,
+            eliminated: false,
+            last_read: "2026-03-28".to_string(),
+            last_read_broadcasts: None,
+            emailpress: None,
+            signature: None,
+            co_power: 0,
+            co_power_on: CoPower::None,
+            order,
+            accept_draw: false,
+            co_max_power: 0,
+            co_max_spower: 0,
+            co_image: None,
+            team: team.to_string(),
+            aet_count: 0,
+            turn_start: "2026-03-28".to_string(),
+            turn_clock: 0,
+            tags_co_id: tag_co_id,
+            tags_co_power: None,
+            tags_co_max_power: None,
+            tags_co_max_spower: None,
+            interface: false,
+        }
     }
 }

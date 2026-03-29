@@ -88,6 +88,36 @@ pub struct MapDimensions {
     pub height: f32,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct ReplayLoadedPlayer {
+    pub player_id: u32,
+    pub order: u32,
+    pub team: Option<String>,
+    pub eliminated: bool,
+    pub faction_code: String,
+    pub faction_name: String,
+    pub co_key: Option<String>,
+    pub co_name: Option<String>,
+    pub tag_co_key: Option<String>,
+    pub tag_co_name: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct ReplayLoaded {
+    pub game_id: u32,
+    pub map_id: u32,
+    pub day: u32,
+    pub fog: bool,
+    pub team_game: bool,
+    pub players: Vec<ReplayLoadedPlayer>,
+}
+
 /// Union type for all game events that can be sent to external systems
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
@@ -99,6 +129,7 @@ pub enum GameEvent {
     UnitBuilt(UnitBuilt),
     TileSelected(TileSelected),
     MapDimensions(MapDimensions),
+    ReplayLoaded(ReplayLoaded),
 }
 
 pub(crate) fn emit_map_dimensions(
