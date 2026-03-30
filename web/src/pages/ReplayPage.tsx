@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { resolveAwbwUsername } from "../awbw_usernames";
 import { CoPortrait } from "../CoPortrait";
 import { loadCoPortraitCatalog, type CoPortraitCatalog } from "../co_portraits";
+import { getFactionVisual } from "../faction_visuals";
 import { gameRunner } from "../game_runner";
 import { useGameActions, useGameStore } from "../store";
 import "../App.css";
@@ -12,6 +14,7 @@ export function ReplayPage() {
   const replayRoster = useGameStore((state) => state.replayRoster);
   const gameActions = useGameActions();
   const [portraitCatalog] = useState<CoPortraitCatalog>(() => loadCoPortraitCatalog());
+  const [playerNames, setPlayerNames] = useState<Record<number, string>>({});
 
   const handleReplayFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -40,6 +43,45 @@ export function ReplayPage() {
       gameRunner.detachCanvas(canvas);
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!replayRoster) {
+      setPlayerNames({});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const activeUserIds = new Set(replayRoster.players.map((player) => player.userId));
+    setPlayerNames((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).filter(([userId]) => activeUserIds.has(Number(userId))),
+      ),
+    );
+
+    void Promise.all(
+      replayRoster.players.map(async (player) => {
+        const username = await resolveAwbwUsername(player.userId);
+        if (!username || cancelled) {
+          return;
+        }
+
+        setPlayerNames((previous) => {
+          if (previous[player.userId] === username) {
+            return previous;
+          }
+
+          return { ...previous, [player.userId]: username };
+        });
+      }),
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [replayRoster]);
 
   return (
     <>
@@ -75,37 +117,60 @@ export function ReplayPage() {
               Game {replayRoster.gameId} · Map {replayRoster.mapId}
             </div>
             <div className="roster-list">
-              {replayRoster.players.map((player) => (
-                <div className="roster-player" key={player.playerId}>
-                  <div className="roster-player-portraits">
-                    <CoPortrait
-                      catalog={portraitCatalog}
-                      coKey={player.coKey}
-                      fallbackLabel={player.coName ?? "?"}
-                    />
-                    {player.tagCoKey ? (
+              {replayRoster.players.map((player) => {
+                const factionVisual = getFactionVisual(player.factionCode);
+                const playerName = playerNames[player.userId] ?? `Player ${player.order}`;
+                const playerMeta = [
+                  player.team ? `Team ${player.team}` : null,
+                  player.eliminated ? "Eliminated" : null,
+                ].filter((value): value is string => value !== null);
+                const rosterStyle = {
+                  "--player-faction": factionVisual.accent,
+                  "--player-faction-wash": factionVisual.wash,
+                  "--player-name-color": factionVisual.text,
+                } as CSSProperties;
+
+                return (
+                  <div className="roster-player" key={player.playerId} style={rosterStyle}>
+                    <div className="roster-player-header">
+                      <div className="roster-player-headline">{playerName}</div>
+                      <span
+                        className="roster-player-faction-badge"
+                        title={player.factionName}
+                        aria-label={`Faction: ${player.factionName}`}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="roster-player-logo"
+                          style={{
+                            backgroundImage: `url(${factionVisual.logoUrl})`,
+                            backgroundPosition: factionVisual.logoPosition,
+                          }}
+                        />
+                      </span>
+                    </div>
+                    <div className="roster-player-portraits">
                       <CoPortrait
                         catalog={portraitCatalog}
-                        coKey={player.tagCoKey}
-                        fallbackLabel={player.tagCoName ?? "?"}
+                        coKey={player.coKey}
+                        fallbackLabel={player.coName ?? "?"}
                       />
-                    ) : null}
-                  </div>
-                  <div className="roster-player-copy">
-                    <div className="roster-player-headline">
-                      P{player.order} · {player.coName ?? "Unknown CO"}
+                      {player.tagCoKey ? (
+                        <CoPortrait
+                          catalog={portraitCatalog}
+                          coKey={player.tagCoKey}
+                          fallbackLabel={player.tagCoName ?? "?"}
+                        />
+                      ) : null}
                     </div>
-                    <div className="roster-player-meta">
-                      {player.factionName}
-                      {player.team ? ` · Team ${player.team}` : ""}
-                      {player.eliminated ? " · Eliminated" : ""}
+                    <div className="roster-player-copy">
+                      {playerMeta.length > 0 ? (
+                        <div className="roster-player-meta">{playerMeta.join(" · ")}</div>
+                      ) : null}
                     </div>
-                    {player.tagCoName ? (
-                      <div className="roster-player-meta">Tag: {player.tagCoName}</div>
-                    ) : null}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         ) : (

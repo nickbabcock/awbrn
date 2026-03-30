@@ -175,21 +175,28 @@
 
 /* ==========================================================================
    PLAYER CARD
-   Cream card with a warm inner border. Left stripe accepts --player-faction
-   custom property for per-player faction color (set inline from JS).
+   Cream card with a warm inner border and a full-width faction header strip.
    ========================================================================== */
 
 .roster-player {
-  align-items: center;
-  background: var(--surface-panel-alt, #f5e8c0);
+  background:
+    linear-gradient(
+      115deg,
+      var(--player-faction-wash, rgba(138, 120, 96, 0.12)) 0%,
+      rgba(255, 255, 255, 0) 42%
+    ),
+    var(--surface-panel-alt, #f5e8c0);
   border: var(--border-base) solid var(--chrome-border-mid);
-  border-left: var(--border-chunky) solid var(--player-faction, var(--faction-neutral));
   border-radius: var(--radius-md);
   box-shadow: inset 0 1px 0 var(--chrome-shine);
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2) var(--space-3);
+  grid-template-areas:
+    "header header"
+    "portraits copy";
   grid-template-columns: auto 1fr;
-  padding: var(--space-2) var(--space-3);
+  overflow: hidden;
+  padding: 0 var(--space-3) var(--space-3);
   transition:
     border-color var(--anim-fast) var(--ease-out),
     box-shadow var(--anim-fast) var(--ease-out);
@@ -197,23 +204,71 @@
 
 .roster-player:hover {
   border-color: var(--chrome-border);
-  border-left-color: var(--player-faction, var(--faction-neutral));
   box-shadow:
     inset 0 1px 0 var(--chrome-shine),
     var(--shadow-sm);
 }
 
+.roster-player-header {
+  align-items: center;
+  background:
+    linear-gradient(135deg, rgba(58, 35, 21, 0.32), rgba(58, 35, 21, 0.1)),
+    linear-gradient(
+      135deg,
+      var(--player-faction, var(--faction-neutral)) 0%,
+      var(--player-name-color, var(--text-primary)) 100%
+    );
+  border-bottom: 1px solid rgba(58, 35, 21, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  display: flex;
+  gap: var(--space-2);
+  grid-area: header;
+  justify-content: space-between;
+  margin: 0 calc(-1 * var(--space-3));
+  padding: var(--space-2) var(--space-3);
+}
+
 .roster-player-portraits {
   display: flex;
   gap: var(--space-1);
+  grid-area: portraits;
+}
+
+.roster-player-copy {
+  align-self: center;
+  grid-area: copy;
+  min-width: 0;
+}
+
+.roster-player-faction-badge {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: var(--radius-sm);
+  box-shadow:
+    0 1px 0 rgba(58, 35, 21, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  cursor: help;
+  display: inline-flex;
+  flex: 0 0 auto;
+  padding: 4px;
+}
+
+.roster-player-logo {
+  background-repeat: no-repeat;
+  display: block;
+  height: 14px;
+  image-rendering: pixelated;
+  width: 14px;
 }
 
 .roster-player-headline {
-  color: var(--text-primary);
+  color: var(--text-on-color);
   font-family: var(--font-pixel);
   font-size: var(--text-pixel-xs);
   line-height: var(--leading-pixel);
-  margin-bottom: var(--space-1);
+  margin: 0;
+  text-shadow: 0 1px 0 rgba(58, 35, 21, 0.35);
 }
 
 .roster-player-meta {

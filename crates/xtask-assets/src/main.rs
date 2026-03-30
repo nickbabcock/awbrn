@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use awbrn_types::{PlayerFaction, Unit};
-use image::{GenericImageView, RgbaImage};
+use image::{ImageReader, RgbaImage};
 use indexmap::IndexMap;
 use oxipng::{InFile, Options, OutFile};
 use rectangle_pack::{
@@ -22,6 +22,9 @@ const UNIT_SPRITESHEET_BLEED: u32 = 1;
 const CO_PORTRAIT_COLUMNS: u32 = 8;
 const CO_PORTRAIT_WIDTH: u32 = 32;
 const CO_PORTRAIT_HEIGHT: u32 = 32;
+const LOGO_COLUMNS: u32 = 10;
+const LOGO_WIDTH: u32 = 14;
+const LOGO_HEIGHT: u32 = 14;
 
 #[derive(Debug, Clone, Copy)]
 struct SpritesheetBuild {
@@ -246,6 +249,12 @@ struct UiAtlasData {
 }
 
 #[derive(Debug, Deserialize)]
+struct CountryEntry {
+    code: String,
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct TextureSet {
     #[serde(rename = "Clear")]
     clear: String,
@@ -447,10 +456,11 @@ fn main() -> Result<()> {
         Some("tiles") => run_tiles(),
         Some("units") => run_units(),
         Some("ui") => run_ui(),
+        Some("logos") => run_logos(),
         Some("co") | Some("co-portraits") => run_co_portraits(),
         _ => {
             eprintln!(
-                "Usage: {} [tiles|units|ui|co]",
+                "Usage: {} [tiles|units|ui|logos|co]",
                 args.first().map(String::as_str).unwrap_or("xtask-assets")
             );
             std::process::exit(1);
@@ -724,6 +734,25 @@ fn run_ui() -> Result<()> {
     Ok(())
 }
 
+fn run_logos() -> Result<()> {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+    let countries_path =
+        repo_root.join("assets/AWBW-Replay-Player/AWBWApp.Resources/Json/Countries.json");
+    let logos_root = repo_root.join("assets/logos");
+    let sheet_path = repo_root.join("assets/textures/logos.png");
+
+    let countries = load_countries_in_order(&countries_path)?;
+
+    // Checked-in source logos were downloaded from:
+    // https://awbw.amarriner.com/terrain/aw2/{code}logo.gif
+    let paths = collect_logo_paths(&countries, &logos_root)?;
+    let spritesheet = build_spritesheet(&paths, &sheet_path, LOGO_COLUMNS, 0)?;
+    validate_logo_dimensions(spritesheet)?;
+    optimize_png(&sheet_path)?;
+
+    Ok(())
+}
+
 fn run_co_portraits() -> Result<()> {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
     let assets_root = repo_root.join("assets/AWBW-Replay-Player/AWBWApp.Resources");
@@ -786,8 +815,7 @@ fn collect_ui_sprites(ui_root: &Path) -> Result<Vec<UiSprite>> {
         }
         let name = relative.to_string_lossy().replace('\\', "/");
 
-        let image = image::open(path).with_context(|| format!("Loading {}", path.display()))?;
-        let rgba = image.to_rgba8();
+        let rgba = load_rgba_image(path)?;
         let (width, height) = rgba.dimensions();
 
         sprites.push(UiSprite {
@@ -813,8 +841,7 @@ fn collect_ui_effect_sprites(effects_root: &Path) -> Result<Vec<UiSprite>> {
 
     for file_name in effect_files {
         let path = effects_root.join(file_name);
-        let image = image::open(&path).with_context(|| format!("Loading {}", path.display()))?;
-        let rgba = image.to_rgba8();
+        let rgba = load_rgba_image(&path)?;
         let (width, height) = rgba.dimensions();
 
         sprites.push(UiSprite {
@@ -1049,6 +1076,27 @@ fn load_units_in_order(path: &Path) -> Result<Vec<(String, UnitEntry)>> {
         serde_json::from_str(&filtered).with_context(|| format!("Parsing {}", path.display()))?;
 
     Ok(entries.into_iter().collect())
+}
+
+fn load_countries_in_order(path: &Path) -> Result<Vec<CountryEntry>> {
+    let content =
+        fs::read_to_string(path).with_context(|| format!("Reading {}", path.display()))?;
+    let filtered = strip_json_comments(&content);
+    let entries: IndexMap<String, CountryEntry> =
+        serde_json::from_str(&filtered).with_context(|| format!("Parsing {}", path.display()))?;
+
+    Ok(entries.into_values().collect())
+}
+
+fn load_rgba_image(path: &Path) -> Result<RgbaImage> {
+    let reader = ImageReader::open(path).with_context(|| format!("Opening {}", path.display()))?;
+    let reader = reader
+        .with_guessed_format()
+        .with_context(|| format!("Guessing image format for {}", path.display()))?;
+    let image = reader
+        .decode()
+        .with_context(|| format!("Decoding {}", path.display()))?;
+    Ok(image.to_rgba8())
 }
 
 fn build_unit_definitions(units: Vec<(String, UnitEntry)>) -> Result<Vec<UnitDefinition>> {
@@ -1556,8 +1604,7 @@ fn build_spritesheet(
     let mut max_height = 0;
 
     for path in paths {
-        let image = image::open(path).with_context(|| format!("Loading {}", path.display()))?;
-        let rgba = image.to_rgba8();
+        let rgba = load_rgba_image(path)?;
         let (width, height) = rgba.dimensions();
         max_width = max_width.max(width);
         max_height = max_height.max(height);
@@ -1609,6 +1656,76 @@ fn build_spritesheet(
         offset_x: bleed,
         offset_y: bleed,
     })
+}
+
+fn collect_logo_paths(countries: &[CountryEntry], logos_root: &Path) -> Result<Vec<PathBuf>> {
+    let mut seen_codes = HashSet::new();
+    let mut paths = Vec::with_capacity(countries.len());
+
+    for country in countries {
+        if !seen_codes.insert(country.code.clone()) {
+            return Err(anyhow!(
+                "Duplicate country code in Countries.json: {}",
+                country.code
+            ));
+        }
+
+        let path = logos_root.join(format!("{}.gif", country.code));
+        if !path.exists() {
+            return Err(anyhow!(
+                "Missing logo source file {} for {}",
+                path.display(),
+                country.name
+            ));
+        }
+
+        let rgba = load_rgba_image(&path)?;
+        let (width, height) = rgba.dimensions();
+        if width != LOGO_WIDTH || height != LOGO_HEIGHT {
+            return Err(anyhow!(
+                "Logo {} must be {}x{}, got {}x{}",
+                path.display(),
+                LOGO_WIDTH,
+                LOGO_HEIGHT,
+                width,
+                height
+            ));
+        }
+
+        paths.push(path);
+    }
+
+    for entry in
+        fs::read_dir(logos_root).with_context(|| format!("Reading {}", logos_root.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("gif") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !seen_codes.contains(stem) {
+            return Err(anyhow!("Unexpected logo source file {}", path.display()));
+        }
+    }
+
+    Ok(paths)
+}
+
+fn validate_logo_dimensions(spritesheet: SpritesheetBuild) -> Result<()> {
+    if spritesheet.cell_width != LOGO_WIDTH || spritesheet.cell_height != LOGO_HEIGHT {
+        return Err(anyhow!(
+            "Logo tilesheet must use {}x{} cells, got {}x{}",
+            LOGO_WIDTH,
+            LOGO_HEIGHT,
+            spritesheet.cell_width,
+            spritesheet.cell_height
+        ));
+    }
+
+    Ok(())
 }
 
 fn extrude_rect(sheet: &mut RgbaImage, x: u32, y: u32, width: u32, height: u32, bleed: u32) {
@@ -1738,8 +1855,7 @@ fn validate_co_portrait_dimensions(
     }
 
     for portrait in portraits {
-        let image = image::open(&portrait.image_path)
-            .with_context(|| format!("Loading {}", portrait.image_path.display()))?;
+        let image = load_rgba_image(&portrait.image_path)?;
         let (width, height) = image.dimensions();
         if width != CO_PORTRAIT_WIDTH || height != CO_PORTRAIT_HEIGHT {
             return Err(anyhow!(
