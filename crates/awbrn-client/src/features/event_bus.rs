@@ -94,6 +94,7 @@ pub struct MapDimensions {
 #[serde(rename_all = "camelCase")]
 pub struct ReplayLoadedPlayer {
     pub player_id: u32,
+    pub user_id: u32,
     pub order: u32,
     pub team: Option<String>,
     pub eliminated: bool,

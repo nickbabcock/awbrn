@@ -296,6 +296,7 @@ fn replay_loaded_player(player: &AwbwPlayer, team_game: bool) -> ReplayLoadedPla
 
     ReplayLoadedPlayer {
         player_id: player.id.as_u32(),
+        user_id: player.users_id.as_u32(),
         order: player.order,
         team: team_game.then(|| player.team.clone()),
         eliminated: player.eliminated,
@@ -540,6 +541,7 @@ mod tests {
         assert_eq!(replay_loaded.day, 4);
         assert_eq!(replay_loaded.players.len(), 2);
         assert_eq!(replay_loaded.players[0].player_id, 1);
+        assert_eq!(replay_loaded.players[0].user_id, 101);
         assert_eq!(replay_loaded.players[0].co_key.as_deref(), Some("adder"));
         assert_eq!(replay_loaded.players[0].co_name.as_deref(), Some("Adder"));
         assert_eq!(replay_loaded.players[0].team.as_deref(), Some("A"));
