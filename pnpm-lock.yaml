@@ -32,6 +32,12 @@ importers:
 
   web:
     dependencies:
+      '@fontsource/nunito':
+        specifier: 5.2.7
+        version: 5.2.7
+      '@fontsource/press-start-2p':
+        specifier: 5.2.7
+        version: 5.2.7
       comlink:
         specifier: 4.4.2
         version: 4.4.2
@@ -41,6 +47,9 @@ importers:
       react-dom:
         specifier: 19.2.3
         version: 19.2.3(react@19.2.3)
+      react-router-dom:
+        specifier: ^7.13.2
+        version: 7.13.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       zustand:
         specifier: 5.0.10
         version: 5.0.10(@types/react@19.2.9)(react@19.2.3)
@@ -230,6 +239,12 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@fontsource/nunito@5.2.7':
+    resolution: {integrity: sha512-pmtBq0H9ex9nk+RtJYEJOD9pag393iHETnl/PVKleF4i06cd0ttngK5ZCTgYb5eOqR3Xdlrjtev8m7bmgYprew==}
+
+  '@fontsource/press-start-2p@5.2.7':
+    resolution: {integrity: sha512-ezSxYRchANoteja170ZHh2Tt4oejmVEvX42VFPOVVvERSZ68pcuZFjbhHfrK/sNjYmaGg656y7B3431ojO9PCQ==}
 
   '@napi-rs/wasm-runtime@1.1.1':
     resolution: {integrity: sha512-p64ah1M1ld8xjWv3qbvFwHiFVWrq1yFvV4f7w+mzaqiR4IlSgkqhcRdHwsGgomwzBH51sRY4NEowLxnaBjcW/A==}
@@ -516,6 +531,10 @@ packages:
   comlink@4.4.2:
     resolution: {integrity: sha512-OxGdvBmJuNKSCMO4NTl1L47VRp6xn2wG4F/2hYzB6tiCb709otOxtEYCSvK80PtjODfXXZu8ds+Nw5kVCjqd2g==}
 
+  cookie@1.1.1:
+    resolution: {integrity: sha512-ei8Aos7ja0weRpFzJnEA9UHJ/7XQmqglbRwnf2ATjcB9Wq874VKH9kfjjirM6UhU2/E5fFYadylyhFldcqSidQ==}
+    engines: {node: '>=18'}
+
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
 
@@ -648,6 +667,23 @@ packages:
     peerDependencies:
       react: ^19.2.3
 
+  react-router-dom@7.13.2:
+    resolution: {integrity: sha512-aR7SUORwTqAW0JDeiWF07e9SBE9qGpByR9I8kJT5h/FrBKxPMS6TiC7rmVO+gC0q52Bx7JnjWe8Z1sR9faN4YA==}
+    engines: {node: '>=20.0.0'}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  react-router@7.13.2:
+    resolution: {integrity: sha512-tX1Aee+ArlKQP+NIUd7SE6Li+CiGKwQtbS+FfRxPX6Pe4vHOo6nr9d++u5cwg+Z8K/x8tP+7qLmujDtfrAoUJA==}
+    engines: {node: '>=20.0.0'}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+    peerDependenciesMeta:
+      react-dom:
+        optional: true
+
   react@19.2.3:
     resolution: {integrity: sha512-Ku/hhYbVjOQnXDZFv2+RibmLFGwFdeeKHFcOTlrt7xplBnya5OGn/hIRDsqDiSUcfORsDC7MPxwork8jBwsIWA==}
     engines: {node: '>=0.10.0'}
@@ -659,6 +695,9 @@ packages:
 
   scheduler@0.27.0:
     resolution: {integrity: sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==}
+
+  set-cookie-parser@2.7.2:
+    resolution: {integrity: sha512-oeM1lpU/UvhTxw+g3cIfxXHyJRc/uidd3yK1P242gzHds0udQBYzs3y8j4gCCW+ZJ7ad0yctld8RYO+bdurlvw==}
 
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
@@ -840,6 +879,10 @@ snapshots:
   '@esbuild/win32-x64@0.27.2':
     optional: true
 
+  '@fontsource/nunito@5.2.7': {}
+
+  '@fontsource/press-start-2p@5.2.7': {}
+
   '@napi-rs/wasm-runtime@1.1.1':
     dependencies:
       '@emnapi/core': 1.9.0
@@ -1005,6 +1048,8 @@ snapshots:
 
   comlink@4.4.2: {}
 
+  cookie@1.1.1: {}
+
   csstype@3.2.3: {}
 
   detect-libc@2.1.2: {}
@@ -1147,6 +1192,20 @@ snapshots:
       react: 19.2.3
       scheduler: 0.27.0
 
+  react-router-dom@7.13.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3):
+    dependencies:
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+      react-router: 7.13.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+
+  react-router@7.13.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3):
+    dependencies:
+      cookie: 1.1.1
+      react: 19.2.3
+      set-cookie-parser: 2.7.2
+    optionalDependencies:
+      react-dom: 19.2.3(react@19.2.3)
+
   react@19.2.3: {}
 
   rolldown@1.0.0-rc.10:
@@ -1171,6 +1230,8 @@ snapshots:
       '@rolldown/binding-win32-x64-msvc': 1.0.0-rc.10
 
   scheduler@0.27.0: {}
+
+  set-cookie-parser@2.7.2: {}
 
   source-map-js@1.2.1: {}
 
