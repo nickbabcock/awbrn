@@ -8,12 +8,17 @@ use awbw_replay::turn_models::{Action, MoveAction};
 use bevy::{log, prelude::*};
 
 use crate::features::event_bus::{ExternalGameEvent, GameEvent};
+use crate::features::player_roster::{
+    PlayerFunds, PlayerRosterConfig, PlayerUnitCosts, emit_player_roster_updated,
+    player_ids_for_team,
+};
 use crate::modes::replay::navigation::{
     PendingCourseArrows, path_positions, replay_move_view, replay_path_tiles,
 };
 use crate::render::animation::UnitPathAnimation;
 use awbrn_game::replay::{
-    AwbwUnitId, NewDay, apply_move_state, apply_non_move_action as game_apply_non_move_action,
+    AwbwUnitId, NewDay, ReplayState, apply_move_state,
+    apply_non_move_action as game_apply_non_move_action,
 };
 use awbrn_game::world::{CarriedBy, Faction, StrongIdMap, Unit};
 
@@ -72,10 +77,13 @@ impl Command for ReplayFollowupCommand {
     fn apply(self, world: &mut World) {
         if let Some(action) = &self.action {
             apply_non_move_action(action, world);
+            update_player_roster_funds(action, world);
+            update_player_roster_unit_costs(action, world);
         }
         if self.recompute_fog {
             world.trigger(super::fog::ReplayFogDirty);
         }
+        emit_player_roster_updated(world);
     }
 }
 
@@ -95,12 +103,182 @@ impl Command for ReplayTurnCommand {
         }
 
         apply_non_move_action(&self.action, world);
+        update_player_roster_funds(&self.action, world);
+        update_player_roster_unit_costs(&self.action, world);
         world.trigger(super::fog::ReplayFogDirty);
+        emit_player_roster_updated(world);
     }
 }
 
 pub(crate) fn apply_non_move_action(action: &Action, world: &mut World) {
     game_apply_non_move_action(action, world);
+}
+
+fn update_player_roster_funds(action: &Action, world: &mut World) {
+    let updates = collect_player_roster_fund_updates(action, world);
+    let Some(mut funds) = world.get_resource_mut::<PlayerFunds>() else {
+        return;
+    };
+
+    for (player_id, value) in updates {
+        match value {
+            FundUpdate::Set(funds_value) => funds.set(player_id, funds_value),
+            FundUpdate::Subtract(amount) => funds.subtract(player_id, amount),
+        }
+    }
+}
+
+fn update_player_roster_unit_costs(action: &Action, world: &mut World) {
+    let updates = collect_player_roster_unit_cost_updates(action);
+    let Some(mut unit_costs) = world.get_resource_mut::<PlayerUnitCosts>() else {
+        return;
+    };
+
+    for (unit_id, cost) in updates {
+        unit_costs.set(unit_id, cost);
+    }
+}
+
+fn collect_player_roster_fund_updates(
+    action: &Action,
+    world: &World,
+) -> Vec<(awbrn_types::AwbwGamePlayerId, FundUpdate)> {
+    match action {
+        Action::Build { new_unit, .. } => {
+            if let Some(unit) = new_unit.values().find_map(|unit| unit.get_value()) {
+                vec![(
+                    awbrn_types::AwbwGamePlayerId::new(unit.units_players_id),
+                    FundUpdate::Subtract(unit.units_cost.unwrap_or(unit.units_name.base_cost())),
+                )]
+            } else {
+                Vec::new()
+            }
+        }
+        Action::Join { join_action, .. } => {
+            if let Some(new_funds) =
+                awbrn_game::replay::commands::targeted_value(&join_action.new_funds)
+            {
+                vec![(
+                    awbrn_types::AwbwGamePlayerId::new(join_action.player_id),
+                    FundUpdate::Set(*new_funds),
+                )]
+            } else {
+                Vec::new()
+            }
+        }
+        Action::Repair { repair_action, .. } => {
+            if let Some(new_funds) =
+                awbrn_game::replay::commands::targeted_hidden_value(&repair_action.funds)
+                && let Some(active_player_id) = world
+                    .get_resource::<ReplayState>()
+                    .and_then(|state| state.active_player_id)
+            {
+                vec![(active_player_id, FundUpdate::Set(new_funds))]
+            } else {
+                Vec::new()
+            }
+        }
+        Action::End { updated_info } | Action::Tag { updated_info } => {
+            if let Some(next_funds) =
+                awbrn_game::replay::commands::targeted_hidden_value(&updated_info.next_funds)
+            {
+                vec![(
+                    awbrn_types::AwbwGamePlayerId::new(updated_info.next_player_id),
+                    FundUpdate::Set(next_funds),
+                )]
+            } else {
+                Vec::new()
+            }
+        }
+        Action::Resign {
+            next_turn_action: Some(next_turn_action),
+            ..
+        } => {
+            if let Some(next_funds) =
+                awbrn_game::replay::commands::targeted_hidden_value(&next_turn_action.next_funds)
+            {
+                vec![(
+                    awbrn_types::AwbwGamePlayerId::new(next_turn_action.next_player_id),
+                    FundUpdate::Set(next_funds),
+                )]
+            } else {
+                Vec::new()
+            }
+        }
+        Action::Power(power_action) => {
+            if let Some(player_replace) = &power_action.player_replace
+                && let Some(config) = world.get_resource::<PlayerRosterConfig>()
+            {
+                let mut updates = Vec::new();
+                for (_audience, changes) in player_replace {
+                    for (subject, change) in changes {
+                        let Some(players) = targeted_players(config, *subject) else {
+                            continue;
+                        };
+                        if let Some(player_funds) = change.players_funds {
+                            for player_id in players {
+                                updates.push((player_id, FundUpdate::Set(player_funds)));
+                            }
+                        }
+                    }
+                }
+                updates
+            } else {
+                Vec::new()
+            }
+        }
+        _ => Vec::new(),
+    }
+}
+
+enum FundUpdate {
+    Set(u32),
+    Subtract(u32),
+}
+
+fn collect_player_roster_unit_cost_updates(
+    action: &Action,
+) -> Vec<(awbrn_game::replay::AwbwUnitId, u32)> {
+    match action {
+        Action::Build { new_unit, .. } => new_unit
+            .values()
+            .find_map(|unit| unit.get_value())
+            .map(|unit| {
+                vec![(
+                    awbrn_game::replay::AwbwUnitId(unit.units_id),
+                    unit.units_cost.unwrap_or(unit.units_name.base_cost()),
+                )]
+            })
+            .unwrap_or_default(),
+        Action::Power(power_action) => power_action
+            .unit_add
+            .as_ref()
+            .into_iter()
+            .flat_map(|groups| groups.values())
+            .flat_map(|group| {
+                group.units.iter().map(|unit| {
+                    (
+                        awbrn_game::replay::AwbwUnitId(unit.units_id),
+                        group.unit_name.base_cost(),
+                    )
+                })
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn targeted_players(
+    config: &PlayerRosterConfig,
+    subject: awbw_replay::turn_models::TargetedPlayer,
+) -> Option<Vec<awbrn_types::AwbwGamePlayerId>> {
+    match subject {
+        awbw_replay::turn_models::TargetedPlayer::Player(player_id) => Some(vec![player_id]),
+        awbw_replay::turn_models::TargetedPlayer::Team(team) => {
+            Some(player_ids_for_team(config, team).collect())
+        }
+        awbw_replay::turn_models::TargetedPlayer::Global => None,
+    }
 }
 
 impl ReplayTurnCommand {

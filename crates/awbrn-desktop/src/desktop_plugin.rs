@@ -49,6 +49,7 @@ impl EventBus<GameEvent> for DesktopEventBus {
                     replay.players.len()
                 );
             }
+            GameEvent::PlayerRosterUpdated(_) => {}
         }
     }
 }

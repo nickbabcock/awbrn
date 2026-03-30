@@ -119,6 +119,48 @@ pub struct ReplayLoaded {
     pub players: Vec<ReplayLoadedPlayer>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerRosterStats {
+    pub funds: Option<u32>,
+    pub unit_count: Option<u32>,
+    pub unit_value: Option<u32>,
+    pub income: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerRosterEntry {
+    pub player_id: u32,
+    pub user_id: u32,
+    pub turn_order: u32,
+    pub team: Option<String>,
+    pub eliminated: bool,
+    pub faction_code: String,
+    pub faction_name: String,
+    pub co_key: Option<String>,
+    pub co_name: Option<String>,
+    pub tag_co_key: Option<String>,
+    pub tag_co_name: Option<String>,
+    pub stats: PlayerRosterStats,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerRosterSnapshot {
+    pub match_id: u32,
+    pub map_id: u32,
+    pub day: u32,
+    pub active_player_id: Option<u32>,
+    pub players: Vec<PlayerRosterEntry>,
+}
+
 /// Union type for all game events that can be sent to external systems
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
@@ -131,6 +173,7 @@ pub enum GameEvent {
     TileSelected(TileSelected),
     MapDimensions(MapDimensions),
     ReplayLoaded(ReplayLoaded),
+    PlayerRosterUpdated(PlayerRosterSnapshot),
 }
 
 pub(crate) fn emit_map_dimensions(

@@ -14,8 +14,8 @@ use crate::replay::{
     AwbwUnitId, ReplayFogEnabled, ReplayPlayerRegistry, ReplayState, ReplayTerrainKnowledge,
 };
 use crate::world::{
-    Ammo, Faction, FogActive, FogOfWarMap, FriendlyFactions, Fuel, GameMap, TerrainHp, TerrainTile,
-    Unit, UnitActive, VisionRange, initialize_terrain_semantic_world,
+    Ammo, Faction, FogActive, FogOfWarMap, FriendlyFactions, Fuel, GameMap, GraphicalHp, TerrainHp,
+    TerrainTile, Unit, UnitActive, VisionRange, initialize_terrain_semantic_world,
 };
 
 /// Initialize the ECS world for replay playback from a parsed `AwbwReplay`.
@@ -82,6 +82,7 @@ pub fn initialize_replay_semantic_world(replay: &AwbwReplay, world: &mut World) 
                         Unit(unit.name),
                         Fuel(unit.fuel),
                         Ammo(unit.ammo),
+                        GraphicalHp(initial_graphical_hp(unit.hit_points)),
                         VisionRange(unit.vision),
                         UnitActive,
                     )
@@ -118,6 +119,10 @@ pub fn initialize_replay_semantic_world(replay: &AwbwReplay, world: &mut World) 
         active_player_id: first_player_id,
         ..ReplayState::default()
     });
+}
+
+fn initial_graphical_hp(hit_points: f64) -> u8 {
+    hit_points.ceil().clamp(0.0, 10.0) as u8
 }
 
 fn initial_terrain_hp(

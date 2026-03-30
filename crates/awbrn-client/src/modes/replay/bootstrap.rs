@@ -1,6 +1,7 @@
 use awbw_replay::AwbwReplay;
 use bevy::prelude::*;
 
+use crate::features::player_roster::{emit_player_roster_updated, player_roster_seed_from_replay};
 use crate::loading::LoadedReplay;
 use crate::modes::replay::commands::ReplayAdvanceLock;
 use awbrn_game::replay::initialize_replay_semantic_world;
@@ -16,7 +17,14 @@ pub fn initialize_replay_semantic_world_for_client(world: &mut World) {
 
     initialize_replay_semantic_world(&replay, world);
 
+    if let Some((config, funds, unit_costs)) = player_roster_seed_from_replay(&replay) {
+        world.insert_resource(config);
+        world.insert_resource(funds);
+        world.insert_resource(unit_costs);
+    }
+
     world.insert_resource(ReplayAdvanceLock::default());
+    emit_player_roster_updated(world);
 }
 
 #[cfg(test)]

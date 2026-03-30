@@ -2,6 +2,7 @@ pub mod camera;
 pub mod event_bus;
 pub mod fog;
 pub mod input;
+pub mod player_roster;
 pub mod weather;
 
 pub use awbrn_game::world::{CurrentWeather, FogActive, FogOfWarMap, FriendlyFactions};
