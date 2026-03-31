@@ -179,6 +179,66 @@ impl Unit {
             Unit::Tank => 9,
         }
     }
+
+    pub const fn base_cost(&self) -> u32 {
+        match self {
+            Unit::AntiAir => 8000,
+            Unit::APC => 5000,
+            Unit::Artillery => 6000,
+            Unit::BCopter => 9000,
+            Unit::Battleship => 28000,
+            Unit::BlackBoat => 7500,
+            Unit::BlackBomb => 25000,
+            Unit::Bomber => 22000,
+            Unit::Carrier => 30000,
+            Unit::Cruiser => 18000,
+            Unit::Fighter => 20000,
+            Unit::Infantry => 1000,
+            Unit::Lander => 12000,
+            Unit::MdTank => 16000,
+            Unit::Mech => 3000,
+            Unit::MegaTank => 28000,
+            Unit::Missile => 12000,
+            Unit::NeoTank => 22000,
+            Unit::PipeRunner => 20000,
+            Unit::Recon => 4000,
+            Unit::Rocket => 15000,
+            Unit::Stealth => 24000,
+            Unit::Sub => 20000,
+            Unit::TCopter => 5000,
+            Unit::Tank => 7000,
+        }
+    }
+
+    pub const fn base_vision(&self) -> u32 {
+        match self {
+            Unit::Infantry => 2,
+            Unit::Mech => 2,
+            Unit::MdTank => 1,
+            Unit::Tank => 3,
+            Unit::Recon => 5,
+            Unit::APC => 1,
+            Unit::Artillery => 1,
+            Unit::Rocket => 1,
+            Unit::AntiAir => 2,
+            Unit::Missile => 5,
+            Unit::Fighter => 2,
+            Unit::Bomber => 2,
+            Unit::BCopter => 3,
+            Unit::TCopter => 2,
+            Unit::Battleship => 2,
+            Unit::Cruiser => 3,
+            Unit::Lander => 1,
+            Unit::Sub => 5,
+            Unit::BlackBoat => 1,
+            Unit::Carrier => 4,
+            Unit::Stealth => 4,
+            Unit::NeoTank => 1,
+            Unit::PipeRunner => 4,
+            Unit::BlackBomb => 1,
+            Unit::MegaTank => 1,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]

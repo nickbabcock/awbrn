@@ -7,9 +7,9 @@
 use awbrn_map::Position;
 use awbrn_types::{AwbwTerrain, GraphicalTerrain, PlayerFaction, Property};
 use awbw_replay::turn_models::{
-    Action, AttackSeamAction, AttackSeamCombat, CaptureAction, CombatUnit, FireAction, JoinAction,
-    LoadAction, MoveAction, PowerAction, RepairAction, RepairedUnit, SupplyAction, TargetedPlayer,
-    UnitMap, UnitProperty, UpdatedInfo,
+    Action, AttackSeamAction, AttackSeamCombat, CaptureAction, CombatUnit, FireAction, HpEffect,
+    JoinAction, LoadAction, MoveAction, NewUnit, PowerAction, RepairAction, RepairedUnit,
+    SupplyAction, TargetedPlayer, UnitAddGroup, UnitChange, UnitMap, UnitProperty, UpdatedInfo,
 };
 use bevy::{log, prelude::*};
 
@@ -108,7 +108,13 @@ pub fn apply_non_move_action(action: &Action, world: &mut World) {
         Action::Fire { fire_action, .. } => apply_fire(fire_action, world),
         Action::Power(power_action) => apply_power(power_action, world),
         Action::Repair { repair_action, .. } => apply_repair(repair_action, world),
+        Action::Resign {
+            next_turn_action: Some(next_turn_action),
+            ..
+        } => apply_end(&UpdatedInfo::from(next_turn_action.clone()), world),
+        Action::Resign { .. } => {}
         Action::Supply { supply_action, .. } => apply_supply(supply_action, world),
+        Action::Tag { updated_info } => apply_end(updated_info, world),
         Action::Join { join_action, .. } => apply_join(join_action, world),
         Action::Hide { move_action } => apply_hide(move_action.as_ref(), world),
         Action::Unhide { move_action } => apply_unhide(move_action.as_ref(), world),
@@ -200,7 +206,8 @@ pub fn apply_build(new_unit: &UnitMap, world: &mut World) {
             Unit(unit.units_name),
             Fuel(unit.units_fuel.unwrap_or(unit.units_name.max_fuel())),
             Ammo(unit.units_ammo.unwrap_or(unit.units_name.max_ammo())),
-            VisionRange(unit.units_vision.unwrap_or(1)),
+            GraphicalHp(unit.units_hit_points.value()),
+            VisionRange(unit.units_vision.unwrap_or(unit.units_name.base_vision())),
         ));
     }
 }
@@ -426,6 +433,36 @@ pub fn apply_power(power_action: &PowerAction, world: &mut World) {
             .expect("GamePlugin should initialize PowerVisionBoosts");
         *power_vision_boosts.0.entry(faction).or_insert(0) += global.units_vision;
     }
+
+    if let Some(hp_change) = &power_action.hp_change {
+        if let Some(hp_gain) = &hp_change.hp_gain {
+            apply_power_hp_effect(world, hp_gain);
+        }
+        if let Some(hp_loss) = &hp_change.hp_loss {
+            apply_power_hp_effect(world, hp_loss);
+        }
+    }
+
+    if let Some(unit_replace) = &power_action.unit_replace {
+        for group in unit_replace.values() {
+            if let Some(units) = &group.units {
+                for change in units {
+                    apply_power_unit_change(world, change);
+                }
+            }
+        }
+    }
+
+    if let Some(unit_add) = &power_action.unit_add {
+        let mut seen = std::collections::HashSet::new();
+        for group in unit_add.values() {
+            for unit in &group.units {
+                if seen.insert(unit.units_id) {
+                    apply_power_unit_add(world, group, unit);
+                }
+            }
+        }
+    }
 }
 
 pub fn apply_repair(repair_action: &RepairAction, world: &mut World) {
@@ -443,6 +480,112 @@ pub fn apply_repair(repair_action: &RepairAction, world: &mut World) {
 
     apply_repaired_unit(world, &repaired);
     mark_unit_inactive(world, repairing_id);
+}
+
+fn apply_power_hp_effect(world: &mut World, effect: &HpEffect) {
+    if effect.hp == 0 && (effect.units_fuel - 1.0).abs() < f64::EPSILON || effect.players.is_empty()
+    {
+        return;
+    }
+
+    let faction_set = effect
+        .players
+        .iter()
+        .filter_map(|player_id| {
+            world
+                .resource::<ReplayPlayerRegistry>()
+                .faction_for_player(*player_id)
+        })
+        .collect::<std::collections::HashSet<_>>();
+    let unit_entities: Vec<Entity> = {
+        let mut query = world.query_filtered::<(Entity, &Faction), With<Unit>>();
+        query
+            .iter(world)
+            .filter_map(|(entity, faction)| faction_set.contains(&faction.0).then_some(entity))
+            .collect()
+    };
+
+    for entity in unit_entities {
+        let current_hp = world
+            .get::<GraphicalHp>(entity)
+            .map(|hp| i32::from(hp.value()))
+            .unwrap_or(10);
+
+        let (max_fuel, current_fuel) = {
+            let entity_ref = world.entity(entity);
+            let unit = entity_ref
+                .get::<Unit>()
+                .expect("power effects should only target units")
+                .0;
+            let max_fuel = unit.max_fuel();
+            let current_fuel = entity_ref.get::<Fuel>().map_or(max_fuel, Fuel::value);
+            (max_fuel, current_fuel)
+        };
+
+        let next_hp = (current_hp + effect.hp).clamp(1, 10) as u8;
+        let next_fuel = ((current_fuel as f64) * effect.units_fuel).ceil() as u32;
+        world
+            .entity_mut(entity)
+            .insert((GraphicalHp(next_hp), Fuel(next_fuel.clamp(0, max_fuel))));
+    }
+}
+
+fn apply_power_unit_change(world: &mut World, change: &UnitChange) {
+    let entity = {
+        let units = world.resource::<StrongIdMap<AwbwUnitId>>();
+        units.get(&AwbwUnitId(change.units_id))
+    };
+
+    let Some(entity) = entity else {
+        log::warn!(
+            "Power unit replacement target not found for ID: {}",
+            change.units_id.as_u32()
+        );
+        return;
+    };
+
+    let mut entity_mut = world.entity_mut(entity);
+    if let Some(hp) = change.units_hit_points {
+        let hp_value = hp.value().max(1);
+        entity_mut.insert(GraphicalHp(hp_value));
+    }
+    if let Some(ammo) = change.units_ammo {
+        entity_mut.insert(Ammo(ammo));
+    }
+    if let Some(fuel) = change.units_fuel {
+        entity_mut.insert(Fuel(fuel));
+    }
+    if let Some(moved) = change.units_moved {
+        if moved < 0 {
+            entity_mut.remove::<UnitActive>();
+        } else if moved == 0 {
+            entity_mut.insert(UnitActive);
+        }
+    }
+}
+
+fn apply_power_unit_add(world: &mut World, group: &UnitAddGroup, unit: &NewUnit) {
+    let faction = world
+        .resource::<ReplayPlayerRegistry>()
+        .faction_for_player(group.player_id)
+        .unwrap_or(PlayerFaction::OrangeStar);
+    let unit_name = format!(
+        "{} - {} - {}",
+        faction.country_code(),
+        group.unit_name.name(),
+        unit.units_id.as_u32()
+    );
+    world.spawn((
+        Name::new(unit_name),
+        MapPosition::new(unit.units_x as usize, unit.units_y as usize),
+        Faction(faction),
+        AwbwUnitId(unit.units_id),
+        Unit(group.unit_name),
+        Fuel(group.unit_name.max_fuel()),
+        Ammo(group.unit_name.max_ammo()),
+        GraphicalHp(10),
+        VisionRange(group.unit_name.base_vision()),
+    ));
 }
 
 pub fn apply_supply(supply_action: &SupplyAction, world: &mut World) {
@@ -863,8 +1006,9 @@ mod tests {
     use awbw_replay::turn_models::{
         AttackSeamAction, AttackSeamCombat, BuildingInfo, CaptureAction, CombatInfo,
         CombatInfoVision, CombatUnit, CopValueInfo, CopValues, FireAction, GlobalStatBoost,
-        JoinAction, LoadAction, PathTile, PowerAction, RepairAction, RepairedUnit, SupplyAction,
-        TargetedPlayer, UnitProperty, UpdatedInfo, WeatherChange, WeatherCode,
+        HpChange, HpEffect, JoinAction, LoadAction, PathTile, PowerAction, RepairAction,
+        RepairedUnit, SupplyAction, TargetedPlayer, UnitProperty, UpdatedInfo, WeatherChange,
+        WeatherCode,
     };
     use awbw_replay::{Hidden, Masked};
 
@@ -1370,6 +1514,195 @@ mod tests {
                 .get(&PlayerFaction::OrangeStar),
             Some(&1)
         );
+    }
+
+    #[test]
+    fn power_hp_loss_floors_units_at_one_hp_and_updates_fuel() {
+        let mut app = replay_turn_test_app();
+        let victim = spawn_test_unit_kind(
+            &mut app,
+            Position::new(2, 2),
+            CoreUnitId::new(1),
+            awbrn_types::Unit::Tank,
+            PlayerFaction::BlueMoon,
+        );
+        let mut registry = crate::replay::ReplayPlayerRegistry::default();
+        registry.add_player(
+            awbrn_types::AwbwGamePlayerId::new(2),
+            PlayerFaction::BlueMoon,
+            0,
+        );
+        app.world_mut().insert_resource(registry);
+        app.world_mut()
+            .entity_mut(victim)
+            .insert((GraphicalHp(1), Fuel(10)));
+
+        apply_non_move_action(
+            &Action::Power(PowerAction {
+                player_id: awbrn_types::AwbwGamePlayerId::new(1),
+                co_name: "Hawke".to_string(),
+                co_power: "Power".to_string(),
+                power_name: "Black Wave".to_string(),
+                players_cop: 0,
+                global: None,
+                hp_change: Some(HpChange {
+                    hp_gain: None,
+                    hp_loss: Some(HpEffect {
+                        players: vec![awbrn_types::AwbwGamePlayerId::new(2)],
+                        hp: -2,
+                        units_fuel: 0.5,
+                    }),
+                }),
+                unit_replace: None,
+                unit_add: None,
+                player_replace: None,
+                missile_coords: None,
+                weather: None,
+            }),
+            app.world_mut(),
+        );
+
+        assert!(
+            app.world().get_entity(victim).is_ok(),
+            "power damage should not destroy units"
+        );
+        assert_eq!(
+            app.world().entity(victim).get::<GraphicalHp>(),
+            Some(&GraphicalHp(1))
+        );
+        assert_eq!(app.world().entity(victim).get::<Fuel>(), Some(&Fuel(5)));
+    }
+
+    #[test]
+    fn power_unit_replace_zero_hp_floors_units_at_one_hp() {
+        let mut app = replay_turn_test_app();
+        let victim = spawn_test_unit_kind(
+            &mut app,
+            Position::new(2, 2),
+            CoreUnitId::new(1),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::BlueMoon,
+        );
+
+        apply_non_move_action(
+            &Action::Power(PowerAction {
+                player_id: awbrn_types::AwbwGamePlayerId::new(1),
+                co_name: "Rachel".to_string(),
+                co_power: "Super".to_string(),
+                power_name: "Covering Fire".to_string(),
+                players_cop: 0,
+                global: None,
+                hp_change: None,
+                unit_replace: Some(
+                    [(
+                        TargetedPlayer::Global,
+                        awbw_replay::turn_models::UnitReplaceGroup {
+                            units: Some(vec![awbw_replay::turn_models::UnitChange {
+                                units_id: CoreUnitId::new(1),
+                                units_hit_points: Some(test_hp(0)),
+                                units_ammo: None,
+                                units_fuel: None,
+                                units_movement_points: None,
+                                units_long_range: None,
+                                units_moved: None,
+                            }]),
+                        },
+                    )]
+                    .into(),
+                ),
+                unit_add: None,
+                player_replace: None,
+                missile_coords: None,
+                weather: None,
+            }),
+            app.world_mut(),
+        );
+
+        assert!(
+            app.world().get_entity(victim).is_ok(),
+            "power unit replacement should not destroy units"
+        );
+        assert_eq!(
+            app.world().entity(victim).get::<GraphicalHp>(),
+            Some(&GraphicalHp(1))
+        );
+    }
+
+    #[test]
+    fn power_unit_add_deduplicates_units_and_uses_base_vision() {
+        let mut app = replay_turn_test_app();
+        let mut registry = crate::replay::ReplayPlayerRegistry::default();
+        registry.add_player(
+            awbrn_types::AwbwGamePlayerId::new(1),
+            PlayerFaction::OrangeStar,
+            0,
+        );
+        app.world_mut().insert_resource(registry);
+
+        apply_non_move_action(
+            &Action::Power(PowerAction {
+                player_id: awbrn_types::AwbwGamePlayerId::new(1),
+                co_name: "Sensei".to_string(),
+                co_power: "Power".to_string(),
+                power_name: "Copter Command".to_string(),
+                players_cop: 0,
+                global: None,
+                hp_change: None,
+                unit_replace: None,
+                unit_add: Some(
+                    [
+                        (
+                            TargetedPlayer::Global,
+                            UnitAddGroup {
+                                player_id: awbrn_types::AwbwGamePlayerId::new(1),
+                                unit_name: awbrn_types::Unit::Recon,
+                                units: vec![NewUnit {
+                                    units_id: CoreUnitId::new(99),
+                                    units_x: 3,
+                                    units_y: 4,
+                                }],
+                            },
+                        ),
+                        (
+                            TargetedPlayer::Player(awbrn_types::AwbwGamePlayerId::new(1)),
+                            UnitAddGroup {
+                                player_id: awbrn_types::AwbwGamePlayerId::new(1),
+                                unit_name: awbrn_types::Unit::Recon,
+                                units: vec![NewUnit {
+                                    units_id: CoreUnitId::new(99),
+                                    units_x: 3,
+                                    units_y: 4,
+                                }],
+                            },
+                        ),
+                    ]
+                    .into(),
+                ),
+                player_replace: None,
+                missile_coords: None,
+                weather: None,
+            }),
+            app.world_mut(),
+        );
+
+        let mut query = app
+            .world_mut()
+            .query::<(&AwbwUnitId, &VisionRange, &MapPosition)>();
+        let matching = query
+            .iter(app.world())
+            .filter(|(unit_id, _, _)| unit_id.0 == CoreUnitId::new(99))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            matching.len(),
+            1,
+            "duplicate unit_add entries should spawn once"
+        );
+        assert_eq!(
+            matching[0].1,
+            &VisionRange(awbrn_types::Unit::Recon.base_vision())
+        );
+        assert_eq!(matching[0].2, &MapPosition::new(3, 4));
     }
 
     #[test]

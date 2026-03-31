@@ -249,7 +249,11 @@ class GameRunner {
         break;
       }
       case "ReplayLoaded": {
-        useGameStore.getState().actions.setReplayRoster(event);
+        break;
+      }
+      case "PlayerRosterUpdated": {
+        useGameStore.getState().actions.setPlayerRoster(event);
+        useGameStore.getState().actions.setCurrentDay(event.day);
         break;
       }
       default: {

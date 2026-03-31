@@ -626,6 +626,22 @@ pub struct UpdatedInfo {
     pub next_turn_start: String,
 }
 
+impl From<NextTurnAction> for UpdatedInfo {
+    fn from(action: NextTurnAction) -> Self {
+        UpdatedInfo {
+            event: "NextTurn".to_string(),
+            next_player_id: action.next_player_id,
+            next_funds: action.next_funds,
+            next_timer: action.next_timer,
+            next_weather: action.next_weather,
+            supplied: action.supplied,
+            repaired: action.repaired,
+            day: action.day,
+            next_turn_start: action.next_turn_start,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct RepairedUnit {
     pub units_id: AwbwUnitId,

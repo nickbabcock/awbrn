@@ -1,0 +1,217 @@
+{
+  "sheet": {
+    "columns": 64,
+    "rows": 90,
+    "cellWidth": 23,
+    "cellHeight": 24,
+    "paddingX": 2,
+    "paddingY": 2,
+    "offsetX": 1,
+    "offsetY": 1
+  },
+  "framesPerFaction": 285,
+  "factions": [
+    {
+      "code": "ar",
+      "name": "AcidRain",
+      "index": 0
+    },
+    {
+      "code": "ab",
+      "name": "AmberBlaze",
+      "index": 1
+    },
+    {
+      "code": "aa",
+      "name": "AzureAsteroid",
+      "index": 2
+    },
+    {
+      "code": "bh",
+      "name": "BlackHole",
+      "index": 3
+    },
+    {
+      "code": "bm",
+      "name": "BlueMoon",
+      "index": 4
+    },
+    {
+      "code": "bd",
+      "name": "BrownDesert",
+      "index": 5
+    },
+    {
+      "code": "ci",
+      "name": "CobaltIce",
+      "index": 6
+    },
+    {
+      "code": "ge",
+      "name": "GreenEarth",
+      "index": 7
+    },
+    {
+      "code": "gs",
+      "name": "GreySky",
+      "index": 8
+    },
+    {
+      "code": "js",
+      "name": "JadeSun",
+      "index": 9
+    },
+    {
+      "code": "ne",
+      "name": "NoirEclipse",
+      "index": 10
+    },
+    {
+      "code": "os",
+      "name": "OrangeStar",
+      "index": 11
+    },
+    {
+      "code": "pc",
+      "name": "PinkCosmos",
+      "index": 12
+    },
+    {
+      "code": "pl",
+      "name": "PurpleLightning",
+      "index": 13
+    },
+    {
+      "code": "rf",
+      "name": "RedFire",
+      "index": 14
+    },
+    {
+      "code": "sc",
+      "name": "SilverClaw",
+      "index": 15
+    },
+    {
+      "code": "tg",
+      "name": "TealGalaxy",
+      "index": 16
+    },
+    {
+      "code": "uw",
+      "name": "UmberWilds",
+      "index": 17
+    },
+    {
+      "code": "wn",
+      "name": "WhiteNova",
+      "index": 18
+    },
+    {
+      "code": "yc",
+      "name": "YellowComet",
+      "index": 19
+    }
+  ],
+  "units": [
+    {
+      "key": "Infantry",
+      "baseOffset": 0
+    },
+    {
+      "key": "Mech",
+      "baseOffset": 16
+    },
+    {
+      "key": "MdTank",
+      "baseOffset": 30
+    },
+    {
+      "key": "Tank",
+      "baseOffset": 43
+    },
+    {
+      "key": "Recon",
+      "baseOffset": 56
+    },
+    {
+      "key": "APC",
+      "baseOffset": 69
+    },
+    {
+      "key": "Artillery",
+      "baseOffset": 82
+    },
+    {
+      "key": "Rocket",
+      "baseOffset": 95
+    },
+    {
+      "key": "AntiAir",
+      "baseOffset": 106
+    },
+    {
+      "key": "Missile",
+      "baseOffset": 119
+    },
+    {
+      "key": "Fighter",
+      "baseOffset": 130
+    },
+    {
+      "key": "Bomber",
+      "baseOffset": 141
+    },
+    {
+      "key": "BCopter",
+      "baseOffset": 152
+    },
+    {
+      "key": "TCopter",
+      "baseOffset": 162
+    },
+    {
+      "key": "Battleship",
+      "baseOffset": 172
+    },
+    {
+      "key": "Cruiser",
+      "baseOffset": 180
+    },
+    {
+      "key": "Lander",
+      "baseOffset": 188
+    },
+    {
+      "key": "Sub",
+      "baseOffset": 196
+    },
+    {
+      "key": "BlackBoat",
+      "baseOffset": 206
+    },
+    {
+      "key": "Carrier",
+      "baseOffset": 216
+    },
+    {
+      "key": "Stealth",
+      "baseOffset": 224
+    },
+    {
+      "key": "NeoTank",
+      "baseOffset": 235
+    },
+    {
+      "key": "PipeRunner",
+      "baseOffset": 248
+    },
+    {
+      "key": "BlackBomb",
+      "baseOffset": 259
+    },
+    {
+      "key": "MegaTank",
+      "baseOffset": 272
+    }
+  ]
+}

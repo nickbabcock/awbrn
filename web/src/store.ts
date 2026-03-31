@@ -1,22 +1,22 @@
 import { create } from "zustand";
-import type { ReplayLoaded } from "./wasm/awbrn_wasm";
+import type { PlayerRosterSnapshot } from "./wasm/awbrn_wasm";
 
 interface GameState {
   currentDay: number;
-  replayRoster: ReplayLoaded | null;
+  playerRoster: PlayerRosterSnapshot | null;
 }
 
 interface GameActions {
   setCurrentDay: (day: number) => void;
-  setReplayRoster: (replayRoster: ReplayLoaded | null) => void;
+  setPlayerRoster: (playerRoster: PlayerRosterSnapshot | null) => void;
 }
 
 export const useGameStore = create<GameState & { actions: GameActions }>((set) => ({
   currentDay: 1,
-  replayRoster: null,
+  playerRoster: null,
   actions: {
     setCurrentDay: (day) => set({ currentDay: day }),
-    setReplayRoster: (replayRoster) => set({ replayRoster }),
+    setPlayerRoster: (playerRoster) => set({ playerRoster }),
   },
 }));
 
