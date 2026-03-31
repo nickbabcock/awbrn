@@ -14,7 +14,9 @@ use awbw_replay::turn_models::{
 use bevy::{log, prelude::*};
 
 use crate::MapPosition;
-use crate::replay::{AwbwUnitId, PowerVisionBoosts, ReplayPlayerRegistry, ReplayState};
+use crate::replay::{
+    AwbwUnitId, PowerMovementBoosts, PowerVisionBoosts, ReplayPlayerRegistry, ReplayState,
+};
 use crate::world::{
     Ammo, BoardIndex, Capturing, CarriedBy, Faction, Fuel, GameMap, GraphicalHp, Hiding,
     StrongIdMap, TerrainHp, TerrainTile, Unit, UnitActive, UnitDestroyed, VisionRange,
@@ -267,6 +269,9 @@ pub fn apply_end(updated_info: &UpdatedInfo, world: &mut World) {
     if let Some(mut power_vision_boosts) = world.get_resource_mut::<PowerVisionBoosts>() {
         power_vision_boosts.0.clear();
     }
+    if let Some(mut power_movement_boosts) = world.get_resource_mut::<PowerMovementBoosts>() {
+        power_movement_boosts.0.clear();
+    }
 
     apply_end_resource_updates(updated_info, world);
 
@@ -414,7 +419,7 @@ pub fn apply_power(power_action: &PowerAction, world: &mut World) {
     }
 
     if let Some(global) = &power_action.global
-        && global.units_vision != 0
+        && (global.units_vision != 0 || global.units_movement_points != 0)
     {
         let maybe_faction = world
             .resource::<ReplayPlayerRegistry>()
@@ -428,10 +433,19 @@ pub fn apply_power(power_action: &PowerAction, world: &mut World) {
             return;
         };
 
-        let mut power_vision_boosts = world
-            .get_resource_mut::<PowerVisionBoosts>()
-            .expect("GamePlugin should initialize PowerVisionBoosts");
-        *power_vision_boosts.0.entry(faction).or_insert(0) += global.units_vision;
+        if global.units_vision != 0 {
+            let mut power_vision_boosts = world
+                .get_resource_mut::<PowerVisionBoosts>()
+                .expect("GamePlugin should initialize PowerVisionBoosts");
+            *power_vision_boosts.0.entry(faction).or_insert(0) += global.units_vision;
+        }
+
+        if global.units_movement_points != 0 {
+            let mut power_movement_boosts = world
+                .get_resource_mut::<PowerMovementBoosts>()
+                .expect("GamePlugin should initialize PowerMovementBoosts");
+            *power_movement_boosts.0.entry(faction).or_insert(0) += global.units_movement_points;
+        }
     }
 
     if let Some(hp_change) = &power_action.hp_change {
@@ -1028,6 +1042,7 @@ mod tests {
         app.init_resource::<crate::replay::ReplayViewpoint>();
         app.init_resource::<crate::replay::ReplayPlayerRegistry>();
         app.init_resource::<PowerVisionBoosts>();
+        app.init_resource::<PowerMovementBoosts>();
         app.insert_resource(ReplayState::default());
         app
     }
@@ -1441,7 +1456,7 @@ mod tests {
     }
 
     #[test]
-    fn power_action_updates_weather_and_active_player_vision() {
+    fn power_action_updates_weather_and_active_player_stat_boosts() {
         let mut app = replay_turn_test_app();
         let boosted = spawn_test_unit_kind(
             &mut app,
@@ -1479,7 +1494,7 @@ mod tests {
                 power_name: "Typhoon".to_string(),
                 players_cop: 0,
                 global: Some(GlobalStatBoost {
-                    units_movement_points: 0,
+                    units_movement_points: 2,
                     units_vision: 1,
                 }),
                 hp_change: None,
@@ -1513,6 +1528,13 @@ mod tests {
                 .0
                 .get(&PlayerFaction::OrangeStar),
             Some(&1)
+        );
+        assert_eq!(
+            app.world()
+                .resource::<PowerMovementBoosts>()
+                .0
+                .get(&PlayerFaction::OrangeStar),
+            Some(&2)
         );
     }
 
@@ -1706,12 +1728,16 @@ mod tests {
     }
 
     #[test]
-    fn end_clears_power_vision_boosts_and_applies_next_weather() {
+    fn end_clears_power_stat_boosts_and_applies_next_weather() {
         let mut app = replay_turn_test_app();
         app.world_mut()
             .resource_mut::<PowerVisionBoosts>()
             .0
             .insert(PlayerFaction::OrangeStar, 2);
+        app.world_mut()
+            .resource_mut::<PowerMovementBoosts>()
+            .0
+            .insert(PlayerFaction::OrangeStar, 1);
         app.world_mut()
             .resource_mut::<CurrentWeather>()
             .set(awbrn_types::Weather::Rain);
@@ -1734,6 +1760,10 @@ mod tests {
         assert!(
             app.world().resource::<PowerVisionBoosts>().0.is_empty(),
             "temporary power vision boosts should end with the turn"
+        );
+        assert!(
+            app.world().resource::<PowerMovementBoosts>().0.is_empty(),
+            "temporary power movement boosts should end with the turn"
         );
         assert_eq!(
             app.world().resource::<CurrentWeather>().weather(),

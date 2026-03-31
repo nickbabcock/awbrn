@@ -29,6 +29,10 @@ fn on_awbw_unit_id_remove(mut world: DeferredWorld, context: HookContext) {
 #[derive(Resource, Debug, Default, Clone)]
 pub struct PowerVisionBoosts(pub HashMap<PlayerFaction, i32>);
 
+/// Temporary movement range boosts granted by CO powers, per faction.
+#[derive(Resource, Debug, Default, Clone)]
+pub struct PowerMovementBoosts(pub HashMap<PlayerFaction, i32>);
+
 /// Resource tracking the current state of replay playback.
 #[derive(Resource, Reflect, Debug, Clone, Copy, PartialEq, Eq)]
 #[reflect(Resource)]

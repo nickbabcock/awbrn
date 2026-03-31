@@ -81,14 +81,13 @@ pub(crate) struct PendingUiAtlas {
 struct PendingReplayLoadedEvent(ReplayLoaded);
 
 #[derive(SystemParam)]
-pub(crate) struct LoadingTransitions<'w, 's> {
+pub(crate) struct LoadingTransitions<'w> {
     app_state: ResMut<'w, NextState<AppState>>,
     game_mode_state: ResMut<'w, NextState<GameMode>>,
     loading_state: ResMut<'w, NextState<LoadingState>>,
-    _marker: std::marker::PhantomData<&'s ()>,
 }
 
-impl LoadingTransitions<'_, '_> {
+impl LoadingTransitions<'_> {
     fn begin_loading(&mut self, game_mode: GameMode) {
         self.game_mode_state.set(game_mode);
         self.app_state.set(AppState::Loading);
@@ -97,14 +96,13 @@ impl LoadingTransitions<'_, '_> {
 }
 
 #[derive(SystemParam)]
-pub(crate) struct ClientAssetLoader<'w, 's> {
+pub(crate) struct ClientAssetLoader<'w> {
     map_resolver: Res<'w, MapPathResolver>,
     static_resolver: Res<'w, StaticPathResolver>,
     asset_server: Res<'w, AssetServer>,
-    _marker: std::marker::PhantomData<&'s ()>,
 }
 
-impl ClientAssetLoader<'_, '_> {
+impl ClientAssetLoader<'_> {
     pub fn load_map(&self, map_id: u32) -> Handle<AwbwMapAsset> {
         let asset_path = self.map_resolver.0.resolve_path(map_id);
         self.asset_server.load(asset_path)
