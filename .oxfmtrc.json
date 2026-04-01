@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["web/src/routeTree.gen.ts"],
+  "ignorePatterns": ["web/src/routeTree.gen.ts", "web/worker-configuration.d.ts"],
   "sortTailwindcss": {
     "functions": ["cx"]
   }

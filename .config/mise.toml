@@ -7,29 +7,65 @@
 [env]
 _.path = ['{{config_root}}/.config/bin']
 
-[tasks."build:wasm"]
-description = "Build the Wasm bundle"
+[tasks."build:wasm:compile"]
+hide = true
 run = [
     "cargo build --release --target wasm32-unknown-unknown -p awbrn-wasm",
-    "wasm-bindgen --target web ./target/wasm32-unknown-unknown/release/awbrn_wasm.wasm --out-dir ./web/src/wasm"
+    "cargo build --release --target wasm32-unknown-unknown -p awbrn-server"
 ]
 
-[tasks."build:wasm:ci"]
+[tasks."build:wasm:ci:compile"]
 hide = true
 run = [
     "cargo build --locked --profile ci --target wasm32-unknown-unknown --verbose -p awbrn-wasm",
-    "wasm-bindgen --target web ./target/wasm32-unknown-unknown/ci/awbrn_wasm.wasm --out-dir ./web/src/wasm"
+    "cargo build --locked --profile ci --target wasm32-unknown-unknown --verbose -p awbrn-server"
+]
+
+[tasks."build:wasm:bindgen"]
+hide = true
+wait_for = ["build:wasm:compile"]
+run = [
+    'wasm-bindgen --target web ./target/wasm32-unknown-unknown/release/{{arg(name="rust_package")}}.wasm --out-dir ./web/src/wasm'
+]
+
+[tasks."build:wasm:ci:bindgen"]
+hide = true
+wait_for = ["build:wasm:ci:compile"]
+run = [
+    'wasm-bindgen --target web ./target/wasm32-unknown-unknown/ci/{{arg(name="rust_package")}}.wasm --out-dir ./web/src/wasm'
+]
+
+[tasks."build:wasm"]
+description = "Build the Wasm bundle"
+depends = ["build:wasm:compile", "build:wasm:bindgen awbrn_wasm", "build:wasm:bindgen awbrn_server", "build:wasm:opt awbrn_wasm", "build:wasm:opt awbrn_server"]
+
+[tasks."build:wasm:ci"]
+description = "Build the Wasm bundle"
+depends = ["build:wasm:ci:compile", "build:wasm:ci:bindgen awbrn_wasm", "build:wasm:ci:bindgen awbrn_server"]
+
+[tasks."build:wasm:opt"]
+hide = true
+wait_for = ["build:wasm:bindgen awbrn_wasm", "build:wasm:bindgen awbrn_server", "build:wasm:ci:bindgen awbrn_wasm", "build:wasm:ci:bindgen awbrn_server"]
+dir = "web"
+run = [
+    'wasm-opt --enable-bulk-memory-opt --enable-nontrapping-float-to-int -O2 ./src/wasm/{{arg(name="rust_package")}}_bg.wasm -o ./src/wasm/{{arg(name="rust_package")}}_bg.wasm'
 ]
 
 [tasks."build:web"]
-description = "Build the web frontend for ci"
-wait_for = ["build:wasm:ci", "build:wasm"]
-depends = ["pnpm-install"]
+description = "Build the web frontend"
+depends = ["pnpm-install", "build:wasm"]
 dir = "web"
 run = [
     "pnpm run build"
 ]
 
+[tasks."build:web:ci"]
+description = "Build the web frontend for ci"
+depends = ["pnpm-install", "build:wasm:ci"]
+dir = "web"
+run = [
+    "pnpm run build"
+]
 
 [tasks."dev:web"]
 description = "Run the web server"

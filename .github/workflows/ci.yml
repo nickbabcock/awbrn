@@ -147,4 +147,5 @@ jobs:
     - uses: jdx/mise-action@v2
     - name: Build assets
       run: mise run assets
-    - run: 'mise run build:wasm:ci ::: build:web'
+    - name: Build web
+      run: mise run build:web:ci

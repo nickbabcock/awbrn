@@ -3,11 +3,18 @@ name = "awbrn-server"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
-awbrn-types = { path = "../awbrn-types", features = ["bevy"] }
-awbrn-map = { path = "../awbrn-map", features = ["bevy"] }
 awbrn-game = { path = "../awbrn-game" }
+awbrn-map = { path = "../awbrn-map", features = ["bevy"] }
+awbrn-types = { path = "../awbrn-types", features = ["bevy"] }
 bevy = { workspace = true, features = ["std", "bevy_log"] }
+serde_json.workspace = true
+serde-wasm-bindgen.workspace = true
+serde.workspace = true
+wasm-bindgen.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

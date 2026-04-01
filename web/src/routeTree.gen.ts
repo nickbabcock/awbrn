@@ -12,7 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as GameNewRouteImport } from './routes/game/new'
+import { Route as MatchesNewRouteImport } from './routes/matches/new'
+import { Route as ApiMatchesRouteImport } from './routes/api/matches'
 import { Route as ApiAwbwUserUserIdRouteImport } from './routes/api/awbw/user.$userId'
 import { Route as ApiAwbwMapMapIdRouteImport } from './routes/api/awbw/map.$mapId'
 
@@ -31,9 +32,14 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const GameNewRoute = GameNewRouteImport.update({
-  id: '/game/new',
-  path: '/game/new',
+const MatchesNewRoute = MatchesNewRouteImport.update({
+  id: '/matches/new',
+  path: '/matches/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMatchesRoute = ApiMatchesRouteImport.update({
+  id: '/api/matches',
+  path: '/api/matches',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAwbwUserUserIdRoute = ApiAwbwUserUserIdRouteImport.update({
@@ -51,7 +57,8 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
-  '/game/new': typeof GameNewRoute
+  '/api/matches': typeof ApiMatchesRoute
+  '/matches/new': typeof MatchesNewRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
 }
@@ -59,7 +66,8 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
-  '/game/new': typeof GameNewRoute
+  '/api/matches': typeof ApiMatchesRoute
+  '/matches/new': typeof MatchesNewRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
 }
@@ -68,7 +76,8 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
-  '/game/new': typeof GameNewRoute
+  '/api/matches': typeof ApiMatchesRoute
+  '/matches/new': typeof MatchesNewRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
 }
@@ -78,7 +87,8 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/auth'
-    | '/game/new'
+    | '/api/matches'
+    | '/matches/new'
     | '/api/awbw/map/$mapId'
     | '/api/awbw/user/$userId'
   fileRoutesByTo: FileRoutesByTo
@@ -86,7 +96,8 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/auth'
-    | '/game/new'
+    | '/api/matches'
+    | '/matches/new'
     | '/api/awbw/map/$mapId'
     | '/api/awbw/user/$userId'
   id:
@@ -94,7 +105,8 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/auth'
-    | '/game/new'
+    | '/api/matches'
+    | '/matches/new'
     | '/api/awbw/map/$mapId'
     | '/api/awbw/user/$userId'
   fileRoutesById: FileRoutesById
@@ -103,7 +115,8 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   AuthRoute: typeof AuthRoute
-  GameNewRoute: typeof GameNewRoute
+  ApiMatchesRoute: typeof ApiMatchesRoute
+  MatchesNewRoute: typeof MatchesNewRoute
   ApiAwbwMapMapIdRoute: typeof ApiAwbwMapMapIdRoute
   ApiAwbwUserUserIdRoute: typeof ApiAwbwUserUserIdRoute
 }
@@ -131,11 +144,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/game/new': {
-      id: '/game/new'
-      path: '/game/new'
-      fullPath: '/game/new'
-      preLoaderRoute: typeof GameNewRouteImport
+    '/matches/new': {
+      id: '/matches/new'
+      path: '/matches/new'
+      fullPath: '/matches/new'
+      preLoaderRoute: typeof MatchesNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/matches': {
+      id: '/api/matches'
+      path: '/api/matches'
+      fullPath: '/api/matches'
+      preLoaderRoute: typeof ApiMatchesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/awbw/user/$userId': {
@@ -159,7 +179,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   AuthRoute: AuthRoute,
-  GameNewRoute: GameNewRoute,
+  ApiMatchesRoute: ApiMatchesRoute,
+  MatchesNewRoute: MatchesNewRoute,
   ApiAwbwMapMapIdRoute: ApiAwbwMapMapIdRoute,
   ApiAwbwUserUserIdRoute: ApiAwbwUserUserIdRoute,
 }

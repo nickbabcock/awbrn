@@ -539,6 +539,10 @@ dependencies = [
  "awbrn-types",
  "bevy",
  "insta",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]

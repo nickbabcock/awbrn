@@ -19,7 +19,7 @@ pub struct PlayerSetup {
 }
 
 /// Configuration for creating a new game.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GameSetup {
     pub map: AwbrnMap,
     pub players: Vec<PlayerSetup>,

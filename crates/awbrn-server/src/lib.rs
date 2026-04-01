@@ -8,6 +8,7 @@ mod state;
 mod unit_id;
 mod validate;
 mod view;
+mod wasm;
 
 pub use command::{GameCommand, PostMoveAction};
 pub use error::CommandError;
@@ -17,3 +18,4 @@ pub use setup::{GameSetup, PlayerSetup, SetupError};
 pub use state::ServerGameState;
 pub use unit_id::ServerUnitId;
 pub use view::{CommandResult, PlayerUpdate, PlayerView};
+pub use wasm::WasmMatch;

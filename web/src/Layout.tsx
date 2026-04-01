@@ -23,8 +23,12 @@ export function Layout({ children }: { children: ReactNode }) {
           >
             Play
           </Link>
-          <Link to="/game/new" className="nav-link" activeProps={{ className: "nav-link active" }}>
-            New Game
+          <Link
+            to="/matches/new"
+            className="nav-link"
+            activeProps={{ className: "nav-link active" }}
+          >
+            New Match
           </Link>
           <Link to="/about" className="nav-link" activeProps={{ className: "nav-link active" }}>
             About
