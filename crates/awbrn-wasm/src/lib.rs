@@ -1,5 +1,6 @@
 use awbrn_client::{
-    AwbrnPlugin, EventBus, ExternalEvent, GameEvent, ReplayToLoad, StaticAssetPathResolver,
+    AwbrnPlugin, EventBus, ExternalEvent, GameEvent, MapAssetPathResolver, ReplayToLoad,
+    StaticAssetPathResolver,
 };
 use bevy::{
     app::PluginsState,
@@ -18,6 +19,14 @@ use web_sys::OffscreenCanvas;
 
 mod keyboard;
 mod offscreen_window_handle;
+
+const AWBW_API_ASSET_SOURCE: &str = "awbw_api";
+
+#[cfg(target_arch = "wasm32")]
+use bevy::asset::{
+    AssetApp,
+    io::{AssetSourceBuilder, wasm::HttpWasmAssetReader},
+};
 
 #[wasm_bindgen]
 extern "C" {
@@ -101,6 +110,26 @@ impl StaticAssetPathResolver for WasmStaticAssetPathResolver {
     }
 }
 
+struct WasmMapAssetPathResolver;
+
+impl MapAssetPathResolver for WasmMapAssetPathResolver {
+    fn resolve_path(&self, map_id: u32) -> String {
+        format!("{AWBW_API_ASSET_SOURCE}://api/awbw/map/{}", map_id)
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn register_awbw_asset_source(app: &mut App) {
+    app.register_asset_source(
+        AWBW_API_ASSET_SOURCE,
+        AssetSourceBuilder::new(|| Box::new(HttpWasmAssetReader::new("/")))
+            .with_processed_reader(|| Box::new(HttpWasmAssetReader::new("/"))),
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn register_awbw_asset_source(_app: &mut App) {}
+
 #[wasm_bindgen]
 pub struct BevyApp {
     app: App,
@@ -116,6 +145,7 @@ impl BevyApp {
         event_callback: Option<GameEventCallback>,
     ) -> Self {
         let mut app = App::new();
+        register_awbw_asset_source(&mut app);
 
         let mut resolution = WindowResolution::new(
             (display.width * display.scale_factor).round() as u32,
@@ -142,9 +172,10 @@ impl BevyApp {
         )
         .add_systems(PreStartup, setup_added_window);
 
-        let mut awbrn_plugin = AwbrnPlugin::default().with_static_asset_resolver(Arc::new(
-            WasmStaticAssetPathResolver::new(asset_config.static_asset_urls),
-        ));
+        let mut awbrn_plugin = AwbrnPlugin::new(Arc::new(WasmMapAssetPathResolver))
+            .with_static_asset_resolver(Arc::new(WasmStaticAssetPathResolver::new(
+                asset_config.static_asset_urls,
+            )));
         if let Some(callback) = event_callback {
             let js_value: JsValue = callback.into();
             let js_function: js_sys::Function = js_value.into();

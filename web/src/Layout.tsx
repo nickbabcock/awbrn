@@ -1,46 +1,47 @@
-import { NavLink, Outlet } from "react-router-dom";
+import type { ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
 import "./Layout.css";
 
-export function Layout() {
+export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
       <header className="nav">
-        <NavLink to="/" className="nav-logo" aria-label="AWBRN home">
+        <Link to="/" className="nav-logo" aria-label="AWBRN home">
           <span className="logo-os">A</span>
           <span className="logo-bm">W</span>
           <span className="logo-ge">B</span>
           <span className="logo-yc">R</span>
           <span className="logo-bh">N</span>
-        </NavLink>
+        </Link>
 
         <nav className="nav-links" aria-label="Main navigation">
-          <NavLink to="/" end className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}>
-            Play
-          </NavLink>
-          <NavLink
-            to="/game/new"
-            className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
+          <Link
+            to="/"
+            className="nav-link"
+            activeProps={{ className: "nav-link active" }}
+            activeOptions={{ exact: true }}
           >
+            Play
+          </Link>
+          <Link to="/game/new" className="nav-link" activeProps={{ className: "nav-link active" }}>
             New Game
-          </NavLink>
-          <NavLink to="/about" className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}>
+          </Link>
+          <Link to="/about" className="nav-link" activeProps={{ className: "nav-link active" }}>
             About
-          </NavLink>
+          </Link>
         </nav>
 
         <div className="nav-auth">
-          <NavLink to="/auth" className="nav-signin">
+          <Link to="/auth" search={{}} className="nav-signin">
             Sign In
-          </NavLink>
-          <NavLink to="/auth?mode=register" className="nav-register">
+          </Link>
+          <Link to="/auth" search={{ mode: "register" }} className="nav-register">
             Register
-          </NavLink>
+          </Link>
         </div>
       </header>
 
-      <main className="app-main">
-        <Outlet />
-      </main>
+      <main className="app-main">{children}</main>
     </div>
   );
 }
