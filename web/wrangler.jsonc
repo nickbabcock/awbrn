@@ -3,5 +3,19 @@
   "name": "awbrn-web",
   "compatibility_date": "2025-09-24",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "@tanstack/react-start/server-entry",
+  "main": "src/server.ts",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MATCHES",
+        "class_name": "MatchDurableObject",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["MatchDurableObject"],
+    },
+  ],
 }

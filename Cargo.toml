@@ -49,3 +49,9 @@ codegen-units = 4
 
 [profile.ci.package."*"]
 opt-level = 0
+
+# Optimized build to fit under cloudflare 25 MB limit
+[profile.release]
+opt-level = 's'
+lto = "thin"
+strip = true

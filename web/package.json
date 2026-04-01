@@ -5,8 +5,9 @@
   "type": "module",
   "sideEffects": false,
   "scripts": {
+    "cf-typegen": "wrangler types worker-configuration.d.ts --env-interface CloudflareBindings",
     "dev": "vite dev",
-    "build": "vite build && tsc -b",
+    "build": "pnpm run cf-typegen && vite build && tsc -b",
     "preview": "vite preview"
   },
   "dependencies": {

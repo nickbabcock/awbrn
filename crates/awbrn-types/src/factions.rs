@@ -1,6 +1,7 @@
 use crate::AwbwFactionId;
+use serde::Deserialize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum PlayerFaction {
     AcidRain = 0,

@@ -48,6 +48,13 @@ impl GameServer {
         view::build_player_view(&mut self.world, player)
     }
 
+    pub fn has_player(&self, player: PlayerId) -> bool {
+        self.world
+            .resource::<crate::player::PlayerRegistry>()
+            .get(player)
+            .is_some()
+    }
+
     /// Spawn a unit into the game world. Returns the assigned [`ServerUnitId`].
     pub fn spawn_unit(
         &mut self,
