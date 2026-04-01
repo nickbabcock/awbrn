@@ -121,6 +121,7 @@ impl Plugin for GameWorldPlugin {
             .init_resource::<world::FriendlyFactions>()
             .init_resource::<world::CurrentWeather>()
             .init_resource::<replay::PowerVisionBoosts>()
+            .init_resource::<replay::PowerMovementBoosts>()
             .init_resource::<replay::ReplayFogEnabled>()
             .init_resource::<replay::ReplayTerrainKnowledge>()
             .init_resource::<replay::ReplayViewpoint>()

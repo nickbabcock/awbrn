@@ -1,7 +1,10 @@
+use std::collections::{HashMap, HashSet};
+
 use awbrn_map::Position;
-use awbrn_types::{GraphicalTerrain, PlayerFaction};
+use awbrn_types::{GraphicalTerrain, PlayerFaction, UnitDomain, Weather};
 use bevy::prelude::*;
-use std::collections::HashSet;
+
+use super::map::GameMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FogOfWarState {
@@ -191,6 +194,95 @@ pub struct FogActive(pub bool);
 /// Derived from the replay viewpoint and player registry.
 #[derive(Resource, Default)]
 pub struct FriendlyFactions(pub HashSet<PlayerFaction>);
+
+pub fn range_modifier_for_weather(weather: Weather) -> i32 {
+    if weather == Weather::Rain { -1 } else { 0 }
+}
+
+pub struct FriendlyUnit {
+    pub position: Position,
+    pub vision: i32,
+    pub is_air: bool,
+}
+
+pub fn collect_friendly_units(
+    units: impl Iterator<Item = (Position, u32, PlayerFaction, awbrn_types::Unit)>,
+    friendly_factions: &HashSet<PlayerFaction>,
+    power_vision_boosts: Option<&HashMap<PlayerFaction, i32>>,
+) -> Vec<FriendlyUnit> {
+    units
+        .filter(|(_, _, faction, _)| friendly_factions.contains(faction))
+        .map(|(position, vision, faction, unit)| {
+            let vision_boost = power_vision_boosts
+                .and_then(|boosts| boosts.get(&faction))
+                .copied()
+                .unwrap_or_default();
+            FriendlyUnit {
+                position,
+                vision: (vision as i32 + vision_boost).max(1),
+                is_air: unit.domain() == UnitDomain::Air,
+            }
+        })
+        .collect()
+}
+
+pub fn rebuild_fog_map(
+    game_map: &GameMap,
+    friendly_factions: &HashSet<PlayerFaction>,
+    friendly_units: &[FriendlyUnit],
+    range_modifier: i32,
+    fog_map: &mut FogOfWarMap,
+) {
+    let map_width = game_map.width();
+    let map_height = game_map.height();
+    let default_props = TerrainFogProperties {
+        sight_increase: 0,
+        limit: 0,
+    };
+    let mut friendly_building_positions = Vec::new();
+    let mut terrain_lookup = vec![default_props; map_width * map_height];
+
+    for y in 0..map_height {
+        for x in 0..map_width {
+            let pos = Position::new(x, y);
+            let Some(terrain) = game_map.terrain_at(pos) else {
+                continue;
+            };
+
+            terrain_lookup[y * map_width + x] =
+                TerrainFogProperties::from_graphical_terrain(terrain);
+
+            if let GraphicalTerrain::Property(prop) = terrain
+                && let awbrn_types::Faction::Player(faction) = prop.faction()
+                && friendly_factions.contains(&faction)
+            {
+                friendly_building_positions.push(pos);
+            }
+        }
+    }
+
+    let terrain_at = |pos: Position| -> TerrainFogProperties {
+        if pos.x < map_width && pos.y < map_height {
+            terrain_lookup[pos.y * map_width + pos.x]
+        } else {
+            default_props
+        }
+    };
+
+    fog_map.reset(map_width, map_height);
+
+    for pos in &friendly_building_positions {
+        fog_map.reveal(*pos);
+    }
+
+    for unit in friendly_units {
+        let mut effective_vision = (unit.vision + range_modifier).max(1);
+        if !unit.is_air {
+            effective_vision = (effective_vision + terrain_at(unit.position).sight_increase).max(1);
+        }
+        fog_map.apply_unit_vision(unit.position, effective_vision, &terrain_at);
+    }
+}
 
 #[cfg(test)]
 mod tests {

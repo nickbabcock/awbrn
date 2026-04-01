@@ -1,0 +1,13 @@
+[package]
+name = "awbrn-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+awbrn-types = { path = "../awbrn-types", features = ["bevy"] }
+awbrn-map = { path = "../awbrn-map", features = ["bevy"] }
+awbrn-game = { path = "../awbrn-game" }
+bevy = { workspace = true, features = ["std", "bevy_log"] }
+
+[dev-dependencies]
+insta.workspace = true

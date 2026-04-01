@@ -17,7 +17,7 @@ use bevy::prelude::*;
 use crate::features::weather::CurrentWeather;
 
 #[derive(SystemParam)]
-pub struct ReplayFogResources<'w, 's> {
+pub struct ReplayFogResources<'w> {
     fog_active: Res<'w, FogActive>,
     friendly_factions: Res<'w, FriendlyFactions>,
     power_vision_boosts: Option<Res<'w, PowerVisionBoosts>>,
@@ -28,7 +28,6 @@ pub struct ReplayFogResources<'w, 's> {
     registry: Option<Res<'w, ReplayPlayerRegistry>>,
     replay_state: Option<Res<'w, ReplayState>>,
     knowledge: Option<ResMut<'w, ReplayTerrainKnowledge>>,
-    marker: std::marker::PhantomData<&'s ()>,
 }
 
 #[derive(SystemParam)]

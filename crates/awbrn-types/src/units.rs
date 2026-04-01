@@ -1,3 +1,5 @@
+use crate::UnitMovement;
+
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, strum::EnumCount, strum::VariantArray,
 )]
@@ -177,6 +179,60 @@ impl Unit {
             Unit::Sub => 6,
             Unit::TCopter => 0,
             Unit::Tank => 9,
+        }
+    }
+
+    pub const fn movement_range(&self) -> u8 {
+        match self {
+            Unit::Infantry => 3,
+            Unit::Mech => 2,
+            Unit::MdTank => 5,
+            Unit::Tank => 6,
+            Unit::Recon => 8,
+            Unit::APC => 6,
+            Unit::Artillery => 5,
+            Unit::Rocket => 5,
+            Unit::AntiAir => 6,
+            Unit::Missile => 4,
+            Unit::Fighter => 9,
+            Unit::Bomber => 7,
+            Unit::BCopter => 6,
+            Unit::TCopter => 6,
+            Unit::Battleship => 5,
+            Unit::Cruiser => 6,
+            Unit::Lander => 6,
+            Unit::Sub => 5,
+            Unit::BlackBoat => 7,
+            Unit::Carrier => 5,
+            Unit::Stealth => 6,
+            Unit::NeoTank => 6,
+            Unit::PipeRunner => 9,
+            Unit::BlackBomb => 9,
+            Unit::MegaTank => 4,
+        }
+    }
+
+    pub const fn movement_type(&self) -> UnitMovement {
+        match self {
+            Unit::Infantry => UnitMovement::Foot,
+            Unit::Mech => UnitMovement::Boot,
+            Unit::Recon | Unit::Rocket | Unit::Missile => UnitMovement::Tires,
+            Unit::MdTank
+            | Unit::Tank
+            | Unit::APC
+            | Unit::Artillery
+            | Unit::AntiAir
+            | Unit::NeoTank
+            | Unit::MegaTank => UnitMovement::Treads,
+            Unit::BCopter
+            | Unit::BlackBomb
+            | Unit::Bomber
+            | Unit::Fighter
+            | Unit::Stealth
+            | Unit::TCopter => UnitMovement::Air,
+            Unit::Battleship | Unit::Carrier | Unit::Cruiser | Unit::Sub => UnitMovement::Sea,
+            Unit::BlackBoat | Unit::Lander => UnitMovement::Lander,
+            Unit::PipeRunner => UnitMovement::Pipe,
         }
     }
 

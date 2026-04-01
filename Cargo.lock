@@ -531,6 +531,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "awbrn-server"
+version = "0.1.0"
+dependencies = [
+ "awbrn-game",
+ "awbrn-map",
+ "awbrn-types",
+ "bevy",
+ "insta",
+]
+
+[[package]]
 name = "awbrn-types"
 version = "0.1.0"
 dependencies = [
