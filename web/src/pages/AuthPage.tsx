@@ -1,10 +1,7 @@
-import { useSearchParams, Link } from "react-router-dom";
+import { Link } from "@tanstack/react-router";
 import "./AuthPage.css";
 
-export function AuthPage() {
-  const [params] = useSearchParams();
-  const isRegister = params.get("mode") === "register";
-
+export function AuthPage({ isRegister }: { isRegister: boolean }) {
   return (
     <div className="auth-page">
       <div className="auth-card">
@@ -53,7 +50,10 @@ export function AuthPage() {
             </>
           ) : (
             <>
-              New here? <Link to="/auth?mode=register">Create an account →</Link>
+              New here?{" "}
+              <Link to="/auth" search={{ mode: "register" }}>
+                Create an account →
+              </Link>
             </>
           )}
         </p>

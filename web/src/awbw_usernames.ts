@@ -11,7 +11,7 @@ export function resolveAwbwUsername(userId: number): Promise<string | null> {
     return cached;
   }
 
-  const request = fetch(`/api/awbw/username?userId=${userId}`)
+  const request = fetch(`/api/awbw/user/${userId}`)
     .then(async (response) => {
       if (!response.ok) {
         return null;
