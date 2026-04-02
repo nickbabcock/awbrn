@@ -168,6 +168,11 @@ impl BevyApp {
                     file_path: String::from("../../assets"),
                     meta_check: bevy::asset::AssetMetaCheck::Never,
                     ..AssetPlugin::default()
+                })
+                // The URLs we reference are on the same origin and controlled
+                // by the asset manifest on the JS side.
+                .set(bevy::asset::io::web::WebAssetPlugin {
+                    silence_startup_warning: true,
                 }),
         )
         .add_systems(PreStartup, setup_added_window);
