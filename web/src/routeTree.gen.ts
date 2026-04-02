@@ -14,6 +14,7 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as MatchesNewRouteImport } from './routes/matches/new'
 import { Route as ApiMatchesRouteImport } from './routes/api/matches'
+import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiAwbwUserUserIdRouteImport } from './routes/api/awbw/user.$userId'
 import { Route as ApiAwbwMapMapIdRouteImport } from './routes/api/awbw/map.$mapId'
 
@@ -42,6 +43,11 @@ const ApiMatchesRoute = ApiMatchesRouteImport.update({
   path: '/api/matches',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
+  id: '/api/auth/$',
+  path: '/api/auth/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAwbwUserUserIdRoute = ApiAwbwUserUserIdRouteImport.update({
   id: '/api/awbw/user/$userId',
   path: '/api/awbw/user/$userId',
@@ -59,6 +65,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/api/matches': typeof ApiMatchesRoute
   '/matches/new': typeof MatchesNewRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
 }
@@ -68,6 +75,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/api/matches': typeof ApiMatchesRoute
   '/matches/new': typeof MatchesNewRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
 }
@@ -78,6 +86,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/api/matches': typeof ApiMatchesRoute
   '/matches/new': typeof MatchesNewRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
 }
@@ -89,6 +98,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/api/matches'
     | '/matches/new'
+    | '/api/auth/$'
     | '/api/awbw/map/$mapId'
     | '/api/awbw/user/$userId'
   fileRoutesByTo: FileRoutesByTo
@@ -98,6 +108,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/api/matches'
     | '/matches/new'
+    | '/api/auth/$'
     | '/api/awbw/map/$mapId'
     | '/api/awbw/user/$userId'
   id:
@@ -107,6 +118,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/api/matches'
     | '/matches/new'
+    | '/api/auth/$'
     | '/api/awbw/map/$mapId'
     | '/api/awbw/user/$userId'
   fileRoutesById: FileRoutesById
@@ -117,6 +129,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ApiMatchesRoute: typeof ApiMatchesRoute
   MatchesNewRoute: typeof MatchesNewRoute
+  ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiAwbwMapMapIdRoute: typeof ApiAwbwMapMapIdRoute
   ApiAwbwUserUserIdRoute: typeof ApiAwbwUserUserIdRoute
 }
@@ -158,6 +171,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiMatchesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/auth/$': {
+      id: '/api/auth/$'
+      path: '/api/auth/$'
+      fullPath: '/api/auth/$'
+      preLoaderRoute: typeof ApiAuthSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/awbw/user/$userId': {
       id: '/api/awbw/user/$userId'
       path: '/api/awbw/user/$userId'
@@ -181,6 +201,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ApiMatchesRoute: ApiMatchesRoute,
   MatchesNewRoute: MatchesNewRoute,
+  ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiAwbwMapMapIdRoute: ApiAwbwMapMapIdRoute,
   ApiAwbwUserUserIdRoute: ApiAwbwUserUserIdRoute,
 }

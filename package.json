@@ -2,6 +2,7 @@
   "name": "pdx.tools-root",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "format": "oxfmt web",
     "format:check": "oxfmt --check web",

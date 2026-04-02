@@ -1,4 +1,4 @@
 {
   "files": [],
-  "references": [{ "path": "web" }]
+  "references": [{ "path": "web" }, { "path": "scripts" }]
 }

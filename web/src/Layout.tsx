@@ -1,8 +1,19 @@
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
+import { signOut, useSession } from "./lib/auth-client";
+import type { Session } from "./server/auth";
 import "./Layout.css";
 
-export function Layout({ children }: { children: ReactNode }) {
+export function Layout({
+  children,
+  serverSession,
+}: {
+  children: ReactNode;
+  serverSession: Session | null;
+}) {
+  const { data: clientSession } = useSession();
+  const session = clientSession ?? serverSession;
+
   return (
     <div className="app-shell">
       <header className="nav">
@@ -36,12 +47,23 @@ export function Layout({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="nav-auth">
-          <Link to="/auth" search={{}} className="nav-signin">
-            Sign In
-          </Link>
-          <Link to="/auth" search={{ mode: "register" }} className="nav-register">
-            Register
-          </Link>
+          {session ? (
+            <>
+              <span className="nav-user">{session.user.name}</span>
+              <button className="nav-signout" onClick={() => signOut()}>
+                Sign Out
+              </button>
+            </>
+          ) : (
+            <>
+              <Link to="/auth" search={{}} className="nav-signin">
+                Sign In
+              </Link>
+              <Link to="/auth" search={{ mode: "register" }} className="nav-register">
+                Register
+              </Link>
+            </>
+          )}
         </div>
       </header>
 
