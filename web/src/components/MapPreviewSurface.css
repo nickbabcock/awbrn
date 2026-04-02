@@ -1,0 +1,29 @@
+.map-preview-frame {
+  align-items: flex-start;
+  background:
+    linear-gradient(180deg, rgba(20, 26, 40, 0.78), rgba(9, 12, 19, 0.96)),
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.08), transparent 55%);
+  border: var(--panel-border);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    var(--shadow-panel);
+  display: flex;
+  justify-content: flex-start;
+  min-height: 240px;
+  overflow: auto;
+  padding: var(--space-4);
+}
+
+.map-preview-surface {
+  flex: 0 0 auto;
+  height: 400px;
+  overflow: hidden;
+  width: 600px;
+}
+
+.map-preview-canvas {
+  display: block;
+  image-rendering: pixelated;
+  outline: none;
+}

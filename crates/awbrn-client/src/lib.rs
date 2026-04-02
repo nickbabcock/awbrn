@@ -11,5 +11,5 @@ mod ui_atlas;
 pub use awbrn_plugin::AwbrnPlugin;
 pub use features::event_bus::{EventBus, ExternalEvent, GameEvent};
 pub use json_plugin::*;
-pub use loading::{MapAssetPathResolver, ReplayToLoad, StaticAssetPathResolver};
+pub use loading::{MapAssetPathResolver, PendingGameStart, ReplayToLoad, StaticAssetPathResolver};
 pub use ui_atlas::*;

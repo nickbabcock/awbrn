@@ -168,7 +168,7 @@ fn get_animation_data(unit: Unit) -> (u16, UnitAnimationData) {
 fn faction_index(faction: PlayerFaction) -> u16 {
     match faction {
         PlayerFaction::AcidRain => 0,
-        PlayerFaction::AmberBlaze => 1,
+        PlayerFaction::AmberBlossom => 1,
         PlayerFaction::AzureAsteroid => 2,
         PlayerFaction::BlackHole => 3,
         PlayerFaction::BlueMoon => 4,

@@ -47,6 +47,12 @@ export function loadCoPortraitCatalog(): CoPortraitCatalog {
   return catalog;
 }
 
+export function listCoPortraits(): CoPortraitEntry[] {
+  return Array.from(loadCoPortraitCatalog().values()).sort(
+    (left, right) => left.awbwId - right.awbwId,
+  );
+}
+
 export function getCoPortrait(coKey: string | null | undefined): CoPortraitEntry | null {
   if (!coKey) {
     return null;

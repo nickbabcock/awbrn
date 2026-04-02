@@ -1,6 +1,6 @@
 use awbrn_client::{
-    AwbrnPlugin, EventBus, ExternalEvent, GameEvent, MapAssetPathResolver, ReplayToLoad,
-    StaticAssetPathResolver,
+    AwbrnPlugin, EventBus, ExternalEvent, GameEvent, MapAssetPathResolver, PendingGameStart,
+    ReplayToLoad, StaticAssetPathResolver,
 };
 use bevy::{
     app::PluginsState,
@@ -114,7 +114,7 @@ struct WasmMapAssetPathResolver;
 
 impl MapAssetPathResolver for WasmMapAssetPathResolver {
     fn resolve_path(&self, map_id: u32) -> String {
-        format!("{AWBW_API_ASSET_SOURCE}://api/awbw/map/{}", map_id)
+        format!("{AWBW_API_ASSET_SOURCE}://api/awbw/map/{map_id}.json")
     }
 }
 
@@ -346,6 +346,15 @@ impl BevyApp {
     pub fn new_replay(&mut self, data: Vec<u8>) -> Result<(), JsError> {
         // Signal that a new replay should be loaded
         self.app.world_mut().insert_resource(ReplayToLoad(data));
+
+        Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub fn preview_map(&mut self, map_id: u32) -> Result<(), JsError> {
+        self.app
+            .world_mut()
+            .insert_resource(PendingGameStart(map_id));
 
         Ok(())
     }

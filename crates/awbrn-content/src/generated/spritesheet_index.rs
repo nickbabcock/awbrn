@@ -476,27 +476,27 @@ pub const fn spritesheet_index(weather: Weather, terrain: GraphicalTerrain) -> S
             Weather::Snow => SpritesheetIndex::new(874, 1),
             Weather::Rain => SpritesheetIndex::new(1548, 1),
         },
-        GraphicalTerrain::Property(Property::Airport(Faction::Player(PlayerFaction::AmberBlaze))) => match weather {
+        GraphicalTerrain::Property(Property::Airport(Faction::Player(PlayerFaction::AmberBlossom))) => match weather {
             Weather::Clear => SpritesheetIndex::new(199, 3),
             Weather::Snow => SpritesheetIndex::new(875, 3),
             Weather::Rain => SpritesheetIndex::new(1549, 3),
         },
-        GraphicalTerrain::Property(Property::Base(Faction::Player(PlayerFaction::AmberBlaze))) => match weather {
+        GraphicalTerrain::Property(Property::Base(Faction::Player(PlayerFaction::AmberBlossom))) => match weather {
             Weather::Clear => SpritesheetIndex::new(202, 6),
             Weather::Snow => SpritesheetIndex::new(878, 6),
             Weather::Rain => SpritesheetIndex::new(1552, 6),
         },
-        GraphicalTerrain::Property(Property::City(Faction::Player(PlayerFaction::AmberBlaze))) => match weather {
+        GraphicalTerrain::Property(Property::City(Faction::Player(PlayerFaction::AmberBlossom))) => match weather {
             Weather::Clear => SpritesheetIndex::new(208, 3),
             Weather::Snow => SpritesheetIndex::new(884, 3),
             Weather::Rain => SpritesheetIndex::new(1558, 3),
         },
-        GraphicalTerrain::Property(Property::HQ(PlayerFaction::AmberBlaze)) => match weather {
+        GraphicalTerrain::Property(Property::HQ(PlayerFaction::AmberBlossom)) => match weather {
             Weather::Clear => SpritesheetIndex::new(211, 3),
             Weather::Snow => SpritesheetIndex::new(887, 3),
             Weather::Rain => SpritesheetIndex::new(1561, 3),
         },
-        GraphicalTerrain::Property(Property::Port(Faction::Player(PlayerFaction::AmberBlaze))) => match weather {
+        GraphicalTerrain::Property(Property::Port(Faction::Player(PlayerFaction::AmberBlossom))) => match weather {
             Weather::Clear => SpritesheetIndex::new(214, 3),
             Weather::Snow => SpritesheetIndex::new(890, 3),
             Weather::Rain => SpritesheetIndex::new(1564, 3),
@@ -526,7 +526,7 @@ pub const fn spritesheet_index(weather: Weather, terrain: GraphicalTerrain) -> S
             Weather::Snow => SpritesheetIndex::new(908, 3),
             Weather::Rain => SpritesheetIndex::new(1582, 3),
         },
-        GraphicalTerrain::Property(Property::ComTower(Faction::Player(PlayerFaction::AmberBlaze))) => match weather {
+        GraphicalTerrain::Property(Property::ComTower(Faction::Player(PlayerFaction::AmberBlossom))) => match weather {
             Weather::Clear => SpritesheetIndex::new(235, 3),
             Weather::Snow => SpritesheetIndex::new(911, 3),
             Weather::Rain => SpritesheetIndex::new(1585, 3),
@@ -581,7 +581,7 @@ pub const fn spritesheet_index(weather: Weather, terrain: GraphicalTerrain) -> S
             Weather::Snow => SpritesheetIndex::new(938, 3),
             Weather::Rain => SpritesheetIndex::new(1612, 3),
         },
-        GraphicalTerrain::Property(Property::Lab(Faction::Player(PlayerFaction::AmberBlaze))) => match weather {
+        GraphicalTerrain::Property(Property::Lab(Faction::Player(PlayerFaction::AmberBlossom))) => match weather {
             Weather::Clear => SpritesheetIndex::new(265, 3),
             Weather::Snow => SpritesheetIndex::new(941, 3),
             Weather::Rain => SpritesheetIndex::new(1615, 3),

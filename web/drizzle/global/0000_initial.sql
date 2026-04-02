@@ -16,6 +16,42 @@ CREATE TABLE `account` (
 );
 --> statement-breakpoint
 CREATE INDEX `account_userId_idx` ON `account` (`userId`);--> statement-breakpoint
+CREATE TABLE `match_participants` (
+	`matchId` text NOT NULL,
+	`userId` text NOT NULL,
+	`slotIndex` integer NOT NULL,
+	`factionId` integer NOT NULL,
+	`coId` integer,
+	`ready` integer NOT NULL,
+	`joinedAt` integer NOT NULL,
+	`updatedAt` integer NOT NULL,
+	PRIMARY KEY(`matchId`, `userId`),
+	FOREIGN KEY (`matchId`) REFERENCES `matches`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`userId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `match_participants_match_slot_unique` ON `match_participants` (`matchId`,`slotIndex`);--> statement-breakpoint
+CREATE INDEX `match_participants_match_idx` ON `match_participants` (`matchId`);--> statement-breakpoint
+CREATE TABLE `matches` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`phase` text NOT NULL,
+	`creatorUserId` text NOT NULL,
+	`mapId` integer NOT NULL,
+	`maxPlayers` integer NOT NULL,
+	`isPrivate` integer NOT NULL,
+	`joinSlug` text,
+	`settings` text NOT NULL,
+	`createdAt` integer NOT NULL,
+	`updatedAt` integer NOT NULL,
+	`startedAt` integer,
+	`completedAt` integer,
+	FOREIGN KEY (`creatorUserId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict
+);
+--> statement-breakpoint
+CREATE INDEX `matches_creator_idx` ON `matches` (`creatorUserId`);--> statement-breakpoint
+CREATE INDEX `matches_browse_idx` ON `matches` (`phase`,`isPrivate`,`createdAt`);--> statement-breakpoint
+CREATE UNIQUE INDEX `matches_joinSlug_unique` ON `matches` (`joinSlug`);--> statement-breakpoint
 CREATE TABLE `session` (
 	`id` text PRIMARY KEY NOT NULL,
 	`expiresAt` integer NOT NULL,

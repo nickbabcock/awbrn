@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { signOut, useSession } from "./lib/auth-client";
+import { signOut } from "./lib/auth-client";
+import { useAppSession } from "./lib/useAppSession";
 import type { Session } from "./server/auth";
 import "./Layout.css";
 
@@ -11,8 +12,7 @@ export function Layout({
   children: ReactNode;
   serverSession: Session | null;
 }) {
-  const { data: clientSession } = useSession();
-  const session = clientSession ?? serverSession;
+  const session = useAppSession() ?? serverSession;
 
   return (
     <div className="app-shell">

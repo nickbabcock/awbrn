@@ -512,12 +512,14 @@ impl From<AwbwTerrain> for AwbwTerrainId {
                 Property::Port(Faction::Player(PlayerFaction::BrownDesert)) => AwbwTerrainId(99),
                 Property::HQ(PlayerFaction::BrownDesert) => AwbwTerrainId(100),
 
-                // Amber Blaze properties
-                Property::Airport(Faction::Player(PlayerFaction::AmberBlaze)) => AwbwTerrainId(117),
-                Property::Base(Faction::Player(PlayerFaction::AmberBlaze)) => AwbwTerrainId(118),
-                Property::City(Faction::Player(PlayerFaction::AmberBlaze)) => AwbwTerrainId(119),
-                Property::HQ(PlayerFaction::AmberBlaze) => AwbwTerrainId(120),
-                Property::Port(Faction::Player(PlayerFaction::AmberBlaze)) => AwbwTerrainId(121),
+                // Amber Blossom properties
+                Property::Airport(Faction::Player(PlayerFaction::AmberBlossom)) => {
+                    AwbwTerrainId(117)
+                }
+                Property::Base(Faction::Player(PlayerFaction::AmberBlossom)) => AwbwTerrainId(118),
+                Property::City(Faction::Player(PlayerFaction::AmberBlossom)) => AwbwTerrainId(119),
+                Property::HQ(PlayerFaction::AmberBlossom) => AwbwTerrainId(120),
+                Property::Port(Faction::Player(PlayerFaction::AmberBlossom)) => AwbwTerrainId(121),
 
                 // Jade Sun properties
                 Property::Airport(Faction::Player(PlayerFaction::JadeSun)) => AwbwTerrainId(122),
@@ -527,7 +529,7 @@ impl From<AwbwTerrain> for AwbwTerrainId {
                 Property::Port(Faction::Player(PlayerFaction::JadeSun)) => AwbwTerrainId(126),
 
                 // Com Towers
-                Property::ComTower(Faction::Player(PlayerFaction::AmberBlaze)) => {
+                Property::ComTower(Faction::Player(PlayerFaction::AmberBlossom)) => {
                     AwbwTerrainId(127)
                 }
                 Property::ComTower(Faction::Player(PlayerFaction::BlackHole)) => AwbwTerrainId(128),
@@ -550,7 +552,7 @@ impl From<AwbwTerrain> for AwbwTerrainId {
                 Property::ComTower(Faction::Player(PlayerFaction::GreySky)) => AwbwTerrainId(137),
 
                 // Labs
-                Property::Lab(Faction::Player(PlayerFaction::AmberBlaze)) => AwbwTerrainId(138),
+                Property::Lab(Faction::Player(PlayerFaction::AmberBlossom)) => AwbwTerrainId(138),
                 Property::Lab(Faction::Player(PlayerFaction::BlackHole)) => AwbwTerrainId(139),
                 Property::Lab(Faction::Player(PlayerFaction::BlueMoon)) => AwbwTerrainId(140),
                 Property::Lab(Faction::Player(PlayerFaction::BrownDesert)) => AwbwTerrainId(141),
@@ -953,21 +955,21 @@ impl TryFrom<u8> for AwbwTerrain {
             115 => Ok(AwbwTerrain::PipeRubble(PipeRubbleType::Horizontal)),
             116 => Ok(AwbwTerrain::PipeRubble(PipeRubbleType::Vertical)),
 
-            // Amber Blaze properties
+            // Amber Blossom properties
             117 => Ok(AwbwTerrain::Property(Property::Airport(Faction::Player(
-                PlayerFaction::AmberBlaze,
+                PlayerFaction::AmberBlossom,
             )))),
             118 => Ok(AwbwTerrain::Property(Property::Base(Faction::Player(
-                PlayerFaction::AmberBlaze,
+                PlayerFaction::AmberBlossom,
             )))),
             119 => Ok(AwbwTerrain::Property(Property::City(Faction::Player(
-                PlayerFaction::AmberBlaze,
+                PlayerFaction::AmberBlossom,
             )))),
             120 => Ok(AwbwTerrain::Property(Property::HQ(
-                PlayerFaction::AmberBlaze,
+                PlayerFaction::AmberBlossom,
             ))),
             121 => Ok(AwbwTerrain::Property(Property::Port(Faction::Player(
-                PlayerFaction::AmberBlaze,
+                PlayerFaction::AmberBlossom,
             )))),
 
             // Jade Sun properties
@@ -987,7 +989,7 @@ impl TryFrom<u8> for AwbwTerrain {
 
             // Com Towers
             127 => Ok(AwbwTerrain::Property(Property::ComTower(Faction::Player(
-                PlayerFaction::AmberBlaze,
+                PlayerFaction::AmberBlossom,
             )))),
             128 => Ok(AwbwTerrain::Property(Property::ComTower(Faction::Player(
                 PlayerFaction::BlackHole,
@@ -1020,7 +1022,7 @@ impl TryFrom<u8> for AwbwTerrain {
 
             // Labs
             138 => Ok(AwbwTerrain::Property(Property::Lab(Faction::Player(
-                PlayerFaction::AmberBlaze,
+                PlayerFaction::AmberBlossom,
             )))),
             139 => Ok(AwbwTerrain::Property(Property::Lab(Faction::Player(
                 PlayerFaction::BlackHole,

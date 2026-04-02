@@ -16,11 +16,13 @@ fn two_player_setup(width: usize, height: usize) -> GameSetup {
                 faction: PlayerFaction::OrangeStar,
                 team: None,
                 starting_funds: 1000,
+                co_id: None,
             },
             PlayerSetup {
                 faction: PlayerFaction::BlueMoon,
                 team: None,
                 starting_funds: 1000,
+                co_id: None,
             },
         ],
         fog_enabled: false,
@@ -62,6 +64,7 @@ fn server_rejects_more_than_255_players() {
                 faction: PlayerFaction::OrangeStar,
                 team: None,
                 starting_funds: 1000,
+                co_id: None,
             };
             256
         ],
@@ -449,11 +452,13 @@ fn allied_units_share_fuel_and_ammo_visibility() {
                 faction: PlayerFaction::OrangeStar,
                 team: Some(NonZeroU8::new(1).unwrap()),
                 starting_funds: 1000,
+                co_id: None,
             },
             PlayerSetup {
                 faction: PlayerFaction::BlueMoon,
                 team: Some(NonZeroU8::new(1).unwrap()),
                 starting_funds: 1000,
+                co_id: None,
             },
         ],
         fog_enabled: false,

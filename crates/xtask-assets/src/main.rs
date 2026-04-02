@@ -250,8 +250,35 @@ struct UiAtlasData {
 
 #[derive(Debug, Deserialize)]
 struct CountryEntry {
+    #[serde(rename = "AWBWID")]
+    awbw_id: u8,
     code: String,
     name: String,
+    #[serde(rename = "faceDirection")]
+    face_direction: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FactionCatalogEntry {
+    id: u8,
+    code: String,
+    display_name: String,
+    faces_right: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct FactionCatalogData {
+    factions: Vec<FactionCatalogEntry>,
+}
+
+#[derive(Debug, Clone)]
+struct FactionMetadataEntry {
+    faction: PlayerFaction,
+    awbw_id: u8,
+    code: String,
+    name: String,
+    faces_right: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -391,8 +418,7 @@ struct UnitAtlasSheet {
 
 #[derive(Debug, Serialize)]
 struct UnitAtlasFactionEntry {
-    code: String,
-    name: String,
+    id: u8,
     index: u16,
 }
 
@@ -409,7 +435,7 @@ const UNIT_FACTIONS: [FactionDefinition; 20] = [
         folder: "AcidRain",
     },
     FactionDefinition {
-        faction: PlayerFaction::AmberBlaze,
+        faction: PlayerFaction::AmberBlossom,
         folder: "AmberBlossom",
     },
     FactionDefinition {
@@ -493,10 +519,11 @@ fn main() -> Result<()> {
         Some("units") => run_units(),
         Some("ui") => run_ui(),
         Some("logos") => run_logos(),
+        Some("factions") => run_factions(),
         Some("co") | Some("co-portraits") => run_co_portraits(),
         _ => {
             eprintln!(
-                "Usage: {} [tiles|units|ui|logos|co]",
+                "Usage: {} [tiles|units|ui|logos|factions|co]",
                 args.first().map(String::as_str).unwrap_or("xtask-assets")
             );
             std::process::exit(1);
@@ -791,6 +818,22 @@ fn run_logos() -> Result<()> {
     Ok(())
 }
 
+fn run_factions() -> Result<()> {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+    let countries_path =
+        repo_root.join("assets/AWBW-Replay-Player/AWBWApp.Resources/Json/Countries.json");
+    let json_output_path = repo_root.join("assets/data/factions.json");
+    let rust_output_path = repo_root.join("crates/awbrn-types/src/generated/factions.rs");
+
+    let countries = load_countries_in_order(&countries_path)?;
+    let metadata = build_faction_metadata(&countries)?;
+
+    write_faction_catalog_json(&metadata, &json_output_path)?;
+    write_generated_faction_lookup(&metadata, &rust_output_path)?;
+
+    Ok(())
+}
+
 fn run_co_portraits() -> Result<()> {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
     let assets_root = repo_root.join("assets/AWBW-Replay-Player/AWBWApp.Resources");
@@ -1026,7 +1069,7 @@ fn build_ui_atlas(
     for sprite in sprites {
         let placement = placements
             .get(&sprite.name)
-            .ok_or_else(|| anyhow!("Missing placement for {}", sprite.name))?;
+            .with_context(|| format!("Missing placement for {}", sprite.name))?;
         image::imageops::overlay(
             &mut atlas,
             &sprite.image,
@@ -1058,7 +1101,7 @@ fn write_ui_atlas_data(
     for sprite in sprites {
         let placement = placements
             .get(&sprite.name)
-            .ok_or_else(|| anyhow!("Missing placement for {}", sprite.name))?;
+            .with_context(|| format!("Missing placement for {}", sprite.name))?;
 
         entries.push(UiAtlasSprite {
             name: sprite.name.clone(),
@@ -1126,6 +1169,118 @@ fn load_countries_in_order(path: &Path) -> Result<Vec<CountryEntry>> {
     Ok(entries.into_values().collect())
 }
 
+fn build_faction_metadata(countries: &[CountryEntry]) -> Result<Vec<FactionMetadataEntry>> {
+    let mut seen_codes = HashSet::new();
+    let mut seen_awbw_ids = HashSet::new();
+    let mut seen_factions = HashSet::new();
+    let mut metadata = Vec::with_capacity(countries.len());
+
+    for country in countries {
+        if !seen_codes.insert(country.code.clone()) {
+            return Err(anyhow!(
+                "Duplicate country code in Countries.json: {}",
+                country.code
+            ));
+        }
+
+        if !seen_awbw_ids.insert(country.awbw_id) {
+            return Err(anyhow!(
+                "Duplicate AWBW faction id in Countries.json: {}",
+                country.awbw_id
+            ));
+        }
+
+        let faction = PlayerFaction::from_country_code(&country.code).with_context(|| {
+            format!(
+                "Unsupported country code in Countries.json: {} ({})",
+                country.code, country.name
+            )
+        })?;
+
+        if !seen_factions.insert(faction) {
+            return Err(anyhow!(
+                "Duplicate player faction mapping for country code {}",
+                country.code
+            ));
+        }
+
+        if faction.awbw_id().as_u8() != country.awbw_id {
+            return Err(anyhow!(
+                "AWBW faction id mismatch for {}: PlayerFaction says {}, Countries.json says {}",
+                country.name,
+                faction.awbw_id().as_u8(),
+                country.awbw_id
+            ));
+        }
+
+        let faces_right = match country.face_direction.as_str() {
+            "Right" => true,
+            "Left" => false,
+            other => {
+                return Err(anyhow!(
+                    "Unsupported faceDirection {} for {}",
+                    other,
+                    country.name
+                ));
+            }
+        };
+
+        metadata.push(FactionMetadataEntry {
+            faction,
+            awbw_id: country.awbw_id,
+            code: country.code.clone(),
+            name: country.name.clone(),
+            faces_right,
+        });
+    }
+
+    for faction in PlayerFaction::VARIANTS {
+        if !seen_factions.contains(faction) {
+            return Err(anyhow!(
+                "Missing Countries.json entry for PlayerFaction::{:?}",
+                faction
+            ));
+        }
+    }
+
+    Ok(metadata)
+}
+
+fn write_faction_catalog_json(metadata: &[FactionMetadataEntry], output_path: &Path) -> Result<()> {
+    let content = serde_json::to_string_pretty(&FactionCatalogData {
+        factions: metadata
+            .iter()
+            .map(|entry| FactionCatalogEntry {
+                id: entry.awbw_id,
+                code: entry.code.clone(),
+                display_name: entry.name.clone(),
+                faces_right: entry.faces_right,
+            })
+            .collect(),
+    })
+    .context("Serializing faction catalog data")?;
+
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).context("Creating faction catalog output directory")?;
+    }
+
+    fs::write(output_path, content).context("Writing faction catalog data")?;
+    Ok(())
+}
+
+fn write_generated_faction_lookup(
+    metadata: &[FactionMetadataEntry],
+    output_path: &Path,
+) -> Result<()> {
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).context("Creating generated faction lookup directory")?;
+    }
+
+    fs::write(output_path, render_faction_lookup(metadata))
+        .context("Writing generated faction lookup")?;
+    Ok(())
+}
+
 fn load_rgba_image(path: &Path) -> Result<RgbaImage> {
     let reader = ImageReader::open(path).with_context(|| format!("Opening {}", path.display()))?;
     let reader = reader
@@ -1143,7 +1298,7 @@ fn build_unit_definitions(units: Vec<(String, UnitEntry)>) -> Result<Vec<UnitDef
 
     for (name, entry) in units {
         let unit = Unit::from_awbw_name(&name)
-            .ok_or_else(|| anyhow!("Unknown unit name in Units.json: {name}"))?;
+            .with_context(|| format!("Unknown unit name in Units.json: {name}"))?;
         if !seen.insert(unit) {
             return Err(anyhow!("Duplicate unit definition for {name}"));
         }
@@ -1367,8 +1522,7 @@ fn write_unit_atlas_manifest(
             .iter()
             .enumerate()
             .map(|(index, entry)| UnitAtlasFactionEntry {
-                code: entry.faction.country_code().to_string(),
-                name: format!("{:?}", entry.faction),
+                id: entry.faction.id(),
                 index: index as u16,
             })
             .collect(),
@@ -1425,7 +1579,7 @@ fn add_sea_alias(
     let source_tile = terrain_map
         .get(&source_key)
         .cloned()
-        .ok_or_else(|| anyhow!("Missing sea texture for {source}"))?;
+        .with_context(|| format!("Missing sea texture for {source}"))?;
 
     let mut alias_tile = source_tile.clone();
     alias_tile.terrain = alias_key;
@@ -1612,7 +1766,7 @@ fn player_faction_from_awbw_id(id: u16) -> Option<&'static str> {
         6 => Some("RedFire"),
         7 => Some("GreySky"),
         8 => Some("BrownDesert"),
-        9 => Some("AmberBlaze"),
+        9 => Some("AmberBlossom"),
         10 => Some("JadeSun"),
         16 => Some("CobaltIce"),
         17 => Some("PinkCosmos"),
@@ -1641,12 +1795,12 @@ fn add_frames(
             .textures
             .snow
             .as_ref()
-            .ok_or_else(|| anyhow!("Missing snow texture"))?,
+            .context("Missing snow texture")?,
         WeatherKind::Rain => tile
             .textures
             .rain
             .as_ref()
-            .ok_or_else(|| anyhow!("Missing rain texture"))?,
+            .context("Missing rain texture")?,
     };
 
     for frame in 0..tile.frames {
@@ -2036,6 +2190,77 @@ fn render_co_portrait_lookup(
     }
     output.push_str("        _ => None,\n");
     output.push_str("    }\n}\n");
+    output
+}
+
+fn render_faction_lookup(metadata: &[FactionMetadataEntry]) -> String {
+    let mut output = String::new();
+    output.push_str("// This file is @generated by xtask-assets.\n\n");
+    output.push_str(&format!(
+        "pub const PLAYER_FACTION_METADATA: [PlayerFactionMetadata; {}] = [\n",
+        metadata.len()
+    ));
+    for entry in metadata {
+        output.push_str(&format!(
+            "    PlayerFactionMetadata::new(PlayerFaction::{:?}, AwbwFactionId::new({}), {:?}, {:?}, {}),\n",
+            entry.faction, entry.awbw_id, entry.code, entry.name, entry.faces_right
+        ));
+    }
+    output.push_str("];\n\n");
+    output.push_str(
+        "const fn player_faction_metadata(faction: PlayerFaction) -> PlayerFactionMetadata {\n",
+    );
+    output.push_str("    match faction {\n");
+    for entry in metadata {
+        output.push_str(&format!(
+            "        PlayerFaction::{:?} => PlayerFactionMetadata::new(PlayerFaction::{:?}, AwbwFactionId::new({}), {:?}, {:?}, {}),\n",
+            entry.faction, entry.faction, entry.awbw_id, entry.code, entry.name, entry.faces_right
+        ));
+    }
+    output.push_str("    }\n");
+    output.push_str("}\n\n");
+    output.push_str("const fn player_faction_name(faction: PlayerFaction) -> &'static str {\n");
+    output.push_str("    player_faction_metadata(faction).name()\n");
+    output.push_str("}\n\n");
+    output.push_str(
+        "const fn player_faction_country_code(faction: PlayerFaction) -> &'static str {\n",
+    );
+    output.push_str("    player_faction_metadata(faction).country_code()\n");
+    output.push_str("}\n\n");
+    output.push_str("const fn player_faction_awbw_id(faction: PlayerFaction) -> AwbwFactionId {\n");
+    output.push_str("    player_faction_metadata(faction).awbw_id()\n");
+    output.push_str("}\n\n");
+    output.push_str("const fn player_faction_id(faction: PlayerFaction) -> u8 {\n");
+    output.push_str("    player_faction_metadata(faction).awbw_id().as_u8()\n");
+    output.push_str("}\n\n");
+    output.push_str("const fn player_faction_faces_right(faction: PlayerFaction) -> bool {\n");
+    output.push_str("    player_faction_metadata(faction).faces_right()\n");
+    output.push_str("}\n\n");
+    output.push_str("fn player_faction_from_country_code(code: &str) -> Option<PlayerFaction> {\n");
+    output.push_str("    match code {\n");
+    for entry in metadata {
+        output.push_str(&format!(
+            "        {:?} => Some(PlayerFaction::{:?}),\n",
+            entry.code, entry.faction
+        ));
+    }
+    output.push_str("        _ => None,\n");
+    output.push_str("    }\n");
+    output.push_str("}\n\n");
+    output.push_str("fn player_faction_from_id(id: u8) -> Option<PlayerFaction> {\n");
+    output.push_str("    player_faction_from_awbw_id(id)\n");
+    output.push_str("}\n\n");
+    output.push_str("fn player_faction_from_awbw_id(id: u8) -> Option<PlayerFaction> {\n");
+    output.push_str("    match id {\n");
+    for entry in metadata {
+        output.push_str(&format!(
+            "        {} => Some(PlayerFaction::{:?}),\n",
+            entry.awbw_id, entry.faction
+        ));
+    }
+    output.push_str("        _ => None,\n");
+    output.push_str("    }\n");
+    output.push_str("}\n");
     output
 }
 

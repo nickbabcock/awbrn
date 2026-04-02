@@ -60,7 +60,7 @@ pub struct LoadedReplay(pub AwbwReplay);
 
 /// Resource to mark that a new game should be started
 #[derive(Resource)]
-pub struct PendingGameStart(pub Handle<AwbwMapAsset>);
+pub struct PendingGameStart(pub u32);
 
 #[derive(Resource, Clone)]
 pub(crate) struct MapPathResolver(pub(crate) Arc<dyn MapAssetPathResolver>);
@@ -193,7 +193,8 @@ pub(crate) fn detect_pending_game_start(
     mut transitions: LoadingTransitions,
     asset_loader: ClientAssetLoader,
 ) {
-    commands.insert_resource(MapAssetHandle(pending_game.0.clone()));
+    let map_handle = asset_loader.load_map(pending_game.0);
+    commands.insert_resource(MapAssetHandle(map_handle));
     commands.remove_resource::<PendingGameStart>();
 
     commands.insert_resource(asset_loader.load_pending_ui_atlas());

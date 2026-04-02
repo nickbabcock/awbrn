@@ -92,7 +92,7 @@ expression: snapshot_data
       408,
       3
     ],
-    "Property(Airport(Player(AmberBlaze)))": [
+    "Property(Airport(Player(AmberBlossom)))": [
       199,
       3
     ],
@@ -176,7 +176,7 @@ expression: snapshot_data
       411,
       6
     ],
-    "Property(Base(Player(AmberBlaze)))": [
+    "Property(Base(Player(AmberBlossom)))": [
       202,
       6
     ],
@@ -260,7 +260,7 @@ expression: snapshot_data
       417,
       3
     ],
-    "Property(City(Player(AmberBlaze)))": [
+    "Property(City(Player(AmberBlossom)))": [
       208,
       3
     ],
@@ -344,7 +344,7 @@ expression: snapshot_data
       420,
       3
     ],
-    "Property(ComTower(Player(AmberBlaze)))": [
+    "Property(ComTower(Player(AmberBlossom)))": [
       235,
       3
     ],
@@ -424,7 +424,7 @@ expression: snapshot_data
       423,
       3
     ],
-    "Property(HQ(AmberBlaze))": [
+    "Property(HQ(AmberBlossom))": [
       211,
       3
     ],
@@ -508,7 +508,7 @@ expression: snapshot_data
       426,
       3
     ],
-    "Property(Lab(Player(AmberBlaze)))": [
+    "Property(Lab(Player(AmberBlossom)))": [
       265,
       3
     ],
@@ -592,7 +592,7 @@ expression: snapshot_data
       429,
       3
     ],
-    "Property(Port(Player(AmberBlaze)))": [
+    "Property(Port(Player(AmberBlossom)))": [
       214,
       3
     ],
@@ -862,7 +862,7 @@ expression: snapshot_data
       1758,
       3
     ],
-    "Property(Airport(Player(AmberBlaze)))": [
+    "Property(Airport(Player(AmberBlossom)))": [
       1549,
       3
     ],
@@ -946,7 +946,7 @@ expression: snapshot_data
       1761,
       6
     ],
-    "Property(Base(Player(AmberBlaze)))": [
+    "Property(Base(Player(AmberBlossom)))": [
       1552,
       6
     ],
@@ -1030,7 +1030,7 @@ expression: snapshot_data
       1767,
       3
     ],
-    "Property(City(Player(AmberBlaze)))": [
+    "Property(City(Player(AmberBlossom)))": [
       1558,
       3
     ],
@@ -1114,7 +1114,7 @@ expression: snapshot_data
       1770,
       3
     ],
-    "Property(ComTower(Player(AmberBlaze)))": [
+    "Property(ComTower(Player(AmberBlossom)))": [
       1585,
       3
     ],
@@ -1194,7 +1194,7 @@ expression: snapshot_data
       1773,
       3
     ],
-    "Property(HQ(AmberBlaze))": [
+    "Property(HQ(AmberBlossom))": [
       1561,
       3
     ],
@@ -1278,7 +1278,7 @@ expression: snapshot_data
       1776,
       3
     ],
-    "Property(Lab(Player(AmberBlaze)))": [
+    "Property(Lab(Player(AmberBlossom)))": [
       1615,
       3
     ],
@@ -1362,7 +1362,7 @@ expression: snapshot_data
       1779,
       3
     ],
-    "Property(Port(Player(AmberBlaze)))": [
+    "Property(Port(Player(AmberBlossom)))": [
       1564,
       3
     ],
@@ -1632,7 +1632,7 @@ expression: snapshot_data
       1084,
       3
     ],
-    "Property(Airport(Player(AmberBlaze)))": [
+    "Property(Airport(Player(AmberBlossom)))": [
       875,
       3
     ],
@@ -1716,7 +1716,7 @@ expression: snapshot_data
       1087,
       6
     ],
-    "Property(Base(Player(AmberBlaze)))": [
+    "Property(Base(Player(AmberBlossom)))": [
       878,
       6
     ],
@@ -1800,7 +1800,7 @@ expression: snapshot_data
       1093,
       3
     ],
-    "Property(City(Player(AmberBlaze)))": [
+    "Property(City(Player(AmberBlossom)))": [
       884,
       3
     ],
@@ -1884,7 +1884,7 @@ expression: snapshot_data
       1096,
       3
     ],
-    "Property(ComTower(Player(AmberBlaze)))": [
+    "Property(ComTower(Player(AmberBlossom)))": [
       911,
       3
     ],
@@ -1964,7 +1964,7 @@ expression: snapshot_data
       1099,
       3
     ],
-    "Property(HQ(AmberBlaze))": [
+    "Property(HQ(AmberBlossom))": [
       887,
       3
     ],
@@ -2048,7 +2048,7 @@ expression: snapshot_data
       1102,
       3
     ],
-    "Property(Lab(Player(AmberBlaze)))": [
+    "Property(Lab(Player(AmberBlossom)))": [
       941,
       3
     ],
@@ -2132,7 +2132,7 @@ expression: snapshot_data
       1105,
       3
     ],
-    "Property(Port(Player(AmberBlaze)))": [
+    "Property(Port(Player(AmberBlossom)))": [
       890,
       3
     ],

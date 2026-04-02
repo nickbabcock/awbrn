@@ -12,103 +12,83 @@
   "framesPerFaction": 285,
   "factions": [
     {
-      "code": "ar",
-      "name": "AcidRain",
+      "id": 21,
       "index": 0
     },
     {
-      "code": "ab",
-      "name": "AmberBlaze",
+      "id": 9,
       "index": 1
     },
     {
-      "code": "aa",
-      "name": "AzureAsteroid",
+      "id": 23,
       "index": 2
     },
     {
-      "code": "bh",
-      "name": "BlackHole",
+      "id": 5,
       "index": 3
     },
     {
-      "code": "bm",
-      "name": "BlueMoon",
+      "id": 2,
       "index": 4
     },
     {
-      "code": "bd",
-      "name": "BrownDesert",
+      "id": 8,
       "index": 5
     },
     {
-      "code": "ci",
-      "name": "CobaltIce",
+      "id": 16,
       "index": 6
     },
     {
-      "code": "ge",
-      "name": "GreenEarth",
+      "id": 3,
       "index": 7
     },
     {
-      "code": "gs",
-      "name": "GreySky",
+      "id": 7,
       "index": 8
     },
     {
-      "code": "js",
-      "name": "JadeSun",
+      "id": 10,
       "index": 9
     },
     {
-      "code": "ne",
-      "name": "NoirEclipse",
+      "id": 24,
       "index": 10
     },
     {
-      "code": "os",
-      "name": "OrangeStar",
+      "id": 1,
       "index": 11
     },
     {
-      "code": "pc",
-      "name": "PinkCosmos",
+      "id": 17,
       "index": 12
     },
     {
-      "code": "pl",
-      "name": "PurpleLightning",
+      "id": 20,
       "index": 13
     },
     {
-      "code": "rf",
-      "name": "RedFire",
+      "id": 6,
       "index": 14
     },
     {
-      "code": "sc",
-      "name": "SilverClaw",
+      "id": 25,
       "index": 15
     },
     {
-      "code": "tg",
-      "name": "TealGalaxy",
+      "id": 19,
       "index": 16
     },
     {
-      "code": "uw",
-      "name": "UmberWilds",
+      "id": 26,
       "index": 17
     },
     {
-      "code": "wn",
-      "name": "WhiteNova",
+      "id": 22,
       "index": 18
     },
     {
-      "code": "yc",
-      "name": "YellowComet",
+      "id": 4,
       "index": 19
     }
   ],
