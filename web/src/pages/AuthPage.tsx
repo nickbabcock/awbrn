@@ -1,7 +1,41 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { signIn, signUp } from "../lib/auth-client";
 import "./AuthPage.css";
 
 export function AuthPage({ isRegister }: { isRegister: boolean }) {
+  const navigate = useNavigate();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, setIsPending] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setIsPending(true);
+
+    try {
+      if (isRegister) {
+        const result = await signUp.email({ email, password, name });
+        if (result.error) {
+          setError(result.error.message ?? "Registration failed");
+          return;
+        }
+      } else {
+        const result = await signIn.email({ email, password });
+        if (result.error) {
+          setError(result.error.message ?? "Sign in failed");
+          return;
+        }
+      }
+      await navigate({ to: "/" });
+    } finally {
+      setIsPending(false);
+    }
+  }
+
   return (
     <div className="auth-page">
       <div className="auth-card">
@@ -9,13 +43,21 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
           <h1 className="auth-title">{isRegister ? "Register" : "Sign In"}</h1>
         </div>
 
-        <form className="auth-form" onSubmit={(e) => e.preventDefault()}>
+        <form className="auth-form" onSubmit={handleSubmit}>
           {isRegister && (
             <div className="auth-field">
-              <label className="auth-label" htmlFor="username">
-                Username
+              <label className="auth-label" htmlFor="name">
+                Name
               </label>
-              <input className="auth-input" id="username" type="text" autoComplete="username" />
+              <input
+                className="auth-input"
+                id="name"
+                type="text"
+                autoComplete="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
             </div>
           )}
 
@@ -23,7 +65,15 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
             <label className="auth-label" htmlFor="email">
               Email
             </label>
-            <input className="auth-input" id="email" type="email" autoComplete="email" />
+            <input
+              className="auth-input"
+              id="email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
           </div>
 
           <div className="auth-field">
@@ -35,11 +85,20 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
               id="password"
               type="password"
               autoComplete={isRegister ? "new-password" : "current-password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
             />
           </div>
 
-          <button className="auth-submit" type="submit">
-            {isRegister ? "Create Account" : "Sign In"}
+          {error && (
+            <p className="auth-error" role="alert">
+              {error}
+            </p>
+          )}
+
+          <button className="auth-submit" type="submit" disabled={isPending}>
+            {isPending ? "..." : isRegister ? "Create Account" : "Sign In"}
           </button>
         </form>
 

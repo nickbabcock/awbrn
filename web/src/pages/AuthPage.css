@@ -124,3 +124,9 @@
 .auth-switch a:hover {
   text-decoration: underline;
 }
+
+.auth-error {
+  color: var(--color-red, #c0392b);
+  font-size: 0.75rem;
+  margin: 0;
+}

@@ -71,7 +71,9 @@ run = [
 description = "Run the web server"
 dir = "web"
 run = [
-    "pnpm run dev"
+    "node ../scripts/setup-dev.ts",
+    "pnpm exec wrangler d1 migrations apply awbrn-db --local",
+    "pnpm run dev",
 ]
 
 [tasks."desktop"]

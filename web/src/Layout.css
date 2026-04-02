@@ -151,6 +151,32 @@
   transform: translateY(3px);
 }
 
+.nav-user {
+  color: var(--text-secondary);
+  font-family: var(--font-pixel);
+  font-size: var(--text-pixel-xs);
+  letter-spacing: var(--tracking-pixel);
+  line-height: var(--leading-pixel);
+  padding: var(--space-1) var(--space-2);
+}
+
+.nav-signout {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-pixel);
+  font-size: var(--text-pixel-xs);
+  letter-spacing: var(--tracking-pixel);
+  line-height: var(--leading-pixel);
+  padding: var(--space-1) var(--space-2);
+  transition: color var(--anim-fast) var(--ease-out);
+}
+
+.nav-signout:hover {
+  color: var(--text-primary);
+}
+
 /* ── Main Content Area ────────────────────────────────────────────── */
 
 .app-main {
