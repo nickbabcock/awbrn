@@ -1,22 +1,18 @@
 import { DurableObject } from "cloudflare:workers";
+import { drizzle, DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
+import { migrate } from "drizzle-orm/durable-sqlite/migrator";
+import { count } from "drizzle-orm";
 import { WasmMatch, initSync } from "../wasm/awbrn_server";
 import matchWasmModule from "../wasm/awbrn_server_bg.wasm";
 import {
-  err,
   normalizeCaughtError,
   ok,
+  err,
   type MatchCreateResponse,
   type MatchResult,
 } from "./match_protocol";
-
-const CREATE_EVENTS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS events (
-    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    created_at_ms INTEGER NOT NULL
-  )
-`;
+import migrations from "../../drizzle/match/migrations";
+import { matchEventsTable } from "../db/match";
 
 let wasmInitialized = false;
 
@@ -29,37 +25,25 @@ function ensureMatchWasmInitialized(): void {
   wasmInitialized = true;
 }
 
-function matchError(
-  code: string,
-  message: string,
-  httpStatus: number,
-  details?: unknown,
-): MatchResult<never> {
-  return err(code, message, httpStatus, details);
-}
-
 export class MatchDurableObject extends DurableObject<CloudflareBindings> {
-  private readonly state: DurableObjectState;
-  private readonly schemaReady: Promise<void>;
+  private readonly db: DrizzleSqliteDODatabase;
 
   constructor(ctx: DurableObjectState, env: CloudflareBindings) {
     super(ctx, env);
-    this.state = ctx;
-    this.schemaReady = ctx.blockConcurrencyWhile(async () => {
-      ctx.storage.sql.exec(CREATE_EVENTS_TABLE_SQL);
+    this.db = drizzle(ctx.storage);
+    ctx.blockConcurrencyWhile(async () => {
+      await migrate(this.db, migrations);
     });
   }
 
   async initializeMatch(setup: unknown): Promise<MatchResult<MatchCreateResponse>> {
-    await this.schemaReady;
-
     try {
       if (this.hasPersistedEvents()) {
-        return matchError(
+        return err(
           "matchAlreadyInitialized",
           "match durable object has already been initialized",
           409,
-          { matchId: this.state.id.toString() },
+          { matchId: this.ctx.id.toString() },
         );
       }
 
@@ -67,25 +51,25 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       new WasmMatch(setup);
       this.appendEvent("setup", setup);
 
-      return ok({ matchId: this.state.id.toString() });
+      return ok({ matchId: this.ctx.id.toString() });
     } catch (error) {
       return normalizeCaughtError(error);
     }
   }
 
   private hasPersistedEvents(): boolean {
-    const row = this.state.storage.sql.exec("SELECT COUNT(*) AS event_count FROM events").one() as {
-      event_count?: number;
-    } | null;
-    return (row?.event_count ?? 0) > 0;
+    const result = this.db.select({ value: count() }).from(matchEventsTable).get();
+    return (result?.value ?? 0) > 0;
   }
 
   private appendEvent(kind: string, payload: unknown): void {
-    this.state.storage.sql.exec(
-      "INSERT INTO events (kind, payload_json, created_at_ms) VALUES (?, ?, ?)",
-      kind,
-      JSON.stringify(payload),
-      Date.now(),
-    );
+    this.db
+      .insert(matchEventsTable)
+      .values({
+        kind,
+        payload,
+        createdAt: new Date(),
+      })
+      .run();
   }
 }
