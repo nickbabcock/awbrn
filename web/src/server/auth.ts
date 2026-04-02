@@ -3,7 +3,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import type { Auth, BetterAuthOptions } from "better-auth/types";
 import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
-import * as schema from "../db";
+import * as schema from "../db/global";
 
 let _auth: Auth<BetterAuthOptions> | undefined;
 

@@ -6,6 +6,7 @@
   "sideEffects": false,
   "scripts": {
     "cf-typegen": "wrangler types worker-configuration.d.ts --env-interface CloudflareBindings",
+    "db:generate-do": "drizzle-kit generate --config drizzle-do.config.ts",
     "dev": "vite dev",
     "build": "pnpm run cf-typegen && vite build && tsc -b",
     "preview": "vite preview"

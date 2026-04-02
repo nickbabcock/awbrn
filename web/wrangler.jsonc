@@ -28,7 +28,7 @@
     {
       "binding": "DB",
       "database_name": "awbrn-db",
-      "migrations_dir": "drizzle",
+      "migrations_dir": "drizzle/global",
     },
   ],
 }
