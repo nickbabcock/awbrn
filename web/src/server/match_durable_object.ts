@@ -4,12 +4,8 @@ import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { count } from "drizzle-orm";
 import { WasmMatch, initSync } from "../wasm/awbrn_server";
 import matchWasmModule from "../wasm/awbrn_server_bg.wasm";
-import {
-  normalizeCaughtError,
-  ok,
-  type MatchCreateResponse,
-  type MatchResult,
-} from "./match_protocol";
+import { normalizeCaughtError, ok, type MatchResult } from "./match_protocol";
+import type { MatchCreateResponse } from "../schemas";
 import migrations from "../../drizzle/match/migrations";
 import { matchEventsTable } from "../db/match";
 

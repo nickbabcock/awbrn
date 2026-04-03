@@ -1,20 +1,18 @@
 import { env } from "cloudflare:workers";
-import { getFactionById } from "../factions";
-import {
-  err,
-  ok,
-  type MatchCreateRequest,
-  type MatchCreateResponse,
-  type MatchMutationRequest,
-  type MatchMutationResponse,
-  type MatchParticipantSnapshot,
-  type MatchPhase,
-  type MatchResult,
-  type MatchSettings,
-  type MatchSnapshot,
-} from "./match_protocol";
-import { getMatchStub } from "./match_service";
-import { fetchAwbwMapData, type AwbwMapData } from "../utils/awbw";
+import { matchSettingsSchema } from "./schemas";
+import type {
+  MatchCreateRequest,
+  MatchCreateResponse,
+  MatchMutationRequest,
+  MatchMutationResponse,
+  MatchParticipantSnapshot,
+  MatchPhase,
+  MatchSettings,
+  MatchSnapshot,
+} from "./schemas";
+import { err, ok, type MatchResult } from "./server/match_protocol";
+import { getMatchStub } from "./server/match_service";
+import { fetchAwbwMapData, type AwbwMapData } from "./utils/awbw";
 
 const PUBLIC_MATCH_PHASE: MatchPhase = "lobby";
 const STARTING_MATCH_PHASE: MatchPhase = "starting";
@@ -77,115 +75,6 @@ type MatchActionDiagnostics =
   | "privateJoinRequired"
   | "slotTaken"
   | "alreadyJoined";
-
-export function validateMatchCreateRequest(input: unknown): MatchResult<MatchCreateRequest> {
-  if (typeof input !== "object" || input === null) {
-    return err("invalidInput", "match creation body must be an object", 400);
-  }
-
-  const { name, mapId, isPrivate, settings } = input as Record<string, unknown>;
-
-  if (typeof name !== "string" || name.trim().length === 0) {
-    return err("invalidInput", "match name is required", 400, { field: "name" });
-  }
-
-  if (!Number.isSafeInteger(mapId) || Number(mapId) <= 0) {
-    return err("invalidInput", "mapId must be a positive integer", 400, { field: "mapId" });
-  }
-
-  if (typeof isPrivate !== "boolean") {
-    return err("invalidInput", "isPrivate must be a boolean", 400, { field: "isPrivate" });
-  }
-
-  const parsedSettings = validateMatchSettings(settings);
-  if (!parsedSettings.ok) {
-    return parsedSettings;
-  }
-
-  return ok({
-    name: name.trim(),
-    mapId: Number(mapId),
-    isPrivate,
-    settings: parsedSettings.value,
-  });
-}
-
-export function validateMatchMutationRequest(input: unknown): MatchResult<MatchMutationRequest> {
-  if (typeof input !== "object" || input === null) {
-    return err("invalidInput", "match mutation body must be an object", 400);
-  }
-
-  const body = input as Record<string, unknown>;
-  switch (body.action) {
-    case "join": {
-      if (!Number.isSafeInteger(body.slotIndex) || Number(body.slotIndex) < 0) {
-        return err("invalidInput", "slotIndex must be a non-negative integer", 400, {
-          field: "slotIndex",
-        });
-      }
-      if (
-        !Number.isSafeInteger(body.factionId) ||
-        getFactionById(Number(body.factionId)) === null
-      ) {
-        return err("invalidInput", "factionId must reference a valid faction", 400, {
-          field: "factionId",
-        });
-      }
-
-      return ok({
-        action: "join",
-        slotIndex: Number(body.slotIndex),
-        factionId: Number(body.factionId),
-        joinSlug: typeof body.joinSlug === "string" ? body.joinSlug : null,
-      });
-    }
-    case "leave":
-      return ok({ action: "leave" });
-    case "updateParticipant": {
-      const result: MatchMutationRequest = { action: "updateParticipant" };
-
-      if ("factionId" in body) {
-        if (
-          !Number.isSafeInteger(body.factionId) ||
-          getFactionById(Number(body.factionId)) === null
-        ) {
-          return err("invalidInput", "factionId must reference a valid faction", 400, {
-            field: "factionId",
-          });
-        }
-        result.factionId = Number(body.factionId);
-      }
-
-      if ("coId" in body) {
-        if (body.coId !== null && (!Number.isSafeInteger(body.coId) || Number(body.coId) <= 0)) {
-          return err("invalidInput", "coId must be null or a positive integer", 400, {
-            field: "coId",
-          });
-        }
-        result.coId = body.coId === null ? null : Number(body.coId);
-      }
-
-      if ("ready" in body) {
-        if (typeof body.ready !== "boolean") {
-          return err("invalidInput", "ready must be a boolean", 400, {
-            field: "ready",
-          });
-        }
-        result.ready = body.ready;
-      }
-
-      result.joinSlug = typeof body.joinSlug === "string" ? body.joinSlug : null;
-
-      if (!("factionId" in result) && !("coId" in result) && !("ready" in result)) {
-        return err("invalidInput", "no participant changes were provided", 400);
-      }
-
-      return ok(result);
-    }
-    default:
-      return err("invalidInput", "unknown match action", 400, { field: "action" });
-  }
-}
 
 export async function createMatch(
   input: MatchCreateRequest,
@@ -720,33 +609,14 @@ async function queryParticipantRows(matchId: string): Promise<MatchParticipantRo
   return results.results ?? [];
 }
 
-function validateMatchSettings(settings: unknown): MatchResult<MatchSettings> {
-  if (typeof settings !== "object" || settings === null) {
-    return err("invalidInput", "settings must be an object", 400, { field: "settings" });
-  }
-
-  const { fogEnabled, startingFunds, ...rest } = settings as Record<string, unknown>;
-  if (typeof fogEnabled !== "boolean") {
-    return err("invalidInput", "fogEnabled must be a boolean", 400, {
-      field: "settings.fogEnabled",
-    });
-  }
-  if (!Number.isSafeInteger(startingFunds) || Number(startingFunds) < 0) {
-    return err("invalidInput", "startingFunds must be a non-negative integer", 400, {
-      field: "settings.startingFunds",
-    });
-  }
-
-  return ok({
-    ...rest,
-    fogEnabled,
-    startingFunds: Number(startingFunds),
-  });
-}
-
 function parseMatchSettingsValue(value: string): MatchResult<MatchSettings> {
   try {
-    return validateMatchSettings(JSON.parse(value));
+    const result = matchSettingsSchema.safeParse(JSON.parse(value));
+    if (!result.success) {
+      const issue = result.error.issues[0];
+      return err("matchInvalid", issue?.message ?? "match settings were invalid", 500);
+    }
+    return ok(result.data);
   } catch (error) {
     return err("matchInvalid", "match settings were invalid", 500, {
       reason: error instanceof Error ? error.message : String(error),

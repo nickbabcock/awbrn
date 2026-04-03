@@ -5,11 +5,8 @@ import { MapPreviewSurface } from "../components/MapPreviewSurface";
 import { defaultFactionIdForSlot, factions, getFactionById } from "../factions";
 import { getFactionVisual } from "../faction_visuals";
 import { useAppSession } from "../lib/useAppSession";
-import type {
-  MatchMutationRequest,
-  MatchMutationResponse,
-  MatchSnapshot,
-} from "../server/match_protocol";
+import { getMatchFn, mutateMatchFn } from "../matches.functions";
+import type { MatchMutationRequest, MatchSnapshot } from "../schemas";
 import { awbwMapAssetPath, type AwbwMapData } from "../utils/awbw";
 import "./MatchLobbyPage.css";
 
@@ -77,17 +74,8 @@ export function MatchLobbyPage({ matchId }: { matchId: string }) {
     setError(null);
 
     try {
-      const search = joinSlug ? `?join=${encodeURIComponent(joinSlug)}` : "";
-      const response = await fetch(`/api/matches/${matchId}${search}`);
-      const body = (await response.json()) as MatchSnapshot | { error?: { message?: string } };
-      if (!response.ok || !("matchId" in body)) {
-        throw new Error(
-          "error" in body
-            ? (body.error?.message ?? "Failed to load the lobby.")
-            : "Failed to load the lobby.",
-        );
-      }
-      setMatch(body);
+      const snapshot = await getMatchFn({ data: { matchId, joinSlug } });
+      setMatch(snapshot);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to load the lobby.");
     } finally {
@@ -100,24 +88,8 @@ export function MatchLobbyPage({ matchId }: { matchId: string }) {
     setError(null);
 
     try {
-      const response = await fetch(`/api/matches/${matchId}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(action),
-      });
-      const body = (await response.json()) as
-        | MatchMutationResponse
-        | { error?: { message?: string } };
-      if (!response.ok || !("match" in body)) {
-        throw new Error(
-          "error" in body
-            ? (body.error?.message ?? "Lobby update failed.")
-            : "Lobby update failed.",
-        );
-      }
-      setMatch(body.match);
+      const response = await mutateMatchFn({ data: { matchId, action } });
+      setMatch(response.match);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Lobby update failed.");
     } finally {
