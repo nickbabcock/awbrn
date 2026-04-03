@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AuthPage } from "../pages/AuthPage";
+import { AuthPage } from "../auth/AuthPage";
 
 type AuthSearch = {
   mode?: "register";

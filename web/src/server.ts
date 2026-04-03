@@ -1,5 +1,5 @@
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
-import { MatchDurableObject } from "./server/match_durable_object";
+import { MatchDurableObject } from "./matches/match_durable_object";
 
 export { MatchDurableObject };
 

@@ -1,18 +1,11 @@
 /// <reference types="vite/client" />
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
-import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
 import type { ReactNode } from "react";
+import { getSessionFn } from "../auth/auth.functions";
 import { DefaultCatchBoundary } from "../components/DefaultCatchBoundary";
 import { NotFound } from "../components/NotFound";
-import { Layout } from "../Layout";
-import { getAuth } from "../server/auth";
-import appCss from "../index.css?url";
-
-const getServerSession = createServerFn({ method: "GET" }).handler(() => {
-  const request = getRequest();
-  return getAuth().api.getSession({ headers: request.headers });
-});
+import { Layout } from "../layouts/Layout";
+import appCss from "../styles/index.css?url";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -23,7 +16,7 @@ export const Route = createRootRoute({
     ],
     links: [{ rel: "stylesheet", href: appCss }],
   }),
-  loader: () => getServerSession(),
+  loader: () => getSessionFn(),
   errorComponent: DefaultCatchBoundary,
   notFoundComponent: () => <NotFound />,
   component: RootComponent,
@@ -31,9 +24,8 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
-  const serverSession = Route.useLoaderData();
   return (
-    <Layout serverSession={serverSession}>
+    <Layout>
       <Outlet />
     </Layout>
   );
