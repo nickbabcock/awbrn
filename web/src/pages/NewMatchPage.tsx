@@ -2,7 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { startTransition, useMemo, useState } from "react";
 import { MapPreviewSurface } from "../components/MapPreviewSurface";
 import { useAppSession } from "../lib/useAppSession";
-import type { MatchCreateResponse } from "../server/match_protocol";
+import { createMatchFn } from "../matches.functions";
 import { awbwMapAssetPath, type AwbwMapData } from "../utils/awbw";
 import "./NewMatchPage.css";
 
@@ -86,34 +86,16 @@ export function NewMatchPage() {
     setCreateError(null);
 
     try {
-      const response = await fetch("/api/matches", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      const match = await createMatchFn({
+        data: {
           name: matchName.trim(),
           mapId: parsedMapId,
           isPrivate,
-          settings: {
-            fogEnabled,
-            startingFunds: parsedStartingFunds,
-          },
-        }),
+          settings: { fogEnabled, startingFunds: parsedStartingFunds },
+        },
       });
 
-      const body = (await response.json()) as
-        | MatchCreateResponse
-        | { error?: { message?: string } };
-      if (!response.ok || !("matchId" in body)) {
-        const message =
-          "error" in body
-            ? (body.error?.message ?? "Failed to create the lobby.")
-            : "Failed to create the lobby.";
-        throw new Error(message);
-      }
-
-      await navigate({ to: "/matches/$matchId", params: { matchId: body.matchId } });
+      await navigate({ to: "/matches/$matchId", params: { matchId: match.matchId } });
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : "Failed to create the lobby.");
     } finally {

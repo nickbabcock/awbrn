@@ -17,79 +17,6 @@ export interface MatchFailure {
 
 export type MatchResult<T> = MatchSuccess<T> | MatchFailure;
 
-export type MatchPhase = "draft" | "lobby" | "starting" | "active" | "completed" | "cancelled";
-
-export interface MatchSettings {
-  fogEnabled: boolean;
-  startingFunds: number;
-  [key: string]: unknown;
-}
-
-export interface MatchCreateRequest {
-  name: string;
-  mapId: number;
-  isPrivate: boolean;
-  settings: MatchSettings;
-}
-
-export interface MatchCreateResponse {
-  matchId: string;
-  joinSlug: string | null;
-}
-
-export interface MatchParticipantSnapshot {
-  userId: string;
-  userName: string;
-  slotIndex: number;
-  factionId: number;
-  coId: number | null;
-  ready: boolean;
-  joinedAt: string;
-  updatedAt: string;
-}
-
-export interface MatchSnapshot {
-  matchId: string;
-  name: string;
-  phase: MatchPhase;
-  creatorUserId: string;
-  creatorName: string;
-  mapId: number;
-  maxPlayers: number;
-  isPrivate: boolean;
-  joinSlug: string | null;
-  settings: MatchSettings;
-  createdAt: string;
-  updatedAt: string;
-  startedAt: string | null;
-  completedAt: string | null;
-  participants: MatchParticipantSnapshot[];
-}
-
-export type MatchMutationRequest =
-  | {
-      action: "join";
-      slotIndex: number;
-      factionId: number;
-      joinSlug?: string | null;
-    }
-  | {
-      action: "leave";
-    }
-  | {
-      action: "updateParticipant";
-      factionId?: number;
-      coId?: number | null;
-      ready?: boolean;
-      joinSlug?: string | null;
-    };
-
-export interface MatchMutationResponse {
-  match: MatchSnapshot;
-}
-
-const WASM_ERROR_PREFIX = "AWBRN_MATCH_ERROR:";
-
 export function ok<T>(value: T): MatchSuccess<T> {
   return { ok: true, value };
 }
@@ -109,24 +36,6 @@ export function err(
       details,
     },
   };
-}
-
-export function responseFromResult<T>(result: MatchResult<T>, successStatus = 200): Response {
-  if (!result.ok) {
-    return Response.json({ error: result.error }, { status: result.error.httpStatus });
-  }
-
-  return Response.json(result.value, { status: successStatus });
-}
-
-export async function parseJsonBody(request: Request): Promise<MatchResult<unknown>> {
-  try {
-    return ok(await request.json());
-  } catch (error) {
-    return err("invalidJson", "request body must be valid JSON", 400, {
-      reason: error instanceof Error ? error.message : String(error),
-    });
-  }
 }
 
 export function normalizeCaughtError(error: unknown): MatchFailure {
@@ -163,6 +72,8 @@ export function normalizeCaughtError(error: unknown): MatchFailure {
     reason: error instanceof Error ? error.message : String(error),
   });
 }
+
+const WASM_ERROR_PREFIX = "AWBRN_MATCH_ERROR:";
 
 function parseWasmMatchError(error: unknown): MatchError | null {
   if (!(error instanceof Error) || !error.message.startsWith(WASM_ERROR_PREFIX)) {
