@@ -7,7 +7,6 @@ import matchWasmModule from "../wasm/awbrn_server_bg.wasm";
 import {
   normalizeCaughtError,
   ok,
-  err,
   type MatchCreateResponse,
   type MatchResult,
 } from "./match_protocol";
@@ -38,20 +37,17 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
 
   async initializeMatch(setup: unknown): Promise<MatchResult<MatchCreateResponse>> {
     try {
+      const matchId = extractMatchId(setup);
+
       if (this.hasPersistedEvents()) {
-        return err(
-          "matchAlreadyInitialized",
-          "match durable object has already been initialized",
-          409,
-          { matchId: this.ctx.id.toString() },
-        );
+        return ok({ matchId, joinSlug: null });
       }
 
       ensureMatchWasmInitialized();
       new WasmMatch(setup);
       this.appendEvent("setup", setup);
 
-      return ok({ matchId: this.ctx.id.toString() });
+      return ok({ matchId, joinSlug: null });
     } catch (error) {
       return normalizeCaughtError(error);
     }
@@ -72,4 +68,18 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       })
       .run();
   }
+}
+
+function extractMatchId(setup: unknown): string {
+  if (
+    typeof setup === "object" &&
+    setup !== null &&
+    "matchId" in setup &&
+    typeof setup.matchId === "string" &&
+    setup.matchId.length > 0
+  ) {
+    return setup.matchId;
+  }
+
+  return "unknown";
 }

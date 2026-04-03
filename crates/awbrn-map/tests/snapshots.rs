@@ -228,7 +228,7 @@ fn player_faction_to_char(player_faction: awbrn_types::PlayerFaction) -> char {
         awbrn_types::PlayerFaction::RedFire => 'R',
         awbrn_types::PlayerFaction::GreySky => 'S',
         awbrn_types::PlayerFaction::BrownDesert => 'D',
-        awbrn_types::PlayerFaction::AmberBlaze => 'A',
+        awbrn_types::PlayerFaction::AmberBlossom => 'A',
         awbrn_types::PlayerFaction::JadeSun => 'J',
         awbrn_types::PlayerFaction::CobaltIce => 'C',
         awbrn_types::PlayerFaction::PinkCosmos => 'P',

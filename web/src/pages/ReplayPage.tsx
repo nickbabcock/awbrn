@@ -3,7 +3,7 @@ import { resolveAwbwUsername } from "../awbw_usernames";
 import { CoPortrait } from "../CoPortrait";
 import { loadCoPortraitCatalog, type CoPortraitCatalog } from "../co_portraits";
 import { getFactionVisual } from "../faction_visuals";
-import { gameRunner } from "../game_runner";
+import { GameRunner } from "../game_runner";
 import { infantrySpriteStyle, uiAtlasSpriteStyle } from "../roster_icons";
 import { useGameActions, useGameStore } from "../store";
 import "../App.css";
@@ -43,18 +43,27 @@ function StatIcon({
 export function ReplayPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const runnerRef = useRef<GameRunner | null>(null);
   const currentDay = useGameStore((state) => state.currentDay);
   const playerRoster = useGameStore((state) => state.playerRoster);
   const gameActions = useGameActions();
   const [portraitCatalog] = useState<CoPortraitCatalog>(() => loadCoPortraitCatalog());
   const [playerNames, setPlayerNames] = useState<Record<number, string>>({});
 
+  if (runnerRef.current === null) {
+    runnerRef.current = new GameRunner();
+  }
+
   const handleReplayFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
+    const runner = runnerRef.current;
     if (file) {
       gameActions.setPlayerRoster(null);
       try {
-        await gameRunner.loadReplay(file);
+        if (!runner) {
+          throw new Error("Game runner was not initialized.");
+        }
+        await runner.loadReplay(file);
         canvasRef.current?.focus({ preventScroll: true });
       } catch (error) {
         gameActions.setPlayerRoster(null);
@@ -66,14 +75,16 @@ export function ReplayPage() {
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
-    if (!canvas || !container) return;
+    const runner = runnerRef.current;
+    if (!canvas || !container || !runner) return;
 
-    gameRunner.attachCanvas({ canvas, container }).catch((error) => {
+    runner.attachCanvas({ canvas, container }).catch((error) => {
       console.error("Error attaching game runner:", error);
     });
 
     return () => {
-      gameRunner.detachCanvas(canvas);
+      runner.dispose();
+      runnerRef.current = null;
     };
   }, []);
 

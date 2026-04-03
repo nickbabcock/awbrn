@@ -261,6 +261,7 @@ mod tests {
                 faction: PlayerFaction::OrangeStar,
                 team: None,
                 starting_funds: 1000,
+                co_id: None,
             }],
         )
     }
@@ -368,11 +369,13 @@ mod tests {
                     faction: PlayerFaction::OrangeStar,
                     team: None,
                     starting_funds: 1000,
+                    co_id: None,
                 },
                 PlayerSetup {
                     faction: PlayerFaction::BlueMoon,
                     team: None,
                     starting_funds: 1000,
+                    co_id: None,
                 },
             ],
         );
@@ -419,11 +422,13 @@ mod tests {
                     faction: PlayerFaction::OrangeStar,
                     team: Some(NonZeroU8::new(1).unwrap()),
                     starting_funds: 1000,
+                    co_id: None,
                 },
                 PlayerSetup {
                     faction: PlayerFaction::BlueMoon,
                     team: Some(NonZeroU8::new(1).unwrap()),
                     starting_funds: 1000,
+                    co_id: None,
                 },
             ],
         );

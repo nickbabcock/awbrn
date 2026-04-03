@@ -1,6 +1,21 @@
 const AWBW_BASE_URL = "https://awbw.amarriner.com";
 const AWBW_FETCH_TIMEOUT_MS = 5000;
 
+export interface AwbwMapData {
+  Name: string;
+  Author: string;
+  "Player Count": number;
+  "Published Date": string;
+  "Size X": number;
+  "Size Y": number;
+  "Terrain Map": number[][];
+  "Predeployed Units": unknown[];
+}
+
+export function awbwMapAssetPath(mapId: number): string {
+  return `/api/awbw/map/${mapId}.json`;
+}
+
 function decodeHtmlEntities(value: string): string {
   return value
     .replaceAll("&amp;", "&")
@@ -93,4 +108,32 @@ export async function fetchAwbwMap(mapId: number): Promise<Response> {
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+export async function fetchAwbwMapData(mapId: number): Promise<AwbwMapData> {
+  const response = await fetchAwbwMap(mapId);
+
+  if (response.status === 404) {
+    throw new Error("Map not found");
+  }
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch map");
+  }
+
+  const payload = (await response.json()) as Partial<AwbwMapData>;
+
+  if (
+    typeof payload.Name !== "string" ||
+    typeof payload.Author !== "string" ||
+    typeof payload["Player Count"] !== "number" ||
+    typeof payload["Size X"] !== "number" ||
+    typeof payload["Size Y"] !== "number" ||
+    !Array.isArray(payload["Terrain Map"]) ||
+    !Array.isArray(payload["Predeployed Units"])
+  ) {
+    throw new Error("Map payload was invalid");
+  }
+
+  return payload as AwbwMapData;
 }

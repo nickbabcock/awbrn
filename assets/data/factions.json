@@ -1,0 +1,124 @@
+{
+  "factions": [
+    {
+      "id": 1,
+      "code": "os",
+      "displayName": "Orange Star",
+      "facesRight": true
+    },
+    {
+      "id": 2,
+      "code": "bm",
+      "displayName": "Blue Moon",
+      "facesRight": false
+    },
+    {
+      "id": 3,
+      "code": "ge",
+      "displayName": "Green Earth",
+      "facesRight": true
+    },
+    {
+      "id": 4,
+      "code": "yc",
+      "displayName": "Yellow Comet",
+      "facesRight": false
+    },
+    {
+      "id": 5,
+      "code": "bh",
+      "displayName": "Black Hole",
+      "facesRight": false
+    },
+    {
+      "id": 6,
+      "code": "rf",
+      "displayName": "Red Fire",
+      "facesRight": false
+    },
+    {
+      "id": 7,
+      "code": "gs",
+      "displayName": "Grey Sky",
+      "facesRight": true
+    },
+    {
+      "id": 8,
+      "code": "bd",
+      "displayName": "Brown Desert",
+      "facesRight": true
+    },
+    {
+      "id": 9,
+      "code": "ab",
+      "displayName": "Amber Blossom",
+      "facesRight": false
+    },
+    {
+      "id": 10,
+      "code": "js",
+      "displayName": "Jade Sun",
+      "facesRight": true
+    },
+    {
+      "id": 16,
+      "code": "ci",
+      "displayName": "Cobalt Ice",
+      "facesRight": true
+    },
+    {
+      "id": 17,
+      "code": "pc",
+      "displayName": "Pink Cosmos",
+      "facesRight": false
+    },
+    {
+      "id": 19,
+      "code": "tg",
+      "displayName": "Teal Galaxy",
+      "facesRight": false
+    },
+    {
+      "id": 20,
+      "code": "pl",
+      "displayName": "Purple Lightning",
+      "facesRight": true
+    },
+    {
+      "id": 21,
+      "code": "ar",
+      "displayName": "Acid Rain",
+      "facesRight": false
+    },
+    {
+      "id": 22,
+      "code": "wn",
+      "displayName": "White Nova",
+      "facesRight": true
+    },
+    {
+      "id": 23,
+      "code": "aa",
+      "displayName": "Azure Asteroid",
+      "facesRight": true
+    },
+    {
+      "id": 24,
+      "code": "ne",
+      "displayName": "Noir Eclipse",
+      "facesRight": false
+    },
+    {
+      "id": 25,
+      "code": "sc",
+      "displayName": "Silver Claw",
+      "facesRight": false
+    },
+    {
+      "id": 26,
+      "code": "uw",
+      "displayName": "Umber Wilds",
+      "facesRight": true
+    }
+  ]
+}

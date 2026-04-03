@@ -28,3 +28,7 @@ export function getAuth(): Auth<BetterAuthOptions> {
 }
 
 export type Session = Auth<BetterAuthOptions>["$Infer"]["Session"];
+
+export async function getRequestSession(request: Request): Promise<Session | null> {
+  return getAuth().api.getSession({ headers: request.headers });
+}

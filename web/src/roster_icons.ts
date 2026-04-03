@@ -3,6 +3,7 @@ import unitAtlasManifest from "../../assets/data/unit_atlas_manifest.json";
 import uiAtlasData from "../../assets/data/ui_atlas.json";
 import uiTextureUrl from "../../assets/textures/ui.png?url";
 import unitsTextureUrl from "../../assets/textures/units.png?url";
+import { factions } from "./factions";
 
 const INFANTRY_VISIBLE_X = 7;
 const INFANTRY_VISIBLE_Y = 8;
@@ -20,8 +21,9 @@ type AtlasSprite = {
 const UI_SPRITES = new Map(
   (uiAtlasData.sprites as AtlasSprite[]).map((sprite) => [sprite.name, sprite]),
 );
+const FACTION_ID_BY_CODE = new Map(factions.map((faction) => [faction.code, faction.id]));
 const FACTION_INDEX = new Map(
-  unitAtlasManifest.factions.map((faction) => [faction.code, faction.index]),
+  unitAtlasManifest.factions.map((faction) => [faction.id, faction.index]),
 );
 const UNIT_BASE_OFFSET = new Map(
   unitAtlasManifest.units.map((unit) => [unit.key, unit.baseOffset]),
@@ -47,7 +49,8 @@ export function uiAtlasSpriteStyle(name: string): CSSProperties | null {
 }
 
 export function infantrySpriteStyle(factionCode: string): CSSProperties | null {
-  const factionOffset = FACTION_INDEX.get(factionCode);
+  const factionId = FACTION_ID_BY_CODE.get(factionCode);
+  const factionOffset = factionId === undefined ? undefined : FACTION_INDEX.get(factionId);
   const infantryBaseOffset = UNIT_BASE_OFFSET.get("Infantry");
   if (factionOffset === undefined || infantryBaseOffset === undefined) {
     return null;

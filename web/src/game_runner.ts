@@ -6,7 +6,7 @@ import { useGameStore } from "./store";
 
 type GameInstance = Awaited<ReturnType<GameWorker["createGame"]>>;
 
-interface GameSurface {
+export interface GameSurface {
   canvas: HTMLCanvasElement;
   container: HTMLElement;
 }
@@ -22,15 +22,16 @@ interface MapDimensions {
   height: number;
 }
 
-class GameRunner {
+export class GameRunner {
   private activeSurface: GameSurface | undefined;
   private attachmentAbortController: AbortController | undefined;
+  private transferredCanvas: HTMLCanvasElement | undefined;
   private createGamePromise: Promise<GameInstance> | undefined;
   private game: GameInstance | undefined;
   private logicalCanvasSize: LogicalCanvasSize | undefined;
   private latestMapDimensions: MapDimensions | undefined;
+  private rawWorker: Worker | undefined;
   private resizeObserver: ResizeObserver | undefined;
-  private sourceCanvas: HTMLCanvasElement | undefined;
   private surfaceVersion = 0;
   private worker: GameWorker | undefined;
 
@@ -41,14 +42,7 @@ class GameRunner {
     const measuredSize = this.measureSurface(surface);
     this.logicalCanvasSize = measuredSize;
 
-    if (!this.sourceCanvas) {
-      this.sourceCanvas = surface.canvas;
-      this.applyInitialCanvasSize(surface.canvas, measuredSize);
-    } else if (this.sourceCanvas !== surface.canvas) {
-      throw new Error("GameRunner cannot attach a different canvas after initialization.");
-    } else {
-      this.applyVisibleCanvasSize(surface.canvas, measuredSize);
-    }
+    this.prepareCanvasForAttachment(surface.canvas, measuredSize);
 
     const game = await this.ensureGame(surface, measuredSize);
     if (version !== this.surfaceVersion || this.activeSurface?.canvas !== surface.canvas) {
@@ -73,13 +67,34 @@ class GameRunner {
     await game.newReplay(file);
   }
 
+  async loadMapPreview(mapId: number): Promise<void> {
+    const game = await this.requireGame();
+    await game.loadMapPreview(mapId);
+  }
+
+  dispose(): void {
+    this.surfaceVersion += 1;
+    this.activeSurface = undefined;
+    this.releaseSurfaceBindings();
+    this.game = undefined;
+    this.createGamePromise = undefined;
+    this.latestMapDimensions = undefined;
+    this.logicalCanvasSize = undefined;
+    this.transferredCanvas = undefined;
+    this.worker = undefined;
+    this.rawWorker?.terminate();
+    this.rawWorker = undefined;
+  }
+
   private async ensureGame(surface: GameSurface, size: LogicalCanvasSize): Promise<GameInstance> {
     if (this.game) {
       return this.game;
     }
 
     if (!this.createGamePromise) {
+      this.assertCanvasTransferable(surface.canvas);
       const offscreenCanvas = surface.canvas.transferControlToOffscreen();
+      this.transferredCanvas = surface.canvas;
 
       this.createGamePromise = this.getWorker()
         .createGame(
@@ -101,6 +116,24 @@ class GameRunner {
     }
 
     return this.createGamePromise;
+  }
+
+  private prepareCanvasForAttachment(canvas: HTMLCanvasElement, size: LogicalCanvasSize): void {
+    if (this.transferredCanvas === undefined) {
+      this.applyInitialCanvasSize(canvas, size);
+      return;
+    }
+
+    this.assertCanvasTransferable(canvas);
+    this.applyVisibleCanvasSize(canvas, size);
+  }
+
+  private assertCanvasTransferable(canvas: HTMLCanvasElement): void {
+    if (this.transferredCanvas && this.transferredCanvas !== canvas) {
+      throw new Error(
+        "GameRunner cannot attach a different canvas after transferring to OffscreenCanvas.",
+      );
+    }
   }
 
   private bindSurface(surface: GameSurface, game: GameInstance): void {
@@ -333,13 +366,10 @@ class GameRunner {
 
   private getWorker(): GameWorker {
     if (!this.worker) {
-      this.worker = wrap<GameWorker>(
-        new Worker(new URL("./worker.ts", import.meta.url), { type: "module" }),
-      );
+      this.rawWorker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+      this.worker = wrap<GameWorker>(this.rawWorker);
     }
 
     return this.worker;
   }
 }
-
-export const gameRunner = new GameRunner();

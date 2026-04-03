@@ -16,6 +16,7 @@ pub struct PlayerSetup {
     /// Team identifier. `None` means FFA (no team).
     pub team: Option<NonZeroU8>,
     pub starting_funds: u32,
+    pub co_id: Option<u32>,
 }
 
 /// Configuration for creating a new game.

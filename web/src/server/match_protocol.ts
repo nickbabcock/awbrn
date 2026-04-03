@@ -17,8 +17,75 @@ export interface MatchFailure {
 
 export type MatchResult<T> = MatchSuccess<T> | MatchFailure;
 
+export type MatchPhase = "draft" | "lobby" | "starting" | "active" | "completed" | "cancelled";
+
+export interface MatchSettings {
+  fogEnabled: boolean;
+  startingFunds: number;
+  [key: string]: unknown;
+}
+
+export interface MatchCreateRequest {
+  name: string;
+  mapId: number;
+  isPrivate: boolean;
+  settings: MatchSettings;
+}
+
 export interface MatchCreateResponse {
   matchId: string;
+  joinSlug: string | null;
+}
+
+export interface MatchParticipantSnapshot {
+  userId: string;
+  userName: string;
+  slotIndex: number;
+  factionId: number;
+  coId: number | null;
+  ready: boolean;
+  joinedAt: string;
+  updatedAt: string;
+}
+
+export interface MatchSnapshot {
+  matchId: string;
+  name: string;
+  phase: MatchPhase;
+  creatorUserId: string;
+  creatorName: string;
+  mapId: number;
+  maxPlayers: number;
+  isPrivate: boolean;
+  joinSlug: string | null;
+  settings: MatchSettings;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  participants: MatchParticipantSnapshot[];
+}
+
+export type MatchMutationRequest =
+  | {
+      action: "join";
+      slotIndex: number;
+      factionId: number;
+      joinSlug?: string | null;
+    }
+  | {
+      action: "leave";
+    }
+  | {
+      action: "updateParticipant";
+      factionId?: number;
+      coId?: number | null;
+      ready?: boolean;
+      joinSlug?: string | null;
+    };
+
+export interface MatchMutationResponse {
+  match: MatchSnapshot;
 }
 
 const WASM_ERROR_PREFIX = "AWBRN_MATCH_ERROR:";

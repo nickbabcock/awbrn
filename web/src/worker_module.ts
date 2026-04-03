@@ -37,6 +37,7 @@ export interface GameInstance {
   handlePointerLeave: () => void;
   handleBlur: () => void;
   newReplay: (file: File | FileSystemFileHandle) => Promise<void>;
+  loadMapPreview: (mapId: number) => Promise<void>;
 }
 
 const toMouseButtonEvent = (event: GamePointerInput): MouseButtonEvent => ({
@@ -96,6 +97,9 @@ export const createGame = async (...args: ConstructorParameters<typeof BevyApp>)
       const fileData = await fileHandle.arrayBuffer();
       const fileBuffer = new Uint8Array(fileData);
       app.new_replay(fileBuffer);
+    },
+    loadMapPreview: async (mapId: number) => {
+      app.preview_map(mapId);
     },
   });
 };

@@ -12,7 +12,7 @@ use strum::VariantArray;
 fn all_player_factions() -> Vec<PlayerFaction> {
     vec![
         PlayerFaction::AcidRain,
-        PlayerFaction::AmberBlaze,
+        PlayerFaction::AmberBlossom,
         PlayerFaction::AzureAsteroid,
         PlayerFaction::BlackHole,
         PlayerFaction::BlueMoon,

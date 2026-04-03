@@ -1,11 +1,11 @@
 use crate::AwbwFactionId;
 use serde::Deserialize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, strum::VariantArray)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum PlayerFaction {
     AcidRain = 0,
-    AmberBlaze,
+    AmberBlossom,
     AzureAsteroid,
     BlackHole,
     BlueMoon,
@@ -26,139 +26,95 @@ pub enum PlayerFaction {
     YellowComet,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlayerFactionMetadata {
+    faction: PlayerFaction,
+    awbw_id: AwbwFactionId,
+    country_code: &'static str,
+    name: &'static str,
+    faces_right: bool,
+}
+
+impl PlayerFactionMetadata {
+    pub const fn new(
+        faction: PlayerFaction,
+        awbw_id: AwbwFactionId,
+        country_code: &'static str,
+        name: &'static str,
+        faces_right: bool,
+    ) -> Self {
+        Self {
+            faction,
+            awbw_id,
+            country_code,
+            name,
+            faces_right,
+        }
+    }
+
+    pub const fn faction(&self) -> PlayerFaction {
+        self.faction
+    }
+
+    pub const fn awbw_id(&self) -> AwbwFactionId {
+        self.awbw_id
+    }
+
+    pub const fn country_code(&self) -> &'static str {
+        self.country_code
+    }
+
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    pub const fn faces_right(&self) -> bool {
+        self.faces_right
+    }
+}
+
+include!("generated/factions.rs");
+
 impl PlayerFaction {
     /// Get the display name of this faction
     pub const fn name(&self) -> &'static str {
-        match self {
-            PlayerFaction::OrangeStar => "Orange Star",
-            PlayerFaction::BlueMoon => "Blue Moon",
-            PlayerFaction::GreenEarth => "Green Earth",
-            PlayerFaction::YellowComet => "Yellow Comet",
-            PlayerFaction::BlackHole => "Black Hole",
-            PlayerFaction::RedFire => "Red Fire",
-            PlayerFaction::GreySky => "Grey Sky",
-            PlayerFaction::BrownDesert => "Brown Desert",
-            PlayerFaction::AmberBlaze => "Amber Blaze",
-            PlayerFaction::JadeSun => "Jade Sun",
-            PlayerFaction::CobaltIce => "Cobalt Ice",
-            PlayerFaction::PinkCosmos => "Pink Cosmos",
-            PlayerFaction::TealGalaxy => "Teal Galaxy",
-            PlayerFaction::PurpleLightning => "Purple Lightning",
-            PlayerFaction::AcidRain => "Acid Rain",
-            PlayerFaction::WhiteNova => "White Nova",
-            PlayerFaction::AzureAsteroid => "Azure Asteroid",
-            PlayerFaction::NoirEclipse => "Noir Eclipse",
-            PlayerFaction::SilverClaw => "Silver Claw",
-            PlayerFaction::UmberWilds => "Umber Wilds",
-        }
+        player_faction_name(*self)
+    }
+
+    /// Get the canonical app faction id.
+    ///
+    /// This id is currently numerically equivalent to the AWBW faction id.
+    pub const fn id(&self) -> u8 {
+        player_faction_id(*self)
+    }
+
+    /// Create a PlayerFaction from the canonical app faction id.
+    ///
+    /// This currently accepts the same values as [`Self::from_awbw_id`].
+    pub fn from_id(id: u8) -> Option<Self> {
+        player_faction_from_id(id)
     }
 
     /// Parse a country code into a PlayerFaction
     pub fn from_country_code(code: &str) -> Option<Self> {
-        match code {
-            "ar" => Some(PlayerFaction::AcidRain),
-            "ab" => Some(PlayerFaction::AmberBlaze),
-            "aa" => Some(PlayerFaction::AzureAsteroid),
-            "bh" => Some(PlayerFaction::BlackHole),
-            "bm" => Some(PlayerFaction::BlueMoon),
-            "bd" => Some(PlayerFaction::BrownDesert),
-            "ci" => Some(PlayerFaction::CobaltIce),
-            "ge" => Some(PlayerFaction::GreenEarth),
-            "gs" => Some(PlayerFaction::GreySky),
-            "js" => Some(PlayerFaction::JadeSun),
-            "ne" => Some(PlayerFaction::NoirEclipse),
-            "os" => Some(PlayerFaction::OrangeStar),
-            "pc" => Some(PlayerFaction::PinkCosmos),
-            "pl" => Some(PlayerFaction::PurpleLightning),
-            "rf" => Some(PlayerFaction::RedFire),
-            "sc" => Some(PlayerFaction::SilverClaw),
-            "tg" => Some(PlayerFaction::TealGalaxy),
-            "uw" => Some(PlayerFaction::UmberWilds),
-            "wn" => Some(PlayerFaction::WhiteNova),
-            "yc" => Some(PlayerFaction::YellowComet),
-            _ => None,
-        }
+        player_faction_from_country_code(code)
     }
 
     /// Returns the faction's country code
     pub const fn country_code(&self) -> &'static str {
-        match self {
-            PlayerFaction::AcidRain => "ar",
-            PlayerFaction::AmberBlaze => "ab",
-            PlayerFaction::AzureAsteroid => "aa",
-            PlayerFaction::BlackHole => "bh",
-            PlayerFaction::BlueMoon => "bm",
-            PlayerFaction::BrownDesert => "bd",
-            PlayerFaction::CobaltIce => "ci",
-            PlayerFaction::GreenEarth => "ge",
-            PlayerFaction::GreySky => "gs",
-            PlayerFaction::JadeSun => "js",
-            PlayerFaction::NoirEclipse => "ne",
-            PlayerFaction::OrangeStar => "os",
-            PlayerFaction::PinkCosmos => "pc",
-            PlayerFaction::PurpleLightning => "pl",
-            PlayerFaction::RedFire => "rf",
-            PlayerFaction::SilverClaw => "sc",
-            PlayerFaction::TealGalaxy => "tg",
-            PlayerFaction::UmberWilds => "uw",
-            PlayerFaction::WhiteNova => "wn",
-            PlayerFaction::YellowComet => "yc",
-        }
+        player_faction_country_code(*self)
     }
 
     /// Get the AWBW country id
     ///
     /// Ref: https://github.com/DeamonHunter/AWBW-Replay-Player/blob/245879fd2b7d6286476fc8b21619dab25128daf0/AWBWApp.Resources/Json/Countries.json
     pub const fn awbw_id(&self) -> AwbwFactionId {
-        match self {
-            PlayerFaction::OrangeStar => AwbwFactionId::new(1),
-            PlayerFaction::BlueMoon => AwbwFactionId::new(2),
-            PlayerFaction::GreenEarth => AwbwFactionId::new(3),
-            PlayerFaction::YellowComet => AwbwFactionId::new(4),
-            PlayerFaction::BlackHole => AwbwFactionId::new(5),
-            PlayerFaction::RedFire => AwbwFactionId::new(6),
-            PlayerFaction::GreySky => AwbwFactionId::new(7),
-            PlayerFaction::BrownDesert => AwbwFactionId::new(8),
-            PlayerFaction::AmberBlaze => AwbwFactionId::new(9),
-            PlayerFaction::JadeSun => AwbwFactionId::new(10),
-            PlayerFaction::CobaltIce => AwbwFactionId::new(16),
-            PlayerFaction::PinkCosmos => AwbwFactionId::new(17),
-            PlayerFaction::TealGalaxy => AwbwFactionId::new(19),
-            PlayerFaction::PurpleLightning => AwbwFactionId::new(20),
-            PlayerFaction::AcidRain => AwbwFactionId::new(21),
-            PlayerFaction::WhiteNova => AwbwFactionId::new(22),
-            PlayerFaction::AzureAsteroid => AwbwFactionId::new(23),
-            PlayerFaction::NoirEclipse => AwbwFactionId::new(24),
-            PlayerFaction::SilverClaw => AwbwFactionId::new(25),
-            PlayerFaction::UmberWilds => AwbwFactionId::new(26),
-        }
+        player_faction_awbw_id(*self)
     }
 
     /// Create a PlayerFaction from an AWBW faction ID
     pub fn from_awbw_id(id: u8) -> Option<Self> {
-        match id {
-            1 => Some(PlayerFaction::OrangeStar),
-            2 => Some(PlayerFaction::BlueMoon),
-            3 => Some(PlayerFaction::GreenEarth),
-            4 => Some(PlayerFaction::YellowComet),
-            5 => Some(PlayerFaction::BlackHole),
-            6 => Some(PlayerFaction::RedFire),
-            7 => Some(PlayerFaction::GreySky),
-            8 => Some(PlayerFaction::BrownDesert),
-            9 => Some(PlayerFaction::AmberBlaze),
-            10 => Some(PlayerFaction::JadeSun),
-            16 => Some(PlayerFaction::CobaltIce),
-            17 => Some(PlayerFaction::PinkCosmos),
-            19 => Some(PlayerFaction::TealGalaxy),
-            20 => Some(PlayerFaction::PurpleLightning),
-            21 => Some(PlayerFaction::AcidRain),
-            22 => Some(PlayerFaction::WhiteNova),
-            23 => Some(PlayerFaction::AzureAsteroid),
-            24 => Some(PlayerFaction::NoirEclipse),
-            25 => Some(PlayerFaction::SilverClaw),
-            26 => Some(PlayerFaction::UmberWilds),
-            _ => None,
-        }
+        player_faction_from_awbw_id(id)
     }
 
     /// Get the previous player faction alphabetically
@@ -166,8 +122,8 @@ impl PlayerFaction {
     pub const fn prev(&self) -> PlayerFaction {
         match self {
             PlayerFaction::AcidRain => PlayerFaction::YellowComet,
-            PlayerFaction::AmberBlaze => PlayerFaction::AcidRain,
-            PlayerFaction::AzureAsteroid => PlayerFaction::AmberBlaze,
+            PlayerFaction::AmberBlossom => PlayerFaction::AcidRain,
+            PlayerFaction::AzureAsteroid => PlayerFaction::AmberBlossom,
             PlayerFaction::BlackHole => PlayerFaction::AzureAsteroid,
             PlayerFaction::BlueMoon => PlayerFaction::BlackHole,
             PlayerFaction::BrownDesert => PlayerFaction::BlueMoon,
@@ -197,28 +153,7 @@ impl PlayerFaction {
     ///
     /// Ref: `AWBW-Replay-Player/AWBWApp.Resources/Json/Countries.json`
     pub const fn faces_right(&self) -> bool {
-        match self {
-            PlayerFaction::AcidRain => false,
-            PlayerFaction::AmberBlaze => false,
-            PlayerFaction::AzureAsteroid => true,
-            PlayerFaction::BlackHole => false,
-            PlayerFaction::BlueMoon => false,
-            PlayerFaction::BrownDesert => true,
-            PlayerFaction::CobaltIce => true,
-            PlayerFaction::GreenEarth => true,
-            PlayerFaction::GreySky => true,
-            PlayerFaction::JadeSun => true,
-            PlayerFaction::NoirEclipse => false,
-            PlayerFaction::OrangeStar => true,
-            PlayerFaction::PinkCosmos => false,
-            PlayerFaction::PurpleLightning => true,
-            PlayerFaction::RedFire => false,
-            PlayerFaction::SilverClaw => false,
-            PlayerFaction::TealGalaxy => false,
-            PlayerFaction::UmberWilds => true,
-            PlayerFaction::WhiteNova => true,
-            PlayerFaction::YellowComet => false,
-        }
+        player_faction_faces_right(*self)
     }
 }
 
@@ -242,6 +177,39 @@ impl Faction {
         match self {
             Faction::Neutral => "Neutral",
             Faction::Player(faction) => faction.name(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PlayerFaction;
+    use strum::VariantArray;
+
+    #[test]
+    fn awbw_id_round_trips_for_all_factions() {
+        for faction in PlayerFaction::VARIANTS {
+            assert_eq!(
+                PlayerFaction::from_awbw_id(faction.awbw_id().as_u8()),
+                Some(*faction)
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_id_round_trips_for_all_factions() {
+        for faction in PlayerFaction::VARIANTS {
+            assert_eq!(PlayerFaction::from_id(faction.id()), Some(*faction));
+        }
+    }
+
+    #[test]
+    fn country_code_round_trips_for_all_factions() {
+        for faction in PlayerFaction::VARIANTS {
+            assert_eq!(
+                PlayerFaction::from_country_code(faction.country_code()),
+                Some(*faction)
+            );
         }
     }
 }

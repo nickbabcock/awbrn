@@ -509,6 +509,7 @@ mod tests {
                 faction: PlayerFaction::OrangeStar,
                 team: None,
                 starting_funds: 1000,
+                co_id: None,
             }],
             fog_enabled: true,
         }

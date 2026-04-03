@@ -91,6 +91,7 @@ run = [
 [tasks."assets"]
 description = "Compile assets"
 run = [
+    "cargo xtask-assets factions",
     "cargo xtask-assets tiles",
     "cargo xtask-assets units",
     "cargo xtask-assets ui",
