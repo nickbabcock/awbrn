@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { fetchAwbwMap, parsePositiveIntegerParam } from "../../../utils/awbw";
+import { fetchAwbwMap } from "../../../awbw/awbw.server";
+import { parsePositiveIntegerParam } from "../../../awbw/parsers";
 
 export const Route = createFileRoute("/api/awbw/map/$mapId")({
   server: {
