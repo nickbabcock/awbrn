@@ -4,7 +4,7 @@ export const urlAlphabet = "useandom-26T198340PX75pxmralfivszgbkhjopqywUVXYQWJKZ
 const POOL_SIZE_MULTIPLIER = 128;
 const MAX_RANDOM_VALUES_SIZE = 65_536;
 
-let pool: Uint8Array | null = null;
+let pool: Uint8Array<ArrayBuffer> | null = null;
 let poolOffset = 0;
 
 function fillPool(bytes: number): void {
@@ -20,13 +20,13 @@ function fillPool(bytes: number): void {
   poolOffset += bytes;
 }
 
-function fillRandomValues(buffer: Uint8Array): void {
+function fillRandomValues(buffer: Uint8Array<ArrayBuffer>): void {
   for (let offset = 0; offset < buffer.length; offset += MAX_RANDOM_VALUES_SIZE) {
     crypto.getRandomValues(buffer.subarray(offset, offset + MAX_RANDOM_VALUES_SIZE));
   }
 }
 
-export function random(bytes: number): Uint8Array {
+export function random(bytes: number): Uint8Array<ArrayBuffer> {
   fillPool((bytes |= 0));
   return pool!.subarray(poolOffset - bytes, poolOffset);
 }

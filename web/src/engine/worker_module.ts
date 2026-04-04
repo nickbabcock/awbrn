@@ -4,8 +4,8 @@ import init, {
   type KeyboardEvent,
   type MouseButtonEvent,
   BevyApp,
-} from "../wasm/awbrn_wasm";
-import wasmPath from "../wasm/awbrn_wasm_bg.wasm?url";
+} from "#/wasm/awbrn_wasm.js";
+import wasmPath from "#/wasm/awbrn_wasm_bg.wasm?url";
 import { proxy } from "comlink";
 
 const initialized = init({ module_or_path: wasmPath });

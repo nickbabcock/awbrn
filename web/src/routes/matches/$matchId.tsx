@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { MatchLobbyPage } from "../../matches/screens/MatchLobbyPage";
+import { MatchLobbyPage } from "#/matches/screens/MatchLobbyPage.tsx";
 
 type MatchSearch = {
   join?: string;

@@ -1,4 +1,4 @@
-import { customAlphabet } from "../vendor/nanoid";
+import { customAlphabet } from "#/vendor/nanoid.ts";
 
 const MATCH_ID_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";
 export const MATCH_ID_LENGTH = 13;

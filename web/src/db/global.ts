@@ -6,7 +6,7 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
-import type { MatchPhase, MatchSettings } from "../matches/schemas";
+import type { MatchPhase, MatchSettings } from "#/matches/schemas.ts";
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),

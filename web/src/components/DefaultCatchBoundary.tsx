@@ -7,9 +7,9 @@ import {
   type ErrorComponentProps,
 } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
-import { Button, Frame, Inline, Page, Section, Stack, Text } from "../ui/primitives";
-import { recoveryLinkStyle } from "../ui/links";
-import { sxClassName } from "../ui/stylex";
+import { Button, Frame, Inline, Page, Section, Stack, Text } from "#/ui/primitives.tsx";
+import { recoveryLinkStyle } from "#/ui/links.tsx";
+import { sxClassName } from "#/ui/stylex.ts";
 
 const styles = stylex.create({
   frame: {

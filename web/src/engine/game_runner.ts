@@ -1,7 +1,7 @@
 import { proxy, transfer, wrap } from "comlink";
 import { gameAssetConfig } from "./asset_manifest";
 import type { GameWorker } from "./worker_types";
-import type { GameEvent } from "../wasm/awbrn_wasm";
+import type { GameEvent } from "#/wasm/awbrn_wasm.js";
 import { useGameStore } from "./store";
 
 type GameInstance = Awaited<ReturnType<GameWorker["createGame"]>>;

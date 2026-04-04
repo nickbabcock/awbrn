@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { sessionMiddleware } from "../auth/session.middleware";
-import { getFactionById } from "../factions";
+import { sessionMiddleware } from "#/auth/session.middleware.ts";
+import { getFactionById } from "#/factions.ts";
 import { createMatch, getMatchSnapshot, mutateMatch } from "./matches.server";
 import { matchCreateRequestSchema, matchMutationRequestSchema } from "./schemas";
 

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { fetchAwbwUsername } from "../../../awbw/awbw.server";
-import { parsePositiveIntegerParam } from "../../../awbw/parsers";
+import { fetchAwbwUsername } from "#/awbw/awbw.server.ts";
+import { parsePositiveIntegerParam } from "#/awbw/parsers.ts";
 
 export const Route = createFileRoute("/api/awbw/user/$userId")({
   server: {

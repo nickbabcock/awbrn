@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import * as stylex from "@stylexjs/stylex";
 import type { CSSProperties } from "react";
-import { resolveAwbwUsername } from "../awbw/api";
-import { CoPortrait } from "../components/CoPortrait";
-import { loadCoPortraitCatalog, type CoPortraitCatalog } from "../components/co_portraits";
-import { GameRunner } from "../engine/game_runner";
-import { useGameActions, useGameStore } from "../engine/store";
-import { getFactionVisual } from "../faction_visuals";
-import { Badge, Text, Wordmark } from "../ui/primitives";
-import { tokens } from "../ui/theme.stylex";
+import { resolveAwbwUsername } from "#/awbw/api.ts";
+import { CoPortrait } from "#/components/CoPortrait.tsx";
+import { loadCoPortraitCatalog, type CoPortraitCatalog } from "#/components/co_portraits.ts";
+import { GameRunner } from "#/engine/game_runner.ts";
+import { useGameActions, useGameStore } from "#/engine/store.ts";
+import { getFactionVisual } from "#/faction_visuals.ts";
+import { Badge, Text, Wordmark } from "#/ui/primitives.tsx";
+import { tokens } from "#/ui/theme.stylex.ts";
 import { infantrySpriteStyle, uiAtlasSpriteStyle } from "./roster_icons";
 
 const formatMoney = (value: number) => value.toLocaleString();

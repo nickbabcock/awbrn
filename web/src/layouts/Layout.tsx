@@ -3,10 +3,10 @@ import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
-import { authClient } from "../auth/client";
-import { useAppSession } from "../auth/useAppSession";
-import { Button, ButtonLink, Text, Wordmark } from "../ui/primitives";
-import { tokens } from "../ui/theme.stylex";
+import { authClient } from "#/auth/client.ts";
+import { useAppSession } from "#/auth/useAppSession.ts";
+import { Button, ButtonLink, Text, Wordmark } from "#/ui/primitives.tsx";
+import { tokens } from "#/ui/theme.stylex.ts";
 
 const styles = stylex.create({
   shell: {

@@ -1,7 +1,7 @@
-import { existsSync, writeFileSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
-import { randomBytes } from "crypto";
+import { existsSync, writeFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomBytes } from "node:crypto";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const devVars = join(root, "web", ".dev.vars");

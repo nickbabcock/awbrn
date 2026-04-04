@@ -10,14 +10,14 @@ import type {
   MatchSettings,
   MatchSnapshot,
 } from "./schemas";
-import { fetchAwbwMapData } from "../awbw/awbw.server";
-import type { AwbwMapData } from "../awbw/schemas";
+import { fetchAwbwMapData } from "#/awbw/awbw.server.ts";
+import type { AwbwMapData } from "#/awbw/schemas.ts";
 import { err, ok, type MatchResult } from "./match_protocol";
 import { generateMatchId } from "./match_id";
 import { getMatchStub } from "./match_service";
 import { drizzle } from "drizzle-orm/d1";
 import { and, asc, eq, exists, or, sql } from "drizzle-orm";
-import { matches, matchParticipants, user } from "../db/global";
+import { matches, matchParticipants, user } from "#/db/global.ts";
 
 const db = drizzle(env.DB, { schema: { matches, matchParticipants, user } });
 

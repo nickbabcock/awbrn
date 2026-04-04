@@ -1,4 +1,4 @@
-import type { GameAssetConfig } from "../wasm/awbrn_wasm";
+import type { GameAssetConfig } from "#/wasm/awbrn_wasm.js";
 import coPortraitAtlasData from "../../../assets/data/co_portraits.json";
 import uiAtlasUrl from "../../../assets/data/ui_atlas.json?url";
 import coPortraitSheetUrl from "../../../assets/textures/co_portraits.png?url";

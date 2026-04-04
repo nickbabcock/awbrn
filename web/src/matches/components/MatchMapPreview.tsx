@@ -1,8 +1,8 @@
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useRef } from "react";
-import { GameRunner } from "../../engine/game_runner";
-import { tokens } from "../../ui/theme.stylex";
-import type { XStyle } from "../../ui/stylex";
+import { GameRunner } from "#/engine/game_runner.ts";
+import { tokens } from "#/ui/theme.stylex.ts";
+import type { XStyle } from "#/ui/stylex.ts";
 
 const styles = stylex.create({
   root: {
