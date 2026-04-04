@@ -13,6 +13,7 @@ import type {
 import { fetchAwbwMapData } from "../awbw/awbw.server";
 import type { AwbwMapData } from "../awbw/schemas";
 import { err, ok, type MatchResult } from "./match_protocol";
+import { generateMatchId } from "./match_id";
 import { getMatchStub } from "./match_service";
 
 const PUBLIC_MATCH_PHASE: MatchPhase = "lobby";
@@ -677,10 +678,6 @@ function mutationJoinSlug(action: MatchMutationRequest): string | null {
     case "leave":
       return null;
   }
-}
-
-function generateMatchId(): string {
-  return crypto.randomUUID().replaceAll("-", "");
 }
 
 function generateOpaqueToken(byteLength: number): string {
