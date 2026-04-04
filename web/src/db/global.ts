@@ -6,6 +6,7 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import type { MatchPhase, MatchSettings } from "../matches/schemas";
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
@@ -74,7 +75,7 @@ export const matches = sqliteTable(
   {
     id: text("id").primaryKey(),
     name: text("name").notNull(),
-    phase: text("phase").notNull(),
+    phase: text("phase").notNull().$type<MatchPhase>(),
     creatorUserId: text("creatorUserId")
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),
@@ -82,7 +83,7 @@ export const matches = sqliteTable(
     maxPlayers: integer("maxPlayers").notNull(),
     isPrivate: integer("isPrivate", { mode: "boolean" }).notNull(),
     joinSlug: text("joinSlug"),
-    settings: text("settings", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
+    settings: text("settings", { mode: "json" }).$type<MatchSettings>().notNull(),
     createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
     startedAt: integer("startedAt", { mode: "timestamp" }),

@@ -15,39 +15,15 @@ import type { AwbwMapData } from "../awbw/schemas";
 import { err, ok, type MatchResult } from "./match_protocol";
 import { generateMatchId } from "./match_id";
 import { getMatchStub } from "./match_service";
+import { drizzle } from "drizzle-orm/d1";
+import { and, asc, eq, exists, or, sql } from "drizzle-orm";
+import { matches, matchParticipants, user } from "../db/global";
+
+const db = drizzle(env.DB, { schema: { matches, matchParticipants, user } });
 
 const PUBLIC_MATCH_PHASE: MatchPhase = "lobby";
 const STARTING_MATCH_PHASE: MatchPhase = "starting";
 const ACTIVE_MATCH_PHASE: MatchPhase = "active";
-
-interface MatchRow {
-  id: string;
-  name: string;
-  phase: MatchPhase;
-  creatorUserId: string;
-  creatorName: string;
-  mapId: number;
-  maxPlayers: number;
-  isPrivate: number;
-  joinSlug: string | null;
-  settings: string;
-  createdAt: number;
-  updatedAt: number;
-  startedAt: number | null;
-  completedAt: number | null;
-}
-
-interface MatchParticipantRow {
-  matchId: string;
-  userId: string;
-  userName: string;
-  slotIndex: number;
-  factionId: number;
-  coId: number | null;
-  ready: number;
-  joinedAt: number;
-  updatedAt: number;
-}
 
 interface MatchViewer {
   id: string;
@@ -78,6 +54,9 @@ type MatchActionDiagnostics =
   | "slotTaken"
   | "alreadyJoined";
 
+type MatchRow = Awaited<ReturnType<typeof queryMatchRow>>;
+type MatchParticipantRow = Awaited<ReturnType<typeof queryParticipantRows>>[number];
+
 export async function createMatch(
   input: MatchCreateRequest,
   creator: MatchViewer,
@@ -93,39 +72,26 @@ export async function createMatch(
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const matchId = generateMatchId();
       const joinSlug = input.isPrivate ? generateOpaqueToken(18) : null;
-      const now = Date.now();
+      const now = new Date();
 
-      const result = await env.DB.prepare(
-        `INSERT INTO matches (
-          id,
-          name,
-          phase,
-          creatorUserId,
-          mapId,
+      const result = await db
+        .insert(matches)
+        .values({
+          id: matchId,
+          name: input.name,
+          phase: PUBLIC_MATCH_PHASE,
+          creatorUserId: creator.id,
+          mapId: input.mapId,
           maxPlayers,
-          isPrivate,
+          isPrivate: input.isPrivate,
           joinSlug,
-          settings,
-          createdAt,
-          updatedAt
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-        .bind(
-          matchId,
-          input.name,
-          PUBLIC_MATCH_PHASE,
-          creator.id,
-          input.mapId,
-          maxPlayers,
-          input.isPrivate ? 1 : 0,
-          joinSlug,
-          JSON.stringify(input.settings),
-          now,
-          now,
-        )
+          settings: input.settings,
+          createdAt: now,
+          updatedAt: now,
+        })
         .run();
 
-      if (result.success) {
+      if (result.meta.changes === 1) {
         return ok({ matchId, joinSlug });
       }
     }
@@ -222,46 +188,33 @@ async function insertParticipant(
   factionId: number,
   joinSlug: string | null,
 ): Promise<MatchResult<void>> {
-  const now = Date.now();
-  const result = await env.DB.prepare(
-    `INSERT OR IGNORE INTO match_participants (
-      matchId,
-      userId,
-      slotIndex,
-      factionId,
-      coId,
-      ready,
-      joinedAt,
-      updatedAt
+  const now = new Date();
+  const result = await db
+    .insert(matchParticipants)
+    .select(
+      db
+        .select({
+          matchId: matches.id,
+          userId: sql<string>`${viewer.id}`.as("userId"),
+          slotIndex: sql<number>`${slotIndex}`.as("slotIndex"),
+          factionId: sql<number>`${factionId}`.as("factionId"),
+          coId: sql<null>`NULL`.as("coId"),
+          ready: sql<boolean>`0`.as("ready"),
+          joinedAt: sql<Date>`${sql.param(now, matchParticipants.joinedAt)}`.as("joinedAt"),
+          updatedAt: sql<Date>`${sql.param(now, matchParticipants.updatedAt)}`.as("updatedAt"),
+        })
+        .from(matches)
+        .where(
+          and(
+            eq(matches.id, matchId),
+            eq(matches.phase, PUBLIC_MATCH_PHASE),
+            sql`${slotIndex} >= 0`,
+            sql`${slotIndex} < ${matches.maxPlayers}`,
+            or(eq(matches.isPrivate, false), sql`${matches.joinSlug} = ${joinSlug}`),
+          ),
+        ),
     )
-    SELECT
-      m.id,
-      ?,
-      ?,
-      ?,
-      NULL,
-      0,
-      ?,
-      ?
-    FROM matches m
-    WHERE m.id = ?
-      AND m.phase = ?
-      AND ? >= 0
-      AND ? < m.maxPlayers
-      AND (m.isPrivate = 0 OR m.joinSlug = ?)`,
-  )
-    .bind(
-      viewer.id,
-      slotIndex,
-      factionId,
-      now,
-      now,
-      matchId,
-      PUBLIC_MATCH_PHASE,
-      slotIndex,
-      slotIndex,
-      joinSlug,
-    )
+    .onConflictDoNothing()
     .run();
 
   if (result.meta.changes === 1) {
@@ -273,19 +226,17 @@ async function insertParticipant(
 }
 
 async function removeParticipant(matchId: string, userId: string): Promise<MatchResult<void>> {
-  const result = await env.DB.prepare(
-    `DELETE FROM match_participants
-    WHERE matchId = ?
-      AND userId = ?
+  const result = await db.run(sql`
+    DELETE FROM match_participants
+    WHERE matchId = ${matchId}
+      AND userId = ${userId}
       AND EXISTS (
         SELECT 1
         FROM matches
-        WHERE id = ?
-          AND phase = ?
-      )`,
-  )
-    .bind(matchId, userId, matchId, PUBLIC_MATCH_PHASE)
-    .run();
+        WHERE id = ${matchId}
+          AND phase = ${PUBLIC_MATCH_PHASE}
+      )
+  `);
 
   if (result.meta.changes === 1) {
     return ok(undefined);
@@ -329,30 +280,25 @@ async function updateParticipant(
     return err("participantInvalid", "select a CO before readying up", 409);
   }
 
-  const result = await env.DB.prepare(
-    `UPDATE match_participants
-    SET factionId = ?,
-        coId = ?,
-        ready = ?,
-        updatedAt = ?
-    WHERE matchId = ?
-      AND userId = ?
-      AND EXISTS (
-        SELECT 1
-        FROM matches
-        WHERE id = ?
-          AND phase = ?
-      )`,
-  )
-    .bind(
-      nextFactionId,
-      nextCoId,
-      nextReady ? 1 : 0,
-      Date.now(),
-      matchId,
-      userId,
-      matchId,
-      PUBLIC_MATCH_PHASE,
+  const result = await db
+    .update(matchParticipants)
+    .set({
+      factionId: nextFactionId,
+      coId: nextCoId,
+      ready: nextReady,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(matchParticipants.matchId, matchId),
+        eq(matchParticipants.userId, userId),
+        exists(
+          db
+            .select({ _: sql`1` })
+            .from(matches)
+            .where(and(eq(matches.id, matchId), eq(matches.phase, PUBLIC_MATCH_PHASE))),
+        ),
+      ),
     )
     .run();
 
@@ -379,19 +325,15 @@ async function diagnoseJoinFailure(
   if (slotIndex < 0 || slotIndex >= row.maxPlayers) {
     return "invalidSlot";
   }
-  if (row.isPrivate === 1 && row.joinSlug !== joinSlug) {
+  if (row.isPrivate && row.joinSlug !== joinSlug) {
     return "privateJoinRequired";
   }
 
-  const existingUser = await env.DB.prepare(
-    `SELECT 1 AS value
-    FROM match_participants
-    WHERE matchId = ?
-      AND userId = ?
-    LIMIT 1`,
-  )
-    .bind(matchId, userId)
-    .first<{ value: number }>();
+  const existingUser = await db
+    .select({ value: sql<number>`1` })
+    .from(matchParticipants)
+    .where(and(eq(matchParticipants.matchId, matchId), eq(matchParticipants.userId, userId)))
+    .get();
 
   if (existingUser) {
     return "alreadyJoined";
@@ -418,12 +360,12 @@ function joinFailureFromDiagnostics(diagnostics: MatchActionDiagnostics): MatchR
 }
 
 async function tryStartMatch(matchId: string): Promise<MatchResult<void>> {
-  await env.DB.prepare(
-    `UPDATE matches
-    SET phase = ?,
-        updatedAt = ?
-    WHERE id = ?
-      AND phase = ?
+  await db.run(sql`
+    UPDATE matches
+    SET phase = ${STARTING_MATCH_PHASE},
+        updatedAt = ${sql.param(new Date(), matches.updatedAt)}
+    WHERE id = ${matchId}
+      AND phase = ${PUBLIC_MATCH_PHASE}
       AND (
         SELECT COUNT(*)
         FROM match_participants p
@@ -435,10 +377,8 @@ async function tryStartMatch(matchId: string): Promise<MatchResult<void>> {
         WHERE p.matchId = matches.id
           AND p.ready = 1
           AND p.coId IS NOT NULL
-      ) = maxPlayers`,
-  )
-    .bind(STARTING_MATCH_PHASE, Date.now(), matchId, PUBLIC_MATCH_PHASE)
-    .run();
+      ) = maxPlayers
+  `);
 
   return finalizeStartingMatchIfNeeded(matchId);
 }
@@ -469,21 +409,20 @@ async function finalizeStartingMatchIfNeeded(matchId: string): Promise<MatchResu
     };
   }
 
-  await env.DB.prepare(
-    `UPDATE matches
-    SET phase = ?,
-        startedAt = COALESCE(startedAt, ?),
-        updatedAt = ?
-    WHERE id = ?
-      AND phase = ?`,
-  )
-    .bind(ACTIVE_MATCH_PHASE, Date.now(), Date.now(), matchId, STARTING_MATCH_PHASE)
+  await db
+    .update(matches)
+    .set({
+      phase: ACTIVE_MATCH_PHASE,
+      startedAt: sql`COALESCE(${matches.startedAt}, ${sql.param(new Date(), matches.startedAt)})`,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(matches.id, matchId), eq(matches.phase, STARTING_MATCH_PHASE)))
     .run();
 
   return ok(undefined);
 }
 
-async function buildMatchSetup(row: MatchRow): Promise<MatchResult<MatchSetup>> {
+async function buildMatchSetup(row: NonNullable<MatchRow>): Promise<MatchResult<MatchSetup>> {
   const participantRows = await queryParticipantRows(row.id);
   if (participantRows.length !== row.maxPlayers) {
     return err("matchStartBlocked", "match lobby is not full", 409);
@@ -494,11 +433,8 @@ async function buildMatchSetup(row: MatchRow): Promise<MatchResult<MatchSetup>> 
     return settings;
   }
 
-  const sortedPlayers = [...participantRows].sort(
-    (left, right) => left.slotIndex - right.slotIndex,
-  );
-  for (const participant of sortedPlayers) {
-    if (participant.coId === null || participant.ready !== 1) {
+  for (const participant of participantRows) {
+    if (participant.coId === null || !participant.ready) {
       return err("matchStartBlocked", "all players must choose a CO and ready up", 409);
     }
   }
@@ -520,7 +456,7 @@ async function buildMatchSetup(row: MatchRow): Promise<MatchResult<MatchSetup>> 
     map,
     fogEnabled: settings.value.fogEnabled,
     startingFunds: settings.value.startingFunds,
-    players: sortedPlayers.map((participant) => ({
+    players: participantRows.map((participant) => ({
       factionId: participant.factionId,
       team: null,
       startingFunds: settings.value.startingFunds,
@@ -549,71 +485,64 @@ async function loadMatchSnapshot(matchId: string): Promise<MatchResult<MatchSnap
     creatorName: row.creatorName,
     mapId: row.mapId,
     maxPlayers: row.maxPlayers,
-    isPrivate: row.isPrivate === 1,
-    joinSlug: row.joinSlug,
+    isPrivate: row.isPrivate,
+    joinSlug: row.joinSlug ?? null,
     settings: settings.value,
-    createdAt: toIsoTimestamp(row.createdAt),
-    updatedAt: toIsoTimestamp(row.updatedAt),
-    startedAt: row.startedAt === null ? null : toIsoTimestamp(row.startedAt),
-    completedAt: row.completedAt === null ? null : toIsoTimestamp(row.completedAt),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    startedAt: row.startedAt === null ? null : row.startedAt.toISOString(),
+    completedAt: row.completedAt === null ? null : row.completedAt.toISOString(),
     participants: participantRows.map(toParticipantSnapshot),
   });
 }
 
-async function queryMatchRow(matchId: string): Promise<MatchRow | null> {
-  return env.DB.prepare(
-    `SELECT
-      m.id,
-      m.name,
-      m.phase,
-      m.creatorUserId,
-      creator.name AS creatorName,
-      m.mapId,
-      m.maxPlayers,
-      m.isPrivate,
-      m.joinSlug,
-      m.settings,
-      m.createdAt,
-      m.updatedAt,
-      m.startedAt,
-      m.completedAt
-    FROM matches m
-    INNER JOIN user creator
-      ON creator.id = m.creatorUserId
-    WHERE m.id = ?
-    LIMIT 1`,
-  )
-    .bind(matchId)
-    .first<MatchRow>();
+async function queryMatchRow(matchId: string) {
+  return db
+    .select({
+      id: matches.id,
+      name: matches.name,
+      phase: matches.phase,
+      creatorUserId: matches.creatorUserId,
+      creatorName: user.name,
+      mapId: matches.mapId,
+      maxPlayers: matches.maxPlayers,
+      isPrivate: matches.isPrivate,
+      joinSlug: matches.joinSlug,
+      settings: matches.settings,
+      createdAt: matches.createdAt,
+      updatedAt: matches.updatedAt,
+      startedAt: matches.startedAt,
+      completedAt: matches.completedAt,
+    })
+    .from(matches)
+    .innerJoin(user, eq(user.id, matches.creatorUserId))
+    .where(eq(matches.id, matchId))
+    .get();
 }
 
-async function queryParticipantRows(matchId: string): Promise<MatchParticipantRow[]> {
-  const results = await env.DB.prepare(
-    `SELECT
-      p.matchId,
-      p.userId,
-      u.name AS userName,
-      p.slotIndex,
-      p.factionId,
-      p.coId,
-      p.ready,
-      p.joinedAt,
-      p.updatedAt
-    FROM match_participants p
-    INNER JOIN user u
-      ON u.id = p.userId
-    WHERE p.matchId = ?
-    ORDER BY p.slotIndex ASC`,
-  )
-    .bind(matchId)
-    .all<MatchParticipantRow>();
-
-  return results.results ?? [];
+async function queryParticipantRows(matchId: string) {
+  return db
+    .select({
+      matchId: matchParticipants.matchId,
+      userId: matchParticipants.userId,
+      userName: user.name,
+      slotIndex: matchParticipants.slotIndex,
+      factionId: matchParticipants.factionId,
+      coId: matchParticipants.coId,
+      ready: matchParticipants.ready,
+      joinedAt: matchParticipants.joinedAt,
+      updatedAt: matchParticipants.updatedAt,
+    })
+    .from(matchParticipants)
+    .innerJoin(user, eq(user.id, matchParticipants.userId))
+    .where(eq(matchParticipants.matchId, matchId))
+    .orderBy(asc(matchParticipants.slotIndex))
+    .all();
 }
 
-function parseMatchSettingsValue(value: string): MatchResult<MatchSettings> {
+function parseMatchSettingsValue(value: unknown): MatchResult<MatchSettings> {
   try {
-    const result = matchSettingsSchema.safeParse(JSON.parse(value));
+    const result = matchSettingsSchema.safeParse(value);
     if (!result.success) {
       const issue = result.error.issues[0];
       return err("matchInvalid", issue?.message ?? "match settings were invalid", 500);
@@ -633,9 +562,9 @@ function toParticipantSnapshot(row: MatchParticipantRow): MatchParticipantSnapsh
     slotIndex: row.slotIndex,
     factionId: row.factionId,
     coId: row.coId,
-    ready: row.ready === 1,
-    joinedAt: toIsoTimestamp(row.joinedAt),
-    updatedAt: toIsoTimestamp(row.updatedAt),
+    ready: row.ready,
+    joinedAt: row.joinedAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 
@@ -683,8 +612,4 @@ function mutationJoinSlug(action: MatchMutationRequest): string | null {
 function generateOpaqueToken(byteLength: number): string {
   const bytes = crypto.getRandomValues(new Uint8Array(byteLength));
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function toIsoTimestamp(timestamp: number): string {
-  return new Date(timestamp).toISOString();
 }
