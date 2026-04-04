@@ -3,7 +3,7 @@ import unitAtlasManifest from "../../../assets/data/unit_atlas_manifest.json";
 import uiAtlasData from "../../../assets/data/ui_atlas.json";
 import uiTextureUrl from "../../../assets/textures/ui.png?url";
 import unitsTextureUrl from "../../../assets/textures/units.png?url";
-import { factions } from "../factions";
+import { factions } from "#/factions.ts";
 
 const INFANTRY_VISIBLE_X = 7;
 const INFANTRY_VISIBLE_Y = 8;

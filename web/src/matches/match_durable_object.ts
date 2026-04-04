@@ -2,12 +2,12 @@ import { DurableObject } from "cloudflare:workers";
 import { drizzle, DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { count } from "drizzle-orm";
-import { WasmMatch, initSync } from "../wasm/awbrn_server";
+import { WasmMatch, initSync } from "#/wasm/awbrn_server.js";
 import matchWasmModule from "../wasm/awbrn_server_bg.wasm";
 import { normalizeCaughtError, ok, type MatchResult } from "./match_protocol";
 import type { MatchCreateResponse } from "./schemas";
 import migrations from "../../drizzle/match/migrations";
-import { matchEventsTable } from "../db/match";
+import { matchEventsTable } from "#/db/match.ts";
 
 let wasmInitialized = false;
 

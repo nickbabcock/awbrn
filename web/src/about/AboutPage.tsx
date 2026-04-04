@@ -9,8 +9,8 @@ import {
   Stack,
   Text,
   Wordmark,
-} from "../ui/primitives";
-import { tokens } from "../ui/theme.stylex";
+} from "#/ui/primitives.tsx";
+import { tokens } from "#/ui/theme.stylex.ts";
 
 const letters = [
   { letter: "A", faction: "os", word: "Advance", cls: "wm-os" },

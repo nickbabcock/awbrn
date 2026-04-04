@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { PlayerRosterSnapshot } from "../wasm/awbrn_wasm";
+import type { PlayerRosterSnapshot } from "#/wasm/awbrn_wasm.js";
 
 interface GameState {
   currentDay: number;

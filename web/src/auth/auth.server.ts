@@ -4,7 +4,7 @@ import { tanstackStartCookies } from "better-auth/tanstack-start";
 import type { Auth, BetterAuthOptions } from "better-auth/types";
 import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
-import * as schema from "../db/global";
+import * as schema from "#/db/global.ts";
 import type { Session } from "./session";
 
 let _auth: Auth<BetterAuthOptions> | undefined;

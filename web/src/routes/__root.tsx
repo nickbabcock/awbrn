@@ -2,13 +2,13 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
-import { getSessionFn } from "../auth/auth.functions";
-import { DefaultCatchBoundary } from "../components/DefaultCatchBoundary";
-import { NotFound } from "../components/NotFound";
-import { Layout } from "../layouts/Layout";
-import { DevStyleXInject } from "../styles/DevStyleXInject";
-import resetCss from "../styles/reset.css?url";
-import { appTheme, rootStyles } from "../ui/theme.stylex";
+import { getSessionFn } from "#/auth/auth.functions.ts";
+import { DefaultCatchBoundary } from "#/components/DefaultCatchBoundary.tsx";
+import { NotFound } from "#/components/NotFound.tsx";
+import { Layout } from "#/layouts/Layout.tsx";
+import { DevStyleXInject } from "#/styles/DevStyleXInject.tsx";
+import resetCss from "#/styles/reset.css?url";
+import { appTheme, rootStyles } from "#/ui/theme.stylex.ts";
 
 export const Route = createRootRoute({
   head: () => ({

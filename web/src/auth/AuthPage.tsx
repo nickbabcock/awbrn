@@ -13,8 +13,8 @@ import {
   Stack,
   Text,
   TextField,
-} from "../ui/primitives";
-import { tokens } from "../ui/theme.stylex";
+} from "#/ui/primitives.tsx";
+import { tokens } from "#/ui/theme.stylex.ts";
 
 export function AuthPage({ isRegister }: { isRegister: boolean }) {
   const navigate = useNavigate();

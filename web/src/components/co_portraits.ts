@@ -1,4 +1,4 @@
-import { coPortraitAtlas, coPortraitSheetAssetUrl } from "../engine/asset_manifest";
+import { coPortraitAtlas, coPortraitSheetAssetUrl } from "#/engine/asset_manifest.ts";
 
 interface CoPortraitAtlasEntry {
   index: number;

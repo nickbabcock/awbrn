@@ -1,9 +1,9 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
-import { useAppSession } from "../../auth/useAppSession";
-import { awbwMapAssetPath } from "../../awbw/paths";
-import type { AwbwMapData } from "../../awbw/schemas";
+import { useAppSession } from "#/auth/useAppSession.ts";
+import { awbwMapAssetPath } from "#/awbw/paths.ts";
+import type { AwbwMapData } from "#/awbw/schemas.ts";
 import {
   Button,
   CheckboxField,
@@ -16,10 +16,10 @@ import {
   Stack,
   Text,
   TextField,
-} from "../../ui/primitives";
-import { tokens } from "../../ui/theme.stylex";
-import { MatchMapPreview } from "../components/MatchMapPreview";
-import { createMatchFn } from "../matches.functions";
+} from "#/ui/primitives.tsx";
+import { tokens } from "#/ui/theme.stylex.ts";
+import { MatchMapPreview } from "#/matches/components/MatchMapPreview.tsx";
+import { createMatchFn } from "#/matches/matches.functions.ts";
 
 export function NewMatchPage() {
   const navigate = useNavigate();

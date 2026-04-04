@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as stylex from "@stylexjs/stylex";
-import { useAppSession } from "../../auth/useAppSession";
-import { awbwMapAssetPath } from "../../awbw/paths";
-import type { AwbwMapData } from "../../awbw/schemas";
-import { CoPortrait } from "../../components/CoPortrait";
-import { listCoPortraits, loadCoPortraitCatalog } from "../../components/co_portraits";
-import { defaultFactionIdForSlot, factions, getFactionById } from "../../factions";
-import { getFactionVisual } from "../../faction_visuals";
+import { useAppSession } from "#/auth/useAppSession.ts";
+import { awbwMapAssetPath } from "#/awbw/paths.ts";
+import type { AwbwMapData } from "#/awbw/schemas.ts";
+import { CoPortrait } from "#/components/CoPortrait.tsx";
+import { listCoPortraits, loadCoPortraitCatalog } from "#/components/co_portraits.ts";
+import { defaultFactionIdForSlot, factions, getFactionById } from "#/factions.ts";
+import { getFactionVisual } from "#/faction_visuals.ts";
 import {
   Badge,
   Button,
@@ -19,11 +19,11 @@ import {
   SelectField,
   Stack,
   Text,
-} from "../../ui/primitives";
-import { tokens } from "../../ui/theme.stylex";
-import { MatchMapPreview } from "../components/MatchMapPreview";
-import { getMatchFn, mutateMatchFn } from "../matches.functions";
-import type { MatchMutationRequest, MatchSnapshot } from "../schemas";
+} from "#/ui/primitives.tsx";
+import { tokens } from "#/ui/theme.stylex.ts";
+import { MatchMapPreview } from "#/matches/components/MatchMapPreview.tsx";
+import { getMatchFn, mutateMatchFn } from "#/matches/matches.functions.ts";
+import type { MatchMutationRequest, MatchSnapshot } from "#/matches/schemas.ts";
 
 const coOptions = listCoPortraits();
 
