@@ -3,6 +3,11 @@ import { MatchDurableObject } from "#/matches/match_durable_object.ts";
 
 export { MatchDurableObject };
 
+const crossOriginIsolationHeaders = {
+  "Cross-Origin-Embedder-Policy": "require-corp",
+  "Cross-Origin-Opener-Policy": "same-origin",
+} as const;
+
 const MATCH_WEBSOCKET_PATTERN = new URLPattern({
   pathname: "/api/matches/:matchId/ws",
 });
@@ -17,6 +22,7 @@ export default createServerEntry({
       // return stub.fetch(request);
       // This websocket path is reserved for future match traffic once the runtime protocol exists.
       return new Response(`Match websocket forwarding is not implemented for ${matchId}`, {
+        headers: crossOriginIsolationHeaders,
         status: 501,
       });
     }
