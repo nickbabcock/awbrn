@@ -1,4 +1,16 @@
-import "./AboutPage.css";
+import * as stylex from "@stylexjs/stylex";
+import {
+  CodeText,
+  Frame,
+  Heading,
+  Kicker,
+  Page,
+  Section,
+  Stack,
+  Text,
+  Wordmark,
+} from "../ui/primitives";
+import { tokens } from "../ui/theme.stylex";
 
 const letters = [
   { letter: "A", faction: "os", word: "Advance", cls: "wm-os" },
@@ -10,32 +22,111 @@ const letters = [
 
 export function AboutPage() {
   return (
-    <div className="about-page">
-      <div className="about-card">
-        <div className="about-header">
-          <h1 className="about-title">What's in a Name</h1>
-        </div>
-
-        <div className="about-body">
-          <div className="acronym-grid">
-            {letters.map(({ letter, word, cls }) => (
-              <div key={letter} className="acronym-row">
-                <span className={`acronym-letter ${cls}`}>{letter}</span>
-                <span className="acronym-dash">—</span>
-                <span className="acronym-word">{word}</span>
+    <Page width="wide">
+      <Section>
+        <div {...stylex.props(styles.layout)}>
+          <Frame xstyle={styles.introFrame}>
+            <Stack gap="lg">
+              <Kicker xstyle={styles.introKicker}>About</Kicker>
+              <Heading size="display">What&apos;s in a Name</Heading>
+              <Text size="lg" tone="strong" xstyle={styles.copy}>
+                AWBRN, pronounced auburn, is a replay viewer and game toolkit for Advance Wars By
+                Web. It is built to make battle review readable at a glance, with recognizable CO
+                portraits, stable terrain rendering, and a browser-native flow backed by Rust and
+                WebAssembly.
+              </Text>
+            </Stack>
+          </Frame>
+          <Frame xstyle={styles.panel}>
+            <Stack gap="lg">
+              <Wordmark shadow />
+              <div {...stylex.props(styles.acronymGrid)}>
+                {letters.map(({ letter, word, cls }) => (
+                  <div key={letter} {...stylex.props(styles.acronymRow)}>
+                    <span
+                      {...stylex.props(styles.acronymLetter, acronymStyleMap[cls] || styles.bh)}
+                    >
+                      {letter}
+                    </span>
+                    <span {...stylex.props(styles.dash)}>—</span>
+                    <span {...stylex.props(styles.word)}>{word}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-
-          <p className="about-copy">
-            Pronounced, auburn, AWBRN is a replay viewer and game toolkit for{" "}
-            <strong>Advance Wars By Web</strong> — the browser-based re-implementation of Nintendo's
-            Advance Wars series. Load a <code>.zip</code> replay, step through every turn, and
-            review your battles in your browser with pixel-perfect CO portraits and terrain
-            rendering, powered by a Rust and WebAssembly core.
-          </p>
+              <Text size="sm" tone="muted">
+                Load a <CodeText>.zip</CodeText> replay, step through every turn, and inspect the
+                battlefield without losing the character of the source game.
+              </Text>
+            </Stack>
+          </Frame>
         </div>
-      </div>
-    </div>
+      </Section>
+    </Page>
   );
 }
+
+const styles = stylex.create({
+  layout: {
+    display: "grid",
+    gap: tokens.space8,
+    gridTemplateColumns: {
+      default: "minmax(0, 1.1fr) minmax(320px, 0.9fr)",
+      "@media (max-width: 860px)": "1fr",
+    },
+    alignItems: "start",
+  },
+  copy: {
+    maxWidth: 620,
+  },
+  introFrame: {
+    backgroundColor: tokens.panelRaised,
+    backgroundImage:
+      "linear-gradient(180deg, rgba(255,255,255,0.26), transparent 38%), linear-gradient(135deg, rgba(231, 100, 38, 0.12), transparent 55%)",
+  },
+  introKicker: {
+    color: tokens.brandHover,
+  },
+  panel: {
+    backgroundImage:
+      "linear-gradient(180deg, rgba(255,255,255,0.18), transparent 35%), linear-gradient(135deg, rgba(29, 37, 50, 0.08), transparent 40%)",
+  },
+  acronymGrid: {
+    display: "grid",
+    gap: tokens.space3,
+  },
+  acronymRow: {
+    display: "grid",
+    gridTemplateColumns: "24px 18px minmax(0, 1fr)",
+    gap: tokens.space3,
+    alignItems: "baseline",
+  },
+  acronymLetter: {
+    fontFamily: tokens.fontPixel,
+    fontSize: 18,
+    lineHeight: 1,
+  },
+  dash: {
+    color: tokens.inkMuted,
+    fontFamily: tokens.fontBody,
+    fontSize: 18,
+  },
+  word: {
+    color: tokens.inkStrong,
+    fontFamily: tokens.fontBody,
+    fontSize: 18,
+    fontWeight: 700,
+  },
+  os: { color: tokens.factionOs },
+  bm: { color: tokens.factionBm },
+  ge: { color: tokens.factionGe },
+  yc: { color: tokens.factionYc },
+  bh: { color: tokens.factionBh },
+});
+
+const acronymStyleMap: Record<(typeof letters)[number]["cls"], typeof styles.os> = {
+  "wm-os": styles.os,
+  "wm-bm": styles.bm,
+  "wm-ge": styles.ge,
+  "wm-yc": styles.yc,
+  "wm-bh": styles.bh,
+} as const;

@@ -1,11 +1,14 @@
 /// <reference types="vite/client" />
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
+import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 import { getSessionFn } from "../auth/auth.functions";
 import { DefaultCatchBoundary } from "../components/DefaultCatchBoundary";
 import { NotFound } from "../components/NotFound";
 import { Layout } from "../layouts/Layout";
-import appCss from "../styles/index.css?url";
+import { DevStyleXInject } from "../styles/DevStyleXInject";
+import resetCss from "../styles/reset.css?url";
+import { appTheme, rootStyles } from "../ui/theme.stylex";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -14,7 +17,7 @@ export const Route = createRootRoute({
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "AWBRN" },
     ],
-    links: [{ rel: "stylesheet", href: appCss }],
+    links: [{ rel: "stylesheet", href: resetCss }],
   }),
   loader: () => getSessionFn(),
   errorComponent: DefaultCatchBoundary,
@@ -33,12 +36,15 @@ function RootComponent() {
 
 function RootDocument({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" {...stylex.props(appTheme, rootStyles.html)}>
       <head>
         <HeadContent />
+        {import.meta.env.DEV ? <DevStyleXInject /> : null}
       </head>
-      <body>
-        {children}
+      <body {...stylex.props(rootStyles.body)}>
+        <div id="app-root" {...stylex.props(rootStyles.appRoot)}>
+          {children}
+        </div>
         <Scripts />
       </body>
     </html>

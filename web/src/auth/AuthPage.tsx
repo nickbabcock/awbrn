@@ -1,8 +1,20 @@
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
+import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import { authClient } from "./client";
 import { authSignInSchema, authSignUpSchema } from "./schemas";
-import "./AuthPage.css";
+import {
+  Button,
+  Frame,
+  Heading,
+  Kicker,
+  Page,
+  Section,
+  Stack,
+  Text,
+  TextField,
+} from "../ui/primitives";
+import { tokens } from "../ui/theme.stylex";
 
 export function AuthPage({ isRegister }: { isRegister: boolean }) {
   const navigate = useNavigate();
@@ -36,89 +48,108 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
   }
 
   return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <div className="auth-header">
-          <h1 className="auth-title">{isRegister ? "Register" : "Sign In"}</h1>
+    <Page width="wide">
+      <Section>
+        <div {...stylex.props(styles.layout)}>
+          <Frame xstyle={styles.introFrame}>
+            <Stack gap="lg">
+              <Kicker xstyle={styles.introKicker}>Access</Kicker>
+              <Heading size="display">{isRegister ? "Register" : "Sign In"}</Heading>
+              <Text size="lg" tone="strong" xstyle={styles.lead}>
+                Use the same field manual language as the rest of the app: clear intent, direct
+                actions, no filler.
+              </Text>
+            </Stack>
+          </Frame>
+          <Frame xstyle={styles.formFrame}>
+            <form onSubmit={handleSubmit}>
+              <Stack gap="md">
+                {isRegister ? (
+                  <TextField
+                    autoComplete="name"
+                    id="name"
+                    label="Name"
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                    type="text"
+                    value={name}
+                  />
+                ) : null}
+                <TextField
+                  autoComplete="email"
+                  id="email"
+                  label="Email"
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  type="email"
+                  value={email}
+                />
+                <TextField
+                  autoComplete={isRegister ? "new-password" : "current-password"}
+                  id="password"
+                  label="Password"
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  type="password"
+                  value={password}
+                />
+                {error ? (
+                  <Text role="alert" size="sm" tone="danger">
+                    {error}
+                  </Text>
+                ) : null}
+                <Button fullWidth tone="success" type="submit" disabled={isPending}>
+                  {isPending ? "Working..." : isRegister ? "Create Account" : "Sign In"}
+                </Button>
+                <Text size="sm" tone="muted">
+                  {isRegister ? (
+                    <>
+                      Already have an account? <Link to="/auth">Sign in →</Link>
+                    </>
+                  ) : (
+                    <>
+                      New here?{" "}
+                      <Link to="/auth" search={{ mode: "register" }}>
+                        Create an account →
+                      </Link>
+                    </>
+                  )}
+                </Text>
+              </Stack>
+            </form>
+          </Frame>
         </div>
-
-        <form className="auth-form" onSubmit={handleSubmit}>
-          {isRegister && (
-            <div className="auth-field">
-              <label className="auth-label" htmlFor="name">
-                Name
-              </label>
-              <input
-                className="auth-input"
-                id="name"
-                type="text"
-                autoComplete="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
-            </div>
-          )}
-
-          <div className="auth-field">
-            <label className="auth-label" htmlFor="email">
-              Email
-            </label>
-            <input
-              className="auth-input"
-              id="email"
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
-
-          <div className="auth-field">
-            <label className="auth-label" htmlFor="password">
-              Password
-            </label>
-            <input
-              className="auth-input"
-              id="password"
-              type="password"
-              autoComplete={isRegister ? "new-password" : "current-password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-
-          {error && (
-            <p className="auth-error" role="alert">
-              {error}
-            </p>
-          )}
-
-          <button className="auth-submit" type="submit" disabled={isPending}>
-            {isPending ? "..." : isRegister ? "Create Account" : "Sign In"}
-          </button>
-        </form>
-
-        <p className="auth-switch">
-          {isRegister ? (
-            <>
-              Already have an account? <Link to="/auth">Sign in →</Link>
-            </>
-          ) : (
-            <>
-              New here?{" "}
-              <Link to="/auth" search={{ mode: "register" }}>
-                Create an account →
-              </Link>
-            </>
-          )}
-        </p>
-      </div>
-    </div>
+      </Section>
+    </Page>
   );
 }
+
+const styles = stylex.create({
+  layout: {
+    display: "grid",
+    gap: tokens.space8,
+    gridTemplateColumns: {
+      default: "minmax(0, 1.1fr) minmax(320px, 420px)",
+      "@media (max-width: 860px)": "1fr",
+    },
+    alignItems: "start",
+  },
+  lead: {
+    maxWidth: 560,
+  },
+  introFrame: {
+    backgroundColor: tokens.panelRaised,
+    backgroundImage:
+      "linear-gradient(180deg, rgba(255,255,255,0.26), transparent 38%), linear-gradient(135deg, rgba(47, 109, 168, 0.12), transparent 56%)",
+  },
+  introKicker: {
+    color: tokens.infoHover,
+  },
+  formFrame: {
+    backgroundImage:
+      "linear-gradient(180deg, rgba(47, 142, 69, 0.16), transparent 42%), linear-gradient(135deg, rgba(29, 37, 50, 0.08), transparent 45%)",
+  },
+});
 
 async function submitAuthRequest(
   isRegister: boolean,

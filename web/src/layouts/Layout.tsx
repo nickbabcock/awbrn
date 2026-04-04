@@ -1,10 +1,149 @@
+import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { authClient } from "../auth/client";
 import { useAppSession } from "../auth/useAppSession";
-import "./Layout.css";
+import { Button, ButtonLink, Text, Wordmark } from "../ui/primitives";
+import { tokens } from "../ui/theme.stylex";
+
+const styles = stylex.create({
+  shell: {
+    minHeight: "100vh",
+    display: "flex",
+    flexDirection: "column",
+  },
+  nav: {
+    position: "sticky",
+    top: 0,
+    zIndex: 10,
+    display: "flex",
+    justifyContent: "space-between",
+    gap: tokens.space4,
+    minHeight: tokens.navHeight,
+    paddingInline: "clamp(16px, 4vw, 32px)",
+    backgroundColor: tokens.chromeBgLight,
+    borderBottomWidth: 3,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.strokeHeavy,
+    boxShadow: tokens.shadowHardLg,
+    flexWrap: {
+      default: "nowrap",
+      "@media (max-width: 640px)": "wrap",
+    },
+    alignItems: {
+      default: "center",
+      "@media (max-width: 640px)": "flex-start",
+    },
+    paddingBlock: {
+      default: null,
+      "@media (max-width: 640px)": tokens.space3,
+    },
+  },
+  navCluster: {
+    display: "flex",
+    alignItems: "center",
+    gap: tokens.space3,
+    flexWrap: "wrap",
+  },
+  navLinks: {
+    display: "flex",
+    alignItems: "center",
+    gap: tokens.space1,
+    order: {
+      default: null,
+      "@media (max-width: 640px)": 3,
+    },
+    width: {
+      default: null,
+      "@media (max-width: 640px)": "100%",
+    },
+    justifyContent: {
+      default: null,
+      "@media (max-width: 640px)": "space-between",
+    },
+  },
+  navLink: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 36,
+    paddingInline: tokens.space3,
+    borderWidth: 2,
+    borderStyle: "solid",
+    borderRadius: tokens.radius2,
+    color: {
+      default: tokens.inkStrong,
+      ":hover": tokens.inkStrong,
+    },
+    fontFamily: tokens.fontPixel,
+    fontSize: 9,
+    letterSpacing: "0.08em",
+    textDecoration: "none",
+    textTransform: "uppercase",
+    transitionDuration: tokens.transitionFast,
+    transitionProperty: "background-color, border-color, color, transform, box-shadow",
+    transform: {
+      default: "translateY(0)",
+      ":hover": "translate(-1px, -1px)",
+      ":active": `translate(${tokens.pressOffsetSm}, ${tokens.pressOffsetSm})`,
+    },
+    boxShadow: {
+      default: tokens.shadowHardSm,
+      ":hover": tokens.shadowHardMd,
+      ":active": "none",
+    },
+    borderColor: {
+      default: tokens.strokeBase,
+      ":hover": tokens.strokeHeavy,
+    },
+    backgroundColor: {
+      default: "transparent",
+      ":hover": tokens.panelBg,
+    },
+  },
+  navLinkActive: {
+    backgroundColor: tokens.panelInset,
+    borderColor: tokens.strokeHeavy,
+    color: tokens.inkStrong,
+    boxShadow: tokens.shadowHardMd,
+  },
+  authZone: {
+    display: "flex",
+    alignItems: "center",
+    gap: tokens.space2,
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+  },
+  user: {
+    color: tokens.inkSoft,
+    fontFamily: tokens.fontPixel,
+    fontSize: 8,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+  error: {
+    color: tokens.danger,
+  },
+  navActionSecondary: {
+    borderColor: tokens.strokeBase,
+    color: tokens.inkStrong,
+  },
+  navActionPrimary: {
+    backgroundColor: tokens.brand,
+    borderColor: tokens.strokeHeavy,
+    color: tokens.onDarkStrong,
+  },
+  main: {
+    flex: 1,
+    minHeight: 0,
+  },
+});
+
+const navLinkClassName = stylex.props(styles.navLink).className ?? undefined;
+const navLinkActiveClassName =
+  stylex.props(styles.navLink, styles.navLinkActive).className ?? undefined;
 
 export function Layout({ children }: { children: ReactNode }) {
   const session = useAppSession();
@@ -39,70 +178,86 @@ export function Layout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="app-shell">
-      <header className="nav">
-        <Link to="/" className="nav-logo" aria-label="AWBRN home">
-          <span className="logo-os">A</span>
-          <span className="logo-bm">W</span>
-          <span className="logo-ge">B</span>
-          <span className="logo-yc">R</span>
-          <span className="logo-bh">N</span>
-        </Link>
+    <div {...stylex.props(styles.shell)}>
+      <header {...stylex.props(styles.nav)}>
+        <div {...stylex.props(styles.navCluster)}>
+          <Wordmark href="/" size="nav" shadow />
+        </div>
 
-        <nav className="nav-links" aria-label="Main navigation">
+        <nav aria-label="Main navigation" {...stylex.props(styles.navLinks)}>
           <Link
             to="/"
-            className="nav-link"
-            activeProps={{ className: "nav-link active" }}
+            className={navLinkClassName}
+            activeProps={{ className: navLinkActiveClassName }}
             activeOptions={{ exact: true }}
           >
             Play
           </Link>
           <Link
             to="/matches/new"
-            className="nav-link"
-            activeProps={{ className: "nav-link active" }}
+            className={navLinkClassName}
+            activeProps={{ className: navLinkActiveClassName }}
           >
             New Match
           </Link>
-          <Link to="/about" className="nav-link" activeProps={{ className: "nav-link active" }}>
+          <Link
+            to="/about"
+            className={navLinkClassName}
+            activeProps={{ className: navLinkActiveClassName }}
+          >
             About
           </Link>
         </nav>
 
-        <div className="nav-auth">
+        <div {...stylex.props(styles.authZone)}>
           {session ? (
             <>
-              <span className="nav-user">{session.user.name}</span>
+              <span {...stylex.props(styles.user)}>{session.user.name}</span>
               {signOutError ? (
-                <p className="nav-auth-error" role="alert">
+                <Text role="alert" size="sm" tone="danger" xstyle={styles.error}>
                   {signOutError}
-                </p>
+                </Text>
               ) : null}
-              <button
-                className="nav-signout"
+              <Button
                 disabled={isSigningOut}
                 onClick={() => {
                   void handleSignOut();
                 }}
+                size="sm"
+                tone="neutral"
+                variant="outline"
+                xstyle={styles.navActionSecondary}
               >
                 {isSigningOut ? "Signing Out..." : "Sign Out"}
-              </button>
+              </Button>
             </>
           ) : (
             <>
-              <Link to="/auth" search={{}} className="nav-signin">
+              <ButtonLink
+                size="sm"
+                search={{ mode: undefined }}
+                to="/auth"
+                tone="neutral"
+                variant="outline"
+                xstyle={styles.navActionSecondary}
+              >
                 Sign In
-              </Link>
-              <Link to="/auth" search={{ mode: "register" }} className="nav-register">
+              </ButtonLink>
+              <ButtonLink
+                size="sm"
+                to="/auth"
+                search={{ mode: "register" }}
+                tone="brand"
+                xstyle={styles.navActionPrimary}
+              >
                 Register
-              </Link>
+              </ButtonLink>
             </>
           )}
         </div>
       </header>
 
-      <main className="app-main">{children}</main>
+      <main {...stylex.props(styles.main)}>{children}</main>
     </div>
   );
 }

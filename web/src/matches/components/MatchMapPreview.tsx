@@ -1,14 +1,41 @@
+import * as stylex from "@stylexjs/stylex";
 import { useEffect, useRef } from "react";
 import { GameRunner } from "../../engine/game_runner";
-import "./MatchMapPreview.css";
+import { tokens } from "../../ui/theme.stylex";
+import type { XStyle } from "../../ui/stylex";
 
-export function MatchMapPreview({
-  mapId,
-  className,
-}: {
-  mapId: number | null;
-  className?: string;
-}) {
+const styles = stylex.create({
+  root: {
+    width: "100%",
+  },
+  frame: {
+    display: "flex",
+    justifyContent: "flex-start",
+    overflow: "auto",
+    minHeight: 240,
+    borderWidth: 3,
+    borderStyle: "solid",
+    borderColor: tokens.strokeHeavy,
+    borderRadius: tokens.radius3,
+    backgroundImage:
+      "linear-gradient(180deg, rgba(23, 28, 40, 0.88), rgba(8, 11, 18, 0.96)), radial-gradient(circle at top, rgba(255, 255, 255, 0.08), transparent 55%)",
+    boxShadow: `${tokens.highlightInsetChrome}, ${tokens.shadowHardLg}`,
+    padding: tokens.space4,
+  },
+  surface: {
+    flex: "0 0 auto",
+    width: 600,
+    height: 400,
+    overflow: "hidden",
+  },
+  canvas: {
+    display: "block",
+    imageRendering: "pixelated",
+    outline: "none",
+  },
+});
+
+export function MatchMapPreview({ mapId, xstyle }: { mapId: number | null; xstyle?: XStyle }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const attachPromiseRef = useRef<Promise<void> | null>(null);
@@ -28,6 +55,7 @@ export function MatchMapPreview({
 
     attachPromiseRef.current = runner.attachCanvas({ canvas, container }).catch((error) => {
       console.error("Error attaching preview surface:", error);
+      throw error;
     });
 
     return () => {
@@ -62,15 +90,15 @@ export function MatchMapPreview({
   }, [mapId]);
 
   return (
-    <div className={className}>
-      <div className="map-preview-frame">
-        <div className="map-preview-surface" ref={containerRef}>
+    <div {...stylex.props(styles.root, xstyle)}>
+      <div {...stylex.props(styles.frame)}>
+        <div ref={containerRef} {...stylex.props(styles.surface)}>
           <canvas
-            className="map-preview-canvas"
             ref={canvasRef}
             width={600}
             height={400}
             tabIndex={-1}
+            {...stylex.props(styles.canvas)}
           />
         </div>
       </div>
