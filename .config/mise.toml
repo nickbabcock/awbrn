@@ -67,6 +67,14 @@ run = [
     "pnpm run build"
 ]
 
+[tasks."test:web"]
+description = "Run the web test suite"
+depends = ["pnpm-install"]
+dir = "web"
+run = [
+    "pnpm run test"
+]
+
 [tasks."dev:web"]
 description = "Run the web server"
 dir = "web"

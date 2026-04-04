@@ -149,3 +149,5 @@ jobs:
       run: mise run assets
     - name: Build web
       run: mise run build:web:ci
+    - name: Run web tests
+      run: mise run test:web
