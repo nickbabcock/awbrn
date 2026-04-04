@@ -6,8 +6,8 @@ use bevy::{
     app::PluginsState,
     input::{
         ButtonState,
-        keyboard::{KeyboardFocusLost, KeyboardInput, NativeKey},
-        mouse::{MouseButton, MouseButtonInput},
+        keyboard::{Key, KeyboardFocusLost, KeyboardInput, NativeKey},
+        mouse::{MouseButton, MouseButtonInput, MouseScrollUnit, MouseWheel},
     },
     prelude::*,
     window::{CursorLeft, CursorMoved, RawHandleWrapper, WindowResolution, WindowWrapper},
@@ -19,6 +19,7 @@ use web_sys::OffscreenCanvas;
 
 mod keyboard;
 mod offscreen_window_handle;
+mod web_key_code_generated;
 
 const AWBW_API_ASSET_SOURCE: &str = "awbw_api";
 
@@ -236,7 +237,7 @@ impl BevyApp {
     }
 
     #[wasm_bindgen]
-    pub fn handle_key_down(&mut self, event: KeyboardEvent) {
+    pub fn handle_key_down_code(&mut self, key_code: u16, repeat: bool) {
         let Ok((window, _)) = self
             .app
             .world_mut()
@@ -247,15 +248,12 @@ impl BevyApp {
             return;
         };
 
-        let code = keyboard::from_web_code(event.key_code.as_str());
         let event = KeyboardInput {
-            key_code: code,
-            logical_key: bevy::input::keyboard::Key::Unidentified(NativeKey::Web(
-                event.key_code.into(),
-            )),
+            key_code: keyboard::from_wire_code(key_code),
+            logical_key: Key::Unidentified(NativeKey::Unidentified),
             state: ButtonState::Pressed,
             text: None,
-            repeat: event.repeat,
+            repeat,
             window,
         };
 
@@ -263,7 +261,7 @@ impl BevyApp {
     }
 
     #[wasm_bindgen]
-    pub fn handle_key_up(&mut self, event: KeyboardEvent) {
+    pub fn handle_key_up_code(&mut self, key_code: u16, repeat: bool) {
         let Ok((window, _)) = self
             .app
             .world_mut()
@@ -274,15 +272,12 @@ impl BevyApp {
             return;
         };
 
-        let code = keyboard::from_web_code(event.key_code.as_str());
         let event: KeyboardInput = KeyboardInput {
-            key_code: code,
-            logical_key: bevy::input::keyboard::Key::Unidentified(NativeKey::Web(
-                event.key_code.into(),
-            )),
+            key_code: keyboard::from_wire_code(key_code),
+            logical_key: Key::Unidentified(NativeKey::Unidentified),
             state: ButtonState::Released,
             text: None,
-            repeat: event.repeat,
+            repeat,
             window,
         };
 
@@ -343,6 +338,25 @@ impl BevyApp {
     }
 
     #[wasm_bindgen]
+    pub fn handle_mouse_wheel(&mut self, x: f32, y: f32, line_units: bool) {
+        let world = self.app.world_mut();
+        let Some(window) = primary_window_entity(world) else {
+            return;
+        };
+
+        let _ = world.write_message(MouseWheel {
+            unit: if line_units {
+                MouseScrollUnit::Line
+            } else {
+                MouseScrollUnit::Pixel
+            },
+            x,
+            y,
+            window,
+        });
+    }
+
+    #[wasm_bindgen]
     pub fn handle_canvas_blur(&mut self) {
         let _ = self.app.world_mut().write_message(KeyboardFocusLost);
     }
@@ -363,15 +377,6 @@ impl BevyApp {
 
         Ok(())
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
-pub struct KeyboardEvent {
-    key: String,
-    key_code: String,
-    repeat: bool,
 }
 
 fn primary_window_entity(world: &mut World) -> Option<Entity> {

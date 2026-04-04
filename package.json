@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "generate:web-key-codes": "node scripts/generate-web-key-codes.ts",
     "format": "oxfmt web",
     "format:check": "oxfmt --check web",
     "lint": "oxlint",

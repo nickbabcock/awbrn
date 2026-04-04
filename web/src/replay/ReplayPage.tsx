@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import * as stylex from "@stylexjs/stylex";
 import type { CSSProperties } from "react";
 import { resolveAwbwUsername } from "#/awbw/api.ts";
+import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
 import { CoPortrait } from "#/components/CoPortrait.tsx";
 import { loadCoPortraitCatalog, type CoPortraitCatalog } from "#/components/co_portraits.ts";
 import { GameRunner } from "#/engine/game_runner.ts";
@@ -61,22 +62,32 @@ function StatIcon({
 }
 
 export function ReplayPage() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const runnerRef = useRef<GameRunner | null>(null);
   const currentDay = useGameStore((state) => state.currentDay);
   const playerRoster = useGameStore((state) => state.playerRoster);
   const gameActions = useGameActions();
   const [portraitCatalog] = useState<CoPortraitCatalog>(() => loadCoPortraitCatalog());
   const [playerNames, setPlayerNames] = useState<Record<number, string>>({});
+  const [runner, setRunner] = useState<GameRunner | null>(null);
 
-  if (runnerRef.current === null) {
-    runnerRef.current = new GameRunner();
-  }
+  useEffect(() => {
+    const nextRunner = new GameRunner();
+    setRunner(nextRunner);
+
+    return () => {
+      nextRunner.dispose();
+      setRunner((current) => (current === nextRunner ? null : current));
+    };
+  }, []);
+
+  const { canvasRef, focus, surfaceRef } = useCanvasCourierSurface({
+    controller: runner,
+    onError: (error) => {
+      console.error("Error attaching game runner:", error);
+    },
+  });
 
   const handleReplayFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    const runner = runnerRef.current;
     if (file) {
       gameActions.setPlayerRoster(null);
       try {
@@ -84,29 +95,13 @@ export function ReplayPage() {
           throw new Error("Game runner was not initialized.");
         }
         await runner.loadReplay(file);
-        canvasRef.current?.focus({ preventScroll: true });
+        focus();
       } catch (error) {
         gameActions.setPlayerRoster(null);
         console.error("Error loading replay:", error);
       }
     }
   };
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const container = containerRef.current;
-    const runner = runnerRef.current;
-    if (!canvas || !container || !runner) return;
-
-    runner.attachCanvas({ canvas, container }).catch((error) => {
-      console.error("Error attaching game runner:", error);
-    });
-
-    return () => {
-      runner.dispose();
-      runnerRef.current = null;
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -149,7 +144,7 @@ export function ReplayPage() {
 
   return (
     <div {...stylex.props(styles.root)}>
-      <div ref={containerRef} {...stylex.props(styles.gameSurface)}>
+      <div ref={surfaceRef} {...stylex.props(styles.gameSurface)}>
         <canvas
           ref={canvasRef}
           width={600}

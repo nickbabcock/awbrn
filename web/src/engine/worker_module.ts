@@ -1,97 +1,116 @@
-import init, {
-  type CanvasDisplay,
-  type CanvasSize,
-  type KeyboardEvent,
-  type MouseButtonEvent,
-  BevyApp,
-} from "#/wasm/awbrn_wasm.js";
+import init, { type CanvasDisplay, BevyApp } from "#/wasm/awbrn_wasm.js";
 import wasmPath from "#/wasm/awbrn_wasm_bg.wasm?url";
 import { proxy } from "comlink";
+import {
+  SharedCanvasEventAction,
+  SharedCanvasEventType,
+  SharedCanvasInputReader,
+  SharedCanvasWheelDeltaMode,
+  type SharedCanvasInputConfig,
+} from "#/canvas_courier/index.ts";
 
 const initialized = init({ module_or_path: wasmPath });
 
 export type GameDisplay = CanvasDisplay;
-export type GameSize = CanvasSize;
-export type GameKeyboardInput = KeyboardEvent;
-
-export interface GamePointerInput {
-  button: number;
-  x: number;
-  y: number;
-}
-
-export interface GamePointerPosition {
-  x: number;
-  y: number;
-}
 
 export interface GameInstance {
-  pause: () => void;
-  resume: () => void;
-  resize: (size: GameSize) => void;
-  handleKeyDown: (event: GameKeyboardInput) => void;
-  handleKeyUp: (event: GameKeyboardInput) => void;
-  handlePointerMove: (position: GamePointerPosition) => void;
-  handlePointerDown: (event: GamePointerInput) => void;
-  handlePointerUp: (event: GamePointerInput) => void;
-  handlePointerLeave: () => void;
-  handleBlur: () => void;
   newReplay: (file: File | FileSystemFileHandle) => Promise<void>;
   loadMapPreview: (mapId: number) => Promise<void>;
 }
 
-const toMouseButtonEvent = (event: GamePointerInput): MouseButtonEvent => ({
-  button: event.button,
-});
+class WorkerInputBridge {
+  private readonly reader: SharedCanvasInputReader;
+  private paused = false;
 
-export const createGame = async (...args: ConstructorParameters<typeof BevyApp>) => {
+  constructor(
+    config: SharedCanvasInputConfig,
+    private readonly app: BevyApp,
+  ) {
+    this.reader = new SharedCanvasInputReader(config);
+  }
+
+  drain() {
+    this.reader.drain((event) => {
+      switch (event.type) {
+        case SharedCanvasEventType.Keyboard:
+          if (event.action === SharedCanvasEventAction.Down) {
+            this.app.handle_key_down_code(event.keyCode, event.repeat);
+            return;
+          }
+
+          this.app.handle_key_up_code(event.keyCode, event.repeat);
+          return;
+        case SharedCanvasEventType.Pointer:
+          switch (event.action) {
+            case SharedCanvasEventAction.Move:
+              this.app.handle_mouse_move(event.x, event.y);
+              return;
+            case SharedCanvasEventAction.Down:
+              this.app.handle_mouse_move(event.x, event.y);
+              this.app.handle_mouse_down({ button: event.button });
+              return;
+            case SharedCanvasEventAction.Up:
+              this.app.handle_mouse_move(event.x, event.y);
+              this.app.handle_mouse_up({ button: event.button });
+              return;
+            case SharedCanvasEventAction.Leave:
+              this.app.handle_mouse_leave();
+              return;
+            default:
+              return;
+          }
+        case SharedCanvasEventType.Wheel:
+          this.app.handle_mouse_wheel(
+            event.deltaX,
+            event.deltaY,
+            event.deltaMode !== SharedCanvasWheelDeltaMode.Pixel,
+          );
+          return;
+        case SharedCanvasEventType.Focus:
+          this.app.handle_canvas_blur();
+          return;
+        case SharedCanvasEventType.Resize:
+          this.app.resize({
+            width: event.width,
+            height: event.height,
+            scaleFactor: event.scaleFactor,
+          });
+          return;
+        case SharedCanvasEventType.Visibility:
+          this.paused = event.action === SharedCanvasEventAction.Hidden;
+          return;
+        default:
+          return;
+      }
+    });
+  }
+
+  shouldUpdate() {
+    return !this.paused;
+  }
+}
+
+export const createGame = async (
+  canvas: OffscreenCanvas,
+  display: CanvasDisplay,
+  assetConfig: ConstructorParameters<typeof BevyApp>[2],
+  inputConfig: SharedCanvasInputConfig,
+  eventCallback: ConstructorParameters<typeof BevyApp>[3],
+) => {
   await initialized;
-  const app = new BevyApp(...args);
-
-  let animationId: number;
+  const app = new BevyApp(canvas, display, assetConfig, eventCallback);
+  const inputBridge = new WorkerInputBridge(inputConfig, app);
 
   function update() {
-    app.update();
-    animationId = requestAnimationFrame(update);
+    inputBridge.drain();
+    if (inputBridge.shouldUpdate()) {
+      app.update();
+    }
+    requestAnimationFrame(update);
   }
-  animationId = requestAnimationFrame(update);
+  requestAnimationFrame(update);
 
   return proxy<GameInstance>({
-    pause: () => {
-      console.log("Pausing game");
-      cancelAnimationFrame(animationId);
-    },
-    resume: () => {
-      console.log("Resuming game");
-      cancelAnimationFrame(animationId);
-      update();
-    },
-    resize: (...args: Parameters<BevyApp["resize"]>) => {
-      app.resize(...args);
-    },
-    handleKeyDown: (...args: Parameters<BevyApp["handle_key_down"]>) => {
-      app.handle_key_down(...args);
-    },
-    handleKeyUp: (...args: Parameters<BevyApp["handle_key_up"]>) => {
-      app.handle_key_up(...args);
-    },
-    handlePointerMove: ({ x, y }: GamePointerPosition) => {
-      app.handle_mouse_move(x, y);
-    },
-    handlePointerDown: (event: GamePointerInput) => {
-      app.handle_mouse_move(event.x, event.y);
-      app.handle_mouse_down(toMouseButtonEvent(event));
-    },
-    handlePointerUp: (event: GamePointerInput) => {
-      app.handle_mouse_move(event.x, event.y);
-      app.handle_mouse_up(toMouseButtonEvent(event));
-    },
-    handlePointerLeave: () => {
-      app.handle_mouse_leave();
-    },
-    handleBlur: () => {
-      app.handle_canvas_blur();
-    },
     newReplay: async (file: File | FileSystemFileHandle) => {
       const fileHandle = file instanceof FileSystemFileHandle ? await file.getFile() : file;
       const fileData = await fileHandle.arrayBuffer();
