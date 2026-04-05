@@ -94,12 +94,14 @@ export class CanvasCourierTransport {
     surface.canvas.addEventListener(
       "pointermove",
       (event) => {
-        this.inputQueue.writer.enqueuePointer(
-          event,
-          event.offsetX,
-          event.offsetY,
-          SharedCanvasEventAction.Move,
-        );
+        const coalesced = event.getCoalescedEvents();
+        if (coalesced.length === 0) {
+          this.inputQueue.writer.enqueuePointer(event, SharedCanvasEventAction.Move);
+        } else {
+          for (const e of coalesced) {
+            this.inputQueue.writer.enqueuePointer(e, SharedCanvasEventAction.Move);
+          }
+        }
       },
       listenerOptions,
     );
@@ -108,12 +110,7 @@ export class CanvasCourierTransport {
       "pointerdown",
       (event) => {
         surface.canvas.focus({ preventScroll: true });
-        this.inputQueue.writer.enqueuePointer(
-          event,
-          event.offsetX,
-          event.offsetY,
-          SharedCanvasEventAction.Down,
-        );
+        this.inputQueue.writer.enqueuePointer(event, SharedCanvasEventAction.Down);
       },
       listenerOptions,
     );
@@ -121,12 +118,7 @@ export class CanvasCourierTransport {
     surface.canvas.addEventListener(
       "pointerup",
       (event) => {
-        this.inputQueue.writer.enqueuePointer(
-          event,
-          event.offsetX,
-          event.offsetY,
-          SharedCanvasEventAction.Up,
-        );
+        this.inputQueue.writer.enqueuePointer(event, SharedCanvasEventAction.Up);
       },
       listenerOptions,
     );

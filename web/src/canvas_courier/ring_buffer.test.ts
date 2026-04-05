@@ -62,3 +62,52 @@ describe("SharedCanvasInputWriter", () => {
     expect(() => writer.enqueueBlur(4)).toThrow("Shared canvas input ring buffer overflowed.");
   });
 });
+
+describe("SharedCanvasInputReader.waitForEvents", () => {
+  it("resolves immediately when events are already queued", async () => {
+    const config = createTestConfig(8);
+    const writer = new SharedCanvasInputWriter(config);
+    const reader = new SharedCanvasInputReader(config);
+
+    writer.enqueueBlur(1);
+
+    await reader.waitForEvents();
+
+    const drained: SharedCanvasDecodedEvent[] = [];
+    reader.drain((e) => drained.push(e));
+    expect(drained).toHaveLength(1);
+  });
+
+  it("resolves when an event is enqueued after waiting begins", async () => {
+    const config = createTestConfig(8);
+    const writer = new SharedCanvasInputWriter(config);
+    const reader = new SharedCanvasInputReader(config);
+
+    const waitPromise = reader.waitForEvents();
+    writer.enqueueBlur(1);
+    await waitPromise;
+
+    const drained: SharedCanvasDecodedEvent[] = [];
+    reader.drain((e) => drained.push(e));
+    expect(drained).toHaveLength(1);
+  });
+
+  it("resolves immediately when signal is already aborted", async () => {
+    const config = createTestConfig(8);
+    const reader = new SharedCanvasInputReader(config);
+    const controller = new AbortController();
+    controller.abort();
+
+    await reader.waitForEvents(controller.signal);
+  });
+
+  it("resolves when signal is aborted while waiting", async () => {
+    const config = createTestConfig(8);
+    const reader = new SharedCanvasInputReader(config);
+    const controller = new AbortController();
+
+    const waitPromise = reader.waitForEvents(controller.signal);
+    controller.abort();
+    await waitPromise;
+  });
+});
