@@ -7,7 +7,10 @@ pub mod weather;
 
 pub use awbrn_game::world::{CurrentWeather, FogActive, FogOfWarMap, FriendlyFactions};
 pub use camera::CameraScale;
-pub use event_bus::{EventBus, EventBusResource, ExternalEvent, ExternalGameEvent, GameEvent};
+pub use event_bus::{
+    EventSink, MapDimensions, NewDay, PlayerRosterEntry, PlayerRosterSnapshot, PlayerRosterStats,
+    ReplayLoaded, ReplayLoadedPlayer, TileSelected, UnitBuilt, UnitMoved,
+};
 pub use input::{SelectedTile, TileCursor};
 
 use bevy::prelude::*;
@@ -22,6 +25,5 @@ impl Plugin for FeaturesPlugin {
             input::InputPlugin,
             fog::FogPlugin,
         ));
-        app.add_message::<ExternalGameEvent>();
     }
 }

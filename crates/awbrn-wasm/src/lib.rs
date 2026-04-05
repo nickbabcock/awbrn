@@ -1,6 +1,7 @@
 use awbrn_client::{
-    AwbrnPlugin, EventBus, ExternalEvent, GameEvent, MapAssetPathResolver, PendingGameStart,
-    ReplayToLoad, StaticAssetPathResolver,
+    AwbrnPlugin, EventSink, MapAssetPathResolver, MapDimensions, NewDay, PendingGameStart,
+    PlayerRosterSnapshot, ReplayLoaded, ReplayToLoad, StaticAssetPathResolver, TileSelected,
+    UnitBuilt, UnitMoved,
 };
 use bevy::{
     app::PluginsState,
@@ -29,34 +30,39 @@ use bevy::asset::{
     io::{AssetSourceBuilder, wasm::HttpWasmAssetReader},
 };
 
+/// Discriminated union of all game events sent to JavaScript.
+#[derive(Serialize, tsify::Tsify)]
+#[tsify(into_wasm_abi)]
+#[serde(tag = "type")]
+pub enum GameEvent {
+    NewDay(NewDay),
+    UnitMoved(UnitMoved),
+    UnitBuilt(UnitBuilt),
+    TileSelected(TileSelected),
+    MapDimensions(MapDimensions),
+    ReplayLoaded(ReplayLoaded),
+    PlayerRosterUpdated(PlayerRosterSnapshot),
+}
+
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(typescript_type = "(event: GameEvent) => void")]
     pub type GameEventCallback;
 }
 
-/// WASM EventBus implementation that sends events to JavaScript
-pub struct WasmEventBus {
-    callback: js_sys::Function,
-}
+/// Wrapper around a JS callback that is safe to send across threads.
+///
+/// SAFETY: WASM runs on a single thread, so Send + Sync are safe here.
+struct WasmCallback(js_sys::Function);
+unsafe impl Send for WasmCallback {}
+unsafe impl Sync for WasmCallback {}
 
-// SAFETY: In WASM, everything runs on a single thread, so Send + Sync are safe
-unsafe impl Send for WasmEventBus {}
-unsafe impl Sync for WasmEventBus {}
-
-impl WasmEventBus {
-    pub fn new(callback: js_sys::Function) -> Self {
-        Self { callback }
-    }
-}
-
-impl EventBus<GameEvent> for WasmEventBus {
-    fn publish_event(&self, event: &ExternalEvent<GameEvent>) {
-        // Serialize the event directly to JsValue using serde-wasm-bindgen
-        let Ok(js_value) = serde_wasm_bindgen::to_value(&event.payload) else {
+impl WasmCallback {
+    fn call(&self, event: GameEvent) {
+        let Ok(js_value) = serde_wasm_bindgen::to_value(&event) else {
             return;
         };
-        let _ = self.callback.call1(&JsValue::NULL, &js_value);
+        let _ = self.0.call1(&JsValue::NULL, &js_value);
     }
 }
 
@@ -178,19 +184,37 @@ impl BevyApp {
         )
         .add_systems(PreStartup, setup_added_window);
 
-        let mut awbrn_plugin = AwbrnPlugin::new(Arc::new(WasmMapAssetPathResolver))
+        let awbrn_plugin = AwbrnPlugin::new(Arc::new(WasmMapAssetPathResolver))
             .with_static_asset_resolver(Arc::new(WasmStaticAssetPathResolver::new(
                 asset_config.static_asset_urls,
             )));
+
+        app.add_plugins(awbrn_plugin);
+
         if let Some(callback) = event_callback {
             let js_value: JsValue = callback.into();
             let js_function: js_sys::Function = js_value.into();
-            let event_bus = Arc::new(WasmEventBus::new(js_function));
-            awbrn_plugin = awbrn_plugin.with_event_bus(event_bus);
+            let cb = Arc::new(WasmCallback(js_function));
+
+            macro_rules! wasm_sink {
+                ($variant:ident, $payload:ty) => {{
+                    let cb = cb.clone();
+                    app.insert_resource(EventSink::<$payload>::new(move |p| {
+                        cb.call(GameEvent::$variant(p));
+                    }));
+                }};
+            }
+
+            wasm_sink!(NewDay, NewDay);
+            wasm_sink!(UnitMoved, UnitMoved);
+            wasm_sink!(UnitBuilt, UnitBuilt);
+            wasm_sink!(TileSelected, TileSelected);
+            wasm_sink!(MapDimensions, MapDimensions);
+            wasm_sink!(ReplayLoaded, ReplayLoaded);
+            wasm_sink!(PlayerRosterUpdated, PlayerRosterSnapshot);
         }
 
-        app.add_plugins(awbrn_plugin)
-            .insert_non_send_resource(canvas);
+        app.insert_non_send_resource(canvas);
 
         BevyApp { app }
     }

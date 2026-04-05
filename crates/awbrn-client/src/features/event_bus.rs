@@ -1,41 +1,27 @@
-use crate::features::camera::CameraScale;
+use crate::features::camera::{CameraScale, compute_map_dimensions};
 use awbrn_game::world::GameMap;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-pub trait EventBus<T: Serialize + Send + Sync + 'static>: Send + Sync {
-    /// Publish an event to the bus
-    fn publish_event(&self, payload: &ExternalEvent<T>);
-}
-
+/// A resource that receives events of type T.
+///
+/// Its presence in the world signals that someone is listening for T events.
+/// Systems dedicated solely to emitting T can use
+/// `run_if(resource_exists::<EventSink<T>>)` to skip work when no listener
+/// is registered.
 #[derive(Resource)]
-pub struct EventBusResource<T>(pub Arc<dyn EventBus<T>>);
+pub struct EventSink<T: Send + Sync + 'static>(Arc<dyn Fn(T) + Send + Sync + 'static>);
 
-impl<T> EventBusResource<T> {
-    pub fn new(bus: Arc<dyn EventBus<T>>) -> Self {
-        Self(bus)
+impl<T: Send + Sync + 'static> EventSink<T> {
+    pub fn new(f: impl Fn(T) + Send + Sync + 'static) -> Self {
+        Self(Arc::new(f))
+    }
+
+    pub fn emit(&self, payload: T) {
+        (self.0)(payload);
     }
 }
-
-#[derive(Message, Debug, Clone)]
-pub struct ExternalEvent<T: Serialize + Send + Sync + 'static> {
-    pub payload: T,
-}
-
-pub fn event_forwarder<T: Serialize + Send + Sync + 'static>(
-    mut events: MessageReader<ExternalEvent<T>>,
-    bus: Option<Res<EventBusResource<T>>>,
-) {
-    let Some(bus) = bus else { return };
-
-    for event in events.read() {
-        bus.0.publish_event(event);
-    }
-}
-
-/// Type alias for external events containing game events
-pub type ExternalGameEvent = ExternalEvent<GameEvent>;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
@@ -161,45 +147,10 @@ pub struct PlayerRosterSnapshot {
     pub players: Vec<PlayerRosterEntry>,
 }
 
-/// Union type for all game events that can be sent to external systems
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
-#[serde(tag = "type")]
-pub enum GameEvent {
-    NewDay(NewDay),
-    UnitMoved(UnitMoved),
-    UnitBuilt(UnitBuilt),
-    TileSelected(TileSelected),
-    MapDimensions(MapDimensions),
-    ReplayLoaded(ReplayLoaded),
-    PlayerRosterUpdated(PlayerRosterSnapshot),
-}
-
 pub(crate) fn emit_map_dimensions(
     game_map: Res<GameMap>,
     camera_scale: Res<CameraScale>,
-    mut event_writer: MessageWriter<ExternalGameEvent>,
+    sink: Res<EventSink<MapDimensions>>,
 ) {
-    let dims = crate::features::camera::compute_map_dimensions(&game_map, &camera_scale);
-    event_writer.write(ExternalGameEvent {
-        payload: GameEvent::MapDimensions(dims),
-    });
-}
-
-pub struct EventBusPlugin {
-    event_bus: Arc<dyn EventBus<GameEvent>>,
-}
-
-impl EventBusPlugin {
-    pub fn new(event_bus: Arc<dyn EventBus<GameEvent>>) -> Self {
-        Self { event_bus }
-    }
-}
-
-impl Plugin for EventBusPlugin {
-    fn build(&self, app: &mut App) {
-        app.insert_resource(EventBusResource(self.event_bus.clone()))
-            .add_systems(Update, event_forwarder::<GameEvent>);
-    }
+    sink.emit(compute_map_dimensions(&game_map, &camera_scale));
 }

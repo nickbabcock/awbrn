@@ -7,7 +7,7 @@
 use awbw_replay::turn_models::{Action, MoveAction};
 use bevy::{log, prelude::*};
 
-use crate::features::event_bus::{ExternalGameEvent, GameEvent};
+use crate::features::event_bus::{EventSink, NewDay as ExternalNewDay};
 use crate::features::player_roster::{
     PlayerFunds, PlayerRosterConfig, PlayerUnitCosts, emit_player_roster_updated,
     player_ids_for_team,
@@ -412,11 +412,9 @@ pub(crate) fn on_carried_by_remove(trigger: On<Remove, CarriedBy>, mut commands:
     commands.entity(trigger.entity).insert(Visibility::Hidden);
 }
 
-/// Observer: forward `NewDay` game events to the external event bus.
-pub(crate) fn on_new_day(trigger: On<NewDay>, mut event_writer: MessageWriter<ExternalGameEvent>) {
-    event_writer.write(ExternalGameEvent {
-        payload: GameEvent::NewDay(crate::features::event_bus::NewDay { day: trigger.day }),
-    });
+/// Observer: forward `NewDay` game events to registered sinks.
+pub(crate) fn on_new_day(trigger: On<NewDay>, sink: If<Res<EventSink<ExternalNewDay>>>) {
+    sink.emit(ExternalNewDay { day: trigger.day });
 }
 
 #[cfg(test)]

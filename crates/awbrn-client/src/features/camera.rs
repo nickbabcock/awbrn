@@ -1,5 +1,5 @@
 use crate::core::grid::GridSystem;
-use crate::features::event_bus::{ExternalGameEvent, GameEvent, MapDimensions};
+use crate::features::event_bus::{EventSink, MapDimensions};
 use crate::loading::ClientAssetLoader;
 use crate::render::UnitAtlasResource;
 use awbrn_game::world::GameMap;
@@ -97,8 +97,6 @@ pub(crate) fn handle_camera_scaling(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut camera_scale: ResMut<CameraScale>,
     mut query: Query<&mut Projection, With<Camera>>,
-    game_map: Res<GameMap>,
-    mut event_writer: MessageWriter<ExternalGameEvent>,
 ) {
     let new_zoom = if keyboard_input.just_pressed(KeyCode::Equal) {
         camera_scale.zoom_in()
@@ -115,11 +113,14 @@ pub(crate) fn handle_camera_scaling(
     {
         orthographic.scale = 1.0 / camera_scale.scale();
     }
+}
 
-    let dims = compute_map_dimensions(&game_map, &camera_scale);
-    event_writer.write(ExternalGameEvent {
-        payload: GameEvent::MapDimensions(dims),
-    });
+pub(crate) fn emit_map_dimensions_on_scale_change(
+    game_map: Res<GameMap>,
+    camera_scale: Res<CameraScale>,
+    sink: Res<EventSink<MapDimensions>>,
+) {
+    sink.emit(compute_map_dimensions(&game_map, &camera_scale));
 }
 
 pub struct CameraPlugin;
@@ -131,6 +132,16 @@ impl Plugin for CameraPlugin {
             .add_systems(
                 Update,
                 handle_camera_scaling.run_if(in_state(crate::core::AppState::InGame)),
+            )
+            .add_systems(
+                Update,
+                emit_map_dimensions_on_scale_change
+                    .run_if(
+                        in_state(crate::core::AppState::InGame)
+                            .and(resource_changed::<CameraScale>)
+                            .and(resource_exists::<EventSink<MapDimensions>>),
+                    )
+                    .after(handle_camera_scaling),
             );
     }
 }
