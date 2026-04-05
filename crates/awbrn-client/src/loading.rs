@@ -1,6 +1,6 @@
 use crate::UiAtlasAsset;
 use crate::core::{AppState, GameMode, LoadingState};
-use crate::features::event_bus::{ExternalGameEvent, GameEvent, ReplayLoaded, ReplayLoadedPlayer};
+use crate::features::event_bus::{EventSink, ReplayLoaded, ReplayLoadedPlayer};
 use crate::render::UiAtlasResource;
 use awbrn_content::co_portrait_by_awbw_id;
 use awbrn_game::world::GameMap;
@@ -179,11 +179,11 @@ pub(crate) fn detect_replay_to_load(
 fn emit_pending_replay_loaded_event(
     mut commands: Commands,
     pending_event: Res<PendingReplayLoadedEvent>,
-    mut event_writer: MessageWriter<ExternalGameEvent>,
+    sink: Option<Res<EventSink<ReplayLoaded>>>,
 ) {
-    event_writer.write(ExternalGameEvent {
-        payload: GameEvent::ReplayLoaded(pending_event.0.clone()),
-    });
+    if let Some(sink) = sink {
+        sink.emit(pending_event.0.clone());
+    }
     commands.remove_resource::<PendingReplayLoadedEvent>();
 }
 

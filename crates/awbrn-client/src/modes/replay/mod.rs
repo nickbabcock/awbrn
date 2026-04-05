@@ -16,8 +16,7 @@ pub struct ReplayPlugin;
 
 impl Plugin for ReplayPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<crate::features::ExternalGameEvent>()
-            .init_resource::<commands::ReplayAdvanceLock>()
+        app.init_resource::<commands::ReplayAdvanceLock>()
             .add_plugins(navigation::NavigationPlugin)
             .add_observer(fog::on_replay_fog_dirty)
             .add_observer(commands::on_carried_by_add)

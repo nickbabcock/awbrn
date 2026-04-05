@@ -1,5 +1,5 @@
 use crate::features::event_bus::{
-    ExternalGameEvent, GameEvent, PlayerRosterEntry, PlayerRosterSnapshot, PlayerRosterStats,
+    EventSink, PlayerRosterEntry, PlayerRosterSnapshot, PlayerRosterStats,
 };
 use awbrn_content::co_portrait_by_awbw_id;
 use awbrn_game::replay::{AwbwUnitId, ReplayState};
@@ -241,10 +241,10 @@ pub fn emit_player_roster_updated(world: &mut World) {
     let Some(snapshot) = player_roster_snapshot(world) else {
         return;
     };
-
-    world.write_message(ExternalGameEvent {
-        payload: GameEvent::PlayerRosterUpdated(snapshot),
-    });
+    let Some(sink) = world.get_resource::<EventSink<PlayerRosterSnapshot>>() else {
+        return;
+    };
+    sink.emit(snapshot);
 }
 
 pub fn player_ids_for_team(

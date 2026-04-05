@@ -1,6 +1,6 @@
 use crate::core::grid::GridSystem;
 use crate::core::{RenderLayer, SpriteSize, map_position_to_world_translation};
-use crate::features::event_bus::{ExternalGameEvent, GameEvent, TileSelected};
+use crate::features::event_bus::{EventSink, TileSelected};
 use crate::render::UiAtlas;
 use awbrn_game::MapPosition;
 use awbrn_game::world::{BoardIndex, GameMap, TerrainTile};
@@ -143,7 +143,6 @@ pub(crate) fn handle_tile_clicks(
     mut commands: Commands,
     selected: Query<Entity, With<SelectedTile>>,
     mut click_reader: MessageReader<MapPositionClicked>,
-    mut event_writer: MessageWriter<ExternalGameEvent>,
 ) {
     let Some(MapPositionClicked { position }) = click_reader.read().last().copied() else {
         return;
@@ -162,13 +161,21 @@ pub(crate) fn handle_tile_clicks(
 
     commands.entity(terrain_entity).insert(SelectedTile);
     info!("Selected terrain at {:?}: {:?}", position, tile.terrain);
+}
 
-    event_writer.write(ExternalGameEvent {
-        payload: GameEvent::TileSelected(TileSelected {
-            x: position.x,
-            y: position.y,
-            terrain_type: format!("{:?}", tile.terrain),
-        }),
+pub(crate) fn on_tile_selected(
+    trigger: On<Insert, SelectedTile>,
+    tiles: Query<(&MapPosition, &TerrainTile)>,
+    sink: If<Res<EventSink<TileSelected>>>,
+) {
+    let Ok((map_pos, tile)) = tiles.get(trigger.event_target()) else {
+        return;
+    };
+    let pos = map_pos.position();
+    sink.emit(TileSelected {
+        x: pos.x,
+        y: pos.y,
+        terrain_type: format!("{:?}", tile.terrain),
     });
 }
 
@@ -177,6 +184,7 @@ pub struct InputPlugin;
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<MapPositionClicked>();
+        app.add_observer(on_tile_selected);
         app.add_systems(
             Update,
             (

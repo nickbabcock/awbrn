@@ -29,7 +29,7 @@
 //! ```
 
 use crate::core::{GameMode, LoadingState};
-use crate::features::event_bus::{EventBus, EventBusPlugin, GameEvent};
+use crate::features::event_bus;
 use crate::loading::{
     DefaultStaticAssetPathResolver, LoadingPlugin, MapAssetPathResolver, StaticAssetPathResolver,
 };
@@ -40,7 +40,6 @@ use std::sync::Arc;
 pub struct AwbrnPlugin {
     map_resolver: Arc<dyn MapAssetPathResolver>,
     static_asset_resolver: Arc<dyn StaticAssetPathResolver>,
-    event_bus: Option<Arc<dyn EventBus<GameEvent>>>,
 }
 
 impl AwbrnPlugin {
@@ -48,7 +47,6 @@ impl AwbrnPlugin {
         Self {
             map_resolver,
             static_asset_resolver: Arc::new(DefaultStaticAssetPathResolver),
-            event_bus: None,
         }
     }
 
@@ -59,11 +57,6 @@ impl AwbrnPlugin {
         self.static_asset_resolver = static_asset_resolver;
         self
     }
-
-    pub fn with_event_bus(mut self, event_bus: Arc<dyn EventBus<GameEvent>>) -> Self {
-        self.event_bus = Some(event_bus);
-        self
-    }
 }
 
 impl Default for AwbrnPlugin {
@@ -71,7 +64,6 @@ impl Default for AwbrnPlugin {
         Self {
             map_resolver: Arc::new(crate::loading::DefaultMapAssetPathResolver),
             static_asset_resolver: Arc::new(DefaultStaticAssetPathResolver),
-            event_bus: None,
         }
     }
 }
@@ -91,14 +83,11 @@ impl Plugin for AwbrnPlugin {
             crate::modes::play::PlayPlugin,
         ));
 
-        if let Some(ref bus) = self.event_bus {
-            app.add_plugins(EventBusPlugin::new(bus.clone()));
-        }
-
         // Cross-plugin OnEnter(Complete) scheduling
         app.add_systems(
             OnEnter(LoadingState::Complete),
-            crate::features::event_bus::emit_map_dimensions,
+            event_bus::emit_map_dimensions
+                .run_if(resource_exists::<event_bus::EventSink<event_bus::MapDimensions>>),
         );
         app.add_systems(
             OnEnter(LoadingState::Complete),
