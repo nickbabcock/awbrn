@@ -228,7 +228,7 @@ export class SharedCanvasInputWriter {
     });
   }
 
-  enqueuePointer(event: PointerEvent, x: number, y: number, action: SharedCanvasEventAction) {
+  enqueuePointer(event: PointerEvent, action: SharedCanvasEventAction) {
     const button =
       action === SharedCanvasEventAction.Move || action === SharedCanvasEventAction.Leave
         ? EMPTY_BUTTON
@@ -240,8 +240,8 @@ export class SharedCanvasInputWriter {
       action,
       modifiers: encodeModifierBits(event),
       metadata: encodePointerKind(event.pointerType),
-      dataA: x,
-      dataB: y,
+      dataA: event.offsetX,
+      dataB: event.offsetY,
       timestamp: event.timeStamp,
       detail: button | (pointerId << 16),
     });
@@ -366,6 +366,36 @@ export class SharedCanvasInputReader {
       consume(this.decodeSlot(tail));
       tail = (tail + 1) % this.config.capacity;
       Atomics.store(this.controls, SharedCanvasAtomicIndex.Tail, tail);
+    }
+  }
+
+  async waitForEvents(signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return;
+
+    const tail = Atomics.load(this.controls, SharedCanvasAtomicIndex.Tail);
+    const head = Atomics.load(this.controls, SharedCanvasAtomicIndex.Head);
+
+    if (head !== tail) {
+      return;
+    }
+
+    const result = Atomics.waitAsync(this.controls, SharedCanvasAtomicIndex.Head, head);
+
+    if (!result.async) {
+      return;
+    }
+
+    if (signal) {
+      const { promise: abortPromise, resolve } = Promise.withResolvers<void>();
+      const listenerAbort = new AbortController();
+      signal.addEventListener("abort", () => resolve(), { signal: listenerAbort.signal });
+      try {
+        await Promise.race([result.value, abortPromise]);
+      } finally {
+        listenerAbort.abort();
+      }
+    } else {
+      await result.value;
     }
   }
 
