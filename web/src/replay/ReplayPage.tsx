@@ -5,6 +5,7 @@ import { resolveAwbwUsername } from "#/awbw/api.ts";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
 import { CoPortrait } from "#/components/CoPortrait.tsx";
 import { loadCoPortraitCatalog, type CoPortraitCatalog } from "#/components/co_portraits.ts";
+import { FactionBadge, PlayerHeader } from "#/components/PlayerHeader.tsx";
 import { GameRunner } from "#/engine/game_runner.ts";
 import { useGameActions, useGameStore } from "#/engine/store.ts";
 import { getFactionVisual } from "#/faction_visuals.ts";
@@ -20,14 +21,6 @@ const formatMaybeCount = (value: number | null | undefined) =>
 
 const rosterPlayerSurface = (wash: string): CSSProperties => ({
   backgroundImage: `linear-gradient(115deg, ${wash} 0%, rgba(255,255,255,0) 42%), linear-gradient(180deg, rgba(245, 232, 192, 0.94), rgba(252, 246, 230, 0.96))`,
-});
-
-const rosterPlayerHeaderSurface = (accent: string, text: string): CSSProperties => ({
-  backgroundImage: `linear-gradient(135deg, rgba(58, 35, 21, 0.28), rgba(58, 35, 21, 0.1)), linear-gradient(135deg, ${accent} 0%, ${text} 100%)`,
-});
-
-const rosterPlayerHeadlineShadow = (color: string): CSSProperties => ({
-  textShadow: `0 1px 0 ${color}`,
 });
 
 const cursorBlink = stylex.keyframes({
@@ -214,36 +207,20 @@ export function ReplayPage() {
                     style={rosterPlayerSurface(factionVisual.wash)}
                     {...stylex.props(styles.rosterPlayer)}
                   >
-                    <div
-                      style={rosterPlayerHeaderSurface(factionVisual.accent, factionVisual.text)}
-                      {...stylex.props(styles.rosterPlayerHeader)}
-                    >
-                      <div {...stylex.props(styles.rosterPlayerHeading)}>
-                        <div
-                          style={rosterPlayerHeadlineShadow(factionVisual.text)}
-                          {...stylex.props(styles.rosterPlayerHeadline)}
-                        >
-                          {playerName}
-                        </div>
-                        {isActivePlayer ? <Badge tone="brand">Turn</Badge> : null}
-                      </div>
-                      <div {...stylex.props(styles.rosterPlayerHeaderBadges)}>
-                        <span
-                          title={player.factionName}
-                          aria-label={`Faction: ${player.factionName}`}
-                          {...stylex.props(styles.factionBadge)}
-                        >
-                          <span
-                            aria-hidden="true"
-                            style={{
-                              backgroundImage: `url(${factionVisual.logoUrl})`,
-                              backgroundPosition: factionVisual.logoPosition,
-                            }}
-                            {...stylex.props(styles.factionLogo)}
+                    <PlayerHeader
+                      factionCode={player.factionCode}
+                      name={playerName}
+                      xstyle={styles.rosterPlayerHeader}
+                      trailing={
+                        <>
+                          {isActivePlayer ? <Badge tone="brand">Turn</Badge> : null}
+                          <FactionBadge
+                            factionCode={player.factionCode}
+                            title={player.factionName}
                           />
-                        </span>
-                      </div>
-                    </div>
+                        </>
+                      }
+                    />
                     <div {...stylex.props(styles.rosterPlayerPortraits)}>
                       <CoPortrait
                         catalog={portraitCatalog}
@@ -425,51 +402,8 @@ const styles = stylex.create({
   },
   rosterPlayerHeader: {
     gridArea: "header",
-    display: "flex",
-    justifyContent: "space-between",
-    gap: tokens.space2,
-    alignItems: "center",
     marginInline: -8,
-    padding: "5px 8px",
-    minHeight: 32,
-  },
-  rosterPlayerHeading: {
-    display: "flex",
-    gap: tokens.space2,
-    alignItems: "center",
-    minWidth: 0,
-  },
-  rosterPlayerHeadline: {
-    color: "#fff7eb",
-    fontFamily: tokens.fontBody,
-    fontSize: 17,
-    fontWeight: 800,
-  },
-  rosterPlayerHeaderBadges: {
-    display: "flex",
-    alignItems: "center",
-    gap: tokens.space2,
-  },
-  factionBadge: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: 24,
-    height: 24,
-    padding: 3,
-    borderRadius: tokens.radius1,
-    backgroundColor: "rgba(255,255,255,0.16)",
-    borderWidth: 2,
-    borderStyle: "solid",
-    borderColor: "rgba(255,255,255,0.24)",
-  },
-  factionLogo: {
-    display: "block",
-    width: 14,
-    height: 14,
-    backgroundSize: "140px 28px",
-    backgroundRepeat: "no-repeat",
-    imageRendering: "pixelated",
+    paddingInline: 8,
   },
   rosterPlayerPortraits: {
     display: "flex",

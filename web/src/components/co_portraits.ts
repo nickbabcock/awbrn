@@ -29,19 +29,19 @@ export interface CoPortraitEntry extends CoPortraitAtlasEntry {
 
 export type CoPortraitCatalog = Map<string, CoPortraitEntry>;
 
+export const DEFAULT_CO_PORTRAIT_KEY = "no-co";
+
 let catalog: CoPortraitCatalog | undefined;
+let catalogByAwbwId: Map<number, CoPortraitEntry> | undefined;
 
 export function loadCoPortraitCatalog(): CoPortraitCatalog {
   if (!catalog) {
-    catalog = new Map(
-      (coPortraitAtlas as CoPortraitAtlasData).portraits.map((portrait) => [
-        portrait.key,
-        {
-          ...portrait,
-          sheetUrl: coPortraitSheetAssetUrl,
-        },
-      ]),
-    );
+    const portraits = (coPortraitAtlas as CoPortraitAtlasData).portraits.map((portrait) => ({
+      ...portrait,
+      sheetUrl: coPortraitSheetAssetUrl,
+    }));
+    catalog = new Map(portraits.map((portrait) => [portrait.key, portrait]));
+    catalogByAwbwId = new Map(portraits.map((portrait) => [portrait.awbwId, portrait]));
   }
 
   return catalog;
@@ -54,20 +54,27 @@ export function listCoPortraits(): CoPortraitEntry[] {
 }
 
 export function getCoPortrait(coKey: string | null | undefined): CoPortraitEntry | null {
-  if (!coKey) {
-    return null;
+  return resolveCoPortrait(loadCoPortraitCatalog(), coKey);
+}
+
+export function getCoPortraitByAwbwId(awbwId: number | null | undefined): CoPortraitEntry | null {
+  if (awbwId === null || awbwId === undefined) {
+    return getCoPortrait(DEFAULT_CO_PORTRAIT_KEY);
   }
 
-  return loadCoPortraitCatalog().get(coKey) ?? null;
+  loadCoPortraitCatalog();
+  return catalogByAwbwId?.get(awbwId) ?? getCoPortrait(DEFAULT_CO_PORTRAIT_KEY);
 }
 
 export function resolveCoPortrait(
-  catalog: CoPortraitCatalog | null,
+  catalog: CoPortraitCatalog | null | undefined,
   coKey: string | null | undefined,
 ): CoPortraitEntry | null {
-  if (!catalog || !coKey) {
-    return null;
+  const activeCatalog = catalog ?? loadCoPortraitCatalog();
+
+  if (coKey) {
+    return activeCatalog.get(coKey) ?? activeCatalog.get(DEFAULT_CO_PORTRAIT_KEY) ?? null;
   }
 
-  return catalog.get(coKey) ?? null;
+  return activeCatalog.get(DEFAULT_CO_PORTRAIT_KEY) ?? null;
 }

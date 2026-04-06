@@ -34,10 +34,7 @@ interface CoPortraitProps {
 }
 
 export function CoPortrait({ catalog, coKey, fallbackLabel }: CoPortraitProps) {
-  const portrait = resolveCoPortrait(
-    catalog === undefined ? loadCoPortraitCatalog() : catalog,
-    coKey,
-  );
+  const portrait = resolveCoPortrait(catalog ?? loadCoPortraitCatalog(), coKey);
 
   if (!portrait) {
     return (
