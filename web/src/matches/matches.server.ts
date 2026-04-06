@@ -1,6 +1,9 @@
 import { env } from "cloudflare:workers";
 import { matchSettingsSchema } from "./schemas";
 import type {
+  MatchBrowseRequest,
+  MatchBrowseResponse,
+  MatchBrowseSummary,
   MatchCreateRequest,
   MatchCreateResponse,
   MatchMutationRequest,
@@ -10,13 +13,18 @@ import type {
   MatchSettings,
   MatchSnapshot,
 } from "./schemas";
+import {
+  MATCH_BROWSE_PAGE_SIZE,
+  decodeMatchBrowseCursor,
+  encodeMatchBrowseCursor,
+} from "./match_browse";
 import { fetchAwbwMapData } from "#/awbw/awbw.server.ts";
 import type { AwbwMapData } from "#/awbw/schemas.ts";
 import { err, ok, type MatchResult } from "./match_protocol";
 import { generateMatchId } from "./match_id";
 import { getMatchStub } from "./match_service";
 import { drizzle } from "drizzle-orm/d1";
-import { and, asc, eq, exists, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, exists, gt, inArray, lt, or, sql } from "drizzle-orm";
 import { matches, matchParticipants, user } from "#/db/global.ts";
 
 const db = drizzle(env.DB, { schema: { matches, matchParticipants, user } });
@@ -56,6 +64,7 @@ type MatchActionDiagnostics =
 
 type MatchRow = Awaited<ReturnType<typeof queryMatchRow>>;
 type MatchParticipantRow = Awaited<ReturnType<typeof queryParticipantRows>>[number];
+type MatchBrowseRow = Awaited<ReturnType<typeof queryBrowseRows>>[number];
 
 export async function createMatch(
   input: MatchCreateRequest,
@@ -126,6 +135,52 @@ export async function getMatchSnapshot(
   }
 
   return ok(applyViewerVisibility(snapshot.value, viewerUserId));
+}
+
+export async function listMatches(
+  input: MatchBrowseRequest,
+): Promise<MatchResult<MatchBrowseResponse>> {
+  const cursor = decodeMatchBrowseCursor(input.cursor);
+  const rows = await queryBrowseRows(cursor);
+  const hasNextPage = rows.length > MATCH_BROWSE_PAGE_SIZE;
+  const visibleRows = hasNextPage ? rows.slice(0, MATCH_BROWSE_PAGE_SIZE) : rows;
+  const participantRows = await queryBrowseParticipantRows(rows.map((row) => row.matchId));
+  const participantNamesByMatchId = new Map<string, string[]>();
+
+  for (const participant of participantRows) {
+    const current = participantNamesByMatchId.get(participant.matchId);
+    if (current) {
+      current.push(participant.userName);
+    } else {
+      participantNamesByMatchId.set(participant.matchId, [participant.userName]);
+    }
+  }
+  const browseMatches: MatchBrowseSummary[] = [];
+
+  for (const row of visibleRows) {
+    const settings = parseMatchSettingsValue(row.settings);
+    if (!settings.ok) {
+      return settings;
+    }
+    browseMatches.push(
+      toMatchBrowseSummary(row, settings.value, participantNamesByMatchId.get(row.matchId) ?? []),
+    );
+  }
+
+  const lastVisibleRow = visibleRows[visibleRows.length - 1] ?? null;
+
+  return ok({
+    matches: browseMatches,
+    pageSize: MATCH_BROWSE_PAGE_SIZE,
+    hasNextPage,
+    nextCursor:
+      hasNextPage && lastVisibleRow
+        ? encodeMatchBrowseCursor({
+            createdAt: lastVisibleRow.createdAt.toISOString(),
+            matchId: lastVisibleRow.matchId,
+          })
+        : null,
+  });
 }
 
 export async function mutateMatch(
@@ -540,6 +595,67 @@ async function queryParticipantRows(matchId: string) {
     .all();
 }
 
+async function queryBrowseRows(cursor: { createdAt: string; matchId: string } | null) {
+  const cursorCreatedAt = cursor ? new Date(cursor.createdAt) : null;
+  const cursorPredicate =
+    cursor && cursorCreatedAt && !Number.isNaN(cursorCreatedAt.getTime())
+      ? or(
+          lt(matches.createdAt, cursorCreatedAt),
+          and(eq(matches.createdAt, cursorCreatedAt), lt(matches.id, cursor.matchId)),
+        )
+      : undefined;
+  const whereClause = cursorPredicate
+    ? and(eq(matches.isPrivate, false), eq(matches.phase, PUBLIC_MATCH_PHASE), cursorPredicate)
+    : and(eq(matches.isPrivate, false), eq(matches.phase, PUBLIC_MATCH_PHASE));
+
+  return db
+    .select({
+      matchId: matches.id,
+      name: matches.name,
+      creatorName: user.name,
+      mapId: matches.mapId,
+      maxPlayers: matches.maxPlayers,
+      participantCount: count(matchParticipants.userId),
+      settings: matches.settings,
+      createdAt: matches.createdAt,
+    })
+    .from(matches)
+    .innerJoin(user, eq(user.id, matches.creatorUserId))
+    .leftJoin(matchParticipants, eq(matchParticipants.matchId, matches.id))
+    .where(whereClause)
+    .groupBy(
+      matches.id,
+      matches.name,
+      user.name,
+      matches.mapId,
+      matches.maxPlayers,
+      matches.settings,
+      matches.createdAt,
+    )
+    .having(gt(matches.maxPlayers, count(matchParticipants.userId)))
+    .orderBy(desc(matches.createdAt), desc(matches.id))
+    .limit(MATCH_BROWSE_PAGE_SIZE + 1)
+    .all();
+}
+
+async function queryBrowseParticipantRows(matchIds: readonly string[]) {
+  if (matchIds.length === 0) {
+    return [];
+  }
+
+  return db
+    .select({
+      matchId: matchParticipants.matchId,
+      userName: user.name,
+      slotIndex: matchParticipants.slotIndex,
+    })
+    .from(matchParticipants)
+    .innerJoin(user, eq(user.id, matchParticipants.userId))
+    .where(inArray(matchParticipants.matchId, matchIds))
+    .orderBy(asc(matchParticipants.matchId), asc(matchParticipants.slotIndex))
+    .all();
+}
+
 function parseMatchSettingsValue(value: unknown): MatchResult<MatchSettings> {
   try {
     const result = matchSettingsSchema.safeParse(value);
@@ -565,6 +681,27 @@ function toParticipantSnapshot(row: MatchParticipantRow): MatchParticipantSnapsh
     ready: row.ready,
     joinedAt: row.joinedAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function toMatchBrowseSummary(
+  row: MatchBrowseRow,
+  settings: MatchSettings,
+  joinedPlayerNames: string[],
+): MatchBrowseSummary {
+  const participantCount = Number(row.participantCount);
+
+  return {
+    matchId: row.matchId,
+    name: row.name,
+    creatorName: row.creatorName,
+    mapId: row.mapId,
+    maxPlayers: row.maxPlayers,
+    participantCount,
+    openSlotCount: Math.max(0, row.maxPlayers - participantCount),
+    joinedPlayerNames,
+    settings,
+    createdAt: row.createdAt.toISOString(),
   };
 }
 

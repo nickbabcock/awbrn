@@ -194,6 +194,14 @@ export function Layout({ children }: { children: ReactNode }) {
             Play
           </Link>
           <Link
+            to="/matches"
+            className={navLinkClassName}
+            activeProps={{ className: navLinkActiveClassName }}
+            activeOptions={{ exact: true }}
+          >
+            Matches
+          </Link>
+          <Link
             to="/matches/new"
             className={navLinkClassName}
             activeProps={{ className: navLinkActiveClassName }}

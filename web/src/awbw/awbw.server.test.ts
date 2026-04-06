@@ -6,7 +6,11 @@ vi.mock("cloudflare:workers", () => ({
   waitUntil: waitUntilMock,
 }));
 
-import { fetchAwbwMapResponse, fetchAwbwUsernameResponse } from "./awbw.server.ts";
+import {
+  fetchAwbwMapResponse,
+  fetchAwbwSmallMapResponse,
+  fetchAwbwUsernameResponse,
+} from "./awbw.server.ts";
 
 const SUCCESS_CACHE_CONTROL = "public, s-maxage=604800, max-age=0, must-revalidate";
 
@@ -172,6 +176,39 @@ describe("awbw edge caching", () => {
     );
 
     expect(response.status).toBe(502);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(cachePutMock).not.toHaveBeenCalled();
+    expect(waitUntilMock).not.toHaveBeenCalled();
+  });
+
+  it("caches small map thumbnails for one week", async () => {
+    const imageBytes = new Uint8Array([137, 80, 78, 71]);
+    fetchMock.mockResolvedValue(
+      new Response(imageBytes, {
+        headers: { "Content-Type": "image/png" },
+      }),
+    );
+
+    const request = new Request("https://example.com/api/awbw/smallmap/136204.png");
+    const response = await fetchAwbwSmallMapResponse(request, 136204);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(response.headers.get("Cache-Control")).toBe(SUCCESS_CACHE_CONTROL);
+    expect(response.headers.get("Content-Type")).toBe("image/png");
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(imageBytes);
+    expect(cachePutMock).toHaveBeenCalledOnce();
+    expect(waitUntilMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not cache missing small map thumbnails", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 404 }));
+
+    const response = await fetchAwbwSmallMapResponse(
+      new Request("https://example.com/api/awbw/smallmap/999999.png"),
+      999999,
+    );
+
+    expect(response.status).toBe(404);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(cachePutMock).not.toHaveBeenCalled();
     expect(waitUntilMock).not.toHaveBeenCalled();
