@@ -16,6 +16,7 @@ export type GameDisplay = CanvasDisplay;
 export interface GameInstance {
   newReplay: (file: File | FileSystemFileHandle) => Promise<void>;
   loadMapPreview: (mapId: number) => Promise<void>;
+  setPlayerDisplayFaction: (playerId: number, factionId: number | null) => Promise<void>;
 }
 
 class WorkerInputBridge {
@@ -119,6 +120,9 @@ export const createGame = async (
     },
     loadMapPreview: async (mapId: number) => {
       app.preview_map(mapId);
+    },
+    setPlayerDisplayFaction: async (playerId: number, factionId: number | null) => {
+      app.set_player_display_faction(playerId, factionId);
     },
   });
 };

@@ -4,11 +4,13 @@ import type { CSSProperties } from "react";
 import { resolveAwbwUsername } from "#/awbw/api.ts";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
 import { CoPortrait } from "#/components/CoPortrait.tsx";
+import { FactionSelectionControl } from "#/components/FactionSelectionControl.tsx";
 import { loadCoPortraitCatalog, type CoPortraitCatalog } from "#/components/co_portraits.ts";
-import { FactionBadge, PlayerHeader } from "#/components/PlayerHeader.tsx";
+import { PlayerHeader } from "#/components/PlayerHeader.tsx";
 import { GameRunner } from "#/engine/game_runner.ts";
 import { useGameActions, useGameStore } from "#/engine/store.ts";
 import { getFactionVisual } from "#/faction_visuals.ts";
+import { getFactionByCode } from "#/factions.ts";
 import { Badge, Text, Wordmark } from "#/ui/primitives.tsx";
 import { tokens } from "#/ui/theme.stylex.ts";
 import { infantrySpriteStyle, uiAtlasSpriteStyle } from "./roster_icons";
@@ -26,6 +28,11 @@ const rosterPlayerSurface = (wash: string): CSSProperties => ({
 const cursorBlink = stylex.keyframes({
   "0%, 49%": { opacity: 1 },
   "50%, 100%": { opacity: 0.25 },
+});
+
+const popIn = stylex.keyframes({
+  "0%": { opacity: 0, transform: "translateY(-4px)" },
+  "100%": { opacity: 1, transform: "translateY(0)" },
 });
 
 function StatIcon({
@@ -135,6 +142,14 @@ export function ReplayPage() {
     };
   }, [playerRoster]);
 
+  const handlePlayerDisplayFactionChange = async (playerId: number, factionId: number | null) => {
+    if (!runner) {
+      throw new Error("Game runner was not initialized.");
+    }
+
+    await runner.setPlayerDisplayFaction(playerId, factionId);
+  };
+
   return (
     <div {...stylex.props(styles.root)}>
       <div ref={surfaceRef} {...stylex.props(styles.gameSurface)}>
@@ -167,7 +182,7 @@ export function ReplayPage() {
             </div>
             <div {...stylex.props(styles.rosterList)}>
               {playerRoster.players.map((player) => {
-                const factionVisual = getFactionVisual(player.factionCode);
+                const factionVisual = getFactionVisual(player.displayFactionCode);
                 const playerName = playerNames[player.userId] ?? `Player ${player.turnOrder}`;
                 const isActivePlayer = playerRoster.activePlayerId === player.playerId;
                 const playerMeta = [
@@ -185,13 +200,13 @@ export function ReplayPage() {
                     key: "units",
                     label: "Units",
                     value: formatMaybeCount(player.stats.unitCount),
-                    icon: <StatIcon factionCode={player.factionCode} />,
+                    icon: <StatIcon factionCode={player.displayFactionCode} />,
                   },
                   {
                     key: "value",
                     label: "Value",
                     value: formatMaybeMoney(player.stats.unitValue),
-                    icon: <StatIcon factionCode={player.factionCode} coinOverlay />,
+                    icon: <StatIcon factionCode={player.displayFactionCode} coinOverlay />,
                   },
                   {
                     key: "income",
@@ -208,15 +223,26 @@ export function ReplayPage() {
                     {...stylex.props(styles.rosterPlayer)}
                   >
                     <PlayerHeader
-                      factionCode={player.factionCode}
+                      factionCode={player.displayFactionCode}
                       name={playerName}
                       xstyle={styles.rosterPlayerHeader}
                       trailing={
                         <>
                           {isActivePlayer ? <Badge tone="brand">Turn</Badge> : null}
-                          <FactionBadge
-                            factionCode={player.factionCode}
-                            title={player.factionName}
+                          <FactionSelectionControl
+                            align="end"
+                            sideOffset={8}
+                            disabled={false}
+                            factionCode={player.displayFactionCode}
+                            onDark
+                            onChange={(factionId) =>
+                              handlePlayerDisplayFactionChange(
+                                player.playerId,
+                                factionId === getFactionByCode(player.actualFactionCode)?.id
+                                  ? null
+                                  : factionId,
+                              )
+                            }
                           />
                         </>
                       }
@@ -404,6 +430,148 @@ const styles = stylex.create({
     gridArea: "header",
     marginInline: -8,
     paddingInline: 8,
+  },
+  factionBadgeButton: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 24,
+    height: 24,
+    borderRadius: tokens.radius1,
+    backgroundColor: "rgba(255, 255, 255, 0.16)",
+    borderWidth: 2,
+    borderStyle: "solid",
+    borderColor: "rgba(255, 255, 255, 0.24)",
+    cursor: "pointer",
+    transitionDuration: tokens.transitionFast,
+    transitionProperty: "transform, box-shadow, opacity",
+    transform: {
+      default: "translateY(0)",
+      ":hover": "translate(-1px, -1px)",
+      ":active": `translate(${tokens.pressOffsetSm}, ${tokens.pressOffsetSm})`,
+      ":disabled": "translateY(0)",
+    },
+    opacity: {
+      default: 1,
+      ":disabled": 0.55,
+    },
+  },
+  factionBadgeLogo: {
+    display: "block",
+    width: 14,
+    height: 14,
+    // Keep this in sync with the logos atlas geometry in `faction_visuals.ts`
+    // where `LOGO_COLUMNS = 10` and `LOGO_TILE_SIZE = 14`.
+    backgroundSize: "140px 28px",
+    backgroundRepeat: "no-repeat",
+    imageRendering: "pixelated",
+  },
+  pickerPopup: {
+    borderWidth: 3,
+    borderStyle: "solid",
+    borderColor: tokens.strokeHeavy,
+    borderRadius: tokens.radius3,
+    backgroundColor: tokens.panelRaised,
+    boxShadow: `${tokens.highlightInset}, ${tokens.shadowHardLg}`,
+    padding: tokens.space3,
+    animationDuration: "140ms",
+    animationFillMode: "both",
+    animationName: popIn,
+  },
+  factionPopup: {
+    width: "min(420px, calc(100vw - 32px))",
+  },
+  factionPickerIntro: {
+    display: "grid",
+    gap: 4,
+    paddingBottom: tokens.space3,
+  },
+  selectorLabel: {
+    color: tokens.inkStrong,
+    fontFamily: tokens.fontPixel,
+    fontSize: 8,
+    letterSpacing: tokens.trackingPixel,
+    textTransform: "uppercase",
+  },
+  dropdownSubtitle: {
+    color: tokens.inkMuted,
+    fontFamily: tokens.fontBody,
+    fontSize: tokens.textSm,
+    lineHeight: tokens.leadingBody,
+  },
+  factionGrid: {
+    display: "grid",
+    gap: tokens.space1,
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  },
+  factionTile: (wash: string) => ({
+    display: "flex",
+    alignItems: "center",
+    gap: tokens.space2,
+    width: "100%",
+    padding: tokens.space1,
+    borderWidth: 2,
+    borderStyle: "solid",
+    borderColor: tokens.strokeBase,
+    borderRadius: tokens.radius2,
+    backgroundColor: wash,
+    boxShadow: `${tokens.highlightInset}, ${tokens.shadowHardSm}`,
+    cursor: "pointer",
+    textAlign: "left",
+    transitionDuration: tokens.transitionFast,
+    transitionProperty: "transform, box-shadow, border-color, background-color",
+    transform: {
+      default: "translateY(0)",
+      ":hover": "translate(-1px, -1px)",
+      ":active": `translate(${tokens.pressOffsetSm}, ${tokens.pressOffsetSm})`,
+    },
+  }),
+  factionTileSelected: {
+    borderColor: tokens.strokeHeavy,
+    backgroundColor: tokens.brandSoft,
+  },
+  factionTileLogoWrap: {
+    flex: "0 0 auto",
+    width: 14,
+    height: 14,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  factionTileLogo: {
+    width: 14,
+    height: 14,
+    backgroundRepeat: "no-repeat",
+    imageRendering: "pixelated",
+  },
+  factionTileCopy: {
+    display: "grid",
+    gap: 2,
+  },
+  tileTitle: {
+    color: tokens.inkStrong,
+    fontFamily: tokens.fontBody,
+    fontSize: tokens.textSm,
+    fontWeight: 800,
+  },
+  tileMeta: {
+    color: tokens.inkMuted,
+    fontFamily: tokens.fontPixel,
+    fontSize: 8,
+    letterSpacing: tokens.trackingPixel,
+    textTransform: "uppercase",
+  },
+  factionResetBadge: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 14,
+    height: 14,
+    color: tokens.inkMuted,
+    fontFamily: tokens.fontPixel,
+    fontSize: 8,
+    letterSpacing: tokens.trackingPixel,
+    textTransform: "uppercase",
   },
   rosterPlayerPortraits: {
     display: "flex",

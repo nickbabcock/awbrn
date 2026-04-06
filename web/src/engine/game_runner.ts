@@ -87,6 +87,11 @@ export class GameRunner implements CanvasCourierController {
     await game.loadMapPreview(mapId);
   }
 
+  async setPlayerDisplayFaction(playerId: number, factionId: number | null): Promise<void> {
+    const game = await this.requireGame();
+    await game.setPlayerDisplayFaction(playerId, factionId);
+  }
+
   dispose(): void {
     this.cancelScheduledDispose();
     this.surfaceVersion += 1;

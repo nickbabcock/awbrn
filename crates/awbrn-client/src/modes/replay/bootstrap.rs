@@ -1,6 +1,7 @@
 use awbw_replay::AwbwReplay;
 use bevy::prelude::*;
 
+use crate::features::player_display::PlayerDisplayFactionOverrides;
 use crate::features::player_roster::{emit_player_roster_updated, player_roster_seed_from_replay};
 use crate::loading::LoadedReplay;
 use crate::modes::replay::commands::ReplayAdvanceLock;
@@ -22,6 +23,12 @@ pub fn initialize_replay_semantic_world_for_client(world: &mut World) {
         world.insert_resource(funds);
         world.insert_resource(unit_costs);
     }
+
+    world.init_resource::<PlayerDisplayFactionOverrides>();
+    world
+        .resource_mut::<PlayerDisplayFactionOverrides>()
+        .0
+        .clear();
 
     world.insert_resource(ReplayAdvanceLock::default());
     emit_player_roster_updated(world);
