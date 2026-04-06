@@ -59,6 +59,9 @@ importers:
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.28.15)
+      pixelarticons:
+        specifier: 2.0.2
+        version: 2.0.2(react@19.2.3)
       react:
         specifier: 19.2.3
         version: 19.2.3
@@ -2257,6 +2260,12 @@ packages:
     resolution: {integrity: sha512-5gTmgEY/sqK6gFXLIsQNH19lWb4ebPDLA4SdLP7dsWkIXHWlG66oPuVvXSGFPppYZz8ZDZq0dYYrbHfBCVUb1Q==}
     engines: {node: '>=12'}
 
+  pixelarticons@2.0.2:
+    resolution: {integrity: sha512-/BlUJp9oRv2hx0ELy2+X8R2khnAvzztUmYuu7KfHZSQNDc09PTK0BxDl9+AYE7qVNupE/12Z/89iz7joYDHYDw==}
+    hasBin: true
+    peerDependencies:
+      react: '>=16'
+
   postcss-value-parser@4.2.0:
     resolution: {integrity: sha512-1NNCs6uurfkVbeXG4S8JFT9t19m45ICnif8zWLd5oPSZ50QnwMfK+H3jv408d4jw/7Bttv5axS5IiHoLaVNHeQ==}
 
@@ -4337,6 +4346,10 @@ snapshots:
   picomatch@2.3.2: {}
 
   picomatch@4.0.3: {}
+
+  pixelarticons@2.0.2(react@19.2.3):
+    dependencies:
+      react: 19.2.3
 
   postcss-value-parser@4.2.0: {}
 
