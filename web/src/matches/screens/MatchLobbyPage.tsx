@@ -10,6 +10,7 @@ import { useAppSession } from "#/auth/useAppSession.ts";
 import { awbwMapAssetPath } from "#/awbw/paths.ts";
 import type { AwbwMapData } from "#/awbw/schemas.ts";
 import { CoPortrait } from "#/components/CoPortrait.tsx";
+import { FactionSelectionControl } from "#/components/FactionSelectionControl.tsx";
 import {
   DEFAULT_CO_PORTRAIT_KEY,
   getCoPortraitByAwbwId,
@@ -17,14 +18,9 @@ import {
   loadCoPortraitCatalog,
   type CoPortraitCatalog,
 } from "#/components/co_portraits.ts";
-import {
-  defaultFactionIdForSlot,
-  factions,
-  getFactionById,
-  type FactionCatalogEntry,
-} from "#/factions.ts";
+import { defaultFactionIdForSlot, getFactionById } from "#/factions.ts";
 import { getFactionVisual } from "#/faction_visuals.ts";
-import { FactionBadge, PlayerHeader } from "#/components/PlayerHeader.tsx";
+import { PlayerHeader } from "#/components/PlayerHeader.tsx";
 import { Button, Frame, Heading, Kicker, Notice, Page, Section, Text } from "#/ui/primitives.tsx";
 import { tokens } from "#/ui/theme.stylex.ts";
 import { MatchMapPreview } from "#/matches/components/MatchMapPreview.tsx";
@@ -33,8 +29,6 @@ import type { MatchMutationRequest, MatchSnapshot } from "#/matches/schemas.ts";
 
 const coOptions = listCoPortraits();
 const selectableCoOptions = coOptions.filter((option) => option.key !== DEFAULT_CO_PORTRAIT_KEY);
-const factionHelperCopy =
-  "Faction sets your army's look only. Starting position still comes from the map.";
 const rowReveal = stylex.keyframes({
   from: { opacity: 0, transform: "translateY(10px)" },
   to: { opacity: 1, transform: "translateY(0)" },
@@ -373,11 +367,10 @@ export function MatchLobbyPage({
                                   {participant !== null ? (
                                     <FactionSelectionControl
                                       disabled={isLocked}
-                                      faction={faction}
-                                      interactive={isInteractive}
+                                      factionCode={faction?.code ?? "os"}
                                       onDark
                                       onChange={(nextValue) => {
-                                        void submitAction(
+                                        return submitAction(
                                           {
                                             action: "updateParticipant",
                                             factionId: nextValue,
@@ -591,171 +584,6 @@ function CoSelectionControl({
         </Popover.Positioner>
       </Popover.Portal>
     </Popover.Root>
-  );
-}
-
-function FactionSelectionControl({
-  faction,
-  disabled,
-  interactive,
-  onDark = false,
-  onChange,
-}: {
-  faction: FactionCatalogEntry | null;
-  disabled: boolean;
-  interactive: boolean;
-  onDark?: boolean;
-  onChange: (nextValue: number) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const activeFaction = faction ?? factions[0] ?? null;
-  const activeVisual = getFactionVisual(activeFaction?.code ?? "os");
-  const title = activeFaction?.displayName ?? "Unknown Faction";
-  const factionCode = activeFaction?.code ?? "os";
-
-  const badge = <FactionLogo factionCode={factionCode} />;
-
-  if (!interactive) {
-    return onDark ? (
-      <FactionBadge factionCode={factionCode} title={title} />
-    ) : (
-      <span
-        aria-label={`Faction: ${title}`}
-        title={title}
-        {...stylex.props(styles.factionBadge(activeVisual.accentSoft, activeVisual.accent))}
-      >
-        {badge}
-      </span>
-    );
-  }
-
-  if (onDark) {
-    return (
-      <Popover.Root open={open} onOpenChange={setOpen}>
-        <Popover.Trigger
-          aria-label={`Faction: ${title} — click to change`}
-          disabled={disabled}
-          {...stylex.props(
-            styles.factionBadgeDarkButton,
-            disabled && styles.portraitButtonDisabled,
-          )}
-        >
-          {badge}
-        </Popover.Trigger>
-        <Popover.Portal>
-          <Popover.Positioner align="start" sideOffset={10}>
-            <Popover.Popup
-              initialFocus={false}
-              {...stylex.props(styles.pickerPopup, styles.factionPopup)}
-            >
-              <ScrollArea.Root>
-                <ScrollArea.Viewport {...stylex.props(styles.pickerViewport)}>
-                  <ScrollArea.Content>
-                    <div {...stylex.props(styles.factionPickerIntro)}>
-                      <span {...stylex.props(styles.dropdownSubtitle)}>{factionHelperCopy}</span>
-                    </div>
-                    <div {...stylex.props(styles.factionGrid)}>
-                      {factions.map((option) => {
-                        const optionVisual = getFactionVisual(option.code);
-                        return (
-                          <button
-                            key={option.id}
-                            onClick={() => {
-                              onChange(option.id);
-                              setOpen(false);
-                            }}
-                            type="button"
-                            {...stylex.props(
-                              styles.factionTile(optionVisual.wash),
-                              option.id === activeFaction?.id && styles.coTileSelected,
-                            )}
-                          >
-                            <FactionLogo factionCode={option.code} />
-                            <span {...stylex.props(styles.tileTitle)}>{option.displayName}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </ScrollArea.Content>
-                </ScrollArea.Viewport>
-              </ScrollArea.Root>
-            </Popover.Popup>
-          </Popover.Positioner>
-        </Popover.Portal>
-      </Popover.Root>
-    );
-  }
-
-  return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger
-        aria-label={`Faction: ${title} — click to change`}
-        disabled={disabled}
-        {...stylex.props(
-          styles.factionBadge(activeVisual.accentSoft, activeVisual.accent),
-          styles.factionBadgeButton,
-          disabled && styles.portraitButtonDisabled,
-        )}
-      >
-        {badge}
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Positioner align="start" sideOffset={10}>
-          <Popover.Popup
-            initialFocus={false}
-            {...stylex.props(styles.pickerPopup, styles.factionPopup)}
-          >
-            <ScrollArea.Root>
-              <ScrollArea.Viewport {...stylex.props(styles.pickerViewport)}>
-                <ScrollArea.Content>
-                  <div {...stylex.props(styles.factionPickerIntro)}>
-                    <span {...stylex.props(styles.dropdownSubtitle)}>{factionHelperCopy}</span>
-                  </div>
-                  <div {...stylex.props(styles.factionGrid)}>
-                    {factions.map((option) => {
-                      const optionVisual = getFactionVisual(option.code);
-                      return (
-                        <button
-                          key={option.id}
-                          onClick={() => {
-                            onChange(option.id);
-                            setOpen(false);
-                          }}
-                          type="button"
-                          {...stylex.props(
-                            styles.factionTile(optionVisual.wash),
-                            option.id === activeFaction?.id && styles.coTileSelected,
-                          )}
-                        >
-                          <FactionLogo factionCode={option.code} />
-                          <span {...stylex.props(styles.tileTitle)}>{option.displayName}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </ScrollArea.Content>
-              </ScrollArea.Viewport>
-            </ScrollArea.Root>
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
-  );
-}
-
-function FactionLogo({ factionCode }: { factionCode: string }) {
-  const visual = getFactionVisual(factionCode);
-
-  return (
-    <span aria-hidden="true" {...stylex.props(styles.factionLogoWrap)}>
-      <span
-        style={{
-          backgroundImage: `url(${visual.logoUrl})`,
-          backgroundPosition: visual.logoPosition,
-        }}
-        {...stylex.props(styles.factionLogo)}
-      />
-    </span>
   );
 }
 

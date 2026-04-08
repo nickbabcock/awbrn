@@ -2,6 +2,7 @@ pub mod camera;
 pub mod event_bus;
 pub mod fog;
 pub mod input;
+pub mod player_display;
 pub mod player_roster;
 pub mod weather;
 
@@ -24,6 +25,7 @@ impl Plugin for FeaturesPlugin {
             camera::CameraPlugin,
             input::InputPlugin,
             fog::FogPlugin,
+            player_display::PlayerDisplayPlugin,
         ));
     }
 }

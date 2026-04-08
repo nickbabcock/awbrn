@@ -560,6 +560,7 @@ name = "awbrn-wasm"
 version = "0.1.0"
 dependencies = [
  "awbrn-client",
+ "awbrn-types",
  "awbw-replay",
  "bevy",
  "getrandom 0.3.4",

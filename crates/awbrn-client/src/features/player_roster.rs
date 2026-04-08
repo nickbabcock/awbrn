@@ -1,6 +1,7 @@
 use crate::features::event_bus::{
     EventSink, PlayerRosterEntry, PlayerRosterSnapshot, PlayerRosterStats,
 };
+use crate::features::player_display::{PlayerDisplayFactionOverrides, display_faction_for_player};
 use awbrn_content::co_portrait_by_awbw_id;
 use awbrn_game::replay::{AwbwUnitId, ReplayState};
 use awbrn_game::world::{Faction, FogActive, FriendlyFactions, GraphicalHp, TerrainTile, Unit};
@@ -128,6 +129,9 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
     let unit_costs = world.get_resource::<PlayerUnitCosts>()?.clone();
     let replay_state = *world.get_resource::<ReplayState>()?;
     let fog_active = world.get_resource::<FogActive>().is_some_and(|fog| fog.0);
+    let display_faction_overrides = world
+        .get_resource::<PlayerDisplayFactionOverrides>()
+        .cloned();
     let friendly_factions = world
         .get_resource::<FriendlyFactions>()
         .map(|factions| factions.0.clone())
@@ -218,14 +222,27 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
                         ),
                     }
                 };
+                let actual_faction_code = player.faction_code.clone();
+                let actual_faction_name = player.faction_name.clone();
+                let display_faction = display_faction_for_player(
+                    display_faction_overrides.as_ref(),
+                    player.player_id,
+                    player.faction,
+                );
+                let display_faction_code = display_faction.country_code().to_string();
+                let display_faction_name = display_faction.name().to_string();
                 PlayerRosterEntry {
                     player_id: player.player_id.as_u32(),
                     user_id: player.user_id.as_u32(),
                     turn_order: player.turn_order,
                     team: player.team.clone(),
                     eliminated: player.eliminated,
-                    faction_code: player.faction_code.clone(),
-                    faction_name: player.faction_name.clone(),
+                    actual_faction_code,
+                    actual_faction_name,
+                    display_faction_code: display_faction_code.clone(),
+                    display_faction_name: display_faction_name.clone(),
+                    faction_code: display_faction_code,
+                    faction_name: display_faction_name,
                     co_key: player.co_key.clone(),
                     co_name: player.co_name.clone(),
                     tag_co_key: player.tag_co_key.clone(),

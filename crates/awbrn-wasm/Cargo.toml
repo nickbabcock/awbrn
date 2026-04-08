@@ -8,6 +8,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 awbrn-client = { path = "../awbrn-client" }
+awbrn-types = { path = "../awbrn-types", features = ["bevy"] }
 awbw-replay = { path = "../awbw-replay" }
 bevy = { workspace = true, features = [
     "bevy_asset",

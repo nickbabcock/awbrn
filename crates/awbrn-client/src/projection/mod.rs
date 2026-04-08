@@ -1,4 +1,8 @@
 use crate::core::AppState;
+use crate::features::player_display::{
+    PlayerDisplayFactionOverrides, display_faction_for_actual_faction,
+};
+use crate::features::player_roster::PlayerRosterConfig;
 use awbrn_game::MapPosition;
 use awbrn_game::replay::{
     ReplayKnowledgeKey, ReplayPlayerRegistry, ReplayState, ReplayTerrainKnowledge, ReplayViewpoint,
@@ -8,7 +12,9 @@ use awbrn_game::world::{
     Hiding, TerrainTile, Unit, UnitActive,
 };
 use awbrn_map::Position;
-use awbrn_types::{GraphicalTerrain, UnitDomain};
+use awbrn_types::{
+    Faction as TerrainFaction, GraphicalTerrain, Property, PropertyKind, UnitDomain,
+};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
@@ -47,12 +53,16 @@ pub(crate) struct UnitProjectionResources<'w> {
     fog_map: Res<'w, FogOfWarMap>,
     fog_active: Res<'w, FogActive>,
     friendly: Res<'w, FriendlyFactions>,
+    player_roster: Option<Res<'w, PlayerRosterConfig>>,
+    display_faction_overrides: Option<Res<'w, PlayerDisplayFactionOverrides>>,
 }
 
 #[derive(SystemParam)]
 pub(crate) struct TerrainProjectionResources<'w> {
     fog_map: Res<'w, FogOfWarMap>,
     fog_active: Res<'w, FogActive>,
+    player_roster: Option<Res<'w, PlayerRosterConfig>>,
+    display_faction_overrides: Option<Res<'w, PlayerDisplayFactionOverrides>>,
     viewpoint: Option<Res<'w, ReplayViewpoint>>,
     registry: Option<Res<'w, ReplayPlayerRegistry>>,
     replay_state: Option<Res<'w, ReplayState>>,
@@ -160,6 +170,45 @@ fn terrain_for_viewer(
         .unwrap_or(actual)
 }
 
+fn property_with_display_faction(
+    property: Property,
+    display_faction: awbrn_types::PlayerFaction,
+) -> Property {
+    match property.kind() {
+        PropertyKind::Airport => Property::Airport(TerrainFaction::Player(display_faction)),
+        PropertyKind::Base => Property::Base(TerrainFaction::Player(display_faction)),
+        PropertyKind::City => Property::City(TerrainFaction::Player(display_faction)),
+        PropertyKind::ComTower => Property::ComTower(TerrainFaction::Player(display_faction)),
+        PropertyKind::HQ => Property::HQ(display_faction),
+        PropertyKind::Lab => Property::Lab(TerrainFaction::Player(display_faction)),
+        PropertyKind::Port => Property::Port(TerrainFaction::Player(display_faction)),
+    }
+}
+
+fn terrain_with_display_faction(
+    terrain: GraphicalTerrain,
+    player_roster: Option<&PlayerRosterConfig>,
+    display_faction_overrides: Option<&PlayerDisplayFactionOverrides>,
+) -> GraphicalTerrain {
+    let GraphicalTerrain::Property(property) = terrain else {
+        return terrain;
+    };
+    let TerrainFaction::Player(actual_faction) = property.faction() else {
+        return terrain;
+    };
+
+    let display_faction = display_faction_for_actual_faction(
+        player_roster,
+        display_faction_overrides,
+        actual_faction,
+    );
+    if display_faction == actual_faction {
+        return terrain;
+    }
+
+    GraphicalTerrain::Property(property_with_display_faction(property, display_faction))
+}
+
 pub(crate) fn project_unit_render_state(
     mut commands: Commands,
     resources: UnitProjectionResources,
@@ -183,9 +232,14 @@ pub(crate) fn project_unit_render_state(
         let force_refresh = unit_active
             .as_ref()
             .is_some_and(|unit_active| unit_active.is_changed());
+        let display_faction = display_faction_for_actual_faction(
+            resources.player_roster.as_deref(),
+            resources.display_faction_overrides.as_deref(),
+            faction.0,
+        );
         let next = ProjectedUnitRenderState {
             unit: *unit,
-            faction: *faction,
+            faction: Faction(display_faction),
             visible: unit_visible_to_viewer(
                 &resources,
                 UnitVisibilityInput {
@@ -226,13 +280,19 @@ pub(crate) fn project_terrain_render_state(
     );
 
     for (entity, terrain_tile, position, current) in &terrain_tiles {
-        let next = ProjectedTerrainRenderState(terrain_for_viewer(
+        let visible_terrain = terrain_for_viewer(
             resources.fog_map.as_ref(),
             resources.fog_active.0,
             resources.knowledge.as_deref(),
             knowledge_key,
             position.position(),
             terrain_tile.terrain,
+        );
+
+        let next = ProjectedTerrainRenderState(terrain_with_display_faction(
+            visible_terrain,
+            resources.player_roster.as_deref(),
+            resources.display_faction_overrides.as_deref(),
         ));
 
         if current.copied() != Some(next) {

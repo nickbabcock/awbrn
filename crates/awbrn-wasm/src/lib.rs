@@ -3,6 +3,7 @@ use awbrn_client::{
     PlayerRosterSnapshot, ReplayLoaded, ReplayToLoad, StaticAssetPathResolver, TileSelected,
     UnitBuilt, UnitMoved,
 };
+use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
 use bevy::{
     app::PluginsState,
     input::{
@@ -398,6 +399,29 @@ impl BevyApp {
         self.app
             .world_mut()
             .insert_resource(PendingGameStart(map_id));
+
+        Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub fn set_player_display_faction(
+        &mut self,
+        player_id: u32,
+        faction_id: Option<u8>,
+    ) -> Result<(), JsError> {
+        let faction = faction_id
+            .map(|id| {
+                PlayerFaction::from_id(id)
+                    .ok_or_else(|| JsError::new(&format!("Invalid faction id: {id}")))
+            })
+            .transpose()?;
+
+        self.app.world_mut().write_message(
+            awbrn_client::features::player_display::SetPlayerDisplayFaction {
+                player_id: AwbwGamePlayerId::new(player_id),
+                faction,
+            },
+        );
 
         Ok(())
     }

@@ -122,6 +122,8 @@ const styles = stylex.create({
     display: "block",
     width: 14,
     height: 14,
+    // This matches the logos atlas geometry in `faction_visuals.ts`:
+    // `LOGO_COLUMNS = 10` and `LOGO_TILE_SIZE = 14`, so the sheet is `140px 28px`.
     backgroundSize: "140px 28px",
     backgroundRepeat: "no-repeat",
     imageRendering: "pixelated",
