@@ -2,8 +2,20 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { sessionMiddleware } from "#/auth/session.middleware.ts";
 import { getFactionById } from "#/factions.ts";
-import { createMatch, getMatchSnapshot, mutateMatch } from "./matches.server";
-import { matchCreateRequestSchema, matchMutationRequestSchema } from "./schemas";
+import { createMatch, getMatchSnapshot, listMatches, mutateMatch } from "./matches.server";
+import {
+  matchBrowseRequestSchema,
+  matchCreateRequestSchema,
+  matchMutationRequestSchema,
+} from "./schemas";
+
+export const listMatchesFn = createServerFn({ method: "GET" })
+  .inputValidator(matchBrowseRequestSchema)
+  .handler(async ({ data }) => {
+    const result = await listMatches(data);
+    if (!result.ok) throw new Error(result.error.message);
+    return result.value;
+  });
 
 export const getMatchFn = createServerFn({ method: "GET" })
   .middleware([sessionMiddleware])

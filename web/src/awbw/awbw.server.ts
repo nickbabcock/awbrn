@@ -64,6 +64,13 @@ export async function fetchAwbwMapResponse(request: Request, mapId: number): Pro
   return withCachedResponse(request, () => fetchAwbwMap(mapId));
 }
 
+export async function fetchAwbwSmallMapResponse(
+  request: Request,
+  mapId: number,
+): Promise<Response> {
+  return withCachedResponse(request, () => fetchAwbwSmallMap(mapId));
+}
+
 export async function fetchAwbwMap(mapId: number): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
@@ -101,6 +108,35 @@ export async function fetchAwbwMap(mapId: number): Promise<Response> {
   }
 }
 
+export async function fetchAwbwSmallMap(mapId: number): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, AWBW_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${AWBW_BASE_URL}/smallmaps/${mapId}.png`, {
+      signal: controller.signal,
+    });
+    if (response.status === 404) {
+      return createTextResponse("Not Found", { status: 404, cacheable: false });
+    }
+    if (!response.ok) {
+      return createTextResponse("Bad Gateway", { status: 502, cacheable: false });
+    }
+
+    return createBinaryResponse(await response.arrayBuffer(), {
+      cacheable: true,
+      contentType: response.headers.get("Content-Type") ?? "image/png",
+      status: response.status,
+    });
+  } catch {
+    return createTextResponse("Bad Gateway", { status: 502, cacheable: false });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export async function fetchAwbwMapData(mapId: number): Promise<AwbwMapData> {
   const response = await fetchAwbwMap(mapId);
 
@@ -129,6 +165,21 @@ interface ResponseOptions {
 
 function createTextResponse(
   body: string,
+  { cacheable, contentType, status = 200 }: ResponseOptions,
+): Response {
+  const headers = new Headers({
+    "Cache-Control": cacheable ? AWBW_SUCCESS_CACHE_CONTROL : AWBW_NO_STORE_CACHE_CONTROL,
+  });
+
+  if (contentType) {
+    headers.set("Content-Type", contentType);
+  }
+
+  return new Response(body, { headers, status });
+}
+
+function createBinaryResponse(
+  body: ArrayBuffer,
   { cacheable, contentType, status = 200 }: ResponseOptions,
 ): Response {
   const headers = new Headers({
