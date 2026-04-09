@@ -317,8 +317,9 @@ export class SharedCanvasInputWriter {
     const tail = Atomics.load(this.controls, SharedCanvasAtomicIndex.Tail);
     const nextHead = (head + 1) % this.config.capacity;
 
+    // Drop events if the buffer is full
     if (nextHead === tail) {
-      throw new Error("Shared canvas input ring buffer overflowed.");
+      return;
     }
 
     this.writeSlot(head, slot);

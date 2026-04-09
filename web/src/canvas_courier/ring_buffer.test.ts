@@ -51,15 +51,38 @@ describe("SharedCanvasInputWriter", () => {
     ]);
   });
 
-  it("throws when the buffer is full", () => {
+  it("drops the newest event when the buffer is full", () => {
     const config = createTestConfig(4);
     const writer = new SharedCanvasInputWriter(config);
+    const reader = new SharedCanvasInputReader(config);
+    const drained: SharedCanvasDecodedEvent[] = [];
 
     writer.enqueueVisibility(true, 1);
     writer.enqueueBlur(2);
     writer.enqueueVisibility(false, 3);
+    writer.enqueueBlur(4);
 
-    expect(() => writer.enqueueBlur(4)).toThrow("Shared canvas input ring buffer overflowed.");
+    reader.drain((event) => {
+      drained.push(event);
+    });
+
+    expect(drained).toEqual([
+      {
+        type: SharedCanvasEventType.Visibility,
+        action: SharedCanvasEventAction.Hidden,
+        timestamp: 1,
+      },
+      {
+        type: SharedCanvasEventType.Focus,
+        action: SharedCanvasEventAction.Blur,
+        timestamp: 2,
+      },
+      {
+        type: SharedCanvasEventType.Visibility,
+        action: SharedCanvasEventAction.Visible,
+        timestamp: 3,
+      },
+    ]);
   });
 });
 

@@ -152,6 +152,7 @@ export class CanvasCourierTransport {
       this.syncSurfaceSize(surface);
     });
     this.resizeObserver.observe(surface.container);
+    this.observeDevicePixelRatio(surface);
 
     this.inputQueue.writer.enqueueVisibility(document.hidden);
   }
@@ -189,6 +190,22 @@ export class CanvasCourierTransport {
     this.attachmentAbortController = undefined;
     this.resizeObserver?.disconnect();
     this.resizeObserver = undefined;
+  }
+
+  private observeDevicePixelRatio(surface: CanvasCourierSurface): void {
+    const mediaQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    mediaQuery.addEventListener(
+      "change",
+      () => {
+        if (this.activeSurface?.canvas !== surface.canvas) {
+          return;
+        }
+
+        this.syncSurfaceSize(surface);
+        this.observeDevicePixelRatio(surface);
+      },
+      { once: true, signal: this.attachmentAbortController?.signal },
+    );
   }
 
   private snapToDevicePixel(size: number, ratio: number): number {
