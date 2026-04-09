@@ -110,6 +110,7 @@ export class CanvasCourierTransport {
       "pointerdown",
       (event) => {
         surface.canvas.focus({ preventScroll: true });
+        surface.canvas.setPointerCapture(event.pointerId);
         this.inputQueue.writer.enqueuePointer(event, SharedCanvasEventAction.Down);
       },
       listenerOptions,
