@@ -67,23 +67,12 @@ export function ReplayPage() {
   const gameActions = useGameActions();
   const [portraitCatalog] = useState<CoPortraitCatalog>(() => loadCoPortraitCatalog());
   const [playerNames, setPlayerNames] = useState<Record<number, string>>({});
-  const [runner, setRunner] = useState<GameRunner | null>(null);
+  const [runner] = useState(() => new GameRunner());
 
-  useEffect(() => {
-    const nextRunner = new GameRunner();
-    setRunner(nextRunner);
-
-    return () => {
-      nextRunner.dispose();
-      setRunner((current) => (current === nextRunner ? null : current));
-    };
-  }, []);
+  useEffect(() => () => runner.dispose(), [runner]);
 
   const { canvasRef, focus, surfaceRef } = useCanvasCourierSurface({
     controller: runner,
-    onError: (error) => {
-      console.error("Error attaching game runner:", error);
-    },
   });
 
   const handleReplayFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -327,6 +316,8 @@ const styles = stylex.create({
   },
   gameCanvas: {
     display: "block",
+    width: "100%",
+    height: "100%",
     outline: "none",
   },
   emptyState: {

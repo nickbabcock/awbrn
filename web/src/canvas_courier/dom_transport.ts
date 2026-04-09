@@ -1,55 +1,52 @@
-import type { CanvasCourierSurface } from "./types";
+import type { CanvasCourierDomSurface } from "./types";
 import { SharedCanvasEventAction, createSharedCanvasInputQueue } from "./ring_buffer";
-import type {
-  LogicalCanvasSize,
-  SharedCanvasInputConfig,
-  SharedCanvasInputQueue,
-} from "./ring_buffer";
+import type { CanvasSize, SharedCanvasInputConfig, SharedCanvasInputQueue } from "./ring_buffer";
+
+// Cached feature detection - Safari does not support devicePixelContentBoxSize.
+// See https://bugs.webkit.org/show_bug.cgi?id=219005
+const SUPPORTS_DEVICE_PIXEL_CONTENT_BOX =
+  typeof ResizeObserverEntry !== "undefined" &&
+  "devicePixelContentBoxSize" in ResizeObserverEntry.prototype;
 
 export class CanvasCourierTransport {
-  private activeSurface: CanvasCourierSurface | undefined;
+  private activeSurface: CanvasCourierDomSurface | undefined;
   private attachmentAbortController: AbortController | undefined;
-  private logicalCanvasSize: LogicalCanvasSize | undefined;
-  private readonly inputQueue: SharedCanvasInputQueue;
+  private canvasSize: CanvasSize | undefined;
+  // Lazily initialized on first attachSurface so that constructing a
+  // CanvasCourierTransport is safe during server-side rendering.
+  private _inputQueue: SharedCanvasInputQueue | undefined;
   private resizeObserver: ResizeObserver | undefined;
 
-  constructor() {
-    this.inputQueue = createSharedCanvasInputQueue();
+  private get inputQueue(): SharedCanvasInputQueue {
+    this._inputQueue ??= createSharedCanvasInputQueue();
+    return this._inputQueue;
   }
 
   get inputConfig(): SharedCanvasInputConfig {
     return this.inputQueue.config;
   }
 
-  currentSize(): LogicalCanvasSize {
-    if (!this.logicalCanvasSize) {
+  currentSize(): CanvasSize {
+    if (!this.canvasSize) {
       throw new Error("Canvas Courier transport size is not initialized yet.");
     }
 
-    return this.logicalCanvasSize;
+    return this.canvasSize;
   }
 
-  measureSurface(surface: CanvasCourierSurface): LogicalCanvasSize {
-    const bounds = surface.container.getBoundingClientRect();
-    const fallbackWidth = surface.canvas.clientWidth || surface.canvas.width;
-    const fallbackHeight = surface.canvas.clientHeight || surface.canvas.height;
-    const width = bounds.width > 0 ? bounds.width : fallbackWidth;
-    const height = bounds.height > 0 ? bounds.height : fallbackHeight;
+  measureSurface(surface: CanvasCourierDomSurface): CanvasSize {
+    const bounds = surface.canvas.getBoundingClientRect();
     const scaleFactor = window.devicePixelRatio;
-
+    const width = bounds.width || surface.canvas.width;
+    const height = bounds.height || surface.canvas.height;
     return {
-      width: this.snapToDevicePixel(width, scaleFactor),
-      height: this.snapToDevicePixel(height, scaleFactor),
+      width: Math.floor(width * scaleFactor),
+      height: Math.floor(height * scaleFactor),
       scaleFactor,
     };
   }
 
-  applyVisibleCanvasSize(canvas: HTMLCanvasElement, size: LogicalCanvasSize): void {
-    canvas.style.width = `${size.width}px`;
-    canvas.style.height = `${size.height}px`;
-  }
-
-  attachSurface(surface: CanvasCourierSurface): void {
+  attachSurface(surface: CanvasCourierDomSurface): void {
     this.releaseSurfaceBindings();
     this.activeSurface = surface;
 
@@ -148,11 +145,43 @@ export class CanvasCourierTransport {
       { signal: abortController.signal, passive: true },
     );
 
-    this.resizeObserver = new ResizeObserver(() => {
-      this.syncSurfaceSize(surface);
+    this.resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) {
+        return;
+      }
+
+      const scaleFactor = window.devicePixelRatio;
+      let nextSize: CanvasSize;
+
+      if (SUPPORTS_DEVICE_PIXEL_CONTENT_BOX) {
+        // Physical pixels reported directly; DPR changes fire this observer automatically.
+        const dpSize = entry.devicePixelContentBoxSize[0];
+        nextSize = {
+          width: dpSize.inlineSize,
+          height: dpSize.blockSize,
+          scaleFactor,
+        };
+      } else {
+        // Safari fallback: contentRect is in CSS pixels.
+        const rect = entry.contentRect;
+        nextSize = {
+          width: Math.floor(rect.width * scaleFactor),
+          height: Math.floor(rect.height * scaleFactor),
+          scaleFactor,
+        };
+      }
+
+      this.canvasSize = nextSize;
+      this.inputQueue.writer.enqueueResize(nextSize);
     });
-    this.resizeObserver.observe(surface.container);
-    this.observeDevicePixelRatio(surface);
+
+    if (SUPPORTS_DEVICE_PIXEL_CONTENT_BOX) {
+      this.resizeObserver.observe(surface.canvas, { box: "device-pixel-content-box" });
+    } else {
+      this.resizeObserver.observe(surface.canvas);
+      this.observeDevicePixelRatio(surface);
+    }
 
     this.inputQueue.writer.enqueueVisibility(document.hidden);
   }
@@ -169,14 +198,14 @@ export class CanvasCourierTransport {
 
   dispose(): void {
     this.activeSurface = undefined;
-    this.logicalCanvasSize = undefined;
+    this.canvasSize = undefined;
+    this._inputQueue = undefined;
     this.releaseSurfaceBindings();
   }
 
-  private syncSurfaceSize(surface: CanvasCourierSurface): void {
+  private syncSurfaceSize(surface: CanvasCourierDomSurface): void {
     const nextSize = this.measureSurface(surface);
-    this.logicalCanvasSize = nextSize;
-    this.applyVisibleCanvasSize(surface.canvas, nextSize);
+    this.canvasSize = nextSize;
     this.inputQueue.writer.enqueueResize(nextSize);
   }
 
@@ -192,7 +221,9 @@ export class CanvasCourierTransport {
     this.resizeObserver = undefined;
   }
 
-  private observeDevicePixelRatio(surface: CanvasCourierSurface): void {
+  // Safari doesn't support devicePixelContentBoxSize, so DPR changes don't fire
+  // the ResizeObserver. We use a matchMedia query to detect DPR changes instead.
+  private observeDevicePixelRatio(surface: CanvasCourierDomSurface): void {
     const mediaQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
     mediaQuery.addEventListener(
       "change",
@@ -206,9 +237,5 @@ export class CanvasCourierTransport {
       },
       { once: true, signal: this.attachmentAbortController?.signal },
     );
-  }
-
-  private snapToDevicePixel(size: number, ratio: number): number {
-    return Math.floor(Math.floor(size * ratio) / ratio);
   }
 }
