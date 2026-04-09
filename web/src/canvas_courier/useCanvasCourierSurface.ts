@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CanvasCourierController, CanvasCourierStatus } from "./types";
 
 export function useCanvasCourierSurface({
@@ -11,24 +11,23 @@ export function useCanvasCourierSurface({
   const surfaceRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<OffscreenCanvas | null>(null);
+  const onErrorRef = useRef(onError);
   const [status, setStatus] = useState<CanvasCourierStatus>({
     attached: false,
     error: null,
   });
 
-  const reportError = useEffectEvent((error: unknown) => {
-    const normalized = error instanceof Error ? error : new Error(String(error));
-    setStatus({ attached: false, error: normalized });
-    onError?.(normalized);
-  });
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
 
-  const focus = useEffectEvent(() => {
+  const focus = useCallback(() => {
     canvasRef.current?.focus({ preventScroll: true });
-  });
+  }, []);
 
-  const blur = useEffectEvent(() => {
+  const blur = useCallback(() => {
     canvasRef.current?.blur();
-  });
+  }, []);
 
   useEffect(() => {
     if (!controller) {
@@ -60,7 +59,9 @@ export function useCanvasCourierSurface({
       })
       .catch((error) => {
         if (!cancelled) {
-          reportError(error);
+          const normalized = error instanceof Error ? error : new Error(String(error));
+          setStatus({ attached: false, error: normalized });
+          onErrorRef.current?.(normalized);
         }
       });
 
