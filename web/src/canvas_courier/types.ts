@@ -8,5 +8,4 @@ export interface CanvasCourierSurface extends CanvasCourierDomSurface {
 
 export interface CanvasCourierController {
   attachSurface(surface: CanvasCourierSurface): void;
-  detachSurface(canvas: HTMLCanvasElement): void;
 }

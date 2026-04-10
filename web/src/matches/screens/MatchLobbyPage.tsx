@@ -18,6 +18,7 @@ import {
   loadCoPortraitCatalog,
   type CoPortraitCatalog,
 } from "#/components/co_portraits.ts";
+import { usePreviewRunner } from "#/engine/runtime_context.tsx";
 import { defaultFactionIdForSlot, getFactionById } from "#/factions.ts";
 import { getFactionVisual } from "#/faction_visuals.ts";
 import { PlayerHeader } from "#/components/PlayerHeader.tsx";
@@ -46,6 +47,7 @@ export function MatchLobbyPage({
   joinSlug: string | null;
 }) {
   const session = useAppSession();
+  const previewRunner = usePreviewRunner("match-lobby");
   const portraitCatalog = useMemo(() => loadCoPortraitCatalog(), []);
   const [match, setMatch] = useState<MatchSnapshot | null>(null);
   const [mapData, setMapData] = useState<AwbwMapData | null>(null);
@@ -273,7 +275,11 @@ export function MatchLobbyPage({
                     </div>
 
                     <div {...stylex.props(styles.mapPreviewWrap)}>
-                      <MatchMapPreview mapId={match.mapId} xstyle={styles.previewCanvas} />
+                      <MatchMapPreview
+                        mapId={match.mapId}
+                        runner={previewRunner}
+                        xstyle={styles.previewCanvas}
+                      />
                     </div>
 
                     <div {...stylex.props(styles.metaGrid)}>

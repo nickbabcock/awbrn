@@ -9,6 +9,7 @@ interface GameState {
 interface GameActions {
   setCurrentDay: (day: number) => void;
   setPlayerRoster: (playerRoster: PlayerRosterSnapshot | null) => void;
+  reset: () => void;
 }
 
 export const useGameStore = create<GameState & { actions: GameActions }>((set) => ({
@@ -17,6 +18,7 @@ export const useGameStore = create<GameState & { actions: GameActions }>((set) =
   actions: {
     setCurrentDay: (day) => set({ currentDay: day }),
     setPlayerRoster: (playerRoster) => set({ playerRoster }),
+    reset: () => set({ currentDay: 1, playerRoster: null }),
   },
 }));
 

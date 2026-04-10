@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef } from "react";
 import type { CanvasCourierController } from "./types";
 
 export function useCanvasCourierSurface({ controller }: { controller: CanvasCourierController }) {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<OffscreenCanvas | null>(null);
+
+  const attachSurface = useEffectEvent((canvas: HTMLCanvasElement, offscreen: OffscreenCanvas) => {
+    controller.attachSurface({ canvas, offscreen });
+  });
 
   const focus = useCallback(() => {
     canvasRef.current?.focus({ preventScroll: true });
@@ -21,13 +25,13 @@ export function useCanvasCourierSurface({ controller }: { controller: CanvasCour
       return;
     }
 
-    offscreenRef.current ??= canvas.transferControlToOffscreen();
-    controller.attachSurface({ canvas, offscreen: offscreenRef.current });
+    if (offscreenRef.current === null) {
+      offscreenRef.current = canvas.transferControlToOffscreen();
+      attachSurface(canvas, offscreenRef.current);
+    }
 
-    return () => {
-      controller.detachSurface(canvas);
-    };
-  }, [controller]);
+    // No cleanup as transferring is a one-way operation
+  }, []);
 
   return {
     surfaceRef,

@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
-import { GameRunner } from "#/engine/game_runner.ts";
+import type { GameRunner } from "#/engine/game_runner.ts";
 import { tokens } from "#/ui/theme.stylex.ts";
 import type { XStyle } from "#/ui/stylex.ts";
 
@@ -38,11 +38,15 @@ const styles = stylex.create({
   },
 });
 
-export function MatchMapPreview({ mapId, xstyle }: { mapId: number | null; xstyle?: XStyle }) {
-  const [runner] = useState(() => new GameRunner());
-
-  useEffect(() => () => runner.dispose(), [runner]);
-
+export function MatchMapPreview({
+  mapId,
+  runner,
+  xstyle,
+}: {
+  mapId: number | null;
+  runner: GameRunner;
+  xstyle?: XStyle;
+}) {
   const { canvasRef, surfaceRef } = useCanvasCourierSurface({
     controller: runner,
   });
