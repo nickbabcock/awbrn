@@ -10,6 +10,7 @@ use bevy::{
         ButtonState,
         keyboard::{Key, KeyboardFocusLost, KeyboardInput, NativeKey},
         mouse::{MouseButton, MouseButtonInput, MouseScrollUnit, MouseWheel},
+        touch::{TouchInput, TouchPhase},
     },
     prelude::*,
     window::{CursorLeft, CursorMoved, RawHandleWrapper, WindowResolution, WindowWrapper},
@@ -362,6 +363,26 @@ impl BevyApp {
     }
 
     #[wasm_bindgen]
+    pub fn handle_touch_start(&mut self, id: u32, x: f32, y: f32) {
+        self.write_touch_input(id, TouchPhase::Started, x, y);
+    }
+
+    #[wasm_bindgen]
+    pub fn handle_touch_move(&mut self, id: u32, x: f32, y: f32) {
+        self.write_touch_input(id, TouchPhase::Moved, x, y);
+    }
+
+    #[wasm_bindgen]
+    pub fn handle_touch_end(&mut self, id: u32, x: f32, y: f32) {
+        self.write_touch_input(id, TouchPhase::Ended, x, y);
+    }
+
+    #[wasm_bindgen]
+    pub fn handle_touch_cancel(&mut self, id: u32, x: f32, y: f32) {
+        self.write_touch_input(id, TouchPhase::Canceled, x, y);
+    }
+
+    #[wasm_bindgen]
     pub fn handle_mouse_wheel(&mut self, x: f32, y: f32, line_units: bool) {
         let world = self.app.world_mut();
         let Some(window) = primary_window_entity(world) else {
@@ -377,6 +398,20 @@ impl BevyApp {
             x,
             y,
             window,
+        });
+    }
+
+    fn write_touch_input(&mut self, id: u32, phase: TouchPhase, x: f32, y: f32) {
+        let world = self.app.world_mut();
+        let Some(window) = primary_window_entity(world) else {
+            return;
+        };
+        let _ = world.write_message(TouchInput {
+            phase,
+            position: Vec2::new(x, y),
+            window,
+            force: None,
+            id: id as u64,
         });
     }
 

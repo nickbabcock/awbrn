@@ -5,6 +5,7 @@ import {
   SharedCanvasEventAction,
   SharedCanvasEventType,
   SharedCanvasInputReader,
+  SharedCanvasPointerKind,
   SharedCanvasWheelDeltaMode,
   type SharedCanvasInputConfig,
 } from "#/canvas_courier/index.ts";
@@ -42,6 +43,25 @@ class WorkerInputBridge {
           this.app.handle_key_up_code(event.keyCode, event.repeat);
           return;
         case SharedCanvasEventType.Pointer:
+          if (event.pointerKind === SharedCanvasPointerKind.Touch) {
+            switch (event.action) {
+              case SharedCanvasEventAction.Move:
+                this.app.handle_touch_move(event.pointerId, event.x, event.y);
+                return;
+              case SharedCanvasEventAction.Down:
+                this.app.handle_touch_start(event.pointerId, event.x, event.y);
+                return;
+              case SharedCanvasEventAction.Up:
+                this.app.handle_touch_end(event.pointerId, event.x, event.y);
+                return;
+              case SharedCanvasEventAction.Leave:
+                this.app.handle_touch_cancel(event.pointerId, event.x, event.y);
+                return;
+              default:
+                return;
+            }
+          }
+
           switch (event.action) {
             case SharedCanvasEventAction.Move:
               this.app.handle_mouse_move(event.x, event.y);

@@ -21,6 +21,8 @@
  * Styling contract: the canvas element must have `width: 100%; height: 100%`
  * CSS so that it fills its container. The canvas must also have no padding or
  * border (the Safari fallback reads `contentRect`, which excludes those).
+ * Canvas Courier sets `touch-action: none` on attached canvases because these
+ * surfaces own touch gestures while attached.
  *
  * Note: SharedArrayBuffer requires cross-origin isolation (COOP/COEP headers).
  *
@@ -33,6 +35,7 @@ export {
   SharedCanvasInputReader,
   SharedCanvasEventType,
   SharedCanvasEventAction,
+  SharedCanvasPointerKind,
   SharedCanvasWheelDeltaMode,
   type CanvasSize,
   type SharedCanvasInputConfig,

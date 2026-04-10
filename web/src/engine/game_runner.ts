@@ -14,16 +14,10 @@ type GameInstance = Awaited<ReturnType<GameWorker["createGame"]>>;
 
 export interface GameSurface extends CanvasCourierSurface {}
 
-interface MapDimensions {
-  width: number;
-  height: number;
-}
-
 export class GameRunner implements CanvasCourierController {
   private activeSurface: GameSurface | undefined;
   private createGamePromise: Promise<GameInstance> | undefined;
   private game: GameInstance | undefined;
-  private latestMapDimensions: MapDimensions | undefined;
   private rawWorker: Worker | undefined;
   private surfaceVersion = 0;
   private readonly transport = new CanvasCourierTransport();
@@ -33,7 +27,6 @@ export class GameRunner implements CanvasCourierController {
   attachSurface(surface: GameSurface): void {
     if (this.activeSurface?.canvas === surface.canvas) {
       this.activeSurface = surface;
-      this.applyMapDimensions();
       return;
     }
 
@@ -43,7 +36,6 @@ export class GameRunner implements CanvasCourierController {
     const measuredSize = this.transport.measureSurface(surface);
     this.prepareCanvasForAttachment(surface, measuredSize);
     this.transport.attachSurface(surface);
-    this.applyMapDimensions();
 
     void this.ensureGame(surface, measuredSize).catch((error) => {
       if (version === this.surfaceVersion) {
@@ -73,7 +65,6 @@ export class GameRunner implements CanvasCourierController {
     this.transport.dispose();
     this.game = undefined;
     this.createGamePromise = undefined;
-    this.latestMapDimensions = undefined;
     this.transferredCanvas = undefined;
     this.worker = undefined;
     this.rawWorker?.terminate();
@@ -119,11 +110,6 @@ export class GameRunner implements CanvasCourierController {
         break;
       }
       case "MapDimensions": {
-        this.latestMapDimensions = {
-          width: event.width,
-          height: event.height,
-        };
-        this.applyMapDimensions();
         break;
       }
       case "ReplayLoaded": {
@@ -138,21 +124,6 @@ export class GameRunner implements CanvasCourierController {
         break;
       }
     }
-  }
-
-  private applyMapDimensions(): void {
-    const canvas = this.activeSurface?.canvas;
-    if (!canvas || !this.latestMapDimensions) {
-      return;
-    }
-
-    const container = canvas.parentElement;
-    if (!container) {
-      return;
-    }
-
-    container.style.width = `${this.latestMapDimensions.width}px`;
-    container.style.height = `${this.latestMapDimensions.height}px`;
   }
 
   private prepareCanvasForAttachment(surface: GameSurface, size: CanvasSize): void {

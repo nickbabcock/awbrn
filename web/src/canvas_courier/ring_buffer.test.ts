@@ -4,6 +4,7 @@ import {
   SharedCanvasEventType,
   SharedCanvasInputReader,
   SharedCanvasInputWriter,
+  SharedCanvasPointerKind,
 } from "./ring_buffer";
 import type { SharedCanvasDecodedEvent, SharedCanvasInputConfig } from "./ring_buffer";
 
@@ -92,6 +93,45 @@ describe("SharedCanvasInputWriter", () => {
         y: 34,
         button: -1,
         timestamp: 56,
+      },
+    ]);
+  });
+
+  it("preserves touch pointer kind and id", () => {
+    const config = createTestConfig(8);
+    const writer = new SharedCanvasInputWriter(config);
+    const reader = new SharedCanvasInputReader(config);
+    const drained: SharedCanvasDecodedEvent[] = [];
+    const touchEvent = {
+      button: 0,
+      ctrlKey: false,
+      metaKey: false,
+      offsetX: 45,
+      offsetY: 67,
+      pointerId: 12,
+      pointerType: "touch",
+      shiftKey: false,
+      altKey: false,
+      timeStamp: 89,
+    } as PointerEvent;
+
+    writer.enqueuePointer(touchEvent, SharedCanvasEventAction.Down);
+
+    reader.drain((event) => {
+      drained.push(event);
+    });
+
+    expect(drained).toEqual([
+      {
+        type: SharedCanvasEventType.Pointer,
+        action: SharedCanvasEventAction.Down,
+        modifiers: 0,
+        pointerKind: SharedCanvasPointerKind.Touch,
+        pointerId: 12,
+        x: 45,
+        y: 67,
+        button: 0,
+        timestamp: 89,
       },
     ]);
   });

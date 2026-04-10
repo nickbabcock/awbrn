@@ -55,6 +55,7 @@ export class CanvasCourierTransport {
 
     this.attachmentAbortController = abortController;
     this.syncSurfaceSize(surface);
+    surface.canvas.style.touchAction = "none";
 
     surface.canvas.addEventListener(
       "keydown",
@@ -148,9 +149,10 @@ export class CanvasCourierTransport {
     surface.canvas.addEventListener(
       "wheel",
       (event) => {
+        event.preventDefault();
         this.inputQueue.writer.enqueueWheel(event);
       },
-      { signal: abortController.signal, passive: true },
+      { signal: abortController.signal, passive: false },
     );
 
     this.resizeObserver = new ResizeObserver((entries) => {

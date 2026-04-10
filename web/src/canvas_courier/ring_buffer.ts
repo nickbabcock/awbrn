@@ -54,13 +54,13 @@ const SharedCanvasModifierBits = {
 type SharedCanvasModifierBits =
   (typeof SharedCanvasModifierBits)[keyof typeof SharedCanvasModifierBits];
 
-const SharedCanvasPointerKind = {
+export const SharedCanvasPointerKind = {
   Mouse: 1,
   Pen: 2,
   Touch: 3,
 } as const;
 
-type SharedCanvasPointerKind =
+export type SharedCanvasPointerKind =
   (typeof SharedCanvasPointerKind)[keyof typeof SharedCanvasPointerKind];
 
 export const SharedCanvasWheelDeltaMode = {
@@ -110,6 +110,7 @@ interface SharedCanvasPointerEvent {
   modifiers: number;
   pointerKind: SharedCanvasPointerKind;
   pointerId: number;
+  /** Position in canvas-local logical pixels. */
   x: number;
   y: number;
   /** -1 when no button is active (move/leave events) */
