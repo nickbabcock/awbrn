@@ -1,5 +1,6 @@
 packages:
   - web
+
 catalog:
-  '@types/node': 24.9.1
+  '@types/node': 24.12.2
   typescript: 6.0.2
