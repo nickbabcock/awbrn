@@ -67,8 +67,10 @@ class WorkerInputBridge {
             event.deltaMode !== SharedCanvasWheelDeltaMode.Pixel,
           );
           return;
-        case SharedCanvasEventType.Focus:
-          this.app.handle_canvas_blur();
+        case SharedCanvasEventType.FocusChange:
+          if (event.action === SharedCanvasEventAction.Blur) {
+            this.app.handle_canvas_blur();
+          }
           return;
         case SharedCanvasEventType.Resize:
           this.app.resize({

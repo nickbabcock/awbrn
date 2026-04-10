@@ -19,7 +19,7 @@ export const SharedCanvasEventType = {
   Pointer: 1,
   Keyboard: 2,
   Wheel: 3,
-  Focus: 4,
+  FocusChange: 4,
   Resize: 5,
   Visibility: 6,
 } as const;
@@ -33,11 +33,12 @@ export const SharedCanvasEventAction = {
   Up: 2,
   Move: 3,
   Leave: 4,
-  Blur: 5,
-  Scroll: 6,
-  Resize: 7,
-  Hidden: 8,
-  Visible: 9,
+  Focus: 5,
+  Blur: 6,
+  Scroll: 7,
+  Resize: 8,
+  Hidden: 9,
+  Visible: 10,
 } as const;
 
 export type SharedCanvasEventAction =
@@ -127,8 +128,8 @@ interface SharedCanvasWheelEvent {
 }
 
 interface SharedCanvasFocusEvent {
-  type: typeof SharedCanvasEventType.Focus;
-  action: typeof SharedCanvasEventAction.Blur;
+  type: typeof SharedCanvasEventType.FocusChange;
+  action: typeof SharedCanvasEventAction.Focus | typeof SharedCanvasEventAction.Blur;
   timestamp: number;
 }
 
@@ -252,17 +253,8 @@ export class SharedCanvasInputWriter {
     });
   }
 
-  enqueuePointerLeave(timestamp = performance.now()) {
-    this.enqueue({
-      type: SharedCanvasEventType.Pointer,
-      action: SharedCanvasEventAction.Leave,
-      modifiers: 0,
-      metadata: SharedCanvasPointerKind.Mouse,
-      dataA: 0,
-      dataB: 0,
-      timestamp,
-      detail: EMPTY_BUTTON,
-    });
+  enqueuePointerLeave(event: PointerEvent) {
+    this.enqueuePointer(event, SharedCanvasEventAction.Leave);
   }
 
   enqueueWheel(event: WheelEvent) {
@@ -280,8 +272,21 @@ export class SharedCanvasInputWriter {
 
   enqueueBlur(timestamp: number) {
     this.enqueue({
-      type: SharedCanvasEventType.Focus,
+      type: SharedCanvasEventType.FocusChange,
       action: SharedCanvasEventAction.Blur,
+      modifiers: 0,
+      metadata: 0,
+      dataA: 0,
+      dataB: 0,
+      timestamp,
+      detail: 0,
+    });
+  }
+
+  enqueueFocus(timestamp: number) {
+    this.enqueue({
+      type: SharedCanvasEventType.FocusChange,
+      action: SharedCanvasEventAction.Focus,
       modifiers: 0,
       metadata: 0,
       dataA: 0,
@@ -459,10 +464,13 @@ export class SharedCanvasInputReader {
           deltaY: dataB,
           timestamp,
         };
-      case SharedCanvasEventType.Focus:
+      case SharedCanvasEventType.FocusChange:
         return {
           type,
-          action: SharedCanvasEventAction.Blur,
+          action:
+            action === SharedCanvasEventAction.Focus
+              ? SharedCanvasEventAction.Focus
+              : SharedCanvasEventAction.Blur,
           timestamp,
         };
       case SharedCanvasEventType.Resize:
