@@ -10,13 +10,17 @@
  * application use. The worker side drains the buffer via
  * `SharedCanvasInputReader`.
  *
- * The ring buffer holds up to 512 events, ensuring that bursts of input between
- * worker frames are not dropped.
+ * The ring buffer holds up to 511 events (512 slots, one sacrificed to
+ * distinguish full from empty). Events are dropped when the buffer is full.
  *
  * This library is analogous to winit in many aspects.
  *
  * `useCanvasCourierSurface` is a React hook that manages attaching, detaching,
  * and transferring the canvas offscreen in a React Strict Mode-compliant way.
+ *
+ * Styling contract: the canvas element must have `width: 100%; height: 100%`
+ * CSS so that it fills its container. The canvas must also have no padding or
+ * border (the Safari fallback reads `contentRect`, which excludes those).
  *
  * Note: SharedArrayBuffer requires cross-origin isolation (COOP/COEP headers).
  *
@@ -30,9 +34,9 @@ export {
   SharedCanvasEventType,
   SharedCanvasEventAction,
   SharedCanvasWheelDeltaMode,
-  type LogicalCanvasSize,
+  type CanvasSize,
   type SharedCanvasInputConfig,
   type SharedCanvasDecodedEvent,
 } from "./ring_buffer";
 export { useCanvasCourierSurface } from "./useCanvasCourierSurface";
-export type { CanvasCourierController, CanvasCourierStatus, CanvasCourierSurface } from "./types";
+export type { CanvasCourierController, CanvasCourierSurface } from "./types";

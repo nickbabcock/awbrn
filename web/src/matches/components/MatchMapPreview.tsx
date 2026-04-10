@@ -31,33 +31,24 @@ const styles = stylex.create({
   },
   canvas: {
     display: "block",
+    width: "100%",
+    height: "100%",
     imageRendering: "pixelated",
     outline: "none",
   },
 });
 
 export function MatchMapPreview({ mapId, xstyle }: { mapId: number | null; xstyle?: XStyle }) {
-  const [runner, setRunner] = useState<GameRunner | null>(null);
+  const [runner] = useState(() => new GameRunner());
 
-  useEffect(() => {
-    const nextRunner = new GameRunner();
-    setRunner(nextRunner);
+  useEffect(() => () => runner.dispose(), [runner]);
 
-    return () => {
-      nextRunner.dispose();
-      setRunner((current) => (current === nextRunner ? null : current));
-    };
-  }, []);
-
-  const { canvasRef, status, surfaceRef } = useCanvasCourierSurface({
+  const { canvasRef, surfaceRef } = useCanvasCourierSurface({
     controller: runner,
-    onError: (error) => {
-      console.error("Error attaching preview surface:", error);
-    },
   });
 
   useEffect(() => {
-    if (!runner || mapId === null || !status.attached) {
+    if (mapId === null) {
       return;
     }
 
@@ -76,7 +67,7 @@ export function MatchMapPreview({ mapId, xstyle }: { mapId: number | null; xstyl
     return () => {
       cancelled = true;
     };
-  }, [mapId, status.attached]);
+  }, [mapId, runner]);
 
   return (
     <div {...stylex.props(styles.root, xstyle)}>

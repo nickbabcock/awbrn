@@ -135,7 +135,9 @@ interface SharedCanvasFocusEvent {
 interface SharedCanvasResizeEvent {
   type: typeof SharedCanvasEventType.Resize;
   action: typeof SharedCanvasEventAction.Resize;
+  /** Physical pixel width. */
   width: number;
+  /** Physical pixel height. */
   height: number;
   scaleFactor: number;
   timestamp: number;
@@ -155,8 +157,10 @@ export type SharedCanvasDecodedEvent =
   | SharedCanvasResizeEvent
   | SharedCanvasVisibilityEvent;
 
-export interface LogicalCanvasSize {
+export interface CanvasSize {
+  /** Physical pixel width of the canvas (device pixels, not CSS pixels). */
   width: number;
+  /** Physical pixel height of the canvas (device pixels, not CSS pixels). */
   height: number;
   scaleFactor: number;
 }
@@ -201,6 +205,7 @@ export class SharedCanvasInputWriter {
   private readonly float32Scratch = new Float32Array(1);
   private readonly uint32Scratch = new Uint32Array(this.float32Scratch.buffer);
   private readonly view: DataView;
+  private droppedEvents = 0;
 
   constructor(private readonly config: SharedCanvasInputConfig) {
     this.controls = new Int32Array(
@@ -286,7 +291,7 @@ export class SharedCanvasInputWriter {
     });
   }
 
-  enqueueResize(size: LogicalCanvasSize, timestamp = performance.now()) {
+  enqueueResize(size: CanvasSize, timestamp = performance.now()) {
     this.enqueue({
       type: SharedCanvasEventType.Resize,
       action: SharedCanvasEventAction.Resize,
@@ -319,6 +324,10 @@ export class SharedCanvasInputWriter {
 
     // Drop events if the buffer is full
     if (nextHead === tail) {
+      if (this.droppedEvents % 1000 === 0) {
+        console.warn(`Canvas courier: buffer full, ${this.droppedEvents + 1} event(s) dropped`);
+      }
+      this.droppedEvents += 1;
       return;
     }
 

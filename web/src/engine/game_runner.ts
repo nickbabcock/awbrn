@@ -3,7 +3,7 @@ import {
   CanvasCourierTransport,
   type CanvasCourierController,
   type CanvasCourierSurface,
-  type LogicalCanvasSize,
+  type CanvasSize,
 } from "#/canvas_courier/index.ts";
 import type { GameEvent } from "#/wasm/awbrn_wasm.js";
 import { gameAssetConfig } from "./asset_manifest";
@@ -22,7 +22,6 @@ interface MapDimensions {
 export class GameRunner implements CanvasCourierController {
   private activeSurface: GameSurface | undefined;
   private createGamePromise: Promise<GameInstance> | undefined;
-  private disposeTimer: number | undefined;
   private game: GameInstance | undefined;
   private latestMapDimensions: MapDimensions | undefined;
   private rawWorker: Worker | undefined;
@@ -31,30 +30,20 @@ export class GameRunner implements CanvasCourierController {
   private transferredCanvas: HTMLCanvasElement | undefined;
   private worker: GameWorker | undefined;
 
-  async attachCanvas(surface: GameSurface): Promise<void> {
-    return this.attachSurface(surface);
-  }
-
-  async attachSurface(surface: GameSurface): Promise<void> {
-    this.cancelScheduledDispose();
-
+  attachSurface(surface: GameSurface): void {
     const version = ++this.surfaceVersion;
     this.activeSurface = surface;
 
     const measuredSize = this.transport.measureSurface(surface);
     this.prepareCanvasForAttachment(surface, measuredSize);
-
-    await this.ensureGame(surface, measuredSize);
-    if (version !== this.surfaceVersion || this.activeSurface?.canvas !== surface.canvas) {
-      return;
-    }
-
     this.transport.attachSurface(surface);
     this.applyMapDimensions();
-  }
 
-  detachCanvas(canvas: HTMLCanvasElement): void {
-    this.detachSurface(canvas);
+    void this.ensureGame(surface, measuredSize).catch((error) => {
+      if (version === this.surfaceVersion) {
+        console.error("GameRunner failed to initialize:", error);
+      }
+    });
   }
 
   detachSurface(canvas: HTMLCanvasElement): void {
@@ -65,16 +54,6 @@ export class GameRunner implements CanvasCourierController {
     this.surfaceVersion += 1;
     this.transport.detachSurface(canvas);
     this.activeSurface = undefined;
-  }
-
-  scheduleDispose(): void {
-    this.cancelScheduledDispose();
-    this.disposeTimer = window.setTimeout(() => {
-      this.disposeTimer = undefined;
-      if (!this.activeSurface) {
-        this.dispose();
-      }
-    }, 0);
   }
 
   async loadReplay(file: File | FileSystemFileHandle): Promise<void> {
@@ -93,7 +72,6 @@ export class GameRunner implements CanvasCourierController {
   }
 
   dispose(): void {
-    this.cancelScheduledDispose();
     this.surfaceVersion += 1;
     this.activeSurface = undefined;
     this.transport.dispose();
@@ -106,7 +84,7 @@ export class GameRunner implements CanvasCourierController {
     this.rawWorker = undefined;
   }
 
-  private async ensureGame(surface: GameSurface, size: LogicalCanvasSize): Promise<GameInstance> {
+  private async ensureGame(surface: GameSurface, size: CanvasSize): Promise<GameInstance> {
     if (this.game) {
       return this.game;
     }
@@ -167,8 +145,13 @@ export class GameRunner implements CanvasCourierController {
   }
 
   private applyMapDimensions(): void {
-    const container = this.activeSurface?.container;
-    if (!container || !this.latestMapDimensions) {
+    const canvas = this.activeSurface?.canvas;
+    if (!canvas || !this.latestMapDimensions) {
+      return;
+    }
+
+    const container = canvas.parentElement;
+    if (!container) {
       return;
     }
 
@@ -176,14 +159,13 @@ export class GameRunner implements CanvasCourierController {
     container.style.height = `${this.latestMapDimensions.height}px`;
   }
 
-  private prepareCanvasForAttachment(surface: GameSurface, size: LogicalCanvasSize): void {
+  private prepareCanvasForAttachment(surface: GameSurface, size: CanvasSize): void {
     if (this.transferredCanvas === undefined) {
-      this.applyInitialCanvasSize(surface.offscreen, surface.canvas, size);
+      this.applyInitialCanvasSize(surface.offscreen, size);
       return;
     }
 
     this.assertCanvasTransferable(surface.canvas);
-    this.transport.applyVisibleCanvasSize(surface.canvas, size);
   }
 
   private assertCanvasTransferable(canvas: HTMLCanvasElement): void {
@@ -194,21 +176,9 @@ export class GameRunner implements CanvasCourierController {
     }
   }
 
-  private applyInitialCanvasSize(
-    offscreen: OffscreenCanvas,
-    canvas: HTMLCanvasElement,
-    size: LogicalCanvasSize,
-  ): void {
-    offscreen.width = Math.floor(size.width * size.scaleFactor);
-    offscreen.height = Math.floor(size.height * size.scaleFactor);
-    this.transport.applyVisibleCanvasSize(canvas, size);
-  }
-
-  private cancelScheduledDispose() {
-    if (this.disposeTimer !== undefined) {
-      window.clearTimeout(this.disposeTimer);
-      this.disposeTimer = undefined;
-    }
+  private applyInitialCanvasSize(offscreen: OffscreenCanvas, size: CanvasSize): void {
+    offscreen.width = size.width;
+    offscreen.height = size.height;
   }
 
   private async requireGame(): Promise<GameInstance> {

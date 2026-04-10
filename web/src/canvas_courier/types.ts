@@ -1,18 +1,12 @@
-export interface CanvasCourierSurface {
+export interface CanvasCourierDomSurface {
   canvas: HTMLCanvasElement;
-  container: HTMLElement;
+}
+
+export interface CanvasCourierSurface extends CanvasCourierDomSurface {
   offscreen: OffscreenCanvas;
 }
 
-// Transport implementations handle DOM I/O only. App-level controllers can wrap a transport
-// and add async worker/session lifecycle before satisfying this interface.
 export interface CanvasCourierController {
-  attachSurface(surface: CanvasCourierSurface): Promise<void>;
+  attachSurface(surface: CanvasCourierSurface): void;
   detachSurface(canvas: HTMLCanvasElement): void;
-  scheduleDispose(): void;
-}
-
-export interface CanvasCourierStatus {
-  attached: boolean;
-  error: Error | null;
 }

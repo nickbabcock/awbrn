@@ -155,10 +155,7 @@ impl BevyApp {
         let mut app = App::new();
         register_awbw_asset_source(&mut app);
 
-        let mut resolution = WindowResolution::new(
-            (display.width * display.scale_factor).round() as u32,
-            (display.height * display.scale_factor).round() as u32,
-        );
+        let mut resolution = WindowResolution::new(display.width as u32, display.height as u32);
         resolution.set_scale_factor_override(Some(display.scale_factor));
 
         app.add_plugins(
@@ -238,8 +235,8 @@ impl BevyApp {
         let scale_factor = size.scale_factor as f32;
 
         if let Some(canvas) = world.get_non_send_resource_mut::<OffscreenCanvas>() {
-            canvas.set_width((size.width * scale_factor).round() as u32);
-            canvas.set_height((size.height * scale_factor).round() as u32);
+            canvas.set_width(size.width as u32);
+            canvas.set_height(size.height as u32);
         }
 
         // Update window resolutions
@@ -247,7 +244,9 @@ impl BevyApp {
             window
                 .resolution
                 .set_scale_factor_override(Some(scale_factor));
-            window.resolution.set(size.width, size.height);
+            window
+                .resolution
+                .set_physical_resolution(size.width as u32, size.height as u32);
         }
 
         // Find all the cameras and update their projections if they're orthographic
