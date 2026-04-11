@@ -67,6 +67,36 @@ export interface MatchBrowseResponse {
   nextCursor: string | null;
 }
 
+export interface MyMatchParticipantSummary {
+  slotIndex: number;
+  factionId: number;
+  coId: number | null;
+  ready: boolean;
+  joinedAt: string;
+  updatedAt: string;
+}
+
+export interface MyMatchSummary {
+  matchId: string;
+  name: string;
+  phase: MatchPhase;
+  creatorName: string;
+  mapId: number;
+  maxPlayers: number;
+  participantCount: number;
+  openSlotCount: number;
+  isPrivate: boolean;
+  settings: MatchSettings;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  viewerParticipant: MyMatchParticipantSummary;
+}
+
+export interface MyMatchesResponse {
+  matches: MyMatchSummary[];
+}
+
 export interface MatchParticipantSnapshot {
   userId: string;
   userName: string;

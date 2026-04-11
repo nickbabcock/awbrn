@@ -6,7 +6,7 @@ import { useState } from "react";
 import { authClient } from "#/auth/client.ts";
 import { useAppSession } from "#/auth/useAppSession.ts";
 import { Button, ButtonLink, Text, Wordmark } from "#/ui/primitives.tsx";
-import { tokens } from "#/ui/theme.stylex.ts";
+import { media, tokens } from "#/ui/theme.stylex.ts";
 
 const styles = stylex.create({
   shell: {
@@ -30,15 +30,15 @@ const styles = stylex.create({
     boxShadow: tokens.shadowHardLg,
     flexWrap: {
       default: "nowrap",
-      "@media (max-width: 640px)": "wrap",
+      [media.compact]: "wrap",
     },
     alignItems: {
       default: "center",
-      "@media (max-width: 640px)": "flex-start",
+      [media.compact]: "flex-start",
     },
     paddingBlock: {
       default: null,
-      "@media (max-width: 640px)": tokens.space3,
+      [media.compact]: tokens.space3,
     },
   },
   navCluster: {
@@ -53,15 +53,15 @@ const styles = stylex.create({
     gap: tokens.space1,
     order: {
       default: null,
-      "@media (max-width: 640px)": 3,
+      [media.compact]: 3,
     },
     width: {
       default: null,
-      "@media (max-width: 640px)": "100%",
+      [media.compact]: "100%",
     },
     justifyContent: {
       default: null,
-      "@media (max-width: 640px)": "space-between",
+      [media.compact]: "space-between",
     },
   },
   navLink: {
@@ -201,6 +201,15 @@ export function Layout({ children }: { children: ReactNode }) {
           >
             Matches
           </Link>
+          {session ? (
+            <Link
+              to="/my/matches"
+              className={navLinkClassName}
+              activeProps={{ className: navLinkActiveClassName }}
+            >
+              My Matches
+            </Link>
+          ) : null}
           <Link
             to="/matches/new"
             className={navLinkClassName}

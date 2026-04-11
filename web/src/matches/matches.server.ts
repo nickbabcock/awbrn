@@ -12,7 +12,10 @@ import type {
   MatchPhase,
   MatchSettings,
   MatchSnapshot,
+  MyMatchesResponse,
+  MyMatchSummary,
 } from "./schemas";
+import { ONGOING_MATCH_PHASES } from "./my_matches";
 import {
   MATCH_BROWSE_PAGE_SIZE,
   decodeMatchBrowseCursor,
@@ -65,6 +68,7 @@ type MatchActionDiagnostics =
 type MatchRow = Awaited<ReturnType<typeof queryMatchRow>>;
 type MatchParticipantRow = Awaited<ReturnType<typeof queryParticipantRows>>[number];
 type MatchBrowseRow = Awaited<ReturnType<typeof queryBrowseRows>>[number];
+type MyMatchRow = Awaited<ReturnType<typeof queryMyMatchRows>>[number];
 
 export async function createMatch(
   input: MatchCreateRequest,
@@ -181,6 +185,21 @@ export async function listMatches(
           })
         : null,
   });
+}
+
+export async function listMyMatches(viewerUserId: string): Promise<MatchResult<MyMatchesResponse>> {
+  const rows = await queryMyMatchRows(viewerUserId);
+  const myMatches: MyMatchSummary[] = [];
+
+  for (const row of rows) {
+    const settings = parseMatchSettingsValue(row.settings);
+    if (!settings.ok) {
+      return settings;
+    }
+    myMatches.push(toMyMatchSummary(row, settings.value));
+  }
+
+  return ok({ matches: myMatches });
 }
 
 export async function mutateMatch(
@@ -656,6 +675,53 @@ async function queryBrowseParticipantRows(matchIds: readonly string[]) {
     .all();
 }
 
+async function queryMyMatchRows(viewerUserId: string) {
+  return db
+    .select({
+      matchId: matches.id,
+      name: matches.name,
+      phase: matches.phase,
+      creatorName: user.name,
+      mapId: matches.mapId,
+      maxPlayers: matches.maxPlayers,
+      participantCount: sql<number>`(
+        SELECT COUNT(*)
+        FROM match_participants p
+        WHERE p.matchId = ${matches.id}
+      )`.as("participantCount"),
+      isPrivate: matches.isPrivate,
+      settings: matches.settings,
+      createdAt: matches.createdAt,
+      updatedAt: matches.updatedAt,
+      startedAt: matches.startedAt,
+      viewerSlotIndex: matchParticipants.slotIndex,
+      viewerFactionId: matchParticipants.factionId,
+      viewerCoId: matchParticipants.coId,
+      viewerReady: matchParticipants.ready,
+      viewerJoinedAt: matchParticipants.joinedAt,
+      viewerUpdatedAt: matchParticipants.updatedAt,
+    })
+    .from(matches)
+    .innerJoin(user, eq(user.id, matches.creatorUserId))
+    .innerJoin(
+      matchParticipants,
+      and(eq(matchParticipants.matchId, matches.id), eq(matchParticipants.userId, viewerUserId)),
+    )
+    .where(inArray(matches.phase, ONGOING_MATCH_PHASES))
+    .orderBy(
+      sql`CASE ${matches.phase}
+        WHEN 'active' THEN 0
+        WHEN 'starting' THEN 1
+        WHEN 'lobby' THEN 2
+        WHEN 'draft' THEN 3
+        ELSE 4
+      END`,
+      desc(matches.updatedAt),
+      desc(matches.id),
+    )
+    .all();
+}
+
 function parseMatchSettingsValue(value: unknown): MatchResult<MatchSettings> {
   try {
     const result = matchSettingsSchema.safeParse(value);
@@ -702,6 +768,34 @@ function toMatchBrowseSummary(
     joinedPlayerNames,
     settings,
     createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function toMyMatchSummary(row: MyMatchRow, settings: MatchSettings): MyMatchSummary {
+  const participantCount = Number(row.participantCount);
+
+  return {
+    matchId: row.matchId,
+    name: row.name,
+    phase: row.phase,
+    creatorName: row.creatorName,
+    mapId: row.mapId,
+    maxPlayers: row.maxPlayers,
+    participantCount,
+    openSlotCount: Math.max(0, row.maxPlayers - participantCount),
+    isPrivate: row.isPrivate,
+    settings,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    startedAt: row.startedAt === null ? null : row.startedAt.toISOString(),
+    viewerParticipant: {
+      slotIndex: row.viewerSlotIndex,
+      factionId: row.viewerFactionId,
+      coId: row.viewerCoId,
+      ready: row.viewerReady,
+      joinedAt: row.viewerJoinedAt.toISOString(),
+      updatedAt: row.viewerUpdatedAt.toISOString(),
+    },
   };
 }
 

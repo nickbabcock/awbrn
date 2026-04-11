@@ -13,6 +13,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as MatchesIndexRouteImport } from './routes/matches/index'
+import { Route as MyMatchesRouteImport } from './routes/my/matches'
 import { Route as MatchesNewRouteImport } from './routes/matches/new'
 import { Route as MatchesMatchIdRouteImport } from './routes/matches/$matchId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
@@ -38,6 +39,11 @@ const IndexRoute = IndexRouteImport.update({
 const MatchesIndexRoute = MatchesIndexRouteImport.update({
   id: '/matches/',
   path: '/matches/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MyMatchesRoute = MyMatchesRouteImport.update({
+  id: '/my/matches',
+  path: '/my/matches',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MatchesNewRoute = MatchesNewRouteImport.update({
@@ -77,6 +83,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/matches/$matchId': typeof MatchesMatchIdRoute
   '/matches/new': typeof MatchesNewRoute
+  '/my/matches': typeof MyMatchesRoute
   '/matches/': typeof MatchesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
@@ -89,6 +96,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/matches/$matchId': typeof MatchesMatchIdRoute
   '/matches/new': typeof MatchesNewRoute
+  '/my/matches': typeof MyMatchesRoute
   '/matches': typeof MatchesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
@@ -102,6 +110,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/matches/$matchId': typeof MatchesMatchIdRoute
   '/matches/new': typeof MatchesNewRoute
+  '/my/matches': typeof MyMatchesRoute
   '/matches/': typeof MatchesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
@@ -116,6 +125,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/matches/$matchId'
     | '/matches/new'
+    | '/my/matches'
     | '/matches/'
     | '/api/auth/$'
     | '/api/awbw/map/$mapId'
@@ -128,6 +138,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/matches/$matchId'
     | '/matches/new'
+    | '/my/matches'
     | '/matches'
     | '/api/auth/$'
     | '/api/awbw/map/$mapId'
@@ -140,6 +151,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/matches/$matchId'
     | '/matches/new'
+    | '/my/matches'
     | '/matches/'
     | '/api/auth/$'
     | '/api/awbw/map/$mapId'
@@ -153,6 +165,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   MatchesMatchIdRoute: typeof MatchesMatchIdRoute
   MatchesNewRoute: typeof MatchesNewRoute
+  MyMatchesRoute: typeof MyMatchesRoute
   MatchesIndexRoute: typeof MatchesIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiAwbwMapMapIdRoute: typeof ApiAwbwMapMapIdRoute
@@ -188,6 +201,13 @@ declare module '@tanstack/react-router' {
       path: '/matches'
       fullPath: '/matches/'
       preLoaderRoute: typeof MatchesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/my/matches': {
+      id: '/my/matches'
+      path: '/my/matches'
+      fullPath: '/my/matches'
+      preLoaderRoute: typeof MyMatchesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/matches/new': {
@@ -241,6 +261,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   MatchesMatchIdRoute: MatchesMatchIdRoute,
   MatchesNewRoute: MatchesNewRoute,
+  MyMatchesRoute: MyMatchesRoute,
   MatchesIndexRoute: MatchesIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiAwbwMapMapIdRoute: ApiAwbwMapMapIdRoute,
