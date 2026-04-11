@@ -7,7 +7,7 @@ import { CoPortrait } from "#/components/CoPortrait.tsx";
 import { FactionSelectionControl } from "#/components/FactionSelectionControl.tsx";
 import { loadCoPortraitCatalog, type CoPortraitCatalog } from "#/components/co_portraits.ts";
 import { PlayerHeader } from "#/components/PlayerHeader.tsx";
-import { GameRunner } from "#/engine/game_runner.ts";
+import { useReplayRunner } from "#/engine/runtime_context.tsx";
 import { useGameActions, useGameStore } from "#/engine/store.ts";
 import { getFactionVisual } from "#/faction_visuals.ts";
 import { getFactionByCode } from "#/factions.ts";
@@ -67,9 +67,7 @@ export function ReplayPage() {
   const gameActions = useGameActions();
   const [portraitCatalog] = useState<CoPortraitCatalog>(() => loadCoPortraitCatalog());
   const [playerNames, setPlayerNames] = useState<Record<number, string>>({});
-  const [runner] = useState(() => new GameRunner());
-
-  useEffect(() => () => runner.dispose(), [runner]);
+  const runner = useReplayRunner();
 
   const { canvasRef, focus, surfaceRef } = useCanvasCourierSurface({
     controller: runner,

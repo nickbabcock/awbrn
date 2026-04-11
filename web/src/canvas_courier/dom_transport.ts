@@ -186,16 +186,6 @@ export class CanvasCourierTransport {
     this.inputQueue.writer.enqueueVisibility(document.hidden);
   }
 
-  detachSurface(canvas: HTMLCanvasElement): void {
-    if (this.activeSurface?.canvas !== canvas) {
-      return;
-    }
-
-    this.enqueueDetachEvents();
-    this.activeSurface = undefined;
-    this.releaseSurfaceBindings();
-  }
-
   dispose(): void {
     this.activeSurface = undefined;
     this.canvasSize = undefined;
@@ -207,11 +197,6 @@ export class CanvasCourierTransport {
     const nextSize = this.measureSurface(surface);
     this.canvasSize = nextSize;
     this.inputQueue.writer.enqueueResize(nextSize);
-  }
-
-  private enqueueDetachEvents(): void {
-    this.inputQueue.writer.enqueuePointerLeave();
-    this.inputQueue.writer.enqueueBlur(performance.now());
   }
 
   private releaseSurfaceBindings(): void {

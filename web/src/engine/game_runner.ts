@@ -31,6 +31,12 @@ export class GameRunner implements CanvasCourierController {
   private worker: GameWorker | undefined;
 
   attachSurface(surface: GameSurface): void {
+    if (this.activeSurface?.canvas === surface.canvas) {
+      this.activeSurface = surface;
+      this.applyMapDimensions();
+      return;
+    }
+
     const version = ++this.surfaceVersion;
     this.activeSurface = surface;
 
@@ -44,16 +50,6 @@ export class GameRunner implements CanvasCourierController {
         console.error("GameRunner failed to initialize:", error);
       }
     });
-  }
-
-  detachSurface(canvas: HTMLCanvasElement): void {
-    if (this.activeSurface?.canvas !== canvas) {
-      return;
-    }
-
-    this.surfaceVersion += 1;
-    this.transport.detachSurface(canvas);
-    this.activeSurface = undefined;
   }
 
   async loadReplay(file: File | FileSystemFileHandle): Promise<void> {

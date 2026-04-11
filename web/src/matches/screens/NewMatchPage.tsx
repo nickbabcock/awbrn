@@ -4,6 +4,7 @@ import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { useAppSession } from "#/auth/useAppSession.ts";
 import { awbwMapAssetPath } from "#/awbw/paths.ts";
 import type { AwbwMapData } from "#/awbw/schemas.ts";
+import { usePreviewRunner } from "#/engine/runtime_context.tsx";
 import {
   Button,
   CheckboxField,
@@ -24,6 +25,7 @@ import { createMatchFn } from "#/matches/matches.functions.ts";
 export function NewMatchPage() {
   const navigate = useNavigate();
   const session = useAppSession();
+  const previewRunner = usePreviewRunner("matches-new");
   const [matchName, setMatchName] = useState("");
   const [mapIdInput, setMapIdInput] = useState("162795");
   const [mapData, setMapData] = useState<AwbwMapData | null>(null);
@@ -289,7 +291,11 @@ export function NewMatchPage() {
               </Stack>
               {mapData && parsedMapId !== null ? (
                 <Stack gap="md">
-                  <MatchMapPreview mapId={parsedMapId} xstyle={styles.previewCanvas} />
+                  <MatchMapPreview
+                    mapId={parsedMapId}
+                    runner={previewRunner}
+                    xstyle={styles.previewCanvas}
+                  />
                   <div {...stylex.props(styles.metaGrid)}>
                     <div {...stylex.props(styles.metaItem)}>
                       <Text size="sm" tone="muted">
