@@ -2,7 +2,13 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { sessionMiddleware } from "#/auth/session.middleware.ts";
 import { getFactionById } from "#/factions.ts";
-import { createMatch, getMatchSnapshot, listMatches, mutateMatch } from "./matches.server";
+import {
+  createMatch,
+  getMatchSnapshot,
+  listMatches,
+  listMyMatches,
+  mutateMatch,
+} from "./matches.server";
 import {
   matchBrowseRequestSchema,
   matchCreateRequestSchema,
@@ -13,6 +19,15 @@ export const listMatchesFn = createServerFn({ method: "GET" })
   .inputValidator(matchBrowseRequestSchema)
   .handler(async ({ data }) => {
     const result = await listMatches(data);
+    if (!result.ok) throw new Error(result.error.message);
+    return result.value;
+  });
+
+export const listMyMatchesFn = createServerFn({ method: "GET" })
+  .middleware([sessionMiddleware])
+  .handler(async ({ context }) => {
+    if (!context.session) throw new Response("Unauthorized", { status: 401 });
+    const result = await listMyMatches(context.session.user.id);
     if (!result.ok) throw new Error(result.error.message);
     return result.value;
   });
