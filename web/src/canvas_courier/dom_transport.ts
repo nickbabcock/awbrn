@@ -73,6 +73,14 @@ export class CanvasCourierTransport {
     );
 
     surface.canvas.addEventListener(
+      "focus",
+      () => {
+        this.inputQueue.writer.enqueueFocus(performance.now());
+      },
+      listenerOptions,
+    );
+
+    surface.canvas.addEventListener(
       "blur",
       () => {
         this.inputQueue.writer.enqueueBlur(performance.now());
@@ -124,7 +132,7 @@ export class CanvasCourierTransport {
     surface.canvas.addEventListener(
       "pointerleave",
       (event) => {
-        this.inputQueue.writer.enqueuePointerLeave(event.timeStamp);
+        this.inputQueue.writer.enqueuePointerLeave(event);
       },
       listenerOptions,
     );
@@ -132,7 +140,7 @@ export class CanvasCourierTransport {
     surface.canvas.addEventListener(
       "pointercancel",
       (event) => {
-        this.inputQueue.writer.enqueuePointerLeave(event.timeStamp);
+        this.inputQueue.writer.enqueuePointerLeave(event);
       },
       listenerOptions,
     );

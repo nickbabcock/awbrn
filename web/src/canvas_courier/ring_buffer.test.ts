@@ -23,7 +23,8 @@ describe("SharedCanvasInputWriter", () => {
 
     writer.enqueueVisibility(true, 1);
     writer.enqueueResize({ width: 320, height: 240, scaleFactor: 2 }, 2);
-    writer.enqueueBlur(3);
+    writer.enqueueFocus(3);
+    writer.enqueueBlur(4);
 
     reader.drain((event) => {
       drained.push(event);
@@ -44,9 +45,53 @@ describe("SharedCanvasInputWriter", () => {
         timestamp: 2,
       },
       {
-        type: SharedCanvasEventType.Focus,
-        action: SharedCanvasEventAction.Blur,
+        type: SharedCanvasEventType.FocusChange,
+        action: SharedCanvasEventAction.Focus,
         timestamp: 3,
+      },
+      {
+        type: SharedCanvasEventType.FocusChange,
+        action: SharedCanvasEventAction.Blur,
+        timestamp: 4,
+      },
+    ]);
+  });
+
+  it("preserves pointer identity for leave events", () => {
+    const config = createTestConfig(8);
+    const writer = new SharedCanvasInputWriter(config);
+    const reader = new SharedCanvasInputReader(config);
+    const drained: SharedCanvasDecodedEvent[] = [];
+    const leaveEvent = {
+      button: 0,
+      ctrlKey: true,
+      metaKey: false,
+      offsetX: 12,
+      offsetY: 34,
+      pointerId: 7,
+      pointerType: "pen",
+      shiftKey: false,
+      altKey: false,
+      timeStamp: 56,
+    } as PointerEvent;
+
+    writer.enqueuePointerLeave(leaveEvent);
+
+    reader.drain((event) => {
+      drained.push(event);
+    });
+
+    expect(drained).toEqual([
+      {
+        type: SharedCanvasEventType.Pointer,
+        action: SharedCanvasEventAction.Leave,
+        modifiers: 2,
+        pointerKind: 2,
+        pointerId: 7,
+        x: 12,
+        y: 34,
+        button: -1,
+        timestamp: 56,
       },
     ]);
   });
@@ -73,7 +118,7 @@ describe("SharedCanvasInputWriter", () => {
         timestamp: 1,
       },
       {
-        type: SharedCanvasEventType.Focus,
+        type: SharedCanvasEventType.FocusChange,
         action: SharedCanvasEventAction.Blur,
         timestamp: 2,
       },
@@ -81,6 +126,33 @@ describe("SharedCanvasInputWriter", () => {
         type: SharedCanvasEventType.Visibility,
         action: SharedCanvasEventAction.Visible,
         timestamp: 3,
+      },
+    ]);
+  });
+
+  it("distinguishes focus from blur events", () => {
+    const config = createTestConfig(8);
+    const writer = new SharedCanvasInputWriter(config);
+    const reader = new SharedCanvasInputReader(config);
+    const drained: SharedCanvasDecodedEvent[] = [];
+
+    writer.enqueueFocus(1);
+    writer.enqueueBlur(2);
+
+    reader.drain((event) => {
+      drained.push(event);
+    });
+
+    expect(drained).toEqual([
+      {
+        type: SharedCanvasEventType.FocusChange,
+        action: SharedCanvasEventAction.Focus,
+        timestamp: 1,
+      },
+      {
+        type: SharedCanvasEventType.FocusChange,
+        action: SharedCanvasEventAction.Blur,
+        timestamp: 2,
       },
     ]);
   });
