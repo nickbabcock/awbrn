@@ -1,4 +1,5 @@
-use crate::core::{RenderLayer, SpriteSize, position_to_world_translation};
+use crate::core::coords::position_to_world_translation;
+use crate::core::{RenderLayer, SpriteSize};
 use crate::render::UiAtlas;
 use crate::render::animation::{
     Animation, UnitPathAnimation, UnitVisualState, ease_out_quint, flip_x_for_lateral_direction,

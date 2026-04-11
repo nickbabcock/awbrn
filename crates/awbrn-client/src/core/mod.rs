@@ -1,8 +1,7 @@
-pub mod grid;
+pub mod coords;
 
 use awbrn_game::world::{GameMap, TerrainTile, Unit};
 use awbrn_game::{GameWorldPlugin, MapPosition};
-use awbrn_map::Position;
 use bevy::prelude::*;
 
 /// Color used for inactive units
@@ -26,42 +25,6 @@ pub struct SpriteSize {
     pub width: f32,
     pub height: f32,
     pub z_index: i8,
-}
-
-/// Compute the world-space offset that centers the map's visual content on the
-/// camera origin (0, 0). Sprites use center anchors, so we shift by half a tile
-/// on x. Terrain sprites are 32 px tall on 16 px tiles, so the first row's tall
-/// portion extends one full tile above the grid – shift by a full tile on y.
-pub(crate) fn world_origin_offset(grid: &grid::GridSystem) -> Vec3 {
-    let map_pixel_width = grid.map_width * grid::GridSystem::TILE_SIZE;
-    let map_pixel_height = grid.map_height * grid::GridSystem::TILE_SIZE;
-    Vec3::new(
-        -map_pixel_width / 2.0 + grid::GridSystem::TILE_SIZE / 2.0,
-        map_pixel_height / 2.0 - grid::GridSystem::TILE_SIZE,
-        0.0,
-    )
-}
-
-pub(crate) fn map_position_to_world_translation(
-    sprite_size: &SpriteSize,
-    map_position: MapPosition,
-    game_map: &GameMap,
-) -> Vec3 {
-    let grid = grid::GridSystem::new(game_map.width(), game_map.height());
-    let offset = world_origin_offset(&grid);
-    let grid_pos = grid.sprite_position(map_position.into(), sprite_size);
-    let local_pos = grid.grid_to_world(&grid_pos);
-    let z_offset = map_position.y() as f32 * 0.001;
-
-    offset + Vec3::new(local_pos.x, -local_pos.y, local_pos.z + z_offset)
-}
-
-pub(crate) fn position_to_world_translation(
-    sprite_size: &SpriteSize,
-    position: Position,
-    game_map: &GameMap,
-) -> Vec3 {
-    map_position_to_world_translation(sprite_size, position.into(), game_map)
 }
 
 /// Observer that triggers when MapPosition is inserted
@@ -88,7 +51,7 @@ pub(crate) fn on_map_position_insert(
     }
 
     let final_world_pos =
-        map_position_to_world_translation(sprite_size, *map_position, game_map.as_ref());
+        coords::map_position_to_world_translation(sprite_size, *map_position, game_map.as_ref());
 
     transform.translation = final_world_pos;
 
