@@ -1,6 +1,7 @@
+import { useSuspenseInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
-import { startTransition, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
   Button,
   ButtonLink,
@@ -8,7 +9,6 @@ import {
   Frame,
   Heading,
   Inline,
-  Kicker,
   Notice,
   Page,
   Section,
@@ -18,103 +18,30 @@ import {
 import { awbwSmallMapAssetPath } from "#/awbw/paths.ts";
 import { sxClassName } from "#/ui/stylex.ts";
 import { tokens } from "#/ui/theme.stylex.ts";
-import { listMatchesFn } from "#/matches/matches.functions.ts";
-import type { MatchBrowseResponse, MatchBrowseSummary } from "#/matches/schemas.ts";
+import { matchesBrowseQueryOptions } from "#/matches/matches.queries.ts";
+import type { MatchBrowseSummary } from "#/matches/schemas.ts";
 
-export interface MatchesBrowseInitialData extends MatchBrowseResponse {
-  loadedAt: string;
-}
-
-export function MatchesBrowsePage({ initialData }: { initialData: MatchesBrowseInitialData }) {
-  const [matches, setMatches] = useState<MatchBrowseSummary[]>(() => initialData.matches);
-  const [nextCursor, setNextCursor] = useState<string | null>(() => initialData.nextCursor);
-  const [hasNextPage, setHasNextPage] = useState(() => initialData.hasNextPage);
-  const [isLoadingInitial, setIsLoadingInitial] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [relativeTimeBaseMs, setRelativeTimeBaseMs] = useState(() =>
-    parseLoadedAt(initialData.loadedAt),
+export function MatchesBrowsePage() {
+  const browseQuery = useSuspenseInfiniteQuery(matchesBrowseQueryOptions());
+  const [paginationError, setPaginationError] = useState<string | null>(null);
+  const matches = browseQuery.data.pages.flatMap((page) => page.matches);
+  const relativeTimeBaseMs = parseLoadedAt(
+    browseQuery.data.pages[browseQuery.data.pages.length - 1]?.loadedAt,
   );
-  const requestIdRef = useRef(0);
-
-  useEffect(() => {
-    ++requestIdRef.current;
-    setMatches(initialData.matches);
-    setNextCursor(initialData.nextCursor);
-    setHasNextPage(initialData.hasNextPage);
-    setRelativeTimeBaseMs(parseLoadedAt(initialData.loadedAt));
-    setIsLoadingInitial(false);
-    setIsLoadingMore(false);
-    setError(null);
-  }, [initialData]);
-
-  async function handleRetry(): Promise<void> {
-    const requestId = ++requestIdRef.current;
-    setIsLoadingInitial(true);
-    setIsLoadingMore(false);
-    setError(null);
-
-    try {
-      const nextData = await listMatchesFn({ data: {} });
-      if (requestIdRef.current !== requestId) {
-        return;
-      }
-
-      startTransition(() => {
-        setMatches(nextData.matches);
-        setNextCursor(nextData.nextCursor);
-        setHasNextPage(nextData.hasNextPage);
-        setRelativeTimeBaseMs(parseLoadedAt(nextData.loadedAt));
-      });
-    } catch (nextError) {
-      if (requestIdRef.current !== requestId) {
-        return;
-      }
-
-      startTransition(() => {
-        setMatches([]);
-        setNextCursor(null);
-        setHasNextPage(false);
-      });
-      setError(nextError instanceof Error ? nextError.message : "Lobby browser failed to load.");
-    } finally {
-      if (requestIdRef.current === requestId) {
-        setIsLoadingInitial(false);
-      }
-    }
-  }
 
   async function handleLoadMore(): Promise<void> {
-    if (isLoadingMore || !hasNextPage || !nextCursor) {
+    if (browseQuery.isFetchingNextPage || !browseQuery.hasNextPage) {
       return;
     }
 
-    const requestId = ++requestIdRef.current;
-    setIsLoadingMore(true);
-    setError(null);
+    setPaginationError(null);
 
     try {
-      const nextData = await listMatchesFn({ data: { cursor: nextCursor } });
-      if (requestIdRef.current !== requestId) {
-        return;
-      }
-
-      startTransition(() => {
-        setMatches((current) => [...current, ...nextData.matches]);
-        setNextCursor(nextData.nextCursor);
-        setHasNextPage(nextData.hasNextPage);
-        setRelativeTimeBaseMs(parseLoadedAt(nextData.loadedAt));
-      });
+      await browseQuery.fetchNextPage();
     } catch (nextError) {
-      if (requestIdRef.current !== requestId) {
-        return;
-      }
-
-      setError(nextError instanceof Error ? nextError.message : "More lobbies failed to load.");
-    } finally {
-      if (requestIdRef.current === requestId) {
-        setIsLoadingMore(false);
-      }
+      setPaginationError(
+        nextError instanceof Error ? nextError.message : "More lobbies failed to load.",
+      );
     }
   }
 
@@ -122,18 +49,18 @@ export function MatchesBrowsePage({ initialData }: { initialData: MatchesBrowseI
     <Page width="wide">
       <Section>
         <Stack gap="lg">
-          {error ? (
+          {paginationError ? (
             <Notice tone="danger">
               <Stack gap="sm">
-                <Text tone="strong">Open lobbies failed to load.</Text>
-                <Text>{error}</Text>
+                <Text tone="strong">More lobbies failed to load.</Text>
+                <Text>{paginationError}</Text>
                 <Inline gap="sm">
                   <Button
                     size="sm"
                     tone="neutral"
                     variant="outline"
                     onClick={() => {
-                      void handleRetry();
+                      void handleLoadMore();
                     }}
                   >
                     Retry
@@ -143,16 +70,7 @@ export function MatchesBrowsePage({ initialData }: { initialData: MatchesBrowseI
             </Notice>
           ) : null}
 
-          {!error && isLoadingInitial ? (
-            <Frame xstyle={styles.stateFrame}>
-              <Stack gap="sm">
-                <Kicker>Loading</Kicker>
-                <Heading size="lg">Fetching open lobbies...</Heading>
-              </Stack>
-            </Frame>
-          ) : null}
-
-          {!error && !isLoadingInitial && matches.length === 0 ? (
+          {matches.length === 0 ? (
             <Frame xstyle={styles.stateFrame}>
               <EmptyState
                 kicker="No Open Rooms"
@@ -167,7 +85,7 @@ export function MatchesBrowsePage({ initialData }: { initialData: MatchesBrowseI
             </Frame>
           ) : null}
 
-          {!error && !isLoadingInitial && matches.length > 0 ? (
+          {matches.length > 0 ? (
             <Frame padding="none">
               <div {...stylex.props(styles.listHeader)}>
                 <Text size="sm" tone="muted" xstyle={styles.listMeta}>
@@ -187,18 +105,18 @@ export function MatchesBrowsePage({ initialData }: { initialData: MatchesBrowseI
             </Frame>
           ) : null}
 
-          {!error && !isLoadingInitial && matches.length > 0 && hasNextPage ? (
+          {matches.length > 0 && browseQuery.hasNextPage ? (
             <div {...stylex.props(styles.pagination)}>
               <Button
                 size="sm"
                 tone="neutral"
                 variant="outline"
-                loading={isLoadingMore}
+                loading={browseQuery.isFetchingNextPage}
                 onClick={() => {
                   void handleLoadMore();
                 }}
               >
-                {isLoadingMore ? "Loading..." : "Load More"}
+                {browseQuery.isFetchingNextPage ? "Loading..." : "Load More"}
               </Button>
             </div>
           ) : null}
@@ -278,8 +196,8 @@ function LobbyRow({
   );
 }
 
-function parseLoadedAt(iso: string): number {
-  const parsed = Date.parse(iso);
+function parseLoadedAt(iso: string | undefined): number {
+  const parsed = iso ? Date.parse(iso) : Number.NaN;
   return Number.isNaN(parsed) ? Date.now() : parsed;
 }
 

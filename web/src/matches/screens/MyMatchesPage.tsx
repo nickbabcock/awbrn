@@ -1,3 +1,4 @@
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
 import { awbwSmallMapAssetPath } from "#/awbw/paths.ts";
@@ -20,14 +21,12 @@ import { sxClassName } from "#/ui/stylex.ts";
 import { media, tokens } from "#/ui/theme.stylex.ts";
 import type { MatchPhase, MyMatchSummary } from "#/matches/schemas.ts";
 import { formatMyMatchPhaseLabel, myMatchActionLabel } from "#/matches/my_matches.ts";
+import { myMatchesQueryOptions } from "#/matches/matches.queries.ts";
 
-export function MyMatchesPage({
-  loadedAt,
-  matches,
-}: {
-  loadedAt: string;
-  matches: MyMatchSummary[];
-}) {
+export function MyMatchesPage() {
+  const { data } = useSuspenseQuery(myMatchesQueryOptions());
+  const { loadedAt, matches } = data;
+
   return (
     <Page width="wide">
       <Section>

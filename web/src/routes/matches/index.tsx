@@ -1,13 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { listMatchesFn } from "#/matches/matches.functions.ts";
+import { matchesBrowseQueryOptions } from "#/matches/matches.queries.ts";
 import { MatchesBrowsePage } from "#/matches/screens/MatchesBrowsePage.tsx";
 
 export const Route = createFileRoute("/matches/")({
-  loader: () => listMatchesFn({ data: {} }),
+  loader: async ({ context }) => {
+    await context.queryClient.ensureInfiniteQueryData(matchesBrowseQueryOptions());
+  },
   component: MatchesBrowseRouteComponent,
 });
 
 function MatchesBrowseRouteComponent() {
-  const initialData = Route.useLoaderData();
-  return <MatchesBrowsePage initialData={initialData} />;
+  return <MatchesBrowsePage />;
 }

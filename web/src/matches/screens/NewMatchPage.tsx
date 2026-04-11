@@ -1,3 +1,4 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
@@ -21,9 +22,11 @@ import {
 import { tokens } from "#/ui/theme.stylex.ts";
 import { MatchMapPreview } from "#/matches/components/MatchMapPreview.tsx";
 import { createMatchFn } from "#/matches/matches.functions.ts";
+import { matchKeys } from "#/matches/matches.keys.ts";
 
 export function NewMatchPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const session = useAppSession();
   const previewRunner = usePreviewRunner("matches-new");
   const [matchName, setMatchName] = useState("");
@@ -33,7 +36,6 @@ export function NewMatchPage() {
   const [startingFunds, setStartingFunds] = useState("1000");
   const [isPrivate, setIsPrivate] = useState(false);
   const [isLoadingMap, setIsLoadingMap] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const mapRequestRef = useRef<AbortController | null>(null);
@@ -59,6 +61,16 @@ export function NewMatchPage() {
   useEffect(() => {
     lastAutoMatchNameRef.current = lastAutoMatchName;
   }, [lastAutoMatchName]);
+
+  const createMatchMutation = useMutation({
+    mutationFn: createMatchFn,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: matchKeys.browse() }),
+        queryClient.invalidateQueries({ queryKey: matchKeys.mine() }),
+      ]);
+    },
+  });
 
   async function handleLoadMap(): Promise<void> {
     mapRequestRef.current?.abort();
@@ -137,11 +149,10 @@ export function NewMatchPage() {
       return;
     }
 
-    setIsCreating(true);
     setCreateError(null);
 
     try {
-      const match = await createMatchFn({
+      const match = await createMatchMutation.mutateAsync({
         data: {
           name: matchName.trim(),
           mapId: parsedMapId,
@@ -153,8 +164,6 @@ export function NewMatchPage() {
       await navigate({ to: "/matches/$matchId", params: { matchId: match.matchId } });
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : "Failed to create the lobby.");
-    } finally {
-      setIsCreating(false);
     }
   }
 
@@ -262,7 +271,7 @@ export function NewMatchPage() {
 
                   <Inline gap="sm">
                     <Button
-                      disabled={isCreating || mapData === null || !session}
+                      disabled={createMatchMutation.isPending || mapData === null || !session}
                       tone="brand"
                       xstyle={styles.primaryAction}
                       onClick={() => {
@@ -270,7 +279,7 @@ export function NewMatchPage() {
                       }}
                       type="button"
                     >
-                      {isCreating ? "Creating Lobby..." : "Create Lobby"}
+                      {createMatchMutation.isPending ? "Creating Lobby..." : "Create Lobby"}
                     </Button>
                   </Inline>
                 </div>

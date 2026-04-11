@@ -1,6 +1,7 @@
+import { useSuspenseQuery } from "@tanstack/react-query";
+import { sessionQueryOptions } from "./auth.queries";
 import type { Session } from "./session";
-import { Route as RootRoute } from "#/routes/__root.tsx";
 
 export function useAppSession(): Session | null {
-  return RootRoute.useLoaderData();
+  return useSuspenseQuery(sessionQueryOptions()).data;
 }
