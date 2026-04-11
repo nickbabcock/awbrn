@@ -146,6 +146,62 @@ fn viewport_delta_to_world_delta(
     Vec2::new(viewport_delta.x, -viewport_delta.y) * world_units_per_viewport_pixel
 }
 
+fn device_pixel_snapped_camera_translation(
+    camera_translation: Vec2,
+    world_units_per_viewport_pixel: f32,
+    window: &Window,
+) -> Option<Vec2> {
+    let scale_factor = window.resolution.scale_factor();
+    if !scale_factor.is_finite()
+        || scale_factor <= 0.0
+        || !world_units_per_viewport_pixel.is_finite()
+        || world_units_per_viewport_pixel <= 0.0
+    {
+        return None;
+    }
+
+    let physical_origin = Vec2::new(
+        window.physical_width() as f32 * 0.5,
+        window.physical_height() as f32 * 0.5,
+    );
+    let physical_pixels_per_world_unit = scale_factor / world_units_per_viewport_pixel;
+    let world_units_per_physical_pixel = world_units_per_viewport_pixel / scale_factor;
+    let world_origin_physical = physical_origin
+        + Vec2::new(
+            -camera_translation.x * physical_pixels_per_world_unit,
+            camera_translation.y * physical_pixels_per_world_unit,
+        );
+    let physical_delta = world_origin_physical.round() - world_origin_physical;
+
+    Some(Vec2::new(
+        camera_translation.x - physical_delta.x * world_units_per_physical_pixel,
+        camera_translation.y + physical_delta.y * world_units_per_physical_pixel,
+    ))
+}
+
+fn snap_camera_translation_to_device_pixels(
+    transform: &mut Transform,
+    window: &Window,
+    world_units_per_viewport_pixel: f32,
+) {
+    let Some(snapped) = device_pixel_snapped_camera_translation(
+        transform.translation.truncate(),
+        world_units_per_viewport_pixel,
+        window,
+    ) else {
+        return;
+    };
+
+    if !transform
+        .translation
+        .truncate()
+        .abs_diff_eq(snapped, 0.000_001)
+    {
+        transform.translation.x = snapped.x;
+        transform.translation.y = snapped.y;
+    }
+}
+
 fn projection_world_units_per_viewport_pixel(projection: &Projection) -> Option<f32> {
     match projection {
         Projection::Orthographic(orthographic) => Some(orthographic.scale),
@@ -455,6 +511,23 @@ fn handle_mouse_pan(
     }
 }
 
+fn snap_camera_to_device_pixels(
+    windows: Query<&Window>,
+    mut query: Query<(&Projection, &mut Transform), With<Camera>>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let Ok((projection, mut transform)) = query.single_mut() else {
+        return;
+    };
+    let Some(projection_scale) = projection_world_units_per_viewport_pixel(projection) else {
+        return;
+    };
+
+    snap_camera_translation_to_device_pixels(&mut transform, window, projection_scale);
+}
+
 fn emit_map_dimensions_on_scale_change(
     game_map: Res<GameMap>,
     camera_scale: Res<CameraScale>,
@@ -473,7 +546,15 @@ impl Plugin for CameraPlugin {
             .add_systems(Startup, (setup_camera, setup_unit_atlas))
             .add_systems(
                 Update,
-                (handle_touch_camera, handle_camera_scaling, handle_mouse_pan)
+                (
+                    handle_touch_camera,
+                    handle_camera_scaling,
+                    handle_mouse_pan,
+                    snap_camera_to_device_pixels
+                        .after(handle_touch_camera)
+                        .after(handle_camera_scaling)
+                        .after(handle_mouse_pan),
+                )
                     .run_if(in_state(crate::core::AppState::InGame)),
             )
             .add_systems(
@@ -509,6 +590,29 @@ mod tests {
             resolution: WindowResolution::new(width, height),
             ..default()
         }
+    }
+
+    fn test_window_with_scale_factor(width: u32, height: u32, scale_factor: f32) -> Window {
+        let mut resolution = WindowResolution::new(width, height);
+        resolution.set_scale_factor_override(Some(scale_factor));
+        Window {
+            resolution,
+            ..default()
+        }
+    }
+
+    fn world_origin_physical_position(
+        camera_translation: Vec2,
+        world_units_per_viewport_pixel: f32,
+        window: &Window,
+    ) -> Vec2 {
+        let scale_factor = window.resolution.scale_factor();
+        Vec2::new(
+            window.physical_width() as f32 * 0.5
+                - camera_translation.x * scale_factor / world_units_per_viewport_pixel,
+            window.physical_height() as f32 * 0.5
+                + camera_translation.y * scale_factor / world_units_per_viewport_pixel,
+        )
     }
 
     #[test]
@@ -580,5 +684,39 @@ mod tests {
         let delta = viewport_delta_to_world_delta(Vec2::new(10.0, 12.0), 0.5);
 
         assert!(delta.abs_diff_eq(Vec2::new(5.0, -6.0), 0.001));
+    }
+
+    #[test]
+    fn odd_physical_width_snaps_camera_to_device_pixels() {
+        let window = test_window_with_scale_factor(2013, 1190, 1.25);
+        let snapped = device_pixel_snapped_camera_translation(Vec2::ZERO, 0.5, &window).unwrap();
+
+        assert!(snapped.abs_diff_eq(Vec2::new(-0.2, 0.0), 0.000_001));
+        assert!(
+            world_origin_physical_position(snapped, 0.5, &window)
+                .abs_diff_eq(Vec2::new(1007.0, 595.0), 0.000_001)
+        );
+    }
+
+    #[test]
+    fn even_physical_width_keeps_aligned_camera_unchanged() {
+        let window = test_window_with_scale_factor(2014, 1190, 1.25);
+        let snapped = device_pixel_snapped_camera_translation(Vec2::ZERO, 0.5, &window).unwrap();
+
+        assert!(snapped.abs_diff_eq(Vec2::ZERO, 0.000_001));
+        assert!(
+            world_origin_physical_position(snapped, 0.5, &window)
+                .abs_diff_eq(Vec2::new(1007.0, 595.0), 0.000_001)
+        );
+    }
+
+    #[test]
+    fn nonzero_camera_translation_snaps_world_origin_to_integer_physical_pixels() {
+        let window = test_window_with_scale_factor(2013, 1191, 1.25);
+        let snapped =
+            device_pixel_snapped_camera_translation(Vec2::new(3.7, -2.9), 0.5, &window).unwrap();
+        let origin_physical = world_origin_physical_position(snapped, 0.5, &window);
+
+        assert!(origin_physical.abs_diff_eq(origin_physical.round(), 0.000_001));
     }
 }
