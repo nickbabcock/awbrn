@@ -19,54 +19,70 @@ import { awbwSmallMapAssetPath } from "#/awbw/paths.ts";
 import { sxClassName } from "#/ui/stylex.ts";
 import { tokens } from "#/ui/theme.stylex.ts";
 import { listMatchesFn } from "#/matches/matches.functions.ts";
-import type { MatchBrowseSummary } from "#/matches/schemas.ts";
+import type { MatchBrowseResponse, MatchBrowseSummary } from "#/matches/schemas.ts";
 
-export function MatchesBrowsePage() {
-  const [matches, setMatches] = useState<MatchBrowseSummary[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [hasNextPage, setHasNextPage] = useState(false);
-  const [isLoadingInitial, setIsLoadingInitial] = useState(true);
+export interface MatchesBrowseInitialData extends MatchBrowseResponse {
+  loadedAt: string;
+}
+
+export function MatchesBrowsePage({ initialData }: { initialData: MatchesBrowseInitialData }) {
+  const [matches, setMatches] = useState<MatchBrowseSummary[]>(() => initialData.matches);
+  const [nextCursor, setNextCursor] = useState<string | null>(() => initialData.nextCursor);
+  const [hasNextPage, setHasNextPage] = useState(() => initialData.hasNextPage);
+  const [isLoadingInitial, setIsLoadingInitial] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [reloadNonce, setReloadNonce] = useState(0);
+  const [relativeTimeBaseMs, setRelativeTimeBaseMs] = useState(() =>
+    parseLoadedAt(initialData.loadedAt),
+  );
   const requestIdRef = useRef(0);
 
   useEffect(() => {
+    ++requestIdRef.current;
+    setMatches(initialData.matches);
+    setNextCursor(initialData.nextCursor);
+    setHasNextPage(initialData.hasNextPage);
+    setRelativeTimeBaseMs(parseLoadedAt(initialData.loadedAt));
+    setIsLoadingInitial(false);
+    setIsLoadingMore(false);
+    setError(null);
+  }, [initialData]);
+
+  async function handleRetry(): Promise<void> {
     const requestId = ++requestIdRef.current;
     setIsLoadingInitial(true);
     setIsLoadingMore(false);
     setError(null);
 
-    void (async () => {
-      try {
-        const nextData = await listMatchesFn({ data: {} });
-        if (requestIdRef.current !== requestId) {
-          return;
-        }
-
-        startTransition(() => {
-          setMatches(nextData.matches);
-          setNextCursor(nextData.nextCursor);
-          setHasNextPage(nextData.hasNextPage);
-        });
-      } catch (nextError) {
-        if (requestIdRef.current !== requestId) {
-          return;
-        }
-
-        startTransition(() => {
-          setMatches([]);
-          setNextCursor(null);
-          setHasNextPage(false);
-        });
-        setError(nextError instanceof Error ? nextError.message : "Lobby browser failed to load.");
-      } finally {
-        if (requestIdRef.current === requestId) {
-          setIsLoadingInitial(false);
-        }
+    try {
+      const nextData = await listMatchesFn({ data: {} });
+      if (requestIdRef.current !== requestId) {
+        return;
       }
-    })();
-  }, [reloadNonce]);
+
+      startTransition(() => {
+        setMatches(nextData.matches);
+        setNextCursor(nextData.nextCursor);
+        setHasNextPage(nextData.hasNextPage);
+        setRelativeTimeBaseMs(parseLoadedAt(nextData.loadedAt));
+      });
+    } catch (nextError) {
+      if (requestIdRef.current !== requestId) {
+        return;
+      }
+
+      startTransition(() => {
+        setMatches([]);
+        setNextCursor(null);
+        setHasNextPage(false);
+      });
+      setError(nextError instanceof Error ? nextError.message : "Lobby browser failed to load.");
+    } finally {
+      if (requestIdRef.current === requestId) {
+        setIsLoadingInitial(false);
+      }
+    }
+  }
 
   async function handleLoadMore(): Promise<void> {
     if (isLoadingMore || !hasNextPage || !nextCursor) {
@@ -87,6 +103,7 @@ export function MatchesBrowsePage() {
         setMatches((current) => [...current, ...nextData.matches]);
         setNextCursor(nextData.nextCursor);
         setHasNextPage(nextData.hasNextPage);
+        setRelativeTimeBaseMs(parseLoadedAt(nextData.loadedAt));
       });
     } catch (nextError) {
       if (requestIdRef.current !== requestId) {
@@ -116,7 +133,7 @@ export function MatchesBrowsePage() {
                     tone="neutral"
                     variant="outline"
                     onClick={() => {
-                      setReloadNonce((current) => current + 1);
+                      void handleRetry();
                     }}
                   >
                     Retry
@@ -160,7 +177,11 @@ export function MatchesBrowsePage() {
 
               <div {...stylex.props(styles.list)}>
                 {matches.map((lobby) => (
-                  <LobbyRow key={lobby.matchId} lobby={lobby} />
+                  <LobbyRow
+                    key={lobby.matchId}
+                    lobby={lobby}
+                    relativeTimeBaseMs={relativeTimeBaseMs}
+                  />
                 ))}
               </div>
             </Frame>
@@ -187,7 +208,13 @@ export function MatchesBrowsePage() {
   );
 }
 
-function LobbyRow({ lobby }: { lobby: MatchBrowseSummary }) {
+function LobbyRow({
+  lobby,
+  relativeTimeBaseMs,
+}: {
+  lobby: MatchBrowseSummary;
+  relativeTimeBaseMs: number;
+}) {
   return (
     <Link className={rowClassName} params={{ matchId: lobby.matchId }} to="/matches/$matchId">
       <div {...stylex.props(styles.rowMain)}>
@@ -243,7 +270,7 @@ function LobbyRow({ lobby }: { lobby: MatchBrowseSummary }) {
             <Text size="sm" tone="muted" xstyle={styles.statLabel}>
               Created
             </Text>
-            <Text tone="strong">{formatRelativeTime(lobby.createdAt)}</Text>
+            <Text tone="strong">{formatRelativeTime(lobby.createdAt, relativeTimeBaseMs)}</Text>
           </div>
         </div>
       </div>
@@ -251,8 +278,13 @@ function LobbyRow({ lobby }: { lobby: MatchBrowseSummary }) {
   );
 }
 
-function formatRelativeTime(iso: string): string {
-  const deltaMs = Date.now() - Date.parse(iso);
+function parseLoadedAt(iso: string): number {
+  const parsed = Date.parse(iso);
+  return Number.isNaN(parsed) ? Date.now() : parsed;
+}
+
+function formatRelativeTime(iso: string, relativeToMs: number): string {
+  const deltaMs = relativeToMs - Date.parse(iso);
   const deltaMinutes = Math.round(deltaMs / 60_000);
   const formatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 

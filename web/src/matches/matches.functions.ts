@@ -20,7 +20,7 @@ export const listMatchesFn = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     const result = await listMatches(data);
     if (!result.ok) throw new Error(result.error.message);
-    return result.value;
+    return { ...result.value, loadedAt: new Date().toISOString() };
   });
 
 export const listMyMatchesFn = createServerFn({ method: "GET" })
