@@ -1,4 +1,4 @@
-use crate::core::grid::GridSystem;
+use crate::core::coords::{map_visual_top_world_y, map_visual_world_size};
 use crate::features::event_bus::{EventSink, MapDimensions};
 use crate::loading::ClientAssetLoader;
 use crate::render::UnitAtlasResource;
@@ -105,17 +105,15 @@ pub(crate) fn compute_map_dimensions(
     game_map: &GameMap,
     camera_scale: &CameraScale,
 ) -> MapDimensions {
+    let map_size = map_visual_world_size(game_map);
     MapDimensions {
-        width: game_map.width() as f32 * GridSystem::TILE_SIZE * camera_scale.scale(),
-        height: (game_map.height() as f32 + 1.0) * GridSystem::TILE_SIZE * camera_scale.scale(),
+        width: map_size.x * camera_scale.scale(),
+        height: map_size.y * camera_scale.scale(),
     }
 }
 
 fn map_world_size(game_map: &GameMap) -> Vec2 {
-    Vec2::new(
-        game_map.width() as f32 * GridSystem::TILE_SIZE,
-        (game_map.height() as f32 + 1.0) * GridSystem::TILE_SIZE,
-    )
+    map_visual_world_size(game_map)
 }
 
 fn minimum_camera_scale(game_map: &GameMap, window: &Window) -> f32 {
@@ -176,7 +174,7 @@ fn clamp_camera_translation(
     let half_visible = visible_size * 0.5;
     let left = -map_size.x * 0.5;
     let right = map_size.x * 0.5;
-    let top = game_map.height() as f32 * GridSystem::TILE_SIZE * 0.5;
+    let top = map_visual_top_world_y(game_map);
     let bottom = top - map_size.y;
     let center = Vec2::new((left + right) * 0.5, (top + bottom) * 0.5);
 

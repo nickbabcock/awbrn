@@ -1,7 +1,7 @@
 use awbrn_client::{
     AwbrnPlugin, EventSink, MapAssetPathResolver, MapDimensions, NewDay, PendingGameStart,
     PlayerRosterSnapshot, ReplayLoaded, ReplayToLoad, StaticAssetPathResolver, TileSelected,
-    UnitBuilt, UnitMoved,
+    UnitBuilt, UnitMoved, core::coords::LogicalPx,
 };
 use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
 use bevy::{
@@ -83,7 +83,7 @@ pub struct CanvasDisplay {
 pub struct CanvasSize {
     width: f32,
     height: f32,
-    scale_factor: f64,
+    scale_factor: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, tsify::Tsify)]
@@ -233,7 +233,7 @@ impl BevyApp {
     #[wasm_bindgen]
     pub fn resize(&mut self, size: CanvasSize) {
         let world = self.app.world_mut();
-        let scale_factor = size.scale_factor as f32;
+        let scale_factor = size.scale_factor;
 
         if let Some(canvas) = world.get_non_send_resource_mut::<OffscreenCanvas>() {
             canvas.set_width(size.width as u32);
@@ -315,7 +315,8 @@ impl BevyApp {
         let Some(window) = primary_window_entity(world) else {
             return;
         };
-        let position = Vec2::new(x, y);
+        // x and y are CSS / logical pixels (offsetX / offsetY from the DOM PointerEvent).
+        let position = LogicalPx::new(x, y).to_vec2();
         let previous = update_cursor_position(world, window, Some(position));
 
         let _ = world.write_message(CursorMoved {
@@ -406,9 +407,10 @@ impl BevyApp {
         let Some(window) = primary_window_entity(world) else {
             return;
         };
+        // x and y are CSS / logical pixels (offsetX / offsetY from the DOM TouchEvent).
         let _ = world.write_message(TouchInput {
             phase,
-            position: Vec2::new(x, y),
+            position: LogicalPx::new(x, y).to_vec2(),
             window,
             force: None,
             id: id as u64,

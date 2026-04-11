@@ -1,4 +1,4 @@
-use crate::core::grid::GridSystem;
+use crate::core::coords::{backdrop_world_translation, map_tile_world_size};
 use crate::core::{AppState, RenderLayer};
 use crate::features::weather::CurrentWeather;
 use crate::loading::ClientAssetLoader;
@@ -97,10 +97,9 @@ pub(crate) fn setup_map_backdrops(
         return;
     }
 
-    let map_width = game_map.width() as f32 * GridSystem::TILE_SIZE;
-    let map_height = game_map.height() as f32 * GridSystem::TILE_SIZE;
+    let map_size = map_tile_world_size(&game_map);
 
-    let mesh = meshes.add(Rectangle::new(map_width, map_height));
+    let mesh = meshes.add(Rectangle::new(map_size.x, map_size.y));
     let material = materials.add(ColorMaterial {
         texture: Some(backdrop_textures.texture_for(current_weather.weather())),
         uv_transform: Affine2::from_scale(Vec2::new(
@@ -114,11 +113,7 @@ pub(crate) fn setup_map_backdrops(
     commands.spawn((
         Mesh2d(mesh),
         MeshMaterial2d(material),
-        Transform::from_xyz(
-            0.0,
-            -GridSystem::TILE_SIZE / 2.0,
-            RenderLayer::BACKDROP as f32,
-        ),
+        Transform::from_translation(backdrop_world_translation(RenderLayer::BACKDROP as f32)),
         MapBackdrop,
     ));
 }
@@ -312,6 +307,7 @@ impl Plugin for MapVisualsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::coords::TILE_SIZE;
     use crate::features::{FogActive, FogOfWarMap, FriendlyFactions};
     use crate::projection::project_terrain_render_state;
     use awbrn_game::MapPosition;
@@ -637,11 +633,7 @@ mod tests {
         let (mesh_handle, material_handle, transform, _) = items[0];
         assert_eq!(
             transform.translation,
-            Vec3::new(
-                0.0,
-                -GridSystem::TILE_SIZE / 2.0,
-                RenderLayer::BACKDROP as f32
-            )
+            Vec3::new(0.0, -TILE_SIZE / 2.0, RenderLayer::BACKDROP as f32)
         );
 
         let materials = app.world().resource::<Assets<ColorMaterial>>();

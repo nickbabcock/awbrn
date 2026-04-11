@@ -31,7 +31,7 @@ pub fn spawn_fog_overlay_tiles(
     for y in 0..game_map.height() {
         for x in 0..game_map.width() {
             let pos = Position::new(x, y);
-            let world_pos = crate::core::position_to_world_translation(
+            let world_pos = crate::core::coords::position_to_world_translation(
                 &FOG_OVERLAY_SPRITE_SIZE,
                 pos,
                 &game_map,

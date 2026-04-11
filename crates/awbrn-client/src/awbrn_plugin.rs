@@ -506,7 +506,8 @@ pub(crate) mod test_helpers {
 #[cfg(test)]
 mod tests {
     use super::test_helpers::*;
-    use crate::core::{SpriteSize, position_to_world_translation};
+    use crate::core::SpriteSize;
+    use crate::core::coords::position_to_world_translation;
     use crate::modes::replay::commands::{ReplayAdvanceLock, ReplayTurnCommand};
     use crate::modes::replay::navigation::{COURSE_ARROW_BASE_SCALE, CourseArrowSpriteKind};
     use awbrn_content::get_unit_animation_frames;

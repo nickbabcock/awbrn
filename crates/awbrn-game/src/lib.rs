@@ -16,6 +16,11 @@ use world::board_index;
     on_replace = on_map_position_replace_in_board_index
 )]
 #[reflect(Component)]
+/// ECS component wrapper for [`awbrn_map::Position`].
+///
+/// Grid semantics are identical to [`Position`]: top-left origin, `x` right,
+/// `y` down. This type exists so ECS lifecycle hooks can keep `BoardIndex`
+/// synchronized when map entities move or leave the board.
 pub struct MapPosition(pub Position);
 
 impl MapPosition {
