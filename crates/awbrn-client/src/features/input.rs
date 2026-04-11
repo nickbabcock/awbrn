@@ -5,7 +5,9 @@ use crate::render::UiAtlas;
 use awbrn_game::MapPosition;
 use awbrn_game::world::{BoardIndex, GameMap, TerrainTile};
 use awbrn_map::Position;
+use bevy::input::touch::{TouchInput, TouchPhase};
 use bevy::prelude::*;
+use std::collections::BTreeMap;
 
 /// Component to mark the currently selected tile
 #[derive(Component)]
@@ -25,6 +27,21 @@ pub(crate) const TILE_CORE_SPRITE_SIZE: SpriteSize = SpriteSize {
     height: GridSystem::TILE_SIZE,
     z_index: RenderLayer::CURSOR,
 };
+
+const TOUCH_TAP_MOVE_THRESHOLD: f32 = 8.0;
+
+#[derive(Debug, Clone, Copy)]
+struct TouchTapContact {
+    start_position: Vec2,
+    position: Vec2,
+    moved: bool,
+    multi_touch: bool,
+}
+
+#[derive(Resource, Debug, Default)]
+pub(crate) struct TouchTapState {
+    active: BTreeMap<u64, TouchTapContact>,
+}
 
 fn tile_cursor_bundle(ui_atlas: UiAtlas) -> impl Bundle {
     (
@@ -137,6 +154,86 @@ pub(crate) fn detect_map_clicks(
     });
 }
 
+pub(crate) fn detect_touch_taps(
+    windows: Query<&Window>,
+    camera_q: Query<(&Camera, &GlobalTransform)>,
+    game_map: Res<GameMap>,
+    mut touch_reader: MessageReader<TouchInput>,
+    mut tap_state: ResMut<TouchTapState>,
+    mut click_writer: MessageWriter<MapPositionClicked>,
+) {
+    for touch in touch_reader.read() {
+        match touch.phase {
+            TouchPhase::Started => {
+                let already_touching = !tap_state.active.is_empty();
+                for contact in tap_state.active.values_mut() {
+                    contact.multi_touch = true;
+                }
+
+                tap_state.active.insert(
+                    touch.id,
+                    TouchTapContact {
+                        start_position: touch.position,
+                        position: touch.position,
+                        moved: false,
+                        multi_touch: already_touching,
+                    },
+                );
+            }
+            TouchPhase::Moved => {
+                if let Some(contact) = tap_state.active.get_mut(&touch.id) {
+                    contact.position = touch.position;
+                    contact.moved |=
+                        contact.start_position.distance(touch.position) > TOUCH_TAP_MOVE_THRESHOLD;
+                }
+            }
+            TouchPhase::Ended => {
+                let active_count = tap_state.active.len();
+                let Some(mut contact) = tap_state.active.remove(&touch.id) else {
+                    continue;
+                };
+
+                contact.position = touch.position;
+                contact.moved |=
+                    contact.start_position.distance(touch.position) > TOUCH_TAP_MOVE_THRESHOLD;
+
+                if contact.moved || contact.multi_touch || active_count > 1 {
+                    continue;
+                }
+
+                let Ok(window) = windows.single() else {
+                    continue;
+                };
+                let Ok((camera, camera_transform)) = camera_q.single() else {
+                    continue;
+                };
+                if touch.position.x < 0.0
+                    || touch.position.y < 0.0
+                    || touch.position.x > window.width()
+                    || touch.position.y > window.height()
+                {
+                    continue;
+                }
+
+                let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, touch.position)
+                else {
+                    continue;
+                };
+                let Some(map_position) = world_to_map_position(world_pos, game_map.as_ref()) else {
+                    continue;
+                };
+
+                click_writer.write(MapPositionClicked {
+                    position: map_position.position(),
+                });
+            }
+            TouchPhase::Canceled => {
+                tap_state.active.remove(&touch.id);
+            }
+        }
+    }
+}
+
 pub(crate) fn handle_tile_clicks(
     board_index: Res<BoardIndex>,
     tiles: Query<&TerrainTile>,
@@ -183,12 +280,13 @@ pub struct InputPlugin;
 
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<TouchTapState>();
         app.add_message::<MapPositionClicked>();
         app.add_observer(on_tile_selected);
         app.add_systems(
             Update,
             (
-                (detect_map_clicks, handle_tile_clicks).chain(),
+                (detect_map_clicks, detect_touch_taps, handle_tile_clicks).chain(),
                 update_tile_cursor,
             )
                 .run_if(in_state(crate::core::AppState::InGame)),

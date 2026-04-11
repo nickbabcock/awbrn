@@ -12,7 +12,7 @@ import { useGameActions, useGameStore } from "#/engine/store.ts";
 import { getFactionVisual } from "#/faction_visuals.ts";
 import { getFactionByCode } from "#/factions.ts";
 import { Badge, Text, Wordmark } from "#/ui/primitives.tsx";
-import { tokens } from "#/ui/theme.stylex.ts";
+import { tokens, media } from "#/ui/theme.stylex.ts";
 import { infantrySpriteStyle, uiAtlasSpriteStyle } from "./roster_icons";
 
 const formatMoney = (value: number) => value.toLocaleString();
@@ -311,6 +311,7 @@ const styles = stylex.create({
   gameSurface: {
     position: "absolute",
     inset: 0,
+    overflow: "hidden",
   },
   gameCanvas: {
     display: "block",
@@ -370,13 +371,30 @@ const styles = stylex.create({
     textTransform: "uppercase",
   },
   rosterPanel: {
-    top: `calc(${tokens.navHeight} + 16px)`,
-    right: 16,
+    top: {
+      default: `calc(${tokens.navHeight} + 16px)`,
+      [media.compact]: "auto",
+    },
+    right: {
+      default: 16,
+      [media.compact]: 8,
+    },
+    bottom: {
+      default: "auto",
+      [media.compact]: 92,
+    },
+    left: {
+      default: "auto",
+      [media.compact]: 8,
+    },
     width: {
       default: 320,
-      "@media (max-width: 640px)": "calc(100vw - 32px)",
+      [media.compact]: "auto",
     },
-    maxHeight: `calc(100vh - ${tokens.navHeight} - 88px)`,
+    maxHeight: {
+      default: `calc(100vh - ${tokens.navHeight} - 88px)`,
+      [media.compact]: "42vh",
+    },
     overflow: "auto",
     padding: tokens.space3,
   },
@@ -630,12 +648,25 @@ const styles = stylex.create({
     height: 10,
   },
   filePanel: {
-    left: 16,
-    bottom: 16,
+    left: {
+      default: 16,
+      [media.compact]: 8,
+    },
+    right: {
+      default: "auto",
+      [media.compact]: 8,
+    },
+    bottom: {
+      default: 16,
+      [media.compact]: 8,
+    },
     display: "grid",
     gap: tokens.space2,
     padding: tokens.space3,
-    minWidth: 220,
+    minWidth: {
+      default: 220,
+      [media.compact]: 0,
+    },
   },
   fileLabel: {
     fontFamily: tokens.fontPixel,
