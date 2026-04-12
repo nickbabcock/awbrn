@@ -20,4 +20,4 @@ export const gameAssetConfig: GameAssetConfig = {
 };
 
 export const coPortraitAtlas = coPortraitAtlasData;
-export const coPortraitSheetAssetUrl = toAbsoluteAssetUrl(coPortraitSheetUrl);
+export const coPortraitSheetAssetUrl = coPortraitSheetUrl;
