@@ -1,10 +1,9 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { useAppSession } from "#/auth/useAppSession.ts";
-import { awbwMapAssetPath } from "#/awbw/paths.ts";
-import type { AwbwMapData } from "#/awbw/schemas.ts";
+import { AwbwMapDataQueryError, awbwMapDataQueryOptions } from "#/awbw/awbw.queries.ts";
 import { usePreviewRunner } from "#/engine/runtime_context.tsx";
 import {
   Button,
@@ -31,14 +30,14 @@ export function NewMatchPage() {
   const previewRunner = usePreviewRunner("matches-new");
   const [matchName, setMatchName] = useState("");
   const [mapIdInput, setMapIdInput] = useState("162795");
-  const [mapData, setMapData] = useState<AwbwMapData | null>(null);
+  const [loadedMapId, setLoadedMapId] = useState<number | null>(null);
   const [fogEnabled, setFogEnabled] = useState(false);
   const [startingFunds, setStartingFunds] = useState("1000");
   const [isPrivate, setIsPrivate] = useState(false);
-  const [isLoadingMap, setIsLoadingMap] = useState(false);
+  const [loadingMapId, setLoadingMapId] = useState<number | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
-  const mapRequestRef = useRef<AbortController | null>(null);
+  const mapLoadRequestRef = useRef(0);
   const [lastAutoMatchName, setLastAutoMatchName] = useState<string | null>(null);
   const lastAutoMatchNameRef = useRef<string | null>(null);
 
@@ -53,14 +52,15 @@ export function NewMatchPage() {
   }, [startingFunds]);
 
   useEffect(() => {
-    return () => {
-      mapRequestRef.current?.abort();
-    };
-  }, []);
-
-  useEffect(() => {
     lastAutoMatchNameRef.current = lastAutoMatchName;
   }, [lastAutoMatchName]);
+
+  const mapQuery = useQuery({
+    ...awbwMapDataQueryOptions(loadedMapId ?? 0),
+    enabled: loadedMapId !== null,
+  });
+  const mapData = loadedMapId === null ? null : (mapQuery.data ?? null);
+  const isLoadingMap = loadingMapId !== null;
 
   const createMatchMutation = useMutation({
     mutationFn: createMatchFn,
@@ -73,34 +73,27 @@ export function NewMatchPage() {
   });
 
   async function handleLoadMap(): Promise<void> {
-    mapRequestRef.current?.abort();
+    const requestId = mapLoadRequestRef.current + 1;
+    mapLoadRequestRef.current = requestId;
 
     if (parsedMapId === null) {
-      mapRequestRef.current = null;
-      setMapData(null);
+      setLoadedMapId(null);
       setMapError("Enter a valid AWBW map id.");
-      setIsLoadingMap(false);
+      setLoadingMapId(null);
       return;
     }
 
-    const controller = new AbortController();
-    mapRequestRef.current = controller;
-    setIsLoadingMap(true);
+    setLoadingMapId(parsedMapId);
     setMapError(null);
 
     try {
-      const response = await fetch(awbwMapAssetPath(parsedMapId), { signal: controller.signal });
-      if (!response.ok) {
-        throw new Error(response.status === 404 ? "Map not found." : "Map preview failed to load.");
-      }
-
-      const nextMap = (await response.json()) as AwbwMapData;
-      if (controller.signal.aborted || mapRequestRef.current !== controller) {
+      const nextMap = await queryClient.fetchQuery(awbwMapDataQueryOptions(parsedMapId));
+      if (mapLoadRequestRef.current !== requestId) {
         return;
       }
 
       startTransition(() => {
-        setMapData(nextMap);
+        setLoadedMapId(parsedMapId);
         setMapError(null);
         setMatchName((previous) => {
           const previousAutoName = lastAutoMatchNameRef.current;
@@ -115,18 +108,17 @@ export function NewMatchPage() {
         });
       });
     } catch (error) {
-      if (controller.signal.aborted || mapRequestRef.current !== controller) {
+      if (mapLoadRequestRef.current !== requestId) {
         return;
       }
 
       startTransition(() => {
-        setMapData(null);
-        setMapError(error instanceof Error ? error.message : "Map preview failed to load.");
+        setLoadedMapId(null);
+        setMapError(formatMapPreviewError(error));
       });
     } finally {
-      if (mapRequestRef.current === controller) {
-        mapRequestRef.current = null;
-        setIsLoadingMap(false);
+      if (mapLoadRequestRef.current === requestId) {
+        setLoadingMapId(null);
       }
     }
   }
@@ -198,11 +190,10 @@ export function NewMatchPage() {
                   <TextField
                     label="AWBW Map ID"
                     onChange={(event) => {
-                      mapRequestRef.current?.abort();
-                      mapRequestRef.current = null;
-                      setIsLoadingMap(false);
+                      mapLoadRequestRef.current += 1;
+                      setLoadingMapId(null);
                       setMapIdInput(event.target.value);
-                      setMapData(null);
+                      setLoadedMapId(null);
                       setMapError(null);
                     }}
                     type="text"
@@ -339,6 +330,14 @@ export function NewMatchPage() {
       </Section>
     </Page>
   );
+}
+
+function formatMapPreviewError(error: unknown): string {
+  if (error instanceof AwbwMapDataQueryError && error.kind === "notFound") {
+    return "Map not found.";
+  }
+
+  return "Map preview failed to load.";
 }
 
 const styles = stylex.create({

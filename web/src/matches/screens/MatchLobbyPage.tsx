@@ -1,15 +1,14 @@
 import { Popover } from "@base-ui/react/popover";
 import { ScrollArea } from "@base-ui/react/scroll-area";
-import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import * as stylex from "@stylexjs/stylex";
-import { startTransition, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Cancel as CancelIcon } from "pixelarticons/react/Cancel";
 import { Check as CheckIcon } from "pixelarticons/react/Check";
 import { Logout as LogoutIcon } from "pixelarticons/react/Logout";
 import { Plus as PlusIcon } from "pixelarticons/react/Plus";
 import { useAppSession } from "#/auth/useAppSession.ts";
-import { awbwMapAssetPath } from "#/awbw/paths.ts";
-import type { AwbwMapData } from "#/awbw/schemas.ts";
+import { awbwMapDataQueryOptions } from "#/awbw/awbw.queries.ts";
 import { CoPortrait } from "#/components/CoPortrait.tsx";
 import { FactionSelectionControl } from "#/components/FactionSelectionControl.tsx";
 import {
@@ -55,8 +54,9 @@ export function MatchLobbyPage({
   const portraitCatalog = useMemo(() => loadCoPortraitCatalog(), []);
   const detailQueryOptions = matchDetailQueryOptions(matchId, joinSlug);
   const { data: match } = useSuspenseQuery(detailQueryOptions);
-  const [mapData, setMapData] = useState<AwbwMapData | null>(null);
-  const [mapError, setMapError] = useState<string | null>(null);
+  const mapQuery = useQuery(awbwMapDataQueryOptions(match.mapId));
+  const mapData = mapQuery.data ?? null;
+  const mapError = mapQuery.isError ? "Map metadata could not be loaded." : null;
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
@@ -64,39 +64,6 @@ export function MatchLobbyPage({
     setActionError(null);
     setPendingAction(null);
   }, [matchId, joinSlug]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setMapData(null);
-    setMapError(null);
-    void (async () => {
-      try {
-        const response = await fetch(awbwMapAssetPath(match.mapId));
-        if (!response.ok) {
-          throw new Error("Map metadata could not be loaded.");
-        }
-        const payload = (await response.json()) as AwbwMapData;
-        if (!cancelled) {
-          startTransition(() => {
-            setMapData(payload);
-          });
-        }
-      } catch (nextError) {
-        if (!cancelled) {
-          startTransition(() => {
-            setMapData(null);
-          });
-          setMapError(
-            nextError instanceof Error ? nextError.message : "Map metadata could not be loaded.",
-          );
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [match.mapId]);
 
   const currentUserId = session?.user.id ?? null;
   const participantsBySlot = useMemo(
