@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { awbwMapDataSchema } from "#/awbw/schemas.ts";
 
 export const matchSettingsSchema = z.object({
   fogEnabled: z.boolean(),
@@ -129,3 +130,24 @@ export interface MatchSnapshot {
 export interface MatchMutationResponse {
   match: MatchSnapshot;
 }
+
+export const matchSetupPlayerSchema = z.object({
+  userId: z.string(),
+  factionId: z.number().int(),
+  team: z.null(),
+  startingFunds: z.number().int().nonnegative(),
+  coId: z.number().int(),
+});
+
+export const matchSetupSchema = z.object({
+  matchId: z.string(),
+  mapId: z.number().int().positive(),
+  map: awbwMapDataSchema,
+  players: z.array(matchSetupPlayerSchema),
+  fogEnabled: z.boolean(),
+  startingFunds: z.number().int().nonnegative(),
+  creatorUserId: z.string(),
+});
+
+export type MatchSetupPlayer = z.infer<typeof matchSetupPlayerSchema>;
+export type MatchSetup = z.infer<typeof matchSetupSchema>;

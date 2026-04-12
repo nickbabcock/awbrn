@@ -1,5 +1,6 @@
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
 import { MatchDurableObject } from "#/matches/match_durable_object.ts";
+import { getMatchStub } from "#/matches/match_service.ts";
 
 export { MatchDurableObject };
 
@@ -17,13 +18,12 @@ export default createServerEntry({
     const websocketMatch = MATCH_WEBSOCKET_PATTERN.exec(request.url);
     if (websocketMatch && request.headers.get("Upgrade") === "websocket") {
       const { matchId } = websocketMatch.pathname.groups;
-      // TODO: forward websocket upgrades to the match durable object via:
-      // const stub = env.MATCHES.get(env.MATCHES.idFromString(matchId));
-      // return stub.fetch(request);
-      // This websocket path is reserved for future match traffic once the runtime protocol exists.
-      return new Response(`Match websocket forwarding is not implemented for ${matchId}`, {
+      if (matchId) {
+        return getMatchStub(matchId).fetch(request);
+      }
+      return new Response("Invalid match ID", {
+        status: 400,
         headers: crossOriginIsolationHeaders,
-        status: 501,
       });
     }
 

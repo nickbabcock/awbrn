@@ -11,6 +11,7 @@ import type {
   MatchParticipantSnapshot,
   MatchPhase,
   MatchSettings,
+  MatchSetup,
   MatchSnapshot,
   MyMatchesResponse,
   MyMatchSummary,
@@ -39,22 +40,6 @@ const ACTIVE_MATCH_PHASE: MatchPhase = "active";
 interface MatchViewer {
   id: string;
   name: string;
-}
-
-interface MatchSetupPlayer {
-  factionId: number;
-  team: null;
-  startingFunds: number;
-  coId: number;
-}
-
-interface MatchSetup {
-  matchId: string;
-  mapId: number;
-  map: AwbwMapData;
-  players: MatchSetupPlayer[];
-  fogEnabled: boolean;
-  startingFunds: number;
 }
 
 type MatchActionDiagnostics =
@@ -530,7 +515,9 @@ async function buildMatchSetup(row: NonNullable<MatchRow>): Promise<MatchResult<
     map,
     fogEnabled: settings.value.fogEnabled,
     startingFunds: settings.value.startingFunds,
+    creatorUserId: row.creatorUserId,
     players: participantRows.map((participant) => ({
+      userId: participant.userId,
       factionId: participant.factionId,
       team: null,
       startingFunds: settings.value.startingFunds,
