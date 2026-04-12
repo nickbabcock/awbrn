@@ -1,7 +1,8 @@
 import { Popover } from "@base-ui/react/popover";
 import { ScrollArea } from "@base-ui/react/scroll-area";
+import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import * as stylex from "@stylexjs/stylex";
-import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import { Cancel as CancelIcon } from "pixelarticons/react/Cancel";
 import { Check as CheckIcon } from "pixelarticons/react/Check";
 import { Logout as LogoutIcon } from "pixelarticons/react/Logout";
@@ -25,7 +26,9 @@ import { PlayerHeader } from "#/components/PlayerHeader.tsx";
 import { Button, Frame, Heading, Kicker, Notice, Page, Section, Text } from "#/ui/primitives.tsx";
 import { tokens } from "#/ui/theme.stylex.ts";
 import { MatchMapPreview } from "#/matches/components/MatchMapPreview.tsx";
-import { getMatchFn, mutateMatchFn } from "#/matches/matches.functions.ts";
+import { mutateMatchFn } from "#/matches/matches.functions.ts";
+import { matchKeys } from "#/matches/matches.keys.ts";
+import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
 import type { MatchMutationRequest, MatchSnapshot } from "#/matches/schemas.ts";
 
 const coOptions = listCoPortraits();
@@ -46,32 +49,23 @@ export function MatchLobbyPage({
   matchId: string;
   joinSlug: string | null;
 }) {
+  const queryClient = useQueryClient();
   const session = useAppSession();
   const previewRunner = usePreviewRunner("match-lobby");
   const portraitCatalog = useMemo(() => loadCoPortraitCatalog(), []);
-  const [match, setMatch] = useState<MatchSnapshot | null>(null);
+  const detailQueryOptions = matchDetailQueryOptions(matchId, joinSlug);
+  const { data: match } = useSuspenseQuery(detailQueryOptions);
   const [mapData, setMapData] = useState<AwbwMapData | null>(null);
-  const [pageError, setPageError] = useState<string | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const requestKeyRef = useRef("");
-  const snapshotRequestRef = useRef(0);
-
-  requestKeyRef.current = `${matchId}:${joinSlug ?? ""}`;
 
   useEffect(() => {
-    void loadMatchSnapshot();
+    setActionError(null);
+    setPendingAction(null);
   }, [matchId, joinSlug]);
 
   useEffect(() => {
-    if (!match) {
-      setMapData(null);
-      setMapError(null);
-      return;
-    }
-
     let cancelled = false;
     setMapData(null);
     setMapError(null);
@@ -102,398 +96,351 @@ export function MatchLobbyPage({
     return () => {
       cancelled = true;
     };
-  }, [match?.mapId]);
+  }, [match.mapId]);
 
   const currentUserId = session?.user.id ?? null;
   const participantsBySlot = useMemo(
-    () =>
-      new Map(match?.participants.map((participant) => [participant.slotIndex, participant]) ?? []),
+    () => new Map(match.participants.map((participant) => [participant.slotIndex, participant])),
     [match],
   );
   const myParticipant =
     currentUserId === null
       ? null
-      : (match?.participants.find((participant) => participant.userId === currentUserId) ?? null);
+      : (match.participants.find((participant) => participant.userId === currentUserId) ?? null);
 
-  async function loadMatchSnapshot(): Promise<void> {
-    const requestId = ++snapshotRequestRef.current;
-    const requestKey = requestKeyRef.current;
-    setIsLoading(true);
-    setPageError(null);
-    setActionError(null);
-    startTransition(() => {
-      setMatch(null);
-    });
+  const matchMutation = useMutation({
+    mutationFn: (action: MatchMutationRequest) => mutateMatchFn({ data: { matchId, action } }),
+    onMutate: async (action) => {
+      await queryClient.cancelQueries({ queryKey: detailQueryOptions.queryKey });
+      const previousMatch = queryClient.getQueryData<MatchSnapshot>(detailQueryOptions.queryKey);
 
-    try {
-      const snapshot = await getMatchFn({ data: { matchId, joinSlug } });
-      if (snapshotRequestRef.current !== requestId || requestKeyRef.current !== requestKey) {
-        return;
-      }
-      startTransition(() => {
-        setMatch(snapshot);
-      });
-    } catch (nextError) {
-      if (snapshotRequestRef.current !== requestId || requestKeyRef.current !== requestKey) {
-        return;
-      }
-      startTransition(() => {
-        setMatch(null);
-      });
-      setPageError(nextError instanceof Error ? nextError.message : "Failed to load the lobby.");
-    } finally {
-      if (snapshotRequestRef.current === requestId && requestKeyRef.current === requestKey) {
-        setIsLoading(false);
-      }
-    }
-  }
-
-  async function submitAction(action: MatchMutationRequest, pendingLabel: string): Promise<void> {
-    const requestKey = requestKeyRef.current;
-    setPendingAction(pendingLabel);
-    setActionError(null);
-
-    // Optimistically apply participant mutations so the UI updates instantly
-    let prevMatch: MatchSnapshot | null = null;
-    if (action.action === "updateParticipant" && match !== null && currentUserId !== null) {
-      prevMatch = match;
-      startTransition(() => {
-        setMatch({
-          ...match,
-          participants: match.participants.map((p) =>
-            p.userId !== currentUserId
-              ? p
+      if (action.action === "updateParticipant" && previousMatch && currentUserId !== null) {
+        queryClient.setQueryData<MatchSnapshot>(detailQueryOptions.queryKey, {
+          ...previousMatch,
+          participants: previousMatch.participants.map((participant) =>
+            participant.userId !== currentUserId
+              ? participant
               : {
-                  ...p,
+                  ...participant,
                   ...(action.coId !== undefined ? { coId: action.coId } : {}),
                   ...(action.factionId !== undefined ? { factionId: action.factionId } : {}),
                   ...(action.ready !== undefined ? { ready: action.ready } : {}),
                 },
           ),
         });
-      });
-    }
+      }
+
+      return { previousMatch };
+    },
+    onError: (error, _action, context) => {
+      if (context?.previousMatch) {
+        queryClient.setQueryData(detailQueryOptions.queryKey, context.previousMatch);
+      }
+      setActionError(error instanceof Error ? error.message : "Lobby update failed.");
+    },
+    onSuccess: async (response) => {
+      queryClient.setQueryData(detailQueryOptions.queryKey, response.match);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: matchKeys.browse() }),
+        queryClient.invalidateQueries({ queryKey: matchKeys.mine() }),
+      ]);
+    },
+  });
+
+  async function submitAction(action: MatchMutationRequest, pendingLabel: string): Promise<void> {
+    setPendingAction(pendingLabel);
+    setActionError(null);
 
     try {
-      const response = await mutateMatchFn({ data: { matchId, action } });
-      if (requestKeyRef.current !== requestKey) {
-        return;
-      }
-      startTransition(() => {
-        setMatch(response.match);
-      });
-    } catch (nextError) {
-      if (requestKeyRef.current !== requestKey) {
-        return;
-      }
-      if (prevMatch !== null) {
-        startTransition(() => {
-          setMatch(prevMatch);
-        });
-      }
-      setActionError(nextError instanceof Error ? nextError.message : "Lobby update failed.");
+      await matchMutation.mutateAsync(action);
+    } catch {
+      // onError owns the user-facing message and rollback.
     } finally {
-      if (requestKeyRef.current === requestKey) {
-        setPendingAction(null);
-      }
+      setPendingAction(null);
     }
   }
 
   const shareUrl =
-    match?.isPrivate && match.joinSlug && typeof window !== "undefined"
+    match.isPrivate && match.joinSlug && typeof window !== "undefined"
       ? `${window.location.origin}/matches/${match.matchId}?join=${match.joinSlug}`
       : null;
-  const phaseLabel = formatPhaseLabel(match?.phase ?? null);
+  const phaseLabel = formatPhaseLabel(match.phase);
 
   return (
     <Page width="wide">
       <Section>
         <div {...stylex.props(styles.page)}>
-          {isLoading ? (
-            <Text size="lg" tone="muted">
-              Loading lobby...
-            </Text>
-          ) : !match && pageError ? (
-            <Text size="lg" tone="danger">
-              {pageError}
-            </Text>
-          ) : !match ? (
-            <Text size="lg" tone="muted">
-              Match not found.
-            </Text>
-          ) : (
-            <div {...stylex.props(styles.layout)}>
-              <header {...stylex.props(styles.header)}>
-                <div {...stylex.props(styles.headerCopy)}>
-                  <Kicker xstyle={styles.headerKicker}>{phaseLabel}</Kicker>
-                  <Heading size="display">{match.name}</Heading>
-                  <Text size="lg" tone="strong">
-                    Map {match.mapId} · {match.maxPlayers} players ·{" "}
-                    {match.isPrivate ? "Private invite" : "Open lobby"}
+          <div {...stylex.props(styles.layout)}>
+            <header {...stylex.props(styles.header)}>
+              <div {...stylex.props(styles.headerCopy)}>
+                <Kicker xstyle={styles.headerKicker}>{phaseLabel}</Kicker>
+                <Heading size="display">{match.name}</Heading>
+                <Text size="lg" tone="strong">
+                  Map {match.mapId} · {match.maxPlayers} players ·{" "}
+                  {match.isPrivate ? "Private invite" : "Open lobby"}
+                </Text>
+              </div>
+              <div {...stylex.props(styles.headerFacts)}>
+                <div {...stylex.props(styles.headerFact)}>
+                  <Text size="sm" tone="muted" xstyle={styles.factLabel}>
+                    Creator
+                  </Text>
+                  <Text tone="strong">{match.creatorName}</Text>
+                </div>
+                <div {...stylex.props(styles.headerFact)}>
+                  <Text size="sm" tone="muted" xstyle={styles.factLabel}>
+                    Match Rules
+                  </Text>
+                  <Text tone="strong">
+                    {match.settings.fogEnabled ? "Fog on" : "Fog off"} ·{" "}
+                    {match.settings.startingFunds.toLocaleString()} funds
                   </Text>
                 </div>
-                <div {...stylex.props(styles.headerFacts)}>
-                  <div {...stylex.props(styles.headerFact)}>
+                {shareUrl ? (
+                  <div {...stylex.props(styles.headerFact, styles.headerFactWide)}>
                     <Text size="sm" tone="muted" xstyle={styles.factLabel}>
-                      Creator
+                      Private Join Link
                     </Text>
-                    <Text tone="strong">{match.creatorName}</Text>
-                  </div>
-                  <div {...stylex.props(styles.headerFact)}>
-                    <Text size="sm" tone="muted" xstyle={styles.factLabel}>
-                      Match Rules
-                    </Text>
-                    <Text tone="strong">
-                      {match.settings.fogEnabled ? "Fog on" : "Fog off"} ·{" "}
-                      {match.settings.startingFunds.toLocaleString()} funds
+                    <Text size="sm" tone="strong" xstyle={styles.shareLink}>
+                      {shareUrl}
                     </Text>
                   </div>
-                  {shareUrl ? (
-                    <div {...stylex.props(styles.headerFact, styles.headerFactWide)}>
+                ) : null}
+              </div>
+            </header>
+
+            <div {...stylex.props(styles.mainGrid)}>
+              <Frame as="section" surface="panel" padding="none" xstyle={styles.mapSection}>
+                <div {...stylex.props(styles.mapSectionInner)}>
+                  <div {...stylex.props(styles.sectionHeader)}>
+                    <Kicker>Map</Kicker>
+                    <Heading size="lg">{mapData?.Name ?? `Map ${match.mapId}`}</Heading>
+                    <Text size="sm" tone="muted">
+                      {mapData
+                        ? `${mapData.Author} · ${mapData["Size X"]} × ${mapData["Size Y"]}`
+                        : "Preview the terrain before everyone locks in."}
+                    </Text>
+                  </div>
+
+                  <div {...stylex.props(styles.mapPreviewWrap)}>
+                    <MatchMapPreview
+                      mapId={match.mapId}
+                      runner={previewRunner}
+                      xstyle={styles.previewCanvas}
+                    />
+                  </div>
+
+                  <div {...stylex.props(styles.metaGrid)}>
+                    <div {...stylex.props(styles.metaItem)}>
                       <Text size="sm" tone="muted" xstyle={styles.factLabel}>
-                        Private Join Link
+                        Layout
                       </Text>
-                      <Text size="sm" tone="strong" xstyle={styles.shareLink}>
-                        {shareUrl}
+                      <Text tone="strong">
+                        {mapData
+                          ? `${mapData["Size X"]} × ${mapData["Size Y"]}`
+                          : `${match.maxPlayers} player map`}
                       </Text>
                     </div>
+                    <div {...stylex.props(styles.metaItem)}>
+                      <Text size="sm" tone="muted" xstyle={styles.factLabel}>
+                        Visibility
+                      </Text>
+                      <Text tone="strong">
+                        {match.settings.fogEnabled ? "Fog enabled" : "Clear vision"}
+                      </Text>
+                    </div>
+                    <div {...stylex.props(styles.metaItem)}>
+                      <Text size="sm" tone="muted" xstyle={styles.factLabel}>
+                        Economy
+                      </Text>
+                      <Text tone="strong">
+                        {match.settings.startingFunds.toLocaleString()} starting funds
+                      </Text>
+                    </div>
+                  </div>
+
+                  {mapError ? (
+                    <Text size="sm" tone="danger">
+                      {mapError}
+                    </Text>
                   ) : null}
                 </div>
-              </header>
+              </Frame>
 
-              <div {...stylex.props(styles.mainGrid)}>
-                <Frame as="section" surface="panel" padding="none" xstyle={styles.mapSection}>
-                  <div {...stylex.props(styles.mapSectionInner)}>
-                    <div {...stylex.props(styles.sectionHeader)}>
-                      <Kicker>Map</Kicker>
-                      <Heading size="lg">{mapData?.Name ?? `Map ${match.mapId}`}</Heading>
+              <Frame as="section" surface="panel" padding="none" xstyle={styles.rosterSection}>
+                <div {...stylex.props(styles.rosterSectionInner)}>
+                  <div {...stylex.props(styles.sectionHeader)}>
+                    <Kicker>Roster</Kicker>
+                    <Heading size="lg">Choose CO and army look</Heading>
+                  </div>
+
+                  <div {...stylex.props(styles.statusStack)}>
+                    {actionError ? <Notice tone="danger">{actionError}</Notice> : null}
+                    {!session ? (
                       <Text size="sm" tone="muted">
-                        {mapData
-                          ? `${mapData.Author} · ${mapData["Size X"]} × ${mapData["Size Y"]}`
-                          : "Preview the terrain before everyone locks in."}
+                        Sign in to claim a seat in the lobby.
                       </Text>
-                    </div>
-
-                    <div {...stylex.props(styles.mapPreviewWrap)}>
-                      <MatchMapPreview
-                        mapId={match.mapId}
-                        runner={previewRunner}
-                        xstyle={styles.previewCanvas}
-                      />
-                    </div>
-
-                    <div {...stylex.props(styles.metaGrid)}>
-                      <div {...stylex.props(styles.metaItem)}>
-                        <Text size="sm" tone="muted" xstyle={styles.factLabel}>
-                          Layout
-                        </Text>
-                        <Text tone="strong">
-                          {mapData
-                            ? `${mapData["Size X"]} × ${mapData["Size Y"]}`
-                            : `${match.maxPlayers} player map`}
-                        </Text>
-                      </div>
-                      <div {...stylex.props(styles.metaItem)}>
-                        <Text size="sm" tone="muted" xstyle={styles.factLabel}>
-                          Visibility
-                        </Text>
-                        <Text tone="strong">
-                          {match.settings.fogEnabled ? "Fog enabled" : "Clear vision"}
-                        </Text>
-                      </div>
-                      <div {...stylex.props(styles.metaItem)}>
-                        <Text size="sm" tone="muted" xstyle={styles.factLabel}>
-                          Economy
-                        </Text>
-                        <Text tone="strong">
-                          {match.settings.startingFunds.toLocaleString()} starting funds
-                        </Text>
-                      </div>
-                    </div>
-
-                    {mapError ? (
-                      <Text size="sm" tone="danger">
-                        {mapError}
+                    ) : null}
+                    {match.phase === "starting" ? (
+                      <Text size="sm" tone="muted">
+                        All players are ready. Starting the match...
+                      </Text>
+                    ) : null}
+                    {match.phase === "active" ? (
+                      <Text size="sm" tone="muted">
+                        The match is active. Lobby controls are locked.
                       </Text>
                     ) : null}
                   </div>
-                </Frame>
 
-                <Frame as="section" surface="panel" padding="none" xstyle={styles.rosterSection}>
-                  <div {...stylex.props(styles.rosterSectionInner)}>
-                    <div {...stylex.props(styles.sectionHeader)}>
-                      <Kicker>Roster</Kicker>
-                      <Heading size="lg">Choose CO and army look</Heading>
-                    </div>
+                  <div {...stylex.props(styles.participantList)}>
+                    {Array.from({ length: match.maxPlayers }, (_, slotIndex) => {
+                      const participant = participantsBySlot.get(slotIndex) ?? null;
+                      const isMine = participant?.userId === currentUserId;
+                      const fallbackFactionId =
+                        participant?.factionId ?? defaultFactionIdForSlot(slotIndex);
+                      const faction = getFactionById(fallbackFactionId);
+                      const factionVisual = getFactionVisual(faction?.code ?? "os");
+                      const isInteractive = isMine && match.phase === "lobby";
+                      const isLocked = pendingAction !== null || match.phase !== "lobby";
 
-                    <div {...stylex.props(styles.statusStack)}>
-                      {actionError ? <Notice tone="danger">{actionError}</Notice> : null}
-                      {!session ? (
-                        <Text size="sm" tone="muted">
-                          Sign in to claim a seat in the lobby.
-                        </Text>
-                      ) : null}
-                      {match.phase === "starting" ? (
-                        <Text size="sm" tone="muted">
-                          All players are ready. Starting the match...
-                        </Text>
-                      ) : null}
-                      {match.phase === "active" ? (
-                        <Text size="sm" tone="muted">
-                          The match is active. Lobby controls are locked.
-                        </Text>
-                      ) : null}
-                    </div>
-
-                    <div {...stylex.props(styles.participantList)}>
-                      {Array.from({ length: match.maxPlayers }, (_, slotIndex) => {
-                        const participant = participantsBySlot.get(slotIndex) ?? null;
-                        const isMine = participant?.userId === currentUserId;
-                        const fallbackFactionId =
-                          participant?.factionId ?? defaultFactionIdForSlot(slotIndex);
-                        const faction = getFactionById(fallbackFactionId);
-                        const factionVisual = getFactionVisual(faction?.code ?? "os");
-                        const isInteractive = isMine && match.phase === "lobby";
-                        const isLocked = pendingAction !== null || match.phase !== "lobby";
-
-                        return (
-                          <div
-                            key={slotIndex}
-                            style={{ animationDelay: `${slotIndex * 45}ms` }}
-                            {...stylex.props(
-                              styles.participantCard(factionVisual.accent),
-                              participant === null && styles.participantCardOpen,
-                            )}
-                          >
-                            <PlayerHeader
-                              factionCode={faction?.code ?? "os"}
-                              name={participant ? participant.userName : "Open Seat"}
-                              trailing={
-                                <>
-                                  {participant !== null ? (
-                                    <FactionSelectionControl
-                                      disabled={isLocked}
-                                      factionCode={faction?.code ?? "os"}
-                                      onDark
-                                      onChange={(nextValue) => {
-                                        return submitAction(
-                                          {
-                                            action: "updateParticipant",
-                                            factionId: nextValue,
-                                            joinSlug,
-                                          },
-                                          "faction",
-                                        );
-                                      }}
-                                    />
-                                  ) : null}
-                                  {participant === null ? (
+                      return (
+                        <div
+                          key={slotIndex}
+                          style={{ animationDelay: `${slotIndex * 45}ms` }}
+                          {...stylex.props(
+                            styles.participantCard(factionVisual.accent),
+                            participant === null && styles.participantCardOpen,
+                          )}
+                        >
+                          <PlayerHeader
+                            factionCode={faction?.code ?? "os"}
+                            name={participant ? participant.userName : "Open Seat"}
+                            trailing={
+                              <>
+                                {participant !== null ? (
+                                  <FactionSelectionControl
+                                    disabled={isLocked}
+                                    factionCode={faction?.code ?? "os"}
+                                    onDark
+                                    onChange={(nextValue) => {
+                                      return submitAction(
+                                        {
+                                          action: "updateParticipant",
+                                          factionId: nextValue,
+                                          joinSlug,
+                                        },
+                                        "faction",
+                                      );
+                                    }}
+                                  />
+                                ) : null}
+                                {participant === null ? (
+                                  <Button
+                                    disabled={isLocked || !session || myParticipant !== null}
+                                    onClick={() => {
+                                      void submitAction(
+                                        {
+                                          action: "join",
+                                          slotIndex,
+                                          factionId: defaultFactionIdForSlot(slotIndex),
+                                          joinSlug,
+                                        },
+                                        `join-${slotIndex}`,
+                                      );
+                                    }}
+                                    size="sm"
+                                    tone="brand"
+                                    type="button"
+                                  >
+                                    <PlusIcon width={14} height={14} aria-hidden />
+                                    Claim
+                                  </Button>
+                                ) : isMine ? (
+                                  <>
                                     <Button
-                                      disabled={isLocked || !session || myParticipant !== null}
+                                      aria-label={participant.ready ? "Unready" : "Ready up"}
+                                      disabled={isLocked}
                                       onClick={() => {
                                         void submitAction(
                                           {
-                                            action: "join",
-                                            slotIndex,
-                                            factionId: defaultFactionIdForSlot(slotIndex),
+                                            action: "updateParticipant",
+                                            ready: !participant.ready,
                                             joinSlug,
                                           },
-                                          `join-${slotIndex}`,
+                                          "ready",
                                         );
                                       }}
                                       size="sm"
-                                      tone="brand"
+                                      tone="success"
                                       type="button"
+                                      variant={participant.ready ? "outline" : "solid"}
+                                      xstyle={styles.iconButton}
                                     >
-                                      <PlusIcon width={14} height={14} aria-hidden />
-                                      Claim
+                                      {participant.ready ? (
+                                        <CancelIcon width={14} height={14} aria-hidden />
+                                      ) : (
+                                        <CheckIcon width={14} height={14} aria-hidden />
+                                      )}
                                     </Button>
-                                  ) : isMine ? (
-                                    <>
-                                      <Button
-                                        aria-label={participant.ready ? "Unready" : "Ready up"}
-                                        disabled={isLocked}
-                                        onClick={() => {
-                                          void submitAction(
-                                            {
-                                              action: "updateParticipant",
-                                              ready: !participant.ready,
-                                              joinSlug,
-                                            },
-                                            "ready",
-                                          );
-                                        }}
-                                        size="sm"
-                                        tone="success"
-                                        type="button"
-                                        variant={participant.ready ? "outline" : "solid"}
-                                        xstyle={styles.iconButton}
-                                      >
-                                        {participant.ready ? (
-                                          <CancelIcon width={14} height={14} aria-hidden />
-                                        ) : (
-                                          <CheckIcon width={14} height={14} aria-hidden />
-                                        )}
-                                      </Button>
-                                      <Button
-                                        aria-label="Leave lobby"
-                                        disabled={isLocked}
-                                        onClick={() => {
-                                          void submitAction({ action: "leave" }, "leave");
-                                        }}
-                                        size="sm"
-                                        tone="neutral"
-                                        type="button"
-                                        variant="outline"
-                                        xstyle={styles.iconButton}
-                                      >
-                                        <LogoutIcon width={14} height={14} aria-hidden />
-                                      </Button>
-                                    </>
-                                  ) : null}
-                                </>
-                              }
-                            />
-                            {participant !== null ? (
-                              <div {...stylex.props(styles.participantBody)}>
-                                <CoSelectionControl
-                                  catalog={portraitCatalog}
-                                  coId={participant.coId}
-                                  disabled={isLocked}
-                                  interactive={isInteractive}
-                                  onChange={(nextValue) => {
-                                    void submitAction(
-                                      {
-                                        action: "updateParticipant",
-                                        coId: nextValue,
-                                        joinSlug,
-                                      },
-                                      "co",
-                                    );
-                                  }}
-                                />
-                                <Text
-                                  size="sm"
-                                  tone={participant.ready ? "success" : "muted"}
-                                  xstyle={styles.participantState}
-                                >
-                                  {participant.ready
-                                    ? "Ready"
-                                    : match.phase === "active"
-                                      ? "In match"
-                                      : "Waiting"}
-                                </Text>
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                    </div>
+                                    <Button
+                                      aria-label="Leave lobby"
+                                      disabled={isLocked}
+                                      onClick={() => {
+                                        void submitAction({ action: "leave" }, "leave");
+                                      }}
+                                      size="sm"
+                                      tone="neutral"
+                                      type="button"
+                                      variant="outline"
+                                      xstyle={styles.iconButton}
+                                    >
+                                      <LogoutIcon width={14} height={14} aria-hidden />
+                                    </Button>
+                                  </>
+                                ) : null}
+                              </>
+                            }
+                          />
+                          {participant !== null ? (
+                            <div {...stylex.props(styles.participantBody)}>
+                              <CoSelectionControl
+                                catalog={portraitCatalog}
+                                coId={participant.coId}
+                                disabled={isLocked}
+                                interactive={isInteractive}
+                                onChange={(nextValue) => {
+                                  void submitAction(
+                                    {
+                                      action: "updateParticipant",
+                                      coId: nextValue,
+                                      joinSlug,
+                                    },
+                                    "co",
+                                  );
+                                }}
+                              />
+                              <Text
+                                size="sm"
+                                tone={participant.ready ? "success" : "muted"}
+                                xstyle={styles.participantState}
+                              >
+                                {participant.ready
+                                  ? "Ready"
+                                  : match.phase === "active"
+                                    ? "In match"
+                                    : "Waiting"}
+                              </Text>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </div>
-                </Frame>
-              </div>
+                </div>
+              </Frame>
             </div>
-          )}
+          </div>
         </div>
       </Section>
     </Page>

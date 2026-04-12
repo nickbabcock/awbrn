@@ -1,8 +1,9 @@
 /// <reference types="vite/client" />
-import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
+import type { QueryClient } from "@tanstack/react-query";
+import { HeadContent, Outlet, Scripts, createRootRouteWithContext } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
-import { getSessionFn } from "#/auth/auth.functions.ts";
+import { sessionQueryOptions } from "#/auth/auth.queries.ts";
 import { DefaultCatchBoundary } from "#/components/DefaultCatchBoundary.tsx";
 import { NotFound } from "#/components/NotFound.tsx";
 import { GameRuntimeProvider } from "#/engine/runtime_context.tsx";
@@ -11,7 +12,9 @@ import { DevStyleXInject } from "#/styles/DevStyleXInject.tsx";
 import resetCss from "#/styles/reset.css?url";
 import { appTheme, rootStyles } from "#/ui/theme.stylex.ts";
 
-export const Route = createRootRoute({
+export const Route = createRootRouteWithContext<{
+  queryClient: QueryClient;
+}>()({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -20,7 +23,7 @@ export const Route = createRootRoute({
     ],
     links: [{ rel: "stylesheet", href: resetCss }],
   }),
-  loader: () => getSessionFn(),
+  loader: ({ context }) => context.queryClient.ensureQueryData(sessionQueryOptions()),
   errorComponent: DefaultCatchBoundary,
   notFoundComponent: () => <NotFound />,
   component: RootComponent,

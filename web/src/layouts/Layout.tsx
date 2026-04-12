@@ -1,10 +1,13 @@
+import { useQueryClient } from "@tanstack/react-query";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { authClient } from "#/auth/client.ts";
+import { authKeys } from "#/auth/auth.keys.ts";
 import { useAppSession } from "#/auth/useAppSession.ts";
+import { matchKeys } from "#/matches/matches.keys.ts";
 import { Button, ButtonLink, Text, Wordmark } from "#/ui/primitives.tsx";
 import { media, tokens } from "#/ui/theme.stylex.ts";
 
@@ -149,6 +152,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const session = useAppSession();
   const navigate = useNavigate();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
 
@@ -168,6 +172,11 @@ export function Layout({ children }: { children: ReactNode }) {
         return;
       }
 
+      queryClient.removeQueries({ queryKey: matchKeys.mine() });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: authKeys.all }),
+        queryClient.invalidateQueries({ queryKey: matchKeys.details() }),
+      ]);
       await router.invalidate();
       await navigate({ to: "/" });
     } catch (error) {

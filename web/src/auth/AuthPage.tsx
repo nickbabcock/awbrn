@@ -1,8 +1,11 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import { authClient } from "./client";
 import { authSignInSchema, authSignUpSchema } from "./schemas";
+import { authKeys } from "./auth.keys";
+import { matchKeys } from "#/matches/matches.keys.ts";
 import {
   Button,
   Frame,
@@ -19,6 +22,7 @@ import { tokens } from "#/ui/theme.stylex.ts";
 export function AuthPage({ isRegister }: { isRegister: boolean }) {
   const navigate = useNavigate();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -38,6 +42,11 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
         throw new Error(result.error.message ?? "Authentication failed");
       }
 
+      queryClient.removeQueries({ queryKey: matchKeys.mine() });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: authKeys.all }),
+        queryClient.invalidateQueries({ queryKey: matchKeys.details() }),
+      ]);
       await router.invalidate();
       await navigate({ to: "/" });
     } catch (nextError) {
