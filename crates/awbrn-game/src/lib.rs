@@ -135,6 +135,7 @@ impl Plugin for GameWorldPlugin {
             .register_type::<MapPosition>()
             .register_type::<world::Faction>()
             .register_type::<world::Unit>()
+            .register_type::<world::UnitHp>()
             .register_type::<world::Fuel>()
             .register_type::<world::Ammo>()
             .register_type::<world::VisionRange>()

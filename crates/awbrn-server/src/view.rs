@@ -500,7 +500,7 @@ mod tests {
     use super::*;
     use crate::setup::{GameSetup, PlayerSetup, initialize_server_world};
     use awbrn_map::AwbrnMap;
-    use awbrn_types::{GraphicalTerrain, Weather};
+    use awbrn_types::{Co, GraphicalTerrain, Weather};
 
     fn single_player_setup(width: usize, height: usize) -> GameSetup {
         GameSetup {
@@ -509,9 +509,10 @@ mod tests {
                 faction: PlayerFaction::OrangeStar,
                 team: None,
                 starting_funds: 1000,
-                co_id: None,
+                co: Co::Andy,
             }],
             fog_enabled: true,
+            rng_seed: 0,
         }
     }
 

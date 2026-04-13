@@ -1,5 +1,6 @@
 mod apply;
 pub mod command;
+mod damage;
 pub mod error;
 mod player;
 pub mod server;
@@ -10,7 +11,9 @@ mod validate;
 mod view;
 mod wasm;
 
+pub use awbrn_types::{Co, CoStats};
 pub use command::{GameCommand, PostMoveAction};
+pub use damage::CombatOutcome;
 pub use error::CommandError;
 pub use player::{PlayerId, PlayerRegistry};
 pub use server::GameServer;

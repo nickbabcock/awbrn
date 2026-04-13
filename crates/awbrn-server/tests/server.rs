@@ -4,7 +4,7 @@ use awbrn_map::{AwbrnMap, Position};
 use awbrn_types::{GraphicalTerrain, PlayerFaction};
 
 use awbrn_server::{
-    CommandError, GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup, PostMoveAction,
+    Co, CommandError, GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup, PostMoveAction,
     ServerUnitId, SetupError,
 };
 
@@ -16,16 +16,17 @@ fn two_player_setup(width: usize, height: usize) -> GameSetup {
                 faction: PlayerFaction::OrangeStar,
                 team: None,
                 starting_funds: 1000,
-                co_id: None,
+                co: Co::Andy,
             },
             PlayerSetup {
                 faction: PlayerFaction::BlueMoon,
                 team: None,
                 starting_funds: 1000,
-                co_id: None,
+                co: Co::Andy,
             },
         ],
         fog_enabled: false,
+        rng_seed: 0,
     }
 }
 
@@ -43,6 +44,7 @@ fn server_rejects_empty_player_setup() {
         map: AwbrnMap::new(5, 5, GraphicalTerrain::Plain),
         players: Vec::new(),
         fog_enabled: false,
+        rng_seed: 0,
     })
     .err()
     .unwrap();
@@ -64,11 +66,12 @@ fn server_rejects_more_than_255_players() {
                 faction: PlayerFaction::OrangeStar,
                 team: None,
                 starting_funds: 1000,
-                co_id: None,
+                co: Co::Andy,
             };
             256
         ],
         fog_enabled: false,
+        rng_seed: 0,
     })
     .err()
     .unwrap();
@@ -452,16 +455,17 @@ fn allied_units_share_fuel_and_ammo_visibility() {
                 faction: PlayerFaction::OrangeStar,
                 team: Some(NonZeroU8::new(1).unwrap()),
                 starting_funds: 1000,
-                co_id: None,
+                co: Co::Andy,
             },
             PlayerSetup {
                 faction: PlayerFaction::BlueMoon,
                 team: Some(NonZeroU8::new(1).unwrap()),
                 starting_funds: 1000,
-                co_id: None,
+                co: Co::Andy,
             },
         ],
         fog_enabled: false,
+        rng_seed: 0,
     })
     .unwrap();
 

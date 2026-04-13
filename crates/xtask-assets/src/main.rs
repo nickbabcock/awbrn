@@ -2179,9 +2179,9 @@ fn render_co_portrait_lookup(
     }
     output.push_str("];\n\n");
     output.push_str(
-        "pub const fn co_portrait_by_awbw_id(awbw_id: u32) -> Option<CoPortraitMetadata> {\n",
+        "pub const fn co_portrait_by_awbw_id(awbw_id: AwbwCoId) -> Option<CoPortraitMetadata> {\n",
     );
-    output.push_str("    match awbw_id {\n");
+    output.push_str("    match awbw_id.as_u32() {\n");
     for portrait in portraits {
         output.push_str(&format!(
             "        {} => Some(CoPortraitMetadata::new(\"{}\", \"{}\", {})),\n",

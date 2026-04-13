@@ -330,7 +330,7 @@ fn replay_loaded_player(player: &AwbwPlayer, team_game: bool) -> ReplayLoadedPla
     if co.is_none() {
         warn!(
             "Unknown active CO id {} for replay player {}",
-            player.co_id,
+            player.co_id.as_u32(),
             player.id.as_u32()
         );
     }
@@ -340,7 +340,7 @@ fn replay_loaded_player(player: &AwbwPlayer, team_game: bool) -> ReplayLoadedPla
         if portrait.is_none() {
             warn!(
                 "Unknown tag CO id {} for replay player {}",
-                co_id,
+                co_id.as_u32(),
                 player.id.as_u32()
             );
         }
@@ -581,8 +581,22 @@ mod tests {
                 aet_date: "2026-03-28".to_string(),
                 use_powers: true,
                 players: vec![
-                    test_player(2, 2, PlayerFaction::BlueMoon, 30, Some(31), "B"),
-                    test_player(1, 1, PlayerFaction::OrangeStar, 11, None, "A"),
+                    test_player(
+                        2,
+                        2,
+                        PlayerFaction::BlueMoon,
+                        awbrn_types::AwbwCoId::new(30),
+                        Some(awbrn_types::AwbwCoId::new(31)),
+                        "B",
+                    ),
+                    test_player(
+                        1,
+                        1,
+                        PlayerFaction::OrangeStar,
+                        awbrn_types::AwbwCoId::new(11),
+                        None,
+                        "A",
+                    ),
                 ],
                 buildings: Vec::new(),
                 units: Vec::new(),
@@ -648,8 +662,8 @@ mod tests {
                     1,
                     1,
                     PlayerFaction::OrangeStar,
-                    999,
-                    Some(888),
+                    awbrn_types::AwbwCoId::new(999),
+                    Some(awbrn_types::AwbwCoId::new(888)),
                     "A",
                 )],
                 buildings: Vec::new(),
@@ -674,8 +688,8 @@ mod tests {
         player_id: u32,
         order: u32,
         faction: PlayerFaction,
-        co_id: u32,
-        tag_co_id: Option<u32>,
+        co_id: awbrn_types::AwbwCoId,
+        tag_co_id: Option<awbrn_types::AwbwCoId>,
         team: &str,
     ) -> AwbwPlayer {
         AwbwPlayer {

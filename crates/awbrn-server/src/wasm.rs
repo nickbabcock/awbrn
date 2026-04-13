@@ -8,6 +8,7 @@ use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
 use crate::{GameServer, GameSetup, PlayerSetup};
+use awbrn_types::{AwbwCoId, Co};
 
 #[wasm_bindgen]
 pub struct WasmMatch {
@@ -55,6 +56,9 @@ pub struct MatchSetupInput {
     pub players: Vec<PlayerSetupInput>,
     pub fog_enabled: bool,
     pub starting_funds: u32,
+    #[serde(default)]
+    #[tsify(optional)]
+    pub rng_seed: Option<u64>,
 }
 
 #[derive(Tsify, Deserialize)]
@@ -87,15 +91,20 @@ impl TryFrom<MatchSetupInput> for GameSetup {
                 .players
                 .into_iter()
                 .map(|player| {
+                    let co_id = AwbwCoId::new(player.co_id);
+                    let co = Co::from_awbw_id(co_id)
+                        .ok_or_else(|| format!("unknown AWBW coId {}", co_id.as_u32()))?;
+
                     Ok(PlayerSetup {
                         faction: player.resolve_faction()?,
                         team: player.team,
                         starting_funds: player.starting_funds,
-                        co_id: Some(player.co_id),
+                        co,
                     })
                 })
                 .collect::<Result<Vec<_>, String>>()?,
             fog_enabled: value.fog_enabled,
+            rng_seed: value.rng_seed.unwrap_or(0),
         })
     }
 }

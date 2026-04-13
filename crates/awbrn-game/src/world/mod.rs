@@ -15,6 +15,6 @@ pub use id_index::StrongIdMap;
 pub use map::{GameMap, TerrainHp, TerrainTile, initialize_terrain_semantic_world};
 pub use units::{
     Ammo, Capturing, Cargo, CarriedBy, Faction, Fuel, GraphicalHp, HasCargo, Hiding, Unit,
-    UnitActive, UnitDestroyed, VisionRange,
+    UnitActive, UnitDestroyed, UnitHp, VisionRange,
 };
 pub use weather::CurrentWeather;

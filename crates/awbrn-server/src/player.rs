@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::num::NonZeroU8;
 
-use awbrn_types::PlayerFaction;
+use awbrn_types::{Co, CoStats, PlayerFaction};
 
 /// Opaque player identifier assigned by the server at game creation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -16,6 +16,7 @@ pub struct PlayerSlot {
     pub team: Option<NonZeroU8>,
     pub funds: u32,
     pub eliminated: bool,
+    pub co: Co,
 }
 
 /// Manages the set of players and turn order. Stored as a Bevy resource.
@@ -43,6 +44,10 @@ impl PlayerRegistry {
 
     pub fn faction_for_player(&self, player: PlayerId) -> Option<PlayerFaction> {
         self.get(player).map(|p| p.faction)
+    }
+
+    pub fn co_stats_for_player(&self, player: PlayerId) -> Option<CoStats> {
+        self.get(player).map(|slot| slot.co.stats())
     }
 
     /// Get the set of factions friendly to the given player (same team, or just

@@ -249,9 +249,9 @@ mod tests {
     use super::*;
     use crate::command::GameCommand;
     use crate::setup::{GameSetup, PlayerSetup, initialize_server_world};
-    use awbrn_game::world::GraphicalHp;
+    use awbrn_game::world::{Ammo, UnitHp, VisionRange};
     use awbrn_map::AwbrnMap;
-    use awbrn_types::{GraphicalTerrain, PlayerFaction};
+    use awbrn_types::{Co, GraphicalTerrain, PlayerFaction};
     use std::num::NonZeroU8;
 
     fn test_world(map: AwbrnMap) -> World {
@@ -261,7 +261,7 @@ mod tests {
                 faction: PlayerFaction::OrangeStar,
                 team: None,
                 starting_funds: 1000,
-                co_id: None,
+                co: Co::Andy,
             }],
         )
     }
@@ -271,6 +271,7 @@ mod tests {
             map,
             players,
             fog_enabled: false,
+            rng_seed: 0,
         })
         .unwrap()
     }
@@ -289,9 +290,12 @@ mod tests {
                 MapPosition::from(position),
                 Unit(unit_type),
                 Faction(faction),
+                UnitHp(awbrn_types::ExactHp::new(100)),
                 Fuel(fuel),
-                GraphicalHp(10),
+                Ammo(unit_type.max_ammo()),
+                VisionRange(unit_type.base_vision()),
                 UnitActive,
+                unit_id,
             ))
             .id();
         world
@@ -369,13 +373,13 @@ mod tests {
                     faction: PlayerFaction::OrangeStar,
                     team: None,
                     starting_funds: 1000,
-                    co_id: None,
+                    co: Co::Andy,
                 },
                 PlayerSetup {
                     faction: PlayerFaction::BlueMoon,
                     team: None,
                     starting_funds: 1000,
-                    co_id: None,
+                    co: Co::Andy,
                 },
             ],
         );
@@ -422,13 +426,13 @@ mod tests {
                     faction: PlayerFaction::OrangeStar,
                     team: Some(NonZeroU8::new(1).unwrap()),
                     starting_funds: 1000,
-                    co_id: None,
+                    co: Co::Andy,
                 },
                 PlayerSetup {
                     faction: PlayerFaction::BlueMoon,
                     team: Some(NonZeroU8::new(1).unwrap()),
                     starting_funds: 1000,
-                    co_id: None,
+                    co: Co::Andy,
                 },
             ],
         );
