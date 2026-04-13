@@ -13,6 +13,20 @@ impl AwbwFactionId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AwbwCoId(u32);
+
+impl AwbwCoId {
+    pub const fn new(x: u32) -> Self {
+        Self(x)
+    }
+
+    pub const fn as_u32(self) -> u32 {
+        self.0
+    }
+}
+
 /// Global ID used across all games on AWBW
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct AwbwPlayerId(u32);

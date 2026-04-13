@@ -41,6 +41,39 @@ pub enum UnitDomain {
 }
 
 impl Unit {
+    pub const COUNT: usize = <Self as strum::EnumCount>::COUNT;
+
+    /// Stable dense index for tables keyed by [`Unit`].
+    pub const fn table_index(self) -> usize {
+        match self {
+            Unit::AntiAir => 0,
+            Unit::APC => 1,
+            Unit::Artillery => 2,
+            Unit::BCopter => 3,
+            Unit::Battleship => 4,
+            Unit::BlackBoat => 5,
+            Unit::BlackBomb => 6,
+            Unit::Bomber => 7,
+            Unit::Carrier => 8,
+            Unit::Cruiser => 9,
+            Unit::Fighter => 10,
+            Unit::Infantry => 11,
+            Unit::Lander => 12,
+            Unit::MdTank => 13,
+            Unit::Mech => 14,
+            Unit::MegaTank => 15,
+            Unit::Missile => 16,
+            Unit::NeoTank => 17,
+            Unit::PipeRunner => 18,
+            Unit::Recon => 19,
+            Unit::Rocket => 20,
+            Unit::Stealth => 21,
+            Unit::Sub => 22,
+            Unit::TCopter => 23,
+            Unit::Tank => 24,
+        }
+    }
+
     /// Get the display name of this unit
     pub const fn name(&self) -> &'static str {
         match self {

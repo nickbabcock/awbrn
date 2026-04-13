@@ -36,8 +36,8 @@ pub const CO_PORTRAITS: [CoPortraitMetadata; 29] = [
     CoPortraitMetadata::new("no-co", "No CO", 31),
 ];
 
-pub const fn co_portrait_by_awbw_id(awbw_id: u32) -> Option<CoPortraitMetadata> {
-    match awbw_id {
+pub const fn co_portrait_by_awbw_id(awbw_id: AwbwCoId) -> Option<CoPortraitMetadata> {
+    match awbw_id.as_u32() {
         1 => Some(CoPortraitMetadata::new("andy", "Andy", 1)),
         2 => Some(CoPortraitMetadata::new("grit", "Grit", 2)),
         3 => Some(CoPortraitMetadata::new("kanbei", "Kanbei", 3)),

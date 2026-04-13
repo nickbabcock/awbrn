@@ -1,6 +1,8 @@
 use bevy::ecs::entity::MapEntities;
+use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::reflect::ReflectMapEntities;
 use bevy::ecs::relationship::RelationshipSourceCollection;
+use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 
 #[derive(EntityEvent)]
@@ -141,6 +143,22 @@ impl GraphicalHp {
         self.0 == 0
     }
 }
+
+fn sync_graphical_hp(mut world: DeferredWorld, HookContext { entity, .. }: HookContext) {
+    let Some(exact) = world.entity(entity).get::<UnitHp>().copied() else {
+        return;
+    };
+
+    world
+        .commands()
+        .entity(entity)
+        .insert(GraphicalHp(exact.0.visual().get()));
+}
+
+#[derive(Debug, Component, Reflect, Clone, Copy, PartialEq, Eq, Hash)]
+#[component(immutable, on_insert = sync_graphical_hp)]
+#[reflect(Component)]
+pub struct UnitHp(pub awbrn_types::ExactHp);
 
 #[derive(Debug, Component, Reflect, Clone, Copy, PartialEq, Eq, Hash)]
 #[component(immutable)]

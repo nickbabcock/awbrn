@@ -73,7 +73,7 @@ impl GameServer {
                 awbrn_game::MapPosition::from(position),
                 awbrn_game::world::Unit(unit_type),
                 awbrn_game::world::Faction(faction),
-                awbrn_game::world::GraphicalHp(10),
+                awbrn_game::world::UnitHp(awbrn_types::ExactHp::new(100)),
                 awbrn_game::world::Fuel(unit_type.max_fuel()),
                 awbrn_game::world::Ammo(unit_type.max_ammo()),
                 awbrn_game::world::VisionRange(unit_type.base_vision()),

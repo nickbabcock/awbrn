@@ -1,7 +1,7 @@
 use crate::de::{bool_ynstr, deserialize_sub_dive, non_negative_u32, values_only};
 use awbrn_types::{
-    AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId, AwbwTerrain, AwbwUnitId, PlayerFaction,
-    Unit,
+    AwbwCoId, AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId, AwbwTerrain, AwbwUnitId, Co,
+    PlayerFaction, Unit,
 };
 use serde::{Deserialize, Serialize};
 
@@ -62,7 +62,7 @@ pub struct AwbwPlayer {
     pub games_id: AwbwGameId,
     #[serde(alias = "countries_id", with = "player_faction_id")]
     pub faction: PlayerFaction,
-    pub co_id: u32,
+    pub co_id: AwbwCoId,
     pub funds: u32,
     pub turn: Option<String>,
     pub email: Option<String>,
@@ -85,12 +85,22 @@ pub struct AwbwPlayer {
     pub aet_count: u32,
     pub turn_start: String,
     pub turn_clock: u32,
-    pub tags_co_id: Option<u32>,
+    pub tags_co_id: Option<AwbwCoId>,
     pub tags_co_power: Option<u32>,
     pub tags_co_max_power: Option<u32>,
     pub tags_co_max_spower: Option<u32>,
     #[serde(deserialize_with = "bool_ynstr")]
     pub interface: bool,
+}
+
+impl AwbwPlayer {
+    pub fn co(&self) -> Option<Co> {
+        Co::from_awbw_id(self.co_id)
+    }
+
+    pub fn tag_co(&self) -> Option<Co> {
+        self.tags_co_id.and_then(Co::from_awbw_id)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]

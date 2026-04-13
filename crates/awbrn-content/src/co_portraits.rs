@@ -1,8 +1,10 @@
+use awbrn_types::AwbwCoId;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CoPortraitMetadata {
     key: &'static str,
     display_name: &'static str,
-    awbw_id: u32,
+    awbw_id: AwbwCoId,
 }
 
 impl CoPortraitMetadata {
@@ -10,7 +12,7 @@ impl CoPortraitMetadata {
         Self {
             key,
             display_name,
-            awbw_id,
+            awbw_id: AwbwCoId::new(awbw_id),
         }
     }
 
@@ -22,7 +24,7 @@ impl CoPortraitMetadata {
         self.display_name
     }
 
-    pub const fn awbw_id(&self) -> u32 {
+    pub const fn awbw_id(&self) -> AwbwCoId {
         self.awbw_id
     }
 }
