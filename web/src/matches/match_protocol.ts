@@ -1,3 +1,6 @@
+import type { AwbwMapData } from "#/awbw/schemas.ts";
+import type { MatchSetup } from "./schemas.ts";
+
 export interface MatchError {
   code: string;
   message: string;
@@ -16,6 +19,32 @@ export interface MatchFailure {
 }
 
 export type MatchResult<T> = MatchSuccess<T> | MatchFailure;
+
+export interface InitialBoardMessage {
+  type: "initialBoard";
+  mapId: number;
+  map: AwbwMapData;
+}
+
+export interface ConnectedMessage {
+  type: "connected";
+  slotIndex: number | null;
+}
+
+export interface AckMessage {
+  type: "ack";
+}
+
+export interface ErrorMessage {
+  type: "error";
+  message: string;
+}
+
+export type MatchWebSocketMessage =
+  | InitialBoardMessage
+  | ConnectedMessage
+  | AckMessage
+  | ErrorMessage;
 
 export function ok<T>(value: T): MatchSuccess<T> {
   return { ok: true, value };
@@ -71,6 +100,23 @@ export function normalizeCaughtError(error: unknown): MatchFailure {
   return err("internalError", "unexpected match failure", 500, {
     reason: error instanceof Error ? error.message : String(error),
   });
+}
+
+export function initialMatchConnectionMessages(
+  setup: Pick<MatchSetup, "mapId" | "map">,
+  slotIndex: number | null,
+): [InitialBoardMessage, ConnectedMessage] {
+  return [
+    {
+      type: "initialBoard",
+      mapId: setup.mapId,
+      map: setup.map,
+    },
+    {
+      type: "connected",
+      slotIndex,
+    },
+  ];
 }
 
 const WASM_ERROR_PREFIX = "AWBRN_MATCH_ERROR:";

@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -14,7 +15,9 @@ export const user = sqliteTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: integer("emailVerified", { mode: "boolean" }).notNull(),
   image: text("image"),
-  createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
   updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
 });
 
@@ -24,7 +27,9 @@ export const session = sqliteTable(
     id: text("id").primaryKey(),
     expiresAt: integer("expiresAt", { mode: "timestamp" }).notNull(),
     token: text("token").notNull().unique(),
-    createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+    createdAt: integer("createdAt", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
     updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
     ipAddress: text("ipAddress"),
     userAgent: text("userAgent"),
@@ -51,7 +56,9 @@ export const account = sqliteTable(
     refreshTokenExpiresAt: integer("refreshTokenExpiresAt", { mode: "timestamp" }),
     scope: text("scope"),
     password: text("password"),
-    createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+    createdAt: integer("createdAt", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
     updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
   },
   (t) => [index("account_userId_idx").on(t.userId)],
@@ -64,7 +71,7 @@ export const verification = sqliteTable(
     identifier: text("identifier").notNull(),
     value: text("value").notNull(),
     expiresAt: integer("expiresAt", { mode: "timestamp" }).notNull(),
-    createdAt: integer("createdAt", { mode: "timestamp" }),
+    createdAt: integer("createdAt", { mode: "timestamp" }).default(sql`(unixepoch())`),
     updatedAt: integer("updatedAt", { mode: "timestamp" }),
   },
   (t) => [index("verification_identifier_idx").on(t.identifier)],
@@ -84,7 +91,9 @@ export const matches = sqliteTable(
     isPrivate: integer("isPrivate", { mode: "boolean" }).notNull(),
     joinSlug: text("joinSlug"),
     settings: text("settings", { mode: "json" }).$type<MatchSettings>().notNull(),
-    createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+    createdAt: integer("createdAt", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
     updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
     startedAt: integer("startedAt", { mode: "timestamp" }),
     completedAt: integer("completedAt", { mode: "timestamp" }),

@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { MatchWebSocketMessage } from "./match_protocol.ts";
 
 export type MatchWebSocketStatus = "connecting" | "connected" | "disconnected" | "error";
-
-export interface MatchWebSocketMessage {
-  type: string;
-  [key: string]: unknown;
-}
 
 export interface MatchWebSocket {
   status: MatchWebSocketStatus;

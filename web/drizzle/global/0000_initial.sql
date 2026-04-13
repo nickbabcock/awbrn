@@ -10,7 +10,7 @@ CREATE TABLE `account` (
 	`refreshTokenExpiresAt` integer,
 	`scope` text,
 	`password` text,
-	`createdAt` integer NOT NULL,
+	`createdAt` integer NOT NULL DEFAULT (unixepoch()),
 	`updatedAt` integer NOT NULL,
 	FOREIGN KEY (`userId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
 );
@@ -42,7 +42,7 @@ CREATE TABLE `matches` (
 	`isPrivate` integer NOT NULL,
 	`joinSlug` text,
 	`settings` text NOT NULL,
-	`createdAt` integer NOT NULL,
+	`createdAt` integer NOT NULL DEFAULT (unixepoch()),
 	`updatedAt` integer NOT NULL,
 	`startedAt` integer,
 	`completedAt` integer,
@@ -56,7 +56,7 @@ CREATE TABLE `session` (
 	`id` text PRIMARY KEY NOT NULL,
 	`expiresAt` integer NOT NULL,
 	`token` text NOT NULL,
-	`createdAt` integer NOT NULL,
+	`createdAt` integer NOT NULL DEFAULT (unixepoch()),
 	`updatedAt` integer NOT NULL,
 	`ipAddress` text,
 	`userAgent` text,
@@ -72,7 +72,7 @@ CREATE TABLE `user` (
 	`email` text NOT NULL,
 	`emailVerified` integer NOT NULL,
 	`image` text,
-	`createdAt` integer NOT NULL,
+	`createdAt` integer NOT NULL DEFAULT (unixepoch()),
 	`updatedAt` integer NOT NULL
 );
 --> statement-breakpoint
@@ -82,7 +82,7 @@ CREATE TABLE `verification` (
 	`identifier` text NOT NULL,
 	`value` text NOT NULL,
 	`expiresAt` integer NOT NULL,
-	`createdAt` integer,
+	`createdAt` integer DEFAULT (unixepoch()),
 	`updatedAt` integer
 );
 --> statement-breakpoint

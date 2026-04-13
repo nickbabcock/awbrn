@@ -54,4 +54,23 @@ describe("GameRuntimeRegistry", () => {
     expect(lobbyRunner.dispose).toHaveBeenCalledTimes(1);
     expect(matchesNewRunner.dispose).not.toHaveBeenCalled();
   });
+
+  it("uses a separate active match runner and disposes stale lobby preview state", () => {
+    const registry = new GameRuntimeRegistry(() => new TestRunner());
+    const lobbyRunner = registry.getPreviewRunner("match-lobby");
+    const activeRunner = registry.getActiveMatchRunner();
+
+    expect(activeRunner).not.toBe(lobbyRunner);
+    expect(lobbyRunner.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("disposes the active match runner when leaving a match route", () => {
+    const registry = new GameRuntimeRegistry(() => new TestRunner());
+    const activeRunner = registry.getActiveMatchRunner();
+
+    registry.syncPathname("/matches/abc123");
+    registry.syncPathname("/matches");
+
+    expect(activeRunner.dispose).toHaveBeenCalledTimes(1);
+  });
 });
