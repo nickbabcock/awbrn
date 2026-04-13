@@ -1,6 +1,6 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
 import * as stylex from "@stylexjs/stylex";
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CoPortrait } from "#/components/CoPortrait.tsx";
 import {
   DEFAULT_CO_PORTRAIT_KEY,
@@ -14,13 +14,22 @@ import { Frame, Heading, Kicker, Page, Section, Text } from "#/ui/primitives.tsx
 import { tokens } from "#/ui/theme.stylex.ts";
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
 import { useMatchWebSocket } from "#/matches/match_websocket.ts";
+import type { InitialBoardMessage, MatchWebSocketMessage } from "#/matches/match_protocol.ts";
+import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
+import { useActiveMatchRunner } from "#/engine/runtime_context.tsx";
+import type { GameRunner } from "#/engine/game_runner.ts";
 
 export function MatchActivePage({ matchId }: { matchId: string }) {
   const { data: match } = useSuspenseQuery(matchDetailQueryOptions(matchId, null));
   const portraitCatalog = useMemo(() => loadCoPortraitCatalog(), []);
-  const { status } = useMatchWebSocket(matchId, (_msg) => {
-    // TODO: apply incoming game events to local state
-  });
+  const runner = useActiveMatchRunner();
+  const [initialBoard, setInitialBoard] = useState<InitialBoardMessage | null>(null);
+  const handleMatchMessage = useCallback((msg: MatchWebSocketMessage) => {
+    if (msg.type === "initialBoard") {
+      setInitialBoard(msg);
+    }
+  }, []);
+  const { status } = useMatchWebSocket(matchId, handleMatchMessage);
 
   return (
     <Page width="wide">
@@ -39,19 +48,7 @@ export function MatchActivePage({ matchId }: { matchId: string }) {
 
           <div {...stylex.props(styles.mainGrid)}>
             <Frame as="section" surface="panel" padding="none" xstyle={styles.gameSection}>
-              <div {...stylex.props(styles.gamePlaceholder)}>
-                <Kicker>Game Board</Kicker>
-                <Text tone="muted">
-                  {status === "connected"
-                    ? "Connected. Game canvas will render here."
-                    : status === "connecting"
-                      ? "Connecting to match..."
-                      : status === "error"
-                        ? "Connection error — retrying."
-                        : "Disconnected — reconnecting."}
-                </Text>
-                <div {...stylex.props(styles.statusDot(status))} />
-              </div>
+              <ActiveMatchBoard runner={runner} initialBoard={initialBoard} status={status} />
             </Frame>
 
             <Frame as="section" surface="panel" padding="none" xstyle={styles.rosterSection}>
@@ -99,6 +96,70 @@ export function MatchActivePage({ matchId }: { matchId: string }) {
   );
 }
 
+function ActiveMatchBoard({
+  runner,
+  initialBoard,
+  status,
+}: {
+  runner: GameRunner;
+  initialBoard: InitialBoardMessage | null;
+  status: string;
+}) {
+  const { canvasRef, surfaceRef } = useCanvasCourierSurface({
+    controller: runner,
+  });
+
+  useEffect(() => {
+    if (!initialBoard) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void Promise.resolve()
+      .then(async () => {
+        if (!cancelled) {
+          await runner.loadMatchMap(initialBoard.map);
+        }
+      })
+      .catch((error) => {
+        console.error("Error loading match map:", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialBoard, runner]);
+
+  return (
+    <div {...stylex.props(styles.gameBoardShell)}>
+      <div ref={surfaceRef} {...stylex.props(styles.gameSurface)}>
+        <canvas
+          ref={canvasRef}
+          width={960}
+          height={640}
+          tabIndex={0}
+          {...stylex.props(styles.gameCanvas)}
+        />
+      </div>
+      <div {...stylex.props(styles.boardStatus)}>
+        <div {...stylex.props(styles.statusDot(status))} />
+        <Text size="sm" tone={status === "connected" ? "strong" : "muted"}>
+          {initialBoard
+            ? `${initialBoard.map.Name} loaded from match state`
+            : status === "connected"
+              ? "Waiting for board state..."
+              : status === "connecting"
+                ? "Connecting to match..."
+                : status === "error"
+                  ? "Connection error — retrying."
+                  : "Disconnected — reconnecting."}
+        </Text>
+      </div>
+    </div>
+  );
+}
+
 const STATUS_COLORS: Record<string, string> = {
   connected: "#4ade80",
   connecting: "#facc15",
@@ -134,14 +195,44 @@ const styles = stylex.create({
     alignItems: "start",
   },
   gameSection: {
-    overflow: "visible",
-    minHeight: 360,
+    overflow: "hidden",
+    minHeight: 520,
   },
-  gamePlaceholder: {
+  gameBoardShell: {
+    position: "relative",
     display: "grid",
-    gap: tokens.space3,
-    padding: tokens.space6,
-    alignContent: "start",
+    minHeight: 520,
+    backgroundColor: "#0b1020",
+  },
+  gameSurface: {
+    width: "100%",
+    height: 520,
+    overflow: "hidden",
+  },
+  gameCanvas: {
+    display: "block",
+    width: "100%",
+    height: "100%",
+    imageRendering: "pixelated",
+    outline: "none",
+  },
+  boardStatus: {
+    position: "absolute",
+    left: tokens.space4,
+    bottom: tokens.space4,
+    display: "flex",
+    alignItems: "center",
+    gap: tokens.space2,
+    maxWidth: "calc(100% - 32px)",
+    paddingTop: tokens.space2,
+    paddingRight: tokens.space3,
+    paddingBottom: tokens.space2,
+    paddingLeft: tokens.space3,
+    borderWidth: 2,
+    borderStyle: "solid",
+    borderColor: tokens.strokeHeavy,
+    borderRadius: tokens.radius2,
+    backgroundColor: "rgba(11, 16, 32, 0.88)",
   },
   statusDot: (status: string) => ({
     width: 10,

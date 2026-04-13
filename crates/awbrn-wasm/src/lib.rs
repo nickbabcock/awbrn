@@ -1,8 +1,9 @@
 use awbrn_client::{
     AwbrnPlugin, EventSink, MapAssetPathResolver, MapDimensions, NewDay, PendingGameStart,
-    PlayerRosterSnapshot, ReplayLoaded, ReplayToLoad, StaticAssetPathResolver, TileSelected,
-    UnitBuilt, UnitMoved, core::coords::LogicalPx,
+    PendingMatchMap, PlayerRosterSnapshot, ReplayLoaded, ReplayToLoad, StaticAssetPathResolver,
+    TileSelected, UnitBuilt, UnitMoved, core::coords::LogicalPx,
 };
+use awbrn_map::AwbwMapData;
 use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
 use bevy::{
     app::PluginsState,
@@ -435,6 +436,16 @@ impl BevyApp {
         self.app
             .world_mut()
             .insert_resource(PendingGameStart(map_id));
+
+        Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub fn load_match_map(&mut self, map_data: JsValue) -> Result<(), JsError> {
+        let map = serde_wasm_bindgen::from_value::<AwbwMapData>(map_data)
+            .map_err(|error| JsError::new(&format!("Invalid AWBW match map data: {error}")))?;
+
+        self.app.world_mut().insert_resource(PendingMatchMap(map));
 
         Ok(())
     }

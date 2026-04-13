@@ -5,6 +5,7 @@ import {
   type CanvasCourierSurface,
   type CanvasSize,
 } from "#/canvas_courier/index.ts";
+import type { AwbwMapData } from "#/awbw/schemas.ts";
 import type { GameEvent } from "#/wasm/awbrn_wasm.js";
 import { gameAssetConfig } from "./asset_manifest";
 import { useGameStore } from "./store";
@@ -52,6 +53,11 @@ export class GameRunner implements CanvasCourierController {
   async loadMapPreview(mapId: number): Promise<void> {
     const game = await this.requireGame();
     await game.loadMapPreview(mapId);
+  }
+
+  async loadMatchMap(map: AwbwMapData): Promise<void> {
+    const game = await this.requireGame();
+    await game.loadMatchMap(map);
   }
 
   async setPlayerDisplayFaction(playerId: number, factionId: number | null): Promise<void> {

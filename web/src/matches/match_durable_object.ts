@@ -4,7 +4,12 @@ import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { count, eq } from "drizzle-orm";
 import { WasmMatch, initSync } from "#/wasm/awbrn_server.js";
 import matchWasmModule from "../wasm/awbrn_server_bg.wasm";
-import { normalizeCaughtError, ok, type MatchResult } from "./match_protocol";
+import {
+  initialMatchConnectionMessages,
+  normalizeCaughtError,
+  ok,
+  type MatchResult,
+} from "./match_protocol";
 import { matchSetupSchema } from "./schemas";
 import type { MatchCreateResponse, MatchSetup } from "./schemas";
 import migrations from "../../drizzle/match/migrations";
@@ -129,11 +134,12 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     const slotIndex = setup.players.findIndex((p) => p.userId === userId);
+    const playerSlotIndex = slotIndex >= 0 ? slotIndex : null;
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ userId, slotIndex: slotIndex >= 0 ? slotIndex : null });
-    server.send(
-      JSON.stringify({ type: "connected", slotIndex: slotIndex >= 0 ? slotIndex : null }),
-    );
+    server.serializeAttachment({ userId, slotIndex: playerSlotIndex });
+    for (const message of initialMatchConnectionMessages(setup, playerSlotIndex)) {
+      server.send(JSON.stringify(message));
+    }
     return new Response(null, { status: 101, webSocket: client });
   }
 

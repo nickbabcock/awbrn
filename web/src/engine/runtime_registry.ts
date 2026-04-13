@@ -25,6 +25,7 @@ function isMatchLobbyPath(pathname: string): boolean {
 }
 
 export class GameRuntimeRegistry<TRunner extends RunnerLike = GameRunner> {
+  private activeMatchRunner: TRunner | undefined;
   private currentPathname: string | undefined;
   private previewRunners = new Map<PreviewRunnerScope, TRunner>();
   private replayRunner: TRunner | undefined;
@@ -49,6 +50,12 @@ export class GameRuntimeRegistry<TRunner extends RunnerLike = GameRunner> {
     return this.replayRunner;
   }
 
+  getActiveMatchRunner(): TRunner {
+    this.disposePreviewRunner("match-lobby");
+    this.activeMatchRunner ??= this.createRunner();
+    return this.activeMatchRunner;
+  }
+
   syncPathname(pathname: string): void {
     const previousPathname = this.currentPathname;
     this.currentPathname = pathname;
@@ -67,10 +74,12 @@ export class GameRuntimeRegistry<TRunner extends RunnerLike = GameRunner> {
 
     if (isMatchLobbyPath(previousPathname) && !isMatchLobbyPath(pathname)) {
       this.disposePreviewRunner("match-lobby");
+      this.disposeActiveMatchRunner();
     }
   }
 
   disposeAll(): void {
+    this.disposeActiveMatchRunner();
     this.disposeReplayRunner();
 
     for (const scope of this.previewRunners.keys()) {
@@ -96,5 +105,14 @@ export class GameRuntimeRegistry<TRunner extends RunnerLike = GameRunner> {
     this.replayRunner.dispose();
     this.replayRunner = undefined;
     this.options.onDisposeReplay?.();
+  }
+
+  private disposeActiveMatchRunner(): void {
+    if (!this.activeMatchRunner) {
+      return;
+    }
+
+    this.activeMatchRunner.dispose();
+    this.activeMatchRunner = undefined;
   }
 }

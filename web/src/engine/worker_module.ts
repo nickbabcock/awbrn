@@ -1,6 +1,7 @@
 import init, { type CanvasDisplay, BevyApp } from "#/wasm/awbrn_wasm.js";
 import wasmPath from "#/wasm/awbrn_wasm_bg.wasm?url";
 import { proxy } from "comlink";
+import type { AwbwMapData } from "#/awbw/schemas.ts";
 import {
   SharedCanvasEventAction,
   SharedCanvasEventType,
@@ -17,6 +18,7 @@ export type GameDisplay = CanvasDisplay;
 export interface GameInstance {
   newReplay: (file: File | FileSystemFileHandle) => Promise<void>;
   loadMapPreview: (mapId: number) => Promise<void>;
+  loadMatchMap: (map: AwbwMapData) => Promise<void>;
   setPlayerDisplayFaction: (playerId: number, factionId: number | null) => Promise<void>;
 }
 
@@ -142,6 +144,9 @@ export const createGame = async (
     },
     loadMapPreview: async (mapId: number) => {
       app.preview_map(mapId);
+    },
+    loadMatchMap: async (map: AwbwMapData) => {
+      app.load_match_map(map);
     },
     setPlayerDisplayFaction: async (playerId: number, factionId: number | null) => {
       app.set_player_display_faction(playerId, factionId);

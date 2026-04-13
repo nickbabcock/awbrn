@@ -14,5 +14,7 @@ pub use features::event_bus::{
     ReplayLoaded, ReplayLoadedPlayer, TileSelected, UnitBuilt, UnitMoved,
 };
 pub use json_plugin::*;
-pub use loading::{MapAssetPathResolver, PendingGameStart, ReplayToLoad, StaticAssetPathResolver};
+pub use loading::{
+    MapAssetPathResolver, PendingGameStart, PendingMatchMap, ReplayToLoad, StaticAssetPathResolver,
+};
 pub use ui_atlas::*;

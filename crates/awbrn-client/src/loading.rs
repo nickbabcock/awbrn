@@ -62,6 +62,10 @@ pub struct LoadedReplay(pub AwbwReplay);
 #[derive(Resource)]
 pub struct PendingGameStart(pub u32);
 
+/// Resource containing AWBW map data supplied by the match server.
+#[derive(Resource)]
+pub struct PendingMatchMap(pub AwbwMapData);
+
 #[derive(Resource, Clone)]
 pub(crate) struct MapPathResolver(pub(crate) Arc<dyn MapAssetPathResolver>);
 
@@ -70,6 +74,9 @@ pub(crate) struct StaticPathResolver(pub(crate) Arc<dyn StaticAssetPathResolver>
 
 #[derive(Resource)]
 pub(crate) struct MapAssetHandle(Handle<AwbwMapAsset>);
+
+#[derive(Resource)]
+pub(crate) struct PendingLoadedMatchMap(AwbrnMap);
 
 #[derive(Resource)]
 pub(crate) struct PendingUiAtlas {
@@ -203,6 +210,30 @@ pub(crate) fn detect_pending_game_start(
     info!("Started game mode");
 }
 
+pub(crate) fn detect_pending_match_map(
+    mut commands: Commands,
+    pending_map: Res<PendingMatchMap>,
+    mut transitions: LoadingTransitions,
+    asset_loader: ClientAssetLoader,
+) {
+    let awbw_map = match AwbwMap::try_from(&pending_map.0) {
+        Ok(map) => map,
+        Err(error) => {
+            error!("Failed to parse match map data: {:?}", error);
+            commands.remove_resource::<PendingMatchMap>();
+            return;
+        }
+    };
+    let awbrn_map = AwbrnMap::from_map(&awbw_map);
+
+    commands.insert_resource(PendingLoadedMatchMap(awbrn_map));
+    commands.remove_resource::<PendingMatchMap>();
+    commands.insert_resource(asset_loader.load_pending_ui_atlas());
+
+    transitions.begin_loading(GameMode::Game);
+    info!("Started game mode from match map data");
+}
+
 pub(crate) fn check_assets_loaded(
     map_handle: Res<MapAssetHandle>,
     pending_ui: Res<PendingUiAtlas>,
@@ -235,6 +266,29 @@ pub(crate) fn check_assets_loaded(
     );
 
     game_map.set(awbrn_map);
+    next_state.set(LoadingState::Complete);
+}
+
+pub(crate) fn check_match_map_loaded(
+    mut commands: Commands,
+    pending_map: Res<PendingLoadedMatchMap>,
+    pending_ui: Res<PendingUiAtlas>,
+    ui_atlas_assets: Res<Assets<UiAtlasAsset>>,
+    mut game_map: ResMut<GameMap>,
+    mut next_state: ResMut<NextState<LoadingState>>,
+) {
+    if ui_atlas_assets.get(&pending_ui.atlas).is_none() {
+        return;
+    }
+
+    info!(
+        "Match map data processed: {}x{}. UI atlas loaded. Transitioning to Complete state.",
+        pending_map.0.width(),
+        pending_map.0.height()
+    );
+
+    game_map.set(pending_map.0.clone());
+    commands.remove_resource::<PendingLoadedMatchMap>();
     next_state.set(LoadingState::Complete);
 }
 
@@ -359,13 +413,18 @@ impl Plugin for LoadingPlugin {
             .insert_resource(StaticPathResolver(self.static_asset_resolver.clone()))
             .add_systems(
                 Update,
-                check_assets_loaded.run_if(in_state(LoadingState::LoadingAssets)),
+                (
+                    check_assets_loaded.run_if(resource_exists::<MapAssetHandle>),
+                    check_match_map_loaded.run_if(resource_exists::<PendingLoadedMatchMap>),
+                )
+                    .run_if(in_state(LoadingState::LoadingAssets)),
             )
             .add_systems(
                 Update,
                 (
                     detect_replay_to_load.run_if(resource_exists::<ReplayToLoad>),
                     detect_pending_game_start.run_if(resource_exists::<PendingGameStart>),
+                    detect_pending_match_map.run_if(resource_exists::<PendingMatchMap>),
                     emit_pending_replay_loaded_event
                         .run_if(resource_exists::<PendingReplayLoadedEvent>),
                 ),

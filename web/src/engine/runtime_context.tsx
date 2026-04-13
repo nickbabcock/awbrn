@@ -50,3 +50,7 @@ export function usePreviewRunner(scope: PreviewRunnerScope) {
 export function useReplayRunner() {
   return useGameRuntimeRegistry().getReplayRunner();
 }
+
+export function useActiveMatchRunner() {
+  return useGameRuntimeRegistry().getActiveMatchRunner();
+}
