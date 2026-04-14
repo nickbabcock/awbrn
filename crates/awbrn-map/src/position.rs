@@ -1,7 +1,19 @@
 use std::fmt;
 
 /// Represents a 2D position on the map
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Default,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub struct Position {
     pub x: usize,

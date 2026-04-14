@@ -15,7 +15,7 @@ use awbrn_types::PlayerFaction;
 use bevy::prelude::*;
 
 /// Header with the current game state, included in every response.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct GameStateHeader {
     pub day: u32,
     pub active_player: PlayerId,
@@ -23,7 +23,7 @@ pub struct GameStateHeader {
 }
 
 /// A unit as visible to a specific player.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct VisibleUnit {
     pub id: ServerUnitId,
     pub unit_type: awbrn_types::Unit,
@@ -38,14 +38,14 @@ pub struct VisibleUnit {
 }
 
 /// A terrain tile as visible to a specific player.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct VisibleTerrain {
     pub position: Position,
     pub terrain: awbrn_types::GraphicalTerrain,
 }
 
 /// Full snapshot of what a player can see (for initial load / reconnection).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct PlayerView {
     pub state: GameStateHeader,
     pub my_funds: u32,
@@ -54,7 +54,7 @@ pub struct PlayerView {
 }
 
 /// Information about a unit that moved.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct UnitMoved {
     pub id: ServerUnitId,
     pub path: Vec<Position>,
@@ -63,14 +63,25 @@ pub struct UnitMoved {
 }
 
 /// Information about a turn change.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct TurnChange {
     pub new_active_player: PlayerId,
     pub new_day: Option<u32>,
 }
 
+/// Combat event visible to a player after an attack.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UnitCombatEvent {
+    pub attacker_id: ServerUnitId,
+    pub defender_id: ServerUnitId,
+    /// Post-combat HP for the attacker. `0` means destroyed.
+    pub attacker_hp_after: GraphicalHp,
+    /// Post-combat HP for the defender. `0` means destroyed.
+    pub defender_hp_after: GraphicalHp,
+}
+
 /// Incremental update for a specific player after a command.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct PlayerUpdate {
     /// Units newly revealed to this player.
     pub units_revealed: Vec<VisibleUnit>,
@@ -82,12 +93,14 @@ pub struct PlayerUpdate {
     pub terrain_revealed: Vec<VisibleTerrain>,
     /// Turn change information (if EndTurn was the command).
     pub turn_change: Option<TurnChange>,
+    /// Combat event (if an attack was the command).
+    pub combat_event: Option<UnitCombatEvent>,
     /// Current game state.
     pub state: GameStateHeader,
 }
 
 /// The result of applying a command, containing per-player updates.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct CommandResult {
     pub updates: Vec<(PlayerId, PlayerUpdate)>,
 }
@@ -254,6 +267,7 @@ fn build_player_update(
                 units_removed,
                 terrain_revealed,
                 turn_change: None,
+                combat_event: None,
                 state: header.clone(),
             }
         }
@@ -269,8 +283,152 @@ fn build_player_update(
                 new_active_player: *new_active_player,
                 new_day: *new_day,
             }),
+            combat_event: None,
             state: header.clone(),
         },
+        ApplyOutcome::UnitAttacked {
+            attacker_id,
+            attacker_entity,
+            from,
+            to,
+            path,
+            attacker_faction,
+            defender_id,
+            defender_entity,
+            defender_position,
+            defender_faction,
+            attacker_hp_after,
+            defender_hp_after,
+        } => {
+            let is_friendly_unit = friendly_factions.contains(attacker_faction);
+            let mut units_moved = Vec::new();
+            let mut units_revealed = Vec::new();
+            let mut units_removed = Vec::new();
+            let mut terrain_revealed = Vec::new();
+
+            if is_friendly_unit {
+                // Friendly viewers always see allied moves.
+                units_moved.push(UnitMoved {
+                    id: *attacker_id,
+                    path: path.clone(),
+                    from: *from,
+                    to: *to,
+                });
+
+                // Moving a friendly unit changes shared vision — diff the full enemy visible set.
+                let pre_enemies = visible_enemy_units(world, &friendly_factions, pre_fog);
+                let post_enemies = visible_enemy_units(world, &friendly_factions, post_fog);
+
+                for (uid, ent) in &post_enemies {
+                    if !pre_enemies.contains_key(uid)
+                        && let Some(visible) =
+                            entity_to_visible_unit(world, *ent, &friendly_factions)
+                    {
+                        units_revealed.push(visible);
+                    }
+                }
+                for uid in pre_enemies.keys() {
+                    if !post_enemies.contains_key(uid) {
+                        units_removed.push(*uid);
+                    }
+                }
+
+                terrain_revealed = terrain_diff(world, pre_fog, post_fog);
+            } else {
+                // Enemy attacker — handle attacker visibility the same as UnitMoved enemy branch.
+                // Use get_entity in case the attacker was despawned (destroyed by counterattack).
+                let attacker_unit_type = world
+                    .get_entity(*attacker_entity)
+                    .ok()
+                    .and_then(|e| e.get::<awbrn_game::world::Unit>().map(|u| u.0));
+                let is_air = attacker_unit_type
+                    .map(|u| u.domain() == awbrn_types::UnitDomain::Air)
+                    .unwrap_or(false);
+
+                let from_was_visible = pre_fog
+                    .map(|f| f.is_unit_visible(*from, is_air))
+                    .unwrap_or(true);
+                let to_is_visible = post_fog
+                    .map(|f| f.is_unit_visible(*to, is_air))
+                    .unwrap_or(true);
+
+                if from_was_visible && to_is_visible {
+                    units_moved.push(UnitMoved {
+                        id: *attacker_id,
+                        path: path.clone(),
+                        from: *from,
+                        to: *to,
+                    });
+                } else if !from_was_visible && to_is_visible {
+                    if let Some(visible) =
+                        entity_to_visible_unit(world, *attacker_entity, &friendly_factions)
+                    {
+                        units_revealed.push(visible);
+                    }
+                } else if from_was_visible && !to_is_visible {
+                    units_removed.push(*attacker_id);
+                }
+            }
+
+            // Determine if the attacker's destination is visible to this player.
+            // Use get_entity in case the attacker was despawned (killed by counterattack).
+            let attacker_unit_type_for_vis = world
+                .get_entity(*attacker_entity)
+                .ok()
+                .and_then(|e| e.get::<awbrn_game::world::Unit>().map(|u| u.0));
+            let attacker_is_air = attacker_unit_type_for_vis
+                .map(|u| u.domain() == awbrn_types::UnitDomain::Air)
+                .unwrap_or(false);
+            let attacker_visible = is_friendly_unit
+                || post_fog
+                    .map(|f| f.is_unit_visible(*to, attacker_is_air))
+                    .unwrap_or(true);
+
+            // Determine if the defender's position is visible to this player after the command.
+            // Use get_entity in case the defender was despawned (destroyed) during apply.
+            let defender_unit_type = world
+                .get_entity(*defender_entity)
+                .ok()
+                .and_then(|e| e.get::<awbrn_game::world::Unit>().map(|u| u.0));
+            let defender_is_air = defender_unit_type
+                .map(|u| u.domain() == awbrn_types::UnitDomain::Air)
+                .unwrap_or(false);
+            let defender_is_friendly = friendly_factions.contains(defender_faction);
+            let defender_visible = defender_is_friendly
+                || post_fog
+                    .map(|f| f.is_unit_visible(*defender_position, defender_is_air))
+                    .unwrap_or(true);
+
+            // Build the combat event if either combatant is visible to this player.
+            let combat_event = if attacker_visible || defender_visible {
+                Some(UnitCombatEvent {
+                    attacker_id: *attacker_id,
+                    defender_id: *defender_id,
+                    attacker_hp_after: *attacker_hp_after,
+                    defender_hp_after: *defender_hp_after,
+                })
+            } else {
+                None
+            };
+
+            // Handle units destroyed during combat.
+            if defender_hp_after.is_destroyed() && defender_visible {
+                units_removed.push(*defender_id);
+            }
+            if attacker_hp_after.is_destroyed() && attacker_visible {
+                units_removed.push(*attacker_id);
+            }
+
+            PlayerUpdate {
+                units_revealed,
+                units_moved,
+                units_removed,
+                terrain_revealed,
+                turn_change: None,
+                combat_event,
+                state: header.clone(),
+            }
+        }
     }
 }
 

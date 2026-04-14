@@ -2,8 +2,71 @@ use awbrn_map::Position;
 
 use crate::unit_id::ServerUnitId;
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deserialize_move_unit_with_attack() {
+        // Variant names are camelCase; field names are snake_case (no field-level rename_all).
+        let json = r#"{"type":"moveUnit","unit_id":3,"path":[{"x":1,"y":2},{"x":2,"y":2}],"action":{"type":"attack","target":{"x":3,"y":2}}}"#;
+        let cmd: GameCommand = serde_json::from_str(json).unwrap();
+        match cmd {
+            GameCommand::MoveUnit {
+                unit_id,
+                path,
+                action,
+            } => {
+                assert_eq!(unit_id, ServerUnitId(3));
+                assert_eq!(path.len(), 2);
+                assert_eq!(path[1], Position::new(2, 2));
+                match action.unwrap() {
+                    PostMoveAction::Attack { target } => assert_eq!(target, Position::new(3, 2)),
+                    other => panic!("expected Attack, got {other:?}"),
+                }
+            }
+            other => panic!("expected MoveUnit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn deserialize_move_unit_with_wait() {
+        let json =
+            r#"{"type":"moveUnit","unit_id":1,"path":[{"x":0,"y":0}],"action":{"type":"wait"}}"#;
+        let cmd: GameCommand = serde_json::from_str(json).unwrap();
+        assert!(matches!(
+            cmd,
+            GameCommand::MoveUnit {
+                action: Some(PostMoveAction::Wait),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn deserialize_end_turn() {
+        let json = r#"{"type":"endTurn"}"#;
+        let cmd: GameCommand = serde_json::from_str(json).unwrap();
+        assert!(matches!(cmd, GameCommand::EndTurn));
+    }
+
+    #[test]
+    fn deserialize_post_move_action_capture() {
+        let json = r#"{"type":"capture"}"#;
+        let action: PostMoveAction = serde_json::from_str(json).unwrap();
+        assert!(matches!(action, PostMoveAction::Capture));
+    }
+
+    #[test]
+    fn wrong_tag_is_rejected() {
+        let json = r#"{"type":"MoveUnit","unitId":1,"path":[],"action":null}"#;
+        assert!(serde_json::from_str::<GameCommand>(json).is_err());
+    }
+}
+
 /// A command submitted by a player during their turn.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum GameCommand {
     /// Move a unit along a path, optionally performing an action at the destination.
     MoveUnit {
@@ -24,7 +87,8 @@ pub enum GameCommand {
 }
 
 /// An action to perform after a unit moves.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum PostMoveAction {
     /// Attack a target at the given position.
     Attack { target: Position },

@@ -1,7 +1,7 @@
 use crate::AwbwFactionId;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, strum::VariantArray)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, strum::VariantArray)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum PlayerFaction {
     AcidRain = 0,
@@ -158,7 +158,7 @@ impl PlayerFaction {
 }
 
 /// Army factions in the game
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum Faction {
     Neutral,

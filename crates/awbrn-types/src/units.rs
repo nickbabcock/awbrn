@@ -1,7 +1,18 @@
 use crate::UnitMovement;
 
 #[derive(
-    Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, strum::EnumCount, strum::VariantArray,
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Ord,
+    PartialOrd,
+    Hash,
+    strum::EnumCount,
+    strum::VariantArray,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum Unit {
@@ -327,6 +338,32 @@ impl Unit {
             Unit::BlackBomb => 1,
             Unit::MegaTank => 1,
         }
+    }
+
+    /// Minimum attack range in tiles (Manhattan distance). Indirect units have min ≥ 2.
+    pub const fn attack_range_min(self) -> u32 {
+        match self {
+            Unit::Artillery | Unit::Battleship | Unit::PipeRunner => 2,
+            Unit::Rocket | Unit::Missile | Unit::Carrier => 3,
+            _ => 1,
+        }
+    }
+
+    /// Maximum attack range in tiles (Manhattan distance).
+    pub const fn attack_range_max(self) -> u32 {
+        match self {
+            Unit::Artillery => 3,
+            Unit::Rocket | Unit::Missile | Unit::PipeRunner => 5,
+            Unit::Battleship => 6,
+            Unit::Carrier => 8,
+            _ => 1,
+        }
+    }
+
+    /// Returns true for indirect-fire units (Artillery, Battleship, Rocket, etc.)
+    /// that cannot attack after moving.
+    pub const fn is_indirect(self) -> bool {
+        self.attack_range_min() > 1
     }
 }
 

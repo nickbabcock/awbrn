@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use bevy::ecs::system::{SystemParam, SystemState};
 use bevy::prelude::*;
 
@@ -8,7 +10,7 @@ use crate::state::{ServerGameState, TurnPhase};
 use crate::unit_id::ServerUnitId;
 use awbrn_game::MapPosition;
 use awbrn_game::replay::PowerMovementBoosts;
-use awbrn_game::world::{BoardIndex, Faction, Fuel, GameMap, StrongIdMap, Unit, UnitActive};
+use awbrn_game::world::{Ammo, BoardIndex, Faction, Fuel, GameMap, StrongIdMap, Unit, UnitActive};
 use awbrn_map::Position;
 use awbrn_types::{GraphicalTerrain, MovementCost, MovementTerrain, PlayerFaction};
 
@@ -200,7 +202,14 @@ fn validate_move_unit(
 
     // Validate that the action is consistent (basic checks).
     if let Some(action) = action {
-        validate_post_move_action(world, action)?;
+        validate_post_move_action(
+            world,
+            entity,
+            current_position,
+            destination,
+            &friendly_factions,
+            action,
+        )?;
     }
 
     Ok(())
@@ -228,11 +237,20 @@ fn invalid_path(reason: impl Into<String>) -> CommandError {
     }
 }
 
-fn validate_post_move_action(_world: &World, action: &PostMoveAction) -> Result<(), CommandError> {
+fn validate_post_move_action(
+    world: &World,
+    entity: Entity,
+    from: Position,
+    destination: Position,
+    friendly_factions: &HashSet<PlayerFaction>,
+    action: &PostMoveAction,
+) -> Result<(), CommandError> {
     match action {
         PostMoveAction::Wait => Ok(()),
-        PostMoveAction::Attack { .. }
-        | PostMoveAction::Capture
+        PostMoveAction::Attack { target } => {
+            validate_attack(world, entity, from, destination, friendly_factions, *target)
+        }
+        PostMoveAction::Capture
         | PostMoveAction::Load { .. }
         | PostMoveAction::Unload { .. }
         | PostMoveAction::Supply
@@ -242,6 +260,81 @@ fn validate_post_move_action(_world: &World, action: &PostMoveAction) -> Result<
             reason: format!("action {action:?} not yet implemented"),
         }),
     }
+}
+
+fn validate_attack(
+    world: &World,
+    attacker_entity: Entity,
+    from: Position,
+    destination: Position,
+    friendly_factions: &HashSet<PlayerFaction>,
+    target: Position,
+) -> Result<(), CommandError> {
+    let unit = world
+        .entity(attacker_entity)
+        .get::<Unit>()
+        .copied()
+        .expect("validated unit must have Unit component");
+
+    // Indirect units cannot attack after moving.
+    if unit.0.is_indirect() && from != destination {
+        return Err(CommandError::InvalidAction {
+            reason: "indirect units cannot attack after moving".into(),
+        });
+    }
+
+    // Target must be within attack range.
+    let dist = destination.manhattan(&target);
+    if dist < unit.0.attack_range_min() as usize || dist > unit.0.attack_range_max() as usize {
+        return Err(CommandError::InvalidAction {
+            reason: format!(
+                "target is out of range (distance {dist}, range {}-{})",
+                unit.0.attack_range_min(),
+                unit.0.attack_range_max()
+            ),
+        });
+    }
+
+    // Target tile must be occupied by a unit.
+    let board_index = world.resource::<BoardIndex>();
+    let defender_entity = board_index
+        .unit_entity(target)
+        .ok()
+        .flatten()
+        .ok_or_else(|| CommandError::InvalidAction {
+            reason: "no unit at target position".into(),
+        })?;
+
+    // Target must be an enemy (not allied).
+    let defender_faction = world
+        .entity(defender_entity)
+        .get::<Faction>()
+        .copied()
+        .expect("defender must have Faction component");
+    if friendly_factions.contains(&defender_faction.0) {
+        return Err(CommandError::InvalidAction {
+            reason: "cannot attack a friendly unit".into(),
+        });
+    }
+
+    // Attacker must have a weapon effective against the defender unit type.
+    let defender_unit = world
+        .entity(defender_entity)
+        .get::<Unit>()
+        .copied()
+        .expect("defender must have Unit component");
+    let attacker_ammo = world
+        .entity(attacker_entity)
+        .get::<Ammo>()
+        .map(|a| a.0)
+        .unwrap_or(0);
+    if crate::damage::base_damage(unit.0, defender_unit.0, attacker_ammo).is_none() {
+        return Err(CommandError::InvalidAction {
+            reason: "attacker has no weapon effective against this unit type".into(),
+        });
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -285,22 +378,17 @@ mod tests {
         fuel: u32,
     ) -> ServerUnitId {
         let unit_id = ServerUnitId(raw_id.into());
-        let entity = world
-            .spawn((
-                MapPosition::from(position),
-                Unit(unit_type),
-                Faction(faction),
-                UnitHp(awbrn_types::ExactHp::new(100)),
-                Fuel(fuel),
-                Ammo(unit_type.max_ammo()),
-                VisionRange(unit_type.base_vision()),
-                UnitActive,
-                unit_id,
-            ))
-            .id();
-        world
-            .resource_mut::<StrongIdMap<ServerUnitId>>()
-            .insert(unit_id, entity);
+        world.spawn((
+            MapPosition::from(position),
+            Unit(unit_type),
+            Faction(faction),
+            UnitHp(awbrn_types::ExactHp::new(100)),
+            Fuel(fuel),
+            Ammo(unit_type.max_ammo()),
+            VisionRange(unit_type.base_vision()),
+            UnitActive,
+            unit_id,
+        ));
         unit_id
     }
 

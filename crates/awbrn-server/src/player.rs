@@ -4,7 +4,8 @@ use std::num::NonZeroU8;
 use awbrn_types::{Co, CoStats, PlayerFaction};
 
 /// Opaque player identifier assigned by the server at game creation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(transparent)]
 pub struct PlayerId(pub u8);
 
 /// A player slot in the game.

@@ -1,7 +1,7 @@
 use crate::{AwbwTerrain, Faction, PlayerFaction};
 
 /// Status of the missile silo
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum MissileSiloStatus {
     Loaded,
@@ -9,7 +9,7 @@ pub enum MissileSiloStatus {
 }
 
 /// River configurations
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum RiverType {
     Horizontal, // HRiver
@@ -26,7 +26,7 @@ pub enum RiverType {
 }
 
 /// Road configurations
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum RoadType {
     Horizontal, // HRoad
@@ -43,7 +43,7 @@ pub enum RoadType {
 }
 
 /// Bridge types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum BridgeType {
     Horizontal,
@@ -51,7 +51,7 @@ pub enum BridgeType {
 }
 
 /// Shoal types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum ShoalType {
     Horizontal,
@@ -61,7 +61,7 @@ pub enum ShoalType {
 }
 
 /// Sea configurations based on the variants file
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 #[expect(non_camel_case_types)]
 pub enum SeaDirection {
@@ -117,7 +117,7 @@ pub enum SeaDirection {
 }
 
 /// Shoal configurations based on the variants file
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum ShoalDirection {
     AE,
@@ -204,7 +204,7 @@ pub enum ShoalDirection {
 }
 
 /// Pipe configurations
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum PipeType {
     Vertical,
@@ -220,7 +220,7 @@ pub enum PipeType {
 }
 
 /// Pipe seam types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum PipeSeamType {
     Horizontal,
@@ -228,7 +228,7 @@ pub enum PipeSeamType {
 }
 
 /// Pipe rubble types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum PipeRubbleType {
     Horizontal,
@@ -236,7 +236,7 @@ pub enum PipeRubbleType {
 }
 
 /// Property types combining building type and owner
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum Property {
     // Regular properties that can be neutral
@@ -273,6 +273,14 @@ impl Property {
             Property::HQ(_) => PropertyKind::HQ,
             Property::Lab(_) => PropertyKind::Lab,
             Property::Port(_) => PropertyKind::Port,
+        }
+    }
+
+    /// Defense star bonus for units occupying this property tile.
+    pub const fn defense_stars(&self) -> u8 {
+        match self {
+            Property::HQ(_) => 4,
+            _ => 3,
         }
     }
 
@@ -494,7 +502,7 @@ pub enum GameplayTerrain {
 
 /// Terrain that represents the graphical representation. One can have tall
 /// mountains and stubby mountains, but functionally they act the same.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
 pub enum GraphicalTerrain {
     // Basic terrains
@@ -568,6 +576,18 @@ impl GraphicalTerrain {
             // Shoal variants - for simplicity, mapping all to Horizontal for now
             // This would need refinement based on actual requirements
             GraphicalTerrain::Shoal(_) => AwbwTerrain::Shoal(ShoalType::Horizontal),
+        }
+    }
+
+    /// Defense star bonus applied when a unit is on this terrain type.
+    pub const fn defense_stars(self) -> u8 {
+        match self {
+            GraphicalTerrain::Plain | GraphicalTerrain::Reef => 1,
+            GraphicalTerrain::Mountain | GraphicalTerrain::StubbyMoutain => 4,
+            GraphicalTerrain::Wood => 2,
+            GraphicalTerrain::Property(p) => p.defense_stars(),
+            GraphicalTerrain::MissileSilo(_) => 3,
+            _ => 0,
         }
     }
 }
@@ -711,6 +731,68 @@ mod tests {
         assert_eq!(
             MovementTerrain::from(AwbwTerrain::Teleporter),
             MovementTerrain::Teleport
+        );
+    }
+
+    #[test]
+    fn property_defense_stars() {
+        assert_eq!(
+            Property::HQ(PlayerFaction::OrangeStar).defense_stars(),
+            4,
+            "HQ gives 4 defense stars"
+        );
+        assert_eq!(
+            Property::City(Faction::Neutral).defense_stars(),
+            3,
+            "City gives 3 defense stars"
+        );
+        assert_eq!(
+            Property::Base(Faction::Neutral).defense_stars(),
+            3,
+            "Base gives 3 defense stars"
+        );
+        assert_eq!(
+            Property::Airport(Faction::Neutral).defense_stars(),
+            3,
+            "Airport gives 3 defense stars"
+        );
+        assert_eq!(
+            Property::Port(Faction::Neutral).defense_stars(),
+            3,
+            "Port gives 3 defense stars"
+        );
+    }
+
+    #[test]
+    fn graphical_terrain_defense_stars() {
+        assert_eq!(GraphicalTerrain::Plain.defense_stars(), 1);
+        assert_eq!(GraphicalTerrain::Reef.defense_stars(), 1);
+        assert_eq!(GraphicalTerrain::Mountain.defense_stars(), 4);
+        assert_eq!(GraphicalTerrain::StubbyMoutain.defense_stars(), 4);
+        assert_eq!(GraphicalTerrain::Wood.defense_stars(), 2);
+        assert_eq!(
+            GraphicalTerrain::Property(Property::HQ(PlayerFaction::OrangeStar)).defense_stars(),
+            4
+        );
+        assert_eq!(
+            GraphicalTerrain::Property(Property::City(Faction::Neutral)).defense_stars(),
+            3
+        );
+        assert_eq!(
+            GraphicalTerrain::MissileSilo(MissileSiloStatus::Loaded).defense_stars(),
+            3
+        );
+        assert_eq!(
+            GraphicalTerrain::Sea(SeaDirection::N_E_S_W).defense_stars(),
+            0
+        );
+        assert_eq!(
+            GraphicalTerrain::River(RiverType::Horizontal).defense_stars(),
+            0
+        );
+        assert_eq!(
+            GraphicalTerrain::Road(RoadType::Horizontal).defense_stars(),
+            0
         );
     }
 }

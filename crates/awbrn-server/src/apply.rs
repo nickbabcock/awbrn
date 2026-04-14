@@ -1,12 +1,17 @@
 use bevy::prelude::*;
 
 use crate::command::{GameCommand, PostMoveAction};
+use crate::damage::{CombatInput, CombatSide, LuckCap, PercentMod, TerrainStars};
 use crate::player::PlayerRegistry;
+use crate::setup::GameRng;
 use crate::state::{ServerGameState, TurnPhase};
 use crate::unit_id::ServerUnitId;
 use awbrn_game::MapPosition;
-use awbrn_game::world::{Capturing, Fuel, StrongIdMap, UnitActive};
-use awbrn_types::PlayerFaction;
+use awbrn_game::world::{
+    Ammo, BoardIndex, Capturing, Fuel, GameMap, GraphicalHp, StrongIdMap, UnitActive, UnitHp,
+};
+use awbrn_game::world::{Faction, Unit};
+use awbrn_types::{DamagePts, PlayerFaction};
 
 /// The set of world mutations that occurred from applying a command.
 /// Used by the view layer to build per-player updates.
@@ -22,6 +27,24 @@ pub(crate) enum ApplyOutcome {
     TurnEnded {
         new_active_player: crate::player::PlayerId,
         new_day: Option<u32>,
+    },
+    UnitAttacked {
+        // Movement data (same fields as UnitMoved so fog diff can reuse the same logic)
+        attacker_id: ServerUnitId,
+        attacker_entity: Entity,
+        from: awbrn_map::Position,
+        to: awbrn_map::Position,
+        path: Vec<awbrn_map::Position>,
+        attacker_faction: PlayerFaction,
+        // Attack outcome data
+        defender_id: ServerUnitId,
+        defender_entity: Entity,
+        defender_position: awbrn_map::Position,
+        defender_faction: PlayerFaction,
+        /// Post-combat visual HP. `GraphicalHp(0)` means the unit was destroyed.
+        /// Captured before any entity despawn so the values remain accessible.
+        attacker_hp_after: GraphicalHp,
+        defender_hp_after: GraphicalHp,
     },
 }
 
@@ -44,7 +67,7 @@ fn apply_move_unit(
     world: &mut World,
     unit_id: ServerUnitId,
     path: &[awbrn_map::Position],
-    _action: Option<&PostMoveAction>,
+    action: Option<&PostMoveAction>,
 ) -> ApplyOutcome {
     let entity = world
         .resource::<StrongIdMap<ServerUnitId>>()
@@ -59,7 +82,7 @@ fn apply_move_unit(
 
     let faction = world
         .entity(entity)
-        .get::<awbrn_game::world::Faction>()
+        .get::<Faction>()
         .expect("unit must have faction")
         .0;
 
@@ -83,13 +106,208 @@ fn apply_move_unit(
     // Deactivate the unit (it has acted this turn).
     world.entity_mut(entity).remove::<UnitActive>();
 
-    ApplyOutcome::UnitMoved {
-        unit_id,
-        entity,
+    match action {
+        Some(PostMoveAction::Attack { target }) => {
+            apply_attack(world, unit_id, entity, from, to, path, faction, *target)
+        }
+        _ => ApplyOutcome::UnitMoved {
+            unit_id,
+            entity,
+            from,
+            to,
+            path: path.to_vec(),
+            faction,
+        },
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_attack(
+    world: &mut World,
+    attacker_id: ServerUnitId,
+    attacker_entity: Entity,
+    from: awbrn_map::Position,
+    to: awbrn_map::Position,
+    path: &[awbrn_map::Position],
+    attacker_faction: PlayerFaction,
+    target: awbrn_map::Position,
+) -> ApplyOutcome {
+    // Look up the defender entity at the target position.
+    let defender_entity = world
+        .resource::<BoardIndex>()
+        .unit_entity(target)
+        .ok()
+        .flatten()
+        .expect("validated target must have a unit");
+
+    // Read attacker and defender components in a single block, then drop the refs
+    // before any mutable world access.
+    let (
+        attacker_unit,
+        attacker_exact_hp,
+        attacker_ammo,
+        defender_unit,
+        defender_exact_hp,
+        defender_ammo,
+        defender_faction,
+        defender_id,
+    ) = {
+        let attacker = world.entity(attacker_entity);
+        let attacker_unit = attacker
+            .get::<Unit>()
+            .copied()
+            .expect("attacker must have Unit");
+        let attacker_exact_hp = attacker
+            .get::<UnitHp>()
+            .map(|h| h.0)
+            .expect("attacker must have UnitHp");
+        let attacker_ammo = attacker.get::<Ammo>().map(|a| a.0).unwrap_or(0);
+
+        let defender = world.entity(defender_entity);
+        let defender_unit = defender
+            .get::<Unit>()
+            .copied()
+            .expect("defender must have Unit");
+        let defender_exact_hp = defender
+            .get::<UnitHp>()
+            .map(|h| h.0)
+            .expect("defender must have UnitHp");
+        let defender_ammo = defender.get::<Ammo>().map(|a| a.0).unwrap_or(0);
+        let defender_faction = defender
+            .get::<Faction>()
+            .copied()
+            .expect("defender must have Faction")
+            .0;
+        let defender_id = defender
+            .get::<ServerUnitId>()
+            .copied()
+            .expect("defender must have ServerUnitId");
+
+        (
+            attacker_unit,
+            attacker_exact_hp,
+            attacker_ammo,
+            defender_unit,
+            defender_exact_hp,
+            defender_ammo,
+            defender_faction,
+            defender_id,
+        )
+    };
+
+    // Look up CO stats for both sides.
+    let attacker_co_stats = world
+        .resource::<PlayerRegistry>()
+        .player_for_faction(attacker_faction)
+        .and_then(|pid| world.resource::<PlayerRegistry>().co_stats_for_player(pid))
+        .unwrap_or_default();
+    let defender_co_stats = world
+        .resource::<PlayerRegistry>()
+        .player_for_faction(defender_faction)
+        .and_then(|pid| world.resource::<PlayerRegistry>().co_stats_for_player(pid))
+        .unwrap_or_default();
+
+    // Look up terrain defense stars for both combatants.
+    // Attacker's terrain stars protect them from the counterattack.
+    // Defender's terrain stars protect them from the initial attack.
+    let game_map = world.resource::<GameMap>();
+    let attacker_terrain_stars = game_map
+        .terrain_at(to)
+        .map(|t| t.defense_stars())
+        .unwrap_or(0);
+    let defender_terrain_stars = game_map
+        .terrain_at(target)
+        .map(|t| t.defense_stars())
+        .unwrap_or(0);
+
+    // Build the combat input.
+    let input = CombatInput {
+        attacker: CombatSide {
+            unit_type: attacker_unit.0,
+            exact_hp: attacker_exact_hp,
+            attack_mod: PercentMod::new(100 + attacker_co_stats.attack_bonus),
+            defense_mod: PercentMod::new(100 + attacker_co_stats.defense_bonus),
+            max_good_luck: LuckCap::new(attacker_co_stats.max_good_luck),
+            max_bad_luck: LuckCap::new(attacker_co_stats.max_bad_luck),
+            ammo: attacker_ammo,
+            terrain_stars: TerrainStars::new(attacker_terrain_stars),
+        },
+        defender: CombatSide {
+            unit_type: defender_unit.0,
+            exact_hp: defender_exact_hp,
+            attack_mod: PercentMod::new(100 + defender_co_stats.attack_bonus),
+            defense_mod: PercentMod::new(100 + defender_co_stats.defense_bonus),
+            max_good_luck: LuckCap::new(defender_co_stats.max_good_luck),
+            max_bad_luck: LuckCap::new(defender_co_stats.max_bad_luck),
+            ammo: defender_ammo,
+            terrain_stars: TerrainStars::new(defender_terrain_stars),
+        },
+        is_direct_combat: !attacker_unit.0.is_indirect(),
+    };
+
+    // Roll and resolve combat.
+    let outcome = crate::damage::calculate_combat_rng(&input, &mut world.resource_mut::<GameRng>())
+        .expect("validated weapon must produce a combat outcome");
+
+    // Apply damage to defender.
+    let defender_new_exact =
+        defender_exact_hp.saturating_sub(DamagePts::new(outcome.attacker_damage_pts));
+    let defender_hp_after = GraphicalHp(defender_new_exact.visual().get());
+
+    if defender_hp_after.is_destroyed() {
+        world.entity_mut(defender_entity).despawn();
+    } else {
+        let mut defender_mut = world.entity_mut(defender_entity);
+        defender_mut.insert(UnitHp(defender_new_exact));
+        // Consume defender's ammo if they counterattacked with their primary weapon.
+        if outcome.defender_damage_pts.is_some()
+            && crate::damage::uses_primary_weapon(defender_unit.0, attacker_unit.0, defender_ammo)
+        {
+            defender_mut.insert(Ammo(defender_ammo - 1));
+        }
+    }
+
+    // Apply counterattack damage to attacker (if any).
+    let attacker_hp_after = if let Some(counter_dmg) = outcome.defender_damage_pts {
+        let attacker_new_exact = attacker_exact_hp.saturating_sub(DamagePts::new(counter_dmg));
+        let hp_after = GraphicalHp(attacker_new_exact.visual().get());
+
+        if hp_after.is_destroyed() {
+            world.entity_mut(attacker_entity).despawn();
+        } else {
+            world
+                .entity_mut(attacker_entity)
+                .insert(UnitHp(attacker_new_exact));
+        }
+
+        hp_after
+    } else {
+        // No counterattack — attacker HP unchanged.
+        GraphicalHp(attacker_exact_hp.visual().get())
+    };
+
+    // Consume attacker's ammo if primary weapon was used.
+    if !attacker_hp_after.is_destroyed()
+        && crate::damage::uses_primary_weapon(attacker_unit.0, defender_unit.0, attacker_ammo)
+    {
+        world
+            .entity_mut(attacker_entity)
+            .insert(Ammo(attacker_ammo - 1));
+    }
+
+    ApplyOutcome::UnitAttacked {
+        attacker_id,
+        attacker_entity,
         from,
         to,
         path: path.to_vec(),
-        faction,
+        attacker_faction,
+        defender_id,
+        defender_entity,
+        defender_position: target,
+        defender_faction,
+        attacker_hp_after,
+        defender_hp_after,
     }
 }
 

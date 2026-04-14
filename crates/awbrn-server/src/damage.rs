@@ -115,6 +115,12 @@ pub fn base_damage(attacker: Unit, defender: Unit, attacker_ammo: u32) -> Option
     }
 }
 
+/// Returns true if this engagement consumes one unit of ammo (i.e. the primary
+/// weapon fires). Secondary-weapon attacks and zero-ammo fallbacks do not cost ammo.
+pub fn uses_primary_weapon(attacker: Unit, defender: Unit, attacker_ammo: u32) -> bool {
+    attacker_ammo > 0 && primary_damage(attacker, defender).is_some()
+}
+
 /// Pure single-hit calculation with pre-rolled luck.
 ///
 /// All `*_mod` values are absolute percentages, where 100 is neutral.
