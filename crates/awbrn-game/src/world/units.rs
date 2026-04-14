@@ -125,7 +125,8 @@ impl MapEntities for Cargo {
 #[relationship_target(relationship = CarriedBy)]
 pub struct HasCargo(Cargo);
 
-#[derive(Debug, Component, Reflect, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Component, Reflect, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(transparent)]
 #[component(immutable)]
 #[reflect(Component)]
 pub struct GraphicalHp(pub u8);

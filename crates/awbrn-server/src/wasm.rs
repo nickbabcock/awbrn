@@ -12,7 +12,6 @@ use awbrn_types::{AwbwCoId, Co};
 
 #[wasm_bindgen]
 pub struct WasmMatch {
-    #[allow(dead_code)]
     server: GameServer,
 }
 
@@ -27,9 +26,34 @@ impl WasmMatch {
         Ok(Self { server })
     }
 
-    /// Stub: future implementation will validate and apply game actions from WebSocket messages.
-    pub fn process_action(&mut self, _action: JsValue) -> Result<JsValue, JsError> {
-        Err(JsError::new("game actions are not yet implemented"))
+    /// Apply a game action submitted by a player.
+    /// Returns only the requesting player's [`PlayerUpdate`] as a JSON string.
+    pub fn process_action(&mut self, player_slot: u8, action: JsValue) -> Result<JsValue, JsError> {
+        let action_str = action
+            .as_string()
+            .ok_or_else(|| invalid_input("action", "expected JSON string".into()))?;
+
+        let command: crate::command::GameCommand = serde_json::from_str(&action_str)
+            .map_err(|e| invalid_input("action", e.to_string()))?;
+
+        let player = crate::player::PlayerId(player_slot);
+
+        let mut result = self
+            .server
+            .submit_command(player, command)
+            .map_err(command_error)?;
+
+        // Extract only the requesting player's update to avoid leaking other
+        // players' fog-of-war reveal/remove diffs.
+        let update = result
+            .updates
+            .iter_mut()
+            .find(|(id, _)| *id == player)
+            .map(|(_, update)| update as &_)
+            .ok_or_else(|| JsError::new("no update for requesting player"))?;
+
+        let output = serde_json::to_string(update).expect("PlayerUpdate should be serializable");
+        Ok(JsValue::from_str(&output))
     }
 }
 
@@ -119,6 +143,20 @@ fn invalid_input(field: &'static str, reason: String) -> JsError {
             "reason": reason,
         }),
     )
+}
+
+fn command_error(error: crate::error::CommandError) -> JsError {
+    let (code, http_status) = match &error {
+        crate::error::CommandError::NotYourTurn => ("notYourTurn", 403),
+        crate::error::CommandError::GameOver => ("gameOver", 409),
+        crate::error::CommandError::InvalidUnit(_)
+        | crate::error::CommandError::UnitAlreadyActed(_)
+        | crate::error::CommandError::InvalidPath { .. }
+        | crate::error::CommandError::InvalidAction { .. }
+        | crate::error::CommandError::InsufficientFunds { .. }
+        | crate::error::CommandError::InvalidBuildLocation => ("invalidCommand", 400),
+    };
+    js_error(code, error.to_string(), http_status, json!(null))
 }
 
 fn setup_error(error: crate::SetupError) -> JsError {

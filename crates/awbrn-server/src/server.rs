@@ -8,7 +8,7 @@ use crate::setup::{GameSetup, SetupError, initialize_server_world};
 use crate::unit_id::ServerUnitId;
 use crate::validate;
 use crate::view::{self, CommandResult, PlayerView};
-use awbrn_game::world::StrongIdMap;
+
 use awbrn_map::Position;
 
 /// Authoritative game server that owns a Bevy World and processes player commands.
@@ -67,24 +67,17 @@ impl GameServer {
             .resource_mut::<crate::state::ServerGameState>()
             .allocate_unit_id();
 
-        let entity = self
-            .world
-            .spawn((
-                awbrn_game::MapPosition::from(position),
-                awbrn_game::world::Unit(unit_type),
-                awbrn_game::world::Faction(faction),
-                awbrn_game::world::UnitHp(awbrn_types::ExactHp::new(100)),
-                awbrn_game::world::Fuel(unit_type.max_fuel()),
-                awbrn_game::world::Ammo(unit_type.max_ammo()),
-                awbrn_game::world::VisionRange(unit_type.base_vision()),
-                awbrn_game::world::UnitActive,
-                id,
-            ))
-            .id();
-
-        self.world
-            .resource_mut::<StrongIdMap<ServerUnitId>>()
-            .insert(id, entity);
+        self.world.spawn((
+            awbrn_game::MapPosition::from(position),
+            awbrn_game::world::Unit(unit_type),
+            awbrn_game::world::Faction(faction),
+            awbrn_game::world::UnitHp(awbrn_types::ExactHp::new(100)),
+            awbrn_game::world::Fuel(unit_type.max_fuel()),
+            awbrn_game::world::Ammo(unit_type.max_ammo()),
+            awbrn_game::world::VisionRange(unit_type.base_vision()),
+            awbrn_game::world::UnitActive,
+            id,
+        ));
 
         id
     }

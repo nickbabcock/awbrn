@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use crate::player::PlayerId;
 
 /// The phase of the current game.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum TurnPhase {
     /// The active player is issuing commands.
     PlayerTurn,

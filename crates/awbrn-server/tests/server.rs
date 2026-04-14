@@ -8,6 +8,14 @@ use awbrn_server::{
     ServerUnitId, SetupError,
 };
 
+fn attack_command(unit_id: ServerUnitId, path: Vec<Position>, target: Position) -> GameCommand {
+    GameCommand::MoveUnit {
+        unit_id,
+        path,
+        action: Some(PostMoveAction::Attack { target }),
+    }
+}
+
 fn two_player_setup(width: usize, height: usize) -> GameSetup {
     GameSetup {
         map: AwbrnMap::new(width, height, GraphicalTerrain::Plain),
@@ -489,4 +497,300 @@ fn allied_units_share_fuel_and_ammo_visibility() {
 
     assert!(allied.fuel.is_some());
     assert!(allied.ammo.is_some());
+}
+
+// ── Attack integration tests ──────────────────────────────────────────────────
+
+#[test]
+fn attack_kills_defender() {
+    // MegaTank primary vs Infantry = 195 base damage. On plain (1 star) with Andy
+    // the minimum damage (luck=0) is 195 * 89/100 = 173, capped at 100, which kills.
+    let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
+
+    let attacker = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::MegaTank,
+        PlayerFaction::OrangeStar,
+    );
+    let defender = server.spawn_unit(
+        Position::new(1, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::BlueMoon,
+    );
+
+    let result = server
+        .submit_command(
+            p1(),
+            attack_command(attacker, vec![Position::new(0, 0)], Position::new(1, 0)),
+        )
+        .unwrap();
+
+    // Defender should no longer appear in p2's view.
+    let p2_view = server.player_view(p2());
+    assert!(
+        !p2_view.units.iter().any(|u| u.id == defender),
+        "defender should be destroyed"
+    );
+
+    // The p2 update should include the defender in units_removed.
+    let (_, p2_update) = result.updates.iter().find(|(id, _)| *id == p2()).unwrap();
+    assert!(p2_update.units_removed.contains(&defender));
+    assert!(p2_update.combat_event.is_some());
+    let event = p2_update.combat_event.as_ref().unwrap();
+    assert_eq!(event.defender_hp_after.0, 0, "defender should have 0 HP");
+}
+
+#[test]
+fn attack_reduces_hp_without_killing() {
+    // Infantry primary vs Infantry on plain: base = 55, damage < 100, both survive.
+    let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
+
+    let attacker = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    let defender = server.spawn_unit(
+        Position::new(1, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::BlueMoon,
+    );
+
+    let result = server
+        .submit_command(
+            p1(),
+            attack_command(attacker, vec![Position::new(0, 0)], Position::new(1, 0)),
+        )
+        .unwrap();
+
+    let p1_view = server.player_view(p1());
+
+    // Both units should still exist.
+    assert_eq!(p1_view.units.len(), 2);
+
+    // Defender should have less than full HP.
+    let defender_unit = p1_view.units.iter().find(|u| u.id == defender).unwrap();
+    assert!(defender_unit.hp < 10, "defender should have taken damage");
+
+    // combat_event should be present for both players.
+    let (_, p1_update) = result.updates.iter().find(|(id, _)| *id == p1()).unwrap();
+    assert!(p1_update.combat_event.is_some());
+    let event = p1_update.combat_event.as_ref().unwrap();
+    assert!(
+        event.defender_hp_after.0 > 0,
+        "defender should still have HP"
+    );
+    assert!(
+        event.attacker_hp_after.0 > 0,
+        "attacker should still have HP after counterattack"
+    );
+}
+
+#[test]
+fn indirect_unit_cannot_attack_after_moving() {
+    // Artillery is indirect: cannot move then attack.
+    let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
+
+    let attacker = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::Artillery,
+        PlayerFaction::OrangeStar,
+    );
+    server.spawn_unit(
+        Position::new(2, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::BlueMoon,
+    );
+
+    // Move from (0,0) to (1,0) then try to attack (2,0).
+    let err = server
+        .submit_command(
+            p1(),
+            attack_command(
+                attacker,
+                vec![Position::new(0, 0), Position::new(1, 0)],
+                Position::new(2, 0),
+            ),
+        )
+        .unwrap_err();
+
+    assert!(matches!(err, CommandError::InvalidAction { .. }));
+}
+
+#[test]
+fn indirect_unit_can_attack_without_moving() {
+    // Artillery CAN attack without moving (path is just the origin).
+    let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
+
+    let attacker = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::Artillery,
+        PlayerFaction::OrangeStar,
+    );
+    server.spawn_unit(
+        Position::new(2, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::BlueMoon,
+    );
+
+    // No movement (path = [origin]) then attack at range 2.
+    let result = server.submit_command(
+        p1(),
+        attack_command(attacker, vec![Position::new(0, 0)], Position::new(2, 0)),
+    );
+
+    assert!(
+        result.is_ok(),
+        "artillery should be able to attack without moving"
+    );
+}
+
+#[test]
+fn attack_out_of_range_rejected() {
+    let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
+
+    let attacker = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    server.spawn_unit(
+        Position::new(2, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::BlueMoon,
+    );
+
+    // Infantry has range 1; target is 2 tiles away.
+    let err = server
+        .submit_command(
+            p1(),
+            attack_command(attacker, vec![Position::new(0, 0)], Position::new(2, 0)),
+        )
+        .unwrap_err();
+
+    assert!(matches!(err, CommandError::InvalidAction { .. }));
+}
+
+#[test]
+fn cannot_attack_friendly_unit() {
+    let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
+
+    let attacker = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    let friendly = server.spawn_unit(
+        Position::new(1, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+
+    let err = server
+        .submit_command(
+            p1(),
+            attack_command(attacker, vec![Position::new(0, 0)], Position::new(1, 0)),
+        )
+        .unwrap_err();
+
+    // Suppress unused variable warning.
+    let _ = friendly;
+    assert!(matches!(err, CommandError::InvalidAction { .. }));
+}
+
+#[test]
+fn attack_no_weapon_against_type_rejected() {
+    // Infantry has no weapon vs Battleship.
+    let mut server = GameServer::new(two_player_setup(10, 10)).unwrap();
+
+    let attacker = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    server.spawn_unit(
+        Position::new(1, 0),
+        awbrn_types::Unit::Battleship,
+        PlayerFaction::BlueMoon,
+    );
+
+    let err = server
+        .submit_command(
+            p1(),
+            attack_command(attacker, vec![Position::new(0, 0)], Position::new(1, 0)),
+        )
+        .unwrap_err();
+
+    assert!(matches!(err, CommandError::InvalidAction { .. }));
+}
+
+#[test]
+fn attack_no_unit_at_target_rejected() {
+    let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
+
+    let attacker = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+
+    // Empty tile.
+    let err = server
+        .submit_command(
+            p1(),
+            attack_command(attacker, vec![Position::new(0, 0)], Position::new(1, 0)),
+        )
+        .unwrap_err();
+
+    assert!(matches!(err, CommandError::InvalidAction { .. }));
+}
+
+#[test]
+fn primary_weapon_attack_consumes_ammo() {
+    // Mech has a bazooka (primary weapon, 3 ammo) that fires against Tanks.
+    // After one attack the ammo should drop from 3 to 2.
+    let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
+
+    let attacker = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::Mech,
+        PlayerFaction::OrangeStar,
+    );
+    server.spawn_unit(
+        Position::new(1, 0),
+        awbrn_types::Unit::Tank,
+        PlayerFaction::BlueMoon,
+    );
+
+    let initial_ammo = server
+        .player_view(p1())
+        .units
+        .iter()
+        .find(|u| u.id == attacker)
+        .unwrap()
+        .ammo
+        .unwrap();
+    assert_eq!(initial_ammo, awbrn_types::Unit::Mech.max_ammo());
+
+    server
+        .submit_command(
+            p1(),
+            attack_command(attacker, vec![Position::new(0, 0)], Position::new(1, 0)),
+        )
+        .unwrap();
+
+    let ammo_after = server
+        .player_view(p1())
+        .units
+        .iter()
+        .find(|u| u.id == attacker)
+        .unwrap()
+        .ammo
+        .unwrap();
+
+    assert_eq!(
+        ammo_after,
+        initial_ammo - 1,
+        "primary weapon should consume 1 ammo"
+    );
 }
