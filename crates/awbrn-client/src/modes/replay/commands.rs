@@ -428,8 +428,8 @@ mod tests {
     use awbrn_game::MapPosition;
     use awbrn_game::replay::{PowerVisionBoosts, ReplayState};
     use awbrn_game::world::{
-        Ammo, BoardIndex, Capturing, CurrentWeather, Fuel, StrongIdMap, TerrainHp, TerrainTile,
-        UnitActive,
+        Ammo, BoardIndex, CaptureProgress, CurrentWeather, Fuel, GraphicalHp, StrongIdMap,
+        TerrainHp, TerrainTile, UnitActive,
     };
     use awbrn_map::{AwbrnMap, Position};
     use awbrn_types::{
@@ -469,10 +469,18 @@ mod tests {
     }
 
     #[test]
-    fn capture_action_reapplies_capturing_after_move_completion() {
+    fn capture_action_reapplies_capture_progress_after_move_completion() {
         let mut app = replay_turn_test_app();
         let unit_entity = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
-        app.world_mut().entity_mut(unit_entity).insert(Capturing);
+        spawn_test_terrain(
+            &mut app,
+            Position::new(3, 2),
+            GraphicalTerrain::Property(Property::City(TerrainFaction::Neutral)),
+            None,
+        );
+        app.world_mut()
+            .entity_mut(unit_entity)
+            .insert(CaptureProgress::new(10).unwrap());
 
         ReplayTurnCommand {
             action: test_capture_action(CoreUnitId::new(1), Position::new(3, 2)),
@@ -487,7 +495,11 @@ mod tests {
                 .position(),
             Position::new(3, 2)
         );
-        assert!(!app.world().entity(unit_entity).contains::<Capturing>());
+        assert!(
+            !app.world()
+                .entity(unit_entity)
+                .contains::<CaptureProgress>()
+        );
 
         let deferred_action = app
             .world_mut()
@@ -500,7 +512,13 @@ mod tests {
         }
         .apply(app.world_mut());
 
-        assert!(app.world().entity(unit_entity).contains::<Capturing>());
+        assert_eq!(
+            app.world()
+                .entity(unit_entity)
+                .get::<CaptureProgress>()
+                .map(|progress| progress.value()),
+            Some(10)
+        );
     }
 
     #[test]
@@ -1280,6 +1298,7 @@ mod tests {
                 Unit(unit),
                 Faction(faction),
                 AwbwUnitId(unit_id),
+                GraphicalHp(10),
                 Fuel(unit.max_fuel()),
                 Ammo(unit.max_ammo()),
                 UnitActive,

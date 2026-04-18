@@ -8,7 +8,8 @@ use crate::state::{ServerGameState, TurnPhase};
 use crate::unit_id::ServerUnitId;
 use awbrn_game::MapPosition;
 use awbrn_game::world::{
-    Ammo, BoardIndex, Capturing, Fuel, GameMap, GraphicalHp, StrongIdMap, UnitActive, UnitHp,
+    Ammo, BoardIndex, CaptureAction, CaptureActionOutcome, CaptureProgress, CaptureProgressInput,
+    Fuel, GameMap, GraphicalHp, StrongIdMap, UnitActive, UnitHp,
 };
 use awbrn_game::world::{Faction, Unit};
 use awbrn_types::{DamagePts, PlayerFaction};
@@ -45,6 +46,26 @@ pub(crate) enum ApplyOutcome {
         /// Captured before any entity despawn so the values remain accessible.
         attacker_hp_after: GraphicalHp,
         defender_hp_after: GraphicalHp,
+    },
+    PropertyCaptured {
+        unit_id: ServerUnitId,
+        entity: Entity,
+        from: awbrn_map::Position,
+        to: awbrn_map::Position,
+        path: Vec<awbrn_map::Position>,
+        faction: PlayerFaction,
+        tile: awbrn_map::Position,
+        new_faction: PlayerFaction,
+    },
+    CaptureContinued {
+        unit_id: ServerUnitId,
+        entity: Entity,
+        from: awbrn_map::Position,
+        to: awbrn_map::Position,
+        path: Vec<awbrn_map::Position>,
+        faction: PlayerFaction,
+        tile: awbrn_map::Position,
+        progress: u8,
     },
 }
 
@@ -98,8 +119,8 @@ fn apply_move_unit(
 
     // Update position if it changed.
     if from != to {
-        // Clear capturing status when moving away.
-        world.entity_mut(entity).remove::<Capturing>();
+        // Capture progress is tied to the unit staying on the same property.
+        world.entity_mut(entity).remove::<CaptureProgress>();
         world.entity_mut(entity).insert(MapPosition::from(to));
     }
 
@@ -110,6 +131,9 @@ fn apply_move_unit(
         Some(PostMoveAction::Attack { target }) => {
             apply_attack(world, unit_id, entity, from, to, path, faction, *target)
         }
+        Some(PostMoveAction::Capture) => {
+            apply_capture(world, unit_id, entity, from, to, path, faction)
+        }
         _ => ApplyOutcome::UnitMoved {
             unit_id,
             entity,
@@ -117,6 +141,48 @@ fn apply_move_unit(
             to,
             path: path.to_vec(),
             faction,
+        },
+    }
+}
+
+fn apply_capture(
+    world: &mut World,
+    unit_id: ServerUnitId,
+    entity: Entity,
+    from: awbrn_map::Position,
+    to: awbrn_map::Position,
+    path: &[awbrn_map::Position],
+    faction: PlayerFaction,
+) -> ApplyOutcome {
+    let outcome = CaptureAction {
+        unit_entity: entity,
+        progress_input: CaptureProgressInput::AddCurrentVisualHp,
+    }
+    .apply(world)
+    .expect("validated capture action must apply");
+
+    match outcome {
+        CaptureActionOutcome::Continued { tile, progress, .. } => ApplyOutcome::CaptureContinued {
+            unit_id,
+            entity,
+            from,
+            to,
+            path: path.to_vec(),
+            faction,
+            tile,
+            progress: progress.value(),
+        },
+        CaptureActionOutcome::Completed {
+            tile, new_faction, ..
+        } => ApplyOutcome::PropertyCaptured {
+            unit_id,
+            entity,
+            from,
+            to,
+            path: path.to_vec(),
+            faction,
+            tile,
+            new_faction,
         },
     }
 }

@@ -398,7 +398,8 @@ mod tests {
     use crate::projection::project_unit_render_state;
     use crate::render::UiAtlasResource;
     use awbrn_game::world::{
-        Capturing, CarriedBy, FogActive, FogOfWarMap, FriendlyFactions, GraphicalHp, UnitActive,
+        CaptureProgress, CarriedBy, FogActive, FogOfWarMap, FriendlyFactions, GraphicalHp,
+        UnitActive,
     };
     use awbrn_types::{GraphicalMovement, PlayerFaction};
     use bevy::asset::Assets;
@@ -713,7 +714,9 @@ mod tests {
         app.update();
 
         app.world_mut().entity_mut(unit).insert(GraphicalHp(5));
-        app.world_mut().entity_mut(unit).insert(Capturing);
+        app.world_mut()
+            .entity_mut(unit)
+            .insert(CaptureProgress::new(10).unwrap());
         app.update();
 
         let registry = app
@@ -745,7 +748,7 @@ mod tests {
                 Faction(PlayerFaction::GreenEarth),
                 UnitActive,
                 GraphicalHp(5),
-                Capturing,
+                CaptureProgress::new(10).unwrap(),
             ))
             .id();
 

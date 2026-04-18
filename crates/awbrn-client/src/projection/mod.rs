@@ -8,8 +8,8 @@ use awbrn_game::replay::{
     ReplayKnowledgeKey, ReplayPlayerRegistry, ReplayState, ReplayTerrainKnowledge, ReplayViewpoint,
 };
 use awbrn_game::world::{
-    Capturing, CarriedBy, Faction, FogActive, FogOfWarMap, FriendlyFactions, GraphicalHp, HasCargo,
-    Hiding, TerrainTile, Unit, UnitActive,
+    CaptureProgress, CarriedBy, Faction, FogActive, FogOfWarMap, FriendlyFactions, GraphicalHp,
+    HasCargo, Hiding, TerrainTile, Unit, UnitActive,
 };
 use awbrn_map::Position;
 use awbrn_types::{
@@ -84,7 +84,7 @@ type UnitProjectionItem<'a> = (
     &'a Faction,
     Option<&'a MapPosition>,
     Option<Ref<'a, UnitActive>>,
-    Has<Capturing>,
+    Has<CaptureProgress>,
     Has<HasCargo>,
     Has<Hiding>,
     Option<&'a GraphicalHp>,

@@ -12,7 +12,9 @@ use awbrn_game::MapPosition;
 use awbrn_game::replay::PowerMovementBoosts;
 use awbrn_game::world::{Ammo, BoardIndex, Faction, Fuel, GameMap, StrongIdMap, Unit, UnitActive};
 use awbrn_map::Position;
-use awbrn_types::{GraphicalTerrain, MovementCost, MovementTerrain, PlayerFaction};
+use awbrn_types::{
+    Faction as TerrainFaction, GraphicalTerrain, MovementCost, MovementTerrain, PlayerFaction,
+};
 
 #[derive(SystemParam)]
 struct MovementValidationWorld<'w, 's> {
@@ -250,14 +252,57 @@ fn validate_post_move_action(
         PostMoveAction::Attack { target } => {
             validate_attack(world, entity, from, destination, friendly_factions, *target)
         }
-        PostMoveAction::Capture
-        | PostMoveAction::Load { .. }
+        PostMoveAction::Capture => validate_capture(world, entity, destination, friendly_factions),
+        PostMoveAction::Load { .. }
         | PostMoveAction::Unload { .. }
         | PostMoveAction::Supply
         | PostMoveAction::Hide
         | PostMoveAction::Unhide
         | PostMoveAction::Join { .. } => Err(CommandError::InvalidAction {
             reason: format!("action {action:?} not yet implemented"),
+        }),
+    }
+}
+
+fn validate_capture(
+    world: &World,
+    entity: Entity,
+    destination: Position,
+    friendly_factions: &HashSet<PlayerFaction>,
+) -> Result<(), CommandError> {
+    let unit = world
+        .entity(entity)
+        .get::<Unit>()
+        .copied()
+        .expect("validated unit must have Unit component");
+
+    if !matches!(
+        unit.0,
+        awbrn_types::Unit::Infantry | awbrn_types::Unit::Mech
+    ) {
+        return Err(CommandError::InvalidAction {
+            reason: "only infantry and mech units can capture".into(),
+        });
+    }
+
+    let terrain = world
+        .resource::<GameMap>()
+        .terrain_at(destination)
+        .ok_or_else(|| CommandError::InvalidAction {
+            reason: "capture destination is outside the map".into(),
+        })?;
+
+    let GraphicalTerrain::Property(property) = terrain else {
+        return Err(CommandError::InvalidAction {
+            reason: "capture destination is not a property".into(),
+        });
+    };
+
+    match property.faction() {
+        TerrainFaction::Neutral => Ok(()),
+        TerrainFaction::Player(faction) if !friendly_factions.contains(&faction) => Ok(()),
+        TerrainFaction::Player(_) => Err(CommandError::InvalidAction {
+            reason: "cannot capture a friendly property".into(),
         }),
     }
 }

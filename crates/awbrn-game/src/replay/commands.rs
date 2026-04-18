@@ -18,8 +18,9 @@ use crate::replay::{
     AwbwUnitId, PowerMovementBoosts, PowerVisionBoosts, ReplayPlayerRegistry, ReplayState,
 };
 use crate::world::{
-    Ammo, BoardIndex, Capturing, CarriedBy, Faction, Fuel, GameMap, GraphicalHp, Hiding,
-    StrongIdMap, TerrainHp, TerrainTile, Unit, UnitActive, UnitDestroyed, VisionRange,
+    Ammo, BoardIndex, CaptureAction as WorldCaptureAction, CaptureProgress, CaptureProgressInput,
+    CarriedBy, Faction, Fuel, GameMap, GraphicalHp, Hiding, StrongIdMap, TerrainHp, TerrainTile,
+    Unit, UnitActive, UnitDestroyed, VisionRange,
 };
 
 /// Event triggered when a new day begins during replay playback.
@@ -82,7 +83,7 @@ pub fn apply_move_state(move_action: &MoveAction, world: &mut World) -> Option<M
         .unwrap_or(true);
 
     if position_changed {
-        world.entity_mut(entity).remove::<Capturing>();
+        world.entity_mut(entity).remove::<CaptureProgress>();
     }
 
     world.entity_mut(entity).remove::<UnitActive>();
@@ -101,7 +102,11 @@ pub fn apply_non_move_action(action: &Action, world: &mut World) {
             attack_seam_action, ..
         } => apply_attack_seam(attack_seam_action, world),
         Action::Build { new_unit, .. } => apply_build(new_unit, world),
-        Action::Capt { capture_action, .. } => apply_capture(capture_action, world),
+        Action::Capt {
+            move_action,
+            capture_action,
+            ..
+        } => apply_capture(capture_action, move_action.as_ref(), world),
         Action::Load { load_action, .. } => apply_load(load_action, world),
         Action::Unload {
             unit, transport_id, ..
@@ -214,39 +219,63 @@ pub fn apply_build(new_unit: &UnitMap, world: &mut World) {
     }
 }
 
-pub fn apply_capture(capture_action: &CaptureAction, world: &mut World) {
+pub fn apply_capture(
+    capture_action: &CaptureAction,
+    move_action: Option<&MoveAction>,
+    world: &mut World,
+) {
     let building_pos = Position::new(
         capture_action.building_info.buildings_x as usize,
         capture_action.building_info.buildings_y as usize,
     );
 
-    let capturing_unit = {
-        match world
-            .resource::<BoardIndex>()
-            .unit_entity(building_pos)
-            .ok()
-            .flatten()
-        {
-            Some(entity) => world
-                .get::<Faction>(entity)
-                .map(|faction| (entity, faction.0)),
-            None => None,
-        }
-    };
+    let capturing_unit = resolve_capture_unit(move_action, building_pos, world);
 
-    let Some((entity, faction)) = capturing_unit else {
+    let Some(entity) = capturing_unit else {
         log::warn!("No unit found at capture position {:?}", building_pos);
         return;
     };
 
-    world.entity_mut(entity).remove::<UnitActive>();
-
-    if capture_action.building_info.buildings_capture >= 20 {
-        world.entity_mut(entity).remove::<Capturing>();
-        flip_building(world, building_pos, faction);
-    } else {
-        world.entity_mut(entity).insert(Capturing);
+    let result = WorldCaptureAction {
+        unit_entity: entity,
+        progress_input: CaptureProgressInput::SetPostActionProgress(
+            capture_action.building_info.buildings_capture,
+        ),
     }
+    .apply(world);
+
+    if let Err(error) = result {
+        log::warn!("Failed to apply capture at {:?}: {}", building_pos, error);
+    }
+}
+
+fn resolve_capture_unit(
+    move_action: Option<&MoveAction>,
+    building_pos: Position,
+    world: &World,
+) -> Option<Entity> {
+    if let Some(move_action) = move_action {
+        let Some((_, unit)) = replay_move_view(move_action) else {
+            log::warn!("Capture action missing visible move unit data");
+            return None;
+        };
+
+        let unit_id = AwbwUnitId(unit.units_id);
+        let entity = world.resource::<StrongIdMap<AwbwUnitId>>().get(&unit_id);
+        if entity.is_none() {
+            log::warn!(
+                "Capture unit with ID {} not found in unit storage",
+                unit.units_id.as_u32()
+            );
+        }
+        return entity;
+    }
+
+    world
+        .resource::<BoardIndex>()
+        .unit_entity(building_pos)
+        .ok()
+        .flatten()
 }
 
 pub fn apply_end(updated_info: &UpdatedInfo, world: &mut World) {
@@ -1070,6 +1099,7 @@ mod tests {
                 Unit(unit),
                 Faction(faction),
                 AwbwUnitId(unit_id),
+                GraphicalHp(10),
                 Fuel(unit.max_fuel()),
                 Ammo(unit.max_ammo()),
                 UnitActive,
@@ -2055,10 +2085,12 @@ mod tests {
     }
 
     #[test]
-    fn moving_to_a_new_tile_clears_capturing() {
+    fn moving_to_a_new_tile_clears_capture_progress() {
         let mut app = replay_turn_test_app();
         let unit_entity = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
-        app.world_mut().entity_mut(unit_entity).insert(Capturing);
+        app.world_mut()
+            .entity_mut(unit_entity)
+            .insert(CaptureProgress::new(10).unwrap());
 
         let move_action = MoveAction {
             unit: [(
@@ -2101,14 +2133,20 @@ mod tests {
                 .position(),
             Position::new(3, 2)
         );
-        assert!(!app.world().entity(unit_entity).contains::<Capturing>());
+        assert!(
+            !app.world()
+                .entity(unit_entity)
+                .contains::<CaptureProgress>()
+        );
     }
 
     #[test]
-    fn stationary_move_preserves_capturing() {
+    fn stationary_move_preserves_capture_progress() {
         let mut app = replay_turn_test_app();
         let unit_entity = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
-        app.world_mut().entity_mut(unit_entity).insert(Capturing);
+        app.world_mut()
+            .entity_mut(unit_entity)
+            .insert(CaptureProgress::new(10).unwrap());
 
         let move_action = MoveAction {
             unit: [(
@@ -2132,13 +2170,25 @@ mod tests {
 
         apply_move_state(&move_action, app.world_mut());
 
-        assert!(app.world().entity(unit_entity).contains::<Capturing>());
+        assert_eq!(
+            app.world()
+                .entity(unit_entity)
+                .get::<CaptureProgress>()
+                .map(|progress| progress.value()),
+            Some(10)
+        );
     }
 
     #[test]
     fn stationary_capture_marks_unit_inactive() {
         let mut app = replay_turn_test_app();
         let unit_entity = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
+        spawn_test_terrain(
+            &mut app,
+            Position::new(2, 2),
+            GraphicalTerrain::Property(Property::City(awbrn_types::Faction::Neutral)),
+            None,
+        );
 
         apply_non_move_action(
             &Action::Capt {
@@ -2158,7 +2208,90 @@ mod tests {
             app.world_mut(),
         );
 
-        assert!(app.world().entity(unit_entity).contains::<Capturing>());
+        assert_eq!(
+            app.world()
+                .entity(unit_entity)
+                .get::<CaptureProgress>()
+                .map(|progress| progress.value()),
+            Some(10)
+        );
+        assert!(!app.world().entity(unit_entity).contains::<UnitActive>());
+    }
+
+    #[test]
+    fn moving_capture_resolves_unit_by_replay_id_when_board_index_misses_destination() {
+        let mut app = replay_turn_test_app();
+        let unit_id = CoreUnitId::new(1);
+        let destination = Position::new(3, 2);
+        let unit_entity = spawn_test_unit(&mut app, Position::new(2, 2), unit_id);
+        spawn_test_terrain(
+            &mut app,
+            destination,
+            GraphicalTerrain::Property(Property::City(awbrn_types::Faction::Neutral)),
+            None,
+        );
+        app.world_mut()
+            .entity_mut(unit_entity)
+            .insert(MapPosition::from(destination));
+        app.world_mut()
+            .resource_mut::<BoardIndex>()
+            .remove_unit(destination, unit_entity)
+            .unwrap();
+
+        apply_non_move_action(
+            &Action::Capt {
+                move_action: Some(MoveAction {
+                    unit: [(
+                        TargetedPlayer::Global,
+                        Hidden::Visible(test_unit_property(
+                            unit_id,
+                            destination.x as u32,
+                            destination.y as u32,
+                        )),
+                    )]
+                    .into(),
+                    paths: [(
+                        TargetedPlayer::Global,
+                        vec![
+                            PathTile {
+                                unit_visible: true,
+                                x: 2,
+                                y: 2,
+                            },
+                            PathTile {
+                                unit_visible: true,
+                                x: destination.x as u32,
+                                y: destination.y as u32,
+                            },
+                        ],
+                    )]
+                    .into(),
+                    dist: 1,
+                    trapped: false,
+                    discovered: None,
+                }),
+                capture_action: CaptureAction {
+                    building_info: BuildingInfo {
+                        buildings_capture: 10,
+                        buildings_id: 99,
+                        buildings_x: destination.x as u32,
+                        buildings_y: destination.y as u32,
+                        buildings_team: None,
+                    },
+                    vision: Default::default(),
+                    income: None,
+                },
+            },
+            app.world_mut(),
+        );
+
+        assert_eq!(
+            app.world()
+                .entity(unit_entity)
+                .get::<CaptureProgress>()
+                .map(|progress| progress.value()),
+            Some(10)
+        );
         assert!(!app.world().entity(unit_entity).contains::<UnitActive>());
     }
 
@@ -2166,7 +2299,15 @@ mod tests {
     fn stationary_capture_completion_marks_unit_inactive() {
         let mut app = replay_turn_test_app();
         let unit_entity = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
-        app.world_mut().entity_mut(unit_entity).insert(Capturing);
+        spawn_test_terrain(
+            &mut app,
+            Position::new(2, 2),
+            GraphicalTerrain::Property(Property::City(awbrn_types::Faction::Neutral)),
+            None,
+        );
+        app.world_mut()
+            .entity_mut(unit_entity)
+            .insert(CaptureProgress::new(10).unwrap());
 
         apply_non_move_action(
             &Action::Capt {
@@ -2186,7 +2327,11 @@ mod tests {
             app.world_mut(),
         );
 
-        assert!(!app.world().entity(unit_entity).contains::<Capturing>());
+        assert!(
+            !app.world()
+                .entity(unit_entity)
+                .contains::<CaptureProgress>()
+        );
         assert!(!app.world().entity(unit_entity).contains::<UnitActive>());
     }
 

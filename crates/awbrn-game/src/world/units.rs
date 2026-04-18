@@ -32,11 +32,57 @@ pub struct Faction(pub awbrn_types::PlayerFaction);
 #[reflect(Component)]
 pub struct UnitActive;
 
-/// Component to mark an entity as capturing a building
+/// Component to mark a unit's current property capture progress.
+///
+/// This component only represents in-progress captures; completed captures are
+/// resolved immediately and remove the component.
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[component(storage = "SparseSet")]
+#[component(immutable)]
 #[reflect(Component)]
-pub struct Capturing;
+pub struct CaptureProgress(u8);
+
+impl CaptureProgress {
+    pub const REQUIRED: u8 = 20;
+
+    pub const fn new(value: u8) -> Option<Self> {
+        if value < Self::REQUIRED {
+            Some(Self(value))
+        } else {
+            None
+        }
+    }
+
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+
+    pub fn advance_by_visual_hp(self, visual_hp: u8) -> CaptureResolution {
+        Self::resolve_points(u16::from(self.0) + u16::from(visual_hp))
+    }
+
+    pub fn from_post_action_points(points: i32) -> CaptureResolution {
+        let points = points.clamp(0, i32::from(u16::MAX)) as u16;
+        Self::resolve_points(points)
+    }
+
+    fn resolve_points(points: u16) -> CaptureResolution {
+        if points >= u16::from(Self::REQUIRED) {
+            CaptureResolution::Completed
+        } else {
+            CaptureResolution::Continued(Self(points as u8))
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureResolution {
+    Continued(CaptureProgress),
+    Completed,
+}
 
 /// Marker for a unit that is hiding (submarine dive or stealth activation).
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -187,3 +233,16 @@ impl Ammo {
 #[component(immutable)]
 #[reflect(Component)]
 pub struct VisionRange(pub u32);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replay_capture_points_do_not_wrap_when_narrowed() {
+        assert_eq!(
+            CaptureProgress::from_post_action_points(i32::from(u16::MAX) + 1),
+            CaptureResolution::Completed
+        );
+    }
+}
