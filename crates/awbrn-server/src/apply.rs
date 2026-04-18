@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+use crate::adjacency::adjacent_positions;
 use crate::command::{GameCommand, PostMoveAction};
 use crate::damage::{CombatInput, CombatSide, LuckCap, PercentMod, TerrainStars};
 use crate::player::PlayerRegistry;
@@ -10,10 +11,10 @@ use crate::unit_id::ServerUnitId;
 use awbrn_game::MapPosition;
 use awbrn_game::world::{
     Ammo, BoardIndex, CaptureAction, CaptureActionOutcome, CaptureProgress, CaptureProgressInput,
-    Fuel, GameMap, GraphicalHp, StrongIdMap, UnitActive, UnitHp,
+    CarriedBy, Fuel, GameMap, GraphicalHp, Hiding, StrongIdMap, UnitActive, UnitHp,
 };
 use awbrn_game::world::{Faction, Unit};
-use awbrn_types::{DamagePts, PlayerFaction};
+use awbrn_types::{DamagePts, ExactHp, PlayerFaction};
 
 /// The set of world mutations that occurred from applying a command.
 /// Used by the view layer to build per-player updates.
@@ -72,6 +73,51 @@ pub(crate) enum ApplyOutcome {
         tile: awbrn_map::Position,
         unit_type: awbrn_types::Unit,
         unit_id: ServerUnitId,
+    },
+    UnitSupplied {
+        supplier_id: ServerUnitId,
+        resupplied_unit_ids: Vec<ServerUnitId>,
+    },
+    UnitLoaded {
+        cargo_id: ServerUnitId,
+        cargo_entity: Entity,
+        transport_id: ServerUnitId,
+        transport_entity: Entity,
+        from: awbrn_map::Position,
+        to: awbrn_map::Position,
+        path: Vec<awbrn_map::Position>,
+        cargo_faction: PlayerFaction,
+    },
+    UnitUnloaded {
+        cargo_id: ServerUnitId,
+        cargo_entity: Entity,
+        transport_id: ServerUnitId,
+        transport_entity: Entity,
+        destination_tile: awbrn_map::Position,
+    },
+    UnitHidden {
+        unit_id: ServerUnitId,
+        entity: Entity,
+        position: awbrn_map::Position,
+        faction: PlayerFaction,
+    },
+    UnitUnhidden {
+        unit_id: ServerUnitId,
+        entity: Entity,
+        position: awbrn_map::Position,
+        faction: PlayerFaction,
+    },
+    UnitJoined {
+        source_id: ServerUnitId,
+        source_entity: Entity,
+        source_unit_type: awbrn_types::Unit,
+        target_id: ServerUnitId,
+        target_entity: Entity,
+        from: awbrn_map::Position,
+        to: awbrn_map::Position,
+        path: Vec<awbrn_map::Position>,
+        source_faction: PlayerFaction,
+        funds_refund: u32,
     },
 }
 
@@ -151,11 +197,20 @@ fn apply_move_unit(
         world.entity_mut(entity).insert(Fuel(new_fuel));
     }
 
-    // Update position if it changed.
+    let destination_is_occupied_action = matches!(
+        action,
+        Some(PostMoveAction::Load { .. } | PostMoveAction::Join { .. })
+    );
+
+    // Update position if it changed. Load and Join intentionally end on an
+    // occupied tile, so the acting unit must not be inserted into BoardIndex
+    // at the destination before being loaded/despawned.
     if from != to {
         // Capture progress is tied to the unit staying on the same property.
         world.entity_mut(entity).remove::<CaptureProgress>();
-        world.entity_mut(entity).insert(MapPosition::from(to));
+        if !destination_is_occupied_action {
+            world.entity_mut(entity).insert(MapPosition::from(to));
+        }
     }
 
     // Deactivate the unit (it has acted this turn).
@@ -168,6 +223,25 @@ fn apply_move_unit(
         Some(PostMoveAction::Capture) => {
             apply_capture(world, unit_id, entity, from, to, path, faction)
         }
+        Some(PostMoveAction::Load { transport_id }) => apply_load(
+            world,
+            unit_id,
+            entity,
+            *transport_id,
+            from,
+            to,
+            path,
+            faction,
+        ),
+        Some(PostMoveAction::Unload { cargo_id, position }) => {
+            apply_unload(world, unit_id, entity, *cargo_id, *position)
+        }
+        Some(PostMoveAction::Supply) => apply_supply(world, unit_id, to, faction),
+        Some(PostMoveAction::Hide) => apply_hide(world, unit_id, entity, to, faction),
+        Some(PostMoveAction::Unhide) => apply_unhide(world, unit_id, entity, to, faction),
+        Some(PostMoveAction::Join { target_id }) => {
+            apply_join(world, unit_id, entity, *target_id, from, to, path, faction)
+        }
         _ => ApplyOutcome::UnitMoved {
             unit_id,
             entity,
@@ -176,6 +250,258 @@ fn apply_move_unit(
             path: path.to_vec(),
             faction,
         },
+    }
+}
+
+fn apply_supply(
+    world: &mut World,
+    supplier_id: ServerUnitId,
+    position: awbrn_map::Position,
+    faction: PlayerFaction,
+) -> ApplyOutcome {
+    let mut resupplied_unit_ids = Vec::with_capacity(4);
+
+    for position in adjacent_positions(position).into_iter().flatten() {
+        let Some(entity) = world
+            .resource::<BoardIndex>()
+            .unit_entity(position)
+            .ok()
+            .flatten()
+        else {
+            continue;
+        };
+
+        let Some((unit_type, unit_id, current_fuel, current_ammo)) = ({
+            let entity_ref = world.entity(entity);
+            let is_self_owned = entity_ref
+                .get::<Faction>()
+                .is_some_and(|unit_faction| unit_faction.0 == faction);
+            if !is_self_owned {
+                None
+            } else {
+                let unit_type = entity_ref
+                    .get::<Unit>()
+                    .copied()
+                    .expect("resupplied unit must have Unit component")
+                    .0;
+                let unit_id = entity_ref
+                    .get::<ServerUnitId>()
+                    .copied()
+                    .expect("resupplied unit must have ServerUnitId");
+                let current_fuel = entity_ref.get::<Fuel>().map(|fuel| fuel.0);
+                let current_ammo = entity_ref.get::<Ammo>().map(|ammo| ammo.0);
+                Some((unit_type, unit_id, current_fuel, current_ammo))
+            }
+        }) else {
+            continue;
+        };
+
+        let max_fuel = unit_type.max_fuel();
+        let max_ammo = unit_type.max_ammo();
+        let needs_fuel = current_fuel.is_some_and(|fuel| fuel < max_fuel);
+        let needs_ammo = current_ammo.is_some_and(|ammo| ammo < max_ammo);
+
+        if needs_fuel || needs_ammo {
+            world
+                .entity_mut(entity)
+                .insert((Fuel(max_fuel), Ammo(max_ammo)));
+            resupplied_unit_ids.push(unit_id);
+        }
+    }
+
+    ApplyOutcome::UnitSupplied {
+        supplier_id,
+        resupplied_unit_ids,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_load(
+    world: &mut World,
+    cargo_id: ServerUnitId,
+    cargo_entity: Entity,
+    transport_id: ServerUnitId,
+    from: awbrn_map::Position,
+    to: awbrn_map::Position,
+    path: &[awbrn_map::Position],
+    cargo_faction: PlayerFaction,
+) -> ApplyOutcome {
+    let transport_entity = world
+        .resource::<StrongIdMap<ServerUnitId>>()
+        .get(&transport_id)
+        .expect("validated transport must exist");
+
+    world
+        .entity_mut(cargo_entity)
+        .insert(CarriedBy(transport_entity))
+        .remove::<MapPosition>();
+
+    ApplyOutcome::UnitLoaded {
+        cargo_id,
+        cargo_entity,
+        transport_id,
+        transport_entity,
+        from,
+        to,
+        path: path.to_vec(),
+        cargo_faction,
+    }
+}
+
+fn apply_unload(
+    world: &mut World,
+    transport_id: ServerUnitId,
+    transport_entity: Entity,
+    cargo_id: ServerUnitId,
+    destination_tile: awbrn_map::Position,
+) -> ApplyOutcome {
+    let cargo_entity = world
+        .resource::<StrongIdMap<ServerUnitId>>()
+        .get(&cargo_id)
+        .expect("validated cargo must exist");
+
+    world
+        .entity_mut(cargo_entity)
+        .insert(MapPosition::from(destination_tile))
+        .remove::<CarriedBy>();
+
+    ApplyOutcome::UnitUnloaded {
+        cargo_id,
+        cargo_entity,
+        transport_id,
+        transport_entity,
+        destination_tile,
+    }
+}
+
+fn apply_hide(
+    world: &mut World,
+    unit_id: ServerUnitId,
+    entity: Entity,
+    position: awbrn_map::Position,
+    faction: PlayerFaction,
+) -> ApplyOutcome {
+    world.entity_mut(entity).insert(Hiding);
+    ApplyOutcome::UnitHidden {
+        unit_id,
+        entity,
+        position,
+        faction,
+    }
+}
+
+fn apply_unhide(
+    world: &mut World,
+    unit_id: ServerUnitId,
+    entity: Entity,
+    position: awbrn_map::Position,
+    faction: PlayerFaction,
+) -> ApplyOutcome {
+    world.entity_mut(entity).remove::<Hiding>();
+    ApplyOutcome::UnitUnhidden {
+        unit_id,
+        entity,
+        position,
+        faction,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_join(
+    world: &mut World,
+    source_id: ServerUnitId,
+    source_entity: Entity,
+    target_id: ServerUnitId,
+    from: awbrn_map::Position,
+    to: awbrn_map::Position,
+    path: &[awbrn_map::Position],
+    source_faction: PlayerFaction,
+) -> ApplyOutcome {
+    let target_entity = world
+        .resource::<StrongIdMap<ServerUnitId>>()
+        .get(&target_id)
+        .expect("validated join target must exist");
+
+    let (unit_type, source_hp, source_fuel, source_ammo, target_hp, target_fuel, target_ammo) = {
+        let source = world.entity(source_entity);
+        let target = world.entity(target_entity);
+        let unit_type = source
+            .get::<Unit>()
+            .copied()
+            .expect("source must have Unit component")
+            .0;
+        let source_hp = source
+            .get::<UnitHp>()
+            .copied()
+            .expect("source must have UnitHp")
+            .0;
+        let source_fuel = source.get::<Fuel>().map(|fuel| fuel.0).unwrap_or(0);
+        let source_ammo = source.get::<Ammo>().map(|ammo| ammo.0).unwrap_or(0);
+        let target_hp = target
+            .get::<UnitHp>()
+            .copied()
+            .expect("target must have UnitHp")
+            .0;
+        let target_fuel = target.get::<Fuel>().map(|fuel| fuel.0).unwrap_or(0);
+        let target_ammo = target.get::<Ammo>().map(|ammo| ammo.0).unwrap_or(0);
+
+        (
+            unit_type,
+            source_hp,
+            source_fuel,
+            source_ammo,
+            target_hp,
+            target_fuel,
+            target_ammo,
+        )
+    };
+
+    let combined_hp = u16::from(source_hp.get()) + u16::from(target_hp.get());
+    let overflow_hp = combined_hp.saturating_sub(100);
+    let joined_hp = combined_hp.min(100) as u8;
+    let funds_refund = if overflow_hp > 0 {
+        (unit_type.base_cost() / 100) * u32::from(overflow_hp)
+    } else {
+        0
+    };
+
+    if funds_refund > 0
+        && let Some(owner) = world
+            .resource::<PlayerRegistry>()
+            .player_for_faction(source_faction)
+    {
+        world
+            .resource_mut::<PlayerRegistry>()
+            .get_mut(owner)
+            .expect("join source owner must exist")
+            .funds += funds_refund;
+    }
+
+    let joined_fuel = source_fuel
+        .saturating_add(target_fuel)
+        .min(unit_type.max_fuel());
+    let joined_ammo = source_ammo
+        .saturating_add(target_ammo)
+        .min(unit_type.max_ammo());
+
+    world.entity_mut(target_entity).insert((
+        UnitHp(ExactHp::new(joined_hp)),
+        Fuel(joined_fuel),
+        Ammo(joined_ammo),
+    ));
+    world.entity_mut(source_entity).despawn();
+
+    ApplyOutcome::UnitJoined {
+        source_id,
+        source_entity,
+        source_unit_type: unit_type,
+        target_id,
+        target_entity,
+        from,
+        to,
+        path: path.to_vec(),
+        source_faction,
+        funds_refund,
     }
 }
 
