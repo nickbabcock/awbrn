@@ -14,7 +14,7 @@ use serde_json::Value;
 use crate::MapPosition;
 use crate::replay::{AwbwUnitId, ReplayFogDirty, ReplayState};
 use crate::world::{
-    Ammo, Capturing, CarriedBy, Faction, FogActive, FogOfWarMap, FriendlyFactions, Fuel,
+    Ammo, CaptureProgress, CarriedBy, Faction, FogActive, FogOfWarMap, FriendlyFactions, Fuel,
     GraphicalHp, HasCargo, TerrainHp, TerrainTile, Unit, UnitActive, VisionRange,
 };
 
@@ -128,8 +128,8 @@ impl Plugin for GameSnapshotPlugin {
             .register_type_data::<AwbwUnitId, ReplaySemanticComponentType>()
             .register_type::<UnitActive>()
             .register_type_data::<UnitActive, ReplaySemanticComponentType>()
-            .register_type::<Capturing>()
-            .register_type_data::<Capturing, ReplaySemanticComponentType>()
+            .register_type::<CaptureProgress>()
+            .register_type_data::<CaptureProgress, ReplaySemanticComponentType>()
             .register_type::<GraphicalHp>()
             .register_type_data::<GraphicalHp, ReplaySemanticComponentType>()
             .register_type::<Fuel>()

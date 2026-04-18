@@ -286,6 +286,31 @@ pub(crate) mod test_helpers {
     }
 
     pub(crate) fn spawn_test_property(app: &mut App, position: Position) {
+        let terrain = GraphicalTerrain::Property(Property::City(awbrn_types::Faction::Neutral));
+        {
+            let mut game_map = app.world_mut().resource_mut::<GameMap>();
+            if game_map.set_terrain(position, terrain).is_none() {
+                let width = game_map.width().max(position.x + 1);
+                let height = game_map.height().max(position.y + 1);
+                let mut existing_tiles = Vec::new();
+                for y in 0..game_map.height() {
+                    for x in 0..game_map.width() {
+                        let position = Position::new(x, y);
+                        if let Some(terrain) = game_map.terrain_at(position) {
+                            existing_tiles.push((position, terrain));
+                        }
+                    }
+                }
+
+                let mut expanded = AwbrnMap::new(width, height, GraphicalTerrain::Plain);
+                for (position, terrain) in existing_tiles {
+                    expanded.set_terrain(position, terrain);
+                }
+                expanded.set_terrain(position, terrain);
+                game_map.set(expanded);
+            }
+        }
+
         app.world_mut().spawn((
             MapPosition::from(position),
             Transform::default(),
@@ -296,9 +321,7 @@ pub(crate) mod test_helpers {
                     index: 0,
                 },
             ),
-            TerrainTile {
-                terrain: GraphicalTerrain::Property(Property::City(awbrn_types::Faction::Neutral)),
-            },
+            TerrainTile { terrain },
         ));
     }
 
@@ -512,7 +535,7 @@ mod tests {
     use crate::modes::replay::navigation::{COURSE_ARROW_BASE_SCALE, CourseArrowSpriteKind};
     use awbrn_content::get_unit_animation_frames;
     use awbrn_game::MapPosition;
-    use awbrn_game::world::{Capturing, GameMap, GraphicalHp};
+    use awbrn_game::world::{CaptureProgress, GameMap, GraphicalHp};
     use awbrn_map::Position;
     use awbrn_types::{AwbwUnitId as CoreUnitId, GraphicalMovement, PlayerFaction};
     use awbw_replay::Hidden;
@@ -794,6 +817,9 @@ mod tests {
             CoreUnitId::new(1),
             PlayerFaction::OrangeStar,
         );
+        app.world_mut()
+            .entity_mut(unit_entity)
+            .insert(GraphicalHp(10));
         spawn_test_property(&mut app, Position::new(2, 1));
         app.update();
 
@@ -802,14 +828,24 @@ mod tests {
         }
         .apply(app.world_mut());
 
-        assert!(!app.world().entity(unit_entity).contains::<Capturing>());
+        assert!(
+            !app.world()
+                .entity(unit_entity)
+                .contains::<CaptureProgress>()
+        );
 
         app.world_mut()
             .resource_mut::<Time<()>>()
             .advance_by(Duration::from_millis(400));
         app.update();
 
-        assert!(app.world().entity(unit_entity).contains::<Capturing>());
+        assert_eq!(
+            app.world()
+                .entity(unit_entity)
+                .get::<CaptureProgress>()
+                .map(|progress| progress.value()),
+            Some(10)
+        );
     }
 
     #[test]

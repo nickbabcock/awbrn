@@ -7,8 +7,8 @@ use crate::unit_id::ServerUnitId;
 use awbrn_game::MapPosition;
 use awbrn_game::replay::{PowerVisionBoosts, range_modifier_for_weather};
 use awbrn_game::world::{
-    Ammo, Capturing, CarriedBy, CurrentWeather, Faction, FogOfWarMap, Fuel, GameMap, GraphicalHp,
-    Unit, VisionRange, collect_friendly_units, rebuild_fog_map,
+    Ammo, CaptureProgress, CarriedBy, CurrentWeather, Faction, FogOfWarMap, Fuel, GameMap,
+    GraphicalHp, Unit, VisionRange, collect_friendly_units, rebuild_fog_map,
 };
 use awbrn_map::Position;
 use awbrn_types::PlayerFaction;
@@ -35,6 +35,7 @@ pub struct VisibleUnit {
     /// Included for units owned by the viewing player or an allied teammate.
     pub ammo: Option<u32>,
     pub capturing: bool,
+    pub capture_progress: Option<u8>,
 }
 
 /// A terrain tile as visible to a specific player.
@@ -80,6 +81,21 @@ pub struct UnitCombatEvent {
     pub defender_hp_after: GraphicalHp,
 }
 
+/// Capture event visible to a player after a capture action.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum CaptureEvent {
+    CaptureContinued {
+        tile: Position,
+        unit_id: ServerUnitId,
+        progress: u8,
+    },
+    PropertyCaptured {
+        tile: Position,
+        new_faction: PlayerFaction,
+    },
+}
+
 /// Incremental update for a specific player after a command.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PlayerUpdate {
@@ -91,10 +107,14 @@ pub struct PlayerUpdate {
     pub units_removed: Vec<ServerUnitId>,
     /// Terrain tiles newly revealed to this player (fog lifted).
     pub terrain_revealed: Vec<VisibleTerrain>,
+    /// Terrain tiles whose visible terrain changed while known to this player.
+    pub terrain_changed: Vec<VisibleTerrain>,
     /// Turn change information (if EndTurn was the command).
     pub turn_change: Option<TurnChange>,
     /// Combat event (if an attack was the command).
     pub combat_event: Option<UnitCombatEvent>,
+    /// Capture event (if a capture action was visible to this player).
+    pub capture_event: Option<CaptureEvent>,
     /// Current game state.
     pub state: GameStateHeader,
 }
@@ -266,8 +286,10 @@ fn build_player_update(
                 units_moved,
                 units_removed,
                 terrain_revealed,
+                terrain_changed: Vec::new(),
                 turn_change: None,
                 combat_event: None,
+                capture_event: None,
                 state: header.clone(),
             }
         }
@@ -279,11 +301,13 @@ fn build_player_update(
             units_moved: Vec::new(),
             units_removed: Vec::new(),
             terrain_revealed: Vec::new(),
+            terrain_changed: Vec::new(),
             turn_change: Some(TurnChange {
                 new_active_player: *new_active_player,
                 new_day: *new_day,
             }),
             combat_event: None,
+            capture_event: None,
             state: header.clone(),
         },
         ApplyOutcome::UnitAttacked {
@@ -424,12 +448,198 @@ fn build_player_update(
                 units_moved,
                 units_removed,
                 terrain_revealed,
+                terrain_changed: Vec::new(),
                 turn_change: None,
                 combat_event,
+                capture_event: None,
+                state: header.clone(),
+            }
+        }
+        ApplyOutcome::CaptureContinued {
+            unit_id,
+            entity,
+            from,
+            to,
+            path,
+            faction,
+            tile,
+            progress,
+        } => {
+            let movement = movement_visibility_update(
+                world,
+                &friendly_factions,
+                pre_fog,
+                post_fog,
+                *unit_id,
+                *entity,
+                *from,
+                *to,
+                path,
+                *faction,
+            );
+            let capture_event = if tile_visible(post_fog, *tile) {
+                Some(CaptureEvent::CaptureContinued {
+                    tile: *tile,
+                    unit_id: *unit_id,
+                    progress: *progress,
+                })
+            } else {
+                None
+            };
+
+            PlayerUpdate {
+                units_revealed: movement.units_revealed,
+                units_moved: movement.units_moved,
+                units_removed: movement.units_removed,
+                terrain_revealed: movement.terrain_revealed,
+                terrain_changed: Vec::new(),
+                turn_change: None,
+                combat_event: None,
+                capture_event,
+                state: header.clone(),
+            }
+        }
+        ApplyOutcome::PropertyCaptured {
+            unit_id,
+            entity,
+            from,
+            to,
+            path,
+            faction,
+            tile,
+            new_faction,
+        } => {
+            let movement = movement_visibility_update(
+                world,
+                &friendly_factions,
+                pre_fog,
+                post_fog,
+                *unit_id,
+                *entity,
+                *from,
+                *to,
+                path,
+                *faction,
+            );
+            let was_visible = tile_visible(pre_fog, *tile);
+            let capture_visible = was_visible || tile_visible(post_fog, *tile);
+            let capture_event = if capture_visible {
+                Some(CaptureEvent::PropertyCaptured {
+                    tile: *tile,
+                    new_faction: *new_faction,
+                })
+            } else {
+                None
+            };
+            let terrain_changed = if was_visible {
+                world
+                    .resource::<GameMap>()
+                    .terrain_at(*tile)
+                    .map(|terrain| {
+                        vec![VisibleTerrain {
+                            position: *tile,
+                            terrain,
+                        }]
+                    })
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+
+            PlayerUpdate {
+                units_revealed: movement.units_revealed,
+                units_moved: movement.units_moved,
+                units_removed: movement.units_removed,
+                terrain_revealed: movement.terrain_revealed,
+                terrain_changed,
+                turn_change: None,
+                combat_event: None,
+                capture_event,
                 state: header.clone(),
             }
         }
     }
+}
+
+#[derive(Default)]
+struct MovementVisibilityUpdate {
+    units_revealed: Vec<VisibleUnit>,
+    units_moved: Vec<UnitMoved>,
+    units_removed: Vec<ServerUnitId>,
+    terrain_revealed: Vec<VisibleTerrain>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn movement_visibility_update(
+    world: &mut World,
+    friendly_factions: &HashSet<PlayerFaction>,
+    pre_fog: Option<&FogOfWarMap>,
+    post_fog: Option<&FogOfWarMap>,
+    unit_id: ServerUnitId,
+    entity: Entity,
+    from: Position,
+    to: Position,
+    path: &[Position],
+    faction: PlayerFaction,
+) -> MovementVisibilityUpdate {
+    let is_friendly_unit = friendly_factions.contains(&faction);
+    let mut update = MovementVisibilityUpdate::default();
+
+    if is_friendly_unit {
+        update.units_moved.push(UnitMoved {
+            id: unit_id,
+            path: path.to_vec(),
+            from,
+            to,
+        });
+
+        let pre_enemies = visible_enemy_units(world, friendly_factions, pre_fog);
+        let post_enemies = visible_enemy_units(world, friendly_factions, post_fog);
+
+        for (uid, ent) in &post_enemies {
+            if !pre_enemies.contains_key(uid)
+                && let Some(visible) = entity_to_visible_unit(world, *ent, friendly_factions)
+            {
+                update.units_revealed.push(visible);
+            }
+        }
+        for uid in pre_enemies.keys() {
+            if !post_enemies.contains_key(uid) {
+                update.units_removed.push(*uid);
+            }
+        }
+
+        update.terrain_revealed = terrain_diff(world, pre_fog, post_fog);
+    } else {
+        let unit_type = world.entity(entity).get::<Unit>().map(|u| u.0);
+        let is_air = unit_type
+            .map(|u| u.domain() == awbrn_types::UnitDomain::Air)
+            .unwrap_or(false);
+
+        let from_was_visible = pre_fog
+            .map(|f| f.is_unit_visible(from, is_air))
+            .unwrap_or(true);
+        let to_is_visible = post_fog
+            .map(|f| f.is_unit_visible(to, is_air))
+            .unwrap_or(true);
+
+        if from_was_visible && to_is_visible {
+            update.units_moved.push(UnitMoved {
+                id: unit_id,
+                path: path.to_vec(),
+                from,
+                to,
+            });
+        } else if !from_was_visible && to_is_visible {
+            if let Some(visible) = entity_to_visible_unit(world, entity, friendly_factions) {
+                update.units_revealed.push(visible);
+            }
+        } else if from_was_visible && !to_is_visible {
+            update.units_removed.push(unit_id);
+        }
+    }
+
+    update
 }
 
 /// Compute a fog of war map for the given set of friendly factions.
@@ -490,7 +700,7 @@ fn collect_visible_units(
     friendly_factions: &HashSet<PlayerFaction>,
     fog_map: Option<&FogOfWarMap>,
 ) -> Vec<VisibleUnit> {
-    // Include ServerUnitId, Fuel, Ammo, Capturing in the query to avoid separate entity lookups.
+    // Include ServerUnitId, Fuel, Ammo, CaptureProgress in the query to avoid separate entity lookups.
     let mut query = world.query_filtered::<(
         Entity,
         &MapPosition,
@@ -500,7 +710,7 @@ fn collect_visible_units(
         &ServerUnitId,
         Option<&Fuel>,
         Option<&Ammo>,
-        Has<Capturing>,
+        Option<&CaptureProgress>,
     ), Without<CarriedBy>>();
 
     query
@@ -514,8 +724,9 @@ fn collect_visible_units(
             }
         })
         .map(
-            |(_, pos, unit, faction, hp, unit_id, fuel, ammo, capturing)| {
+            |(_, pos, unit, faction, hp, unit_id, fuel, ammo, capture_progress)| {
                 let include_private_stats = friendly_factions.contains(&faction.0);
+                let capture_progress = capture_progress.map(|progress| progress.value());
                 VisibleUnit {
                     id: *unit_id,
                     unit_type: unit.0,
@@ -532,7 +743,8 @@ fn collect_visible_units(
                     } else {
                         None
                     },
-                    capturing,
+                    capturing: capture_progress.is_some(),
+                    capture_progress,
                 }
             },
         )
@@ -619,6 +831,10 @@ fn terrain_diff(
     revealed
 }
 
+fn tile_visible(fog_map: Option<&FogOfWarMap>, position: Position) -> bool {
+    fog_map.map(|fog| !fog.is_fogged(position)).unwrap_or(true)
+}
+
 fn entity_to_visible_unit(
     world: &World,
     entity: Entity,
@@ -649,7 +865,10 @@ fn entity_to_visible_unit(
         } else {
             None
         },
-        capturing: entity_ref.contains::<Capturing>(),
+        capturing: entity_ref.contains::<CaptureProgress>(),
+        capture_progress: entity_ref
+            .get::<CaptureProgress>()
+            .map(|progress| progress.value()),
     })
 }
 
@@ -658,7 +877,7 @@ mod tests {
     use super::*;
     use crate::setup::{GameSetup, PlayerSetup, initialize_server_world};
     use awbrn_map::AwbrnMap;
-    use awbrn_types::{Co, GraphicalTerrain, Weather};
+    use awbrn_types::{Co, Faction as TerrainFaction, GraphicalTerrain, Property, Weather};
 
     fn single_player_setup(width: usize, height: usize) -> GameSetup {
         GameSetup {
@@ -707,6 +926,69 @@ mod tests {
         assert!(
             !boosted_fog.is_fogged(Position::new(2, 0)),
             "temporary power vision boosts should offset the weather penalty"
+        );
+    }
+
+    #[test]
+    fn captured_property_newly_revealed_by_move_is_not_terrain_changed() {
+        let mut world = initialize_server_world(single_player_setup(3, 1)).unwrap();
+        let from = Position::new(0, 0);
+        let tile = Position::new(2, 0);
+        let captured = GraphicalTerrain::Property(Property::City(TerrainFaction::Player(
+            PlayerFaction::OrangeStar,
+        )));
+        world.resource_mut::<GameMap>().set_terrain(tile, captured);
+
+        let unit_id = ServerUnitId(1);
+        let entity = world
+            .spawn((
+                MapPosition::from(tile),
+                Faction(PlayerFaction::OrangeStar),
+                Unit(awbrn_types::Unit::Infantry),
+                GraphicalHp(10),
+                VisionRange(2),
+                unit_id,
+            ))
+            .id();
+
+        let pre_fog = FogOfWarMap::new(3, 1);
+        let mut post_fog = FogOfWarMap::new(3, 1);
+        post_fog.reveal(tile);
+        let header = game_state_header(&world);
+
+        let update = build_player_update(
+            &mut world,
+            PlayerId(0),
+            &ApplyOutcome::PropertyCaptured {
+                unit_id,
+                entity,
+                from,
+                to: tile,
+                path: vec![from, tile],
+                faction: PlayerFaction::OrangeStar,
+                tile,
+                new_faction: PlayerFaction::OrangeStar,
+            },
+            Some(&pre_fog),
+            Some(&post_fog),
+            &header,
+        );
+
+        assert!(matches!(
+            update.capture_event,
+            Some(CaptureEvent::PropertyCaptured {
+                tile: event_tile,
+                new_faction: PlayerFaction::OrangeStar,
+            }) if event_tile == tile
+        ));
+        assert!(update.terrain_changed.is_empty());
+        assert_eq!(
+            update
+                .terrain_revealed
+                .iter()
+                .find(|terrain| terrain.position == tile)
+                .map(|terrain| terrain.terrain),
+            Some(captured)
         );
     }
 }

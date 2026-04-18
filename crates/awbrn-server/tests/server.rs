@@ -1,11 +1,11 @@
 use std::num::NonZeroU8;
 
 use awbrn_map::{AwbrnMap, Position};
-use awbrn_types::{GraphicalTerrain, PlayerFaction};
+use awbrn_types::{Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, Property};
 
 use awbrn_server::{
-    Co, CommandError, GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup, PostMoveAction,
-    ServerUnitId, SetupError,
+    CaptureEvent, Co, CommandError, GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup,
+    PostMoveAction, ServerUnitId, SetupError,
 };
 
 fn attack_command(unit_id: ServerUnitId, path: Vec<Position>, target: Position) -> GameCommand {
@@ -13,6 +13,14 @@ fn attack_command(unit_id: ServerUnitId, path: Vec<Position>, target: Position) 
         unit_id,
         path,
         action: Some(PostMoveAction::Attack { target }),
+    }
+}
+
+fn capture_command(unit_id: ServerUnitId, position: Position) -> GameCommand {
+    GameCommand::MoveUnit {
+        unit_id,
+        path: vec![position],
+        action: Some(PostMoveAction::Capture),
     }
 }
 
@@ -29,6 +37,28 @@ fn two_player_setup(width: usize, height: usize) -> GameSetup {
             PlayerSetup {
                 faction: PlayerFaction::BlueMoon,
                 team: None,
+                starting_funds: 1000,
+                co: Co::Andy,
+            },
+        ],
+        fog_enabled: false,
+        rng_seed: 0,
+    }
+}
+
+fn allied_player_setup(width: usize, height: usize) -> GameSetup {
+    GameSetup {
+        map: AwbrnMap::new(width, height, GraphicalTerrain::Plain),
+        players: vec![
+            PlayerSetup {
+                faction: PlayerFaction::OrangeStar,
+                team: Some(NonZeroU8::new(1).unwrap()),
+                starting_funds: 1000,
+                co: Co::Andy,
+            },
+            PlayerSetup {
+                faction: PlayerFaction::BlueMoon,
+                team: Some(NonZeroU8::new(1).unwrap()),
                 starting_funds: 1000,
                 co: Co::Andy,
             },
@@ -793,4 +823,339 @@ fn primary_weapon_attack_consumes_ammo() {
         initial_ammo - 1,
         "primary weapon should consume 1 ammo"
     );
+}
+
+// ── Capture integration tests ─────────────────────────────────────────────────
+
+#[test]
+fn full_hp_infantry_captures_property_in_two_capture_actions() {
+    let mut setup = two_player_setup(3, 1);
+    setup.map.set_terrain(
+        Position::new(0, 0),
+        GraphicalTerrain::Property(Property::City(TerrainFaction::Neutral)),
+    );
+    let mut server = GameServer::new(setup).unwrap();
+    let infantry = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+
+    let first = server
+        .submit_command(p1(), capture_command(infantry, Position::new(0, 0)))
+        .unwrap();
+    let p1_update = first
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p1())
+        .unwrap()
+        .1
+        .clone();
+    assert!(matches!(
+        p1_update.capture_event,
+        Some(CaptureEvent::CaptureContinued { progress: 10, .. })
+    ));
+    assert_eq!(
+        server
+            .player_view(p1())
+            .units
+            .iter()
+            .find(|unit| unit.id == infantry)
+            .unwrap()
+            .capture_progress,
+        Some(10)
+    );
+
+    server.submit_command(p1(), GameCommand::EndTurn).unwrap();
+    server.submit_command(p2(), GameCommand::EndTurn).unwrap();
+
+    let second = server
+        .submit_command(p1(), capture_command(infantry, Position::new(0, 0)))
+        .unwrap();
+    let p1_update = second
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p1())
+        .unwrap()
+        .1
+        .clone();
+    assert!(matches!(
+        p1_update.capture_event,
+        Some(CaptureEvent::PropertyCaptured {
+            tile,
+            new_faction: PlayerFaction::OrangeStar
+        }) if tile == Position::new(0, 0)
+    ));
+    assert_eq!(
+        p1_update.terrain_changed[0].terrain,
+        GraphicalTerrain::Property(Property::City(TerrainFaction::Player(
+            PlayerFaction::OrangeStar
+        )))
+    );
+
+    let terrain = server
+        .player_view(p1())
+        .terrain
+        .into_iter()
+        .find(|tile| tile.position == Position::new(0, 0))
+        .unwrap();
+    assert_eq!(
+        terrain.terrain,
+        GraphicalTerrain::Property(Property::City(TerrainFaction::Player(
+            PlayerFaction::OrangeStar
+        )))
+    );
+    assert_eq!(
+        server
+            .player_view(p1())
+            .units
+            .iter()
+            .find(|unit| unit.id == infantry)
+            .unwrap()
+            .capture_progress,
+        None
+    );
+}
+
+#[test]
+fn mech_can_initiate_capture_on_enemy_property() {
+    let mut setup = two_player_setup(3, 1);
+    setup.map.set_terrain(
+        Position::new(0, 0),
+        GraphicalTerrain::Property(Property::City(TerrainFaction::Player(
+            PlayerFaction::BlueMoon,
+        ))),
+    );
+    let mut server = GameServer::new(setup).unwrap();
+    let mech = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::Mech,
+        PlayerFaction::OrangeStar,
+    );
+
+    let result = server
+        .submit_command(p1(), capture_command(mech, Position::new(0, 0)))
+        .unwrap();
+    let p1_update = result
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p1())
+        .unwrap()
+        .1
+        .clone();
+
+    assert!(matches!(
+        p1_update.capture_event,
+        Some(CaptureEvent::CaptureContinued { progress: 10, .. })
+    ));
+}
+
+#[test]
+fn moving_away_loses_capture_progress() {
+    let mut setup = two_player_setup(3, 1);
+    setup.map.set_terrain(
+        Position::new(0, 0),
+        GraphicalTerrain::Property(Property::City(TerrainFaction::Neutral)),
+    );
+    let mut server = GameServer::new(setup).unwrap();
+    let infantry = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+
+    server
+        .submit_command(p1(), capture_command(infantry, Position::new(0, 0)))
+        .unwrap();
+    server.submit_command(p1(), GameCommand::EndTurn).unwrap();
+    server.submit_command(p2(), GameCommand::EndTurn).unwrap();
+
+    server
+        .submit_command(
+            p1(),
+            GameCommand::MoveUnit {
+                unit_id: infantry,
+                path: vec![Position::new(0, 0), Position::new(1, 0)],
+                action: Some(PostMoveAction::Wait),
+            },
+        )
+        .unwrap();
+
+    assert_eq!(
+        server
+            .player_view(p1())
+            .units
+            .iter()
+            .find(|unit| unit.id == infantry)
+            .unwrap()
+            .capture_progress,
+        None
+    );
+}
+
+#[test]
+fn damaged_infantry_takes_more_than_two_capture_actions() {
+    let mut setup = two_player_setup(3, 1);
+    setup.map.set_terrain(
+        Position::new(0, 0),
+        GraphicalTerrain::Property(Property::City(TerrainFaction::Neutral)),
+    );
+    let mut server = GameServer::new(setup).unwrap();
+    let infantry = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    let attacker = server.spawn_unit(
+        Position::new(1, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::BlueMoon,
+    );
+
+    server.submit_command(p1(), GameCommand::EndTurn).unwrap();
+    server
+        .submit_command(
+            p2(),
+            attack_command(attacker, vec![Position::new(1, 0)], Position::new(0, 0)),
+        )
+        .unwrap();
+    let damaged_hp = server
+        .player_view(p1())
+        .units
+        .iter()
+        .find(|unit| unit.id == infantry)
+        .unwrap()
+        .hp;
+    assert!(damaged_hp < 10, "test setup should damage the infantry");
+
+    server.submit_command(p2(), GameCommand::EndTurn).unwrap();
+    server
+        .submit_command(p1(), capture_command(infantry, Position::new(0, 0)))
+        .unwrap();
+    server.submit_command(p1(), GameCommand::EndTurn).unwrap();
+    server.submit_command(p2(), GameCommand::EndTurn).unwrap();
+    server
+        .submit_command(p1(), capture_command(infantry, Position::new(0, 0)))
+        .unwrap();
+
+    let terrain = server
+        .player_view(p1())
+        .terrain
+        .into_iter()
+        .find(|tile| tile.position == Position::new(0, 0))
+        .unwrap();
+    assert_eq!(
+        terrain.terrain,
+        GraphicalTerrain::Property(Property::City(TerrainFaction::Neutral))
+    );
+    assert_eq!(
+        server
+            .player_view(p1())
+            .units
+            .iter()
+            .find(|unit| unit.id == infantry)
+            .unwrap()
+            .capture_progress,
+        Some(damaged_hp * 2)
+    );
+}
+
+#[test]
+fn capture_rejects_non_infantry_and_own_property() {
+    let mut setup = two_player_setup(3, 1);
+    setup.map.set_terrain(
+        Position::new(0, 0),
+        GraphicalTerrain::Property(Property::City(TerrainFaction::Neutral)),
+    );
+    setup.map.set_terrain(
+        Position::new(1, 0),
+        GraphicalTerrain::Property(Property::City(TerrainFaction::Player(
+            PlayerFaction::OrangeStar,
+        ))),
+    );
+    let mut server = GameServer::new(setup).unwrap();
+    let tank = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::Tank,
+        PlayerFaction::OrangeStar,
+    );
+    let infantry = server.spawn_unit(
+        Position::new(1, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+
+    let err = server
+        .submit_command(p1(), capture_command(tank, Position::new(0, 0)))
+        .unwrap_err();
+    assert!(matches!(err, CommandError::InvalidAction { .. }));
+
+    let err = server
+        .submit_command(p1(), capture_command(infantry, Position::new(1, 0)))
+        .unwrap_err();
+    assert!(matches!(err, CommandError::InvalidAction { .. }));
+}
+
+#[test]
+fn capture_rejects_allied_property() {
+    let mut setup = allied_player_setup(3, 1);
+    setup.map.set_terrain(
+        Position::new(0, 0),
+        GraphicalTerrain::Property(Property::City(TerrainFaction::Player(
+            PlayerFaction::BlueMoon,
+        ))),
+    );
+    let mut server = GameServer::new(setup).unwrap();
+    let infantry = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+
+    let err = server
+        .submit_command(p1(), capture_command(infantry, Position::new(0, 0)))
+        .unwrap_err();
+
+    assert!(matches!(err, CommandError::InvalidAction { .. }));
+}
+
+#[test]
+fn fogged_opponent_does_not_receive_capture_event() {
+    let mut setup = two_player_setup(8, 8);
+    setup.fog_enabled = true;
+    setup.map.set_terrain(
+        Position::new(0, 0),
+        GraphicalTerrain::Property(Property::City(TerrainFaction::Neutral)),
+    );
+    let mut server = GameServer::new(setup).unwrap();
+    let infantry = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    server.spawn_unit(
+        Position::new(7, 7),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::BlueMoon,
+    );
+
+    server
+        .submit_command(p1(), capture_command(infantry, Position::new(0, 0)))
+        .unwrap();
+    server.submit_command(p1(), GameCommand::EndTurn).unwrap();
+    server.submit_command(p2(), GameCommand::EndTurn).unwrap();
+
+    let result = server
+        .submit_command(p1(), capture_command(infantry, Position::new(0, 0)))
+        .unwrap();
+    let p2_update = result
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p2())
+        .unwrap()
+        .1
+        .clone();
+
+    assert!(p2_update.capture_event.is_none());
+    assert!(p2_update.terrain_changed.is_empty());
 }
