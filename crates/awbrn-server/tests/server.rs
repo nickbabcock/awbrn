@@ -1,7 +1,7 @@
 use std::num::NonZeroU8;
 
 use awbrn_map::{AwbrnMap, Position};
-use awbrn_types::{Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, Property};
+use awbrn_types::{Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, Property, Unit};
 
 use awbrn_server::{
     CaptureEvent, Co, CommandError, GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup,
@@ -21,6 +21,13 @@ fn capture_command(unit_id: ServerUnitId, position: Position) -> GameCommand {
         unit_id,
         path: vec![position],
         action: Some(PostMoveAction::Capture),
+    }
+}
+
+fn build_command(position: Position, unit_type: Unit) -> GameCommand {
+    GameCommand::Build {
+        position,
+        unit_type,
     }
 }
 
@@ -44,6 +51,18 @@ fn two_player_setup(width: usize, height: usize) -> GameSetup {
         fog_enabled: false,
         rng_seed: 0,
     }
+}
+
+fn two_player_setup_with_funds(width: usize, height: usize, p1_funds: u32) -> GameSetup {
+    let mut setup = two_player_setup(width, height);
+    setup.players[0].starting_funds = p1_funds;
+    setup
+}
+
+fn set_property(setup: &mut GameSetup, position: Position, property: Property) {
+    setup
+        .map
+        .set_terrain(position, GraphicalTerrain::Property(property));
 }
 
 fn allied_player_setup(width: usize, height: usize) -> GameSetup {
@@ -142,6 +161,296 @@ fn create_server_and_spawn_unit() {
     assert_eq!(view.my_funds, 1000);
     assert_eq!(view.state.day, 1);
     assert_eq!(view.state.active_player, p1());
+}
+
+#[test]
+fn build_infantry_from_owned_base_deducts_funds_and_spawns_unit() {
+    let base = Position::new(0, 0);
+    let mut setup = two_player_setup(3, 3);
+    set_property(
+        &mut setup,
+        base,
+        Property::Base(TerrainFaction::Player(PlayerFaction::OrangeStar)),
+    );
+    let mut server = GameServer::new(setup).unwrap();
+
+    let result = server
+        .submit_command(p1(), build_command(base, Unit::Infantry))
+        .unwrap();
+
+    let p1_update = result
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p1())
+        .unwrap()
+        .1
+        .clone();
+    assert_eq!(p1_update.my_funds, Some(0));
+    let built = p1_update
+        .units_revealed
+        .iter()
+        .find(|unit| unit.position == base && unit.unit_type == Unit::Infantry)
+        .expect("owner should see the built unit");
+    assert_eq!(built.hp, 10);
+    assert_eq!(built.fuel, Some(Unit::Infantry.max_fuel()));
+    assert_eq!(built.ammo, Some(Unit::Infantry.max_ammo()));
+
+    let view = server.player_view(p1());
+    assert_eq!(view.my_funds, 0);
+    let built = view
+        .units
+        .iter()
+        .find(|unit| unit.position == base && unit.unit_type == Unit::Infantry)
+        .expect("built unit should appear in player_view");
+    assert_eq!(built.hp, 10);
+    assert_eq!(built.fuel, Some(Unit::Infantry.max_fuel()));
+    assert_eq!(built.ammo, Some(Unit::Infantry.max_ammo()));
+
+    let p2_update = result
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p2())
+        .unwrap()
+        .1
+        .clone();
+    assert_eq!(p2_update.my_funds, None);
+}
+
+#[test]
+fn built_unit_cannot_act_until_next_turn_and_id_is_registered() {
+    let base = Position::new(0, 0);
+    let mut setup = two_player_setup(3, 3);
+    set_property(
+        &mut setup,
+        base,
+        Property::Base(TerrainFaction::Player(PlayerFaction::OrangeStar)),
+    );
+    let mut server = GameServer::new(setup).unwrap();
+
+    let result = server
+        .submit_command(p1(), build_command(base, Unit::Infantry))
+        .unwrap();
+    let built_id = result
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p1())
+        .unwrap()
+        .1
+        .units_revealed
+        .iter()
+        .find(|unit| unit.position == base && unit.unit_type == Unit::Infantry)
+        .unwrap()
+        .id;
+
+    let err = server
+        .submit_command(
+            p1(),
+            GameCommand::MoveUnit {
+                unit_id: built_id,
+                path: vec![base, Position::new(1, 0)],
+                action: Some(PostMoveAction::Wait),
+            },
+        )
+        .unwrap_err();
+    assert!(matches!(err, CommandError::UnitAlreadyActed(id) if id == built_id));
+
+    server.submit_command(p1(), GameCommand::EndTurn).unwrap();
+    server.submit_command(p2(), GameCommand::EndTurn).unwrap();
+
+    server
+        .submit_command(
+            p1(),
+            GameCommand::MoveUnit {
+                unit_id: built_id,
+                path: vec![base, Position::new(1, 0)],
+                action: Some(PostMoveAction::Wait),
+            },
+        )
+        .expect("built unit id should be registered and active next turn");
+}
+
+#[test]
+fn build_rejects_insufficient_funds() {
+    let base = Position::new(0, 0);
+    let mut setup = two_player_setup_with_funds(3, 3, 1000);
+    set_property(
+        &mut setup,
+        base,
+        Property::Base(TerrainFaction::Player(PlayerFaction::OrangeStar)),
+    );
+    let mut server = GameServer::new(setup).unwrap();
+
+    let err = server
+        .submit_command(p1(), build_command(base, Unit::Mech))
+        .unwrap_err();
+
+    assert!(matches!(
+        err,
+        CommandError::InsufficientFunds {
+            cost: 3000,
+            available: 1000
+        }
+    ));
+}
+
+#[test]
+fn build_rejects_occupied_facility() {
+    let base = Position::new(0, 0);
+    let mut setup = two_player_setup(3, 3);
+    set_property(
+        &mut setup,
+        base,
+        Property::Base(TerrainFaction::Player(PlayerFaction::OrangeStar)),
+    );
+    let mut server = GameServer::new(setup).unwrap();
+    server.spawn_unit(base, Unit::Infantry, PlayerFaction::OrangeStar);
+
+    let err = server
+        .submit_command(p1(), build_command(base, Unit::Infantry))
+        .unwrap_err();
+
+    assert!(matches!(err, CommandError::InvalidBuildLocation));
+}
+
+#[test]
+fn build_rejects_unit_domain_that_facility_cannot_produce() {
+    let base = Position::new(0, 0);
+    let mut setup = two_player_setup_with_funds(3, 3, 30000);
+    set_property(
+        &mut setup,
+        base,
+        Property::Base(TerrainFaction::Player(PlayerFaction::OrangeStar)),
+    );
+    let mut server = GameServer::new(setup).unwrap();
+
+    let err = server
+        .submit_command(p1(), build_command(base, Unit::Battleship))
+        .unwrap_err();
+
+    assert!(matches!(err, CommandError::InvalidBuildLocation));
+}
+
+#[test]
+fn build_rejects_facility_not_owned_by_player() {
+    let neutral_base = Position::new(0, 0);
+    let enemy_base = Position::new(1, 0);
+    let mut setup = two_player_setup(3, 3);
+    set_property(
+        &mut setup,
+        neutral_base,
+        Property::Base(TerrainFaction::Neutral),
+    );
+    set_property(
+        &mut setup,
+        enemy_base,
+        Property::Base(TerrainFaction::Player(PlayerFaction::BlueMoon)),
+    );
+    let mut server = GameServer::new(setup).unwrap();
+
+    let neutral_err = server
+        .submit_command(p1(), build_command(neutral_base, Unit::Infantry))
+        .unwrap_err();
+    let enemy_err = server
+        .submit_command(p1(), build_command(enemy_base, Unit::Infantry))
+        .unwrap_err();
+
+    assert!(matches!(neutral_err, CommandError::InvalidBuildLocation));
+    assert!(matches!(enemy_err, CommandError::InvalidBuildLocation));
+}
+
+#[test]
+fn build_supports_airport_and_port_domains() {
+    let airport = Position::new(0, 0);
+    let port = Position::new(1, 0);
+    let mut setup = two_player_setup_with_funds(3, 3, 20000);
+    set_property(
+        &mut setup,
+        airport,
+        Property::Airport(TerrainFaction::Player(PlayerFaction::OrangeStar)),
+    );
+    set_property(
+        &mut setup,
+        port,
+        Property::Port(TerrainFaction::Player(PlayerFaction::OrangeStar)),
+    );
+    let mut server = GameServer::new(setup).unwrap();
+
+    server
+        .submit_command(p1(), build_command(airport, Unit::TCopter))
+        .unwrap();
+    server.submit_command(p1(), GameCommand::EndTurn).unwrap();
+    server.submit_command(p2(), GameCommand::EndTurn).unwrap();
+    server
+        .submit_command(p1(), build_command(port, Unit::Lander))
+        .unwrap();
+
+    let view = server.player_view(p1());
+    assert!(
+        view.units
+            .iter()
+            .any(|unit| unit.position == airport && unit.unit_type == Unit::TCopter)
+    );
+    assert!(
+        view.units
+            .iter()
+            .any(|unit| unit.position == port && unit.unit_type == Unit::Lander)
+    );
+    assert_eq!(view.my_funds, 3000);
+}
+
+#[test]
+fn build_fog_update_reveals_unit_only_when_opponent_has_vision() {
+    let base = Position::new(0, 0);
+    let mut visible_setup = two_player_setup(5, 1);
+    visible_setup.fog_enabled = true;
+    set_property(
+        &mut visible_setup,
+        base,
+        Property::Base(TerrainFaction::Player(PlayerFaction::OrangeStar)),
+    );
+    let mut visible_server = GameServer::new(visible_setup).unwrap();
+    visible_server.spawn_unit(Position::new(2, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+
+    let visible_result = visible_server
+        .submit_command(p1(), build_command(base, Unit::Infantry))
+        .unwrap();
+    let p2_visible_update = visible_result
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p2())
+        .unwrap()
+        .1
+        .clone();
+    assert!(
+        p2_visible_update
+            .units_revealed
+            .iter()
+            .any(|unit| unit.position == base && unit.unit_type == Unit::Infantry)
+    );
+    assert_eq!(p2_visible_update.my_funds, None);
+
+    let mut hidden_setup = two_player_setup(8, 8);
+    hidden_setup.fog_enabled = true;
+    set_property(
+        &mut hidden_setup,
+        base,
+        Property::Base(TerrainFaction::Player(PlayerFaction::OrangeStar)),
+    );
+    let mut hidden_server = GameServer::new(hidden_setup).unwrap();
+    hidden_server.spawn_unit(Position::new(7, 7), Unit::Infantry, PlayerFaction::BlueMoon);
+
+    let hidden_result = hidden_server
+        .submit_command(p1(), build_command(base, Unit::Infantry))
+        .unwrap();
+    let p2_hidden_update = hidden_result
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p2())
+        .unwrap()
+        .1
+        .clone();
+    assert!(p2_hidden_update.units_revealed.is_empty());
+    assert_eq!(p2_hidden_update.my_funds, None);
 }
 
 #[test]

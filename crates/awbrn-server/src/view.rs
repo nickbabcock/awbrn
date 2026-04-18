@@ -8,7 +8,7 @@ use awbrn_game::MapPosition;
 use awbrn_game::replay::{PowerVisionBoosts, range_modifier_for_weather};
 use awbrn_game::world::{
     Ammo, CaptureProgress, CarriedBy, CurrentWeather, Faction, FogOfWarMap, Fuel, GameMap,
-    GraphicalHp, Unit, VisionRange, collect_friendly_units, rebuild_fog_map,
+    GraphicalHp, StrongIdMap, Unit, VisionRange, collect_friendly_units, rebuild_fog_map,
 };
 use awbrn_map::Position;
 use awbrn_types::PlayerFaction;
@@ -115,6 +115,9 @@ pub struct PlayerUpdate {
     pub combat_event: Option<UnitCombatEvent>,
     /// Capture event (if a capture action was visible to this player).
     pub capture_event: Option<CaptureEvent>,
+    /// Updated funds for this player, when the command changed their balance.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub my_funds: Option<u32>,
     /// Current game state.
     pub state: GameStateHeader,
 }
@@ -290,6 +293,7 @@ fn build_player_update(
                 turn_change: None,
                 combat_event: None,
                 capture_event: None,
+                my_funds: None,
                 state: header.clone(),
             }
         }
@@ -308,8 +312,89 @@ fn build_player_update(
             }),
             combat_event: None,
             capture_event: None,
+            my_funds: None,
             state: header.clone(),
         },
+        ApplyOutcome::UnitBuilt {
+            tile,
+            unit_type,
+            unit_id,
+        } => {
+            let entity = world
+                .resource::<StrongIdMap<ServerUnitId>>()
+                .get(unit_id)
+                .expect("built unit must exist");
+            let faction = world
+                .entity(entity)
+                .get::<Faction>()
+                .expect("built unit must have faction")
+                .0;
+
+            let mut units_revealed = Vec::new();
+            let mut units_removed = Vec::new();
+            let mut terrain_revealed = Vec::new();
+            let is_friendly_unit = friendly_factions.contains(&faction);
+
+            if is_friendly_unit {
+                if let Some(visible) = entity_to_visible_unit(world, entity, &friendly_factions) {
+                    units_revealed.push(visible);
+                }
+
+                let pre_enemies = visible_enemy_units(world, &friendly_factions, pre_fog);
+                let post_enemies = visible_enemy_units(world, &friendly_factions, post_fog);
+
+                for (uid, ent) in &post_enemies {
+                    if !pre_enemies.contains_key(uid)
+                        && let Some(visible) =
+                            entity_to_visible_unit(world, *ent, &friendly_factions)
+                    {
+                        units_revealed.push(visible);
+                    }
+                }
+                for uid in pre_enemies.keys() {
+                    if !post_enemies.contains_key(uid) {
+                        units_removed.push(*uid);
+                    }
+                }
+
+                terrain_revealed = terrain_diff(world, pre_fog, post_fog);
+            } else {
+                let is_air = unit_type.domain() == awbrn_types::UnitDomain::Air;
+                let tile_is_visible = post_fog
+                    .map(|fog| fog.is_unit_visible(*tile, is_air))
+                    .unwrap_or(true);
+
+                if tile_is_visible
+                    && let Some(visible) = entity_to_visible_unit(world, entity, &friendly_factions)
+                {
+                    units_revealed.push(visible);
+                }
+            }
+
+            let my_funds = world
+                .resource::<PlayerRegistry>()
+                .player_for_faction(faction)
+                .filter(|owner| *owner == player)
+                .and_then(|owner| {
+                    world
+                        .resource::<PlayerRegistry>()
+                        .get(owner)
+                        .map(|slot| slot.funds)
+                });
+
+            PlayerUpdate {
+                units_revealed,
+                units_moved: Vec::new(),
+                units_removed,
+                terrain_revealed,
+                terrain_changed: Vec::new(),
+                turn_change: None,
+                combat_event: None,
+                capture_event: None,
+                my_funds,
+                state: header.clone(),
+            }
+        }
         ApplyOutcome::UnitAttacked {
             attacker_id,
             attacker_entity,
@@ -452,6 +537,7 @@ fn build_player_update(
                 turn_change: None,
                 combat_event,
                 capture_event: None,
+                my_funds: None,
                 state: header.clone(),
             }
         }
@@ -496,6 +582,7 @@ fn build_player_update(
                 turn_change: None,
                 combat_event: None,
                 capture_event,
+                my_funds: None,
                 state: header.clone(),
             }
         }
@@ -555,6 +642,7 @@ fn build_player_update(
                 turn_change: None,
                 combat_event: None,
                 capture_event,
+                my_funds: None,
                 state: header.clone(),
             }
         }

@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use crate::command::{GameCommand, PostMoveAction};
 use crate::damage::{CombatInput, CombatSide, LuckCap, PercentMod, TerrainStars};
 use crate::player::PlayerRegistry;
+use crate::server::spawn_unit_entity;
 use crate::setup::GameRng;
 use crate::state::{ServerGameState, TurnPhase};
 use crate::unit_id::ServerUnitId;
@@ -67,6 +68,11 @@ pub(crate) enum ApplyOutcome {
         tile: awbrn_map::Position,
         progress: u8,
     },
+    UnitBuilt {
+        tile: awbrn_map::Position,
+        unit_type: awbrn_types::Unit,
+        unit_id: ServerUnitId,
+    },
 }
 
 /// Apply a validated command to the world. Returns the outcome for view generation.
@@ -77,10 +83,38 @@ pub(crate) fn apply_command(world: &mut World, command: &GameCommand) -> ApplyOu
             path,
             action,
         } => apply_move_unit(world, *unit_id, path, action.as_ref()),
-        GameCommand::Build { .. } => {
-            unreachable!("build should have been rejected by validation")
-        }
+        GameCommand::Build {
+            position,
+            unit_type,
+        } => apply_build(world, *position, *unit_type),
         GameCommand::EndTurn => apply_end_turn(world),
+    }
+}
+
+fn apply_build(
+    world: &mut World,
+    tile: awbrn_map::Position,
+    unit_type: awbrn_types::Unit,
+) -> ApplyOutcome {
+    let player = world.resource::<ServerGameState>().active_player;
+    let faction = world
+        .resource::<PlayerRegistry>()
+        .faction_for_player(player)
+        .expect("validated build player must have a faction");
+    let cost = unit_type.base_cost();
+
+    world
+        .resource_mut::<PlayerRegistry>()
+        .get_mut(player)
+        .expect("validated build player must exist")
+        .funds -= cost;
+
+    let unit_id = spawn_unit_entity(world, tile, unit_type, faction, false);
+
+    ApplyOutcome::UnitBuilt {
+        tile,
+        unit_type,
+        unit_id,
     }
 }
 
