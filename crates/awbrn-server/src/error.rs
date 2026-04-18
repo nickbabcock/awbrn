@@ -3,7 +3,7 @@ use std::fmt;
 use crate::unit_id::ServerUnitId;
 
 /// Error returned when a command cannot be executed.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CommandError {
     /// It is not this player's turn.
     NotYourTurn,

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::apply::ApplyOutcome;
+use crate::damage::CombatOutcome;
 use crate::player::{PlayerId, PlayerRegistry};
 use crate::state::{ServerGameState, TurnPhase};
 use crate::unit_id::ServerUnitId;
@@ -127,6 +128,8 @@ pub struct PlayerUpdate {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CommandResult {
     pub updates: Vec<(PlayerId, PlayerUpdate)>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub combat_outcome: Option<CombatOutcome>,
 }
 
 fn game_state_header(world: &World) -> GameStateHeader {
@@ -192,7 +195,13 @@ pub(crate) fn build_command_result(
         updates.push((player, update));
     }
 
-    CommandResult { updates }
+    CommandResult {
+        updates,
+        combat_outcome: match outcome {
+            ApplyOutcome::UnitAttacked { combat_outcome, .. } => Some(*combat_outcome),
+            _ => None,
+        },
+    }
 }
 
 fn build_player_update(
@@ -747,6 +756,7 @@ fn build_player_update(
             defender_faction,
             attacker_hp_after,
             defender_hp_after,
+            combat_outcome: _,
         } => {
             let is_friendly_unit = friendly_factions.contains(attacker_faction);
             let mut units_moved = Vec::new();

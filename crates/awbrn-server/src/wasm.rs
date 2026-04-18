@@ -7,7 +7,7 @@ use serde_json::json;
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
-use crate::{GameServer, GameSetup, PlayerSetup};
+use crate::{CombatOutcome, GameServer, GameSetup, PlayerSetup, StoredActionEvent};
 use awbrn_types::{AwbwCoId, Co};
 
 #[wasm_bindgen]
@@ -26,8 +26,22 @@ impl WasmMatch {
         Ok(Self { server })
     }
 
+    #[wasm_bindgen(js_name = reconstructFromEvents)]
+    pub fn reconstruct_from_events(
+        setup: MatchSetupInput,
+        events: JsValue,
+    ) -> Result<Self, JsError> {
+        let setup: GameSetup = setup
+            .try_into()
+            .map_err(|reason| invalid_input("setup", reason))?;
+        let events: Vec<crate::StoredActionEvent> = serde_wasm_bindgen::from_value(events)
+            .map_err(|error| invalid_input("events", error.to_string()))?;
+        let server = crate::reconstruct_from_events(setup, &events).map_err(replay_error)?;
+        Ok(Self { server })
+    }
+
     /// Apply a game action submitted by a player.
-    /// Returns only the requesting player's [`PlayerUpdate`] as a JSON string.
+    /// Returns the requesting player's update and replay event data as a JSON string.
     pub fn process_action(&mut self, player_slot: u8, action: JsValue) -> Result<JsValue, JsError> {
         let action_str = action
             .as_string()
@@ -35,6 +49,7 @@ impl WasmMatch {
 
         let command: crate::command::GameCommand = serde_json::from_str(&action_str)
             .map_err(|e| invalid_input("action", e.to_string()))?;
+        let stored_command = command.clone();
 
         let player = crate::player::PlayerId(player_slot);
 
@@ -42,6 +57,7 @@ impl WasmMatch {
             .server
             .submit_command(player, command)
             .map_err(command_error)?;
+        let combat_outcome = result.combat_outcome;
 
         // Extract only the requesting player's update to avoid leaking other
         // players' fog-of-war reveal/remove diffs.
@@ -52,7 +68,16 @@ impl WasmMatch {
             .map(|(_, update)| update as &_)
             .ok_or_else(|| JsError::new("no update for requesting player"))?;
 
-        let output = serde_json::to_string(update).expect("PlayerUpdate should be serializable");
+        let response = WasmActionResponse {
+            update,
+            stored_action_event: StoredActionEvent {
+                command: stored_command,
+                combat_outcome,
+            },
+            combat_outcome,
+        };
+        let output =
+            serde_json::to_string(&response).expect("WasmActionResponse should be serializable");
         Ok(JsValue::from_str(&output))
     }
 }
@@ -69,6 +94,14 @@ where
     message: String,
     http_status: u16,
     details: T,
+}
+
+#[derive(Serialize)]
+struct WasmActionResponse<'a> {
+    update: &'a crate::PlayerUpdate,
+    stored_action_event: StoredActionEvent,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    combat_outcome: Option<CombatOutcome>,
 }
 
 #[derive(Tsify, Deserialize)]
@@ -168,6 +201,21 @@ fn setup_error(error: crate::SetupError) -> JsError {
             json!({
                 "type": "invalidPlayers",
                 "reason": reason,
+            }),
+        ),
+    }
+}
+
+fn replay_error(error: crate::ReplayError) -> JsError {
+    match error {
+        crate::ReplayError::Setup(error) => setup_error(error),
+        crate::ReplayError::Event { index, source } => js_error(
+            "replayError",
+            format!("failed to replay event {index}: {source}"),
+            409,
+            json!({
+                "eventIndex": index,
+                "reason": source.to_string(),
             }),
         ),
     }

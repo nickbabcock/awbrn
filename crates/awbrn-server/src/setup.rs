@@ -70,7 +70,7 @@ impl GameRng {
 }
 
 /// Error returned when a game cannot be initialized from the provided setup.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SetupError {
     InvalidPlayers { reason: String },
 }

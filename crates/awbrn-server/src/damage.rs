@@ -3,7 +3,7 @@
 use awbrn_types::{DamagePts, ExactHp, Unit, VisualHp};
 
 /// Exact HP-point deltas from a combat engagement on the 0-100 HP scale.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CombatOutcome {
     /// Damage dealt to the defender.
     pub attacker_damage_pts: u8,

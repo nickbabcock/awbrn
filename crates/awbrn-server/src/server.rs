@@ -4,6 +4,7 @@ use crate::apply;
 use crate::command::GameCommand;
 use crate::error::CommandError;
 use crate::player::PlayerId;
+use crate::replay::{ReplayEventError, StoredActionEvent};
 use crate::setup::{GameSetup, SetupError, initialize_server_world};
 use crate::unit_id::ServerUnitId;
 use crate::validate;
@@ -42,6 +43,23 @@ impl GameServer {
         // Build per-player updates.
         let result = view::build_command_result(&mut self.world, &outcome, &pre_fog);
         Ok(result)
+    }
+
+    pub(crate) fn replay_stored_action_event(
+        &mut self,
+        event: &StoredActionEvent,
+    ) -> Result<(), ReplayEventError> {
+        let player = self
+            .world
+            .resource::<crate::state::ServerGameState>()
+            .active_player;
+        validate::validate_command(&mut self.world, player, &event.command)?;
+        apply::apply_command_with_stored_combat(
+            &mut self.world,
+            &event.command,
+            event.combat_outcome.as_ref(),
+        )?;
+        Ok(())
     }
 
     /// Get the full visible state for a player (for initial load or reconnection).
