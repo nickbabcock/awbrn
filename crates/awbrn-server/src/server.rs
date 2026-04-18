@@ -10,6 +10,7 @@ use crate::validate;
 use crate::view::{self, CommandResult, PlayerView};
 
 use awbrn_map::Position;
+use awbrn_types::{PlayerFaction, Unit};
 
 /// Authoritative game server that owns a Bevy World and processes player commands.
 pub struct GameServer {
@@ -59,26 +60,38 @@ impl GameServer {
     pub fn spawn_unit(
         &mut self,
         position: Position,
-        unit_type: awbrn_types::Unit,
-        faction: awbrn_types::PlayerFaction,
+        unit_type: Unit,
+        faction: PlayerFaction,
     ) -> ServerUnitId {
-        let id = self
-            .world
-            .resource_mut::<crate::state::ServerGameState>()
-            .allocate_unit_id();
-
-        self.world.spawn((
-            awbrn_game::MapPosition::from(position),
-            awbrn_game::world::Unit(unit_type),
-            awbrn_game::world::Faction(faction),
-            awbrn_game::world::UnitHp(awbrn_types::ExactHp::new(100)),
-            awbrn_game::world::Fuel(unit_type.max_fuel()),
-            awbrn_game::world::Ammo(unit_type.max_ammo()),
-            awbrn_game::world::VisionRange(unit_type.base_vision()),
-            awbrn_game::world::UnitActive,
-            id,
-        ));
-
-        id
+        spawn_unit_entity(&mut self.world, position, unit_type, faction, true)
     }
+}
+
+pub(crate) fn spawn_unit_entity(
+    world: &mut World,
+    position: Position,
+    unit_type: Unit,
+    faction: PlayerFaction,
+    active: bool,
+) -> ServerUnitId {
+    let id = world
+        .resource_mut::<crate::state::ServerGameState>()
+        .allocate_unit_id();
+
+    let mut entity = world.spawn((
+        awbrn_game::MapPosition::from(position),
+        awbrn_game::world::Unit(unit_type),
+        awbrn_game::world::Faction(faction),
+        awbrn_game::world::UnitHp(awbrn_types::ExactHp::new(100)),
+        awbrn_game::world::Fuel(unit_type.max_fuel()),
+        awbrn_game::world::Ammo(unit_type.max_ammo()),
+        awbrn_game::world::VisionRange(unit_type.base_vision()),
+        id,
+    ));
+
+    if active {
+        entity.insert(awbrn_game::world::UnitActive);
+    }
+
+    id
 }

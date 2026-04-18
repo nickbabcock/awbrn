@@ -14,6 +14,7 @@ use awbrn_game::world::{Ammo, BoardIndex, Faction, Fuel, GameMap, StrongIdMap, U
 use awbrn_map::Position;
 use awbrn_types::{
     Faction as TerrainFaction, GraphicalTerrain, MovementCost, MovementTerrain, PlayerFaction,
+    PropertyKind, UnitDomain,
 };
 
 #[derive(SystemParam)]
@@ -60,14 +61,68 @@ pub(crate) fn validate_command(
             path,
             action,
         } => validate_move_unit(world, player, *unit_id, path, action.as_ref()),
-        GameCommand::Build { .. } => {
-            // Build validation will be added in a future phase.
-            Err(CommandError::InvalidAction {
-                reason: "build not yet implemented".into(),
-            })
-        }
+        GameCommand::Build {
+            position,
+            unit_type,
+        } => validate_build(world, player, *position, *unit_type),
         GameCommand::EndTurn => Ok(()),
     }
+}
+
+fn validate_build(
+    world: &World,
+    player: PlayerId,
+    position: Position,
+    unit_type: awbrn_types::Unit,
+) -> Result<(), CommandError> {
+    let player_faction = world
+        .resource::<PlayerRegistry>()
+        .faction_for_player(player)
+        .ok_or(CommandError::InvalidBuildLocation)?;
+
+    let terrain = world
+        .resource::<GameMap>()
+        .terrain_at(position)
+        .ok_or(CommandError::InvalidBuildLocation)?;
+
+    let GraphicalTerrain::Property(property) = terrain else {
+        return Err(CommandError::InvalidBuildLocation);
+    };
+
+    if property.faction() != TerrainFaction::Player(player_faction) {
+        return Err(CommandError::InvalidBuildLocation);
+    }
+
+    let required_domain = match property.kind() {
+        PropertyKind::Base => UnitDomain::Ground,
+        PropertyKind::Airport => UnitDomain::Air,
+        PropertyKind::Port => UnitDomain::Sea,
+        _ => return Err(CommandError::InvalidBuildLocation),
+    };
+
+    if unit_type.domain() != required_domain {
+        return Err(CommandError::InvalidBuildLocation);
+    }
+
+    let occupied = world
+        .resource::<BoardIndex>()
+        .unit_entity(position)
+        .map_err(|_| CommandError::InvalidBuildLocation)?;
+    if occupied.is_some() {
+        return Err(CommandError::InvalidBuildLocation);
+    }
+
+    let cost = unit_type.base_cost();
+    let available = world
+        .resource::<PlayerRegistry>()
+        .get(player)
+        .map(|slot| slot.funds)
+        .ok_or(CommandError::InvalidBuildLocation)?;
+    if available < cost {
+        return Err(CommandError::InsufficientFunds { cost, available });
+    }
+
+    Ok(())
 }
 
 fn validate_move_unit(

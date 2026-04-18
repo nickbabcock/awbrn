@@ -51,6 +51,22 @@ mod tests {
     }
 
     #[test]
+    fn deserialize_build() {
+        let json = r#"{"type":"build","position":{"x":0,"y":0},"unit_type":"Infantry"}"#;
+        let cmd: GameCommand = serde_json::from_str(json).unwrap();
+        match cmd {
+            GameCommand::Build {
+                position,
+                unit_type,
+            } => {
+                assert_eq!(position, Position::new(0, 0));
+                assert_eq!(unit_type, awbrn_types::Unit::Infantry);
+            }
+            other => panic!("expected Build, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn deserialize_post_move_action_capture() {
         let json = r#"{"type":"capture"}"#;
         let action: PostMoveAction = serde_json::from_str(json).unwrap();
