@@ -8,7 +8,7 @@ use awbrn_game::MapPosition;
 use awbrn_game::replay::{PowerVisionBoosts, range_modifier_for_weather};
 use awbrn_game::world::{
     Ammo, CaptureProgress, CarriedBy, CurrentWeather, Faction, FogOfWarMap, Fuel, GameMap,
-    GraphicalHp, StrongIdMap, Unit, VisionRange, collect_friendly_units, rebuild_fog_map,
+    GraphicalHp, Hiding, StrongIdMap, Unit, VisionRange, collect_friendly_units, rebuild_fog_map,
 };
 use awbrn_map::Position;
 use awbrn_types::PlayerFaction;
@@ -36,6 +36,7 @@ pub struct VisibleUnit {
     pub ammo: Option<u32>,
     pub capturing: bool,
     pub capture_progress: Option<u8>,
+    pub hiding: bool,
 }
 
 /// A terrain tile as visible to a specific player.
@@ -387,6 +388,344 @@ fn build_player_update(
                 units_moved: Vec::new(),
                 units_removed,
                 terrain_revealed,
+                terrain_changed: Vec::new(),
+                turn_change: None,
+                combat_event: None,
+                capture_event: None,
+                my_funds,
+                state: header.clone(),
+            }
+        }
+        ApplyOutcome::UnitSupplied {
+            supplier_id,
+            resupplied_unit_ids,
+        } => {
+            let mut units_revealed = Vec::new();
+            let mut seen = HashSet::new();
+
+            for unit_id in std::iter::once(supplier_id).chain(resupplied_unit_ids.iter()) {
+                if !seen.insert(*unit_id) {
+                    continue;
+                }
+                let Some(entity) = world.resource::<StrongIdMap<ServerUnitId>>().get(unit_id)
+                else {
+                    continue;
+                };
+                if entity_visible_to_factions(world, entity, &friendly_factions, post_fog)
+                    && let Some(visible) = entity_to_visible_unit(world, entity, &friendly_factions)
+                {
+                    units_revealed.push(visible);
+                }
+            }
+
+            PlayerUpdate {
+                units_revealed,
+                units_moved: Vec::new(),
+                units_removed: Vec::new(),
+                terrain_revealed: Vec::new(),
+                terrain_changed: Vec::new(),
+                turn_change: None,
+                combat_event: None,
+                capture_event: None,
+                my_funds: None,
+                state: header.clone(),
+            }
+        }
+        ApplyOutcome::UnitLoaded {
+            cargo_id,
+            cargo_entity,
+            transport_id,
+            transport_entity,
+            from,
+            to,
+            path,
+            cargo_faction,
+        } => {
+            let cargo_unit_type = world
+                .entity(*cargo_entity)
+                .get::<Unit>()
+                .map(|unit| unit.0)
+                .unwrap_or(awbrn_types::Unit::Infantry);
+            let detectors = detector_positions(world, &friendly_factions);
+            let from_was_visible = unit_would_be_visible_to_factions(
+                *from,
+                cargo_unit_type,
+                *cargo_faction,
+                false,
+                &friendly_factions,
+                pre_fog,
+                &detectors,
+            );
+            let to_is_visible = unit_would_be_visible_to_factions(
+                *to,
+                cargo_unit_type,
+                *cargo_faction,
+                false,
+                &friendly_factions,
+                post_fog,
+                &detectors,
+            );
+            let mut units_moved = Vec::new();
+            let mut units_removed = Vec::new();
+
+            if from_was_visible && to_is_visible {
+                units_moved.push(UnitMoved {
+                    id: *cargo_id,
+                    path: path.clone(),
+                    from: *from,
+                    to: *to,
+                });
+                units_removed.push(*cargo_id);
+            } else if from_was_visible && !to_is_visible {
+                units_removed.push(*cargo_id);
+            }
+
+            let mut units_revealed = Vec::new();
+            if entity_visible_to_factions_with_detectors(
+                world,
+                *transport_entity,
+                &friendly_factions,
+                post_fog,
+                &detectors,
+            ) && let Some(transport) =
+                entity_to_visible_unit(world, *transport_entity, &friendly_factions)
+            {
+                units_revealed.push(transport);
+            }
+
+            let _ = transport_id;
+
+            PlayerUpdate {
+                units_revealed,
+                units_moved,
+                units_removed,
+                terrain_revealed: Vec::new(),
+                terrain_changed: Vec::new(),
+                turn_change: None,
+                combat_event: None,
+                capture_event: None,
+                my_funds: None,
+                state: header.clone(),
+            }
+        }
+        ApplyOutcome::UnitUnloaded {
+            cargo_id,
+            cargo_entity,
+            transport_id,
+            transport_entity,
+            destination_tile,
+        } => {
+            let mut units_revealed = Vec::new();
+            let detectors = detector_positions(world, &friendly_factions);
+            if entity_visible_to_factions_with_detectors(
+                world,
+                *cargo_entity,
+                &friendly_factions,
+                post_fog,
+                &detectors,
+            ) && let Some(visible) =
+                entity_to_visible_unit(world, *cargo_entity, &friendly_factions)
+            {
+                units_revealed.push(visible);
+            }
+            if entity_visible_to_factions_with_detectors(
+                world,
+                *transport_entity,
+                &friendly_factions,
+                post_fog,
+                &detectors,
+            ) && let Some(transport) =
+                entity_to_visible_unit(world, *transport_entity, &friendly_factions)
+            {
+                units_revealed.push(transport);
+            }
+
+            let _ = (cargo_id, transport_id, destination_tile);
+
+            PlayerUpdate {
+                units_revealed,
+                units_moved: Vec::new(),
+                units_removed: Vec::new(),
+                terrain_revealed: Vec::new(),
+                terrain_changed: Vec::new(),
+                turn_change: None,
+                combat_event: None,
+                capture_event: None,
+                my_funds: None,
+                state: header.clone(),
+            }
+        }
+        ApplyOutcome::UnitHidden {
+            unit_id,
+            entity,
+            position,
+            faction,
+        } => {
+            let unit_type = world
+                .entity(*entity)
+                .get::<Unit>()
+                .map(|unit| unit.0)
+                .unwrap_or(awbrn_types::Unit::Infantry);
+            let detectors = detector_positions(world, &friendly_factions);
+            let was_visible = unit_would_be_visible_to_factions(
+                *position,
+                unit_type,
+                *faction,
+                false,
+                &friendly_factions,
+                pre_fog,
+                &detectors,
+            );
+            let is_visible = unit_would_be_visible_to_factions(
+                *position,
+                unit_type,
+                *faction,
+                true,
+                &friendly_factions,
+                post_fog,
+                &detectors,
+            );
+
+            let mut units_revealed = Vec::new();
+            if (friendly_factions.contains(faction) || (was_visible && is_visible))
+                && let Some(visible) = entity_to_visible_unit(world, *entity, &friendly_factions)
+            {
+                units_revealed.push(visible);
+            }
+
+            PlayerUpdate {
+                units_revealed,
+                units_moved: Vec::new(),
+                units_removed: if was_visible && !is_visible {
+                    vec![*unit_id]
+                } else {
+                    Vec::new()
+                },
+                terrain_revealed: Vec::new(),
+                terrain_changed: Vec::new(),
+                turn_change: None,
+                combat_event: None,
+                capture_event: None,
+                my_funds: None,
+                state: header.clone(),
+            }
+        }
+        ApplyOutcome::UnitUnhidden {
+            unit_id,
+            entity,
+            position,
+            faction,
+        } => {
+            let unit_type = world
+                .entity(*entity)
+                .get::<Unit>()
+                .map(|unit| unit.0)
+                .unwrap_or(awbrn_types::Unit::Infantry);
+            let detectors = detector_positions(world, &friendly_factions);
+            let is_visible = unit_would_be_visible_to_factions(
+                *position,
+                unit_type,
+                *faction,
+                false,
+                &friendly_factions,
+                post_fog,
+                &detectors,
+            );
+
+            let mut units_revealed = Vec::new();
+            if (friendly_factions.contains(faction) || is_visible)
+                && let Some(visible) = entity_to_visible_unit(world, *entity, &friendly_factions)
+            {
+                units_revealed.push(visible);
+            }
+
+            let _ = unit_id;
+
+            PlayerUpdate {
+                units_revealed,
+                units_moved: Vec::new(),
+                units_removed: Vec::new(),
+                terrain_revealed: Vec::new(),
+                terrain_changed: Vec::new(),
+                turn_change: None,
+                combat_event: None,
+                capture_event: None,
+                my_funds: None,
+                state: header.clone(),
+            }
+        }
+        ApplyOutcome::UnitJoined {
+            source_id,
+            source_entity,
+            source_unit_type,
+            target_id,
+            target_entity,
+            from,
+            to,
+            path,
+            source_faction,
+            funds_refund,
+        } => {
+            let detectors = detector_positions(world, &friendly_factions);
+            let source_was_visible = unit_would_be_visible_to_factions(
+                *from,
+                *source_unit_type,
+                *source_faction,
+                false,
+                &friendly_factions,
+                pre_fog,
+                &detectors,
+            );
+            let target_is_visible = entity_visible_to_factions_with_detectors(
+                world,
+                *target_entity,
+                &friendly_factions,
+                post_fog,
+                &detectors,
+            );
+            let mut units_moved = Vec::new();
+            let mut units_removed = Vec::new();
+            if source_was_visible && target_is_visible {
+                units_moved.push(UnitMoved {
+                    id: *source_id,
+                    path: path.clone(),
+                    from: *from,
+                    to: *to,
+                });
+                units_removed.push(*source_id);
+            } else if source_was_visible && !target_is_visible {
+                units_removed.push(*source_id);
+            }
+
+            let mut units_revealed = Vec::new();
+            if target_is_visible
+                && let Some(visible) =
+                    entity_to_visible_unit(world, *target_entity, &friendly_factions)
+            {
+                units_revealed.push(visible);
+            }
+
+            let _ = (source_entity, target_id);
+            let my_funds = if *funds_refund > 0 {
+                world
+                    .resource::<PlayerRegistry>()
+                    .player_for_faction(*source_faction)
+                    .filter(|owner| *owner == player)
+                    .and_then(|owner| {
+                        world
+                            .resource::<PlayerRegistry>()
+                            .get(owner)
+                            .map(|slot| slot.funds)
+                    })
+            } else {
+                None
+            };
+
+            PlayerUpdate {
+                units_revealed,
+                units_moved,
+                units_removed,
+                terrain_revealed: Vec::new(),
                 terrain_changed: Vec::new(),
                 turn_change: None,
                 combat_event: None,
@@ -788,6 +1127,7 @@ fn collect_visible_units(
     friendly_factions: &HashSet<PlayerFaction>,
     fog_map: Option<&FogOfWarMap>,
 ) -> Vec<VisibleUnit> {
+    let detectors = detector_positions(world, friendly_factions);
     // Include ServerUnitId, Fuel, Ammo, CaptureProgress in the query to avoid separate entity lookups.
     let mut query = world.query_filtered::<(
         Entity,
@@ -799,20 +1139,24 @@ fn collect_visible_units(
         Option<&Fuel>,
         Option<&Ammo>,
         Option<&CaptureProgress>,
+        Option<&Hiding>,
     ), Without<CarriedBy>>();
 
     query
         .iter(world)
-        .filter(|(_, pos, unit, _, _, _, _, _, _)| {
-            if let Some(fog) = fog_map {
-                let is_air = unit.0.domain() == awbrn_types::UnitDomain::Air;
-                fog.is_unit_visible(pos.position(), is_air)
-            } else {
-                true
-            }
+        .filter(|(_, pos, unit, faction, _, _, _, _, _, hiding)| {
+            unit_would_be_visible_to_factions(
+                pos.position(),
+                unit.0,
+                faction.0,
+                hiding.is_some(),
+                friendly_factions,
+                fog_map,
+                &detectors,
+            )
         })
         .map(
-            |(_, pos, unit, faction, hp, unit_id, fuel, ammo, capture_progress)| {
+            |(_, pos, unit, faction, hp, unit_id, fuel, ammo, capture_progress, hiding)| {
                 let include_private_stats = friendly_factions.contains(&faction.0);
                 let capture_progress = capture_progress.map(|progress| progress.value());
                 VisibleUnit {
@@ -833,6 +1177,7 @@ fn collect_visible_units(
                     },
                     capturing: capture_progress.is_some(),
                     capture_progress,
+                    hiding: hiding.is_some(),
                 }
             },
         )
@@ -869,24 +1214,118 @@ fn visible_enemy_units(
     friendly_factions: &HashSet<PlayerFaction>,
     fog_map: Option<&FogOfWarMap>,
 ) -> HashMap<ServerUnitId, Entity> {
-    let mut query = world.query_filtered::<
-        (Entity, &MapPosition, &Faction, &Unit, &ServerUnitId),
-        Without<CarriedBy>,
-    >();
+    let detectors = detector_positions(world, friendly_factions);
+    let mut query = world.query_filtered::<(
+        Entity,
+        &MapPosition,
+        &Faction,
+        &Unit,
+        &ServerUnitId,
+        Option<&Hiding>,
+    ), Without<CarriedBy>>();
 
     query
         .iter(world)
-        .filter(|(_, _, faction, _, _)| !friendly_factions.contains(&faction.0))
-        .filter(|(_, pos, _, unit, _)| {
-            if let Some(fog) = fog_map {
-                let is_air = unit.0.domain() == awbrn_types::UnitDomain::Air;
-                fog.is_unit_visible(pos.position(), is_air)
-            } else {
-                true
-            }
+        .filter(|(_, _, faction, _, _, _)| !friendly_factions.contains(&faction.0))
+        .filter(|(_, pos, faction, unit, _, hiding)| {
+            unit_would_be_visible_to_factions(
+                pos.position(),
+                unit.0,
+                faction.0,
+                hiding.is_some(),
+                friendly_factions,
+                fog_map,
+                &detectors,
+            )
         })
-        .map(|(entity, _, _, _, uid)| (*uid, entity))
+        .map(|(entity, _, _, _, uid, _)| (*uid, entity))
         .collect()
+}
+
+fn entity_visible_to_factions(
+    world: &mut World,
+    entity: Entity,
+    friendly_factions: &HashSet<PlayerFaction>,
+    fog_map: Option<&FogOfWarMap>,
+) -> bool {
+    let detectors = detector_positions(world, friendly_factions);
+    entity_visible_to_factions_with_detectors(world, entity, friendly_factions, fog_map, &detectors)
+}
+
+fn entity_visible_to_factions_with_detectors(
+    world: &World,
+    entity: Entity,
+    friendly_factions: &HashSet<PlayerFaction>,
+    fog_map: Option<&FogOfWarMap>,
+    detectors: &[Position],
+) -> bool {
+    let entity_ref = world.entity(entity);
+    if entity_ref.contains::<CarriedBy>() {
+        return false;
+    }
+    let Some(pos) = entity_ref.get::<MapPosition>() else {
+        return false;
+    };
+    let Some(unit) = entity_ref.get::<Unit>() else {
+        return false;
+    };
+    let Some(faction) = entity_ref.get::<Faction>() else {
+        return false;
+    };
+
+    unit_would_be_visible_to_factions(
+        pos.position(),
+        unit.0,
+        faction.0,
+        entity_ref.contains::<Hiding>(),
+        friendly_factions,
+        fog_map,
+        detectors,
+    )
+}
+
+fn detector_positions(
+    world: &mut World,
+    friendly_factions: &HashSet<PlayerFaction>,
+) -> Vec<Position> {
+    let mut query =
+        world.query_filtered::<(&MapPosition, &Faction), (With<Unit>, Without<CarriedBy>)>();
+
+    query
+        .iter(world)
+        .filter_map(|(pos, faction)| {
+            friendly_factions
+                .contains(&faction.0)
+                .then_some(pos.position())
+        })
+        .collect()
+}
+
+fn unit_would_be_visible_to_factions(
+    position: Position,
+    unit_type: awbrn_types::Unit,
+    faction: PlayerFaction,
+    is_hiding: bool,
+    friendly_factions: &HashSet<PlayerFaction>,
+    fog_map: Option<&FogOfWarMap>,
+    detector_positions: &[Position],
+) -> bool {
+    if friendly_factions.contains(&faction) {
+        return true;
+    }
+
+    let is_air = unit_type.domain() == awbrn_types::UnitDomain::Air;
+    let fog_visible = fog_map
+        .map(|fog| fog.is_unit_visible(position, is_air))
+        .unwrap_or(true);
+    if !fog_visible {
+        return false;
+    }
+
+    !is_hiding
+        || detector_positions
+            .iter()
+            .any(|detector| detector.manhattan(&position) == 1)
 }
 
 /// Returns terrain tiles that transitioned from fogged to visible between pre and post fog.
@@ -957,6 +1396,7 @@ fn entity_to_visible_unit(
         capture_progress: entity_ref
             .get::<CaptureProgress>()
             .map(|progress| progress.value()),
+        hiding: entity_ref.contains::<Hiding>(),
     })
 }
 

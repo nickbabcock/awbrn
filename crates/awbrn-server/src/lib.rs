@@ -1,3 +1,4 @@
+mod adjacency;
 mod apply;
 pub mod command;
 mod damage;

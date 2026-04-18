@@ -1,8 +1,10 @@
 use std::collections::HashSet;
 
+use bevy::ecs::relationship::RelationshipTarget;
 use bevy::ecs::system::{SystemParam, SystemState};
 use bevy::prelude::*;
 
+use crate::adjacency::adjacent_self_owned_units;
 use crate::command::{GameCommand, PostMoveAction};
 use crate::error::CommandError;
 use crate::player::{PlayerId, PlayerRegistry};
@@ -10,7 +12,10 @@ use crate::state::{ServerGameState, TurnPhase};
 use crate::unit_id::ServerUnitId;
 use awbrn_game::MapPosition;
 use awbrn_game::replay::PowerMovementBoosts;
-use awbrn_game::world::{Ammo, BoardIndex, Faction, Fuel, GameMap, StrongIdMap, Unit, UnitActive};
+use awbrn_game::world::{
+    Ammo, BoardIndex, CarriedBy, Faction, Fuel, GameMap, HasCargo, Hiding, StrongIdMap, Unit,
+    UnitActive,
+};
 use awbrn_map::Position;
 use awbrn_types::{
     Faction as TerrainFaction, GraphicalTerrain, MovementCost, MovementTerrain, PlayerFaction,
@@ -185,70 +190,74 @@ fn validate_move_unit(
         .get::<Unit>()
         .copied()
         .ok_or(CommandError::InvalidUnit(unit_id))?;
-    let mut movement_world_state: SystemState<MovementValidationWorld> = SystemState::new(world);
-    let movement_world = movement_world_state.get(world);
-    let movement_budget = movement_world.movement_budget_for(faction.0, unit.0);
     let fuel_budget = world
         .entity(entity)
         .get::<Fuel>()
         .map_or(u32::MAX, |fuel| fuel.0);
 
+    let destination = *path.last().expect("validated path is non-empty");
     let mut movement_cost = 0u32;
     let mut fuel_cost = 0u32;
     let mut previous = current_position;
-    let destination = *path.last().expect("validated path is non-empty");
 
-    for &step in &path[1..] {
-        if previous.manhattan(&step) != 1 {
-            return Err(invalid_path(format!(
-                "path step {previous:?} -> {step:?} is not adjacent"
-            )));
-        }
+    {
+        let mut movement_world_state: SystemState<MovementValidationWorld> =
+            SystemState::new(world);
+        let movement_world = movement_world_state.get(world);
+        let movement_budget = movement_world.movement_budget_for(faction.0, unit.0);
 
-        let Some(terrain) = movement_world.game_map.terrain_at(step) else {
-            return Err(invalid_path(format!(
-                "path step {step:?} is outside the map bounds"
-            )));
-        };
-        let step_cost = step_movement_cost(unit.0, terrain, step)?;
-        movement_cost += u32::from(step_cost);
-        fuel_cost += 1;
-
-        let occupied_by = movement_world
-            .board_index
-            .unit_entity(step)
-            .map_err(|_| invalid_path(format!("path step {step:?} is outside the map bounds")))?;
-        if let Some(occupant) = occupied_by
-            && occupant != entity
-        {
-            if step == destination {
+        for &step in &path[1..] {
+            if previous.manhattan(&step) != 1 {
                 return Err(invalid_path(format!(
-                    "path destination {step:?} is occupied"
+                    "path step {previous:?} -> {step:?} is not adjacent"
                 )));
             }
 
-            let occupant_faction = movement_world
-                .factions
-                .get(occupant)
-                .map_err(|_| invalid_path(format!("occupant at {step:?} is missing faction")))?;
-
-            // Advance Wars movement allows traversing friendly/allied units,
-            // but any enemy unit blocks the path and no move may end on an
-            // occupied tile.
-            if !friendly_factions.contains(&occupant_faction.0) {
+            let Some(terrain) = movement_world.game_map.terrain_at(step) else {
                 return Err(invalid_path(format!(
-                    "path step {step:?} is blocked by an enemy unit"
+                    "path step {step:?} is outside the map bounds"
                 )));
+            };
+            let step_cost = step_movement_cost(unit.0, terrain, step)?;
+            movement_cost += u32::from(step_cost);
+            fuel_cost += 1;
+
+            let occupied_by = movement_world.board_index.unit_entity(step).map_err(|_| {
+                invalid_path(format!("path step {step:?} is outside the map bounds"))
+            })?;
+            if let Some(occupant) = occupied_by
+                && occupant != entity
+            {
+                if step == destination {
+                    if !action_allows_occupied_destination(action) {
+                        return Err(invalid_path(format!(
+                            "path destination {step:?} is occupied"
+                        )));
+                    }
+                } else {
+                    let occupant_faction = movement_world.factions.get(occupant).map_err(|_| {
+                        invalid_path(format!("occupant at {step:?} is missing faction"))
+                    })?;
+
+                    // Advance Wars movement allows traversing friendly/allied units,
+                    // but any enemy unit blocks the path and no move may end on an
+                    // occupied tile except for validated Load/Join actions.
+                    if !friendly_factions.contains(&occupant_faction.0) {
+                        return Err(invalid_path(format!(
+                            "path step {step:?} is blocked by an enemy unit"
+                        )));
+                    }
+                }
             }
+
+            previous = step;
         }
 
-        previous = step;
-    }
-
-    if movement_cost > movement_budget {
-        return Err(invalid_path(format!(
-            "path costs {movement_cost} movement but unit only has {movement_budget}"
-        )));
+        if movement_cost > movement_budget {
+            return Err(invalid_path(format!(
+                "path costs {movement_cost} movement but unit only has {movement_budget}"
+            )));
+        }
     }
 
     if fuel_cost > fuel_budget {
@@ -264,6 +273,7 @@ fn validate_move_unit(
             entity,
             current_position,
             destination,
+            player_faction,
             &friendly_factions,
             action,
         )?;
@@ -295,10 +305,11 @@ fn invalid_path(reason: impl Into<String>) -> CommandError {
 }
 
 fn validate_post_move_action(
-    world: &World,
+    world: &mut World,
     entity: Entity,
     from: Position,
     destination: Position,
+    player_faction: PlayerFaction,
     friendly_factions: &HashSet<PlayerFaction>,
     action: &PostMoveAction,
 ) -> Result<(), CommandError> {
@@ -308,15 +319,31 @@ fn validate_post_move_action(
             validate_attack(world, entity, from, destination, friendly_factions, *target)
         }
         PostMoveAction::Capture => validate_capture(world, entity, destination, friendly_factions),
-        PostMoveAction::Load { .. }
-        | PostMoveAction::Unload { .. }
-        | PostMoveAction::Supply
-        | PostMoveAction::Hide
-        | PostMoveAction::Unhide
-        | PostMoveAction::Join { .. } => Err(CommandError::InvalidAction {
-            reason: format!("action {action:?} not yet implemented"),
-        }),
+        PostMoveAction::Load { transport_id } => validate_load(
+            world,
+            entity,
+            destination,
+            player_faction,
+            friendly_factions,
+            *transport_id,
+        ),
+        PostMoveAction::Unload { cargo_id, position } => {
+            validate_unload(world, entity, from, destination, *cargo_id, *position)
+        }
+        PostMoveAction::Supply => validate_supply(world, entity, player_faction, destination),
+        PostMoveAction::Hide => validate_hide(world, entity),
+        PostMoveAction::Unhide => validate_unhide(world, entity),
+        PostMoveAction::Join { target_id } => {
+            validate_join(world, entity, destination, player_faction, *target_id)
+        }
     }
+}
+
+fn action_allows_occupied_destination(action: Option<&PostMoveAction>) -> bool {
+    matches!(
+        action,
+        Some(PostMoveAction::Load { .. } | PostMoveAction::Join { .. })
+    )
 }
 
 fn validate_capture(
@@ -435,6 +462,366 @@ fn validate_attack(
     }
 
     Ok(())
+}
+
+fn validate_supply(
+    world: &World,
+    supplier_entity: Entity,
+    player_faction: PlayerFaction,
+    destination: Position,
+) -> Result<(), CommandError> {
+    let supplier_unit = world
+        .entity(supplier_entity)
+        .get::<Unit>()
+        .copied()
+        .expect("validated unit must have Unit component")
+        .0;
+
+    if !matches!(
+        supplier_unit,
+        awbrn_types::Unit::APC | awbrn_types::Unit::BlackBoat
+    ) {
+        return Err(CommandError::InvalidAction {
+            reason: "only APC and Black Boat units can supply".into(),
+        });
+    }
+
+    if adjacent_self_owned_units(world, destination, player_faction)
+        .next()
+        .is_none()
+    {
+        return Err(CommandError::InvalidAction {
+            reason: "no adjacent self-owned units to supply".into(),
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_load(
+    world: &mut World,
+    cargo_entity: Entity,
+    destination: Position,
+    player_faction: PlayerFaction,
+    friendly_factions: &HashSet<PlayerFaction>,
+    transport_id: ServerUnitId,
+) -> Result<(), CommandError> {
+    let transport_entity = world
+        .resource::<StrongIdMap<ServerUnitId>>()
+        .get(&transport_id)
+        .ok_or_else(|| CommandError::InvalidAction {
+            reason: "transport unit does not exist".into(),
+        })?;
+
+    if cargo_entity == transport_entity {
+        return Err(CommandError::InvalidAction {
+            reason: "unit cannot load into itself".into(),
+        });
+    }
+
+    let occupied = world
+        .resource::<BoardIndex>()
+        .unit_entity(destination)
+        .map_err(|_| CommandError::InvalidAction {
+            reason: "load destination is outside the map".into(),
+        })?;
+    if occupied != Some(transport_entity) {
+        return Err(CommandError::InvalidAction {
+            reason: "selected transport is not at the load destination".into(),
+        });
+    }
+
+    let cargo = world.entity(cargo_entity);
+    if cargo.contains::<CarriedBy>() {
+        return Err(CommandError::InvalidAction {
+            reason: "cargo unit is already loaded".into(),
+        });
+    }
+    let cargo_unit = cargo
+        .get::<Unit>()
+        .copied()
+        .expect("validated cargo must have Unit component")
+        .0;
+    let cargo_faction = cargo
+        .get::<Faction>()
+        .copied()
+        .expect("validated cargo must have Faction component")
+        .0;
+
+    let transport = world.entity(transport_entity);
+    let transport_unit = transport
+        .get::<Unit>()
+        .copied()
+        .ok_or_else(|| CommandError::InvalidAction {
+            reason: "transport entity is missing unit data".into(),
+        })?
+        .0;
+    let transport_faction = transport
+        .get::<Faction>()
+        .copied()
+        .ok_or_else(|| CommandError::InvalidAction {
+            reason: "transport entity is missing faction".into(),
+        })?
+        .0;
+
+    if cargo_faction != player_faction || !friendly_factions.contains(&transport_faction) {
+        return Err(CommandError::InvalidAction {
+            reason: "cargo and transport must be friendly units".into(),
+        });
+    }
+
+    if !can_transport(transport_unit, cargo_unit) {
+        return Err(CommandError::InvalidAction {
+            reason: format!(
+                "{} cannot transport {}",
+                transport_unit.name(),
+                cargo_unit.name()
+            ),
+        });
+    }
+
+    let capacity =
+        transport_capacity(transport_unit).ok_or_else(|| CommandError::InvalidAction {
+            reason: "selected unit is not a transport".into(),
+        })?;
+    if transport
+        .get::<HasCargo>()
+        .is_some_and(|cargo| cargo.len() >= capacity)
+    {
+        return Err(CommandError::InvalidAction {
+            reason: "transport is full".into(),
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_unload(
+    world: &World,
+    transport_entity: Entity,
+    from: Position,
+    destination: Position,
+    cargo_id: ServerUnitId,
+    target: Position,
+) -> Result<(), CommandError> {
+    let transport_unit = world
+        .entity(transport_entity)
+        .get::<Unit>()
+        .copied()
+        .expect("validated transport must have Unit component")
+        .0;
+
+    if transport_capacity(transport_unit).is_none() {
+        return Err(CommandError::InvalidAction {
+            reason: "acting unit is not a transport".into(),
+        });
+    }
+
+    let cargo_entity = world
+        .resource::<StrongIdMap<ServerUnitId>>()
+        .get(&cargo_id)
+        .ok_or_else(|| CommandError::InvalidAction {
+            reason: "cargo unit does not exist".into(),
+        })?;
+    let carried_by = world
+        .entity(cargo_entity)
+        .get::<CarriedBy>()
+        .copied()
+        .ok_or_else(|| CommandError::InvalidAction {
+            reason: "cargo unit is not loaded".into(),
+        })?;
+    if carried_by.0 != transport_entity {
+        return Err(CommandError::InvalidAction {
+            reason: "cargo unit is not carried by this transport".into(),
+        });
+    }
+
+    if destination.manhattan(&target) != 1 {
+        return Err(CommandError::InvalidAction {
+            reason: "unload target is not adjacent to the transport".into(),
+        });
+    }
+
+    let cargo_unit = world
+        .entity(cargo_entity)
+        .get::<Unit>()
+        .copied()
+        .expect("cargo must have Unit component")
+        .0;
+    let terrain = world
+        .resource::<GameMap>()
+        .terrain_at(target)
+        .ok_or_else(|| CommandError::InvalidAction {
+            reason: "unload target is outside the map".into(),
+        })?;
+    step_movement_cost(cargo_unit, terrain, target)?;
+
+    let occupied = world
+        .resource::<BoardIndex>()
+        .unit_entity(target)
+        .map_err(|_| CommandError::InvalidAction {
+            reason: "unload target is outside the map".into(),
+        })?;
+    let transport_leaves_target = target == from && from != destination;
+    if occupied.is_some() && !(occupied == Some(transport_entity) && transport_leaves_target) {
+        return Err(CommandError::InvalidAction {
+            reason: "unload target is occupied".into(),
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_hide(world: &World, entity: Entity) -> Result<(), CommandError> {
+    let unit = world
+        .entity(entity)
+        .get::<Unit>()
+        .copied()
+        .expect("validated unit must have Unit component")
+        .0;
+
+    if !matches!(unit, awbrn_types::Unit::Sub | awbrn_types::Unit::Stealth) {
+        return Err(CommandError::InvalidAction {
+            reason: "only Sub and Stealth units can hide".into(),
+        });
+    }
+
+    if world.entity(entity).contains::<Hiding>() {
+        return Err(CommandError::InvalidAction {
+            reason: "unit is already hidden".into(),
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_unhide(world: &World, entity: Entity) -> Result<(), CommandError> {
+    let unit = world
+        .entity(entity)
+        .get::<Unit>()
+        .copied()
+        .expect("validated unit must have Unit component")
+        .0;
+
+    if !matches!(unit, awbrn_types::Unit::Sub | awbrn_types::Unit::Stealth) {
+        return Err(CommandError::InvalidAction {
+            reason: "only Sub and Stealth units can unhide".into(),
+        });
+    }
+
+    if !world.entity(entity).contains::<Hiding>() {
+        return Err(CommandError::InvalidAction {
+            reason: "unit is not hidden".into(),
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_join(
+    world: &World,
+    source_entity: Entity,
+    destination: Position,
+    player_faction: PlayerFaction,
+    target_id: ServerUnitId,
+) -> Result<(), CommandError> {
+    let target_entity = world
+        .resource::<StrongIdMap<ServerUnitId>>()
+        .get(&target_id)
+        .ok_or_else(|| CommandError::InvalidAction {
+            reason: "join target does not exist".into(),
+        })?;
+
+    if source_entity == target_entity {
+        return Err(CommandError::InvalidAction {
+            reason: "unit cannot join into itself".into(),
+        });
+    }
+
+    let occupied = world
+        .resource::<BoardIndex>()
+        .unit_entity(destination)
+        .map_err(|_| CommandError::InvalidAction {
+            reason: "join destination is outside the map".into(),
+        })?;
+    if occupied != Some(target_entity) {
+        return Err(CommandError::InvalidAction {
+            reason: "join target is not at the destination".into(),
+        });
+    }
+
+    let source = world.entity(source_entity);
+    let target = world.entity(target_entity);
+
+    if source.contains::<CarriedBy>() || target.contains::<CarriedBy>() {
+        return Err(CommandError::InvalidAction {
+            reason: "carried units cannot join".into(),
+        });
+    }
+    if source.contains::<HasCargo>() || target.contains::<HasCargo>() {
+        return Err(CommandError::InvalidAction {
+            reason: "transport carrying cargo cannot join".into(),
+        });
+    }
+
+    let source_unit = source
+        .get::<Unit>()
+        .copied()
+        .expect("source must have Unit component")
+        .0;
+    let target_unit = target
+        .get::<Unit>()
+        .copied()
+        .ok_or_else(|| CommandError::InvalidAction {
+            reason: "join target is missing unit data".into(),
+        })?
+        .0;
+    if source_unit != target_unit {
+        return Err(CommandError::InvalidAction {
+            reason: "joined units must have the same type".into(),
+        });
+    }
+
+    let source_faction = source
+        .get::<Faction>()
+        .copied()
+        .expect("source must have Faction component")
+        .0;
+    let target_faction = target
+        .get::<Faction>()
+        .copied()
+        .ok_or_else(|| CommandError::InvalidAction {
+            reason: "join target is missing faction".into(),
+        })?
+        .0;
+    if source_faction != player_faction || target_faction != player_faction {
+        return Err(CommandError::InvalidAction {
+            reason: "joined units must have the same owner".into(),
+        });
+    }
+
+    Ok(())
+}
+
+fn transport_capacity(unit: awbrn_types::Unit) -> Option<usize> {
+    match unit {
+        awbrn_types::Unit::APC | awbrn_types::Unit::TCopter => Some(1),
+        awbrn_types::Unit::BlackBoat | awbrn_types::Unit::Cruiser | awbrn_types::Unit::Lander => {
+            Some(2)
+        }
+        _ => None,
+    }
+}
+
+fn can_transport(transport: awbrn_types::Unit, cargo: awbrn_types::Unit) -> bool {
+    match transport {
+        awbrn_types::Unit::APC | awbrn_types::Unit::TCopter | awbrn_types::Unit::BlackBoat => {
+            matches!(cargo, awbrn_types::Unit::Infantry | awbrn_types::Unit::Mech)
+        }
+        awbrn_types::Unit::Lander => cargo.domain() == UnitDomain::Ground,
+        awbrn_types::Unit::Cruiser => cargo.domain() == UnitDomain::Air,
+        _ => false,
+    }
 }
 
 #[cfg(test)]

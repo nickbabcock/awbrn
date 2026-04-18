@@ -1,7 +1,9 @@
 use std::num::NonZeroU8;
 
 use awbrn_map::{AwbrnMap, Position};
-use awbrn_types::{Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, Property, Unit};
+use awbrn_types::{
+    Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, Property, SeaDirection, Unit,
+};
 
 use awbrn_server::{
     CaptureEvent, Co, CommandError, GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup,
@@ -21,6 +23,18 @@ fn capture_command(unit_id: ServerUnitId, position: Position) -> GameCommand {
         unit_id,
         path: vec![position],
         action: Some(PostMoveAction::Capture),
+    }
+}
+
+fn action_command(
+    unit_id: ServerUnitId,
+    path: Vec<Position>,
+    action: PostMoveAction,
+) -> GameCommand {
+    GameCommand::MoveUnit {
+        unit_id,
+        path,
+        action: Some(action),
     }
 }
 
@@ -1132,6 +1146,602 @@ fn primary_weapon_attack_consumes_ammo() {
         initial_ammo - 1,
         "primary weapon should consume 1 ammo"
     );
+}
+
+// ── Non-combat post-move action integration tests ────────────────────────────
+
+#[test]
+fn supply_restores_self_owned_adjacent_fuel_and_ammo() {
+    let mut server = GameServer::new(two_player_setup(5, 3)).unwrap();
+    let apc = server.spawn_unit(Position::new(1, 1), Unit::APC, PlayerFaction::OrangeStar);
+    let infantry = server.spawn_unit(
+        Position::new(0, 0),
+        Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    let mech = server.spawn_unit(Position::new(2, 1), Unit::Mech, PlayerFaction::OrangeStar);
+    server.spawn_unit(Position::new(3, 1), Unit::Tank, PlayerFaction::BlueMoon);
+
+    server
+        .submit_command(
+            p1(),
+            action_command(
+                infantry,
+                vec![Position::new(0, 0), Position::new(0, 1)],
+                PostMoveAction::Wait,
+            ),
+        )
+        .unwrap();
+    server.submit_command(p1(), GameCommand::EndTurn).unwrap();
+    server.submit_command(p2(), GameCommand::EndTurn).unwrap();
+
+    server
+        .submit_command(
+            p1(),
+            attack_command(mech, vec![Position::new(2, 1)], Position::new(3, 1)),
+        )
+        .unwrap();
+
+    let before = server.player_view(p1());
+    let low_fuel = before
+        .units
+        .iter()
+        .find(|unit| unit.id == infantry)
+        .unwrap();
+    assert!(low_fuel.fuel.unwrap() < Unit::Infantry.max_fuel());
+    let low_ammo = before.units.iter().find(|unit| unit.id == mech).unwrap();
+    assert!(low_ammo.ammo.unwrap() < Unit::Mech.max_ammo());
+
+    server
+        .submit_command(
+            p1(),
+            action_command(apc, vec![Position::new(1, 1)], PostMoveAction::Supply),
+        )
+        .unwrap();
+
+    let after = server.player_view(p1());
+    let supplied_infantry = after.units.iter().find(|unit| unit.id == infantry).unwrap();
+    assert_eq!(supplied_infantry.fuel, Some(Unit::Infantry.max_fuel()));
+    let supplied_mech = after.units.iter().find(|unit| unit.id == mech).unwrap();
+    assert_eq!(supplied_mech.ammo, Some(Unit::Mech.max_ammo()));
+}
+
+#[test]
+fn supply_rejects_when_no_adjacent_self_owned_units_exist() {
+    let mut server = GameServer::new(allied_player_setup(3, 1)).unwrap();
+    let apc = server.spawn_unit(Position::new(0, 0), Unit::APC, PlayerFaction::OrangeStar);
+    server.spawn_unit(Position::new(1, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+
+    let err = server
+        .submit_command(
+            p1(),
+            action_command(apc, vec![Position::new(0, 0)], PostMoveAction::Supply),
+        )
+        .unwrap_err();
+
+    assert!(matches!(err, CommandError::InvalidAction { .. }));
+}
+
+#[test]
+fn supply_does_not_restore_allied_teammate_units() {
+    let mut server = GameServer::new(allied_player_setup(4, 2)).unwrap();
+    let apc = server.spawn_unit(Position::new(0, 0), Unit::APC, PlayerFaction::OrangeStar);
+    server.spawn_unit(
+        Position::new(0, 1),
+        Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    let allied_infantry =
+        server.spawn_unit(Position::new(2, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+
+    server.submit_command(p1(), GameCommand::EndTurn).unwrap();
+    server
+        .submit_command(
+            p2(),
+            action_command(
+                allied_infantry,
+                vec![Position::new(2, 0), Position::new(1, 0)],
+                PostMoveAction::Wait,
+            ),
+        )
+        .unwrap();
+    server.submit_command(p2(), GameCommand::EndTurn).unwrap();
+
+    let fuel_before = server
+        .player_view(p1())
+        .units
+        .iter()
+        .find(|unit| unit.id == allied_infantry)
+        .unwrap()
+        .fuel;
+    assert_eq!(fuel_before, Some(Unit::Infantry.max_fuel() - 1));
+
+    server
+        .submit_command(
+            p1(),
+            action_command(apc, vec![Position::new(0, 0)], PostMoveAction::Supply),
+        )
+        .unwrap();
+
+    let fuel_after = server
+        .player_view(p1())
+        .units
+        .iter()
+        .find(|unit| unit.id == allied_infantry)
+        .unwrap()
+        .fuel;
+    assert_eq!(fuel_after, fuel_before);
+}
+
+#[test]
+fn load_removes_cargo_from_map_and_unload_restores_it() {
+    let mut server = GameServer::new(two_player_setup(5, 1)).unwrap();
+    let cargo = server.spawn_unit(
+        Position::new(0, 0),
+        Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    let apc = server.spawn_unit(Position::new(1, 0), Unit::APC, PlayerFaction::OrangeStar);
+
+    server
+        .submit_command(
+            p1(),
+            action_command(
+                cargo,
+                vec![Position::new(0, 0), Position::new(1, 0)],
+                PostMoveAction::Load { transport_id: apc },
+            ),
+        )
+        .unwrap();
+
+    assert!(
+        !server
+            .player_view(p1())
+            .units
+            .iter()
+            .any(|unit| unit.id == cargo),
+        "loaded cargo should not occupy a map tile"
+    );
+
+    server
+        .submit_command(
+            p1(),
+            action_command(
+                apc,
+                vec![Position::new(1, 0)],
+                PostMoveAction::Unload {
+                    cargo_id: cargo,
+                    position: Position::new(2, 0),
+                },
+            ),
+        )
+        .unwrap();
+
+    let view = server.player_view(p1());
+    assert_eq!(
+        view.units
+            .iter()
+            .find(|unit| unit.id == cargo)
+            .map(|unit| unit.position),
+        Some(Position::new(2, 0))
+    );
+
+    server.submit_command(p1(), GameCommand::EndTurn).unwrap();
+    server.submit_command(p2(), GameCommand::EndTurn).unwrap();
+    server
+        .submit_command(
+            p1(),
+            action_command(
+                cargo,
+                vec![Position::new(2, 0), Position::new(3, 0)],
+                PostMoveAction::Wait,
+            ),
+        )
+        .expect("unloaded cargo id should remain registered");
+}
+
+#[test]
+fn load_rejects_full_transport() {
+    let mut server = GameServer::new(two_player_setup(5, 1)).unwrap();
+    let first = server.spawn_unit(
+        Position::new(0, 0),
+        Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    let apc = server.spawn_unit(Position::new(1, 0), Unit::APC, PlayerFaction::OrangeStar);
+    let second = server.spawn_unit(Position::new(2, 0), Unit::Mech, PlayerFaction::OrangeStar);
+
+    server
+        .submit_command(
+            p1(),
+            action_command(
+                first,
+                vec![Position::new(0, 0), Position::new(1, 0)],
+                PostMoveAction::Load { transport_id: apc },
+            ),
+        )
+        .unwrap();
+
+    let err = server
+        .submit_command(
+            p1(),
+            action_command(
+                second,
+                vec![Position::new(2, 0), Position::new(1, 0)],
+                PostMoveAction::Load { transport_id: apc },
+            ),
+        )
+        .unwrap_err();
+
+    assert!(matches!(err, CommandError::InvalidAction { .. }));
+}
+
+#[test]
+fn load_does_not_leak_fogged_destination_coordinates() {
+    let mut setup = two_player_setup(4, 1);
+    setup.fog_enabled = true;
+    let mut server = GameServer::new(setup).unwrap();
+    let cargo = server.spawn_unit(
+        Position::new(1, 0),
+        Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    let transport = server.spawn_unit(Position::new(2, 0), Unit::APC, PlayerFaction::OrangeStar);
+    server.spawn_unit(Position::new(0, 0), Unit::APC, PlayerFaction::BlueMoon);
+
+    let result = server
+        .submit_command(
+            p1(),
+            action_command(
+                cargo,
+                vec![Position::new(1, 0), Position::new(2, 0)],
+                PostMoveAction::Load {
+                    transport_id: transport,
+                },
+            ),
+        )
+        .unwrap();
+
+    let p2_update = result
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p2())
+        .unwrap()
+        .1
+        .clone();
+
+    assert!(p2_update.units_removed.contains(&cargo));
+    assert!(
+        p2_update.units_moved.is_empty(),
+        "load should not serialize a hidden destination coordinate"
+    );
+}
+
+#[test]
+fn unload_rejects_occupied_or_impassable_target() {
+    let mut setup = two_player_setup(4, 3);
+    setup.map.set_terrain(
+        Position::new(1, 0),
+        GraphicalTerrain::Sea(SeaDirection::Sea),
+    );
+    let mut server = GameServer::new(setup).unwrap();
+    let cargo = server.spawn_unit(
+        Position::new(0, 1),
+        Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    let apc = server.spawn_unit(Position::new(1, 1), Unit::APC, PlayerFaction::OrangeStar);
+    server.spawn_unit(Position::new(2, 1), Unit::Tank, PlayerFaction::OrangeStar);
+
+    server
+        .submit_command(
+            p1(),
+            action_command(
+                cargo,
+                vec![Position::new(0, 1), Position::new(1, 1)],
+                PostMoveAction::Load { transport_id: apc },
+            ),
+        )
+        .unwrap();
+
+    let occupied_err = server
+        .submit_command(
+            p1(),
+            action_command(
+                apc,
+                vec![Position::new(1, 1)],
+                PostMoveAction::Unload {
+                    cargo_id: cargo,
+                    position: Position::new(2, 1),
+                },
+            ),
+        )
+        .unwrap_err();
+    assert!(matches!(occupied_err, CommandError::InvalidAction { .. }));
+
+    let impassable_err = server
+        .submit_command(
+            p1(),
+            action_command(
+                apc,
+                vec![Position::new(1, 1)],
+                PostMoveAction::Unload {
+                    cargo_id: cargo,
+                    position: Position::new(1, 0),
+                },
+            ),
+        )
+        .unwrap_err();
+    assert!(matches!(impassable_err, CommandError::InvalidPath { .. }));
+}
+
+#[test]
+fn hide_and_unhide_change_enemy_player_view() {
+    let mut server = GameServer::new(two_player_setup(5, 1)).unwrap();
+    let sub = server.spawn_unit(Position::new(0, 0), Unit::Sub, PlayerFaction::OrangeStar);
+    server.spawn_unit(Position::new(4, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+
+    assert!(
+        server
+            .player_view(p2())
+            .units
+            .iter()
+            .any(|unit| unit.id == sub)
+    );
+
+    let hide_result = server
+        .submit_command(
+            p1(),
+            action_command(sub, vec![Position::new(0, 0)], PostMoveAction::Hide),
+        )
+        .unwrap();
+    let p1_hide_update = hide_result
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p1())
+        .unwrap()
+        .1
+        .clone();
+    assert!(
+        p1_hide_update
+            .units_revealed
+            .iter()
+            .any(|unit| unit.id == sub && unit.hiding),
+        "owner update should include the hidden state"
+    );
+    assert!(
+        server
+            .player_view(p1())
+            .units
+            .iter()
+            .any(|unit| unit.id == sub && unit.hiding),
+        "owner view should keep hidden unit visible with hiding=true"
+    );
+    assert!(
+        !server
+            .player_view(p2())
+            .units
+            .iter()
+            .any(|unit| unit.id == sub),
+        "hidden sub should disappear from enemy view when not detected"
+    );
+
+    server.submit_command(p1(), GameCommand::EndTurn).unwrap();
+    server.submit_command(p2(), GameCommand::EndTurn).unwrap();
+    let unhide_result = server
+        .submit_command(
+            p1(),
+            action_command(sub, vec![Position::new(0, 0)], PostMoveAction::Unhide),
+        )
+        .unwrap();
+    let p1_unhide_update = unhide_result
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p1())
+        .unwrap()
+        .1
+        .clone();
+    assert!(
+        p1_unhide_update
+            .units_revealed
+            .iter()
+            .any(|unit| unit.id == sub && !unit.hiding),
+        "owner update should include the unhidden state"
+    );
+    assert!(
+        server
+            .player_view(p1())
+            .units
+            .iter()
+            .any(|unit| unit.id == sub && !unit.hiding),
+        "owner view should keep unit visible with hiding=false"
+    );
+
+    assert!(
+        server
+            .player_view(p2())
+            .units
+            .iter()
+            .any(|unit| unit.id == sub),
+        "unhidden sub should reappear"
+    );
+}
+
+#[test]
+fn hide_and_unhide_refresh_detecting_enemy_visible_unit() {
+    let mut server = GameServer::new(two_player_setup(3, 1)).unwrap();
+    let sub = server.spawn_unit(Position::new(0, 0), Unit::Sub, PlayerFaction::OrangeStar);
+    server.spawn_unit(Position::new(1, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+
+    let hide_result = server
+        .submit_command(
+            p1(),
+            action_command(sub, vec![Position::new(0, 0)], PostMoveAction::Hide),
+        )
+        .unwrap();
+    let p2_hide_update = hide_result
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p2())
+        .unwrap()
+        .1
+        .clone();
+    assert!(
+        p2_hide_update
+            .units_revealed
+            .iter()
+            .any(|unit| unit.id == sub && unit.hiding),
+        "detected hidden unit should refresh hiding=true for enemy viewer"
+    );
+    assert!(
+        server
+            .player_view(p2())
+            .units
+            .iter()
+            .any(|unit| unit.id == sub && unit.hiding)
+    );
+
+    server.submit_command(p1(), GameCommand::EndTurn).unwrap();
+    server.submit_command(p2(), GameCommand::EndTurn).unwrap();
+
+    let unhide_result = server
+        .submit_command(
+            p1(),
+            action_command(sub, vec![Position::new(0, 0)], PostMoveAction::Unhide),
+        )
+        .unwrap();
+    let p2_unhide_update = unhide_result
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p2())
+        .unwrap()
+        .1
+        .clone();
+    assert!(
+        p2_unhide_update
+            .units_revealed
+            .iter()
+            .any(|unit| unit.id == sub && !unit.hiding),
+        "detected unhidden unit should refresh hiding=false for enemy viewer"
+    );
+}
+
+#[test]
+fn hide_rejects_non_hidden_capable_units() {
+    let mut server = GameServer::new(two_player_setup(3, 1)).unwrap();
+    let tank = server.spawn_unit(Position::new(0, 0), Unit::Tank, PlayerFaction::OrangeStar);
+
+    let err = server
+        .submit_command(
+            p1(),
+            action_command(tank, vec![Position::new(0, 0)], PostMoveAction::Hide),
+        )
+        .unwrap_err();
+
+    assert!(matches!(err, CommandError::InvalidAction { .. }));
+}
+
+#[test]
+fn join_caps_target_hp_and_removes_source_id() {
+    let mut server = GameServer::new(two_player_setup(4, 1)).unwrap();
+    let source = server.spawn_unit(
+        Position::new(0, 0),
+        Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    let target = server.spawn_unit(
+        Position::new(1, 0),
+        Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+
+    let starting_funds = server.player_view(p1()).my_funds;
+    let result = server
+        .submit_command(
+            p1(),
+            action_command(
+                source,
+                vec![Position::new(0, 0), Position::new(1, 0)],
+                PostMoveAction::Join { target_id: target },
+            ),
+        )
+        .unwrap();
+    let expected_refund = Unit::Infantry.base_cost();
+
+    let view = server.player_view(p1());
+    assert!(!view.units.iter().any(|unit| unit.id == source));
+    let joined = view.units.iter().find(|unit| unit.id == target).unwrap();
+    assert_eq!(joined.hp, 10);
+    assert_eq!(view.my_funds, starting_funds + expected_refund);
+    let p1_update = result
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p1())
+        .unwrap()
+        .1
+        .clone();
+    assert_eq!(p1_update.my_funds, Some(starting_funds + expected_refund));
+
+    let err = server
+        .submit_command(
+            p1(),
+            action_command(
+                source,
+                vec![Position::new(1, 0), Position::new(2, 0)],
+                PostMoveAction::Wait,
+            ),
+        )
+        .unwrap_err();
+    assert!(matches!(err, CommandError::InvalidUnit(id) if id == source));
+}
+
+#[test]
+fn join_rejects_different_type_or_owner() {
+    let mut server = GameServer::new(two_player_setup(5, 1)).unwrap();
+    let source = server.spawn_unit(
+        Position::new(0, 0),
+        Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    let tank = server.spawn_unit(Position::new(1, 0), Unit::Tank, PlayerFaction::OrangeStar);
+    let enemy_infantry =
+        server.spawn_unit(Position::new(2, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+
+    let different_type_err = server
+        .submit_command(
+            p1(),
+            action_command(
+                source,
+                vec![Position::new(0, 0), Position::new(1, 0)],
+                PostMoveAction::Join { target_id: tank },
+            ),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        different_type_err,
+        CommandError::InvalidAction { .. }
+    ));
+
+    let different_owner_err = server
+        .submit_command(
+            p1(),
+            action_command(
+                source,
+                vec![
+                    Position::new(0, 0),
+                    Position::new(1, 0),
+                    Position::new(2, 0),
+                ],
+                PostMoveAction::Join {
+                    target_id: enemy_infantry,
+                },
+            ),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        different_owner_err,
+        CommandError::InvalidAction { .. }
+    ));
 }
 
 // ── Capture integration tests ─────────────────────────────────────────────────
