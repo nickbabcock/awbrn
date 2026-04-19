@@ -81,7 +81,7 @@ mod tests {
 }
 
 /// A command submitted by a player during their turn.
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum GameCommand {
     /// Move a unit along a path, optionally performing an action at the destination.
@@ -103,7 +103,7 @@ pub enum GameCommand {
 }
 
 /// An action to perform after a unit moves.
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum PostMoveAction {
     /// Attack a target at the given position.

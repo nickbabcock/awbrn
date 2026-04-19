@@ -13,6 +13,7 @@ awbrn-types = { path = "../awbrn-types", features = ["bevy"] }
 bevy = { workspace = true, features = ["std", "bevy_log"] }
 serde_json.workspace = true
 serde.workspace = true
+serde-wasm-bindgen.workspace = true
 tsify.workspace = true
 wasm-bindgen.workspace = true
 

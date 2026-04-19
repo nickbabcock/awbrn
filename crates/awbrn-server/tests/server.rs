@@ -6,8 +6,9 @@ use awbrn_types::{
 };
 
 use awbrn_server::{
-    CaptureEvent, Co, CommandError, GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup,
-    PostMoveAction, ServerUnitId, SetupError,
+    CaptureEvent, Co, CombatOutcome, CommandError, GameCommand, GameServer, GameSetup, PlayerId,
+    PlayerSetup, PostMoveAction, ReplayError, ReplayEventError, ServerUnitId, SetupError,
+    StoredActionEvent, reconstruct_from_events,
 };
 
 fn attack_command(unit_id: ServerUnitId, path: Vec<Position>, target: Position) -> GameCommand {
@@ -45,6 +46,27 @@ fn build_command(position: Position, unit_type: Unit) -> GameCommand {
     }
 }
 
+fn submit_and_store(
+    server: &mut GameServer,
+    events: &mut Vec<StoredActionEvent>,
+    player: PlayerId,
+    command: GameCommand,
+) -> awbrn_server::CommandResult {
+    let result = server.submit_command(player, command.clone()).unwrap();
+    events.push(StoredActionEvent {
+        command,
+        combat_outcome: result.combat_outcome,
+    });
+    result
+}
+
+fn expect_replay_error(setup: GameSetup, events: &[StoredActionEvent]) -> ReplayError {
+    match reconstruct_from_events(setup, events) {
+        Ok(_) => panic!("replay unexpectedly succeeded"),
+        Err(error) => error,
+    }
+}
+
 fn two_player_setup(width: usize, height: usize) -> GameSetup {
     GameSetup {
         map: AwbrnMap::new(width, height, GraphicalTerrain::Plain),
@@ -77,6 +99,63 @@ fn set_property(setup: &mut GameSetup, position: Position, property: Property) {
     setup
         .map
         .set_terrain(position, GraphicalTerrain::Property(property));
+}
+
+fn replay_combat_setup() -> GameSetup {
+    let mut setup = two_player_setup(5, 3);
+    setup.players[0].starting_funds = 50_000;
+    setup.players[1].starting_funds = 50_000;
+    set_property(
+        &mut setup,
+        Position::new(0, 0),
+        Property::Base(TerrainFaction::Player(PlayerFaction::OrangeStar)),
+    );
+    set_property(
+        &mut setup,
+        Position::new(2, 0),
+        Property::City(TerrainFaction::Neutral),
+    );
+    set_property(
+        &mut setup,
+        Position::new(3, 0),
+        Property::Base(TerrainFaction::Player(PlayerFaction::BlueMoon)),
+    );
+    setup
+}
+
+fn valid_attack_replay_prefix() -> (GameSetup, Vec<StoredActionEvent>) {
+    let setup = replay_combat_setup();
+    let mut server = GameServer::new(setup.clone()).unwrap();
+    let mut events = Vec::new();
+
+    submit_and_store(
+        &mut server,
+        &mut events,
+        p1(),
+        build_command(Position::new(0, 0), Unit::Infantry),
+    );
+    submit_and_store(&mut server, &mut events, p1(), GameCommand::EndTurn);
+    submit_and_store(
+        &mut server,
+        &mut events,
+        p2(),
+        build_command(Position::new(3, 0), Unit::Infantry),
+    );
+    submit_and_store(&mut server, &mut events, p2(), GameCommand::EndTurn);
+    submit_and_store(
+        &mut server,
+        &mut events,
+        p1(),
+        action_command(
+            ServerUnitId(1),
+            vec![Position::new(0, 0), Position::new(1, 0)],
+            PostMoveAction::Wait,
+        ),
+    );
+    submit_and_store(&mut server, &mut events, p1(), GameCommand::EndTurn);
+    submit_and_store(&mut server, &mut events, p2(), GameCommand::EndTurn);
+
+    (setup, events)
 }
 
 fn allied_player_setup(width: usize, height: usize) -> GameSetup {
@@ -2077,4 +2156,172 @@ fn fogged_opponent_does_not_receive_capture_event() {
 
     assert!(p2_update.capture_event.is_none());
     assert!(p2_update.terrain_changed.is_empty());
+}
+
+#[test]
+fn reconstruct_replays_action_log_to_matching_player_views() {
+    let setup = replay_combat_setup();
+    let mut original = GameServer::new(setup.clone()).unwrap();
+    let mut events = Vec::new();
+
+    submit_and_store(
+        &mut original,
+        &mut events,
+        p1(),
+        build_command(Position::new(0, 0), Unit::Infantry),
+    );
+    submit_and_store(&mut original, &mut events, p1(), GameCommand::EndTurn);
+    submit_and_store(
+        &mut original,
+        &mut events,
+        p2(),
+        build_command(Position::new(3, 0), Unit::Infantry),
+    );
+    submit_and_store(&mut original, &mut events, p2(), GameCommand::EndTurn);
+    submit_and_store(
+        &mut original,
+        &mut events,
+        p1(),
+        action_command(
+            ServerUnitId(1),
+            vec![Position::new(0, 0), Position::new(1, 0)],
+            PostMoveAction::Wait,
+        ),
+    );
+    submit_and_store(&mut original, &mut events, p1(), GameCommand::EndTurn);
+    submit_and_store(&mut original, &mut events, p2(), GameCommand::EndTurn);
+
+    let attack_result = submit_and_store(
+        &mut original,
+        &mut events,
+        p1(),
+        attack_command(
+            ServerUnitId(1),
+            vec![Position::new(1, 0), Position::new(2, 0)],
+            Position::new(3, 0),
+        ),
+    );
+    assert!(attack_result.combat_outcome.is_some());
+
+    submit_and_store(&mut original, &mut events, p1(), GameCommand::EndTurn);
+    submit_and_store(&mut original, &mut events, p2(), GameCommand::EndTurn);
+    submit_and_store(
+        &mut original,
+        &mut events,
+        p1(),
+        capture_command(ServerUnitId(1), Position::new(2, 0)),
+    );
+    submit_and_store(
+        &mut original,
+        &mut events,
+        p1(),
+        build_command(Position::new(0, 0), Unit::Infantry),
+    );
+
+    let encoded = serde_json::to_string(&events).unwrap();
+    let decoded: Vec<StoredActionEvent> = serde_json::from_str(&encoded).unwrap();
+    let mut reconstructed = reconstruct_from_events(setup, &decoded).unwrap();
+
+    for player in [p1(), p2()] {
+        assert_eq!(
+            serde_json::to_value(original.player_view(player)).unwrap(),
+            serde_json::to_value(reconstructed.player_view(player)).unwrap()
+        );
+    }
+}
+
+#[test]
+fn replay_attack_requires_stored_combat_outcome() {
+    let (setup, mut events) = valid_attack_replay_prefix();
+    let index = events.len();
+    events.push(StoredActionEvent {
+        command: attack_command(
+            ServerUnitId(1),
+            vec![Position::new(1, 0), Position::new(2, 0)],
+            Position::new(3, 0),
+        ),
+        combat_outcome: None,
+    });
+
+    let err = expect_replay_error(setup, &events);
+
+    assert!(matches!(
+        err,
+        ReplayError::Event {
+            index: err_index,
+            source: ReplayEventError::MissingCombatOutcome,
+        } if err_index == index
+    ));
+}
+
+#[test]
+fn replay_rejects_combat_outcome_on_non_attack() {
+    let setup = replay_combat_setup();
+    let events = vec![StoredActionEvent {
+        command: build_command(Position::new(0, 0), Unit::Infantry),
+        combat_outcome: Some(CombatOutcome {
+            attacker_damage_pts: 1,
+            defender_damage_pts: None,
+        }),
+    }];
+
+    let err = expect_replay_error(setup, &events);
+
+    assert!(matches!(
+        err,
+        ReplayError::Event {
+            index: 0,
+            source: ReplayEventError::UnexpectedCombatOutcome,
+        }
+    ));
+}
+
+#[test]
+fn replay_invalid_command_returns_error() {
+    let setup = replay_combat_setup();
+    let events = vec![StoredActionEvent {
+        command: action_command(
+            ServerUnitId(99),
+            vec![Position::new(0, 0)],
+            PostMoveAction::Wait,
+        ),
+        combat_outcome: None,
+    }];
+
+    let err = expect_replay_error(setup, &events);
+
+    assert!(matches!(
+        err,
+        ReplayError::Event {
+            index: 0,
+            source: ReplayEventError::Command(CommandError::InvalidUnit(ServerUnitId(99))),
+        }
+    ));
+}
+
+#[test]
+fn replay_rejects_impossible_combat_deltas() {
+    let (setup, mut events) = valid_attack_replay_prefix();
+    let index = events.len();
+    events.push(StoredActionEvent {
+        command: attack_command(
+            ServerUnitId(1),
+            vec![Position::new(1, 0), Position::new(2, 0)],
+            Position::new(3, 0),
+        ),
+        combat_outcome: Some(CombatOutcome {
+            attacker_damage_pts: 200,
+            defender_damage_pts: None,
+        }),
+    });
+
+    let err = expect_replay_error(setup, &events);
+
+    assert!(matches!(
+        err,
+        ReplayError::Event {
+            index: err_index,
+            source: ReplayEventError::InvalidCombatOutcome { .. },
+        } if err_index == index
+    ));
 }

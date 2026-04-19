@@ -2,8 +2,9 @@ use bevy::prelude::*;
 
 use crate::adjacency::adjacent_positions;
 use crate::command::{GameCommand, PostMoveAction};
-use crate::damage::{CombatInput, CombatSide, LuckCap, PercentMod, TerrainStars};
+use crate::damage::{CombatInput, CombatOutcome, CombatSide, LuckCap, PercentMod, TerrainStars};
 use crate::player::PlayerRegistry;
+use crate::replay::ReplayEventError;
 use crate::server::spawn_unit_entity;
 use crate::setup::GameRng;
 use crate::state::{ServerGameState, TurnPhase};
@@ -48,6 +49,7 @@ pub(crate) enum ApplyOutcome {
         /// Captured before any entity despawn so the values remain accessible.
         attacker_hp_after: GraphicalHp,
         defender_hp_after: GraphicalHp,
+        combat_outcome: CombatOutcome,
     },
     PropertyCaptured {
         unit_id: ServerUnitId,
@@ -123,17 +125,48 @@ pub(crate) enum ApplyOutcome {
 
 /// Apply a validated command to the world. Returns the outcome for view generation.
 pub(crate) fn apply_command(world: &mut World, command: &GameCommand) -> ApplyOutcome {
+    apply_command_with_combat(world, command, CombatResolution::Roll)
+        .expect("validated command must apply")
+}
+
+/// Replay contract: attack commands require a stored outcome; non-attacks must not provide one.
+pub(crate) fn apply_command_with_stored_combat(
+    world: &mut World,
+    command: &GameCommand,
+    combat_outcome: Option<&CombatOutcome>,
+) -> Result<ApplyOutcome, ReplayEventError> {
+    if crate::replay::command_is_attack(command) {
+        let combat_outcome = combat_outcome.ok_or(ReplayEventError::MissingCombatOutcome)?;
+        apply_command_with_combat(world, command, CombatResolution::Stored(combat_outcome))
+    } else if combat_outcome.is_some() {
+        Err(ReplayEventError::UnexpectedCombatOutcome)
+    } else {
+        apply_command_with_combat(world, command, CombatResolution::Roll)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum CombatResolution<'a> {
+    Roll,
+    Stored(&'a CombatOutcome),
+}
+
+fn apply_command_with_combat(
+    world: &mut World,
+    command: &GameCommand,
+    combat_resolution: CombatResolution<'_>,
+) -> Result<ApplyOutcome, ReplayEventError> {
     match command {
         GameCommand::MoveUnit {
             unit_id,
             path,
             action,
-        } => apply_move_unit(world, *unit_id, path, action.as_ref()),
+        } => apply_move_unit(world, *unit_id, path, action.as_ref(), combat_resolution),
         GameCommand::Build {
             position,
             unit_type,
-        } => apply_build(world, *position, *unit_type),
-        GameCommand::EndTurn => apply_end_turn(world),
+        } => Ok(apply_build(world, *position, *unit_type)),
+        GameCommand::EndTurn => Ok(apply_end_turn(world)),
     }
 }
 
@@ -169,7 +202,8 @@ fn apply_move_unit(
     unit_id: ServerUnitId,
     path: &[awbrn_map::Position],
     action: Option<&PostMoveAction>,
-) -> ApplyOutcome {
+    combat_resolution: CombatResolution<'_>,
+) -> Result<ApplyOutcome, ReplayEventError> {
     let entity = world
         .resource::<StrongIdMap<ServerUnitId>>()
         .get(&unit_id)
@@ -217,13 +251,21 @@ fn apply_move_unit(
     world.entity_mut(entity).remove::<UnitActive>();
 
     match action {
-        Some(PostMoveAction::Attack { target }) => {
-            apply_attack(world, unit_id, entity, from, to, path, faction, *target)
-        }
-        Some(PostMoveAction::Capture) => {
-            apply_capture(world, unit_id, entity, from, to, path, faction)
-        }
-        Some(PostMoveAction::Load { transport_id }) => apply_load(
+        Some(PostMoveAction::Attack { target }) => apply_attack(
+            world,
+            unit_id,
+            entity,
+            from,
+            to,
+            path,
+            faction,
+            *target,
+            combat_resolution,
+        ),
+        Some(PostMoveAction::Capture) => Ok(apply_capture(
+            world, unit_id, entity, from, to, path, faction,
+        )),
+        Some(PostMoveAction::Load { transport_id }) => Ok(apply_load(
             world,
             unit_id,
             entity,
@@ -232,24 +274,24 @@ fn apply_move_unit(
             to,
             path,
             faction,
-        ),
+        )),
         Some(PostMoveAction::Unload { cargo_id, position }) => {
-            apply_unload(world, unit_id, entity, *cargo_id, *position)
+            Ok(apply_unload(world, unit_id, entity, *cargo_id, *position))
         }
-        Some(PostMoveAction::Supply) => apply_supply(world, unit_id, to, faction),
-        Some(PostMoveAction::Hide) => apply_hide(world, unit_id, entity, to, faction),
-        Some(PostMoveAction::Unhide) => apply_unhide(world, unit_id, entity, to, faction),
-        Some(PostMoveAction::Join { target_id }) => {
-            apply_join(world, unit_id, entity, *target_id, from, to, path, faction)
-        }
-        _ => ApplyOutcome::UnitMoved {
+        Some(PostMoveAction::Supply) => Ok(apply_supply(world, unit_id, to, faction)),
+        Some(PostMoveAction::Hide) => Ok(apply_hide(world, unit_id, entity, to, faction)),
+        Some(PostMoveAction::Unhide) => Ok(apply_unhide(world, unit_id, entity, to, faction)),
+        Some(PostMoveAction::Join { target_id }) => Ok(apply_join(
+            world, unit_id, entity, *target_id, from, to, path, faction,
+        )),
+        _ => Ok(ApplyOutcome::UnitMoved {
             unit_id,
             entity,
             from,
             to,
             path: path.to_vec(),
             faction,
-        },
+        }),
     }
 }
 
@@ -557,7 +599,8 @@ fn apply_attack(
     path: &[awbrn_map::Position],
     attacker_faction: PlayerFaction,
     target: awbrn_map::Position,
-) -> ApplyOutcome {
+    combat_resolution: CombatResolution<'_>,
+) -> Result<ApplyOutcome, ReplayEventError> {
     // Look up the defender entity at the target position.
     let defender_entity = world
         .resource::<BoardIndex>()
@@ -671,9 +714,21 @@ fn apply_attack(
         is_direct_combat: !attacker_unit.0.is_indirect(),
     };
 
-    // Roll and resolve combat.
-    let outcome = crate::damage::calculate_combat_rng(&input, &mut world.resource_mut::<GameRng>())
-        .expect("validated weapon must produce a combat outcome");
+    let outcome = match combat_resolution {
+        CombatResolution::Roll => {
+            crate::damage::calculate_combat_rng(&input, &mut world.resource_mut::<GameRng>())
+                .expect("validated weapon must produce a combat outcome")
+        }
+        CombatResolution::Stored(outcome) => {
+            validate_stored_combat_outcome(
+                outcome,
+                attacker_exact_hp,
+                defender_exact_hp,
+                input.is_direct_combat,
+            )?;
+            *outcome
+        }
+    };
 
     // Apply damage to defender.
     let defender_new_exact =
@@ -721,7 +776,7 @@ fn apply_attack(
             .insert(Ammo(attacker_ammo - 1));
     }
 
-    ApplyOutcome::UnitAttacked {
+    Ok(ApplyOutcome::UnitAttacked {
         attacker_id,
         attacker_entity,
         from,
@@ -734,7 +789,61 @@ fn apply_attack(
         defender_faction,
         attacker_hp_after,
         defender_hp_after,
+        combat_outcome: outcome,
+    })
+}
+
+/// Validate only stored-outcome structure and bounds, not formula achievability.
+///
+/// This rejects impossible deltas such as damage greater than current HP,
+/// indirect counterattacks, and counters from destroyed defenders. It does not
+/// re-derive whether the damage could have been produced by the current
+/// CO/terrain/luck formula. That tradeoff keeps replay independent from RNG
+/// state and future formula changes; trust-boundary callers that need stronger
+/// guarantees must add separate formula-level or cryptographic validation.
+fn validate_stored_combat_outcome(
+    outcome: &CombatOutcome,
+    attacker_exact_hp: ExactHp,
+    defender_exact_hp: ExactHp,
+    is_direct_combat: bool,
+) -> Result<(), ReplayEventError> {
+    if outcome.attacker_damage_pts > defender_exact_hp.get() {
+        return Err(ReplayEventError::InvalidCombatOutcome {
+            reason: format!(
+                "attacker damage {} exceeds defender HP {}",
+                outcome.attacker_damage_pts,
+                defender_exact_hp.get()
+            ),
+        });
     }
+
+    let Some(counter_damage) = outcome.defender_damage_pts else {
+        return Ok(());
+    };
+
+    if !is_direct_combat {
+        return Err(ReplayEventError::InvalidCombatOutcome {
+            reason: "indirect attacks cannot receive counterattack damage".into(),
+        });
+    }
+
+    if outcome.attacker_damage_pts >= defender_exact_hp.get() {
+        return Err(ReplayEventError::InvalidCombatOutcome {
+            reason: "destroyed defenders cannot counterattack".into(),
+        });
+    }
+
+    if counter_damage > attacker_exact_hp.get() {
+        return Err(ReplayEventError::InvalidCombatOutcome {
+            reason: format!(
+                "counterattack damage {} exceeds attacker HP {}",
+                counter_damage,
+                attacker_exact_hp.get()
+            ),
+        });
+    }
+
+    Ok(())
 }
 
 fn apply_end_turn(world: &mut World) -> ApplyOutcome {
