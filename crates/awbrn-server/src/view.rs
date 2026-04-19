@@ -52,6 +52,24 @@ pub struct VisibleTerrain {
 pub struct PlayerView {
     pub state: GameStateHeader,
     pub my_funds: u32,
+    pub players: Vec<PublicPlayerState>,
+    pub units: Vec<VisibleUnit>,
+    pub terrain: Vec<VisibleTerrain>,
+}
+
+/// Public per-player state visible in full-state snapshots.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicPlayerState {
+    pub slot_index: u8,
+    pub funds: u32,
+}
+
+/// Full public snapshot for non-fog spectators.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SpectatorView {
+    pub state: GameStateHeader,
+    pub players: Vec<PublicPlayerState>,
     pub units: Vec<VisibleUnit>,
     pub terrain: Vec<VisibleTerrain>,
 }
@@ -146,6 +164,7 @@ pub(crate) fn build_player_view(world: &mut World, player: PlayerId) -> PlayerVi
     let registry = world.resource::<PlayerRegistry>();
     let funds = registry.get(player).expect("player must exist").funds;
     let friendly_factions = registry.friendly_factions_for_player(player);
+    let players = public_player_states(registry);
     let fog_active = world.resource::<awbrn_game::world::FogActive>().0;
 
     let fog_map = if fog_active {
@@ -160,8 +179,21 @@ pub(crate) fn build_player_view(world: &mut World, player: PlayerId) -> PlayerVi
     PlayerView {
         state: game_state_header(world),
         my_funds: funds,
+        players,
         units,
         terrain,
+    }
+}
+
+/// Build the full public state for a spectator in a non-fog match.
+pub(crate) fn build_spectator_view(world: &mut World) -> SpectatorView {
+    let registry = world.resource::<PlayerRegistry>();
+    let players = public_player_states(registry);
+    SpectatorView {
+        state: game_state_header(world),
+        players,
+        units: collect_spectator_units(world),
+        terrain: collect_visible_terrain(world, None),
     }
 }
 
@@ -1194,6 +1226,41 @@ fn collect_visible_units(
         .collect()
 }
 
+fn collect_spectator_units(world: &mut World) -> Vec<VisibleUnit> {
+    let mut query = world.query_filtered::<(
+        &MapPosition,
+        &Unit,
+        &Faction,
+        &GraphicalHp,
+        &ServerUnitId,
+        Option<&Fuel>,
+        Option<&Ammo>,
+        Option<&CaptureProgress>,
+        Option<&Hiding>,
+    ), Without<CarriedBy>>();
+
+    query
+        .iter(world)
+        .map(
+            |(pos, unit, faction, hp, unit_id, fuel, ammo, capture_progress, hiding)| {
+                let capture_progress = capture_progress.map(|progress| progress.value());
+                VisibleUnit {
+                    id: *unit_id,
+                    unit_type: unit.0,
+                    faction: faction.0,
+                    position: pos.position(),
+                    hp: hp.0,
+                    fuel: fuel.map(|f| f.0),
+                    ammo: ammo.map(|a| a.0),
+                    capturing: capture_progress.is_some(),
+                    capture_progress,
+                    hiding: hiding.is_some(),
+                }
+            },
+        )
+        .collect()
+}
+
 fn collect_visible_terrain(world: &World, fog_map: Option<&FogOfWarMap>) -> Vec<VisibleTerrain> {
     let game_map = world.resource::<GameMap>();
     let mut terrain = Vec::new();
@@ -1216,6 +1283,17 @@ fn collect_visible_terrain(world: &World, fog_map: Option<&FogOfWarMap>) -> Vec<
     }
 
     terrain
+}
+
+fn public_player_states(registry: &PlayerRegistry) -> Vec<PublicPlayerState> {
+    registry
+        .players()
+        .iter()
+        .map(|slot| PublicPlayerState {
+            slot_index: slot.id.0,
+            funds: slot.funds,
+        })
+        .collect()
 }
 
 /// Returns a map of all enemy units visible under the given fog map.

@@ -1,4 +1,16 @@
 import type { AwbwMapData } from "#/awbw/schemas.ts";
+import type {
+  CombatEventMessage,
+  MatchGameState as WasmMatchGameState,
+  PlayerUpdateMessage as WasmPlayerUpdateMessage,
+  PublicPlayerState as WasmPublicPlayerState,
+  SpectatorMessage,
+  TurnChangeMessage,
+  UnitMovedMessage,
+  WasmActionResponse as GeneratedWasmActionResponse,
+  WireVisibleTerrain,
+  WireVisibleUnit,
+} from "#/wasm/awbrn_server.js";
 import type { MatchSetup } from "./schemas.ts";
 
 export interface MatchError {
@@ -20,10 +32,16 @@ export interface MatchFailure {
 
 export type MatchResult<T> = MatchSuccess<T> | MatchFailure;
 
+export type PublicPlayerState = WasmPublicPlayerState;
+export type VisibleUnit = WireVisibleUnit;
+export type VisibleTerrain = WireVisibleTerrain;
+export type MatchGameState = WasmMatchGameState;
+
 export interface InitialBoardMessage {
   type: "initialBoard";
   mapId: number;
   map: AwbwMapData;
+  gameState: MatchGameState | null;
 }
 
 export interface ConnectedMessage {
@@ -40,11 +58,23 @@ export interface ErrorMessage {
   message: string;
 }
 
+export type UnitMoved = UnitMovedMessage;
+export type TurnChange = TurnChangeMessage;
+export type CombatEvent = CombatEventMessage;
+export type PlayerUpdateMessage = WasmPlayerUpdateMessage;
+export type SpectatorNoticeMessage = Extract<SpectatorMessage, { type: "spectatorNotice" }>;
+export type SpectatorStateMessage = Extract<SpectatorMessage, { type: "spectatorState" }>;
+
 export type MatchWebSocketMessage =
   | InitialBoardMessage
   | ConnectedMessage
   | AckMessage
-  | ErrorMessage;
+  | ErrorMessage
+  | PlayerUpdateMessage
+  | SpectatorNoticeMessage
+  | SpectatorStateMessage;
+
+export type WasmActionResponse = GeneratedWasmActionResponse;
 
 export function ok<T>(value: T): MatchSuccess<T> {
   return { ok: true, value };
@@ -105,18 +135,28 @@ export function normalizeCaughtError(error: unknown): MatchFailure {
 export function initialMatchConnectionMessages(
   setup: Pick<MatchSetup, "mapId" | "map">,
   slotIndex: number | null,
-): [InitialBoardMessage, ConnectedMessage] {
-  return [
+  gameState: MatchGameState | null,
+  spectatorNotice: SpectatorNoticeMessage | null = null,
+): MatchWebSocketMessage[] {
+  const messages: MatchWebSocketMessage[] = [
     {
       type: "initialBoard",
       mapId: setup.mapId,
       map: setup.map,
-    },
-    {
-      type: "connected",
-      slotIndex,
+      gameState,
     },
   ];
+
+  if (spectatorNotice) {
+    messages.push(spectatorNotice);
+  }
+
+  messages.push({
+    type: "connected",
+    slotIndex,
+  });
+
+  return messages;
 }
 
 const WASM_ERROR_PREFIX = "AWBRN_MATCH_ERROR:";

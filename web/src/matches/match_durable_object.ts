@@ -1,14 +1,16 @@
 import { DurableObject } from "cloudflare:workers";
 import { drizzle, DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
-import { count, eq } from "drizzle-orm";
+import { asc, count, eq } from "drizzle-orm";
 import { WasmMatch, initSync } from "#/wasm/awbrn_server.js";
 import matchWasmModule from "../wasm/awbrn_server_bg.wasm";
 import {
   initialMatchConnectionMessages,
   normalizeCaughtError,
   ok,
+  type MatchGameState,
   type MatchResult,
+  type WasmActionResponse,
 } from "./match_protocol";
 import { matchSetupSchema } from "./schemas";
 import type { MatchCreateResponse, MatchSetup } from "./schemas";
@@ -16,12 +18,12 @@ import migrations from "../../drizzle/match/migrations";
 import { matchEventsTable } from "#/db/match.ts";
 import { getRequestSession } from "#/auth/auth.server.ts";
 
-// TODO: replace with a concrete type once game actions are defined
-type GameActionPayload = Record<string, unknown>;
+interface WebSocketAttachment {
+  userId: string;
+  slotIndex: number | null;
+}
 
-type MatchEvent =
-  | { kind: "setup"; payload: MatchSetup }
-  | { kind: "action"; payload: GameActionPayload };
+type MatchEvent = { kind: "setup"; payload: MatchSetup } | { kind: "action"; payload: unknown };
 
 function parseMatchEvent(row: { kind: string; payload: unknown }): MatchEvent | null {
   switch (row.kind) {
@@ -30,8 +32,7 @@ function parseMatchEvent(row: { kind: string; payload: unknown }): MatchEvent | 
       return result.success ? { kind: "setup", payload: result.data } : null;
     }
     case "action":
-      // TODO: parse against a concrete schema when game actions are defined
-      return { kind: "action", payload: row.payload as GameActionPayload };
+      return { kind: "action", payload: row.payload };
     default:
       return null;
   }
@@ -78,29 +79,39 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    const { userId, slotIndex } = ws.deserializeAttachment() as {
-      userId: string;
-      slotIndex: number | null;
-    };
+    const { slotIndex } = deserializeAttachment(ws);
     const game = this.loadGame();
     if (game === null) {
-      ws.send(JSON.stringify({ type: "error", message: "match not initialized" }));
+      sendJson(ws, { type: "error", message: "match not initialized" });
       return;
     }
+
+    let command: unknown;
     try {
       const text = typeof message === "string" ? message : new TextDecoder().decode(message);
-      const action = JSON.parse(text) as GameActionPayload;
-      if (slotIndex === null) {
-        // Spectators cannot submit actions
-        ws.send(JSON.stringify({ type: "error", message: "spectators cannot submit actions" }));
-        return;
-      }
-      // TODO: call game.processAction(slotIndex, action), persist event, broadcast result
-      void action;
-      void userId;
-      this.broadcast({ type: "ack" });
+      command = JSON.parse(text);
     } catch {
-      ws.send(JSON.stringify({ type: "error", message: "invalid message" }));
+      sendJson(ws, { type: "error", message: "invalid message" });
+      return;
+    }
+
+    if (slotIndex === null) {
+      sendJson(ws, { type: "error", message: "spectators cannot submit actions" });
+      return;
+    }
+
+    try {
+      const response = game.process_action(slotIndex, command);
+      try {
+        this.appendEvent({ kind: "action", payload: response.storedActionEvent });
+      } catch (error) {
+        this.restoreGameFromPersistedEvents();
+        throw error;
+      }
+      this.broadcastActionResponse(response);
+    } catch (error) {
+      const failure = normalizeCaughtError(error);
+      sendJson(ws, { type: "error", message: failure.error.message });
     }
   }
 
@@ -131,14 +142,42 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
   }
 
   private handleWebSocketUpgrade(userId: string, setup: MatchSetup): Response {
+    const game = this.loadGame();
+    if (game === null) {
+      return new Response("Match not initialized", { status: 503 });
+    }
+
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     const slotIndex = setup.players.findIndex((p) => p.userId === userId);
     const playerSlotIndex = slotIndex >= 0 ? slotIndex : null;
+    let gameState: MatchGameState | null = null;
+    let spectatorNotice: Parameters<typeof initialMatchConnectionMessages>[3] = null;
+
+    try {
+      if (playerSlotIndex !== null) {
+        gameState = game.playerGameState(playerSlotIndex);
+      } else {
+        gameState = game.spectatorGameState().gameState;
+      }
+    } catch (error) {
+      const failure = normalizeCaughtError(error);
+      return new Response(failure.error.message, { status: failure.error.httpStatus });
+    }
+
+    if (playerSlotIndex === null && gameState === null && setup.fogEnabled) {
+      spectatorNotice = { type: "spectatorNotice", fogActive: true };
+    }
+
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ userId, slotIndex: playerSlotIndex });
-    for (const message of initialMatchConnectionMessages(setup, playerSlotIndex)) {
-      server.send(JSON.stringify(message));
+    for (const message of initialMatchConnectionMessages(
+      setup,
+      playerSlotIndex,
+      gameState,
+      spectatorNotice,
+    )) {
+      sendJson(server, message);
     }
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -162,18 +201,38 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     }
     ensureMatchWasmInitialized();
     try {
-      this.wasmMatch = new WasmMatch(setup);
+      const actionEvents = this.readActionEvents();
+      this.wasmMatch = WasmMatch.reconstructFromEvents(setup, actionEvents);
       return this.wasmMatch;
     } catch {
       return null;
     }
   }
 
-  private broadcast(message: unknown): void {
-    const text = JSON.stringify(message);
-    for (const ws of this.ctx.getWebSockets()) {
+  private restoreGameFromPersistedEvents(): void {
+    this.wasmMatch = null;
+    try {
+      this.loadGame();
+    } catch (error) {
+      console.error("Failed to restore match state after append failure:", error);
+    }
+  }
+
+  private broadcastActionResponse(response: WasmActionResponse): void {
+    for (const target of this.ctx.getWebSockets()) {
       try {
-        ws.send(text);
+        const { slotIndex } = deserializeAttachment(target);
+        if (slotIndex === null) {
+          if (response.spectatorMessage) {
+            sendJson(target, response.spectatorMessage);
+          }
+          continue;
+        }
+
+        const message = response.playerMessagesBySlot.get(String(slotIndex));
+        if (message) {
+          sendJson(target, message);
+        }
       } catch {
         // ignore closed connections
       }
@@ -195,6 +254,15 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       })
       .run();
   }
+
+  private readActionEvents(): unknown[] {
+    const rows = this.db.select().from(matchEventsTable).orderBy(asc(matchEventsTable.seq)).all();
+
+    return rows
+      .map(parseMatchEvent)
+      .filter((event): event is { kind: "action"; payload: unknown } => event?.kind === "action")
+      .map((event) => event.payload);
+  }
 }
 
 function extractMatchId(setup: unknown): string {
@@ -209,4 +277,16 @@ function extractMatchId(setup: unknown): string {
   }
 
   return "unknown";
+}
+
+function deserializeAttachment(ws: WebSocket): WebSocketAttachment {
+  const value = ws.deserializeAttachment() as Partial<WebSocketAttachment> | null;
+  return {
+    userId: typeof value?.userId === "string" ? value.userId : "unknown",
+    slotIndex: typeof value?.slotIndex === "number" ? value.slotIndex : null,
+  };
+}
+
+function sendJson(ws: WebSocket, message: unknown): void {
+  ws.send(JSON.stringify(message));
 }
