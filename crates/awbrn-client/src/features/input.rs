@@ -268,10 +268,18 @@ impl Plugin for InputPlugin {
         app.add_systems(
             Update,
             (
-                (detect_map_clicks, detect_touch_taps, handle_tile_clicks).chain(),
+                (detect_map_clicks, detect_touch_taps).chain(),
                 update_tile_cursor,
             )
                 .run_if(in_state(crate::core::AppState::InGame)),
+        );
+        app.add_systems(
+            Update,
+            handle_tile_clicks
+                .after(detect_map_clicks)
+                .after(detect_touch_taps)
+                .run_if(in_state(crate::core::AppState::InGame))
+                .run_if(in_state(crate::core::GameMode::Replay)),
         );
     }
 }

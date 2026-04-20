@@ -15,8 +15,9 @@ impl RenderLayer {
     pub const BACKDROP: i8 = 0;
     pub const TERRAIN: i8 = 1;
     pub const FOG_OVERLAY: i8 = 2;
-    pub const UNIT: i8 = 3;
-    pub const COURSE_ARROW: i8 = 4;
+    pub const MOVE_RANGE_OVERLAY: i8 = 3;
+    pub const UNIT: i8 = 4;
+    pub const COURSE_ARROW: i8 = 5;
     pub const CURSOR: i8 = 10;
 }
 
@@ -179,7 +180,7 @@ mod tests {
         assert!(
             unit_transform
                 .translation
-                .abs_diff_eq(Vec3::new(124.5, -36.0, 3.0), 0.1)
+                .abs_diff_eq(Vec3::new(124.5, -36.0, 4.0), 0.1)
         );
 
         app.world_mut()
@@ -206,7 +207,7 @@ mod tests {
         assert!(
             updated_unit_transform
                 .translation
-                .abs_diff_eq(Vec3::new(140.5, -20.0, 3.0), 0.1)
+                .abs_diff_eq(Vec3::new(140.5, -20.0, 4.0), 0.1)
         );
 
         assert_ne!(
