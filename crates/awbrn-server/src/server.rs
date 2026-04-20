@@ -8,7 +8,7 @@ use crate::replay::{ReplayEventError, StoredActionEvent};
 use crate::setup::{GameSetup, SetupError, initialize_server_world};
 use crate::unit_id::ServerUnitId;
 use crate::validate;
-use crate::view::{self, CommandResult, PlayerView};
+use crate::view::{self, CommandResult, PlayerView, SpectatorView};
 
 use awbrn_map::Position;
 use awbrn_types::{PlayerFaction, Unit};
@@ -65,6 +65,11 @@ impl GameServer {
     /// Get the full visible state for a player (for initial load or reconnection).
     pub fn player_view(&mut self, player: PlayerId) -> PlayerView {
         view::build_player_view(&mut self.world, player)
+    }
+
+    /// Get the full public state for a non-fog spectator.
+    pub fn spectator_view(&mut self) -> SpectatorView {
+        view::build_spectator_view(&mut self.world)
     }
 
     pub fn has_player(&self, player: PlayerId) -> bool {
