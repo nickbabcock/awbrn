@@ -9,6 +9,11 @@ pub trait MovementMap {
     /// Get terrain at a pre-validated flat index (caller ensures idx < width * height)
     fn terrain_at_flat(&self, flat_idx: usize) -> MovementTerrain;
 
+    /// Return true when pathfinding should not enter the pre-validated flat index.
+    fn is_blocked_flat(&self, _flat_idx: usize) -> bool {
+        false
+    }
+
     fn width(&self) -> usize;
 
     fn height(&self) -> usize;
@@ -21,6 +26,10 @@ impl<T: MovementMap> MovementMap for &'_ T {
 
     fn terrain_at_flat(&self, flat_idx: usize) -> MovementTerrain {
         (**self).terrain_at_flat(flat_idx)
+    }
+
+    fn is_blocked_flat(&self, flat_idx: usize) -> bool {
+        (**self).is_blocked_flat(flat_idx)
     }
 
     fn width(&self) -> usize {
@@ -215,6 +224,10 @@ impl<M: MovementMap> PathFinder<M> {
         num_buckets: usize,
         new_flat: usize,
     ) {
+        if self.map.is_blocked_flat(new_flat) {
+            return;
+        }
+
         let terrain = self.map.terrain_at_flat(new_flat);
         if let Some(terrain_cost) = costs.cost(terrain) {
             let movement_cost = current_cost + terrain_cost as usize;
@@ -237,7 +250,7 @@ impl<M: MovementMap> PathFinder<M> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     use super::*;
     use crate::AwbwMap;
@@ -427,6 +440,57 @@ mod tests {
         // Should only be able to reach the starting position
         assert_eq!(positions.len(), 1);
         assert_eq!(positions.get(&Position::new(1, 1)), Some(&0));
+    }
+
+    struct BlockedMovementMap<'a> {
+        map: &'a AwbwMap,
+        blocked: HashSet<Position>,
+    }
+
+    impl MovementMap for BlockedMovementMap<'_> {
+        fn terrain_at(&self, pos: Position) -> Option<MovementTerrain> {
+            self.map.terrain_at(pos).map(MovementTerrain::from)
+        }
+
+        fn terrain_at_flat(&self, flat_idx: usize) -> MovementTerrain {
+            let position = Position::new(flat_idx % self.width(), flat_idx / self.width());
+            self.terrain_at(position)
+                .expect("flat index should be in bounds")
+        }
+
+        fn is_blocked_flat(&self, flat_idx: usize) -> bool {
+            let position = Position::new(flat_idx % self.width(), flat_idx / self.width());
+            self.blocked.contains(&position)
+        }
+
+        fn width(&self) -> usize {
+            self.map.width()
+        }
+
+        fn height(&self) -> usize {
+            self.map.height()
+        }
+    }
+
+    #[test]
+    fn test_blocked_tiles_are_not_entered_or_crossed() {
+        let map = AwbwMap::new(5, 1, AwbwTerrain::Plain);
+        let blocked_map = BlockedMovementMap {
+            map: &map,
+            blocked: HashSet::from([Position::new(2, 0)]),
+        };
+        let costs = UnitMovementCosts {
+            movement_type: UnitMovement::Foot,
+        };
+        let mut pathfinder = PathFinder::new(blocked_map);
+        let reachable = pathfinder.reachable(Position::new(0, 0), 4, costs);
+        let positions: HashMap<Position, u8> = reachable.into_positions().collect();
+
+        assert!(positions.contains_key(&Position::new(0, 0)));
+        assert!(positions.contains_key(&Position::new(1, 0)));
+        assert!(!positions.contains_key(&Position::new(2, 0)));
+        assert!(!positions.contains_key(&Position::new(3, 0)));
+        assert!(!positions.contains_key(&Position::new(4, 0)));
     }
 
     #[test]
