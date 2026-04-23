@@ -9,7 +9,8 @@ use awbrn_game::MapPosition;
 use awbrn_game::replay::{PowerVisionBoosts, range_modifier_for_weather};
 use awbrn_game::world::{
     Ammo, CaptureProgress, CarriedBy, CurrentWeather, Faction, FogOfWarMap, Fuel, GameMap,
-    GraphicalHp, Hiding, StrongIdMap, Unit, VisionRange, collect_friendly_units, rebuild_fog_map,
+    GraphicalHp, HasCargo, Hiding, StrongIdMap, Unit, UnitActive, VisionRange,
+    collect_friendly_units, rebuild_fog_map,
 };
 use awbrn_map::Position;
 use awbrn_types::PlayerFaction;
@@ -32,9 +33,13 @@ pub struct VisibleUnit {
     pub position: Position,
     pub hp: u8,
     /// Included for units owned by the viewing player or an allied teammate.
+    pub active: Option<bool>,
+    /// Included for units owned by the viewing player or an allied teammate.
     pub fuel: Option<u32>,
     /// Included for units owned by the viewing player or an allied teammate.
     pub ammo: Option<u32>,
+    /// Included for units owned by the viewing player or an allied teammate.
+    pub cargo_units: Option<Vec<awbrn_types::Unit>>,
     pub capturing: bool,
     pub capture_progress: Option<u8>,
     pub hiding: bool,
@@ -1178,15 +1183,17 @@ fn collect_visible_units(
         &Faction,
         &GraphicalHp,
         &ServerUnitId,
+        Has<UnitActive>,
         Option<&Fuel>,
         Option<&Ammo>,
+        Option<&HasCargo>,
         Option<&CaptureProgress>,
         Option<&Hiding>,
     ), Without<CarriedBy>>();
 
     query
         .iter(world)
-        .filter(|(_, pos, unit, faction, _, _, _, _, _, hiding)| {
+        .filter(|(_, pos, unit, faction, _, _, _, _, _, _, _, hiding)| {
             unit_would_be_visible_to_factions(
                 pos.position(),
                 unit.0,
@@ -1198,7 +1205,20 @@ fn collect_visible_units(
             )
         })
         .map(
-            |(_, pos, unit, faction, hp, unit_id, fuel, ammo, capture_progress, hiding)| {
+            |(
+                _,
+                pos,
+                unit,
+                faction,
+                hp,
+                unit_id,
+                active,
+                fuel,
+                ammo,
+                has_cargo,
+                capture_progress,
+                hiding,
+            )| {
                 let include_private_stats = friendly_factions.contains(&faction.0);
                 let capture_progress = capture_progress.map(|progress| progress.value());
                 VisibleUnit {
@@ -1207,6 +1227,7 @@ fn collect_visible_units(
                     faction: faction.0,
                     position: pos.position(),
                     hp: hp.0,
+                    active: include_private_stats.then_some(active),
                     fuel: if include_private_stats {
                         fuel.map(|f| f.0)
                     } else {
@@ -1217,6 +1238,9 @@ fn collect_visible_units(
                     } else {
                         None
                     },
+                    cargo_units: include_private_stats
+                        .then(|| cargo_units(world, has_cargo))
+                        .filter(|cargo| !cargo.is_empty()),
                     capturing: capture_progress.is_some(),
                     capture_progress,
                     hiding: hiding.is_some(),
@@ -1233,8 +1257,10 @@ fn collect_spectator_units(world: &mut World) -> Vec<VisibleUnit> {
         &Faction,
         &GraphicalHp,
         &ServerUnitId,
+        Has<UnitActive>,
         Option<&Fuel>,
         Option<&Ammo>,
+        Option<&HasCargo>,
         Option<&CaptureProgress>,
         Option<&Hiding>,
     ), Without<CarriedBy>>();
@@ -1242,7 +1268,19 @@ fn collect_spectator_units(world: &mut World) -> Vec<VisibleUnit> {
     query
         .iter(world)
         .map(
-            |(pos, unit, faction, hp, unit_id, fuel, ammo, capture_progress, hiding)| {
+            |(
+                pos,
+                unit,
+                faction,
+                hp,
+                unit_id,
+                active,
+                fuel,
+                ammo,
+                has_cargo,
+                capture_progress,
+                hiding,
+            )| {
                 let capture_progress = capture_progress.map(|progress| progress.value());
                 VisibleUnit {
                     id: *unit_id,
@@ -1250,8 +1288,13 @@ fn collect_spectator_units(world: &mut World) -> Vec<VisibleUnit> {
                     faction: faction.0,
                     position: pos.position(),
                     hp: hp.0,
+                    active: Some(active),
                     fuel: fuel.map(|f| f.0),
                     ammo: ammo.map(|a| a.0),
+                    cargo_units: {
+                        let cargo = cargo_units(world, has_cargo);
+                        (!cargo.is_empty()).then_some(cargo)
+                    },
                     capturing: capture_progress.is_some(),
                     capture_progress,
                     hiding: hiding.is_some(),
@@ -1470,6 +1513,7 @@ fn entity_to_visible_unit(
         faction: faction.0,
         position: pos.position(),
         hp: hp.0,
+        active: include_private_stats.then_some(entity_ref.contains::<UnitActive>()),
         fuel: if include_private_stats {
             entity_ref.get::<Fuel>().map(|f| f.0)
         } else {
@@ -1480,12 +1524,23 @@ fn entity_to_visible_unit(
         } else {
             None
         },
+        cargo_units: include_private_stats
+            .then(|| cargo_units(world, entity_ref.get::<HasCargo>()))
+            .filter(|cargo| !cargo.is_empty()),
         capturing: entity_ref.contains::<CaptureProgress>(),
         capture_progress: entity_ref
             .get::<CaptureProgress>()
             .map(|progress| progress.value()),
         hiding: entity_ref.contains::<Hiding>(),
     })
+}
+
+fn cargo_units(world: &World, cargo: Option<&HasCargo>) -> Vec<awbrn_types::Unit> {
+    cargo
+        .into_iter()
+        .flat_map(HasCargo::iter)
+        .filter_map(|entity| world.entity(entity).get::<Unit>().map(|unit| unit.0))
+        .collect()
 }
 
 #[cfg(test)]

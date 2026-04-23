@@ -1,7 +1,8 @@
 use awbrn_client::{
-    AwbrnPlugin, EventSink, MapAssetPathResolver, MapDimensions, NewDay, PendingGameStart,
-    PendingMatchMap, PlayerRosterSnapshot, ReplayLoaded, ReplayToLoad, StaticAssetPathResolver,
-    TileSelected, UnitBuilt, UnitMoved, core::coords::LogicalPx,
+    ActionMenuEvent, AwbrnPlugin, ClientCommandReady, EventSink, MapAssetPathResolver,
+    MapDimensions, NewDay, PendingGameStart, PendingMatchMap, PlayerRosterSnapshot, ReplayLoaded,
+    ReplayToLoad, StaticAssetPathResolver, TileSelected, UnitBuilt, UnitMoved,
+    core::coords::LogicalPx,
 };
 use awbrn_map::AwbwMapData;
 use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
@@ -45,6 +46,9 @@ pub enum GameEvent {
     MapDimensions(MapDimensions),
     ReplayLoaded(ReplayLoaded),
     PlayerRosterUpdated(PlayerRosterSnapshot),
+    ActionMenuOpened(ActionMenuEvent),
+    ActionMenuClosed,
+    ClientCommandReady(ClientCommandReady),
 }
 
 #[wasm_bindgen]
@@ -212,6 +216,17 @@ impl BevyApp {
             wasm_sink!(MapDimensions, MapDimensions);
             wasm_sink!(ReplayLoaded, ReplayLoaded);
             wasm_sink!(PlayerRosterUpdated, PlayerRosterSnapshot);
+            wasm_sink!(ClientCommandReady, ClientCommandReady);
+            app.insert_resource(EventSink::<ActionMenuEvent>::new({
+                let cb = cb.clone();
+                move |event| {
+                    if event.actions.is_empty() {
+                        cb.call(GameEvent::ActionMenuClosed);
+                    } else {
+                        cb.call(GameEvent::ActionMenuOpened(event));
+                    }
+                }
+            }));
         }
 
         app.insert_non_send_resource(canvas);
@@ -448,6 +463,69 @@ impl BevyApp {
         self.app.world_mut().insert_resource(PendingMatchMap(map));
 
         Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub fn load_match_state(
+        &mut self,
+        game_state: JsValue,
+        participants: JsValue,
+    ) -> Result<(), JsError> {
+        let state =
+            serde_wasm_bindgen::from_value::<awbrn_client::modes::play::MatchGameStateWire>(
+                game_state,
+            )
+            .map_err(|error| JsError::new(&format!("Invalid match game state: {error}")))?;
+        let participants = serde_wasm_bindgen::from_value::<
+            Vec<awbrn_client::modes::play::MatchParticipantWire>,
+        >(participants)
+        .map_err(|error| JsError::new(&format!("Invalid match participants: {error}")))?;
+
+        self.app
+            .world_mut()
+            .insert_resource(awbrn_client::modes::play::PendingMatchState {
+                state,
+                participants,
+            });
+
+        Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub fn apply_match_update(&mut self, update: JsValue) -> Result<(), JsError> {
+        let update = serde_wasm_bindgen::from_value::<
+            awbrn_client::modes::play::MatchPlayerUpdateWire,
+        >(update)
+        .map_err(|error| JsError::new(&format!("Invalid match update: {error}")))?;
+
+        let world = self.app.world_mut();
+        if let Some(mut pending) =
+            world.get_resource_mut::<awbrn_client::modes::play::PendingMatchUpdates>()
+        {
+            pending.0.push(update);
+        } else {
+            world.insert_resource(awbrn_client::modes::play::PendingMatchUpdates(vec![update]));
+        }
+
+        Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub fn choose_action(&mut self, action: JsValue) -> Result<(), JsError> {
+        let action = serde_wasm_bindgen::from_value::<awbrn_client::ActionMenuAction>(action)
+            .map_err(|error| JsError::new(&format!("Invalid action menu action: {error}")))?;
+
+        self.app
+            .world_mut()
+            .write_message(awbrn_client::modes::play::ChooseActionMenuAction { action });
+        Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub fn cancel_action_menu(&mut self) {
+        self.app
+            .world_mut()
+            .write_message(awbrn_client::modes::play::CancelActionMenu);
     }
 
     #[wasm_bindgen]
