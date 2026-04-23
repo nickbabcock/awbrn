@@ -6,7 +6,9 @@ import {
   type CanvasSize,
 } from "#/canvas_courier/index.ts";
 import type { AwbwMapData } from "#/awbw/schemas.ts";
-import type { GameEvent } from "#/wasm/awbrn_wasm.js";
+import type { ActionMenuAction, ActionMenuEvent, GameEvent } from "#/wasm/awbrn_wasm.js";
+import type { MatchParticipantSnapshot } from "#/matches/schemas.ts";
+import type { MatchGameState, PlayerUpdateMessage } from "#/matches/match_protocol.ts";
 import { gameAssetConfig } from "./asset_manifest";
 import { useGameStore } from "./store";
 import type { GameWorker } from "./worker_types";
@@ -22,6 +24,7 @@ export class GameRunner implements CanvasCourierController {
   private rawWorker: Worker | undefined;
   private surfaceVersion = 0;
   private readonly transport = new CanvasCourierTransport();
+  private matchCommandSender: ((command: unknown) => void) | undefined;
   private transferredCanvas: HTMLCanvasElement | undefined;
   private worker: GameWorker | undefined;
 
@@ -60,9 +63,36 @@ export class GameRunner implements CanvasCourierController {
     await game.loadMatchMap(map);
   }
 
+  async loadMatchState(
+    gameState: MatchGameState,
+    participants: MatchParticipantSnapshot[],
+  ): Promise<void> {
+    const game = await this.requireGame();
+    await game.loadMatchState(gameState, participants);
+  }
+
+  async applyMatchUpdate(update: PlayerUpdateMessage): Promise<void> {
+    const game = await this.requireGame();
+    await game.applyMatchUpdate(update);
+  }
+
+  async chooseAction(action: ActionMenuAction): Promise<void> {
+    const game = await this.requireGame();
+    await game.chooseAction(action);
+  }
+
+  async cancelActionMenu(): Promise<void> {
+    const game = await this.requireGame();
+    await game.cancelActionMenu();
+  }
+
   async setPlayerDisplayFaction(playerId: number, factionId: number | null): Promise<void> {
     const game = await this.requireGame();
     await game.setPlayerDisplayFaction(playerId, factionId);
+  }
+
+  setMatchCommandSender(sender: ((command: unknown) => void) | undefined): void {
+    this.matchCommandSender = sender;
   }
 
   dispose(): void {
@@ -71,8 +101,10 @@ export class GameRunner implements CanvasCourierController {
     this.transport.dispose();
     this.game = undefined;
     this.createGamePromise = undefined;
+    this.matchCommandSender = undefined;
     this.transferredCanvas = undefined;
     this.worker = undefined;
+    useGameStore.getState().actions.setActionMenu(null);
     this.rawWorker?.terminate();
     this.rawWorker = undefined;
   }
@@ -124,6 +156,19 @@ export class GameRunner implements CanvasCourierController {
       case "PlayerRosterUpdated": {
         useGameStore.getState().actions.setPlayerRoster(event);
         useGameStore.getState().actions.setCurrentDay(event.day);
+        break;
+      }
+      case "ActionMenuOpened": {
+        useGameStore.getState().actions.setActionMenu(event as ActionMenuEvent);
+        break;
+      }
+      case "ActionMenuClosed": {
+        useGameStore.getState().actions.setActionMenu(null);
+        break;
+      }
+      case "ClientCommandReady": {
+        this.matchCommandSender?.(event.command);
+        useGameStore.getState().actions.setActionMenu(null);
         break;
       }
       default: {

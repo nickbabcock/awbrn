@@ -171,6 +171,20 @@ impl MapEntities for Cargo {
 #[relationship_target(relationship = CarriedBy)]
 pub struct HasCargo(Cargo);
 
+impl HasCargo {
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.0.iter()
+    }
+}
+
 #[derive(Debug, Component, Reflect, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[serde(transparent)]
 #[component(immutable)]

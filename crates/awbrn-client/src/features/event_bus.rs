@@ -2,6 +2,7 @@ use crate::features::camera::{CameraScale, compute_map_dimensions};
 use awbrn_game::world::GameMap;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::sync::Arc;
 
 /// A resource that receives events of type T.
@@ -149,6 +150,46 @@ pub struct PlayerRosterSnapshot {
     pub day: u32,
     pub active_player_id: Option<u32>,
     pub players: Vec<PlayerRosterEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub enum ActionMenuAction {
+    Attack,
+    Capture,
+    Load,
+    Unload,
+    Supply,
+    Hide,
+    Unhide,
+    Join,
+    Wait,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct ActionMenuEvent {
+    pub unit_id: u64,
+    pub origin_x: usize,
+    pub origin_y: usize,
+    pub destination_x: usize,
+    pub destination_y: usize,
+    pub anchor_x: f32,
+    pub anchor_y: f32,
+    pub actions: Vec<ActionMenuAction>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct ClientCommandReady {
+    #[cfg_attr(target_family = "wasm", tsify(type = "unknown"))]
+    pub command: Value,
 }
 
 pub(crate) fn emit_map_dimensions(

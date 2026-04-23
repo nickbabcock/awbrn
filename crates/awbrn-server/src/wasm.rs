@@ -245,10 +245,14 @@ pub struct WireVisibleUnit {
     pub position: WirePosition,
     #[tsify(type = "number | null")]
     pub hp: Option<u8>,
+    #[tsify(type = "boolean | null")]
+    pub active: Option<bool>,
     #[tsify(type = "number | null")]
     pub fuel: Option<u32>,
     #[tsify(type = "number | null")]
     pub ammo: Option<u32>,
+    #[tsify(type = "unknown[] | null")]
+    pub cargo_units: Option<Vec<Value>>,
     pub capturing: bool,
     #[tsify(type = "number | null")]
     pub capture_progress: Option<u8>,
@@ -464,8 +468,13 @@ fn visible_units(units: &[VisibleUnit]) -> Vec<WireVisibleUnit> {
             faction: serialized_value(&unit.faction),
             position: wire_position(&unit.position),
             hp: Some(unit.hp),
+            active: unit.active,
             fuel: unit.fuel,
             ammo: unit.ammo,
+            cargo_units: unit
+                .cargo_units
+                .as_ref()
+                .map(|cargo| cargo.iter().map(serialized_value).collect()),
             capturing: unit.capturing,
             capture_progress: unit.capture_progress,
             hiding: unit.hiding,

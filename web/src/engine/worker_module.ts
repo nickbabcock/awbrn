@@ -2,6 +2,8 @@ import init, { type CanvasDisplay, BevyApp } from "#/wasm/awbrn_wasm.js";
 import wasmPath from "#/wasm/awbrn_wasm_bg.wasm?url";
 import { proxy } from "comlink";
 import type { AwbwMapData } from "#/awbw/schemas.ts";
+import type { MatchParticipantSnapshot } from "#/matches/schemas.ts";
+import type { MatchGameState, PlayerUpdateMessage } from "#/matches/match_protocol.ts";
 import {
   SharedCanvasEventAction,
   SharedCanvasEventType,
@@ -16,6 +18,13 @@ const initialized = init({ module_or_path: wasmPath });
 export type GameDisplay = CanvasDisplay;
 
 export interface GameInstance {
+  applyMatchUpdate: (update: PlayerUpdateMessage) => Promise<void>;
+  cancelActionMenu: () => Promise<void>;
+  chooseAction: (action: import("#/wasm/awbrn_wasm.js").ActionMenuAction) => Promise<void>;
+  loadMatchState: (
+    gameState: MatchGameState,
+    participants: MatchParticipantSnapshot[],
+  ) => Promise<void>;
   newReplay: (file: File | FileSystemFileHandle) => Promise<void>;
   loadMapPreview: (mapId: number) => Promise<void>;
   loadMatchMap: (map: AwbwMapData) => Promise<void>;
@@ -136,6 +145,18 @@ export const createGame = async (
   requestAnimationFrame(update);
 
   return proxy<GameInstance>({
+    applyMatchUpdate: async (update: PlayerUpdateMessage) => {
+      app.apply_match_update(update);
+    },
+    cancelActionMenu: async () => {
+      app.cancel_action_menu();
+    },
+    chooseAction: async (action) => {
+      app.choose_action(action);
+    },
+    loadMatchState: async (gameState: MatchGameState, participants: MatchParticipantSnapshot[]) => {
+      app.load_match_state(gameState, participants);
+    },
     newReplay: async (file: File | FileSystemFileHandle) => {
       const fileHandle = file instanceof FileSystemFileHandle ? await file.getFile() : file;
       const fileData = await fileHandle.arrayBuffer();
