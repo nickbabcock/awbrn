@@ -148,6 +148,42 @@ impl Unit {
         }
     }
 
+    /// Convert an AWBW numeric unit-type id to a unit.
+    ///
+    /// These ids come from AWBW's unit table (the `AWBWId` field in AWBW's data,
+    /// also surfaced as the "Unit ID" of pre-deployed units in the map_info API).
+    /// Note the later AW:DS units use non-contiguous, large ids.
+    pub fn from_awbw_id(id: u32) -> Option<Self> {
+        Some(match id {
+            1 => Unit::Infantry,
+            2 => Unit::Mech,
+            3 => Unit::MdTank,
+            4 => Unit::Tank,
+            5 => Unit::Recon,
+            6 => Unit::APC,
+            7 => Unit::Artillery,
+            8 => Unit::Rocket,
+            9 => Unit::AntiAir,
+            10 => Unit::Missile,
+            11 => Unit::Fighter,
+            12 => Unit::Bomber,
+            13 => Unit::BCopter,
+            14 => Unit::TCopter,
+            15 => Unit::Battleship,
+            16 => Unit::Cruiser,
+            17 => Unit::Lander,
+            18 => Unit::Sub,
+            28 => Unit::BlackBoat,
+            29 => Unit::Carrier,
+            30 => Unit::Stealth,
+            46 => Unit::NeoTank,
+            960900 => Unit::PipeRunner,
+            968731 => Unit::BlackBomb,
+            1141438 => Unit::MegaTank,
+            _ => return None,
+        })
+    }
+
     pub const fn domain(self) -> UnitDomain {
         match self {
             Unit::BCopter
@@ -373,4 +409,20 @@ pub enum GraphicalMovement {
     Up,
     Down,
     Lateral,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_awbw_id_maps_known_ids() {
+        assert_eq!(Unit::from_awbw_id(1), Some(Unit::Infantry));
+        assert_eq!(Unit::from_awbw_id(18), Some(Unit::Sub));
+        assert_eq!(Unit::from_awbw_id(46), Some(Unit::NeoTank));
+        assert_eq!(Unit::from_awbw_id(960900), Some(Unit::PipeRunner));
+        assert_eq!(Unit::from_awbw_id(1141438), Some(Unit::MegaTank));
+        assert_eq!(Unit::from_awbw_id(0), None);
+        assert_eq!(Unit::from_awbw_id(19), None);
+    }
 }
