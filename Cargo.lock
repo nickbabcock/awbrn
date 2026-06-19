@@ -519,6 +519,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "awbrn-image"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "awbrn-content",
+ "awbrn-map",
+ "awbrn-types",
+ "image",
+ "serde_json",
+]
+
+[[package]]
 name = "awbrn-map"
 version = "0.1.0"
 dependencies = [

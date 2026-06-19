@@ -1,0 +1,19 @@
+[package]
+name = "awbrn-image"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "awbrn-image"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+awbrn-content = { path = "../awbrn-content" }
+awbrn-map = { path = "../awbrn-map" }
+awbrn-types = { path = "../awbrn-types" }
+image.workspace = true
+serde_json.workspace = true
