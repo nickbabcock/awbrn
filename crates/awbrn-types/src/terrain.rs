@@ -264,6 +264,25 @@ impl Property {
         }
     }
 
+    /// Return this property owned by `faction`, preserving the building kind.
+    ///
+    /// An HQ can never be neutral, so remapping an HQ to [`Faction::Neutral`]
+    /// leaves its owner unchanged.
+    pub const fn with_owner(&self, faction: Faction) -> Property {
+        match self {
+            Property::City(_) => Property::City(faction),
+            Property::Base(_) => Property::Base(faction),
+            Property::Airport(_) => Property::Airport(faction),
+            Property::Port(_) => Property::Port(faction),
+            Property::ComTower(_) => Property::ComTower(faction),
+            Property::Lab(_) => Property::Lab(faction),
+            Property::HQ(existing) => match faction {
+                Faction::Player(player) => Property::HQ(player),
+                Faction::Neutral => Property::HQ(*existing),
+            },
+        }
+    }
+
     pub const fn kind(&self) -> PropertyKind {
         match self {
             Property::Airport(_) => PropertyKind::Airport,
