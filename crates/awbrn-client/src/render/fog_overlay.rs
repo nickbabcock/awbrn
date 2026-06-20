@@ -77,7 +77,7 @@ impl Plugin for FogOverlayPlugin {
             Update,
             update_fog_overlay
                 .run_if(in_state(AppState::InGame))
-                .run_if(resource_changed::<FogOfWarMap>.or(resource_changed::<FogActive>)),
+                .run_if(resource_changed::<FogOfWarMap>.or_else(resource_changed::<FogActive>)),
         );
     }
 }

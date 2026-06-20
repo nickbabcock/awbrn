@@ -214,7 +214,7 @@ impl BevyApp {
             wasm_sink!(PlayerRosterUpdated, PlayerRosterSnapshot);
         }
 
-        app.insert_non_send_resource(canvas);
+        app.insert_non_send(canvas);
 
         BevyApp { app }
     }
@@ -236,7 +236,7 @@ impl BevyApp {
         let world = self.app.world_mut();
         let scale_factor = size.scale_factor;
 
-        if let Some(canvas) = world.get_non_send_resource_mut::<OffscreenCanvas>() {
+        if let Some(canvas) = world.get_non_send_mut::<OffscreenCanvas>() {
             canvas.set_width(size.width as u32);
             canvas.set_height(size.height as u32);
         }
@@ -400,6 +400,7 @@ impl BevyApp {
             x,
             y,
             window,
+            phase: TouchPhase::Moved,
         });
     }
 

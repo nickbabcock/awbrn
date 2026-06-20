@@ -7,7 +7,7 @@ edition = "2024"
 awbrn-types = { path = "../awbrn-types", features = ["bevy"] }
 awbrn-map = { path = "../awbrn-map", features = ["bevy"] }
 awbw-replay = { path = "../awbw-replay" }
-bevy = { workspace = true, features = ["std", "bevy_log", "bevy_scene"] }
+bevy = { workspace = true, features = ["std", "bevy_log", "bevy_world_serialization"] }
 indexmap.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

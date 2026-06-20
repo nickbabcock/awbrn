@@ -5,8 +5,7 @@ members = [ "crates/*" ]
 [workspace.dependencies]
 anyhow = "1.0.102"
 approx = "0.5.1"
-bevy = { version = "0.18.1", default-features = false }
-bevy-inspector-egui = { version = "0.36", default-features = false, features = ["bevy_render"] }
+bevy = { version = "0.19.0", default-features = false }
 criterion = { version = "0.8", default-features = false }
 flate2 = { version = "1.1.9", default-features = false, features = ["zlib-rs"] }
 gungraun = "0.17.2"

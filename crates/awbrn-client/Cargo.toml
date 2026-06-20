@@ -13,7 +13,7 @@ bevy = { workspace = true, features = [
     "bevy_asset",
     "bevy_camera",
     "bevy_log",
-    "bevy_scene",
+    "bevy_world_serialization",
     "bevy_sprite",
     "bevy_sprite_render",
     "bevy_state",

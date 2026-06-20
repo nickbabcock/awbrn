@@ -128,7 +128,7 @@ pub(crate) fn refresh_map_backdrop_on_weather_change(
         return;
     };
 
-    let Some(material) = materials.get_mut(&material_handle.0) else {
+    let Some(mut material) = materials.get_mut(&material_handle.0) else {
         return;
     };
 
