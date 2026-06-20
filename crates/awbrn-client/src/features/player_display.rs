@@ -80,7 +80,7 @@ impl Plugin for PlayerDisplayPlugin {
                         .after(apply_player_display_faction_commands)
                         .run_if(
                             resource_exists::<PlayerRosterConfig>
-                                .and(resource_changed::<PlayerDisplayFactionOverrides>),
+                                .and_then(resource_changed::<PlayerDisplayFactionOverrides>),
                         ),
                 ),
             );

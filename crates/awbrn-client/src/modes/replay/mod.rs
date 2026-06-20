@@ -25,19 +25,19 @@ impl Plugin for ReplayPlugin {
             .add_systems(
                 Update,
                 controls::handle_replay_controls
-                    .run_if(in_state(GameMode::Replay).and(in_state(AppState::InGame))),
+                    .run_if(in_state(GameMode::Replay).and_then(in_state(AppState::InGame))),
             )
             .add_systems(
                 Update,
                 sync_viewpoint
                     .run_if(resource_changed::<ReplayViewpoint>)
-                    .run_if(in_state(GameMode::Replay).and(in_state(AppState::InGame))),
+                    .run_if(in_state(GameMode::Replay).and_then(in_state(AppState::InGame))),
             )
             .add_systems(
                 Update,
                 trigger_fog_recompute_on_weather_change
                     .run_if(resource_changed::<CurrentWeather>)
-                    .run_if(in_state(GameMode::Replay).and(in_state(AppState::InGame))),
+                    .run_if(in_state(GameMode::Replay).and_then(in_state(AppState::InGame))),
             );
     }
 }

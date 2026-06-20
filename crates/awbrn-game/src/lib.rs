@@ -13,7 +13,7 @@ use world::board_index;
 #[component(
     immutable,
     on_insert = on_map_position_insert_into_board_index,
-    on_replace = on_map_position_replace_in_board_index
+    on_discard = on_map_position_replace_in_board_index
 )]
 #[reflect(Component)]
 /// ECS component wrapper for [`awbrn_map::Position`].

@@ -562,8 +562,8 @@ impl Plugin for CameraPlugin {
                 emit_map_dimensions_on_scale_change
                     .run_if(
                         in_state(crate::core::AppState::InGame)
-                            .and(resource_changed::<CameraScale>)
-                            .and(resource_exists::<EventSink<MapDimensions>>),
+                            .and_then(resource_changed::<CameraScale>)
+                            .and_then(resource_exists::<EventSink<MapDimensions>>),
                     )
                     .after(handle_touch_camera)
                     .after(handle_camera_scaling)

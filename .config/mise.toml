@@ -90,12 +90,6 @@ run = [
     "cargo run --package awbrn-desktop"
 ]
 
-[tasks."dev:desktop"]
-description = "Run the desktop app with inspector"
-run = [
-    "cargo run --package awbrn-desktop --features debug-inspector"
-]
-
 [tasks."assets"]
 description = "Compile assets"
 run = [

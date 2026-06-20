@@ -7,7 +7,9 @@ use bevy::ecs::reflect::AppTypeRegistry;
 use bevy::prelude::*;
 use bevy::reflect::serde::{ReflectSerializerProcessor, TypedReflectSerializer};
 use bevy::reflect::{PartialReflect, TypeRegistry};
-use bevy::scene::{DynamicEntity, DynamicScene, DynamicSceneBuilder, SceneFilter, SceneSpawnError};
+use bevy::world_serialization::{
+    DynamicEntity, DynamicWorld, DynamicWorldBuilder, WorldFilter, WorldInstanceSpawnError,
+};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -40,7 +42,7 @@ pub struct GameSnapshot {
     pub next_action_index: u32,
     pub day: u32,
     pub active_player_id: Option<awbrn_types::AwbwGamePlayerId>,
-    pub scene: DynamicScene,
+    pub scene: DynamicWorld,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -74,12 +76,12 @@ pub enum GameSnapshotError {
         existing_entity: Entity,
         new_entity: Entity,
     },
-    SceneSpawn(SceneSpawnError),
+    SceneSpawn(WorldInstanceSpawnError),
     Serialization(String),
 }
 
-impl From<SceneSpawnError> for GameSnapshotError {
-    fn from(value: SceneSpawnError) -> Self {
+impl From<WorldInstanceSpawnError> for GameSnapshotError {
+    fn from(value: WorldInstanceSpawnError) -> Self {
         Self::SceneSpawn(value)
     }
 }
@@ -166,7 +168,9 @@ pub fn capture_game_snapshot(world: &mut World) -> Result<GameSnapshot, GameSnap
 
     let component_filter = game_semantic_component_filter(world);
     let resource_filter = game_semantic_resource_filter(world);
-    let scene = DynamicSceneBuilder::from_world(world)
+    let type_registry = world.resource::<AppTypeRegistry>().clone();
+    let type_registry = type_registry.read();
+    let scene = DynamicWorldBuilder::from_world(world, &type_registry)
         .with_component_filter(component_filter)
         .with_resource_filter(resource_filter)
         .extract_entities(entities.into_iter())
@@ -195,6 +199,7 @@ pub fn restore_game_snapshot(
     }
 
     let type_registry = world.resource::<AppTypeRegistry>().clone();
+    let type_registry = type_registry.read();
     let mut entity_map = EntityHashMap::default();
     snapshot
         .scene
@@ -256,20 +261,20 @@ pub fn canonicalize_replay_semantic_snapshot(
     })
 }
 
-fn game_semantic_component_filter(world: &World) -> SceneFilter {
+fn game_semantic_component_filter(world: &World) -> WorldFilter {
     let type_registry = world.resource::<AppTypeRegistry>();
     let type_registry = type_registry.read();
-    let mut filter = SceneFilter::deny_all();
+    let mut filter = WorldFilter::deny_all();
     for (registration, _) in type_registry.iter_with_data::<ReplaySemanticComponentType>() {
         filter = filter.allow_by_id(registration.type_id());
     }
     filter
 }
 
-fn game_semantic_resource_filter(world: &World) -> SceneFilter {
+fn game_semantic_resource_filter(world: &World) -> WorldFilter {
     let type_registry = world.resource::<AppTypeRegistry>();
     let type_registry = type_registry.read();
-    let mut filter = SceneFilter::deny_all();
+    let mut filter = WorldFilter::deny_all();
     for (registration, _) in type_registry.iter_with_data::<ReplaySemanticResourceType>() {
         filter = filter.allow_by_id(registration.type_id());
     }

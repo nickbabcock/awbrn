@@ -430,7 +430,7 @@ impl Plugin for PlayPlugin {
                     sync_move_range_highlights,
                 )
                     .chain()
-                    .run_if(in_state(GameMode::Game).and(in_state(AppState::InGame))),
+                    .run_if(in_state(GameMode::Game).and_then(in_state(AppState::InGame))),
             )
             .add_systems(OnExit(GameMode::Game), cleanup_play_selection);
     }

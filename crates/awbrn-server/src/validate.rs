@@ -203,7 +203,9 @@ fn validate_move_unit(
     {
         let mut movement_world_state: SystemState<MovementValidationWorld> =
             SystemState::new(world);
-        let movement_world = movement_world_state.get(world);
+        let movement_world = movement_world_state
+            .get(world)
+            .expect("movement validation system params are always available");
         let movement_budget = movement_world.movement_budget_for(faction.0, unit.0);
 
         for &step in &path[1..] {

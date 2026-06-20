@@ -74,6 +74,8 @@ pub struct ReplayFollowupCommand {
 }
 
 impl Command for ReplayFollowupCommand {
+    type Out = ();
+
     fn apply(self, world: &mut World) {
         if let Some(action) = &self.action {
             apply_non_move_action(action, world);
@@ -93,6 +95,8 @@ pub struct ReplayTurnCommand {
 }
 
 impl Command for ReplayTurnCommand {
+    type Out = ();
+
     fn apply(self, world: &mut World) {
         if let Some(mov) = self.action.move_action()
             && Self::apply_move(mov, &self.action, world)
