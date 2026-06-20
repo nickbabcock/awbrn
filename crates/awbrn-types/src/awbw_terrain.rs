@@ -29,9 +29,20 @@ pub enum AwbwTerrain {
     Teleporter,
 }
 
+/// Base code point for lossless fallback glyphs (start of Latin Extended-A,
+/// `U+0100`). Terrain ids are `1..=223`, so glyphs land in `U+0101..=U+01DF` — all
+/// assigned, letter-like, and disjoint from the ASCII [`AwbwTerrain::awbw_symbol`]
+/// range, keeping [`AwbwTerrain::symbol`] injective.
+const LOSSLESS_SYMBOL_BASE: u32 = 0x0100;
+
 impl AwbwTerrain {
-    /// Get the symbol character for this terrain
-    pub fn symbol(&self) -> Option<char> {
+    /// Get the AWBW text-format symbol character for this terrain, if one exists.
+    ///
+    /// Only a subset of terrains have an AWBW symbol — notably just the 7 classic
+    /// symbol-capable factions (Orange Star, Blue Moon, Green Earth, Yellow Comet,
+    /// Red Fire, Grey Sky, Black Hole) plus Neutral; everything else returns
+    /// `None`. For a total, lossless glyph use [`Self::symbol`].
+    pub fn awbw_symbol(&self) -> Option<char> {
         match self {
             AwbwTerrain::Plain => Some('.'),
             AwbwTerrain::Mountain => Some('^'),
@@ -180,6 +191,38 @@ impl AwbwTerrain {
             AwbwTerrain::Property(Property::ComTower(Faction::Neutral)) => Some('_'),
             AwbwTerrain::Property(Property::Lab(Faction::Neutral)) => Some('6'),
             _ => None,
+        }
+    }
+
+    /// Get a unique, lossless glyph for this terrain.
+    ///
+    /// Reuses [`Self::awbw_symbol`] where the AWBW text format defines one (so
+    /// common maps stay readable in ASCII); every other terrain — exotic faction
+    /// properties, player-owned com towers/labs, teleporters — maps to a distinct
+    /// glyph in the Latin Extended range, derived from its unique terrain id. The
+    /// mapping is total and injective, so a rendered grid round-trips through
+    /// [`Self::from_symbol`].
+    pub fn symbol(&self) -> char {
+        self.awbw_symbol().unwrap_or_else(|| {
+            char::from_u32(LOSSLESS_SYMBOL_BASE + self.id().0 as u32)
+                .expect("terrain id maps into the Latin Extended block")
+        })
+    }
+
+    /// Inverse of [`Self::symbol`]: recover the terrain from a lossless glyph.
+    pub fn from_symbol(c: char) -> Option<AwbwTerrain> {
+        if c.is_ascii() {
+            // ASCII glyphs come from `awbw_symbol`; reverse that small mapping.
+            (1u8..=u8::MAX)
+                .filter_map(|id| AwbwTerrain::try_from(id).ok())
+                .find(|terrain| terrain.awbw_symbol() == Some(c))
+        } else {
+            // Non-ASCII glyphs are `LOSSLESS_SYMBOL_BASE + id`; invert directly.
+            let id = u8::try_from((c as u32).checked_sub(LOSSLESS_SYMBOL_BASE)?).ok()?;
+            let terrain = AwbwTerrain::try_from(id).ok()?;
+            // Confirm this terrain actually uses the fallback glyph (no AWBW symbol),
+            // so the inverse stays exact.
+            (terrain.symbol() == c).then_some(terrain)
         }
     }
 
@@ -1506,20 +1549,52 @@ mod tests {
     #[test]
     fn test_terrain_symbol() {
         // Test symbols for various terrain types
-        assert_eq!(AwbwTerrain::Plain.symbol(), Some('.'));
-        assert_eq!(AwbwTerrain::Mountain.symbol(), Some('^'));
-        assert_eq!(AwbwTerrain::Wood.symbol(), Some('@'));
-        assert_eq!(AwbwTerrain::Sea.symbol(), Some(','));
+        assert_eq!(AwbwTerrain::Plain.awbw_symbol(), Some('.'));
+        assert_eq!(AwbwTerrain::Mountain.awbw_symbol(), Some('^'));
+        assert_eq!(AwbwTerrain::Wood.awbw_symbol(), Some('@'));
+        assert_eq!(AwbwTerrain::Sea.awbw_symbol(), Some(','));
 
         // Test symbols for properties
         assert_eq!(
-            AwbwTerrain::Property(Property::City(Faction::Neutral)).symbol(),
+            AwbwTerrain::Property(Property::City(Faction::Neutral)).awbw_symbol(),
             Some('a')
         );
         assert_eq!(
-            AwbwTerrain::Property(Property::HQ(PlayerFaction::OrangeStar)).symbol(),
+            AwbwTerrain::Property(Property::HQ(PlayerFaction::OrangeStar)).awbw_symbol(),
             Some('i')
         );
+
+        // Factions without an AWBW symbol fall through to None.
+        assert_eq!(
+            AwbwTerrain::Property(Property::City(Faction::Player(PlayerFaction::TealGalaxy)))
+                .awbw_symbol(),
+            None
+        );
+    }
+
+    #[test]
+    fn lossless_symbol_is_total_and_injective() {
+        let mut seen = std::collections::HashMap::new();
+        for id in 1..=u8::MAX {
+            let Ok(terrain) = AwbwTerrain::try_from(id) else {
+                continue;
+            };
+            let glyph = terrain.symbol();
+            assert_ne!(glyph, ' ', "{terrain:?} rendered as a space");
+
+            // Reuses the ASCII symbol when one exists, otherwise a Latin Extended glyph.
+            match terrain.awbw_symbol() {
+                Some(ascii) => assert_eq!(glyph, ascii),
+                None => assert!((glyph as u32) >= LOSSLESS_SYMBOL_BASE),
+            }
+
+            if let Some(prev) = seen.insert(glyph, terrain) {
+                panic!("{glyph:?} used by both {prev:?} and {terrain:?}");
+            }
+
+            // Round-trips back to the same terrain.
+            assert_eq!(AwbwTerrain::from_symbol(glyph), Some(terrain));
+        }
     }
 
     #[test]

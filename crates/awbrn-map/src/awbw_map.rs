@@ -2,8 +2,9 @@ use crate::{
     MapError, Position,
     pathfinding::{MovementMap, PathFinder},
 };
-use awbrn_types::{AwbwTerrain, MovementTerrain};
+use awbrn_types::{AwbwTerrain, Faction, MovementTerrain, PLAYER_FACTION_METADATA, PlayerFaction};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fmt;
 
 /// Represents a game map with terrain data
@@ -107,6 +108,60 @@ impl AwbwMap {
         self.height
     }
 
+    /// Render every tile as a unique glyph (never a space), preserving full
+    /// faction identity. See [`AwbwTerrain::symbol`]. Pair with [`Self::legend`]
+    /// to decode the non-ASCII glyphs.
+    pub fn lossless(&self) -> LosslessSymbols<'_> {
+        LosslessSymbols(self)
+    }
+
+    /// Render using the AWBW text-format ASCII symbols, with a space for any
+    /// terrain the format can't represent. Combine with [`Self::collapse_factions`]
+    /// for a faithful AWBW grid.
+    pub fn awbw(&self) -> AwbwSymbols<'_> {
+        AwbwSymbols(self)
+    }
+
+    /// A key naming every non-ASCII glyph used by [`Self::lossless`].
+    pub fn legend(&self) -> Legend<'_> {
+        Legend(self)
+    }
+
+    /// Collapse this map's player factions onto the canonical (AWBW-id) faction
+    /// order in first-appearance order, so the map uses its minimal set (e.g. a
+    /// 1v1 becomes Orange Star / Blue Moon). Neutral tiles are unchanged. The
+    /// canonical order is taken from [`PLAYER_FACTION_METADATA`], which lists every
+    /// player faction exactly once, so each distinct faction keeps its own slot.
+    pub fn collapse_factions(&self) -> AwbwMap {
+        // `seen` records distinct player factions in first-appearance order; a
+        // faction's slot in `seen` indexes its canonical replacement.
+        let mut seen: Vec<PlayerFaction> = Vec::new();
+        let terrain = self
+            .terrain
+            .iter()
+            .map(|terrain| match terrain {
+                AwbwTerrain::Property(property) => match property.faction() {
+                    Faction::Player(old) => {
+                        let slot = seen.iter().position(|f| *f == old).unwrap_or_else(|| {
+                            seen.push(old);
+                            seen.len() - 1
+                        });
+                        let new = PLAYER_FACTION_METADATA[slot].faction();
+                        AwbwTerrain::Property(property.with_owner(Faction::Player(new)))
+                    }
+                    Faction::Neutral => *terrain,
+                },
+                _ => *terrain,
+            })
+            .collect();
+
+        AwbwMap {
+            width: self.width,
+            height: self.height,
+            terrain,
+        }
+    }
+
     /// Get the terrain at the specified position
     pub fn terrain_at(&self, pos: Position) -> Option<AwbwTerrain> {
         if pos.x >= self.width || pos.y >= self.height() {
@@ -154,29 +209,78 @@ impl MovementMap for AwbwMap {
     }
 }
 
-impl fmt::Display for AwbwMap {
+/// Writes the map as a grid, one `glyph` per tile, rows separated by newlines.
+fn write_grid(
+    f: &mut fmt::Formatter<'_>,
+    map: &AwbwMap,
+    glyph: impl Fn(&AwbwTerrain) -> char,
+) -> fmt::Result {
+    let height = map.height();
+    for y in 0..height {
+        for x in 0..map.width {
+            write!(f, "{}", glyph(&map.terrain[y * map.width + x]))?;
+        }
+
+        // Add a newline after each row unless it's the last row
+        if y < height - 1 {
+            writeln!(f)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Lossless map rendering: every tile is a unique glyph, never a space. The
+/// default [`fmt::Display`] for [`AwbwMap`]. See [`AwbwMap::lossless`].
+pub struct LosslessSymbols<'a>(&'a AwbwMap);
+
+impl fmt::Display for LosslessSymbols<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let height = self.height();
+        write_grid(f, self.0, AwbwTerrain::symbol)
+    }
+}
 
-        for y in 0..height {
-            for x in 0..self.width {
-                let idx = y * self.width + x;
-                let terrain = &self.terrain[idx];
+/// AWBW text-format rendering: ASCII symbols, with a space for any terrain the
+/// AWBW format can't represent. See [`AwbwMap::awbw`].
+pub struct AwbwSymbols<'a>(&'a AwbwMap);
 
-                // Use the terrain's symbol or a space if none exists
-                match terrain.symbol() {
-                    Some(symbol) => write!(f, "{}", symbol)?,
-                    None => write!(f, " ")?,
-                }
-            }
+impl fmt::Display for AwbwSymbols<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write_grid(f, self.0, |terrain| terrain.awbw_symbol().unwrap_or(' '))
+    }
+}
 
-            // Add a newline after each row unless it's the last row
-            if y < height - 1 {
-                writeln!(f)?;
+/// A key for the non-ASCII glyphs used by [`AwbwMap::lossless`], mapping each to
+/// its terrain name. See [`AwbwMap::legend`].
+pub struct Legend<'a>(&'a AwbwMap);
+
+impl fmt::Display for Legend<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // A terrain needs a legend entry exactly when it has no AWBW symbol, i.e.
+        // its lossless glyph is the non-ASCII fallback rather than an ASCII symbol.
+        let mut entries: BTreeMap<char, &'static str> = BTreeMap::new();
+        for terrain in &self.0.terrain {
+            if terrain.awbw_symbol().is_none() {
+                entries.insert(terrain.symbol(), terrain.name());
             }
         }
 
+        for (i, (glyph, name)) in entries.iter().enumerate() {
+            if i > 0 {
+                writeln!(f)?;
+            }
+            write!(f, "{glyph}  {name}")?;
+        }
+
         Ok(())
+    }
+}
+
+/// The default rendering is the lossless glyph grid; use [`AwbwMap::awbw`] for the
+/// ASCII AWBW text format.
+impl fmt::Display for AwbwMap {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.lossless().fmt(f)
     }
 }
 
@@ -364,5 +468,46 @@ mod tests {
         let expected = ".^@\n,ai";
 
         assert_eq!(map.to_string(), expected);
+    }
+
+    #[test]
+    fn collapse_factions_normalizes_to_canonical_order() {
+        // Black Hole HQ (95) then Teal Galaxy HQ (167): two distinct player factions.
+        let map = AwbwMap::parse_txt("95,167").unwrap();
+        let collapsed = map.collapse_factions();
+
+        // First-seen faction -> Orange Star (HQ 'i'), second -> Blue Moon (HQ 'o').
+        assert_eq!(collapsed.awbw().to_string(), "io");
+    }
+
+    #[test]
+    fn lossless_renders_exotic_faction_with_legend() {
+        // Teal Galaxy HQ (167) has no AWBW symbol, so `awbw()` leaves a space, but
+        // `lossless()` emits a unique non-ASCII glyph that the legend names.
+        let map = AwbwMap::parse_txt("167").unwrap();
+
+        let rendered = map.lossless().to_string();
+        let glyph = rendered.chars().next().unwrap();
+        assert_eq!(rendered.chars().count(), 1);
+        assert!(!glyph.is_ascii());
+
+        assert_eq!(map.awbw().to_string(), " ");
+        assert_eq!(map.legend().to_string(), format!("{glyph}  Teal Galaxy HQ"));
+    }
+
+    #[test]
+    fn collapse_handles_more_than_seven_factions() {
+        // 9 distinct player HQs — more than the 7 ASCII-symbol factions — must not
+        // panic, and every tile still renders to a unique non-space lossless glyph.
+        let map = AwbwMap::parse_txt("42,47,52,57,85,90,95,100,120").unwrap();
+        let glyphs: Vec<char> = map
+            .collapse_factions()
+            .lossless()
+            .to_string()
+            .chars()
+            .collect();
+
+        assert_eq!(glyphs.len(), 9);
+        assert!(glyphs.iter().all(|glyph| *glyph != ' '));
     }
 }
