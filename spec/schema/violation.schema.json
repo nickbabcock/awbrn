@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/violation.schema.json",
+  "title": "AWVM stable violation",
+  "oneOf": [
+    { "$ref": "#/$defs/authority-required" },
+    { "$ref": "#/$defs/code-only" },
+    { "$ref": "#/$defs/wrong-phase" },
+    { "$ref": "#/$defs/player" },
+    { "$ref": "#/$defs/unit" },
+    { "$ref": "#/$defs/unit-player" },
+    { "$ref": "#/$defs/origin" },
+    { "$ref": "#/$defs/step" },
+    { "$ref": "#/$defs/repeated-position" },
+    { "$ref": "#/$defs/index-position" },
+    { "$ref": "#/$defs/amount" },
+    { "$ref": "#/$defs/position" },
+    { "$ref": "#/$defs/terrain-position" },
+    { "$ref": "#/$defs/action" },
+    { "$ref": "#/$defs/target" },
+    { "$ref": "#/$defs/unit-limit" }
+  ],
+  "$defs": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "unit-id": { "$ref": "common.schema.json#/$defs/unit-id" },
+    "player-id": { "$ref": "common.schema.json#/$defs/player-id" },
+    "unit-kind-id": { "$ref": "common.schema.json#/$defs/unit-kind-id" },
+    "pos": { "$ref": "common.schema.json#/$defs/position" },
+    "authority-required": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "authority"],
+      "properties": {
+        "code": { "const": "AUTHORITY_REQUIRED" },
+        "authority": { "enum": ["player", "match-authority"] }
+      }
+    },
+    "code-only": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": { "code": { "const": "MATCH_FINISHED" } }
+    },
+    "wrong-phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "expected", "actual"],
+      "properties": {
+        "code": { "const": "WRONG_PHASE" },
+        "expected": { "enum": ["turn-start", "unit-action", "turn-end", "finished"] },
+        "actual": { "enum": ["turn-start", "unit-action", "turn-end", "finished"] }
+      }
+    },
+    "player": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "player"],
+      "properties": {
+        "code": { "const": "NOT_ACTIVE_PLAYER" },
+        "player": { "$ref": "#/$defs/player-id" }
+      }
+    },
+    "unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "unit"],
+      "properties": {
+        "code": { "enum": ["UNIT_NOT_FOUND", "UNIT_NOT_ON_BOARD", "UNIT_ALREADY_ACTED"] },
+        "unit": { "$ref": "#/$defs/unit-id" }
+      }
+    },
+    "unit-player": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "unit", "player"],
+      "properties": {
+        "code": { "const": "UNIT_NOT_OWNED" },
+        "unit": { "$ref": "#/$defs/unit-id" },
+        "player": { "$ref": "#/$defs/player-id" }
+      }
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "expected", "actual"],
+      "properties": {
+        "code": { "const": "PATH_ORIGIN_MISMATCH" },
+        "expected": { "$ref": "#/$defs/pos" },
+        "actual": { "$ref": "#/$defs/pos" }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "index", "from", "to"],
+      "properties": {
+        "code": { "const": "PATH_NON_ADJACENT" },
+        "index": { "type": "integer", "minimum": 1 },
+        "from": { "$ref": "#/$defs/pos" },
+        "to": { "$ref": "#/$defs/pos" }
+      }
+    },
+    "repeated-position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "index", "position", "first_index"],
+      "properties": {
+        "code": { "const": "PATH_REPEATED_POSITION" },
+        "index": { "type": "integer", "minimum": 1 },
+        "position": { "$ref": "#/$defs/pos" },
+        "first_index": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "index-position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "index", "position"],
+      "properties": {
+        "code": { "enum": ["PATH_OUT_OF_BOUNDS", "TERRAIN_IMPASSABLE", "PATH_OCCUPIED"] },
+        "index": { "type": "integer", "minimum": 0 },
+        "position": { "$ref": "#/$defs/pos" }
+      }
+    },
+    "amount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "required", "available"],
+      "properties": {
+        "code": {
+          "enum": [
+            "INSUFFICIENT_MOVEMENT",
+            "INSUFFICIENT_FUEL",
+            "INSUFFICIENT_FUNDS",
+            "INSUFFICIENT_POWER"
+          ]
+        },
+        "required": { "type": "integer", "minimum": 0 },
+        "available": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "position"],
+      "properties": {
+        "code": { "const": "DESTINATION_OCCUPIED" },
+        "position": { "$ref": "#/$defs/pos" }
+      }
+    },
+    "terrain-position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "position"],
+      "properties": {
+        "code": { "const": "TERRAIN_IMPASSABLE" },
+        "position": { "$ref": "#/$defs/pos" }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "action"],
+      "properties": {
+        "code": { "const": "ACTION_NOT_SUPPORTED" },
+        "action": { "$ref": "#/$defs/id" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": { "enum": ["INVALID_TARGET", "TARGET_OUT_OF_RANGE"] },
+        "target": {
+          "oneOf": [
+            { "$ref": "#/$defs/unit-id" },
+            { "$ref": "#/$defs/unit-kind-id" },
+            { "$ref": "#/$defs/pos" }
+          ]
+        }
+      }
+    },
+    "unit-limit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "current", "limit"],
+      "properties": {
+        "code": { "const": "UNIT_LIMIT_REACHED" },
+        "current": { "type": "integer", "minimum": 0 },
+        "limit": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

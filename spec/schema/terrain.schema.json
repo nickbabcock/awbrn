@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/terrain.schema.json",
+  "title": "AWVM semantic terrain catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "evidence", "terrains"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "status": { "enum": ["candidate", "confirmed"] },
+    "evidence": {
+      "type": "object",
+      "required": ["confidence"],
+      "properties": {
+        "confidence": { "type": "string" },
+        "note": { "type": "string" }
+      }
+    },
+    "terrains": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["defense_stars", "property_kind", "traits"],
+        "properties": {
+          "defense_stars": { "type": "integer", "minimum": 0, "maximum": 4 },
+          "property_kind": { "type": ["string", "null"] },
+          "traits": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "$ref": "common.schema.json#/$defs/id" }
+          },
+          "vision_bonus": {
+            "description": "Sight radius added to an elevated-vision-eligible unit standing on this terrain. Required when and only when the terrain carries the elevated-vision trait. See spec/semantics/fog.md.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "vision_limit": {
+            "description": "Greatest source distance at which this terrain is fully revealed; a source farther away reveals it only for air units. Required when and only when the terrain carries the conceals-in-fog trait.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "elimination_replacement": { "$ref": "common.schema.json#/$defs/id" },
+          "destructible": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["maximum_hp", "target_kind", "destruction_replacement"],
+            "properties": {
+              "maximum_hp": { "type": "integer", "minimum": 1, "maximum": 100 },
+              "target_kind": { "$ref": "common.schema.json#/$defs/id" },
+              "destruction_replacement": { "$ref": "common.schema.json#/$defs/id" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

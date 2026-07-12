@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/weapons.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "evidence", "selection", "units"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "status": { "const": "confirmed" },
+    "evidence": { "type": "object" },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order", "requires_available_ammo"],
+      "properties": {
+        "order": { "const": ["ammo", "unlimited"] },
+        "requires_available_ammo": { "const": true }
+      }
+    },
+    "units": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ammo": { "$ref": "#/$defs/weapon" },
+          "unlimited": { "$ref": "#/$defs/weapon" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "weapon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ammo_cost", "damage"],
+      "properties": {
+        "ammo_cost": { "type": "integer", "minimum": 0 },
+        "damage": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
+      }
+    }
+  }
+}

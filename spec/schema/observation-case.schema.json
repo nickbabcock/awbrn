@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/observation-case.schema.json",
+  "title": "Deprecated AWVM observation case entry point",
+  "description": "Observation equivalence cases now use case.schema.json directly.",
+  "$ref": "case.schema.json#/$defs/equivalence-case"
+}

@@ -1,0 +1,597 @@
+{
+  "id": "olaf-blizzard",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "commander-power-v1.olaf.cop",
+  "evidence": { "confidence": "corroborated-implementation" },
+  "initial_state": {
+    "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+    "settings": {
+      "fog": false,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "enabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": { "lead": [], "backup": [] },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 3,
+      "height": 1,
+      "tiles": [[{ "terrain": "plain" }, { "terrain": "plain" }, { "terrain": "plain" }]]
+    },
+    "teams": [
+      { "id": "red-team", "status": "active" },
+      { "id": "blue-team", "status": "active" },
+      { "id": "green-team", "status": "active" }
+    ],
+    "players": [
+      {
+        "id": "red",
+        "team": "red-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "olaf", "active": true, "power_charge": 27000, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      },
+      {
+        "id": "blue",
+        "team": "blue-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      },
+      {
+        "id": "green",
+        "team": "green-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      }
+    ],
+    "turn": {
+      "day": 1,
+      "active_player": "red",
+      "phase": "unit-action",
+      "order": ["red", "blue", "green"],
+      "position": 0
+    },
+    "weather": { "kind": "rain", "remaining_turns": 1 },
+    "units": [
+      {
+        "id": 0,
+        "kind": "infantry",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [0, 0] }
+      },
+      {
+        "id": 1,
+        "kind": "infantry",
+        "owner": "blue",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [1, 0] }
+      },
+      {
+        "id": 2,
+        "kind": "infantry",
+        "owner": "green",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [2, 0] }
+      }
+    ],
+    "match": { "status": "active", "draw_offers": [] }
+  },
+  "steps": [
+    {
+      "id": "activate-blizzard",
+      "command": { "type": "activate-power", "player": "red", "level": "cop" },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "fog": false,
+            "income_per_property": 1000,
+            "starting_funds": 0,
+            "powers": "enabled",
+            "tags": false,
+            "weather": "clear",
+            "lab_units": [],
+            "unit_bans": [],
+            "commander_bans": { "lead": [], "backup": [] },
+            "capture_limit": null,
+            "day_limit": null,
+            "unit_limit": null
+          },
+          "board": {
+            "width": 3,
+            "height": 1,
+            "tiles": [[{ "terrain": "plain" }, { "terrain": "plain" }, { "terrain": "plain" }]]
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "active" },
+            { "id": "green-team", "status": "active" }
+          ],
+          "players": [
+            {
+              "id": "red",
+              "team": "red-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [{ "id": "olaf", "active": true, "power_charge": 0, "power_uses": 1 }],
+              "power_state": { "type": "cop", "commander_slot": 0 }
+            },
+            {
+              "id": "blue",
+              "team": "blue-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [
+                { "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }
+              ],
+              "power_state": { "type": "none" }
+            },
+            {
+              "id": "green",
+              "team": "green-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [
+                { "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }
+              ],
+              "power_state": { "type": "none" }
+            }
+          ],
+          "turn": {
+            "day": 1,
+            "active_player": "red",
+            "phase": "unit-action",
+            "order": ["red", "blue", "green"],
+            "position": 0
+          },
+          "weather": { "kind": "snow", "remaining_turns": 3 },
+          "units": [
+            {
+              "id": 0,
+              "kind": "infantry",
+              "owner": "red",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [0, 0] }
+            },
+            {
+              "id": 1,
+              "kind": "infantry",
+              "owner": "blue",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [1, 0] }
+            },
+            {
+              "id": 2,
+              "kind": "infantry",
+              "owner": "green",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [2, 0] }
+            }
+          ],
+          "match": { "status": "active", "draw_offers": [] }
+        },
+        "events": [
+          { "type": "power-activated", "player": "red", "commander": "olaf", "power": "cop" },
+          {
+            "type": "weather-changed",
+            "from": "rain",
+            "to": "snow",
+            "remaining_turns": 3,
+            "reason": "commander-power"
+          }
+        ],
+        "random_consumed": 0
+      }
+    },
+    {
+      "id": "snow-survives-blue-boundary",
+      "command": { "type": "end-turn", "player": "red" },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "fog": false,
+            "income_per_property": 1000,
+            "starting_funds": 0,
+            "powers": "enabled",
+            "tags": false,
+            "weather": "clear",
+            "lab_units": [],
+            "unit_bans": [],
+            "commander_bans": { "lead": [], "backup": [] },
+            "capture_limit": null,
+            "day_limit": null,
+            "unit_limit": null
+          },
+          "board": {
+            "width": 3,
+            "height": 1,
+            "tiles": [[{ "terrain": "plain" }, { "terrain": "plain" }, { "terrain": "plain" }]]
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "active" },
+            { "id": "green-team", "status": "active" }
+          ],
+          "players": [
+            {
+              "id": "red",
+              "team": "red-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [{ "id": "olaf", "active": true, "power_charge": 0, "power_uses": 1 }],
+              "power_state": { "type": "cop", "commander_slot": 0 }
+            },
+            {
+              "id": "blue",
+              "team": "blue-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [
+                { "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }
+              ],
+              "power_state": { "type": "none" }
+            },
+            {
+              "id": "green",
+              "team": "green-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [
+                { "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }
+              ],
+              "power_state": { "type": "none" }
+            }
+          ],
+          "turn": {
+            "day": 1,
+            "active_player": "blue",
+            "phase": "unit-action",
+            "order": ["red", "blue", "green"],
+            "position": 1
+          },
+          "weather": { "kind": "snow", "remaining_turns": 2 },
+          "units": [
+            {
+              "id": 0,
+              "kind": "infantry",
+              "owner": "red",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [0, 0] }
+            },
+            {
+              "id": 1,
+              "kind": "infantry",
+              "owner": "blue",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [1, 0] }
+            },
+            {
+              "id": 2,
+              "kind": "infantry",
+              "owner": "green",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [2, 0] }
+            }
+          ],
+          "match": { "status": "active", "draw_offers": [] }
+        },
+        "events": [
+          { "type": "phase-changed", "player": "red", "from": "unit-action", "to": "turn-end" },
+          { "type": "turn-selected", "player": "blue", "position": 1 },
+          { "type": "phase-changed", "player": "blue", "from": "turn-end", "to": "turn-start" },
+          {
+            "type": "weather-changed",
+            "from": "snow",
+            "to": "snow",
+            "remaining_turns": 2,
+            "reason": "expiry"
+          },
+          { "type": "phase-changed", "player": "blue", "from": "turn-start", "to": "unit-action" }
+        ],
+        "random_consumed": 0
+      }
+    },
+    {
+      "id": "snow-survives-green-boundary",
+      "command": { "type": "end-turn", "player": "blue" },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "board": {
+            "height": 1,
+            "tiles": [[{ "terrain": "plain" }, { "terrain": "plain" }, { "terrain": "plain" }]],
+            "width": 3
+          },
+          "match": { "draw_offers": [], "status": "active" },
+          "players": [
+            {
+              "commanders": [{ "active": true, "id": "olaf", "power_charge": 0, "power_uses": 1 }],
+              "funds": 0,
+              "id": "red",
+              "power_state": { "commander_slot": 0, "type": "cop" },
+              "status": "active",
+              "team": "red-team"
+            },
+            {
+              "commanders": [
+                { "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }
+              ],
+              "funds": 0,
+              "id": "blue",
+              "power_state": { "type": "none" },
+              "status": "active",
+              "team": "blue-team"
+            },
+            {
+              "commanders": [
+                { "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }
+              ],
+              "funds": 0,
+              "id": "green",
+              "power_state": { "type": "none" },
+              "status": "active",
+              "team": "green-team"
+            }
+          ],
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "capture_limit": null,
+            "commander_bans": { "backup": [], "lead": [] },
+            "day_limit": null,
+            "fog": false,
+            "income_per_property": 1000,
+            "lab_units": [],
+            "powers": "enabled",
+            "starting_funds": 0,
+            "tags": false,
+            "unit_bans": [],
+            "unit_limit": null,
+            "weather": "clear"
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "active" },
+            { "id": "green-team", "status": "active" }
+          ],
+          "turn": {
+            "active_player": "green",
+            "day": 1,
+            "order": ["red", "blue", "green"],
+            "phase": "unit-action",
+            "position": 2
+          },
+          "units": [
+            {
+              "action": "ready",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 100,
+              "id": 0,
+              "kind": "infantry",
+              "location": { "position": [0, 0], "type": "board" },
+              "owner": "red"
+            },
+            {
+              "action": "ready",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 100,
+              "id": 1,
+              "kind": "infantry",
+              "location": { "position": [1, 0], "type": "board" },
+              "owner": "blue"
+            },
+            {
+              "action": "ready",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 100,
+              "id": 2,
+              "kind": "infantry",
+              "location": { "position": [2, 0], "type": "board" },
+              "owner": "green"
+            }
+          ],
+          "weather": { "kind": "snow", "remaining_turns": 1 }
+        },
+        "events": [
+          { "from": "unit-action", "player": "blue", "to": "turn-end", "type": "phase-changed" },
+          { "player": "green", "position": 2, "type": "turn-selected" },
+          { "from": "turn-end", "player": "green", "to": "turn-start", "type": "phase-changed" },
+          {
+            "from": "snow",
+            "reason": "expiry",
+            "remaining_turns": 1,
+            "to": "snow",
+            "type": "weather-changed"
+          },
+          { "from": "turn-start", "player": "green", "to": "unit-action", "type": "phase-changed" }
+        ],
+        "random_consumed": 0
+      }
+    },
+    {
+      "id": "snow-expires-at-olaf-boundary",
+      "command": { "type": "end-turn", "player": "green" },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "board": {
+            "height": 1,
+            "tiles": [[{ "terrain": "plain" }, { "terrain": "plain" }, { "terrain": "plain" }]],
+            "width": 3
+          },
+          "match": { "draw_offers": [], "status": "active" },
+          "players": [
+            {
+              "commanders": [{ "active": true, "id": "olaf", "power_charge": 0, "power_uses": 1 }],
+              "funds": 0,
+              "id": "red",
+              "power_state": { "type": "none" },
+              "status": "active",
+              "team": "red-team"
+            },
+            {
+              "commanders": [
+                { "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }
+              ],
+              "funds": 0,
+              "id": "blue",
+              "power_state": { "type": "none" },
+              "status": "active",
+              "team": "blue-team"
+            },
+            {
+              "commanders": [
+                { "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }
+              ],
+              "funds": 0,
+              "id": "green",
+              "power_state": { "type": "none" },
+              "status": "active",
+              "team": "green-team"
+            }
+          ],
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "capture_limit": null,
+            "commander_bans": { "backup": [], "lead": [] },
+            "day_limit": null,
+            "fog": false,
+            "income_per_property": 1000,
+            "lab_units": [],
+            "powers": "enabled",
+            "starting_funds": 0,
+            "tags": false,
+            "unit_bans": [],
+            "unit_limit": null,
+            "weather": "clear"
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "active" },
+            { "id": "green-team", "status": "active" }
+          ],
+          "turn": {
+            "active_player": "red",
+            "day": 2,
+            "order": ["red", "blue", "green"],
+            "phase": "unit-action",
+            "position": 0
+          },
+          "units": [
+            {
+              "action": "ready",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 100,
+              "id": 0,
+              "kind": "infantry",
+              "location": { "position": [0, 0], "type": "board" },
+              "owner": "red"
+            },
+            {
+              "action": "ready",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 100,
+              "id": 1,
+              "kind": "infantry",
+              "location": { "position": [1, 0], "type": "board" },
+              "owner": "blue"
+            },
+            {
+              "action": "ready",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 100,
+              "id": 2,
+              "kind": "infantry",
+              "location": { "position": [2, 0], "type": "board" },
+              "owner": "green"
+            }
+          ],
+          "weather": { "kind": "clear", "remaining_turns": 0 }
+        },
+        "events": [
+          { "from": "unit-action", "player": "green", "to": "turn-end", "type": "phase-changed" },
+          { "from": 1, "to": 2, "type": "day-advanced" },
+          { "player": "red", "position": 0, "type": "turn-selected" },
+          { "from": "turn-end", "player": "red", "to": "turn-start", "type": "phase-changed" },
+          { "commander": "olaf", "player": "red", "power": "cop", "type": "power-ended" },
+          {
+            "from": "snow",
+            "reason": "expiry",
+            "remaining_turns": 0,
+            "to": "clear",
+            "type": "weather-changed"
+          },
+          { "from": "turn-start", "player": "red", "to": "unit-action", "type": "phase-changed" }
+        ],
+        "random_consumed": 0
+      }
+    }
+  ]
+}

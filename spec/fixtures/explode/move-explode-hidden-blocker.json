@@ -1,0 +1,220 @@
+{
+  "id": "move-explode-hidden-blocker",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "move-explode-v1",
+  "evidence": { "confidence": "documentation-only" },
+  "initial_state": {
+    "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+    "settings": {
+      "fog": true,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "disabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": { "lead": [], "backup": [] },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 4,
+      "height": 1,
+      "tiles": [
+        [
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "plain" }
+        ]
+      ]
+    },
+    "teams": [
+      { "id": "red-team", "status": "active" },
+      { "id": "blue-team", "status": "active" }
+    ],
+    "players": [
+      {
+        "id": "red",
+        "team": "red-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      },
+      {
+        "id": "blue",
+        "team": "blue-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      }
+    ],
+    "turn": {
+      "day": 1,
+      "active_player": "red",
+      "phase": "unit-action",
+      "order": ["red", "blue"],
+      "position": 0
+    },
+    "weather": { "kind": "clear", "remaining_turns": 0 },
+    "units": [
+      {
+        "id": 0,
+        "kind": "black-bomb",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 45,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [0, 0] }
+      },
+      {
+        "id": 1,
+        "kind": "tank",
+        "owner": "blue",
+        "hp": 100,
+        "fuel": 70,
+        "ammo": 9,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [3, 0] }
+      }
+    ],
+    "match": { "status": "active", "draw_offers": [] }
+  },
+  "steps": [
+    {
+      "id": "trap-suppresses-explosion",
+      "command": {
+        "type": "move-explode",
+        "player": "red",
+        "unit": 0,
+        "path": [
+          [0, 0],
+          [1, 0],
+          [2, 0],
+          [3, 0]
+        ]
+      },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "board": {
+            "height": 1,
+            "tiles": [
+              [
+                { "terrain": "plain" },
+                { "terrain": "plain" },
+                { "terrain": "plain" },
+                { "terrain": "plain" }
+              ]
+            ],
+            "width": 4
+          },
+          "match": { "draw_offers": [], "status": "active" },
+          "players": [
+            {
+              "commanders": [
+                { "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }
+              ],
+              "funds": 0,
+              "id": "red",
+              "power_state": { "type": "none" },
+              "status": "active",
+              "team": "red-team"
+            },
+            {
+              "commanders": [
+                { "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }
+              ],
+              "funds": 0,
+              "id": "blue",
+              "power_state": { "type": "none" },
+              "status": "active",
+              "team": "blue-team"
+            }
+          ],
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "capture_limit": null,
+            "commander_bans": { "backup": [], "lead": [] },
+            "day_limit": null,
+            "fog": true,
+            "income_per_property": 1000,
+            "lab_units": [],
+            "powers": "disabled",
+            "starting_funds": 0,
+            "tags": false,
+            "unit_bans": [],
+            "unit_limit": null,
+            "weather": "clear"
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "active" }
+          ],
+          "turn": {
+            "active_player": "red",
+            "day": 1,
+            "order": ["red", "blue"],
+            "phase": "unit-action",
+            "position": 0
+          },
+          "units": [
+            {
+              "action": "spent",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 43,
+              "hp": 100,
+              "id": 0,
+              "kind": "black-bomb",
+              "location": { "position": [2, 0], "type": "board" },
+              "owner": "red"
+            },
+            {
+              "action": "ready",
+              "ammo": 9,
+              "concealment": "exposed",
+              "fuel": 70,
+              "hp": 100,
+              "id": 1,
+              "kind": "tank",
+              "location": { "position": [3, 0], "type": "board" },
+              "owner": "blue"
+            }
+          ],
+          "weather": { "kind": "clear", "remaining_turns": 0 }
+        },
+        "events": [
+          {
+            "from": [0, 0],
+            "fuel_spent": 2,
+            "path": [
+              [0, 0],
+              [1, 0],
+              [2, 0]
+            ],
+            "to": [2, 0],
+            "type": "unit-moved",
+            "unit": 0
+          },
+          {
+            "blocker": 1,
+            "position": [3, 0],
+            "type": "movement-trapped",
+            "unit": 0
+          }
+        ],
+        "random_consumed": 0
+      }
+    }
+  ]
+}

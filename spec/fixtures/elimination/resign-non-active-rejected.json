@@ -1,0 +1,104 @@
+{
+  "id": "resign-non-active-rejected",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "elimination-v1.resign.not-active-player",
+  "evidence": {
+    "confidence": "documentation-only",
+    "note": "Resignation is a boundary command and shares the common player-command prefix. Out-of-turn resignation is rejected rather than specified, because every observed AWBW resignation is issued by the active player and carries a next-turn payload."
+  },
+  "initial_state": {
+    "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+    "settings": {
+      "fog": false,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "disabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": { "lead": [], "backup": [] },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 2,
+      "height": 1,
+      "tiles": [
+        [
+          { "terrain": "city", "owner": "red", "capture_points": 20 },
+          { "terrain": "city", "owner": "blue", "capture_points": 20 }
+        ]
+      ]
+    },
+    "teams": [
+      { "id": "red-team", "status": "active" },
+      { "id": "blue-team", "status": "active" }
+    ],
+    "players": [
+      {
+        "id": "red",
+        "team": "red-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "andy", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      },
+      {
+        "id": "blue",
+        "team": "blue-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "olaf", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      }
+    ],
+    "turn": {
+      "day": 3,
+      "active_player": "red",
+      "phase": "unit-action",
+      "order": ["red", "blue"],
+      "position": 0
+    },
+    "weather": { "kind": "clear", "remaining_turns": 0 },
+    "units": [
+      {
+        "id": 0,
+        "kind": "infantry",
+        "owner": "blue",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "spent",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [1, 0] }
+      },
+      {
+        "id": 1,
+        "kind": "infantry",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [0, 0] }
+      }
+    ],
+    "match": { "status": "active", "draw_offers": [] }
+  },
+  "steps": [
+    {
+      "id": "blue-cannot-resign-on-reds-turn",
+      "command": { "type": "resign", "player": "blue" },
+      "random": [],
+      "expect": {
+        "status": "rejected",
+        "violation": { "code": "NOT_ACTIVE_PLAYER", "player": "blue" },
+        "random_consumed": 0
+      }
+    }
+  ]
+}

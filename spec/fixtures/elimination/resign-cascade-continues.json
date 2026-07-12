@@ -1,0 +1,284 @@
+{
+  "id": "resign-cascade-continues",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "elimination-v1.resign.cascade",
+  "evidence": {
+    "confidence": "documentation-only",
+    "note": "Three teams, so the match continues and the full cascade runs. Exercises cargo removal in the same ascending-ID pass as its transport, a capture reset caused by removing the capturer, and a capture reset caused by disposing the captured tile."
+  },
+  "initial_state": {
+    "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+    "settings": {
+      "fog": false,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "disabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": { "lead": [], "backup": [] },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 3,
+      "height": 2,
+      "tiles": [
+        [
+          { "terrain": "hq", "owner": "red", "capture_points": 20 },
+          { "terrain": "city", "owner": "red", "capture_points": 12 },
+          { "terrain": "city", "owner": "blue", "capture_points": 20 }
+        ],
+        [
+          { "terrain": "city", "owner": "green", "capture_points": 20 },
+          { "terrain": "plain" },
+          { "terrain": "city", "owner": null, "capture_points": 15 }
+        ]
+      ]
+    },
+    "teams": [
+      { "id": "red-team", "status": "active" },
+      { "id": "blue-team", "status": "active" },
+      { "id": "green-team", "status": "active" }
+    ],
+    "players": [
+      {
+        "id": "red",
+        "team": "red-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "andy", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      },
+      {
+        "id": "blue",
+        "team": "blue-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "olaf", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      },
+      {
+        "id": "green",
+        "team": "green-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "grit", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      }
+    ],
+    "turn": {
+      "day": 3,
+      "active_player": "red",
+      "phase": "unit-action",
+      "order": ["red", "blue", "green"],
+      "position": 0
+    },
+    "weather": { "kind": "clear", "remaining_turns": 0 },
+    "units": [
+      {
+        "id": 0,
+        "kind": "infantry",
+        "owner": "blue",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "spent",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [1, 0] }
+      },
+      {
+        "id": 1,
+        "kind": "infantry",
+        "owner": "green",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "spent",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [0, 1] }
+      },
+      {
+        "id": 2,
+        "kind": "apc",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 70,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [0, 0] }
+      },
+      {
+        "id": 3,
+        "kind": "infantry",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [2, 1] }
+      },
+      {
+        "id": 4,
+        "kind": "mech",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 70,
+        "ammo": 3,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "cargo", "transport": 2, "slot": 0 }
+      }
+    ],
+    "match": { "status": "active", "draw_offers": [] }
+  },
+  "steps": [
+    {
+      "id": "red-resigns-match-continues",
+      "command": { "type": "resign", "player": "red" },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "fog": false,
+            "income_per_property": 1000,
+            "starting_funds": 0,
+            "powers": "disabled",
+            "tags": false,
+            "weather": "clear",
+            "lab_units": [],
+            "unit_bans": [],
+            "commander_bans": { "lead": [], "backup": [] },
+            "capture_limit": null,
+            "day_limit": null,
+            "unit_limit": null
+          },
+          "board": {
+            "width": 3,
+            "height": 2,
+            "tiles": [
+              [
+                { "terrain": "city", "owner": null, "capture_points": 20 },
+                { "terrain": "city", "owner": null, "capture_points": 20 },
+                { "terrain": "city", "owner": "blue", "capture_points": 20 }
+              ],
+              [
+                { "terrain": "city", "owner": "green", "capture_points": 20 },
+                { "terrain": "plain" },
+                { "terrain": "city", "owner": null, "capture_points": 20 }
+              ]
+            ]
+          },
+          "teams": [
+            { "id": "red-team", "status": "eliminated" },
+            { "id": "blue-team", "status": "active" },
+            { "id": "green-team", "status": "active" }
+          ],
+          "players": [
+            {
+              "id": "red",
+              "team": "red-team",
+              "funds": 0,
+              "status": "resigned",
+              "commanders": [{ "id": "andy", "active": true, "power_charge": 0, "power_uses": 0 }],
+              "power_state": { "type": "none" }
+            },
+            {
+              "id": "blue",
+              "team": "blue-team",
+              "funds": 1000,
+              "status": "active",
+              "commanders": [{ "id": "olaf", "active": true, "power_charge": 0, "power_uses": 0 }],
+              "power_state": { "type": "none" }
+            },
+            {
+              "id": "green",
+              "team": "green-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [{ "id": "grit", "active": true, "power_charge": 0, "power_uses": 0 }],
+              "power_state": { "type": "none" }
+            }
+          ],
+          "turn": {
+            "day": 3,
+            "active_player": "blue",
+            "phase": "unit-action",
+            "order": ["red", "blue", "green"],
+            "position": 1
+          },
+          "weather": { "kind": "clear", "remaining_turns": 0 },
+          "units": [
+            {
+              "id": 0,
+              "kind": "infantry",
+              "owner": "blue",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [1, 0] }
+            },
+            {
+              "id": 1,
+              "kind": "infantry",
+              "owner": "green",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "spent",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [0, 1] }
+            }
+          ],
+          "match": { "status": "active", "draw_offers": [] }
+        },
+        "events": [
+          { "type": "phase-changed", "player": "red", "from": "unit-action", "to": "turn-end" },
+          { "type": "player-status-changed", "player": "red", "from": "active", "to": "resigned" },
+          { "type": "team-eliminated", "team": "red-team", "reason": "resignation" },
+          { "type": "unit-removed", "unit": 2, "reason": "elimination" },
+          { "type": "capture-changed", "position": [2, 1], "from": 15, "to": 20 },
+          { "type": "unit-removed", "unit": 3, "reason": "elimination" },
+          { "type": "unit-removed", "unit": 4, "reason": "elimination" },
+          {
+            "type": "tile-terrain-changed",
+            "position": [0, 0],
+            "from": "hq",
+            "to": "city",
+            "reason": "elimination"
+          },
+          { "type": "tile-owner-changed", "position": [0, 0], "from": "red", "to": null },
+          { "type": "capture-changed", "position": [1, 0], "from": 12, "to": 20 },
+          { "type": "tile-owner-changed", "position": [1, 0], "from": "red", "to": null },
+          { "type": "turn-selected", "player": "blue", "position": 1 },
+          { "type": "phase-changed", "player": "blue", "from": "turn-end", "to": "turn-start" },
+          {
+            "type": "funds-changed",
+            "player": "blue",
+            "from": 0,
+            "to": 1000,
+            "reason": "turn-start-income"
+          },
+          {
+            "type": "unit-action-changed",
+            "unit": 0,
+            "from": "spent",
+            "to": "ready",
+            "reason": "turn-start"
+          },
+          { "type": "phase-changed", "player": "blue", "from": "turn-start", "to": "unit-action" }
+        ],
+        "random_consumed": 0
+      }
+    }
+  ]
+}

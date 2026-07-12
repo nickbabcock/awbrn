@@ -1,0 +1,70 @@
+{
+  "$schema": "../../../schema/unit-capabilities.schema.json",
+  "status": "candidate",
+  "evidence": { "confidence": "documentation-only" },
+  "capture": ["infantry", "mech"],
+  "elevated_vision": ["infantry", "mech"],
+  "transport": {
+    "apc": { "capacity": 1, "cargo": ["infantry", "mech"] },
+    "t-copter": { "capacity": 1, "cargo": ["infantry", "mech"] },
+    "black-boat": { "capacity": 2, "cargo": ["infantry", "mech"] },
+    "lander": {
+      "capacity": 2,
+      "cargo": [
+        "anti-air",
+        "apc",
+        "artillery",
+        "infantry",
+        "md-tank",
+        "mech",
+        "mega-tank",
+        "missile",
+        "neo-tank",
+        "piperunner",
+        "recon",
+        "rocket",
+        "tank"
+      ]
+    },
+    "cruiser": { "capacity": 2, "cargo": ["b-copter", "t-copter"] },
+    "carrier": {
+      "capacity": 2,
+      "cargo": ["b-copter", "black-bomb", "bomber", "fighter", "stealth", "t-copter"]
+    }
+  },
+  "supply": {
+    "apc": {
+      "trigger": "start-of-turn",
+      "relation": "adjacent",
+      "targets": "owned-units",
+      "refill": ["fuel", "ammo"]
+    },
+    "cruiser": {
+      "trigger": "start-of-turn",
+      "relation": "cargo",
+      "targets": "owned-units",
+      "refill": ["fuel", "ammo"]
+    },
+    "carrier": {
+      "trigger": "start-of-turn",
+      "relation": "cargo",
+      "targets": "owned-units",
+      "refill": ["fuel", "ammo"]
+    }
+  },
+  "repair": {
+    "black-boat": {
+      "command": "repair",
+      "relation": "adjacent",
+      "targets": "friendly-units",
+      "exact_hp": 10,
+      "cost_percent": 10,
+      "also_refills": ["fuel", "ammo"]
+    }
+  },
+  "concealment": {
+    "sub": { "mode": "submerged", "enter_command": "dive", "exit_command": "surface" },
+    "stealth": { "mode": "hidden", "enter_command": "hide", "exit_command": "unhide" }
+  },
+  "special_actions": { "black-bomb": ["explode"] }
+}

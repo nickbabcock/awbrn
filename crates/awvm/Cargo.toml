@@ -1,0 +1,15 @@
+[package]
+name = "awvm"
+version = "0.1.0"
+edition = "2024"
+
+# Implementation of the AWVM executable specification under `spec/`.
+#
+# This crate is deliberately free of Bevy, ECS, rendering, and AWBW replay
+# dependencies: it is the language-independent virtual machine described by
+# `spec/README.md`, not part of the game client. Adapters from replay or ECS
+# identifiers belong on the far side of this boundary.
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true

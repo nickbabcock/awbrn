@@ -1,0 +1,490 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/event.schema.json",
+  "title": "AWVM authoritative event",
+  "oneOf": [
+    { "$ref": "#/$defs/phase-changed" },
+    { "$ref": "#/$defs/turn-selected" },
+    { "$ref": "#/$defs/day-advanced" },
+    { "$ref": "#/$defs/unit-moved" },
+    { "$ref": "#/$defs/movement-trapped" },
+    { "$ref": "#/$defs/unit-action-changed" },
+    { "$ref": "#/$defs/unit-created" },
+    { "$ref": "#/$defs/unit-removed" },
+    { "$ref": "#/$defs/unit-damaged" },
+    { "$ref": "#/$defs/unit-repaired" },
+    { "$ref": "#/$defs/unit-resourced" },
+    { "$ref": "#/$defs/unit-loaded" },
+    { "$ref": "#/$defs/unit-unloaded" },
+    { "$ref": "#/$defs/units-joined" },
+    { "$ref": "#/$defs/concealment-changed" },
+    { "$ref": "#/$defs/tile-owner-changed" },
+    { "$ref": "#/$defs/tile-terrain-changed" },
+    { "$ref": "#/$defs/capture-changed" },
+    { "$ref": "#/$defs/silo-changed" },
+    { "$ref": "#/$defs/destructible-damaged" },
+    { "$ref": "#/$defs/funds-changed" },
+    { "$ref": "#/$defs/attack-resolved" },
+    { "$ref": "#/$defs/area-strike-resolved" },
+    { "$ref": "#/$defs/power-activated" },
+    { "$ref": "#/$defs/power-ended" },
+    { "$ref": "#/$defs/power-charge-changed" },
+    { "$ref": "#/$defs/commander-swapped" },
+    { "$ref": "#/$defs/weather-changed" },
+    { "$ref": "#/$defs/random-outcome" },
+    { "$ref": "#/$defs/automatic-supply" },
+    { "$ref": "#/$defs/automatic-repair" },
+    { "$ref": "#/$defs/draw-offer-changed" },
+    { "$ref": "#/$defs/player-status-changed" },
+    { "$ref": "#/$defs/team-eliminated" },
+    { "$ref": "#/$defs/match-completed" }
+  ],
+  "$defs": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "unit-id": { "$ref": "common.schema.json#/$defs/unit-id" },
+    "player-id": { "$ref": "common.schema.json#/$defs/player-id" },
+    "team-id": { "$ref": "common.schema.json#/$defs/team-id" },
+    "commander-id": { "$ref": "common.schema.json#/$defs/commander-id" },
+    "unit-kind-id": { "$ref": "common.schema.json#/$defs/unit-kind-id" },
+    "terrain-id": { "$ref": "common.schema.json#/$defs/terrain-id" },
+    "position": { "$ref": "common.schema.json#/$defs/position" },
+    "phase": { "enum": ["turn-start", "unit-action", "turn-end", "finished"] },
+    "action": { "enum": ["ready", "moved", "spent", "immobilized"] },
+    "reason": { "$ref": "common.schema.json#/$defs/reason-id" },
+    "phase-changed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "from", "to"],
+      "properties": {
+        "type": { "const": "phase-changed" },
+        "player": { "$ref": "#/$defs/player-id" },
+        "from": { "$ref": "#/$defs/phase" },
+        "to": { "$ref": "#/$defs/phase" }
+      }
+    },
+    "turn-selected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "position"],
+      "properties": {
+        "type": { "const": "turn-selected" },
+        "player": { "$ref": "#/$defs/player-id" },
+        "position": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "day-advanced": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "from", "to"],
+      "properties": {
+        "type": { "const": "day-advanced" },
+        "from": { "type": "integer", "minimum": 1 },
+        "to": { "type": "integer", "minimum": 2 }
+      }
+    },
+    "unit-moved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "unit", "from", "to", "path", "fuel_spent"],
+      "properties": {
+        "type": { "const": "unit-moved" },
+        "unit": { "$ref": "#/$defs/unit-id" },
+        "from": { "$ref": "#/$defs/position" },
+        "to": { "$ref": "#/$defs/position" },
+        "path": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/position" } },
+        "fuel_spent": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "movement-trapped": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "unit", "blocker", "position"],
+      "properties": {
+        "type": { "const": "movement-trapped" },
+        "unit": { "$ref": "#/$defs/unit-id" },
+        "blocker": { "$ref": "#/$defs/unit-id" },
+        "position": { "$ref": "#/$defs/position" }
+      }
+    },
+    "unit-action-changed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "unit", "from", "to", "reason"],
+      "properties": {
+        "type": { "const": "unit-action-changed" },
+        "unit": { "$ref": "#/$defs/unit-id" },
+        "from": { "$ref": "#/$defs/action" },
+        "to": { "$ref": "#/$defs/action" },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "unit-created": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "unit", "kind", "owner", "position"],
+      "properties": {
+        "type": { "const": "unit-created" },
+        "unit": { "$ref": "#/$defs/unit-id" },
+        "kind": { "$ref": "#/$defs/unit-kind-id" },
+        "owner": { "$ref": "#/$defs/player-id" },
+        "position": { "$ref": "#/$defs/position" }
+      }
+    },
+    "unit-removed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "unit", "reason"],
+      "properties": {
+        "type": { "const": "unit-removed" },
+        "unit": { "$ref": "#/$defs/unit-id" },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "unit-damaged": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "unit", "from_hp", "to_hp", "reason"],
+      "properties": {
+        "type": { "const": "unit-damaged" },
+        "unit": { "$ref": "#/$defs/unit-id" },
+        "from_hp": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "to_hp": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "unit-repaired": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "unit", "from_hp", "to_hp", "reason"],
+      "properties": {
+        "type": { "const": "unit-repaired" },
+        "unit": { "$ref": "#/$defs/unit-id" },
+        "from_hp": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "to_hp": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "unit-resourced": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "unit",
+        "fuel_before",
+        "fuel_after",
+        "ammo_before",
+        "ammo_after",
+        "reason"
+      ],
+      "properties": {
+        "type": { "const": "unit-resourced" },
+        "unit": { "$ref": "#/$defs/unit-id" },
+        "fuel_before": { "type": "integer", "minimum": 0 },
+        "fuel_after": { "type": "integer", "minimum": 0 },
+        "ammo_before": { "type": "integer", "minimum": 0 },
+        "ammo_after": { "type": "integer", "minimum": 0 },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "unit-loaded": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "unit", "transport", "slot"],
+      "properties": {
+        "type": { "const": "unit-loaded" },
+        "unit": { "$ref": "#/$defs/unit-id" },
+        "transport": { "$ref": "#/$defs/unit-id" },
+        "slot": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "unit-unloaded": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "unit", "transport", "position"],
+      "properties": {
+        "type": { "const": "unit-unloaded" },
+        "unit": { "$ref": "#/$defs/unit-id" },
+        "transport": { "$ref": "#/$defs/unit-id" },
+        "position": { "$ref": "#/$defs/position" }
+      }
+    },
+    "units-joined": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "source", "target"],
+      "properties": {
+        "type": { "const": "units-joined" },
+        "source": { "$ref": "#/$defs/unit-id" },
+        "target": { "$ref": "#/$defs/unit-id" }
+      }
+    },
+    "concealment-changed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "unit", "from", "to"],
+      "properties": {
+        "type": { "const": "concealment-changed" },
+        "unit": { "$ref": "#/$defs/unit-id" },
+        "from": { "enum": ["exposed", "hidden"] },
+        "to": { "enum": ["exposed", "hidden"] }
+      }
+    },
+    "tile-owner-changed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "position", "from", "to"],
+      "properties": {
+        "type": { "const": "tile-owner-changed" },
+        "position": { "$ref": "#/$defs/position" },
+        "from": { "oneOf": [{ "$ref": "#/$defs/player-id" }, { "type": "null" }] },
+        "to": { "oneOf": [{ "$ref": "#/$defs/player-id" }, { "type": "null" }] }
+      }
+    },
+    "tile-terrain-changed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "position", "from", "to", "reason"],
+      "properties": {
+        "type": { "const": "tile-terrain-changed" },
+        "position": { "$ref": "#/$defs/position" },
+        "from": { "$ref": "#/$defs/terrain-id" },
+        "to": { "$ref": "#/$defs/terrain-id" },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "capture-changed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "position", "from", "to"],
+      "properties": {
+        "type": { "const": "capture-changed" },
+        "position": { "$ref": "#/$defs/position" },
+        "from": { "type": "integer", "minimum": 0, "maximum": 20 },
+        "to": { "type": "integer", "minimum": 0, "maximum": 20 }
+      }
+    },
+    "silo-changed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "position", "from", "to"],
+      "properties": {
+        "type": { "const": "silo-changed" },
+        "position": { "$ref": "#/$defs/position" },
+        "from": { "enum": ["ready", "spent"] },
+        "to": { "enum": ["ready", "spent"] }
+      }
+    },
+    "destructible-damaged": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "position", "from_hp", "to_hp"],
+      "properties": {
+        "type": { "const": "destructible-damaged" },
+        "position": { "$ref": "#/$defs/position" },
+        "from_hp": { "type": "integer", "minimum": 1 },
+        "to_hp": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "funds-changed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "from", "to", "reason"],
+      "properties": {
+        "type": { "const": "funds-changed" },
+        "player": { "$ref": "#/$defs/player-id" },
+        "from": { "type": "integer", "minimum": 0 },
+        "to": { "type": "integer", "minimum": 0 },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "attack-resolved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "attacker", "weapon", "target"],
+      "properties": {
+        "type": { "const": "attack-resolved" },
+        "attacker": { "$ref": "#/$defs/unit-id" },
+        "weapon": { "enum": ["ammo", "unlimited"] },
+        "target": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "unit"],
+              "properties": { "type": { "const": "unit" }, "unit": { "$ref": "#/$defs/unit-id" } }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "position"],
+              "properties": {
+                "type": { "const": "tile" },
+                "position": { "$ref": "#/$defs/position" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "area-strike-resolved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "strike", "policy", "center", "radius", "damage"],
+      "properties": {
+        "type": { "const": "area-strike-resolved" },
+        "strike": { "type": "integer", "minimum": 0 },
+        "policy": { "enum": ["infantry-hp", "unit-value", "unit-hp"] },
+        "center": { "$ref": "#/$defs/position" },
+        "radius": { "type": "integer", "minimum": 0 },
+        "damage": { "type": "integer", "minimum": 1, "maximum": 99 }
+      }
+    },
+    "power-activated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "commander", "power"],
+      "properties": {
+        "type": { "const": "power-activated" },
+        "player": { "$ref": "#/$defs/player-id" },
+        "commander": { "$ref": "#/$defs/commander-id" },
+        "power": { "enum": ["cop", "scop"] }
+      }
+    },
+    "power-ended": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "commander", "power"],
+      "properties": {
+        "type": { "const": "power-ended" },
+        "player": { "$ref": "#/$defs/player-id" },
+        "commander": { "$ref": "#/$defs/commander-id" },
+        "power": { "enum": ["cop", "scop"] }
+      }
+    },
+    "power-charge-changed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "commander_slot", "from", "to", "reason"],
+      "properties": {
+        "type": { "const": "power-charge-changed" },
+        "player": { "$ref": "#/$defs/player-id" },
+        "commander_slot": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "from": { "type": "integer", "minimum": 0 },
+        "to": { "type": "integer", "minimum": 0 },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "commander-swapped": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "from_slot", "to_slot"],
+      "properties": {
+        "type": { "const": "commander-swapped" },
+        "player": { "$ref": "#/$defs/player-id" },
+        "from_slot": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "to_slot": { "type": "integer", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "weather-changed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "from", "to", "remaining_turns", "reason"],
+      "properties": {
+        "type": { "const": "weather-changed" },
+        "from": { "enum": ["clear", "rain", "snow"] },
+        "to": { "enum": ["clear", "rain", "snow"] },
+        "remaining_turns": { "type": "integer", "minimum": 0 },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "random-outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "kind", "outcome"],
+      "properties": {
+        "type": { "const": "random-outcome" },
+        "kind": { "$ref": "#/$defs/id" },
+        "outcome": {
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "integer" },
+            { "type": "boolean" }
+          ]
+        }
+      }
+    },
+    "automatic-supply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "source", "units"],
+      "properties": {
+        "type": { "const": "automatic-supply" },
+        "source": { "oneOf": [{ "$ref": "#/$defs/unit-id" }, { "$ref": "#/$defs/position" }] },
+        "units": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/unit-id" }
+        }
+      }
+    },
+    "automatic-repair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "unit", "position", "hp_restored", "cost"],
+      "properties": {
+        "type": { "const": "automatic-repair" },
+        "unit": { "$ref": "#/$defs/unit-id" },
+        "position": { "$ref": "#/$defs/position" },
+        "hp_restored": { "type": "integer", "minimum": 1 },
+        "cost": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "draw-offer-changed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "offered"],
+      "properties": {
+        "type": { "const": "draw-offer-changed" },
+        "player": { "$ref": "#/$defs/player-id" },
+        "offered": { "type": "boolean" }
+      }
+    },
+    "player-status-changed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "from", "to"],
+      "properties": {
+        "type": { "const": "player-status-changed" },
+        "player": { "$ref": "#/$defs/player-id" },
+        "from": { "enum": ["active", "resigned", "timed-out", "eliminated"] },
+        "to": { "enum": ["resigned", "timed-out", "eliminated"] }
+      }
+    },
+    "team-eliminated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "team", "reason"],
+      "properties": {
+        "type": { "const": "team-eliminated" },
+        "team": { "$ref": "#/$defs/team-id" },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "match-completed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "outcome"],
+      "properties": {
+        "type": { "const": "match-completed" },
+        "outcome": {
+          "oneOf": [
+            { "$ref": "state.schema.json#/$defs/victory" },
+            { "$ref": "state.schema.json#/$defs/draw" },
+            { "$ref": "state.schema.json#/$defs/cancelled" }
+          ]
+        }
+      }
+    }
+  }
+}

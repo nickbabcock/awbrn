@@ -1,0 +1,196 @@
+{
+  "id": "fog-hidden-enemy-substitution",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "fog-observation-v1.hidden-enemy.identity-and-count-noninterference",
+  "recipient": "p1",
+  "evidence": { "confidence": "documentation-only" },
+  "left": {
+    "initial_state": {
+      "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+      "settings": {
+        "fog": true,
+        "income_per_property": 1000,
+        "starting_funds": 0,
+        "powers": "enabled",
+        "tags": false,
+        "weather": "clear",
+        "lab_units": [],
+        "unit_bans": [],
+        "commander_bans": { "lead": [], "backup": [] },
+        "capture_limit": null,
+        "day_limit": null,
+        "unit_limit": 50
+      },
+      "board": {
+        "width": 5,
+        "height": 1,
+        "tiles": [
+          [
+            { "terrain": "plain" },
+            { "terrain": "plain" },
+            { "terrain": "plain" },
+            { "terrain": "plain" },
+            { "terrain": "plain" }
+          ]
+        ]
+      },
+      "teams": [
+        { "id": "t1", "status": "active" },
+        { "id": "t2", "status": "active" }
+      ],
+      "players": [
+        {
+          "id": "p1",
+          "team": "t1",
+          "funds": 0,
+          "status": "active",
+          "commanders": [{ "id": "andy", "active": true, "power_charge": 0, "power_uses": 0 }],
+          "power_state": { "type": "none" }
+        },
+        {
+          "id": "p2",
+          "team": "t2",
+          "funds": 9000,
+          "status": "active",
+          "commanders": [{ "id": "max", "active": true, "power_charge": 0, "power_uses": 0 }],
+          "power_state": { "type": "none" }
+        }
+      ],
+      "turn": {
+        "day": 1,
+        "active_player": "p1",
+        "phase": "unit-action",
+        "order": ["p1", "p2"],
+        "position": 0
+      },
+      "weather": { "kind": "clear", "remaining_turns": 0 },
+      "units": [
+        {
+          "id": 0,
+          "kind": "md-tank",
+          "owner": "p1",
+          "hp": 100,
+          "fuel": 50,
+          "ammo": 8,
+          "action": "ready",
+          "concealment": "exposed",
+          "location": { "type": "board", "position": [0, 0] }
+        },
+        {
+          "id": 1,
+          "kind": "infantry",
+          "owner": "p2",
+          "hp": 100,
+          "fuel": 99,
+          "ammo": 0,
+          "action": "ready",
+          "concealment": "exposed",
+          "location": { "type": "board", "position": [4, 0] }
+        }
+      ],
+      "match": { "status": "active", "draw_offers": [] }
+    },
+    "steps": []
+  },
+  "right": {
+    "initial_state": {
+      "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+      "settings": {
+        "fog": true,
+        "income_per_property": 1000,
+        "starting_funds": 0,
+        "powers": "enabled",
+        "tags": false,
+        "weather": "clear",
+        "lab_units": [],
+        "unit_bans": [],
+        "commander_bans": { "lead": [], "backup": [] },
+        "capture_limit": null,
+        "day_limit": null,
+        "unit_limit": 50
+      },
+      "board": {
+        "width": 5,
+        "height": 1,
+        "tiles": [
+          [
+            { "terrain": "plain" },
+            { "terrain": "plain" },
+            { "terrain": "plain" },
+            { "terrain": "plain" },
+            { "terrain": "plain" }
+          ]
+        ]
+      },
+      "teams": [
+        { "id": "t1", "status": "active" },
+        { "id": "t2", "status": "active" }
+      ],
+      "players": [
+        {
+          "id": "p1",
+          "team": "t1",
+          "funds": 0,
+          "status": "active",
+          "commanders": [{ "id": "andy", "active": true, "power_charge": 0, "power_uses": 0 }],
+          "power_state": { "type": "none" }
+        },
+        {
+          "id": "p2",
+          "team": "t2",
+          "funds": 9000,
+          "status": "active",
+          "commanders": [{ "id": "max", "active": true, "power_charge": 0, "power_uses": 0 }],
+          "power_state": { "type": "none" }
+        }
+      ],
+      "turn": {
+        "day": 1,
+        "active_player": "p1",
+        "phase": "unit-action",
+        "order": ["p1", "p2"],
+        "position": 0
+      },
+      "weather": { "kind": "clear", "remaining_turns": 0 },
+      "units": [
+        {
+          "id": 0,
+          "kind": "md-tank",
+          "owner": "p1",
+          "hp": 100,
+          "fuel": 50,
+          "ammo": 8,
+          "action": "ready",
+          "concealment": "exposed",
+          "location": { "type": "board", "position": [0, 0] }
+        },
+        {
+          "id": 2,
+          "kind": "bomber",
+          "owner": "p2",
+          "hp": 17,
+          "fuel": 2,
+          "ammo": 1,
+          "action": "spent",
+          "concealment": "exposed",
+          "location": { "type": "board", "position": [4, 0] }
+        },
+        {
+          "id": 3,
+          "kind": "infantry",
+          "owner": "p2",
+          "hp": 53,
+          "fuel": 1,
+          "ammo": 0,
+          "action": "spent",
+          "concealment": "exposed",
+          "location": { "type": "cargo", "transport": 2, "slot": 0 }
+        }
+      ],
+      "match": { "status": "active", "draw_offers": [] }
+    },
+    "steps": []
+  },
+  "assert": "equal-observations"
+}

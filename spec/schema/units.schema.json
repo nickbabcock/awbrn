@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/units.schema.json",
+  "title": "AWVM unit table",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "evidence", "fields", "units"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "status": { "enum": ["candidate", "confirmed"] },
+    "evidence": { "type": "object" },
+    "fields": { "type": "object", "additionalProperties": { "type": "string" } },
+    "units": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "awbw_id",
+          "domain",
+          "cost",
+          "move",
+          "movement_class",
+          "max_fuel",
+          "max_ammo",
+          "fuel_per_turn",
+          "vision",
+          "indirect_range"
+        ],
+        "properties": {
+          "awbw_id": { "type": "integer", "minimum": 1 },
+          "domain": { "enum": ["ground", "air", "sea"] },
+          "cost": { "type": "integer", "minimum": 0 },
+          "move": { "type": "integer", "minimum": 0 },
+          "movement_class": {
+            "enum": ["foot", "boot", "treads", "tires", "air", "sea", "lander", "pipe"]
+          },
+          "max_fuel": { "type": "integer", "minimum": 0 },
+          "max_ammo": { "type": "integer", "minimum": 0 },
+          "fuel_per_turn": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["normal", "hidden"],
+            "properties": {
+              "normal": { "type": "integer", "minimum": 0 },
+              "hidden": { "type": ["integer", "null"], "minimum": 0 }
+            }
+          },
+          "vision": { "type": "integer", "minimum": 0 },
+          "indirect_range": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["min", "max"],
+                "properties": {
+                  "min": { "type": "integer", "minimum": 1 },
+                  "max": { "type": "integer", "minimum": 1 }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

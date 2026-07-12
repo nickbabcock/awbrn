@@ -1,0 +1,197 @@
+{
+  "id": "eagle-day-to-day",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "commander-effective-values-v1.eagle.day-to-day",
+  "evidence": { "confidence": "corroborated-implementation" },
+  "initial_state": {
+    "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+    "settings": {
+      "fog": false,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "enabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": { "lead": [], "backup": [] },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 2,
+      "height": 1,
+      "tiles": [[{ "terrain": "plain" }, { "terrain": "plain" }]]
+    },
+    "teams": [
+      { "id": "red-team", "status": "active" },
+      { "id": "blue-team", "status": "active" }
+    ],
+    "players": [
+      {
+        "id": "red",
+        "team": "red-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "eagle", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      },
+      {
+        "id": "blue",
+        "team": "blue-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      }
+    ],
+    "turn": {
+      "day": 1,
+      "active_player": "blue",
+      "phase": "unit-action",
+      "order": ["red", "blue"],
+      "position": 1
+    },
+    "weather": { "kind": "clear", "remaining_turns": 0 },
+    "units": [
+      {
+        "id": 0,
+        "kind": "fighter",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 30,
+        "ammo": 9,
+        "action": "spent",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [0, 0] }
+      },
+      {
+        "id": 1,
+        "kind": "infantry",
+        "owner": "blue",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [1, 0] }
+      }
+    ],
+    "match": { "status": "active", "draw_offers": [] }
+  },
+  "steps": [
+    {
+      "id": "air-upkeep-is-reduced-by-two",
+      "command": { "type": "end-turn", "player": "blue" },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "fog": false,
+            "income_per_property": 1000,
+            "starting_funds": 0,
+            "powers": "enabled",
+            "tags": false,
+            "weather": "clear",
+            "lab_units": [],
+            "unit_bans": [],
+            "commander_bans": { "lead": [], "backup": [] },
+            "capture_limit": null,
+            "day_limit": null,
+            "unit_limit": null
+          },
+          "board": {
+            "width": 2,
+            "height": 1,
+            "tiles": [[{ "terrain": "plain" }, { "terrain": "plain" }]]
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "active" }
+          ],
+          "players": [
+            {
+              "id": "red",
+              "team": "red-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [{ "id": "eagle", "active": true, "power_charge": 0, "power_uses": 0 }],
+              "power_state": { "type": "none" }
+            },
+            {
+              "id": "blue",
+              "team": "blue-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [
+                { "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }
+              ],
+              "power_state": { "type": "none" }
+            }
+          ],
+          "turn": {
+            "day": 2,
+            "active_player": "red",
+            "phase": "unit-action",
+            "order": ["red", "blue"],
+            "position": 0
+          },
+          "weather": { "kind": "clear", "remaining_turns": 0 },
+          "units": [
+            {
+              "id": 0,
+              "kind": "fighter",
+              "owner": "red",
+              "hp": 100,
+              "fuel": 27,
+              "ammo": 9,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [0, 0] }
+            },
+            {
+              "id": 1,
+              "kind": "infantry",
+              "owner": "blue",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [1, 0] }
+            }
+          ],
+          "match": { "status": "active", "draw_offers": [] }
+        },
+        "events": [
+          { "type": "phase-changed", "player": "blue", "from": "unit-action", "to": "turn-end" },
+          { "type": "day-advanced", "from": 1, "to": 2 },
+          { "type": "turn-selected", "player": "red", "position": 0 },
+          { "type": "phase-changed", "player": "red", "from": "turn-end", "to": "turn-start" },
+          {
+            "type": "unit-resourced",
+            "unit": 0,
+            "fuel_before": 30,
+            "fuel_after": 27,
+            "ammo_before": 9,
+            "ammo_after": 9,
+            "reason": "fuel-upkeep"
+          },
+          {
+            "type": "unit-action-changed",
+            "unit": 0,
+            "from": "spent",
+            "to": "ready",
+            "reason": "turn-start"
+          },
+          { "type": "phase-changed", "player": "red", "from": "turn-start", "to": "unit-action" }
+        ],
+        "random_consumed": 0
+      }
+    }
+  ]
+}

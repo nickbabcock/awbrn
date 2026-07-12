@@ -1,0 +1,567 @@
+{
+  "id": "fog-sonja-owner-vision-and-allied-cargo",
+  "spec_version": "0.1.0",
+  "ruleset": {
+    "id": "awbw",
+    "revision": "2026-07-10"
+  },
+  "feature": "fog-observation-v1.observe.sonja-owner-vision-and-allied-cargo",
+  "evidence": {
+    "confidence": "documentation-only",
+    "note": "During Sonja's COP, her Artillery receives her vision modifiers and reveals the enemy in the distant woods. Her neutral-CO teammate shares the resulting team vision but neither receives Sonja's extra sight nor reveals a different distant woods tile. The Sonja player observes the teammate's exact cargo."
+  },
+  "initial_state": {
+    "ruleset": {
+      "id": "awbw",
+      "revision": "2026-07-10"
+    },
+    "settings": {
+      "fog": true,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "enabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": {
+        "lead": [],
+        "backup": []
+      },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 8,
+      "height": 2,
+      "tiles": [
+        [
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "wood"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          }
+        ],
+        [
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "wood"
+          },
+          {
+            "terrain": "plain"
+          }
+        ]
+      ]
+    },
+    "teams": [
+      {
+        "id": "allies",
+        "status": "active"
+      },
+      {
+        "id": "enemy-team",
+        "status": "active"
+      }
+    ],
+    "players": [
+      {
+        "id": "sonja",
+        "team": "allies",
+        "funds": 0,
+        "status": "active",
+        "commanders": [
+          {
+            "id": "sonja",
+            "active": true,
+            "power_charge": 0,
+            "power_uses": 1
+          }
+        ],
+        "power_state": {
+          "type": "cop",
+          "commander_slot": 0
+        }
+      },
+      {
+        "id": "ally",
+        "team": "allies",
+        "funds": 0,
+        "status": "active",
+        "commanders": [
+          {
+            "id": "neutral",
+            "active": true,
+            "power_charge": 0,
+            "power_uses": 0
+          }
+        ],
+        "power_state": {
+          "type": "none"
+        }
+      },
+      {
+        "id": "enemy",
+        "team": "enemy-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [
+          {
+            "id": "neutral",
+            "active": true,
+            "power_charge": 0,
+            "power_uses": 0
+          }
+        ],
+        "power_state": {
+          "type": "none"
+        }
+      }
+    ],
+    "turn": {
+      "day": 1,
+      "active_player": "sonja",
+      "phase": "unit-action",
+      "order": ["sonja", "ally", "enemy"],
+      "position": 0
+    },
+    "weather": {
+      "kind": "clear",
+      "remaining_turns": 0
+    },
+    "units": [
+      {
+        "id": 0,
+        "kind": "artillery",
+        "owner": "sonja",
+        "hp": 100,
+        "fuel": 50,
+        "ammo": 6,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": {
+          "type": "board",
+          "position": [0, 0]
+        }
+      },
+      {
+        "id": 1,
+        "kind": "infantry",
+        "owner": "ally",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": {
+          "type": "board",
+          "position": [4, 1]
+        }
+      },
+      {
+        "id": 2,
+        "kind": "apc",
+        "owner": "ally",
+        "hp": 100,
+        "fuel": 70,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": {
+          "type": "board",
+          "position": [0, 1]
+        }
+      },
+      {
+        "id": 3,
+        "kind": "infantry",
+        "owner": "ally",
+        "hp": 80,
+        "fuel": 40,
+        "ammo": 0,
+        "action": "spent",
+        "concealment": "exposed",
+        "location": {
+          "type": "cargo",
+          "transport": 2,
+          "slot": 0
+        }
+      },
+      {
+        "id": 4,
+        "kind": "tank",
+        "owner": "enemy",
+        "hp": 100,
+        "fuel": 70,
+        "ammo": 9,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": {
+          "type": "board",
+          "position": [3, 0]
+        }
+      },
+      {
+        "id": 5,
+        "kind": "tank",
+        "owner": "enemy",
+        "hp": 100,
+        "fuel": 70,
+        "ammo": 9,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": {
+          "type": "board",
+          "position": [6, 1]
+        }
+      },
+      {
+        "id": 6,
+        "kind": "recon",
+        "owner": "enemy",
+        "hp": 100,
+        "fuel": 80,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": {
+          "type": "board",
+          "position": [7, 1]
+        }
+      }
+    ],
+    "match": {
+      "status": "active",
+      "draw_offers": []
+    }
+  },
+  "initial_observations": {
+    "sonja": {
+      "recipient": "sonja",
+      "ruleset": {
+        "id": "awbw",
+        "revision": "2026-07-10"
+      },
+      "settings": {
+        "fog": true,
+        "income_per_property": 1000,
+        "starting_funds": 0,
+        "powers": "enabled",
+        "tags": false,
+        "weather": "clear",
+        "lab_units": [],
+        "unit_bans": [],
+        "commander_bans": {
+          "lead": [],
+          "backup": []
+        },
+        "capture_limit": null,
+        "day_limit": null,
+        "unit_limit": null
+      },
+      "board": {
+        "width": 8,
+        "height": 2,
+        "tiles": [
+          [
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "wood",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "fogged"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "fogged"
+            }
+          ],
+          [
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "wood",
+              "visibility": "fogged"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "fogged"
+            }
+          ]
+        ]
+      },
+      "teams": [
+        {
+          "id": "allies",
+          "status": "active"
+        },
+        {
+          "id": "enemy-team",
+          "status": "active"
+        }
+      ],
+      "players": [
+        {
+          "id": "sonja",
+          "team": "allies",
+          "relation": "self",
+          "funds": 0,
+          "status": "active",
+          "commanders": [
+            {
+              "id": "sonja",
+              "active": true,
+              "power_charge": 0,
+              "power_uses": 1
+            }
+          ],
+          "power_state": {
+            "type": "cop",
+            "commander_slot": 0
+          }
+        },
+        {
+          "id": "ally",
+          "team": "allies",
+          "relation": "ally",
+          "funds": 0,
+          "status": "active",
+          "commanders": [
+            {
+              "id": "neutral",
+              "active": true,
+              "power_charge": 0,
+              "power_uses": 0
+            }
+          ],
+          "power_state": {
+            "type": "none"
+          }
+        },
+        {
+          "id": "enemy",
+          "team": "enemy-team",
+          "relation": "opponent",
+          "status": "active",
+          "commanders": [
+            {
+              "id": "neutral",
+              "active": true,
+              "power_charge": 0
+            }
+          ],
+          "power_state": {
+            "type": "none"
+          }
+        }
+      ],
+      "turn": {
+        "day": 1,
+        "active_player": "sonja",
+        "phase": "unit-action",
+        "order": ["sonja", "ally", "enemy"],
+        "position": 0
+      },
+      "weather": {
+        "kind": "clear",
+        "remaining_turns": 0
+      },
+      "units": [
+        {
+          "ref": {
+            "type": "friendly",
+            "unit": 0
+          },
+          "kind": "artillery",
+          "owner": "sonja",
+          "hp": 100,
+          "fuel": 50,
+          "ammo": 6,
+          "action": "ready",
+          "concealment": "exposed",
+          "location": {
+            "type": "board",
+            "position": [0, 0]
+          }
+        },
+        {
+          "ref": {
+            "type": "friendly",
+            "unit": 1
+          },
+          "kind": "infantry",
+          "owner": "ally",
+          "hp": 100,
+          "fuel": 99,
+          "ammo": 0,
+          "action": "ready",
+          "concealment": "exposed",
+          "location": {
+            "type": "board",
+            "position": [4, 1]
+          }
+        },
+        {
+          "ref": {
+            "type": "friendly",
+            "unit": 2
+          },
+          "kind": "apc",
+          "owner": "ally",
+          "hp": 100,
+          "fuel": 70,
+          "ammo": 0,
+          "action": "ready",
+          "concealment": "exposed",
+          "location": {
+            "type": "board",
+            "position": [0, 1]
+          }
+        },
+        {
+          "ref": {
+            "type": "friendly",
+            "unit": 3
+          },
+          "kind": "infantry",
+          "owner": "ally",
+          "hp": 80,
+          "fuel": 40,
+          "ammo": 0,
+          "action": "spent",
+          "concealment": "exposed",
+          "location": {
+            "type": "cargo",
+            "transport": 2,
+            "slot": 0
+          }
+        },
+        {
+          "ref": {
+            "type": "enemy",
+            "position": [3, 0]
+          },
+          "kind": "tank",
+          "owner": "enemy",
+          "hp": 100,
+          "fuel": 70,
+          "ammo": 9,
+          "action": "ready",
+          "concealment": "exposed",
+          "location": {
+            "type": "board",
+            "position": [3, 0]
+          }
+        }
+      ],
+      "match": {
+        "status": "active",
+        "own_team_offers": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "id": "reject-repeated-position",
+      "command": {
+        "type": "move-wait",
+        "player": "sonja",
+        "unit": 0,
+        "path": [
+          [0, 0],
+          [0, 0]
+        ]
+      },
+      "random": [],
+      "expect": {
+        "status": "rejected",
+        "violation": {
+          "code": "PATH_NON_ADJACENT",
+          "index": 1,
+          "from": [0, 0],
+          "to": [0, 0]
+        },
+        "random_consumed": 0
+      }
+    }
+  ]
+}

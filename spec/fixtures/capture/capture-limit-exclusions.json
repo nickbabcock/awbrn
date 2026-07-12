@@ -1,0 +1,365 @@
+{
+  "id": "capture-limit-excludes-labs-and-towers",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "capture-limit-v1",
+  "evidence": {
+    "confidence": "corroborated-implementation",
+    "note": "Labs and Com Towers do not count or trigger capture limit; the second eligible property ends the match."
+  },
+  "initial_state": {
+    "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+    "settings": {
+      "fog": false,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "enabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": { "lead": [], "backup": [] },
+      "capture_limit": 2,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 7,
+      "height": 1,
+      "tiles": [
+        [
+          { "terrain": "city", "owner": "red", "capture_points": 20 },
+          { "terrain": "lab", "owner": "red", "capture_points": 20 },
+          { "terrain": "com-tower", "owner": "red", "capture_points": 20 },
+          { "terrain": "lab", "owner": "blue", "capture_points": 10 },
+          { "terrain": "city", "owner": null, "capture_points": 10 },
+          { "terrain": "plain" },
+          { "terrain": "hq", "owner": "blue", "capture_points": 20 }
+        ]
+      ]
+    },
+    "teams": [
+      { "id": "red-team", "status": "active" },
+      { "id": "blue-team", "status": "active" }
+    ],
+    "players": [
+      {
+        "id": "red",
+        "team": "red-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      },
+      {
+        "id": "blue",
+        "team": "blue-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      }
+    ],
+    "turn": {
+      "day": 1,
+      "active_player": "red",
+      "phase": "unit-action",
+      "order": ["red", "blue"],
+      "position": 0
+    },
+    "weather": { "kind": "clear", "remaining_turns": 0 },
+    "units": [
+      {
+        "id": 0,
+        "kind": "infantry",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [3, 0] }
+      },
+      {
+        "id": 1,
+        "kind": "infantry",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [4, 0] }
+      },
+      {
+        "id": 2,
+        "kind": "infantry",
+        "owner": "blue",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [6, 0] }
+      }
+    ],
+    "match": { "status": "active", "draw_offers": [] }
+  },
+  "steps": [
+    {
+      "id": "capture-lab-without-reaching-limit",
+      "command": { "type": "move-capture", "player": "red", "unit": 0, "path": [[3, 0]] },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "board": {
+            "height": 1,
+            "tiles": [
+              [
+                { "capture_points": 20, "owner": "red", "terrain": "city" },
+                { "capture_points": 20, "owner": "red", "terrain": "lab" },
+                { "capture_points": 20, "owner": "red", "terrain": "com-tower" },
+                { "capture_points": 20, "owner": "red", "terrain": "lab" },
+                { "capture_points": 10, "owner": null, "terrain": "city" },
+                { "terrain": "plain" },
+                { "capture_points": 20, "owner": "blue", "terrain": "hq" }
+              ]
+            ],
+            "width": 7
+          },
+          "match": { "draw_offers": [], "status": "active" },
+          "players": [
+            {
+              "commanders": [
+                { "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }
+              ],
+              "funds": 0,
+              "id": "red",
+              "power_state": { "type": "none" },
+              "status": "active",
+              "team": "red-team"
+            },
+            {
+              "commanders": [
+                { "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }
+              ],
+              "funds": 0,
+              "id": "blue",
+              "power_state": { "type": "none" },
+              "status": "active",
+              "team": "blue-team"
+            }
+          ],
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "capture_limit": 2,
+            "commander_bans": { "backup": [], "lead": [] },
+            "day_limit": null,
+            "fog": false,
+            "income_per_property": 1000,
+            "lab_units": [],
+            "powers": "enabled",
+            "starting_funds": 0,
+            "tags": false,
+            "unit_bans": [],
+            "unit_limit": null,
+            "weather": "clear"
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "active" }
+          ],
+          "turn": {
+            "active_player": "red",
+            "day": 1,
+            "order": ["red", "blue"],
+            "phase": "unit-action",
+            "position": 0
+          },
+          "units": [
+            {
+              "action": "spent",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 100,
+              "id": 0,
+              "kind": "infantry",
+              "location": { "position": [3, 0], "type": "board" },
+              "owner": "red"
+            },
+            {
+              "action": "ready",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 100,
+              "id": 1,
+              "kind": "infantry",
+              "location": { "position": [4, 0], "type": "board" },
+              "owner": "red"
+            },
+            {
+              "action": "ready",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 100,
+              "id": 2,
+              "kind": "infantry",
+              "location": { "position": [6, 0], "type": "board" },
+              "owner": "blue"
+            }
+          ],
+          "weather": { "kind": "clear", "remaining_turns": 0 }
+        },
+        "events": [
+          {
+            "from": [3, 0],
+            "fuel_spent": 0,
+            "path": [[3, 0]],
+            "to": [3, 0],
+            "type": "unit-moved",
+            "unit": 0
+          },
+          { "from": 10, "position": [3, 0], "to": 0, "type": "capture-changed" },
+          { "from": "blue", "position": [3, 0], "to": "red", "type": "tile-owner-changed" },
+          { "from": 0, "position": [3, 0], "to": 20, "type": "capture-changed" }
+        ],
+        "random_consumed": 0
+      }
+    },
+    {
+      "id": "capture-second-counted-property",
+      "command": { "type": "move-capture", "player": "red", "unit": 1, "path": [[4, 0]] },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "board": {
+            "height": 1,
+            "tiles": [
+              [
+                { "capture_points": 20, "owner": "red", "terrain": "city" },
+                { "capture_points": 20, "owner": "red", "terrain": "lab" },
+                { "capture_points": 20, "owner": "red", "terrain": "com-tower" },
+                { "capture_points": 20, "owner": "red", "terrain": "lab" },
+                { "capture_points": 20, "owner": "red", "terrain": "city" },
+                { "terrain": "plain" },
+                { "capture_points": 20, "owner": "blue", "terrain": "hq" }
+              ]
+            ],
+            "width": 7
+          },
+          "match": {
+            "outcome": { "reason": "capture-limit", "type": "victory", "winners": ["red-team"] },
+            "status": "finished"
+          },
+          "players": [
+            {
+              "commanders": [
+                { "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }
+              ],
+              "funds": 0,
+              "id": "red",
+              "power_state": { "type": "none" },
+              "status": "active",
+              "team": "red-team"
+            },
+            {
+              "commanders": [
+                { "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }
+              ],
+              "funds": 0,
+              "id": "blue",
+              "power_state": { "type": "none" },
+              "status": "active",
+              "team": "blue-team"
+            }
+          ],
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "capture_limit": 2,
+            "commander_bans": { "backup": [], "lead": [] },
+            "day_limit": null,
+            "fog": false,
+            "income_per_property": 1000,
+            "lab_units": [],
+            "powers": "enabled",
+            "starting_funds": 0,
+            "tags": false,
+            "unit_bans": [],
+            "unit_limit": null,
+            "weather": "clear"
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "active" }
+          ],
+          "turn": {
+            "active_player": "red",
+            "day": 1,
+            "order": ["red", "blue"],
+            "phase": "finished",
+            "position": 0
+          },
+          "units": [
+            {
+              "action": "spent",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 100,
+              "id": 0,
+              "kind": "infantry",
+              "location": { "position": [3, 0], "type": "board" },
+              "owner": "red"
+            },
+            {
+              "action": "spent",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 100,
+              "id": 1,
+              "kind": "infantry",
+              "location": { "position": [4, 0], "type": "board" },
+              "owner": "red"
+            },
+            {
+              "action": "ready",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 100,
+              "id": 2,
+              "kind": "infantry",
+              "location": { "position": [6, 0], "type": "board" },
+              "owner": "blue"
+            }
+          ],
+          "weather": { "kind": "clear", "remaining_turns": 0 }
+        },
+        "events": [
+          {
+            "from": [4, 0],
+            "fuel_spent": 0,
+            "path": [[4, 0]],
+            "to": [4, 0],
+            "type": "unit-moved",
+            "unit": 1
+          },
+          { "from": 10, "position": [4, 0], "to": 0, "type": "capture-changed" },
+          { "from": null, "position": [4, 0], "to": "red", "type": "tile-owner-changed" },
+          { "from": 0, "position": [4, 0], "to": 20, "type": "capture-changed" },
+          {
+            "outcome": { "reason": "capture-limit", "type": "victory", "winners": ["red-team"] },
+            "type": "match-completed"
+          }
+        ],
+        "random_consumed": 0
+      }
+    }
+  ]
+}

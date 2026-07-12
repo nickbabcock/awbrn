@@ -1,0 +1,1161 @@
+{
+  "id": "fog-vision-sources-and-terrain",
+  "spec_version": "0.1.0",
+  "ruleset": {
+    "id": "awbw",
+    "revision": "2026-07-10"
+  },
+  "feature": "fog-observation-v1.observe.vision-sources-and-terrain",
+  "evidence": {
+    "confidence": "documentation-only",
+    "note": "Infantry on a mountain has sight 5. The enemy tank in woods at distance 2 is air-only and hidden; the enemy bomber on a reef at distance 3 is air-only and visible; the hidden stealth stands on a p1-owned city and is detected by the property source; the hidden sub at a fully visible position has no adjacent detector and stays hidden; enemy cargo is never listed."
+  },
+  "initial_state": {
+    "ruleset": {
+      "id": "awbw",
+      "revision": "2026-07-10"
+    },
+    "settings": {
+      "fog": true,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "disabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": {
+        "lead": [],
+        "backup": []
+      },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 7,
+      "height": 3,
+      "tiles": [
+        [
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "mountain"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "wood"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          }
+        ],
+        [
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          }
+        ],
+        [
+          {
+            "terrain": "sea"
+          },
+          {
+            "terrain": "sea"
+          },
+          {
+            "terrain": "reef"
+          },
+          {
+            "terrain": "sea"
+          },
+          {
+            "terrain": "sea"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "city",
+            "owner": "p1",
+            "capture_points": 20
+          }
+        ]
+      ]
+    },
+    "teams": [
+      {
+        "id": "t1",
+        "status": "active"
+      },
+      {
+        "id": "t2",
+        "status": "active"
+      }
+    ],
+    "players": [
+      {
+        "id": "p1",
+        "team": "t1",
+        "funds": 0,
+        "status": "active",
+        "commanders": [
+          {
+            "id": "andy",
+            "active": true,
+            "power_charge": 0,
+            "power_uses": 0
+          }
+        ],
+        "power_state": {
+          "type": "none"
+        }
+      },
+      {
+        "id": "p2",
+        "team": "t2",
+        "funds": 0,
+        "status": "active",
+        "commanders": [
+          {
+            "id": "andy",
+            "active": true,
+            "power_charge": 0,
+            "power_uses": 0
+          }
+        ],
+        "power_state": {
+          "type": "none"
+        }
+      }
+    ],
+    "turn": {
+      "day": 1,
+      "active_player": "p1",
+      "phase": "unit-action",
+      "order": ["p1", "p2"],
+      "position": 0
+    },
+    "weather": {
+      "kind": "clear",
+      "remaining_turns": 0
+    },
+    "units": [
+      {
+        "id": 0,
+        "kind": "infantry",
+        "owner": "p1",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": {
+          "type": "board",
+          "position": [1, 0]
+        }
+      },
+      {
+        "id": 1,
+        "kind": "apc",
+        "owner": "p2",
+        "hp": 100,
+        "fuel": 70,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": {
+          "type": "board",
+          "position": [5, 1]
+        }
+      },
+      {
+        "id": 2,
+        "kind": "infantry",
+        "owner": "p2",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": {
+          "type": "cargo",
+          "transport": 1,
+          "slot": 0
+        }
+      },
+      {
+        "id": 3,
+        "kind": "bomber",
+        "owner": "p2",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 9,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": {
+          "type": "board",
+          "position": [2, 2]
+        }
+      },
+      {
+        "id": 4,
+        "kind": "recon",
+        "owner": "p2",
+        "hp": 100,
+        "fuel": 80,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": {
+          "type": "board",
+          "position": [4, 1]
+        }
+      },
+      {
+        "id": 5,
+        "kind": "stealth",
+        "owner": "p2",
+        "hp": 100,
+        "fuel": 60,
+        "ammo": 6,
+        "action": "ready",
+        "concealment": "hidden",
+        "location": {
+          "type": "board",
+          "position": [6, 2]
+        }
+      },
+      {
+        "id": 6,
+        "kind": "sub",
+        "owner": "p2",
+        "hp": 100,
+        "fuel": 60,
+        "ammo": 6,
+        "action": "ready",
+        "concealment": "hidden",
+        "location": {
+          "type": "board",
+          "position": [0, 2]
+        }
+      },
+      {
+        "id": 7,
+        "kind": "tank",
+        "owner": "p2",
+        "hp": 100,
+        "fuel": 70,
+        "ammo": 9,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": {
+          "type": "board",
+          "position": [3, 0]
+        }
+      }
+    ],
+    "match": {
+      "status": "active",
+      "draw_offers": []
+    }
+  },
+  "initial_observations": {
+    "p1": {
+      "board": {
+        "height": 3,
+        "tiles": [
+          [
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "mountain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "wood",
+              "visibility": "fogged"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            }
+          ],
+          [
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "fogged"
+            }
+          ],
+          [
+            {
+              "terrain": "sea",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "sea",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "reef",
+              "visibility": "fogged"
+            },
+            {
+              "terrain": "sea",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "sea",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "fogged"
+            },
+            {
+              "capture_points": 20,
+              "owner": "p1",
+              "terrain": "city",
+              "visibility": "visible"
+            }
+          ]
+        ],
+        "width": 7
+      },
+      "match": {
+        "own_team_offers": [],
+        "status": "active"
+      },
+      "players": [
+        {
+          "commanders": [
+            {
+              "active": true,
+              "id": "andy",
+              "power_charge": 0,
+              "power_uses": 0
+            }
+          ],
+          "funds": 0,
+          "id": "p1",
+          "power_state": {
+            "type": "none"
+          },
+          "relation": "self",
+          "status": "active",
+          "team": "t1"
+        },
+        {
+          "commanders": [
+            {
+              "active": true,
+              "id": "andy",
+              "power_charge": 0
+            }
+          ],
+          "id": "p2",
+          "power_state": {
+            "type": "none"
+          },
+          "relation": "opponent",
+          "status": "active",
+          "team": "t2"
+        }
+      ],
+      "recipient": "p1",
+      "ruleset": {
+        "id": "awbw",
+        "revision": "2026-07-10"
+      },
+      "settings": {
+        "capture_limit": null,
+        "commander_bans": {
+          "backup": [],
+          "lead": []
+        },
+        "day_limit": null,
+        "fog": true,
+        "income_per_property": 1000,
+        "lab_units": [],
+        "powers": "disabled",
+        "starting_funds": 0,
+        "tags": false,
+        "unit_bans": [],
+        "unit_limit": null,
+        "weather": "clear"
+      },
+      "teams": [
+        {
+          "id": "t1",
+          "status": "active"
+        },
+        {
+          "id": "t2",
+          "status": "active"
+        }
+      ],
+      "turn": {
+        "active_player": "p1",
+        "day": 1,
+        "order": ["p1", "p2"],
+        "phase": "unit-action",
+        "position": 0
+      },
+      "units": [
+        {
+          "action": "ready",
+          "ammo": 0,
+          "concealment": "exposed",
+          "fuel": 99,
+          "hp": 100,
+          "ref": {
+            "type": "friendly",
+            "unit": 0
+          },
+          "kind": "infantry",
+          "location": {
+            "position": [1, 0],
+            "type": "board"
+          },
+          "owner": "p1"
+        },
+        {
+          "action": "ready",
+          "ammo": 9,
+          "concealment": "exposed",
+          "fuel": 99,
+          "hp": 100,
+          "ref": {
+            "type": "enemy",
+            "position": [2, 2]
+          },
+          "kind": "bomber",
+          "location": {
+            "position": [2, 2],
+            "type": "board"
+          },
+          "owner": "p2"
+        },
+        {
+          "action": "ready",
+          "ammo": 0,
+          "concealment": "exposed",
+          "fuel": 80,
+          "hp": 100,
+          "ref": {
+            "type": "enemy",
+            "position": [4, 1]
+          },
+          "kind": "recon",
+          "location": {
+            "position": [4, 1],
+            "type": "board"
+          },
+          "owner": "p2"
+        },
+        {
+          "action": "ready",
+          "ammo": 0,
+          "concealment": "exposed",
+          "fuel": 70,
+          "hp": 100,
+          "ref": {
+            "type": "enemy",
+            "position": [5, 1]
+          },
+          "kind": "apc",
+          "location": {
+            "position": [5, 1],
+            "type": "board"
+          },
+          "owner": "p2"
+        },
+        {
+          "action": "ready",
+          "ammo": 6,
+          "concealment": "hidden",
+          "fuel": 60,
+          "hp": 100,
+          "ref": {
+            "type": "enemy",
+            "position": [6, 2]
+          },
+          "kind": "stealth",
+          "location": {
+            "position": [6, 2],
+            "type": "board"
+          },
+          "owner": "p2"
+        }
+      ],
+      "weather": {
+        "kind": "clear",
+        "remaining_turns": 0
+      }
+    }
+  },
+  "steps": [
+    {
+      "id": "infantry-waits-in-place",
+      "random": [],
+      "command": {
+        "type": "move-wait",
+        "player": "p1",
+        "unit": 0,
+        "path": [[1, 0]]
+      },
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "ruleset": {
+            "id": "awbw",
+            "revision": "2026-07-10"
+          },
+          "settings": {
+            "fog": true,
+            "income_per_property": 1000,
+            "starting_funds": 0,
+            "powers": "disabled",
+            "tags": false,
+            "weather": "clear",
+            "lab_units": [],
+            "unit_bans": [],
+            "commander_bans": {
+              "lead": [],
+              "backup": []
+            },
+            "capture_limit": null,
+            "day_limit": null,
+            "unit_limit": null
+          },
+          "board": {
+            "width": 7,
+            "height": 3,
+            "tiles": [
+              [
+                {
+                  "terrain": "plain"
+                },
+                {
+                  "terrain": "mountain"
+                },
+                {
+                  "terrain": "plain"
+                },
+                {
+                  "terrain": "wood"
+                },
+                {
+                  "terrain": "plain"
+                },
+                {
+                  "terrain": "plain"
+                },
+                {
+                  "terrain": "plain"
+                }
+              ],
+              [
+                {
+                  "terrain": "plain"
+                },
+                {
+                  "terrain": "plain"
+                },
+                {
+                  "terrain": "plain"
+                },
+                {
+                  "terrain": "plain"
+                },
+                {
+                  "terrain": "plain"
+                },
+                {
+                  "terrain": "plain"
+                },
+                {
+                  "terrain": "plain"
+                }
+              ],
+              [
+                {
+                  "terrain": "sea"
+                },
+                {
+                  "terrain": "sea"
+                },
+                {
+                  "terrain": "reef"
+                },
+                {
+                  "terrain": "sea"
+                },
+                {
+                  "terrain": "sea"
+                },
+                {
+                  "terrain": "plain"
+                },
+                {
+                  "terrain": "city",
+                  "owner": "p1",
+                  "capture_points": 20
+                }
+              ]
+            ]
+          },
+          "teams": [
+            {
+              "id": "t1",
+              "status": "active"
+            },
+            {
+              "id": "t2",
+              "status": "active"
+            }
+          ],
+          "players": [
+            {
+              "id": "p1",
+              "team": "t1",
+              "funds": 0,
+              "status": "active",
+              "commanders": [
+                {
+                  "id": "andy",
+                  "active": true,
+                  "power_charge": 0,
+                  "power_uses": 0
+                }
+              ],
+              "power_state": {
+                "type": "none"
+              }
+            },
+            {
+              "id": "p2",
+              "team": "t2",
+              "funds": 0,
+              "status": "active",
+              "commanders": [
+                {
+                  "id": "andy",
+                  "active": true,
+                  "power_charge": 0,
+                  "power_uses": 0
+                }
+              ],
+              "power_state": {
+                "type": "none"
+              }
+            }
+          ],
+          "turn": {
+            "day": 1,
+            "active_player": "p1",
+            "phase": "unit-action",
+            "order": ["p1", "p2"],
+            "position": 0
+          },
+          "weather": {
+            "kind": "clear",
+            "remaining_turns": 0
+          },
+          "units": [
+            {
+              "id": 0,
+              "kind": "infantry",
+              "owner": "p1",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "spent",
+              "concealment": "exposed",
+              "location": {
+                "type": "board",
+                "position": [1, 0]
+              }
+            },
+            {
+              "id": 1,
+              "kind": "apc",
+              "owner": "p2",
+              "hp": 100,
+              "fuel": 70,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": {
+                "type": "board",
+                "position": [5, 1]
+              }
+            },
+            {
+              "id": 2,
+              "kind": "infantry",
+              "owner": "p2",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": {
+                "type": "cargo",
+                "transport": 1,
+                "slot": 0
+              }
+            },
+            {
+              "id": 3,
+              "kind": "bomber",
+              "owner": "p2",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 9,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": {
+                "type": "board",
+                "position": [2, 2]
+              }
+            },
+            {
+              "id": 4,
+              "kind": "recon",
+              "owner": "p2",
+              "hp": 100,
+              "fuel": 80,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": {
+                "type": "board",
+                "position": [4, 1]
+              }
+            },
+            {
+              "id": 5,
+              "kind": "stealth",
+              "owner": "p2",
+              "hp": 100,
+              "fuel": 60,
+              "ammo": 6,
+              "action": "ready",
+              "concealment": "hidden",
+              "location": {
+                "type": "board",
+                "position": [6, 2]
+              }
+            },
+            {
+              "id": 6,
+              "kind": "sub",
+              "owner": "p2",
+              "hp": 100,
+              "fuel": 60,
+              "ammo": 6,
+              "action": "ready",
+              "concealment": "hidden",
+              "location": {
+                "type": "board",
+                "position": [0, 2]
+              }
+            },
+            {
+              "id": 7,
+              "kind": "tank",
+              "owner": "p2",
+              "hp": 100,
+              "fuel": 70,
+              "ammo": 9,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": {
+                "type": "board",
+                "position": [3, 0]
+              }
+            }
+          ],
+          "match": {
+            "status": "active",
+            "draw_offers": []
+          }
+        },
+        "events": [
+          {
+            "type": "unit-moved",
+            "unit": 0,
+            "from": [1, 0],
+            "to": [1, 0],
+            "path": [[1, 0]],
+            "fuel_spent": 0
+          }
+        ],
+        "random_consumed": 0,
+        "observations": {
+          "p1": {
+            "board": {
+              "height": 3,
+              "tiles": [
+                [
+                  {
+                    "terrain": "plain",
+                    "visibility": "visible"
+                  },
+                  {
+                    "terrain": "mountain",
+                    "visibility": "visible"
+                  },
+                  {
+                    "terrain": "plain",
+                    "visibility": "visible"
+                  },
+                  {
+                    "terrain": "wood",
+                    "visibility": "fogged"
+                  },
+                  {
+                    "terrain": "plain",
+                    "visibility": "visible"
+                  },
+                  {
+                    "terrain": "plain",
+                    "visibility": "visible"
+                  },
+                  {
+                    "terrain": "plain",
+                    "visibility": "visible"
+                  }
+                ],
+                [
+                  {
+                    "terrain": "plain",
+                    "visibility": "visible"
+                  },
+                  {
+                    "terrain": "plain",
+                    "visibility": "visible"
+                  },
+                  {
+                    "terrain": "plain",
+                    "visibility": "visible"
+                  },
+                  {
+                    "terrain": "plain",
+                    "visibility": "visible"
+                  },
+                  {
+                    "terrain": "plain",
+                    "visibility": "visible"
+                  },
+                  {
+                    "terrain": "plain",
+                    "visibility": "visible"
+                  },
+                  {
+                    "terrain": "plain",
+                    "visibility": "fogged"
+                  }
+                ],
+                [
+                  {
+                    "terrain": "sea",
+                    "visibility": "visible"
+                  },
+                  {
+                    "terrain": "sea",
+                    "visibility": "visible"
+                  },
+                  {
+                    "terrain": "reef",
+                    "visibility": "fogged"
+                  },
+                  {
+                    "terrain": "sea",
+                    "visibility": "visible"
+                  },
+                  {
+                    "terrain": "sea",
+                    "visibility": "visible"
+                  },
+                  {
+                    "terrain": "plain",
+                    "visibility": "fogged"
+                  },
+                  {
+                    "capture_points": 20,
+                    "owner": "p1",
+                    "terrain": "city",
+                    "visibility": "visible"
+                  }
+                ]
+              ],
+              "width": 7
+            },
+            "match": {
+              "own_team_offers": [],
+              "status": "active"
+            },
+            "players": [
+              {
+                "commanders": [
+                  {
+                    "active": true,
+                    "id": "andy",
+                    "power_charge": 0,
+                    "power_uses": 0
+                  }
+                ],
+                "funds": 0,
+                "id": "p1",
+                "power_state": {
+                  "type": "none"
+                },
+                "relation": "self",
+                "status": "active",
+                "team": "t1"
+              },
+              {
+                "commanders": [
+                  {
+                    "active": true,
+                    "id": "andy",
+                    "power_charge": 0
+                  }
+                ],
+                "id": "p2",
+                "power_state": {
+                  "type": "none"
+                },
+                "relation": "opponent",
+                "status": "active",
+                "team": "t2"
+              }
+            ],
+            "recipient": "p1",
+            "ruleset": {
+              "id": "awbw",
+              "revision": "2026-07-10"
+            },
+            "settings": {
+              "capture_limit": null,
+              "commander_bans": {
+                "backup": [],
+                "lead": []
+              },
+              "day_limit": null,
+              "fog": true,
+              "income_per_property": 1000,
+              "lab_units": [],
+              "powers": "disabled",
+              "starting_funds": 0,
+              "tags": false,
+              "unit_bans": [],
+              "unit_limit": null,
+              "weather": "clear"
+            },
+            "teams": [
+              {
+                "id": "t1",
+                "status": "active"
+              },
+              {
+                "id": "t2",
+                "status": "active"
+              }
+            ],
+            "turn": {
+              "active_player": "p1",
+              "day": 1,
+              "order": ["p1", "p2"],
+              "phase": "unit-action",
+              "position": 0
+            },
+            "units": [
+              {
+                "action": "spent",
+                "ammo": 0,
+                "concealment": "exposed",
+                "fuel": 99,
+                "hp": 100,
+                "ref": {
+                  "type": "friendly",
+                  "unit": 0
+                },
+                "kind": "infantry",
+                "location": {
+                  "position": [1, 0],
+                  "type": "board"
+                },
+                "owner": "p1"
+              },
+              {
+                "action": "ready",
+                "ammo": 9,
+                "concealment": "exposed",
+                "fuel": 99,
+                "hp": 100,
+                "ref": {
+                  "type": "enemy",
+                  "position": [2, 2]
+                },
+                "kind": "bomber",
+                "location": {
+                  "position": [2, 2],
+                  "type": "board"
+                },
+                "owner": "p2"
+              },
+              {
+                "action": "ready",
+                "ammo": 0,
+                "concealment": "exposed",
+                "fuel": 80,
+                "hp": 100,
+                "ref": {
+                  "type": "enemy",
+                  "position": [4, 1]
+                },
+                "kind": "recon",
+                "location": {
+                  "position": [4, 1],
+                  "type": "board"
+                },
+                "owner": "p2"
+              },
+              {
+                "action": "ready",
+                "ammo": 0,
+                "concealment": "exposed",
+                "fuel": 70,
+                "hp": 100,
+                "ref": {
+                  "type": "enemy",
+                  "position": [5, 1]
+                },
+                "kind": "apc",
+                "location": {
+                  "position": [5, 1],
+                  "type": "board"
+                },
+                "owner": "p2"
+              },
+              {
+                "action": "ready",
+                "ammo": 6,
+                "concealment": "hidden",
+                "fuel": 60,
+                "hp": 100,
+                "ref": {
+                  "type": "enemy",
+                  "position": [6, 2]
+                },
+                "kind": "stealth",
+                "location": {
+                  "position": [6, 2],
+                  "type": "board"
+                },
+                "owner": "p2"
+              }
+            ],
+            "weather": {
+              "kind": "clear",
+              "remaining_turns": 0
+            }
+          }
+        },
+        "observed_events": {
+          "p1": [
+            {
+              "type": "unit-moved",
+              "unit": {
+                "type": "friendly",
+                "unit": 0
+              },
+              "from": [1, 0],
+              "to": [1, 0],
+              "path": [[1, 0]]
+            }
+          ],
+          "p2": [
+            {
+              "type": "unit-moved",
+              "unit": {
+                "type": "enemy",
+                "position": [1, 0]
+              },
+              "from": [1, 0],
+              "to": [1, 0],
+              "path": [[1, 0]]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

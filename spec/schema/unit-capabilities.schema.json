@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/unit-capabilities.schema.json",
+  "title": "AWVM unit capability relations",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "evidence",
+    "capture",
+    "elevated_vision",
+    "transport",
+    "supply",
+    "repair",
+    "concealment",
+    "special_actions"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "status": { "enum": ["candidate", "confirmed"] },
+    "evidence": { "type": "object" },
+    "capture": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/id" }
+    },
+    "elevated_vision": {
+      "description": "Unit kinds that receive a terrain vision_bonus. Kinds absent from this list ignore the bonus entirely. See spec/semantics/fog.md.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/id" }
+    },
+    "transport": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["capacity", "cargo"],
+        "properties": {
+          "capacity": { "type": "integer", "minimum": 1 },
+          "cargo": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "$ref": "common.schema.json#/$defs/id" }
+          }
+        }
+      }
+    },
+    "supply": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["trigger", "relation", "targets", "refill"],
+        "properties": {
+          "trigger": { "enum": ["start-of-turn"] },
+          "relation": { "enum": ["adjacent", "cargo"] },
+          "targets": { "enum": ["owned-units", "friendly-units"] },
+          "refill": { "const": ["fuel", "ammo"] }
+        }
+      }
+    },
+    "repair": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "relation", "targets", "exact_hp", "cost_percent", "also_refills"],
+        "properties": {
+          "command": { "$ref": "common.schema.json#/$defs/id" },
+          "relation": { "const": "adjacent" },
+          "targets": { "const": "friendly-units" },
+          "exact_hp": { "type": "integer", "minimum": 1 },
+          "cost_percent": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "also_refills": { "const": ["fuel", "ammo"] }
+        }
+      }
+    },
+    "concealment": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["mode", "enter_command", "exit_command"],
+        "properties": {
+          "mode": { "$ref": "common.schema.json#/$defs/id" },
+          "enter_command": { "$ref": "common.schema.json#/$defs/id" },
+          "exit_command": { "$ref": "common.schema.json#/$defs/id" }
+        }
+      }
+    },
+    "special_actions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": { "$ref": "common.schema.json#/$defs/id" }
+      }
+    }
+  }
+}

@@ -1,0 +1,402 @@
+{
+  "id": "combat-tile-fog-global-seam",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "combat-tile-target-v1",
+  "evidence": {
+    "confidence": "corroborated-implementation",
+    "note": "A pipe seam and its exact HP are visible to every team without an ordinary vision source; nonlethal damage projects globally."
+  },
+  "initial_state": {
+    "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+    "settings": {
+      "fog": true,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "enabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": { "lead": [], "backup": [] },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 7,
+      "height": 1,
+      "tiles": [
+        [
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "pipe-seam", "destructible_hp": 100 },
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "plain" }
+        ]
+      ]
+    },
+    "teams": [
+      { "id": "red-team", "status": "active" },
+      { "id": "blue-team", "status": "active" }
+    ],
+    "players": [
+      {
+        "id": "red",
+        "team": "red-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      },
+      {
+        "id": "blue",
+        "team": "blue-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      }
+    ],
+    "turn": {
+      "day": 1,
+      "active_player": "red",
+      "phase": "unit-action",
+      "order": ["red", "blue"],
+      "position": 0
+    },
+    "weather": { "kind": "clear", "remaining_turns": 0 },
+    "units": [
+      {
+        "id": 0,
+        "kind": "artillery",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 50,
+        "ammo": 9,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [0, 0] }
+      },
+      {
+        "id": 1,
+        "kind": "infantry",
+        "owner": "blue",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [6, 0] }
+      }
+    ],
+    "match": { "status": "active", "draw_offers": [] }
+  },
+  "initial_observations": {
+    "blue": {
+      "board": {
+        "height": 1,
+        "tiles": [
+          [
+            { "terrain": "plain", "visibility": "fogged" },
+            { "terrain": "plain", "visibility": "fogged" },
+            { "destructible_hp": 100, "terrain": "pipe-seam", "visibility": "visible" },
+            { "terrain": "plain", "visibility": "fogged" },
+            { "terrain": "plain", "visibility": "visible" },
+            { "terrain": "plain", "visibility": "visible" },
+            { "terrain": "plain", "visibility": "visible" }
+          ]
+        ],
+        "width": 7
+      },
+      "match": { "own_team_offers": [], "status": "active" },
+      "players": [
+        {
+          "commanders": [{ "active": true, "id": "neutral", "power_charge": 0 }],
+          "id": "red",
+          "power_state": { "type": "none" },
+          "relation": "opponent",
+          "status": "active",
+          "team": "red-team"
+        },
+        {
+          "commanders": [{ "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }],
+          "funds": 0,
+          "id": "blue",
+          "power_state": { "type": "none" },
+          "relation": "self",
+          "status": "active",
+          "team": "blue-team"
+        }
+      ],
+      "recipient": "blue",
+      "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+      "settings": {
+        "capture_limit": null,
+        "commander_bans": { "backup": [], "lead": [] },
+        "day_limit": null,
+        "fog": true,
+        "income_per_property": 1000,
+        "lab_units": [],
+        "powers": "enabled",
+        "starting_funds": 0,
+        "tags": false,
+        "unit_bans": [],
+        "unit_limit": null,
+        "weather": "clear"
+      },
+      "teams": [
+        { "id": "red-team", "status": "active" },
+        { "id": "blue-team", "status": "active" }
+      ],
+      "turn": {
+        "active_player": "red",
+        "day": 1,
+        "order": ["red", "blue"],
+        "phase": "unit-action",
+        "position": 0
+      },
+      "units": [
+        {
+          "action": "ready",
+          "ammo": 0,
+          "concealment": "exposed",
+          "fuel": 99,
+          "hp": 100,
+          "ref": { "type": "friendly", "unit": 1 },
+          "kind": "infantry",
+          "location": { "position": [6, 0], "type": "board" },
+          "owner": "blue"
+        }
+      ],
+      "weather": { "kind": "clear", "remaining_turns": 0 }
+    }
+  },
+  "steps": [
+    {
+      "id": "globally-visible-seam-is-attackable",
+      "command": {
+        "type": "move-attack",
+        "player": "red",
+        "unit": 0,
+        "path": [[0, 0]],
+        "target": { "type": "tile", "position": [2, 0] }
+      },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "board": {
+            "height": 1,
+            "tiles": [
+              [
+                { "terrain": "plain" },
+                { "terrain": "plain" },
+                { "destructible_hp": 60, "terrain": "pipe-seam" },
+                { "terrain": "plain" },
+                { "terrain": "plain" },
+                { "terrain": "plain" },
+                { "terrain": "plain" }
+              ]
+            ],
+            "width": 7
+          },
+          "match": { "draw_offers": [], "status": "active" },
+          "players": [
+            {
+              "commanders": [
+                { "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }
+              ],
+              "funds": 0,
+              "id": "red",
+              "power_state": { "type": "none" },
+              "status": "active",
+              "team": "red-team"
+            },
+            {
+              "commanders": [
+                { "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }
+              ],
+              "funds": 0,
+              "id": "blue",
+              "power_state": { "type": "none" },
+              "status": "active",
+              "team": "blue-team"
+            }
+          ],
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "capture_limit": null,
+            "commander_bans": { "backup": [], "lead": [] },
+            "day_limit": null,
+            "fog": true,
+            "income_per_property": 1000,
+            "lab_units": [],
+            "powers": "enabled",
+            "starting_funds": 0,
+            "tags": false,
+            "unit_bans": [],
+            "unit_limit": null,
+            "weather": "clear"
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "active" }
+          ],
+          "turn": {
+            "active_player": "red",
+            "day": 1,
+            "order": ["red", "blue"],
+            "phase": "unit-action",
+            "position": 0
+          },
+          "units": [
+            {
+              "action": "spent",
+              "ammo": 8,
+              "concealment": "exposed",
+              "fuel": 50,
+              "hp": 100,
+              "id": 0,
+              "kind": "artillery",
+              "location": { "position": [0, 0], "type": "board" },
+              "owner": "red"
+            },
+            {
+              "action": "ready",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 100,
+              "id": 1,
+              "kind": "infantry",
+              "location": { "position": [6, 0], "type": "board" },
+              "owner": "blue"
+            }
+          ],
+          "weather": { "kind": "clear", "remaining_turns": 0 }
+        },
+        "events": [
+          {
+            "ammo_after": 8,
+            "ammo_before": 9,
+            "fuel_after": 50,
+            "fuel_before": 50,
+            "reason": "combat",
+            "type": "unit-resourced",
+            "unit": 0
+          },
+          {
+            "attacker": 0,
+            "target": { "position": [2, 0], "type": "tile" },
+            "type": "attack-resolved",
+            "weapon": "ammo"
+          },
+          { "from_hp": 100, "position": [2, 0], "to_hp": 60, "type": "destructible-damaged" },
+          {
+            "from": "ready",
+            "reason": "attack",
+            "to": "spent",
+            "type": "unit-action-changed",
+            "unit": 0
+          }
+        ],
+        "random_consumed": 0,
+        "observations": {
+          "blue": {
+            "board": {
+              "height": 1,
+              "tiles": [
+                [
+                  { "terrain": "plain", "visibility": "fogged" },
+                  { "terrain": "plain", "visibility": "fogged" },
+                  { "destructible_hp": 60, "terrain": "pipe-seam", "visibility": "visible" },
+                  { "terrain": "plain", "visibility": "fogged" },
+                  { "terrain": "plain", "visibility": "visible" },
+                  { "terrain": "plain", "visibility": "visible" },
+                  { "terrain": "plain", "visibility": "visible" }
+                ]
+              ],
+              "width": 7
+            },
+            "match": { "own_team_offers": [], "status": "active" },
+            "players": [
+              {
+                "commanders": [{ "active": true, "id": "neutral", "power_charge": 0 }],
+                "id": "red",
+                "power_state": { "type": "none" },
+                "relation": "opponent",
+                "status": "active",
+                "team": "red-team"
+              },
+              {
+                "commanders": [
+                  { "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }
+                ],
+                "funds": 0,
+                "id": "blue",
+                "power_state": { "type": "none" },
+                "relation": "self",
+                "status": "active",
+                "team": "blue-team"
+              }
+            ],
+            "recipient": "blue",
+            "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+            "settings": {
+              "capture_limit": null,
+              "commander_bans": { "backup": [], "lead": [] },
+              "day_limit": null,
+              "fog": true,
+              "income_per_property": 1000,
+              "lab_units": [],
+              "powers": "enabled",
+              "starting_funds": 0,
+              "tags": false,
+              "unit_bans": [],
+              "unit_limit": null,
+              "weather": "clear"
+            },
+            "teams": [
+              { "id": "red-team", "status": "active" },
+              { "id": "blue-team", "status": "active" }
+            ],
+            "turn": {
+              "active_player": "red",
+              "day": 1,
+              "order": ["red", "blue"],
+              "phase": "unit-action",
+              "position": 0
+            },
+            "units": [
+              {
+                "action": "ready",
+                "ammo": 0,
+                "concealment": "exposed",
+                "fuel": 99,
+                "hp": 100,
+                "ref": { "type": "friendly", "unit": 1 },
+                "kind": "infantry",
+                "location": { "position": [6, 0], "type": "board" },
+                "owner": "blue"
+              }
+            ],
+            "weather": { "kind": "clear", "remaining_turns": 0 }
+          }
+        },
+        "observed_events": {
+          "blue": [
+            {
+              "position": [2, 0],
+              "reason": "destructible-damaged",
+              "tile": { "destructible_hp": 60, "terrain": "pipe-seam", "visibility": "visible" },
+              "type": "tile-changed"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

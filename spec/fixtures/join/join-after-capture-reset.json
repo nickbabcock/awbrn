@@ -1,0 +1,167 @@
+{
+  "id": "join-after-capture-reset",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "join-v1.move-join.capture-reset-on-move-away",
+  "evidence": { "confidence": "corroborated-implementation" },
+  "initial_state": {
+    "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+    "settings": {
+      "fog": false,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "disabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": { "lead": [], "backup": [] },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 2,
+      "height": 1,
+      "tiles": [
+        [{ "terrain": "city", "owner": null, "capture_points": 12 }, { "terrain": "plain" }]
+      ]
+    },
+    "teams": [{ "id": "red-team", "status": "active" }],
+    "players": [
+      {
+        "id": "red",
+        "team": "red-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "andy", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      }
+    ],
+    "turn": {
+      "day": 1,
+      "active_player": "red",
+      "phase": "unit-action",
+      "order": ["red"],
+      "position": 0
+    },
+    "weather": { "kind": "clear", "remaining_turns": 0 },
+    "units": [
+      {
+        "id": 0,
+        "kind": "infantry",
+        "owner": "red",
+        "hp": 30,
+        "fuel": 50,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [0, 0] }
+      },
+      {
+        "id": 1,
+        "kind": "infantry",
+        "owner": "red",
+        "hp": 40,
+        "fuel": 20,
+        "ammo": 0,
+        "action": "spent",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [1, 0] }
+      }
+    ],
+    "match": { "status": "active", "draw_offers": [] }
+  },
+  "steps": [
+    {
+      "id": "capturer-moves-off-property-then-joins",
+      "command": {
+        "type": "move-join",
+        "player": "red",
+        "unit": 0,
+        "path": [
+          [0, 0],
+          [1, 0]
+        ],
+        "target": 1
+      },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "fog": false,
+            "income_per_property": 1000,
+            "starting_funds": 0,
+            "powers": "disabled",
+            "tags": false,
+            "weather": "clear",
+            "lab_units": [],
+            "unit_bans": [],
+            "commander_bans": { "lead": [], "backup": [] },
+            "capture_limit": null,
+            "day_limit": null,
+            "unit_limit": null
+          },
+          "board": {
+            "width": 2,
+            "height": 1,
+            "tiles": [
+              [{ "terrain": "city", "owner": null, "capture_points": 20 }, { "terrain": "plain" }]
+            ]
+          },
+          "teams": [{ "id": "red-team", "status": "active" }],
+          "players": [
+            {
+              "id": "red",
+              "team": "red-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [{ "id": "andy", "active": true, "power_charge": 0, "power_uses": 0 }],
+              "power_state": { "type": "none" }
+            }
+          ],
+          "turn": {
+            "day": 1,
+            "active_player": "red",
+            "phase": "unit-action",
+            "order": ["red"],
+            "position": 0
+          },
+          "weather": { "kind": "clear", "remaining_turns": 0 },
+          "units": [
+            {
+              "id": 1,
+              "kind": "infantry",
+              "owner": "red",
+              "hp": 70,
+              "fuel": 69,
+              "ammo": 0,
+              "action": "spent",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [1, 0] }
+            }
+          ],
+          "match": { "status": "active", "draw_offers": [] }
+        },
+        "events": [
+          { "type": "capture-changed", "position": [0, 0], "from": 12, "to": 20 },
+          {
+            "type": "unit-moved",
+            "unit": 0,
+            "from": [0, 0],
+            "to": [1, 0],
+            "path": [
+              [0, 0],
+              [1, 0]
+            ],
+            "fuel_spent": 1
+          },
+          { "type": "units-joined", "source": 0, "target": 1 }
+        ],
+        "random_consumed": 0
+      }
+    }
+  ]
+}

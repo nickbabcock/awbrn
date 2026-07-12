@@ -1,0 +1,207 @@
+{
+  "id": "round-boundary-day-advance",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "turn-boundary-v1.end-turn.round-boundary",
+  "evidence": { "confidence": "corroborated-implementation" },
+  "initial_state": {
+    "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+    "settings": {
+      "fog": false,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "disabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": { "lead": [], "backup": [] },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 4,
+      "height": 1,
+      "tiles": [
+        [
+          { "terrain": "city", "owner": "red", "capture_points": 20 },
+          { "terrain": "plain" },
+          { "terrain": "city", "owner": "blue", "capture_points": 20 },
+          { "terrain": "plain" }
+        ]
+      ]
+    },
+    "teams": [
+      { "id": "red-team", "status": "active" },
+      { "id": "blue-team", "status": "active" }
+    ],
+    "players": [
+      {
+        "id": "red",
+        "team": "red-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "andy", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      },
+      {
+        "id": "blue",
+        "team": "blue-team",
+        "funds": 500,
+        "status": "active",
+        "commanders": [{ "id": "olaf", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      }
+    ],
+    "turn": {
+      "day": 1,
+      "active_player": "blue",
+      "phase": "unit-action",
+      "order": ["red", "blue"],
+      "position": 1
+    },
+    "weather": { "kind": "clear", "remaining_turns": 0 },
+    "units": [
+      {
+        "id": 0,
+        "kind": "infantry",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "spent",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [1, 0] }
+      },
+      {
+        "id": 1,
+        "kind": "infantry",
+        "owner": "blue",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "spent",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [3, 0] }
+      }
+    ],
+    "match": { "status": "active", "draw_offers": [] }
+  },
+  "steps": [
+    {
+      "id": "blue-ends-turn-day-advances-to-red",
+      "command": { "type": "end-turn", "player": "blue" },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "fog": false,
+            "income_per_property": 1000,
+            "starting_funds": 0,
+            "powers": "disabled",
+            "tags": false,
+            "weather": "clear",
+            "lab_units": [],
+            "unit_bans": [],
+            "commander_bans": { "lead": [], "backup": [] },
+            "capture_limit": null,
+            "day_limit": null,
+            "unit_limit": null
+          },
+          "board": {
+            "width": 4,
+            "height": 1,
+            "tiles": [
+              [
+                { "terrain": "city", "owner": "red", "capture_points": 20 },
+                { "terrain": "plain" },
+                { "terrain": "city", "owner": "blue", "capture_points": 20 },
+                { "terrain": "plain" }
+              ]
+            ]
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "active" }
+          ],
+          "players": [
+            {
+              "id": "red",
+              "team": "red-team",
+              "funds": 1000,
+              "status": "active",
+              "commanders": [{ "id": "andy", "active": true, "power_charge": 0, "power_uses": 0 }],
+              "power_state": { "type": "none" }
+            },
+            {
+              "id": "blue",
+              "team": "blue-team",
+              "funds": 500,
+              "status": "active",
+              "commanders": [{ "id": "olaf", "active": true, "power_charge": 0, "power_uses": 0 }],
+              "power_state": { "type": "none" }
+            }
+          ],
+          "turn": {
+            "day": 2,
+            "active_player": "red",
+            "phase": "unit-action",
+            "order": ["red", "blue"],
+            "position": 0
+          },
+          "weather": { "kind": "clear", "remaining_turns": 0 },
+          "units": [
+            {
+              "id": 0,
+              "kind": "infantry",
+              "owner": "red",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [1, 0] }
+            },
+            {
+              "id": 1,
+              "kind": "infantry",
+              "owner": "blue",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "spent",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [3, 0] }
+            }
+          ],
+          "match": { "status": "active", "draw_offers": [] }
+        },
+        "events": [
+          { "type": "phase-changed", "player": "blue", "from": "unit-action", "to": "turn-end" },
+          { "type": "day-advanced", "from": 1, "to": 2 },
+          { "type": "turn-selected", "player": "red", "position": 0 },
+          { "type": "phase-changed", "player": "red", "from": "turn-end", "to": "turn-start" },
+          {
+            "type": "funds-changed",
+            "player": "red",
+            "from": 0,
+            "to": 1000,
+            "reason": "turn-start-income"
+          },
+          {
+            "type": "unit-action-changed",
+            "unit": 0,
+            "from": "spent",
+            "to": "ready",
+            "reason": "turn-start"
+          },
+          { "type": "phase-changed", "player": "red", "from": "turn-start", "to": "unit-action" }
+        ],
+        "random_consumed": 0
+      }
+    }
+  ]
+}

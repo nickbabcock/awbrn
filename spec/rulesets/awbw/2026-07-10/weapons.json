@@ -1,0 +1,578 @@
+{
+  "$schema": "../../../schema/weapons.schema.json",
+  "status": "confirmed",
+  "evidence": {
+    "confidence": "documentation-only",
+    "note": "Damage values follow the canonical AWBW chart. Implementations corroborate ammo/unlimited classification and Replay Player corroborates unlimited-weapon capability."
+  },
+  "selection": { "order": ["ammo", "unlimited"], "requires_available_ammo": true },
+  "units": {
+    "anti-air": {
+      "ammo": {
+        "ammo_cost": 1,
+        "damage": {
+          "anti-air": 45,
+          "apc": 50,
+          "artillery": 50,
+          "b-copter": 120,
+          "black-bomb": 120,
+          "bomber": 75,
+          "fighter": 65,
+          "infantry": 105,
+          "md-tank": 10,
+          "mech": 105,
+          "mega-tank": 1,
+          "missile": 55,
+          "neo-tank": 5,
+          "piperunner": 25,
+          "recon": 60,
+          "rocket": 55,
+          "stealth": 75,
+          "t-copter": 120,
+          "tank": 25
+        }
+      }
+    },
+    "apc": {},
+    "artillery": {
+      "ammo": {
+        "ammo_cost": 1,
+        "damage": {
+          "anti-air": 75,
+          "apc": 70,
+          "artillery": 75,
+          "battleship": 40,
+          "black-boat": 55,
+          "carrier": 45,
+          "cruiser": 65,
+          "infantry": 90,
+          "lander": 55,
+          "md-tank": 45,
+          "mech": 85,
+          "mega-tank": 15,
+          "missile": 80,
+          "neo-tank": 40,
+          "piperunner": 70,
+          "recon": 80,
+          "rocket": 80,
+          "sub": 60,
+          "tank": 70
+        }
+      }
+    },
+    "b-copter": {
+      "ammo": {
+        "ammo_cost": 1,
+        "damage": {
+          "anti-air": 25,
+          "apc": 60,
+          "artillery": 65,
+          "battleship": 25,
+          "black-boat": 25,
+          "carrier": 25,
+          "cruiser": 55,
+          "lander": 25,
+          "md-tank": 25,
+          "mega-tank": 10,
+          "missile": 65,
+          "neo-tank": 20,
+          "piperunner": 55,
+          "recon": 55,
+          "rocket": 65,
+          "sub": 25,
+          "tank": 55
+        }
+      },
+      "unlimited": {
+        "ammo_cost": 0,
+        "damage": {
+          "anti-air": 6,
+          "apc": 20,
+          "artillery": 25,
+          "b-copter": 65,
+          "infantry": 75,
+          "md-tank": 1,
+          "mech": 75,
+          "mega-tank": 1,
+          "missile": 35,
+          "neo-tank": 1,
+          "piperunner": 6,
+          "recon": 30,
+          "rocket": 35,
+          "t-copter": 95,
+          "tank": 6
+        }
+      }
+    },
+    "battleship": {
+      "ammo": {
+        "ammo_cost": 1,
+        "damage": {
+          "anti-air": 85,
+          "apc": 80,
+          "artillery": 80,
+          "battleship": 50,
+          "black-boat": 95,
+          "carrier": 60,
+          "cruiser": 95,
+          "infantry": 95,
+          "lander": 95,
+          "md-tank": 55,
+          "mech": 90,
+          "mega-tank": 25,
+          "missile": 90,
+          "neo-tank": 50,
+          "piperunner": 80,
+          "recon": 90,
+          "rocket": 85,
+          "sub": 95,
+          "tank": 80
+        }
+      }
+    },
+    "black-boat": {},
+    "black-bomb": {},
+    "bomber": {
+      "ammo": {
+        "ammo_cost": 1,
+        "damage": {
+          "anti-air": 95,
+          "apc": 105,
+          "artillery": 105,
+          "battleship": 75,
+          "black-boat": 95,
+          "carrier": 75,
+          "cruiser": 85,
+          "infantry": 110,
+          "lander": 95,
+          "md-tank": 95,
+          "mech": 110,
+          "mega-tank": 35,
+          "missile": 105,
+          "neo-tank": 90,
+          "piperunner": 105,
+          "recon": 105,
+          "rocket": 105,
+          "sub": 95,
+          "tank": 105
+        }
+      }
+    },
+    "carrier": {
+      "ammo": {
+        "ammo_cost": 1,
+        "damage": {
+          "b-copter": 115,
+          "black-bomb": 120,
+          "bomber": 100,
+          "fighter": 100,
+          "stealth": 100,
+          "t-copter": 115
+        }
+      }
+    },
+    "cruiser": {
+      "ammo": { "ammo_cost": 1, "damage": { "black-boat": 25, "carrier": 5, "sub": 90 } },
+      "unlimited": {
+        "ammo_cost": 0,
+        "damage": {
+          "b-copter": 115,
+          "black-bomb": 120,
+          "bomber": 65,
+          "fighter": 55,
+          "stealth": 100,
+          "t-copter": 115
+        }
+      }
+    },
+    "fighter": {
+      "ammo": {
+        "ammo_cost": 1,
+        "damage": {
+          "b-copter": 100,
+          "black-bomb": 120,
+          "bomber": 100,
+          "fighter": 55,
+          "stealth": 85,
+          "t-copter": 100
+        }
+      }
+    },
+    "infantry": {
+      "unlimited": {
+        "ammo_cost": 0,
+        "damage": {
+          "anti-air": 5,
+          "apc": 14,
+          "artillery": 15,
+          "b-copter": 7,
+          "infantry": 55,
+          "md-tank": 1,
+          "mech": 45,
+          "mega-tank": 1,
+          "missile": 25,
+          "neo-tank": 1,
+          "piperunner": 5,
+          "recon": 12,
+          "rocket": 25,
+          "t-copter": 30,
+          "tank": 5
+        }
+      }
+    },
+    "lander": {},
+    "md-tank": {
+      "ammo": {
+        "ammo_cost": 1,
+        "damage": {
+          "anti-air": 105,
+          "apc": 105,
+          "artillery": 105,
+          "battleship": 10,
+          "black-boat": 35,
+          "carrier": 10,
+          "cruiser": 45,
+          "lander": 35,
+          "md-tank": 55,
+          "mega-tank": 25,
+          "missile": 105,
+          "neo-tank": 45,
+          "piperunner": 85,
+          "recon": 105,
+          "rocket": 105,
+          "sub": 10,
+          "tank": 85
+        }
+      },
+      "unlimited": {
+        "ammo_cost": 0,
+        "damage": {
+          "anti-air": 7,
+          "apc": 45,
+          "artillery": 45,
+          "b-copter": 12,
+          "infantry": 105,
+          "md-tank": 1,
+          "mech": 95,
+          "mega-tank": 1,
+          "missile": 35,
+          "neo-tank": 1,
+          "piperunner": 7,
+          "recon": 45,
+          "rocket": 55,
+          "t-copter": 45,
+          "tank": 8
+        }
+      }
+    },
+    "mech": {
+      "ammo": {
+        "ammo_cost": 1,
+        "damage": {
+          "anti-air": 65,
+          "apc": 75,
+          "artillery": 70,
+          "md-tank": 15,
+          "mega-tank": 5,
+          "missile": 85,
+          "neo-tank": 15,
+          "piperunner": 55,
+          "recon": 85,
+          "rocket": 85,
+          "tank": 55
+        }
+      },
+      "unlimited": {
+        "ammo_cost": 0,
+        "damage": {
+          "anti-air": 6,
+          "apc": 20,
+          "artillery": 32,
+          "b-copter": 9,
+          "infantry": 65,
+          "md-tank": 1,
+          "mech": 55,
+          "mega-tank": 1,
+          "missile": 35,
+          "neo-tank": 1,
+          "piperunner": 6,
+          "recon": 18,
+          "rocket": 35,
+          "t-copter": 35,
+          "tank": 6
+        }
+      }
+    },
+    "mega-tank": {
+      "ammo": {
+        "ammo_cost": 1,
+        "damage": {
+          "anti-air": 195,
+          "apc": 195,
+          "artillery": 195,
+          "battleship": 45,
+          "black-boat": 105,
+          "carrier": 45,
+          "cruiser": 65,
+          "lander": 75,
+          "md-tank": 125,
+          "mega-tank": 65,
+          "missile": 195,
+          "neo-tank": 115,
+          "piperunner": 180,
+          "recon": 195,
+          "rocket": 195,
+          "sub": 45,
+          "tank": 180
+        }
+      },
+      "unlimited": {
+        "ammo_cost": 0,
+        "damage": {
+          "anti-air": 17,
+          "apc": 65,
+          "artillery": 65,
+          "b-copter": 22,
+          "infantry": 135,
+          "md-tank": 1,
+          "mech": 125,
+          "mega-tank": 1,
+          "missile": 55,
+          "neo-tank": 1,
+          "piperunner": 17,
+          "recon": 65,
+          "rocket": 75,
+          "t-copter": 55,
+          "tank": 10
+        }
+      }
+    },
+    "missile": {
+      "ammo": {
+        "ammo_cost": 1,
+        "damage": {
+          "b-copter": 120,
+          "black-bomb": 120,
+          "bomber": 100,
+          "fighter": 100,
+          "stealth": 100,
+          "t-copter": 120
+        }
+      }
+    },
+    "neo-tank": {
+      "ammo": {
+        "ammo_cost": 1,
+        "damage": {
+          "anti-air": 115,
+          "apc": 125,
+          "artillery": 115,
+          "battleship": 15,
+          "black-boat": 40,
+          "carrier": 15,
+          "cruiser": 50,
+          "lander": 40,
+          "md-tank": 75,
+          "mega-tank": 35,
+          "missile": 125,
+          "neo-tank": 55,
+          "piperunner": 105,
+          "recon": 125,
+          "rocket": 125,
+          "sub": 15,
+          "tank": 105
+        }
+      },
+      "unlimited": {
+        "ammo_cost": 0,
+        "damage": {
+          "anti-air": 17,
+          "apc": 65,
+          "artillery": 65,
+          "b-copter": 22,
+          "infantry": 125,
+          "md-tank": 1,
+          "mech": 115,
+          "mega-tank": 1,
+          "missile": 55,
+          "neo-tank": 1,
+          "piperunner": 17,
+          "recon": 65,
+          "rocket": 75,
+          "t-copter": 55,
+          "tank": 10
+        }
+      }
+    },
+    "piperunner": {
+      "ammo": {
+        "ammo_cost": 1,
+        "damage": {
+          "anti-air": 85,
+          "apc": 80,
+          "artillery": 80,
+          "b-copter": 105,
+          "battleship": 55,
+          "black-boat": 60,
+          "black-bomb": 120,
+          "bomber": 75,
+          "carrier": 60,
+          "cruiser": 60,
+          "fighter": 65,
+          "infantry": 95,
+          "lander": 60,
+          "md-tank": 55,
+          "mech": 90,
+          "mega-tank": 25,
+          "missile": 90,
+          "neo-tank": 50,
+          "piperunner": 80,
+          "recon": 90,
+          "rocket": 85,
+          "stealth": 75,
+          "sub": 85,
+          "t-copter": 105,
+          "tank": 80
+        }
+      }
+    },
+    "recon": {
+      "unlimited": {
+        "ammo_cost": 0,
+        "damage": {
+          "anti-air": 4,
+          "apc": 45,
+          "artillery": 45,
+          "b-copter": 10,
+          "infantry": 70,
+          "md-tank": 1,
+          "mech": 65,
+          "mega-tank": 1,
+          "missile": 28,
+          "neo-tank": 1,
+          "piperunner": 6,
+          "recon": 35,
+          "rocket": 55,
+          "t-copter": 35,
+          "tank": 6
+        }
+      }
+    },
+    "rocket": {
+      "ammo": {
+        "ammo_cost": 1,
+        "damage": {
+          "anti-air": 85,
+          "apc": 80,
+          "artillery": 80,
+          "battleship": 55,
+          "black-boat": 60,
+          "carrier": 60,
+          "cruiser": 85,
+          "infantry": 95,
+          "lander": 60,
+          "md-tank": 55,
+          "mech": 90,
+          "mega-tank": 25,
+          "missile": 90,
+          "neo-tank": 50,
+          "piperunner": 80,
+          "recon": 90,
+          "rocket": 85,
+          "sub": 85,
+          "tank": 80
+        }
+      }
+    },
+    "stealth": {
+      "ammo": {
+        "ammo_cost": 1,
+        "damage": {
+          "anti-air": 50,
+          "apc": 85,
+          "artillery": 75,
+          "b-copter": 85,
+          "battleship": 45,
+          "black-boat": 65,
+          "black-bomb": 120,
+          "bomber": 70,
+          "carrier": 45,
+          "cruiser": 35,
+          "fighter": 45,
+          "infantry": 90,
+          "lander": 65,
+          "md-tank": 70,
+          "mech": 90,
+          "mega-tank": 15,
+          "missile": 85,
+          "neo-tank": 60,
+          "piperunner": 80,
+          "recon": 85,
+          "rocket": 85,
+          "stealth": 55,
+          "sub": 55,
+          "t-copter": 95,
+          "tank": 75
+        }
+      }
+    },
+    "sub": {
+      "ammo": {
+        "ammo_cost": 1,
+        "damage": {
+          "battleship": 55,
+          "black-boat": 95,
+          "carrier": 75,
+          "cruiser": 25,
+          "lander": 95,
+          "sub": 55
+        }
+      }
+    },
+    "t-copter": {},
+    "tank": {
+      "ammo": {
+        "ammo_cost": 1,
+        "damage": {
+          "anti-air": 65,
+          "apc": 75,
+          "artillery": 70,
+          "battleship": 1,
+          "black-boat": 10,
+          "carrier": 1,
+          "cruiser": 5,
+          "lander": 10,
+          "md-tank": 15,
+          "mega-tank": 10,
+          "missile": 85,
+          "neo-tank": 15,
+          "piperunner": 55,
+          "recon": 85,
+          "rocket": 85,
+          "sub": 1,
+          "tank": 55
+        }
+      },
+      "unlimited": {
+        "ammo_cost": 0,
+        "damage": {
+          "anti-air": 5,
+          "apc": 45,
+          "artillery": 45,
+          "b-copter": 10,
+          "infantry": 75,
+          "md-tank": 1,
+          "mech": 70,
+          "mega-tank": 1,
+          "missile": 30,
+          "neo-tank": 1,
+          "piperunner": 6,
+          "recon": 40,
+          "rocket": 55,
+          "t-copter": 40,
+          "tank": 6
+        }
+      }
+    }
+  }
+}

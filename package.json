@@ -5,13 +5,14 @@
   "type": "module",
   "scripts": {
     "generate:web-key-codes": "node scripts/generate-web-key-codes.ts",
-    "format": "oxfmt web",
-    "format:check": "oxfmt --check web",
+    "format": "oxfmt web spec/fixtures spec/schema spec/rulesets",
+    "format:check": "oxfmt --check web spec/fixtures spec/schema spec/rulesets",
     "lint": "oxlint",
     "typecheck": "tsc --build"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "ajv": "8.17.1",
     "oxfmt": "0.41.0",
     "oxlint": "1.41.0",
     "typescript": "catalog:"

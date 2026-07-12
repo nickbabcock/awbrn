@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/movement-costs.schema.json",
+  "title": "AWVM movement-cost table",
+  "$defs": {
+    "costs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["foot", "boot", "treads", "tires", "air", "sea", "lander", "pipe"],
+      "properties": {
+        "foot": { "type": ["integer", "null"], "minimum": 0 },
+        "boot": { "type": ["integer", "null"], "minimum": 0 },
+        "treads": { "type": ["integer", "null"], "minimum": 0 },
+        "tires": { "type": ["integer", "null"], "minimum": 0 },
+        "air": { "type": ["integer", "null"], "minimum": 0 },
+        "sea": { "type": ["integer", "null"], "minimum": 0 },
+        "lander": { "type": ["integer", "null"], "minimum": 0 },
+        "pipe": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "weather": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clear", "rain", "snow"],
+      "properties": {
+        "clear": { "$ref": "#/$defs/costs" },
+        "rain": { "$ref": "#/$defs/costs" },
+        "snow": { "$ref": "#/$defs/costs" }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "evidence", "weather", "movement_classes", "terrains"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "status": { "enum": ["candidate", "confirmed"] },
+    "evidence": { "type": "object" },
+    "weather": { "const": ["clear", "rain", "snow"] },
+    "movement_classes": {
+      "const": ["foot", "boot", "treads", "tires", "air", "sea", "lander", "pipe"]
+    },
+    "terrains": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/weather" }
+    }
+  }
+}

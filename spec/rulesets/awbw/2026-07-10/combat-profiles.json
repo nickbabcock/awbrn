@@ -1,0 +1,32 @@
+{
+  "$schema": "../../../schema/combat-profiles.schema.json",
+  "status": "candidate",
+  "evidence": { "confidence": "corroborated-implementation" },
+  "units": {
+    "anti-air": { "fire_mode": "direct", "weapon_policy": "ammo" },
+    "apc": { "fire_mode": "none", "weapon_policy": "none" },
+    "artillery": { "fire_mode": "indirect", "weapon_policy": "ammo" },
+    "b-copter": { "fire_mode": "direct", "weapon_policy": "ammo-with-unlimited" },
+    "battleship": { "fire_mode": "indirect", "weapon_policy": "ammo" },
+    "black-boat": { "fire_mode": "none", "weapon_policy": "none" },
+    "black-bomb": { "fire_mode": "none", "weapon_policy": "none" },
+    "bomber": { "fire_mode": "direct", "weapon_policy": "ammo" },
+    "carrier": { "fire_mode": "indirect", "weapon_policy": "ammo" },
+    "cruiser": { "fire_mode": "direct", "weapon_policy": "ammo" },
+    "fighter": { "fire_mode": "direct", "weapon_policy": "ammo" },
+    "infantry": { "fire_mode": "direct", "weapon_policy": "unlimited" },
+    "lander": { "fire_mode": "none", "weapon_policy": "none" },
+    "md-tank": { "fire_mode": "direct", "weapon_policy": "ammo-with-unlimited" },
+    "mech": { "fire_mode": "direct", "weapon_policy": "ammo-with-unlimited" },
+    "mega-tank": { "fire_mode": "direct", "weapon_policy": "ammo-with-unlimited" },
+    "missile": { "fire_mode": "indirect", "weapon_policy": "ammo" },
+    "neo-tank": { "fire_mode": "direct", "weapon_policy": "ammo-with-unlimited" },
+    "piperunner": { "fire_mode": "indirect", "weapon_policy": "ammo-with-unlimited" },
+    "recon": { "fire_mode": "direct", "weapon_policy": "unlimited" },
+    "rocket": { "fire_mode": "indirect", "weapon_policy": "ammo" },
+    "stealth": { "fire_mode": "direct", "weapon_policy": "ammo" },
+    "sub": { "fire_mode": "direct", "weapon_policy": "ammo" },
+    "t-copter": { "fire_mode": "none", "weapon_policy": "none" },
+    "tank": { "fire_mode": "direct", "weapon_policy": "ammo-with-unlimited" }
+  }
+}

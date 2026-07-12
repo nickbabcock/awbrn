@@ -1,0 +1,279 @@
+{
+  "id": "fog-source-maximum-and-air-over-woods",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "fog-observation-v1.observe.source-maximum-and-air-over-woods",
+  "evidence": {
+    "confidence": "documentation-only",
+    "note": "The allied Infantry contributes full adjacent vision to the first woods tile, overriding the Recon's distant air-only contribution and revealing the Tank. The second woods tile remains fogged at range, but its exposed Bomber is visible."
+  },
+  "initial_state": {
+    "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+    "settings": {
+      "fog": true,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "disabled",
+      "tags": false,
+      "weather": "rain",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": { "lead": [], "backup": [] },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 5,
+      "height": 2,
+      "tiles": [
+        [
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "wood" },
+          { "terrain": "plain" },
+          { "terrain": "wood" }
+        ],
+        [
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "plain" }
+        ]
+      ]
+    },
+    "teams": [
+      { "id": "t1", "status": "active" },
+      { "id": "t2", "status": "active" }
+    ],
+    "players": [
+      {
+        "id": "p1",
+        "team": "t1",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "andy", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      },
+      {
+        "id": "ally",
+        "team": "t1",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "andy", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      },
+      {
+        "id": "enemy",
+        "team": "t2",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "andy", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      }
+    ],
+    "turn": {
+      "day": 1,
+      "active_player": "p1",
+      "phase": "unit-action",
+      "order": ["p1", "ally", "enemy"],
+      "position": 0
+    },
+    "weather": { "kind": "rain", "remaining_turns": 0 },
+    "units": [
+      {
+        "id": 0,
+        "kind": "infantry",
+        "owner": "ally",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [2, 1] }
+      },
+      {
+        "id": 1,
+        "kind": "recon",
+        "owner": "p1",
+        "hp": 100,
+        "fuel": 80,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [0, 0] }
+      },
+      {
+        "id": 2,
+        "kind": "tank",
+        "owner": "enemy",
+        "hp": 100,
+        "fuel": 70,
+        "ammo": 9,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [2, 0] }
+      },
+      {
+        "id": 3,
+        "kind": "bomber",
+        "owner": "enemy",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 9,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [4, 0] }
+      }
+    ],
+    "match": { "status": "active", "draw_offers": [] }
+  },
+  "initial_observations": {
+    "p1": {
+      "recipient": "p1",
+      "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+      "settings": {
+        "fog": true,
+        "income_per_property": 1000,
+        "starting_funds": 0,
+        "powers": "disabled",
+        "tags": false,
+        "weather": "rain",
+        "lab_units": [],
+        "unit_bans": [],
+        "commander_bans": { "lead": [], "backup": [] },
+        "capture_limit": null,
+        "day_limit": null,
+        "unit_limit": null
+      },
+      "board": {
+        "width": 5,
+        "height": 2,
+        "tiles": [
+          [
+            { "terrain": "plain", "visibility": "visible" },
+            { "terrain": "plain", "visibility": "visible" },
+            { "terrain": "wood", "visibility": "visible" },
+            { "terrain": "plain", "visibility": "visible" },
+            { "terrain": "wood", "visibility": "fogged" }
+          ],
+          [
+            { "terrain": "plain", "visibility": "visible" },
+            { "terrain": "plain", "visibility": "visible" },
+            { "terrain": "plain", "visibility": "visible" },
+            { "terrain": "plain", "visibility": "visible" },
+            { "terrain": "plain", "visibility": "fogged" }
+          ]
+        ]
+      },
+      "teams": [
+        { "id": "t1", "status": "active" },
+        { "id": "t2", "status": "active" }
+      ],
+      "players": [
+        {
+          "id": "p1",
+          "team": "t1",
+          "relation": "self",
+          "funds": 0,
+          "status": "active",
+          "commanders": [{ "id": "andy", "active": true, "power_charge": 0, "power_uses": 0 }],
+          "power_state": { "type": "none" }
+        },
+        {
+          "id": "ally",
+          "team": "t1",
+          "relation": "ally",
+          "funds": 0,
+          "status": "active",
+          "commanders": [{ "id": "andy", "active": true, "power_charge": 0, "power_uses": 0 }],
+          "power_state": { "type": "none" }
+        },
+        {
+          "id": "enemy",
+          "team": "t2",
+          "relation": "opponent",
+          "status": "active",
+          "commanders": [{ "id": "andy", "active": true, "power_charge": 0 }],
+          "power_state": { "type": "none" }
+        }
+      ],
+      "turn": {
+        "day": 1,
+        "active_player": "p1",
+        "phase": "unit-action",
+        "order": ["p1", "ally", "enemy"],
+        "position": 0
+      },
+      "weather": { "kind": "rain", "remaining_turns": 0 },
+      "units": [
+        {
+          "ref": { "type": "friendly", "unit": 0 },
+          "kind": "infantry",
+          "owner": "ally",
+          "hp": 100,
+          "fuel": 99,
+          "ammo": 0,
+          "action": "ready",
+          "concealment": "exposed",
+          "location": { "type": "board", "position": [2, 1] }
+        },
+        {
+          "ref": { "type": "friendly", "unit": 1 },
+          "kind": "recon",
+          "owner": "p1",
+          "hp": 100,
+          "fuel": 80,
+          "ammo": 0,
+          "action": "ready",
+          "concealment": "exposed",
+          "location": { "type": "board", "position": [0, 0] }
+        },
+        {
+          "ref": { "type": "enemy", "position": [2, 0] },
+          "kind": "tank",
+          "owner": "enemy",
+          "hp": 100,
+          "fuel": 70,
+          "ammo": 9,
+          "action": "ready",
+          "concealment": "exposed",
+          "location": { "type": "board", "position": [2, 0] }
+        },
+        {
+          "ref": { "type": "enemy", "position": [4, 0] },
+          "kind": "bomber",
+          "owner": "enemy",
+          "hp": 100,
+          "fuel": 99,
+          "ammo": 9,
+          "action": "ready",
+          "concealment": "exposed",
+          "location": { "type": "board", "position": [4, 0] }
+        }
+      ],
+      "match": { "status": "active", "own_team_offers": [] }
+    }
+  },
+  "steps": [
+    {
+      "id": "reject-repeated-position",
+      "command": {
+        "type": "move-wait",
+        "player": "p1",
+        "unit": 1,
+        "path": [
+          [0, 0],
+          [0, 0]
+        ]
+      },
+      "random": [],
+      "expect": {
+        "status": "rejected",
+        "violation": { "code": "PATH_NON_ADJACENT", "index": 1, "from": [0, 0], "to": [0, 0] },
+        "random_consumed": 0
+      }
+    }
+  ]
+}

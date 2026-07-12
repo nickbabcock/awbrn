@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/commander-combat.schema.json",
+  "title": "AWVM commander combat operators",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "feature", "generic_power_bonus", "commanders"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "status": { "enum": ["partial", "complete"] },
+    "feature": { "$ref": "common.schema.json#/$defs/id" },
+    "generic_power_bonus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cop", "scop"],
+      "properties": { "cop": { "$ref": "#/$defs/bonus" }, "scop": { "$ref": "#/$defs/bonus" } }
+    },
+    "commanders": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/commander" }
+    }
+  },
+  "$defs": {
+    "percent": { "type": "integer", "minimum": -1000, "maximum": 1000 },
+    "bonus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attack", "defense"],
+      "properties": {
+        "attack": { "$ref": "#/$defs/percent" },
+        "defense": { "$ref": "#/$defs/percent" }
+      }
+    },
+    "domain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum", "maximum"],
+      "properties": {
+        "minimum": { "type": "integer", "minimum": 0 },
+        "maximum": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "predicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unit_kinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "common.schema.json#/$defs/id" }
+        },
+        "capabilities_all": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "common.schema.json#/$defs/id" }
+        },
+        "domains": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["foot", "ground-vehicle", "air", "naval", "transport"] }
+        },
+        "fire_modes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["direct", "indirect"] }
+        },
+        "terrain_kinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "common.schema.json#/$defs/id" }
+        },
+        "weather_kinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["clear", "rain", "snow"] }
+        },
+        "property": { "type": "boolean" },
+        "counterattack": { "type": "boolean" }
+      }
+    },
+    "effect": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operator", "value"],
+          "properties": {
+            "operator": {
+              "enum": [
+                "attack-add",
+                "defense-add",
+                "terrain-stars-add",
+                "terrain-stars-multiply",
+                "enemy-terrain-stars-add",
+                "tower-attack-multiply",
+                "tower-defense-multiply"
+              ]
+            },
+            "value": { "type": "integer", "minimum": -100, "maximum": 100 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operator", "divisor"],
+          "properties": {
+            "operator": { "const": "attack-add-funds-divide" },
+            "divisor": { "type": "integer", "minimum": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operator", "value"],
+          "properties": {
+            "operator": {
+              "enum": ["attack-add-owned-properties-multiply", "attack-add-terrain-stars-multiply"]
+            },
+            "value": { "type": "integer", "minimum": -100, "maximum": 100 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operator", "numerator", "denominator"],
+          "properties": {
+            "operator": { "const": "counter-attack-multiply" },
+            "numerator": { "type": "integer", "minimum": 0 },
+            "denominator": { "type": "integer", "minimum": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operator", "domain"],
+          "properties": {
+            "operator": { "enum": ["good-luck-set", "bad-luck-set"] },
+            "domain": { "$ref": "#/$defs/domain" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operator"],
+          "properties": { "operator": { "const": "counter-first" } }
+        }
+      ]
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["when", "effect"],
+      "properties": {
+        "when": { "$ref": "#/$defs/predicate" },
+        "effect": { "$ref": "#/$defs/effect" }
+      }
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rules"],
+      "properties": { "rules": { "type": "array", "items": { "$ref": "#/$defs/rule" } } }
+    },
+    "commander": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["day_to_day", "cop", "scop"],
+      "properties": {
+        "day_to_day": { "$ref": "#/$defs/state" },
+        "cop": { "$ref": "#/$defs/state" },
+        "scop": { "$ref": "#/$defs/state" }
+      }
+    }
+  }
+}
