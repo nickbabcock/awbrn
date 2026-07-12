@@ -17,7 +17,7 @@ js-sys = "0.3.91"
 oxipng = "10.0.0"
 phpserz = "0.3.0"
 raw-window-handle = { version = "0.6.2", features = ["wasm-bindgen-0-2"] }
-rawzip = "0.4.4"
+rawzip = "0.5"
 rectangle-pack = "0.4.2"
 rstest = "0.25.0"
 serde = { version = "1.0.228", features = ["derive"] }

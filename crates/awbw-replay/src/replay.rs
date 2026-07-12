@@ -38,7 +38,7 @@ impl<R: AsRef<[u8]>> ReplayFile<R> {
                 continue;
             }
 
-            if entry.compression_method() != rawzip::CompressionMethod::Deflate {
+            if entry.compression_method() != rawzip::CompressionMethod::DEFLATE {
                 continue;
             }
 
