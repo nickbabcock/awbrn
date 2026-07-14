@@ -39,7 +39,7 @@ jobs:
           rust: stable
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
     - name: Install Rust
       uses: dtolnay/rust-toolchain@master
       with:
@@ -66,7 +66,7 @@ jobs:
           rust: stable
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
     - name: Install Rust
       uses: dtolnay/rust-toolchain@master
       with:
@@ -89,14 +89,14 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         submodules: true
     - name: Install Rust
       uses: dtolnay/rust-toolchain@master
       with:
         toolchain: stable
-    - uses: jdx/mise-action@v2
+    - uses: jdx/mise-action@v4
     - name: Build assets
       run: mise run assets
     - name: Ensure no git diff
@@ -107,26 +107,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
     - name: Install Rust
       uses: dtolnay/rust-toolchain@master
       with:
         toolchain: stable
         components: rustfmt
-    - uses: jdx/mise-action@v2
+    - uses: jdx/mise-action@v4
     - run: mise run format:check
 
   lint:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
     - name: Install Rust
       uses: dtolnay/rust-toolchain@master
       with:
         toolchain: stable
         components: clippy
-    - uses: jdx/mise-action@v2
+    - uses: jdx/mise-action@v4
     - name: Install Ubuntu dependencies
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
     - name: Run clippy
@@ -136,7 +136,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         submodules: true
     - name: Install Rust
@@ -144,7 +144,7 @@ jobs:
       with:
         toolchain: stable
         targets: wasm32-unknown-unknown
-    - uses: jdx/mise-action@v2
+    - uses: jdx/mise-action@v4
     - name: Build assets
       run: mise run assets
     - name: Build web
