@@ -614,8 +614,10 @@ dependencies = [
  "awbrn-map",
  "awbrn-types",
  "awbw-replay",
+ "awvm",
  "criterion",
  "gungraun",
+ "serde_json",
 ]
 
 [[package]]

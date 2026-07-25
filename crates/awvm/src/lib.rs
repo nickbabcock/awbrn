@@ -24,5 +24,7 @@
 
 pub mod combat;
 pub mod commander;
+pub mod conformance;
+pub mod protocol;
 pub mod semantic;
 pub mod transition;

@@ -1,0 +1,1065 @@
+{
+  "initial_observations": {
+    "ally": {
+      "board": {
+        "height": 1,
+        "tiles": [
+          [
+            {
+              "capture_points": 20,
+              "owner": "ally",
+              "terrain": "city",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "fogged"
+            },
+            {
+              "terrain": "city",
+              "visibility": "fogged"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "fogged"
+            },
+            {
+              "terrain": "city",
+              "visibility": "fogged"
+            }
+          ]
+        ],
+        "width": 5
+      },
+      "match": {
+        "own_team_offers": [],
+        "status": "active"
+      },
+      "players": [
+        {
+          "commanders": [
+            {
+              "active": true,
+              "id": "andy",
+              "power_charge": 0,
+              "power_uses": 0
+            }
+          ],
+          "funds": 0,
+          "id": "p1",
+          "power_state": {
+            "type": "none"
+          },
+          "relation": "ally",
+          "status": "active",
+          "team": "t1"
+        },
+        {
+          "commanders": [
+            {
+              "active": true,
+              "id": "andy",
+              "power_charge": 0,
+              "power_uses": 0
+            }
+          ],
+          "funds": 0,
+          "id": "ally",
+          "power_state": {
+            "type": "none"
+          },
+          "relation": "self",
+          "status": "active",
+          "team": "t1"
+        },
+        {
+          "commanders": [
+            {
+              "active": true,
+              "id": "andy",
+              "power_charge": 0
+            }
+          ],
+          "id": "enemy",
+          "power_state": {
+            "type": "none"
+          },
+          "relation": "opponent",
+          "status": "active",
+          "team": "t2"
+        }
+      ],
+      "recipient": "ally",
+      "ruleset": {
+        "id": "awbw",
+        "revision": "2026-07-10"
+      },
+      "settings": {
+        "capture_limit": null,
+        "commander_bans": {
+          "backup": [],
+          "lead": []
+        },
+        "day_limit": null,
+        "fog": true,
+        "income_per_property": 1000,
+        "lab_units": [],
+        "powers": "disabled",
+        "starting_funds": 0,
+        "tags": false,
+        "unit_bans": [],
+        "unit_limit": null,
+        "weather": "clear"
+      },
+      "teams": [
+        {
+          "id": "t1",
+          "status": "active"
+        },
+        {
+          "id": "t2",
+          "status": "active"
+        }
+      ],
+      "turn": {
+        "active_player": "p1",
+        "day": 1,
+        "order": [
+          "p1",
+          "ally",
+          "enemy"
+        ],
+        "phase": "unit-action",
+        "position": 0
+      },
+      "units": [
+        {
+          "action": "ready",
+          "ammo": 6,
+          "concealment": "hidden",
+          "fuel": 60,
+          "hp": 100,
+          "kind": "stealth",
+          "location": {
+            "position": [
+              0,
+              0
+            ],
+            "type": "board"
+          },
+          "owner": "enemy",
+          "ref": {
+            "position": [
+              0,
+              0
+            ],
+            "type": "enemy"
+          }
+        }
+      ],
+      "weather": {
+        "kind": "clear",
+        "remaining_turns": 0
+      }
+    },
+    "enemy": {
+      "board": {
+        "height": 1,
+        "tiles": [
+          [
+            {
+              "capture_points": 20,
+              "owner": "ally",
+              "terrain": "city",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "capture_points": 20,
+              "terrain": "city",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "capture_points": 20,
+              "owner": "enemy",
+              "terrain": "city",
+              "visibility": "visible"
+            }
+          ]
+        ],
+        "width": 5
+      },
+      "match": {
+        "own_team_offers": [],
+        "status": "active"
+      },
+      "players": [
+        {
+          "commanders": [
+            {
+              "active": true,
+              "id": "andy",
+              "power_charge": 0
+            }
+          ],
+          "id": "p1",
+          "power_state": {
+            "type": "none"
+          },
+          "relation": "opponent",
+          "status": "active",
+          "team": "t1"
+        },
+        {
+          "commanders": [
+            {
+              "active": true,
+              "id": "andy",
+              "power_charge": 0
+            }
+          ],
+          "id": "ally",
+          "power_state": {
+            "type": "none"
+          },
+          "relation": "opponent",
+          "status": "active",
+          "team": "t1"
+        },
+        {
+          "commanders": [
+            {
+              "active": true,
+              "id": "andy",
+              "power_charge": 0,
+              "power_uses": 0
+            }
+          ],
+          "funds": 0,
+          "id": "enemy",
+          "power_state": {
+            "type": "none"
+          },
+          "relation": "self",
+          "status": "active",
+          "team": "t2"
+        }
+      ],
+      "recipient": "enemy",
+      "ruleset": {
+        "id": "awbw",
+        "revision": "2026-07-10"
+      },
+      "settings": {
+        "capture_limit": null,
+        "commander_bans": {
+          "backup": [],
+          "lead": []
+        },
+        "day_limit": null,
+        "fog": true,
+        "income_per_property": 1000,
+        "lab_units": [],
+        "powers": "disabled",
+        "starting_funds": 0,
+        "tags": false,
+        "unit_bans": [],
+        "unit_limit": null,
+        "weather": "clear"
+      },
+      "teams": [
+        {
+          "id": "t1",
+          "status": "active"
+        },
+        {
+          "id": "t2",
+          "status": "active"
+        }
+      ],
+      "turn": {
+        "active_player": "p1",
+        "day": 1,
+        "order": [
+          "p1",
+          "ally",
+          "enemy"
+        ],
+        "phase": "unit-action",
+        "position": 0
+      },
+      "units": [
+        {
+          "action": "ready",
+          "ammo": 6,
+          "concealment": "hidden",
+          "fuel": 60,
+          "hp": 100,
+          "kind": "stealth",
+          "location": {
+            "position": [
+              0,
+              0
+            ],
+            "type": "board"
+          },
+          "owner": "enemy",
+          "ref": {
+            "type": "friendly",
+            "unit": 0
+          }
+        },
+        {
+          "action": "ready",
+          "ammo": 9,
+          "concealment": "exposed",
+          "fuel": 70,
+          "hp": 100,
+          "kind": "tank",
+          "location": {
+            "position": [
+              2,
+              0
+            ],
+            "type": "board"
+          },
+          "owner": "enemy",
+          "ref": {
+            "type": "friendly",
+            "unit": 1
+          }
+        },
+        {
+          "action": "ready",
+          "ammo": 9,
+          "concealment": "exposed",
+          "fuel": 70,
+          "hp": 100,
+          "kind": "tank",
+          "location": {
+            "position": [
+              4,
+              0
+            ],
+            "type": "board"
+          },
+          "owner": "enemy",
+          "ref": {
+            "type": "friendly",
+            "unit": 2
+          }
+        }
+      ],
+      "weather": {
+        "kind": "clear",
+        "remaining_turns": 0
+      }
+    },
+    "p1": {
+      "board": {
+        "height": 1,
+        "tiles": [
+          [
+            {
+              "capture_points": 20,
+              "owner": "ally",
+              "terrain": "city",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "fogged"
+            },
+            {
+              "terrain": "city",
+              "visibility": "fogged"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "fogged"
+            },
+            {
+              "terrain": "city",
+              "visibility": "fogged"
+            }
+          ]
+        ],
+        "width": 5
+      },
+      "match": {
+        "own_team_offers": [],
+        "status": "active"
+      },
+      "players": [
+        {
+          "commanders": [
+            {
+              "active": true,
+              "id": "andy",
+              "power_charge": 0,
+              "power_uses": 0
+            }
+          ],
+          "funds": 0,
+          "id": "p1",
+          "power_state": {
+            "type": "none"
+          },
+          "relation": "self",
+          "status": "active",
+          "team": "t1"
+        },
+        {
+          "commanders": [
+            {
+              "active": true,
+              "id": "andy",
+              "power_charge": 0,
+              "power_uses": 0
+            }
+          ],
+          "funds": 0,
+          "id": "ally",
+          "power_state": {
+            "type": "none"
+          },
+          "relation": "ally",
+          "status": "active",
+          "team": "t1"
+        },
+        {
+          "commanders": [
+            {
+              "active": true,
+              "id": "andy",
+              "power_charge": 0
+            }
+          ],
+          "id": "enemy",
+          "power_state": {
+            "type": "none"
+          },
+          "relation": "opponent",
+          "status": "active",
+          "team": "t2"
+        }
+      ],
+      "recipient": "p1",
+      "ruleset": {
+        "id": "awbw",
+        "revision": "2026-07-10"
+      },
+      "settings": {
+        "capture_limit": null,
+        "commander_bans": {
+          "backup": [],
+          "lead": []
+        },
+        "day_limit": null,
+        "fog": true,
+        "income_per_property": 1000,
+        "lab_units": [],
+        "powers": "disabled",
+        "starting_funds": 0,
+        "tags": false,
+        "unit_bans": [],
+        "unit_limit": null,
+        "weather": "clear"
+      },
+      "teams": [
+        {
+          "id": "t1",
+          "status": "active"
+        },
+        {
+          "id": "t2",
+          "status": "active"
+        }
+      ],
+      "turn": {
+        "active_player": "p1",
+        "day": 1,
+        "order": [
+          "p1",
+          "ally",
+          "enemy"
+        ],
+        "phase": "unit-action",
+        "position": 0
+      },
+      "units": [
+        {
+          "action": "ready",
+          "ammo": 6,
+          "concealment": "hidden",
+          "fuel": 60,
+          "hp": 100,
+          "kind": "stealth",
+          "location": {
+            "position": [
+              0,
+              0
+            ],
+            "type": "board"
+          },
+          "owner": "enemy",
+          "ref": {
+            "position": [
+              0,
+              0
+            ],
+            "type": "enemy"
+          }
+        }
+      ],
+      "weather": {
+        "kind": "clear",
+        "remaining_turns": 0
+      }
+    }
+  },
+  "steps": [
+    {
+      "id": "reject-missing-unit",
+      "observations": {
+        "ally": {
+          "board": {
+            "height": 1,
+            "tiles": [
+              [
+                {
+                  "capture_points": 20,
+                  "owner": "ally",
+                  "terrain": "city",
+                  "visibility": "visible"
+                },
+                {
+                  "terrain": "plain",
+                  "visibility": "fogged"
+                },
+                {
+                  "terrain": "city",
+                  "visibility": "fogged"
+                },
+                {
+                  "terrain": "plain",
+                  "visibility": "fogged"
+                },
+                {
+                  "terrain": "city",
+                  "visibility": "fogged"
+                }
+              ]
+            ],
+            "width": 5
+          },
+          "match": {
+            "own_team_offers": [],
+            "status": "active"
+          },
+          "players": [
+            {
+              "commanders": [
+                {
+                  "active": true,
+                  "id": "andy",
+                  "power_charge": 0,
+                  "power_uses": 0
+                }
+              ],
+              "funds": 0,
+              "id": "p1",
+              "power_state": {
+                "type": "none"
+              },
+              "relation": "ally",
+              "status": "active",
+              "team": "t1"
+            },
+            {
+              "commanders": [
+                {
+                  "active": true,
+                  "id": "andy",
+                  "power_charge": 0,
+                  "power_uses": 0
+                }
+              ],
+              "funds": 0,
+              "id": "ally",
+              "power_state": {
+                "type": "none"
+              },
+              "relation": "self",
+              "status": "active",
+              "team": "t1"
+            },
+            {
+              "commanders": [
+                {
+                  "active": true,
+                  "id": "andy",
+                  "power_charge": 0
+                }
+              ],
+              "id": "enemy",
+              "power_state": {
+                "type": "none"
+              },
+              "relation": "opponent",
+              "status": "active",
+              "team": "t2"
+            }
+          ],
+          "recipient": "ally",
+          "ruleset": {
+            "id": "awbw",
+            "revision": "2026-07-10"
+          },
+          "settings": {
+            "capture_limit": null,
+            "commander_bans": {
+              "backup": [],
+              "lead": []
+            },
+            "day_limit": null,
+            "fog": true,
+            "income_per_property": 1000,
+            "lab_units": [],
+            "powers": "disabled",
+            "starting_funds": 0,
+            "tags": false,
+            "unit_bans": [],
+            "unit_limit": null,
+            "weather": "clear"
+          },
+          "teams": [
+            {
+              "id": "t1",
+              "status": "active"
+            },
+            {
+              "id": "t2",
+              "status": "active"
+            }
+          ],
+          "turn": {
+            "active_player": "p1",
+            "day": 1,
+            "order": [
+              "p1",
+              "ally",
+              "enemy"
+            ],
+            "phase": "unit-action",
+            "position": 0
+          },
+          "units": [
+            {
+              "action": "ready",
+              "ammo": 6,
+              "concealment": "hidden",
+              "fuel": 60,
+              "hp": 100,
+              "kind": "stealth",
+              "location": {
+                "position": [
+                  0,
+                  0
+                ],
+                "type": "board"
+              },
+              "owner": "enemy",
+              "ref": {
+                "position": [
+                  0,
+                  0
+                ],
+                "type": "enemy"
+              }
+            }
+          ],
+          "weather": {
+            "kind": "clear",
+            "remaining_turns": 0
+          }
+        },
+        "enemy": {
+          "board": {
+            "height": 1,
+            "tiles": [
+              [
+                {
+                  "capture_points": 20,
+                  "owner": "ally",
+                  "terrain": "city",
+                  "visibility": "visible"
+                },
+                {
+                  "terrain": "plain",
+                  "visibility": "visible"
+                },
+                {
+                  "capture_points": 20,
+                  "terrain": "city",
+                  "visibility": "visible"
+                },
+                {
+                  "terrain": "plain",
+                  "visibility": "visible"
+                },
+                {
+                  "capture_points": 20,
+                  "owner": "enemy",
+                  "terrain": "city",
+                  "visibility": "visible"
+                }
+              ]
+            ],
+            "width": 5
+          },
+          "match": {
+            "own_team_offers": [],
+            "status": "active"
+          },
+          "players": [
+            {
+              "commanders": [
+                {
+                  "active": true,
+                  "id": "andy",
+                  "power_charge": 0
+                }
+              ],
+              "id": "p1",
+              "power_state": {
+                "type": "none"
+              },
+              "relation": "opponent",
+              "status": "active",
+              "team": "t1"
+            },
+            {
+              "commanders": [
+                {
+                  "active": true,
+                  "id": "andy",
+                  "power_charge": 0
+                }
+              ],
+              "id": "ally",
+              "power_state": {
+                "type": "none"
+              },
+              "relation": "opponent",
+              "status": "active",
+              "team": "t1"
+            },
+            {
+              "commanders": [
+                {
+                  "active": true,
+                  "id": "andy",
+                  "power_charge": 0,
+                  "power_uses": 0
+                }
+              ],
+              "funds": 0,
+              "id": "enemy",
+              "power_state": {
+                "type": "none"
+              },
+              "relation": "self",
+              "status": "active",
+              "team": "t2"
+            }
+          ],
+          "recipient": "enemy",
+          "ruleset": {
+            "id": "awbw",
+            "revision": "2026-07-10"
+          },
+          "settings": {
+            "capture_limit": null,
+            "commander_bans": {
+              "backup": [],
+              "lead": []
+            },
+            "day_limit": null,
+            "fog": true,
+            "income_per_property": 1000,
+            "lab_units": [],
+            "powers": "disabled",
+            "starting_funds": 0,
+            "tags": false,
+            "unit_bans": [],
+            "unit_limit": null,
+            "weather": "clear"
+          },
+          "teams": [
+            {
+              "id": "t1",
+              "status": "active"
+            },
+            {
+              "id": "t2",
+              "status": "active"
+            }
+          ],
+          "turn": {
+            "active_player": "p1",
+            "day": 1,
+            "order": [
+              "p1",
+              "ally",
+              "enemy"
+            ],
+            "phase": "unit-action",
+            "position": 0
+          },
+          "units": [
+            {
+              "action": "ready",
+              "ammo": 6,
+              "concealment": "hidden",
+              "fuel": 60,
+              "hp": 100,
+              "kind": "stealth",
+              "location": {
+                "position": [
+                  0,
+                  0
+                ],
+                "type": "board"
+              },
+              "owner": "enemy",
+              "ref": {
+                "type": "friendly",
+                "unit": 0
+              }
+            },
+            {
+              "action": "ready",
+              "ammo": 9,
+              "concealment": "exposed",
+              "fuel": 70,
+              "hp": 100,
+              "kind": "tank",
+              "location": {
+                "position": [
+                  2,
+                  0
+                ],
+                "type": "board"
+              },
+              "owner": "enemy",
+              "ref": {
+                "type": "friendly",
+                "unit": 1
+              }
+            },
+            {
+              "action": "ready",
+              "ammo": 9,
+              "concealment": "exposed",
+              "fuel": 70,
+              "hp": 100,
+              "kind": "tank",
+              "location": {
+                "position": [
+                  4,
+                  0
+                ],
+                "type": "board"
+              },
+              "owner": "enemy",
+              "ref": {
+                "type": "friendly",
+                "unit": 2
+              }
+            }
+          ],
+          "weather": {
+            "kind": "clear",
+            "remaining_turns": 0
+          }
+        },
+        "p1": {
+          "board": {
+            "height": 1,
+            "tiles": [
+              [
+                {
+                  "capture_points": 20,
+                  "owner": "ally",
+                  "terrain": "city",
+                  "visibility": "visible"
+                },
+                {
+                  "terrain": "plain",
+                  "visibility": "fogged"
+                },
+                {
+                  "terrain": "city",
+                  "visibility": "fogged"
+                },
+                {
+                  "terrain": "plain",
+                  "visibility": "fogged"
+                },
+                {
+                  "terrain": "city",
+                  "visibility": "fogged"
+                }
+              ]
+            ],
+            "width": 5
+          },
+          "match": {
+            "own_team_offers": [],
+            "status": "active"
+          },
+          "players": [
+            {
+              "commanders": [
+                {
+                  "active": true,
+                  "id": "andy",
+                  "power_charge": 0,
+                  "power_uses": 0
+                }
+              ],
+              "funds": 0,
+              "id": "p1",
+              "power_state": {
+                "type": "none"
+              },
+              "relation": "self",
+              "status": "active",
+              "team": "t1"
+            },
+            {
+              "commanders": [
+                {
+                  "active": true,
+                  "id": "andy",
+                  "power_charge": 0,
+                  "power_uses": 0
+                }
+              ],
+              "funds": 0,
+              "id": "ally",
+              "power_state": {
+                "type": "none"
+              },
+              "relation": "ally",
+              "status": "active",
+              "team": "t1"
+            },
+            {
+              "commanders": [
+                {
+                  "active": true,
+                  "id": "andy",
+                  "power_charge": 0
+                }
+              ],
+              "id": "enemy",
+              "power_state": {
+                "type": "none"
+              },
+              "relation": "opponent",
+              "status": "active",
+              "team": "t2"
+            }
+          ],
+          "recipient": "p1",
+          "ruleset": {
+            "id": "awbw",
+            "revision": "2026-07-10"
+          },
+          "settings": {
+            "capture_limit": null,
+            "commander_bans": {
+              "backup": [],
+              "lead": []
+            },
+            "day_limit": null,
+            "fog": true,
+            "income_per_property": 1000,
+            "lab_units": [],
+            "powers": "disabled",
+            "starting_funds": 0,
+            "tags": false,
+            "unit_bans": [],
+            "unit_limit": null,
+            "weather": "clear"
+          },
+          "teams": [
+            {
+              "id": "t1",
+              "status": "active"
+            },
+            {
+              "id": "t2",
+              "status": "active"
+            }
+          ],
+          "turn": {
+            "active_player": "p1",
+            "day": 1,
+            "order": [
+              "p1",
+              "ally",
+              "enemy"
+            ],
+            "phase": "unit-action",
+            "position": 0
+          },
+          "units": [
+            {
+              "action": "ready",
+              "ammo": 6,
+              "concealment": "hidden",
+              "fuel": 60,
+              "hp": 100,
+              "kind": "stealth",
+              "location": {
+                "position": [
+                  0,
+                  0
+                ],
+                "type": "board"
+              },
+              "owner": "enemy",
+              "ref": {
+                "position": [
+                  0,
+                  0
+                ],
+                "type": "enemy"
+              }
+            }
+          ],
+          "weather": {
+            "kind": "clear",
+            "remaining_turns": 0
+          }
+        }
+      },
+      "observed_events": {
+        "ally": [],
+        "enemy": [],
+        "p1": []
+      },
+      "status": "rejected"
+    }
+  ]
+}

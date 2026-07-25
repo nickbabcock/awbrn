@@ -8,6 +8,8 @@ publish = false
 bench = false
 
 [dependencies]
+awvm = { path = "../awvm" }
+serde_json.workspace = true
 awbrn-types = { path = "../awbrn-types" }
 awbrn-map = { path = "../awbrn-map" }
 awbw-replay = { path = "../awbw-replay" }
