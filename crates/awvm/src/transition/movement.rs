@@ -10,9 +10,7 @@ use super::*;
 use crate::commander::{self};
 use crate::event::Event;
 use crate::ruleset::{self};
-use crate::semantic::{
-    AwbwVisibility, Concealment, Location, PlayerId, Pos, State, UnitAction, UnitId,
-};
+use crate::semantic::{AwbwVisibility, Concealment, Location, Pos, State, UnitAction, UnitId};
 use crate::violation::{Action, Violation};
 
 /// A movement that has been validated, and the numbers that validating it
@@ -274,13 +272,12 @@ pub(crate) fn reset_capture_on_departure(
 }
 
 pub(crate) fn execute_move_concealment(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     unit_id: UnitId,
     path: Vec<Pos>,
     hide: bool,
 ) -> Result<Execution, ExecuteError> {
-    let turn = ActiveTurn::open(state, player)?;
+    let state = turn.state();
     let plan = turn.plan_move(unit_id, path)?;
     let original = &state.units[plan.unit_index()];
     let supported = ruleset::profile(original.kind).concealment.is_some();
@@ -335,12 +332,11 @@ pub(crate) fn execute_move_concealment(
 }
 
 pub(crate) fn execute_move_wait(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     unit_id: UnitId,
     path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
-    let turn = ActiveTurn::open(state, player)?;
+    let state = turn.state();
     let plan = turn.plan_move(unit_id, path)?;
     let destination = plan.destination();
     let visibility = AwbwVisibility;

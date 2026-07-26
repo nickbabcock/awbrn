@@ -146,9 +146,8 @@ pub(crate) fn eliminate_player(
 }
 
 pub(crate) fn execute_resign(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     random: &[RandomToken],
 ) -> Result<Execution, ExecuteError> {
-    execute_turn_boundary(state, player, BoundaryCommand::Resign, random)
+    execute_turn_boundary(turn, BoundaryCommand::Resign, random)
 }

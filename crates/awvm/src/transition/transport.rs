@@ -17,12 +17,11 @@ use crate::semantic::{
 use crate::violation::{Action, Violation};
 
 pub(crate) fn execute_move_supply(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     unit_id: UnitId,
     path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
-    let turn = ActiveTurn::open(state, player)?;
+    let state = turn.state();
     let plan = turn.plan_move(unit_id, path)?;
     let unit = &state.units[plan.unit_index()];
     let supply = ruleset::profile(unit.kind).supply;
@@ -121,13 +120,13 @@ pub(crate) fn supply_target_eligible(
 }
 
 pub(crate) fn execute_move_repair(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     unit_id: UnitId,
     path: Vec<Pos>,
     target_id: UnitId,
 ) -> Result<Execution, ExecuteError> {
-    let turn = ActiveTurn::open(state, player)?;
+    let state = turn.state();
+    let player = turn.player();
     let plan = turn.plan_move(unit_id, path)?;
     let unit = &state.units[plan.unit_index()];
     let repair = ruleset::profile(unit.kind).repair;
@@ -233,13 +232,13 @@ pub(crate) fn execute_move_repair(
 }
 
 pub(crate) fn execute_move_load(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     unit_id: UnitId,
     path: Vec<Pos>,
     transport_id: UnitId,
 ) -> Result<Execution, ExecuteError> {
-    let turn = ActiveTurn::open(state, player)?;
+    let state = turn.state();
+    let player = turn.player();
     let plan = turn.plan_move(unit_id, path)?;
     let mover = &state.units[plan.unit_index()];
     let transport_index = state.units.index_of(transport_id);
@@ -310,13 +309,13 @@ pub(crate) fn execute_move_load(
 }
 
 pub(crate) fn execute_unload(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     transport_id: UnitId,
     cargo_id: UnitId,
     destination: Pos,
 ) -> Result<Execution, ExecuteError> {
-    let _turn = ActiveTurn::open(state, player)?;
+    let state = turn.state();
+    let player = turn.player();
     let transport_index = state.units.index_of(transport_id);
     let transport = transport_index.and_then(|index| state.units.at(index));
     let transport_position = transport.and_then(board_position);
@@ -403,13 +402,13 @@ pub(crate) fn execute_unload(
 }
 
 pub(crate) fn execute_move_join(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     unit_id: UnitId,
     path: Vec<Pos>,
     target_id: UnitId,
 ) -> Result<Execution, ExecuteError> {
-    let turn = ActiveTurn::open(state, player)?;
+    let state = turn.state();
+    let player = turn.player();
     let plan = turn.plan_move(unit_id, path)?;
     let unit = &state.units[plan.unit_index()];
     let origin = plan.origin();

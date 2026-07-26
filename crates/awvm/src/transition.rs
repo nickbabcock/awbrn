@@ -125,6 +125,32 @@ pub enum Command {
     Unsupported,
 }
 
+impl Command {
+    fn player(&self) -> Option<&PlayerId> {
+        match self {
+            Self::MoveWait { player, .. }
+            | Self::MoveAttack { player, .. }
+            | Self::MoveLaunch { player, .. }
+            | Self::MoveExplode { player, .. }
+            | Self::DeleteUnit { player, .. }
+            | Self::MoveHide { player, .. }
+            | Self::MoveReveal { player, .. }
+            | Self::MoveCapture { player, .. }
+            | Self::ProduceUnit { player, .. }
+            | Self::MoveJoin { player, .. }
+            | Self::MoveSupply { player, .. }
+            | Self::MoveRepair { player, .. }
+            | Self::MoveLoad { player, .. }
+            | Self::Unload { player, .. }
+            | Self::ActivatePower { player, .. }
+            | Self::Tag { player }
+            | Self::EndTurn { player }
+            | Self::Resign { player } => Some(player),
+            Self::Unsupported => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Execution {
     pub state: State,
@@ -217,70 +243,50 @@ fn reduce(
     command: Command,
     random: &[RandomToken],
 ) -> Result<Execution, ReducerError> {
+    let Some(player) = command.player() else {
+        return Err(ReducerError::UnsupportedCommand);
+    };
+    let turn = ActiveTurn::open(state, player)?;
     match command {
-        Command::MoveWait { player, unit, path } => execute_move_wait(state, &player, unit, path),
+        Command::MoveWait { unit, path, .. } => execute_move_wait(&turn, unit, path),
         Command::MoveAttack {
-            player,
-            unit,
-            path,
-            target,
-        } => execute_move_attack(state, &player, unit, path, target, random),
+            unit, path, target, ..
+        } => execute_move_attack(&turn, unit, path, target, random),
         Command::MoveLaunch {
-            player,
-            unit,
-            path,
-            target,
-        } => execute_move_launch(state, &player, unit, path, target),
-        Command::MoveExplode { player, unit, path } => {
-            execute_move_explode(state, &player, unit, path)
+            unit, path, target, ..
+        } => execute_move_launch(&turn, unit, path, target),
+        Command::MoveExplode { unit, path, .. } => execute_move_explode(&turn, unit, path),
+        Command::DeleteUnit { unit, .. } => execute_delete_unit(&turn, unit),
+        Command::MoveHide { unit, path, .. } => execute_move_concealment(&turn, unit, path, true),
+        Command::MoveReveal { unit, path, .. } => {
+            execute_move_concealment(&turn, unit, path, false)
         }
-        Command::DeleteUnit { player, unit } => execute_delete_unit(state, &player, unit),
-        Command::MoveHide { player, unit, path } => {
-            execute_move_concealment(state, &player, unit, path, true)
-        }
-        Command::MoveReveal { player, unit, path } => {
-            execute_move_concealment(state, &player, unit, path, false)
-        }
-        Command::MoveCapture { player, unit, path } => {
-            execute_move_capture(state, &player, unit, path)
-        }
-        Command::ProduceUnit {
-            player,
-            position,
-            kind,
-        } => execute_produce_unit(state, &player, position, kind),
+        Command::MoveCapture { unit, path, .. } => execute_move_capture(&turn, unit, path),
+        Command::ProduceUnit { position, kind, .. } => execute_produce_unit(&turn, position, kind),
         Command::MoveJoin {
-            player,
-            unit,
-            path,
-            target,
-        } => execute_move_join(state, &player, unit, path, target),
-        Command::MoveSupply { player, unit, path } => {
-            execute_move_supply(state, &player, unit, path)
-        }
+            unit, path, target, ..
+        } => execute_move_join(&turn, unit, path, target),
+        Command::MoveSupply { unit, path, .. } => execute_move_supply(&turn, unit, path),
         Command::MoveRepair {
-            player,
-            unit,
-            path,
-            target,
-        } => execute_move_repair(state, &player, unit, path, target),
+            unit, path, target, ..
+        } => execute_move_repair(&turn, unit, path, target),
         Command::MoveLoad {
-            player,
             unit,
             path,
             transport,
-        } => execute_move_load(state, &player, unit, path, transport),
+            ..
+        } => execute_move_load(&turn, unit, path, transport),
         Command::Unload {
-            player,
             transport,
             cargo,
             destination,
-        } => execute_unload(state, &player, transport, cargo, destination),
-        Command::ActivatePower { player, level } => execute_activate_power(state, &player, level),
-        Command::Tag { player } => execute_tag(state, &player, random),
-        Command::EndTurn { player } => execute_end_turn(state, &player, random),
-        Command::Resign { player } => execute_resign(state, &player, random),
-        Command::Unsupported => Err(ReducerError::UnsupportedCommand),
+            ..
+        } => execute_unload(&turn, transport, cargo, destination),
+        Command::ActivatePower { level, .. } => execute_activate_power(&turn, level),
+        Command::Tag { .. } => execute_tag(&turn, random),
+        Command::EndTurn { .. } => execute_end_turn(&turn, random),
+        Command::Resign { .. } => execute_resign(&turn, random),
+        Command::Unsupported => unreachable!("unsupported commands returned before validation"),
     }
 }
 
@@ -368,13 +374,12 @@ pub(crate) fn draw(
 #[derive(Debug)]
 pub(crate) struct ActiveTurn<'a> {
     state: &'a State,
-    player: &'a PlayerId,
 }
 
 impl<'a> ActiveTurn<'a> {
     /// Run the shared checks, in the order `spec/model/violations.md` fixes:
     /// ruleset, then terminal match, then phase, then actor.
-    pub(crate) fn open(state: &'a State, player: &'a PlayerId) -> Result<Self, ReducerError> {
+    pub(crate) fn open(state: &'a State, player: &PlayerId) -> Result<Self, ReducerError> {
         if !ruleset::supports(&state.ruleset) {
             return Err(ReducerError::UnsupportedRuleset);
         }
@@ -392,7 +397,7 @@ impl<'a> ActiveTurn<'a> {
                 player: player.clone(),
             }));
         }
-        Ok(Self { state, player })
+        Ok(Self { state })
     }
 
     pub(crate) const fn state(&self) -> &'a State {
@@ -400,7 +405,7 @@ impl<'a> ActiveTurn<'a> {
     }
 
     pub(crate) const fn player(&self) -> &'a PlayerId {
-        self.player
+        &self.state.turn.active_player
     }
 
     /// Validate a movement and yield the proof that it was validated.

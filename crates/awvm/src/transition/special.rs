@@ -10,19 +10,16 @@ use super::*;
 use crate::commander::AreaStrikePolicy;
 use crate::event::Event;
 use crate::ruleset::UnitKind;
-use crate::semantic::{
-    AwbwVisibility, KnownReason, PlayerId, Pos, Silo, State, UnitId, VictoryReason,
-};
+use crate::semantic::{AwbwVisibility, KnownReason, Pos, Silo, UnitId, VictoryReason};
 use crate::violation::{Action, Violation};
 
 pub(crate) fn execute_move_launch(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     unit_id: UnitId,
     path: Vec<Pos>,
     target: Pos,
 ) -> Result<Execution, ExecuteError> {
-    let turn = ActiveTurn::open(state, player)?;
+    let state = turn.state();
     let plan = turn.plan_move(unit_id, path)?;
     if target.x >= state.board.width() || target.y >= state.board.height() {
         return Err(violation(Violation::InvalidTarget {
@@ -117,12 +114,11 @@ pub(crate) fn execute_move_launch(
 }
 
 pub(crate) fn execute_move_explode(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     unit_id: UnitId,
     path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
-    let turn = ActiveTurn::open(state, player)?;
+    let state = turn.state();
     let plan = turn.plan_move(unit_id, path)?;
     let unit = &state.units[plan.unit_index()];
     if unit.kind != UnitKind::BlackBomb {
@@ -220,11 +216,11 @@ pub(crate) fn execute_move_explode(
 }
 
 pub(crate) fn execute_delete_unit(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     unit_id: UnitId,
 ) -> Result<Execution, ExecuteError> {
-    let _turn = ActiveTurn::open(state, player)?;
+    let state = turn.state();
+    let player = turn.player();
     let unit_index = state
         .units
         .index_of(unit_id)

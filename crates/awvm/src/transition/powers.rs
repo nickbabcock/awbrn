@@ -136,11 +136,11 @@ pub(crate) fn area_strike_centers(
 }
 
 pub(crate) fn execute_activate_power(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     level: PowerLevel,
 ) -> Result<Execution, ExecuteError> {
-    let _turn = ActiveTurn::open(state, player)?;
+    let state = turn.state();
+    let player = turn.player();
     let player_index = state
         .player_index(player)
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent from players".into()))?;
@@ -1044,9 +1044,8 @@ fn multiply_funds_ratio(
 }
 
 pub(crate) fn execute_tag(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     random: &[RandomToken],
 ) -> Result<Execution, ExecuteError> {
-    execute_turn_boundary(state, player, BoundaryCommand::Tag, random)
+    execute_turn_boundary(turn, BoundaryCommand::Tag, random)
 }

@@ -11,7 +11,7 @@ use crate::event::{Event, RandomKind, RandomValue, SupplySource};
 use crate::random::{RandomTape, RandomToken};
 use crate::ruleset::{self, Domain, Relation, TerrainTrait};
 use crate::semantic::{
-    Concealment, DrawReason, KnownReason, Location, Match, Outcome, Phase, PlayerId, PlayerStatus,
+    Concealment, DrawReason, KnownReason, Location, Outcome, Phase, PlayerId, PlayerStatus,
     PowerState, State, UnitAction, VictoryReason, WeatherKind, WeatherSetting,
 };
 use crate::violation::{Action, Violation};
@@ -91,11 +91,10 @@ pub(crate) fn turns_until_player_selection(
 }
 
 pub(crate) fn execute_end_turn(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     random: &[RandomToken],
 ) -> Result<Execution, ExecuteError> {
-    execute_turn_boundary(state, player, BoundaryCommand::EndTurn, random)
+    execute_turn_boundary(turn, BoundaryCommand::EndTurn, random)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,28 +105,12 @@ pub(crate) enum BoundaryCommand {
 }
 
 pub(crate) fn execute_turn_boundary(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     command: BoundaryCommand,
     random: &[RandomToken],
 ) -> Result<Execution, ExecuteError> {
-    if state.ruleset.id != "awbw" || state.ruleset.revision != "2026-07-10" {
-        return Err(ExecuteError::UnsupportedRuleset);
-    }
-    if matches!(state.match_state, Match::Finished { .. }) {
-        return Err(violation(Violation::MatchFinished));
-    }
-    if state.turn.phase != Phase::UnitAction {
-        return Err(violation(Violation::WrongPhase {
-            expected: Phase::UnitAction,
-            actual: state.turn.phase,
-        }));
-    }
-    if state.turn.active_player != player {
-        return Err(violation(Violation::NotActivePlayer {
-            player: player.clone(),
-        }));
-    }
+    let state = turn.state();
+    let player = turn.player();
     let player_index = state
         .player_index(player)
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;

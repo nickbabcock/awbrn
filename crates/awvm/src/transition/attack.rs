@@ -355,14 +355,14 @@ pub(crate) fn execute_tile_attack(
 }
 
 pub(crate) fn execute_move_attack(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     unit_id: UnitId,
     path: Vec<Pos>,
     target: AttackTarget,
     random: &[RandomToken],
 ) -> Result<Execution, ExecuteError> {
-    let turn = ActiveTurn::open(state, player)?;
+    let state = turn.state();
+    let player = turn.player();
     let plan = turn.plan_move(unit_id, path)?;
     let ai = plan.unit_index();
     let attacker = &state.units[ai];
@@ -408,11 +408,12 @@ pub(crate) fn execute_move_attack(
         // internally so the atomic follow-up can resolve and emit the single
         // attack action transition.
         movement.state.units[plan.unit_index()].action = UnitAction::Ready;
-        let mut combat = execute_move_attack(
+        let mut combat = execute_stationary_attack(
             &movement.state,
             player,
             unit_id,
-            vec![destination],
+            plan.unit_index(),
+            destination,
             target,
             random,
         )?;
@@ -420,6 +421,24 @@ pub(crate) fn execute_move_attack(
         combat.events = movement.events;
         return Ok(combat);
     }
+    execute_stationary_attack(state, player, unit_id, ai, origin, target, random)
+}
+
+/// Resolve an attack after movement validation has established the attacker.
+///
+/// Move-and-attack reaches this with a derived state, so it cannot reuse the
+/// [`ActiveTurn`] tied to the command's input state. The movement reducer is
+/// the only caller on that path and preserves the active-turn invariants.
+fn execute_stationary_attack(
+    state: &State,
+    player: &PlayerId,
+    unit_id: UnitId,
+    ai: usize,
+    origin: Pos,
+    target: AttackTarget,
+    random: &[RandomToken],
+) -> Result<Execution, ExecuteError> {
+    let attacker = &state.units[ai];
     let target_id = match target {
         AttackTarget::Unit { unit } => unit,
         AttackTarget::Tile { position } => {

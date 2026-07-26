@@ -16,12 +16,12 @@ use crate::semantic::{
 use crate::violation::{Action, Violation};
 
 pub(crate) fn execute_produce_unit(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     position: Pos,
     kind: UnitKind,
 ) -> Result<Execution, ExecuteError> {
-    let _turn = ActiveTurn::open(state, player)?;
+    let state = turn.state();
+    let player = turn.player();
     let player_index = state.player_index(player).ok_or_else(|| {
         ExecuteError::InvalidState(format!("unknown active player {player}").into())
     })?;
@@ -131,12 +131,12 @@ pub(crate) fn player_owns_lab(state: &State, player: &PlayerId) -> bool {
 }
 
 pub(crate) fn execute_move_capture(
-    state: &State,
-    player: &PlayerId,
+    turn: &ActiveTurn<'_>,
     unit_id: UnitId,
     path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
-    let turn = ActiveTurn::open(state, player)?;
+    let state = turn.state();
+    let player = turn.player();
     let plan = turn.plan_move(unit_id, path)?;
     let unit = &state.units[plan.unit_index()];
     let origin = plan.origin();
