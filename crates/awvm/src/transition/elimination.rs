@@ -1,0 +1,155 @@
+//! Removing a player from play, and what that does to the match.
+//!
+//! Normative source:
+//! * `spec/semantics/elimination.md`
+
+use super::*;
+use crate::event::Event;
+use crate::ruleset::{self};
+use crate::semantic::{
+    Outcome, PlayerId, PlayerStatus, Pos, ReasonId, State, TeamStatus, TileOwner,
+};
+use serde_json::Value;
+
+pub(crate) fn eliminate_player(
+    state: &mut State,
+    defeated_player: &str,
+    cause: &str,
+    beneficiary: Option<&str>,
+    trigger_hq: Option<Pos>,
+    events: &mut Vec<Event>,
+) -> Result<bool, ExecuteError> {
+    let player_index = state
+        .player_index(defeated_player)
+        .ok_or(ExecuteError::UnsupportedRuleset)?;
+    let defeated_team = state.player_mut(player_index).team.clone();
+    let previous_status = state.player_mut(player_index).status;
+    state.player_mut(player_index).status = if cause == "resignation" {
+        PlayerStatus::Resigned
+    } else {
+        PlayerStatus::Eliminated
+    };
+    events.push(Event::PlayerStatusChanged {
+        player: PlayerId::from(defeated_player),
+        from: previous_status,
+        to: state.player_mut(player_index).status,
+    });
+    if state
+        .players
+        .iter()
+        .filter(|player| player.team == defeated_team)
+        .all(|player| player.status != PlayerStatus::Active)
+    {
+        let team = state
+            .teams
+            .iter_mut()
+            .find(|team| team.id == defeated_team)
+            .ok_or(ExecuteError::UnsupportedRuleset)?;
+        team.status = TeamStatus::Eliminated;
+        events.push(Event::TeamEliminated {
+            team: defeated_team,
+            reason: ReasonId::from(cause),
+        });
+    }
+    let mut surviving_teams: Vec<_> = state
+        .teams
+        .iter()
+        .filter(|team| {
+            state
+                .players
+                .iter()
+                .any(|player| player.team == team.id && player.status == PlayerStatus::Active)
+        })
+        .map(|team| team.id.clone())
+        .collect();
+    surviving_teams.sort();
+    if surviving_teams.len() == 1 {
+        let outcome = Outcome::Victory {
+            winners: surviving_teams,
+            reason: cause.into(),
+        };
+        complete_match(state, outcome, events);
+        return Ok(true);
+    }
+
+    let mut unit_ids: Vec<_> = state
+        .units
+        .iter()
+        .filter(|unit| unit.owner == defeated_player)
+        .map(|unit| unit.id)
+        .collect();
+    unit_ids.sort();
+    for unit_id in unit_ids {
+        let unit_index = state
+            .units
+            .index_of(unit_id)
+            .expect("elimination unit remains present until its pass");
+        if let Some(position) = board_position(&state.units[unit_index]) {
+            let tile = &mut state.board.tile_mut(position);
+            if let Some(before) = tile.capture_points.filter(|points| *points < 20) {
+                tile.capture_points = Some(20);
+                events.push(Event::CaptureChanged {
+                    position,
+                    from: before,
+                    to: 20,
+                });
+            }
+        }
+        events.push(Event::UnitRemoved {
+            unit: unit_id,
+            reason: ReasonId::from("elimination"),
+        });
+        state.units.remove(unit_index);
+    }
+
+    let mut properties = Vec::new();
+    for (position, tile) in state.board.iter() {
+        let owned = tile
+            .owner
+            .player()
+            .is_some_and(|owner| owner == defeated_player);
+        if owned || trigger_hq == Some(position) {
+            properties.push(position);
+        }
+    }
+    for position in properties {
+        let tile = state.board.tile_mut(position);
+        if let Some(before) = tile.capture_points.filter(|points| *points < 20) {
+            tile.capture_points = Some(20);
+            events.push(Event::CaptureChanged {
+                position,
+                from: before,
+                to: 20,
+            });
+        }
+        if let Some(replacement) = ruleset::terrain(tile.terrain).elimination_replacement {
+            let from = tile.terrain;
+            tile.terrain = replacement;
+            events.push(Event::TileTerrainChanged {
+                position,
+                from,
+                to: replacement,
+                reason: ReasonId::from("elimination"),
+            });
+        }
+        let previous_owner = tile.owner.to_optional();
+        let next_owner = beneficiary.map(PlayerId::from);
+        if previous_owner != next_owner {
+            tile.owner = TileOwner::ownable(next_owner.clone());
+            events.push(Event::TileOwnerChanged {
+                position,
+                from: previous_owner,
+                to: next_owner,
+            });
+        }
+    }
+    Ok(false)
+}
+
+pub(crate) fn execute_resign(
+    state: &State,
+    player: &str,
+    random: &[Value],
+) -> Result<Execution, ExecuteError> {
+    execute_turn_boundary(state, player, BoundaryCommand::Resign, random)
+}
