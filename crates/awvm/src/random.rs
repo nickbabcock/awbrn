@@ -10,7 +10,6 @@
 //! total agrees only until someone adds a branch.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::semantic::WeatherKind;
 
@@ -42,7 +41,7 @@ pub enum Luck {
 pub enum RandomError {
     /// The tape ran out.
     Missing,
-    /// The next token is not the kind the reducer asked for, or is malformed.
+    /// The next token is not the kind the reducer asked for.
     Unexpected,
     /// The token is well-formed but its value is outside the range the ruleset
     /// permits for this draw.
@@ -61,17 +60,16 @@ impl RandomError {
 
 /// An in-order cursor over the tape.
 ///
-/// Tokens are decoded as they are drawn rather than up front, so a tape whose
-/// later entries are malformed still executes a command that never reaches
-/// them — which is what the reducer did before this type existed, and what
-/// `random_consumed` reports.
+/// The protocol boundary decodes every supplied value into a [`RandomToken`].
+/// Drawing remains demand-driven: unused trailing tokens are valid and do not
+/// contribute to `random_consumed`.
 pub struct RandomTape<'a> {
-    tokens: &'a [Value],
+    tokens: &'a [RandomToken],
     cursor: usize,
 }
 
 impl<'a> RandomTape<'a> {
-    pub const fn new(tokens: &'a [Value]) -> Self {
+    pub const fn new(tokens: &'a [RandomToken]) -> Self {
         Self { tokens, cursor: 0 }
     }
 
@@ -82,10 +80,7 @@ impl<'a> RandomTape<'a> {
     }
 
     fn next_token(&mut self) -> Result<RandomToken, RandomError> {
-        let raw = self.tokens.get(self.cursor).ok_or(RandomError::Missing)?;
-        // A malformed token is indistinguishable from the wrong kind of token
-        // here: either way the reducer did not get what it asked for.
-        let token = serde_json::from_value(raw.clone()).map_err(|_| RandomError::Unexpected)?;
+        let token = *self.tokens.get(self.cursor).ok_or(RandomError::Missing)?;
         self.cursor += 1;
         Ok(token)
     }
@@ -141,6 +136,12 @@ mod tests {
             .unwrap(),
             RandomToken::WeatherSelection(WeatherKind::Rain)
         );
+        assert!(
+            serde_json::from_value::<RandomToken>(
+                json!({"type":"weather-selection","value":"sandstorm"})
+            )
+            .is_err()
+        );
     }
 
     /// The count is the point of the type: it must follow the draws, including
@@ -148,8 +149,8 @@ mod tests {
     #[test]
     fn the_cursor_counts_only_successful_draws() {
         let tokens = vec![
-            json!({"type":"combat-good-luck","value":4}),
-            json!({"type":"combat-bad-luck","value":1}),
+            RandomToken::CombatGoodLuck(4),
+            RandomToken::CombatBadLuck(1),
         ];
         let mut tape = RandomTape::new(&tokens);
         assert_eq!(tape.consumed(), 0);
@@ -169,7 +170,7 @@ mod tests {
     /// command: `execute` reports nothing on an error path.
     #[test]
     fn a_token_of_the_wrong_kind_still_advances_the_cursor() {
-        let tokens = vec![json!({"type":"combat-good-luck","value":0})];
+        let tokens = vec![RandomToken::CombatGoodLuck(0)];
         let mut tape = RandomTape::new(&tokens);
         assert_eq!(tape.weather(), Err(RandomError::Unexpected));
         assert_eq!(tape.consumed(), 1);
@@ -178,14 +179,14 @@ mod tests {
     #[test]
     fn a_value_outside_the_ruleset_is_rejected() {
         let tokens = vec![
-            json!({"type":"combat-good-luck","value":10}),
-            json!({"type":"weather-selection","value":"sandstorm"}),
+            RandomToken::CombatGoodLuck(10),
+            RandomToken::WeatherSelection(WeatherKind::Rain),
         ];
         let mut tape = RandomTape::new(&tokens);
         assert_eq!(
             tape.luck(Luck::Good, ZERO_TO_NINE),
             Err(RandomError::OutOfDomain)
         );
-        assert_eq!(tape.weather(), Err(RandomError::Unexpected));
+        assert_eq!(tape.weather(), Ok(WeatherKind::Rain));
     }
 }

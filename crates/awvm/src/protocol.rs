@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::event::Event;
+use crate::random::RandomToken;
 use crate::semantic::{self, AwbwVisibility, PlayerId, RulesetRef, State};
 use crate::transition::{self, Command, ExecuteError};
 
@@ -233,7 +234,7 @@ struct ExecuteRequest {
     ruleset: RulesetRef,
     state: State,
     command: Value,
-    random: Vec<Value>,
+    random: Vec<RandomToken>,
 }
 
 #[derive(Deserialize)]
@@ -413,4 +414,31 @@ fn check_ruleset<'a>(
 
 fn error(request_id: &str, code: &str, message: impl Into<String>) -> Value {
     json!({"protocol_version":PROTOCOL_VERSION,"request_id":request_id,"status":"error","code":code,"message":message.into()})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_random_tokens_fail_request_decoding() {
+        let case: Value = serde_json::from_str(include_str!(
+            "../../../spec/fixtures/turn-hooks/random-weather-outcomes.json"
+        ))
+        .unwrap();
+        let request = json!({
+            "protocol_version": PROTOCOL_VERSION,
+            "request_id": "malformed-random",
+            "operation": "execute",
+            "ruleset": case["ruleset"],
+            "state": case["initial_state"],
+            "command": case["steps"][0]["command"],
+            "random": [{"type": "weather-selection", "value": "sandstorm"}],
+        });
+
+        let response = handle(&request.to_string());
+
+        assert_eq!(response["status"], "error");
+        assert_eq!(response["code"], "INVALID_REQUEST");
+    }
 }

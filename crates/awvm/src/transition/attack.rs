@@ -7,14 +7,13 @@ use super::*;
 use crate::combat::{self, Side};
 use crate::commander::{self, CombatContext, Combatant, Strike};
 use crate::event::{AttackTarget, Event};
-use crate::random::{Luck, RandomTape};
+use crate::random::{Luck, RandomTape, RandomToken};
 use crate::ruleset::{self, FireMode, TerrainTrait};
 use crate::semantic::{
     AwbwVisibility, Concealment, Location, PlayerId, Pos, PowerState, ReasonId, State, TerrainId,
     Unit, UnitAction, UnitId, UnitKindId, Visibility,
 };
 use crate::violation::{Action, Violation};
-use serde_json::Value;
 use std::collections::HashSet;
 
 #[allow(clippy::too_many_arguments)]
@@ -360,7 +359,7 @@ pub(crate) fn execute_move_attack(
     unit_id: UnitId,
     path: Vec<Pos>,
     target: AttackTarget,
-    random: &[Value],
+    random: &[RandomToken],
 ) -> Result<Execution, ExecuteError> {
     let turn = ActiveTurn::open(state, player)?;
     let plan = turn.plan_move(unit_id, path)?;

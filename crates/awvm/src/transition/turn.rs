@@ -7,14 +7,13 @@
 use super::*;
 use crate::commander::{self, PowerLevel};
 use crate::event::{Event, RandomKind, RandomValue, SupplySource};
-use crate::random::RandomTape;
+use crate::random::{RandomTape, RandomToken};
 use crate::ruleset::{self, Domain, Relation, TerrainTrait};
 use crate::semantic::{
     Concealment, Location, Match, Outcome, Phase, PlayerId, PlayerStatus, PowerState, ReasonId,
     State, UnitAction, WeatherKind, WeatherSetting,
 };
 use crate::violation::{Action, Violation};
-use serde_json::Value;
 use std::collections::HashSet;
 
 pub(crate) fn day_limit_outcome(state: &State) -> Result<Outcome, ExecuteError> {
@@ -93,7 +92,7 @@ pub(crate) fn turns_until_player_selection(
 pub(crate) fn execute_end_turn(
     state: &State,
     player: &str,
-    random: &[Value],
+    random: &[RandomToken],
 ) -> Result<Execution, ExecuteError> {
     execute_turn_boundary(state, player, BoundaryCommand::EndTurn, random)
 }
@@ -109,7 +108,7 @@ pub(crate) fn execute_turn_boundary(
     state: &State,
     player: &str,
     command: BoundaryCommand,
-    random: &[Value],
+    random: &[RandomToken],
 ) -> Result<Execution, ExecuteError> {
     if state.ruleset.id != "awbw" || state.ruleset.revision != "2026-07-10" {
         return Err(ExecuteError::UnsupportedRuleset);

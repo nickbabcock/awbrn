@@ -1,11 +1,12 @@
 //! Small authoritative reducer surface used by the conformance protocol.
 
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use serde_json::Value;
 
 use crate::commander::{self, PowerLevel};
 use crate::event::{AttackTarget, Event};
-use crate::random::{Luck, RandomTape};
+use crate::random::{Luck, RandomTape, RandomToken};
 use crate::ruleset::{self, Domain, UnitKind};
 use crate::semantic::{
     Location, Match, Outcome, Phase, PlayerId, Pos, State, TerrainId, Unit, UnitId, UnitKindId,
@@ -145,7 +146,7 @@ pub enum ExecuteError {
 pub fn execute(
     state: &State,
     command: Command,
-    random: &[Value],
+    random: &[RandomToken],
 ) -> Result<Execution, ExecuteError> {
     match command {
         Command::MoveWait { player, unit, path } => {
@@ -638,7 +639,7 @@ mod tests {
     }
 
     #[test]
-    fn random_weather_rejects_missing_wrong_and_out_of_domain_tokens() {
+    fn random_weather_rejects_missing_and_wrong_tokens() {
         let case: Value = serde_json::from_str(include_str!(
             "../../../../spec/fixtures/turn-hooks/random-weather-outcomes.json"
         ))
@@ -646,11 +647,7 @@ mod tests {
         let state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
         let command: Command = serde_json::from_value(case["steps"][0]["command"].clone()).unwrap();
 
-        for random in [
-            vec![],
-            vec![json!({"type":"combat-good-luck","value":0})],
-            vec![json!({"type":"weather-selection","value":"sandstorm"})],
-        ] {
+        for random in [vec![], vec![RandomToken::CombatGoodLuck(0)]] {
             assert!(
                 matches!(
                     execute(&state, command.clone(), &random),
@@ -1102,10 +1099,10 @@ mod tests {
         }))
         .unwrap();
         let random = vec![
-            json!({"type":"combat-good-luck","value":0}),
-            json!({"type":"combat-bad-luck","value":0}),
-            json!({"type":"combat-good-luck","value":0}),
-            json!({"type":"combat-bad-luck","value":0}),
+            RandomToken::CombatGoodLuck(0),
+            RandomToken::CombatBadLuck(0),
+            RandomToken::CombatGoodLuck(0),
+            RandomToken::CombatBadLuck(0),
         ];
 
         let result = execute(&state, command, &random).unwrap();
@@ -1166,10 +1163,10 @@ mod tests {
         }))
         .unwrap();
         let random = vec![
-            json!({"type":"combat-good-luck","value":0}),
-            json!({"type":"combat-bad-luck","value":0}),
-            json!({"type":"combat-good-luck","value":0}),
-            json!({"type":"combat-bad-luck","value":0}),
+            RandomToken::CombatGoodLuck(0),
+            RandomToken::CombatBadLuck(0),
+            RandomToken::CombatGoodLuck(0),
+            RandomToken::CombatBadLuck(0),
         ];
 
         let result = execute(&state, command, &random).unwrap();
@@ -1285,10 +1282,10 @@ mod tests {
         state.units.push(defender);
         let command: Command = serde_json::from_value(json!({"type":"move-attack","player":"red","unit":0,"path":[Pos::new(0, 0)],"target":{"type":"unit","unit":1}})).unwrap();
         let random = vec![
-            json!({"type":"combat-good-luck","value":0}),
-            json!({"type":"combat-bad-luck","value":0}),
-            json!({"type":"combat-good-luck","value":0}),
-            json!({"type":"combat-bad-luck","value":0}),
+            RandomToken::CombatGoodLuck(0),
+            RandomToken::CombatBadLuck(0),
+            RandomToken::CombatGoodLuck(0),
+            RandomToken::CombatBadLuck(0),
         ];
         let result = execute(&state, command, &random).unwrap();
         assert_eq!(result.state.units[0].hp, 75);
@@ -1339,8 +1336,8 @@ mod tests {
             .hp = 1;
         let command: Command = serde_json::from_value(case["steps"][2]["command"].clone()).unwrap();
         let random = vec![
-            json!({"type":"combat-good-luck","value":0}),
-            json!({"type":"combat-bad-luck","value":0}),
+            RandomToken::CombatGoodLuck(0),
+            RandomToken::CombatBadLuck(0),
         ];
 
         let result = execute(&state, command, &random).unwrap();

@@ -8,12 +8,12 @@
 use super::*;
 use crate::commander::{self};
 use crate::event::Event;
+use crate::random::RandomToken;
 use crate::ruleset::{self};
 use crate::semantic::{
     AwbwVisibility, Concealment, Location, PlayerId, Pos, State, UnitAction, UnitId,
 };
 use crate::violation::{Action, Violation};
-use serde_json::Value;
 
 /// A movement that has been validated, and the numbers that validating it
 /// produced.
@@ -338,7 +338,7 @@ pub(crate) fn execute_move_wait(
     player: &str,
     unit_id: UnitId,
     path: Vec<Pos>,
-    _random: &[Value],
+    _random: &[RandomToken],
 ) -> Result<Execution, ExecuteError> {
     let turn = ActiveTurn::open(state, player)?;
     let plan = turn.plan_move(unit_id, path)?;

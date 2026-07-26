@@ -12,12 +12,12 @@ use crate::commander::{
     TargetedAreaStrikePolicy, TargetedUnitValue, UnitTarget, WeatherDuration, WeatherEffectKind,
 };
 use crate::event::Event;
+use crate::random::RandomToken;
 use crate::ruleset::{self, PropertyKind, TerrainTrait};
 use crate::semantic::{
     Concealment, Location, PlayerId, Pos, ReasonId, State, Unit, UnitAction, UnitId, WeatherKind,
 };
 use crate::violation::{Action, Violation};
-use serde_json::Value;
 use std::collections::HashSet;
 
 pub(crate) fn area_strike_centers(
@@ -1041,7 +1041,7 @@ fn multiply_funds_ratio(
 pub(crate) fn execute_tag(
     state: &State,
     player: &str,
-    random: &[Value],
+    random: &[RandomToken],
 ) -> Result<Execution, ExecuteError> {
     execute_turn_boundary(state, player, BoundaryCommand::Tag, random)
 }

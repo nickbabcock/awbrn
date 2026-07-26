@@ -5,11 +5,11 @@
 
 use super::*;
 use crate::event::Event;
+use crate::random::RandomToken;
 use crate::ruleset::{self};
 use crate::semantic::{
     Outcome, PlayerId, PlayerStatus, Pos, ReasonId, State, TeamStatus, TileOwner,
 };
-use serde_json::Value;
 
 pub(crate) fn eliminate_player(
     state: &mut State,
@@ -149,7 +149,7 @@ pub(crate) fn eliminate_player(
 pub(crate) fn execute_resign(
     state: &State,
     player: &str,
-    random: &[Value],
+    random: &[RandomToken],
 ) -> Result<Execution, ExecuteError> {
     execute_turn_boundary(state, player, BoundaryCommand::Resign, random)
 }

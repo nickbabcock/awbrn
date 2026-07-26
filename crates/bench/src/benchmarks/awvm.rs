@@ -7,6 +7,7 @@
 //! Fixtures are embedded rather than read from disk so these also build for
 //! wasm.
 
+use awvm::random::RandomToken;
 use awvm::semantic::State;
 use awvm::transition::{Command, execute};
 use serde_json::Value;
@@ -35,7 +36,7 @@ pub const CASES: &[(&str, &str)] = &[
 pub struct Case {
     pub state: State,
     pub command: Value,
-    pub random: Vec<Value>,
+    pub random: Vec<RandomToken>,
 }
 
 pub fn load(source: &str) -> Case {
@@ -43,10 +44,8 @@ pub fn load(source: &str) -> Case {
     Case {
         state: serde_json::from_value(case["initial_state"].clone()).expect("decode state"),
         command: case["steps"][0]["command"].clone(),
-        random: case["steps"][0]["random"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default(),
+        random: serde_json::from_value(case["steps"][0]["random"].clone())
+            .expect("decode random tokens"),
     }
 }
 
