@@ -129,8 +129,7 @@ pub(crate) fn plan(
         }
     }
     let profile = ruleset::profile(unit.kind);
-    let movement =
-        commander::effective_move(state, unit, profile.movement, profile.domain.as_str());
+    let movement = commander::effective_move(state, unit, profile.movement, profile.domain);
     let weather = commander::effective_weather(state, unit);
     let mut entry_costs = vec![0];
     for (index, position) in path.iter().copied().enumerate().skip(1) {

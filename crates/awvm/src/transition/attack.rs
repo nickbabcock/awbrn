@@ -215,8 +215,8 @@ pub(crate) fn execute_tile_attack(
             state,
             attacker,
             range.maximum,
-            profile.domain.as_str(),
-            "indirect",
+            profile.domain,
+            FireMode::Indirect,
         );
         if distance < minimum || distance > maximum {
             return Err(violation(Violation::TargetOutOfRange {
@@ -264,7 +264,7 @@ pub(crate) fn execute_tile_attack(
     let context = Combatant {
         kind: attacker.kind,
         domain: unit_domain,
-        fire_mode: fire_mode.as_str(),
+        fire_mode,
         terrain: attacker_terrain,
         weather: combat_weather,
         property: ruleset::terrain_has(attacker_terrain, TerrainTrait::Capturable),
@@ -452,14 +452,12 @@ pub(crate) fn execute_move_attack(
             target: Some(target_id.into()),
         }));
     }
-    let concealed_target_compatible = match (
-        defender.concealment,
-        defender.kind.as_str(),
-        attacker.kind.as_str(),
-    ) {
-        (Concealment::Hidden, "sub", "sub" | "cruiser")
-        | (Concealment::Hidden, "stealth", "fighter" | "stealth") => true,
-        (Concealment::Hidden, "sub" | "stealth", _) => false,
+    let concealed_target_compatible = match (defender.concealment, defender.kind, attacker.kind) {
+        (Concealment::Hidden, UnitKindId::Sub, UnitKindId::Sub | UnitKindId::Cruiser)
+        | (Concealment::Hidden, UnitKindId::Stealth, UnitKindId::Fighter | UnitKindId::Stealth) => {
+            true
+        }
+        (Concealment::Hidden, UnitKindId::Sub | UnitKindId::Stealth, _) => false,
         _ => true,
     };
     if !concealed_target_compatible {
@@ -480,8 +478,8 @@ pub(crate) fn execute_move_attack(
             state,
             attacker,
             range.maximum,
-            profile.domain.as_str(),
-            "indirect",
+            profile.domain,
+            FireMode::Indirect,
         );
         if distance < min || distance > max {
             return Err(violation(Violation::TargetOutOfRange {
@@ -501,7 +499,7 @@ pub(crate) fn execute_move_attack(
     let mut tape = RandomTape::new(random);
     let stars = |p: Pos| ruleset::defense_stars(state.board.tile(p).terrain);
     let unit_domain = |kind: UnitKindId| combat_domain(ruleset::profile(kind));
-    let fire_mode = |kind: UnitKindId| ruleset::profile(kind).fire_mode.as_str();
+    let fire_mode = |kind: UnitKindId| ruleset::profile(kind).fire_mode;
     let tower_count = |owner: &PlayerId| {
         state
             .board

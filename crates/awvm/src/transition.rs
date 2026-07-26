@@ -317,14 +317,14 @@ pub(crate) fn complete_match(state: &mut State, outcome: Outcome, events: &mut V
 /// it separates foot soldiers from other ground units and transports from
 /// combatants. Only the transport half is derivable from a table, so the foot
 /// kinds are named.
-pub(crate) fn combat_domain(profile: &ruleset::UnitProfile) -> &'static str {
+pub(crate) fn combat_domain(profile: &ruleset::UnitProfile) -> commander::CombatDomain {
     match profile.kind {
-        UnitKind::Infantry | UnitKind::Mech => "foot",
-        _ if profile.transport.is_some() => "transport",
+        UnitKind::Infantry | UnitKind::Mech => commander::CombatDomain::Foot,
+        _ if profile.transport.is_some() => commander::CombatDomain::Transport,
         _ => match profile.domain {
-            Domain::Ground => "ground-vehicle",
-            Domain::Air => "air",
-            Domain::Sea => "naval",
+            Domain::Ground => commander::CombatDomain::GroundVehicle,
+            Domain::Air => commander::CombatDomain::Air,
+            Domain::Sea => commander::CombatDomain::Naval,
         },
     }
 }

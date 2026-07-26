@@ -29,7 +29,7 @@ pub(crate) fn execute_move_launch(
     }
 
     let unit = &state.units[plan.unit_index()];
-    if !matches!(unit.kind.as_str(), "infantry" | "mech") {
+    if !matches!(unit.kind, UnitKind::Infantry | UnitKind::Mech) {
         return Err(violation(Violation::ActionNotSupported {
             action: Action::MoveLaunch,
         }));

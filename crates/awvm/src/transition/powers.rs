@@ -14,7 +14,7 @@ use crate::commander::{
 };
 use crate::event::Event;
 use crate::random::RandomToken;
-use crate::ruleset::{self, PropertyKind, TerrainTrait};
+use crate::ruleset::{self, PropertyKind, TerrainTrait, UnitKind};
 use crate::semantic::{
     Concealment, Location, PlayerId, Pos, ReasonId, State, Unit, UnitAction, UnitId, WeatherKind,
 };
@@ -42,7 +42,7 @@ pub(crate) fn area_strike_centers(
         let friendly = state
             .find_player(&unit.owner)
             .is_some_and(|owner| owner.team == actor_team);
-        let capturing = matches!(unit.kind.as_str(), "infantry" | "mech")
+        let capturing = matches!(unit.kind, UnitKind::Infantry | UnitKind::Mech)
             && state
                 .board
                 .tile(position)
@@ -67,13 +67,14 @@ pub(crate) fn area_strike_centers(
                     let cost = i128::from(*cost);
                     let value = match policy {
                         AreaStrikePolicy::InfantryHp => {
-                            let multiplier = if matches!(unit.kind.as_str(), "infantry" | "mech")
-                                && unit.hp > 10
-                            {
-                                if *capturing { 8 } else { 4 }
-                            } else {
-                                1
-                            };
+                            let multiplier =
+                                if matches!(unit.kind, UnitKind::Infantry | UnitKind::Mech)
+                                    && unit.hp > 10
+                                {
+                                    if *capturing { 8 } else { 4 }
+                                } else {
+                                    1
+                                };
                             capped_hp.checked_mul(multiplier).ok_or_else(|| {
                                 ExecuteError::InvalidState(
                                     "area-strike infantry score overflow".into(),

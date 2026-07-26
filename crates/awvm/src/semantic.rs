@@ -909,8 +909,7 @@ impl AwbwVisibility {
                 0
             };
             let rain = -i64::from(matches!(state.weather.kind, WeatherKind::Rain));
-            let vision =
-                commander::effective_vision(state, unit, profile.vision, profile.domain.as_str());
+            let vision = commander::effective_vision(state, unit, profile.vision, profile.domain);
             let sight = (vision + bonus + rain).max(1) as u64;
             let distance = source.distance(position);
             if distance > sight {

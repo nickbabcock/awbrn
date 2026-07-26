@@ -32,14 +32,10 @@ pub(crate) fn execute_produce_unit(
     let tile = state.board.get(position);
     let site_valid = tile.is_some_and(|tile| {
         let terrain = ruleset::terrain(tile.terrain);
-        let domain = profile.domain.as_str();
         let commander_facility =
-            commander::commander_production_site(state, player, tile.terrain, Some(domain));
-        let is_facility = terrain.produces_any() || commander_facility;
-        let owned = tile.owner.is_owned_by(player);
-        let domain_matches = terrain.has(profile.domain.produces())
-            || commander::commander_production_site(state, player, tile.terrain, Some(domain));
-        is_facility && owned && domain_matches
+            commander::commander_production_site(state, player, tile.terrain, profile.domain);
+        tile.owner.is_owned_by(player)
+            && (terrain.has(profile.domain.produces()) || commander_facility)
     });
     if !site_valid {
         return Err(violation(Violation::InvalidTarget {

@@ -547,12 +547,8 @@ pub(crate) fn execute_turn_boundary(
                 } else {
                     profile.fuel_per_turn.normal
                 };
-                let upkeep = commander::effective_upkeep(
-                    &next,
-                    &unit_snapshot,
-                    base_upkeep,
-                    profile.domain.as_str(),
-                );
+                let upkeep =
+                    commander::effective_upkeep(&next, &unit_snapshot, base_upkeep, profile.domain);
                 let unit = next
                     .units
                     .get_mut(unit_id)

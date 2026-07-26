@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ruleset::{PropertyKind, Terrain, UnitKind};
+use crate::ruleset::{Domain as UnitDomain, FireMode, PropertyKind, Terrain, UnitKind};
 use crate::semantic::{
     CommanderId as CommanderKind, Player, PlayerId, PowerState, State, Unit, WeatherKind,
 };
@@ -19,17 +19,24 @@ pub enum Strike {
     Counter,
 }
 
+/// The finer unit-domain vocabulary used by commander combat predicates.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum CombatDomain {
+    Foot,
+    GroundVehicle,
+    Air,
+    Naval,
+    Transport,
+}
+
 /// One side of an engagement, described in the vocabulary
 /// `commander-combat.json` predicates are written in.
-///
-/// `domain` stays a string because that vocabulary is finer than the one
-/// `units.json` defines: it separates foot soldiers and transports from other
-/// ground units.
 #[derive(Clone, Copy, Debug)]
 pub struct Combatant<'a> {
     pub kind: UnitKind,
-    pub domain: &'a str,
-    pub fire_mode: &'a str,
+    pub domain: CombatDomain,
+    pub fire_mode: FireMode,
     pub terrain: Terrain,
     pub weather: WeatherKind,
     pub property: bool,
@@ -83,17 +90,17 @@ struct Rule {
 #[derive(Clone, Debug, Default, Deserialize)]
 struct Predicate {
     #[serde(default)]
-    unit_kinds: Vec<String>,
+    unit_kinds: Vec<UnitKind>,
     #[serde(default)]
     capabilities_all: Vec<String>,
     #[serde(default)]
-    domains: Vec<String>,
+    domains: Vec<CombatDomain>,
     #[serde(default)]
-    fire_modes: Vec<String>,
+    fire_modes: Vec<FireMode>,
     #[serde(default)]
-    terrain_kinds: Vec<String>,
+    terrain_kinds: Vec<Terrain>,
     #[serde(default)]
-    weather_kinds: Vec<String>,
+    weather_kinds: Vec<WeatherKind>,
     property: Option<bool>,
     counterattack: Option<bool>,
 }
@@ -402,15 +409,15 @@ pub(crate) struct PowerActivation {
 #[derive(Clone, Debug, Default, Deserialize)]
 struct EffectiveProfile {
     #[serde(default)]
-    movement: StateValues,
+    movement: UnitStateValues,
     #[serde(default)]
     movement_cost: MovementCostStates,
     #[serde(default)]
-    vision: StateValues,
+    vision: UnitStateValues,
     #[serde(default)]
     reveals_concealing_terrain: BooleanStates,
     #[serde(default)]
-    attack_range: StateValues,
+    attack_range: AttackRangeStateValues,
     #[serde(default)]
     build_cost: RationalStates,
     #[serde(default)]
@@ -432,13 +439,23 @@ struct EffectiveProfile {
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
-struct StateValues {
+struct UnitStateValues {
     #[serde(default)]
-    day_to_day: Vec<ValueRule>,
+    day_to_day: Vec<UnitValueRule>,
     #[serde(default)]
-    cop: Vec<ValueRule>,
+    cop: Vec<UnitValueRule>,
     #[serde(default)]
-    scop: Vec<ValueRule>,
+    scop: Vec<UnitValueRule>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+struct AttackRangeStateValues {
+    #[serde(default)]
+    day_to_day: Vec<AttackRangeRule>,
+    #[serde(default)]
+    cop: Vec<AttackRangeRule>,
+    #[serde(default)]
+    scop: Vec<AttackRangeRule>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -473,13 +490,24 @@ struct BooleanStates {
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
-struct ValueRule {
+#[serde(deny_unknown_fields)]
+struct UnitValueRule {
     #[serde(default)]
-    unit_kinds: Vec<String>,
+    unit_kinds: Vec<UnitKind>,
     #[serde(default)]
-    domains: Vec<String>,
+    domains: Vec<UnitDomain>,
+    add: i64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AttackRangeRule {
     #[serde(default)]
-    fire_modes: Vec<String>,
+    unit_kinds: Vec<UnitKind>,
+    #[serde(default)]
+    domains: Vec<UnitDomain>,
+    #[serde(default)]
+    fire_modes: Vec<FireMode>,
     add: i64,
 }
 
@@ -498,8 +526,8 @@ struct RationalStates {
 
 #[derive(Clone, Debug, Default, Deserialize)]
 struct ProductionRule {
-    terrain_kinds: Vec<String>,
-    domains: Vec<String>,
+    terrain_kinds: Vec<Terrain>,
+    domains: Vec<UnitDomain>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -712,21 +740,11 @@ enum Power {
 }
 
 fn predicate_matches(predicate: &Predicate, unit: Combatant<'_>, strike: Strike) -> bool {
-    (predicate.unit_kinds.is_empty()
-        || predicate.unit_kinds.iter().any(|v| v == unit.kind.as_str()))
-        && (predicate.domains.is_empty() || predicate.domains.iter().any(|v| v == unit.domain))
-        && (predicate.fire_modes.is_empty()
-            || predicate.fire_modes.iter().any(|v| v == unit.fire_mode))
-        && (predicate.terrain_kinds.is_empty()
-            || predicate
-                .terrain_kinds
-                .iter()
-                .any(|v| v == unit.terrain.as_str()))
-        && (predicate.weather_kinds.is_empty()
-            || predicate
-                .weather_kinds
-                .iter()
-                .any(|v| v == unit.weather.as_str()))
+    (predicate.unit_kinds.is_empty() || predicate.unit_kinds.contains(&unit.kind))
+        && (predicate.domains.is_empty() || predicate.domains.contains(&unit.domain))
+        && (predicate.fire_modes.is_empty() || predicate.fire_modes.contains(&unit.fire_mode))
+        && (predicate.terrain_kinds.is_empty() || predicate.terrain_kinds.contains(&unit.terrain))
+        && (predicate.weather_kinds.is_empty() || predicate.weather_kinds.contains(&unit.weather))
         && predicate
             .property
             .is_none_or(|value| value == unit.property)
@@ -897,12 +915,11 @@ pub fn counter_first(state: &State, owner: &PlayerId, unit: Combatant<'_>, strik
         })
 }
 
-fn value_add(
-    rules: &StateValues,
+fn sum_unit_additions(
+    rules: &UnitStateValues,
     power: Power,
     kind: UnitKind,
-    domain: &str,
-    fire_mode: &str,
+    domain: UnitDomain,
 ) -> i64 {
     rules
         .day_to_day
@@ -913,9 +930,32 @@ fn value_add(
             Power::Scop => rules.scop.iter(),
         })
         .filter(|rule| {
-            (rule.unit_kinds.is_empty() || rule.unit_kinds.iter().any(|v| v == kind.as_str()))
-                && (rule.domains.is_empty() || rule.domains.iter().any(|v| v == domain))
-                && (rule.fire_modes.is_empty() || rule.fire_modes.iter().any(|v| v == fire_mode))
+            (rule.unit_kinds.is_empty() || rule.unit_kinds.contains(&kind))
+                && (rule.domains.is_empty() || rule.domains.contains(&domain))
+        })
+        .map(|rule| rule.add)
+        .sum()
+}
+
+fn sum_attack_range_additions(
+    rules: &AttackRangeStateValues,
+    power: Power,
+    kind: UnitKind,
+    domain: UnitDomain,
+    fire_mode: FireMode,
+) -> i64 {
+    rules
+        .day_to_day
+        .iter()
+        .chain(match power {
+            Power::None => [].iter(),
+            Power::Cop => rules.cop.iter(),
+            Power::Scop => rules.scop.iter(),
+        })
+        .filter(|rule| {
+            (rule.unit_kinds.is_empty() || rule.unit_kinds.contains(&kind))
+                && (rule.domains.is_empty() || rule.domains.contains(&domain))
+                && (rule.fire_modes.is_empty() || rule.fire_modes.contains(&fire_mode))
         })
         .map(|rule| rule.add)
         .sum()
@@ -929,11 +969,16 @@ fn effective_profile(
     Some((profile_table().commanders.get(commander.as_str())?, power))
 }
 
-pub fn effective_move(state: &State, unit: &Unit, base: u64, domain: &str) -> u64 {
+pub fn effective_move(state: &State, unit: &Unit, base: u64, domain: UnitDomain) -> u64 {
     let Some((profile, power)) = effective_profile(state, &unit.owner) else {
         return base;
     };
-    base.saturating_add_signed(value_add(&profile.movement, power, unit.kind, domain, ""))
+    base.saturating_add_signed(sum_unit_additions(
+        &profile.movement,
+        power,
+        unit.kind,
+        domain,
+    ))
 }
 
 pub fn effective_movement_cost(state: &State, unit: &Unit, base: Option<u64>) -> Option<u64> {
@@ -961,11 +1006,11 @@ pub fn effective_movement_cost(state: &State, unit: &Unit, base: Option<u64>) ->
     Some(cost)
 }
 
-pub fn effective_vision(state: &State, unit: &Unit, base: i64, domain: &str) -> i64 {
+pub fn effective_vision(state: &State, unit: &Unit, base: i64, domain: UnitDomain) -> i64 {
     let Some((profile, power)) = effective_profile(state, &unit.owner) else {
         return base;
     };
-    (base + value_add(&profile.vision, power, unit.kind, domain, "")).max(0)
+    (base + sum_unit_additions(&profile.vision, power, unit.kind, domain)).max(0)
 }
 
 pub fn reveals_concealing_terrain(state: &State, unit: &Unit) -> bool {
@@ -994,13 +1039,13 @@ pub fn effective_attack_range(
     state: &State,
     unit: &Unit,
     base: u64,
-    domain: &str,
-    fire_mode: &str,
+    domain: UnitDomain,
+    fire_mode: FireMode,
 ) -> u64 {
     let Some((profile, power)) = effective_profile(state, &unit.owner) else {
         return base;
     };
-    base.saturating_add_signed(value_add(
+    base.saturating_add_signed(sum_attack_range_additions(
         &profile.attack_range,
         power,
         unit.kind,
@@ -1043,17 +1088,13 @@ pub fn commander_production_site(
     state: &State,
     player: &PlayerId,
     terrain: Terrain,
-    domain: Option<&str>,
+    domain: UnitDomain,
 ) -> bool {
     let Some((profile, power)) = effective_profile(state, player) else {
         return false;
     };
-    production_rules(&profile.production, power).any(|rule| {
-        rule.terrain_kinds
-            .iter()
-            .any(|value| value == terrain.as_str())
-            && domain.is_none_or(|domain| rule.domains.iter().any(|value| value == domain))
-    })
+    production_rules(&profile.production, power)
+        .any(|rule| rule.terrain_kinds.contains(&terrain) && rule.domains.contains(&domain))
 }
 
 pub fn effective_capture_points(state: &State, unit: &Unit, visual_hp: u64) -> u64 {
@@ -1091,9 +1132,9 @@ pub fn effective_repair_bars(state: &State, player: &PlayerId) -> u64 {
     2 + effective_profile(state, player).map_or(0, |(profile, _)| profile.repair_bars_add)
 }
 
-pub fn effective_upkeep(state: &State, unit: &Unit, base: u64, domain: &str) -> u64 {
+pub fn effective_upkeep(state: &State, unit: &Unit, base: u64, domain: UnitDomain) -> u64 {
     let add = effective_profile(state, &unit.owner)
-        .filter(|_| domain == "air")
+        .filter(|_| domain == UnitDomain::Air)
         .map_or(0, |(profile, _)| profile.air_upkeep_add);
     base.saturating_add_signed(add)
 }
