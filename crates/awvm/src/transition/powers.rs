@@ -4,6 +4,7 @@
 //! * `spec/semantics/powers.md`
 //! * `spec/semantics/tag.md`
 
+use super::ReducerError as ExecuteError;
 use super::*;
 use crate::commander::{
     self, AreaStrikeCenterTarget, AreaStrikePolicy, CommanderSlotTarget, FriendlyContribution,
@@ -161,9 +162,9 @@ pub(crate) fn execute_activate_power(
     let activation =
         commander::power_activation(active_commander.id, level, active_commander.power_uses)
             .map_err(|error| {
-                ExecuteError::InvalidState(format!(
-                    "commander power profile cannot activate: {error:?}"
-                ))
+                ExecuteError::InvalidState(
+                    format!("commander power profile cannot activate: {error:?}").into(),
+                )
             })?
             .ok_or_else(|| {
                 violation(Violation::ActionNotSupported {
@@ -285,9 +286,10 @@ pub(crate) fn execute_activate_power(
                 denominator,
             } => multiply_funds_ratio(&mut cx, numerator, denominator)?,
             unsupported => {
-                return Err(ExecuteError::InvalidState(format!(
-                    "unsupported instant-effect target combination: {unsupported:?}"
-                )));
+                return Err(ExecuteError::InvalidState(
+                    format!("unsupported instant-effect target combination: {unsupported:?}")
+                        .into(),
+                ));
             }
         }
     }
@@ -587,15 +589,18 @@ fn reduce_power_charge_by_funds_ratio(
             }
             let full_bar = commander::maximum_power_charge(target.id, target.power_uses)
                 .map_err(|error| {
-                    ExecuteError::InvalidState(format!(
-                        "enemy power profile cannot compute full bar: {error:?}"
-                    ))
+                    ExecuteError::InvalidState(
+                        format!("enemy power profile cannot compute full bar: {error:?}").into(),
+                    )
                 })?
                 .ok_or_else(|| {
-                    ExecuteError::InvalidState(format!(
-                        "enemy commander {} has no complete power profile",
-                        target.id
-                    ))
+                    ExecuteError::InvalidState(
+                        format!(
+                            "enemy commander {} has no complete power profile",
+                            target.id
+                        )
+                        .into(),
+                    )
                 })?;
             let reduction = actor_funds
                 .checked_mul(full_bar)
@@ -744,10 +749,9 @@ fn spawn_units_on_owned_properties(
     for offset in 0..count {
         let allocated_id = UnitId::new(first_id + offset);
         if cx.next.units.contains(allocated_id) {
-            return Err(ExecuteError::InvalidState(format!(
-                "next_unit_id {} is not fresh",
-                first_id + offset
-            )));
+            return Err(ExecuteError::InvalidState(
+                format!("next_unit_id {} is not fresh", first_id + offset).into(),
+            ));
         }
     }
     cx.next.next_unit_id = Some(after_id);

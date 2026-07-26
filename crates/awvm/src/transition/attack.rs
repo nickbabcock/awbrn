@@ -3,6 +3,7 @@
 //! Normative source:
 //! * `spec/semantics/combat.md`
 
+use super::ReducerError as ExecuteError;
 use super::*;
 use crate::combat::{self, Side};
 use crate::commander::{self, CombatContext, Combatant, Strike};

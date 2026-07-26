@@ -9,7 +9,7 @@
 
 use awvm::random::RandomToken;
 use awvm::semantic::State;
-use awvm::transition::{Command, execute};
+use awvm::transition::{Command, ExecuteOutcome, execute};
 use serde_json::Value;
 
 pub const CASES: &[(&str, &str)] = &[
@@ -52,7 +52,10 @@ pub fn load(source: &str) -> Case {
 pub fn run(case: &Case) -> usize {
     let command: Command = serde_json::from_value(case.command.clone()).expect("decode command");
     match execute(&case.state, command, &case.random) {
-        Ok(execution) => execution.events.len(),
+        Ok(ExecuteOutcome::Accepted(execution)) => execution.events.len(),
+        Ok(ExecuteOutcome::Rejected(violation)) => {
+            panic!("fixture step was rejected: {violation:?}")
+        }
         Err(error) => panic!("fixture step did not execute: {error:?}"),
     }
 }

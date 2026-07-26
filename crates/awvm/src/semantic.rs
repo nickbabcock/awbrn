@@ -406,14 +406,9 @@ impl<'a> IntoIterator for &'a UnitStore {
 }
 
 /// Two units in the same state claiming one id.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("unit {0} appears more than once")]
 pub struct DuplicateUnitId(pub UnitId);
-
-impl fmt::Display for DuplicateUnitId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "unit {} appears more than once", self.0)
-    }
-}
 
 impl Serialize for UnitStore {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -582,24 +577,15 @@ impl Board {
 }
 
 /// A `tiles` array that is not the rectangle `width` and `height` describe.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "a {width}x{height} board needs {} tiles, found {found}",
+    usize::from(*.width) * usize::from(*.height)
+)]
 pub struct BoardShapeError {
     pub width: u8,
     pub height: u8,
     pub found: usize,
-}
-
-impl fmt::Display for BoardShapeError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "a {}x{} board needs {} tiles, found {}",
-            self.width,
-            self.height,
-            usize::from(self.width) * usize::from(self.height),
-            self.found
-        )
-    }
 }
 
 /// The wire shape: nested rows, one per `y`.
@@ -1105,14 +1091,17 @@ pub enum ObservedMatch {
     Finished { outcome: Outcome },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ObserveError {
+    #[error("UnknownRecipient({0:?})")]
     UnknownRecipient(PlayerId),
+    #[error("UnknownUnitOwner({0:?})")]
     UnknownUnitOwner(PlayerId),
     /// An event names a unit that is in neither the prior nor the next state.
     /// The three inputs are supplied independently over the protocol, so they
     /// can disagree; a typed event cannot fail to decode, but it can still
     /// reference a unit the caller did not send.
+    #[error("UnknownUnit({0:?})")]
     UnknownUnit(UnitId),
 }
 

@@ -17,9 +17,57 @@ use serde_json::{Value, json};
 
 use crate::protocol::{self, PROTOCOL_VERSION};
 
+#[derive(Debug, thiserror::Error)]
+pub enum ConformanceError {
+    #[error("start {program}: {source}")]
+    Start {
+        program: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("stop implementation: {0}")]
+    Stop(#[source] std::io::Error),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error("invalid response: {source}: {line}")]
+    InvalidResponse {
+        #[source]
+        source: serde_json::Error,
+        line: String,
+    },
+    #[error("{}: {source}", path.display())]
+    FixtureIo {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{}: {source}", path.display())]
+    FixtureJson {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{0}")]
+    Message(String),
+}
+
+impl From<String> for ConformanceError {
+    fn from(message: String) -> Self {
+        Self::Message(message)
+    }
+}
+
+impl From<&str> for ConformanceError {
+    fn from(message: &str) -> Self {
+        Self::Message(message.into())
+    }
+}
+
 /// One request/response exchange with an implementation under test.
 pub trait Peer {
-    fn exchange(&mut self, request: Value) -> Result<Value, String>;
+    fn exchange(&mut self, request: Value) -> Result<Value, ConformanceError>;
 }
 
 /// An external adapter driven over the JSON Lines protocol.
@@ -30,12 +78,15 @@ pub struct Subprocess {
 }
 
 impl Subprocess {
-    pub fn spawn(program: &str) -> Result<Self, String> {
+    pub fn spawn(program: &str) -> Result<Self, ConformanceError> {
         let mut child = Command::new(program)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
-            .map_err(|e| format!("start {program}: {e}"))?;
+            .map_err(|source| ConformanceError::Start {
+                program: program.into(),
+                source,
+            })?;
         let input = BufWriter::new(child.stdin.take().unwrap());
         let output = BufReader::new(child.stdout.take().unwrap());
         Ok(Self {
@@ -45,30 +96,26 @@ impl Subprocess {
         })
     }
 
-    pub fn shutdown(mut self) -> Result<(), String> {
-        self.child
-            .kill()
-            .map_err(|e| format!("stop implementation: {e}"))?;
+    pub fn shutdown(mut self) -> Result<(), ConformanceError> {
+        self.child.kill().map_err(ConformanceError::Stop)?;
         let _ = self.child.wait();
         Ok(())
     }
 }
 
 impl Peer for Subprocess {
-    fn exchange(&mut self, request: Value) -> Result<Value, String> {
-        serde_json::to_writer(&mut self.input, &request).map_err(|e| e.to_string())?;
-        writeln!(&mut self.input).map_err(|e| e.to_string())?;
-        self.input.flush().map_err(|e| e.to_string())?;
+    fn exchange(&mut self, request: Value) -> Result<Value, ConformanceError> {
+        serde_json::to_writer(&mut self.input, &request)?;
+        writeln!(&mut self.input)?;
+        self.input.flush()?;
         let mut line = String::new();
-        if self
-            .output
-            .read_line(&mut line)
-            .map_err(|e| e.to_string())?
-            == 0
-        {
-            return Err("implementation closed stdout".into());
+        if self.output.read_line(&mut line)? == 0 {
+            return Err(ConformanceError::Message(
+                "implementation closed stdout".into(),
+            ));
         }
-        serde_json::from_str(&line).map_err(|e| format!("invalid response: {e}: {line}"))
+        serde_json::from_str(&line)
+            .map_err(|source| ConformanceError::InvalidResponse { source, line })
     }
 }
 
@@ -81,7 +128,7 @@ impl Peer for Subprocess {
 pub struct InProcess;
 
 impl Peer for InProcess {
-    fn exchange(&mut self, request: Value) -> Result<Value, String> {
+    fn exchange(&mut self, request: Value) -> Result<Value, ConformanceError> {
         Ok(protocol::handle(&request.to_string()))
     }
 }
@@ -129,12 +176,16 @@ struct Run<'a> {
 }
 
 /// Run every fixture under `root` against `peer`.
-pub fn run(peer: &mut dyn Peer, root: &Path, progress: Progress) -> Result<Summary, String> {
+pub fn run(
+    peer: &mut dyn Peer,
+    root: &Path,
+    progress: Progress,
+) -> Result<Summary, ConformanceError> {
     let capabilities = peer.exchange(
         json!({"protocol_version":PROTOCOL_VERSION,"request_id":"capabilities","operation":"capabilities"}),
     )?;
     if capabilities["status"] != "ok" {
-        return Err(format!("capabilities failed: {capabilities}"));
+        return Err(format!("capabilities failed: {capabilities}").into());
     }
     let features: HashSet<&str> = capabilities["features"]
         .as_array()
@@ -154,12 +205,17 @@ pub fn run(peer: &mut dyn Peer, root: &Path, progress: Progress) -> Result<Summa
     };
 
     for file in files {
-        let case: Value = serde_json::from_str(
-            &fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?,
-        )
-        .map_err(|e| format!("{}: {e}", file.display()))?;
+        let source = fs::read_to_string(&file).map_err(|source| ConformanceError::FixtureIo {
+            path: file.clone(),
+            source,
+        })?;
+        let case: Value =
+            serde_json::from_str(&source).map_err(|source| ConformanceError::FixtureJson {
+                path: file.clone(),
+                source,
+            })?;
         let Some(feature) = case["feature"].as_str() else {
-            return Err(format!("{}: missing feature", file.display()));
+            return Err(format!("{}: missing feature", file.display()).into());
         };
         if !is_supported(feature, &features) {
             run.summary.skipped += 1;
@@ -179,7 +235,7 @@ pub fn run(peer: &mut dyn Peer, root: &Path, progress: Progress) -> Result<Summa
 }
 
 impl Run<'_> {
-    fn sequence_case(&mut self, case: &Value, file: &Path) -> Result<(), String> {
+    fn sequence_case(&mut self, case: &Value, file: &Path) -> Result<(), ConformanceError> {
         let steps = case["steps"]
             .as_array()
             .ok_or_else(|| format!("{}: steps is not an array", file.display()))?;
@@ -210,7 +266,7 @@ impl Run<'_> {
                 Some("rejected") => {
                     json!({"status":actual["status"],"violation":actual["violation"],"random_consumed":actual["random_consumed"]})
                 }
-                _ => return Err(format!("{request_id}: invalid expected status")),
+                _ => return Err(format!("{request_id}: invalid expected status").into()),
             };
             let mut expected_core = expected.clone();
             if let Some(object) = expected_core.as_object_mut() {
@@ -266,7 +322,7 @@ impl Run<'_> {
         state: &Value,
         expected: Option<&Value>,
         label: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), ConformanceError> {
         let Some(expected) = expected.and_then(Value::as_object) else {
             return Ok(());
         };
@@ -288,7 +344,7 @@ impl Run<'_> {
         Ok(())
     }
 
-    fn equivalence_case(&mut self, case: &Value) -> Result<(), String> {
+    fn equivalence_case(&mut self, case: &Value) -> Result<(), ConformanceError> {
         let id = case["id"].as_str().unwrap_or("case");
         let recipient = case["recipient"]
             .as_str()
@@ -306,9 +362,7 @@ impl Run<'_> {
             .ok_or_else(|| format!("{id}: right steps is not an array"))?
             .clone();
         if left_steps.len() != right_steps.len() {
-            return Err(format!(
-                "{id}: equivalence sides have different step counts"
-            ));
+            return Err(format!("{id}: equivalence sides have different step counts").into());
         }
         for (index, (left_step, right_step)) in left_steps.iter().zip(&right_steps).enumerate() {
             let left_pre = left.clone();
@@ -378,7 +432,7 @@ impl Run<'_> {
         right: &Value,
         recipient: &str,
         label: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), ConformanceError> {
         let request = |state: &Value, side: &str| {
             json!({
                 "protocol_version":PROTOCOL_VERSION, "request_id":format!("{label}/{side}"),
@@ -391,7 +445,8 @@ impl Run<'_> {
         if left_observation["status"] != "ok" || right_observation["status"] != "ok" {
             return Err(format!(
                 "{label}: observation operation failed: left={left_observation}, right={right_observation}"
-            ));
+            )
+            .into());
         }
         self.compare(
             &left_observation["observation"],
@@ -409,7 +464,7 @@ impl Run<'_> {
         events: &Value,
         recipient: &str,
         request_id: &str,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ConformanceError> {
         let response = self.peer.exchange(json!({
             "protocol_version":PROTOCOL_VERSION, "request_id":request_id,
             "operation":"observe-events", "ruleset":case["ruleset"],
@@ -417,7 +472,7 @@ impl Run<'_> {
             "recipient":recipient
         }))?;
         if response["status"] != "ok" {
-            return Err(format!("{request_id}: observe-events failed: {response}"));
+            return Err(format!("{request_id}: observe-events failed: {response}").into());
         }
         Ok(response["observed_events"].clone())
     }
@@ -442,9 +497,13 @@ fn is_supported(feature: &str, advertised: &HashSet<&str>) -> bool {
         || advertised.contains(feature)
 }
 
-pub fn collect_json(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
-    for entry in fs::read_dir(path).map_err(|e| format!("{}: {e}", path.display()))? {
-        let p = entry.map_err(|e| e.to_string())?.path();
+pub fn collect_json(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), ConformanceError> {
+    let entries = fs::read_dir(path).map_err(|source| ConformanceError::FixtureIo {
+        path: path.into(),
+        source,
+    })?;
+    for entry in entries {
+        let p = entry?.path();
         if p.is_dir() {
             collect_json(&p, out)?
         } else if p.extension().is_some_and(|x| x == "json") {

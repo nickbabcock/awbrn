@@ -31,7 +31,7 @@ fn main() {
     }
 }
 
-fn run() -> Result<conformance::Summary, String> {
+fn run() -> Result<conformance::Summary, conformance::ConformanceError> {
     let mut args = env::args().skip(1);
     let implementation = args
         .next()

@@ -5,7 +5,7 @@
 //! implementation exposes:
 //!
 //! ```text
-//! execute(state, command, random) -> execution | error
+//! execute(state, command, random) -> accepted | rejected | error
 //! observe(visibility, state, recipient) -> observation | error
 //! observe-events(visibility, state, next-state, events, recipient)
 //!   -> observed-events | error
@@ -15,8 +15,9 @@
 //! validation and reduction, [`combat`] the damage arithmetic, and
 //! [`commander`] the revisioned effective-value operators.
 //!
-//! This crate depends only on serialization support. It has no engine, ECS,
-//! rendering, or AWBW replay dependency, and MUST keep it that way: the
+//! This crate depends only on serialization and error-derivation support. It
+//! has no engine, ECS, rendering, or AWBW replay dependency, and MUST keep it
+//! that way: the
 //! specification's whole premise is that the model does not depend on a
 //! programming language, engine architecture, serialization library, database
 //! schema, replay format, or presentation system. Adapters from replay or ECS
@@ -32,3 +33,29 @@ pub mod ruleset;
 pub mod semantic;
 pub mod transition;
 pub mod violation;
+
+#[cfg(test)]
+mod error_tests {
+    use std::error::Error;
+
+    use crate::commander::PowerActivationError;
+    use crate::conformance::ConformanceError;
+    use crate::random::RandomError;
+    use crate::semantic::{BoardShapeError, DuplicateUnitId, ObserveError};
+    use crate::transition::{ExecuteError, InvalidStateError, ReducerError};
+
+    fn assert_error<T: Error>() {}
+
+    #[test]
+    fn public_failure_types_implement_error() {
+        assert_error::<PowerActivationError>();
+        assert_error::<ConformanceError>();
+        assert_error::<RandomError>();
+        assert_error::<BoardShapeError>();
+        assert_error::<DuplicateUnitId>();
+        assert_error::<ObserveError>();
+        assert_error::<ExecuteError>();
+        assert_error::<InvalidStateError>();
+        assert_error::<ReducerError>();
+    }
+}

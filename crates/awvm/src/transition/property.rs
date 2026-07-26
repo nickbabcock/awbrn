@@ -4,6 +4,7 @@
 //! * `spec/semantics/capture.md`
 //! * `spec/semantics/production.md`
 
+use super::ReducerError as ExecuteError;
 use super::*;
 use crate::commander::{self};
 use crate::event::Event;
@@ -21,9 +22,9 @@ pub(crate) fn execute_produce_unit(
     kind: UnitKind,
 ) -> Result<Execution, ExecuteError> {
     let _turn = ActiveTurn::open(state, player)?;
-    let player_index = state
-        .player_index(player)
-        .ok_or_else(|| ExecuteError::InvalidState(format!("unknown active player {player}")))?;
+    let player_index = state.player_index(player).ok_or_else(|| {
+        ExecuteError::InvalidState(format!("unknown active player {player}").into())
+    })?;
     let profile = ruleset::profile(kind);
 
     // Site validation precedes requested-kind validation: whether the player
@@ -82,9 +83,9 @@ pub(crate) fn execute_produce_unit(
         .ok_or_else(|| ExecuteError::InvalidState("production requires next_unit_id".into()))?;
     let allocated_id = UnitId::new(next_id);
     if state.units.contains(allocated_id) {
-        return Err(ExecuteError::InvalidState(format!(
-            "next_unit_id {next_id} is not fresh"
-        )));
+        return Err(ExecuteError::InvalidState(
+            format!("next_unit_id {next_id} is not fresh").into(),
+        ));
     }
     let max_fuel = profile.max_fuel;
     let max_ammo = profile.max_ammo;

@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use crate::event::Event;
 use crate::random::RandomToken;
 use crate::semantic::{self, AwbwVisibility, PlayerId, RulesetRef, State};
-use crate::transition::{self, Command, ExecuteError};
+use crate::transition::{self, Command, ExecuteError, ExecuteOutcome};
 
 pub const PROTOCOL_VERSION: &str = "0.1.0";
 
@@ -314,10 +314,10 @@ fn execute(line: &str, request_id: &str) -> Value {
         Err(e) => return error(&request.request_id, "INVALID_COMMAND", e.to_string()),
     };
     match transition::execute(&request.state, command, &request.random) {
-        Ok(result) => {
+        Ok(ExecuteOutcome::Accepted(result)) => {
             json!({"protocol_version":PROTOCOL_VERSION,"request_id":request.request_id,"status":"accepted","state":result.state,"events":result.events,"random_consumed":result.random_consumed})
         }
-        Err(ExecuteError::Violation(violation)) => {
+        Ok(ExecuteOutcome::Rejected(violation)) => {
             json!({"protocol_version":PROTOCOL_VERSION,"request_id":request.request_id,"status":"rejected","violation":violation,"random_consumed":0})
         }
         Err(ExecuteError::UnsupportedCommand) => error(
@@ -330,11 +330,11 @@ fn execute(line: &str, request_id: &str) -> Value {
             "UNSUPPORTED_RULESET",
             "only awbw/2026-07-10 is implemented",
         ),
-        Err(ExecuteError::InvalidState(message)) => {
-            error(&request.request_id, "INVALID_STATE", message)
+        Err(ExecuteError::InvalidState(error_)) => {
+            error(&request.request_id, "INVALID_STATE", error_.to_string())
         }
-        Err(ExecuteError::InvalidRandom(message)) => {
-            error(&request.request_id, "INVALID_RANDOM", message)
+        Err(ExecuteError::InvalidRandom(error_)) => {
+            error(&request.request_id, "INVALID_RANDOM", error_.to_string())
         }
     }
 }
@@ -355,11 +355,7 @@ fn observe(line: &str, request_id: &str) -> Value {
             "status": "ok",
             "observation": observation
         }),
-        Err(error_) => error(
-            &request.request_id,
-            "OBSERVATION_ERROR",
-            format!("{error_:?}"),
-        ),
+        Err(error_) => error(&request.request_id, "OBSERVATION_ERROR", error_.to_string()),
     }
 }
 
@@ -385,11 +381,7 @@ fn observe_events(line: &str, request_id: &str) -> Value {
             "status": "ok",
             "observed_events": observed_events
         }),
-        Err(error_) => error(
-            &request.request_id,
-            "OBSERVATION_ERROR",
-            format!("{error_:?}"),
-        ),
+        Err(error_) => error(&request.request_id, "OBSERVATION_ERROR", error_.to_string()),
     }
 }
 
@@ -420,25 +412,69 @@ fn error(request_id: &str, code: &str, message: impl Into<String>) -> Value {
 mod tests {
     use super::*;
 
-    #[test]
-    fn malformed_random_tokens_fail_request_decoding() {
+    fn random_weather_request(random: Value) -> Value {
         let case: Value = serde_json::from_str(include_str!(
             "../../../spec/fixtures/turn-hooks/random-weather-outcomes.json"
         ))
         .unwrap();
-        let request = json!({
+        json!({
             "protocol_version": PROTOCOL_VERSION,
             "request_id": "malformed-random",
             "operation": "execute",
             "ruleset": case["ruleset"],
             "state": case["initial_state"],
             "command": case["steps"][0]["command"],
-            "random": [{"type": "weather-selection", "value": "sandstorm"}],
+            "random": random,
+        })
+    }
+
+    #[test]
+    fn malformed_random_tokens_fail_request_decoding() {
+        let request = random_weather_request(json!([
+            {"type": "weather-selection", "value": "sandstorm"}
+        ]));
+        let response = handle(&request.to_string());
+
+        assert_eq!(response["status"], "error");
+        assert_eq!(response["code"], "INVALID_REQUEST");
+    }
+
+    #[test]
+    fn typed_random_errors_keep_their_protocol_code_and_message() {
+        let request = random_weather_request(json!([]));
+        let response = handle(&request.to_string());
+
+        assert_eq!(
+            response,
+            json!({
+                "protocol_version": PROTOCOL_VERSION,
+                "request_id": "malformed-random",
+                "status": "error",
+                "code": "INVALID_RANDOM",
+                "message": "the random tape is missing a token",
+            })
+        );
+    }
+
+    #[test]
+    fn typed_observation_errors_keep_their_protocol_message() {
+        let case: Value = serde_json::from_str(include_str!(
+            "../../../spec/fixtures/turn-hooks/random-weather-outcomes.json"
+        ))
+        .unwrap();
+        let request = json!({
+            "protocol_version": PROTOCOL_VERSION,
+            "request_id": "unknown-recipient",
+            "operation": "observe",
+            "ruleset": case["ruleset"],
+            "state": case["initial_state"],
+            "recipient": "ghost",
         });
 
         let response = handle(&request.to_string());
 
         assert_eq!(response["status"], "error");
-        assert_eq!(response["code"], "INVALID_REQUEST");
+        assert_eq!(response["code"], "OBSERVATION_ERROR");
+        assert_eq!(response["message"], "UnknownRecipient(PlayerId(\"ghost\"))");
     }
 }

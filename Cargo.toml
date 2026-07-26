@@ -26,6 +26,7 @@ serde_path_to_error = "0.1.15"
 serde-wasm-bindgen = "0.6.5"
 strum = { version = "0.27.1", features = ["derive"] }
 tsify = { version =  "0.5.6", default-features = false, features = ["js"] }
+thiserror = "2.0.18"
 walkdir = "2.5"
 wasm-bindgen = "0.2.114"
 web-sys = { version = "0.3.91", features = ["OffscreenCanvas"] }

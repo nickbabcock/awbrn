@@ -385,8 +385,9 @@ pub enum PowerLevel {
     Scop,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PowerActivationError {
+    #[error("ArithmeticOverflow")]
     ArithmeticOverflow,
 }
 

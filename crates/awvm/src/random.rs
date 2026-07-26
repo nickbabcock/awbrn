@@ -32,30 +32,49 @@ pub enum Luck {
     Bad,
 }
 
+/// The stable tag identifying a kind of supplied random token.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RandomTokenKind {
+    CombatGoodLuck,
+    CombatBadLuck,
+    WeatherSelection,
+}
+
+impl RandomToken {
+    pub const fn kind(self) -> RandomTokenKind {
+        match self {
+            Self::CombatGoodLuck(_) => RandomTokenKind::CombatGoodLuck,
+            Self::CombatBadLuck(_) => RandomTokenKind::CombatBadLuck,
+            Self::WeatherSelection(_) => RandomTokenKind::WeatherSelection,
+        }
+    }
+}
+
 /// Why a draw could not be satisfied.
 ///
 /// All three are the specification's single "missing, wrong-type, or
 /// out-of-domain random input" execution failure; they are kept apart only so
 /// the reported message says which one happened.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum RandomError {
     /// The tape ran out.
-    Missing,
+    #[error("the random tape is missing a token")]
+    Missing { expected: RandomTokenKind },
     /// The next token is not the kind the reducer asked for.
-    Unexpected,
+    #[error("the random tape supplied the wrong kind of token")]
+    Unexpected {
+        expected: RandomTokenKind,
+        actual: RandomTokenKind,
+    },
     /// The token is well-formed but its value is outside the range the ruleset
     /// permits for this draw.
-    OutOfDomain,
-}
-
-impl RandomError {
-    pub const fn message(self) -> &'static str {
-        match self {
-            Self::Missing => "the random tape is missing a token",
-            Self::Unexpected => "the random tape supplied the wrong kind of token",
-            Self::OutOfDomain => "a random token is outside the ruleset's domain",
-        }
-    }
+    #[error("a random token is outside the ruleset's domain")]
+    OutOfDomain {
+        kind: RandomTokenKind,
+        value: i64,
+        minimum: i64,
+        maximum: i64,
+    },
 }
 
 /// An in-order cursor over the tape.
@@ -79,8 +98,11 @@ impl<'a> RandomTape<'a> {
         self.cursor
     }
 
-    fn next_token(&mut self) -> Result<RandomToken, RandomError> {
-        let token = *self.tokens.get(self.cursor).ok_or(RandomError::Missing)?;
+    fn next_token(&mut self, expected: RandomTokenKind) -> Result<RandomToken, RandomError> {
+        let token = *self
+            .tokens
+            .get(self.cursor)
+            .ok_or(RandomError::Missing { expected })?;
         self.cursor += 1;
         Ok(token)
     }
@@ -91,22 +113,42 @@ impl<'a> RandomTape<'a> {
         polarity: Luck,
         domain: crate::commander::Domain,
     ) -> Result<i64, RandomError> {
-        let value = match (self.next_token()?, polarity) {
+        let expected = match polarity {
+            Luck::Good => RandomTokenKind::CombatGoodLuck,
+            Luck::Bad => RandomTokenKind::CombatBadLuck,
+        };
+        let token = self.next_token(expected)?;
+        let value = match (token, polarity) {
             (RandomToken::CombatGoodLuck(value), Luck::Good)
             | (RandomToken::CombatBadLuck(value), Luck::Bad) => value,
-            _ => return Err(RandomError::Unexpected),
+            _ => {
+                return Err(RandomError::Unexpected {
+                    expected,
+                    actual: token.kind(),
+                });
+            }
         };
         if !(domain.minimum..=domain.maximum).contains(&value) {
-            return Err(RandomError::OutOfDomain);
+            return Err(RandomError::OutOfDomain {
+                kind: expected,
+                value,
+                minimum: domain.minimum,
+                maximum: domain.maximum,
+            });
         }
         Ok(value)
     }
 
     /// Draw the weather the caller selected.
     pub fn weather(&mut self) -> Result<WeatherKind, RandomError> {
-        match self.next_token()? {
+        let expected = RandomTokenKind::WeatherSelection;
+        let token = self.next_token(expected)?;
+        match token {
             RandomToken::WeatherSelection(kind) => Ok(kind),
-            _ => Err(RandomError::Unexpected),
+            _ => Err(RandomError::Unexpected {
+                expected,
+                actual: token.kind(),
+            }),
         }
     }
 }
@@ -160,7 +202,9 @@ mod tests {
         assert_eq!(tape.consumed(), 2);
         assert_eq!(
             tape.luck(Luck::Good, ZERO_TO_NINE),
-            Err(RandomError::Missing)
+            Err(RandomError::Missing {
+                expected: RandomTokenKind::CombatGoodLuck
+            })
         );
         assert_eq!(tape.consumed(), 2);
     }
@@ -172,7 +216,13 @@ mod tests {
     fn a_token_of_the_wrong_kind_still_advances_the_cursor() {
         let tokens = vec![RandomToken::CombatGoodLuck(0)];
         let mut tape = RandomTape::new(&tokens);
-        assert_eq!(tape.weather(), Err(RandomError::Unexpected));
+        assert_eq!(
+            tape.weather(),
+            Err(RandomError::Unexpected {
+                expected: RandomTokenKind::WeatherSelection,
+                actual: RandomTokenKind::CombatGoodLuck,
+            })
+        );
         assert_eq!(tape.consumed(), 1);
     }
 
@@ -185,7 +235,12 @@ mod tests {
         let mut tape = RandomTape::new(&tokens);
         assert_eq!(
             tape.luck(Luck::Good, ZERO_TO_NINE),
-            Err(RandomError::OutOfDomain)
+            Err(RandomError::OutOfDomain {
+                kind: RandomTokenKind::CombatGoodLuck,
+                value: 10,
+                minimum: 0,
+                maximum: 9,
+            })
         );
         assert_eq!(tape.weather(), Ok(WeatherKind::Rain));
     }

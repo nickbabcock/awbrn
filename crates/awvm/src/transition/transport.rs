@@ -6,6 +6,7 @@
 //! * `spec/semantics/supply.md`
 //! * `spec/semantics/repair.md`
 
+use super::ReducerError as ExecuteError;
 use super::*;
 use crate::commander::{self};
 use crate::event::Event;
@@ -206,10 +207,9 @@ pub(crate) fn execute_move_repair(
     }
     let visual_hp = target.hp.div_ceil(exact_hp);
     if visual_hp < 10 {
-        let player_index = outcome
-            .state
-            .player_index(player)
-            .ok_or_else(|| ExecuteError::InvalidState(format!("unknown active player {player}")))?;
+        let player_index = outcome.state.player_index(player).ok_or_else(|| {
+            ExecuteError::InvalidState(format!("unknown active player {player}").into())
+        })?;
         let funds_before = outcome.state.player_mut(player_index).funds;
         if heal_cost <= funds_before {
             let hp_before = outcome.state.units[target_index].hp;
@@ -286,7 +286,9 @@ pub(crate) fn execute_move_load(
     let capacity = capacity.expect("target validity established capacity");
     let slot = (0..capacity)
         .find(|slot| !occupied_slots.contains(slot))
-        .ok_or_else(|| ExecuteError::InvalidState(format!("transport {transport_id} is full")))?;
+        .ok_or_else(|| {
+            ExecuteError::InvalidState(format!("transport {transport_id} is full").into())
+        })?;
 
     let mut outcome = execute_planned_movement(state, unit_id, &plan);
     if outcome.trapped {
@@ -541,9 +543,9 @@ pub(crate) fn execute_move_join(
 
     if combined_visual_hp > 10 {
         let refund = (cost / 10) * u64::from(combined_visual_hp - 10);
-        let player_index = next
-            .player_index(player)
-            .ok_or_else(|| ExecuteError::InvalidState(format!("unknown active player {player}")))?;
+        let player_index = next.player_index(player).ok_or_else(|| {
+            ExecuteError::InvalidState(format!("unknown active player {player}").into())
+        })?;
         let funds_before = next.player_mut(player_index).funds;
         next.player_mut(player_index).funds = funds_before
             .checked_add(refund)

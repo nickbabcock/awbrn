@@ -4,6 +4,7 @@
 //! * `spec/semantics/turn.md`
 //! * `spec/semantics/turn-hooks.md`
 
+use super::ReducerError as ExecuteError;
 use super::*;
 use crate::commander::{self, PowerLevel};
 use crate::event::{Event, RandomKind, RandomValue, SupplySource};
@@ -321,9 +322,7 @@ pub(crate) fn execute_turn_boundary(
                 reason: ReasonId::from("expiry"),
             });
         } else if next.settings.weather == WeatherSetting::Random {
-            let selected = tape
-                .weather()
-                .map_err(|error| ExecuteError::InvalidRandom(error.message().into()))?;
+            let selected = tape.weather()?;
             events.push(Event::RandomOutcome {
                 kind: RandomKind::WeatherSelection,
                 outcome: RandomValue::Text(selected.as_str().into()),

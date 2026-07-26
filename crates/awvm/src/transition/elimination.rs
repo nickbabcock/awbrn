@@ -3,6 +3,7 @@
 //! Normative source:
 //! * `spec/semantics/elimination.md`
 
+use super::ReducerError as ExecuteError;
 use super::*;
 use crate::event::Event;
 use crate::random::RandomToken;

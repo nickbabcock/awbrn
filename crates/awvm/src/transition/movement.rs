@@ -5,6 +5,7 @@
 //! * `spec/semantics/capture-reset.md`
 //! * `spec/semantics/concealment.md`
 
+use super::ReducerError as ExecuteError;
 use super::*;
 use crate::commander::{self};
 use crate::event::Event;
@@ -151,7 +152,9 @@ pub(crate) fn plan(
     let actor_team = state
         .find_player(player)
         .map(|candidate| candidate.team.clone())
-        .ok_or_else(|| ExecuteError::InvalidState(format!("unknown active player {player}")))?;
+        .ok_or_else(|| {
+            ExecuteError::InvalidState(format!("unknown active player {player}").into())
+        })?;
     let visibility = AwbwVisibility;
     for (index, position) in path
         .iter()

@@ -5,6 +5,7 @@
 //! * `spec/semantics/explode.md`
 //! * `spec/semantics/delete.md`
 
+use super::ReducerError as ExecuteError;
 use super::*;
 use crate::commander::AreaStrikePolicy;
 use crate::event::Event;

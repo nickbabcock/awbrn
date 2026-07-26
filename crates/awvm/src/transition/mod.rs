@@ -134,20 +134,91 @@ pub struct Execution {
     pub random_consumed: usize,
 }
 
+/// The semantic result of evaluating a supported command.
+///
+/// `Accepted` deliberately stays inline: every successful transition already
+/// returns an `Execution`, and boxing it would add an allocation to the hot
+/// reducer path solely to shrink the rejection representation.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExecuteOutcome {
+    Accepted(Execution),
+    Rejected(Violation),
+}
+
+/// Adapter-owned diagnostic detail for an invalid authoritative state.
+///
+/// The stable category is [`ExecuteError::InvalidState`]; this prose is not a
+/// protocol code and may become more structured as invariant checking grows.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct InvalidStateError(String);
+
+impl From<&str> for InvalidStateError {
+    fn from(message: &str) -> Self {
+        Self(message.into())
+    }
+}
+
+impl From<String> for InvalidStateError {
+    fn from(message: String) -> Self {
+        Self(message)
+    }
+}
+
+/// A fault that prevented a command from producing a semantic outcome.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ExecuteError {
+    #[error("command is not implemented by this adapter")]
     UnsupportedCommand,
-    Violation(Violation),
+    #[error("only awbw/2026-07-10 is implemented")]
     UnsupportedRuleset,
-    InvalidState(String),
-    InvalidRandom(String),
+    #[error("invalid authoritative state: {0}")]
+    InvalidState(#[from] InvalidStateError),
+    #[error("invalid random input: {0}")]
+    InvalidRandom(#[from] crate::random::RandomError),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum ReducerError {
+    #[error("command is not implemented by this adapter")]
+    UnsupportedCommand,
+    #[error("command rejected: {0:?}")]
+    Violation(Violation),
+    #[error("only awbw/2026-07-10 is implemented")]
+    UnsupportedRuleset,
+    #[error("invalid authoritative state: {0}")]
+    InvalidState(#[from] InvalidStateError),
+    #[error("invalid random input: {0}")]
+    InvalidRandom(#[from] crate::random::RandomError),
+}
+
+impl From<Violation> for ReducerError {
+    fn from(violation: Violation) -> Self {
+        Self::Violation(violation)
+    }
 }
 
 pub fn execute(
     state: &State,
     command: Command,
     random: &[RandomToken],
-) -> Result<Execution, ExecuteError> {
+) -> Result<ExecuteOutcome, ExecuteError> {
+    match reduce(state, command, random) {
+        Ok(execution) => Ok(ExecuteOutcome::Accepted(execution)),
+        Err(ReducerError::Violation(violation)) => Ok(ExecuteOutcome::Rejected(violation)),
+        Err(ReducerError::UnsupportedCommand) => Err(ExecuteError::UnsupportedCommand),
+        Err(ReducerError::UnsupportedRuleset) => Err(ExecuteError::UnsupportedRuleset),
+        Err(ReducerError::InvalidState(error)) => Err(ExecuteError::InvalidState(error)),
+        Err(ReducerError::InvalidRandom(error)) => Err(ExecuteError::InvalidRandom(error)),
+    }
+}
+
+fn reduce(
+    state: &State,
+    command: Command,
+    random: &[RandomToken],
+) -> Result<Execution, ReducerError> {
     match command {
         Command::MoveWait { player, unit, path } => {
             execute_move_wait(state, &player, unit, path, random)
@@ -213,7 +284,7 @@ pub fn execute(
         Command::Tag { player } => execute_tag(state, &player, random),
         Command::EndTurn { player } => execute_end_turn(state, &player, random),
         Command::Resign { player } => execute_resign(state, &player, random),
-        Command::Unsupported => Err(ExecuteError::UnsupportedCommand),
+        Command::Unsupported => Err(ReducerError::UnsupportedCommand),
     }
 }
 
@@ -284,9 +355,9 @@ pub(crate) fn draw(
     tape: &mut RandomTape<'_>,
     polarity: Luck,
     domain: commander::Domain,
-) -> Result<i64, ExecuteError> {
+) -> Result<i64, ReducerError> {
     tape.luck(polarity, domain)
-        .map_err(|_| ExecuteError::UnsupportedCommand)
+        .map_err(|_| ReducerError::UnsupportedCommand)
 }
 
 /// Proof that a command got past the checks every unit action shares.
@@ -307,9 +378,9 @@ pub(crate) struct ActiveTurn<'a> {
 impl<'a> ActiveTurn<'a> {
     /// Run the shared checks, in the order `spec/model/violations.md` fixes:
     /// ruleset, then terminal match, then phase, then actor.
-    pub(crate) fn open(state: &'a State, player: &'a str) -> Result<Self, ExecuteError> {
+    pub(crate) fn open(state: &'a State, player: &'a str) -> Result<Self, ReducerError> {
         if !ruleset::supports(&state.ruleset) {
-            return Err(ExecuteError::UnsupportedRuleset);
+            return Err(ReducerError::UnsupportedRuleset);
         }
         if matches!(state.match_state, Match::Finished { .. }) {
             return Err(violation(Violation::MatchFinished));
@@ -344,13 +415,13 @@ impl<'a> ActiveTurn<'a> {
         &self,
         unit: UnitId,
         path: Vec<Pos>,
-    ) -> Result<MovedUnit, ExecuteError> {
+    ) -> Result<MovedUnit, ReducerError> {
         movement::plan(self, unit, path)
     }
 }
 
-pub(crate) fn violation(violation: Violation) -> ExecuteError {
-    ExecuteError::Violation(violation)
+pub(crate) fn violation(violation: Violation) -> ReducerError {
+    ReducerError::Violation(violation)
 }
 
 #[cfg(test)]
@@ -364,6 +435,14 @@ mod tests {
     };
     use crate::violation::Action;
     use serde_json::json;
+
+    fn execute(
+        state: &State,
+        command: Command,
+        random: &[RandomToken],
+    ) -> Result<Execution, ReducerError> {
+        reduce(state, command, random)
+    }
 
     /// Replace the board with a single row of `tiles`.
     ///
@@ -433,7 +512,7 @@ mod tests {
         wrong_ruleset.ruleset.revision = "1999-01-01".into();
         assert_eq!(
             ActiveTurn::open(&wrong_ruleset, "red").unwrap_err(),
-            ExecuteError::UnsupportedRuleset
+            ReducerError::UnsupportedRuleset
         );
 
         let mut finished = base.clone();
@@ -482,7 +561,7 @@ mod tests {
         );
     }
 
-    fn plan_for(state: &State, path: Vec<Pos>) -> Result<(), ExecuteError> {
+    fn plan_for(state: &State, path: Vec<Pos>) -> Result<(), ReducerError> {
         ActiveTurn::open(state, "red")?.plan_move(UnitId::new(0), path)?;
         Ok(())
     }
@@ -651,7 +730,7 @@ mod tests {
             assert!(
                 matches!(
                     execute(&state, command.clone(), &random),
-                    Err(ExecuteError::InvalidRandom(_))
+                    Err(ReducerError::InvalidRandom(_))
                 ),
                 "unexpectedly accepted random input {random:?}"
             );
@@ -1246,7 +1325,7 @@ mod tests {
 
         assert_eq!(
             execute(&state, command, &[]),
-            Err(ExecuteError::Violation(Violation::ActionNotSupported {
+            Err(ReducerError::Violation(Violation::ActionNotSupported {
                 action: Action::MoveAndFire
             }))
         );
