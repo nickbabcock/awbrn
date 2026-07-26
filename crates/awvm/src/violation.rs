@@ -13,7 +13,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::semantic::{Phase, PlayerId, Position, UnitId, UnitKindId};
+use crate::semantic::{Phase, PlayerId, Pos, UnitId, UnitKindId};
 
 /// One primary rejection from `validate`.
 ///
@@ -53,23 +53,23 @@ pub enum Violation {
     },
     /// The path's first position is not where the unit stands.
     PathOriginMismatch {
-        expected: Position,
-        actual: Position,
+        expected: Pos,
+        actual: Pos,
     },
     /// The step ending at `index` is not orthogonally adjacent.
     PathNonAdjacent {
         index: usize,
-        from: Position,
-        to: Position,
+        from: Pos,
+        to: Pos,
     },
     PathRepeatedPosition {
         index: usize,
-        position: Position,
+        position: Pos,
         first_index: usize,
     },
     PathOutOfBounds {
         index: usize,
-        position: Position,
+        position: Pos,
     },
     /// The mover cannot enter this terrain.
     ///
@@ -79,12 +79,12 @@ pub enum Violation {
     TerrainImpassable {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         index: Option<usize>,
-        position: Position,
+        position: Pos,
     },
     /// A disclosed intermediate obstruction blocks the path.
     PathOccupied {
         index: usize,
-        position: Position,
+        position: Pos,
     },
     InsufficientMovement {
         required: u64,
@@ -104,7 +104,7 @@ pub enum Violation {
     },
     /// Disclosed occupancy of the destination forbids the action.
     DestinationOccupied {
-        position: Position,
+        position: Pos,
     },
     /// The target is absent or inapplicable.
     ///
@@ -147,7 +147,7 @@ pub enum Authority {
 pub enum Target {
     Unit(UnitId),
     Kind(UnitKindId),
-    Position(Position),
+    Pos(Pos),
 }
 
 impl From<UnitId> for Target {
@@ -162,9 +162,9 @@ impl From<UnitKindId> for Target {
     }
 }
 
-impl From<Position> for Target {
-    fn from(position: Position) -> Self {
-        Self::Position(position)
+impl From<Pos> for Target {
+    fn from(position: Pos) -> Self {
+        Self::Pos(position)
     }
 }
 
@@ -226,7 +226,7 @@ mod tests {
         assert_eq!(
             round_trip(Violation::PathRepeatedPosition {
                 index: 2,
-                position: [3, 4],
+                position: Pos::new(3, 4),
                 first_index: 0,
             })
             .to_string(),
@@ -239,16 +239,16 @@ mod tests {
         assert_eq!(
             round_trip(Violation::TerrainImpassable {
                 index: None,
-                position: [1, 2],
+                position: Pos::new(1, 2),
             }),
-            json!({"code":"TERRAIN_IMPASSABLE","position":[1,2]})
+            json!({"code":"TERRAIN_IMPASSABLE","position":Pos::new(1, 2)})
         );
         assert_eq!(
             round_trip(Violation::TerrainImpassable {
                 index: Some(1),
-                position: [1, 2],
+                position: Pos::new(1, 2),
             }),
-            json!({"code":"TERRAIN_IMPASSABLE","index":1,"position":[1,2]})
+            json!({"code":"TERRAIN_IMPASSABLE","index":1,"position":Pos::new(1, 2)})
         );
     }
 
@@ -259,7 +259,7 @@ mod tests {
         for (target, expected) in [
             (Target::Unit(UnitId::new(7)), json!(7)),
             (Target::Kind(UnitKindId::Infantry), json!("infantry")),
-            (Target::Position([2, 5]), json!([2, 5])),
+            (Target::Pos(Pos::new(2, 5)), json!(Pos::new(2, 5))),
         ] {
             let violation = Violation::InvalidTarget {
                 target: Some(target),

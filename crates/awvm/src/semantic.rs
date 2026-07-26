@@ -14,7 +14,73 @@ use crate::commander;
 use crate::event::Event;
 use crate::ruleset::{self, Domain, TerrainTrait};
 
-pub type Position = [usize; 2];
+/// A board coordinate.
+///
+/// `[x, y]` on the wire, x first, which is the specification's canonical order
+/// (`spec/model/violations.md`). Storing it as a named pair is the point: the
+/// board is indexed row-major, so every hand-written `tiles[p.y][p.x]` had to
+/// invert the pair by hand, and one that forgot read as valid Rust.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Pos {
+    pub x: u8,
+    pub y: u8,
+}
+
+impl Pos {
+    pub const fn new(x: u8, y: u8) -> Self {
+        Self { x, y }
+    }
+
+    /// Manhattan distance, which is how the ruleset measures range and
+    /// adjacency.
+    pub fn distance(self, other: Self) -> u64 {
+        u64::from(self.x.abs_diff(other.x)) + u64::from(self.y.abs_diff(other.y))
+    }
+
+    /// The four orthogonally adjacent coordinates that exist. A coordinate on
+    /// an edge simply yields fewer.
+    pub fn orthogonal(self) -> impl Iterator<Item = Self> {
+        [(1i16, 0i16), (-1, 0), (0, 1), (0, -1)]
+            .into_iter()
+            .filter_map(move |(dx, dy)| {
+                let x = u8::try_from(i16::from(self.x) + dx).ok()?;
+                let y = u8::try_from(i16::from(self.y) + dy).ok()?;
+                Some(Self { x, y })
+            })
+    }
+}
+
+impl fmt::Display for Pos {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "({}, {})", self.x, self.y)
+    }
+}
+
+impl Serialize for Pos {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        [self.x, self.y].serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Pos {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Decoded through `u64` rather than `u8` so that a coordinate beyond any
+        // representable board reports what it is, instead of serde's less
+        // specific "invalid value" for the narrower type.
+        let [x, y] = <[u64; 2]>::deserialize(deserializer)?;
+        let narrow = |value: u64| {
+            u8::try_from(value).map_err(|_| {
+                serde::de::Error::custom(format!(
+                    "coordinate {value} is beyond the largest representable board"
+                ))
+            })
+        };
+        Ok(Self {
+            x: narrow(x)?,
+            y: narrow(y)?,
+        })
+    }
+}
 
 macro_rules! string_id {
     ($($name:ident),+ $(,)?) => {
@@ -167,6 +233,200 @@ pub struct CommanderBans {
     pub backup: Vec<CommanderId>,
 }
 
+/// A player's index into [`State::players`].
+///
+/// Resolving a player id to a seat once, at the edge of a command, and then
+/// indexing is what keeps the reducer from re-scanning the roster for every
+/// question it asks about the same player.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PlayerIdx(usize);
+
+impl PlayerIdx {
+    pub const fn get(self) -> usize {
+        self.0
+    }
+}
+
+/// The units in play, indexed by id.
+///
+/// An array on the wire, as `spec/schema/state.schema.json` describes. The
+/// side table exists because the reducer asks "where is unit N" constantly, and
+/// answering it by scanning made every such question linear in the army size.
+/// Ids are unique — checked once, while decoding — which is also what makes the
+/// index a function rather than a guess.
+#[derive(Clone, Debug, Default)]
+pub struct UnitStore {
+    units: Vec<Unit>,
+    by_id: HashMap<UnitId, usize>,
+}
+
+impl PartialEq for UnitStore {
+    fn eq(&self, other: &Self) -> bool {
+        // The index is derived, so comparing it would only ever restate this.
+        self.units == other.units
+    }
+}
+
+impl Eq for UnitStore {}
+
+impl UnitStore {
+    /// Build a store, failing on a duplicate id.
+    pub fn new(units: Vec<Unit>) -> Result<Self, DuplicateUnitId> {
+        let mut by_id = HashMap::with_capacity(units.len());
+        for (index, unit) in units.iter().enumerate() {
+            if by_id.insert(unit.id, index).is_some() {
+                return Err(DuplicateUnitId(unit.id));
+            }
+        }
+        Ok(Self { units, by_id })
+    }
+
+    pub fn len(&self) -> usize {
+        self.units.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.units.is_empty()
+    }
+
+    /// The unit with this id, in constant time.
+    pub fn get(&self, id: UnitId) -> Option<&Unit> {
+        self.by_id.get(&id).map(|index| &self.units[*index])
+    }
+
+    pub fn get_mut(&mut self, id: UnitId) -> Option<&mut Unit> {
+        let index = *self.by_id.get(&id)?;
+        Some(&mut self.units[index])
+    }
+
+    pub fn contains(&self, id: UnitId) -> bool {
+        self.by_id.contains_key(&id)
+    }
+
+    /// Positional access, for the few places that hold an index rather than an
+    /// id. Prefer [`UnitStore::get`].
+    pub fn at(&self, index: usize) -> Option<&Unit> {
+        self.units.get(index)
+    }
+
+    pub fn at_mut(&mut self, index: usize) -> Option<&mut Unit> {
+        self.units.get_mut(index)
+    }
+
+    pub fn index_of(&self, id: UnitId) -> Option<usize> {
+        self.by_id.get(&id).copied()
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, Unit> {
+        self.units.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, Unit> {
+        self.units.iter_mut()
+    }
+
+    pub fn as_slice(&self) -> &[Unit] {
+        &self.units
+    }
+
+    /// Add a unit. Panics on a duplicate id, which the reducer must not
+    /// produce: ids come from `next_unit_id`, which only ever moves forward.
+    pub fn push(&mut self, unit: Unit) {
+        let id = unit.id;
+        assert!(
+            self.by_id.insert(id, self.units.len()).is_none(),
+            "unit {id} is already in play"
+        );
+        self.units.push(unit);
+    }
+
+    /// Remove the unit at a position, keeping the index in step.
+    pub fn remove(&mut self, index: usize) -> Unit {
+        let removed = self.units.remove(index);
+        self.by_id.remove(&removed.id);
+        for later in self.by_id.values_mut() {
+            if *later > index {
+                *later -= 1;
+            }
+        }
+        removed
+    }
+
+    pub fn retain(&mut self, keep: impl FnMut(&Unit) -> bool) {
+        self.units.retain(keep);
+        self.reindex();
+    }
+
+    pub fn extend(&mut self, units: impl IntoIterator<Item = Unit>) {
+        self.units.extend(units);
+        self.reindex();
+    }
+
+    fn reindex(&mut self) {
+        self.by_id.clear();
+        self.by_id.extend(
+            self.units
+                .iter()
+                .enumerate()
+                .map(|(index, u)| (u.id, index)),
+        );
+    }
+}
+
+impl std::ops::Index<usize> for UnitStore {
+    type Output = Unit;
+
+    fn index(&self, index: usize) -> &Unit {
+        &self.units[index]
+    }
+}
+
+impl std::ops::IndexMut<usize> for UnitStore {
+    fn index_mut(&mut self, index: usize) -> &mut Unit {
+        &mut self.units[index]
+    }
+}
+
+impl<'a> IntoIterator for &'a mut UnitStore {
+    type Item = &'a mut Unit;
+    type IntoIter = std::slice::IterMut<'a, Unit>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
+impl<'a> IntoIterator for &'a UnitStore {
+    type Item = &'a Unit;
+    type IntoIter = std::slice::Iter<'a, Unit>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+/// Two units in the same state claiming one id.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DuplicateUnitId(pub UnitId);
+
+impl fmt::Display for DuplicateUnitId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "unit {} appears more than once", self.0)
+    }
+}
+
+impl Serialize for UnitStore {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.units.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for UnitStore {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::new(Vec::<Unit>::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct State {
     pub ruleset: RulesetRef,
@@ -176,27 +436,223 @@ pub struct State {
     pub players: Vec<Player>,
     pub turn: Turn,
     pub weather: Weather,
-    pub units: Vec<Unit>,
+    pub units: UnitStore,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_unit_id: Option<u32>,
     #[serde(rename = "match")]
     pub match_state: Match,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+impl State {
+    /// The seat a player id names.
+    ///
+    /// Resolve once at the edge of a command and index afterwards. The roster
+    /// is short, so this is about saying which player a later index means, not
+    /// about speed.
+    pub fn player_index(&self, id: &str) -> Option<PlayerIdx> {
+        self.players
+            .iter()
+            .position(|candidate| candidate.id == id)
+            .map(PlayerIdx)
+    }
+
+    pub fn player(&self, seat: PlayerIdx) -> &Player {
+        &self.players[seat.get()]
+    }
+
+    pub fn player_mut(&mut self, seat: PlayerIdx) -> &mut Player {
+        &mut self.players[seat.get()]
+    }
+
+    pub fn find_player(&self, id: &str) -> Option<&Player> {
+        self.players.iter().find(|candidate| candidate.id == id)
+    }
+
+    pub fn find_player_mut(&mut self, id: &str) -> Option<&mut Player> {
+        self.players.iter_mut().find(|candidate| candidate.id == id)
+    }
+}
+
+/// The board, stored flat and row-major.
+///
+/// The wire form is nested rows (`spec/schema/state.schema.json`), but a
+/// `Vec<Vec<Tile>>` lets rows disagree with `width`, and every reader then has
+/// to index two levels in the opposite order to the coordinate it holds. The
+/// rectangle is checked once, while decoding, so nothing downstream can observe
+/// a ragged board and no accessor can index past a short row.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Board {
-    pub width: usize,
-    pub height: usize,
-    pub tiles: Vec<Vec<Tile>>,
+    width: u8,
+    height: u8,
+    tiles: Vec<Tile>,
+}
+
+impl Board {
+    /// Build a board from row-major tiles.
+    ///
+    /// Fails unless `tiles` holds exactly `width * height` entries, which is
+    /// what makes every accessor below total.
+    pub fn new(width: u8, height: u8, tiles: Vec<Tile>) -> Result<Self, BoardShapeError> {
+        let expected = usize::from(width) * usize::from(height);
+        if width == 0 || height == 0 || tiles.len() != expected {
+            return Err(BoardShapeError {
+                width,
+                height,
+                found: tiles.len(),
+            });
+        }
+        Ok(Self {
+            width,
+            height,
+            tiles,
+        })
+    }
+
+    pub const fn width(&self) -> u8 {
+        self.width
+    }
+
+    pub const fn height(&self) -> u8 {
+        self.height
+    }
+
+    /// Whether a coordinate is on the board.
+    pub const fn contains(&self, position: Pos) -> bool {
+        position.x < self.width && position.y < self.height
+    }
+
+    fn index(&self, position: Pos) -> Option<usize> {
+        self.contains(position)
+            .then(|| usize::from(position.y) * usize::from(self.width) + usize::from(position.x))
+    }
+
+    /// The tile at a coordinate, or `None` when it is off the board.
+    pub fn get(&self, position: Pos) -> Option<&Tile> {
+        self.index(position).map(|index| &self.tiles[index])
+    }
+
+    pub fn get_mut(&mut self, position: Pos) -> Option<&mut Tile> {
+        self.index(position).map(|index| &mut self.tiles[index])
+    }
+
+    /// The tile at a coordinate that has already been bounds-checked.
+    ///
+    /// Panics off the board. Use it only where a validator has established the
+    /// coordinate is on it; [`Board::get`] is the accessor for everywhere else.
+    pub fn tile(&self, position: Pos) -> &Tile {
+        self.get(position)
+            .unwrap_or_else(|| panic!("{position} is off a {}x{} board", self.width, self.height))
+    }
+
+    pub fn tile_mut(&mut self, position: Pos) -> &mut Tile {
+        let (width, height) = (self.width, self.height);
+        self.get_mut(position)
+            .unwrap_or_else(|| panic!("{position} is off a {width}x{height} board"))
+    }
+
+    /// Every coordinate on the board, row by row.
+    pub fn positions(&self) -> impl Iterator<Item = Pos> + use<> {
+        let (width, height) = (self.width, self.height);
+        (0..height).flat_map(move |y| (0..width).map(move |x| Pos { x, y }))
+    }
+
+    /// Every tile with its coordinate, row by row.
+    pub fn iter(&self) -> impl Iterator<Item = (Pos, &Tile)> {
+        self.positions().zip(self.tiles.iter())
+    }
+
+    /// The board as rows, for the projections whose wire shape is nested.
+    pub fn rows(&self) -> impl Iterator<Item = impl Iterator<Item = (Pos, &Tile)>> {
+        let width = self.width;
+        (0..self.height).map(move |y| {
+            let start = usize::from(y) * usize::from(width);
+            self.tiles[start..start + usize::from(width)]
+                .iter()
+                .enumerate()
+                .map(move |(x, tile)| (Pos { x: x as u8, y }, tile))
+        })
+    }
+
+    pub fn tiles(&self) -> impl Iterator<Item = &Tile> {
+        self.tiles.iter()
+    }
+
+    pub fn tiles_mut(&mut self) -> impl Iterator<Item = &mut Tile> {
+        self.tiles.iter_mut()
+    }
+}
+
+/// A `tiles` array that is not the rectangle `width` and `height` describe.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BoardShapeError {
+    pub width: u8,
+    pub height: u8,
+    pub found: usize,
+}
+
+impl fmt::Display for BoardShapeError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "a {}x{} board needs {} tiles, found {}",
+            self.width,
+            self.height,
+            usize::from(self.width) * usize::from(self.height),
+            self.found
+        )
+    }
+}
+
+/// The wire shape: nested rows, one per `y`.
+#[derive(Serialize, Deserialize)]
+struct BoardRows {
+    width: u8,
+    height: u8,
+    tiles: Vec<Vec<Tile>>,
+}
+
+impl Serialize for Board {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        BoardRows {
+            width: self.width,
+            height: self.height,
+            tiles: self
+                .tiles
+                .chunks(usize::from(self.width))
+                .map(<[Tile]>::to_vec)
+                .collect(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Board {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let rows = BoardRows::deserialize(deserializer)?;
+        if rows.tiles.len() != usize::from(rows.height)
+            || rows
+                .tiles
+                .iter()
+                .any(|row| row.len() != usize::from(rows.width))
+        {
+            return Err(serde::de::Error::custom(BoardShapeError {
+                width: rows.width,
+                height: rows.height,
+                found: rows.tiles.iter().map(Vec::len).sum(),
+            }));
+        }
+        Self::new(
+            rows.width,
+            rows.height,
+            rows.tiles.into_iter().flatten().collect(),
+        )
+        .map_err(serde::de::Error::custom)
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tile {
     pub terrain: TerrainId,
-    #[serde(
-        default,
-        deserialize_with = "deserialize_present_nullable_owner",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub owner: Option<Option<PlayerId>>,
+    #[serde(default, skip_serializing_if = "TileOwner::is_not_ownable")]
+    pub owner: TileOwner,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capture_points: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -209,13 +665,74 @@ pub struct Tile {
     pub trait_state: Option<BTreeMap<TraitId, serde_json::Value>>,
 }
 
-fn deserialize_present_nullable_owner<'de, D>(
-    deserializer: D,
-) -> Result<Option<Option<PlayerId>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Option::<PlayerId>::deserialize(deserializer).map(Some)
+/// Who holds a tile, if anyone can.
+///
+/// Three states the wire spells three ways: an absent `owner` key means the
+/// terrain cannot be owned at all, `null` means it can be but nobody does, and
+/// a player id means it is held. That was an `Option<Option<PlayerId>>` whose
+/// two layers could only be told apart by reading the deserializer, and which
+/// every reader unwrapped twice by hand.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum TileOwner {
+    /// The terrain is not a property. Serializes by being absent.
+    #[default]
+    NotOwnable,
+    /// A property nobody holds.
+    Neutral,
+    Owned(PlayerId),
+}
+
+impl TileOwner {
+    pub const fn is_not_ownable(&self) -> bool {
+        matches!(self, Self::NotOwnable)
+    }
+
+    /// Whether this is a property, held or not.
+    pub const fn is_ownable(&self) -> bool {
+        !self.is_not_ownable()
+    }
+
+    /// The holder, if there is one.
+    pub const fn player(&self) -> Option<&PlayerId> {
+        match self {
+            Self::Owned(player) => Some(player),
+            Self::NotOwnable | Self::Neutral => None,
+        }
+    }
+
+    pub fn is_owned_by(&self, player: &str) -> bool {
+        self.player().is_some_and(|held| held == player)
+    }
+
+    /// The holder as the wire spells it for an ownable tile: `null` or an id.
+    ///
+    /// Only meaningful for a property; a non-ownable tile also yields `None`.
+    pub fn to_optional(&self) -> Option<PlayerId> {
+        self.player().cloned()
+    }
+
+    /// An ownable tile's holder, from the `null`-or-id the wire carries.
+    pub fn ownable(player: Option<PlayerId>) -> Self {
+        player.map_or(Self::Neutral, Self::Owned)
+    }
+}
+
+impl Serialize for TileOwner {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // `NotOwnable` is `skip_serializing_if`'d away by the field, so reaching
+        // here at all means the key is present and `null` is the right value.
+        self.player().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for TileOwner {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Only called when the key is present, so the terrain is ownable and
+        // `null` distinguishes neutral from held.
+        Ok(Self::ownable(Option::<PlayerId>::deserialize(
+            deserializer,
+        )?))
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -315,7 +832,7 @@ pub enum Concealment {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Location {
-    Board { position: Position },
+    Board { position: Pos },
     Cargo { transport: UnitId, slot: usize },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -343,7 +860,7 @@ pub enum Outcome {
 /// Ruleset-owned visibility. Implementations may build this from `world::fog`;
 /// the state projection remains independent of Bevy and cached viewpoints.
 pub trait Visibility {
-    fn visible_position(&self, state: &State, team: &str, position: Position) -> bool;
+    fn visible_position(&self, state: &State, team: &str, position: Pos) -> bool;
     fn visible_unit(&self, state: &State, team: &str, unit: &Unit) -> bool;
 }
 
@@ -363,20 +880,19 @@ impl AwbwVisibility {
             .collect()
     }
 
-    fn vision_level(&self, state: &State, team: &str, position: Position) -> VisionLevel {
-        if position[0] >= state.board.width || position[1] >= state.board.height {
+    fn vision_level(&self, state: &State, team: &str, position: Pos) -> VisionLevel {
+        if position.x >= state.board.width() || position.y >= state.board.height() {
             return VisionLevel::None;
         }
         if !state.settings.fog {
             return VisionLevel::Full;
         }
         let team_players = self.team_players(state, team);
-        let tile = &state.board.tiles[position[1]][position[0]];
+        let tile = &state.board.tile(position);
         if tile
             .owner
-            .as_ref()
-            .and_then(Option::as_deref)
-            .is_some_and(|owner| team_players.contains(owner))
+            .player()
+            .is_some_and(|owner| team_players.contains(owner.as_str()))
         {
             return VisionLevel::Full;
         }
@@ -394,7 +910,7 @@ impl AwbwVisibility {
                 continue;
             };
             let profile = ruleset::profile(unit.kind);
-            let source_terrain = &state.board.tiles[source[1]][source[0]].terrain;
+            let source_terrain = &state.board.tile(source).terrain;
             let bonus = if profile.elevated_vision {
                 ruleset::terrain(*source_terrain).vision_bonus.unwrap_or(0)
             } else {
@@ -403,15 +919,15 @@ impl AwbwVisibility {
             let rain = -i64::from(matches!(state.weather.kind, WeatherKind::Rain));
             let vision =
                 commander::effective_vision(state, unit, profile.vision, profile.domain.as_str());
-            let sight = (vision + bonus + rain).max(1) as usize;
-            let distance = source[0].abs_diff(position[0]) + source[1].abs_diff(position[1]);
+            let sight = (vision + bonus + rain).max(1) as u64;
+            let distance = source.distance(position);
             if distance > sight {
                 continue;
             }
             let contribution = if commander::reveals_concealing_terrain(state, unit)
                 || target_terrain
                     .vision_limit
-                    .is_none_or(|limit| distance <= limit)
+                    .is_none_or(|limit| distance <= limit as u64)
             {
                 VisionLevel::Full
             } else {
@@ -431,7 +947,7 @@ enum VisionLevel {
 }
 
 impl Visibility for AwbwVisibility {
-    fn visible_position(&self, state: &State, team: &str, position: Position) -> bool {
+    fn visible_position(&self, state: &State, team: &str, position: Pos) -> bool {
         self.vision_level(state, team, position) == VisionLevel::Full
     }
 
@@ -443,11 +959,12 @@ impl Visibility for AwbwVisibility {
         let Location::Board { position } = unit.location else {
             return false;
         };
-        if state.board.tiles[position[1]][position[0]]
+        if state
+            .board
+            .tile(position)
             .owner
-            .as_ref()
-            .and_then(Option::as_deref)
-            .is_some_and(|owner| team_players.contains(owner))
+            .player()
+            .is_some_and(|owner| team_players.contains(owner.as_str()))
         {
             return true;
         }
@@ -457,8 +974,8 @@ impl Visibility for AwbwVisibility {
                     && matches!(
                             source.location,
                             Location::Board { position: source_position }
-                                if source_position[0].abs_diff(position[0])
-                                    + source_position[1].abs_diff(position[1])
+                                if source_position.x.abs_diff(position.x)
+                                    + source_position.y.abs_diff(position.y)
                                     == 1
                     )
             });
@@ -492,7 +1009,7 @@ pub struct Observation {
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ObservedUnitRef {
     Friendly { unit: UnitId },
-    Enemy { position: Position },
+    Enemy { position: Pos },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ObservedUnit {
@@ -509,16 +1026,26 @@ pub struct ObservedUnit {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ObservedBoard {
-    pub width: usize,
-    pub height: usize,
+    pub width: u8,
+    pub height: u8,
     pub tiles: Vec<Vec<ObservedTile>>,
 }
+impl ObservedBoard {
+    /// The projected tile at a coordinate.
+    ///
+    /// The projection keeps the nested wire shape, so this is the one place
+    /// that still turns an `[x, y]` coordinate into a row and a column.
+    pub fn tile(&self, position: Pos) -> &ObservedTile {
+        &self.tiles[usize::from(position.y)][usize::from(position.x)]
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ObservedTile {
     pub terrain: TerrainId,
     pub visibility: TileVisibility,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub owner: Option<Option<PlayerId>>,
+    #[serde(skip_serializing_if = "TileOwner::is_not_ownable")]
+    pub owner: TileOwner,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capture_points: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -581,7 +1108,6 @@ pub enum ObservedMatch {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ObserveError {
     UnknownRecipient(PlayerId),
-    InvalidBoardShape,
     UnknownUnitOwner(PlayerId),
     /// An event names a unit that is in neither the prior nor the next state.
     /// The three inputs are supplied independently over the protocol, so they
@@ -600,15 +1126,6 @@ pub fn observe(
         .iter()
         .find(|p| p.id == recipient)
         .ok_or_else(|| ObserveError::UnknownRecipient(recipient.into()))?;
-    if state.board.tiles.len() != state.board.height
-        || state
-            .board
-            .tiles
-            .iter()
-            .any(|r| r.len() != state.board.width)
-    {
-        return Err(ObserveError::InvalidBoardShape);
-    }
     let owners: HashMap<&str, &str> = state
         .players
         .iter()
@@ -617,31 +1134,30 @@ pub fn observe(
     let team = recipient_player.team.as_str();
     let tiles = state
         .board
-        .tiles
-        .iter()
-        .enumerate()
-        .map(|(y, row)| {
-            row.iter()
-                .enumerate()
-                .map(|(x, t)| {
-                    let visible =
-                        !state.settings.fog || rules.visible_position(state, team, [x, y]);
-                    ObservedTile {
-                        terrain: t.terrain,
-                        visibility: if visible {
-                            TileVisibility::Visible
-                        } else {
-                            TileVisibility::Fogged
-                        },
-                        owner: visible.then(|| t.owner.clone()).flatten(),
-                        capture_points: visible.then_some(t.capture_points).flatten(),
-                        silo: visible.then_some(t.silo).flatten(),
-                        destructible_hp: visible.then_some(t.destructible_hp).flatten(),
-                        teleporter: t.teleporter.clone(),
-                        trait_state: visible.then_some(t.trait_state.clone()).flatten(),
-                    }
-                })
-                .collect()
+        .rows()
+        .map(|row| {
+            row.map(|(position, t)| {
+                let visible = !state.settings.fog || rules.visible_position(state, team, position);
+                ObservedTile {
+                    terrain: t.terrain,
+                    visibility: if visible {
+                        TileVisibility::Visible
+                    } else {
+                        TileVisibility::Fogged
+                    },
+                    owner: if visible {
+                        t.owner.clone()
+                    } else {
+                        TileOwner::NotOwnable
+                    },
+                    capture_points: visible.then_some(t.capture_points).flatten(),
+                    silo: visible.then_some(t.silo).flatten(),
+                    destructible_hp: visible.then_some(t.destructible_hp).flatten(),
+                    teleporter: t.teleporter.clone(),
+                    trait_state: visible.then_some(t.trait_state.clone()).flatten(),
+                }
+            })
+            .collect()
         })
         .collect();
     let players = state
@@ -715,8 +1231,8 @@ pub fn observe(
         recipient: recipient.into(),
         settings: state.settings.clone(),
         board: ObservedBoard {
-            width: state.board.width,
-            height: state.board.height,
+            width: state.board.width(),
+            height: state.board.height(),
             tiles,
         },
         teams: state.teams.clone(),
@@ -989,7 +1505,7 @@ pub fn observe_events(
                 if rules.visible_position(state, team, position)
                     || rules.visible_position(next_state, team, position)
                 {
-                    let tile = &post.board.tiles[position[1]][position[0]];
+                    let tile = post.board.tile(position);
                     output.push(serde_json::json!({
                         "type":"tile-changed", "position":position, "tile":tile, "reason":reason
                     }));
@@ -1131,7 +1647,7 @@ fn project_removal(
 
 fn push_appeared(
     unit: &Unit,
-    position: Position,
+    position: Pos,
     friendly: bool,
     appeared: &mut HashSet<UnitId>,
     output: &mut Vec<serde_json::Value>,
@@ -1147,7 +1663,7 @@ fn push_appeared(
 
 fn push_disappeared(
     id: UnitId,
-    position: Position,
+    position: Pos,
     disappeared: &mut HashSet<UnitId>,
     output: &mut Vec<serde_json::Value>,
 ) {
@@ -1178,11 +1694,11 @@ fn observed_unit_snapshot(unit: &Unit, friendly: bool) -> ObservedUnit {
     }
 }
 
-fn enemy_unit_ref(position: Position) -> ObservedUnitRef {
+fn enemy_unit_ref(position: Pos) -> ObservedUnitRef {
     ObservedUnitRef::Enemy { position }
 }
 
-fn board_position(unit: &Unit) -> Option<Position> {
+fn board_position(unit: &Unit) -> Option<Pos> {
     match unit.location {
         Location::Board { position } => Some(position),
         Location::Cargo { .. } => None,
@@ -1192,9 +1708,182 @@ fn board_position(unit: &Unit) -> Option<Position> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The wire form is `[x, y]`, x first, and must survive a round trip.
+    #[test]
+    fn coordinates_travel_as_two_element_arrays() {
+        let position = Pos::new(3, 7);
+        let wire = serde_json::to_value(position).unwrap();
+        assert_eq!(wire, serde_json::json!([3, 7]));
+        assert_eq!(serde_json::from_value::<Pos>(wire).unwrap(), position);
+    }
+
+    /// `Pos` is a byte pair, so a coordinate beyond any representable board is
+    /// now a decoding failure rather than a value that reaches validation and
+    /// is rejected as out of bounds. No board approaches this, but the class of
+    /// error did change; see handoff.md.
+    #[test]
+    fn a_coordinate_beyond_every_board_fails_to_decode() {
+        let error = serde_json::from_value::<Pos>(serde_json::json!([256, 0])).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("beyond the largest representable board"),
+            "unexpected error: {error}"
+        );
+        assert!(serde_json::from_value::<Pos>(serde_json::json!([255, 255])).is_ok());
+    }
+
+    /// Three states, three wire spellings: absent, `null`, and an id. Getting
+    /// this wrong is invisible in Rust and load-bearing on the wire.
+    #[test]
+    fn tile_ownership_keeps_its_three_wire_spellings() {
+        for (owner, expected) in [
+            (
+                TileOwner::NotOwnable,
+                serde_json::json!({"terrain":"plain"}),
+            ),
+            (
+                TileOwner::Neutral,
+                serde_json::json!({"terrain":"plain","owner":null}),
+            ),
+            (
+                TileOwner::Owned(PlayerId::from("red")),
+                serde_json::json!({"terrain":"plain","owner":"red"}),
+            ),
+        ] {
+            let tile = Tile {
+                owner: owner.clone(),
+                ..plain()
+            };
+            let wire = serde_json::to_value(&tile).unwrap();
+            assert_eq!(wire, expected, "{owner:?} serialized wrong");
+            assert_eq!(serde_json::from_value::<Tile>(wire).unwrap().owner, owner);
+        }
+    }
+
+    #[test]
+    fn only_a_held_property_names_a_player() {
+        assert_eq!(TileOwner::NotOwnable.player(), None);
+        assert_eq!(TileOwner::Neutral.player(), None);
+        assert!(!TileOwner::Neutral.is_owned_by("red"));
+        assert!(TileOwner::Owned(PlayerId::from("red")).is_owned_by("red"));
+        assert!(!TileOwner::Owned(PlayerId::from("red")).is_owned_by("blue"));
+        // A neutral property is still a property; a mountain is not.
+        assert!(TileOwner::Neutral.is_ownable());
+        assert!(!TileOwner::NotOwnable.is_ownable());
+    }
+
+    /// The index is what makes lookup constant time, so it must survive every
+    /// mutation — a stale index silently returns the wrong unit.
+    #[test]
+    fn the_unit_index_survives_removal_and_growth() {
+        let mut units = UnitStore::new(vec![unit(0, "p1"), unit(1, "p2"), unit(2, "p1")])
+            .expect("distinct ids");
+
+        assert_eq!(units.index_of(UnitId::new(2)), Some(2));
+        units.remove(0);
+        assert_eq!(units.get(UnitId::new(0)), None);
+        assert_eq!(units.index_of(UnitId::new(1)), Some(0));
+        assert_eq!(units.index_of(UnitId::new(2)), Some(1));
+
+        units.push(unit(7, "p1"));
+        assert_eq!(units.index_of(UnitId::new(7)), Some(2));
+        assert_eq!(units.get(UnitId::new(7)).unwrap().id, UnitId::new(7));
+
+        units.retain(|held| held.id != UnitId::new(1));
+        assert_eq!(units.get(UnitId::new(1)), None);
+        assert_eq!(units.index_of(UnitId::new(7)), Some(1));
+    }
+
+    /// Unique ids are what let the index be a function at all, so a state that
+    /// breaks that must not decode.
+    #[test]
+    fn duplicate_unit_ids_do_not_decode() {
+        assert_eq!(
+            UnitStore::new(vec![unit(0, "p1"), unit(0, "p2")]),
+            Err(DuplicateUnitId(UnitId::new(0)))
+        );
+    }
+
+    /// The store is an array on the wire, exactly as it was as a `Vec`.
+    #[test]
+    fn the_store_travels_as_a_plain_array() {
+        let units = UnitStore::new(vec![unit(0, "p1"), unit(1, "p2")]).unwrap();
+        let wire = serde_json::to_value(&units).unwrap();
+        assert!(wire.is_array());
+        assert_eq!(wire.as_array().unwrap().len(), 2);
+        assert_eq!(serde_json::from_value::<UnitStore>(wire).unwrap(), units);
+    }
+
+    fn plain() -> Tile {
+        Tile {
+            terrain: TerrainId::Plain,
+            owner: TileOwner::NotOwnable,
+            capture_points: None,
+            silo: None,
+            destructible_hp: None,
+            teleporter: None,
+            trait_state: None,
+        }
+    }
+
+    /// The rectangle is checked once, while decoding, so nothing downstream can
+    /// hold a ragged board. This replaced `ObserveError::InvalidBoardShape`,
+    /// which only `observe` checked — `execute` would have panicked.
+    #[test]
+    fn a_ragged_board_does_not_decode() {
+        let ragged = serde_json::json!({
+            "width": 2, "height": 2,
+            "tiles": [[{"terrain":"plain"}, {"terrain":"plain"}], [{"terrain":"plain"}]]
+        });
+        let error = serde_json::from_value::<Board>(ragged).unwrap_err();
+        assert!(
+            error.to_string().contains("needs 4 tiles, found 3"),
+            "unexpected error: {error}"
+        );
+    }
+
+    /// Row-major storage with an `[x, y]` coordinate is exactly where the old
+    /// `tiles[p[1]][p[0]]` inversion lived, so pin that x and y are not swapped.
+    #[test]
+    fn tiles_are_addressed_by_x_then_y() {
+        let mut corner = plain();
+        corner.terrain = TerrainId::Mountain;
+        let board = Board::new(
+            3,
+            2,
+            vec![plain(), plain(), plain(), corner, plain(), plain()],
+        )
+        .expect("a 3x2 rectangle");
+
+        assert_eq!(board.tile(Pos::new(0, 1)).terrain, TerrainId::Mountain);
+        assert_eq!(board.tile(Pos::new(1, 0)).terrain, TerrainId::Plain);
+        assert_eq!(board.get(Pos::new(3, 0)), None);
+        assert_eq!(board.get(Pos::new(0, 2)), None);
+        assert_eq!(
+            board.positions().take(4).collect::<Vec<_>>(),
+            vec![
+                Pos::new(0, 0),
+                Pos::new(1, 0),
+                Pos::new(2, 0),
+                Pos::new(0, 1)
+            ]
+        );
+    }
+
+    /// Serializing must rebuild the nested rows the schema describes.
+    #[test]
+    fn boards_round_trip_through_their_nested_wire_shape() {
+        let board = Board::new(2, 2, vec![plain(), plain(), plain(), plain()]).unwrap();
+        let wire = serde_json::to_value(&board).unwrap();
+        assert_eq!(wire["tiles"].as_array().unwrap().len(), 2);
+        assert_eq!(wire["tiles"][0].as_array().unwrap().len(), 2);
+        assert_eq!(serde_json::from_value::<Board>(wire).unwrap(), board);
+    }
     struct NoneVisible;
     impl Visibility for NoneVisible {
-        fn visible_position(&self, _: &State, _: &str, _: Position) -> bool {
+        fn visible_position(&self, _: &State, _: &str, _: Pos) -> bool {
             false
         }
         fn visible_unit(&self, _: &State, _: &str, _: &Unit) -> bool {
@@ -1258,7 +1947,7 @@ mod tests {
     fn visible_enemy_authoritative_id_is_not_observed() {
         struct AllVisible;
         impl Visibility for AllVisible {
-            fn visible_position(&self, _: &State, _: &str, _: Position) -> bool {
+            fn visible_position(&self, _: &State, _: &str, _: Pos) -> bool {
                 true
             }
             fn visible_unit(&self, _: &State, _: &str, _: &Unit) -> bool {
@@ -1277,41 +1966,53 @@ mod tests {
                 .find(|unit| unit.owner == "p2")
                 .unwrap()
                 .reference,
-            ObservedUnitRef::Enemy { position: [0, 0] }
+            ObservedUnitRef::Enemy {
+                position: Pos::new(0, 0)
+            }
         );
     }
 
     #[test]
     fn enemy_path_keeps_visible_positions_on_both_sides_of_woods() {
         let mut state = fixture();
-        state.board.width = 6;
-        state.board.tiles[0] = (0..6)
-            .map(|x| Tile {
-                terrain: if x == 4 {
-                    TerrainId::Wood
-                } else {
-                    TerrainId::Plain
-                },
-                owner: None,
-                capture_points: None,
-                silo: None,
-                destructible_hp: None,
-                teleporter: None,
-                trait_state: None,
-            })
-            .collect();
+        state.board = Board::new(
+            6,
+            1,
+            (0..6)
+                .map(|x| Tile {
+                    terrain: if x == 4 {
+                        TerrainId::Wood
+                    } else {
+                        TerrainId::Plain
+                    },
+                    owner: TileOwner::NotOwnable,
+                    capture_points: None,
+                    silo: None,
+                    destructible_hp: None,
+                    teleporter: None,
+                    trait_state: None,
+                })
+                .collect(),
+        )
+        .expect("a single row is a rectangle");
         state.units[0].kind = UnitKindId::Recon;
-        state.units[0].location = Location::Board { position: [0, 0] };
+        state.units[0].location = Location::Board {
+            position: Pos::new(0, 0),
+        };
         state.units[1].kind = UnitKindId::Tank;
-        state.units[1].location = Location::Board { position: [5, 0] };
+        state.units[1].location = Location::Board {
+            position: Pos::new(5, 0),
+        };
 
         let mut next_state = state.clone();
-        next_state.units[1].location = Location::Board { position: [3, 0] };
+        next_state.units[1].location = Location::Board {
+            position: Pos::new(3, 0),
+        };
         let events = vec![Event::UnitMoved {
             unit: UnitId::new(1),
-            from: [5, 0],
-            to: [3, 0],
-            path: vec![[5, 0], [4, 0], [3, 0]],
+            from: Pos::new(5, 0),
+            to: Pos::new(3, 0),
+            path: vec![Pos::new(5, 0), Pos::new(4, 0), Pos::new(3, 0)],
             fuel_spent: 2,
         }];
 
@@ -1319,10 +2020,10 @@ mod tests {
             observe_events(&AwbwVisibility, &state, &next_state, &events, "p1").unwrap(),
             vec![serde_json::json!({
                 "type": "unit-moved",
-                "unit": {"type": "enemy", "position": [3,0]},
-                "from": [5, 0],
-                "to": [3, 0],
-                "path": [[5, 0], [3, 0]]
+                "unit": {"type": "enemy", "position": Pos::new(3, 0)},
+                "from": Pos::new(5, 0),
+                "to": Pos::new(3, 0),
+                "path": [Pos::new(5, 0), Pos::new(3, 0)]
             })]
         );
     }
@@ -1349,19 +2050,20 @@ mod tests {
                 day_limit: None,
                 unit_limit: None,
             },
-            board: Board {
-                width: 1,
-                height: 1,
-                tiles: vec![vec![Tile {
+            board: Board::new(
+                1,
+                1,
+                vec![Tile {
                     terrain: TerrainId::Plain,
-                    owner: None,
+                    owner: TileOwner::NotOwnable,
                     capture_points: None,
                     silo: None,
                     destructible_hp: None,
                     teleporter: None,
                     trait_state: None,
-                }]],
-            },
+                }],
+            )
+            .expect("a single tile is a rectangle"),
             teams: vec![
                 Team {
                     id: "t1".into(),
@@ -1384,7 +2086,7 @@ mod tests {
                 kind: WeatherKind::Clear,
                 remaining_turns: 0,
             },
-            units: vec![unit(0, "p1"), unit(1, "p2")],
+            units: UnitStore::new(vec![unit(0, "p1"), unit(1, "p2")]).expect("distinct ids"),
             next_unit_id: None,
             match_state: Match::Active {
                 draw_offers: vec![],
@@ -1416,7 +2118,9 @@ mod tests {
             ammo: 0,
             action: UnitAction::Ready,
             concealment: Concealment::Exposed,
-            location: Location::Board { position: [0, 0] },
+            location: Location::Board {
+                position: Pos::new(0, 0),
+            },
         }
     }
 }

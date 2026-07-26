@@ -17,9 +17,9 @@ use crate::event::{AttackTarget, Event, RandomKind, RandomValue, SupplySource};
 use crate::random::{Luck, RandomTape};
 use crate::ruleset::{self, Domain, FireMode, Relation, TargetSet, TerrainTrait, UnitKind};
 use crate::semantic::{
-    AwbwVisibility, Concealment, Location, Match, Outcome, Phase, PlayerId, PlayerStatus, Position,
-    PowerState, ReasonId, Silo, State, TeamStatus, TerrainId, Unit, UnitAction, UnitId, UnitKindId,
-    Visibility, WeatherKind, WeatherSetting,
+    AwbwVisibility, Concealment, Location, Match, Outcome, Phase, PlayerId, PlayerStatus, Pos,
+    PowerState, ReasonId, Silo, State, TeamStatus, TerrainId, TileOwner, Unit, UnitAction, UnitId,
+    UnitKindId, Visibility, WeatherKind, WeatherSetting,
 };
 use crate::violation::{Action, Violation};
 
@@ -29,24 +29,24 @@ pub enum Command {
     MoveWait {
         player: PlayerId,
         unit: UnitId,
-        path: Vec<Position>,
+        path: Vec<Pos>,
     },
     MoveAttack {
         player: PlayerId,
         unit: UnitId,
-        path: Vec<Position>,
+        path: Vec<Pos>,
         target: AttackTarget,
     },
     MoveLaunch {
         player: PlayerId,
         unit: UnitId,
-        path: Vec<Position>,
-        target: Position,
+        path: Vec<Pos>,
+        target: Pos,
     },
     MoveExplode {
         player: PlayerId,
         unit: UnitId,
-        path: Vec<Position>,
+        path: Vec<Pos>,
     },
     DeleteUnit {
         player: PlayerId,
@@ -55,51 +55,51 @@ pub enum Command {
     MoveHide {
         player: PlayerId,
         unit: UnitId,
-        path: Vec<Position>,
+        path: Vec<Pos>,
     },
     MoveReveal {
         player: PlayerId,
         unit: UnitId,
-        path: Vec<Position>,
+        path: Vec<Pos>,
     },
     MoveCapture {
         player: PlayerId,
         unit: UnitId,
-        path: Vec<Position>,
+        path: Vec<Pos>,
     },
     ProduceUnit {
         player: PlayerId,
-        position: Position,
+        position: Pos,
         kind: UnitKindId,
     },
     MoveJoin {
         player: PlayerId,
         unit: UnitId,
-        path: Vec<Position>,
+        path: Vec<Pos>,
         target: UnitId,
     },
     MoveSupply {
         player: PlayerId,
         unit: UnitId,
-        path: Vec<Position>,
+        path: Vec<Pos>,
     },
     MoveRepair {
         player: PlayerId,
         unit: UnitId,
-        path: Vec<Position>,
+        path: Vec<Pos>,
         target: UnitId,
     },
     MoveLoad {
         player: PlayerId,
         unit: UnitId,
-        path: Vec<Position>,
+        path: Vec<Pos>,
         transport: UnitId,
     },
     Unload {
         player: PlayerId,
         transport: UnitId,
         cargo: UnitId,
-        destination: Position,
+        destination: Pos,
     },
     ActivatePower {
         player: PlayerId,
@@ -210,8 +210,8 @@ pub fn execute(
 
 struct MovementPlan {
     unit_index: usize,
-    origin: Position,
-    path: Vec<Position>,
+    origin: Pos,
+    path: Vec<Pos>,
     entry_costs: Vec<u64>,
     actor_team: crate::semantic::TeamId,
 }
@@ -226,7 +226,7 @@ fn validate_movement_prefix(
     state: &State,
     player: &str,
     unit_id: UnitId,
-    path: Vec<Position>,
+    path: Vec<Pos>,
 ) -> Result<MovementPlan, ExecuteError> {
     if state.ruleset.id != "awbw" || state.ruleset.revision != "2026-07-10" {
         return Err(ExecuteError::UnsupportedRuleset);
@@ -247,8 +247,7 @@ fn validate_movement_prefix(
     }
     let unit_index = state
         .units
-        .iter()
-        .position(|unit| unit.id == unit_id)
+        .index_of(unit_id)
         .ok_or_else(|| violation(Violation::UnitNotFound { unit: unit_id }))?;
     let unit = &state.units[unit_index];
     if unit.owner != player {
@@ -271,7 +270,7 @@ fn validate_movement_prefix(
         }));
     }
     for (index, pair) in path.windows(2).enumerate() {
-        if pair[0][0].abs_diff(pair[1][0]) + pair[0][1].abs_diff(pair[1][1]) != 1 {
+        if pair[0].x.abs_diff(pair[1].x) + pair[0].y.abs_diff(pair[1].y) != 1 {
             return Err(violation(Violation::PathNonAdjacent {
                 index: index + 1,
                 from: pair[0],
@@ -289,7 +288,7 @@ fn validate_movement_prefix(
         }
     }
     for (index, position) in path.iter().copied().enumerate() {
-        if position[0] >= state.board.width || position[1] >= state.board.height {
+        if position.x >= state.board.width() || position.y >= state.board.height() {
             return Err(violation(Violation::PathOutOfBounds { index, position }));
         }
     }
@@ -299,7 +298,7 @@ fn validate_movement_prefix(
     let weather = commander::effective_weather(state, unit);
     let mut entry_costs = vec![0];
     for (index, position) in path.iter().copied().enumerate().skip(1) {
-        let terrain = state.board.tiles[position[1]][position[0]].terrain;
+        let terrain = state.board.tile(position).terrain;
         let cost = commander::effective_movement_cost(
             state,
             unit,
@@ -314,9 +313,7 @@ fn validate_movement_prefix(
         entry_costs.push(cost);
     }
     let actor_team = state
-        .players
-        .iter()
-        .find(|candidate| candidate.id == player)
+        .find_player(player)
         .map(|candidate| candidate.team.clone())
         .ok_or_else(|| ExecuteError::InvalidState(format!("unknown active player {player}")))?;
     let visibility = AwbwVisibility;
@@ -422,7 +419,7 @@ fn execute_move_supply(
     state: &State,
     player: &str,
     unit_id: UnitId,
-    path: Vec<Position>,
+    path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
     let plan = validate_movement_prefix(state, player, unit_id, path)?;
     let unit = &state.units[plan.unit_index];
@@ -467,8 +464,8 @@ fn execute_move_supply(
                     supply.targets,
                 )
                 && board_position(target).is_some_and(|position| {
-                    position[0].abs_diff(actual_destination[0])
-                        + position[1].abs_diff(actual_destination[1])
+                    position.x.abs_diff(actual_destination.x)
+                        + position.y.abs_diff(actual_destination.y)
                         == 1
                 })
         })
@@ -479,8 +476,7 @@ fn execute_move_supply(
         let target = outcome
             .state
             .units
-            .iter_mut()
-            .find(|target| target.id == id)
+            .get_mut(id)
             .expect("supply target remains present");
         let profile = ruleset::profile(target.kind);
         let max_fuel = profile.max_fuel;
@@ -517,9 +513,7 @@ fn supply_target_eligible(
     match targets {
         TargetSet::OwnedUnits => target_owner == source_owner,
         TargetSet::FriendlyUnits => state
-            .players
-            .iter()
-            .find(|owner| owner.id == target_owner)
+            .find_player(target_owner)
             .is_some_and(|owner| owner.team == source_team),
     }
 }
@@ -528,7 +522,7 @@ fn execute_move_repair(
     state: &State,
     player: &str,
     unit_id: UnitId,
-    path: Vec<Position>,
+    path: Vec<Pos>,
     target_id: UnitId,
 ) -> Result<Execution, ExecuteError> {
     let plan = validate_movement_prefix(state, player, unit_id, path)?;
@@ -539,13 +533,11 @@ fn execute_move_repair(
             action: Action::MoveRepair,
         }));
     };
-    let target_index = state.units.iter().position(|target| target.id == target_id);
-    let target = target_index.and_then(|index| state.units.get(index));
+    let target_index = state.units.index_of(target_id);
+    let target = target_index.and_then(|index| state.units.at(index));
     let target_team = target.and_then(|target| {
         state
-            .players
-            .iter()
-            .find(|owner| owner.id == target.owner)
+            .find_player(&target.owner)
             .map(|owner| owner.team.as_str())
     });
     let target_position = target.and_then(board_position);
@@ -560,9 +552,7 @@ fn execute_move_repair(
     }
     let destination = *plan.path.last().expect("origin was checked");
     let target_position = target_position.expect("target validity established its position");
-    if target_position[0].abs_diff(destination[0]) + target_position[1].abs_diff(destination[1])
-        != 1
-    {
+    if target_position.x.abs_diff(destination.x) + target_position.y.abs_diff(destination.y) != 1 {
         return Err(violation(Violation::TargetOutOfRange {
             target: Some(target_id.into()),
         }));
@@ -616,15 +606,13 @@ fn execute_move_repair(
     if visual_hp < 10 {
         let player_index = outcome
             .state
-            .players
-            .iter()
-            .position(|candidate| candidate.id == player)
+            .player_index(player)
             .ok_or_else(|| ExecuteError::InvalidState(format!("unknown active player {player}")))?;
-        let funds_before = outcome.state.players[player_index].funds;
+        let funds_before = outcome.state.player_mut(player_index).funds;
         if heal_cost <= funds_before {
             let hp_before = outcome.state.units[target_index].hp;
             let hp_after = (visual_hp + 1).min(10) * exact_hp;
-            outcome.state.players[player_index].funds -= heal_cost;
+            outcome.state.player_mut(player_index).funds -= heal_cost;
             outcome.events.push(Event::FundsChanged {
                 player: PlayerId::from(player),
                 from: funds_before,
@@ -651,16 +639,13 @@ fn execute_move_load(
     state: &State,
     player: &str,
     unit_id: UnitId,
-    path: Vec<Position>,
+    path: Vec<Pos>,
     transport_id: UnitId,
 ) -> Result<Execution, ExecuteError> {
     let plan = validate_movement_prefix(state, player, unit_id, path)?;
     let mover = &state.units[plan.unit_index];
-    let transport_index = state
-        .units
-        .iter()
-        .position(|transport| transport.id == transport_id);
-    let transport = transport_index.and_then(|index| state.units.get(index));
+    let transport_index = state.units.index_of(transport_id);
+    let transport = transport_index.and_then(|index| state.units.at(index));
     let transport_capability =
         transport.and_then(|transport| ruleset::profile(transport.kind).transport);
     let capacity = transport_capability.map(|capability| capability.capacity);
@@ -729,7 +714,7 @@ fn execute_unload(
     player: &str,
     transport_id: UnitId,
     cargo_id: UnitId,
-    destination: Position,
+    destination: Pos,
 ) -> Result<Execution, ExecuteError> {
     if state.ruleset.id != "awbw" || state.ruleset.revision != "2026-07-10" {
         return Err(ExecuteError::UnsupportedRuleset);
@@ -748,11 +733,8 @@ fn execute_unload(
             player: PlayerId::from(player),
         }));
     }
-    let transport_index = state
-        .units
-        .iter()
-        .position(|transport| transport.id == transport_id);
-    let transport = transport_index.and_then(|index| state.units.get(index));
+    let transport_index = state.units.index_of(transport_id);
+    let transport = transport_index.and_then(|index| state.units.at(index));
     let transport_position = transport.and_then(board_position);
     if !transport.is_some_and(|transport| {
         transport.owner == player
@@ -763,8 +745,8 @@ fn execute_unload(
             target: Some(transport_id.into()),
         }));
     }
-    let cargo_index = state.units.iter().position(|cargo| cargo.id == cargo_id);
-    let cargo = cargo_index.and_then(|index| state.units.get(index));
+    let cargo_index = state.units.index_of(cargo_id);
+    let cargo = cargo_index.and_then(|index| state.units.at(index));
     let cargo_slot = cargo.and_then(|cargo| match &cargo.location {
         Location::Cargo { transport, slot } if *transport == transport_id => Some(*slot),
         _ => None,
@@ -775,8 +757,7 @@ fn execute_unload(
         }));
     }
     let transport_position = transport_position.expect("transport validity established position");
-    if transport_position[0].abs_diff(destination[0])
-        + transport_position[1].abs_diff(destination[1])
+    if transport_position.x.abs_diff(destination.x) + transport_position.y.abs_diff(destination.y)
         != 1
     {
         return Err(violation(Violation::TargetOutOfRange {
@@ -786,11 +767,7 @@ fn execute_unload(
     let cargo = cargo.expect("cargo validity established unit");
     let movement_class = ruleset::profile(cargo.kind).movement_class;
     let weather = commander::effective_weather(state, cargo);
-    let destination_tile = state
-        .board
-        .tiles
-        .get(destination[1])
-        .and_then(|row| row.get(destination[0]));
+    let destination_tile = state.board.get(destination);
     let passable = destination_tile.is_some_and(|tile| {
         commander::effective_movement_cost(
             state,
@@ -845,7 +822,7 @@ fn execute_move_join(
     state: &State,
     player: &str,
     unit_id: UnitId,
-    path: Vec<Position>,
+    path: Vec<Pos>,
     target_id: UnitId,
 ) -> Result<Execution, ExecuteError> {
     if state.ruleset.id != "awbw" || state.ruleset.revision != "2026-07-10" {
@@ -867,8 +844,7 @@ fn execute_move_join(
     }
     let mover_index = state
         .units
-        .iter()
-        .position(|unit| unit.id == unit_id)
+        .index_of(unit_id)
         .ok_or_else(|| violation(Violation::UnitNotFound { unit: unit_id }))?;
     let mover = &state.units[mover_index];
     if mover.owner != player {
@@ -891,7 +867,7 @@ fn execute_move_join(
         }));
     }
     for (index, pair) in path.windows(2).enumerate() {
-        if pair[0][0].abs_diff(pair[1][0]) + pair[0][1].abs_diff(pair[1][1]) != 1 {
+        if pair[0].x.abs_diff(pair[1].x) + pair[0].y.abs_diff(pair[1].y) != 1 {
             return Err(violation(Violation::PathNonAdjacent {
                 index: index + 1,
                 from: pair[0],
@@ -909,7 +885,7 @@ fn execute_move_join(
         }
     }
     for (index, position) in path.iter().copied().enumerate() {
-        if position[0] >= state.board.width || position[1] >= state.board.height {
+        if position.x >= state.board.width() || position.y >= state.board.height() {
             return Err(violation(Violation::PathOutOfBounds { index, position }));
         }
     }
@@ -924,7 +900,7 @@ fn execute_move_join(
     let weather = commander::effective_weather(state, mover);
     let mut entry_costs = vec![0];
     for (index, position) in path.iter().copied().enumerate().skip(1) {
-        let terrain = state.board.tiles[position[1]][position[0]].terrain;
+        let terrain = state.board.tile(position).terrain;
         let cost = commander::effective_movement_cost(
             state,
             mover,
@@ -939,9 +915,7 @@ fn execute_move_join(
         entry_costs.push(cost);
     }
     let actor_team = state
-        .players
-        .iter()
-        .find(|candidate| candidate.id == player)
+        .find_player(player)
         .map(|candidate| candidate.team.as_str())
         .ok_or_else(|| ExecuteError::InvalidState(format!("unknown active player {player}")))?;
     let visibility = AwbwVisibility;
@@ -974,13 +948,11 @@ fn execute_move_join(
         }));
     }
 
-    let target_index = state.units.iter().position(|unit| unit.id == target_id);
-    let target = target_index.and_then(|index| state.units.get(index));
+    let target_index = state.units.index_of(target_id);
+    let target = target_index.and_then(|index| state.units.at(index));
     let target_owner_team = target.and_then(|target| {
         state
-            .players
-            .iter()
-            .find(|owner| owner.id == target.owner)
+            .find_player(&target.owner)
             .map(|owner| owner.team.as_str())
     });
     let target_position = target.and_then(board_position);
@@ -1094,18 +1066,16 @@ fn execute_move_join(
     if combined_visual_hp > 10 {
         let refund = (cost / 10) * u64::from(combined_visual_hp - 10);
         let player_index = next
-            .players
-            .iter()
-            .position(|candidate| candidate.id == player)
+            .player_index(player)
             .ok_or_else(|| ExecuteError::InvalidState(format!("unknown active player {player}")))?;
-        let funds_before = next.players[player_index].funds;
-        next.players[player_index].funds = funds_before
+        let funds_before = next.player_mut(player_index).funds;
+        next.player_mut(player_index).funds = funds_before
             .checked_add(refund)
             .ok_or_else(|| ExecuteError::InvalidState("join refund overflow".into()))?;
         events.push(Event::FundsChanged {
             player: PlayerId::from(player),
             from: funds_before,
-            to: next.players[player_index].funds,
+            to: next.player_mut(player_index).funds,
             reason: ReasonId::from("unit-join"),
         });
     }
@@ -1119,7 +1089,7 @@ fn execute_move_join(
 fn execute_produce_unit(
     state: &State,
     player: &str,
-    position: Position,
+    position: Pos,
     kind: UnitKind,
 ) -> Result<Execution, ExecuteError> {
     if state.ruleset.id != "awbw" || state.ruleset.revision != "2026-07-10" {
@@ -1140,26 +1110,20 @@ fn execute_produce_unit(
         }));
     }
     let player_index = state
-        .players
-        .iter()
-        .position(|candidate| candidate.id == player)
+        .player_index(player)
         .ok_or_else(|| ExecuteError::InvalidState(format!("unknown active player {player}")))?;
     let profile = ruleset::profile(kind);
 
     // Site validation precedes requested-kind validation: whether the player
     // owns a facility here does not depend on what they asked it to build.
-    let tile = state
-        .board
-        .tiles
-        .get(position[1])
-        .and_then(|row| row.get(position[0]));
+    let tile = state.board.get(position);
     let site_valid = tile.is_some_and(|tile| {
         let terrain = ruleset::terrain(tile.terrain);
         let domain = profile.domain.as_str();
         let commander_facility =
             commander::commander_production_site(state, player, tile.terrain, Some(domain));
         let is_facility = terrain.produces_any() || commander_facility;
-        let owned = tile.owner.as_ref().and_then(Option::as_deref) == Some(player);
+        let owned = tile.owner.is_owned_by(player);
         let domain_matches = terrain.has(profile.domain.produces())
             || commander::commander_production_site(state, player, tile.terrain, Some(domain));
         is_facility && owned && domain_matches
@@ -1194,7 +1158,7 @@ fn execute_produce_unit(
     }
     let cost = commander::effective_build_cost(state, player, profile.cost)
         .ok_or_else(|| ExecuteError::InvalidState("commander build cost overflow".into()))?;
-    let funds = state.players[player_index].funds;
+    let funds = state.player(player_index).funds;
     if cost > funds {
         return Err(violation(Violation::InsufficientFunds {
             required: cost,
@@ -1205,7 +1169,7 @@ fn execute_produce_unit(
         .next_unit_id
         .ok_or_else(|| ExecuteError::InvalidState("production requires next_unit_id".into()))?;
     let allocated_id = UnitId::new(next_id);
-    if state.units.iter().any(|unit| unit.id == allocated_id) {
+    if state.units.contains(allocated_id) {
         return Err(ExecuteError::InvalidState(format!(
             "next_unit_id {next_id} is not fresh"
         )));
@@ -1217,7 +1181,7 @@ fn execute_produce_unit(
         .ok_or_else(|| ExecuteError::InvalidState("next_unit_id overflow".into()))?;
 
     let mut next = state.clone();
-    next.players[player_index].funds -= cost;
+    next.player_mut(player_index).funds -= cost;
     next.next_unit_id = Some(incremented_id);
     next.units.push(Unit {
         id: allocated_id,
@@ -1251,17 +1215,17 @@ fn execute_produce_unit(
 }
 
 fn player_owns_lab(state: &State, player: &str) -> bool {
-    state.board.tiles.iter().flatten().any(|tile| {
-        tile.terrain == TerrainId::Lab
-            && tile.owner.as_ref().and_then(Option::as_deref) == Some(player)
-    })
+    state
+        .board
+        .tiles()
+        .any(|tile| tile.terrain == TerrainId::Lab && tile.owner.is_owned_by(player))
 }
 
 fn execute_move_capture(
     state: &State,
     player: &str,
     unit_id: UnitId,
-    path: Vec<Position>,
+    path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
     if state.ruleset.id != "awbw" || state.ruleset.revision != "2026-07-10" {
         return Err(ExecuteError::UnsupportedRuleset);
@@ -1282,8 +1246,7 @@ fn execute_move_capture(
     }
     let unit_index = state
         .units
-        .iter()
-        .position(|unit| unit.id == unit_id)
+        .index_of(unit_id)
         .ok_or_else(|| violation(Violation::UnitNotFound { unit: unit_id }))?;
     let unit = &state.units[unit_index];
     if unit.owner != player {
@@ -1306,7 +1269,7 @@ fn execute_move_capture(
         }));
     }
     for (index, pair) in path.windows(2).enumerate() {
-        if pair[0][0].abs_diff(pair[1][0]) + pair[0][1].abs_diff(pair[1][1]) != 1 {
+        if pair[0].x.abs_diff(pair[1].x) + pair[0].y.abs_diff(pair[1].y) != 1 {
             return Err(violation(Violation::PathNonAdjacent {
                 index: index + 1,
                 from: pair[0],
@@ -1324,7 +1287,7 @@ fn execute_move_capture(
         }
     }
     for (index, position) in path.iter().copied().enumerate() {
-        if position[0] >= state.board.width || position[1] >= state.board.height {
+        if position.x >= state.board.width() || position.y >= state.board.height() {
             return Err(violation(Violation::PathOutOfBounds { index, position }));
         }
     }
@@ -1335,7 +1298,7 @@ fn execute_move_capture(
     let weather = commander::effective_weather(state, unit);
     let mut entry_costs = vec![0];
     for (index, position) in path.iter().copied().enumerate().skip(1) {
-        let terrain = state.board.tiles[position[1]][position[0]].terrain;
+        let terrain = state.board.tile(position).terrain;
         let cost = commander::effective_movement_cost(
             state,
             unit,
@@ -1351,9 +1314,7 @@ fn execute_move_capture(
     }
 
     let actor_team = state
-        .players
-        .iter()
-        .find(|candidate| candidate.id == player)
+        .find_player(player)
         .map(|candidate| candidate.team.as_str())
         .ok_or(ExecuteError::UnsupportedRuleset)?;
     let visibility = AwbwVisibility;
@@ -1392,14 +1353,12 @@ fn execute_move_capture(
         }));
     }
     let destination = *path.last().expect("origin was checked");
-    let destination_tile = &state.board.tiles[destination[1]][destination[0]];
+    let destination_tile = &state.board.tile(destination);
     let capturable = ruleset::terrain_has(destination_tile.terrain, TerrainTrait::Capturable);
-    let owner = destination_tile.owner.as_ref().and_then(Option::as_deref);
+    let owner = destination_tile.owner.player().map(PlayerId::as_str);
     let owner_is_hostile = owner.is_none_or(|owner| {
         state
-            .players
-            .iter()
-            .find(|candidate| candidate.id == owner)
+            .find_player(owner)
             .is_some_and(|candidate| candidate.team != actor_team)
     });
     if !capturable || !owner_is_hostile {
@@ -1467,7 +1426,7 @@ fn execute_move_capture(
         });
     }
 
-    let tile = &mut next.board.tiles[destination[1]][destination[0]];
+    let tile = &mut next.board.tile_mut(destination);
     let before = tile
         .capture_points
         .ok_or(ExecuteError::UnsupportedRuleset)?;
@@ -1483,13 +1442,13 @@ fn execute_move_capture(
             to: after,
         });
     } else {
-        let previous_owner = tile.owner.as_ref().and_then(Clone::clone);
+        let previous_owner = tile.owner.to_optional();
         events.push(Event::CaptureChanged {
             position: destination,
             from: before,
             to: 0,
         });
-        tile.owner = Some(Some(player.into()));
+        tile.owner = TileOwner::Owned(player.into());
         events.push(Event::TileOwnerChanged {
             position: destination,
             from: previous_owner.clone(),
@@ -1512,9 +1471,7 @@ fn execute_move_capture(
                 .is_some_and(|limit| capture_limit_count(&next, player) >= limit)
         {
             let winning_team = next
-                .players
-                .iter()
-                .find(|candidate| candidate.id == player)
+                .find_player(player)
                 .map(|candidate| candidate.team.clone())
                 .ok_or_else(|| ExecuteError::InvalidState("capturing player is absent".into()))?;
             complete_match(
@@ -1534,18 +1491,15 @@ fn execute_move_capture(
         let defeats_owner = captured_profile.has(TerrainTrait::CaptureDefeatsOwner);
         let no_hq_on_map = !next
             .board
-            .tiles
-            .iter()
-            .flatten()
+            .tiles()
             .any(|candidate| candidate.terrain == TerrainId::Hq);
         let is_lab = captured_profile.has(TerrainTrait::LabVictory);
         let last_owned_lab_lost = previous_owner.as_deref().is_some_and(|owner| {
-            !next.board.tiles.iter().flatten().any(|candidate| {
+            !next.board.tiles().any(|candidate| {
                 candidate.terrain == TerrainId::Lab
                     && candidate
                         .owner
-                        .as_ref()
-                        .and_then(Option::as_deref)
+                        .player()
                         .is_some_and(|candidate_owner| candidate_owner == owner)
             })
         });
@@ -1581,14 +1535,12 @@ fn occupancy_is_disclosed(
     unit: &Unit,
 ) -> bool {
     let owner_is_ally = state
-        .players
-        .iter()
-        .find(|player| player.id == unit.owner)
+        .find_player(&unit.owner)
         .is_some_and(|player| player.team == actor_team);
     owner_is_ally || visibility.visible_unit(state, actor_team, unit)
 }
 
-fn board_position(unit: &Unit) -> Option<Position> {
+fn board_position(unit: &Unit) -> Option<Pos> {
     match unit.location {
         Location::Board { position } => Some(position),
         Location::Cargo { .. } => None,
@@ -1609,14 +1561,14 @@ fn owned_unit_count(state: &State, player: &str) -> Result<u64, ExecuteError> {
 fn reset_capture_on_departure(
     state: &mut State,
     unit_id: UnitId,
-    origin: Position,
-    actual_path: &[Position],
+    origin: Pos,
+    actual_path: &[Pos],
     events: &mut Vec<Event>,
 ) {
-    if actual_path.len() < 2 || !state.units.iter().any(|unit| unit.id == unit_id) {
+    if actual_path.len() < 2 || !state.units.contains(unit_id) {
         return;
     }
-    let tile = &mut state.board.tiles[origin[1]][origin[0]];
+    let tile = &mut state.board.tile_mut(origin);
     if let Some(before) = tile.capture_points.filter(|points| *points < 20) {
         tile.capture_points = Some(20);
         events.push(Event::CaptureChanged {
@@ -1638,14 +1590,9 @@ fn complete_match(state: &mut State, outcome: Outcome, events: &mut Vec<Event>) 
 fn capture_limit_count(state: &State, player: &str) -> u64 {
     state
         .board
-        .tiles
-        .iter()
-        .flatten()
+        .tiles()
         .filter(|tile| {
-            tile.owner
-                .as_ref()
-                .and_then(Option::as_deref)
-                .is_some_and(|owner| owner == player)
+            tile.owner.player().is_some_and(|owner| owner == player)
                 && ruleset::terrain_has(tile.terrain, TerrainTrait::CountsTowardCaptureLimit)
         })
         .count() as u64
@@ -1660,15 +1607,8 @@ fn day_limit_outcome(state: &State) -> Result<Outcome, ExecuteError> {
     {
         let properties = state
             .board
-            .tiles
-            .iter()
-            .flatten()
-            .filter(|tile| {
-                tile.owner
-                    .as_ref()
-                    .and_then(Option::as_deref)
-                    .is_some_and(|owner| player.id == owner)
-            })
+            .tiles()
+            .filter(|tile| tile.owner.player().is_some_and(|owner| &player.id == owner))
             .count();
         scores.push((player.team.clone(), properties));
     }
@@ -1703,17 +1643,15 @@ fn eliminate_player(
     defeated_player: &str,
     cause: &str,
     beneficiary: Option<&str>,
-    trigger_hq: Option<Position>,
+    trigger_hq: Option<Pos>,
     events: &mut Vec<Event>,
 ) -> Result<bool, ExecuteError> {
     let player_index = state
-        .players
-        .iter()
-        .position(|player| player.id == defeated_player)
+        .player_index(defeated_player)
         .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let defeated_team = state.players[player_index].team.clone();
-    let previous_status = state.players[player_index].status;
-    state.players[player_index].status = if cause == "resignation" {
+    let defeated_team = state.player_mut(player_index).team.clone();
+    let previous_status = state.player_mut(player_index).status;
+    state.player_mut(player_index).status = if cause == "resignation" {
         PlayerStatus::Resigned
     } else {
         PlayerStatus::Eliminated
@@ -1721,7 +1659,7 @@ fn eliminate_player(
     events.push(Event::PlayerStatusChanged {
         player: PlayerId::from(defeated_player),
         from: previous_status,
-        to: state.players[player_index].status,
+        to: state.player_mut(player_index).status,
     });
     if state
         .players
@@ -1771,11 +1709,10 @@ fn eliminate_player(
     for unit_id in unit_ids {
         let unit_index = state
             .units
-            .iter()
-            .position(|unit| unit.id == unit_id)
+            .index_of(unit_id)
             .expect("elimination unit remains present until its pass");
         if let Some(position) = board_position(&state.units[unit_index]) {
-            let tile = &mut state.board.tiles[position[1]][position[0]];
+            let tile = &mut state.board.tile_mut(position);
             if let Some(before) = tile.capture_points.filter(|points| *points < 20) {
                 tile.capture_points = Some(20);
                 events.push(Event::CaptureChanged {
@@ -1793,21 +1730,17 @@ fn eliminate_player(
     }
 
     let mut properties = Vec::new();
-    for (y, row) in state.board.tiles.iter().enumerate() {
-        for (x, tile) in row.iter().enumerate() {
-            let position = [x, y];
-            let owned = tile
-                .owner
-                .as_ref()
-                .and_then(Option::as_deref)
-                .is_some_and(|owner| owner == defeated_player);
-            if owned || trigger_hq == Some(position) {
-                properties.push(position);
-            }
+    for (position, tile) in state.board.iter() {
+        let owned = tile
+            .owner
+            .player()
+            .is_some_and(|owner| owner == defeated_player);
+        if owned || trigger_hq == Some(position) {
+            properties.push(position);
         }
     }
     for position in properties {
-        let tile = &mut state.board.tiles[position[1]][position[0]];
+        let tile = state.board.tile_mut(position);
         if let Some(before) = tile.capture_points.filter(|points| *points < 20) {
             tile.capture_points = Some(20);
             events.push(Event::CaptureChanged {
@@ -1826,10 +1759,10 @@ fn eliminate_player(
                 reason: ReasonId::from("elimination"),
             });
         }
-        let previous_owner = tile.owner.as_ref().and_then(Clone::clone);
+        let previous_owner = tile.owner.to_optional();
         let next_owner = beneficiary.map(PlayerId::from);
         if previous_owner != next_owner {
-            tile.owner = Some(next_owner.clone());
+            tile.owner = TileOwner::ownable(next_owner.clone());
             events.push(Event::TileOwnerChanged {
                 position,
                 from: previous_owner,
@@ -1844,7 +1777,7 @@ fn execute_move_concealment(
     state: &State,
     player: &str,
     unit_id: UnitId,
-    path: Vec<Position>,
+    path: Vec<Pos>,
     hide: bool,
 ) -> Result<Execution, ExecuteError> {
     let plan = validate_movement_prefix(state, player, unit_id, path)?;
@@ -1912,13 +1845,9 @@ fn turns_until_player_selection(state: &State, player: &str) -> Result<u64, Exec
     for _ in 0..order_len {
         index = (index + 1) % order_len;
         let candidate_id = &state.turn.order[index];
-        let candidate = state
-            .players
-            .iter()
-            .find(|candidate| candidate.id == *candidate_id)
-            .ok_or_else(|| {
-                ExecuteError::InvalidState("turn order names a missing player".into())
-            })?;
+        let candidate = state.find_player(candidate_id).ok_or_else(|| {
+            ExecuteError::InvalidState("turn order names a missing player".into())
+        })?;
         if candidate.status != PlayerStatus::Active {
             continue;
         }
@@ -1939,11 +1868,9 @@ fn area_strike_centers(
     player: &str,
     radius: usize,
     policies: &[AreaStrikePolicy],
-) -> Result<Vec<Position>, ExecuteError> {
+) -> Result<Vec<Pos>, ExecuteError> {
     let actor_team = state
-        .players
-        .iter()
-        .find(|candidate| candidate.id == player)
+        .find_player(player)
         .map(|candidate| candidate.team.as_str())
         .ok_or_else(|| ExecuteError::InvalidState("area-strike actor is missing".into()))?;
     let mut priced_units = Vec::new();
@@ -1955,12 +1882,12 @@ fn area_strike_centers(
         let cost = commander::effective_build_cost(state, &unit.owner, base_cost)
             .ok_or_else(|| ExecuteError::InvalidState("area-strike cost overflow".into()))?;
         let friendly = state
-            .players
-            .iter()
-            .find(|candidate| candidate.id == unit.owner)
+            .find_player(&unit.owner)
             .is_some_and(|owner| owner.team == actor_team);
         let capturing = matches!(unit.kind.as_str(), "infantry" | "mech")
-            && state.board.tiles[position[1]][position[0]]
+            && state
+                .board
+                .tile(position)
                 .capture_points
                 .is_some_and(|points| points < 20);
         priced_units.push((unit, position, cost, friendly, capturing));
@@ -1968,14 +1895,13 @@ fn area_strike_centers(
 
     let mut centers = Vec::with_capacity(policies.len());
     for policy in policies {
-        let mut best: Option<(i128, i128, Position)> = None;
-        for y in 0..state.board.height {
-            for x in 0..state.board.width {
-                let center = [x, y];
+        let mut best: Option<(i128, i128, Pos)> = None;
+        for center in state.board.positions() {
+            {
                 let mut score = 0_i128;
                 let mut enemy_tiebreak = 0_i128;
                 for (unit, position, cost, friendly, capturing) in &priced_units {
-                    if center[0].abs_diff(position[0]) + center[1].abs_diff(position[1]) > radius {
+                    if center.distance(*position) > radius as u64 {
                         continue;
                     }
                     let exact_hp = i128::from(unit.hp);
@@ -2073,11 +1999,9 @@ fn execute_activate_power(
         }));
     }
     let player_index = state
-        .players
-        .iter()
-        .position(|candidate| candidate.id == player)
+        .player_index(player)
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent from players".into()))?;
-    let actor = &state.players[player_index];
+    let actor = state.player(player_index);
     let active_slot = actor
         .commanders
         .iter()
@@ -2114,13 +2038,13 @@ fn execute_activate_power(
     }
 
     let mut next = state.clone();
-    let commander = &mut next.players[player_index].commanders[usize::from(active_slot)];
+    let commander = &mut next.player_mut(player_index).commanders[usize::from(active_slot)];
     commander.power_charge -= cost;
     commander.power_uses = commander
         .power_uses
         .checked_add(1)
         .ok_or_else(|| ExecuteError::InvalidState("commander power uses overflow".into()))?;
-    next.players[player_index].power_state = match level {
+    next.player_mut(player_index).power_state = match level {
         PowerLevel::Cop => crate::semantic::PowerState::Cop {
             commander_slot: active_slot,
         },
@@ -2149,8 +2073,7 @@ fn execute_activate_power(
                 for target_id in targets {
                     let target = next
                         .units
-                        .iter_mut()
-                        .find(|unit| unit.id == target_id)
+                        .get_mut(target_id)
                         .expect("power target remains present");
                     let from_hp = target.hp;
                     let visual_hp = from_hp.div_ceil(10);
@@ -2181,8 +2104,7 @@ fn execute_activate_power(
                 for target_id in targets {
                     let target = next
                         .units
-                        .iter_mut()
-                        .find(|unit| unit.id == target_id)
+                        .get_mut(target_id)
                         .expect("power target remains present");
                     let from_hp = target.hp;
                     let to_hp = from_hp.saturating_add(amount).min(100);
@@ -2203,7 +2125,7 @@ fn execute_activate_power(
                 amount,
                 minimum_hp,
             } => {
-                let actor_team = next.players[player_index].team.clone();
+                let actor_team = next.player_mut(player_index).team.clone();
                 let properties_only = target == UnitTarget::EnemyOnProperties;
                 let enemy_owners: HashSet<_> = next
                     .players
@@ -2219,7 +2141,7 @@ fn execute_activate_power(
                             && (!properties_only
                                 || match unit.location {
                                     Location::Board { position } => ruleset::terrain_has(
-                                        next.board.tiles[position[1]][position[0]].terrain,
+                                        next.board.tile(position).terrain,
                                         TerrainTrait::Capturable,
                                     ),
                                     Location::Cargo { .. } => false,
@@ -2231,8 +2153,7 @@ fn execute_activate_power(
                 for target_id in targets {
                     let target = next
                         .units
-                        .iter_mut()
-                        .find(|unit| unit.id == target_id)
+                        .get_mut(target_id)
                         .expect("power target remains present");
                     let from_hp = target.hp;
                     let to_hp = from_hp.saturating_sub(amount).max(minimum_hp);
@@ -2276,7 +2197,7 @@ fn execute_activate_power(
                 numerator,
                 denominator,
             } => {
-                let actor_team = next.players[player_index].team.clone();
+                let actor_team = next.player_mut(player_index).team.clone();
                 let enemy_owners: HashSet<_> = next
                     .players
                     .iter()
@@ -2293,8 +2214,7 @@ fn execute_activate_power(
                 for target_id in targets {
                     let target = next
                         .units
-                        .iter_mut()
-                        .find(|unit| unit.id == target_id)
+                        .get_mut(target_id)
                         .expect("power target remains present");
                     let fuel_before = target.fuel;
                     let drained = fuel_before
@@ -2344,9 +2264,7 @@ fn execute_activate_power(
                         .iter()
                         .filter_map(|unit| match unit.location {
                             Location::Board { position }
-                                if center[0].abs_diff(position[0])
-                                    + center[1].abs_diff(position[1])
-                                    <= radius =>
+                                if center.distance(position) <= radius as u64 =>
                             {
                                 Some(unit.id)
                             }
@@ -2357,8 +2275,7 @@ fn execute_activate_power(
                     for target_id in targets {
                         let target = next
                             .units
-                            .iter_mut()
-                            .find(|unit| unit.id == target_id)
+                            .get_mut(target_id)
                             .expect("area-strike target remains present");
                         let from_hp = target.hp;
                         let to_hp = from_hp.saturating_sub(damage).max(minimum_hp);
@@ -2379,8 +2296,8 @@ fn execute_activate_power(
                 target: CommanderSlotTarget::EnemyCommanderSlots,
                 funds_per_full_bar,
             } => {
-                let actor_team = next.players[player_index].team.clone();
-                let actor_funds = next.players[player_index].funds;
+                let actor_team = next.player_mut(player_index).team.clone();
+                let actor_funds = next.player_mut(player_index).funds;
                 let mut target_players: Vec<_> = next
                     .players
                     .iter()
@@ -2447,8 +2364,7 @@ fn execute_activate_power(
                 for target_id in targets {
                     let target = next
                         .units
-                        .iter_mut()
-                        .find(|unit| unit.id == target_id)
+                        .get_mut(target_id)
                         .expect("power target remains present");
                     if target.action != UnitAction::Spent {
                         continue;
@@ -2476,8 +2392,7 @@ fn execute_activate_power(
                 for target_id in targets {
                     let target = next
                         .units
-                        .iter_mut()
-                        .find(|unit| unit.id == target_id)
+                        .get_mut(target_id)
                         .expect("power target remains present");
                     let fuel_before = target.fuel;
                     let ammo_before = target.ammo;
@@ -2511,8 +2426,8 @@ fn execute_activate_power(
                 let max_ammo = profile.max_ammo;
                 let mut positions = Vec::new();
                 let mut owned_unit_count = owned_unit_count(&next, player)?;
-                'rows: for (y, row) in next.board.tiles.iter().enumerate() {
-                    for (x, tile) in row.iter().enumerate() {
+                'rows: for (position, tile) in next.board.iter() {
+                    {
                         if next
                             .settings
                             .unit_limit
@@ -2520,14 +2435,13 @@ fn execute_activate_power(
                         {
                             break 'rows;
                         }
-                        if tile.owner.as_ref().and_then(Option::as_deref) != Some(player) {
+                        if !tile.owner.is_owned_by(player) {
                             continue;
                         }
                         let property_kind = ruleset::terrain(tile.terrain).property_kind;
                         if !property_kind.is_some_and(|kind| property_kinds.contains(&kind)) {
                             continue;
                         }
-                        let position = [x, y];
                         if next
                             .units
                             .iter()
@@ -2554,7 +2468,7 @@ fn execute_activate_power(
                     .ok_or_else(|| ExecuteError::InvalidState("next_unit_id overflow".into()))?;
                 for offset in 0..count {
                     let allocated_id = UnitId::new(first_id + offset);
-                    if next.units.iter().any(|unit| unit.id == allocated_id) {
+                    if next.units.contains(allocated_id) {
                         return Err(ExecuteError::InvalidState(format!(
                             "next_unit_id {} is not fresh",
                             first_id + offset
@@ -2593,7 +2507,7 @@ fn execute_activate_power(
                 friendly_contribution: FriendlyContribution::Subtract,
                 unit_value: TargetedUnitValue::BaseBuildCost,
             } => {
-                let actor_team = next.players[player_index].team.clone();
+                let actor_team = next.player_mut(player_index).team.clone();
                 let enemy_owners: HashSet<_> = next
                     .players
                     .iter()
@@ -2612,17 +2526,15 @@ fn execute_activate_power(
                         _ => None,
                     })
                     .collect();
-                candidates.sort_by_key(|position| (position[1], position[0]));
-                let mut best: Option<(i128, Position)> = None;
+                candidates.sort_by_key(|position| (position.y, position.x));
+                let mut best: Option<(i128, Pos)> = None;
                 for center in candidates {
                     let mut score = 0_i128;
                     for unit in &next.units {
                         let Location::Board { position } = unit.location else {
                             continue;
                         };
-                        if center[0].abs_diff(position[0]) + center[1].abs_diff(position[1])
-                            > radius
-                        {
+                        if center.distance(position) > radius as u64 {
                             continue;
                         }
                         let cost = ruleset::profile(unit.kind).cost;
@@ -2634,9 +2546,7 @@ fn execute_activate_power(
                                 )
                             })?;
                         let friendly = next
-                            .players
-                            .iter()
-                            .find(|candidate| candidate.id == unit.owner)
+                            .find_player(&unit.owner)
                             .is_some_and(|owner| owner.team == actor_team);
                         score = if friendly {
                             score.checked_sub(value)
@@ -2669,9 +2579,7 @@ fn execute_activate_power(
                     .iter()
                     .filter_map(|unit| match unit.location {
                         Location::Board { position }
-                            if center[0].abs_diff(position[0])
-                                + center[1].abs_diff(position[1])
-                                <= radius =>
+                            if center.distance(position) <= radius as u64 =>
                         {
                             Some(unit.id)
                         }
@@ -2682,8 +2590,7 @@ fn execute_activate_power(
                 for target_id in targets {
                     let target = next
                         .units
-                        .iter_mut()
-                        .find(|unit| unit.id == target_id)
+                        .get_mut(target_id)
                         .expect("targeted area-strike target remains present");
                     let from_hp = target.hp;
                     let to_hp = from_hp.saturating_sub(damage).max(minimum_hp);
@@ -2709,7 +2616,7 @@ fn execute_activate_power(
                 unit_value: TargetedUnitValue::BaseBuildCost,
                 duration: ImmobilizationDuration::ThroughTargetNextTurn,
             } => {
-                let actor_team = next.players[player_index].team.clone();
+                let actor_team = next.player_mut(player_index).team.clone();
                 let enemy_owners: HashSet<_> = next
                     .players
                     .iter()
@@ -2723,22 +2630,17 @@ fn execute_activate_power(
                     };
                     let cost = ruleset::profile(unit.kind).cost;
                     let friendly = state
-                        .players
-                        .iter()
-                        .find(|candidate| candidate.id == unit.owner)
+                        .find_player(&unit.owner)
                         .is_some_and(|owner| owner.team == actor_team);
                     priced_units.push((unit, position, cost, friendly));
                 }
-                let mut best: Option<(i128, i128, Position)> = None;
-                for y in 0..state.board.height {
-                    for x in 0..state.board.width {
-                        let center = [x, y];
+                let mut best: Option<(i128, i128, Pos)> = None;
+                for center in state.board.positions() {
+                    {
                         let mut score = 0_i128;
                         let mut enemy_tiebreak = 0_i128;
                         for (unit, position, cost, friendly) in &priced_units {
-                            if center[0].abs_diff(position[0]) + center[1].abs_diff(position[1])
-                                > radius
-                            {
+                            if center.distance(*position) > radius as u64 {
                                 continue;
                             }
                             let exact_hp = i128::from(unit.hp);
@@ -2800,9 +2702,7 @@ fn execute_activate_power(
                     .filter_map(|unit| match unit.location {
                         Location::Board { position }
                             if enemy_owners.contains(unit.owner.as_str())
-                                && center[0].abs_diff(position[0])
-                                    + center[1].abs_diff(position[1])
-                                    <= radius =>
+                                && center.distance(position) <= radius as u64 =>
                         {
                             Some(unit.id)
                         }
@@ -2813,8 +2713,7 @@ fn execute_activate_power(
                 for target_id in targets {
                     let target = next
                         .units
-                        .iter_mut()
-                        .find(|unit| unit.id == target_id)
+                        .get_mut(target_id)
                         .expect("immobilizing area-strike target remains present");
                     let from_hp = target.hp;
                     let to_hp = from_hp.saturating_sub(damage).max(minimum_hp);
@@ -2844,7 +2743,7 @@ fn execute_activate_power(
                 numerator,
                 denominator,
             } => {
-                let from = next.players[player_index].funds;
+                let from = next.player_mut(player_index).funds;
                 let exact = u128::from(from)
                     .checked_mul(u128::from(numerator))
                     .and_then(|value| value.checked_div(u128::from(denominator)))
@@ -2856,7 +2755,7 @@ fn execute_activate_power(
                 if to == from {
                     continue;
                 }
-                next.players[player_index].funds = to;
+                next.player_mut(player_index).funds = to;
                 events.push(Event::FundsChanged {
                     player: PlayerId::from(player),
                     from,
@@ -2929,9 +2828,7 @@ fn execute_turn_boundary(
         }));
     }
     let player_index = state
-        .players
-        .iter()
-        .position(|candidate| candidate.id == player)
+        .player_index(player)
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
     if command == BoundaryCommand::Tag && !state.settings.tags {
         return Err(violation(Violation::ActionNotSupported {
@@ -2939,8 +2836,9 @@ fn execute_turn_boundary(
         }));
     }
     if command == BoundaryCommand::Tag
-        && (state.players[player_index].commanders.len() != 2
-            || state.players[player_index]
+        && (state.player(player_index).commanders.len() != 2
+            || state
+                .player(player_index)
                 .commanders
                 .iter()
                 .filter(|commander| commander.active)
@@ -2961,13 +2859,14 @@ fn execute_turn_boundary(
     }];
     next.turn.phase = Phase::TurnEnd;
     if command == BoundaryCommand::Tag {
-        let from_slot = next.players[player_index]
+        let from_slot = next
+            .player_mut(player_index)
             .commanders
             .iter()
             .position(|commander| commander.active)
             .expect("tag commander shape was checked");
         let to_slot = 1 - from_slot;
-        let active_power = match next.players[player_index].power_state {
+        let active_power = match next.player_mut(player_index).power_state {
             PowerState::None => None,
             PowerState::Cop { commander_slot } => Some((commander_slot, PowerLevel::Cop)),
             PowerState::Scop { commander_slot } => Some((commander_slot, PowerLevel::Scop)),
@@ -2978,16 +2877,16 @@ fn execute_turn_boundary(
                     "power state does not name the active commander slot".into(),
                 ));
             }
-            let commander_id = next.players[player_index].commanders[from_slot].id;
-            next.players[player_index].power_state = PowerState::None;
+            let commander_id = next.player_mut(player_index).commanders[from_slot].id;
+            next.player_mut(player_index).power_state = PowerState::None;
             events.push(Event::PowerEnded {
                 player: PlayerId::from(player),
                 commander: commander_id,
                 power,
             });
         }
-        next.players[player_index].commanders[from_slot].active = false;
-        next.players[player_index].commanders[to_slot].active = true;
+        next.player_mut(player_index).commanders[from_slot].active = false;
+        next.player_mut(player_index).commanders[to_slot].active = true;
         events.push(Event::CommanderSwapped {
             player: PlayerId::from(player),
             from_slot,
@@ -3019,9 +2918,7 @@ fn execute_turn_boundary(
         let successor = (1..=order_len).find_map(|offset| {
             let position = (next.turn.position + offset) % order_len;
             let id = &next.turn.order[position];
-            next.players
-                .iter()
-                .find(|candidate| candidate.id == *id)
+            next.find_player(id)
                 .filter(|candidate| candidate.status == PlayerStatus::Active)
                 .map(|_| (position, id.clone()))
         });
@@ -3045,9 +2942,7 @@ fn execute_turn_boundary(
         }
 
         let successor_player_index = next
-            .players
-            .iter()
-            .position(|candidate| candidate.id == successor_id)
+            .player_index(&successor_id)
             .expect("successor selection established the player");
 
         if crossed_round_boundary {
@@ -3077,7 +2972,7 @@ fn execute_turn_boundary(
             });
         }
 
-        let expired_power = match next.players[successor_player_index].power_state {
+        let expired_power = match next.player_mut(successor_player_index).power_state {
             crate::semantic::PowerState::None => None,
             crate::semantic::PowerState::Cop { commander_slot } => {
                 Some((commander_slot, PowerLevel::Cop))
@@ -3087,7 +2982,8 @@ fn execute_turn_boundary(
             }
         };
         if let Some((commander_slot, power)) = expired_power {
-            let commander = next.players[successor_player_index]
+            let commander = next
+                .player_mut(successor_player_index)
                 .commanders
                 .get(usize::from(commander_slot))
                 .ok_or_else(|| {
@@ -3099,7 +2995,7 @@ fn execute_turn_boundary(
                 ));
             }
             let commander_id = commander.id;
-            next.players[successor_player_index].power_state = crate::semantic::PowerState::None;
+            next.player_mut(successor_player_index).power_state = crate::semantic::PowerState::None;
             events.push(Event::PowerEnded {
                 player: successor_id.clone(),
                 commander: commander_id,
@@ -3146,13 +3042,10 @@ fn execute_turn_boundary(
 
         let income_tiles = next
             .board
-            .tiles
-            .iter()
-            .flatten()
+            .tiles()
             .filter(|tile| {
                 tile.owner
-                    .as_ref()
-                    .and_then(Option::as_ref)
+                    .player()
                     .is_some_and(|owner| owner == &successor_id)
                     && ruleset::terrain_has(tile.terrain, TerrainTrait::Income)
             })
@@ -3163,11 +3056,11 @@ fn execute_turn_boundary(
             .and_then(|count| count.checked_mul(income_per_property))
             .ok_or_else(|| ExecuteError::InvalidState("turn-start income overflow".into()))?;
         if income > 0 {
-            let funds_before = next.players[successor_player_index].funds;
+            let funds_before = next.player_mut(successor_player_index).funds;
             let funds_after = funds_before
                 .checked_add(income)
                 .ok_or_else(|| ExecuteError::InvalidState("player funds overflow".into()))?;
-            next.players[successor_player_index].funds = funds_after;
+            next.player_mut(successor_player_index).funds = funds_after;
             events.push(Event::FundsChanged {
                 player: successor_id.clone(),
                 from: funds_before,
@@ -3177,9 +3070,8 @@ fn execute_turn_boundary(
         }
 
         let mut property_sources = Vec::new();
-        for (y, row) in next.board.tiles.iter().enumerate() {
-            for (x, tile) in row.iter().enumerate() {
-                let position = [x, y];
+        {
+            for (position, tile) in next.board.iter() {
                 let Some(unit) = next.units.iter().find(|unit| {
                     unit.owner == successor_id && board_position(unit) == Some(position)
                 }) else {
@@ -3187,8 +3079,7 @@ fn execute_turn_boundary(
                 };
                 if tile
                     .owner
-                    .as_ref()
-                    .and_then(Option::as_ref)
+                    .player()
                     .is_some_and(|owner| owner == &successor_id)
                     && terrain_repairs_unit(tile.terrain, unit.kind)
                 {
@@ -3227,14 +3118,10 @@ fn execute_turn_boundary(
             .collect();
         apc_ids.sort();
         for apc_id in apc_ids {
-            let source = next
-                .units
-                .iter()
-                .find(|unit| unit.id == apc_id)
-                .expect("APC source remains on board");
+            let source = next.units.get(apc_id).expect("APC source remains on board");
             let source_position = board_position(source).expect("APC source remains on board");
             let source_owner = source.owner.clone();
-            let source_team = next.players[successor_player_index].team.clone();
+            let source_team = next.player(successor_player_index).team.clone();
             let supply_targets = ruleset::profile(source.kind)
                 .supply
                 .ok_or(ExecuteError::UnsupportedRuleset)?
@@ -3252,8 +3139,8 @@ fn execute_turn_boundary(
                             supply_targets,
                         )
                         && board_position(unit).is_some_and(|position| {
-                            position[0].abs_diff(source_position[0])
-                                + position[1].abs_diff(source_position[1])
+                            position.x.abs_diff(source_position.x)
+                                + position.y.abs_diff(source_position.y)
                                 == 1
                         })
                 })
@@ -3265,8 +3152,7 @@ fn execute_turn_boundary(
                 resupplied.insert(target_id);
                 let target = next
                     .units
-                    .iter_mut()
-                    .find(|unit| unit.id == target_id)
+                    .get_mut(target_id)
                     .expect("APC supply target remains present");
                 if refill_unit(target) {
                     changed.push(target_id);
@@ -3311,8 +3197,7 @@ fn execute_turn_boundary(
                 resupplied.insert(cargo_id);
                 let cargo = next
                     .units
-                    .iter_mut()
-                    .find(|unit| unit.id == cargo_id)
+                    .get_mut(cargo_id)
                     .expect("cargo supply target remains present");
                 if refill_unit(cargo) {
                     changed.push(cargo_id);
@@ -3344,8 +3229,7 @@ fn execute_turn_boundary(
             for unit_id in upkeep_ids {
                 let unit_snapshot = next
                     .units
-                    .iter()
-                    .find(|unit| unit.id == unit_id)
+                    .get(unit_id)
                     .expect("upkeep unit remains present")
                     .clone();
                 let profile = ruleset::profile(unit_snapshot.kind);
@@ -3365,8 +3249,7 @@ fn execute_turn_boundary(
                 );
                 let unit = next
                     .units
-                    .iter_mut()
-                    .find(|unit| unit.id == unit_id)
+                    .get_mut(unit_id)
                     .expect("upkeep unit remains present");
                 let fuel_before = unit.fuel;
                 unit.fuel = unit.fuel.saturating_sub(upkeep);
@@ -3399,7 +3282,7 @@ fn execute_turn_boundary(
         crash_ids.sort();
         let removed_units = !crash_ids.is_empty();
         for unit_id in crash_ids {
-            if !next.units.iter().any(|unit| unit.id == unit_id) {
+            if !next.units.contains(unit_id) {
                 continue;
             }
             let mut cargo: Vec<_> = next
@@ -3441,8 +3324,7 @@ fn execute_turn_boundary(
         for (unit_id, position) in repair_units {
             let unit_index = next
                 .units
-                .iter()
-                .position(|unit| unit.id == unit_id)
+                .index_of(unit_id)
                 .expect("repair unit remains present");
             let hp_before = next.units[unit_index].hp;
             let visual_hp = u64::from(hp_before).div_ceil(10);
@@ -3454,7 +3336,8 @@ fn execute_turn_boundary(
                 .cost
                 .checked_div(10)
                 .ok_or(ExecuteError::UnsupportedRuleset)?;
-            let affordable_bars = next.players[successor_player_index]
+            let affordable_bars = next
+                .player_mut(successor_player_index)
                 .funds
                 .checked_div(heal_cost)
                 .unwrap_or(missing_bars);
@@ -3467,7 +3350,7 @@ fn execute_turn_boundary(
             let cost = bars.checked_mul(heal_cost).ok_or_else(|| {
                 ExecuteError::InvalidState("property repair cost overflow".into())
             })?;
-            next.players[successor_player_index].funds -= cost;
+            next.player_mut(successor_player_index).funds -= cost;
             let hp_after = u8::try_from((visual_hp + bars).min(10) * 10)
                 .map_err(|_| ExecuteError::InvalidState("property repair HP overflow".into()))?;
             next.units[unit_index].hp = hp_after;
@@ -3580,9 +3463,7 @@ fn apply_strike_funds(
         return Ok(());
     }
     let player = next
-        .players
-        .iter_mut()
-        .find(|candidate| candidate.id == striker)
+        .find_player_mut(striker)
         .ok_or_else(|| ExecuteError::InvalidState("strike owner is absent".into()))?;
     let from = player.funds;
     let to = from
@@ -3630,20 +3511,19 @@ fn apply_strike_power_charge(
             continue;
         }
         let player_index = next
-            .players
-            .iter()
-            .position(|player| player.id == player_id)
+            .player_index(player_id)
             .ok_or_else(|| ExecuteError::InvalidState("combat owner is absent".into()))?;
-        if !matches!(next.players[player_index].power_state, PowerState::None) {
+        if !matches!(next.player_mut(player_index).power_state, PowerState::None) {
             continue;
         }
-        let active_slot = next.players[player_index]
+        let active_slot = next
+            .player_mut(player_index)
             .commanders
             .iter()
             .position(|commander| commander.active)
             .ok_or_else(|| ExecuteError::InvalidState("active commander is absent".into()))?;
         let commander_slots = if state.settings.tags {
-            if next.players[player_index].commanders.len() != 2 {
+            if next.player_mut(player_index).commanders.len() != 2 {
                 return Err(ExecuteError::InvalidState(
                     "tag player does not have two commander slots".into(),
                 ));
@@ -3661,7 +3541,7 @@ fn apply_strike_power_charge(
             if slot_gain == 0 {
                 continue;
             }
-            let commander = &next.players[player_index].commanders[commander_slot];
+            let commander = &next.player_mut(player_index).commanders[commander_slot];
             let Some(maximum) = commander::maximum_power_charge(commander.id, commander.power_uses)
                 .map_err(|_| ExecuteError::InvalidState("maximum power charge overflow".into()))?
             else {
@@ -3678,7 +3558,7 @@ fn apply_strike_power_charge(
             if to == from {
                 continue;
             }
-            next.players[player_index].commanders[commander_slot].power_charge = to;
+            next.player_mut(player_index).commanders[commander_slot].power_charge = to;
             events.push(Event::PowerChargeChanged {
                 player: PlayerId::from(player_id),
                 commander_slot,
@@ -3698,19 +3578,14 @@ fn execute_tile_attack(
     unit_id: UnitId,
     attacker_index: usize,
     attacker: &Unit,
-    origin: Position,
-    position: Position,
+    origin: Pos,
+    position: Pos,
 ) -> Result<Execution, ExecuteError> {
-    let tile = state
-        .board
-        .tiles
-        .get(position[1])
-        .and_then(|row| row.get(position[0]))
-        .ok_or_else(|| {
-            violation(Violation::InvalidTarget {
-                target: Some(position.into()),
-            })
-        })?;
+    let tile = state.board.get(position).ok_or_else(|| {
+        violation(Violation::InvalidTarget {
+            target: Some(position.into()),
+        })
+    })?;
     if state
         .units
         .iter()
@@ -3740,9 +3615,7 @@ fn execute_tile_attack(
     let destruction_replacement = destructible.destruction_replacement;
 
     let actor_team = state
-        .players
-        .iter()
-        .find(|candidate| candidate.id == player)
+        .find_player(player)
         .map(|candidate| candidate.team.as_str())
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
     if state.settings.fog && !AwbwVisibility.visible_position(state, actor_team, position) {
@@ -3758,17 +3631,16 @@ fn execute_tile_attack(
             action: Action::Attack,
         }));
     }
-    let distance = origin[0].abs_diff(position[0]) + origin[1].abs_diff(position[1]);
+    let distance = origin.distance(position);
     if let Some(range) = profile.indirect_range {
-        let minimum = range.minimum as usize;
-        let maximum = usize::try_from(commander::effective_attack_range(
+        let minimum = range.minimum;
+        let maximum = commander::effective_attack_range(
             state,
             attacker,
             range.maximum,
             profile.domain.as_str(),
             "indirect",
-        ))
-        .map_err(|_| ExecuteError::InvalidState("attack range overflow".into()))?;
+        );
         if distance < minimum || distance > maximum {
             return Err(violation(Violation::TargetOutOfRange {
                 target: Some(position.into()),
@@ -3788,33 +3660,27 @@ fn execute_tile_attack(
     let unit_domain = combat_domain(profile);
     let tower_count = state
         .board
-        .tiles
-        .iter()
-        .flatten()
+        .tiles()
         .filter(|candidate| {
             candidate
                 .owner
-                .as_ref()
-                .and_then(Option::as_ref)
+                .player()
                 .is_some_and(|owner| owner == player)
                 && ruleset::terrain_has(candidate.terrain, TerrainTrait::CommunicationBonus)
         })
         .count() as i64;
     let owned_properties = state
         .board
-        .tiles
-        .iter()
-        .flatten()
+        .tiles()
         .filter(|candidate| {
             candidate
                 .owner
-                .as_ref()
-                .and_then(Option::as_ref)
+                .player()
                 .is_some_and(|owner| owner == player)
                 && ruleset::terrain_has(candidate.terrain, TerrainTrait::Capturable)
         })
         .count() as u64;
-    let attacker_terrain = state.board.tiles[origin[1]][origin[0]].terrain;
+    let attacker_terrain = state.board.tile(origin).terrain;
     let attacker_stars = ruleset::defense_stars(attacker_terrain);
     let combat_weather = state.weather.kind;
     let no_capabilities = HashSet::new();
@@ -3886,8 +3752,8 @@ fn execute_tile_attack(
         to_hp,
     });
     if to_hp == 0 {
-        next.board.tiles[position[1]][position[0]].terrain = destruction_replacement;
-        next.board.tiles[position[1]][position[0]].destructible_hp = None;
+        next.board.tile_mut(position).terrain = destruction_replacement;
+        next.board.tile_mut(position).destructible_hp = None;
         events.push(Event::TileTerrainChanged {
             position,
             from: tile.terrain,
@@ -3895,7 +3761,7 @@ fn execute_tile_attack(
             reason: ReasonId::from("combat"),
         });
     } else {
-        next.board.tiles[position[1]][position[0]].destructible_hp = Some(u64::from(to_hp));
+        next.board.tile_mut(position).destructible_hp = Some(u64::from(to_hp));
     }
     next.units[attacker_index].action = UnitAction::Spent;
     events.push(Event::UnitActionChanged {
@@ -3915,7 +3781,7 @@ fn execute_move_attack(
     state: &State,
     player: &str,
     unit_id: UnitId,
-    path: Vec<Position>,
+    path: Vec<Pos>,
     target: AttackTarget,
     random: &[Value],
 ) -> Result<Execution, ExecuteError> {
@@ -3982,15 +3848,11 @@ fn execute_move_attack(
             return execute_tile_attack(state, player, unit_id, ai, attacker, origin, position);
         }
     };
-    let di = state
-        .units
-        .iter()
-        .position(|u| u.id == target_id)
-        .ok_or_else(|| {
-            violation(Violation::InvalidTarget {
-                target: Some(target_id.into()),
-            })
-        })?;
+    let di = state.units.index_of(target_id).ok_or_else(|| {
+        violation(Violation::InvalidTarget {
+            target: Some(target_id.into()),
+        })
+    })?;
     let defender = &state.units[di];
     let defender_owner = defender.owner.clone();
     let Location::Board { position: dp } = defender.location else {
@@ -4004,9 +3866,7 @@ fn execute_move_attack(
         }));
     }
     let actor_team = state
-        .players
-        .iter()
-        .find(|candidate| candidate.id == player)
+        .find_player(player)
         .map(|candidate| candidate.team.as_str())
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
     if !AwbwVisibility.visible_unit(state, actor_team, defender) {
@@ -4035,17 +3895,16 @@ fn execute_move_attack(
             action: Action::Attack,
         }));
     }
-    let distance = origin[0].abs_diff(dp[0]) + origin[1].abs_diff(dp[1]);
+    let distance = origin.distance(dp);
     if let Some(range) = profile.indirect_range {
-        let min = range.minimum as usize;
-        let max = usize::try_from(commander::effective_attack_range(
+        let min = range.minimum;
+        let max = commander::effective_attack_range(
             state,
             attacker,
             range.maximum,
             profile.domain.as_str(),
             "indirect",
-        ))
-        .map_err(|_| ExecuteError::InvalidState("attack range overflow".into()))?;
+        );
         if distance < min || distance > max {
             return Err(violation(Violation::TargetOutOfRange {
                 target: Some(target_id.into()),
@@ -4062,43 +3921,28 @@ fn execute_move_attack(
         }));
     }
     let mut tape = RandomTape::new(random);
-    let stars = |p: Position| ruleset::defense_stars(state.board.tiles[p[1]][p[0]].terrain);
+    let stars = |p: Pos| ruleset::defense_stars(state.board.tile(p).terrain);
     let unit_domain = |kind: UnitKindId| combat_domain(ruleset::profile(kind));
     let fire_mode = |kind: UnitKindId| ruleset::profile(kind).fire_mode.as_str();
     let tower_count = |owner: &str| {
         state
             .board
-            .tiles
-            .iter()
-            .flatten()
+            .tiles()
             .filter(|tile| {
-                tile.owner
-                    .as_ref()
-                    .and_then(Option::as_ref)
-                    .is_some_and(|value| value == owner)
+                tile.owner.player().is_some_and(|value| value == owner)
                     && ruleset::terrain_has(tile.terrain, TerrainTrait::CommunicationBonus)
             })
             .count() as i64
     };
     let is_property = |terrain: TerrainId| ruleset::terrain_has(terrain, TerrainTrait::Capturable);
-    let combat_context = |owner: &str, position: Position| CombatContext {
+    let combat_context = |owner: &str, position: Pos| CombatContext {
         tower_count: tower_count(owner),
-        funds: state
-            .players
-            .iter()
-            .find(|player| player.id == owner)
-            .map_or(0, |player| player.funds),
+        funds: state.find_player(owner).map_or(0, |player| player.funds),
         owned_properties: state
             .board
-            .tiles
-            .iter()
-            .flatten()
+            .tiles()
             .filter(|tile| {
-                tile.owner
-                    .as_ref()
-                    .and_then(Option::as_ref)
-                    .is_some_and(|value| value == owner)
-                    && is_property(tile.terrain)
+                tile.owner.player().is_some_and(|value| value == owner) && is_property(tile.terrain)
             })
             .count() as u64,
         base_terrain_stars: i64::from(stars(position)),
@@ -4109,18 +3953,18 @@ fn execute_move_attack(
         kind: attacker.kind,
         domain: unit_domain(attacker.kind),
         fire_mode: fire_mode(attacker.kind),
-        terrain: state.board.tiles[origin[1]][origin[0]].terrain,
+        terrain: state.board.tile(origin).terrain,
         weather: combat_weather,
-        property: is_property(state.board.tiles[origin[1]][origin[0]].terrain),
+        property: is_property(state.board.tile(origin).terrain),
         capabilities: &no_capabilities,
     };
     let defender_context = Combatant {
         kind: defender.kind,
         domain: unit_domain(defender.kind),
         fire_mode: fire_mode(attacker.kind),
-        terrain: state.board.tiles[dp[1]][dp[0]].terrain,
+        terrain: state.board.tile(dp).terrain,
         weather: combat_weather,
-        property: is_property(state.board.tiles[dp[1]][dp[0]].terrain),
+        property: is_property(state.board.tile(dp).terrain),
         capabilities: &no_capabilities,
     };
     let (attacker_attack, _, _, attacker_good, attacker_bad) = commander::effective_combat(
@@ -4170,9 +4014,9 @@ fn execute_move_attack(
         kind: defender.kind,
         domain: unit_domain(defender.kind),
         fire_mode: fire_mode(defender.kind),
-        terrain: state.board.tiles[dp[1]][dp[0]].terrain,
+        terrain: state.board.tile(dp).terrain,
         weather: combat_weather,
-        property: is_property(state.board.tiles[dp[1]][dp[0]].terrain),
+        property: is_property(state.board.tile(dp).terrain),
         capabilities: &no_capabilities,
     };
     let counter_first = distance == 1
@@ -4189,9 +4033,9 @@ fn execute_move_attack(
             kind: attacker.kind,
             domain: unit_domain(attacker.kind),
             fire_mode: fire_mode(defender.kind),
-            terrain: state.board.tiles[origin[1]][origin[0]].terrain,
+            terrain: state.board.tile(origin).terrain,
             weather: combat_weather,
-            property: is_property(state.board.tiles[origin[1]][origin[0]].terrain),
+            property: is_property(state.board.tile(origin).terrain),
             capabilities: &no_capabilities,
         };
         let (counter_attack, _, _, counter_good, counter_bad) = commander::effective_combat(
@@ -4259,8 +4103,7 @@ fn execute_move_attack(
         if preemptive.weapon.ammo_cost > 0 {
             let index = next
                 .units
-                .iter()
-                .position(|unit| unit.id == target_id)
+                .index_of(target_id)
                 .expect("counter-first defender remains present");
             let before = next.units[index].ammo;
             next.units[index].ammo -= preemptive.weapon.ammo_cost;
@@ -4325,8 +4168,7 @@ fn execute_move_attack(
         let hit = initiating.expect("surviving attacker performs initiating strike");
         let next_ai = next
             .units
-            .iter()
-            .position(|unit| unit.id == unit_id)
+            .index_of(unit_id)
             .expect("surviving attacker remains present");
         if hit.weapon.ammo_cost > 0 {
             let before = next.units[next_ai].ammo;
@@ -4380,22 +4222,19 @@ fn execute_move_attack(
             });
             let next_di = next
                 .units
-                .iter()
-                .position(|unit| unit.id == target_id)
+                .index_of(target_id)
                 .expect("lethal target remains until removal");
             next.units.remove(next_di);
         } else {
             let next_di = next
                 .units
-                .iter()
-                .position(|unit| unit.id == target_id)
+                .index_of(target_id)
                 .expect("surviving target remains present");
             next.units[next_di].hp = defender_remaining;
         }
         let next_ai = next
             .units
-            .iter()
-            .position(|unit| unit.id == unit_id)
+            .index_of(unit_id)
             .expect("acting attacker survives counter-first engagement");
         next.units[next_ai].action = UnitAction::Spent;
         events.push(Event::UnitActionChanged {
@@ -4430,18 +4269,18 @@ fn execute_move_attack(
             kind: defender.kind,
             domain: unit_domain(defender.kind),
             fire_mode: fire_mode(defender.kind),
-            terrain: state.board.tiles[dp[1]][dp[0]].terrain,
+            terrain: state.board.tile(dp).terrain,
             weather: combat_weather,
-            property: is_property(state.board.tiles[dp[1]][dp[0]].terrain),
+            property: is_property(state.board.tile(dp).terrain),
             capabilities: &no_capabilities,
         };
         let countered_context = Combatant {
             kind: attacker.kind,
             domain: unit_domain(attacker.kind),
             fire_mode: fire_mode(defender.kind),
-            terrain: state.board.tiles[origin[1]][origin[0]].terrain,
+            terrain: state.board.tile(origin).terrain,
             weather: combat_weather,
-            property: is_property(state.board.tiles[origin[1]][origin[0]].terrain),
+            property: is_property(state.board.tile(origin).terrain),
             capabilities: &no_capabilities,
         };
         let (counter_attack, _, _, counter_good, counter_bad) = commander::effective_combat(
@@ -4594,8 +4433,7 @@ fn execute_move_attack(
     }
     let next_ai = next
         .units
-        .iter()
-        .position(|u| u.id == unit_id)
+        .index_of(unit_id)
         .expect("attacker survives this slice");
     next.units[next_ai].action = UnitAction::Spent;
     events.push(Event::UnitActionChanged {
@@ -4618,11 +4456,11 @@ fn execute_move_launch(
     state: &State,
     player: &str,
     unit_id: UnitId,
-    path: Vec<Position>,
-    target: Position,
+    path: Vec<Pos>,
+    target: Pos,
 ) -> Result<Execution, ExecuteError> {
     let plan = validate_movement_prefix(state, player, unit_id, path)?;
-    if target[0] >= state.board.width || target[1] >= state.board.height {
+    if target.x >= state.board.width() || target.y >= state.board.height() {
         return Err(violation(Violation::InvalidTarget {
             target: Some(target.into()),
         }));
@@ -4635,7 +4473,7 @@ fn execute_move_launch(
         }));
     }
     let silo_position = *plan.path.last().expect("origin was checked");
-    let silo = &state.board.tiles[silo_position[1]][silo_position[0]].silo;
+    let silo = &state.board.tile(silo_position).silo;
     if silo != &Some(Silo::Ready) {
         return Err(violation(Violation::InvalidTarget {
             target: Some(silo_position.into()),
@@ -4677,7 +4515,7 @@ fn execute_move_launch(
         .iter()
         .filter(|unit| {
             board_position(unit).is_some_and(|position| {
-                position[0].abs_diff(target[0]) + position[1].abs_diff(target[1]) <= 3
+                position.x.abs_diff(target.x) + position.y.abs_diff(target.y) <= 3
             })
         })
         .map(|unit| unit.id)
@@ -4687,8 +4525,7 @@ fn execute_move_launch(
         let unit = outcome
             .state
             .units
-            .iter_mut()
-            .find(|unit| unit.id == id)
+            .get_mut(id)
             .expect("launch target remains present");
         let from_hp = unit.hp;
         let to_hp = from_hp.saturating_sub(30).max(1);
@@ -4702,7 +4539,7 @@ fn execute_move_launch(
             });
         }
     }
-    outcome.state.board.tiles[silo_position[1]][silo_position[0]].silo = Some(Silo::Spent);
+    outcome.state.board.tile_mut(silo_position).silo = Some(Silo::Spent);
     outcome.events.push(Event::SiloChanged {
         position: silo_position,
         from: Silo::Ready,
@@ -4719,7 +4556,7 @@ fn execute_move_explode(
     state: &State,
     player: &str,
     unit_id: UnitId,
-    path: Vec<Position>,
+    path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
     let plan = validate_movement_prefix(state, player, unit_id, path)?;
     let unit = &state.units[plan.unit_index];
@@ -4763,7 +4600,7 @@ fn execute_move_explode(
         .filter(|unit| unit.id != unit_id)
         .filter(|unit| {
             board_position(unit).is_some_and(|position| {
-                position[0].abs_diff(destination[0]) + position[1].abs_diff(destination[1]) <= 3
+                position.x.abs_diff(destination.x) + position.y.abs_diff(destination.y) <= 3
             })
         })
         .map(|unit| unit.id)
@@ -4773,8 +4610,7 @@ fn execute_move_explode(
         let unit = outcome
             .state
             .units
-            .iter_mut()
-            .find(|unit| unit.id == id)
+            .get_mut(id)
             .expect("explosion target remains present");
         let from_hp = unit.hp;
         let to_hp = from_hp.saturating_sub(50).max(1);
@@ -4842,8 +4678,7 @@ fn execute_delete_unit(
     }
     let unit_index = state
         .units
-        .iter()
-        .position(|unit| unit.id == unit_id)
+        .index_of(unit_id)
         .ok_or_else(|| violation(Violation::UnitNotFound { unit: unit_id }))?;
     let unit = &state.units[unit_index];
     if unit.owner != player {
@@ -4857,11 +4692,13 @@ fn execute_delete_unit(
 
     let mut next = state.clone();
     let mut events = Vec::new();
-    if let Some(before) = next.board.tiles[position[1]][position[0]]
+    if let Some(before) = next
+        .board
+        .tile(position)
         .capture_points
         .filter(|points| *points < 20)
     {
-        next.board.tiles[position[1]][position[0]].capture_points = Some(20);
+        next.board.tile_mut(position).capture_points = Some(20);
         events.push(Event::CaptureChanged {
             position,
             from: before,
@@ -4887,7 +4724,7 @@ fn execute_move_wait(
     state: &State,
     player: &str,
     unit_id: UnitId,
-    path: Vec<Position>,
+    path: Vec<Pos>,
     _random: &[Value],
 ) -> Result<Execution, ExecuteError> {
     let plan = validate_movement_prefix(state, player, unit_id, path)?;
@@ -4933,7 +4770,23 @@ fn violation(violation: Violation) -> ExecuteError {
 mod tests {
     use super::*;
     use crate::combat::Weapon;
+    use crate::semantic::{Board, Tile};
     use serde_json::json;
+
+    /// Replace the board with a single row of `tiles`.
+    ///
+    /// Every fixture these tests reshape is one row high. Going through
+    /// [`Board::new`] means a test cannot leave `width` disagreeing with the
+    /// tiles it supplied, which the old `width = n; tiles[0] = …` pair could.
+    fn set_row(state: &mut State, tiles: Vec<Tile>) {
+        let width = u8::try_from(tiles.len()).expect("a test board fits in a byte");
+        state.board = Board::new(width, 1, tiles).expect("a single row is a rectangle");
+    }
+
+    /// The board's tiles, for tests that grow or shrink the row.
+    fn row(state: &State) -> Vec<Tile> {
+        state.board.tiles().cloned().collect()
+    }
 
     /// The unit an event is about, for tests that assert which units an
     /// operation touched and in what order.
@@ -4973,9 +4826,8 @@ mod tests {
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
-        state.board.width = width;
-        let plain = state.board.tiles[0][0].clone();
-        state.board.tiles[0] = vec![plain; width];
+        let plain = state.board.tile(Pos::new(0, 0)).clone();
+        set_row(&mut state, vec![plain; width]);
         state.teams.push(crate::semantic::Team {
             id: "blue-team".into(),
             status: crate::semantic::TeamStatus::Active,
@@ -5068,20 +4920,8 @@ mod tests {
 
         let result = execute(&state, command, &[]).unwrap();
 
-        assert!(
-            !result
-                .state
-                .units
-                .iter()
-                .any(|unit| unit.id == UnitId::new(0))
-        );
-        assert!(
-            !result
-                .state
-                .units
-                .iter()
-                .any(|unit| unit.id == UnitId::new(1))
-        );
+        assert!(!result.state.units.contains(UnitId::new(0)));
+        assert!(!result.state.units.contains(UnitId::new(1)));
         assert_eq!(
             result.events[4..7],
             [
@@ -5108,38 +4948,45 @@ mod tests {
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
-        state.board.width = 2;
-        let mut destination = state.board.tiles[0][0].clone();
+        let mut destination = state.board.tile(Pos::new(0, 0)).clone();
         destination.capture_points = Some(20);
-        state.board.tiles[0][0].capture_points = Some(10);
-        state.board.tiles[0].push(destination);
+        state.board.tile_mut(Pos::new(0, 0)).capture_points = Some(10);
+        let mut tiles = row(&state);
+        tiles.push(destination);
+        set_row(&mut state, tiles);
         let command: Command = serde_json::from_value(json!({
             "type":"move-capture", "player":"red", "unit":0,
-            "path":[[0,0],[1,0]]
+            "path":[Pos::new(0, 0),Pos::new(1, 0)]
         }))
         .unwrap();
 
         let result = execute(&state, command, &[]).unwrap();
 
-        assert_eq!(result.state.board.tiles[0][0].capture_points, Some(20));
-        assert_eq!(result.state.board.tiles[0][1].capture_points, Some(10));
+        assert_eq!(
+            result.state.board.tile(Pos::new(0, 0)).capture_points,
+            Some(20)
+        );
+        assert_eq!(
+            result.state.board.tile(Pos::new(1, 0)).capture_points,
+            Some(10)
+        );
         assert_eq!(
             result.events,
             vec![
                 Event::CaptureChanged {
-                    position: [0, 0],
+                    position: Pos::new(0, 0),
                     from: 10,
                     to: 20
                 },
                 Event::UnitMoved {
                     unit: UnitId::new(0),
-                    from: [0, 0],
-                    to: [1, 0],
-                    path: vec![[0, 0], [1, 0]],
+                    from: Pos::new(0, 0),
+                    to: Pos::new(1, 0),
+                    path: vec![Pos::new(0, 0), Pos::new(1, 0)],
                     fuel_spent: 1
                 },
                 Event::CaptureChanged {
-                    position: [1, 0],
+                    position: Pos::new(1, 0),
                     from: 20,
                     to: 10
                 },
@@ -5155,54 +5002,56 @@ mod tests {
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
         state.settings.fog = true;
-        state.board.width = 4;
-        let mut plain = state.board.tiles[0][0].clone();
+        let mut plain = state.board.tile(Pos::new(0, 0)).clone();
         plain.terrain = TerrainId::Plain;
-        plain.owner = None;
+        plain.owner = TileOwner::NotOwnable;
         plain.capture_points = None;
-        let destination = state.board.tiles[0][0].clone();
-        state.board.tiles[0] = vec![plain.clone(), plain.clone(), plain, destination];
+        let destination = state.board.tile(Pos::new(0, 0)).clone();
+        set_row(
+            &mut state,
+            vec![plain.clone(), plain.clone(), plain, destination],
+        );
         let mut blocker = state.units[0].clone();
         blocker.id = UnitId::new(1);
         blocker.kind = UnitKindId::Tank;
         blocker.owner = "blue".into();
-        blocker.location = Location::Board { position: [3, 0] };
-        state.units[0].location = Location::Board { position: [0, 0] };
+        blocker.location = Location::Board {
+            position: Pos::new(3, 0),
+        };
+        state.units[0].location = Location::Board {
+            position: Pos::new(0, 0),
+        };
         state.units.push(blocker);
         let command: Command = serde_json::from_value(json!({
             "type":"move-capture", "player":"red", "unit":0,
-            "path":[[0,0],[1,0],[2,0],[3,0]]
+            "path":[Pos::new(0, 0),Pos::new(1, 0),Pos::new(2, 0),Pos::new(3, 0)]
         }))
         .unwrap();
 
         let result = execute(&state, command, &[]).unwrap();
 
         assert_eq!(
-            board_position(
-                result
-                    .state
-                    .units
-                    .iter()
-                    .find(|unit| unit.id == UnitId::new(0))
-                    .unwrap()
-            ),
-            Some([2, 0])
+            board_position(result.state.units.get(UnitId::new(0)).unwrap()),
+            Some(Pos::new(2, 0))
         );
-        assert_eq!(result.state.board.tiles[0][3].capture_points, Some(10));
+        assert_eq!(
+            result.state.board.tile(Pos::new(3, 0)).capture_points,
+            Some(10)
+        );
         assert_eq!(
             result.events,
             vec![
                 Event::UnitMoved {
                     unit: UnitId::new(0),
-                    from: [0, 0],
-                    to: [2, 0],
-                    path: vec![[0, 0], [1, 0], [2, 0]],
+                    from: Pos::new(0, 0),
+                    to: Pos::new(2, 0),
+                    path: vec![Pos::new(0, 0), Pos::new(1, 0), Pos::new(2, 0)],
                     fuel_spent: 2
                 },
                 Event::MovementTrapped {
                     unit: UnitId::new(0),
                     blocker: UnitId::new(1),
-                    position: [3, 0]
+                    position: Pos::new(3, 0)
                 },
             ]
         );
@@ -5216,53 +5065,58 @@ mod tests {
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
         state.settings.fog = true;
-        state.board.width = 7;
-        let mut plain = state.board.tiles[0][0].clone();
+        let mut plain = state.board.tile(Pos::new(0, 0)).clone();
         plain.terrain = TerrainId::Plain;
-        plain.owner = None;
+        plain.owner = TileOwner::NotOwnable;
         plain.capture_points = None;
-        state.board.tiles[0] = vec![plain; 7];
+        set_row(&mut state, vec![plain; 7]);
         state.units[0].kind = UnitKindId::Stealth;
         state.units[0].fuel = 55;
         state.units[0].ammo = 6;
-        state.units[0].location = Location::Board { position: [0, 0] };
+        state.units[0].location = Location::Board {
+            position: Pos::new(0, 0),
+        };
         let mut blocker = state.units[0].clone();
         blocker.id = UnitId::new(1);
         blocker.kind = UnitKindId::Tank;
         blocker.owner = "blue".into();
         blocker.concealment = Concealment::Exposed;
-        blocker.location = Location::Board { position: [6, 0] };
+        blocker.location = Location::Board {
+            position: Pos::new(6, 0),
+        };
         state.units.push(blocker);
         let command: Command = serde_json::from_value(json!({
             "type":"move-hide", "player":"red", "unit":0,
-            "path":[[0,0],[1,0],[2,0],[3,0],[4,0],[5,0],[6,0]]
+            "path":[Pos::new(0, 0),Pos::new(1, 0),Pos::new(2, 0),Pos::new(3, 0),Pos::new(4, 0),Pos::new(5, 0),Pos::new(6, 0)]
         }))
         .unwrap();
 
         let result = execute(&state, command, &[]).unwrap();
-        let stealth = result
-            .state
-            .units
-            .iter()
-            .find(|unit| unit.id == UnitId::new(0))
-            .unwrap();
+        let stealth = result.state.units.get(UnitId::new(0)).unwrap();
 
-        assert_eq!(board_position(stealth), Some([5, 0]));
+        assert_eq!(board_position(stealth), Some(Pos::new(5, 0)));
         assert_eq!(stealth.concealment, Concealment::Exposed);
         assert_eq!(
             result.events,
             vec![
                 Event::UnitMoved {
                     unit: UnitId::new(0),
-                    from: [0, 0],
-                    to: [5, 0],
-                    path: vec![[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0]],
+                    from: Pos::new(0, 0),
+                    to: Pos::new(5, 0),
+                    path: vec![
+                        Pos::new(0, 0),
+                        Pos::new(1, 0),
+                        Pos::new(2, 0),
+                        Pos::new(3, 0),
+                        Pos::new(4, 0),
+                        Pos::new(5, 0)
+                    ],
                     fuel_spent: 5
                 },
                 Event::MovementTrapped {
                     unit: UnitId::new(0),
                     blocker: UnitId::new(1),
-                    position: [6, 0]
+                    position: Pos::new(6, 0)
                 },
             ]
         );
@@ -5275,76 +5129,54 @@ mod tests {
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
-        state.board.width = 6;
-        let mut plain = state.board.tiles[0][0].clone();
+        let mut plain = state.board.tile(Pos::new(0, 0)).clone();
         plain.terrain = TerrainId::Plain;
-        plain.owner = None;
+        plain.owner = TileOwner::NotOwnable;
         plain.capture_points = None;
         plain.silo = None;
         let mut silo = plain.clone();
         silo.terrain = TerrainId::MissileSilo;
         silo.silo = Some(Silo::Ready);
-        state.board.tiles[0] = vec![
-            plain,
-            silo,
-            state.board.tiles[0][0].clone(),
-            state.board.tiles[0][0].clone(),
-            state.board.tiles[0][0].clone(),
-            state.board.tiles[0][0].clone(),
-        ];
-        state.units[0].location = Location::Board { position: [0, 0] };
+        let base = state.board.tile(Pos::new(0, 0)).clone();
+        set_row(
+            &mut state,
+            vec![plain, silo, base.clone(), base.clone(), base.clone(), base],
+        );
+        state.units[0].location = Location::Board {
+            position: Pos::new(0, 0),
+        };
         state.units[0].hp = 20;
         let mut ally = state.units[0].clone();
         ally.id = UnitId::new(1);
-        ally.location = Location::Board { position: [2, 0] };
+        ally.location = Location::Board {
+            position: Pos::new(2, 0),
+        };
         ally.hp = 100;
         let mut enemy = ally.clone();
         enemy.id = UnitId::new(2);
         enemy.owner = "blue".into();
-        enemy.location = Location::Board { position: [5, 0] };
+        enemy.location = Location::Board {
+            position: Pos::new(5, 0),
+        };
         enemy.hp = 10;
         state.units.extend([ally, enemy]);
         state.settings.fog = true;
         let command: Command = serde_json::from_value(json!({
             "type":"move-launch", "player":"red", "unit":0,
-            "path":[[0,0],[1,0]], "target":[4,0]
+            "path":[Pos::new(0, 0),Pos::new(1, 0)], "target":Pos::new(4, 0)
         }))
         .unwrap();
 
         let result = execute(&state, command, &[]).unwrap();
 
-        assert_eq!(result.state.board.tiles[0][1].silo, Some(Silo::Spent));
+        assert_eq!(
+            result.state.board.tile(Pos::new(1, 0)).silo,
+            Some(Silo::Spent)
+        );
         assert_eq!(result.state.players[0].commanders[0].power_charge, 0);
-        assert_eq!(
-            result
-                .state
-                .units
-                .iter()
-                .find(|u| u.id == UnitId::new(0))
-                .unwrap()
-                .hp,
-            1
-        );
-        assert_eq!(
-            result
-                .state
-                .units
-                .iter()
-                .find(|u| u.id == UnitId::new(1))
-                .unwrap()
-                .hp,
-            70
-        );
-        assert_eq!(
-            result
-                .state
-                .units
-                .iter()
-                .find(|u| u.id == UnitId::new(2))
-                .unwrap()
-                .hp,
-            1
-        );
+        assert_eq!(result.state.units.get(UnitId::new(0)).unwrap().hp, 1);
+        assert_eq!(result.state.units.get(UnitId::new(1)).unwrap().hp, 70);
+        assert_eq!(result.state.units.get(UnitId::new(2)).unwrap().hp, 1);
         let types: Vec<_> = result.events.iter().map(Event::kind).collect();
         assert_eq!(
             types,
@@ -5382,75 +5214,49 @@ mod tests {
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
-        state.board.width = 7;
-        let mut plain = state.board.tiles[0][0].clone();
+        let mut plain = state.board.tile(Pos::new(0, 0)).clone();
         plain.terrain = TerrainId::Plain;
-        plain.owner = None;
+        plain.owner = TileOwner::NotOwnable;
         plain.capture_points = None;
         plain.silo = None;
-        state.board.tiles[0] = vec![plain; 7];
+        set_row(&mut state, vec![plain; 7]);
         state.units[0].id = UnitId::new(0);
         state.units[0].kind = UnitKindId::BlackBomb;
-        state.units[0].location = Location::Board { position: [0, 0] };
+        state.units[0].location = Location::Board {
+            position: Pos::new(0, 0),
+        };
         let mut ally = state.units[0].clone();
         ally.id = UnitId::new(1);
         ally.kind = UnitKindId::Infantry;
-        ally.location = Location::Board { position: [2, 0] };
+        ally.location = Location::Board {
+            position: Pos::new(2, 0),
+        };
         ally.hp = 100;
         let mut enemy = ally.clone();
         enemy.id = UnitId::new(2);
         enemy.owner = "blue".into();
-        enemy.location = Location::Board { position: [3, 0] };
+        enemy.location = Location::Board {
+            position: Pos::new(3, 0),
+        };
         enemy.hp = 10;
         let mut reserve = ally.clone();
         reserve.id = UnitId::new(3);
-        reserve.location = Location::Board { position: [6, 0] };
+        reserve.location = Location::Board {
+            position: Pos::new(6, 0),
+        };
         state.units.extend([ally, enemy, reserve]);
         let command: Command = serde_json::from_value(json!({
             "type":"move-explode", "player":"red", "unit":0,
-            "path":[[0,0]]
+            "path":[Pos::new(0, 0)]
         }))
         .unwrap();
 
         let result = execute(&state, command, &[]).unwrap();
 
-        assert!(
-            !result
-                .state
-                .units
-                .iter()
-                .any(|unit| unit.id == UnitId::new(0))
-        );
-        assert_eq!(
-            result
-                .state
-                .units
-                .iter()
-                .find(|u| u.id == UnitId::new(1))
-                .unwrap()
-                .hp,
-            50
-        );
-        assert_eq!(
-            result
-                .state
-                .units
-                .iter()
-                .find(|u| u.id == UnitId::new(2))
-                .unwrap()
-                .hp,
-            1
-        );
-        assert_eq!(
-            result
-                .state
-                .units
-                .iter()
-                .find(|u| u.id == UnitId::new(3))
-                .unwrap()
-                .hp,
-            100
-        );
+        assert!(!result.state.units.contains(UnitId::new(0)));
+        assert_eq!(result.state.units.get(UnitId::new(1)).unwrap().hp, 50);
+        assert_eq!(result.state.units.get(UnitId::new(2)).unwrap().hp, 1);
+        assert_eq!(result.state.units.get(UnitId::new(3)).unwrap().hp, 100);
         assert_eq!(result.state.players[0].commanders[0].power_charge, 0);
         let types: Vec<_> = result.events.iter().map(Event::kind).collect();
         assert_eq!(
@@ -5474,15 +5280,18 @@ mod tests {
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
-        state.board.width = 2;
-        state.board.tiles[0][0].capture_points = Some(10);
-        let mut plain = state.board.tiles[0][0].clone();
+        state.board.tile_mut(Pos::new(0, 0)).capture_points = Some(10);
+        let mut plain = state.board.tile(Pos::new(0, 0)).clone();
         plain.capture_points = None;
-        plain.owner = None;
-        state.board.tiles[0].push(plain);
+        plain.owner = TileOwner::NotOwnable;
+        let mut tiles = row(&state);
+        tiles.push(plain);
+        set_row(&mut state, tiles);
         let mut reserve = state.units[0].clone();
         reserve.id = UnitId::new(1);
-        reserve.location = Location::Board { position: [1, 0] };
+        reserve.location = Location::Board {
+            position: Pos::new(1, 0),
+        };
         state.units.push(reserve);
         let command: Command = serde_json::from_value(json!({
             "type":"delete-unit", "player":"red", "unit":0
@@ -5491,20 +5300,17 @@ mod tests {
 
         let result = execute(&state, command, &[]).unwrap();
 
-        assert!(
-            !result
-                .state
-                .units
-                .iter()
-                .any(|unit| unit.id == UnitId::new(0))
+        assert!(!result.state.units.contains(UnitId::new(0)));
+        assert_eq!(
+            result.state.board.tile(Pos::new(0, 0)).capture_points,
+            Some(20)
         );
-        assert_eq!(result.state.board.tiles[0][0].capture_points, Some(20));
         assert_eq!(result.state.players[0].commanders[0].power_charge, 0);
         assert_eq!(
             result.events,
             vec![
                 Event::CaptureChanged {
-                    position: [0, 0],
+                    position: Pos::new(0, 0),
                     from: 10,
                     to: 20
                 },
@@ -5519,15 +5325,17 @@ mod tests {
     #[test]
     fn direct_unit_moves_then_attacks_from_resolved_destination() {
         let mut state = direct_combat_state(3);
-        state.board.tiles[0][0].capture_points = Some(10);
+        state.board.tile_mut(Pos::new(0, 0)).capture_points = Some(10);
         let mut defender = state.units[0].clone();
         defender.id = UnitId::new(1);
         defender.owner = "blue".into();
-        defender.location = Location::Board { position: [2, 0] };
+        defender.location = Location::Board {
+            position: Pos::new(2, 0),
+        };
         state.units.push(defender);
         let command: Command = serde_json::from_value(json!({
             "type":"move-attack", "player":"red", "unit":0,
-            "path":[[0,0],[1,0]],
+            "path":[Pos::new(0, 0),Pos::new(1, 0)],
             "target":{"type":"unit","unit":1}
         }))
         .unwrap();
@@ -5539,31 +5347,29 @@ mod tests {
         ];
 
         let result = execute(&state, command, &random).unwrap();
-        let attacker = result
-            .state
-            .units
-            .iter()
-            .find(|unit| unit.id == UnitId::new(0))
-            .unwrap();
+        let attacker = result.state.units.get(UnitId::new(0)).unwrap();
 
-        assert_eq!(board_position(attacker), Some([1, 0]));
+        assert_eq!(board_position(attacker), Some(Pos::new(1, 0)));
         assert_eq!(attacker.fuel, 98);
         assert_eq!(attacker.action, UnitAction::Spent);
-        assert_eq!(result.state.board.tiles[0][0].capture_points, Some(20));
+        assert_eq!(
+            result.state.board.tile(Pos::new(0, 0)).capture_points,
+            Some(20)
+        );
         assert_eq!(result.random_consumed, 4);
         assert_eq!(
             result.events[..3],
             [
                 Event::CaptureChanged {
-                    position: [0, 0],
+                    position: Pos::new(0, 0),
                     from: 10,
                     to: 20
                 },
                 Event::UnitMoved {
                     unit: UnitId::new(0),
-                    from: [0, 0],
-                    to: [1, 0],
-                    path: vec![[0, 0], [1, 0]],
+                    from: Pos::new(0, 0),
+                    to: Pos::new(1, 0),
+                    path: vec![Pos::new(0, 0), Pos::new(1, 0)],
                     fuel_spent: 1
                 },
                 Event::AttackResolved {
@@ -5581,17 +5387,19 @@ mod tests {
     fn movement_can_reveal_attack_target_under_fog() {
         let mut state = direct_combat_state(3);
         state.settings.fog = true;
-        state.board.tiles[0][2].terrain = TerrainId::Wood;
+        state.board.tile_mut(Pos::new(2, 0)).terrain = TerrainId::Wood;
         let mut defender = state.units[0].clone();
         defender.id = UnitId::new(1);
         defender.owner = "blue".into();
-        defender.location = Location::Board { position: [2, 0] };
+        defender.location = Location::Board {
+            position: Pos::new(2, 0),
+        };
         state.units.push(defender);
         let visibility = AwbwVisibility;
         assert!(!visibility.visible_unit(&state, "red-team", &state.units[1]));
         let command: Command = serde_json::from_value(json!({
             "type":"move-attack", "player":"red", "unit":0,
-            "path":[[0,0],[1,0]],
+            "path":[Pos::new(0, 0),Pos::new(1, 0)],
             "target":{"type":"unit","unit":1}
         }))
         .unwrap();
@@ -5616,28 +5424,27 @@ mod tests {
         blocker.id = UnitId::new(1);
         blocker.kind = UnitKindId::Tank;
         blocker.owner = "blue".into();
-        blocker.location = Location::Board { position: [3, 0] };
+        blocker.location = Location::Board {
+            position: Pos::new(3, 0),
+        };
         let mut target = state.units[0].clone();
         target.id = UnitId::new(2);
         target.owner = "blue".into();
-        target.location = Location::Board { position: [4, 0] };
+        target.location = Location::Board {
+            position: Pos::new(4, 0),
+        };
         state.units.extend([blocker, target]);
         let command: Command = serde_json::from_value(json!({
             "type":"move-attack", "player":"red", "unit":0,
-            "path":[[0,0],[1,0],[2,0],[3,0]],
+            "path":[Pos::new(0, 0),Pos::new(1, 0),Pos::new(2, 0),Pos::new(3, 0)],
             "target":{"type":"unit","unit":2}
         }))
         .unwrap();
 
         let result = execute(&state, command, &[]).unwrap();
-        let attacker = result
-            .state
-            .units
-            .iter()
-            .find(|unit| unit.id == UnitId::new(0))
-            .unwrap();
+        let attacker = result.state.units.get(UnitId::new(0)).unwrap();
 
-        assert_eq!(board_position(attacker), Some([2, 0]));
+        assert_eq!(board_position(attacker), Some(Pos::new(2, 0)));
         assert_eq!(attacker.action, UnitAction::Spent);
         assert_eq!(result.random_consumed, 0);
         assert_eq!(
@@ -5645,15 +5452,15 @@ mod tests {
             [
                 Event::UnitMoved {
                     unit: UnitId::new(0),
-                    from: [0, 0],
-                    to: [2, 0],
-                    path: vec![[0, 0], [1, 0], [2, 0]],
+                    from: Pos::new(0, 0),
+                    to: Pos::new(2, 0),
+                    path: vec![Pos::new(0, 0), Pos::new(1, 0), Pos::new(2, 0)],
                     fuel_spent: 2
                 },
                 Event::MovementTrapped {
                     unit: UnitId::new(0),
                     blocker: UnitId::new(1),
-                    position: [3, 0]
+                    position: Pos::new(3, 0)
                 },
             ]
         );
@@ -5667,11 +5474,13 @@ mod tests {
         defender.id = UnitId::new(1);
         defender.kind = UnitKindId::Infantry;
         defender.owner = "blue".into();
-        defender.location = Location::Board { position: [3, 0] };
+        defender.location = Location::Board {
+            position: Pos::new(3, 0),
+        };
         state.units.push(defender);
         let command: Command = serde_json::from_value(json!({
             "type":"move-attack", "player":"red", "unit":0,
-            "path":[[0,0],[1,0]],
+            "path":[Pos::new(0, 0),Pos::new(1, 0)],
             "target":{"type":"unit","unit":1}
         }))
         .unwrap();
@@ -5691,8 +5500,9 @@ mod tests {
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
-        state.board.width = 2;
-        state.board.tiles[0].truncate(2);
+        let mut tiles = row(&state);
+        tiles.truncate(2);
+        set_row(&mut state, tiles);
         state.teams.push(crate::semantic::Team {
             id: "blue-team".into(),
             status: crate::semantic::TeamStatus::Active,
@@ -5706,10 +5516,12 @@ mod tests {
         let mut defender = state.units[0].clone();
         defender.id = UnitId::new(1);
         defender.owner = "blue".into();
-        defender.location = Location::Board { position: [1, 0] };
+        defender.location = Location::Board {
+            position: Pos::new(1, 0),
+        };
         state.units[0].id = UnitId::new(0);
         state.units.push(defender);
-        let command: Command = serde_json::from_value(json!({"type":"move-attack","player":"red","unit":0,"path":[[0,0]],"target":{"type":"unit","unit":1}})).unwrap();
+        let command: Command = serde_json::from_value(json!({"type":"move-attack","player":"red","unit":0,"path":[Pos::new(0, 0)],"target":{"type":"unit","unit":1}})).unwrap();
         let random = vec![
             json!({"type":"combat-good-luck","value":0}),
             json!({"type":"combat-bad-luck","value":0}),
@@ -5724,7 +5536,7 @@ mod tests {
         assert_eq!(event_weapon(&result.events[2]), Weapon::Unlimited);
 
         let attack = |state: &State| {
-            let command: Command = serde_json::from_value(json!({"type":"move-attack","player":"red","unit":0,"path":[[0,0]],"target":{"type":"unit","unit":1}})).unwrap();
+            let command: Command = serde_json::from_value(json!({"type":"move-attack","player":"red","unit":0,"path":[Pos::new(0, 0)],"target":{"type":"unit","unit":1}})).unwrap();
             execute(state, command, &random).unwrap()
         };
 
@@ -5742,16 +5554,7 @@ mod tests {
         tank_vs_infantry.units[0].ammo = 9;
         let result = attack(&tank_vs_infantry);
         assert_eq!(event_weapon(&result.events[0]), Weapon::Unlimited);
-        assert_eq!(
-            result
-                .state
-                .units
-                .iter()
-                .find(|u| u.id == UnitId::new(0))
-                .unwrap()
-                .ammo,
-            9
-        );
+        assert_eq!(result.state.units.get(UnitId::new(0)).unwrap().ammo, 9);
 
         let mut empty_tank_vs_tank = tank_vs_tank;
         empty_tank_vs_tank.units[0].ammo = 0;

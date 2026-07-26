@@ -16,8 +16,8 @@ use serde::{Deserialize, Serialize};
 use crate::combat::Weapon;
 use crate::commander::{AreaStrikePolicy, PowerLevel};
 use crate::semantic::{
-    CommanderId, Concealment, Outcome, Phase, PlayerId, PlayerStatus, Position, ReasonId, Silo,
-    TeamId, TerrainId, UnitAction, UnitId, UnitKindId, WeatherKind,
+    CommanderId, Concealment, Outcome, Phase, PlayerId, PlayerStatus, Pos, ReasonId, Silo, TeamId,
+    TerrainId, UnitAction, UnitId, UnitKindId, WeatherKind,
 };
 
 /// One authoritative fact from executing a command.
@@ -42,16 +42,16 @@ pub enum Event {
     /// destination when the mover was trapped.
     UnitMoved {
         unit: UnitId,
-        from: Position,
-        to: Position,
-        path: Vec<Position>,
+        from: Pos,
+        to: Pos,
+        path: Vec<Pos>,
         fuel_spent: u64,
     },
     /// A hidden unit interrupted the mover at `position`.
     MovementTrapped {
         unit: UnitId,
         blocker: UnitId,
-        position: Position,
+        position: Pos,
     },
     UnitActionChanged {
         unit: UnitId,
@@ -63,7 +63,7 @@ pub enum Event {
         unit: UnitId,
         kind: UnitKindId,
         owner: PlayerId,
-        position: Position,
+        position: Pos,
     },
     UnitRemoved {
         unit: UnitId,
@@ -97,7 +97,7 @@ pub enum Event {
     UnitUnloaded {
         unit: UnitId,
         transport: UnitId,
-        position: Position,
+        position: Pos,
     },
     /// `source` was absorbed into `target` and no longer exists.
     UnitsJoined {
@@ -111,29 +111,29 @@ pub enum Event {
     },
     /// `None` on either side is an unowned tile.
     TileOwnerChanged {
-        position: Position,
+        position: Pos,
         from: Option<PlayerId>,
         to: Option<PlayerId>,
     },
     TileTerrainChanged {
-        position: Position,
+        position: Pos,
         from: TerrainId,
         to: TerrainId,
         reason: ReasonId,
     },
     /// Capture progress against the tile's threshold.
     CaptureChanged {
-        position: Position,
+        position: Pos,
         from: u8,
         to: u8,
     },
     SiloChanged {
-        position: Position,
+        position: Pos,
         from: Silo,
         to: Silo,
     },
     DestructibleDamaged {
-        position: Position,
+        position: Pos,
         from_hp: u8,
         to_hp: u8,
     },
@@ -157,7 +157,7 @@ pub enum Event {
     AreaStrikeResolved {
         strike: usize,
         policy: AreaStrikePolicy,
-        center: Position,
+        center: Pos,
         radius: usize,
         damage: u8,
     },
@@ -205,7 +205,7 @@ pub enum Event {
     },
     AutomaticRepair {
         unit: UnitId,
-        position: Position,
+        position: Pos,
         hp_restored: u8,
         cost: u64,
     },
@@ -306,7 +306,7 @@ impl Event {
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum AttackTarget {
     Unit { unit: UnitId },
-    Tile { position: Position },
+    Tile { position: Pos },
 }
 
 /// What performed a start-of-turn resupply: a supply unit, or the property the
@@ -318,7 +318,7 @@ pub enum AttackTarget {
 #[serde(untagged)]
 pub enum SupplySource {
     Unit(UnitId),
-    Tile(Position),
+    Tile(Pos),
 }
 
 /// Which decision a random token was drawn for.
@@ -370,11 +370,13 @@ mod tests {
             round_trip(Event::AttackResolved {
                 attacker: UnitId::new(0),
                 weapon: Weapon::Ammo,
-                target: AttackTarget::Tile { position: [2, 3] },
+                target: AttackTarget::Tile {
+                    position: Pos::new(2, 3)
+                },
             }),
             json!({
                 "type":"attack-resolved","attacker":0,"weapon":"ammo",
-                "target":{"type":"tile","position":[2,3]}
+                "target":{"type":"tile","position":Pos::new(2, 3)}
             })
         );
     }
@@ -392,10 +394,10 @@ mod tests {
         );
         assert_eq!(
             round_trip(Event::AutomaticSupply {
-                source: SupplySource::Tile([1, 1]),
+                source: SupplySource::Tile(Pos::new(1, 1)),
                 units: vec![UnitId::new(5)],
             }),
-            json!({"type":"automatic-supply","source":[1,1],"units":[5]})
+            json!({"type":"automatic-supply","source":Pos::new(1, 1),"units":[5]})
         );
     }
 
@@ -403,11 +405,11 @@ mod tests {
     fn unowned_tiles_serialize_their_owner_as_null() {
         assert_eq!(
             round_trip(Event::TileOwnerChanged {
-                position: [0, 0],
+                position: Pos::new(0, 0),
                 from: None,
                 to: Some(PlayerId::from("red")),
             }),
-            json!({"type":"tile-owner-changed","position":[0,0],"from":null,"to":"red"})
+            json!({"type":"tile-owner-changed","position":Pos::new(0, 0),"from":null,"to":"red"})
         );
     }
 
