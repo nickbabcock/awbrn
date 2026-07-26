@@ -11,6 +11,7 @@ use std::ops::Deref;
 use serde::{Deserialize, Serialize};
 
 use crate::commander;
+use crate::event::Event;
 use crate::ruleset::{self, Domain, TerrainTrait};
 
 pub type Position = [usize; 2];
@@ -146,13 +147,13 @@ where
     }
     Ok(kinds)
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Toggle {
     Enabled,
     Disabled,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum WeatherSetting {
     Clear,
@@ -216,7 +217,7 @@ where
 {
     Option::<PlayerId>::deserialize(deserializer).map(Some)
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Silo {
     Ready,
@@ -227,7 +228,7 @@ pub struct Team {
     pub id: TeamId,
     pub status: TeamStatus,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TeamStatus {
     Active,
@@ -242,7 +243,7 @@ pub struct Player {
     pub commanders: Vec<Commander>,
     pub power_state: PowerState,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PlayerStatus {
     Active,
@@ -272,7 +273,7 @@ pub struct Turn {
     pub order: Vec<PlayerId>,
     pub position: usize,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Phase {
     TurnStart,
@@ -297,7 +298,7 @@ pub struct Unit {
     pub concealment: Concealment,
     pub location: Location,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum UnitAction {
     Ready,
@@ -305,7 +306,7 @@ pub enum UnitAction {
     Spent,
     Immobilized,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Concealment {
     Exposed,
@@ -582,7 +583,11 @@ pub enum ObserveError {
     UnknownRecipient(PlayerId),
     InvalidBoardShape,
     UnknownUnitOwner(PlayerId),
-    InvalidEvent(String),
+    /// An event names a unit that is in neither the prior nor the next state.
+    /// The three inputs are supplied independently over the protocol, so they
+    /// can disagree; a typed event cannot fail to decode, but it can still
+    /// reference a unit the caller did not send.
+    UnknownUnit(UnitId),
 }
 
 pub fn observe(
@@ -630,7 +635,7 @@ pub fn observe(
                         },
                         owner: visible.then(|| t.owner.clone()).flatten(),
                         capture_points: visible.then_some(t.capture_points).flatten(),
-                        silo: visible.then_some(t.silo.clone()).flatten(),
+                        silo: visible.then_some(t.silo).flatten(),
                         destructible_hp: visible.then_some(t.destructible_hp).flatten(),
                         teleporter: t.teleporter.clone(),
                         trait_state: visible.then_some(t.trait_state.clone()).flatten(),
@@ -653,7 +658,7 @@ pub fn observe(
                         Relation::Ally
                     },
                     funds: p.funds,
-                    status: p.status.clone(),
+                    status: p.status,
                     commanders: p.commanders.clone(),
                     power_state: p.power_state.clone(),
                 }
@@ -662,7 +667,7 @@ pub fn observe(
                     id: p.id.clone(),
                     team: p.team.clone(),
                     relation: Relation::Opponent,
-                    status: p.status.clone(),
+                    status: p.status,
                     commanders: p
                         .commanders
                         .iter()
@@ -728,7 +733,7 @@ pub fn observe_events(
     rules: &impl Visibility,
     state: &State,
     next_state: &State,
-    events: &[serde_json::Value],
+    events: &[Event],
     recipient: &str,
 ) -> Result<Vec<serde_json::Value>, ObserveError> {
     let recipient_player = state
@@ -766,20 +771,16 @@ pub fn observe_events(
     let mut output = Vec::new();
 
     for event in events {
-        let kind = event_string(event, "type")?;
-        let reason = event
-            .get("reason")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or(kind);
-        match kind {
-            "unit-action-changed"
-            | "unit-damaged"
-            | "unit-repaired"
-            | "unit-resourced"
-            | "concealment-changed"
-            | "automatic-repair" => {
+        let reason = event.reason();
+        match event {
+            Event::UnitActionChanged { unit, .. }
+            | Event::UnitDamaged { unit, .. }
+            | Event::UnitRepaired { unit, .. }
+            | Event::UnitResourced { unit, .. }
+            | Event::ConcealmentChanged { unit, .. }
+            | Event::AutomaticRepair { unit, .. } => {
                 project_unit_fact(
-                    event_unit_id(event, "unit")?,
+                    *unit,
                     reason,
                     state,
                     next_state,
@@ -791,16 +792,11 @@ pub fn observe_events(
                     &mut output,
                 );
             }
-            "automatic-supply" => {
-                let units = event
-                    .get("units")
-                    .and_then(serde_json::Value::as_array)
-                    .ok_or_else(|| ObserveError::InvalidEvent("automatic-supply.units".into()))?;
+            Event::AutomaticSupply { units, .. } => {
                 for unit in units {
-                    let id = value_unit_id(unit)?;
                     project_unit_fact(
-                        id,
-                        kind,
+                        *unit,
+                        reason,
                         state,
                         next_state,
                         &visible_pre,
@@ -812,19 +808,19 @@ pub fn observe_events(
                     );
                 }
             }
-            "unit-moved" => {
-                let id = event_unit_id(event, "unit")?;
-                let from = event_position(event, "from")?;
-                let to = event_position(event, "to")?;
-                let path = event
-                    .get("path")
-                    .and_then(serde_json::Value::as_array)
-                    .ok_or_else(|| ObserveError::InvalidEvent("unit-moved.path".into()))?;
+            Event::UnitMoved {
+                unit: id,
+                from,
+                to,
+                path,
+                ..
+            } => {
+                let id = *id;
                 let unit = state
                     .units
                     .iter()
                     .find(|unit| unit.id == id)
-                    .ok_or_else(|| ObserveError::InvalidEvent(format!("unknown unit {id}")))?;
+                    .ok_or(ObserveError::UnknownUnit(id))?;
                 if team_players.contains(unit.owner.as_str()) {
                     output.push(serde_json::json!({
                         "type": "unit-moved",
@@ -834,36 +830,35 @@ pub fn observe_events(
                         "path": path
                     }));
                 } else if visible_pre.contains(&id) && !visible_post.contains(&id) {
-                    push_disappeared(id, from, &mut disappeared, &mut output);
+                    push_disappeared(id, *from, &mut disappeared, &mut output);
                 } else if !visible_pre.contains(&id) && visible_post.contains(&id) {
                     if let Some(snapshot) = next_state.units.iter().find(|unit| unit.id == id) {
-                        push_appeared(snapshot, to, false, &mut appeared, &mut output);
+                        push_appeared(snapshot, *to, false, &mut appeared, &mut output);
                     }
                 } else if visible_pre.contains(&id) && visible_post.contains(&id) {
                     let post_unit = next_state
                         .units
                         .iter()
                         .find(|unit| unit.id == id)
-                        .ok_or_else(|| ObserveError::InvalidEvent(format!("unknown unit {id}")))?;
+                        .ok_or(ObserveError::UnknownUnit(id))?;
                     let mut observed_path = Vec::with_capacity(path.len());
-                    for node in path {
-                        let position = value_position(node)?;
+                    for position in path.iter().copied() {
                         let mut probe = post_unit.clone();
                         probe.location = Location::Board { position };
                         if rules.visible_unit(state, team, &probe)
                             || rules.visible_unit(next_state, team, &probe)
                         {
-                            observed_path.push(node);
+                            observed_path.push(position);
                         }
                     }
                     output.push(serde_json::json!({
-                        "type": "unit-moved", "unit": enemy_unit_ref(to), "from": from, "to": to,
+                        "type": "unit-moved", "unit": enemy_unit_ref(*to), "from": from, "to": to,
                         "path": observed_path
                     }));
                 }
             }
-            "movement-trapped" => {
-                let id = event_unit_id(event, "unit")?;
+            Event::MovementTrapped { unit: id, .. } => {
+                let id = *id;
                 let actor = state.units.iter().find(|unit| unit.id == id);
                 if actor.is_some_and(|unit| team_players.contains(unit.owner.as_str())) {
                     output.push(serde_json::json!({
@@ -872,23 +867,25 @@ pub fn observe_events(
                     }));
                 }
             }
-            "unit-created" => {
-                let id = event_unit_id(event, "unit")?;
+            Event::UnitCreated {
+                unit: id, position, ..
+            } => {
+                let id = *id;
                 if visible_post.contains(&id)
                     && let Some(unit) = next_state.units.iter().find(|unit| unit.id == id)
                 {
                     push_appeared(
                         unit,
-                        event_position(event, "position")?,
+                        *position,
                         team_players.contains(unit.owner.as_str()),
                         &mut appeared,
                         &mut output,
                     );
                 }
             }
-            "unit-removed" => {
+            Event::UnitRemoved { unit, .. } => {
                 project_removal(
-                    event_unit_id(event, "unit")?,
+                    *unit,
                     reason,
                     rules,
                     state,
@@ -900,10 +897,10 @@ pub fn observe_events(
                     &mut output,
                 )?;
             }
-            "units-joined" => {
+            Event::UnitsJoined { source, target } => {
                 project_removal(
-                    event_unit_id(event, "source")?,
-                    kind,
+                    *source,
+                    reason,
                     rules,
                     state,
                     next_state,
@@ -914,8 +911,8 @@ pub fn observe_events(
                     &mut output,
                 )?;
                 project_unit_fact(
-                    event_unit_id(event, "target")?,
-                    kind,
+                    *target,
+                    reason,
                     state,
                     next_state,
                     &visible_pre,
@@ -926,8 +923,8 @@ pub fn observe_events(
                     &mut output,
                 );
             }
-            "unit-loaded" => {
-                let id = event_unit_id(event, "unit")?;
+            Event::UnitLoaded { unit: id, .. } => {
+                let id = *id;
                 let own = state
                     .units
                     .iter()
@@ -936,7 +933,7 @@ pub fn observe_events(
                 if own {
                     project_unit_fact(
                         id,
-                        kind,
+                        reason,
                         state,
                         next_state,
                         &visible_pre,
@@ -955,8 +952,10 @@ pub fn observe_events(
                     push_disappeared(id, position, &mut disappeared, &mut output);
                 }
             }
-            "unit-unloaded" => {
-                let id = event_unit_id(event, "unit")?;
+            Event::UnitUnloaded {
+                unit: id, position, ..
+            } => {
+                let id = *id;
                 let own = next_state
                     .units
                     .iter()
@@ -965,7 +964,7 @@ pub fn observe_events(
                 if own {
                     project_unit_fact(
                         id,
-                        kind,
+                        reason,
                         state,
                         next_state,
                         &visible_pre,
@@ -978,21 +977,15 @@ pub fn observe_events(
                 } else if visible_post.contains(&id)
                     && let Some(unit) = next_state.units.iter().find(|unit| unit.id == id)
                 {
-                    push_appeared(
-                        unit,
-                        event_position(event, "position")?,
-                        false,
-                        &mut appeared,
-                        &mut output,
-                    );
+                    push_appeared(unit, *position, false, &mut appeared, &mut output);
                 }
             }
-            "tile-owner-changed"
-            | "tile-terrain-changed"
-            | "capture-changed"
-            | "silo-changed"
-            | "destructible-damaged" => {
-                let position = event_position(event, "position")?;
+            Event::TileOwnerChanged { position, .. }
+            | Event::TileTerrainChanged { position, .. }
+            | Event::CaptureChanged { position, .. }
+            | Event::SiloChanged { position, .. }
+            | Event::DestructibleDamaged { position, .. } => {
+                let position = *position;
                 if rules.visible_position(state, team, position)
                     || rules.visible_position(next_state, team, position)
                 {
@@ -1002,23 +995,10 @@ pub fn observe_events(
                     }));
                 }
             }
-            "funds-changed" => {
-                let player = event_string(event, "player")?;
-                if team_players.contains(player)
-                    && let Some(snapshot) = post.players.iter().find(|candidate| match candidate {
-                        ObservedPlayer::Private { id, .. } | ObservedPlayer::Public { id, .. } => {
-                            id == player
-                        }
-                    })
-                {
-                    output.push(serde_json::json!({
-                        "type":"player-changed", "player":player, "state":snapshot,
-                        "reason":reason
-                    }));
-                }
-            }
-            "power-charge-changed" => {
-                let player = event_string(event, "player")?;
+            // A player only learns their own funds changed; a power charge is
+            // public, so it is projected to everyone.
+            Event::FundsChanged { player, .. } if !team_players.contains(player.as_str()) => {}
+            Event::FundsChanged { player, .. } | Event::PowerChargeChanged { player, .. } => {
                 if let Some(snapshot) = post.players.iter().find(|candidate| match candidate {
                     ObservedPlayer::Private { id, .. } | ObservedPlayer::Public { id, .. } => {
                         id == player
@@ -1030,27 +1010,32 @@ pub fn observe_events(
                     }));
                 }
             }
-            "draw-offer-changed" => {
-                if team_players.contains(event_string(event, "player")?) {
-                    output.push(
-                        serde_json::json!({"type":"public-event","kind":"draw-offer-changed"}),
-                    );
+            Event::DrawOfferChanged { player, .. } => {
+                if team_players.contains(player.as_str()) {
+                    output.push(serde_json::json!({"type":"public-event","kind":event.kind()}));
                 }
             }
-            "phase-changed"
-            | "turn-selected"
-            | "day-advanced"
-            | "weather-changed"
-            | "power-activated"
-            | "power-ended"
-            | "commander-swapped"
-            | "player-status-changed"
-            | "team-eliminated"
-            | "match-completed" => {
-                output.push(serde_json::json!({"type":"public-event","kind":kind}));
+            Event::PhaseChanged { .. }
+            | Event::TurnSelected { .. }
+            | Event::DayAdvanced { .. }
+            | Event::WeatherChanged { .. }
+            | Event::PowerActivated { .. }
+            | Event::PowerEnded { .. }
+            | Event::CommanderSwapped { .. }
+            | Event::PlayerStatusChanged { .. }
+            | Event::TeamEliminated { .. }
+            | Event::MatchCompleted { .. } => {
+                output.push(serde_json::json!({"type":"public-event","kind":event.kind()}));
             }
-            "area-strike-resolved" => output.push(event.clone()),
-            _ => {}
+            Event::AreaStrikeResolved { .. } => {
+                output.push(serde_json::to_value(event).expect("an event serializes"));
+            }
+            // Deliberately unprojected. `spec/model/observation.md:337` withholds
+            // both: `attack-resolved` would disclose the weapon and target of an
+            // attack a recipient may not see, and `random-outcome` would leak the
+            // tape a recipient is not entitled to read. The damage and state
+            // changes they cause reach recipients through their own events.
+            Event::AttackResolved { .. } | Event::RandomOutcome { .. } => {}
         }
     }
     Ok(output)
@@ -1122,7 +1107,7 @@ fn project_removal(
         .units
         .iter()
         .find(|unit| unit.id == id)
-        .ok_or_else(|| ObserveError::InvalidEvent(format!("unknown removed unit {id}")))?;
+        .ok_or(ObserveError::UnknownUnit(id))?;
     if team_players.contains(unit.owner.as_str()) {
         output.push(serde_json::json!({
             "type":"unit-removed",
@@ -1130,8 +1115,9 @@ fn project_removal(
             "reason":reason
         }));
     } else if visible_pre.contains(&id) {
-        let position = board_position(unit)
-            .ok_or_else(|| ObserveError::InvalidEvent(format!("enemy cargo removed {id}")))?;
+        // A removed enemy that was visible must have been on the board:
+        // visibility is only ever computed for board positions.
+        let position = board_position(unit).ok_or(ObserveError::UnknownUnit(id))?;
         if rules.visible_position(next_state, team, position) {
             output.push(serde_json::json!({
                 "type":"unit-removed","unit":enemy_unit_ref(position),"reason":reason
@@ -1186,8 +1172,8 @@ fn observed_unit_snapshot(unit: &Unit, friendly: bool) -> ObservedUnit {
         hp: unit.hp,
         fuel: unit.fuel,
         ammo: unit.ammo,
-        action: unit.action.clone(),
-        concealment: unit.concealment.clone(),
+        action: unit.action,
+        concealment: unit.concealment,
         location: unit.location.clone(),
     }
 }
@@ -1201,40 +1187,6 @@ fn board_position(unit: &Unit) -> Option<Position> {
         Location::Board { position } => Some(position),
         Location::Cargo { .. } => None,
     }
-}
-
-fn event_string<'a>(event: &'a serde_json::Value, field: &str) -> Result<&'a str, ObserveError> {
-    event
-        .get(field)
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| ObserveError::InvalidEvent(field.into()))
-}
-
-fn event_unit_id(event: &serde_json::Value, field: &str) -> Result<UnitId, ObserveError> {
-    event
-        .get(field)
-        .ok_or_else(|| ObserveError::InvalidEvent(field.into()))
-        .and_then(value_unit_id)
-}
-
-fn value_unit_id(value: &serde_json::Value) -> Result<UnitId, ObserveError> {
-    let raw = value
-        .as_u64()
-        .and_then(|value| u32::try_from(value).ok())
-        .ok_or_else(|| ObserveError::InvalidEvent("unit id".into()))?;
-    Ok(UnitId::new(raw))
-}
-
-fn event_position(event: &serde_json::Value, field: &str) -> Result<Position, ObserveError> {
-    event
-        .get(field)
-        .ok_or_else(|| ObserveError::InvalidEvent(field.into()))
-        .and_then(value_position)
-}
-
-fn value_position(value: &serde_json::Value) -> Result<Position, ObserveError> {
-    serde_json::from_value(value.clone())
-        .map_err(|error| ObserveError::InvalidEvent(error.to_string()))
 }
 
 #[cfg(test)]
@@ -1355,14 +1307,13 @@ mod tests {
 
         let mut next_state = state.clone();
         next_state.units[1].location = Location::Board { position: [3, 0] };
-        let events = vec![serde_json::json!({
-            "type": "unit-moved",
-            "unit": 1,
-            "from": [5, 0],
-            "to": [3, 0],
-            "path": [[5, 0], [4, 0], [3, 0]],
-            "fuel_spent": 2
-        })];
+        let events = vec![Event::UnitMoved {
+            unit: UnitId::new(1),
+            from: [5, 0],
+            to: [3, 0],
+            path: vec![[5, 0], [4, 0], [3, 0]],
+            fuel_spent: 2,
+        }];
 
         assert_eq!(
             observe_events(&AwbwVisibility, &state, &next_state, &events, "p1").unwrap(),

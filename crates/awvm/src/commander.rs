@@ -316,7 +316,7 @@ pub(crate) enum SpawnUnitLimit {
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
-pub(crate) enum AreaStrikePolicy {
+pub enum AreaStrikePolicy {
     InfantryHp,
     UnitValue,
     UnitHp,

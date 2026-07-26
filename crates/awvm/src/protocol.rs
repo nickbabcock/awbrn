@@ -8,6 +8,7 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::event::Event;
 use crate::semantic::{self, AwbwVisibility, PlayerId, RulesetRef, State};
 use crate::transition::{self, Command, ExecuteError};
 
@@ -253,7 +254,7 @@ struct ObserveEventsRequest {
     ruleset: RulesetRef,
     state: State,
     next_state: State,
-    events: Vec<Value>,
+    events: Vec<Event>,
     recipient: PlayerId,
 }
 

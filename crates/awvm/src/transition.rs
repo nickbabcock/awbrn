@@ -3,9 +3,9 @@
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 
-use crate::combat::{self, Side, Weapon};
+use crate::combat::{self, Side};
 use crate::commander::{
     self, AreaStrikeCenterTarget, AreaStrikePolicy, CombatContext, Combatant, CommanderSlotTarget,
     FriendlyContribution, ImmobilizationDuration, InstantEffect, OccupiedTileHandling,
@@ -13,12 +13,15 @@ use crate::commander::{
     SpawnResources, SpawnUnitLimit, Strike, TargetedAreaStrikePolicy, TargetedUnitValue,
     UnitTarget, WeatherDuration, WeatherEffectKind,
 };
+use crate::event::{AttackTarget, Event, RandomKind, RandomValue, SupplySource};
+use crate::random::{Luck, RandomTape};
 use crate::ruleset::{self, Domain, FireMode, Relation, TargetSet, TerrainTrait, UnitKind};
 use crate::semantic::{
     AwbwVisibility, Concealment, Location, Match, Outcome, Phase, PlayerId, PlayerStatus, Position,
-    PowerState, Silo, State, TeamStatus, TerrainId, Unit, UnitAction, UnitId, UnitKindId,
+    PowerState, ReasonId, Silo, State, TeamStatus, TerrainId, Unit, UnitAction, UnitId, UnitKindId,
     Visibility, WeatherKind, WeatherSetting,
 };
+use crate::violation::{Action, Violation};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -115,24 +118,17 @@ pub enum Command {
     Unsupported,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "kebab-case")]
-pub enum AttackTarget {
-    Unit { unit: UnitId },
-    Tile { position: Position },
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Execution {
     pub state: State,
-    pub events: Vec<Value>,
+    pub events: Vec<Event>,
     pub random_consumed: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExecuteError {
     UnsupportedCommand,
-    Violation(Value),
+    Violation(Violation),
     UnsupportedRuleset,
     InvalidState(String),
     InvalidRandom(String),
@@ -222,7 +218,7 @@ struct MovementPlan {
 
 struct MovementOutcome {
     state: State,
-    events: Vec<Value>,
+    events: Vec<Event>,
     trapped: bool,
 }
 
@@ -236,66 +232,65 @@ fn validate_movement_prefix(
         return Err(ExecuteError::UnsupportedRuleset);
     }
     if matches!(state.match_state, Match::Finished { .. }) {
-        return Err(violation(json!({"code":"MATCH_FINISHED"})));
+        return Err(violation(Violation::MatchFinished));
     }
     if state.turn.phase != Phase::UnitAction {
-        return Err(violation(json!({
-            "code":"WRONG_PHASE", "expected":"unit-action", "actual":state.turn.phase
-        })));
+        return Err(violation(Violation::WrongPhase {
+            expected: Phase::UnitAction,
+            actual: state.turn.phase,
+        }));
     }
     if state.turn.active_player != player {
-        return Err(violation(
-            json!({"code":"NOT_ACTIVE_PLAYER","player":player}),
-        ));
+        return Err(violation(Violation::NotActivePlayer {
+            player: PlayerId::from(player),
+        }));
     }
     let unit_index = state
         .units
         .iter()
         .position(|unit| unit.id == unit_id)
-        .ok_or_else(|| violation(json!({"code":"UNIT_NOT_FOUND","unit":unit_id})))?;
+        .ok_or_else(|| violation(Violation::UnitNotFound { unit: unit_id }))?;
     let unit = &state.units[unit_index];
     if unit.owner != player {
-        return Err(violation(
-            json!({"code":"UNIT_NOT_OWNED","unit":unit_id,"player":player}),
-        ));
+        return Err(violation(Violation::UnitNotOwned {
+            unit: unit_id,
+            player: PlayerId::from(player),
+        }));
     }
     let Location::Board { position: origin } = unit.location else {
-        return Err(violation(
-            json!({"code":"UNIT_NOT_ON_BOARD","unit":unit_id}),
-        ));
+        return Err(violation(Violation::UnitNotOnBoard { unit: unit_id }));
     };
     if unit.action != UnitAction::Ready {
-        return Err(violation(
-            json!({"code":"UNIT_ALREADY_ACTED","unit":unit_id}),
-        ));
+        return Err(violation(Violation::UnitAlreadyActed { unit: unit_id }));
     }
     let actual_origin = path.first().copied().unwrap_or(origin);
     if path.first() != Some(&origin) {
-        return Err(violation(
-            json!({"code":"PATH_ORIGIN_MISMATCH","expected":origin,"actual":actual_origin}),
-        ));
+        return Err(violation(Violation::PathOriginMismatch {
+            expected: origin,
+            actual: actual_origin,
+        }));
     }
     for (index, pair) in path.windows(2).enumerate() {
         if pair[0][0].abs_diff(pair[1][0]) + pair[0][1].abs_diff(pair[1][1]) != 1 {
-            return Err(violation(json!({
-                "code":"PATH_NON_ADJACENT", "index":index + 1,
-                "from":pair[0], "to":pair[1]
-            })));
+            return Err(violation(Violation::PathNonAdjacent {
+                index: index + 1,
+                from: pair[0],
+                to: pair[1],
+            }));
         }
     }
     for (index, position) in path.iter().copied().enumerate() {
         if let Some(first_index) = path[..index].iter().position(|seen| *seen == position) {
-            return Err(violation(json!({
-                "code":"PATH_REPEATED_POSITION", "index":index,
-                "position":position, "first_index":first_index
-            })));
+            return Err(violation(Violation::PathRepeatedPosition {
+                index,
+                position,
+                first_index,
+            }));
         }
     }
     for (index, position) in path.iter().copied().enumerate() {
         if position[0] >= state.board.width || position[1] >= state.board.height {
-            return Err(violation(
-                json!({"code":"PATH_OUT_OF_BOUNDS","index":index,"position":position}),
-            ));
+            return Err(violation(Violation::PathOutOfBounds { index, position }));
         }
     }
     let profile = ruleset::profile(unit.kind);
@@ -311,9 +306,10 @@ fn validate_movement_prefix(
             ruleset::movement_cost(terrain, weather, profile.movement_class),
         )
         .ok_or_else(|| {
-            violation(json!({
-                "code":"TERRAIN_IMPASSABLE","index":index,"position":position
-            }))
+            violation(Violation::TerrainImpassable {
+                index: Some(index),
+                position,
+            })
         })?;
         entry_costs.push(cost);
     }
@@ -336,21 +332,21 @@ fn validate_movement_prefix(
                 && board_position(other) == Some(position)
                 && occupancy_is_disclosed(&visibility, state, &actor_team, other)
         }) {
-            return Err(violation(
-                json!({"code":"PATH_OCCUPIED","index":index,"position":position}),
-            ));
+            return Err(violation(Violation::PathOccupied { index, position }));
         }
     }
     let intended_cost: u64 = entry_costs.iter().sum();
     if intended_cost > movement {
-        return Err(violation(json!({
-            "code":"INSUFFICIENT_MOVEMENT","required":intended_cost,"available":movement
-        })));
+        return Err(violation(Violation::InsufficientMovement {
+            required: intended_cost,
+            available: movement,
+        }));
     }
     if intended_cost > unit.fuel {
-        return Err(violation(json!({
-            "code":"INSUFFICIENT_FUEL","required":intended_cost,"available":unit.fuel
-        })));
+        return Err(violation(Violation::InsufficientFuel {
+            required: intended_cost,
+            available: unit.fuel,
+        }));
     }
     Ok(MovementPlan {
         unit_index,
@@ -398,15 +394,19 @@ fn execute_planned_movement(
     next.units[plan.unit_index].location = Location::Board {
         position: destination,
     };
-    events.push(json!({
-        "type":"unit-moved", "unit":unit_id, "from":plan.origin, "to":destination,
-        "path":actual_path, "fuel_spent":fuel_spent
-    }));
+    events.push(Event::UnitMoved {
+        unit: unit_id,
+        from: plan.origin,
+        to: destination,
+        path: actual_path,
+        fuel_spent,
+    });
     let trapped = if let Some((_, position, blocker)) = trap {
-        events.push(json!({
-            "type":"movement-trapped", "unit":unit_id,
-            "blocker":blocker, "position":position
-        }));
+        events.push(Event::MovementTrapped {
+            unit: unit_id,
+            blocker,
+            position,
+        });
         true
     } else {
         false
@@ -428,9 +428,9 @@ fn execute_move_supply(
     let unit = &state.units[plan.unit_index];
     let supply = ruleset::profile(unit.kind).supply;
     let Some(supply) = supply.filter(|supply| supply.relation == Relation::Adjacent) else {
-        return Err(violation(
-            json!({"code":"ACTION_NOT_SUPPORTED","action":"move-supply"}),
-        ));
+        return Err(violation(Violation::ActionNotSupported {
+            action: Action::MoveSupply,
+        }));
     };
     let destination = *plan.path.last().expect("origin was checked");
     let visibility = AwbwVisibility;
@@ -439,9 +439,9 @@ fn execute_move_supply(
             && board_position(other) == Some(destination)
             && occupancy_is_disclosed(&visibility, state, &plan.actor_team, other)
     }) {
-        return Err(violation(
-            json!({"code":"DESTINATION_OCCUPIED","position":destination}),
-        ));
+        return Err(violation(Violation::DestinationOccupied {
+            position: destination,
+        }));
     }
 
     let mut outcome = execute_planned_movement(state, unit_id, &plan);
@@ -490,12 +490,14 @@ fn execute_move_supply(
         target.fuel = max_fuel;
         target.ammo = max_ammo;
         if fuel_before != max_fuel || ammo_before != max_ammo {
-            outcome.events.push(json!({
-                "type":"unit-resourced", "unit":id,
-                "fuel_before":fuel_before, "fuel_after":max_fuel,
-                "ammo_before":ammo_before, "ammo_after":max_ammo,
-                "reason":"unit-supply"
-            }));
+            outcome.events.push(Event::UnitResourced {
+                unit: id,
+                fuel_before,
+                fuel_after: max_fuel,
+                ammo_before,
+                ammo_after: max_ammo,
+                reason: ReasonId::from("unit-supply"),
+            });
         }
     }
     Ok(Execution {
@@ -533,9 +535,9 @@ fn execute_move_repair(
     let unit = &state.units[plan.unit_index];
     let repair = ruleset::profile(unit.kind).repair;
     let Some(repair) = repair.filter(|repair| repair.relation == Relation::Adjacent) else {
-        return Err(violation(
-            json!({"code":"ACTION_NOT_SUPPORTED","action":"move-repair"}),
-        ));
+        return Err(violation(Violation::ActionNotSupported {
+            action: Action::MoveRepair,
+        }));
     };
     let target_index = state.units.iter().position(|target| target.id == target_id);
     let target = target_index.and_then(|index| state.units.get(index));
@@ -552,18 +554,18 @@ fn execute_move_repair(
             && target_team == Some(plan.actor_team.as_str())
             && target_position.is_some()
     }) {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":target_id}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(target_id.into()),
+        }));
     }
     let destination = *plan.path.last().expect("origin was checked");
     let target_position = target_position.expect("target validity established its position");
     if target_position[0].abs_diff(destination[0]) + target_position[1].abs_diff(destination[1])
         != 1
     {
-        return Err(violation(
-            json!({"code":"TARGET_OUT_OF_RANGE","target":target_id}),
-        ));
+        return Err(violation(Violation::TargetOutOfRange {
+            target: Some(target_id.into()),
+        }));
     }
     let visibility = AwbwVisibility;
     if state.units.iter().any(|other| {
@@ -571,9 +573,9 @@ fn execute_move_repair(
             && board_position(other) == Some(destination)
             && occupancy_is_disclosed(&visibility, state, &plan.actor_team, other)
     }) {
-        return Err(violation(
-            json!({"code":"DESTINATION_OCCUPIED","position":destination}),
-        ));
+        return Err(violation(Violation::DestinationOccupied {
+            position: destination,
+        }));
     }
 
     let target_index = target_index.expect("target validity established its index");
@@ -601,12 +603,14 @@ fn execute_move_repair(
     target.fuel = max_fuel;
     target.ammo = max_ammo;
     if fuel_before != max_fuel || ammo_before != max_ammo {
-        outcome.events.push(json!({
-            "type":"unit-resourced", "unit":target_id,
-            "fuel_before":fuel_before, "fuel_after":max_fuel,
-            "ammo_before":ammo_before, "ammo_after":max_ammo,
-            "reason":"unit-repair"
-        }));
+        outcome.events.push(Event::UnitResourced {
+            unit: target_id,
+            fuel_before,
+            fuel_after: max_fuel,
+            ammo_before,
+            ammo_after: max_ammo,
+            reason: ReasonId::from("unit-repair"),
+        });
     }
     let visual_hp = target.hp.div_ceil(exact_hp);
     if visual_hp < 10 {
@@ -621,15 +625,19 @@ fn execute_move_repair(
             let hp_before = outcome.state.units[target_index].hp;
             let hp_after = (visual_hp + 1).min(10) * exact_hp;
             outcome.state.players[player_index].funds -= heal_cost;
-            outcome.events.push(json!({
-                "type":"funds-changed", "player":player, "from":funds_before,
-                "to":funds_before - heal_cost, "reason":"unit-repair"
-            }));
+            outcome.events.push(Event::FundsChanged {
+                player: PlayerId::from(player),
+                from: funds_before,
+                to: funds_before - heal_cost,
+                reason: ReasonId::from("unit-repair"),
+            });
             outcome.state.units[target_index].hp = hp_after;
-            outcome.events.push(json!({
-                "type":"unit-repaired", "unit":target_id, "from_hp":hp_before,
-                "to_hp":hp_after, "reason":"unit-repair"
-            }));
+            outcome.events.push(Event::UnitRepaired {
+                unit: target_id,
+                from_hp: hp_before,
+                to_hp: hp_after,
+                reason: ReasonId::from("unit-repair"),
+            });
         }
     }
     Ok(Execution {
@@ -674,18 +682,18 @@ fn execute_move_load(
             && capacity.is_some_and(|capacity| occupied_slots.len() < capacity)
     });
     if !target_valid {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":transport_id}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(transport_id.into()),
+        }));
     }
     let transport_position =
         board_position(transport.expect("target validity established transport position"))
             .expect("target validity established transport position");
     let destination = *plan.path.last().expect("origin was checked");
     if destination != transport_position {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":destination}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(destination.into()),
+        }));
     }
     let capacity = capacity.expect("target validity established capacity");
     let slot = (0..capacity)
@@ -704,9 +712,11 @@ fn execute_move_load(
         transport: transport_id,
         slot,
     };
-    outcome.events.push(json!({
-        "type":"unit-loaded", "unit":unit_id, "transport":transport_id, "slot":slot
-    }));
+    outcome.events.push(Event::UnitLoaded {
+        unit: unit_id,
+        transport: transport_id,
+        slot,
+    });
     Ok(Execution {
         state: outcome.state,
         events: outcome.events,
@@ -725,17 +735,18 @@ fn execute_unload(
         return Err(ExecuteError::UnsupportedRuleset);
     }
     if matches!(state.match_state, Match::Finished { .. }) {
-        return Err(violation(json!({"code":"MATCH_FINISHED"})));
+        return Err(violation(Violation::MatchFinished));
     }
     if state.turn.phase != Phase::UnitAction {
-        return Err(violation(json!({
-            "code":"WRONG_PHASE", "expected":"unit-action", "actual":state.turn.phase
-        })));
+        return Err(violation(Violation::WrongPhase {
+            expected: Phase::UnitAction,
+            actual: state.turn.phase,
+        }));
     }
     if state.turn.active_player != player {
-        return Err(violation(
-            json!({"code":"NOT_ACTIVE_PLAYER","player":player}),
-        ));
+        return Err(violation(Violation::NotActivePlayer {
+            player: PlayerId::from(player),
+        }));
     }
     let transport_index = state
         .units
@@ -748,9 +759,9 @@ fn execute_unload(
             && transport_position.is_some()
             && ruleset::profile(transport.kind).transport.is_some()
     }) {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":transport_id}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(transport_id.into()),
+        }));
     }
     let cargo_index = state.units.iter().position(|cargo| cargo.id == cargo_id);
     let cargo = cargo_index.and_then(|index| state.units.get(index));
@@ -759,18 +770,18 @@ fn execute_unload(
         _ => None,
     });
     if cargo_slot.is_none() {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":cargo_id}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(cargo_id.into()),
+        }));
     }
     let transport_position = transport_position.expect("transport validity established position");
     if transport_position[0].abs_diff(destination[0])
         + transport_position[1].abs_diff(destination[1])
         != 1
     {
-        return Err(violation(
-            json!({"code":"TARGET_OUT_OF_RANGE","target":destination}),
-        ));
+        return Err(violation(Violation::TargetOutOfRange {
+            target: Some(destination.into()),
+        }));
     }
     let cargo = cargo.expect("cargo validity established unit");
     let movement_class = ruleset::profile(cargo.kind).movement_class;
@@ -789,18 +800,19 @@ fn execute_unload(
         .is_some()
     });
     if !passable {
-        return Err(violation(
-            json!({"code":"TERRAIN_IMPASSABLE","position":destination}),
-        ));
+        return Err(violation(Violation::TerrainImpassable {
+            index: None,
+            position: destination,
+        }));
     }
     if state
         .units
         .iter()
         .any(|unit| board_position(unit) == Some(destination))
     {
-        return Err(violation(
-            json!({"code":"DESTINATION_OCCUPIED","position":destination}),
-        ));
+        return Err(violation(Violation::DestinationOccupied {
+            position: destination,
+        }));
     }
 
     let cargo_index = cargo_index.expect("cargo validity established index");
@@ -820,10 +832,11 @@ fn execute_unload(
     }
     Ok(Execution {
         state: next,
-        events: vec![json!({
-            "type":"unit-unloaded", "unit":cargo_id,
-            "transport":transport_id, "position":destination
-        })],
+        events: vec![Event::UnitUnloaded {
+            unit: cargo_id,
+            transport: transport_id,
+            position: destination,
+        }],
         random_consumed: 0,
     })
 }
@@ -839,66 +852,65 @@ fn execute_move_join(
         return Err(ExecuteError::UnsupportedRuleset);
     }
     if matches!(state.match_state, Match::Finished { .. }) {
-        return Err(violation(json!({"code":"MATCH_FINISHED"})));
+        return Err(violation(Violation::MatchFinished));
     }
     if state.turn.phase != Phase::UnitAction {
-        return Err(violation(json!({
-            "code":"WRONG_PHASE", "expected":"unit-action", "actual":state.turn.phase
-        })));
+        return Err(violation(Violation::WrongPhase {
+            expected: Phase::UnitAction,
+            actual: state.turn.phase,
+        }));
     }
     if state.turn.active_player != player {
-        return Err(violation(
-            json!({"code":"NOT_ACTIVE_PLAYER","player":player}),
-        ));
+        return Err(violation(Violation::NotActivePlayer {
+            player: PlayerId::from(player),
+        }));
     }
     let mover_index = state
         .units
         .iter()
         .position(|unit| unit.id == unit_id)
-        .ok_or_else(|| violation(json!({"code":"UNIT_NOT_FOUND","unit":unit_id})))?;
+        .ok_or_else(|| violation(Violation::UnitNotFound { unit: unit_id }))?;
     let mover = &state.units[mover_index];
     if mover.owner != player {
-        return Err(violation(
-            json!({"code":"UNIT_NOT_OWNED","unit":unit_id,"player":player}),
-        ));
+        return Err(violation(Violation::UnitNotOwned {
+            unit: unit_id,
+            player: PlayerId::from(player),
+        }));
     }
     let Location::Board { position: origin } = mover.location else {
-        return Err(violation(
-            json!({"code":"UNIT_NOT_ON_BOARD","unit":unit_id}),
-        ));
+        return Err(violation(Violation::UnitNotOnBoard { unit: unit_id }));
     };
     if mover.action != UnitAction::Ready {
-        return Err(violation(
-            json!({"code":"UNIT_ALREADY_ACTED","unit":unit_id}),
-        ));
+        return Err(violation(Violation::UnitAlreadyActed { unit: unit_id }));
     }
     let actual_origin = path.first().copied().unwrap_or(origin);
     if path.first() != Some(&origin) {
-        return Err(violation(
-            json!({"code":"PATH_ORIGIN_MISMATCH","expected":origin,"actual":actual_origin}),
-        ));
+        return Err(violation(Violation::PathOriginMismatch {
+            expected: origin,
+            actual: actual_origin,
+        }));
     }
     for (index, pair) in path.windows(2).enumerate() {
         if pair[0][0].abs_diff(pair[1][0]) + pair[0][1].abs_diff(pair[1][1]) != 1 {
-            return Err(violation(json!({
-                "code":"PATH_NON_ADJACENT", "index":index + 1,
-                "from":pair[0], "to":pair[1]
-            })));
+            return Err(violation(Violation::PathNonAdjacent {
+                index: index + 1,
+                from: pair[0],
+                to: pair[1],
+            }));
         }
     }
     for (index, position) in path.iter().copied().enumerate() {
         if let Some(first_index) = path[..index].iter().position(|seen| *seen == position) {
-            return Err(violation(json!({
-                "code":"PATH_REPEATED_POSITION", "index":index,
-                "position":position, "first_index":first_index
-            })));
+            return Err(violation(Violation::PathRepeatedPosition {
+                index,
+                position,
+                first_index,
+            }));
         }
     }
     for (index, position) in path.iter().copied().enumerate() {
         if position[0] >= state.board.width || position[1] >= state.board.height {
-            return Err(violation(
-                json!({"code":"PATH_OUT_OF_BOUNDS","index":index,"position":position}),
-            ));
+            return Err(violation(Violation::PathOutOfBounds { index, position }));
         }
     }
 
@@ -919,9 +931,10 @@ fn execute_move_join(
             ruleset::movement_cost(terrain, weather, mover_profile.movement_class),
         )
         .ok_or_else(|| {
-            violation(json!({
-                "code":"TERRAIN_IMPASSABLE","index":index,"position":position
-            }))
+            violation(Violation::TerrainImpassable {
+                index: Some(index),
+                position,
+            })
         })?;
         entry_costs.push(cost);
     }
@@ -944,21 +957,21 @@ fn execute_move_join(
                 && board_position(other) == Some(position)
                 && occupancy_is_disclosed(&visibility, state, actor_team, other)
         }) {
-            return Err(violation(
-                json!({"code":"PATH_OCCUPIED","index":index,"position":position}),
-            ));
+            return Err(violation(Violation::PathOccupied { index, position }));
         }
     }
     let intended_cost: u64 = entry_costs.iter().sum();
     if intended_cost > movement {
-        return Err(violation(json!({
-            "code":"INSUFFICIENT_MOVEMENT","required":intended_cost,"available":movement
-        })));
+        return Err(violation(Violation::InsufficientMovement {
+            required: intended_cost,
+            available: movement,
+        }));
     }
     if intended_cost > mover.fuel {
-        return Err(violation(json!({
-            "code":"INSUFFICIENT_FUEL","required":intended_cost,"available":mover.fuel
-        })));
+        return Err(violation(Violation::InsufficientFuel {
+            required: intended_cost,
+            available: mover.fuel,
+        }));
     }
 
     let target_index = state.units.iter().position(|unit| unit.id == target_id);
@@ -978,36 +991,38 @@ fn execute_move_join(
             && target_position.is_some()
     });
     if !target_valid {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":target_id}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(target_id.into()),
+        }));
     }
     let target = target.expect("target validity established the unit");
     let target_index = target_index.expect("target validity established the index");
     let destination = *path.last().expect("origin was checked");
     if target_position != Some(destination) {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":destination}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(destination.into()),
+        }));
     }
     if target.hp.div_ceil(10) == 10 {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":target_id}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(target_id.into()),
+        }));
     }
     let target_carries_cargo = state.units.iter().any(
         |cargo| matches!(&cargo.location, Location::Cargo { transport, .. } if *transport == target_id),
     );
     if target_carries_cargo {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":target_id}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(target_id.into()),
+        }));
     }
     let mover_carries_cargo = state.units.iter().any(
         |cargo| matches!(&cargo.location, Location::Cargo { transport, .. } if *transport == unit_id),
     );
     if mover_carries_cargo {
-        return Err(violation(json!({"code":"INVALID_TARGET","target":unit_id})));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(unit_id.into()),
+        }));
     }
 
     // Only an undisclosed intermediate enemy can trap a well-formed join: the
@@ -1041,15 +1056,19 @@ fn execute_move_join(
     next.units[mover_index].location = Location::Board {
         position: actual_destination,
     };
-    events.push(json!({
-        "type":"unit-moved", "unit":unit_id, "from":origin, "to":actual_destination,
-        "path":actual_path, "fuel_spent":fuel_spent
-    }));
+    events.push(Event::UnitMoved {
+        unit: unit_id,
+        from: origin,
+        to: actual_destination,
+        path: actual_path,
+        fuel_spent,
+    });
     if let Some((_, position, blocker)) = trap {
-        events.push(json!({
-            "type":"movement-trapped", "unit":unit_id,
-            "blocker":blocker, "position":position
-        }));
+        events.push(Event::MovementTrapped {
+            unit: unit_id,
+            blocker,
+            position,
+        });
         return Ok(Execution {
             state: next,
             events,
@@ -1067,7 +1086,10 @@ fn execute_move_join(
     next.units[target_index].ammo = (mover.ammo + target.ammo).min(max_ammo);
     next.units[target_index].action = UnitAction::Spent;
     next.units.remove(mover_index);
-    events.push(json!({"type":"units-joined","source":unit_id,"target":target_id}));
+    events.push(Event::UnitsJoined {
+        source: unit_id,
+        target: target_id,
+    });
 
     if combined_visual_hp > 10 {
         let refund = (cost / 10) * u64::from(combined_visual_hp - 10);
@@ -1080,10 +1102,12 @@ fn execute_move_join(
         next.players[player_index].funds = funds_before
             .checked_add(refund)
             .ok_or_else(|| ExecuteError::InvalidState("join refund overflow".into()))?;
-        events.push(json!({
-            "type":"funds-changed", "player":player, "from":funds_before,
-            "to":next.players[player_index].funds, "reason":"unit-join"
-        }));
+        events.push(Event::FundsChanged {
+            player: PlayerId::from(player),
+            from: funds_before,
+            to: next.players[player_index].funds,
+            reason: ReasonId::from("unit-join"),
+        });
     }
     Ok(Execution {
         state: next,
@@ -1102,17 +1126,18 @@ fn execute_produce_unit(
         return Err(ExecuteError::UnsupportedRuleset);
     }
     if matches!(state.match_state, Match::Finished { .. }) {
-        return Err(violation(json!({"code":"MATCH_FINISHED"})));
+        return Err(violation(Violation::MatchFinished));
     }
     if state.turn.phase != Phase::UnitAction {
-        return Err(violation(json!({
-            "code":"WRONG_PHASE", "expected":"unit-action", "actual":state.turn.phase
-        })));
+        return Err(violation(Violation::WrongPhase {
+            expected: Phase::UnitAction,
+            actual: state.turn.phase,
+        }));
     }
     if state.turn.active_player != player {
-        return Err(violation(
-            json!({"code":"NOT_ACTIVE_PLAYER","player":player}),
-        ));
+        return Err(violation(Violation::NotActivePlayer {
+            player: PlayerId::from(player),
+        }));
     }
     let player_index = state
         .players
@@ -1140,40 +1165,41 @@ fn execute_produce_unit(
         is_facility && owned && domain_matches
     });
     if !site_valid {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":position}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(position.into()),
+        }));
     }
     if state.settings.unit_bans.contains(&kind) {
-        return Err(violation(json!({"code":"INVALID_TARGET","target":kind})));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(kind.into()),
+        }));
     }
     if state.settings.lab_units.contains(&kind) && !player_owns_lab(state, player) {
-        return Err(violation(json!({"code":"INVALID_TARGET","target":kind})));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(kind.into()),
+        }));
     }
     if state
         .units
         .iter()
         .any(|unit| board_position(unit) == Some(position))
     {
-        return Err(violation(
-            json!({"code":"DESTINATION_OCCUPIED","position":position}),
-        ));
+        return Err(violation(Violation::DestinationOccupied { position }));
     }
     let current = owned_unit_count(state, player)?;
     if let Some(limit) = state.settings.unit_limit
         && current >= limit
     {
-        return Err(violation(json!({
-            "code":"UNIT_LIMIT_REACHED","current":current,"limit":limit
-        })));
+        return Err(violation(Violation::UnitLimitReached { current, limit }));
     }
     let cost = commander::effective_build_cost(state, player, profile.cost)
         .ok_or_else(|| ExecuteError::InvalidState("commander build cost overflow".into()))?;
     let funds = state.players[player_index].funds;
     if cost > funds {
-        return Err(violation(json!({
-            "code":"INSUFFICIENT_FUNDS","required":cost,"available":funds
-        })));
+        return Err(violation(Violation::InsufficientFunds {
+            required: cost,
+            available: funds,
+        }));
     }
     let next_id = state
         .next_unit_id
@@ -1207,14 +1233,18 @@ fn execute_produce_unit(
     Ok(Execution {
         state: next,
         events: vec![
-            json!({
-                "type":"funds-changed", "player":player, "from":funds,
-                "to":funds - cost, "reason":"unit-production"
-            }),
-            json!({
-                "type":"unit-created", "unit":allocated_id, "kind":kind,
-                "owner":player, "position":position
-            }),
+            Event::FundsChanged {
+                player: PlayerId::from(player),
+                from: funds,
+                to: funds - cost,
+                reason: ReasonId::from("unit-production"),
+            },
+            Event::UnitCreated {
+                unit: allocated_id,
+                kind,
+                owner: PlayerId::from(player),
+                position,
+            },
         ],
         random_consumed: 0,
     })
@@ -1237,66 +1267,65 @@ fn execute_move_capture(
         return Err(ExecuteError::UnsupportedRuleset);
     }
     if matches!(state.match_state, Match::Finished { .. }) {
-        return Err(violation(json!({"code":"MATCH_FINISHED"})));
+        return Err(violation(Violation::MatchFinished));
     }
     if state.turn.phase != Phase::UnitAction {
-        return Err(violation(json!({
-            "code":"WRONG_PHASE", "expected":"unit-action", "actual":state.turn.phase
-        })));
+        return Err(violation(Violation::WrongPhase {
+            expected: Phase::UnitAction,
+            actual: state.turn.phase,
+        }));
     }
     if state.turn.active_player != player {
-        return Err(violation(
-            json!({"code":"NOT_ACTIVE_PLAYER","player":player}),
-        ));
+        return Err(violation(Violation::NotActivePlayer {
+            player: PlayerId::from(player),
+        }));
     }
     let unit_index = state
         .units
         .iter()
         .position(|unit| unit.id == unit_id)
-        .ok_or_else(|| violation(json!({"code":"UNIT_NOT_FOUND","unit":unit_id})))?;
+        .ok_or_else(|| violation(Violation::UnitNotFound { unit: unit_id }))?;
     let unit = &state.units[unit_index];
     if unit.owner != player {
-        return Err(violation(
-            json!({"code":"UNIT_NOT_OWNED","unit":unit_id,"player":player}),
-        ));
+        return Err(violation(Violation::UnitNotOwned {
+            unit: unit_id,
+            player: PlayerId::from(player),
+        }));
     }
     let Location::Board { position: origin } = unit.location else {
-        return Err(violation(
-            json!({"code":"UNIT_NOT_ON_BOARD","unit":unit_id}),
-        ));
+        return Err(violation(Violation::UnitNotOnBoard { unit: unit_id }));
     };
     if unit.action != UnitAction::Ready {
-        return Err(violation(
-            json!({"code":"UNIT_ALREADY_ACTED","unit":unit_id}),
-        ));
+        return Err(violation(Violation::UnitAlreadyActed { unit: unit_id }));
     }
     let actual_origin = path.first().copied().unwrap_or(origin);
     if path.first() != Some(&origin) {
-        return Err(violation(
-            json!({"code":"PATH_ORIGIN_MISMATCH","expected":origin,"actual":actual_origin}),
-        ));
+        return Err(violation(Violation::PathOriginMismatch {
+            expected: origin,
+            actual: actual_origin,
+        }));
     }
     for (index, pair) in path.windows(2).enumerate() {
         if pair[0][0].abs_diff(pair[1][0]) + pair[0][1].abs_diff(pair[1][1]) != 1 {
-            return Err(violation(json!({
-                "code":"PATH_NON_ADJACENT", "index":index + 1,
-                "from":pair[0], "to":pair[1]
-            })));
+            return Err(violation(Violation::PathNonAdjacent {
+                index: index + 1,
+                from: pair[0],
+                to: pair[1],
+            }));
         }
     }
     for (index, position) in path.iter().copied().enumerate() {
         if let Some(first_index) = path[..index].iter().position(|seen| *seen == position) {
-            return Err(violation(json!({
-                "code":"PATH_REPEATED_POSITION", "index":index,
-                "position":position, "first_index":first_index
-            })));
+            return Err(violation(Violation::PathRepeatedPosition {
+                index,
+                position,
+                first_index,
+            }));
         }
     }
     for (index, position) in path.iter().copied().enumerate() {
         if position[0] >= state.board.width || position[1] >= state.board.height {
-            return Err(violation(
-                json!({"code":"PATH_OUT_OF_BOUNDS","index":index,"position":position}),
-            ));
+            return Err(violation(Violation::PathOutOfBounds { index, position }));
         }
     }
 
@@ -1313,9 +1342,10 @@ fn execute_move_capture(
             ruleset::movement_cost(terrain, weather, profile.movement_class),
         )
         .ok_or_else(|| {
-            violation(json!({
-                "code":"TERRAIN_IMPASSABLE","index":index,"position":position
-            }))
+            violation(Violation::TerrainImpassable {
+                index: Some(index),
+                position,
+            })
         })?;
         entry_costs.push(cost);
     }
@@ -1339,27 +1369,27 @@ fn execute_move_capture(
                 && board_position(other) == Some(position)
                 && occupancy_is_disclosed(&visibility, state, actor_team, other)
         }) {
-            return Err(violation(
-                json!({"code":"PATH_OCCUPIED","index":index,"position":position}),
-            ));
+            return Err(violation(Violation::PathOccupied { index, position }));
         }
     }
     let intended_cost: u64 = entry_costs.iter().sum();
     if intended_cost > movement {
-        return Err(violation(json!({
-            "code":"INSUFFICIENT_MOVEMENT","required":intended_cost,"available":movement
-        })));
+        return Err(violation(Violation::InsufficientMovement {
+            required: intended_cost,
+            available: movement,
+        }));
     }
     if intended_cost > unit.fuel {
-        return Err(violation(json!({
-            "code":"INSUFFICIENT_FUEL","required":intended_cost,"available":unit.fuel
-        })));
+        return Err(violation(Violation::InsufficientFuel {
+            required: intended_cost,
+            available: unit.fuel,
+        }));
     }
 
     if !profile.can_capture {
-        return Err(violation(
-            json!({"code":"ACTION_NOT_SUPPORTED","action":"capture"}),
-        ));
+        return Err(violation(Violation::ActionNotSupported {
+            action: Action::Capture,
+        }));
     }
     let destination = *path.last().expect("origin was checked");
     let destination_tile = &state.board.tiles[destination[1]][destination[0]];
@@ -1373,18 +1403,18 @@ fn execute_move_capture(
             .is_some_and(|candidate| candidate.team != actor_team)
     });
     if !capturable || !owner_is_hostile {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":destination}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(destination.into()),
+        }));
     }
     if state.units.iter().any(|other| {
         other.id != unit_id
             && board_position(other) == Some(destination)
             && occupancy_is_disclosed(&visibility, state, actor_team, other)
     }) {
-        return Err(violation(
-            json!({"code":"DESTINATION_OCCUPIED","position":destination}),
-        ));
+        return Err(violation(Violation::DestinationOccupied {
+            position: destination,
+        }));
     }
 
     // An undisclosed enemy is not a validation fact. It truncates execution
@@ -1417,15 +1447,19 @@ fn execute_move_capture(
     next.units[unit_index].location = Location::Board {
         position: actual_destination,
     };
-    events.push(json!({
-        "type":"unit-moved", "unit":unit_id, "from":origin, "to":actual_destination,
-        "path":actual_path, "fuel_spent":fuel_spent
-    }));
+    events.push(Event::UnitMoved {
+        unit: unit_id,
+        from: origin,
+        to: actual_destination,
+        path: actual_path,
+        fuel_spent,
+    });
     if let Some((_, position, blocker)) = trap {
-        events.push(json!({
-            "type":"movement-trapped", "unit":unit_id,
-            "blocker":blocker, "position":position
-        }));
+        events.push(Event::MovementTrapped {
+            unit: unit_id,
+            blocker,
+            position,
+        });
         return Ok(Execution {
             state: next,
             events,
@@ -1443,23 +1477,30 @@ fn execute_move_capture(
         let after = u8::try_from(u64::from(before) - capture_strength)
             .map_err(|_| ExecuteError::InvalidState("capture result overflow".into()))?;
         tile.capture_points = Some(after);
-        events.push(json!({
-            "type":"capture-changed","position":destination,"from":before,"to":after
-        }));
+        events.push(Event::CaptureChanged {
+            position: destination,
+            from: before,
+            to: after,
+        });
     } else {
         let previous_owner = tile.owner.as_ref().and_then(Clone::clone);
-        events.push(json!({
-            "type":"capture-changed","position":destination,"from":before,"to":0
-        }));
+        events.push(Event::CaptureChanged {
+            position: destination,
+            from: before,
+            to: 0,
+        });
         tile.owner = Some(Some(player.into()));
-        events.push(json!({
-            "type":"tile-owner-changed","position":destination,
-            "from":previous_owner,"to":player
-        }));
+        events.push(Event::TileOwnerChanged {
+            position: destination,
+            from: previous_owner.clone(),
+            to: Some(PlayerId::from(player)),
+        });
         tile.capture_points = Some(20);
-        events.push(json!({
-            "type":"capture-changed","position":destination,"from":0,"to":20
-        }));
+        events.push(Event::CaptureChanged {
+            position: destination,
+            from: 0,
+            to: 20,
+        });
         let captured_terrain = tile.terrain;
         let captured_profile = ruleset::terrain(captured_terrain);
         let counts_toward_capture_limit =
@@ -1570,7 +1611,7 @@ fn reset_capture_on_departure(
     unit_id: UnitId,
     origin: Position,
     actual_path: &[Position],
-    events: &mut Vec<Value>,
+    events: &mut Vec<Event>,
 ) {
     if actual_path.len() < 2 || !state.units.iter().any(|unit| unit.id == unit_id) {
         return;
@@ -1578,18 +1619,20 @@ fn reset_capture_on_departure(
     let tile = &mut state.board.tiles[origin[1]][origin[0]];
     if let Some(before) = tile.capture_points.filter(|points| *points < 20) {
         tile.capture_points = Some(20);
-        events.push(json!({
-            "type":"capture-changed","position":origin,"from":before,"to":20
-        }));
+        events.push(Event::CaptureChanged {
+            position: origin,
+            from: before,
+            to: 20,
+        });
     }
 }
 
-fn complete_match(state: &mut State, outcome: Outcome, events: &mut Vec<Value>) {
+fn complete_match(state: &mut State, outcome: Outcome, events: &mut Vec<Event>) {
     state.match_state = Match::Finished {
         outcome: outcome.clone(),
     };
     state.turn.phase = Phase::Finished;
-    events.push(json!({"type":"match-completed","outcome":outcome}));
+    events.push(Event::MatchCompleted { outcome });
 }
 
 fn capture_limit_count(state: &State, player: &str) -> u64 {
@@ -1661,7 +1704,7 @@ fn eliminate_player(
     cause: &str,
     beneficiary: Option<&str>,
     trigger_hq: Option<Position>,
-    events: &mut Vec<Value>,
+    events: &mut Vec<Event>,
 ) -> Result<bool, ExecuteError> {
     let player_index = state
         .players
@@ -1669,16 +1712,17 @@ fn eliminate_player(
         .position(|player| player.id == defeated_player)
         .ok_or(ExecuteError::UnsupportedRuleset)?;
     let defeated_team = state.players[player_index].team.clone();
-    let previous_status = state.players[player_index].status.clone();
+    let previous_status = state.players[player_index].status;
     state.players[player_index].status = if cause == "resignation" {
         PlayerStatus::Resigned
     } else {
         PlayerStatus::Eliminated
     };
-    events.push(json!({
-        "type":"player-status-changed","player":defeated_player,
-        "from":previous_status,"to":state.players[player_index].status
-    }));
+    events.push(Event::PlayerStatusChanged {
+        player: PlayerId::from(defeated_player),
+        from: previous_status,
+        to: state.players[player_index].status,
+    });
     if state
         .players
         .iter()
@@ -1691,9 +1735,10 @@ fn eliminate_player(
             .find(|team| team.id == defeated_team)
             .ok_or(ExecuteError::UnsupportedRuleset)?;
         team.status = TeamStatus::Eliminated;
-        events.push(json!({
-            "type":"team-eliminated","team":defeated_team,"reason":cause
-        }));
+        events.push(Event::TeamEliminated {
+            team: defeated_team,
+            reason: ReasonId::from(cause),
+        });
     }
     let mut surviving_teams: Vec<_> = state
         .teams
@@ -1733,14 +1778,17 @@ fn eliminate_player(
             let tile = &mut state.board.tiles[position[1]][position[0]];
             if let Some(before) = tile.capture_points.filter(|points| *points < 20) {
                 tile.capture_points = Some(20);
-                events.push(json!({
-                    "type":"capture-changed","position":position,"from":before,"to":20
-                }));
+                events.push(Event::CaptureChanged {
+                    position,
+                    from: before,
+                    to: 20,
+                });
             }
         }
-        events.push(json!({
-            "type":"unit-removed","unit":unit_id,"reason":"elimination"
-        }));
+        events.push(Event::UnitRemoved {
+            unit: unit_id,
+            reason: ReasonId::from("elimination"),
+        });
         state.units.remove(unit_index);
     }
 
@@ -1762,26 +1810,31 @@ fn eliminate_player(
         let tile = &mut state.board.tiles[position[1]][position[0]];
         if let Some(before) = tile.capture_points.filter(|points| *points < 20) {
             tile.capture_points = Some(20);
-            events.push(json!({
-                "type":"capture-changed","position":position,"from":before,"to":20
-            }));
+            events.push(Event::CaptureChanged {
+                position,
+                from: before,
+                to: 20,
+            });
         }
         if let Some(replacement) = ruleset::terrain(tile.terrain).elimination_replacement {
             let from = tile.terrain;
             tile.terrain = replacement;
-            events.push(json!({
-                "type":"tile-terrain-changed","position":position,
-                "from":from,"to":replacement,"reason":"elimination"
-            }));
+            events.push(Event::TileTerrainChanged {
+                position,
+                from,
+                to: replacement,
+                reason: ReasonId::from("elimination"),
+            });
         }
         let previous_owner = tile.owner.as_ref().and_then(Clone::clone);
         let next_owner = beneficiary.map(PlayerId::from);
         if previous_owner != next_owner {
             tile.owner = Some(next_owner.clone());
-            events.push(json!({
-                "type":"tile-owner-changed","position":position,
-                "from":previous_owner,"to":next_owner
-            }));
+            events.push(Event::TileOwnerChanged {
+                position,
+                from: previous_owner,
+                to: next_owner,
+            });
         }
     }
     Ok(false)
@@ -1803,10 +1856,13 @@ fn execute_move_concealment(
         Concealment::Exposed
     };
     if !supported || original.concealment == target {
-        return Err(violation(json!({
-            "code":"ACTION_NOT_SUPPORTED",
-            "action":if hide {"move-hide"} else {"move-reveal"}
-        })));
+        return Err(violation(Violation::ActionNotSupported {
+            action: if hide {
+                Action::MoveHide
+            } else {
+                Action::MoveReveal
+            },
+        }));
     }
 
     let destination = *plan.path.last().expect("origin was checked");
@@ -1816,9 +1872,9 @@ fn execute_move_concealment(
             && board_position(other) == Some(destination)
             && occupancy_is_disclosed(&visibility, state, &plan.actor_team, other)
     }) {
-        return Err(violation(
-            json!({"code":"DESTINATION_OCCUPIED","position":destination}),
-        ));
+        return Err(violation(Violation::DestinationOccupied {
+            position: destination,
+        }));
     }
 
     let mut outcome = execute_planned_movement(state, unit_id, &plan);
@@ -1830,14 +1886,13 @@ fn execute_move_concealment(
         });
     }
     let unit = &mut outcome.state.units[plan.unit_index];
-    let from = unit.concealment.clone();
-    unit.concealment = target.clone();
-    outcome.events.push(json!({
-        "type":"concealment-changed",
-        "unit":unit_id,
-        "from":from,
-        "to":target
-    }));
+    let from = unit.concealment;
+    unit.concealment = target;
+    outcome.events.push(Event::ConcealmentChanged {
+        unit: unit_id,
+        from,
+        to: target,
+    });
     Ok(Execution {
         state: outcome.state,
         events: outcome.events,
@@ -2004,17 +2059,18 @@ fn execute_activate_power(
         return Err(ExecuteError::UnsupportedRuleset);
     }
     if matches!(state.match_state, Match::Finished { .. }) {
-        return Err(violation(json!({"code":"MATCH_FINISHED"})));
+        return Err(violation(Violation::MatchFinished));
     }
     if state.turn.phase != Phase::UnitAction {
-        return Err(violation(json!({
-            "code":"WRONG_PHASE", "expected":"unit-action", "actual":state.turn.phase
-        })));
+        return Err(violation(Violation::WrongPhase {
+            expected: Phase::UnitAction,
+            actual: state.turn.phase,
+        }));
     }
     if state.turn.active_player != player {
-        return Err(violation(
-            json!({"code":"NOT_ACTIVE_PLAYER","player":player}),
-        ));
+        return Err(violation(Violation::NotActivePlayer {
+            player: PlayerId::from(player),
+        }));
     }
     let player_index = state
         .players
@@ -2033,9 +2089,9 @@ fn execute_activate_power(
     if state.settings.powers != crate::semantic::Toggle::Enabled
         || !matches!(actor.power_state, crate::semantic::PowerState::None)
     {
-        return Err(violation(
-            json!({"code":"ACTION_NOT_SUPPORTED","action":"activate-power"}),
-        ));
+        return Err(violation(Violation::ActionNotSupported {
+            action: Action::ActivatePower,
+        }));
     }
     let activation =
         commander::power_activation(active_commander.id, level, active_commander.power_uses)
@@ -2045,17 +2101,16 @@ fn execute_activate_power(
                 ))
             })?
             .ok_or_else(|| {
-                violation(json!({
-                    "code":"ACTION_NOT_SUPPORTED", "action":"activate-power"
-                }))
+                violation(Violation::ActionNotSupported {
+                    action: Action::ActivatePower,
+                })
             })?;
     let cost = activation.cost;
     if active_commander.power_charge < cost {
-        return Err(violation(json!({
-            "code":"INSUFFICIENT_POWER",
-            "required":cost,
-            "available":active_commander.power_charge
-        })));
+        return Err(violation(Violation::InsufficientPower {
+            required: cost,
+            available: active_commander.power_charge,
+        }));
     }
 
     let mut next = state.clone();
@@ -2073,12 +2128,11 @@ fn execute_activate_power(
             commander_slot: active_slot,
         },
     };
-    let mut events = vec![json!({
-        "type":"power-activated",
-        "player":player,
-        "commander":active_commander.id,
-        "power":level
-    })];
+    let mut events = vec![Event::PowerActivated {
+        player: PlayerId::from(player),
+        commander: active_commander.id,
+        power: level,
+    }];
     for effect in activation.instant_effects {
         match effect {
             InstantEffect::HealVisualHp {
@@ -2105,11 +2159,12 @@ fn execute_activate_power(
                         continue;
                     }
                     target.hp = to_hp;
-                    events.push(json!({
-                        "type":"unit-repaired", "unit":target_id,
-                        "from_hp":from_hp, "to_hp":to_hp,
-                        "reason":"commander-power"
-                    }));
+                    events.push(Event::UnitRepaired {
+                        unit: target_id,
+                        from_hp,
+                        to_hp,
+                        reason: ReasonId::from("commander-power"),
+                    });
                 }
             }
             InstantEffect::HealExactHp {
@@ -2135,11 +2190,12 @@ fn execute_activate_power(
                         continue;
                     }
                     target.hp = to_hp;
-                    events.push(json!({
-                        "type":"unit-repaired", "unit":target_id,
-                        "from_hp":from_hp, "to_hp":to_hp,
-                        "reason":"commander-power"
-                    }));
+                    events.push(Event::UnitRepaired {
+                        unit: target_id,
+                        from_hp,
+                        to_hp,
+                        reason: ReasonId::from("commander-power"),
+                    });
                 }
             }
             InstantEffect::DamageExactHp {
@@ -2184,11 +2240,12 @@ fn execute_activate_power(
                         continue;
                     }
                     target.hp = to_hp;
-                    events.push(json!({
-                        "type":"unit-damaged", "unit":target_id,
-                        "from_hp":from_hp, "to_hp":to_hp,
-                        "reason":"commander-power"
-                    }));
+                    events.push(Event::UnitDamaged {
+                        unit: target_id,
+                        from_hp,
+                        to_hp,
+                        reason: ReasonId::from("commander-power"),
+                    });
                 }
             }
             InstantEffect::SetWeather {
@@ -2207,10 +2264,12 @@ fn execute_activate_power(
                 }
                 next.weather.kind = to;
                 next.weather.remaining_turns = remaining_turns;
-                events.push(json!({
-                    "type":"weather-changed", "from":from, "to":next.weather.kind,
-                    "remaining_turns":remaining_turns, "reason":"commander-power"
-                }));
+                events.push(Event::WeatherChanged {
+                    from,
+                    to: next.weather.kind,
+                    remaining_turns,
+                    reason: ReasonId::from("commander-power"),
+                });
             }
             InstantEffect::DrainCurrentFuelRatio {
                 target: UnitTarget::Enemy,
@@ -2251,12 +2310,14 @@ fn execute_activate_power(
                         continue;
                     }
                     target.fuel = fuel_after;
-                    events.push(json!({
-                        "type":"unit-resourced", "unit":target_id,
-                        "fuel_before":fuel_before, "fuel_after":fuel_after,
-                        "ammo_before":target.ammo, "ammo_after":target.ammo,
-                        "reason":"commander-power"
-                    }));
+                    events.push(Event::UnitResourced {
+                        unit: target_id,
+                        fuel_before,
+                        fuel_after,
+                        ammo_before: target.ammo,
+                        ammo_after: target.ammo,
+                        reason: ReasonId::from("commander-power"),
+                    });
                 }
             }
             InstantEffect::FireAreaStrikes {
@@ -2271,14 +2332,13 @@ fn execute_activate_power(
                 for (strike, (policy, center)) in
                     selection_policies.into_iter().zip(centers).enumerate()
                 {
-                    events.push(json!({
-                        "type":"area-strike-resolved",
-                        "strike":strike,
-                        "policy":policy,
-                        "center":center,
-                        "radius":radius,
-                        "damage":damage
-                    }));
+                    events.push(Event::AreaStrikeResolved {
+                        strike,
+                        policy,
+                        center,
+                        radius,
+                        damage,
+                    });
                     let mut targets: Vec<_> = next
                         .units
                         .iter()
@@ -2306,11 +2366,12 @@ fn execute_activate_power(
                             continue;
                         }
                         target.hp = to_hp;
-                        events.push(json!({
-                            "type":"unit-damaged", "unit":target_id,
-                            "from_hp":from_hp, "to_hp":to_hp,
-                            "reason":"commander-power"
-                        }));
+                        events.push(Event::UnitDamaged {
+                            unit: target_id,
+                            from_hp,
+                            to_hp,
+                            reason: ReasonId::from("commander-power"),
+                        });
                     }
                 }
             }
@@ -2362,14 +2423,13 @@ fn execute_activate_power(
                         }
                         next.players[target_player_index].commanders[commander_slot].power_charge =
                             to;
-                        events.push(json!({
-                            "type":"power-charge-changed",
-                            "player":target_player_id,
-                            "commander_slot":commander_slot,
-                            "from":from,
-                            "to":to,
-                            "reason":"commander-power"
-                        }));
+                        events.push(Event::PowerChargeChanged {
+                            player: target_player_id.clone(),
+                            commander_slot,
+                            from,
+                            to,
+                            reason: ReasonId::from("commander-power"),
+                        });
                     }
                 }
             }
@@ -2393,12 +2453,14 @@ fn execute_activate_power(
                     if target.action != UnitAction::Spent {
                         continue;
                     }
-                    let from = target.action.clone();
+                    let from = target.action;
                     target.action = UnitAction::Ready;
-                    events.push(json!({
-                        "type":"unit-action-changed", "unit":target_id,
-                        "from":from, "to":"ready", "reason":"commander-power"
-                    }));
+                    events.push(Event::UnitActionChanged {
+                        unit: target_id,
+                        from,
+                        to: UnitAction::Ready,
+                        reason: ReasonId::from("commander-power"),
+                    });
                 }
             }
             InstantEffect::ResupplyUnits {
@@ -2422,12 +2484,14 @@ fn execute_activate_power(
                     if !refill_unit(target) {
                         continue;
                     }
-                    events.push(json!({
-                        "type":"unit-resourced", "unit":target_id,
-                        "fuel_before":fuel_before, "fuel_after":target.fuel,
-                        "ammo_before":ammo_before, "ammo_after":target.ammo,
-                        "reason":"commander-power"
-                    }));
+                    events.push(Event::UnitResourced {
+                        unit: target_id,
+                        fuel_before,
+                        fuel_after: target.fuel,
+                        ammo_before,
+                        ammo_after: target.ammo,
+                        reason: ReasonId::from("commander-power"),
+                    });
                 }
             }
             InstantEffect::SpawnUnitsOnOwnedProperties {
@@ -2512,10 +2576,12 @@ fn execute_activate_power(
                         concealment: Concealment::Exposed,
                         location: Location::Board { position },
                     });
-                    events.push(json!({
-                        "type":"unit-created", "unit":allocated_id,
-                        "kind":unit_kind, "owner":player, "position":position
-                    }));
+                    events.push(Event::UnitCreated {
+                        unit: allocated_id,
+                        kind: unit_kind,
+                        owner: PlayerId::from(player),
+                        position,
+                    });
                 }
             }
             InstantEffect::FireTargetedAreaStrike {
@@ -2591,11 +2657,13 @@ fn execute_activate_power(
                 let Some((_, center)) = best else {
                     continue;
                 };
-                events.push(json!({
-                    "type":"area-strike-resolved", "strike":0,
-                    "policy":"unit-value", "center":center,
-                    "radius":radius, "damage":damage
-                }));
+                events.push(Event::AreaStrikeResolved {
+                    strike: 0,
+                    policy: AreaStrikePolicy::UnitValue,
+                    center,
+                    radius,
+                    damage,
+                });
                 let mut targets: Vec<_> = next
                     .units
                     .iter()
@@ -2623,11 +2691,12 @@ fn execute_activate_power(
                         continue;
                     }
                     target.hp = to_hp;
-                    events.push(json!({
-                        "type":"unit-damaged", "unit":target_id,
-                        "from_hp":from_hp, "to_hp":to_hp,
-                        "reason":"commander-power"
-                    }));
+                    events.push(Event::UnitDamaged {
+                        unit: target_id,
+                        from_hp,
+                        to_hp,
+                        reason: ReasonId::from("commander-power"),
+                    });
                 }
             }
             InstantEffect::FireImmobilizingAreaStrike {
@@ -2718,11 +2787,13 @@ fn execute_activate_power(
                 let center = best.map(|(_, _, center)| center).ok_or_else(|| {
                     ExecuteError::InvalidState("immobilizing area-strike board is empty".into())
                 })?;
-                events.push(json!({
-                    "type":"area-strike-resolved", "strike":0,
-                    "policy":"unit-value", "center":center,
-                    "radius":radius, "damage":damage
-                }));
+                events.push(Event::AreaStrikeResolved {
+                    strike: 0,
+                    policy: AreaStrikePolicy::UnitValue,
+                    center,
+                    radius,
+                    damage,
+                });
                 let mut targets: Vec<_> = next
                     .units
                     .iter()
@@ -2749,20 +2820,22 @@ fn execute_activate_power(
                     let to_hp = from_hp.saturating_sub(damage).max(minimum_hp);
                     if to_hp != from_hp {
                         target.hp = to_hp;
-                        events.push(json!({
-                            "type":"unit-damaged", "unit":target_id,
-                            "from_hp":from_hp, "to_hp":to_hp,
-                            "reason":"commander-power"
-                        }));
+                        events.push(Event::UnitDamaged {
+                            unit: target_id,
+                            from_hp,
+                            to_hp,
+                            reason: ReasonId::from("commander-power"),
+                        });
                     }
                     if target.action != UnitAction::Immobilized {
-                        let from = target.action.clone();
+                        let from = target.action;
                         target.action = UnitAction::Immobilized;
-                        events.push(json!({
-                            "type":"unit-action-changed", "unit":target_id,
-                            "from":from, "to":"immobilized",
-                            "reason":"commander-power"
-                        }));
+                        events.push(Event::UnitActionChanged {
+                            unit: target_id,
+                            from,
+                            to: UnitAction::Immobilized,
+                            reason: ReasonId::from("commander-power"),
+                        });
                     }
                 }
             }
@@ -2784,10 +2857,12 @@ fn execute_activate_power(
                     continue;
                 }
                 next.players[player_index].funds = to;
-                events.push(json!({
-                    "type":"funds-changed", "player":player,
-                    "from":from, "to":to, "reason":"commander-power"
-                }));
+                events.push(Event::FundsChanged {
+                    player: PlayerId::from(player),
+                    from,
+                    to,
+                    reason: ReasonId::from("commander-power"),
+                });
             }
             unsupported => {
                 return Err(ExecuteError::InvalidState(format!(
@@ -2840,17 +2915,18 @@ fn execute_turn_boundary(
         return Err(ExecuteError::UnsupportedRuleset);
     }
     if matches!(state.match_state, Match::Finished { .. }) {
-        return Err(violation(json!({"code":"MATCH_FINISHED"})));
+        return Err(violation(Violation::MatchFinished));
     }
     if state.turn.phase != Phase::UnitAction {
-        return Err(violation(json!({
-            "code":"WRONG_PHASE", "expected":"unit-action", "actual":state.turn.phase
-        })));
+        return Err(violation(Violation::WrongPhase {
+            expected: Phase::UnitAction,
+            actual: state.turn.phase,
+        }));
     }
     if state.turn.active_player != player {
-        return Err(violation(
-            json!({"code":"NOT_ACTIVE_PLAYER","player":player}),
-        ));
+        return Err(violation(Violation::NotActivePlayer {
+            player: PlayerId::from(player),
+        }));
     }
     let player_index = state
         .players
@@ -2858,9 +2934,9 @@ fn execute_turn_boundary(
         .position(|candidate| candidate.id == player)
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
     if command == BoundaryCommand::Tag && !state.settings.tags {
-        return Err(violation(
-            json!({"code":"ACTION_NOT_SUPPORTED","action":"tag"}),
-        ));
+        return Err(violation(Violation::ActionNotSupported {
+            action: Action::Tag,
+        }));
     }
     if command == BoundaryCommand::Tag
         && (state.players[player_index].commanders.len() != 2
@@ -2877,11 +2953,12 @@ fn execute_turn_boundary(
     }
 
     let mut next = state.clone();
-    let mut random_consumed = 0;
-    let mut events = vec![json!({
-        "type":"phase-changed", "player":player,
-        "from":"unit-action", "to":"turn-end"
-    })];
+    let mut tape = RandomTape::new(random);
+    let mut events = vec![Event::PhaseChanged {
+        player: PlayerId::from(player),
+        from: Phase::UnitAction,
+        to: Phase::TurnEnd,
+    }];
     next.turn.phase = Phase::TurnEnd;
     if command == BoundaryCommand::Tag {
         let from_slot = next.players[player_index]
@@ -2903,17 +2980,19 @@ fn execute_turn_boundary(
             }
             let commander_id = next.players[player_index].commanders[from_slot].id;
             next.players[player_index].power_state = PowerState::None;
-            events.push(json!({
-                "type":"power-ended", "player":player,
-                "commander":commander_id, "power":power
-            }));
+            events.push(Event::PowerEnded {
+                player: PlayerId::from(player),
+                commander: commander_id,
+                power,
+            });
         }
         next.players[player_index].commanders[from_slot].active = false;
         next.players[player_index].commanders[to_slot].active = true;
-        events.push(json!({
-            "type":"commander-swapped", "player":player,
-            "from_slot":from_slot, "to_slot":to_slot
-        }));
+        events.push(Event::CommanderSwapped {
+            player: PlayerId::from(player),
+            from_slot,
+            to_slot,
+        });
     }
     if command == BoundaryCommand::Resign
         && eliminate_player(&mut next, player, "resignation", None, None, &mut events)?
@@ -2921,7 +3000,7 @@ fn execute_turn_boundary(
         return Ok(Execution {
             state: next,
             events,
-            random_consumed,
+            random_consumed: tape.consumed(),
         });
     }
 
@@ -2961,7 +3040,7 @@ fn execute_turn_boundary(
             return Ok(Execution {
                 state: next,
                 events,
-                random_consumed,
+                random_consumed: tape.consumed(),
             });
         }
 
@@ -2978,19 +3057,24 @@ fn execute_turn_boundary(
                 .day
                 .checked_add(1)
                 .ok_or_else(|| ExecuteError::InvalidState("turn day overflow".into()))?;
-            events.push(json!({"type":"day-advanced","from":from,"to":next.turn.day}));
+            events.push(Event::DayAdvanced {
+                from,
+                to: next.turn.day,
+            });
         }
         next.turn.position = successor_position;
         next.turn.active_player = successor_id.clone();
-        events.push(json!({
-            "type":"turn-selected", "player":successor_id, "position":successor_position
-        }));
+        events.push(Event::TurnSelected {
+            player: successor_id.clone(),
+            position: successor_position,
+        });
         if next.turn.phase == Phase::TurnEnd {
             next.turn.phase = Phase::TurnStart;
-            events.push(json!({
-                "type":"phase-changed", "player":successor_id,
-                "from":"turn-end", "to":"turn-start"
-            }));
+            events.push(Event::PhaseChanged {
+                player: successor_id.clone(),
+                from: Phase::TurnEnd,
+                to: Phase::TurnStart,
+            });
         }
 
         let expired_power = match next.players[successor_player_index].power_state {
@@ -3016,10 +3100,11 @@ fn execute_turn_boundary(
             }
             let commander_id = commander.id;
             next.players[successor_player_index].power_state = crate::semantic::PowerState::None;
-            events.push(json!({
-                "type":"power-ended", "player":successor_id,
-                "commander":commander_id, "power":power
-            }));
+            events.push(Event::PowerEnded {
+                player: successor_id.clone(),
+                commander: commander_id,
+                power,
+            });
         }
 
         if next.weather.remaining_turns > 0 {
@@ -3033,43 +3118,29 @@ fn execute_turn_boundary(
                     WeatherSetting::Random => WeatherKind::Clear,
                 };
             }
-            events.push(json!({
-                "type":"weather-changed", "from":from, "to":next.weather.kind,
-                "remaining_turns":next.weather.remaining_turns, "reason":"expiry"
-            }));
+            events.push(Event::WeatherChanged {
+                from,
+                to: next.weather.kind,
+                remaining_turns: next.weather.remaining_turns,
+                reason: ReasonId::from("expiry"),
+            });
         } else if next.settings.weather == WeatherSetting::Random {
-            let token = random.get(random_consumed).ok_or_else(|| {
-                ExecuteError::InvalidRandom("missing weather-selection token".into())
-            })?;
-            if token["type"] != "weather-selection" {
-                return Err(ExecuteError::InvalidRandom(
-                    "expected weather-selection token".into(),
-                ));
-            }
-            let outcome = token["value"].as_str().ok_or_else(|| {
-                ExecuteError::InvalidRandom("weather-selection value must be a string".into())
-            })?;
-            let selected = match outcome {
-                "clear" => WeatherKind::Clear,
-                "rain" => WeatherKind::Rain,
-                "snow" => WeatherKind::Snow,
-                _ => {
-                    return Err(ExecuteError::InvalidRandom(
-                        "weather-selection value is outside the AWBW domain".into(),
-                    ));
-                }
-            };
-            random_consumed += 1;
-            events.push(json!({
-                "type":"random-outcome", "kind":"weather-selection", "outcome":outcome
-            }));
+            let selected = tape
+                .weather()
+                .map_err(|error| ExecuteError::InvalidRandom(error.message().into()))?;
+            events.push(Event::RandomOutcome {
+                kind: RandomKind::WeatherSelection,
+                outcome: RandomValue::Text(selected.as_str().into()),
+            });
             if next.weather.kind != selected {
                 let from = next.weather.kind;
                 next.weather.kind = selected;
-                events.push(json!({
-                    "type":"weather-changed", "from":from, "to":next.weather.kind,
-                    "remaining_turns":0, "reason":"random-weather"
-                }));
+                events.push(Event::WeatherChanged {
+                    from,
+                    to: next.weather.kind,
+                    remaining_turns: 0,
+                    reason: ReasonId::from("random-weather"),
+                });
             }
         }
 
@@ -3097,10 +3168,12 @@ fn execute_turn_boundary(
                 .checked_add(income)
                 .ok_or_else(|| ExecuteError::InvalidState("player funds overflow".into()))?;
             next.players[successor_player_index].funds = funds_after;
-            events.push(json!({
-                "type":"funds-changed", "player":successor_id,
-                "from":funds_before, "to":funds_after, "reason":"turn-start-income"
-            }));
+            events.push(Event::FundsChanged {
+                player: successor_id.clone(),
+                from: funds_before,
+                to: funds_after,
+                reason: ReasonId::from("turn-start-income"),
+            });
         }
 
         let mut property_sources = Vec::new();
@@ -3133,9 +3206,10 @@ fn execute_turn_boundary(
                 .find(|unit| unit.id == *unit_id)
                 .expect("property supply unit remains present");
             if refill_unit(unit) {
-                events.push(json!({
-                    "type":"automatic-supply", "source":position, "units":[unit_id]
-                }));
+                events.push(Event::AutomaticSupply {
+                    source: SupplySource::Tile(*position),
+                    units: vec![*unit_id],
+                });
             }
         }
 
@@ -3199,9 +3273,10 @@ fn execute_turn_boundary(
                 }
             }
             if !changed.is_empty() {
-                events.push(json!({
-                    "type":"automatic-supply", "source":apc_id, "units":changed
-                }));
+                events.push(Event::AutomaticSupply {
+                    source: SupplySource::Unit(apc_id),
+                    units: changed,
+                });
             }
         }
 
@@ -3244,9 +3319,10 @@ fn execute_turn_boundary(
                 }
             }
             if !changed.is_empty() {
-                events.push(json!({
-                    "type":"automatic-supply", "source":transport_id, "units":changed
-                }));
+                events.push(Event::AutomaticSupply {
+                    source: SupplySource::Unit(transport_id),
+                    units: changed,
+                });
             }
         }
 
@@ -3295,12 +3371,14 @@ fn execute_turn_boundary(
                 let fuel_before = unit.fuel;
                 unit.fuel = unit.fuel.saturating_sub(upkeep);
                 if unit.fuel > 0 && unit.fuel < fuel_before {
-                    events.push(json!({
-                        "type":"unit-resourced", "unit":unit_id,
-                        "fuel_before":fuel_before, "fuel_after":unit.fuel,
-                        "ammo_before":unit.ammo, "ammo_after":unit.ammo,
-                        "reason":"fuel-upkeep"
-                    }));
+                    events.push(Event::UnitResourced {
+                        unit: unit_id,
+                        fuel_before,
+                        fuel_after: unit.fuel,
+                        ammo_before: unit.ammo,
+                        ammo_after: unit.ammo,
+                        reason: ReasonId::from("fuel-upkeep"),
+                    });
                 }
             }
         }
@@ -3342,13 +3420,15 @@ fn execute_turn_boundary(
                         Location::Cargo { transport, .. } if transport == &unit_id
                     )
             });
-            events.push(json!({
-                "type":"unit-removed", "unit":unit_id, "reason":"fuel-depleted"
-            }));
+            events.push(Event::UnitRemoved {
+                unit: unit_id,
+                reason: ReasonId::from("fuel-depleted"),
+            });
             for (_, cargo_id) in cargo {
-                events.push(json!({
-                    "type":"unit-removed", "unit":cargo_id, "reason":"carrier-lost"
-                }));
+                events.push(Event::UnitRemoved {
+                    unit: cargo_id,
+                    reason: ReasonId::from("carrier-lost"),
+                });
             }
         }
 
@@ -3391,10 +3471,12 @@ fn execute_turn_boundary(
             let hp_after = u8::try_from((visual_hp + bars).min(10) * 10)
                 .map_err(|_| ExecuteError::InvalidState("property repair HP overflow".into()))?;
             next.units[unit_index].hp = hp_after;
-            events.push(json!({
-                "type":"automatic-repair", "unit":unit_id, "position":position,
-                "hp_restored":hp_after - hp_before, "cost":cost
-            }));
+            events.push(Event::AutomaticRepair {
+                unit: unit_id,
+                position,
+                hp_restored: hp_after - hp_before,
+                cost,
+            });
         }
 
         if removed_units && !next.units.iter().any(|unit| unit.owner == successor_id) {
@@ -3402,7 +3484,7 @@ fn execute_turn_boundary(
                 return Ok(Execution {
                     state: next,
                     events,
-                    random_consumed,
+                    random_consumed: tape.consumed(),
                 });
             }
             continue;
@@ -3417,27 +3499,30 @@ fn execute_turn_boundary(
             .collect();
         unit_indices.sort_by_key(|left| left.0);
         for (unit_id, index) in unit_indices {
-            let from = next.units[index].action.clone();
+            let from = next.units[index].action;
             next.units[index].action = if from == UnitAction::Immobilized {
                 UnitAction::Spent
             } else {
                 UnitAction::Ready
             };
-            events.push(json!({
-                "type":"unit-action-changed", "unit":unit_id,
-                "from":from, "to":next.units[index].action, "reason":"turn-start"
-            }));
+            events.push(Event::UnitActionChanged {
+                unit: unit_id,
+                from,
+                to: next.units[index].action,
+                reason: ReasonId::from("turn-start"),
+            });
         }
         next.turn.phase = Phase::UnitAction;
-        events.push(json!({
-            "type":"phase-changed", "player":successor_id,
-            "from":"turn-start", "to":"unit-action"
-        }));
+        events.push(Event::PhaseChanged {
+            player: successor_id,
+            from: Phase::TurnStart,
+            to: Phase::UnitAction,
+        });
 
         return Ok(Execution {
             state: next,
             events,
-            random_consumed,
+            random_consumed: tape.consumed(),
         });
     }
 }
@@ -3476,7 +3561,7 @@ fn refill_unit(unit: &mut Unit) -> bool {
 fn apply_strike_funds(
     state: &State,
     next: &mut State,
-    events: &mut Vec<Value>,
+    events: &mut Vec<Event>,
     striker: &str,
     target_owner: &str,
     target_kind: UnitKindId,
@@ -3504,10 +3589,12 @@ fn apply_strike_funds(
         .checked_add(gain)
         .ok_or_else(|| ExecuteError::InvalidState("strike funds overflow".into()))?;
     player.funds = to;
-    events.push(json!({
-        "type":"funds-changed", "player":striker,
-        "from":from, "to":to, "reason":"commander-power"
-    }));
+    events.push(Event::FundsChanged {
+        player: PlayerId::from(striker),
+        from,
+        to,
+        reason: ReasonId::from("commander-power"),
+    });
     Ok(())
 }
 
@@ -3515,7 +3602,7 @@ fn apply_strike_funds(
 fn apply_strike_power_charge(
     state: &State,
     next: &mut State,
-    events: &mut Vec<Value>,
+    events: &mut Vec<Event>,
     striker: &str,
     target_owner: &str,
     target_kind: UnitKindId,
@@ -3592,14 +3679,13 @@ fn apply_strike_power_charge(
                 continue;
             }
             next.players[player_index].commanders[commander_slot].power_charge = to;
-            events.push(json!({
-                "type":"power-charge-changed",
-                "player":player_id,
-                "commander_slot":commander_slot,
-                "from":from,
-                "to":to,
-                "reason":reason
-            }));
+            events.push(Event::PowerChargeChanged {
+                player: PlayerId::from(player_id),
+                commander_slot,
+                from,
+                to,
+                reason: ReasonId::from(reason),
+            });
         }
     }
     Ok(())
@@ -3620,21 +3706,25 @@ fn execute_tile_attack(
         .tiles
         .get(position[1])
         .and_then(|row| row.get(position[0]))
-        .ok_or_else(|| violation(json!({"code":"INVALID_TARGET","target":position})))?;
+        .ok_or_else(|| {
+            violation(Violation::InvalidTarget {
+                target: Some(position.into()),
+            })
+        })?;
     if state
         .units
         .iter()
         .any(|unit| board_position(unit) == Some(position))
     {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":position}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(position.into()),
+        }));
     }
 
     let Some(destructible) = ruleset::terrain(tile.terrain).destructible else {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":position}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(position.into()),
+        }));
     };
     let from_hp = tile
         .destructible_hp
@@ -3656,17 +3746,17 @@ fn execute_tile_attack(
         .map(|candidate| candidate.team.as_str())
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
     if state.settings.fog && !AwbwVisibility.visible_position(state, actor_team, position) {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":position}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(position.into()),
+        }));
     }
 
     let profile = ruleset::profile(attacker.kind);
     let fire_mode = profile.fire_mode;
     if fire_mode == FireMode::None {
-        return Err(violation(
-            json!({"code":"ACTION_NOT_SUPPORTED","action":"attack"}),
-        ));
+        return Err(violation(Violation::ActionNotSupported {
+            action: Action::Attack,
+        }));
     }
     let distance = origin[0].abs_diff(position[0]) + origin[1].abs_diff(position[1]);
     if let Some(range) = profile.indirect_range {
@@ -3680,19 +3770,19 @@ fn execute_tile_attack(
         ))
         .map_err(|_| ExecuteError::InvalidState("attack range overflow".into()))?;
         if distance < minimum || distance > maximum {
-            return Err(violation(
-                json!({"code":"TARGET_OUT_OF_RANGE","target":position}),
-            ));
+            return Err(violation(Violation::TargetOutOfRange {
+                target: Some(position.into()),
+            }));
         }
     } else if distance != 1 {
-        return Err(violation(
-            json!({"code":"TARGET_OUT_OF_RANGE","target":position}),
-        ));
+        return Err(violation(Violation::TargetOutOfRange {
+            target: Some(position.into()),
+        }));
     }
     if combat::select_weapon(attacker.kind, target_kind, attacker.ammo).is_none() {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":position}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(position.into()),
+        }));
     }
 
     let unit_domain = combat_domain(profile);
@@ -3771,46 +3861,49 @@ fn execute_tile_attack(
     )
     .expect("tile weapon was validated");
     let to_hp = from_hp.saturating_sub(hit.damage);
-    let weapon = match hit.weapon.weapon {
-        Weapon::Ammo => "ammo",
-        Weapon::Unlimited => "unlimited",
-    };
-
     let mut next = state.clone();
     let mut events = Vec::new();
     if hit.weapon.ammo_cost > 0 {
         let before = next.units[attacker_index].ammo;
         next.units[attacker_index].ammo -= hit.weapon.ammo_cost;
-        events.push(json!({
-            "type":"unit-resourced", "unit":unit_id,
-            "fuel_before":attacker.fuel, "fuel_after":attacker.fuel,
-            "ammo_before":before, "ammo_after":next.units[attacker_index].ammo,
-            "reason":"combat"
-        }));
+        events.push(Event::UnitResourced {
+            unit: unit_id,
+            fuel_before: attacker.fuel,
+            fuel_after: attacker.fuel,
+            ammo_before: before,
+            ammo_after: next.units[attacker_index].ammo,
+            reason: ReasonId::from("combat"),
+        });
     }
-    events.push(json!({
-        "type":"attack-resolved", "attacker":unit_id, "weapon":weapon,
-        "target":{"type":"tile","position":position}
-    }));
-    events.push(json!({
-        "type":"destructible-damaged", "position":position,
-        "from_hp":from_hp, "to_hp":to_hp
-    }));
+    events.push(Event::AttackResolved {
+        attacker: unit_id,
+        weapon: hit.weapon.weapon,
+        target: AttackTarget::Tile { position },
+    });
+    events.push(Event::DestructibleDamaged {
+        position,
+        from_hp,
+        to_hp,
+    });
     if to_hp == 0 {
         next.board.tiles[position[1]][position[0]].terrain = destruction_replacement;
         next.board.tiles[position[1]][position[0]].destructible_hp = None;
-        events.push(json!({
-            "type":"tile-terrain-changed", "position":position,
-            "from":tile.terrain, "to":destruction_replacement, "reason":"combat"
-        }));
+        events.push(Event::TileTerrainChanged {
+            position,
+            from: tile.terrain,
+            to: destruction_replacement,
+            reason: ReasonId::from("combat"),
+        });
     } else {
         next.board.tiles[position[1]][position[0]].destructible_hp = Some(u64::from(to_hp));
     }
     next.units[attacker_index].action = UnitAction::Spent;
-    events.push(json!({
-        "type":"unit-action-changed", "unit":unit_id,
-        "from":"ready", "to":"spent", "reason":"attack"
-    }));
+    events.push(Event::UnitActionChanged {
+        unit: unit_id,
+        from: UnitAction::Ready,
+        to: UnitAction::Spent,
+        reason: ReasonId::from("attack"),
+    });
     Ok(Execution {
         state: next,
         events,
@@ -3834,14 +3927,14 @@ fn execute_move_attack(
     if plan.path.len() > 1 {
         match ruleset::profile(attacker.kind).fire_mode {
             FireMode::Indirect => {
-                return Err(violation(
-                    json!({"code":"ACTION_NOT_SUPPORTED","action":"move-and-fire"}),
-                ));
+                return Err(violation(Violation::ActionNotSupported {
+                    action: Action::MoveAndFire,
+                }));
             }
             FireMode::None => {
-                return Err(violation(
-                    json!({"code":"ACTION_NOT_SUPPORTED","action":"attack"}),
-                ));
+                return Err(violation(Violation::ActionNotSupported {
+                    action: Action::Attack,
+                }));
             }
             FireMode::Direct => {}
         }
@@ -3853,9 +3946,9 @@ fn execute_move_attack(
                 && board_position(other) == Some(destination)
                 && occupancy_is_disclosed(&visibility, state, &plan.actor_team, other)
         }) {
-            return Err(violation(
-                json!({"code":"DESTINATION_OCCUPIED","position":destination}),
-            ));
+            return Err(violation(Violation::DestinationOccupied {
+                position: destination,
+            }));
         }
 
         let mut movement = execute_planned_movement(state, unit_id, &plan);
@@ -3893,18 +3986,22 @@ fn execute_move_attack(
         .units
         .iter()
         .position(|u| u.id == target_id)
-        .ok_or_else(|| violation(json!({"code":"INVALID_TARGET","target":target_id})))?;
+        .ok_or_else(|| {
+            violation(Violation::InvalidTarget {
+                target: Some(target_id.into()),
+            })
+        })?;
     let defender = &state.units[di];
     let defender_owner = defender.owner.clone();
     let Location::Board { position: dp } = defender.location else {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":target_id}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(target_id.into()),
+        }));
     };
     if defender.owner == player {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":target_id}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(target_id.into()),
+        }));
     }
     let actor_team = state
         .players
@@ -3913,12 +4010,12 @@ fn execute_move_attack(
         .map(|candidate| candidate.team.as_str())
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
     if !AwbwVisibility.visible_unit(state, actor_team, defender) {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":target_id}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(target_id.into()),
+        }));
     }
     let concealed_target_compatible = match (
-        defender.concealment.clone(),
+        defender.concealment,
         defender.kind.as_str(),
         attacker.kind.as_str(),
     ) {
@@ -3928,15 +4025,15 @@ fn execute_move_attack(
         _ => true,
     };
     if !concealed_target_compatible {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":target_id}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(target_id.into()),
+        }));
     }
     let profile = ruleset::profile(attacker.kind);
     if profile.fire_mode == FireMode::None {
-        return Err(violation(
-            json!({"code":"ACTION_NOT_SUPPORTED","action":"attack"}),
-        ));
+        return Err(violation(Violation::ActionNotSupported {
+            action: Action::Attack,
+        }));
     }
     let distance = origin[0].abs_diff(dp[0]) + origin[1].abs_diff(dp[1]);
     if let Some(range) = profile.indirect_range {
@@ -3950,30 +4047,21 @@ fn execute_move_attack(
         ))
         .map_err(|_| ExecuteError::InvalidState("attack range overflow".into()))?;
         if distance < min || distance > max {
-            return Err(violation(
-                json!({"code":"TARGET_OUT_OF_RANGE","target":target_id}),
-            ));
+            return Err(violation(Violation::TargetOutOfRange {
+                target: Some(target_id.into()),
+            }));
         }
     } else if distance != 1 {
-        return Err(violation(
-            json!({"code":"TARGET_OUT_OF_RANGE","target":target_id}),
-        ));
+        return Err(violation(Violation::TargetOutOfRange {
+            target: Some(target_id.into()),
+        }));
     }
     if combat::select_weapon(attacker.kind, defender.kind, attacker.ammo).is_none() {
-        return Err(violation(
-            json!({"code":"INVALID_TARGET","target":target_id}),
-        ));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(target_id.into()),
+        }));
     }
-    let token = |i: usize, kind: &str, domain: commander::Domain| -> Result<i64, ExecuteError> {
-        let v = random.get(i).ok_or(ExecuteError::UnsupportedCommand)?;
-        if v["type"] != kind {
-            return Err(ExecuteError::UnsupportedCommand);
-        }
-        v["value"]
-            .as_i64()
-            .filter(|x| (domain.minimum..=domain.maximum).contains(x))
-            .ok_or(ExecuteError::UnsupportedCommand)
-    };
+    let mut tape = RandomTape::new(random);
     let stars = |p: Position| ruleset::defense_stars(state.board.tiles[p[1]][p[0]].terrain);
     let unit_domain = |kind: UnitKindId| combat_domain(ruleset::profile(kind));
     let fire_mode = |kind: UnitKindId| ruleset::profile(kind).fire_mode.as_str();
@@ -4077,10 +4165,6 @@ fn execute_move_attack(
         defense: defender_defense,
         terrain_stars: defender_stars,
     };
-    let weapon_name = |w| match w {
-        Weapon::Ammo => "ammo",
-        Weapon::Unlimited => "unlimited",
-    };
     let defender_direct = ruleset::profile(defender.kind).fire_mode == FireMode::Direct;
     let counter_first_context = Combatant {
         kind: defender.kind,
@@ -4137,7 +4221,7 @@ fn execute_move_attack(
         let countered_stars = u8::try_from(countered_stars)
             .map_err(|_| ExecuteError::InvalidState("terrain stars overflow".into()))?;
         let counter_luck =
-            token(0, "combat-good-luck", counter_good)? - token(1, "combat-bad-luck", counter_bad)?;
+            draw(&mut tape, Luck::Good, counter_good)? - draw(&mut tape, Luck::Bad, counter_bad)?;
         let preemptive = combat::damage(
             Side {
                 attack: counter_attack,
@@ -4153,8 +4237,8 @@ fn execute_move_attack(
         .expect("counter-first eligibility selected a weapon");
         let attacker_remaining = attacker.hp.saturating_sub(preemptive.damage);
         let initiating = if attacker_remaining > 0 {
-            let attack_luck = token(2, "combat-good-luck", attacker_good)?
-                - token(3, "combat-bad-luck", attacker_bad)?;
+            let attack_luck = draw(&mut tape, Luck::Good, attacker_good)?
+                - draw(&mut tape, Luck::Bad, attacker_bad)?;
             Some(
                 combat::damage(
                     Side {
@@ -4180,10 +4264,26 @@ fn execute_move_attack(
                 .expect("counter-first defender remains present");
             let before = next.units[index].ammo;
             next.units[index].ammo -= preemptive.weapon.ammo_cost;
-            events.push(json!({"type":"unit-resourced","unit":target_id,"fuel_before":defender.fuel,"fuel_after":defender.fuel,"ammo_before":before,"ammo_after":next.units[index].ammo,"reason":"combat-counter"}));
+            events.push(Event::UnitResourced {
+                unit: target_id,
+                fuel_before: defender.fuel,
+                fuel_after: defender.fuel,
+                ammo_before: before,
+                ammo_after: next.units[index].ammo,
+                reason: ReasonId::from("combat-counter"),
+            });
         }
-        events.push(json!({"type":"attack-resolved","attacker":target_id,"weapon":weapon_name(preemptive.weapon.weapon),"target":{"type":"unit","unit":unit_id}}));
-        events.push(json!({"type":"unit-damaged","unit":unit_id,"from_hp":attacker.hp,"to_hp":attacker_remaining,"reason":"combat-counter"}));
+        events.push(Event::AttackResolved {
+            attacker: target_id,
+            weapon: preemptive.weapon.weapon,
+            target: AttackTarget::Unit { unit: unit_id },
+        });
+        events.push(Event::UnitDamaged {
+            unit: unit_id,
+            from_hp: attacker.hp,
+            to_hp: attacker_remaining,
+            reason: ReasonId::from("combat-counter"),
+        });
         apply_strike_funds(
             state,
             &mut next,
@@ -4206,7 +4306,10 @@ fn execute_move_attack(
             "combat-counter",
         )?;
         if attacker_remaining == 0 {
-            events.push(json!({"type":"unit-removed","unit":unit_id,"reason":"combat-counter"}));
+            events.push(Event::UnitRemoved {
+                unit: unit_id,
+                reason: ReasonId::from("combat-counter"),
+            });
             next.units.remove(ai);
             if !next.units.iter().any(|unit| unit.owner == attacker.owner) {
                 eliminate_player(&mut next, &attacker.owner, "rout", None, None, &mut events)?;
@@ -4214,7 +4317,7 @@ fn execute_move_attack(
             return Ok(Execution {
                 state: next,
                 events,
-                random_consumed: 2,
+                random_consumed: tape.consumed(),
             });
         }
         next.units[ai].hp = attacker_remaining;
@@ -4228,11 +4331,27 @@ fn execute_move_attack(
         if hit.weapon.ammo_cost > 0 {
             let before = next.units[next_ai].ammo;
             next.units[next_ai].ammo -= hit.weapon.ammo_cost;
-            events.push(json!({"type":"unit-resourced","unit":unit_id,"fuel_before":attacker.fuel,"fuel_after":attacker.fuel,"ammo_before":before,"ammo_after":next.units[next_ai].ammo,"reason":"combat"}));
+            events.push(Event::UnitResourced {
+                unit: unit_id,
+                fuel_before: attacker.fuel,
+                fuel_after: attacker.fuel,
+                ammo_before: before,
+                ammo_after: next.units[next_ai].ammo,
+                reason: ReasonId::from("combat"),
+            });
         }
         let defender_remaining = defender.hp.saturating_sub(hit.damage);
-        events.push(json!({"type":"attack-resolved","attacker":unit_id,"weapon":weapon_name(hit.weapon.weapon),"target":{"type":"unit","unit":target_id}}));
-        events.push(json!({"type":"unit-damaged","unit":target_id,"from_hp":defender.hp,"to_hp":defender_remaining,"reason":"combat"}));
+        events.push(Event::AttackResolved {
+            attacker: unit_id,
+            weapon: hit.weapon.weapon,
+            target: AttackTarget::Unit { unit: target_id },
+        });
+        events.push(Event::UnitDamaged {
+            unit: target_id,
+            from_hp: defender.hp,
+            to_hp: defender_remaining,
+            reason: ReasonId::from("combat"),
+        });
         apply_strike_funds(
             state,
             &mut next,
@@ -4255,7 +4374,10 @@ fn execute_move_attack(
             "combat",
         )?;
         if defender_remaining == 0 {
-            events.push(json!({"type":"unit-removed","unit":target_id,"reason":"combat"}));
+            events.push(Event::UnitRemoved {
+                unit: target_id,
+                reason: ReasonId::from("combat"),
+            });
             let next_di = next
                 .units
                 .iter()
@@ -4276,20 +4398,28 @@ fn execute_move_attack(
             .position(|unit| unit.id == unit_id)
             .expect("acting attacker survives counter-first engagement");
         next.units[next_ai].action = UnitAction::Spent;
-        events.push(json!({"type":"unit-action-changed","unit":unit_id,"from":"ready","to":"spent","reason":"attack"}));
+        events.push(Event::UnitActionChanged {
+            unit: unit_id,
+            from: UnitAction::Ready,
+            to: UnitAction::Spent,
+            reason: ReasonId::from("attack"),
+        });
         if defender_remaining == 0 && !next.units.iter().any(|unit| unit.owner == defender_owner) {
             eliminate_player(&mut next, &defender_owner, "rout", None, None, &mut events)?;
         }
         return Ok(Execution {
             state: next,
             events,
-            random_consumed: 4,
+            random_consumed: tape.consumed(),
         });
     }
     let attack_luck =
-        token(0, "combat-good-luck", attacker_good)? - token(1, "combat-bad-luck", attacker_bad)?;
-    let first = combat::damage(attacker_side, defender_side, attack_luck)
-        .ok_or_else(|| violation(json!({"code":"INVALID_TARGET","target":target_id})))?;
+        draw(&mut tape, Luck::Good, attacker_good)? - draw(&mut tape, Luck::Bad, attacker_bad)?;
+    let first = combat::damage(attacker_side, defender_side, attack_luck).ok_or_else(|| {
+        violation(Violation::InvalidTarget {
+            target: Some(target_id.into()),
+        })
+    })?;
     let remaining = defender.hp.saturating_sub(first.damage);
     let counter = if remaining > 0
         && distance == 1
@@ -4341,7 +4471,7 @@ fn execute_move_attack(
         let countered_stars = u8::try_from(countered_stars)
             .map_err(|_| ExecuteError::InvalidState("terrain stars overflow".into()))?;
         let luck =
-            token(2, "combat-good-luck", counter_good)? - token(3, "combat-bad-luck", counter_bad)?;
+            draw(&mut tape, Luck::Good, counter_good)? - draw(&mut tape, Luck::Bad, counter_bad)?;
         combat::damage(
             Side {
                 hp: remaining,
@@ -4363,10 +4493,26 @@ fn execute_move_attack(
     if first.weapon.ammo_cost > 0 {
         let before = next.units[ai].ammo;
         next.units[ai].ammo -= first.weapon.ammo_cost;
-        events.push(json!({"type":"unit-resourced","unit":unit_id,"fuel_before":attacker.fuel,"fuel_after":attacker.fuel,"ammo_before":before,"ammo_after":next.units[ai].ammo,"reason":"combat"}));
+        events.push(Event::UnitResourced {
+            unit: unit_id,
+            fuel_before: attacker.fuel,
+            fuel_after: attacker.fuel,
+            ammo_before: before,
+            ammo_after: next.units[ai].ammo,
+            reason: ReasonId::from("combat"),
+        });
     }
-    events.push(json!({"type":"attack-resolved","attacker":unit_id,"weapon":weapon_name(first.weapon.weapon),"target":{"type":"unit","unit":target_id}}));
-    events.push(json!({"type":"unit-damaged","unit":target_id,"from_hp":defender.hp,"to_hp":remaining,"reason":"combat"}));
+    events.push(Event::AttackResolved {
+        attacker: unit_id,
+        weapon: first.weapon.weapon,
+        target: AttackTarget::Unit { unit: target_id },
+    });
+    events.push(Event::UnitDamaged {
+        unit: target_id,
+        from_hp: defender.hp,
+        to_hp: remaining,
+        reason: ReasonId::from("combat"),
+    });
     apply_strike_funds(
         state,
         &mut next,
@@ -4395,11 +4541,27 @@ fn execute_move_attack(
         let before = next.units[di].ammo;
         if hit.weapon.ammo_cost > 0 {
             next.units[di].ammo -= hit.weapon.ammo_cost;
-            events.push(json!({"type":"unit-resourced","unit":target_id,"fuel_before":defender.fuel,"fuel_after":defender.fuel,"ammo_before":before,"ammo_after":next.units[di].ammo,"reason":"combat-counter"}));
+            events.push(Event::UnitResourced {
+                unit: target_id,
+                fuel_before: defender.fuel,
+                fuel_after: defender.fuel,
+                ammo_before: before,
+                ammo_after: next.units[di].ammo,
+                reason: ReasonId::from("combat-counter"),
+            });
         }
         let ahp = attacker.hp.saturating_sub(hit.damage);
-        events.push(json!({"type":"attack-resolved","attacker":target_id,"weapon":weapon_name(hit.weapon.weapon),"target":{"type":"unit","unit":unit_id}}));
-        events.push(json!({"type":"unit-damaged","unit":unit_id,"from_hp":attacker.hp,"to_hp":ahp,"reason":"combat-counter"}));
+        events.push(Event::AttackResolved {
+            attacker: target_id,
+            weapon: hit.weapon.weapon,
+            target: AttackTarget::Unit { unit: unit_id },
+        });
+        events.push(Event::UnitDamaged {
+            unit: unit_id,
+            from_hp: attacker.hp,
+            to_hp: ahp,
+            reason: ReasonId::from("combat-counter"),
+        });
         apply_strike_funds(
             state,
             &mut next,
@@ -4424,7 +4586,10 @@ fn execute_move_attack(
         next.units[ai].hp = ahp;
     }
     if remaining == 0 {
-        events.push(json!({"type":"unit-removed","unit":target_id,"reason":"combat"}));
+        events.push(Event::UnitRemoved {
+            unit: target_id,
+            reason: ReasonId::from("combat"),
+        });
         next.units.remove(di);
     }
     let next_ai = next
@@ -4433,14 +4598,19 @@ fn execute_move_attack(
         .position(|u| u.id == unit_id)
         .expect("attacker survives this slice");
     next.units[next_ai].action = UnitAction::Spent;
-    events.push(json!({"type":"unit-action-changed","unit":unit_id,"from":"ready","to":"spent","reason":"attack"}));
+    events.push(Event::UnitActionChanged {
+        unit: unit_id,
+        from: UnitAction::Ready,
+        to: UnitAction::Spent,
+        reason: ReasonId::from("attack"),
+    });
     if remaining == 0 && !next.units.iter().any(|unit| unit.owner == defender_owner) {
         eliminate_player(&mut next, &defender_owner, "rout", None, None, &mut events)?;
     }
     Ok(Execution {
         state: next,
         events,
-        random_consumed: if counter.is_some() { 4 } else { 2 },
+        random_consumed: tape.consumed(),
     })
 }
 
@@ -4453,23 +4623,23 @@ fn execute_move_launch(
 ) -> Result<Execution, ExecuteError> {
     let plan = validate_movement_prefix(state, player, unit_id, path)?;
     if target[0] >= state.board.width || target[1] >= state.board.height {
-        return Err(violation(json!({
-            "code":"INVALID_TARGET", "target":target
-        })));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(target.into()),
+        }));
     }
 
     let unit = &state.units[plan.unit_index];
     if !matches!(unit.kind.as_str(), "infantry" | "mech") {
-        return Err(violation(json!({
-            "code":"ACTION_NOT_SUPPORTED", "action":"move-launch"
-        })));
+        return Err(violation(Violation::ActionNotSupported {
+            action: Action::MoveLaunch,
+        }));
     }
     let silo_position = *plan.path.last().expect("origin was checked");
     let silo = &state.board.tiles[silo_position[1]][silo_position[0]].silo;
     if silo != &Some(Silo::Ready) {
-        return Err(violation(json!({
-            "code":"INVALID_TARGET", "target":silo_position
-        })));
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(silo_position.into()),
+        }));
     }
     let visibility = AwbwVisibility;
     if state.units.iter().any(|other| {
@@ -4477,9 +4647,9 @@ fn execute_move_launch(
             && board_position(other) == Some(silo_position)
             && occupancy_is_disclosed(&visibility, state, &plan.actor_team, other)
     }) {
-        return Err(violation(json!({
-            "code":"DESTINATION_OCCUPIED", "position":silo_position
-        })));
+        return Err(violation(Violation::DestinationOccupied {
+            position: silo_position,
+        }));
     }
 
     let mut outcome = execute_planned_movement(state, unit_id, &plan);
@@ -4494,10 +4664,13 @@ fn execute_move_launch(
     // AWBW's silo missile is three visual bars (30 exact HP), nonlethal, and
     // affects every board unit, including allies. Derive the list after the
     // move and sort it so event order is independent of state-vector order.
-    outcome.events.push(json!({
-        "type":"area-strike-resolved", "strike":0, "policy":"unit-hp",
-        "center":target, "radius":3, "damage":30
-    }));
+    outcome.events.push(Event::AreaStrikeResolved {
+        strike: 0,
+        policy: AreaStrikePolicy::UnitHp,
+        center: target,
+        radius: 3,
+        damage: 30,
+    });
     let mut affected: Vec<UnitId> = outcome
         .state
         .units
@@ -4521,17 +4694,20 @@ fn execute_move_launch(
         let to_hp = from_hp.saturating_sub(30).max(1);
         if to_hp != from_hp {
             unit.hp = to_hp;
-            outcome.events.push(json!({
-                "type":"unit-damaged", "unit":id, "from_hp":from_hp,
-                "to_hp":to_hp, "reason":"missile-silo"
-            }));
+            outcome.events.push(Event::UnitDamaged {
+                unit: id,
+                from_hp,
+                to_hp,
+                reason: ReasonId::from("missile-silo"),
+            });
         }
     }
     outcome.state.board.tiles[silo_position[1]][silo_position[0]].silo = Some(Silo::Spent);
-    outcome.events.push(json!({
-        "type":"silo-changed", "position":silo_position,
-        "from":"ready", "to":"spent"
-    }));
+    outcome.events.push(Event::SiloChanged {
+        position: silo_position,
+        from: Silo::Ready,
+        to: Silo::Spent,
+    });
     Ok(Execution {
         state: outcome.state,
         events: outcome.events,
@@ -4548,9 +4724,9 @@ fn execute_move_explode(
     let plan = validate_movement_prefix(state, player, unit_id, path)?;
     let unit = &state.units[plan.unit_index];
     if unit.kind != UnitKind::BlackBomb {
-        return Err(violation(json!({
-            "code":"ACTION_NOT_SUPPORTED", "action":"move-explode"
-        })));
+        return Err(violation(Violation::ActionNotSupported {
+            action: Action::MoveExplode,
+        }));
     }
     let destination = *plan.path.last().expect("origin was checked");
     let visibility = AwbwVisibility;
@@ -4559,9 +4735,9 @@ fn execute_move_explode(
             && board_position(other) == Some(destination)
             && occupancy_is_disclosed(&visibility, state, &plan.actor_team, other)
     }) {
-        return Err(violation(json!({
-            "code":"DESTINATION_OCCUPIED", "position":destination
-        })));
+        return Err(violation(Violation::DestinationOccupied {
+            position: destination,
+        }));
     }
 
     let mut outcome = execute_planned_movement(state, unit_id, &plan);
@@ -4573,10 +4749,13 @@ fn execute_move_explode(
         });
     }
 
-    outcome.events.push(json!({
-        "type":"area-strike-resolved", "strike":0, "policy":"unit-hp",
-        "center":destination, "radius":3, "damage":50
-    }));
+    outcome.events.push(Event::AreaStrikeResolved {
+        strike: 0,
+        policy: AreaStrikePolicy::UnitHp,
+        center: destination,
+        radius: 3,
+        damage: 50,
+    });
     let mut affected: Vec<UnitId> = outcome
         .state
         .units
@@ -4603,17 +4782,20 @@ fn execute_move_explode(
             continue;
         }
         unit.hp = to_hp;
-        outcome.events.push(json!({
-            "type":"unit-damaged", "unit":id, "from_hp":from_hp,
-            "to_hp":to_hp, "reason":"explode"
-        }));
+        outcome.events.push(Event::UnitDamaged {
+            unit: id,
+            from_hp,
+            to_hp,
+            reason: ReasonId::from("explode"),
+        });
     }
 
     let exploding_owner = outcome.state.units[plan.unit_index].owner.clone();
     outcome.state.units.remove(plan.unit_index);
-    outcome.events.push(json!({
-        "type":"unit-removed", "unit":unit_id, "reason":"explode"
-    }));
+    outcome.events.push(Event::UnitRemoved {
+        unit: unit_id,
+        reason: ReasonId::from("explode"),
+    });
     if !outcome
         .state
         .units
@@ -4645,31 +4827,33 @@ fn execute_delete_unit(
         return Err(ExecuteError::UnsupportedRuleset);
     }
     if matches!(state.match_state, Match::Finished { .. }) {
-        return Err(violation(json!({"code":"MATCH_FINISHED"})));
+        return Err(violation(Violation::MatchFinished));
     }
     if state.turn.phase != Phase::UnitAction {
-        return Err(violation(json!({
-            "code":"WRONG_PHASE", "expected":"unit-action", "actual":state.turn.phase
-        })));
+        return Err(violation(Violation::WrongPhase {
+            expected: Phase::UnitAction,
+            actual: state.turn.phase,
+        }));
     }
     if state.turn.active_player != player {
-        return Err(violation(json!({
-            "code":"NOT_ACTIVE_PLAYER", "player":player
-        })));
+        return Err(violation(Violation::NotActivePlayer {
+            player: PlayerId::from(player),
+        }));
     }
     let unit_index = state
         .units
         .iter()
         .position(|unit| unit.id == unit_id)
-        .ok_or_else(|| violation(json!({"code":"UNIT_NOT_FOUND", "unit":unit_id})))?;
+        .ok_or_else(|| violation(Violation::UnitNotFound { unit: unit_id }))?;
     let unit = &state.units[unit_index];
     if unit.owner != player {
-        return Err(violation(json!({
-            "code":"UNIT_NOT_OWNED", "unit":unit_id, "player":player
-        })));
+        return Err(violation(Violation::UnitNotOwned {
+            unit: unit_id,
+            player: PlayerId::from(player),
+        }));
     }
     let position = board_position(unit)
-        .ok_or_else(|| violation(json!({"code":"UNIT_NOT_ON_BOARD", "unit":unit_id})))?;
+        .ok_or_else(|| violation(Violation::UnitNotOnBoard { unit: unit_id }))?;
 
     let mut next = state.clone();
     let mut events = Vec::new();
@@ -4678,14 +4862,17 @@ fn execute_delete_unit(
         .filter(|points| *points < 20)
     {
         next.board.tiles[position[1]][position[0]].capture_points = Some(20);
-        events.push(json!({
-            "type":"capture-changed", "position":position, "from":before, "to":20
-        }));
+        events.push(Event::CaptureChanged {
+            position,
+            from: before,
+            to: 20,
+        });
     }
     next.units.remove(unit_index);
-    events.push(json!({
-        "type":"unit-removed", "unit":unit_id, "reason":"delete"
-    }));
+    events.push(Event::UnitRemoved {
+        unit: unit_id,
+        reason: ReasonId::from("delete"),
+    });
     if !next.units.iter().any(|unit| unit.owner == player) {
         eliminate_player(&mut next, player, "rout", None, None, &mut events)?;
     }
@@ -4711,9 +4898,9 @@ fn execute_move_wait(
             && board_position(other) == Some(destination)
             && occupancy_is_disclosed(&visibility, state, &plan.actor_team, other)
     }) {
-        return Err(violation(
-            json!({"code":"DESTINATION_OCCUPIED","position":destination}),
-        ));
+        return Err(violation(Violation::DestinationOccupied {
+            position: destination,
+        }));
     }
     let outcome = execute_planned_movement(state, unit_id, &plan);
     Ok(Execution {
@@ -4723,13 +4910,62 @@ fn execute_move_wait(
     })
 }
 
-fn violation(value: Value) -> ExecuteError {
-    ExecuteError::Violation(value)
+/// Draw one combat luck roll.
+///
+/// A malformed combat tape has always reported `UNSUPPORTED_COMMAND` rather than
+/// the execution failure `spec/model/violations.md` describes for "missing,
+/// wrong-type, or out-of-domain random input". Preserved rather than corrected,
+/// so typing the tape stays invisible on the wire; see handoff.md.
+fn draw(
+    tape: &mut RandomTape<'_>,
+    polarity: Luck,
+    domain: commander::Domain,
+) -> Result<i64, ExecuteError> {
+    tape.luck(polarity, domain)
+        .map_err(|_| ExecuteError::UnsupportedCommand)
+}
+
+fn violation(violation: Violation) -> ExecuteError {
+    ExecuteError::Violation(violation)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combat::Weapon;
+    use serde_json::json;
+
+    /// The unit an event is about, for tests that assert which units an
+    /// operation touched and in what order.
+    fn event_unit(event: &Event) -> UnitId {
+        match event {
+            Event::UnitDamaged { unit, .. }
+            | Event::UnitRemoved { unit, .. }
+            | Event::UnitRepaired { unit, .. }
+            | Event::UnitResourced { unit, .. } => *unit,
+            other => panic!("{} names no single unit", other.kind()),
+        }
+    }
+
+    /// The weapon an `attack-resolved` or ammo-spending event reports.
+    fn event_weapon(event: &Event) -> Weapon {
+        match event {
+            Event::AttackResolved { weapon, .. } => *weapon,
+            other => panic!("{} reports no weapon", other.kind()),
+        }
+    }
+
+    /// The `(before, after)` ammo an event records.
+    fn event_ammo(event: &Event) -> (u64, u64) {
+        match event {
+            Event::UnitResourced {
+                ammo_before,
+                ammo_after,
+                ..
+            } => (*ammo_before, *ammo_after),
+            other => panic!("{} records no ammo", other.kind()),
+        }
+    }
 
     fn direct_combat_state(width: usize) -> State {
         let case: Value = serde_json::from_str(include_str!(
@@ -4772,17 +5008,18 @@ mod tests {
 
         assert_eq!(
             execute(&state, activate(), &[]),
-            Err(violation(json!({
-                "code":"INSUFFICIENT_POWER", "required":21600, "available":21599
-            })))
+            Err(violation(Violation::InsufficientPower {
+                required: 21600,
+                available: 21599
+            }))
         );
 
         state.settings.powers = crate::semantic::Toggle::Disabled;
         assert_eq!(
             execute(&state, activate(), &[]),
-            Err(violation(json!({
-                "code":"ACTION_NOT_SUPPORTED", "action":"activate-power"
-            })))
+            Err(violation(Violation::ActionNotSupported {
+                action: Action::ActivatePower
+            }))
         );
     }
 
@@ -4848,9 +5085,18 @@ mod tests {
         assert_eq!(
             result.events[4..7],
             [
-                json!({"type":"automatic-supply","source":0,"units":[1]}),
-                json!({"type":"unit-removed","unit":0,"reason":"fuel-depleted"}),
-                json!({"type":"unit-removed","unit":1,"reason":"carrier-lost"}),
+                Event::AutomaticSupply {
+                    source: SupplySource::Unit(UnitId::new(0)),
+                    units: vec![UnitId::new(1)]
+                },
+                Event::UnitRemoved {
+                    unit: UnitId::new(0),
+                    reason: ReasonId::from("fuel-depleted")
+                },
+                Event::UnitRemoved {
+                    unit: UnitId::new(1),
+                    reason: ReasonId::from("carrier-lost")
+                },
             ]
         );
     }
@@ -4880,9 +5126,23 @@ mod tests {
         assert_eq!(
             result.events,
             vec![
-                json!({"type":"capture-changed","position":[0,0],"from":10,"to":20}),
-                json!({"type":"unit-moved","unit":0,"from":[0,0],"to":[1,0],"path":[[0,0],[1,0]],"fuel_spent":1}),
-                json!({"type":"capture-changed","position":[1,0],"from":20,"to":10}),
+                Event::CaptureChanged {
+                    position: [0, 0],
+                    from: 10,
+                    to: 20
+                },
+                Event::UnitMoved {
+                    unit: UnitId::new(0),
+                    from: [0, 0],
+                    to: [1, 0],
+                    path: vec![[0, 0], [1, 0]],
+                    fuel_spent: 1
+                },
+                Event::CaptureChanged {
+                    position: [1, 0],
+                    from: 20,
+                    to: 10
+                },
             ]
         );
     }
@@ -4932,8 +5192,18 @@ mod tests {
         assert_eq!(
             result.events,
             vec![
-                json!({"type":"unit-moved","unit":0,"from":[0,0],"to":[2,0],"path":[[0,0],[1,0],[2,0]],"fuel_spent":2}),
-                json!({"type":"movement-trapped","unit":0,"blocker":1,"position":[3,0]}),
+                Event::UnitMoved {
+                    unit: UnitId::new(0),
+                    from: [0, 0],
+                    to: [2, 0],
+                    path: vec![[0, 0], [1, 0], [2, 0]],
+                    fuel_spent: 2
+                },
+                Event::MovementTrapped {
+                    unit: UnitId::new(0),
+                    blocker: UnitId::new(1),
+                    position: [3, 0]
+                },
             ]
         );
     }
@@ -4982,8 +5252,18 @@ mod tests {
         assert_eq!(
             result.events,
             vec![
-                json!({"type":"unit-moved","unit":0,"from":[0,0],"to":[5,0],"path":[[0,0],[1,0],[2,0],[3,0],[4,0],[5,0]],"fuel_spent":5}),
-                json!({"type":"movement-trapped","unit":0,"blocker":1,"position":[6,0]}),
+                Event::UnitMoved {
+                    unit: UnitId::new(0),
+                    from: [0, 0],
+                    to: [5, 0],
+                    path: vec![[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0]],
+                    fuel_spent: 5
+                },
+                Event::MovementTrapped {
+                    unit: UnitId::new(0),
+                    blocker: UnitId::new(1),
+                    position: [6, 0]
+                },
             ]
         );
     }
@@ -5065,11 +5345,7 @@ mod tests {
                 .hp,
             1
         );
-        let types: Vec<_> = result
-            .events
-            .iter()
-            .map(|e| e["type"].as_str().unwrap())
-            .collect();
+        let types: Vec<_> = result.events.iter().map(Event::kind).collect();
         assert_eq!(
             types,
             vec![
@@ -5081,9 +5357,9 @@ mod tests {
                 "silo-changed"
             ]
         );
-        assert_eq!(result.events[2]["unit"], 0);
-        assert_eq!(result.events[3]["unit"], 1);
-        assert_eq!(result.events[4]["unit"], 2);
+        assert_eq!(event_unit(&result.events[2]), UnitId::new(0));
+        assert_eq!(event_unit(&result.events[3]), UnitId::new(1));
+        assert_eq!(event_unit(&result.events[4]), UnitId::new(2));
         let observed = crate::semantic::observe_events(
             &AwbwVisibility,
             &state,
@@ -5176,11 +5452,7 @@ mod tests {
             100
         );
         assert_eq!(result.state.players[0].commanders[0].power_charge, 0);
-        let types: Vec<_> = result
-            .events
-            .iter()
-            .map(|e| e["type"].as_str().unwrap())
-            .collect();
+        let types: Vec<_> = result.events.iter().map(Event::kind).collect();
         assert_eq!(
             types,
             vec![
@@ -5191,8 +5463,8 @@ mod tests {
                 "unit-removed"
             ]
         );
-        assert_eq!(result.events[2]["unit"], 1);
-        assert_eq!(result.events[3]["unit"], 2);
+        assert_eq!(event_unit(&result.events[2]), UnitId::new(1));
+        assert_eq!(event_unit(&result.events[3]), UnitId::new(2));
     }
 
     #[test]
@@ -5231,8 +5503,15 @@ mod tests {
         assert_eq!(
             result.events,
             vec![
-                json!({"type":"capture-changed","position":[0,0],"from":10,"to":20}),
-                json!({"type":"unit-removed","unit":0,"reason":"delete"}),
+                Event::CaptureChanged {
+                    position: [0, 0],
+                    from: 10,
+                    to: 20
+                },
+                Event::UnitRemoved {
+                    unit: UnitId::new(0),
+                    reason: ReasonId::from("delete")
+                },
             ]
         );
     }
@@ -5275,9 +5554,25 @@ mod tests {
         assert_eq!(
             result.events[..3],
             [
-                json!({"type":"capture-changed","position":[0,0],"from":10,"to":20}),
-                json!({"type":"unit-moved","unit":0,"from":[0,0],"to":[1,0],"path":[[0,0],[1,0]],"fuel_spent":1}),
-                json!({"type":"attack-resolved","attacker":0,"weapon":"unlimited","target":{"type":"unit","unit":1}}),
+                Event::CaptureChanged {
+                    position: [0, 0],
+                    from: 10,
+                    to: 20
+                },
+                Event::UnitMoved {
+                    unit: UnitId::new(0),
+                    from: [0, 0],
+                    to: [1, 0],
+                    path: vec![[0, 0], [1, 0]],
+                    fuel_spent: 1
+                },
+                Event::AttackResolved {
+                    attacker: UnitId::new(0),
+                    weapon: Weapon::Unlimited,
+                    target: AttackTarget::Unit {
+                        unit: UnitId::new(1)
+                    }
+                },
             ]
         );
     }
@@ -5309,8 +5604,8 @@ mod tests {
 
         let result = execute(&state, command, &random).unwrap();
 
-        assert_eq!(result.events[0]["type"], "unit-moved");
-        assert_eq!(result.events[1]["type"], "attack-resolved");
+        assert_eq!(result.events[0].kind(), "unit-moved");
+        assert_eq!(result.events[1].kind(), "attack-resolved");
     }
 
     #[test]
@@ -5348,8 +5643,18 @@ mod tests {
         assert_eq!(
             result.events,
             [
-                json!({"type":"unit-moved","unit":0,"from":[0,0],"to":[2,0],"path":[[0,0],[1,0],[2,0]],"fuel_spent":2}),
-                json!({"type":"movement-trapped","unit":0,"blocker":1,"position":[3,0]}),
+                Event::UnitMoved {
+                    unit: UnitId::new(0),
+                    from: [0, 0],
+                    to: [2, 0],
+                    path: vec![[0, 0], [1, 0], [2, 0]],
+                    fuel_spent: 2
+                },
+                Event::MovementTrapped {
+                    unit: UnitId::new(0),
+                    blocker: UnitId::new(1),
+                    position: [3, 0]
+                },
             ]
         );
     }
@@ -5373,9 +5678,9 @@ mod tests {
 
         assert_eq!(
             execute(&state, command, &[]),
-            Err(ExecuteError::Violation(
-                json!({"code":"ACTION_NOT_SUPPORTED","action":"move-and-fire"})
-            ))
+            Err(ExecuteError::Violation(Violation::ActionNotSupported {
+                action: Action::MoveAndFire
+            }))
         );
     }
 
@@ -5415,8 +5720,8 @@ mod tests {
         assert_eq!(result.state.units[0].hp, 75);
         assert_eq!(result.state.units[1].hp, 51);
         assert_eq!(result.random_consumed, 4);
-        assert_eq!(result.events[0]["weapon"], "unlimited");
-        assert_eq!(result.events[2]["weapon"], "unlimited");
+        assert_eq!(event_weapon(&result.events[0]), Weapon::Unlimited);
+        assert_eq!(event_weapon(&result.events[2]), Weapon::Unlimited);
 
         let attack = |state: &State| {
             let command: Command = serde_json::from_value(json!({"type":"move-attack","player":"red","unit":0,"path":[[0,0]],"target":{"type":"unit","unit":1}})).unwrap();
@@ -5429,15 +5734,14 @@ mod tests {
         tank_vs_tank.units[1].kind = UnitKindId::Tank;
         tank_vs_tank.units[1].ammo = 9;
         let result = attack(&tank_vs_tank);
-        assert_eq!(result.events[0]["ammo_before"], 9);
-        assert_eq!(result.events[0]["ammo_after"], 8);
-        assert_eq!(result.events[1]["weapon"], "ammo");
+        assert_eq!(event_ammo(&result.events[0]), (9, 8));
+        assert_eq!(event_weapon(&result.events[1]), Weapon::Ammo);
 
         let mut tank_vs_infantry = state.clone();
         tank_vs_infantry.units[0].kind = UnitKindId::Tank;
         tank_vs_infantry.units[0].ammo = 9;
         let result = attack(&tank_vs_infantry);
-        assert_eq!(result.events[0]["weapon"], "unlimited");
+        assert_eq!(event_weapon(&result.events[0]), Weapon::Unlimited);
         assert_eq!(
             result
                 .state
@@ -5452,7 +5756,7 @@ mod tests {
         let mut empty_tank_vs_tank = tank_vs_tank;
         empty_tank_vs_tank.units[0].ammo = 0;
         let result = attack(&empty_tank_vs_tank);
-        assert_eq!(result.events[0]["weapon"], "unlimited");
+        assert_eq!(event_weapon(&result.events[0]), Weapon::Unlimited);
     }
 
     #[test]
@@ -5481,9 +5785,21 @@ mod tests {
         assert_eq!(
             result.events[result.events.len() - 3..],
             [
-                json!({"type":"player-status-changed","player":"blue","from":"active","to":"eliminated"}),
-                json!({"type":"team-eliminated","team":"blue-team","reason":"rout"}),
-                json!({"type":"match-completed","outcome":{"type":"victory","winners":["red-team"],"reason":"rout"}}),
+                Event::PlayerStatusChanged {
+                    player: PlayerId::from("blue"),
+                    from: PlayerStatus::Active,
+                    to: PlayerStatus::Eliminated
+                },
+                Event::TeamEliminated {
+                    team: crate::semantic::TeamId::from("blue-team"),
+                    reason: ReasonId::from("rout")
+                },
+                Event::MatchCompleted {
+                    outcome: Outcome::Victory {
+                        winners: vec![crate::semantic::TeamId::from("red-team")],
+                        reason: ReasonId::from("rout")
+                    }
+                },
             ]
         );
     }

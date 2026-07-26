@@ -25,7 +25,10 @@
 pub mod combat;
 pub mod commander;
 pub mod conformance;
+pub mod event;
 pub mod protocol;
+pub mod random;
 pub mod ruleset;
 pub mod semantic;
 pub mod transition;
+pub mod violation;
