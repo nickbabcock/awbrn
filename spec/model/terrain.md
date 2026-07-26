@@ -25,6 +25,14 @@ or observation:
   replacement terrain after destruction. Present exactly when the kind carries
   the `destructible` trait.
 
+The `teleporter` trait marks AWBW's black transit tiles. They have zero defense
+stars, no property kind or income, and a movement cost of zero for every
+weather and movement class. They may occur consecutively, allowing a submitted
+orthogonally-adjacent path to cross an arbitrarily long contiguous run without
+spending movement points or fuel. A teleporter may be traversed but is never a
+legal final unit location. Under fog it can never receive a visible vision
+level, even from an adjacent or occupying vision source.
+
 The two vision fields carry the magnitudes that the corresponding traits only
 name. A trait without its field, or a field without its trait, is an invalid
 profile; `tools/validate-ruleset.mjs` checks the correspondence. Their use is
@@ -48,7 +56,8 @@ introduced only by terrain traits. Examples include:
 - capture points;
 - destructible-object HP;
 - missile-silo availability; and
-- teleporter association.
+- teleporter association (for rulesets that define linked endpoints; AWBW black
+  tiles use contiguous traversal and have no association).
 
 The owner is a player identifier or `null`; it is not a faction-colored terrain
 kind. A property changing owner therefore does not change its terrain kind.

@@ -10,7 +10,7 @@ use super::ReducerError as ExecuteError;
 use super::*;
 use crate::commander::{self};
 use crate::event::Event;
-use crate::ruleset::{self, Relation, TargetSet};
+use crate::ruleset::{self, Relation, TargetSet, TerrainTrait};
 use crate::semantic::{
     AwbwVisibility, KnownReason, Location, PlayerId, Pos, State, UnitAction, UnitId,
 };
@@ -352,12 +352,13 @@ pub(crate) fn execute_unload(
     let weather = commander::effective_weather(state, cargo);
     let destination_tile = state.board.get(destination);
     let passable = destination_tile.is_some_and(|tile| {
-        commander::effective_movement_cost(
-            state,
-            cargo,
-            ruleset::movement_cost(tile.terrain, weather, movement_class),
-        )
-        .is_some()
+        !ruleset::terrain_has(tile.terrain, TerrainTrait::Teleporter)
+            && commander::effective_movement_cost(
+                state,
+                cargo,
+                ruleset::movement_cost(tile.terrain, weather, movement_class),
+            )
+            .is_some()
     });
     if !passable {
         return Err(violation(Violation::TerrainImpassable {

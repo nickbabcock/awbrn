@@ -135,7 +135,7 @@ NOT_ACTIVE_PLAYER
 INVALID_TARGET      (transport is not an owned on-board transport)
 INVALID_TARGET      (cargo is not currently loaded in that transport)
 TARGET_OUT_OF_RANGE (destination is not orthogonally adjacent to the transport)
-TERRAIN_IMPASSABLE  (the cargo kind cannot enter the destination terrain)
+TERRAIN_IMPASSABLE  (the cargo kind cannot enter or stop on the destination terrain)
 DESTINATION_OCCUPIED (destination holds a unit)
 ```
 
@@ -147,7 +147,9 @@ DESTINATION_OCCUPIED (destination holds a unit)
   distance from the transport's board position is not exactly one.
 - `TERRAIN_IMPASSABLE` (`position: destination`) when the destination terrain's
   base cost for the cargo kind's movement class is `null` under the current
-  weather; a unit cannot be unloaded onto terrain it could not occupy.
+  weather, or when it carries the `teleporter` trait. Teleporters are
+  traversable at zero cost but cannot hold a unit, so cargo cannot be unloaded
+  onto one.
 - `DESTINATION_OCCUPIED` (`position: destination`) when any living on-board unit
   occupies the destination.
 

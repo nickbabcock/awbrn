@@ -32,7 +32,8 @@ For path `P = [p_0, ..., p_k]`, acting unit `u`, and pre-state `S`:
 - `entry-cost(Γ,u,p)` is the effective movement cost after applying the closed
   movement-cost modifier algebra. `null` remains impassable: a modifier MUST
   NOT turn a `null` base cost into a finite cost unless a named ruleset operator
-  explicitly permits it.
+  explicitly permits it. The AWBW `teleporter` value is fixed at zero and is
+  not changed by commander movement-cost operators.
 - `move-allowance(Γ,u)` is the effective movement-point allowance.
 - For an actually traversed path `A = [p_0, ..., p_j]`,
   `path-cost(Γ,u,A) = sum(entry-cost(Γ,u,p_i), i=1..j)`. The origin costs zero.
@@ -125,6 +126,13 @@ zero fuel. Hidden enemy occupancy is omitted from occupancy checks; validation
 uses the terrain and cost of the full intended path and MUST NOT disclose the
 obstruction through a rejection or payload.
 
+`TERRAIN_IMPASSABLE` also applies when the intended destination is a
+`teleporter`: the tile is traversable but cannot hold a unit. It carries the
+destination's path index and position. For an invalid one-position wait by a
+predeployed unit on a teleporter, that index is zero. This terminal-position
+case participates in the terrain scan at its ordinary position, so an earlier
+impassable path tile still wins.
+
 ## State-bound validated command
 
 In addition to the binding required by `model/transition-system.md`, the
@@ -198,16 +206,24 @@ according to `model/observation.md`: only the actor's team receives
 
 ## Terrain and teleporters
 
-The AWBW `2026-07-10` movement table is the sole executable base-cost relation.
-It provides clear/rain/snow costs for all eight movement classes. `null` means
-impassable, including the profile's `teleporter` terrain for every class.
+The AWBW `2026-07-10` movement table provides clear/rain/snow costs for all
+eight movement classes. `null` means impassable. A `teleporter` instead has
+cost zero for every class and weather. Each submitted path step remains
+orthogonally adjacent and subject to the ordinary no-repeat and occupancy
+rules; there is no synthetic long-distance edge. Consecutive teleporter steps
+therefore cross a contiguous run at zero total movement and fuel cost.
 
-This teleporter rule follows the official terrain chart used by the candidate
-table. The AWBW Wiki instead documents zero-cost traversal, contiguous
-long-distance behavior, and a prohibition on ending there. That conflict is
-recorded rather than resolved by inventing adjacency exceptions. No special
-teleport edge exists in this revision; changing it requires stronger evidence,
-a revised table, and explicit path syntax/semantics.
+A path may contain teleporters only as intermediate positions. Its intended
+destination MUST NOT be a teleporter. This restriction applies to every
+`move-*` family, including load and join, independently of destination
+occupancy licensing.
+
+If an undisclosed enemy beyond a traversed teleporter run traps the mover, the
+actual path is shortened further until its destination is not a teleporter.
+Equivalently, trailing teleporter positions are removed from the ordinary trap
+prefix. This can return the mover to the tile immediately before the run (or
+its origin), preserves the no-unit-on-teleporter invariant, and charges only
+the resulting actual path.
 
 Predeployed units may occupy terrain their class cannot enter. Such a state is
 not invalid merely for that reason. They may leave through an adjacent legal
@@ -244,5 +260,6 @@ Known conflict:
 - WarsWorld currently charges fuel per traversed edge, while AWBW documentation
   states fuel equals movement points spent. The AWBW profile follows the AWBW
   documentation; WarsWorld is not evidence for that sub-rule.
-- The official terrain chart and AWBW Wiki disagree on teleporter traversal.
-  This revision retains the official-table `null` costs.
+- The official terrain chart marks teleporters with `-`, while the AWBW Wiki
+  documents their observed zero-cost contiguous traversal. This revision
+  models the behavior rather than interpreting `-` as impassable.

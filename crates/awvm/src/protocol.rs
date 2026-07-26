@@ -19,6 +19,7 @@ pub const PROTOCOL_VERSION: &str = "0.1.0";
 /// subtree, as defined in `spec/protocol.md`.
 pub const FEATURES: &[&str] = &[
     "movement-v1.move-wait.plain",
+    "movement-v1.move-wait.teleporter",
     "movement-v1.capture-reset",
     "movement-v1.validation",
     "lab-capture-v1",

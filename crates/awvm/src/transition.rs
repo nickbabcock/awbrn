@@ -651,6 +651,124 @@ mod tests {
         );
     }
 
+    #[test]
+    fn teleporters_cross_at_zero_cost_but_cannot_be_destinations() {
+        let mut state = movement_state(6);
+        state.players[0].commanders[0].id = crate::semantic::CommanderId::Sturm;
+        let plain = state.board.tile(Pos::new(0, 0)).clone();
+        let mut teleporter = plain.clone();
+        teleporter.terrain = TerrainId::Teleporter;
+        set_row(
+            &mut state,
+            vec![
+                plain.clone(),
+                teleporter.clone(),
+                teleporter.clone(),
+                teleporter.clone(),
+                teleporter,
+                plain,
+            ],
+        );
+
+        let destination = Pos::new(5, 0);
+        let path: Vec<_> = (0..=destination.x).map(|x| Pos::new(x, 0)).collect();
+        let command: Command = serde_json::from_value(json!({
+            "type":"move-wait", "player":"red", "unit":0, "path":path
+        }))
+        .unwrap();
+        let result = execute(&state, command, &[]).unwrap();
+
+        assert_eq!(
+            board_position(result.state.units.get(UnitId::new(0)).unwrap()),
+            Some(destination)
+        );
+        assert_eq!(result.state.units[0].fuel, state.units[0].fuel - 1);
+        assert!(matches!(
+            result.events.as_slice(),
+            [Event::UnitMoved { fuel_spent: 1, .. }]
+        ));
+
+        assert_eq!(
+            plan_for(&state, vec![Pos::new(0, 0), Pos::new(1, 0), Pos::new(2, 0)]).unwrap_err(),
+            violation(Violation::TerrainImpassable {
+                index: Some(2),
+                position: Pos::new(2, 0),
+            })
+        );
+    }
+
+    #[test]
+    fn a_hidden_trap_rolls_back_over_trailing_teleporters() {
+        let mut state = direct_combat_state(5);
+        state.settings.fog = true;
+        let plain = state.board.tile(Pos::new(0, 0)).clone();
+        let mut teleporter = plain.clone();
+        teleporter.terrain = TerrainId::Teleporter;
+        set_row(
+            &mut state,
+            vec![
+                plain.clone(),
+                teleporter.clone(),
+                teleporter,
+                plain.clone(),
+                plain,
+            ],
+        );
+        let mut blocker = state.units[0].clone();
+        blocker.id = UnitId::new(1);
+        blocker.owner = "blue".into();
+        blocker.location = Location::Board {
+            position: Pos::new(3, 0),
+        };
+        state.units.push(blocker);
+        let path: Vec<_> = (0..5).map(|x| Pos::new(x, 0)).collect();
+        let command: Command = serde_json::from_value(json!({
+            "type":"move-wait", "player":"red", "unit":0, "path":path
+        }))
+        .unwrap();
+
+        let result = execute(&state, command, &[]).unwrap();
+
+        assert_eq!(
+            board_position(result.state.units.get(UnitId::new(0)).unwrap()),
+            Some(Pos::new(0, 0))
+        );
+        assert_eq!(result.state.units[0].fuel, state.units[0].fuel);
+        assert!(matches!(
+            result.events.as_slice(),
+            [
+                Event::UnitMoved {
+                    to,
+                    fuel_spent: 0,
+                    ..
+                },
+                Event::MovementTrapped {
+                    position,
+                    ..
+                }
+            ] if *to == Pos::new(0, 0) && *position == Pos::new(3, 0)
+        ));
+    }
+
+    #[test]
+    fn cargo_cannot_be_unloaded_onto_a_teleporter() {
+        let case: Value = serde_json::from_str(include_str!(
+            "../../../spec/fixtures/transport/unload-infantry-from-apc.json"
+        ))
+        .unwrap();
+        let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
+        state.board.tile_mut(Pos::new(0, 0)).terrain = TerrainId::Teleporter;
+        let command: Command = serde_json::from_value(case["steps"][0]["command"].clone()).unwrap();
+
+        assert_eq!(
+            execute(&state, command, &[]).unwrap_err(),
+            violation(Violation::TerrainImpassable {
+                index: None,
+                position: Pos::new(0, 0),
+            })
+        );
+    }
+
     /// A unit that has already acted cannot move, and that is checked before
     /// the path is looked at.
     #[test]

@@ -247,6 +247,7 @@ cdc9b56ff62be3ed  obs=4 ev=0  fog/mech-mountain-rain.json
 de4e1b1f1f4c41eb  obs=6 ev=0  fog/sonja-owner-vision-and-allied-cargo.json
 e2af9cdb1f24d7b1  obs=6 ev=0  fog/source-maximum-and-air-over-woods.json
 fe6152f0f439014e  obs=6 ev=0  fog/team-property-sources.json
+67aa5c03096a999b  obs=2 ev=0  fog/teleporter-never-visible.json
 0086e61852a8e8a9  obs=4 ev=2  fog/vision-sources-and-terrain.json
 394e567fc21a5639  obs=2 ev=4  join/join-after-capture-reset.json
 fcd63050bc7b477c  obs=2 ev=0  join/join-full-hp-rejected.json
@@ -260,6 +261,8 @@ c4b6f0ae7228f5ad  obs=2 ev=3  join/join-no-overflow.json
 d81cc3d0c06517cf  obs=2 ev=1  movement/infantry-plain-move.json
 34bc012594f1cb5a  obs=2 ev=2  movement/move-wait-capture-reset.json
 f66392afd0f4a409  obs=2 ev=0  movement/repeated-position-precedence.json
+88e88d84d728f0d6  obs=3 ev=1  movement/teleporter-corridor.json
+ede109191837e1f2  obs=4 ev=3  movement/teleporter-hidden-trap.json
 72c3d983573e6f4d  obs=2 ev=0  production/lab-unit-ban-wins.json
 2bc26e468b391d56  obs=2 ev=0  production/lab-unit-hachi-site.json
 fed6078b720f8901  obs=4 ev=0  production/lab-unit-lost-lab.json
@@ -293,6 +296,7 @@ fab93d1ccf522485  obs=2 ev=2  transport/load-infantry-into-apc.json
 b617a01256006fd1  obs=2 ev=1  transport/unload-compacts-lander-cargo.json
 8b57b437122ada7f  obs=2 ev=1  transport/unload-infantry-from-apc.json
 ae3b8527dd64f008  obs=2 ev=0  transport/unload-nonadjacent-rejected.json
+8d9ab68ceb52be64  obs=2 ev=0  transport/unload-teleporter-rejected.json
 2cc8cd80e2157750  obs=12 ev=2  transport/unload-validation-fog.json
 a7a71c497caa630e  obs=4 ev=4  turn/day-limit-draw.json
 189947ee0a483a25  obs=4 ev=4  turn/day-limit-property-victory.json

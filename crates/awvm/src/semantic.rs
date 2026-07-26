@@ -915,6 +915,10 @@ impl AwbwVisibility {
         }
         let team_players = self.team_players(state, team);
         let tile = &state.board.tile(position);
+        let target_terrain = ruleset::terrain(tile.terrain);
+        if target_terrain.has(TerrainTrait::Teleporter) {
+            return VisionLevel::None;
+        }
         if tile
             .owner
             .player()
@@ -923,7 +927,6 @@ impl AwbwVisibility {
             return VisionLevel::Full;
         }
 
-        let target_terrain = ruleset::terrain(tile.terrain);
         if target_terrain.has(TerrainTrait::AlwaysVisible) {
             return VisionLevel::Full;
         }
@@ -2081,6 +2084,26 @@ mod tests {
             })]
         );
     }
+
+    #[test]
+    fn teleporter_tiles_cannot_receive_vision_in_fog() {
+        let mut state = fixture();
+        let mut teleporter = plain();
+        teleporter.terrain = TerrainId::Teleporter;
+        state.board =
+            Board::new(2, 1, vec![plain(), teleporter]).expect("a two-tile row is a rectangle");
+        state.units[0].kind = UnitKindId::Recon;
+        state.units[0].location = Location::Board {
+            position: Pos::new(0, 0),
+        };
+        let visibility = AwbwVisibility;
+
+        assert!(!visibility.visible_position(&state, &TeamId::from("t1"), Pos::new(1, 0)));
+
+        state.settings.fog = false;
+        assert!(visibility.visible_position(&state, &TeamId::from("t1"), Pos::new(1, 0)));
+    }
+
     fn fixture() -> State {
         State {
             ruleset: RulesetRef {

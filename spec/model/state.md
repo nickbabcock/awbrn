@@ -50,6 +50,11 @@ Unknown ad-hoc keys are forbidden. A ruleset revision defining `trait_state`
 MUST define its key, value shape, initialization, and invariants. Fields not
 licensed by a terrain trait MUST be absent.
 
+The AWBW `teleporter` terrain uses contiguous zero-cost traversal rather than
+linked endpoints, so its tiles MUST omit the optional `teleporter` association.
+No living on-board unit may occupy an AWBW teleporter tile. Movement and unload
+validation preserve this invariant by refusing those tiles as destinations.
+
 Capture progress belongs to the tile, not the unit. It persists while the same
 capturing foot soldier remains on the property (including when another unit
 joins into it), and resets when the persistence conditions in

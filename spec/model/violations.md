@@ -45,7 +45,7 @@ payloads for the initial movement slice:
 | `PATH_NON_ADJACENT` | `index`, `from`, `to` | step ending at `index` is not orthogonal |
 | `PATH_REPEATED_POSITION` | `index`, `position`, `first_index` | path revisits a position |
 | `PATH_OUT_OF_BOUNDS` | `index`, `position` | path position is outside the board |
-| `TERRAIN_IMPASSABLE` | `index`, `position` | mover cannot enter the terrain |
+| `TERRAIN_IMPASSABLE` | `index`, `position` | mover cannot enter or finish on the terrain |
 | `PATH_OCCUPIED` | `index`, `position` | a disclosed intermediate obstruction blocks the path |
 | `INSUFFICIENT_MOVEMENT` | `required`, `available` | path exceeds effective move allowance |
 | `INSUFFICIENT_FUEL` | `required`, `available` | path exceeds available fuel |

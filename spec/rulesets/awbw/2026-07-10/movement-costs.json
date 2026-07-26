@@ -3,7 +3,7 @@
   "status": "candidate",
   "evidence": {
     "confidence": "documentation-only",
-    "note": "Transcribed from the official terrain chart. A null cost corresponds to '-' and means impassable."
+    "note": "Ordinary terrain costs are transcribed from the official terrain chart, where null corresponds to '-' and means impassable. Teleporter zero-cost traversal follows the AWBW Wiki's documented black-tile behavior; its chart '-' is not interpreted as impassable."
   },
   "weather": ["clear", "rain", "snow"],
   "movement_classes": ["foot", "boot", "treads", "tires", "air", "sea", "lander", "pipe"],
@@ -618,34 +618,34 @@
     },
     "teleporter": {
       "clear": {
-        "foot": null,
-        "boot": null,
-        "treads": null,
-        "tires": null,
-        "air": null,
-        "sea": null,
-        "lander": null,
-        "pipe": null
+        "foot": 0,
+        "boot": 0,
+        "treads": 0,
+        "tires": 0,
+        "air": 0,
+        "sea": 0,
+        "lander": 0,
+        "pipe": 0
       },
       "rain": {
-        "foot": null,
-        "boot": null,
-        "treads": null,
-        "tires": null,
-        "air": null,
-        "sea": null,
-        "lander": null,
-        "pipe": null
+        "foot": 0,
+        "boot": 0,
+        "treads": 0,
+        "tires": 0,
+        "air": 0,
+        "sea": 0,
+        "lander": 0,
+        "pipe": 0
       },
       "snow": {
-        "foot": null,
-        "boot": null,
-        "treads": null,
-        "tires": null,
-        "air": null,
-        "sea": null,
-        "lander": null,
-        "pipe": null
+        "foot": 0,
+        "boot": 0,
+        "treads": 0,
+        "tires": 0,
+        "air": 0,
+        "sea": 0,
+        "lander": 0,
+        "pipe": 0
       }
     }
   }

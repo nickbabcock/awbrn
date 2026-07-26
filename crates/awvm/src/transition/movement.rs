@@ -9,7 +9,7 @@ use super::ReducerError as ExecuteError;
 use super::*;
 use crate::commander::{self};
 use crate::event::Event;
-use crate::ruleset::{self};
+use crate::ruleset::{self, TerrainTrait};
 use crate::semantic::{AwbwVisibility, Concealment, Location, Pos, State, UnitAction, UnitId};
 use crate::violation::{Action, Violation};
 
@@ -130,13 +130,31 @@ pub(crate) fn plan(
     let movement = commander::effective_move(state, unit, profile.movement, profile.domain);
     let weather = commander::effective_weather(state, unit);
     let mut entry_costs = vec![0];
+    if path.len() == 1
+        && ruleset::terrain_has(state.board.tile(origin).terrain, TerrainTrait::Teleporter)
+    {
+        return Err(violation(Violation::TerrainImpassable {
+            index: Some(0),
+            position: origin,
+        }));
+    }
     for (index, position) in path.iter().copied().enumerate().skip(1) {
         let terrain = state.board.tile(position).terrain;
-        let cost = commander::effective_movement_cost(
-            state,
-            unit,
-            ruleset::movement_cost(terrain, weather, profile.movement_class),
-        )
+        let teleporter = ruleset::terrain_has(terrain, TerrainTrait::Teleporter);
+        if index + 1 == path.len() && teleporter {
+            return Err(violation(Violation::TerrainImpassable {
+                index: Some(index),
+                position,
+            }));
+        }
+        let base_cost = ruleset::movement_cost(terrain, weather, profile.movement_class);
+        // Teleporter zero-cost traversal is terrain behavior, not a finite
+        // ordinary cost for commander cost-set operators to replace.
+        let cost = if teleporter {
+            base_cost
+        } else {
+            commander::effective_movement_cost(state, unit, base_cost)
+        }
         .ok_or_else(|| {
             violation(Violation::TerrainImpassable {
                 index: Some(index),
@@ -212,9 +230,21 @@ pub(crate) fn execute_planned_movement(
                 })
                 .map(|blocker| (index, position, blocker.id))
         });
-    let actual_length = trap
+    let mut actual_length = trap
         .as_ref()
         .map_or(plan.path().len(), |(index, _, _)| *index);
+    // A trap immediately beyond a zero-cost corridor must not strand the mover
+    // on transit-only terrain. Roll the actual prefix back across that corridor.
+    while actual_length > 1 {
+        let candidate = plan.path()[actual_length - 1];
+        if !ruleset::terrain_has(
+            state.board.tile(candidate).terrain,
+            TerrainTrait::Teleporter,
+        ) {
+            break;
+        }
+        actual_length -= 1;
+    }
     let actual_path = plan.path()[..actual_length].to_vec();
     let destination = *actual_path.last().expect("actual path includes origin");
     let fuel_spent: u64 = plan.entry_costs()[..actual_length].iter().sum();

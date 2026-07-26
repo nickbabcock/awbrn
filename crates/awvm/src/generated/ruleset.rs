@@ -4060,9 +4060,9 @@ pub static MOVEMENT_COSTS: [[[Option<u8>; MovementClass::COUNT]; WeatherKind::CO
     ],
     // teleporter
     [
-        [None, None, None, None, None, None, None, None], // clear
-        [None, None, None, None, None, None, None, None], // rain
-        [None, None, None, None, None, None, None, None], // snow
+        [Some(0), Some(0), Some(0), Some(0), Some(0), Some(0), Some(0), Some(0)], // clear
+        [Some(0), Some(0), Some(0), Some(0), Some(0), Some(0), Some(0), Some(0)], // rain
+        [Some(0), Some(0), Some(0), Some(0), Some(0), Some(0), Some(0), Some(0)], // snow
     ],
     // wood
     [

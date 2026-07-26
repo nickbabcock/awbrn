@@ -99,6 +99,11 @@ none  <  air-only  <  full
 If `S.settings.fog` is false, every in-bounds position is `full` and the rest of
 this section does not apply.
 
+Otherwise, a tile carrying `teleporter` is always `none`. No property or unit
+source, adjacency, elevated vision, or commander reveal effect can raise its
+level. Its immutable terrain remains present in an observation as required by
+`model/observation.md`, but its tile visibility is always `fogged`.
+
 Otherwise, a tile carrying `always-visible` is `full` for every team. The
 revisioned `pipe` and `pipe-seam` terrain carry this trait. A seam therefore
 exposes both its terrain and current `destructible_hp` even when no ordinary

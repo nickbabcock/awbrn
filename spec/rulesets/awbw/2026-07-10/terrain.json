@@ -3,7 +3,7 @@
   "status": "candidate",
   "evidence": {
     "confidence": "documentation-only",
-    "note": "Trait names remain candidate vocabulary pending rule-specific confirmation. Mountains add three vision to eligible units; woods and reefs limit distant vision to air units."
+    "note": "Trait names remain candidate vocabulary pending rule-specific confirmation. Mountains add three vision to eligible units; woods and reefs limit distant vision to air units. Teleporters are zero-star, non-property transit tiles that cannot receive vision in fog or hold a unit."
   },
   "terrains": {
     "plain": { "defense_stars": 1, "property_kind": null, "traits": [] },

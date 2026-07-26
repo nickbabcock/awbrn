@@ -502,6 +502,19 @@ fn movement_costs_match_movement_costs_json() {
     }
 }
 
+#[test]
+fn teleporters_cost_zero_for_every_weather_and_movement_class() {
+    for weather in WeatherKind::ALL {
+        for class in MovementClass::ALL {
+            assert_eq!(
+                ruleset::movement_cost(Terrain::Teleporter, weather, class),
+                Some(0),
+                "teleporter in {weather} for {class}"
+            );
+        }
+    }
+}
+
 /// Every vocabulary round-trips through its wire identifier, so the enums can
 /// stand in for the strings the model still carries.
 #[test]
