@@ -211,6 +211,13 @@ struct CommanderProfileDocument {
     commanders: BTreeMap<String, serde_json::Value>,
 }
 
+#[derive(Debug, Deserialize)]
+struct ReasonsDocument {
+    known: Vec<String>,
+    victory: Vec<String>,
+    draw: Vec<String>,
+}
+
 struct Ruleset {
     units: UnitsDocument,
     terrain: TerrainDocument,
@@ -219,6 +226,7 @@ struct Ruleset {
     combat_profiles: CombatProfileDocument,
     weapons: WeaponsDocument,
     commanders: CommanderProfileDocument,
+    reasons: ReasonsDocument,
 }
 
 impl Ruleset {
@@ -231,6 +239,7 @@ impl Ruleset {
             combat_profiles: read_json(dir, "combat-profiles.json")?,
             weapons: read_json(dir, "weapons.json")?,
             commanders: read_json(dir, "commander-profiles.json")?,
+            reasons: read_json(dir, "reasons.json")?,
         })
     }
 }
@@ -380,6 +389,26 @@ fn render_vocabulary(vocabulary: &Vocabulary, out: &mut String) {
     let _ = writeln!(out, "    }}");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
+}
+
+fn render_reason_conversion(from: &Vocabulary, to: &Vocabulary, out: &mut String) -> Result<()> {
+    let _ = writeln!(out, "impl From<{}> for {} {{", from.name, to.name);
+    let _ = writeln!(out, "    fn from(reason: {}) -> Self {{", from.name);
+    let _ = writeln!(out, "        match reason {{");
+    for value in &from.values {
+        let from_variant = from.variant(value)?;
+        let to_variant = to.variant(value)?;
+        let _ = writeln!(
+            out,
+            "            {}::{from_variant} => {}::{to_variant},",
+            from.name, to.name
+        );
+    }
+    let _ = writeln!(out, "        }}");
+    let _ = writeln!(out, "    }}");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -569,6 +598,21 @@ fn render(ruleset: &Ruleset) -> Result<String> {
                 .map(|hiding| hiding.mode.clone()),
         ),
     );
+    let known_reasons = Vocabulary::new(
+        "KnownReason",
+        "Stable reasons defined by this ruleset revision.",
+        ruleset.reasons.known.clone(),
+    );
+    let victory_reasons = Vocabulary::new(
+        "VictoryReason",
+        "Reasons a victory outcome may carry.",
+        ruleset.reasons.victory.clone(),
+    );
+    let draw_reasons = Vocabulary::new(
+        "DrawReason",
+        "Reasons a draw outcome may carry.",
+        ruleset.reasons.draw.clone(),
+    );
 
     let vocabularies = [
         &unit_kinds,
@@ -588,6 +632,9 @@ fn render(ruleset: &Ruleset) -> Result<String> {
         &targets,
         &commands,
         &concealment_modes,
+        &known_reasons,
+        &victory_reasons,
+        &draw_reasons,
     ];
 
     let mut out = String::new();
@@ -620,6 +667,8 @@ fn render(ruleset: &Ruleset) -> Result<String> {
     for vocabulary in vocabularies {
         render_vocabulary(vocabulary, &mut out);
     }
+    render_reason_conversion(&victory_reasons, &known_reasons, &mut out)?;
+    render_reason_conversion(&draw_reasons, &known_reasons, &mut out)?;
 
     render_unit_profiles(
         ruleset,

@@ -14,7 +14,8 @@
     "weapons": "weapons.json",
     "commander_combat": "commander-combat.json",
     "commander_profiles": "commander-profiles.json",
-    "commander_powers": "commander-powers.json"
+    "commander_powers": "commander-powers.json",
+    "reasons": "reasons.json"
   },
   "features": [
     "movement-v1",

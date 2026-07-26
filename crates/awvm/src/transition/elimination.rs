@@ -7,15 +7,13 @@ use super::ReducerError as ExecuteError;
 use super::*;
 use crate::event::Event;
 use crate::random::RandomToken;
-use crate::ruleset::{self};
-use crate::semantic::{
-    Outcome, PlayerId, PlayerStatus, Pos, ReasonId, State, TeamStatus, TileOwner,
-};
+use crate::ruleset::{self, KnownReason, VictoryReason};
+use crate::semantic::{Outcome, PlayerId, PlayerStatus, Pos, State, TeamStatus, TileOwner};
 
 pub(crate) fn eliminate_player(
     state: &mut State,
     defeated_player: &PlayerId,
-    cause: &ReasonId,
+    cause: VictoryReason,
     beneficiary: Option<&PlayerId>,
     trigger_hq: Option<Pos>,
     events: &mut Vec<Event>,
@@ -25,7 +23,7 @@ pub(crate) fn eliminate_player(
         .ok_or(ExecuteError::UnsupportedRuleset)?;
     let defeated_team = state.player_mut(player_index).team.clone();
     let previous_status = state.player_mut(player_index).status;
-    state.player_mut(player_index).status = if cause == &ReasonId::from("resignation") {
+    state.player_mut(player_index).status = if cause == VictoryReason::Resignation {
         PlayerStatus::Resigned
     } else {
         PlayerStatus::Eliminated
@@ -49,7 +47,7 @@ pub(crate) fn eliminate_player(
         team.status = TeamStatus::Eliminated;
         events.push(Event::TeamEliminated {
             team: defeated_team,
-            reason: cause.clone(),
+            reason: KnownReason::from(cause).into(),
         });
     }
     let mut surviving_teams: Vec<_> = state
@@ -67,7 +65,7 @@ pub(crate) fn eliminate_player(
     if surviving_teams.len() == 1 {
         let outcome = Outcome::Victory {
             winners: surviving_teams,
-            reason: cause.clone(),
+            reason: cause,
         };
         complete_match(state, outcome, events);
         return Ok(true);
@@ -98,7 +96,7 @@ pub(crate) fn eliminate_player(
         }
         events.push(Event::UnitRemoved {
             unit: unit_id,
-            reason: ReasonId::from("elimination"),
+            reason: KnownReason::Elimination.into(),
         });
         state.units.remove(unit_index);
     }
@@ -130,7 +128,7 @@ pub(crate) fn eliminate_player(
                 position,
                 from,
                 to: replacement,
-                reason: ReasonId::from("elimination"),
+                reason: KnownReason::Elimination.into(),
             });
         }
         let previous_owner = tile.owner.to_optional();

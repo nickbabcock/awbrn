@@ -150,8 +150,42 @@ string_id!(RulesetId, PlayerId, TeamId, TeleporterId, TraitId, ReasonId,);
 // that a value outside the ruleset now fails to decode instead of travelling
 // to a table lookup that cannot resolve it.
 pub use crate::ruleset::{
-    CommanderKind as CommanderId, Terrain as TerrainId, UnitKind as UnitKindId, WeatherKind,
+    CommanderKind as CommanderId, DrawReason, KnownReason, Terrain as TerrainId,
+    UnitKind as UnitKindId, VictoryReason, WeatherKind,
 };
+
+/// A reason carried by the protocol.
+///
+/// Reducer-authored reasons use the generated closed vocabulary. `Other`
+/// preserves the specification's open `reason-id` boundary for external
+/// cancellation reasons and externally supplied event projections.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Reason {
+    Known(KnownReason),
+    Other(ReasonId),
+}
+
+impl Reason {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Known(reason) => reason.as_str(),
+            Self::Other(reason) => reason.as_str(),
+        }
+    }
+}
+
+impl From<KnownReason> for Reason {
+    fn from(reason: KnownReason) -> Self {
+        Self::Known(reason)
+    }
+}
+
+impl From<ReasonId> for Reason {
+    fn from(reason: ReasonId) -> Self {
+        Self::Other(reason)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -838,11 +872,11 @@ pub enum Match {
 pub enum Outcome {
     Victory {
         winners: Vec<TeamId>,
-        reason: ReasonId,
+        reason: VictoryReason,
     },
     Draw {
         teams: Vec<TeamId>,
-        reason: ReasonId,
+        reason: DrawReason,
     },
     Cancelled {
         reason: ReasonId,
@@ -1697,6 +1731,17 @@ fn board_position(unit: &Unit) -> Option<Pos> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reasons_decode_known_values_without_closing_the_protocol_domain() {
+        let known = serde_json::from_value::<Reason>(serde_json::json!("combat")).unwrap();
+        assert_eq!(known, Reason::Known(KnownReason::Combat));
+        assert_eq!(serde_json::to_value(known).unwrap(), "combat");
+
+        let other = serde_json::from_value::<Reason>(serde_json::json!("adapter-defined")).unwrap();
+        assert_eq!(other, Reason::Other(ReasonId::from("adapter-defined")));
+        assert_eq!(serde_json::to_value(other).unwrap(), "adapter-defined");
+    }
 
     /// The wire form is `[x, y]`, x first, and must survive a round trip.
     #[test]

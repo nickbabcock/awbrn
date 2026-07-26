@@ -10,11 +10,11 @@
 //! something going red.
 
 use awvm::ruleset::{
-    self, AMMO_DAMAGE, Command, ConcealmentMode, Domain, FireMode, MOVEMENT_COSTS, MovementClass,
-    PropertyKind, RULESET_ID, RULESET_REVISION, Relation, Resource, ResourceSet, SupplyTrigger,
-    TERRAIN_PROFILES, TargetSet, Terrain, TerrainTrait, UNIT_PROFILES, UNLIMITED_DAMAGE, UnitKind,
-    WEAPON_SELECTION_ORDER, WEAPON_SELECTION_REQUIRES_AVAILABLE_AMMO, WeaponPolicy, WeaponSlot,
-    WeatherKind,
+    self, AMMO_DAMAGE, Command, ConcealmentMode, Domain, DrawReason, FireMode, KnownReason,
+    MOVEMENT_COSTS, MovementClass, PropertyKind, RULESET_ID, RULESET_REVISION, Relation, Resource,
+    ResourceSet, SupplyTrigger, TERRAIN_PROFILES, TargetSet, Terrain, TerrainTrait, UNIT_PROFILES,
+    UNLIMITED_DAMAGE, UnitKind, VictoryReason, WEAPON_SELECTION_ORDER,
+    WEAPON_SELECTION_REQUIRES_AVAILABLE_AMMO, WeaponPolicy, WeaponSlot, WeatherKind,
 };
 use serde_json::Value;
 
@@ -35,6 +35,7 @@ fn document(name: &str) -> Value {
         "commander-profiles" => {
             include_str!("../../../spec/rulesets/awbw/2026-07-10/commander-profiles.json")
         }
+        "reasons" => include_str!("../../../spec/rulesets/awbw/2026-07-10/reasons.json"),
         other => panic!("no such ruleset document: {other}"),
     };
     serde_json::from_str(raw).expect("ruleset documents are valid JSON")
@@ -114,6 +115,41 @@ fn vocabularies_match_their_documents() {
             .collect::<Vec<_>>(),
         commanders
     );
+
+    let reasons = document("reasons");
+    for (name, generated) in [
+        (
+            "known",
+            KnownReason::ALL
+                .iter()
+                .map(|reason| reason.as_str())
+                .collect::<Vec<_>>(),
+        ),
+        (
+            "victory",
+            VictoryReason::ALL
+                .iter()
+                .map(|reason| reason.as_str())
+                .collect::<Vec<_>>(),
+        ),
+        (
+            "draw",
+            DrawReason::ALL
+                .iter()
+                .map(|reason| reason.as_str())
+                .collect::<Vec<_>>(),
+        ),
+    ] {
+        assert_eq!(
+            generated,
+            reasons[name]
+                .as_array()
+                .expect("reason vocabulary is an array")
+                .iter()
+                .map(|reason| reason.as_str().expect("reasons are strings"))
+                .collect::<Vec<_>>()
+        );
+    }
 }
 
 #[test]
@@ -500,6 +536,9 @@ fn identifiers_round_trip() {
         TargetSet,
         Command,
         ConcealmentMode,
+        KnownReason,
+        VictoryReason,
+        DrawReason,
     );
 
     assert_eq!(UNIT_PROFILES.len(), UnitKind::COUNT);

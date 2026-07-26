@@ -426,8 +426,8 @@ mod tests {
     use crate::combat::Weapon;
     use crate::event::SupplySource;
     use crate::semantic::{
-        AwbwVisibility, Board, Concealment, PlayerStatus, ReasonId, Silo, Tile, TileOwner,
-        UnitAction,
+        AwbwVisibility, Board, Concealment, KnownReason, PlayerStatus, ReasonId, Silo, Tile,
+        TileOwner, UnitAction, VictoryReason,
     };
     use crate::violation::Action;
     use serde_json::{Value, json};
@@ -767,11 +767,11 @@ mod tests {
                 },
                 Event::UnitRemoved {
                     unit: UnitId::new(0),
-                    reason: ReasonId::from("fuel-depleted")
+                    reason: KnownReason::FuelDepleted.into()
                 },
                 Event::UnitRemoved {
                     unit: UnitId::new(1),
-                    reason: ReasonId::from("carrier-lost")
+                    reason: KnownReason::CarrierLost.into()
                 },
             ]
         );
@@ -1152,7 +1152,7 @@ mod tests {
                 },
                 Event::UnitRemoved {
                     unit: UnitId::new(0),
-                    reason: ReasonId::from("delete")
+                    reason: KnownReason::Delete.into()
                 },
             ]
         );
@@ -1435,12 +1435,12 @@ mod tests {
                 },
                 Event::TeamEliminated {
                     team: crate::semantic::TeamId::from("blue-team"),
-                    reason: ReasonId::from("rout")
+                    reason: KnownReason::Rout.into()
                 },
                 Event::MatchCompleted {
                     outcome: Outcome::Victory {
                         winners: vec![crate::semantic::TeamId::from("red-team")],
-                        reason: ReasonId::from("rout")
+                        reason: VictoryReason::Rout
                     }
                 },
             ]

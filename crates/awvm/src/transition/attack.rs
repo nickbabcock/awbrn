@@ -11,8 +11,8 @@ use crate::event::{AttackTarget, Event};
 use crate::random::{Luck, RandomTape, RandomToken};
 use crate::ruleset::{self, FireMode, TerrainTrait};
 use crate::semantic::{
-    AwbwVisibility, Concealment, Location, PlayerId, Pos, PowerState, ReasonId, State, TerrainId,
-    Unit, UnitAction, UnitId, UnitKindId, Visibility,
+    AwbwVisibility, Concealment, KnownReason, Location, PlayerId, Pos, PowerState, State,
+    TerrainId, Unit, UnitAction, UnitId, UnitKindId, Visibility,
 };
 use crate::violation::{Action, Violation};
 use std::collections::HashSet;
@@ -51,7 +51,7 @@ pub(crate) fn apply_strike_funds(
         player: striker.clone(),
         from,
         to,
-        reason: ReasonId::from("commander-power"),
+        reason: KnownReason::CommanderPower.into(),
     });
     Ok(())
 }
@@ -66,7 +66,7 @@ pub(crate) fn apply_strike_power_charge(
     target_kind: UnitKindId,
     from_hp: u8,
     to_hp: u8,
-    reason: &ReasonId,
+    reason: KnownReason,
 ) -> Result<(), ExecuteError> {
     let visual_damage = u64::from(from_hp.div_ceil(10).saturating_sub(to_hp.div_ceil(10)));
     if visual_damage == 0 {
@@ -141,7 +141,7 @@ pub(crate) fn apply_strike_power_charge(
                 commander_slot,
                 from,
                 to,
-                reason: reason.clone(),
+                reason: reason.into(),
             });
         }
     }
@@ -315,7 +315,7 @@ pub(crate) fn execute_tile_attack(
             fuel_after: attacker.fuel,
             ammo_before: before,
             ammo_after: next.units[attacker_index].ammo,
-            reason: ReasonId::from("combat"),
+            reason: KnownReason::Combat.into(),
         });
     }
     events.push(Event::AttackResolved {
@@ -335,7 +335,7 @@ pub(crate) fn execute_tile_attack(
             position,
             from: tile.terrain,
             to: destruction_replacement,
-            reason: ReasonId::from("combat"),
+            reason: KnownReason::Combat.into(),
         });
     } else {
         next.board.tile_mut(position).destructible_hp = Some(u64::from(to_hp));
@@ -345,7 +345,7 @@ pub(crate) fn execute_tile_attack(
         unit: unit_id,
         from: UnitAction::Ready,
         to: UnitAction::Spent,
-        reason: ReasonId::from("attack"),
+        reason: KnownReason::Attack.into(),
     });
     Ok(Execution {
         state: next,
@@ -689,7 +689,7 @@ pub(crate) fn execute_move_attack(
                 fuel_after: defender.fuel,
                 ammo_before: before,
                 ammo_after: next.units[index].ammo,
-                reason: ReasonId::from("combat-counter"),
+                reason: KnownReason::CombatCounter.into(),
             });
         }
         events.push(Event::AttackResolved {
@@ -701,7 +701,7 @@ pub(crate) fn execute_move_attack(
             unit: unit_id,
             from_hp: attacker.hp,
             to_hp: attacker_remaining,
-            reason: ReasonId::from("combat-counter"),
+            reason: KnownReason::CombatCounter.into(),
         });
         apply_strike_funds(
             state,
@@ -722,19 +722,19 @@ pub(crate) fn execute_move_attack(
             attacker.kind,
             attacker.hp,
             attacker_remaining,
-            &ReasonId::from("combat-counter"),
+            KnownReason::CombatCounter,
         )?;
         if attacker_remaining == 0 {
             events.push(Event::UnitRemoved {
                 unit: unit_id,
-                reason: ReasonId::from("combat-counter"),
+                reason: KnownReason::CombatCounter.into(),
             });
             next.units.remove(ai);
             if !next.units.iter().any(|unit| unit.owner == attacker.owner) {
                 eliminate_player(
                     &mut next,
                     &attacker.owner,
-                    &ReasonId::from("rout"),
+                    crate::ruleset::VictoryReason::Rout,
                     None,
                     None,
                     &mut events,
@@ -762,7 +762,7 @@ pub(crate) fn execute_move_attack(
                 fuel_after: attacker.fuel,
                 ammo_before: before,
                 ammo_after: next.units[next_ai].ammo,
-                reason: ReasonId::from("combat"),
+                reason: KnownReason::Combat.into(),
             });
         }
         let defender_remaining = defender.hp.saturating_sub(hit.damage);
@@ -775,7 +775,7 @@ pub(crate) fn execute_move_attack(
             unit: target_id,
             from_hp: defender.hp,
             to_hp: defender_remaining,
-            reason: ReasonId::from("combat"),
+            reason: KnownReason::Combat.into(),
         });
         apply_strike_funds(
             state,
@@ -796,12 +796,12 @@ pub(crate) fn execute_move_attack(
             defender.kind,
             defender.hp,
             defender_remaining,
-            &ReasonId::from("combat"),
+            KnownReason::Combat,
         )?;
         if defender_remaining == 0 {
             events.push(Event::UnitRemoved {
                 unit: target_id,
-                reason: ReasonId::from("combat"),
+                reason: KnownReason::Combat.into(),
             });
             let next_di = next
                 .units
@@ -824,13 +824,13 @@ pub(crate) fn execute_move_attack(
             unit: unit_id,
             from: UnitAction::Ready,
             to: UnitAction::Spent,
-            reason: ReasonId::from("attack"),
+            reason: KnownReason::Attack.into(),
         });
         if defender_remaining == 0 && !next.units.iter().any(|unit| unit.owner == defender_owner) {
             eliminate_player(
                 &mut next,
                 &defender_owner,
-                &ReasonId::from("rout"),
+                crate::ruleset::VictoryReason::Rout,
                 None,
                 None,
                 &mut events,
@@ -928,7 +928,7 @@ pub(crate) fn execute_move_attack(
             fuel_after: attacker.fuel,
             ammo_before: before,
             ammo_after: next.units[ai].ammo,
-            reason: ReasonId::from("combat"),
+            reason: KnownReason::Combat.into(),
         });
     }
     events.push(Event::AttackResolved {
@@ -940,7 +940,7 @@ pub(crate) fn execute_move_attack(
         unit: target_id,
         from_hp: defender.hp,
         to_hp: remaining,
-        reason: ReasonId::from("combat"),
+        reason: KnownReason::Combat.into(),
     });
     apply_strike_funds(
         state,
@@ -961,7 +961,7 @@ pub(crate) fn execute_move_attack(
         defender.kind,
         defender.hp,
         remaining,
-        &ReasonId::from("combat"),
+        KnownReason::Combat,
     )?;
     if remaining > 0 {
         next.units[di].hp = remaining;
@@ -976,7 +976,7 @@ pub(crate) fn execute_move_attack(
                 fuel_after: defender.fuel,
                 ammo_before: before,
                 ammo_after: next.units[di].ammo,
-                reason: ReasonId::from("combat-counter"),
+                reason: KnownReason::CombatCounter.into(),
             });
         }
         let ahp = attacker.hp.saturating_sub(hit.damage);
@@ -989,7 +989,7 @@ pub(crate) fn execute_move_attack(
             unit: unit_id,
             from_hp: attacker.hp,
             to_hp: ahp,
-            reason: ReasonId::from("combat-counter"),
+            reason: KnownReason::CombatCounter.into(),
         });
         apply_strike_funds(
             state,
@@ -1010,14 +1010,14 @@ pub(crate) fn execute_move_attack(
             attacker.kind,
             attacker.hp,
             ahp,
-            &ReasonId::from("combat-counter"),
+            KnownReason::CombatCounter,
         )?;
         next.units[ai].hp = ahp;
     }
     if remaining == 0 {
         events.push(Event::UnitRemoved {
             unit: target_id,
-            reason: ReasonId::from("combat"),
+            reason: KnownReason::Combat.into(),
         });
         next.units.remove(di);
     }
@@ -1030,13 +1030,13 @@ pub(crate) fn execute_move_attack(
         unit: unit_id,
         from: UnitAction::Ready,
         to: UnitAction::Spent,
-        reason: ReasonId::from("attack"),
+        reason: KnownReason::Attack.into(),
     });
     if remaining == 0 && !next.units.iter().any(|unit| unit.owner == defender_owner) {
         eliminate_player(
             &mut next,
             &defender_owner,
-            &ReasonId::from("rout"),
+            crate::ruleset::VictoryReason::Rout,
             None,
             None,
             &mut events,

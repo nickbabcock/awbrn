@@ -16,7 +16,7 @@ use crate::event::Event;
 use crate::random::RandomToken;
 use crate::ruleset::{self, PropertyKind, TerrainTrait, UnitKind};
 use crate::semantic::{
-    Concealment, Location, PlayerId, Pos, ReasonId, State, Unit, UnitAction, UnitId, WeatherKind,
+    Concealment, KnownReason, Location, PlayerId, Pos, State, Unit, UnitAction, UnitId, WeatherKind,
 };
 use crate::violation::{Action, Violation};
 use std::collections::HashSet;
@@ -344,7 +344,7 @@ fn heal_visual_hp(cx: &mut Activation<'_>, amount: u8) -> Result<(), ExecuteErro
             unit: target_id,
             from_hp,
             to_hp,
-            reason: ReasonId::from("commander-power"),
+            reason: KnownReason::CommanderPower.into(),
         });
     }
     Ok(())
@@ -376,7 +376,7 @@ fn heal_exact_hp(cx: &mut Activation<'_>, amount: u8) -> Result<(), ExecuteError
             unit: target_id,
             from_hp,
             to_hp,
-            reason: ReasonId::from("commander-power"),
+            reason: KnownReason::CommanderPower.into(),
         });
     }
     Ok(())
@@ -432,7 +432,7 @@ fn damage_exact_hp(
             unit: target_id,
             from_hp,
             to_hp,
-            reason: ReasonId::from("commander-power"),
+            reason: KnownReason::CommanderPower.into(),
         });
     }
     Ok(())
@@ -456,7 +456,7 @@ fn set_weather(cx: &mut Activation<'_>, kind: WeatherEffectKind) -> Result<(), E
         from,
         to: cx.next.weather.kind,
         remaining_turns,
-        reason: ReasonId::from("commander-power"),
+        reason: KnownReason::CommanderPower.into(),
     });
     Ok(())
 }
@@ -507,7 +507,7 @@ fn drain_current_fuel_ratio(
             fuel_after,
             ammo_before: target.ammo,
             ammo_after: target.ammo,
-            reason: ReasonId::from("commander-power"),
+            reason: KnownReason::CommanderPower.into(),
         });
     }
     Ok(())
@@ -558,7 +558,7 @@ fn fire_area_strikes(
                 unit: target_id,
                 from_hp,
                 to_hp,
-                reason: ReasonId::from("commander-power"),
+                reason: KnownReason::CommanderPower.into(),
             });
         }
     }
@@ -619,7 +619,7 @@ fn reduce_power_charge_by_funds_ratio(
                 commander_slot,
                 from,
                 to,
-                reason: ReasonId::from("commander-power"),
+                reason: KnownReason::CommanderPower.into(),
             });
         }
     }
@@ -654,7 +654,7 @@ fn refresh_unit_action(
             unit: target_id,
             from,
             to: UnitAction::Ready,
-            reason: ReasonId::from("commander-power"),
+            reason: KnownReason::CommanderPower.into(),
         });
     }
     Ok(())
@@ -687,7 +687,7 @@ fn resupply_units(cx: &mut Activation<'_>) -> Result<(), ExecuteError> {
             fuel_after: target.fuel,
             ammo_before,
             ammo_after: target.ammo,
-            reason: ReasonId::from("commander-power"),
+            reason: KnownReason::CommanderPower.into(),
         });
     }
     Ok(())
@@ -881,7 +881,7 @@ fn fire_targeted_area_strike(
             unit: target_id,
             from_hp,
             to_hp,
-            reason: ReasonId::from("commander-power"),
+            reason: KnownReason::CommanderPower.into(),
         });
     }
     Ok(())
@@ -1000,7 +1000,7 @@ fn fire_immobilizing_area_strike(
                 unit: target_id,
                 from_hp,
                 to_hp,
-                reason: ReasonId::from("commander-power"),
+                reason: KnownReason::CommanderPower.into(),
             });
         }
         if target.action != UnitAction::Immobilized {
@@ -1010,7 +1010,7 @@ fn fire_immobilizing_area_strike(
                 unit: target_id,
                 from,
                 to: UnitAction::Immobilized,
-                reason: ReasonId::from("commander-power"),
+                reason: KnownReason::CommanderPower.into(),
             });
         }
     }
@@ -1038,7 +1038,7 @@ fn multiply_funds_ratio(
         player: cx.player.clone(),
         from,
         to,
-        reason: ReasonId::from("commander-power"),
+        reason: KnownReason::CommanderPower.into(),
     });
     Ok(())
 }

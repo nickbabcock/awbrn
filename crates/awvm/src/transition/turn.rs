@@ -11,8 +11,8 @@ use crate::event::{Event, RandomKind, RandomValue, SupplySource};
 use crate::random::{RandomTape, RandomToken};
 use crate::ruleset::{self, Domain, Relation, TerrainTrait};
 use crate::semantic::{
-    Concealment, Location, Match, Outcome, Phase, PlayerId, PlayerStatus, PowerState, ReasonId,
-    State, UnitAction, WeatherKind, WeatherSetting,
+    Concealment, DrawReason, KnownReason, Location, Match, Outcome, Phase, PlayerId, PlayerStatus,
+    PowerState, State, UnitAction, VictoryReason, WeatherKind, WeatherSetting,
 };
 use crate::violation::{Action, Violation};
 use std::collections::HashSet;
@@ -47,12 +47,12 @@ pub(crate) fn day_limit_outcome(state: &State) -> Result<Outcome, ExecuteError> 
     Ok(if leading_teams.len() == 1 {
         Outcome::Victory {
             winners: leading_teams,
-            reason: "day-limit".into(),
+            reason: VictoryReason::DayLimit,
         }
     } else {
         Outcome::Draw {
             teams: leading_teams,
-            reason: "day-limit".into(),
+            reason: DrawReason::DayLimit,
         }
     })
 }
@@ -198,7 +198,7 @@ pub(crate) fn execute_turn_boundary(
         && eliminate_player(
             &mut next,
             player,
-            &ReasonId::from("resignation"),
+            VictoryReason::Resignation,
             None,
             None,
             &mut events,
@@ -326,7 +326,7 @@ pub(crate) fn execute_turn_boundary(
                 from,
                 to: next.weather.kind,
                 remaining_turns: next.weather.remaining_turns,
-                reason: ReasonId::from("expiry"),
+                reason: KnownReason::Expiry.into(),
             });
         } else if next.settings.weather == WeatherSetting::Random {
             let selected = tape.weather()?;
@@ -341,7 +341,7 @@ pub(crate) fn execute_turn_boundary(
                     from,
                     to: next.weather.kind,
                     remaining_turns: 0,
-                    reason: ReasonId::from("random-weather"),
+                    reason: KnownReason::RandomWeather.into(),
                 });
             }
         }
@@ -371,7 +371,7 @@ pub(crate) fn execute_turn_boundary(
                 player: successor_id.clone(),
                 from: funds_before,
                 to: funds_after,
-                reason: ReasonId::from("turn-start-income"),
+                reason: KnownReason::TurnStartIncome.into(),
             });
         }
 
@@ -562,7 +562,7 @@ pub(crate) fn execute_turn_boundary(
                         fuel_after: unit.fuel,
                         ammo_before: unit.ammo,
                         ammo_after: unit.ammo,
-                        reason: ReasonId::from("fuel-upkeep"),
+                        reason: KnownReason::FuelUpkeep.into(),
                     });
                 }
             }
@@ -607,12 +607,12 @@ pub(crate) fn execute_turn_boundary(
             });
             events.push(Event::UnitRemoved {
                 unit: unit_id,
-                reason: ReasonId::from("fuel-depleted"),
+                reason: KnownReason::FuelDepleted.into(),
             });
             for (_, cargo_id) in cargo {
                 events.push(Event::UnitRemoved {
                     unit: cargo_id,
-                    reason: ReasonId::from("carrier-lost"),
+                    reason: KnownReason::CarrierLost.into(),
                 });
             }
         }
@@ -668,7 +668,7 @@ pub(crate) fn execute_turn_boundary(
             if eliminate_player(
                 &mut next,
                 &successor_id,
-                &ReasonId::from("rout"),
+                VictoryReason::Rout,
                 None,
                 None,
                 &mut events,
@@ -701,7 +701,7 @@ pub(crate) fn execute_turn_boundary(
                 unit: unit_id,
                 from,
                 to: next.units[index].action,
-                reason: ReasonId::from("turn-start"),
+                reason: KnownReason::TurnStart.into(),
             });
         }
         next.turn.phase = Phase::UnitAction;

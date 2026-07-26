@@ -12,7 +12,7 @@ use crate::commander::{self};
 use crate::event::Event;
 use crate::ruleset::{self, Relation, TargetSet};
 use crate::semantic::{
-    AwbwVisibility, Location, PlayerId, Pos, ReasonId, State, UnitAction, UnitId,
+    AwbwVisibility, KnownReason, Location, PlayerId, Pos, State, UnitAction, UnitId,
 };
 use crate::violation::{Action, Violation};
 
@@ -94,7 +94,7 @@ pub(crate) fn execute_move_supply(
                 fuel_after: max_fuel,
                 ammo_before,
                 ammo_after: max_ammo,
-                reason: ReasonId::from("unit-supply"),
+                reason: KnownReason::UnitSupply.into(),
             });
         }
     }
@@ -197,7 +197,7 @@ pub(crate) fn execute_move_repair(
             fuel_after: max_fuel,
             ammo_before,
             ammo_after: max_ammo,
-            reason: ReasonId::from("unit-repair"),
+            reason: KnownReason::UnitRepair.into(),
         });
     }
     let visual_hp = target.hp.div_ceil(exact_hp);
@@ -214,14 +214,14 @@ pub(crate) fn execute_move_repair(
                 player: player.clone(),
                 from: funds_before,
                 to: funds_before - heal_cost,
-                reason: ReasonId::from("unit-repair"),
+                reason: KnownReason::UnitRepair.into(),
             });
             outcome.state.units[target_index].hp = hp_after;
             outcome.events.push(Event::UnitRepaired {
                 unit: target_id,
                 from_hp: hp_before,
                 to_hp: hp_after,
-                reason: ReasonId::from("unit-repair"),
+                reason: KnownReason::UnitRepair.into(),
             });
         }
     }
@@ -545,7 +545,7 @@ pub(crate) fn execute_move_join(
             player: player.clone(),
             from: funds_before,
             to: next.player_mut(player_index).funds,
-            reason: ReasonId::from("unit-join"),
+            reason: KnownReason::UnitJoin.into(),
         });
     }
     Ok(Execution {

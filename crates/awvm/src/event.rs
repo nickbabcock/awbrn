@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::combat::Weapon;
 use crate::commander::{AreaStrikePolicy, PowerLevel};
 use crate::semantic::{
-    CommanderId, Concealment, Outcome, Phase, PlayerId, PlayerStatus, Pos, ReasonId, Silo, TeamId,
+    CommanderId, Concealment, Outcome, Phase, PlayerId, PlayerStatus, Pos, Reason, Silo, TeamId,
     TerrainId, UnitAction, UnitId, UnitKindId, WeatherKind,
 };
 
@@ -57,7 +57,7 @@ pub enum Event {
         unit: UnitId,
         from: UnitAction,
         to: UnitAction,
-        reason: ReasonId,
+        reason: Reason,
     },
     UnitCreated {
         unit: UnitId,
@@ -67,19 +67,19 @@ pub enum Event {
     },
     UnitRemoved {
         unit: UnitId,
-        reason: ReasonId,
+        reason: Reason,
     },
     UnitDamaged {
         unit: UnitId,
         from_hp: u8,
         to_hp: u8,
-        reason: ReasonId,
+        reason: Reason,
     },
     UnitRepaired {
         unit: UnitId,
         from_hp: u8,
         to_hp: u8,
-        reason: ReasonId,
+        reason: Reason,
     },
     UnitResourced {
         unit: UnitId,
@@ -87,7 +87,7 @@ pub enum Event {
         fuel_after: u64,
         ammo_before: u64,
         ammo_after: u64,
-        reason: ReasonId,
+        reason: Reason,
     },
     UnitLoaded {
         unit: UnitId,
@@ -119,7 +119,7 @@ pub enum Event {
         position: Pos,
         from: TerrainId,
         to: TerrainId,
-        reason: ReasonId,
+        reason: Reason,
     },
     /// Capture progress against the tile's threshold.
     CaptureChanged {
@@ -141,7 +141,7 @@ pub enum Event {
         player: PlayerId,
         from: u64,
         to: u64,
-        reason: ReasonId,
+        reason: Reason,
     },
     /// Which weapon fired and what it was aimed at.
     ///
@@ -176,7 +176,7 @@ pub enum Event {
         commander_slot: usize,
         from: u64,
         to: u64,
-        reason: ReasonId,
+        reason: Reason,
     },
     CommanderSwapped {
         player: PlayerId,
@@ -187,7 +187,7 @@ pub enum Event {
         from: WeatherKind,
         to: WeatherKind,
         remaining_turns: u64,
-        reason: ReasonId,
+        reason: Reason,
     },
     /// The value drawn from the random tape, echoed so a replay can be checked
     /// against it.
@@ -222,7 +222,7 @@ pub enum Event {
     },
     TeamEliminated {
         team: TeamId,
-        reason: ReasonId,
+        reason: Reason,
     },
     MatchCompleted {
         outcome: Outcome,
@@ -340,6 +340,7 @@ pub enum RandomValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::semantic::{KnownReason, ReasonId};
     use serde_json::{Value, json};
 
     fn round_trip(event: Event) -> Value {
@@ -445,7 +446,7 @@ mod tests {
         assert_eq!(
             Event::UnitRemoved {
                 unit: UnitId::new(0),
-                reason: ReasonId::from("fuel-depleted"),
+                reason: KnownReason::FuelDepleted.into(),
             }
             .reason(),
             "fuel-depleted"

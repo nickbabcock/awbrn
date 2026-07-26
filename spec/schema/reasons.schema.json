@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/reasons.schema.json",
+  "title": "AWVM reason vocabularies",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["known", "victory", "draw"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "known": { "$ref": "#/$defs/reasons" },
+    "victory": { "$ref": "#/$defs/reasons" },
+    "draw": { "$ref": "#/$defs/reasons" }
+  },
+  "$defs": {
+    "reasons": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/reason-id" }
+    }
+  }
+}

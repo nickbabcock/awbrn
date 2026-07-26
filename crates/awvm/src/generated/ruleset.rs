@@ -1361,6 +1361,342 @@ impl fmt::Display for ConcealmentMode {
     }
 }
 
+/// Stable reasons defined by this ruleset revision.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum KnownReason {
+    #[serde(rename = "aborted")]
+    Aborted,
+    #[serde(rename = "agreement")]
+    Agreement,
+    #[serde(rename = "attack")]
+    Attack,
+    #[serde(rename = "capture-limit")]
+    CaptureLimit,
+    #[serde(rename = "carrier-lost")]
+    CarrierLost,
+    #[serde(rename = "combat")]
+    Combat,
+    #[serde(rename = "combat-counter")]
+    CombatCounter,
+    #[serde(rename = "commander-power")]
+    CommanderPower,
+    #[serde(rename = "day-limit")]
+    DayLimit,
+    #[serde(rename = "delete")]
+    Delete,
+    #[serde(rename = "elimination")]
+    Elimination,
+    #[serde(rename = "expiry")]
+    Expiry,
+    #[serde(rename = "explode")]
+    Explode,
+    #[serde(rename = "fuel-depleted")]
+    FuelDepleted,
+    #[serde(rename = "fuel-upkeep")]
+    FuelUpkeep,
+    #[serde(rename = "hq-capture")]
+    HqCapture,
+    #[serde(rename = "lab-capture")]
+    LabCapture,
+    #[serde(rename = "missile-silo")]
+    MissileSilo,
+    #[serde(rename = "no-contest")]
+    NoContest,
+    #[serde(rename = "random-weather")]
+    RandomWeather,
+    #[serde(rename = "resignation")]
+    Resignation,
+    #[serde(rename = "rout")]
+    Rout,
+    #[serde(rename = "timeout")]
+    Timeout,
+    #[serde(rename = "turn-start")]
+    TurnStart,
+    #[serde(rename = "turn-start-income")]
+    TurnStartIncome,
+    #[serde(rename = "unit-join")]
+    UnitJoin,
+    #[serde(rename = "unit-production")]
+    UnitProduction,
+    #[serde(rename = "unit-repair")]
+    UnitRepair,
+    #[serde(rename = "unit-supply")]
+    UnitSupply,
+}
+
+impl KnownReason {
+    /// Number of variants, and the length of any table keyed by this vocabulary.
+    pub const COUNT: usize = 29;
+
+    /// Every variant, in table order.
+    pub const ALL: [Self; 29] = [
+        Self::Aborted,
+        Self::Agreement,
+        Self::Attack,
+        Self::CaptureLimit,
+        Self::CarrierLost,
+        Self::Combat,
+        Self::CombatCounter,
+        Self::CommanderPower,
+        Self::DayLimit,
+        Self::Delete,
+        Self::Elimination,
+        Self::Expiry,
+        Self::Explode,
+        Self::FuelDepleted,
+        Self::FuelUpkeep,
+        Self::HqCapture,
+        Self::LabCapture,
+        Self::MissileSilo,
+        Self::NoContest,
+        Self::RandomWeather,
+        Self::Resignation,
+        Self::Rout,
+        Self::Timeout,
+        Self::TurnStart,
+        Self::TurnStartIncome,
+        Self::UnitJoin,
+        Self::UnitProduction,
+        Self::UnitRepair,
+        Self::UnitSupply,
+    ];
+
+    /// The identifier this variant is written as in the specification and on the wire.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Aborted => "aborted",
+            Self::Agreement => "agreement",
+            Self::Attack => "attack",
+            Self::CaptureLimit => "capture-limit",
+            Self::CarrierLost => "carrier-lost",
+            Self::Combat => "combat",
+            Self::CombatCounter => "combat-counter",
+            Self::CommanderPower => "commander-power",
+            Self::DayLimit => "day-limit",
+            Self::Delete => "delete",
+            Self::Elimination => "elimination",
+            Self::Expiry => "expiry",
+            Self::Explode => "explode",
+            Self::FuelDepleted => "fuel-depleted",
+            Self::FuelUpkeep => "fuel-upkeep",
+            Self::HqCapture => "hq-capture",
+            Self::LabCapture => "lab-capture",
+            Self::MissileSilo => "missile-silo",
+            Self::NoContest => "no-contest",
+            Self::RandomWeather => "random-weather",
+            Self::Resignation => "resignation",
+            Self::Rout => "rout",
+            Self::Timeout => "timeout",
+            Self::TurnStart => "turn-start",
+            Self::TurnStartIncome => "turn-start-income",
+            Self::UnitJoin => "unit-join",
+            Self::UnitProduction => "unit-production",
+            Self::UnitRepair => "unit-repair",
+            Self::UnitSupply => "unit-supply",
+        }
+    }
+
+    /// Parses an identifier. `None` means the value is outside this ruleset.
+    pub fn from_id(id: &str) -> Option<Self> {
+        match id {
+            "aborted" => Some(Self::Aborted),
+            "agreement" => Some(Self::Agreement),
+            "attack" => Some(Self::Attack),
+            "capture-limit" => Some(Self::CaptureLimit),
+            "carrier-lost" => Some(Self::CarrierLost),
+            "combat" => Some(Self::Combat),
+            "combat-counter" => Some(Self::CombatCounter),
+            "commander-power" => Some(Self::CommanderPower),
+            "day-limit" => Some(Self::DayLimit),
+            "delete" => Some(Self::Delete),
+            "elimination" => Some(Self::Elimination),
+            "expiry" => Some(Self::Expiry),
+            "explode" => Some(Self::Explode),
+            "fuel-depleted" => Some(Self::FuelDepleted),
+            "fuel-upkeep" => Some(Self::FuelUpkeep),
+            "hq-capture" => Some(Self::HqCapture),
+            "lab-capture" => Some(Self::LabCapture),
+            "missile-silo" => Some(Self::MissileSilo),
+            "no-contest" => Some(Self::NoContest),
+            "random-weather" => Some(Self::RandomWeather),
+            "resignation" => Some(Self::Resignation),
+            "rout" => Some(Self::Rout),
+            "timeout" => Some(Self::Timeout),
+            "turn-start" => Some(Self::TurnStart),
+            "turn-start-income" => Some(Self::TurnStartIncome),
+            "unit-join" => Some(Self::UnitJoin),
+            "unit-production" => Some(Self::UnitProduction),
+            "unit-repair" => Some(Self::UnitRepair),
+            "unit-supply" => Some(Self::UnitSupply),
+            _ => None,
+        }
+    }
+
+    /// Dense index into tables keyed by this vocabulary.
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+impl fmt::Display for KnownReason {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+/// Reasons a victory outcome may carry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum VictoryReason {
+    #[serde(rename = "rout")]
+    Rout,
+    #[serde(rename = "hq-capture")]
+    HqCapture,
+    #[serde(rename = "lab-capture")]
+    LabCapture,
+    #[serde(rename = "capture-limit")]
+    CaptureLimit,
+    #[serde(rename = "day-limit")]
+    DayLimit,
+    #[serde(rename = "resignation")]
+    Resignation,
+    #[serde(rename = "timeout")]
+    Timeout,
+}
+
+impl VictoryReason {
+    /// Number of variants, and the length of any table keyed by this vocabulary.
+    pub const COUNT: usize = 7;
+
+    /// Every variant, in table order.
+    pub const ALL: [Self; 7] = [
+        Self::Rout,
+        Self::HqCapture,
+        Self::LabCapture,
+        Self::CaptureLimit,
+        Self::DayLimit,
+        Self::Resignation,
+        Self::Timeout,
+    ];
+
+    /// The identifier this variant is written as in the specification and on the wire.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Rout => "rout",
+            Self::HqCapture => "hq-capture",
+            Self::LabCapture => "lab-capture",
+            Self::CaptureLimit => "capture-limit",
+            Self::DayLimit => "day-limit",
+            Self::Resignation => "resignation",
+            Self::Timeout => "timeout",
+        }
+    }
+
+    /// Parses an identifier. `None` means the value is outside this ruleset.
+    pub fn from_id(id: &str) -> Option<Self> {
+        match id {
+            "rout" => Some(Self::Rout),
+            "hq-capture" => Some(Self::HqCapture),
+            "lab-capture" => Some(Self::LabCapture),
+            "capture-limit" => Some(Self::CaptureLimit),
+            "day-limit" => Some(Self::DayLimit),
+            "resignation" => Some(Self::Resignation),
+            "timeout" => Some(Self::Timeout),
+            _ => None,
+        }
+    }
+
+    /// Dense index into tables keyed by this vocabulary.
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+impl fmt::Display for VictoryReason {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+/// Reasons a draw outcome may carry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum DrawReason {
+    #[serde(rename = "day-limit")]
+    DayLimit,
+    #[serde(rename = "agreement")]
+    Agreement,
+    #[serde(rename = "no-contest")]
+    NoContest,
+}
+
+impl DrawReason {
+    /// Number of variants, and the length of any table keyed by this vocabulary.
+    pub const COUNT: usize = 3;
+
+    /// Every variant, in table order.
+    pub const ALL: [Self; 3] = [
+        Self::DayLimit,
+        Self::Agreement,
+        Self::NoContest,
+    ];
+
+    /// The identifier this variant is written as in the specification and on the wire.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::DayLimit => "day-limit",
+            Self::Agreement => "agreement",
+            Self::NoContest => "no-contest",
+        }
+    }
+
+    /// Parses an identifier. `None` means the value is outside this ruleset.
+    pub fn from_id(id: &str) -> Option<Self> {
+        match id {
+            "day-limit" => Some(Self::DayLimit),
+            "agreement" => Some(Self::Agreement),
+            "no-contest" => Some(Self::NoContest),
+            _ => None,
+        }
+    }
+
+    /// Dense index into tables keyed by this vocabulary.
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+impl fmt::Display for DrawReason {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl From<VictoryReason> for KnownReason {
+    fn from(reason: VictoryReason) -> Self {
+        match reason {
+            VictoryReason::Rout => KnownReason::Rout,
+            VictoryReason::HqCapture => KnownReason::HqCapture,
+            VictoryReason::LabCapture => KnownReason::LabCapture,
+            VictoryReason::CaptureLimit => KnownReason::CaptureLimit,
+            VictoryReason::DayLimit => KnownReason::DayLimit,
+            VictoryReason::Resignation => KnownReason::Resignation,
+            VictoryReason::Timeout => KnownReason::Timeout,
+        }
+    }
+}
+
+impl From<DrawReason> for KnownReason {
+    fn from(reason: DrawReason) -> Self {
+        match reason {
+            DrawReason::DayLimit => KnownReason::DayLimit,
+            DrawReason::Agreement => KnownReason::Agreement,
+            DrawReason::NoContest => KnownReason::NoContest,
+        }
+    }
+}
+
 /// Everything the ruleset says about a unit kind, keyed by [`UnitKind::index`].
 ///
 /// Merged from `units.json`, `combat-profiles.json`, `weapons.json` and

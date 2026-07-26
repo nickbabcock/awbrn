@@ -10,8 +10,8 @@ use crate::commander::{self};
 use crate::event::Event;
 use crate::ruleset::{self, TerrainTrait, UnitKind};
 use crate::semantic::{
-    AwbwVisibility, Concealment, Location, Outcome, PlayerId, Pos, ReasonId, State, TerrainId,
-    TileOwner, Unit, UnitAction, UnitId,
+    AwbwVisibility, Concealment, KnownReason, Location, Outcome, PlayerId, Pos, State, TerrainId,
+    TileOwner, Unit, UnitAction, UnitId, VictoryReason,
 };
 use crate::violation::{Action, Violation};
 
@@ -110,7 +110,7 @@ pub(crate) fn execute_produce_unit(
                 player: player.clone(),
                 from: funds,
                 to: funds - cost,
-                reason: ReasonId::from("unit-production"),
+                reason: KnownReason::UnitProduction.into(),
             },
             Event::UnitCreated {
                 unit: allocated_id,
@@ -278,7 +278,7 @@ pub(crate) fn execute_move_capture(
                 &mut next,
                 Outcome::Victory {
                     winners: vec![winning_team],
-                    reason: "capture-limit".into(),
+                    reason: VictoryReason::CaptureLimit,
                 },
                 &mut events,
             );
@@ -307,14 +307,14 @@ pub(crate) fn execute_move_capture(
             && let Some(previous_owner) = previous_owner
         {
             let cause = if defeats_owner {
-                ReasonId::from("hq-capture")
+                VictoryReason::HqCapture
             } else {
-                ReasonId::from("lab-capture")
+                VictoryReason::LabCapture
             };
             eliminate_player(
                 &mut next,
                 &previous_owner,
-                &cause,
+                cause,
                 Some(player),
                 Some(destination),
                 &mut events,

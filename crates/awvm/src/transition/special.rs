@@ -10,7 +10,9 @@ use super::*;
 use crate::commander::AreaStrikePolicy;
 use crate::event::Event;
 use crate::ruleset::UnitKind;
-use crate::semantic::{AwbwVisibility, PlayerId, Pos, ReasonId, Silo, State, UnitId};
+use crate::semantic::{
+    AwbwVisibility, KnownReason, PlayerId, Pos, Silo, State, UnitId, VictoryReason,
+};
 use crate::violation::{Action, Violation};
 
 pub(crate) fn execute_move_launch(
@@ -97,7 +99,7 @@ pub(crate) fn execute_move_launch(
                 unit: id,
                 from_hp,
                 to_hp,
-                reason: ReasonId::from("missile-silo"),
+                reason: KnownReason::MissileSilo.into(),
             });
         }
     }
@@ -185,7 +187,7 @@ pub(crate) fn execute_move_explode(
             unit: id,
             from_hp,
             to_hp,
-            reason: ReasonId::from("explode"),
+            reason: KnownReason::Explode.into(),
         });
     }
 
@@ -193,7 +195,7 @@ pub(crate) fn execute_move_explode(
     outcome.state.units.remove(plan.unit_index());
     outcome.events.push(Event::UnitRemoved {
         unit: unit_id,
-        reason: ReasonId::from("explode"),
+        reason: KnownReason::Explode.into(),
     });
     if !outcome
         .state
@@ -204,7 +206,7 @@ pub(crate) fn execute_move_explode(
         eliminate_player(
             &mut outcome.state,
             &exploding_owner,
-            &ReasonId::from("rout"),
+            VictoryReason::Rout,
             None,
             None,
             &mut outcome.events,
@@ -255,13 +257,13 @@ pub(crate) fn execute_delete_unit(
     next.units.remove(unit_index);
     events.push(Event::UnitRemoved {
         unit: unit_id,
-        reason: ReasonId::from("delete"),
+        reason: KnownReason::Delete.into(),
     });
     if !next.units.iter().any(|unit| unit.owner == player) {
         eliminate_player(
             &mut next,
             player,
-            &ReasonId::from("rout"),
+            VictoryReason::Rout,
             None,
             None,
             &mut events,
