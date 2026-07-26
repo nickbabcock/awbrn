@@ -4,11 +4,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::commander::{self, PowerLevel};
 use crate::event::{AttackTarget, Event};
-use crate::random::{Luck, RandomTape, RandomToken};
+use crate::random::{Entropy, Luck, RandomError, RandomTape, RandomToken, RandomTokenKind};
 use crate::ruleset::{self, Domain, UnitKind};
 use crate::semantic::{
     Location, Match, Outcome, Phase, PlayerId, Pos, State, TerrainId, Unit, UnitId, UnitKindId,
-    Viewpoint,
+    Viewpoint, WeatherKind,
 };
 use crate::violation::Violation;
 
@@ -235,12 +235,35 @@ impl From<Violation> for ReducerError {
     }
 }
 
+/// Evaluate one command against a recorded tape.
+///
+/// This is the protocol's entry point and the one a fixture or a replay wants:
+/// both already know every outcome, and supplying them is how a run is checked
+/// token-for-token. An authority that rolls instead wants
+/// [`execute_with`].
 pub fn execute(
     state: &State,
     command: Command,
     random: &[RandomToken],
 ) -> Result<ExecuteOutcome, ExecuteError> {
-    match reduce(state, command, random) {
+    execute_with(state, command, &mut RandomTape::new(random))
+}
+
+/// Evaluate one command, asking `entropy` for each value as the reducer reaches
+/// it.
+///
+/// The reducer knows the acting commander's luck domain at the moment it draws;
+/// a caller pre-rolling a tape does not, and would have to rebuild the combat
+/// context to find out. Wrap `entropy` in [`crate::random::Recording`] to keep
+/// the tape the run produced, which is what makes a live game replayable
+/// through [`execute`].
+pub fn execute_with(
+    state: &State,
+    command: Command,
+    entropy: &mut impl Entropy,
+) -> Result<ExecuteOutcome, ExecuteError> {
+    let mut draws = Draws::new(entropy);
+    match reduce(state, command, &mut draws) {
         Ok(execution) => Ok(ExecuteOutcome::Accepted(execution)),
         Err(ReducerError::Violation(violation)) => Ok(ExecuteOutcome::Rejected(violation)),
         Err(ReducerError::UnsupportedCommand) => Err(ExecuteError::UnsupportedCommand),
@@ -253,7 +276,7 @@ pub fn execute(
 fn reduce(
     state: &State,
     command: Command,
-    random: &[RandomToken],
+    draws: &mut Draws<'_>,
 ) -> Result<Execution, ReducerError> {
     let Some(player) = command.player() else {
         return Err(ReducerError::UnsupportedCommand);
@@ -263,7 +286,7 @@ fn reduce(
         Command::MoveWait { unit, path, .. } => execute_move_wait(&turn, unit, path),
         Command::MoveAttack {
             unit, path, target, ..
-        } => execute_move_attack(&turn, unit, path, target, random),
+        } => execute_move_attack(&turn, unit, path, target, draws),
         Command::MoveLaunch {
             unit, path, target, ..
         } => execute_move_launch(&turn, unit, path, target),
@@ -295,9 +318,9 @@ fn reduce(
             ..
         } => execute_unload(&turn, transport, cargo, destination),
         Command::ActivatePower { level, .. } => execute_activate_power(&turn, level),
-        Command::Tag { .. } => execute_tag(&turn, random),
-        Command::EndTurn { .. } => execute_end_turn(&turn, random),
-        Command::Resign { .. } => execute_resign(&turn, random),
+        Command::Tag { .. } => execute_tag(&turn, draws),
+        Command::EndTurn { .. } => execute_end_turn(&turn, draws),
+        Command::Resign { .. } => execute_resign(&turn, draws),
         Command::Unsupported => unreachable!("unsupported commands returned before validation"),
     }
 }
@@ -358,6 +381,57 @@ pub(crate) fn refill_unit(unit: &mut Unit) -> bool {
     changed
 }
 
+/// The reducer's view of the caller's entropy, with the draw count attached.
+///
+/// `random_consumed` used to be `RandomTape::consumed`, which tied the reported
+/// count to one implementation of the source. Counting here instead keeps the
+/// count a fact about the run — the property that doc comment was defending —
+/// while letting the source be a tape, an RNG, or anything else.
+pub(crate) struct Draws<'a> {
+    source: &'a mut dyn Entropy,
+    drawn: usize,
+}
+
+impl<'a> Draws<'a> {
+    pub(crate) fn new(source: &'a mut dyn Entropy) -> Self {
+        Self { source, drawn: 0 }
+    }
+
+    /// How many values the reducer asked for.
+    pub(crate) const fn drawn(&self) -> usize {
+        self.drawn
+    }
+
+    pub(crate) fn weather(&mut self) -> Result<WeatherKind, RandomError> {
+        self.drawn += 1;
+        self.source.weather()
+    }
+
+    /// Draw a luck value and hold the source to the domain it was given.
+    ///
+    /// [`RandomTape`] checks its own tokens, but a caller-supplied source is
+    /// just as able to hand back a number outside the range — and an
+    /// unchecked one reaches the damage formula, where it silently changes the
+    /// result instead of failing. Checking here means the bound is a property
+    /// of the reducer rather than of one implementation of [`Entropy`].
+    fn luck(&mut self, polarity: Luck, domain: commander::Domain) -> Result<i64, RandomError> {
+        self.drawn += 1;
+        let value = self.source.luck(polarity, domain)?;
+        if !(domain.minimum..=domain.maximum).contains(&value) {
+            return Err(RandomError::OutOfDomain {
+                kind: match polarity {
+                    Luck::Good => RandomTokenKind::CombatGoodLuck,
+                    Luck::Bad => RandomTokenKind::CombatBadLuck,
+                },
+                value,
+                minimum: domain.minimum,
+                maximum: domain.maximum,
+            });
+        }
+        Ok(value)
+    }
+}
+
 /// Draw one combat luck roll.
 ///
 /// A malformed combat tape has always reported `UNSUPPORTED_COMMAND` rather than
@@ -365,11 +439,12 @@ pub(crate) fn refill_unit(unit: &mut Unit) -> bool {
 /// wrong-type, or out-of-domain random input". Preserved rather than corrected,
 /// so typing the tape stays invisible on the wire; see handoff.md.
 pub(crate) fn draw(
-    tape: &mut RandomTape<'_>,
+    draws: &mut Draws<'_>,
     polarity: Luck,
     domain: commander::Domain,
 ) -> Result<i64, ReducerError> {
-    tape.luck(polarity, domain)
+    draws
+        .luck(polarity, domain)
         .map_err(|_| ReducerError::UnsupportedCommand)
 }
 
@@ -453,7 +528,8 @@ mod tests {
         command: Command,
         random: &[RandomToken],
     ) -> Result<Execution, ReducerError> {
-        reduce(state, command, random)
+        let mut tape = RandomTape::new(random);
+        reduce(state, command, &mut Draws::new(&mut tape))
     }
 
     /// Replace the board with a single row of `tiles`.

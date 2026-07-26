@@ -25,6 +25,8 @@ use std::ops::Deref;
 
 use serde::{Deserialize, Serialize};
 
+use crate::ruleset::{self, TerrainTrait};
+
 pub use observe::{
     Observation, ObserveError, ObservedBoard, ObservedEvent, ObservedMatch, ObservedPlayer,
     ObservedTile, ObservedTransition, ObservedUnit, ObservedUnitRef, PublicCommander, Relation,
@@ -544,6 +546,360 @@ impl State {
     pub fn find_player_mut(&mut self, id: &PlayerId) -> Option<&mut Player> {
         self.players.iter_mut().find(|candidate| candidate.id == id)
     }
+
+    /// Check the relational invariants of `spec/model/invariants.md`.
+    ///
+    /// Decoding already enforces everything a type can carry: the board is a
+    /// rectangle, terrain and unit kinds are the ruleset's own vocabulary, and
+    /// unit ids are unique. What is left is the relations *between* fields —
+    /// an owner naming a player that exists, two units on one tile, cargo
+    /// pointing at a transport that sank — and nothing checks those until a
+    /// reducer trips over one mid-command and returns
+    /// [`crate::transition::ExecuteError::InvalidState`].
+    ///
+    /// That is the right answer for the protocol, which is handed a state per
+    /// request. It is the wrong one for a consumer that loads a map once and
+    /// then plays a thousand commands against it: the defect is in the load,
+    /// and it should be reported there. Run this at the boundary where a state
+    /// enters the process — a map import, a database read, a replay adapter —
+    /// and the reducer's `InvalidState` becomes the assertion it reads like.
+    ///
+    /// The scan is linear in tiles and units and allocates one set, so it is
+    /// affordable per load and not per command.
+    pub fn validate(&self) -> Result<(), StateInvariant> {
+        self.validate_roster()?;
+        self.validate_units()?;
+        self.validate_board()?;
+        Ok(())
+    }
+
+    /// Teams, players, and whose turn it is.
+    fn validate_roster(&self) -> Result<(), StateInvariant> {
+        let mut teams = HashSet::with_capacity(self.teams.len());
+        for team in &self.teams {
+            if !teams.insert(&team.id) {
+                return Err(StateInvariant::DuplicateTeam(team.id.clone()));
+            }
+        }
+        let mut players = HashSet::with_capacity(self.players.len());
+        for player in &self.players {
+            if !players.insert(&player.id) {
+                return Err(StateInvariant::DuplicatePlayer(player.id.clone()));
+            }
+            if !teams.contains(&player.team) {
+                return Err(StateInvariant::UnknownTeam {
+                    player: player.id.clone(),
+                    team: player.team.clone(),
+                });
+            }
+        }
+        if !players.contains(&self.turn.active_player) {
+            return Err(StateInvariant::UnknownActivePlayer(
+                self.turn.active_player.clone(),
+            ));
+        }
+        let mut seen = HashSet::with_capacity(self.turn.order.len());
+        for id in &self.turn.order {
+            if !players.contains(id) {
+                return Err(StateInvariant::UnknownPlayerInOrder(id.clone()));
+            }
+            if !seen.insert(id) {
+                return Err(StateInvariant::RepeatedPlayerInOrder(id.clone()));
+            }
+        }
+        match self.turn.order.get(self.turn.position) {
+            None => Err(StateInvariant::TurnPositionOutOfRange {
+                position: self.turn.position,
+                length: self.turn.order.len(),
+            }),
+            Some(id) if *id != self.turn.active_player => {
+                Err(StateInvariant::TurnPositionDisagrees {
+                    position: self.turn.position,
+                    seated: id.clone(),
+                    active: self.turn.active_player.clone(),
+                })
+            }
+            Some(_) => Ok(()),
+        }
+    }
+
+    /// Units: ownership, placement, resources, cargo, and the `moved` rule.
+    fn validate_units(&self) -> Result<(), StateInvariant> {
+        let mut occupied: HashMap<Pos, UnitId> = HashMap::with_capacity(self.units.len());
+        let mut slots: HashSet<(UnitId, usize)> = HashSet::new();
+        let mut moved: Option<UnitId> = None;
+        let mut highest: Option<u32> = None;
+
+        for unit in &self.units {
+            highest = Some(highest.map_or(unit.id.get(), |seen| seen.max(unit.id.get())));
+            if self.find_player(&unit.owner).is_none() {
+                return Err(StateInvariant::UnknownUnitOwner {
+                    unit: unit.id,
+                    owner: unit.owner.clone(),
+                });
+            }
+            if unit.hp == 0 || unit.hp > 100 {
+                return Err(StateInvariant::UnitHpOutOfRange {
+                    unit: unit.id,
+                    hp: unit.hp,
+                });
+            }
+            let profile = ruleset::profile(unit.kind);
+            if unit.fuel > profile.max_fuel {
+                return Err(StateInvariant::UnitFuelExceedsMaximum {
+                    unit: unit.id,
+                    fuel: unit.fuel,
+                    maximum: profile.max_fuel,
+                });
+            }
+            if unit.ammo > profile.max_ammo {
+                return Err(StateInvariant::UnitAmmoExceedsMaximum {
+                    unit: unit.id,
+                    ammo: unit.ammo,
+                    maximum: profile.max_ammo,
+                });
+            }
+            if unit.action == UnitAction::Moved {
+                if self.turn.phase != Phase::UnitAction {
+                    return Err(StateInvariant::MovedOutsideUnitAction { unit: unit.id });
+                }
+                if unit.owner != self.turn.active_player {
+                    return Err(StateInvariant::MovedUnitIsNotActive { unit: unit.id });
+                }
+                if let Some(first) = moved.replace(unit.id) {
+                    return Err(StateInvariant::SeveralMovedUnits {
+                        first,
+                        second: unit.id,
+                    });
+                }
+            }
+            match unit.location {
+                Location::Board { position } => {
+                    if !self.board.contains(position) {
+                        return Err(StateInvariant::UnitOutOfBounds {
+                            unit: unit.id,
+                            position,
+                        });
+                    }
+                    if let Some(other) = occupied.insert(position, unit.id) {
+                        return Err(StateInvariant::TileOccupiedTwice {
+                            position,
+                            first: other,
+                            second: unit.id,
+                        });
+                    }
+                }
+                Location::Cargo { transport, slot } => {
+                    self.validate_cargo(unit, transport, slot, &mut slots)?;
+                }
+            }
+        }
+
+        // `next_unit_id` is `Option` because `spec/model/state.md:139` makes it
+        // one: a state for a feature that never spawns units may omit it, and
+        // production treats the absence as an inadmissible pre-state. What the
+        // specification does require is that a present value be fresh.
+        match (self.next_unit_id, highest) {
+            (Some(next), Some(highest)) if next <= highest => {
+                Err(StateInvariant::NextUnitIdIsNotFresh {
+                    next_unit_id: next,
+                    highest: UnitId::new(highest),
+                })
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// One cargo unit against the transport it names.
+    fn validate_cargo(
+        &self,
+        unit: &Unit,
+        transport: UnitId,
+        slot: usize,
+        slots: &mut HashSet<(UnitId, usize)>,
+    ) -> Result<(), StateInvariant> {
+        let cargo_error = |reason| StateInvariant::Cargo {
+            unit: unit.id,
+            transport,
+            reason,
+        };
+        if transport == unit.id {
+            return Err(cargo_error(CargoFault::CarriesItself));
+        }
+        let Some(carrier) = self.units.get(transport) else {
+            return Err(cargo_error(CargoFault::TransportAbsent));
+        };
+        if carrier.owner != unit.owner {
+            return Err(cargo_error(CargoFault::OwnerDiffers));
+        }
+        // AWBW has no nested transport capability, so a carrier is on the board
+        // (`spec/model/state.md`, cargo invariants).
+        if !matches!(carrier.location, Location::Board { .. }) {
+            return Err(cargo_error(CargoFault::TransportNotOnBoard));
+        }
+        let Some(capability) = ruleset::profile(carrier.kind).transport else {
+            return Err(cargo_error(CargoFault::TransportCarriesNothing));
+        };
+        if slot >= capability.capacity {
+            return Err(cargo_error(CargoFault::SlotBeyondCapacity {
+                slot,
+                capacity: capability.capacity,
+            }));
+        }
+        if !capability.cargo.contains(unit.kind) {
+            return Err(cargo_error(CargoFault::KindNotCarryable(unit.kind)));
+        }
+        if !slots.insert((transport, slot)) {
+            return Err(cargo_error(CargoFault::SlotTaken(slot)));
+        }
+        Ok(())
+    }
+
+    /// Tiles: an owner that exists, and mutable fields the terrain admits.
+    fn validate_board(&self) -> Result<(), StateInvariant> {
+        for (position, tile) in self.board.rows().flatten() {
+            if let Some(owner) = tile.owner.player()
+                && self.find_player(owner).is_none()
+            {
+                return Err(StateInvariant::UnknownTileOwner {
+                    position,
+                    owner: owner.clone(),
+                });
+            }
+            if tile.owner.is_ownable()
+                != ruleset::terrain_has(tile.terrain, TerrainTrait::Capturable)
+            {
+                return Err(StateInvariant::TileOwnershipDisagreesWithTerrain {
+                    position,
+                    terrain: tile.terrain,
+                });
+            }
+            if tile.capture_points.is_some() && !tile.owner.is_ownable() {
+                return Err(StateInvariant::CapturePointsOnUnownableTile { position });
+            }
+            match (
+                tile.destructible_hp(),
+                ruleset::terrain(tile.terrain).destructible,
+            ) {
+                (Some(hp), Some(profile)) if hp > profile.maximum_hp => {
+                    return Err(StateInvariant::DestructibleHpAboveMaximum {
+                        position,
+                        hp,
+                        maximum: profile.maximum_hp,
+                    });
+                }
+                (Some(_), None) => {
+                    return Err(StateInvariant::DestructibleHpOnIndestructibleTile { position });
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A relation between two parts of a [`State`] that the specification forbids.
+///
+/// Each variant names the invariant it caught and the values that broke it, so
+/// a loader can report which unit or tile is wrong rather than that something
+/// is. The ones decoding already prevents — a ragged board, a repeated unit id,
+/// an unknown terrain — are not here, because a value carrying them cannot be
+/// built.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum StateInvariant {
+    #[error("team {0} appears more than once")]
+    DuplicateTeam(TeamId),
+    #[error("player {0} appears more than once")]
+    DuplicatePlayer(PlayerId),
+    #[error("player {player} belongs to unknown team {team}")]
+    UnknownTeam { player: PlayerId, team: TeamId },
+    #[error("active player {0} is not in the roster")]
+    UnknownActivePlayer(PlayerId),
+    #[error("turn order names unknown player {0}")]
+    UnknownPlayerInOrder(PlayerId),
+    #[error("turn order names {0} more than once")]
+    RepeatedPlayerInOrder(PlayerId),
+    #[error("turn position {position} is outside an order of {length}")]
+    TurnPositionOutOfRange { position: usize, length: usize },
+    #[error("turn position {position} seats {seated}, but {active} is active")]
+    TurnPositionDisagrees {
+        position: usize,
+        seated: PlayerId,
+        active: PlayerId,
+    },
+    #[error("unit {unit} is owned by unknown player {owner}")]
+    UnknownUnitOwner { unit: UnitId, owner: PlayerId },
+    #[error("unit {unit} has {hp} HP, which is outside 1..=100")]
+    UnitHpOutOfRange { unit: UnitId, hp: u8 },
+    #[error("unit {unit} holds {fuel} fuel above its maximum of {maximum}")]
+    UnitFuelExceedsMaximum {
+        unit: UnitId,
+        fuel: u64,
+        maximum: u64,
+    },
+    #[error("unit {unit} holds {ammo} ammo above its maximum of {maximum}")]
+    UnitAmmoExceedsMaximum {
+        unit: UnitId,
+        ammo: u64,
+        maximum: u64,
+    },
+    #[error("unit {unit} is moved outside the unit-action phase")]
+    MovedOutsideUnitAction { unit: UnitId },
+    #[error("unit {unit} is moved but is not the active player's")]
+    MovedUnitIsNotActive { unit: UnitId },
+    #[error("units {first} and {second} are both moved")]
+    SeveralMovedUnits { first: UnitId, second: UnitId },
+    #[error("unit {unit} stands at {position}, which is off the board")]
+    UnitOutOfBounds { unit: UnitId, position: Pos },
+    #[error("units {first} and {second} both stand at {position}")]
+    TileOccupiedTwice {
+        position: Pos,
+        first: UnitId,
+        second: UnitId,
+    },
+    #[error("cargo unit {unit} in transport {transport}: {reason}")]
+    Cargo {
+        unit: UnitId,
+        transport: UnitId,
+        reason: CargoFault,
+    },
+    #[error("next_unit_id {next_unit_id} does not exceed live unit {highest}")]
+    NextUnitIdIsNotFresh { next_unit_id: u32, highest: UnitId },
+    #[error("tile {position} is owned by unknown player {owner}")]
+    UnknownTileOwner { position: Pos, owner: PlayerId },
+    #[error("tile {position} carries ownership its terrain {terrain} does not admit")]
+    TileOwnershipDisagreesWithTerrain { position: Pos, terrain: TerrainId },
+    #[error("tile {position} records capture progress but cannot be owned")]
+    CapturePointsOnUnownableTile { position: Pos },
+    #[error("tile {position} has {hp} HP above its maximum of {maximum}")]
+    DestructibleHpAboveMaximum {
+        position: Pos,
+        hp: u64,
+        maximum: u64,
+    },
+    #[error("tile {position} has destructible HP but its terrain is not destructible")]
+    DestructibleHpOnIndestructibleTile { position: Pos },
+}
+
+/// Which cargo invariant a cargo unit broke.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum CargoFault {
+    #[error("it names itself as its transport")]
+    CarriesItself,
+    #[error("the transport is not in play")]
+    TransportAbsent,
+    #[error("the transport belongs to another player")]
+    OwnerDiffers,
+    #[error("the transport is not on the board, which AWBW requires")]
+    TransportNotOnBoard,
+    #[error("the transport carries no cargo")]
+    TransportCarriesNothing,
+    #[error("slot {slot} is beyond a capacity of {capacity}")]
+    SlotBeyondCapacity { slot: usize, capacity: usize },
+    #[error("a {0} cannot be carried by it")]
+    KindNotCarryable(UnitKindId),
+    #[error("slot {0} already holds another unit")]
+    SlotTaken(usize),
 }
 
 /// The board, stored flat and row-major.

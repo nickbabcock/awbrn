@@ -13,7 +13,6 @@ use crate::commander::{
     TargetedAreaStrikePolicy, TargetedUnitValue, UnitTarget, WeatherDuration, WeatherEffectKind,
 };
 use crate::event::Event;
-use crate::random::RandomToken;
 use crate::ruleset::{self, PropertyKind, TerrainTrait, UnitKind};
 use crate::semantic::{
     Concealment, KnownReason, Location, PlayerId, Pos, State, Unit, UnitAction, UnitId, WeatherKind,
@@ -1045,7 +1044,7 @@ fn multiply_funds_ratio(
 
 pub(crate) fn execute_tag(
     turn: &ActiveTurn<'_>,
-    random: &[RandomToken],
+    draws: &mut Draws<'_>,
 ) -> Result<Execution, ExecuteError> {
-    execute_turn_boundary(turn, BoundaryCommand::Tag, random)
+    execute_turn_boundary(turn, BoundaryCommand::Tag, draws)
 }

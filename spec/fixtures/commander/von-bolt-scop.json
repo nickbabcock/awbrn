@@ -28,7 +28,7 @@
       "height": 1,
       "tiles": [
         [
-          { "terrain": "plain" },
+          { "terrain": "sea" },
           { "terrain": "plain" },
           { "terrain": "plain" },
           { "terrain": "plain" },
@@ -82,7 +82,7 @@
     "units": [
       {
         "id": 0,
-        "kind": "apc",
+        "kind": "lander",
         "owner": "blue",
         "hp": 20,
         "fuel": 70,
@@ -166,7 +166,7 @@
             "height": 1,
             "tiles": [
               [
-                { "terrain": "plain" },
+                { "terrain": "sea" },
                 { "terrain": "plain" },
                 { "terrain": "plain" },
                 { "terrain": "plain" },
@@ -224,7 +224,7 @@
           "units": [
             {
               "id": 0,
-              "kind": "apc",
+              "kind": "lander",
               "owner": "blue",
               "hp": 1,
               "fuel": 70,

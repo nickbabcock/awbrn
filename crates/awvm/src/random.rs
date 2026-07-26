@@ -11,6 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::commander::Domain;
 use crate::semantic::WeatherKind;
 
 /// One supplied random draw.
@@ -77,6 +78,82 @@ pub enum RandomError {
     },
 }
 
+/// Where the reducer's non-deterministic values come from.
+///
+/// Both methods are asked at the moment the reducer needs the value and knows
+/// what would be legal, which is the whole point: `domain` is the acting
+/// commander's luck range, already resolved through the commander algebra, so
+/// an implementation rolling its own dice does not have to derive it. Returning
+/// a value outside `domain` is the implementation's error to make, and the
+/// reducer reports it exactly as it reports a malformed tape.
+///
+/// Implemented by [`RandomTape`] for recorded outcomes and by [`Recording`] for
+/// anything else that wants its draws kept.
+pub trait Entropy {
+    /// A combat luck roll of the requested polarity, inside `domain`.
+    fn luck(&mut self, polarity: Luck, domain: Domain) -> Result<i64, RandomError>;
+
+    /// The weather a random-weather match turns to at a turn boundary.
+    fn weather(&mut self) -> Result<WeatherKind, RandomError>;
+}
+
+impl<E: Entropy + ?Sized> Entropy for &mut E {
+    fn luck(&mut self, polarity: Luck, domain: Domain) -> Result<i64, RandomError> {
+        (**self).luck(polarity, domain)
+    }
+
+    fn weather(&mut self) -> Result<WeatherKind, RandomError> {
+        (**self).weather()
+    }
+}
+
+/// An [`Entropy`] that keeps every value it produced, in draw order.
+///
+/// A live authority needs both halves: an RNG to play the game with, and the
+/// tape that RNG produced to persist, so the same command can be replayed
+/// through [`crate::transition::execute`] and checked token-for-token. Wrapping
+/// its source in this is how it gets the second without giving up the first.
+pub struct Recording<E> {
+    source: E,
+    drawn: Vec<RandomToken>,
+}
+
+impl<E> Recording<E> {
+    pub const fn new(source: E) -> Self {
+        Self {
+            source,
+            drawn: Vec::new(),
+        }
+    }
+
+    /// The tape produced so far, in the order the reducer drew it.
+    pub fn tokens(&self) -> &[RandomToken] {
+        &self.drawn
+    }
+
+    /// Take the tape, giving the source back.
+    pub fn into_parts(self) -> (E, Vec<RandomToken>) {
+        (self.source, self.drawn)
+    }
+}
+
+impl<E: Entropy> Entropy for Recording<E> {
+    fn luck(&mut self, polarity: Luck, domain: Domain) -> Result<i64, RandomError> {
+        let value = self.source.luck(polarity, domain)?;
+        self.drawn.push(match polarity {
+            Luck::Good => RandomToken::CombatGoodLuck(value),
+            Luck::Bad => RandomToken::CombatBadLuck(value),
+        });
+        Ok(value)
+    }
+
+    fn weather(&mut self) -> Result<WeatherKind, RandomError> {
+        let kind = self.source.weather()?;
+        self.drawn.push(RandomToken::WeatherSelection(kind));
+        Ok(kind)
+    }
+}
+
 /// An in-order cursor over the tape.
 ///
 /// The protocol boundary decodes every supplied value into a [`RandomToken`].
@@ -108,11 +185,7 @@ impl<'a> RandomTape<'a> {
     }
 
     /// Draw a luck roll, requiring it to fall inside `domain`.
-    pub fn luck(
-        &mut self,
-        polarity: Luck,
-        domain: crate::commander::Domain,
-    ) -> Result<i64, RandomError> {
+    fn draw_luck(&mut self, polarity: Luck, domain: Domain) -> Result<i64, RandomError> {
         let expected = match polarity {
             Luck::Good => RandomTokenKind::CombatGoodLuck,
             Luck::Bad => RandomTokenKind::CombatBadLuck,
@@ -140,7 +213,7 @@ impl<'a> RandomTape<'a> {
     }
 
     /// Draw the weather the caller selected.
-    pub fn weather(&mut self) -> Result<WeatherKind, RandomError> {
+    fn draw_weather(&mut self) -> Result<WeatherKind, RandomError> {
         let expected = RandomTokenKind::WeatherSelection;
         let token = self.next_token(expected)?;
         match token {
@@ -150,6 +223,16 @@ impl<'a> RandomTape<'a> {
                 actual: token.kind(),
             }),
         }
+    }
+}
+
+impl Entropy for RandomTape<'_> {
+    fn luck(&mut self, polarity: Luck, domain: Domain) -> Result<i64, RandomError> {
+        self.draw_luck(polarity, domain)
+    }
+
+    fn weather(&mut self) -> Result<WeatherKind, RandomError> {
+        self.draw_weather()
     }
 }
 

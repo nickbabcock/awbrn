@@ -8,7 +8,7 @@ use super::ReducerError as ExecuteError;
 use super::*;
 use crate::commander::{self, PowerLevel};
 use crate::event::{Event, RandomKind, RandomValue, SupplySource};
-use crate::random::{RandomTape, RandomToken};
+
 use crate::ruleset::{self, Domain, Relation, TerrainTrait};
 use crate::semantic::{
     Concealment, DrawReason, KnownReason, Location, Outcome, Phase, PlayerId, PlayerIdx,
@@ -92,9 +92,9 @@ pub(crate) fn turns_until_player_selection(
 
 pub(crate) fn execute_end_turn(
     turn: &ActiveTurn<'_>,
-    random: &[RandomToken],
+    draws: &mut Draws<'_>,
 ) -> Result<Execution, ExecuteError> {
-    execute_turn_boundary(turn, BoundaryCommand::EndTurn, random)
+    execute_turn_boundary(turn, BoundaryCommand::EndTurn, draws)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -126,7 +126,7 @@ struct Incoming {
 pub(crate) fn execute_turn_boundary(
     turn: &ActiveTurn<'_>,
     command: BoundaryCommand,
-    random: &[RandomToken],
+    draws: &mut Draws<'_>,
 ) -> Result<Execution, ExecuteError> {
     let state = turn.state();
     let player = turn.player();
@@ -155,7 +155,6 @@ pub(crate) fn execute_turn_boundary(
     }
 
     let mut next = state.clone();
-    let mut tape = RandomTape::new(random);
     let mut events = vec![Event::PhaseChanged {
         player: player.clone(),
         from: Phase::UnitAction,
@@ -178,7 +177,7 @@ pub(crate) fn execute_turn_boundary(
         return Ok(Execution {
             state: next,
             events,
-            random_consumed: tape.consumed(),
+            random_consumed: draws.drawn(),
         });
     }
 
@@ -196,7 +195,7 @@ pub(crate) fn execute_turn_boundary(
             return Ok(Execution {
                 state: next,
                 events,
-                random_consumed: tape.consumed(),
+                random_consumed: draws.drawn(),
             });
         }
         let incoming = Incoming {
@@ -234,7 +233,7 @@ pub(crate) fn execute_turn_boundary(
         }
 
         end_expired_power(&mut next, &incoming, &mut events)?;
-        advance_weather(&mut next, &mut tape, &mut events)?;
+        advance_weather(&mut next, draws, &mut events)?;
         collect_income(&mut next, &incoming, &mut events)?;
 
         let sites = repair_sites(&next, &incoming);
@@ -258,7 +257,7 @@ pub(crate) fn execute_turn_boundary(
                 return Ok(Execution {
                     state: next,
                     events,
-                    random_consumed: tape.consumed(),
+                    random_consumed: draws.drawn(),
                 });
             }
             continue;
@@ -275,7 +274,7 @@ pub(crate) fn execute_turn_boundary(
         return Ok(Execution {
             state: next,
             events,
-            random_consumed: tape.consumed(),
+            random_consumed: draws.drawn(),
         });
     }
 }
@@ -393,7 +392,7 @@ fn end_expired_power(
 /// already-resolved semantic outcome.
 fn advance_weather(
     next: &mut State,
-    tape: &mut RandomTape<'_>,
+    draws: &mut Draws<'_>,
     events: &mut Vec<Event>,
 ) -> Result<(), ExecuteError> {
     if next.weather.remaining_turns > 0 {
@@ -414,7 +413,7 @@ fn advance_weather(
             reason: KnownReason::Expiry.into(),
         });
     } else if next.settings.weather == WeatherSetting::Random {
-        let selected = tape.weather()?;
+        let selected = draws.weather()?;
         events.push(Event::RandomOutcome {
             kind: RandomKind::WeatherSelection,
             outcome: RandomValue::Text(selected.as_str().into()),

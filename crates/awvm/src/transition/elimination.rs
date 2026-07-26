@@ -6,7 +6,6 @@
 use super::ReducerError as ExecuteError;
 use super::*;
 use crate::event::Event;
-use crate::random::RandomToken;
 use crate::ruleset::{self, KnownReason, VictoryReason};
 use crate::semantic::{Outcome, PlayerId, PlayerStatus, Pos, State, TeamStatus, TileOwner};
 
@@ -147,7 +146,7 @@ pub(crate) fn eliminate_player(
 
 pub(crate) fn execute_resign(
     turn: &ActiveTurn<'_>,
-    random: &[RandomToken],
+    draws: &mut Draws<'_>,
 ) -> Result<Execution, ExecuteError> {
-    execute_turn_boundary(turn, BoundaryCommand::Resign, random)
+    execute_turn_boundary(turn, BoundaryCommand::Resign, draws)
 }

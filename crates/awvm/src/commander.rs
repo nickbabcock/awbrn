@@ -798,43 +798,54 @@ fn applicable_rules(profile: &CombatProfile, power: Power) -> impl Iterator<Item
     })
 }
 
+/// One side's effective combat values, after the commander algebra.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EffectiveCombat {
+    /// Attack percentage, at or above zero.
+    pub attack: i64,
+    /// Defense percentage, at or above zero.
+    pub defense: i64,
+    /// Terrain stars under the defender, after commander modification.
+    pub terrain_stars: i64,
+    /// The inclusive range a good-luck roll must fall in.
+    pub good_luck: Domain,
+    /// The inclusive range a bad-luck roll must fall in. Empty (`0..=0`) unless
+    /// a commander grants bad luck.
+    pub bad_luck: Domain,
+}
+
+impl EffectiveCombat {
+    /// The values a unit fights with when no commander modifies it.
+    fn unmodified(base_terrain_stars: i64) -> Self {
+        Self {
+            attack: 100,
+            defense: 100,
+            terrain_stars: base_terrain_stars,
+            good_luck: Domain {
+                minimum: 0,
+                maximum: 9,
+            },
+            bad_luck: Domain {
+                minimum: 0,
+                maximum: 0,
+            },
+        }
+    }
+}
+
 pub fn effective_combat(
     state: &State,
     owner: &PlayerId,
     unit: Combatant<'_>,
     strike: Strike,
     context: CombatContext,
-) -> Option<(i64, i64, i64, Domain, Domain)> {
+) -> Option<EffectiveCombat> {
     let table = combat_table();
     let Some((_, commander, power)) = active(state, owner) else {
-        return Some((
-            100,
-            100,
-            context.base_terrain_stars,
-            Domain {
-                minimum: 0,
-                maximum: 9,
-            },
-            Domain {
-                minimum: 0,
-                maximum: 0,
-            },
-        ));
+        return Some(EffectiveCombat::unmodified(context.base_terrain_stars));
     };
     let Some(profile) = table.commanders.get(commander) else {
-        return Some((
-            100,
-            100,
-            context.base_terrain_stars,
-            Domain {
-                minimum: 0,
-                maximum: 9,
-            },
-            Domain {
-                minimum: 0,
-                maximum: 0,
-            },
-        ));
+        return Some(EffectiveCombat::unmodified(context.base_terrain_stars));
     };
     let mut attack: i64 = 100;
     let mut defense: i64 = 100;
@@ -904,7 +915,13 @@ pub fn effective_combat(
             attack = attack.checked_mul(numerator)?.checked_div(denominator)?;
         }
     }
-    Some((attack.max(0), defense.max(0), stars.max(0), good, bad))
+    Some(EffectiveCombat {
+        attack: attack.max(0),
+        defense: defense.max(0),
+        terrain_stars: stars.max(0),
+        good_luck: good,
+        bad_luck: bad,
+    })
 }
 
 pub fn effective_enemy_terrain_stars(

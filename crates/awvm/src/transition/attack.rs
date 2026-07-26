@@ -8,7 +8,7 @@ use super::*;
 use crate::combat::{self, Hit, Side};
 use crate::commander::{self, CombatContext, Combatant, Strike};
 use crate::event::{AttackTarget, Event};
-use crate::random::{Luck, RandomTape, RandomToken};
+use crate::random::Luck;
 use crate::ruleset::{self, FireMode, TerrainTrait};
 use crate::semantic::{
     AwbwVisibility, Concealment, KnownReason, Location, PlayerId, Pos, PowerState, State,
@@ -131,8 +131,8 @@ impl StrikeValues {
     }
 
     /// Draw this strike's signed luck modifier off the tape, good roll first.
-    fn luck(&self, tape: &mut RandomTape<'_>) -> Result<i64, ExecuteError> {
-        Ok(draw(tape, Luck::Good, self.good_luck)? - draw(tape, Luck::Bad, self.bad_luck)?)
+    fn luck(&self, draws: &mut Draws<'_>) -> Result<i64, ExecuteError> {
+        Ok(draw(draws, Luck::Good, self.good_luck)? - draw(draws, Luck::Bad, self.bad_luck)?)
     }
 }
 
@@ -147,7 +147,7 @@ fn resolve_strike(
     let fire_mode = ruleset::profile(striker.unit.kind).fire_mode;
     let striker_context = combatant(state, striker.unit.kind, striker.position, fire_mode);
     let target_context = combatant(state, target.unit.kind, target.position, fire_mode);
-    let (attack, _, _, good_luck, bad_luck) = commander::effective_combat(
+    let striking = commander::effective_combat(
         state,
         &striker.unit.owner,
         striker_context,
@@ -155,7 +155,7 @@ fn resolve_strike(
         combat_context(state, &striker.unit.owner, striker.position),
     )
     .ok_or_else(overflow)?;
-    let (_, defense, base_stars, _, _) = commander::effective_combat(
+    let defending = commander::effective_combat(
         state,
         &target.unit.owner,
         target_context,
@@ -168,16 +168,16 @@ fn resolve_strike(
         &striker.unit.owner,
         striker_context,
         strike,
-        base_stars,
+        defending.terrain_stars,
     )
     .ok_or_else(overflow)?;
     Ok(StrikeValues {
-        attack,
-        defense,
+        attack: striking.attack,
+        defense: defending.defense,
         terrain_stars: u8::try_from(stars)
             .map_err(|_| ExecuteError::InvalidState("terrain stars overflow".into()))?,
-        good_luck,
-        bad_luck,
+        good_luck: striking.good_luck,
+        bad_luck: striking.bad_luck,
     })
 }
 
@@ -465,7 +465,7 @@ pub(crate) fn execute_tile_attack(
         }));
     }
 
-    let (attack, _, _, _, _) = commander::effective_combat(
+    let striking = commander::effective_combat(
         state,
         player,
         combatant(state, attacker.kind, origin, fire_mode),
@@ -478,7 +478,7 @@ pub(crate) fn execute_tile_attack(
             kind: attacker.kind,
             hp: attacker.hp,
             ammo: attacker.ammo,
-            attack,
+            attack: striking.attack,
             defense: 100,
             // The formula reads defense and terrain stars only from the target.
             terrain_stars: 0,
@@ -552,7 +552,7 @@ pub(crate) fn execute_move_attack(
     unit_id: UnitId,
     path: Vec<Pos>,
     target: AttackTarget,
-    random: &[RandomToken],
+    draws: &mut Draws<'_>,
 ) -> Result<Execution, ExecuteError> {
     let state = turn.state();
     let player = turn.player();
@@ -608,13 +608,13 @@ pub(crate) fn execute_move_attack(
             plan.unit_index(),
             destination,
             target,
-            random,
+            draws,
         )?;
         movement.events.append(&mut combat.events);
         combat.events = movement.events;
         return Ok(combat);
     }
-    execute_stationary_attack(state, player, unit_id, ai, origin, target, random)
+    execute_stationary_attack(state, player, unit_id, ai, origin, target, draws)
 }
 
 /// Resolve an attack after movement validation has established the attacker.
@@ -629,7 +629,7 @@ fn execute_stationary_attack(
     ai: usize,
     origin: Pos,
     target: AttackTarget,
-    random: &[RandomToken],
+    draws: &mut Draws<'_>,
 ) -> Result<Execution, ExecuteError> {
     let attacker = &state.units[ai];
     let target_id = match target {
@@ -639,11 +639,10 @@ fn execute_stationary_attack(
         }
     };
     let engagement = Engagement::open(state, player, ai, origin, target_id)?;
-    let mut tape = RandomTape::new(random);
     if engagement.counter_comes_first() {
-        resolve_counter_first(&engagement, &mut tape)
+        resolve_counter_first(&engagement, draws)
     } else {
-        resolve_exchange(&engagement, &mut tape)
+        resolve_exchange(&engagement, draws)
     }
 }
 
@@ -796,7 +795,7 @@ impl<'a> Engagement<'a> {
 /// answers if it survived and can.
 fn resolve_exchange(
     engagement: &Engagement<'_>,
-    tape: &mut RandomTape<'_>,
+    draws: &mut Draws<'_>,
 ) -> Result<Execution, ExecuteError> {
     let state = engagement.state;
     let attacker = engagement.attacker.unit;
@@ -804,7 +803,7 @@ fn resolve_exchange(
     let attacker_index = engagement.attacker_index;
     let defender_index = engagement.defender_index;
 
-    let attack_luck = engagement.initial.luck(tape)?;
+    let attack_luck = engagement.initial.luck(draws)?;
     let first = combat::damage(
         engagement.initial.striker_side(attacker, attacker.hp),
         engagement.initial.target_side(defender, defender.hp),
@@ -818,7 +817,7 @@ fn resolve_exchange(
     let defender_remaining = defender.hp.saturating_sub(first.damage);
     let counter = if defender_remaining > 0 && engagement.counter_armed {
         let values = engagement.counter_values()?;
-        let luck = values.luck(tape)?;
+        let luck = values.luck(draws)?;
         combat::damage(
             values.striker_side(defender, defender_remaining),
             values.target_side(attacker, attacker.hp),
@@ -871,7 +870,7 @@ fn resolve_exchange(
     Ok(Execution {
         state: next,
         events,
-        random_consumed: tape.consumed(),
+        random_consumed: draws.drawn(),
     })
 }
 
@@ -880,14 +879,14 @@ fn resolve_exchange(
 /// fires at all.
 fn resolve_counter_first(
     engagement: &Engagement<'_>,
-    tape: &mut RandomTape<'_>,
+    draws: &mut Draws<'_>,
 ) -> Result<Execution, ExecuteError> {
     let state = engagement.state;
     let attacker = engagement.attacker.unit;
     let defender = engagement.defender.unit;
 
     let counter = engagement.counter_values()?;
-    let counter_luck = counter.luck(tape)?;
+    let counter_luck = counter.luck(draws)?;
     let preemptive = combat::damage(
         counter.striker_side(defender, defender.hp),
         counter.target_side(attacker, attacker.hp),
@@ -896,7 +895,7 @@ fn resolve_counter_first(
     .expect("counter-first eligibility selected a weapon");
     let attacker_remaining = attacker.hp.saturating_sub(preemptive.damage);
     let initiating = if attacker_remaining > 0 {
-        let attack_luck = engagement.initial.luck(tape)?;
+        let attack_luck = engagement.initial.luck(draws)?;
         Some(
             combat::damage(
                 engagement
@@ -933,7 +932,7 @@ fn resolve_counter_first(
         return Ok(Execution {
             state: next,
             events,
-            random_consumed: tape.consumed(),
+            random_consumed: draws.drawn(),
         });
     }
     next.units[engagement.attacker_index].hp = attacker_remaining;
@@ -970,7 +969,7 @@ fn resolve_counter_first(
     Ok(Execution {
         state: next,
         events,
-        random_consumed: tape.consumed(),
+        random_consumed: draws.drawn(),
     })
 }
 

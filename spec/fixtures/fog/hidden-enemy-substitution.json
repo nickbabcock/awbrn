@@ -167,11 +167,11 @@
         },
         {
           "id": 2,
-          "kind": "bomber",
+          "kind": "t-copter",
           "owner": "p2",
           "hp": 17,
           "fuel": 2,
-          "ammo": 1,
+          "ammo": 0,
           "action": "spent",
           "concealment": "exposed",
           "location": { "type": "board", "position": [4, 0] }

@@ -30,7 +30,7 @@
         [
           { "terrain": "city", "owner": "ally", "capture_points": 20 },
           { "terrain": "plain" },
-          { "terrain": "city", "capture_points": 20 },
+          { "terrain": "city", "owner": null, "capture_points": 20 },
           { "terrain": "plain" },
           { "terrain": "city", "owner": "enemy", "capture_points": 20 }
         ]

@@ -179,6 +179,7 @@
             },
             {
               "capture_points": 20,
+              "owner": null,
               "terrain": "city",
               "visibility": "visible"
             },
@@ -708,6 +709,7 @@
                 },
                 {
                   "capture_points": 20,
+                  "owner": null,
                   "terrain": "city",
                   "visibility": "visible"
                 },

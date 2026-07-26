@@ -15,6 +15,20 @@
 //! validation and reduction, [`combat`] the damage arithmetic, and
 //! [`commander`] the revisioned effective-value operators.
 //!
+//! Those three operations answer questions a caller already knows how to ask.
+//! A user interface has the opposite problem — it has to offer the questions —
+//! so [`query`] answers *what is legal* from the same rules the reducer
+//! enforces: where a unit may move, what it may attack, and which command
+//! families are available where. A client that asks [`query`] cannot draw a
+//! move range the reducer will refuse, which is the failure mode of computing
+//! one alongside.
+//!
+//! An authority that rolls its own dice, rather than replaying a recorded tape,
+//! drives the reducer through [`transition::execute_with`] and
+//! [`random::Entropy`].
+//!
+//! [`prelude`] re-exports what driving all of this needs.
+//!
 //! This crate depends only on serialization and error-derivation support. It
 //! has no engine, ECS, rendering, or AWBW replay dependency, and MUST keep it
 //! that way: the
@@ -28,11 +42,33 @@ pub mod commander;
 pub mod conformance;
 pub mod event;
 pub mod protocol;
+pub mod query;
 pub mod random;
 pub mod ruleset;
 pub mod semantic;
 pub mod transition;
 pub mod violation;
+
+/// What a consumer needs to drive the machine, in one import.
+///
+/// The modules are the reference; this is the working set. Nothing is
+/// re-exported here that a caller would not reach for while wiring a client, a
+/// server, or a replay viewer to the reducer.
+pub mod prelude {
+    pub use crate::event::{AttackTarget, Event};
+    pub use crate::query::{ActionSet, MoveField, QueryError, Step};
+    pub use crate::random::{Entropy, Luck, RandomError, RandomTape, RandomToken, Recording};
+    pub use crate::ruleset::{CommanderKind, Terrain, UnitKind, WeatherKind};
+    pub use crate::semantic::{
+        AwbwVisibility, Observation, ObservedEvent, ObservedTransition, ObservedUnit,
+        ObservedUnitRef, PlayerId, Pos, State, TeamId, TerrainId, Unit, UnitId, UnitKindId,
+        Visibility, observe, observe_events, observe_transition,
+    };
+    pub use crate::transition::{
+        Command, ExecuteError, ExecuteOutcome, Execution, execute, execute_with,
+    };
+    pub use crate::violation::Violation;
+}
 
 #[cfg(test)]
 mod error_tests {
