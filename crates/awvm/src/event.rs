@@ -230,57 +230,58 @@ pub enum Event {
 }
 
 impl Event {
-    /// The `type` tag this event serializes under.
+    /// Which fact this is.
     ///
-    /// The projection needs the tag as a value — both to label a public event
-    /// and as the default reason for events that carry none — and serde only
-    /// exposes it by serializing. Written out so that cost is not paid per
-    /// event.
-    pub const fn kind(&self) -> &'static str {
+    /// The projection needs the discriminant as a value — both to label a public
+    /// event and as the default reason for events that carry none — and serde
+    /// only exposes the `type` tag by serializing.
+    pub const fn kind(&self) -> EventKind {
         match self {
-            Self::PhaseChanged { .. } => "phase-changed",
-            Self::TurnSelected { .. } => "turn-selected",
-            Self::DayAdvanced { .. } => "day-advanced",
-            Self::UnitMoved { .. } => "unit-moved",
-            Self::MovementTrapped { .. } => "movement-trapped",
-            Self::UnitActionChanged { .. } => "unit-action-changed",
-            Self::UnitCreated { .. } => "unit-created",
-            Self::UnitRemoved { .. } => "unit-removed",
-            Self::UnitDamaged { .. } => "unit-damaged",
-            Self::UnitRepaired { .. } => "unit-repaired",
-            Self::UnitResourced { .. } => "unit-resourced",
-            Self::UnitLoaded { .. } => "unit-loaded",
-            Self::UnitUnloaded { .. } => "unit-unloaded",
-            Self::UnitsJoined { .. } => "units-joined",
-            Self::ConcealmentChanged { .. } => "concealment-changed",
-            Self::TileOwnerChanged { .. } => "tile-owner-changed",
-            Self::TileTerrainChanged { .. } => "tile-terrain-changed",
-            Self::CaptureChanged { .. } => "capture-changed",
-            Self::SiloChanged { .. } => "silo-changed",
-            Self::DestructibleDamaged { .. } => "destructible-damaged",
-            Self::FundsChanged { .. } => "funds-changed",
-            Self::AttackResolved { .. } => "attack-resolved",
-            Self::AreaStrikeResolved { .. } => "area-strike-resolved",
-            Self::PowerActivated { .. } => "power-activated",
-            Self::PowerEnded { .. } => "power-ended",
-            Self::PowerChargeChanged { .. } => "power-charge-changed",
-            Self::CommanderSwapped { .. } => "commander-swapped",
-            Self::WeatherChanged { .. } => "weather-changed",
-            Self::RandomOutcome { .. } => "random-outcome",
-            Self::AutomaticSupply { .. } => "automatic-supply",
-            Self::AutomaticRepair { .. } => "automatic-repair",
-            Self::DrawOfferChanged { .. } => "draw-offer-changed",
-            Self::PlayerStatusChanged { .. } => "player-status-changed",
-            Self::TeamEliminated { .. } => "team-eliminated",
-            Self::MatchCompleted { .. } => "match-completed",
+            Self::PhaseChanged { .. } => EventKind::PhaseChanged,
+            Self::TurnSelected { .. } => EventKind::TurnSelected,
+            Self::DayAdvanced { .. } => EventKind::DayAdvanced,
+            Self::UnitMoved { .. } => EventKind::UnitMoved,
+            Self::MovementTrapped { .. } => EventKind::MovementTrapped,
+            Self::UnitActionChanged { .. } => EventKind::UnitActionChanged,
+            Self::UnitCreated { .. } => EventKind::UnitCreated,
+            Self::UnitRemoved { .. } => EventKind::UnitRemoved,
+            Self::UnitDamaged { .. } => EventKind::UnitDamaged,
+            Self::UnitRepaired { .. } => EventKind::UnitRepaired,
+            Self::UnitResourced { .. } => EventKind::UnitResourced,
+            Self::UnitLoaded { .. } => EventKind::UnitLoaded,
+            Self::UnitUnloaded { .. } => EventKind::UnitUnloaded,
+            Self::UnitsJoined { .. } => EventKind::UnitsJoined,
+            Self::ConcealmentChanged { .. } => EventKind::ConcealmentChanged,
+            Self::TileOwnerChanged { .. } => EventKind::TileOwnerChanged,
+            Self::TileTerrainChanged { .. } => EventKind::TileTerrainChanged,
+            Self::CaptureChanged { .. } => EventKind::CaptureChanged,
+            Self::SiloChanged { .. } => EventKind::SiloChanged,
+            Self::DestructibleDamaged { .. } => EventKind::DestructibleDamaged,
+            Self::FundsChanged { .. } => EventKind::FundsChanged,
+            Self::AttackResolved { .. } => EventKind::AttackResolved,
+            Self::AreaStrikeResolved { .. } => EventKind::AreaStrikeResolved,
+            Self::PowerActivated { .. } => EventKind::PowerActivated,
+            Self::PowerEnded { .. } => EventKind::PowerEnded,
+            Self::PowerChargeChanged { .. } => EventKind::PowerChargeChanged,
+            Self::CommanderSwapped { .. } => EventKind::CommanderSwapped,
+            Self::WeatherChanged { .. } => EventKind::WeatherChanged,
+            Self::RandomOutcome { .. } => EventKind::RandomOutcome,
+            Self::AutomaticSupply { .. } => EventKind::AutomaticSupply,
+            Self::AutomaticRepair { .. } => EventKind::AutomaticRepair,
+            Self::DrawOfferChanged { .. } => EventKind::DrawOfferChanged,
+            Self::PlayerStatusChanged { .. } => EventKind::PlayerStatusChanged,
+            Self::TeamEliminated { .. } => EventKind::TeamEliminated,
+            Self::MatchCompleted { .. } => EventKind::MatchCompleted,
         }
     }
 
     /// Why this happened, for events that say so.
     ///
     /// The projection labels an observed change with this, falling back to
-    /// [`Event::kind`] when the event carries no reason of its own.
-    pub fn reason(&self) -> &str {
+    /// [`Event::kind`] when the event carries no reason of its own — which
+    /// `spec/schema/observed-event.schema.json` permits, since an observed
+    /// `reason` is an open `reason-id`.
+    pub fn reason(&self) -> ObservedReason {
         match self {
             Self::UnitActionChanged { reason, .. }
             | Self::UnitRemoved { reason, .. }
@@ -291,9 +292,219 @@ impl Event {
             | Self::FundsChanged { reason, .. }
             | Self::PowerChargeChanged { reason, .. }
             | Self::WeatherChanged { reason, .. }
-            | Self::TeamEliminated { reason, .. } => reason.as_str(),
-            _ => self.kind(),
+            | Self::TeamEliminated { reason, .. } => ObservedReason::Declared(reason.clone()),
+            _ => ObservedReason::Kind(self.kind()),
         }
+    }
+}
+
+/// Which fact an [`Event`] is, without its payload.
+///
+/// The `type` tag of `spec/schema/event.schema.json`, as a value. Serde's names
+/// are authoritative and [`EventKind::as_str`] is pinned against them by
+/// `kind_matches_the_serialized_tag`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EventKind {
+    PhaseChanged,
+    TurnSelected,
+    DayAdvanced,
+    UnitMoved,
+    MovementTrapped,
+    UnitActionChanged,
+    UnitCreated,
+    UnitRemoved,
+    UnitDamaged,
+    UnitRepaired,
+    UnitResourced,
+    UnitLoaded,
+    UnitUnloaded,
+    UnitsJoined,
+    ConcealmentChanged,
+    TileOwnerChanged,
+    TileTerrainChanged,
+    CaptureChanged,
+    SiloChanged,
+    DestructibleDamaged,
+    FundsChanged,
+    AttackResolved,
+    AreaStrikeResolved,
+    PowerActivated,
+    PowerEnded,
+    PowerChargeChanged,
+    CommanderSwapped,
+    WeatherChanged,
+    RandomOutcome,
+    AutomaticSupply,
+    AutomaticRepair,
+    DrawOfferChanged,
+    PlayerStatusChanged,
+    TeamEliminated,
+    MatchCompleted,
+}
+
+impl EventKind {
+    /// The identifier this kind is written as on the wire.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::PhaseChanged => "phase-changed",
+            Self::TurnSelected => "turn-selected",
+            Self::DayAdvanced => "day-advanced",
+            Self::UnitMoved => "unit-moved",
+            Self::MovementTrapped => "movement-trapped",
+            Self::UnitActionChanged => "unit-action-changed",
+            Self::UnitCreated => "unit-created",
+            Self::UnitRemoved => "unit-removed",
+            Self::UnitDamaged => "unit-damaged",
+            Self::UnitRepaired => "unit-repaired",
+            Self::UnitResourced => "unit-resourced",
+            Self::UnitLoaded => "unit-loaded",
+            Self::UnitUnloaded => "unit-unloaded",
+            Self::UnitsJoined => "units-joined",
+            Self::ConcealmentChanged => "concealment-changed",
+            Self::TileOwnerChanged => "tile-owner-changed",
+            Self::TileTerrainChanged => "tile-terrain-changed",
+            Self::CaptureChanged => "capture-changed",
+            Self::SiloChanged => "silo-changed",
+            Self::DestructibleDamaged => "destructible-damaged",
+            Self::FundsChanged => "funds-changed",
+            Self::AttackResolved => "attack-resolved",
+            Self::AreaStrikeResolved => "area-strike-resolved",
+            Self::PowerActivated => "power-activated",
+            Self::PowerEnded => "power-ended",
+            Self::PowerChargeChanged => "power-charge-changed",
+            Self::CommanderSwapped => "commander-swapped",
+            Self::WeatherChanged => "weather-changed",
+            Self::RandomOutcome => "random-outcome",
+            Self::AutomaticSupply => "automatic-supply",
+            Self::AutomaticRepair => "automatic-repair",
+            Self::DrawOfferChanged => "draw-offer-changed",
+            Self::PlayerStatusChanged => "player-status-changed",
+            Self::TeamEliminated => "team-eliminated",
+            Self::MatchCompleted => "match-completed",
+        }
+    }
+
+    /// The payload-free public signal this kind projects to, if it projects to
+    /// one.
+    ///
+    /// Exhaustive over every kind, so a new event has to say whether it is
+    /// public here rather than defaulting into or out of the closed
+    /// `public-event.kind` enum. `spec/model/observation.md:323` fixes the
+    /// eleven that are.
+    pub const fn public(self) -> Option<PublicEventKind> {
+        match self {
+            Self::PhaseChanged => Some(PublicEventKind::PhaseChanged),
+            Self::TurnSelected => Some(PublicEventKind::TurnSelected),
+            Self::DayAdvanced => Some(PublicEventKind::DayAdvanced),
+            Self::WeatherChanged => Some(PublicEventKind::WeatherChanged),
+            Self::PowerActivated => Some(PublicEventKind::PowerActivated),
+            Self::PowerEnded => Some(PublicEventKind::PowerEnded),
+            Self::CommanderSwapped => Some(PublicEventKind::CommanderSwapped),
+            Self::DrawOfferChanged => Some(PublicEventKind::DrawOfferChanged),
+            Self::PlayerStatusChanged => Some(PublicEventKind::PlayerStatusChanged),
+            Self::TeamEliminated => Some(PublicEventKind::TeamEliminated),
+            Self::MatchCompleted => Some(PublicEventKind::MatchCompleted),
+            Self::UnitMoved
+            | Self::MovementTrapped
+            | Self::UnitActionChanged
+            | Self::UnitCreated
+            | Self::UnitRemoved
+            | Self::UnitDamaged
+            | Self::UnitRepaired
+            | Self::UnitResourced
+            | Self::UnitLoaded
+            | Self::UnitUnloaded
+            | Self::UnitsJoined
+            | Self::ConcealmentChanged
+            | Self::TileOwnerChanged
+            | Self::TileTerrainChanged
+            | Self::CaptureChanged
+            | Self::SiloChanged
+            | Self::DestructibleDamaged
+            | Self::FundsChanged
+            | Self::AttackResolved
+            | Self::AreaStrikeResolved
+            | Self::PowerChargeChanged
+            | Self::RandomOutcome
+            | Self::AutomaticSupply
+            | Self::AutomaticRepair => None,
+        }
+    }
+}
+
+impl std::fmt::Display for EventKind {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+/// The closed vocabulary of `public-event.kind`.
+///
+/// A `public-event` carries no payload by design: it signals that a public fact
+/// changed, and the recipient reads every new value from the post-observation
+/// (`spec/model/observation.md:329`). Distinct from [`EventKind`] because the
+/// schema licenses only these eleven under that key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PublicEventKind {
+    PhaseChanged,
+    TurnSelected,
+    DayAdvanced,
+    WeatherChanged,
+    PowerActivated,
+    PowerEnded,
+    CommanderSwapped,
+    DrawOfferChanged,
+    PlayerStatusChanged,
+    TeamEliminated,
+    MatchCompleted,
+}
+
+impl PublicEventKind {
+    /// The authoritative event kind this signal stands for.
+    pub const fn kind(self) -> EventKind {
+        match self {
+            Self::PhaseChanged => EventKind::PhaseChanged,
+            Self::TurnSelected => EventKind::TurnSelected,
+            Self::DayAdvanced => EventKind::DayAdvanced,
+            Self::WeatherChanged => EventKind::WeatherChanged,
+            Self::PowerActivated => EventKind::PowerActivated,
+            Self::PowerEnded => EventKind::PowerEnded,
+            Self::CommanderSwapped => EventKind::CommanderSwapped,
+            Self::DrawOfferChanged => EventKind::DrawOfferChanged,
+            Self::PlayerStatusChanged => EventKind::PlayerStatusChanged,
+            Self::TeamEliminated => EventKind::TeamEliminated,
+            Self::MatchCompleted => EventKind::MatchCompleted,
+        }
+    }
+}
+
+/// The `reason` an observed change carries.
+///
+/// `spec/schema/observed-event.schema.json` types this as an open `reason-id`,
+/// which is either a reason the authoritative event declared or — for the events
+/// that declare none — that event's own kind. Keeping the two apart means the
+/// fallback never has to be spelled as a string, so no allocation happens to
+/// name a reason the ruleset already enumerates.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ObservedReason {
+    Declared(Reason),
+    Kind(EventKind),
+}
+
+impl ObservedReason {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Declared(reason) => reason.as_str(),
+            Self::Kind(kind) => kind.as_str(),
+        }
+    }
+}
+
+impl Serialize for ObservedReason {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
     }
 }
 
@@ -414,8 +625,11 @@ mod tests {
         );
     }
 
-    /// Every `kind` must be the tag serde actually writes, since the projection
-    /// puts it on the wire as a public event's label.
+    /// Three spellings of one kind have to agree: the tag serde writes for the
+    /// event, the name serde writes for [`EventKind`], and
+    /// [`EventKind::as_str`]. The projection puts the last of these on the wire
+    /// as a reason and as a public event's label, so a disagreement is a wire
+    /// bug that no type checks.
     #[test]
     fn kind_matches_the_serialized_tag() {
         for event in [
@@ -433,10 +647,60 @@ mod tests {
                 kind: RandomKind::WeatherSelection,
                 outcome: RandomValue::Text("rain".into()),
             },
+            Event::PowerChargeChanged {
+                player: PlayerId::from("red"),
+                commander_slot: 0,
+                from: 0,
+                to: 1,
+                reason: KnownReason::Combat.into(),
+            },
+            Event::DrawOfferChanged {
+                player: PlayerId::from("red"),
+                offered: true,
+            },
         ] {
             let kind = event.kind();
-            assert_eq!(round_trip(event)["type"], json!(kind));
+            let wire = round_trip(event);
+            assert_eq!(wire["type"], json!(kind.as_str()));
+            assert_eq!(serde_json::to_value(kind).unwrap(), wire["type"]);
         }
+    }
+
+    /// A public signal names the same kind as the event it stands for, so the
+    /// two vocabularies cannot drift apart.
+    #[test]
+    fn public_signals_agree_with_the_kinds_they_stand_for() {
+        for public in [
+            PublicEventKind::PhaseChanged,
+            PublicEventKind::TurnSelected,
+            PublicEventKind::DayAdvanced,
+            PublicEventKind::WeatherChanged,
+            PublicEventKind::PowerActivated,
+            PublicEventKind::PowerEnded,
+            PublicEventKind::CommanderSwapped,
+            PublicEventKind::DrawOfferChanged,
+            PublicEventKind::PlayerStatusChanged,
+            PublicEventKind::TeamEliminated,
+            PublicEventKind::MatchCompleted,
+        ] {
+            assert_eq!(public.kind().public(), Some(public));
+            assert_eq!(
+                serde_json::to_value(public).unwrap(),
+                json!(public.kind().as_str())
+            );
+        }
+    }
+
+    /// The events that reach a recipient individually are exactly the ones with
+    /// no public envelope; `attack-resolved` and `random-outcome` have neither.
+    #[test]
+    fn only_the_documented_kinds_are_public() {
+        assert_eq!(EventKind::UnitMoved.public(), None);
+        assert_eq!(EventKind::UnitDamaged.public(), None);
+        assert_eq!(EventKind::AttackResolved.public(), None);
+        assert_eq!(EventKind::RandomOutcome.public(), None);
+        assert_eq!(EventKind::PowerChargeChanged.public(), None);
+        assert_eq!(EventKind::AreaStrikeResolved.public(), None);
     }
 
     /// Events without a `reason` field label their observed change with their
@@ -449,7 +713,7 @@ mod tests {
                 reason: KnownReason::FuelDepleted.into(),
             }
             .reason(),
-            "fuel-depleted"
+            ObservedReason::Declared(KnownReason::FuelDepleted.into())
         );
         assert_eq!(
             Event::UnitsJoined {
@@ -457,7 +721,28 @@ mod tests {
                 target: UnitId::new(1),
             }
             .reason(),
-            "units-joined"
+            ObservedReason::Kind(EventKind::UnitsJoined)
+        );
+    }
+
+    /// Both halves of a reason travel as a bare string, which is what
+    /// `reason-id` is.
+    #[test]
+    fn reasons_serialize_as_plain_identifiers() {
+        assert_eq!(
+            serde_json::to_value(ObservedReason::Declared(KnownReason::Combat.into())).unwrap(),
+            json!("combat")
+        );
+        assert_eq!(
+            serde_json::to_value(ObservedReason::Declared(
+                ReasonId::from("adapter-defined").into()
+            ))
+            .unwrap(),
+            json!("adapter-defined")
+        );
+        assert_eq!(
+            serde_json::to_value(ObservedReason::Kind(EventKind::UnitsJoined)).unwrap(),
+            json!("units-joined")
         );
     }
 }

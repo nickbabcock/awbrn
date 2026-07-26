@@ -8,7 +8,7 @@ use crate::random::{Luck, RandomTape, RandomToken};
 use crate::ruleset::{self, Domain, UnitKind};
 use crate::semantic::{
     Location, Match, Outcome, Phase, PlayerId, Pos, State, TerrainId, Unit, UnitId, UnitKindId,
-    Visibility,
+    Viewpoint,
 };
 use crate::violation::Violation;
 
@@ -290,16 +290,15 @@ fn reduce(
     }
 }
 
-pub(crate) fn occupancy_is_disclosed(
-    visibility: &impl Visibility,
-    state: &State,
-    actor_team: &crate::semantic::TeamId,
-    unit: &Unit,
-) -> bool {
-    let owner_is_ally = state
-        .find_player(&unit.owner)
-        .is_some_and(|player| player.team == actor_team);
-    owner_is_ally || visibility.visible_unit(state, actor_team, unit)
+/// Whether `unit`'s occupancy of its tile is disclosed to the acting team, which
+/// is what decides whether it blocks movement.
+///
+/// This used to test "owner is an ally, or the unit is visible". The first
+/// disjunct was redundant: a viewpoint reports a unit of the viewing team as
+/// visible wherever it is, which is the same predicate. The disclosure rule is
+/// worth naming, so this stays as the name for it.
+pub(crate) fn occupancy_is_disclosed(view: &impl Viewpoint, unit: &Unit) -> bool {
+    view.unit(unit)
 }
 
 pub(crate) fn board_position(unit: &Unit) -> Option<Pos> {
@@ -429,10 +428,10 @@ pub(crate) fn violation(violation: Violation) -> ReducerError {
 mod tests {
     use super::*;
     use crate::combat::Weapon;
-    use crate::event::SupplySource;
+    use crate::event::{EventKind, SupplySource};
     use crate::semantic::{
-        AwbwVisibility, Board, Concealment, KnownReason, PlayerStatus, ReasonId, Silo, Tile,
-        TileOwner, UnitAction, VictoryReason,
+        AwbwVisibility, Board, Concealment, KnownReason, ObservedEvent, ObservedUnitRef,
+        PlayerStatus, ReasonId, Silo, Tile, TileOwner, UnitAction, VictoryReason, Visibility,
     };
     use crate::violation::Action;
     use serde_json::{Value, json};
@@ -1140,12 +1139,12 @@ mod tests {
         assert_eq!(
             types,
             vec![
-                "unit-moved",
-                "area-strike-resolved",
-                "unit-damaged",
-                "unit-damaged",
-                "unit-damaged",
-                "silo-changed"
+                EventKind::UnitMoved,
+                EventKind::AreaStrikeResolved,
+                EventKind::UnitDamaged,
+                EventKind::UnitDamaged,
+                EventKind::UnitDamaged,
+                EventKind::SiloChanged
             ]
         );
         assert_eq!(event_unit(&result.events[2]), UnitId::new(0));
@@ -1159,11 +1158,18 @@ mod tests {
             &PlayerId::from("red"),
         )
         .unwrap();
-        assert!(
-            observed
-                .iter()
-                .all(|event| event["unit"] != json!({"type":"friendly","unit":2}))
-        );
+        let hidden_ally = ObservedUnitRef::Friendly {
+            unit: UnitId::new(2),
+        };
+        assert!(observed.iter().all(|event| !matches!(
+            event,
+            ObservedEvent::UnitChanged { unit, .. }
+                | ObservedEvent::UnitMoved { unit, .. }
+                | ObservedEvent::UnitRemoved { unit, .. }
+                | ObservedEvent::UnitDisappeared { unit, .. }
+                | ObservedEvent::MovementStopped { unit }
+            if *unit == hidden_ally
+        )));
     }
 
     #[test]
@@ -1221,11 +1227,11 @@ mod tests {
         assert_eq!(
             types,
             vec![
-                "unit-moved",
-                "area-strike-resolved",
-                "unit-damaged",
-                "unit-damaged",
-                "unit-removed"
+                EventKind::UnitMoved,
+                EventKind::AreaStrikeResolved,
+                EventKind::UnitDamaged,
+                EventKind::UnitDamaged,
+                EventKind::UnitRemoved
             ]
         );
         assert_eq!(event_unit(&result.events[2]), UnitId::new(1));
@@ -1354,12 +1360,11 @@ mod tests {
             position: Pos::new(2, 0),
         };
         state.units.push(defender);
-        let visibility = AwbwVisibility;
-        assert!(!visibility.visible_unit(
-            &state,
-            &crate::semantic::TeamId::from("red-team"),
-            &state.units[1]
-        ));
+        assert!(
+            !AwbwVisibility
+                .view(&state, &crate::semantic::TeamId::from("red-team"))
+                .unit(&state.units[1])
+        );
         let command: Command = serde_json::from_value(json!({
             "type":"move-attack", "player":"red", "unit":0,
             "path":[Pos::new(0, 0),Pos::new(1, 0)],
@@ -1375,8 +1380,8 @@ mod tests {
 
         let result = execute(&state, command, &random).unwrap();
 
-        assert_eq!(result.events[0].kind(), "unit-moved");
-        assert_eq!(result.events[1].kind(), "attack-resolved");
+        assert_eq!(result.events[0].kind(), EventKind::UnitMoved);
+        assert_eq!(result.events[1].kind(), EventKind::AttackResolved);
     }
 
     #[test]

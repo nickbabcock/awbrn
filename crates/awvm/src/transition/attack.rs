@@ -179,7 +179,7 @@ pub(crate) fn execute_tile_attack(
         }));
     };
     let from_hp = tile
-        .destructible_hp
+        .destructible_hp()
         .ok_or_else(|| ExecuteError::InvalidState("destructible tile has no HP".into()))?;
     if from_hp > destructible.maximum_hp {
         return Err(ExecuteError::InvalidState(
@@ -195,7 +195,7 @@ pub(crate) fn execute_tile_attack(
         .find_player(player)
         .map(|candidate| &candidate.team)
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
-    if state.settings.fog && !AwbwVisibility.visible_position(state, actor_team, position) {
+    if state.settings.fog && !AwbwVisibility.view(state, actor_team).position(position) {
         return Err(violation(Violation::InvalidTarget {
             target: Some(position.into()),
         }));
@@ -330,7 +330,7 @@ pub(crate) fn execute_tile_attack(
     });
     if to_hp == 0 {
         next.board.tile_mut(position).terrain = destruction_replacement;
-        next.board.tile_mut(position).destructible_hp = None;
+        next.board.tile_mut(position).set_destructible_hp(None);
         events.push(Event::TileTerrainChanged {
             position,
             from: tile.terrain,
@@ -338,7 +338,9 @@ pub(crate) fn execute_tile_attack(
             reason: KnownReason::Combat.into(),
         });
     } else {
-        next.board.tile_mut(position).destructible_hp = Some(u64::from(to_hp));
+        next.board
+            .tile_mut(position)
+            .set_destructible_hp(Some(u64::from(to_hp)));
     }
     next.units[attacker_index].action = UnitAction::Spent;
     events.push(Event::UnitActionChanged {
@@ -384,11 +386,11 @@ pub(crate) fn execute_move_attack(
         }
 
         let destination = plan.destination();
-        let visibility = AwbwVisibility;
+        let view = AwbwVisibility.view(state, plan.actor_team());
         if state.units.iter().any(|other| {
             other.id != unit_id
                 && board_position(other) == Some(destination)
-                && occupancy_is_disclosed(&visibility, state, plan.actor_team(), other)
+                && occupancy_is_disclosed(&view, other)
         }) {
             return Err(violation(Violation::DestinationOccupied {
                 position: destination,
@@ -466,7 +468,7 @@ fn execute_stationary_attack(
         .find_player(player)
         .map(|candidate| &candidate.team)
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
-    if !AwbwVisibility.visible_unit(state, actor_team, defender) {
+    if !AwbwVisibility.view(state, actor_team).unit(defender) {
         return Err(violation(Violation::InvalidTarget {
             target: Some(target_id.into()),
         }));

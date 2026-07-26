@@ -51,10 +51,43 @@ pub struct CombatContext {
     pub base_terrain_stars: i64,
 }
 
+/// A table the commander documents key by identifier, indexed by the ruleset's
+/// own commander vocabulary instead.
+///
+/// The documents are JSON objects keyed by commander id, and keeping that shape
+/// at runtime meant every effective-value query hashed a string — which the fog
+/// projection does once per unit per tile. Lowered once, when the document is
+/// decoded, so a query is an array index. A key outside the vocabulary fails to
+/// decode rather than becoming a silently unreachable entry.
+#[derive(Clone, Debug)]
+struct ByCommander<T>([Option<T>; CommanderKind::COUNT]);
+
+impl<T> ByCommander<T> {
+    fn get(&self, commander: CommanderKind) -> Option<&T> {
+        self.0[commander.index()].as_ref()
+    }
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for ByCommander<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut named = HashMap::<String, T>::deserialize(deserializer)?;
+        let mut slots: [Option<T>; CommanderKind::COUNT] = std::array::from_fn(|_| None);
+        for commander in CommanderKind::ALL {
+            slots[commander.index()] = named.remove(commander.as_str());
+        }
+        if let Some(unknown) = named.keys().next() {
+            return Err(serde::de::Error::custom(format!(
+                "commander table names {unknown}, which this ruleset's vocabulary lacks"
+            )));
+        }
+        Ok(Self(slots))
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
 struct CombatTable {
     generic_power_bonus: PowerBonuses,
-    commanders: HashMap<String, CombatProfile>,
+    commanders: ByCommander<CombatProfile>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -132,14 +165,14 @@ pub struct Domain {
 
 #[derive(Clone, Debug, Deserialize)]
 struct ProfileTable {
-    commanders: HashMap<String, EffectiveProfile>,
+    commanders: ByCommander<EffectiveProfile>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 struct PowerTable {
     base_star_charge: u64,
     use_cost_scaling: UseCostScaling,
-    commanders: HashMap<String, PowerProfile>,
+    commanders: ByCommander<PowerProfile>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -596,7 +629,7 @@ pub(crate) fn power_activation(
     power_uses: u64,
 ) -> Result<Option<PowerActivation>, PowerActivationError> {
     let table = power_table();
-    let Some(profile) = table.commanders.get(commander.as_str()) else {
+    let Some(profile) = table.commanders.get(commander) else {
         return Ok(None);
     };
     let definition = match level {
@@ -642,7 +675,7 @@ pub(crate) fn maximum_power_charge(
     power_uses: u64,
 ) -> Result<Option<u64>, PowerActivationError> {
     let table = power_table();
-    let Some(profile) = table.commanders.get(commander.as_str()) else {
+    let Some(profile) = table.commanders.get(commander) else {
         return Ok(None);
     };
     let Some(stars) = profile
@@ -677,7 +710,7 @@ pub(crate) fn strike_funds_gain(
         return Some(0);
     }
     let table = power_table();
-    let Some(profile) = table.commanders.get(commander.as_str()) else {
+    let Some(profile) = table.commanders.get(commander) else {
         return Some(0);
     };
     let definition = match power {
@@ -788,7 +821,7 @@ pub fn effective_combat(
             },
         ));
     };
-    let Some(profile) = table.commanders.get(commander.as_str()) else {
+    let Some(profile) = table.commanders.get(commander) else {
         return Some((
             100,
             100,
@@ -885,7 +918,7 @@ pub fn effective_enemy_terrain_stars(
     let Some((_, commander, power)) = active(state, owner) else {
         return Some(base.max(0));
     };
-    let Some(profile) = table.commanders.get(commander.as_str()) else {
+    let Some(profile) = table.commanders.get(commander) else {
         return Some(base.max(0));
     };
     let mut stars = base;
@@ -904,15 +937,12 @@ pub fn counter_first(state: &State, owner: &PlayerId, unit: Combatant<'_>, strik
     let Some((_, commander, power)) = active(state, owner) else {
         return false;
     };
-    table
-        .commanders
-        .get(commander.as_str())
-        .is_some_and(|profile| {
-            applicable_rules(profile, power).any(|rule| {
-                predicate_matches(&rule.when, unit, strike)
-                    && matches!(rule.effect, Effect::CounterFirst)
-            })
+    table.commanders.get(commander).is_some_and(|profile| {
+        applicable_rules(profile, power).any(|rule| {
+            predicate_matches(&rule.when, unit, strike)
+                && matches!(rule.effect, Effect::CounterFirst)
         })
+    })
 }
 
 fn sum_unit_additions(
@@ -966,7 +996,7 @@ fn effective_profile(
     owner: &PlayerId,
 ) -> Option<(&'static EffectiveProfile, Power)> {
     let (_, commander, power) = active(state, owner)?;
-    Some((profile_table().commanders.get(commander.as_str())?, power))
+    Some((profile_table().commanders.get(commander)?, power))
 }
 
 pub fn effective_move(state: &State, unit: &Unit, base: u64, domain: UnitDomain) -> u64 {

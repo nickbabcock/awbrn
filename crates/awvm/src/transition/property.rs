@@ -11,7 +11,7 @@ use crate::event::Event;
 use crate::ruleset::{self, TerrainTrait, UnitKind};
 use crate::semantic::{
     AwbwVisibility, Concealment, KnownReason, Location, Outcome, PlayerId, Pos, State, TerrainId,
-    TileOwner, Unit, UnitAction, UnitId, VictoryReason,
+    TileOwner, Unit, UnitAction, UnitId, VictoryReason, Visibility,
 };
 use crate::violation::{Action, Violation};
 
@@ -145,7 +145,7 @@ pub(crate) fn execute_move_capture(
     let actor_team = plan.actor_team();
     let unit_index = plan.unit_index();
     let entry_costs = plan.entry_costs();
-    let visibility = AwbwVisibility;
+    let view = AwbwVisibility.view(state, actor_team);
 
     if !profile.can_capture {
         return Err(violation(Violation::ActionNotSupported {
@@ -169,7 +169,7 @@ pub(crate) fn execute_move_capture(
     if state.units.iter().any(|other| {
         other.id != unit_id
             && board_position(other) == Some(destination)
-            && occupancy_is_disclosed(&visibility, state, actor_team, other)
+            && occupancy_is_disclosed(&view, other)
     }) {
         return Err(violation(Violation::DestinationOccupied {
             position: destination,
@@ -190,7 +190,7 @@ pub(crate) fn execute_move_capture(
                 .find(|other| {
                     other.id != unit_id
                         && board_position(other) == Some(position)
-                        && !occupancy_is_disclosed(&visibility, state, actor_team, other)
+                        && !occupancy_is_disclosed(&view, other)
                 })
                 .map(|blocker| (index, position, blocker.id))
         });

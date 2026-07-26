@@ -4,14 +4,15 @@
 //! strings. Adapters from replay/ECS identifiers belong at the boundary and
 //! must not make this model depend on Bevy entities or AWBW replay IDs.
 
+use std::cell::OnceCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::ops::Deref;
 
 use serde::{Deserialize, Serialize};
 
-use crate::commander;
-use crate::event::Event;
+use crate::commander::{self, AreaStrikePolicy};
+use crate::event::{Event, ObservedReason, PublicEventKind};
 use crate::ruleset::{self, Domain, TerrainTrait};
 
 /// A board coordinate.
@@ -674,21 +675,170 @@ impl<'de> Deserialize<'de> for Board {
         .map_err(serde::de::Error::custom)
     }
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// One square of the board.
+///
+/// The whole board is cloned once per `execute` and projected once per
+/// `observe`, so what a tile costs is multiplied by the board's area. The four
+/// fields every tile has stay inline; the three only a handful of terrains ever
+/// carry live behind one pointer, which takes a tile from 104 bytes to 40. The
+/// wire form is unchanged — all seven keys stay flat, and each is still absent
+/// when it has no value.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tile {
     pub terrain: TerrainId,
-    #[serde(default, skip_serializing_if = "TileOwner::is_not_ownable")]
     pub owner: TileOwner,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub capture_points: Option<u8>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub silo: Option<Silo>,
+    rare: Option<Box<RareTileState>>,
+}
+
+/// Tile state that most terrains never have.
+///
+/// Destructible HP belongs to pipe seams, `teleporter` to teleporter pairs, and
+/// `trait_state` is the specification's extension point for ruleset traits that
+/// keep per-tile state. Together they were 64 of a tile's 104 bytes, present on
+/// every plain.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct RareTileState {
+    destructible_hp: Option<u64>,
+    teleporter: Option<TeleporterId>,
+    trait_state: Option<BTreeMap<TraitId, serde_json::Value>>,
+}
+
+impl RareTileState {
+    fn is_empty(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+impl Tile {
+    /// A tile of `terrain` with nothing on it.
+    pub fn new(terrain: TerrainId) -> Self {
+        Self {
+            terrain,
+            owner: TileOwner::NotOwnable,
+            capture_points: None,
+            silo: None,
+            rare: None,
+        }
+    }
+
+    /// Remaining HP of a destructible terrain, such as a pipe seam.
+    pub fn destructible_hp(&self) -> Option<u64> {
+        self.rare.as_ref().and_then(|rare| rare.destructible_hp)
+    }
+
+    /// Which teleporter pair this tile belongs to.
+    pub fn teleporter(&self) -> Option<&TeleporterId> {
+        self.rare.as_ref().and_then(|rare| rare.teleporter.as_ref())
+    }
+
+    /// Per-tile state owned by a ruleset terrain trait.
+    pub fn trait_state(&self) -> Option<&BTreeMap<TraitId, serde_json::Value>> {
+        self.rare
+            .as_ref()
+            .and_then(|rare| rare.trait_state.as_ref())
+    }
+
+    pub fn set_destructible_hp(&mut self, hp: Option<u64>) {
+        self.rare_mut().destructible_hp = hp;
+        self.shrink();
+    }
+
+    pub fn set_teleporter(&mut self, teleporter: Option<TeleporterId>) {
+        self.rare_mut().teleporter = teleporter;
+        self.shrink();
+    }
+
+    fn rare_mut(&mut self) -> &mut RareTileState {
+        self.rare.get_or_insert_with(Box::default)
+    }
+
+    /// Give the pointer back once nothing is behind it.
+    ///
+    /// Two things depend on this. A tile that stopped being destructible costs
+    /// what a plain costs, which is the point of boxing at all. And `rare` then
+    /// has one spelling per state, which is what lets equality be derived: to a
+    /// derive, `None` and an allocated-but-empty block are different tiles, even
+    /// though they serialize to the same bytes. Every path that can set `rare` —
+    /// [`Tile::new`], `Deserialize`, and the setters — leaves it `None` when
+    /// there is nothing to hold, and
+    /// `a_tile_that_loses_its_rare_state_equals_one_that_never_had_any` is what
+    /// pins that.
+    fn shrink(&mut self) {
+        if self.rare.as_ref().is_some_and(|rare| rare.is_empty()) {
+            self.rare = None;
+        }
+    }
+}
+
+/// The flat seven-key object `spec/schema/state.schema.json` describes,
+/// borrowed for writing.
+#[derive(Serialize)]
+struct TileFields<'a> {
+    terrain: TerrainId,
+    #[serde(skip_serializing_if = "owner_is_absent")]
+    owner: &'a TileOwner,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub destructible_hp: Option<u64>,
+    capture_points: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub teleporter: Option<TeleporterId>,
+    silo: Option<Silo>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub trait_state: Option<BTreeMap<TraitId, serde_json::Value>>,
+    destructible_hp: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    teleporter: Option<&'a TeleporterId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trait_state: Option<&'a BTreeMap<TraitId, serde_json::Value>>,
+}
+
+fn owner_is_absent(owner: &&TileOwner) -> bool {
+    owner.is_not_ownable()
+}
+
+/// The same object, owned, for reading.
+#[derive(Deserialize)]
+struct TileWire {
+    terrain: TerrainId,
+    #[serde(default)]
+    owner: TileOwner,
+    capture_points: Option<u8>,
+    silo: Option<Silo>,
+    destructible_hp: Option<u64>,
+    teleporter: Option<TeleporterId>,
+    trait_state: Option<BTreeMap<TraitId, serde_json::Value>>,
+}
+
+impl Serialize for Tile {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        TileFields {
+            terrain: self.terrain,
+            owner: &self.owner,
+            capture_points: self.capture_points,
+            silo: self.silo,
+            destructible_hp: self.destructible_hp(),
+            teleporter: self.teleporter(),
+            trait_state: self.trait_state(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Tile {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = TileWire::deserialize(deserializer)?;
+        let rare = RareTileState {
+            destructible_hp: wire.destructible_hp,
+            teleporter: wire.teleporter,
+            trait_state: wire.trait_state,
+        };
+        Ok(Self {
+            terrain: wire.terrain,
+            owner: wire.owner,
+            capture_points: wire.capture_points,
+            silo: wire.silo,
+            rare: (!rare.is_empty()).then(|| Box::new(rare)),
+        })
+    }
 }
 
 /// Who holds a tile, if anyone can.
@@ -883,11 +1033,41 @@ pub enum Outcome {
     },
 }
 
-/// Ruleset-owned visibility. Implementations may build this from `world::fog`;
-/// the state projection remains independent of Bevy and cached viewpoints.
+/// Ruleset-owned visibility, as a factory for per-recipient viewpoints.
+///
+/// A viewpoint is asked about many tiles and many units for the same state and
+/// the same team — the board projection asks about every tile — so the ruleset
+/// gets one place to resolve the team roster and its sighting units, instead of
+/// redoing that inside every query. Implementations may build this from
+/// `world::fog`; the state projection stays independent of Bevy and of cached
+/// viewpoints.
 pub trait Visibility {
-    fn visible_position(&self, state: &State, team: &TeamId, position: Pos) -> bool;
-    fn visible_unit(&self, state: &State, team: &TeamId, unit: &Unit) -> bool;
+    type View<'a>: Viewpoint
+    where
+        Self: 'a;
+
+    /// What `team` can see of `state`.
+    fn view<'a>(&'a self, state: &'a State, team: &TeamId) -> Self::View<'a>;
+}
+
+/// What one team can see of one state.
+///
+/// Every method answers for the state and team the viewpoint was built from, so
+/// a caller cannot accidentally ask one ruleset's question with another's
+/// roster.
+pub trait Viewpoint {
+    /// Whether the tile at `position` is visible. A coordinate off the board is
+    /// never visible.
+    fn position(&self, position: Pos) -> bool;
+
+    /// Whether `unit` is visible where it currently is.
+    fn unit(&self, unit: &Unit) -> bool;
+
+    /// Whether `unit` would be visible standing at `position`.
+    ///
+    /// The projection needs this to report which steps of an enemy's route the
+    /// recipient could watch, without building a unit per step to ask about.
+    fn unit_at(&self, unit: &Unit, position: Pos) -> bool;
 }
 
 /// Visibility operators for the `awbw/2026-07-10` profile.
@@ -896,63 +1076,128 @@ pub trait Visibility {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AwbwVisibility;
 
-impl AwbwVisibility {
-    fn team_players<'a>(&self, state: &'a State, team: &TeamId) -> HashSet<&'a PlayerId> {
-        state
+impl Visibility for AwbwVisibility {
+    type View<'a> = AwbwView<'a>;
+
+    fn view<'a>(&'a self, state: &'a State, team: &TeamId) -> AwbwView<'a> {
+        AwbwView::new(state, team)
+    }
+}
+
+/// One team's view of one state under the `awbw/2026-07-10` profile.
+///
+/// Resolving the team roster and each sighting unit's effective vision are
+/// per-state facts, not per-query ones. Computing them here rather than inside
+/// every query is what keeps the board projection off an O(tiles x units) path
+/// through the commander tables.
+#[derive(Clone, Debug)]
+pub struct AwbwView<'a> {
+    state: &'a State,
+    fog: bool,
+    /// The viewing team's players. Short enough that a scan beats hashing.
+    teammates: Vec<&'a PlayerId>,
+    /// Resolved on first use rather than up front. A reducer builds a view to
+    /// ask whether one tile is occupied by something it can see, and in a match
+    /// without fog or hidden units that answer never consults a sighting.
+    sightings: OnceCell<Vec<Sighting>>,
+}
+
+/// A friendly unit on the board, with its vision already resolved.
+#[derive(Clone, Copy, Debug)]
+struct Sighting {
+    position: Pos,
+    /// Effective vision after the commander, terrain bonus and weather, floored
+    /// at one tile.
+    sight: u64,
+    /// Whether this unit sees into concealing terrain, which lifts the target
+    /// terrain's own vision limit.
+    reveals_concealing: bool,
+}
+
+impl<'a> AwbwView<'a> {
+    fn new(state: &'a State, team: &TeamId) -> Self {
+        let teammates: Vec<&'a PlayerId> = state
             .players
             .iter()
             .filter(|player| player.team == team)
             .map(|player| &player.id)
-            .collect()
+            .collect();
+        Self {
+            state,
+            fog: state.settings.fog,
+            teammates,
+            sightings: OnceCell::new(),
+        }
     }
 
-    fn vision_level(&self, state: &State, team: &TeamId, position: Pos) -> VisionLevel {
-        if position.x >= state.board.width() || position.y >= state.board.height() {
+    /// Every friendly unit that can see, with its effective vision already
+    /// worked out.
+    ///
+    /// Each unit's sight depends on its commander, the terrain under it and the
+    /// weather — none of which vary by the tile being asked about. Resolving
+    /// them here rather than inside the per-tile loop is what takes the board
+    /// projection off an O(tiles x units) path through the commander tables.
+    fn sightings(&self) -> &[Sighting] {
+        self.sightings.get_or_init(|| {
+            let state = self.state;
+            let rain = -i64::from(matches!(state.weather.kind, WeatherKind::Rain));
+            state
+                .units
+                .iter()
+                .filter(|unit| self.teammates.contains(&&unit.owner))
+                .filter_map(|unit| {
+                    let Location::Board { position } = unit.location else {
+                        return None;
+                    };
+                    let profile = ruleset::profile(unit.kind);
+                    let bonus = if profile.elevated_vision {
+                        ruleset::terrain(state.board.tile(position).terrain)
+                            .vision_bonus
+                            .unwrap_or(0)
+                    } else {
+                        0
+                    };
+                    let vision =
+                        commander::effective_vision(state, unit, profile.vision, profile.domain);
+                    Some(Sighting {
+                        position,
+                        sight: (vision + bonus + rain).max(1) as u64,
+                        reveals_concealing: commander::reveals_concealing_terrain(state, unit),
+                    })
+                })
+                .collect()
+        })
+    }
+
+    fn holds(&self, owner: Option<&PlayerId>) -> bool {
+        owner.is_some_and(|owner| self.teammates.contains(&owner))
+    }
+
+    fn vision_level(&self, position: Pos) -> VisionLevel {
+        if !self.state.board.contains(position) {
             return VisionLevel::None;
         }
-        if !state.settings.fog {
+        if !self.fog {
             return VisionLevel::Full;
         }
-        let team_players = self.team_players(state, team);
-        let tile = &state.board.tile(position);
+        let tile = self.state.board.tile(position);
         let target_terrain = ruleset::terrain(tile.terrain);
         if target_terrain.has(TerrainTrait::Teleporter) {
             return VisionLevel::None;
         }
-        if tile
-            .owner
-            .player()
-            .is_some_and(|owner| team_players.contains(owner))
-        {
+        if self.holds(tile.owner.player()) {
             return VisionLevel::Full;
         }
-
         if target_terrain.has(TerrainTrait::AlwaysVisible) {
             return VisionLevel::Full;
         }
         let mut level = VisionLevel::None;
-        for unit in &state.units {
-            if !team_players.contains(&unit.owner) {
+        for sighting in self.sightings() {
+            let distance = sighting.position.distance(position);
+            if distance > sighting.sight {
                 continue;
             }
-            let Location::Board { position: source } = unit.location else {
-                continue;
-            };
-            let profile = ruleset::profile(unit.kind);
-            let source_terrain = &state.board.tile(source).terrain;
-            let bonus = if profile.elevated_vision {
-                ruleset::terrain(*source_terrain).vision_bonus.unwrap_or(0)
-            } else {
-                0
-            };
-            let rain = -i64::from(matches!(state.weather.kind, WeatherKind::Rain));
-            let vision = commander::effective_vision(state, unit, profile.vision, profile.domain);
-            let sight = (vision + bonus + rain).max(1) as u64;
-            let distance = source.distance(position);
-            if distance > sight {
-                continue;
-            }
-            let contribution = if commander::reveals_concealing_terrain(state, unit)
+            let contribution = if sighting.reveals_concealing
                 || target_terrain
                     .vision_limit
                     .is_none_or(|limit| distance <= limit as u64)
@@ -974,44 +1219,44 @@ enum VisionLevel {
     Full,
 }
 
-impl Visibility for AwbwVisibility {
-    fn visible_position(&self, state: &State, team: &TeamId, position: Pos) -> bool {
-        self.vision_level(state, team, position) == VisionLevel::Full
+impl Viewpoint for AwbwView<'_> {
+    fn position(&self, position: Pos) -> bool {
+        self.vision_level(position) == VisionLevel::Full
     }
 
-    fn visible_unit(&self, state: &State, team: &TeamId, unit: &Unit) -> bool {
-        let team_players = self.team_players(state, team);
-        if team_players.contains(&unit.owner) {
+    fn unit(&self, unit: &Unit) -> bool {
+        match unit.location {
+            Location::Board { position } => self.unit_at(unit, position),
+            // Cargo is only ever visible to its own team, which `unit_at`
+            // establishes before it looks at a position.
+            Location::Cargo { .. } => self.holds(Some(&unit.owner)),
+        }
+    }
+
+    fn unit_at(&self, unit: &Unit, position: Pos) -> bool {
+        if self.holds(Some(&unit.owner)) {
             return true;
         }
-        let Location::Board { position } = unit.location else {
-            return false;
-        };
-        if state
-            .board
-            .tile(position)
-            .owner
-            .player()
-            .is_some_and(|owner| team_players.contains(owner))
-        {
+        if self.holds(
+            self.state
+                .board
+                .get(position)
+                .and_then(|tile| tile.owner.player()),
+        ) {
             return true;
         }
+        // A hidden unit is given away only by standing next to something of the
+        // viewing team, whether or not the match is fogged.
         if unit.concealment == Concealment::Hidden {
-            return state.units.iter().any(|source| {
-                team_players.contains(&source.owner)
-                    && matches!(
-                            source.location,
-                            Location::Board { position: source_position }
-                                if source_position.x.abs_diff(position.x)
-                                    + source_position.y.abs_diff(position.y)
-                                    == 1
-                    )
-            });
+            return self
+                .sightings()
+                .iter()
+                .any(|sighting| sighting.position.distance(position) == 1);
         }
-        if !state.settings.fog {
+        if !self.fog {
             return true;
         }
-        match self.vision_level(state, team, position) {
+        match self.vision_level(position) {
             VisionLevel::Full => true,
             VisionLevel::AirOnly => ruleset::profile(unit.kind).domain == Domain::Air,
             VisionLevel::None => false,
@@ -1033,7 +1278,7 @@ pub struct Observation {
     #[serde(rename = "match")]
     pub match_state: ObservedMatch,
 }
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ObservedUnitRef {
     Friendly { unit: UnitId },
@@ -1068,24 +1313,72 @@ impl ObservedBoard {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+/// A tile as one recipient sees it.
+///
+/// Boxes its rare state for the same reason [`Tile`] does: an observation holds
+/// one of these per square, and one is built per recipient per command. Its
+/// `rare` is only ever built by the projection, which leaves it `None` when
+/// there is nothing to hold — see [`Tile::shrink`] for why that matters.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObservedTile {
     pub terrain: TerrainId,
     pub visibility: TileVisibility,
-    #[serde(skip_serializing_if = "TileOwner::is_not_ownable")]
     pub owner: TileOwner,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub capture_points: Option<u8>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub silo: Option<Silo>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub destructible_hp: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub teleporter: Option<TeleporterId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub trait_state: Option<BTreeMap<TraitId, serde_json::Value>>,
+    rare: Option<Box<RareTileState>>,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+
+impl ObservedTile {
+    pub fn destructible_hp(&self) -> Option<u64> {
+        self.rare.as_ref().and_then(|rare| rare.destructible_hp)
+    }
+
+    pub fn teleporter(&self) -> Option<&TeleporterId> {
+        self.rare.as_ref().and_then(|rare| rare.teleporter.as_ref())
+    }
+
+    pub fn trait_state(&self) -> Option<&BTreeMap<TraitId, serde_json::Value>> {
+        self.rare
+            .as_ref()
+            .and_then(|rare| rare.trait_state.as_ref())
+    }
+}
+
+#[derive(Serialize)]
+struct ObservedTileFields<'a> {
+    terrain: TerrainId,
+    visibility: TileVisibility,
+    #[serde(skip_serializing_if = "owner_is_absent")]
+    owner: &'a TileOwner,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    capture_points: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    silo: Option<Silo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    destructible_hp: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    teleporter: Option<&'a TeleporterId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trait_state: Option<&'a BTreeMap<TraitId, serde_json::Value>>,
+}
+
+impl Serialize for ObservedTile {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        ObservedTileFields {
+            terrain: self.terrain,
+            visibility: self.visibility,
+            owner: &self.owner,
+            capture_points: self.capture_points,
+            silo: self.silo,
+            destructible_hp: self.destructible_hp(),
+            teleporter: self.teleporter(),
+            trait_state: self.trait_state(),
+        }
+        .serialize(serializer)
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TileVisibility {
     Visible,
@@ -1133,6 +1426,89 @@ pub enum ObservedMatch {
     Finished { outcome: Outcome },
 }
 
+/// One authoritative fact as a single recipient is entitled to see it.
+///
+/// Every variant is one `oneOf` branch of
+/// `spec/schema/observed-event.schema.json`, so a projection the schema does not
+/// license cannot be constructed — the same property [`Event`] gives the
+/// authoritative side. A consumer translating these into a presentation model
+/// matches exhaustively rather than reading a `type` string, and a new branch
+/// stops its match compiling.
+///
+/// This is deliberately *not* [`Event`] with fields removed. A recipient sees
+/// enemies by position rather than by id, learns of appearances and
+/// disappearances that no authoritative event names, and receives the payload-free
+/// [`PublicEventKind`] envelope in place of ten different public facts.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum ObservedEvent {
+    /// `path` holds only the positions along the route the recipient could see
+    /// the mover occupy, so a move through fog is reported with gaps.
+    UnitMoved {
+        unit: ObservedUnitRef,
+        from: Pos,
+        to: Pos,
+        path: Vec<Pos>,
+    },
+    /// A unit the recipient could not see before is now visible.
+    UnitAppeared { unit: ObservedUnit, position: Pos },
+    /// A unit the recipient could see is no longer visible, without the
+    /// recipient learning why.
+    UnitDisappeared {
+        unit: ObservedUnitRef,
+        position: Pos,
+    },
+    /// The mover was interrupted. Reported without naming the blocker, which the
+    /// recipient may not see.
+    MovementStopped { unit: ObservedUnitRef },
+    UnitChanged {
+        unit: ObservedUnitRef,
+        state: ObservedUnit,
+        reason: ObservedReason,
+    },
+    UnitRemoved {
+        unit: ObservedUnitRef,
+        reason: ObservedReason,
+    },
+    TileChanged {
+        position: Pos,
+        tile: ObservedTile,
+        reason: ObservedReason,
+    },
+    PlayerChanged {
+        player: PlayerId,
+        state: ObservedPlayer,
+        reason: ObservedReason,
+    },
+    /// Public in full even when fog hides the units it hits
+    /// (`spec/model/observation.md:318`).
+    AreaStrikeResolved {
+        strike: usize,
+        policy: AreaStrikePolicy,
+        center: Pos,
+        radius: usize,
+        damage: u8,
+    },
+    /// A public fact changed. Carries no payload by design; the recipient reads
+    /// every new value from the post-observation
+    /// (`spec/model/observation.md:329`), which is why [`observe_transition`]
+    /// hands that back alongside these.
+    PublicEvent { kind: PublicEventKind },
+}
+
+/// What one command looked like to one recipient.
+///
+/// The post-observation is not a convenience: `public-event` carries no payload,
+/// so `spec/model/observation.md:329` makes `post` the authority for every
+/// public value the events only signal. Projecting the events already requires
+/// computing it, so returning it costs nothing and saves the caller a second
+/// full projection.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ObservedTransition {
+    pub post: Observation,
+    pub events: Vec<ObservedEvent>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ObserveError {
     #[error("UnknownRecipient({0:?})")]
@@ -1147,25 +1523,127 @@ pub enum ObserveError {
     UnknownUnit(UnitId),
 }
 
+/// Project a state as one recipient is entitled to see it.
 pub fn observe(
     rules: &impl Visibility,
     state: &State,
     recipient: &PlayerId,
 ) -> Result<Observation, ObserveError> {
-    let recipient_player = state
+    let team = recipient_team(state, recipient)?;
+    project_state(&rules.view(state, team), state, recipient, team)
+}
+
+/// Project one command for one recipient: the post-state as that recipient sees
+/// it, and the events it is entitled to.
+///
+/// Both halves are needed together. A `public-event` carries no payload, so
+/// `spec/model/observation.md:329` makes the post-observation the authority for
+/// every value those events merely signal — and projecting the events has to
+/// compute it regardless, to fill in the tile and player snapshots that
+/// `tile-changed` and `player-changed` carry.
+pub fn observe_transition(
+    rules: &impl Visibility,
+    state: &State,
+    next_state: &State,
+    events: &[Event],
+    recipient: &PlayerId,
+) -> Result<ObservedTransition, ObserveError> {
+    let team = recipient_team(state, recipient)?;
+    // The prior state is validated, not projected. This used to call `observe`
+    // and drop the result, which cost a whole board projection to reach these
+    // two checks.
+    for unit in &state.units {
+        if state.find_player(&unit.owner).is_none() {
+            return Err(ObserveError::UnknownUnitOwner(unit.owner.clone()));
+        }
+    }
+    // The recipient's team is taken from `state` throughout, which is what the
+    // event projection has always done. A recipient who changed teams between
+    // the two states is not a transition the specification admits; this still
+    // rejects one who is absent from `next_state` altogether.
+    recipient_team(next_state, recipient)?;
+
+    let pre_view = rules.view(state, team);
+    let post_view = rules.view(next_state, team);
+    let post = project_state(&post_view, next_state, recipient, team)?;
+
+    let teammates: Vec<&PlayerId> = state
         .players
         .iter()
-        .find(|p| p.id == recipient)
-        .ok_or_else(|| ObserveError::UnknownRecipient(recipient.clone()))?;
+        .filter(|player| player.team == team)
+        .map(|player| &player.id)
+        .collect();
+    let visible = |view: &dyn Fn(&Unit) -> bool, units: &UnitStore| -> HashSet<UnitId> {
+        units
+            .iter()
+            .filter(|unit| view(unit))
+            .map(|u| u.id)
+            .collect()
+    };
+    let mut projection = Projection {
+        pre_view: &pre_view,
+        post_view: &post_view,
+        state,
+        next_state,
+        post,
+        teammates,
+        visible_pre: visible(&|unit| pre_view.unit(unit), &state.units),
+        visible_post: visible(&|unit| post_view.unit(unit), &next_state.units),
+        appeared: HashSet::new(),
+        disappeared: HashSet::new(),
+        output: Vec::new(),
+    };
+    projection.project(events)?;
+    Ok(ObservedTransition {
+        post: projection.post,
+        events: projection.output,
+    })
+}
+
+/// Project authoritative transition events for one recipient.
+///
+/// A caller that also needs the post-observation — which anything acting on a
+/// `public-event` does — should use [`observe_transition`] rather than calling
+/// both, since this discards an observation it had to compute.
+pub fn observe_events(
+    rules: &impl Visibility,
+    state: &State,
+    next_state: &State,
+    events: &[Event],
+    recipient: &PlayerId,
+) -> Result<Vec<ObservedEvent>, ObserveError> {
+    observe_transition(rules, state, next_state, events, recipient)
+        .map(|transition| transition.events)
+}
+
+fn recipient_team<'a>(state: &'a State, recipient: &PlayerId) -> Result<&'a TeamId, ObserveError> {
+    state
+        .find_player(recipient)
+        .map(|player| &player.team)
+        .ok_or_else(|| ObserveError::UnknownRecipient(recipient.clone()))
+}
+
+fn project_state(
+    view: &impl Viewpoint,
+    state: &State,
+    recipient: &PlayerId,
+    team: &TeamId,
+) -> Result<Observation, ObserveError> {
     let owners: HashMap<&PlayerId, &TeamId> =
         state.players.iter().map(|p| (&p.id, &p.team)).collect();
-    let team = &recipient_player.team;
     let tiles = state
         .board
         .rows()
         .map(|row| {
             row.map(|(position, t)| {
-                let visible = !state.settings.fog || rules.visible_position(state, team, position);
+                let visible = view.position(position);
+                // A teleporter pairing is disclosed even through fog; the rest
+                // of a tile's rare state is not.
+                let rare = RareTileState {
+                    destructible_hp: visible.then_some(t.destructible_hp()).flatten(),
+                    teleporter: t.teleporter().cloned(),
+                    trait_state: visible.then(|| t.trait_state().cloned()).flatten(),
+                };
                 ObservedTile {
                     terrain: t.terrain,
                     visibility: if visible {
@@ -1180,9 +1658,7 @@ pub fn observe(
                     },
                     capture_points: visible.then_some(t.capture_points).flatten(),
                     silo: visible.then_some(t.silo).flatten(),
-                    destructible_hp: visible.then_some(t.destructible_hp).flatten(),
-                    teleporter: t.teleporter.clone(),
-                    trait_state: visible.then_some(t.trait_state.clone()).flatten(),
+                    rare: (!rare.is_empty()).then(|| Box::new(rare)),
                 }
             })
             .collect()
@@ -1231,13 +1707,13 @@ pub fn observe(
         let owner_team = *owners
             .get(&u.owner)
             .ok_or_else(|| ObserveError::UnknownUnitOwner(u.owner.clone()))?;
-        if owner_team == team
-            || (matches!(u.location, Location::Board { .. }) && rules.visible_unit(state, team, u))
-        {
+        // A viewpoint already reports a teammate's unit as visible wherever it
+        // is, including inside a transport, and an opponent's cargo as hidden.
+        if view.unit(u) {
             units.push(observed_unit_snapshot(u, owner_team == team));
         }
     }
-    units.sort_by(|a, b| a.reference.cmp(&b.reference));
+    units.sort_by_key(|unit| unit.reference);
     let match_state = match &state.match_state {
         Match::Active { draw_offers } => {
             let mut offers: Vec<_> = draw_offers
@@ -1272,431 +1748,336 @@ pub fn observe(
     })
 }
 
-/// Project authoritative transition events for one recipient.
-pub fn observe_events(
-    rules: &impl Visibility,
-    state: &State,
-    next_state: &State,
-    events: &[Event],
-    recipient: &PlayerId,
-) -> Result<Vec<serde_json::Value>, ObserveError> {
-    let recipient_player = state
-        .players
-        .iter()
-        .find(|player| player.id == recipient)
-        .ok_or_else(|| ObserveError::UnknownRecipient(recipient.clone()))?;
-    let team = &recipient_player.team;
-    let team_players: HashSet<&PlayerId> = state
-        .players
-        .iter()
-        .filter(|player| player.team == team)
-        .map(|player| &player.id)
-        .collect();
-    observe(rules, state, recipient)?;
-    let post = observe(rules, next_state, recipient)?;
-    let visible_pre: HashSet<UnitId> = state
-        .units
-        .iter()
-        .filter(|unit| team_players.contains(&unit.owner) || rules.visible_unit(state, team, unit))
-        .map(|unit| unit.id)
-        .collect();
-    let visible_post: HashSet<UnitId> = next_state
-        .units
-        .iter()
-        .filter(|unit| {
-            team_players.contains(&unit.owner) || rules.visible_unit(next_state, team, unit)
-        })
-        .map(|unit| unit.id)
-        .collect();
-    let mut appeared = HashSet::new();
-    let mut disappeared = HashSet::new();
-    let mut output = Vec::new();
+/// The context every event's projection shares.
+///
+/// These were eleven parameters threaded through free functions, which is why
+/// two of them carried `#[allow(clippy::too_many_arguments)]`. Nothing here is
+/// derivable from an event alone: whether a unit was visible before and after is
+/// what decides between reporting a change, an appearance, and a disappearance.
+struct Projection<'a, V: Viewpoint> {
+    pre_view: &'a V,
+    post_view: &'a V,
+    state: &'a State,
+    next_state: &'a State,
+    /// The post-state as the recipient sees it, which is where `tile-changed`
+    /// and `player-changed` take their snapshots from, and which
+    /// [`observe_transition`] hands back.
+    post: Observation,
+    /// The recipient's own team. Short enough that a scan beats hashing.
+    teammates: Vec<&'a PlayerId>,
+    visible_pre: HashSet<UnitId>,
+    visible_post: HashSet<UnitId>,
+    /// Appearances and disappearances already announced, so that several events
+    /// about one unit produce at most one of each.
+    appeared: HashSet<UnitId>,
+    disappeared: HashSet<UnitId>,
+    output: Vec<ObservedEvent>,
+}
 
-    for event in events {
-        let reason = event.reason();
-        match event {
-            Event::UnitActionChanged { unit, .. }
-            | Event::UnitDamaged { unit, .. }
-            | Event::UnitRepaired { unit, .. }
-            | Event::UnitResourced { unit, .. }
-            | Event::ConcealmentChanged { unit, .. }
-            | Event::AutomaticRepair { unit, .. } => {
-                project_unit_fact(
-                    *unit,
-                    reason,
-                    state,
-                    next_state,
-                    &visible_pre,
-                    &visible_post,
-                    &team_players,
-                    &mut appeared,
-                    &mut disappeared,
-                    &mut output,
-                );
+impl<V: Viewpoint> Projection<'_, V> {
+    fn owns(&self, player: &PlayerId) -> bool {
+        self.teammates.contains(&player)
+    }
+
+    fn project(&mut self, events: &[Event]) -> Result<(), ObserveError> {
+        for event in events {
+            let reason = event.reason();
+            match event {
+                Event::UnitActionChanged { unit, .. }
+                | Event::UnitDamaged { unit, .. }
+                | Event::UnitRepaired { unit, .. }
+                | Event::UnitResourced { unit, .. }
+                | Event::ConcealmentChanged { unit, .. }
+                | Event::AutomaticRepair { unit, .. } => self.unit_fact(*unit, reason),
+                Event::AutomaticSupply { units, .. } => {
+                    for unit in units {
+                        self.unit_fact(*unit, reason.clone());
+                    }
+                }
+                Event::UnitMoved {
+                    unit: id,
+                    from,
+                    to,
+                    path,
+                    ..
+                } => self.movement(*id, *from, *to, path)?,
+                Event::MovementTrapped { unit: id, .. } => {
+                    let id = *id;
+                    if self
+                        .state
+                        .units
+                        .get(id)
+                        .is_some_and(|unit| self.owns(&unit.owner))
+                    {
+                        self.output.push(ObservedEvent::MovementStopped {
+                            unit: ObservedUnitRef::Friendly { unit: id },
+                        });
+                    }
+                }
+                Event::UnitCreated {
+                    unit: id, position, ..
+                } => {
+                    let id = *id;
+                    if self.visible_post.contains(&id)
+                        && let Some(unit) = self.next_state.units.get(id)
+                    {
+                        let friendly = self.owns(&unit.owner);
+                        self.push_appeared(unit, *position, friendly);
+                    }
+                }
+                Event::UnitRemoved { unit, .. } => self.removal(*unit, reason)?,
+                Event::UnitsJoined { source, target } => {
+                    self.removal(*source, reason.clone())?;
+                    self.unit_fact(*target, reason);
+                }
+                Event::UnitLoaded { unit: id, .. } => {
+                    let id = *id;
+                    let unit = self.state.units.get(id);
+                    if unit.is_some_and(|unit| self.owns(&unit.owner)) {
+                        self.unit_fact(id, reason);
+                    } else if self.visible_pre.contains(&id)
+                        && let Some(position) = unit.and_then(board_position)
+                    {
+                        self.push_disappeared(id, position);
+                    }
+                }
+                Event::UnitUnloaded {
+                    unit: id, position, ..
+                } => {
+                    let id = *id;
+                    let unit = self.next_state.units.get(id);
+                    if unit.is_some_and(|unit| self.owns(&unit.owner)) {
+                        self.unit_fact(id, reason);
+                    } else if self.visible_post.contains(&id)
+                        && let Some(unit) = unit
+                    {
+                        self.push_appeared(unit, *position, false);
+                    }
+                }
+                Event::TileOwnerChanged { position, .. }
+                | Event::TileTerrainChanged { position, .. }
+                | Event::CaptureChanged { position, .. }
+                | Event::SiloChanged { position, .. }
+                | Event::DestructibleDamaged { position, .. } => {
+                    let position = *position;
+                    if self.pre_view.position(position) || self.post_view.position(position) {
+                        self.output.push(ObservedEvent::TileChanged {
+                            position,
+                            tile: self.post.board.tile(position).clone(),
+                            reason,
+                        });
+                    }
+                }
+                // A player only learns their own funds changed; a power charge is
+                // public, so it is projected to everyone.
+                Event::FundsChanged { player, .. } if !self.owns(player) => {}
+                Event::FundsChanged { player, .. } | Event::PowerChargeChanged { player, .. } => {
+                    if let Some(snapshot) =
+                        self.post.players.iter().find(|candidate| match candidate {
+                            ObservedPlayer::Private { id, .. }
+                            | ObservedPlayer::Public { id, .. } => id == player,
+                        })
+                    {
+                        self.output.push(ObservedEvent::PlayerChanged {
+                            player: player.clone(),
+                            state: snapshot.clone(),
+                            reason,
+                        });
+                    }
+                }
+                Event::DrawOfferChanged { player, .. } => {
+                    if self.owns(player) {
+                        self.public(event);
+                    }
+                }
+                Event::PhaseChanged { .. }
+                | Event::TurnSelected { .. }
+                | Event::DayAdvanced { .. }
+                | Event::WeatherChanged { .. }
+                | Event::PowerActivated { .. }
+                | Event::PowerEnded { .. }
+                | Event::CommanderSwapped { .. }
+                | Event::PlayerStatusChanged { .. }
+                | Event::TeamEliminated { .. }
+                | Event::MatchCompleted { .. } => self.public(event),
+                Event::AreaStrikeResolved {
+                    strike,
+                    policy,
+                    center,
+                    radius,
+                    damage,
+                } => self.output.push(ObservedEvent::AreaStrikeResolved {
+                    strike: *strike,
+                    policy: *policy,
+                    center: *center,
+                    radius: *radius,
+                    damage: *damage,
+                }),
+                // Deliberately unprojected. `spec/model/observation.md:337` withholds
+                // both: `attack-resolved` would disclose the weapon and target of an
+                // attack a recipient may not see, and `random-outcome` would leak the
+                // tape a recipient is not entitled to read. The damage and state
+                // changes they cause reach recipients through their own events.
+                Event::AttackResolved { .. } | Event::RandomOutcome { .. } => {}
             }
-            Event::AutomaticSupply { units, .. } => {
-                for unit in units {
-                    project_unit_fact(
-                        *unit,
-                        reason,
-                        state,
-                        next_state,
-                        &visible_pre,
-                        &visible_post,
-                        &team_players,
-                        &mut appeared,
-                        &mut disappeared,
-                        &mut output,
-                    );
+        }
+        Ok(())
+    }
+
+    /// Emit the payload-free envelope for a public fact.
+    ///
+    /// [`EventKind::public`] is exhaustive over every kind, so an event that
+    /// reaches here without a public spelling is one this match should not have
+    /// routed here — and `only_the_documented_kinds_are_public` pins which are
+    /// which.
+    fn public(&mut self, event: &Event) {
+        self.output.extend(
+            event
+                .kind()
+                .public()
+                .map(|kind| ObservedEvent::PublicEvent { kind }),
+        );
+    }
+
+    /// Project an ordinary fact about one unit: a change if the recipient could
+    /// see it throughout, otherwise the appearance or disappearance that
+    /// crossing the visibility boundary amounts to.
+    fn unit_fact(&mut self, id: UnitId, reason: ObservedReason) {
+        let Some(unit) = self.next_state.units.get(id) else {
+            return;
+        };
+        match (
+            self.visible_pre.contains(&id),
+            self.visible_post.contains(&id),
+        ) {
+            (true, true) => {
+                let snapshot = observed_unit_snapshot(unit, self.owns(&unit.owner));
+                self.output.push(ObservedEvent::UnitChanged {
+                    unit: snapshot.reference,
+                    state: snapshot,
+                    reason,
+                });
+            }
+            (false, true) => {
+                if let Some(position) = board_position(unit) {
+                    let friendly = self.owns(&unit.owner);
+                    self.push_appeared(unit, position, friendly);
                 }
             }
-            Event::UnitMoved {
-                unit: id,
+            (true, false) => {
+                if let Some(position) = self.state.units.get(id).and_then(board_position) {
+                    self.push_disappeared(id, position);
+                }
+            }
+            (false, false) => {}
+        }
+    }
+
+    /// Project a move. The recipient's own move is reported in full; an
+    /// opponent's is reported only along the stretch the recipient could watch.
+    fn movement(
+        &mut self,
+        id: UnitId,
+        from: Pos,
+        to: Pos,
+        path: &[Pos],
+    ) -> Result<(), ObserveError> {
+        let unit = self
+            .state
+            .units
+            .get(id)
+            .ok_or(ObserveError::UnknownUnit(id))?;
+        if self.owns(&unit.owner) {
+            self.output.push(ObservedEvent::UnitMoved {
+                unit: ObservedUnitRef::Friendly { unit: id },
                 from,
                 to,
-                path,
-                ..
-            } => {
-                let id = *id;
-                let unit = state
+                path: path.to_vec(),
+            });
+            return Ok(());
+        }
+        match (
+            self.visible_pre.contains(&id),
+            self.visible_post.contains(&id),
+        ) {
+            (true, false) => self.push_disappeared(id, from),
+            (false, true) => {
+                if let Some(snapshot) = self.next_state.units.get(id) {
+                    self.push_appeared(snapshot, to, false);
+                }
+            }
+            (true, true) => {
+                let post_unit = self
+                    .next_state
                     .units
-                    .iter()
-                    .find(|unit| unit.id == id)
+                    .get(id)
                     .ok_or(ObserveError::UnknownUnit(id))?;
-                if team_players.contains(&unit.owner) {
-                    output.push(serde_json::json!({
-                        "type": "unit-moved",
-                        "unit": ObservedUnitRef::Friendly { unit: id },
-                        "from": from,
-                        "to": to,
-                        "path": path
-                    }));
-                } else if visible_pre.contains(&id) && !visible_post.contains(&id) {
-                    push_disappeared(id, *from, &mut disappeared, &mut output);
-                } else if !visible_pre.contains(&id) && visible_post.contains(&id) {
-                    if let Some(snapshot) = next_state.units.iter().find(|unit| unit.id == id) {
-                        push_appeared(snapshot, *to, false, &mut appeared, &mut output);
-                    }
-                } else if visible_pre.contains(&id) && visible_post.contains(&id) {
-                    let post_unit = next_state
-                        .units
-                        .iter()
-                        .find(|unit| unit.id == id)
-                        .ok_or(ObserveError::UnknownUnit(id))?;
-                    let mut observed_path = Vec::with_capacity(path.len());
-                    for position in path.iter().copied() {
-                        let mut probe = post_unit.clone();
-                        probe.location = Location::Board { position };
-                        if rules.visible_unit(state, team, &probe)
-                            || rules.visible_unit(next_state, team, &probe)
-                        {
-                            observed_path.push(position);
-                        }
-                    }
-                    output.push(serde_json::json!({
-                        "type": "unit-moved", "unit": enemy_unit_ref(*to), "from": from, "to": to,
-                        "path": observed_path
-                    }));
-                }
-            }
-            Event::MovementTrapped { unit: id, .. } => {
-                let id = *id;
-                let actor = state.units.iter().find(|unit| unit.id == id);
-                if actor.is_some_and(|unit| team_players.contains(&unit.owner)) {
-                    output.push(serde_json::json!({
-                        "type":"movement-stopped",
-                        "unit":ObservedUnitRef::Friendly { unit:id }
-                    }));
-                }
-            }
-            Event::UnitCreated {
-                unit: id, position, ..
-            } => {
-                let id = *id;
-                if visible_post.contains(&id)
-                    && let Some(unit) = next_state.units.iter().find(|unit| unit.id == id)
-                {
-                    push_appeared(
-                        unit,
-                        *position,
-                        team_players.contains(&unit.owner),
-                        &mut appeared,
-                        &mut output,
-                    );
-                }
-            }
-            Event::UnitRemoved { unit, .. } => {
-                project_removal(
-                    *unit,
-                    reason,
-                    rules,
-                    state,
-                    next_state,
-                    team,
-                    &team_players,
-                    &visible_pre,
-                    &mut disappeared,
-                    &mut output,
-                )?;
-            }
-            Event::UnitsJoined { source, target } => {
-                project_removal(
-                    *source,
-                    reason,
-                    rules,
-                    state,
-                    next_state,
-                    team,
-                    &team_players,
-                    &visible_pre,
-                    &mut disappeared,
-                    &mut output,
-                )?;
-                project_unit_fact(
-                    *target,
-                    reason,
-                    state,
-                    next_state,
-                    &visible_pre,
-                    &visible_post,
-                    &team_players,
-                    &mut appeared,
-                    &mut disappeared,
-                    &mut output,
-                );
-            }
-            Event::UnitLoaded { unit: id, .. } => {
-                let id = *id;
-                let own = state
-                    .units
+                let observed_path = path
                     .iter()
-                    .find(|unit| unit.id == id)
-                    .is_some_and(|unit| team_players.contains(&unit.owner));
-                if own {
-                    project_unit_fact(
-                        id,
-                        reason,
-                        state,
-                        next_state,
-                        &visible_pre,
-                        &visible_post,
-                        &team_players,
-                        &mut appeared,
-                        &mut disappeared,
-                        &mut output,
-                    );
-                } else if visible_pre.contains(&id)
-                    && let Some(position) = state
-                        .units
-                        .iter()
-                        .find_map(|unit| (unit.id == id).then(|| board_position(unit)).flatten())
-                {
-                    push_disappeared(id, position, &mut disappeared, &mut output);
-                }
+                    .copied()
+                    .filter(|position| {
+                        self.pre_view.unit_at(post_unit, *position)
+                            || self.post_view.unit_at(post_unit, *position)
+                    })
+                    .collect();
+                self.output.push(ObservedEvent::UnitMoved {
+                    unit: enemy_unit_ref(to),
+                    from,
+                    to,
+                    path: observed_path,
+                });
             }
-            Event::UnitUnloaded {
-                unit: id, position, ..
-            } => {
-                let id = *id;
-                let own = next_state
-                    .units
-                    .iter()
-                    .find(|unit| unit.id == id)
-                    .is_some_and(|unit| team_players.contains(&unit.owner));
-                if own {
-                    project_unit_fact(
-                        id,
-                        reason,
-                        state,
-                        next_state,
-                        &visible_pre,
-                        &visible_post,
-                        &team_players,
-                        &mut appeared,
-                        &mut disappeared,
-                        &mut output,
-                    );
-                } else if visible_post.contains(&id)
-                    && let Some(unit) = next_state.units.iter().find(|unit| unit.id == id)
-                {
-                    push_appeared(unit, *position, false, &mut appeared, &mut output);
-                }
+            (false, false) => {}
+        }
+        Ok(())
+    }
+
+    /// Project a removal. An opponent's removal is only disclosed where the
+    /// recipient can see the tile it happened on; otherwise the unit merely
+    /// disappears.
+    fn removal(&mut self, id: UnitId, reason: ObservedReason) -> Result<(), ObserveError> {
+        let unit = self
+            .state
+            .units
+            .get(id)
+            .ok_or(ObserveError::UnknownUnit(id))?;
+        if self.owns(&unit.owner) {
+            self.output.push(ObservedEvent::UnitRemoved {
+                unit: ObservedUnitRef::Friendly { unit: id },
+                reason,
+            });
+        } else if self.visible_pre.contains(&id) {
+            // A removed enemy that was visible must have been on the board:
+            // visibility is only ever computed for board positions.
+            let position = board_position(unit).ok_or(ObserveError::UnknownUnit(id))?;
+            if self.post_view.position(position) {
+                self.output.push(ObservedEvent::UnitRemoved {
+                    unit: enemy_unit_ref(position),
+                    reason,
+                });
+            } else {
+                self.push_disappeared(id, position);
             }
-            Event::TileOwnerChanged { position, .. }
-            | Event::TileTerrainChanged { position, .. }
-            | Event::CaptureChanged { position, .. }
-            | Event::SiloChanged { position, .. }
-            | Event::DestructibleDamaged { position, .. } => {
-                let position = *position;
-                if rules.visible_position(state, team, position)
-                    || rules.visible_position(next_state, team, position)
-                {
-                    let tile = post.board.tile(position);
-                    output.push(serde_json::json!({
-                        "type":"tile-changed", "position":position, "tile":tile, "reason":reason
-                    }));
-                }
-            }
-            // A player only learns their own funds changed; a power charge is
-            // public, so it is projected to everyone.
-            Event::FundsChanged { player, .. } if !team_players.contains(player) => {}
-            Event::FundsChanged { player, .. } | Event::PowerChargeChanged { player, .. } => {
-                if let Some(snapshot) = post.players.iter().find(|candidate| match candidate {
-                    ObservedPlayer::Private { id, .. } | ObservedPlayer::Public { id, .. } => {
-                        id == player
-                    }
-                }) {
-                    output.push(serde_json::json!({
-                        "type":"player-changed", "player":player, "state":snapshot,
-                        "reason":reason
-                    }));
-                }
-            }
-            Event::DrawOfferChanged { player, .. } => {
-                if team_players.contains(player) {
-                    output.push(serde_json::json!({"type":"public-event","kind":event.kind()}));
-                }
-            }
-            Event::PhaseChanged { .. }
-            | Event::TurnSelected { .. }
-            | Event::DayAdvanced { .. }
-            | Event::WeatherChanged { .. }
-            | Event::PowerActivated { .. }
-            | Event::PowerEnded { .. }
-            | Event::CommanderSwapped { .. }
-            | Event::PlayerStatusChanged { .. }
-            | Event::TeamEliminated { .. }
-            | Event::MatchCompleted { .. } => {
-                output.push(serde_json::json!({"type":"public-event","kind":event.kind()}));
-            }
-            Event::AreaStrikeResolved { .. } => {
-                output.push(serde_json::to_value(event).expect("an event serializes"));
-            }
-            // Deliberately unprojected. `spec/model/observation.md:337` withholds
-            // both: `attack-resolved` would disclose the weapon and target of an
-            // attack a recipient may not see, and `random-outcome` would leak the
-            // tape a recipient is not entitled to read. The damage and state
-            // changes they cause reach recipients through their own events.
-            Event::AttackResolved { .. } | Event::RandomOutcome { .. } => {}
+        }
+        Ok(())
+    }
+
+    fn push_appeared(&mut self, unit: &Unit, position: Pos, friendly: bool) {
+        if self.appeared.insert(unit.id) {
+            self.output.push(ObservedEvent::UnitAppeared {
+                unit: observed_unit_snapshot(unit, friendly),
+                position,
+            });
         }
     }
-    Ok(output)
-}
 
-#[allow(clippy::too_many_arguments)]
-fn project_unit_fact(
-    id: UnitId,
-    reason: &str,
-    state: &State,
-    next_state: &State,
-    visible_pre: &HashSet<UnitId>,
-    visible_post: &HashSet<UnitId>,
-    team_players: &HashSet<&PlayerId>,
-    appeared: &mut HashSet<UnitId>,
-    disappeared: &mut HashSet<UnitId>,
-    output: &mut Vec<serde_json::Value>,
-) {
-    let Some(unit) = next_state.units.iter().find(|unit| unit.id == id) else {
-        return;
-    };
-    match (visible_pre.contains(&id), visible_post.contains(&id)) {
-        (true, true) => {
-            let friendly = team_players.contains(&unit.owner);
-            let snapshot = observed_unit_snapshot(unit, friendly);
-            output.push(serde_json::json!({
-                "type":"unit-changed", "unit":snapshot.reference, "state":snapshot, "reason":reason
-            }));
+    fn push_disappeared(&mut self, id: UnitId, position: Pos) {
+        if self.disappeared.insert(id) {
+            self.output.push(ObservedEvent::UnitDisappeared {
+                unit: enemy_unit_ref(position),
+                position,
+            });
         }
-        (false, true) => {
-            if let Some(position) = board_position(unit) {
-                push_appeared(
-                    unit,
-                    position,
-                    team_players.contains(&unit.owner),
-                    appeared,
-                    output,
-                );
-            }
-        }
-        (true, false) => {
-            if let Some(position) = state
-                .units
-                .iter()
-                .find(|unit| unit.id == id)
-                .and_then(board_position)
-            {
-                push_disappeared(id, position, disappeared, output);
-            }
-        }
-        (false, false) => {}
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn project_removal(
-    id: UnitId,
-    reason: &str,
-    rules: &impl Visibility,
-    state: &State,
-    next_state: &State,
-    team: &TeamId,
-    team_players: &HashSet<&PlayerId>,
-    visible_pre: &HashSet<UnitId>,
-    disappeared: &mut HashSet<UnitId>,
-    output: &mut Vec<serde_json::Value>,
-) -> Result<(), ObserveError> {
-    let unit = state
-        .units
-        .iter()
-        .find(|unit| unit.id == id)
-        .ok_or(ObserveError::UnknownUnit(id))?;
-    if team_players.contains(&unit.owner) {
-        output.push(serde_json::json!({
-            "type":"unit-removed",
-            "unit":ObservedUnitRef::Friendly { unit:id },
-            "reason":reason
-        }));
-    } else if visible_pre.contains(&id) {
-        // A removed enemy that was visible must have been on the board:
-        // visibility is only ever computed for board positions.
-        let position = board_position(unit).ok_or(ObserveError::UnknownUnit(id))?;
-        if rules.visible_position(next_state, team, position) {
-            output.push(serde_json::json!({
-                "type":"unit-removed","unit":enemy_unit_ref(position),"reason":reason
-            }));
-        } else {
-            push_disappeared(id, position, disappeared, output);
-        }
-    }
-    Ok(())
-}
-
-fn push_appeared(
-    unit: &Unit,
-    position: Pos,
-    friendly: bool,
-    appeared: &mut HashSet<UnitId>,
-    output: &mut Vec<serde_json::Value>,
-) {
-    if appeared.insert(unit.id) {
-        output.push(serde_json::json!({
-            "type":"unit-appeared",
-            "unit":observed_unit_snapshot(unit, friendly),
-            "position":position
-        }));
-    }
-}
-
-fn push_disappeared(
-    id: UnitId,
-    position: Pos,
-    disappeared: &mut HashSet<UnitId>,
-    output: &mut Vec<serde_json::Value>,
-) {
-    if disappeared.insert(id) {
-        output.push(serde_json::json!({
-            "type":"unit-disappeared","unit":enemy_unit_ref(position),"position":position
-        }));
     }
 }
 
@@ -1734,6 +2115,7 @@ fn board_position(unit: &Unit) -> Option<Pos> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn reasons_decode_known_values_without_closing_the_protocol_domain() {
@@ -1865,15 +2247,195 @@ mod tests {
     }
 
     fn plain() -> Tile {
-        Tile {
+        Tile::new(TerrainId::Plain)
+    }
+
+    /// Boxing the rare three is a representation change, not a wire change: the
+    /// object stays flat and seven-keyed, and each key is still absent when it
+    /// has no value. The hand-written serde impls are the only thing keeping
+    /// that true, so both directions are pinned here.
+    #[test]
+    fn tiles_keep_their_flat_wire_shape_around_the_rare_block() {
+        let bare = plain();
+        assert_eq!(
+            serde_json::to_value(&bare).unwrap(),
+            json!({"terrain": "plain"})
+        );
+        assert_eq!(
+            serde_json::from_value::<Tile>(json!({"terrain":"plain"})).unwrap(),
+            bare
+        );
+
+        let wire = json!({
+            "terrain": "pipe-seam",
+            "owner": null,
+            "capture_points": 20,
+            "silo": "ready",
+            "destructible_hp": 99,
+            "teleporter": "north",
+            "trait_state": {"warp": 1},
+        });
+        let loaded: Tile = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(loaded.destructible_hp(), Some(99));
+        assert_eq!(loaded.teleporter(), Some(&TeleporterId::from("north")));
+        assert_eq!(
+            loaded
+                .trait_state()
+                .and_then(|state| state.get(&TraitId::from("warp"))),
+            Some(&json!(1))
+        );
+        assert_eq!(serde_json::to_value(&loaded).unwrap(), wire);
+    }
+
+    /// The pointer is handed back when the last rare value goes, so a destroyed
+    /// pipe seam costs what the plain it becomes costs — and compares equal to
+    /// one that never carried anything.
+    #[test]
+    fn a_tile_that_loses_its_rare_state_equals_one_that_never_had_any() {
+        let mut seam = plain();
+        seam.set_destructible_hp(Some(99));
+        assert_ne!(seam, plain());
+
+        seam.set_destructible_hp(None);
+        assert_eq!(seam, plain());
+        assert_eq!(
+            serde_json::to_value(&seam).unwrap(),
+            json!({"terrain":"plain"})
+        );
+    }
+
+    /// Every branch of `spec/schema/observed-event.schema.json`, in the shape
+    /// the schema names it. The goldens cover whichever branches the corpus
+    /// happens to produce; this covers all ten.
+    #[test]
+    fn observed_events_serialize_as_their_schema_branches() {
+        let enemy = ObservedUnitRef::Enemy {
+            position: Pos::new(1, 2),
+        };
+        let friendly = ObservedUnitRef::Friendly {
+            unit: UnitId::new(7),
+        };
+        let unit = ObservedUnit {
+            reference: friendly,
+            kind: UnitKindId::Infantry,
+            owner: PlayerId::from("p1"),
+            hp: 100,
+            fuel: 99,
+            ammo: 0,
+            action: UnitAction::Ready,
+            concealment: Concealment::Exposed,
+            location: Location::Board {
+                position: Pos::new(1, 2),
+            },
+        };
+        let cases = [
+            (
+                ObservedEvent::UnitMoved {
+                    unit: enemy,
+                    from: Pos::new(0, 0),
+                    to: Pos::new(1, 2),
+                    path: vec![Pos::new(0, 0), Pos::new(1, 2)],
+                },
+                json!({"type":"unit-moved","unit":{"type":"enemy","position":[1,2]},
+                       "from":[0,0],"to":[1,2],"path":[[0,0],[1,2]]}),
+            ),
+            (
+                ObservedEvent::UnitAppeared {
+                    unit: unit.clone(),
+                    position: Pos::new(1, 2),
+                },
+                json!({"type":"unit-appeared","unit":serde_json::to_value(&unit).unwrap(),
+                       "position":[1,2]}),
+            ),
+            (
+                ObservedEvent::UnitDisappeared {
+                    unit: enemy,
+                    position: Pos::new(1, 2),
+                },
+                json!({"type":"unit-disappeared","unit":{"type":"enemy","position":[1,2]},
+                       "position":[1,2]}),
+            ),
+            (
+                ObservedEvent::MovementStopped { unit: friendly },
+                json!({"type":"movement-stopped","unit":{"type":"friendly","unit":7}}),
+            ),
+            (
+                ObservedEvent::UnitChanged {
+                    unit: friendly,
+                    state: unit.clone(),
+                    reason: ObservedReason::Declared(KnownReason::Combat.into()),
+                },
+                json!({"type":"unit-changed","unit":{"type":"friendly","unit":7},
+                       "state":serde_json::to_value(&unit).unwrap(),"reason":"combat"}),
+            ),
+            (
+                ObservedEvent::UnitRemoved {
+                    unit: friendly,
+                    reason: ObservedReason::Kind(crate::event::EventKind::UnitsJoined),
+                },
+                json!({"type":"unit-removed","unit":{"type":"friendly","unit":7},
+                       "reason":"units-joined"}),
+            ),
+            (
+                ObservedEvent::AreaStrikeResolved {
+                    strike: 0,
+                    policy: AreaStrikePolicy::UnitValue,
+                    center: Pos::new(3, 4),
+                    radius: 2,
+                    damage: 30,
+                },
+                json!({"type":"area-strike-resolved","strike":0,"policy":"unit-value",
+                       "center":[3,4],"radius":2,"damage":30}),
+            ),
+            (
+                ObservedEvent::PublicEvent {
+                    kind: PublicEventKind::DayAdvanced,
+                },
+                json!({"type":"public-event","kind":"day-advanced"}),
+            ),
+        ];
+        for (event, expected) in cases {
+            assert_eq!(serde_json::to_value(&event).unwrap(), expected);
+        }
+
+        let tile = ObservedTile {
             terrain: TerrainId::Plain,
+            visibility: TileVisibility::Visible,
             owner: TileOwner::NotOwnable,
             capture_points: None,
             silo: None,
-            destructible_hp: None,
-            teleporter: None,
-            trait_state: None,
-        }
+            rare: None,
+        };
+        assert_eq!(
+            serde_json::to_value(ObservedEvent::TileChanged {
+                position: Pos::new(1, 2),
+                tile,
+                reason: ObservedReason::Kind(crate::event::EventKind::CaptureChanged),
+            })
+            .unwrap(),
+            json!({"type":"tile-changed","position":[1,2],
+                   "tile":{"terrain":"plain","visibility":"visible"},
+                   "reason":"capture-changed"})
+        );
+
+        let player = ObservedPlayer::Public {
+            id: PlayerId::from("p2"),
+            team: TeamId::from("t2"),
+            relation: Relation::Opponent,
+            status: PlayerStatus::Active,
+            commanders: vec![],
+            power_state: PowerState::None,
+        };
+        assert_eq!(
+            serde_json::to_value(ObservedEvent::PlayerChanged {
+                player: PlayerId::from("p2"),
+                state: player.clone(),
+                reason: ObservedReason::Declared(KnownReason::Combat.into()),
+            })
+            .unwrap(),
+            json!({"type":"player-changed","player":"p2",
+                   "state":serde_json::to_value(&player).unwrap(),"reason":"combat"})
+        );
     }
 
     /// The rectangle is checked once, while decoding, so nothing downstream can
@@ -1929,13 +2491,28 @@ mod tests {
         assert_eq!(wire["tiles"][0].as_array().unwrap().len(), 2);
         assert_eq!(serde_json::from_value::<Board>(wire).unwrap(), board);
     }
+    /// A viewpoint that answers the same for everything, for tests that pin what
+    /// the projection does with a given visibility rather than what the ruleset's
+    /// visibility computes.
+    struct Constant(bool);
+
+    impl Viewpoint for Constant {
+        fn position(&self, _: Pos) -> bool {
+            self.0
+        }
+        fn unit(&self, _: &Unit) -> bool {
+            self.0
+        }
+        fn unit_at(&self, _: &Unit, _: Pos) -> bool {
+            self.0
+        }
+    }
+
     struct NoneVisible;
     impl Visibility for NoneVisible {
-        fn visible_position(&self, _: &State, _: &TeamId, _: Pos) -> bool {
-            false
-        }
-        fn visible_unit(&self, _: &State, _: &TeamId, _: &Unit) -> bool {
-            false
+        type View<'a> = Constant;
+        fn view<'a>(&'a self, _: &'a State, _: &TeamId) -> Constant {
+            Constant(false)
         }
     }
     #[test]
@@ -1996,11 +2573,9 @@ mod tests {
     fn visible_enemy_authoritative_id_is_not_observed() {
         struct AllVisible;
         impl Visibility for AllVisible {
-            fn visible_position(&self, _: &State, _: &TeamId, _: Pos) -> bool {
-                true
-            }
-            fn visible_unit(&self, _: &State, _: &TeamId, _: &Unit) -> bool {
-                true
+            type View<'a> = Constant;
+            fn view<'a>(&'a self, _: &'a State, _: &TeamId) -> Constant {
+                Constant(true)
             }
         }
 
@@ -2038,9 +2613,7 @@ mod tests {
                     owner: TileOwner::NotOwnable,
                     capture_points: None,
                     silo: None,
-                    destructible_hp: None,
-                    teleporter: None,
-                    trait_state: None,
+                    rare: None,
                 })
                 .collect(),
         )
@@ -2075,13 +2648,14 @@ mod tests {
                 &PlayerId::from("p1"),
             )
             .unwrap(),
-            vec![serde_json::json!({
-                "type": "unit-moved",
-                "unit": {"type": "enemy", "position": Pos::new(3, 0)},
-                "from": Pos::new(5, 0),
-                "to": Pos::new(3, 0),
-                "path": [Pos::new(5, 0), Pos::new(3, 0)]
-            })]
+            vec![ObservedEvent::UnitMoved {
+                unit: ObservedUnitRef::Enemy {
+                    position: Pos::new(3, 0)
+                },
+                from: Pos::new(5, 0),
+                to: Pos::new(3, 0),
+                path: vec![Pos::new(5, 0), Pos::new(3, 0)],
+            }]
         );
     }
 
@@ -2096,12 +2670,12 @@ mod tests {
         state.units[0].location = Location::Board {
             position: Pos::new(0, 0),
         };
-        let visibility = AwbwVisibility;
+        let team = TeamId::from("t1");
 
-        assert!(!visibility.visible_position(&state, &TeamId::from("t1"), Pos::new(1, 0)));
+        assert!(!AwbwVisibility.view(&state, &team).position(Pos::new(1, 0)));
 
         state.settings.fog = false;
-        assert!(visibility.visible_position(&state, &TeamId::from("t1"), Pos::new(1, 0)));
+        assert!(AwbwVisibility.view(&state, &team).position(Pos::new(1, 0)));
     }
 
     fn fixture() -> State {
@@ -2135,9 +2709,7 @@ mod tests {
                     owner: TileOwner::NotOwnable,
                     capture_points: None,
                     silo: None,
-                    destructible_hp: None,
-                    teleporter: None,
-                    trait_state: None,
+                    rare: None,
                 }],
             )
             .expect("a single tile is a rectangle"),

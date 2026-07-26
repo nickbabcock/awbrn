@@ -12,7 +12,7 @@ use crate::commander::{self};
 use crate::event::Event;
 use crate::ruleset::{self, Relation, TargetSet, TerrainTrait};
 use crate::semantic::{
-    AwbwVisibility, KnownReason, Location, PlayerId, Pos, State, UnitAction, UnitId,
+    AwbwVisibility, KnownReason, Location, PlayerId, Pos, State, UnitAction, UnitId, Visibility,
 };
 use crate::violation::{Action, Violation};
 
@@ -31,11 +31,11 @@ pub(crate) fn execute_move_supply(
         }));
     };
     let destination = plan.destination();
-    let visibility = AwbwVisibility;
+    let view = AwbwVisibility.view(state, plan.actor_team());
     if state.units.iter().any(|other| {
         other.id != unit_id
             && board_position(other) == Some(destination)
-            && occupancy_is_disclosed(&visibility, state, plan.actor_team(), other)
+            && occupancy_is_disclosed(&view, other)
     }) {
         return Err(violation(Violation::DestinationOccupied {
             position: destination,
@@ -154,11 +154,11 @@ pub(crate) fn execute_move_repair(
             target: Some(target_id.into()),
         }));
     }
-    let visibility = AwbwVisibility;
+    let view = AwbwVisibility.view(state, plan.actor_team());
     if state.units.iter().any(|other| {
         other.id != unit_id
             && board_position(other) == Some(destination)
-            && occupancy_is_disclosed(&visibility, state, plan.actor_team(), other)
+            && occupancy_is_disclosed(&view, other)
     }) {
         return Err(violation(Violation::DestinationOccupied {
             position: destination,
@@ -418,7 +418,7 @@ pub(crate) fn execute_move_join(
     let actor_team = plan.actor_team();
     let unit_index = plan.unit_index();
     let entry_costs = plan.entry_costs();
-    let visibility = AwbwVisibility;
+    let view = AwbwVisibility.view(state, actor_team);
 
     let target_index = state.units.index_of(target_id);
     let target = target_index.and_then(|index| state.units.at(index));
@@ -481,7 +481,7 @@ pub(crate) fn execute_move_join(
                 .find(|other| {
                     other.id != unit_id
                         && board_position(other) == Some(position)
-                        && !occupancy_is_disclosed(&visibility, state, actor_team, other)
+                        && !occupancy_is_disclosed(&view, other)
                 })
                 .map(|blocker| (index, position, blocker.id))
         });

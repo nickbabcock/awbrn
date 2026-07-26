@@ -10,7 +10,9 @@ use super::*;
 use crate::commander::{self};
 use crate::event::Event;
 use crate::ruleset::{self, TerrainTrait};
-use crate::semantic::{AwbwVisibility, Concealment, Location, Pos, State, UnitAction, UnitId};
+use crate::semantic::{
+    AwbwVisibility, Concealment, Location, Pos, State, UnitAction, UnitId, Visibility,
+};
 use crate::violation::{Action, Violation};
 
 /// A movement that has been validated, and the numbers that validating it
@@ -169,7 +171,7 @@ pub(crate) fn plan(
         .ok_or_else(|| {
             ExecuteError::InvalidState(format!("unknown active player {player}").into())
         })?;
-    let visibility = AwbwVisibility;
+    let view = AwbwVisibility.view(state, &actor_team);
     for (index, position) in path
         .iter()
         .copied()
@@ -180,7 +182,7 @@ pub(crate) fn plan(
         if state.units.iter().any(|other| {
             other.id != unit_id
                 && board_position(other) == Some(position)
-                && occupancy_is_disclosed(&visibility, state, &actor_team, other)
+                && occupancy_is_disclosed(&view, other)
         }) {
             return Err(violation(Violation::PathOccupied { index, position }));
         }
@@ -212,7 +214,7 @@ pub(crate) fn execute_planned_movement(
     unit_id: UnitId,
     plan: &MovedUnit,
 ) -> MovementOutcome {
-    let visibility = AwbwVisibility;
+    let view = AwbwVisibility.view(state, plan.actor_team());
     let trap = plan
         .path
         .iter()
@@ -226,7 +228,7 @@ pub(crate) fn execute_planned_movement(
                 .find(|other| {
                     other.id != unit_id
                         && board_position(other) == Some(position)
-                        && !occupancy_is_disclosed(&visibility, state, plan.actor_team(), other)
+                        && !occupancy_is_disclosed(&view, other)
                 })
                 .map(|blocker| (index, position, blocker.id))
         });
@@ -327,11 +329,11 @@ pub(crate) fn execute_move_concealment(
     }
 
     let destination = plan.destination();
-    let visibility = AwbwVisibility;
+    let view = AwbwVisibility.view(state, plan.actor_team());
     if state.units.iter().any(|other| {
         other.id != unit_id
             && board_position(other) == Some(destination)
-            && occupancy_is_disclosed(&visibility, state, plan.actor_team(), other)
+            && occupancy_is_disclosed(&view, other)
     }) {
         return Err(violation(Violation::DestinationOccupied {
             position: destination,
@@ -369,11 +371,11 @@ pub(crate) fn execute_move_wait(
     let state = turn.state();
     let plan = turn.plan_move(unit_id, path)?;
     let destination = plan.destination();
-    let visibility = AwbwVisibility;
+    let view = AwbwVisibility.view(state, plan.actor_team());
     if state.units.iter().any(|other| {
         other.id != unit_id
             && board_position(other) == Some(destination)
-            && occupancy_is_disclosed(&visibility, state, plan.actor_team(), other)
+            && occupancy_is_disclosed(&view, other)
     }) {
         return Err(violation(Violation::DestinationOccupied {
             position: destination,
