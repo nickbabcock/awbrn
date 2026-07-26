@@ -345,7 +345,7 @@ fn observe(line: &str, request_id: &str) -> Value {
     if let Err(response) = check_ruleset(&request.ruleset, [&request.state]) {
         return error(request_id, response.0, response.1);
     }
-    let rules = AwbwVisibility::default();
+    let rules = AwbwVisibility;
     match semantic::observe(&rules, &request.state, &request.recipient) {
         Ok(observation) => json!({
             "protocol_version": PROTOCOL_VERSION,
@@ -369,7 +369,7 @@ fn observe_events(line: &str, request_id: &str) -> Value {
     if let Err(response) = check_ruleset(&request.ruleset, [&request.state, &request.next_state]) {
         return error(request_id, response.0, response.1);
     }
-    let rules = AwbwVisibility::default();
+    let rules = AwbwVisibility;
     match semantic::observe_events(
         &rules,
         &request.state,

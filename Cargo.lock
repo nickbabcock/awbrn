@@ -539,6 +539,7 @@ dependencies = [
  "awbrn-game",
  "awbrn-map",
  "awbrn-types",
+ "awvm",
  "bevy",
  "insta",
  "serde",
@@ -6822,6 +6823,15 @@ dependencies = [
  "serde_json",
  "strum",
  "walkdir",
+]
+
+[[package]]
+name = "xtask-ruleset"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

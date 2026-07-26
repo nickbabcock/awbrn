@@ -1,12 +1,10 @@
 //! Pure AWBW weapon selection and exact-HP combat arithmetic.
 
-use serde_json::Value;
+use crate::ruleset::{self, UnitKind};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Weapon {
-    Ammo,
-    Unlimited,
-}
+/// Which of a unit's weapons fired. The vocabulary is the ruleset's, so the
+/// name this serializes under cannot drift from the table it was selected from.
+pub use crate::ruleset::WeaponSlot as Weapon;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SelectedWeapon {
@@ -16,8 +14,8 @@ pub struct SelectedWeapon {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Side<'a> {
-    pub kind: &'a str,
+pub struct Side {
+    pub kind: UnitKind,
     pub hp: u8,
     pub ammo: u64,
     pub attack: i64,
@@ -37,24 +35,25 @@ pub struct Combat {
     pub counter: Option<Hit>,
 }
 
-pub fn select_weapon(attacker: &str, defender: &str, ammo: u64) -> Option<SelectedWeapon> {
-    let table: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/weapons.json"
-    ))
-    .expect("embedded weapons table");
-    let unit = &table["units"][attacker];
-    for (name, weapon) in [("ammo", Weapon::Ammo), ("unlimited", Weapon::Unlimited)] {
-        let entry = &unit[name];
-        let Some(cost) = entry["ammo_cost"].as_u64() else {
+/// The weapon this attacker would fire at this defender, in the order
+/// `weapons.json` mandates.
+///
+/// `None` means the engagement is impossible: an unknown unit kind, or no
+/// weapon that both has a damage entry against the defender and is affordable.
+pub fn select_weapon(attacker: UnitKind, defender: UnitKind, ammo: u64) -> Option<SelectedWeapon> {
+    let profile = ruleset::profile(attacker);
+    for slot in ruleset::WEAPON_SELECTION_ORDER {
+        let Some(weapon) = profile.weapon(slot) else {
             continue;
         };
-        if cost <= ammo
-            && let Some(base_damage) = entry["damage"][defender].as_u64()
-        {
+        if ruleset::WEAPON_SELECTION_REQUIRES_AVAILABLE_AMMO && weapon.ammo_cost > ammo {
+            continue;
+        }
+        if let Some(base_damage) = weapon.damage(defender) {
             return Some(SelectedWeapon {
-                weapon,
-                base_damage,
-                ammo_cost: cost,
+                weapon: slot,
+                base_damage: u64::from(base_damage),
+                ammo_cost: weapon.ammo_cost,
             });
         }
     }
@@ -62,7 +61,7 @@ pub fn select_weapon(attacker: &str, defender: &str, ammo: u64) -> Option<Select
 }
 
 /// AWBW integer damage formula. Luck is the already-mapped signed modifier.
-pub fn damage(attacker: Side<'_>, defender: Side<'_>, luck: i64) -> Option<Hit> {
+pub fn damage(attacker: Side, defender: Side, luck: i64) -> Option<Hit> {
     let weapon = select_weapon(attacker.kind, defender.kind, attacker.ammo)?;
     let visual_defender = u64::from(defender.hp).div_ceil(10);
     let attack_factor = ((weapon.base_damage as i64 * attacker.attack) / 100 + luck).max(0);
@@ -79,8 +78,8 @@ pub fn damage(attacker: Side<'_>, defender: Side<'_>, luck: i64) -> Option<Hit> 
 }
 
 pub fn resolve(
-    attacker: Side<'_>,
-    defender: Side<'_>,
+    attacker: Side,
+    defender: Side,
     attacker_luck: i64,
     counter_luck: Option<i64>,
     direct: bool,
@@ -107,9 +106,9 @@ pub fn resolve(
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn infantry(hp: u8, ammo: u64, stars: u8) -> Side<'static> {
+    fn infantry(hp: u8, ammo: u64, stars: u8) -> Side {
         Side {
-            kind: "infantry",
+            kind: UnitKind::Infantry,
             hp,
             ammo,
             attack: 100,
@@ -133,7 +132,7 @@ mod tests {
     #[test]
     fn tank_falls_back_at_zero_ammo() {
         assert_eq!(
-            select_weapon("tank", "infantry", 0).unwrap(),
+            select_weapon(UnitKind::Tank, UnitKind::Infantry, 0).unwrap(),
             SelectedWeapon {
                 weapon: Weapon::Unlimited,
                 base_damage: 75,
@@ -141,11 +140,13 @@ mod tests {
             }
         );
         assert_eq!(
-            select_weapon("tank", "tank", 1).unwrap().weapon,
+            select_weapon(UnitKind::Tank, UnitKind::Tank, 1)
+                .unwrap()
+                .weapon,
             Weapon::Ammo
         );
         assert_eq!(
-            select_weapon("tank", "infantry", 9).unwrap(),
+            select_weapon(UnitKind::Tank, UnitKind::Infantry, 9).unwrap(),
             SelectedWeapon {
                 weapon: Weapon::Unlimited,
                 base_damage: 75,
@@ -153,7 +154,9 @@ mod tests {
             }
         );
         assert_eq!(
-            select_weapon("tank", "tank", 0).unwrap().weapon,
+            select_weapon(UnitKind::Tank, UnitKind::Tank, 0)
+                .unwrap()
+                .weapon,
             Weapon::Unlimited
         );
     }
@@ -161,7 +164,7 @@ mod tests {
     fn lethal_hit_has_no_counter() {
         let c = resolve(
             Side {
-                kind: "bomber",
+                kind: UnitKind::Bomber,
                 hp: 100,
                 ammo: 9,
                 attack: 100,

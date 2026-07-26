@@ -117,6 +117,10 @@ run = [
     "cargo xtask-assets logos",
 ]
 
+[tasks."ruleset"]
+description = "Regenerate the AWVM ruleset tables from spec/rulesets"
+run = "cargo xtask-ruleset"
+
 [tasks.pnpm-install]
 run = "pnpm install --optimistic-repeat-install"
 sources = ["pnpm-lock.yaml"]

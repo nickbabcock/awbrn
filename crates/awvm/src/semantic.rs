@@ -11,6 +11,7 @@ use std::ops::Deref;
 use serde::{Deserialize, Serialize};
 
 use crate::commander;
+use crate::ruleset::{self, Domain, TerrainTrait};
 
 pub type Position = [usize; 2];
 
@@ -68,17 +69,16 @@ macro_rules! string_id {
     };
 }
 
-string_id!(
-    RulesetId,
-    PlayerId,
-    TeamId,
-    CommanderId,
-    UnitKindId,
-    TerrainId,
-    TeleporterId,
-    TraitId,
-    ReasonId,
-);
+string_id!(RulesetId, PlayerId, TeamId, TeleporterId, TraitId, ReasonId,);
+
+// Identifiers the active ruleset enumerates are the ruleset's own vocabulary
+// types, not open strings. They serialize under exactly the identifiers the
+// specification documents use, so the wire form is unchanged; what changes is
+// that a value outside the ruleset now fails to decode instead of travelling
+// to a table lookup that cannot resolve it.
+pub use crate::ruleset::{
+    CommanderKind as CommanderId, Terrain as TerrainId, UnitKind as UnitKindId, WeatherKind,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -133,22 +133,12 @@ fn deserialize_unit_kind_set<'de, D>(deserializer: D) -> Result<Vec<UnitKindId>,
 where
     D: serde::Deserializer<'de>,
 {
+    // Decoding already rejected kinds outside the ruleset; only duplicates are
+    // still this validator's business.
     let kinds = Vec::<UnitKindId>::deserialize(deserializer)?;
-    let units: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/units.json"
-    ))
-    .expect("embedded units table");
-    let profiles = units["units"]
-        .as_object()
-        .expect("embedded units table has a units object");
     let mut seen = HashSet::with_capacity(kinds.len());
     for kind in &kinds {
-        if !profiles.contains_key(kind.as_str()) {
-            return Err(serde::de::Error::custom(format!(
-                "unknown lab unit kind {kind}"
-            )));
-        }
-        if !seen.insert(kind.as_str()) {
+        if !seen.insert(*kind) {
             return Err(serde::de::Error::custom(format!(
                 "duplicate lab unit kind {kind}"
             )));
@@ -296,13 +286,6 @@ pub struct Weather {
     pub remaining_turns: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum WeatherKind {
-    Clear,
-    Rain,
-    Snow,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Unit {
     pub id: UnitId,
     pub kind: UnitKindId,
@@ -363,60 +346,13 @@ pub trait Visibility {
     fn visible_unit(&self, state: &State, team: &str, unit: &Unit) -> bool;
 }
 
-#[derive(Clone, Debug, Deserialize)]
-struct UnitVision {
-    domain: String,
-    vision: i64,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct UnitsTable {
-    units: HashMap<String, UnitVision>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct TerrainVision {
-    traits: HashSet<String>,
-    vision_bonus: Option<i64>,
-    vision_limit: Option<usize>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct TerrainTable {
-    terrains: HashMap<String, TerrainVision>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct UnitCapabilities {
-    elevated_vision: HashSet<String>,
-}
-
-/// Visibility operators for the embedded `awbw/2026-07-10` profile.
-#[derive(Clone, Debug)]
-pub struct AwbwVisibility {
-    units: HashMap<String, UnitVision>,
-    terrains: HashMap<String, TerrainVision>,
-    elevated_vision: HashSet<String>,
-}
+/// Visibility operators for the `awbw/2026-07-10` profile.
+///
+/// Carries no state: every value it needs is in [`crate::ruleset`].
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AwbwVisibility;
 
 impl AwbwVisibility {
-    pub fn new() -> Result<Self, serde_json::Error> {
-        let units: UnitsTable = serde_json::from_str(include_str!(
-            "../../../spec/rulesets/awbw/2026-07-10/units.json"
-        ))?;
-        let terrains: TerrainTable = serde_json::from_str(include_str!(
-            "../../../spec/rulesets/awbw/2026-07-10/terrain.json"
-        ))?;
-        let capabilities: UnitCapabilities = serde_json::from_str(include_str!(
-            "../../../spec/rulesets/awbw/2026-07-10/unit-capabilities.json"
-        ))?;
-        Ok(Self {
-            units: units.units,
-            terrains: terrains.terrains,
-            elevated_vision: capabilities.elevated_vision,
-        })
-    }
-
     fn team_players<'a>(&self, state: &'a State, team: &str) -> HashSet<&'a str> {
         state
             .players
@@ -444,11 +380,8 @@ impl AwbwVisibility {
             return VisionLevel::Full;
         }
 
-        let target_terrain = self
-            .terrains
-            .get(tile.terrain.as_str())
-            .expect("state terrain must exist in the ruleset");
-        if target_terrain.traits.contains("always-visible") {
+        let target_terrain = ruleset::terrain(tile.terrain);
+        if target_terrain.has(TerrainTrait::AlwaysVisible) {
             return VisionLevel::Full;
         }
         let mut level = VisionLevel::None;
@@ -459,22 +392,16 @@ impl AwbwVisibility {
             let Location::Board { position: source } = unit.location else {
                 continue;
             };
-            let profile = self
-                .units
-                .get(unit.kind.as_str())
-                .expect("state unit kind must exist in the ruleset");
+            let profile = ruleset::profile(unit.kind);
             let source_terrain = &state.board.tiles[source[1]][source[0]].terrain;
-            let bonus = if self.elevated_vision.contains(unit.kind.as_str()) {
-                self.terrains
-                    .get(source_terrain.as_str())
-                    .expect("state terrain must exist in the ruleset")
-                    .vision_bonus
-                    .unwrap_or(0)
+            let bonus = if profile.elevated_vision {
+                ruleset::terrain(*source_terrain).vision_bonus.unwrap_or(0)
             } else {
                 0
             };
             let rain = -i64::from(matches!(state.weather.kind, WeatherKind::Rain));
-            let vision = commander::effective_vision(state, unit, profile.vision, &profile.domain);
+            let vision =
+                commander::effective_vision(state, unit, profile.vision, profile.domain.as_str());
             let sight = (vision + bonus + rain).max(1) as usize;
             let distance = source[0].abs_diff(position[0]) + source[1].abs_diff(position[1]);
             if distance > sight {
@@ -492,12 +419,6 @@ impl AwbwVisibility {
             level = level.max(contribution);
         }
         level
-    }
-}
-
-impl Default for AwbwVisibility {
-    fn default() -> Self {
-        Self::new().expect("embedded AWBW visibility tables are valid")
     }
 }
 
@@ -546,13 +467,7 @@ impl Visibility for AwbwVisibility {
         }
         match self.vision_level(state, team, position) {
             VisionLevel::Full => true,
-            VisionLevel::AirOnly => {
-                self.units
-                    .get(unit.kind.as_str())
-                    .expect("state unit kind must exist in the ruleset")
-                    .domain
-                    == "air"
-            }
+            VisionLevel::AirOnly => ruleset::profile(unit.kind).domain == Domain::Air,
             VisionLevel::None => false,
         }
     }
@@ -707,7 +622,7 @@ pub fn observe(
                     let visible =
                         !state.settings.fog || rules.visible_position(state, team, [x, y]);
                     ObservedTile {
-                        terrain: t.terrain.clone(),
+                        terrain: t.terrain,
                         visibility: if visible {
                             TileVisibility::Visible
                         } else {
@@ -752,7 +667,7 @@ pub fn observe(
                         .commanders
                         .iter()
                         .map(|c| PublicCommander {
-                            id: c.id.clone(),
+                            id: c.id,
                             active: c.active,
                             power_charge: c.power_charge,
                         })
@@ -1266,7 +1181,7 @@ fn observed_unit_snapshot(unit: &Unit, friendly: bool) -> ObservedUnit {
                 board_position(unit).expect("an observed enemy unit must be on the board"),
             )
         },
-        kind: unit.kind.clone(),
+        kind: unit.kind,
         owner: unit.owner.clone(),
         hp: unit.hp,
         fuel: unit.fuel,
@@ -1362,13 +1277,16 @@ mod tests {
                 .contains("duplicate lab unit kind infantry")
         );
 
+        // A kind outside the ruleset is rejected by the vocabulary itself,
+        // before the duplicate check ever sees it.
         let mut unknown = settings;
         unknown["lab_units"] = serde_json::json!(["not-a-unit"]);
+        let message = serde_json::from_value::<Settings>(unknown)
+            .unwrap_err()
+            .to_string();
         assert!(
-            serde_json::from_value::<Settings>(unknown)
-                .unwrap_err()
-                .to_string()
-                .contains("unknown lab unit kind not-a-unit")
+            message.contains("unknown variant `not-a-unit`"),
+            "unexpected rejection: {message}"
         );
     }
 
@@ -1417,7 +1335,11 @@ mod tests {
         state.board.width = 6;
         state.board.tiles[0] = (0..6)
             .map(|x| Tile {
-                terrain: if x == 4 { "wood" } else { "plain" }.into(),
+                terrain: if x == 4 {
+                    TerrainId::Wood
+                } else {
+                    TerrainId::Plain
+                },
                 owner: None,
                 capture_points: None,
                 silo: None,
@@ -1426,9 +1348,9 @@ mod tests {
                 trait_state: None,
             })
             .collect();
-        state.units[0].kind = "recon".into();
+        state.units[0].kind = UnitKindId::Recon;
         state.units[0].location = Location::Board { position: [0, 0] };
-        state.units[1].kind = "tank".into();
+        state.units[1].kind = UnitKindId::Tank;
         state.units[1].location = Location::Board { position: [5, 0] };
 
         let mut next_state = state.clone();
@@ -1443,14 +1365,7 @@ mod tests {
         })];
 
         assert_eq!(
-            observe_events(
-                &AwbwVisibility::default(),
-                &state,
-                &next_state,
-                &events,
-                "p1"
-            )
-            .unwrap(),
+            observe_events(&AwbwVisibility, &state, &next_state, &events, "p1").unwrap(),
             vec![serde_json::json!({
                 "type": "unit-moved",
                 "unit": {"type": "enemy", "position": [3,0]},
@@ -1487,7 +1402,7 @@ mod tests {
                 width: 1,
                 height: 1,
                 tiles: vec![vec![Tile {
-                    terrain: "plain".into(),
+                    terrain: TerrainId::Plain,
                     owner: None,
                     capture_points: None,
                     silo: None,
@@ -1532,7 +1447,7 @@ mod tests {
             funds: 0,
             status: PlayerStatus::Active,
             commanders: vec![Commander {
-                id: "andy".into(),
+                id: CommanderId::Andy,
                 active: true,
                 power_charge: 0,
                 power_uses: 0,
@@ -1543,7 +1458,7 @@ mod tests {
     fn unit(id: u32, owner: &str) -> Unit {
         Unit {
             id: id.into(),
-            kind: "infantry".into(),
+            kind: UnitKindId::Infantry,
             owner: owner.into(),
             hp: 100,
             fuel: 99,

@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
 use awbrn_types::{DamagePts, ExactHp, Unit, VisualHp};
+use awvm::combat::{Weapon, select_weapon};
+use awvm::ruleset::UnitKind;
 
 /// Exact HP-point deltas from a combat engagement on the 0-100 HP scale.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -102,23 +104,66 @@ pub struct CombatInput {
     pub is_direct_combat: bool,
 }
 
-/// Look up base damage for an engagement.
+/// The weapon this engagement would fire, per the active ruleset.
 ///
-/// When `attacker_ammo > 0`, primary damage is preferred and secondary damage
-/// is used as a fallback. When `attacker_ammo == 0`, only secondary damage is
-/// available.
+/// The ammo weapon is preferred, and the unlimited weapon is the fallback both
+/// when the ammo weapon has no entry against the defender and when the attacker
+/// is out of ammo.
+fn weapon(
+    attacker: Unit,
+    defender: Unit,
+    attacker_ammo: u32,
+) -> Option<awvm::combat::SelectedWeapon> {
+    select_weapon(
+        unit_kind(attacker),
+        unit_kind(defender),
+        u64::from(attacker_ammo),
+    )
+}
+
+/// Look up base damage for an engagement.
 pub fn base_damage(attacker: Unit, defender: Unit, attacker_ammo: u32) -> Option<u8> {
-    if attacker_ammo > 0 {
-        primary_damage(attacker, defender).or_else(|| secondary_damage(attacker, defender))
-    } else {
-        secondary_damage(attacker, defender)
-    }
+    weapon(attacker, defender, attacker_ammo).map(|w| w.base_damage as u8)
 }
 
 /// Returns true if this engagement consumes one unit of ammo (i.e. the primary
 /// weapon fires). Secondary-weapon attacks and zero-ammo fallbacks do not cost ammo.
 pub fn uses_primary_weapon(attacker: Unit, defender: Unit, attacker_ammo: u32) -> bool {
-    attacker_ammo > 0 && primary_damage(attacker, defender).is_some()
+    weapon(attacker, defender, attacker_ammo).is_some_and(|w| w.weapon == Weapon::Ammo)
+}
+
+/// Bridge this crate's unit vocabulary to the ruleset's.
+///
+/// Spelled out rather than routed through the AWBW id so that adding a unit on
+/// either side stops compiling here instead of failing a lookup at runtime.
+const fn unit_kind(unit: Unit) -> UnitKind {
+    match unit {
+        Unit::AntiAir => UnitKind::AntiAir,
+        Unit::APC => UnitKind::Apc,
+        Unit::Artillery => UnitKind::Artillery,
+        Unit::BCopter => UnitKind::BCopter,
+        Unit::Battleship => UnitKind::Battleship,
+        Unit::BlackBoat => UnitKind::BlackBoat,
+        Unit::BlackBomb => UnitKind::BlackBomb,
+        Unit::Bomber => UnitKind::Bomber,
+        Unit::Carrier => UnitKind::Carrier,
+        Unit::Cruiser => UnitKind::Cruiser,
+        Unit::Fighter => UnitKind::Fighter,
+        Unit::Infantry => UnitKind::Infantry,
+        Unit::Lander => UnitKind::Lander,
+        Unit::MdTank => UnitKind::MdTank,
+        Unit::Mech => UnitKind::Mech,
+        Unit::MegaTank => UnitKind::MegaTank,
+        Unit::Missile => UnitKind::Missile,
+        Unit::NeoTank => UnitKind::NeoTank,
+        Unit::PipeRunner => UnitKind::Piperunner,
+        Unit::Recon => UnitKind::Recon,
+        Unit::Rocket => UnitKind::Rocket,
+        Unit::Stealth => UnitKind::Stealth,
+        Unit::Sub => UnitKind::Sub,
+        Unit::TCopter => UnitKind::TCopter,
+        Unit::Tank => UnitKind::Tank,
+    }
 }
 
 /// Pure single-hit calculation with pre-rolled luck.
@@ -199,192 +244,6 @@ fn calculate_hit(
 
     Some(defender.exact_hp.clamp_damage(damage))
 }
-
-fn primary_damage(attacker: Unit, defender: Unit) -> Option<u8> {
-    damage_from_table(&PRIMARY_DAMAGE, attacker, defender)
-}
-
-fn secondary_damage(attacker: Unit, defender: Unit) -> Option<u8> {
-    damage_from_table(&SECONDARY_DAMAGE, attacker, defender)
-}
-
-fn damage_from_table(
-    table: &[[u8; Unit::COUNT]; Unit::COUNT],
-    attacker: Unit,
-    defender: Unit,
-) -> Option<u8> {
-    match table[attacker.table_index()][defender.table_index()] {
-        0 => None,
-        damage => Some(damage),
-    }
-}
-
-// AWDS base damage table in Unit enum order. Zero means no weapon entry.
-const PRIMARY_DAMAGE: [[u8; Unit::COUNT]; Unit::COUNT] = [
-    [
-        45, 50, 50, 105, 0, 0, 120, 75, 0, 0, 65, 105, 0, 10, 105, 1, 55, 5, 25, 60, 45, 75, 0,
-        105, 25,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        75, 70, 75, 0, 40, 55, 0, 0, 45, 50, 0, 90, 55, 45, 85, 15, 80, 40, 70, 80, 80, 0, 60, 0,
-        70,
-    ],
-    [
-        25, 60, 65, 0, 25, 25, 0, 0, 25, 25, 0, 0, 25, 25, 0, 10, 65, 20, 55, 55, 65, 0, 25, 0, 55,
-    ],
-    [
-        85, 80, 80, 0, 50, 95, 0, 0, 60, 95, 0, 95, 95, 55, 90, 25, 90, 50, 80, 90, 85, 0, 95, 0,
-        80,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        95, 105, 105, 0, 75, 105, 0, 0, 75, 50, 0, 110, 95, 95, 110, 35, 105, 90, 105, 105, 105, 0,
-        95, 0, 105,
-    ],
-    [
-        0, 0, 0, 115, 0, 0, 120, 100, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 0, 115, 0,
-    ],
-    [
-        0, 0, 0, 0, 5, 25, 0, 0, 5, 25, 0, 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 90, 0, 0,
-    ],
-    [
-        0, 0, 0, 120, 0, 0, 120, 100, 0, 0, 55, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 85, 0, 120, 0,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        105, 105, 105, 0, 10, 35, 0, 0, 10, 30, 0, 0, 35, 55, 0, 25, 105, 45, 85, 105, 105, 0, 10,
-        0, 85,
-    ],
-    [
-        65, 75, 70, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15, 0, 5, 85, 15, 55, 85, 85, 0, 0, 0, 55,
-    ],
-    [
-        195, 195, 195, 0, 45, 105, 0, 0, 45, 65, 0, 0, 75, 125, 0, 65, 195, 115, 180, 185, 195, 0,
-        45, 0, 180,
-    ],
-    [
-        0, 0, 0, 120, 0, 0, 120, 100, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 0, 120, 0,
-    ],
-    [
-        115, 125, 115, 0, 15, 40, 0, 0, 15, 30, 0, 0, 40, 75, 0, 35, 125, 55, 105, 125, 125, 0, 15,
-        0, 105,
-    ],
-    [
-        85, 80, 80, 105, 55, 60, 105, 75, 60, 60, 65, 95, 60, 55, 90, 25, 90, 50, 80, 90, 85, 75,
-        85, 105, 80,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        85, 80, 80, 0, 55, 60, 0, 0, 60, 60, 0, 95, 60, 55, 90, 25, 90, 50, 80, 90, 85, 0, 85, 0,
-        80,
-    ],
-    [
-        50, 85, 75, 85, 45, 65, 120, 70, 45, 35, 45, 90, 65, 70, 90, 15, 85, 60, 80, 85, 85, 55,
-        55, 95, 75,
-    ],
-    [
-        0, 0, 0, 0, 65, 95, 0, 0, 75, 25, 0, 0, 95, 0, 0, 0, 0, 0, 0, 0, 0, 0, 55, 0, 0,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        65, 75, 70, 0, 1, 10, 0, 0, 1, 5, 0, 0, 10, 15, 0, 10, 85, 15, 55, 85, 85, 0, 1, 0, 55,
-    ],
-];
-
-const SECONDARY_DAMAGE: [[u8; Unit::COUNT]; Unit::COUNT] = [
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        6, 20, 25, 65, 0, 0, 0, 0, 0, 0, 0, 75, 0, 1, 75, 1, 35, 1, 6, 30, 35, 0, 0, 95, 6,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        0, 0, 0, 105, 0, 0, 120, 100, 0, 0, 85, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 0, 105, 0,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        5, 14, 15, 7, 0, 0, 0, 0, 0, 0, 0, 55, 0, 1, 45, 1, 25, 1, 5, 12, 25, 0, 0, 30, 5,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        7, 45, 45, 12, 0, 0, 0, 0, 0, 0, 0, 105, 0, 1, 95, 1, 35, 1, 7, 45, 55, 0, 0, 45, 8,
-    ],
-    [
-        6, 20, 32, 9, 0, 0, 0, 0, 0, 0, 0, 65, 0, 1, 55, 1, 35, 1, 6, 18, 35, 0, 0, 35, 6,
-    ],
-    [
-        17, 65, 65, 22, 0, 0, 0, 0, 0, 0, 0, 135, 0, 1, 125, 1, 55, 1, 17, 65, 75, 0, 0, 55, 10,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        17, 65, 65, 22, 0, 0, 0, 0, 0, 0, 0, 125, 0, 1, 115, 1, 55, 1, 17, 65, 75, 0, 0, 55, 10,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        4, 45, 45, 10, 0, 0, 0, 0, 0, 0, 0, 70, 0, 1, 65, 1, 28, 1, 6, 35, 55, 0, 0, 35, 6,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    [
-        5, 45, 45, 10, 0, 0, 0, 0, 0, 0, 0, 75, 0, 1, 70, 1, 30, 1, 6, 40, 55, 0, 0, 40, 6,
-    ],
-];
 
 #[cfg(test)]
 mod tests {
@@ -490,6 +349,21 @@ mod tests {
     #[test]
     fn tank_with_no_ammo_uses_secondary_weapon() {
         assert_eq!(base_damage(Unit::Tank, Unit::Infantry, 0), Some(75));
+    }
+
+    /// Base damage now comes from the AWBW ruleset tables rather than the AWDS
+    /// chart this module used to carry. These pairs are ones where the two
+    /// charts disagree, so they fail if the lookup ever drifts back.
+    #[test]
+    fn base_damage_follows_the_awbw_chart() {
+        // AWDS gives anti-air 105 against helicopters; AWBW gives 120.
+        assert_eq!(base_damage(Unit::AntiAir, Unit::BCopter, 9), Some(120));
+        // AWDS lets a cruiser's missiles hit ships; AWBW's do not, so the
+        // engagement falls back to the machine gun's naval entry — none.
+        assert_eq!(base_damage(Unit::Cruiser, Unit::Battleship, 9), None);
+        assert!(!uses_primary_weapon(Unit::Cruiser, Unit::Battleship, 9));
+        // AWDS gives a sub 65 against a battleship; AWBW gives 55.
+        assert_eq!(base_damage(Unit::Sub, Unit::Battleship, 9), Some(55));
     }
 
     #[test]

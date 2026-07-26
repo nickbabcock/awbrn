@@ -13,10 +13,11 @@ use crate::commander::{
     SpawnResources, SpawnUnitLimit, Strike, TargetedAreaStrikePolicy, TargetedUnitValue,
     UnitTarget, WeatherDuration, WeatherEffectKind,
 };
+use crate::ruleset::{self, Domain, FireMode, Relation, TargetSet, TerrainTrait, UnitKind};
 use crate::semantic::{
     AwbwVisibility, Concealment, Location, Match, Outcome, Phase, PlayerId, PlayerStatus, Position,
-    PowerState, Silo, State, TeamStatus, Unit, UnitAction, UnitId, UnitKindId, Visibility,
-    WeatherKind, WeatherSetting,
+    PowerState, Silo, State, TeamStatus, TerrainId, Unit, UnitAction, UnitId, UnitKindId,
+    Visibility, WeatherKind, WeatherSetting,
 };
 
 #[derive(Clone, Debug, Deserialize)]
@@ -175,7 +176,7 @@ pub fn execute(
             player,
             position,
             kind,
-        } => execute_produce_unit(state, &player, position, &kind),
+        } => execute_produce_unit(state, &player, position, kind),
         Command::MoveJoin {
             player,
             unit,
@@ -297,33 +298,17 @@ fn validate_movement_prefix(
             ));
         }
     }
-    let units_table: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/units.json"
-    ))
-    .expect("embedded units table");
-    let movement_costs: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/movement-costs.json"
-    ))
-    .expect("embedded movement table");
-    let profile = &units_table["units"][unit.kind.as_str()];
-    let movement_class = profile["movement_class"]
-        .as_str()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let base_movement = profile["move"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let domain = profile["domain"]
-        .as_str()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let movement = commander::effective_move(state, unit, base_movement, domain);
+    let profile = ruleset::profile(unit.kind);
+    let movement =
+        commander::effective_move(state, unit, profile.movement, profile.domain.as_str());
     let weather = commander::effective_weather(state, unit);
     let mut entry_costs = vec![0];
     for (index, position) in path.iter().copied().enumerate().skip(1) {
-        let terrain = &state.board.tiles[position[1]][position[0]].terrain;
+        let terrain = state.board.tiles[position[1]][position[0]].terrain;
         let cost = commander::effective_movement_cost(
             state,
             unit,
-            movement_costs["terrains"][terrain.as_str()][weather][movement_class].as_u64(),
+            ruleset::movement_cost(terrain, weather, profile.movement_class),
         )
         .ok_or_else(|| {
             violation(json!({
@@ -338,7 +323,7 @@ fn validate_movement_prefix(
         .find(|candidate| candidate.id == player)
         .map(|candidate| candidate.team.clone())
         .ok_or_else(|| ExecuteError::InvalidState(format!("unknown active player {player}")))?;
-    let visibility = AwbwVisibility::default();
+    let visibility = AwbwVisibility;
     for (index, position) in path
         .iter()
         .copied()
@@ -381,7 +366,7 @@ fn execute_planned_movement(
     unit_id: UnitId,
     plan: &MovementPlan,
 ) -> MovementOutcome {
-    let visibility = AwbwVisibility::default();
+    let visibility = AwbwVisibility;
     let trap = plan
         .path
         .iter()
@@ -441,18 +426,14 @@ fn execute_move_supply(
 ) -> Result<Execution, ExecuteError> {
     let plan = validate_movement_prefix(state, player, unit_id, path)?;
     let unit = &state.units[plan.unit_index];
-    let capabilities: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/unit-capabilities.json"
-    ))
-    .expect("embedded unit capabilities");
-    let supply_capable = capabilities["supply"][unit.kind.as_str()]["relation"] == "adjacent";
-    if !supply_capable {
+    let supply = ruleset::profile(unit.kind).supply;
+    let Some(supply) = supply.filter(|supply| supply.relation == Relation::Adjacent) else {
         return Err(violation(
             json!({"code":"ACTION_NOT_SUPPORTED","action":"move-supply"}),
         ));
-    }
+    };
     let destination = *plan.path.last().expect("origin was checked");
-    let visibility = AwbwVisibility::default();
+    let visibility = AwbwVisibility;
     if state.units.iter().any(|other| {
         other.id != unit_id
             && board_position(other) == Some(destination)
@@ -473,9 +454,6 @@ fn execute_move_supply(
     }
     let actual_destination =
         board_position(&outcome.state.units[plan.unit_index]).expect("mover remains on board");
-    let supply_targets = capabilities["supply"][unit.kind.as_str()]["targets"]
-        .as_str()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
     let mut supply_ids: Vec<_> = state
         .units
         .iter()
@@ -486,7 +464,7 @@ fn execute_move_supply(
                     &unit.owner,
                     &plan.actor_team,
                     &target.owner,
-                    supply_targets,
+                    supply.targets,
                 )
                 && board_position(target).is_some_and(|position| {
                     position[0].abs_diff(actual_destination[0])
@@ -497,10 +475,6 @@ fn execute_move_supply(
         .map(|target| target.id)
         .collect();
     supply_ids.sort();
-    let units_table: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/units.json"
-    ))
-    .expect("embedded units table");
     for id in supply_ids {
         let target = outcome
             .state
@@ -508,13 +482,9 @@ fn execute_move_supply(
             .iter_mut()
             .find(|target| target.id == id)
             .expect("supply target remains present");
-        let profile = &units_table["units"][target.kind.as_str()];
-        let max_fuel = profile["max_fuel"]
-            .as_u64()
-            .ok_or(ExecuteError::UnsupportedRuleset)?;
-        let max_ammo = profile["max_ammo"]
-            .as_u64()
-            .ok_or(ExecuteError::UnsupportedRuleset)?;
+        let profile = ruleset::profile(target.kind);
+        let max_fuel = profile.max_fuel;
+        let max_ammo = profile.max_ammo;
         let fuel_before = target.fuel;
         let ammo_before = target.ammo;
         target.fuel = max_fuel;
@@ -540,16 +510,15 @@ fn supply_target_eligible(
     source_owner: &str,
     source_team: &str,
     target_owner: &str,
-    targets: &str,
+    targets: TargetSet,
 ) -> bool {
     match targets {
-        "owned-units" => target_owner == source_owner,
-        "friendly-units" => state
+        TargetSet::OwnedUnits => target_owner == source_owner,
+        TargetSet::FriendlyUnits => state
             .players
             .iter()
             .find(|owner| owner.id == target_owner)
             .is_some_and(|owner| owner.team == source_team),
-        _ => false,
     }
 }
 
@@ -562,16 +531,12 @@ fn execute_move_repair(
 ) -> Result<Execution, ExecuteError> {
     let plan = validate_movement_prefix(state, player, unit_id, path)?;
     let unit = &state.units[plan.unit_index];
-    let capabilities: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/unit-capabilities.json"
-    ))
-    .expect("embedded unit capabilities");
-    let repair = &capabilities["repair"][unit.kind.as_str()];
-    if !repair.is_object() || repair["relation"] != "adjacent" {
+    let repair = ruleset::profile(unit.kind).repair;
+    let Some(repair) = repair.filter(|repair| repair.relation == Relation::Adjacent) else {
         return Err(violation(
             json!({"code":"ACTION_NOT_SUPPORTED","action":"move-repair"}),
         ));
-    }
+    };
     let target_index = state.units.iter().position(|target| target.id == target_id);
     let target = target_index.and_then(|index| state.units.get(index));
     let target_team = target.and_then(|target| {
@@ -600,7 +565,7 @@ fn execute_move_repair(
             json!({"code":"TARGET_OUT_OF_RANGE","target":target_id}),
         ));
     }
-    let visibility = AwbwVisibility::default();
+    let visibility = AwbwVisibility;
     if state.units.iter().any(|other| {
         other.id != unit_id
             && board_position(other) == Some(destination)
@@ -612,29 +577,13 @@ fn execute_move_repair(
     }
 
     let target_index = target_index.expect("target validity established its index");
-    let exact_hp = repair["exact_hp"]
-        .as_u64()
-        .and_then(|value| u8::try_from(value).ok())
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let cost_percent = repair["cost_percent"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let units_table: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/units.json"
-    ))
-    .expect("embedded units table");
-    let target_profile = &units_table["units"][target.expect("target exists").kind.as_str()];
-    let max_fuel = target_profile["max_fuel"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let max_ammo = target_profile["max_ammo"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let target_cost = target_profile["cost"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let heal_cost = target_cost
-        .checked_mul(cost_percent)
+    let exact_hp = repair.exact_hp;
+    let target_profile = ruleset::profile(target.expect("target exists").kind);
+    let max_fuel = target_profile.max_fuel;
+    let max_ammo = target_profile.max_ammo;
+    let heal_cost = target_profile
+        .cost
+        .checked_mul(repair.cost_percent)
         .and_then(|cost| cost.checked_div(100))
         .ok_or(ExecuteError::UnsupportedRuleset)?;
 
@@ -704,22 +653,11 @@ fn execute_move_load(
         .iter()
         .position(|transport| transport.id == transport_id);
     let transport = transport_index.and_then(|index| state.units.get(index));
-    let capabilities: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/unit-capabilities.json"
-    ))
-    .expect("embedded unit capabilities");
     let transport_capability =
-        transport.map(|transport| &capabilities["transport"][transport.kind.as_str()]);
-    let capacity = transport_capability
-        .and_then(|capability| capability["capacity"].as_u64())
-        .and_then(|capacity| usize::try_from(capacity).ok());
-    let cargo_kind_allowed = transport_capability.is_some_and(|capability| {
-        capability["cargo"].as_array().is_some_and(|kinds| {
-            kinds
-                .iter()
-                .any(|kind| kind.as_str() == Some(mover.kind.as_str()))
-        })
-    });
+        transport.and_then(|transport| ruleset::profile(transport.kind).transport);
+    let capacity = transport_capability.map(|capability| capability.capacity);
+    let cargo_kind_allowed =
+        transport_capability.is_some_and(|capability| capability.cargo.contains(mover.kind));
     let occupied_slots: Vec<_> = state
         .units
         .iter()
@@ -799,10 +737,6 @@ fn execute_unload(
             json!({"code":"NOT_ACTIVE_PLAYER","player":player}),
         ));
     }
-    let capabilities: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/unit-capabilities.json"
-    ))
-    .expect("embedded unit capabilities");
     let transport_index = state
         .units
         .iter()
@@ -812,7 +746,7 @@ fn execute_unload(
     if !transport.is_some_and(|transport| {
         transport.owner == player
             && transport_position.is_some()
-            && capabilities["transport"][transport.kind.as_str()].is_object()
+            && ruleset::profile(transport.kind).transport.is_some()
     }) {
         return Err(violation(
             json!({"code":"INVALID_TARGET","target":transport_id}),
@@ -839,17 +773,7 @@ fn execute_unload(
         ));
     }
     let cargo = cargo.expect("cargo validity established unit");
-    let units_table: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/units.json"
-    ))
-    .expect("embedded units table");
-    let movement_costs: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/movement-costs.json"
-    ))
-    .expect("embedded movement table");
-    let movement_class = units_table["units"][cargo.kind.as_str()]["movement_class"]
-        .as_str()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
+    let movement_class = ruleset::profile(cargo.kind).movement_class;
     let weather = commander::effective_weather(state, cargo);
     let destination_tile = state
         .board
@@ -860,7 +784,7 @@ fn execute_unload(
         commander::effective_movement_cost(
             state,
             cargo,
-            movement_costs["terrains"][tile.terrain.as_str()][weather][movement_class].as_u64(),
+            ruleset::movement_cost(tile.terrain, weather, movement_class),
         )
         .is_some()
     });
@@ -978,33 +902,21 @@ fn execute_move_join(
         }
     }
 
-    let units_table: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/units.json"
-    ))
-    .expect("embedded units table");
-    let movement_costs: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/movement-costs.json"
-    ))
-    .expect("embedded movement table");
-    let mover_profile = &units_table["units"][mover.kind.as_str()];
-    let movement_class = mover_profile["movement_class"]
-        .as_str()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let base_movement = mover_profile["move"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let domain = mover_profile["domain"]
-        .as_str()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let movement = commander::effective_move(state, mover, base_movement, domain);
+    let mover_profile = ruleset::profile(mover.kind);
+    let movement = commander::effective_move(
+        state,
+        mover,
+        mover_profile.movement,
+        mover_profile.domain.as_str(),
+    );
     let weather = commander::effective_weather(state, mover);
     let mut entry_costs = vec![0];
     for (index, position) in path.iter().copied().enumerate().skip(1) {
-        let terrain = &state.board.tiles[position[1]][position[0]].terrain;
+        let terrain = state.board.tiles[position[1]][position[0]].terrain;
         let cost = commander::effective_movement_cost(
             state,
             mover,
-            movement_costs["terrains"][terrain.as_str()][weather][movement_class].as_u64(),
+            ruleset::movement_cost(terrain, weather, mover_profile.movement_class),
         )
         .ok_or_else(|| {
             violation(json!({
@@ -1019,7 +931,7 @@ fn execute_move_join(
         .find(|candidate| candidate.id == player)
         .map(|candidate| candidate.team.as_str())
         .ok_or_else(|| ExecuteError::InvalidState(format!("unknown active player {player}")))?;
-    let visibility = AwbwVisibility::default();
+    let visibility = AwbwVisibility;
     for (index, position) in path
         .iter()
         .copied()
@@ -1147,15 +1059,9 @@ fn execute_move_join(
 
     let combined_visual_hp = mover.hp.div_ceil(10) + target.hp.div_ceil(10);
     let moved_fuel = mover.fuel - fuel_spent;
-    let max_fuel = mover_profile["max_fuel"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let max_ammo = mover_profile["max_ammo"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let cost = mover_profile["cost"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
+    let max_fuel = mover_profile.max_fuel;
+    let max_ammo = mover_profile.max_ammo;
+    let cost = mover_profile.cost;
     next.units[target_index].hp = combined_visual_hp.min(10) * 10;
     next.units[target_index].fuel = (moved_fuel + target.fuel).min(max_fuel);
     next.units[target_index].ammo = (mover.ammo + target.ammo).min(max_ammo);
@@ -1190,7 +1096,7 @@ fn execute_produce_unit(
     state: &State,
     player: &str,
     position: Position,
-    kind: &str,
+    kind: UnitKind,
 ) -> Result<Execution, ExecuteError> {
     if state.ruleset.id != "awbw" || state.ruleset.revision != "2026-07-10" {
         return Err(ExecuteError::UnsupportedRuleset);
@@ -1213,52 +1119,24 @@ fn execute_produce_unit(
         .iter()
         .position(|candidate| candidate.id == player)
         .ok_or_else(|| ExecuteError::InvalidState(format!("unknown active player {player}")))?;
-    let units_table: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/units.json"
-    ))
-    .expect("embedded units table");
-    let terrain_table: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/terrain.json"
-    ))
-    .expect("embedded terrain table");
-    let profile = units_table["units"].get(kind);
+    let profile = ruleset::profile(kind);
 
-    // Site validation precedes requested-kind validation. When the kind is
-    // unknown, ownership and facility status can still be checked without
-    // guessing its domain.
+    // Site validation precedes requested-kind validation: whether the player
+    // owns a facility here does not depend on what they asked it to build.
     let tile = state
         .board
         .tiles
         .get(position[1])
         .and_then(|row| row.get(position[0]));
     let site_valid = tile.is_some_and(|tile| {
-        let terrain = &terrain_table["terrains"][tile.terrain.as_str()];
-        let requested_domain = profile.and_then(|profile| profile["domain"].as_str());
-        let base_facility = terrain["traits"].as_array().is_some_and(|traits| {
-            traits.iter().any(|trait_| {
-                trait_
-                    .as_str()
-                    .is_some_and(|trait_| trait_.starts_with("produces-"))
-            })
-        });
+        let terrain = ruleset::terrain(tile.terrain);
+        let domain = profile.domain.as_str();
         let commander_facility =
-            commander::commander_production_site(state, player, &tile.terrain, requested_domain);
-        let is_facility = base_facility || commander_facility;
+            commander::commander_production_site(state, player, tile.terrain, Some(domain));
+        let is_facility = terrain.produces_any() || commander_facility;
         let owned = tile.owner.as_ref().and_then(Option::as_deref) == Some(player);
-        let domain_matches = profile.is_none_or(|profile| {
-            profile["domain"].as_str().is_some_and(|domain| {
-                let required = format!("produces-{domain}");
-                terrain["traits"]
-                    .as_array()
-                    .is_some_and(|traits| traits.iter().any(|trait_| trait_ == &required))
-                    || commander::commander_production_site(
-                        state,
-                        player,
-                        &tile.terrain,
-                        Some(domain),
-                    )
-            })
-        });
+        let domain_matches = terrain.has(profile.domain.produces())
+            || commander::commander_production_site(state, player, tile.terrain, Some(domain));
         is_facility && owned && domain_matches
     });
     if !site_valid {
@@ -1266,17 +1144,10 @@ fn execute_produce_unit(
             json!({"code":"INVALID_TARGET","target":position}),
         ));
     }
-    let profile = profile.filter(|_| !state.settings.unit_bans.iter().any(|banned| banned == kind));
-    let Some(profile) = profile else {
+    if state.settings.unit_bans.contains(&kind) {
         return Err(violation(json!({"code":"INVALID_TARGET","target":kind})));
-    };
-    if state
-        .settings
-        .lab_units
-        .iter()
-        .any(|lab_kind| lab_kind == kind)
-        && !player_owns_lab(state, player)
-    {
+    }
+    if state.settings.lab_units.contains(&kind) && !player_owns_lab(state, player) {
         return Err(violation(json!({"code":"INVALID_TARGET","target":kind})));
     }
     if state
@@ -1296,10 +1167,7 @@ fn execute_produce_unit(
             "code":"UNIT_LIMIT_REACHED","current":current,"limit":limit
         })));
     }
-    let base_cost = profile["cost"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let cost = commander::effective_build_cost(state, player, base_cost)
+    let cost = commander::effective_build_cost(state, player, profile.cost)
         .ok_or_else(|| ExecuteError::InvalidState("commander build cost overflow".into()))?;
     let funds = state.players[player_index].funds;
     if cost > funds {
@@ -1316,12 +1184,8 @@ fn execute_produce_unit(
             "next_unit_id {next_id} is not fresh"
         )));
     }
-    let max_fuel = profile["max_fuel"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let max_ammo = profile["max_ammo"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
+    let max_fuel = profile.max_fuel;
+    let max_ammo = profile.max_ammo;
     let incremented_id = next_id
         .checked_add(1)
         .ok_or_else(|| ExecuteError::InvalidState("next_unit_id overflow".into()))?;
@@ -1331,7 +1195,7 @@ fn execute_produce_unit(
     next.next_unit_id = Some(incremented_id);
     next.units.push(Unit {
         id: allocated_id,
-        kind: kind.into(),
+        kind,
         owner: player.into(),
         hp: 100,
         fuel: max_fuel,
@@ -1358,7 +1222,8 @@ fn execute_produce_unit(
 
 fn player_owns_lab(state: &State, player: &str) -> bool {
     state.board.tiles.iter().flatten().any(|tile| {
-        tile.terrain == "lab" && tile.owner.as_ref().and_then(Option::as_deref) == Some(player)
+        tile.terrain == TerrainId::Lab
+            && tile.owner.as_ref().and_then(Option::as_deref) == Some(player)
     })
 }
 
@@ -1435,41 +1300,17 @@ fn execute_move_capture(
         }
     }
 
-    let units_table: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/units.json"
-    ))
-    .expect("embedded units table");
-    let movement_costs: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/movement-costs.json"
-    ))
-    .expect("embedded movement table");
-    let terrain_table: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/terrain.json"
-    ))
-    .expect("embedded terrain table");
-    let capabilities: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/unit-capabilities.json"
-    ))
-    .expect("embedded unit capabilities");
-    let profile = &units_table["units"][unit.kind.as_str()];
-    let movement_class = profile["movement_class"]
-        .as_str()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let base_movement = profile["move"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let domain = profile["domain"]
-        .as_str()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let movement = commander::effective_move(state, unit, base_movement, domain);
+    let profile = ruleset::profile(unit.kind);
+    let movement =
+        commander::effective_move(state, unit, profile.movement, profile.domain.as_str());
     let weather = commander::effective_weather(state, unit);
     let mut entry_costs = vec![0];
     for (index, position) in path.iter().copied().enumerate().skip(1) {
-        let terrain = &state.board.tiles[position[1]][position[0]].terrain;
+        let terrain = state.board.tiles[position[1]][position[0]].terrain;
         let cost = commander::effective_movement_cost(
             state,
             unit,
-            movement_costs["terrains"][terrain.as_str()][weather][movement_class].as_u64(),
+            ruleset::movement_cost(terrain, weather, profile.movement_class),
         )
         .ok_or_else(|| {
             violation(json!({
@@ -1485,7 +1326,7 @@ fn execute_move_capture(
         .find(|candidate| candidate.id == player)
         .map(|candidate| candidate.team.as_str())
         .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let visibility = AwbwVisibility::default();
+    let visibility = AwbwVisibility;
     for (index, position) in path
         .iter()
         .copied()
@@ -1515,21 +1356,14 @@ fn execute_move_capture(
         })));
     }
 
-    let capture_capable = capabilities["capture"].as_array().is_some_and(|kinds| {
-        kinds
-            .iter()
-            .any(|kind| kind.as_str() == Some(unit.kind.as_str()))
-    });
-    if !capture_capable {
+    if !profile.can_capture {
         return Err(violation(
             json!({"code":"ACTION_NOT_SUPPORTED","action":"capture"}),
         ));
     }
     let destination = *path.last().expect("origin was checked");
     let destination_tile = &state.board.tiles[destination[1]][destination[0]];
-    let capturable = terrain_table["terrains"][destination_tile.terrain.as_str()]["traits"]
-        .as_array()
-        .is_some_and(|traits| traits.iter().any(|trait_| trait_ == "capturable"));
+    let capturable = ruleset::terrain_has(destination_tile.terrain, TerrainTrait::Capturable);
     let owner = destination_tile.owner.as_ref().and_then(Option::as_deref);
     let owner_is_hostile = owner.is_none_or(|owner| {
         state
@@ -1626,18 +1460,15 @@ fn execute_move_capture(
         events.push(json!({
             "type":"capture-changed","position":destination,"from":0,"to":20
         }));
-        let captured_terrain = tile.terrain.clone();
-        let traits = terrain_table["terrains"][captured_terrain.as_str()]["traits"]
-            .as_array()
-            .ok_or(ExecuteError::UnsupportedRuleset)?;
-        let counts_toward_capture_limit = traits
-            .iter()
-            .any(|trait_| trait_ == "counts-toward-capture-limit");
+        let captured_terrain = tile.terrain;
+        let captured_profile = ruleset::terrain(captured_terrain);
+        let counts_toward_capture_limit =
+            captured_profile.has(TerrainTrait::CountsTowardCaptureLimit);
         if counts_toward_capture_limit
             && next
                 .settings
                 .capture_limit
-                .is_some_and(|limit| capture_limit_count(&next, player, &terrain_table) >= limit)
+                .is_some_and(|limit| capture_limit_count(&next, player) >= limit)
         {
             let winning_team = next
                 .players
@@ -1659,19 +1490,17 @@ fn execute_move_capture(
                 random_consumed: 0,
             });
         }
-        let defeats_owner = traits
-            .iter()
-            .any(|trait_| trait_ == "capture-defeats-owner");
+        let defeats_owner = captured_profile.has(TerrainTrait::CaptureDefeatsOwner);
         let no_hq_on_map = !next
             .board
             .tiles
             .iter()
             .flatten()
-            .any(|candidate| candidate.terrain == "hq");
-        let is_lab = traits.iter().any(|trait_| trait_ == "lab-victory");
+            .any(|candidate| candidate.terrain == TerrainId::Hq);
+        let is_lab = captured_profile.has(TerrainTrait::LabVictory);
         let last_owned_lab_lost = previous_owner.as_deref().is_some_and(|owner| {
             !next.board.tiles.iter().flatten().any(|candidate| {
-                candidate.terrain == "lab"
+                candidate.terrain == TerrainId::Lab
                     && candidate
                         .owner
                         .as_ref()
@@ -1763,7 +1592,7 @@ fn complete_match(state: &mut State, outcome: Outcome, events: &mut Vec<Value>) 
     events.push(json!({"type":"match-completed","outcome":outcome}));
 }
 
-fn capture_limit_count(state: &State, player: &str, terrain_table: &Value) -> u64 {
+fn capture_limit_count(state: &State, player: &str) -> u64 {
     state
         .board
         .tiles
@@ -1774,13 +1603,7 @@ fn capture_limit_count(state: &State, player: &str, terrain_table: &Value) -> u6
                 .as_ref()
                 .and_then(Option::as_deref)
                 .is_some_and(|owner| owner == player)
-                && terrain_table["terrains"][tile.terrain.as_str()]["traits"]
-                    .as_array()
-                    .is_some_and(|traits| {
-                        traits
-                            .iter()
-                            .any(|value| value == "counts-toward-capture-limit")
-                    })
+                && ruleset::terrain_has(tile.terrain, TerrainTrait::CountsTowardCaptureLimit)
         })
         .count() as u64
 }
@@ -1921,10 +1744,6 @@ fn eliminate_player(
         state.units.remove(unit_index);
     }
 
-    let terrain_table: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/terrain.json"
-    ))
-    .expect("embedded terrain table");
     let mut properties = Vec::new();
     for (y, row) in state.board.tiles.iter().enumerate() {
         for (x, tile) in row.iter().enumerate() {
@@ -1947,11 +1766,9 @@ fn eliminate_player(
                 "type":"capture-changed","position":position,"from":before,"to":20
             }));
         }
-        if let Some(replacement) =
-            terrain_table["terrains"][tile.terrain.as_str()]["elimination_replacement"].as_str()
-        {
-            let from = tile.terrain.clone();
-            tile.terrain = replacement.into();
+        if let Some(replacement) = ruleset::terrain(tile.terrain).elimination_replacement {
+            let from = tile.terrain;
+            tile.terrain = replacement;
             events.push(json!({
                 "type":"tile-terrain-changed","position":position,
                 "from":from,"to":replacement,"reason":"elimination"
@@ -1979,11 +1796,7 @@ fn execute_move_concealment(
 ) -> Result<Execution, ExecuteError> {
     let plan = validate_movement_prefix(state, player, unit_id, path)?;
     let original = &state.units[plan.unit_index];
-    let capabilities: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/unit-capabilities.json"
-    ))
-    .expect("embedded unit capabilities");
-    let supported = capabilities["concealment"][original.kind.as_str()].is_object();
+    let supported = ruleset::profile(original.kind).concealment.is_some();
     let target = if hide {
         Concealment::Hidden
     } else {
@@ -1997,7 +1810,7 @@ fn execute_move_concealment(
     }
 
     let destination = *plan.path.last().expect("origin was checked");
-    let visibility = AwbwVisibility::default();
+    let visibility = AwbwVisibility;
     if state.units.iter().any(|other| {
         other.id != unit_id
             && board_position(other) == Some(destination)
@@ -2078,20 +1891,12 @@ fn area_strike_centers(
         .find(|candidate| candidate.id == player)
         .map(|candidate| candidate.team.as_str())
         .ok_or_else(|| ExecuteError::InvalidState("area-strike actor is missing".into()))?;
-    let units_table: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/units.json"
-    ))
-    .expect("embedded units table");
     let mut priced_units = Vec::new();
     for unit in &state.units {
         let Location::Board { position } = unit.location else {
             continue;
         };
-        let base_cost = units_table["units"][unit.kind.as_str()]["cost"]
-            .as_u64()
-            .ok_or_else(|| {
-                ExecuteError::InvalidState(format!("unknown unit kind {}", unit.kind))
-            })?;
+        let base_cost = ruleset::profile(unit.kind).cost;
         let cost = commander::effective_build_cost(state, &unit.owner, base_cost)
             .ok_or_else(|| ExecuteError::InvalidState("area-strike cost overflow".into()))?;
         let friendly = state
@@ -2233,7 +2038,7 @@ fn execute_activate_power(
         ));
     }
     let activation =
-        commander::power_activation(&active_commander.id, level, active_commander.power_uses)
+        commander::power_activation(active_commander.id, level, active_commander.power_uses)
             .map_err(|error| {
                 ExecuteError::InvalidState(format!(
                     "commander power profile cannot activate: {error:?}"
@@ -2350,10 +2155,6 @@ fn execute_activate_power(
                     .filter(|candidate| candidate.team != actor_team)
                     .map(|candidate| candidate.id.as_str())
                     .collect();
-                let terrain_table: Value = serde_json::from_str(include_str!(
-                    "../../../spec/rulesets/awbw/2026-07-10/terrain.json"
-                ))
-                .expect("embedded terrain table");
                 let mut targets: Vec<_> = next
                     .units
                     .iter()
@@ -2361,15 +2162,10 @@ fn execute_activate_power(
                         enemy_owners.contains(unit.owner.as_str())
                             && (!properties_only
                                 || match unit.location {
-                                    Location::Board { position } => {
-                                        let terrain =
-                                            &next.board.tiles[position[1]][position[0]].terrain;
-                                        terrain_table["terrains"][terrain.as_str()]["traits"]
-                                            .as_array()
-                                            .is_some_and(|traits| {
-                                                traits.iter().any(|trait_| trait_ == "capturable")
-                                            })
-                                    }
+                                    Location::Board { position } => ruleset::terrain_has(
+                                        next.board.tiles[position[1]][position[0]].terrain,
+                                        TerrainTrait::Capturable,
+                                    ),
                                     Location::Cargo { .. } => false,
                                 })
                     })
@@ -2400,7 +2196,7 @@ fn execute_activate_power(
                 duration: WeatherDuration::UntilOwnerNextTurn,
             } => {
                 let remaining_turns = turns_until_player_selection(&next, player)?;
-                let from = next.weather.kind.clone();
+                let from = next.weather.kind;
                 let to = match kind {
                     WeatherEffectKind::Clear => WeatherKind::Clear,
                     WeatherEffectKind::Rain => WeatherKind::Rain,
@@ -2540,7 +2336,7 @@ fn execute_activate_power(
                             continue;
                         }
                         let full_bar =
-                            commander::maximum_power_charge(&target.id, target.power_uses)
+                            commander::maximum_power_charge(target.id, target.power_uses)
                                 .map_err(|error| {
                                     ExecuteError::InvalidState(format!(
                                         "enemy power profile cannot compute full bar: {error:?}"
@@ -2584,12 +2380,7 @@ fn execute_activate_power(
                 let mut targets: Vec<_> = next
                     .units
                     .iter()
-                    .filter(|unit| {
-                        unit.owner == player
-                            && !exclude_unit_kinds
-                                .iter()
-                                .any(|excluded| excluded == unit.kind.as_str())
-                    })
+                    .filter(|unit| unit.owner == player && !exclude_unit_kinds.contains(&unit.kind))
                     .map(|unit| unit.id)
                     .collect();
                 targets.sort();
@@ -2613,10 +2404,6 @@ fn execute_activate_power(
             InstantEffect::ResupplyUnits {
                 target: UnitTarget::Owned,
             } => {
-                let units_table: Value = serde_json::from_str(include_str!(
-                    "../../../spec/rulesets/awbw/2026-07-10/units.json"
-                ))
-                .expect("embedded units table");
                 let mut targets: Vec<_> = next
                     .units
                     .iter()
@@ -2632,7 +2419,7 @@ fn execute_activate_power(
                         .expect("power target remains present");
                     let fuel_before = target.fuel;
                     let ammo_before = target.ammo;
-                    if !refill_unit(target, &units_table)? {
+                    if !refill_unit(target) {
                         continue;
                     }
                     events.push(json!({
@@ -2655,21 +2442,9 @@ fn execute_activate_power(
                 order: PropertyOrder::YThenX,
                 unit_limit: SpawnUnitLimit::Settings,
             } => {
-                let units_table: Value = serde_json::from_str(include_str!(
-                    "../../../spec/rulesets/awbw/2026-07-10/units.json"
-                ))
-                .expect("embedded units table");
-                let terrain_table: Value = serde_json::from_str(include_str!(
-                    "../../../spec/rulesets/awbw/2026-07-10/terrain.json"
-                ))
-                .expect("embedded terrain table");
-                let profile = &units_table["units"][&unit_kind];
-                let max_fuel = profile["max_fuel"]
-                    .as_u64()
-                    .ok_or(ExecuteError::UnsupportedRuleset)?;
-                let max_ammo = profile["max_ammo"]
-                    .as_u64()
-                    .ok_or(ExecuteError::UnsupportedRuleset)?;
+                let profile = ruleset::profile(unit_kind);
+                let max_fuel = profile.max_fuel;
+                let max_ammo = profile.max_ammo;
                 let mut positions = Vec::new();
                 let mut owned_unit_count = owned_unit_count(&next, player)?;
                 'rows: for (y, row) in next.board.tiles.iter().enumerate() {
@@ -2684,10 +2459,8 @@ fn execute_activate_power(
                         if tile.owner.as_ref().and_then(Option::as_deref) != Some(player) {
                             continue;
                         }
-                        let terrain = &terrain_table["terrains"][tile.terrain.as_str()];
-                        if !terrain["property_kind"].as_str().is_some_and(|kind| {
-                            property_kinds.iter().any(|candidate| candidate == kind)
-                        }) {
+                        let property_kind = ruleset::terrain(tile.terrain).property_kind;
+                        if !property_kind.is_some_and(|kind| property_kinds.contains(&kind)) {
                             continue;
                         }
                         let position = [x, y];
@@ -2730,7 +2503,7 @@ fn execute_activate_power(
                     let allocated_id = UnitId::new(first_id + offset);
                     next.units.push(Unit {
                         id: allocated_id,
-                        kind: UnitKindId::from(unit_kind.clone()),
+                        kind: unit_kind,
                         owner: player.into(),
                         hp,
                         fuel: max_fuel,
@@ -2755,10 +2528,6 @@ fn execute_activate_power(
                 unit_value: TargetedUnitValue::BaseBuildCost,
             } => {
                 let actor_team = next.players[player_index].team.clone();
-                let units_table: Value = serde_json::from_str(include_str!(
-                    "../../../spec/rulesets/awbw/2026-07-10/units.json"
-                ))
-                .expect("embedded units table");
                 let enemy_owners: HashSet<_> = next
                     .players
                     .iter()
@@ -2790,14 +2559,7 @@ fn execute_activate_power(
                         {
                             continue;
                         }
-                        let cost = units_table["units"][unit.kind.as_str()]["cost"]
-                            .as_u64()
-                            .ok_or_else(|| {
-                                ExecuteError::InvalidState(format!(
-                                    "unknown unit kind {}",
-                                    unit.kind
-                                ))
-                            })?;
+                        let cost = ruleset::profile(unit.kind).cost;
                         let value = i128::from(unit.hp.div_ceil(10))
                             .checked_mul(i128::from(cost))
                             .ok_or_else(|| {
@@ -2885,20 +2647,12 @@ fn execute_activate_power(
                     .filter(|candidate| candidate.team != actor_team)
                     .map(|candidate| candidate.id.as_str())
                     .collect();
-                let units_table: Value = serde_json::from_str(include_str!(
-                    "../../../spec/rulesets/awbw/2026-07-10/units.json"
-                ))
-                .expect("embedded units table");
                 let mut priced_units = Vec::new();
                 for unit in &state.units {
                     let Location::Board { position } = unit.location else {
                         continue;
                     };
-                    let cost = units_table["units"][unit.kind.as_str()]["cost"]
-                        .as_u64()
-                        .ok_or_else(|| {
-                            ExecuteError::InvalidState(format!("unknown unit kind {}", unit.kind))
-                        })?;
+                    let cost = ruleset::profile(unit.kind).cost;
                     let friendly = state
                         .players
                         .iter()
@@ -3147,7 +2901,7 @@ fn execute_turn_boundary(
                     "power state does not name the active commander slot".into(),
                 ));
             }
-            let commander_id = next.players[player_index].commanders[from_slot].id.clone();
+            let commander_id = next.players[player_index].commanders[from_slot].id;
             next.players[player_index].power_state = PowerState::None;
             events.push(json!({
                 "type":"power-ended", "player":player,
@@ -3260,7 +3014,7 @@ fn execute_turn_boundary(
                     "power state names an inactive commander slot".into(),
                 ));
             }
-            let commander_id = commander.id.clone();
+            let commander_id = commander.id;
             next.players[successor_player_index].power_state = crate::semantic::PowerState::None;
             events.push(json!({
                 "type":"power-ended", "player":successor_id,
@@ -3269,7 +3023,7 @@ fn execute_turn_boundary(
         }
 
         if next.weather.remaining_turns > 0 {
-            let from = next.weather.kind.clone();
+            let from = next.weather.kind;
             next.weather.remaining_turns -= 1;
             if next.weather.remaining_turns == 0 {
                 next.weather.kind = match next.settings.weather {
@@ -3310,7 +3064,7 @@ fn execute_turn_boundary(
                 "type":"random-outcome", "kind":"weather-selection", "outcome":outcome
             }));
             if next.weather.kind != selected {
-                let from = next.weather.kind.clone();
+                let from = next.weather.kind;
                 next.weather.kind = selected;
                 events.push(json!({
                     "type":"weather-changed", "from":from, "to":next.weather.kind,
@@ -3319,10 +3073,6 @@ fn execute_turn_boundary(
             }
         }
 
-        let terrain_table: Value = serde_json::from_str(include_str!(
-            "../../../spec/rulesets/awbw/2026-07-10/terrain.json"
-        ))
-        .expect("embedded terrain table");
         let income_tiles = next
             .board
             .tiles
@@ -3333,9 +3083,7 @@ fn execute_turn_boundary(
                     .as_ref()
                     .and_then(Option::as_ref)
                     .is_some_and(|owner| owner == &successor_id)
-                    && terrain_table["terrains"][tile.terrain.as_str()]["traits"]
-                        .as_array()
-                        .is_some_and(|traits| traits.iter().any(|trait_| trait_ == "income"))
+                    && ruleset::terrain_has(tile.terrain, TerrainTrait::Income)
             })
             .count();
         let income_per_property = commander::effective_income_per_property(&next, &successor_id);
@@ -3355,14 +3103,6 @@ fn execute_turn_boundary(
             }));
         }
 
-        let units_table: Value = serde_json::from_str(include_str!(
-            "../../../spec/rulesets/awbw/2026-07-10/units.json"
-        ))
-        .expect("embedded units table");
-        let capabilities: Value = serde_json::from_str(include_str!(
-            "../../../spec/rulesets/awbw/2026-07-10/unit-capabilities.json"
-        ))
-        .expect("embedded unit capabilities");
         let mut property_sources = Vec::new();
         for (y, row) in next.board.tiles.iter().enumerate() {
             for (x, tile) in row.iter().enumerate() {
@@ -3377,7 +3117,7 @@ fn execute_turn_boundary(
                     .as_ref()
                     .and_then(Option::as_ref)
                     .is_some_and(|owner| owner == &successor_id)
-                    && terrain_repairs_unit(&terrain_table, &units_table, &tile.terrain, &unit.kind)
+                    && terrain_repairs_unit(tile.terrain, unit.kind)
                 {
                     property_sources.push((position, unit.id));
                 }
@@ -3392,7 +3132,7 @@ fn execute_turn_boundary(
                 .iter_mut()
                 .find(|unit| unit.id == *unit_id)
                 .expect("property supply unit remains present");
-            if refill_unit(unit, &units_table)? {
+            if refill_unit(unit) {
                 events.push(json!({
                     "type":"automatic-supply", "source":position, "units":[unit_id]
                 }));
@@ -3404,7 +3144,9 @@ fn execute_turn_boundary(
             .iter()
             .filter(|unit| {
                 unit.owner == successor_id
-                    && capabilities["supply"][unit.kind.as_str()]["relation"] == "adjacent"
+                    && ruleset::profile(unit.kind)
+                        .supply
+                        .is_some_and(|supply| supply.relation == Relation::Adjacent)
                     && board_position(unit).is_some()
             })
             .map(|unit| unit.id)
@@ -3419,9 +3161,10 @@ fn execute_turn_boundary(
             let source_position = board_position(source).expect("APC source remains on board");
             let source_owner = source.owner.clone();
             let source_team = next.players[successor_player_index].team.clone();
-            let supply_targets = capabilities["supply"][source.kind.as_str()]["targets"]
-                .as_str()
-                .ok_or(ExecuteError::UnsupportedRuleset)?;
+            let supply_targets = ruleset::profile(source.kind)
+                .supply
+                .ok_or(ExecuteError::UnsupportedRuleset)?
+                .targets;
             let mut target_ids: Vec<_> = next
                 .units
                 .iter()
@@ -3451,7 +3194,7 @@ fn execute_turn_boundary(
                     .iter_mut()
                     .find(|unit| unit.id == target_id)
                     .expect("APC supply target remains present");
-                if refill_unit(target, &units_table)? {
+                if refill_unit(target) {
                     changed.push(target_id);
                 }
             }
@@ -3467,7 +3210,9 @@ fn execute_turn_boundary(
             .iter()
             .filter(|unit| {
                 unit.owner == successor_id
-                    && capabilities["supply"][unit.kind.as_str()]["relation"] == "cargo"
+                    && ruleset::profile(unit.kind)
+                        .supply
+                        .is_some_and(|supply| supply.relation == Relation::Cargo)
             })
             .map(|unit| unit.id)
             .collect();
@@ -3494,7 +3239,7 @@ fn execute_turn_boundary(
                     .iter_mut()
                     .find(|unit| unit.id == cargo_id)
                     .expect("cargo supply target remains present");
-                if refill_unit(cargo, &units_table)? {
+                if refill_unit(cargo) {
                     changed.push(cargo_id);
                 }
             }
@@ -3513,8 +3258,8 @@ fn execute_turn_boundary(
                     unit.owner == successor_id
                         && !resupplied.contains(&unit.id)
                         && matches!(
-                            units_table["units"][unit.kind.as_str()]["domain"].as_str(),
-                            Some("air" | "sea")
+                            ruleset::profile(unit.kind).domain,
+                            Domain::Air | Domain::Sea
                         )
                 })
                 .map(|unit| unit.id)
@@ -3527,20 +3272,21 @@ fn execute_turn_boundary(
                     .find(|unit| unit.id == unit_id)
                     .expect("upkeep unit remains present")
                     .clone();
-                let profile = &units_table["units"][unit_snapshot.kind.as_str()];
+                let profile = ruleset::profile(unit_snapshot.kind);
                 let base_upkeep = if unit_snapshot.concealment == Concealment::Hidden {
-                    profile["fuel_per_turn"]["hidden"]
-                        .as_u64()
-                        .or_else(|| profile["fuel_per_turn"]["normal"].as_u64())
+                    profile
+                        .fuel_per_turn
+                        .hidden
+                        .unwrap_or(profile.fuel_per_turn.normal)
                 } else {
-                    profile["fuel_per_turn"]["normal"].as_u64()
-                }
-                .ok_or(ExecuteError::UnsupportedRuleset)?;
-                let domain = profile["domain"]
-                    .as_str()
-                    .ok_or(ExecuteError::UnsupportedRuleset)?;
-                let upkeep =
-                    commander::effective_upkeep(&next, &unit_snapshot, base_upkeep, domain);
+                    profile.fuel_per_turn.normal
+                };
+                let upkeep = commander::effective_upkeep(
+                    &next,
+                    &unit_snapshot,
+                    base_upkeep,
+                    profile.domain.as_str(),
+                );
                 let unit = next
                     .units
                     .iter_mut()
@@ -3566,8 +3312,8 @@ fn execute_turn_boundary(
                 unit.owner == successor_id
                     && unit.fuel == 0
                     && matches!(
-                        units_table["units"][unit.kind.as_str()]["domain"].as_str(),
-                        Some("air" | "sea")
+                        ruleset::profile(unit.kind).domain,
+                        Domain::Air | Domain::Sea
                     )
             })
             .map(|unit| unit.id)
@@ -3624,9 +3370,9 @@ fn execute_turn_boundary(
             if missing_bars == 0 {
                 continue;
             }
-            let heal_cost = units_table["units"][next.units[unit_index].kind.as_str()]["cost"]
-                .as_u64()
-                .and_then(|cost| cost.checked_div(10))
+            let heal_cost = ruleset::profile(next.units[unit_index].kind)
+                .cost
+                .checked_div(10)
                 .ok_or(ExecuteError::UnsupportedRuleset)?;
             let affordable_bars = next.players[successor_player_index]
                 .funds
@@ -3696,35 +3442,34 @@ fn execute_turn_boundary(
     }
 }
 
-fn terrain_repairs_unit(
-    terrain_table: &Value,
-    units_table: &Value,
-    terrain: &str,
-    kind: &str,
-) -> bool {
-    let repair_trait = match units_table["units"][kind]["domain"].as_str() {
-        Some("ground") => "repairs-ground",
-        Some("air") => "repairs-air",
-        Some("sea") => "repairs-sea",
-        _ => return false,
-    };
-    terrain_table["terrains"][terrain]["traits"]
-        .as_array()
-        .is_some_and(|traits| traits.iter().any(|trait_| trait_ == repair_trait))
+/// The domain a unit presents to commander combat predicates.
+///
+/// `commander-combat.json` discriminates more finely than `units.json` does:
+/// it separates foot soldiers from other ground units and transports from
+/// combatants. Only the transport half is derivable from a table, so the foot
+/// kinds are named.
+fn combat_domain(profile: &ruleset::UnitProfile) -> &'static str {
+    match profile.kind {
+        UnitKind::Infantry | UnitKind::Mech => "foot",
+        _ if profile.transport.is_some() => "transport",
+        _ => match profile.domain {
+            Domain::Ground => "ground-vehicle",
+            Domain::Air => "air",
+            Domain::Sea => "naval",
+        },
+    }
 }
 
-fn refill_unit(unit: &mut Unit, units_table: &Value) -> Result<bool, ExecuteError> {
-    let profile = &units_table["units"][unit.kind.as_str()];
-    let max_fuel = profile["max_fuel"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let max_ammo = profile["max_ammo"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let changed = unit.fuel != max_fuel || unit.ammo != max_ammo;
-    unit.fuel = max_fuel;
-    unit.ammo = max_ammo;
-    Ok(changed)
+fn terrain_repairs_unit(terrain: TerrainId, kind: UnitKindId) -> bool {
+    ruleset::terrain_has(terrain, ruleset::profile(kind).domain.repairs())
+}
+
+fn refill_unit(unit: &mut Unit) -> bool {
+    let profile = ruleset::profile(unit.kind);
+    let changed = unit.fuel != profile.max_fuel || unit.ammo != profile.max_ammo;
+    unit.fuel = profile.max_fuel;
+    unit.ammo = profile.max_ammo;
+    changed
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3734,14 +3479,11 @@ fn apply_strike_funds(
     events: &mut Vec<Value>,
     striker: &str,
     target_owner: &str,
-    target_kind: &str,
+    target_kind: UnitKindId,
     from_hp: u8,
     to_hp: u8,
-    unit_data: &Value,
 ) -> Result<(), ExecuteError> {
-    let base_value = unit_data["units"][target_kind]["cost"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
+    let base_value = ruleset::profile(target_kind).cost;
     let target_value = commander::effective_build_cost(state, target_owner, base_value)
         .ok_or_else(|| ExecuteError::InvalidState("strike target value overflow".into()))?;
     let gain =
@@ -3776,19 +3518,16 @@ fn apply_strike_power_charge(
     events: &mut Vec<Value>,
     striker: &str,
     target_owner: &str,
-    target_kind: &str,
+    target_kind: UnitKindId,
     from_hp: u8,
     to_hp: u8,
     reason: &str,
-    unit_data: &Value,
 ) -> Result<(), ExecuteError> {
     let visual_damage = u64::from(from_hp.div_ceil(10).saturating_sub(to_hp.div_ceil(10)));
     if visual_damage == 0 {
         return Ok(());
     }
-    let base_value = unit_data["units"][target_kind]["cost"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
+    let base_value = ruleset::profile(target_kind).cost;
     let target_value = commander::effective_build_cost(state, target_owner, base_value)
         .ok_or_else(|| ExecuteError::InvalidState("power charge unit value overflow".into()))?;
     let dealt_gain = target_value
@@ -3836,10 +3575,8 @@ fn apply_strike_power_charge(
                 continue;
             }
             let commander = &next.players[player_index].commanders[commander_slot];
-            let Some(maximum) =
-                commander::maximum_power_charge(&commander.id, commander.power_uses).map_err(
-                    |_| ExecuteError::InvalidState("maximum power charge overflow".into()),
-                )?
+            let Some(maximum) = commander::maximum_power_charge(commander.id, commander.power_uses)
+                .map_err(|_| ExecuteError::InvalidState("maximum power charge overflow".into()))?
             else {
                 continue;
             };
@@ -3894,13 +3631,7 @@ fn execute_tile_attack(
         ));
     }
 
-    let terrain_data: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/terrain.json"
-    ))
-    .expect("embedded terrain");
-    let Some(destructible) =
-        terrain_data["terrains"][tile.terrain.as_str()]["destructible"].as_object()
-    else {
+    let Some(destructible) = ruleset::terrain(tile.terrain).destructible else {
         return Err(violation(
             json!({"code":"INVALID_TARGET","target":position}),
         ));
@@ -3908,22 +3639,15 @@ fn execute_tile_attack(
     let from_hp = tile
         .destructible_hp
         .ok_or_else(|| ExecuteError::InvalidState("destructible tile has no HP".into()))?;
-    let maximum_hp = destructible["maximum_hp"]
-        .as_u64()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    if from_hp > maximum_hp {
+    if from_hp > destructible.maximum_hp {
         return Err(ExecuteError::InvalidState(
             "destructible tile HP exceeds its maximum".into(),
         ));
     }
     let from_hp = u8::try_from(from_hp)
         .map_err(|_| ExecuteError::InvalidState("destructible tile HP overflow".into()))?;
-    let target_kind = destructible["target_kind"]
-        .as_str()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let destruction_replacement = destructible["destruction_replacement"]
-        .as_str()
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
+    let target_kind = destructible.target_kind;
+    let destruction_replacement = destructible.destruction_replacement;
 
     let actor_team = state
         .players
@@ -3931,47 +3655,27 @@ fn execute_tile_attack(
         .find(|candidate| candidate.id == player)
         .map(|candidate| candidate.team.as_str())
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
-    if state.settings.fog
-        && !AwbwVisibility::default().visible_position(state, actor_team, position)
-    {
+    if state.settings.fog && !AwbwVisibility.visible_position(state, actor_team, position) {
         return Err(violation(
             json!({"code":"INVALID_TARGET","target":position}),
         ));
     }
 
-    let unit_data: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/units.json"
-    ))
-    .expect("embedded units");
-    let combat_profiles: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/combat-profiles.json"
-    ))
-    .expect("embedded combat profiles");
-    let profile = &unit_data["units"][attacker.kind.as_str()];
-    let fire_mode = combat_profiles["units"][attacker.kind.as_str()]["fire_mode"]
-        .as_str()
-        .unwrap_or("none");
-    if fire_mode == "none" {
+    let profile = ruleset::profile(attacker.kind);
+    let fire_mode = profile.fire_mode;
+    if fire_mode == FireMode::None {
         return Err(violation(
             json!({"code":"ACTION_NOT_SUPPORTED","action":"attack"}),
         ));
     }
     let distance = origin[0].abs_diff(position[0]) + origin[1].abs_diff(position[1]);
-    if let Some(range) = profile["indirect_range"].as_object() {
-        let minimum = range["min"]
-            .as_u64()
-            .ok_or(ExecuteError::UnsupportedRuleset)? as usize;
-        let base_maximum = range["max"]
-            .as_u64()
-            .ok_or(ExecuteError::UnsupportedRuleset)?;
-        let domain = profile["domain"]
-            .as_str()
-            .ok_or(ExecuteError::UnsupportedRuleset)?;
+    if let Some(range) = profile.indirect_range {
+        let minimum = range.minimum as usize;
         let maximum = usize::try_from(commander::effective_attack_range(
             state,
             attacker,
-            base_maximum,
-            domain,
+            range.maximum,
+            profile.domain.as_str(),
             "indirect",
         ))
         .map_err(|_| ExecuteError::InvalidState("attack range overflow".into()))?;
@@ -3985,22 +3689,13 @@ fn execute_tile_attack(
             json!({"code":"TARGET_OUT_OF_RANGE","target":position}),
         ));
     }
-    if combat::select_weapon(&attacker.kind, target_kind, attacker.ammo).is_none() {
+    if combat::select_weapon(attacker.kind, target_kind, attacker.ammo).is_none() {
         return Err(violation(
             json!({"code":"INVALID_TARGET","target":position}),
         ));
     }
 
-    let unit_domain = match attacker.kind.as_str() {
-        "infantry" | "mech" => "foot",
-        "apc" | "t-copter" | "lander" | "black-boat" | "cruiser" | "carrier" => "transport",
-        _ => match profile["domain"].as_str() {
-            Some("ground") => "ground-vehicle",
-            Some("air") => "air",
-            Some("sea") => "naval",
-            _ => "ground-vehicle",
-        },
-    };
+    let unit_domain = combat_domain(profile);
     let tower_count = state
         .board
         .tiles
@@ -4012,9 +3707,7 @@ fn execute_tile_attack(
                 .as_ref()
                 .and_then(Option::as_ref)
                 .is_some_and(|owner| owner == player)
-                && terrain_data["terrains"][candidate.terrain.as_str()]["traits"]
-                    .as_array()
-                    .is_some_and(|traits| traits.iter().any(|value| value == "communication-bonus"))
+                && ruleset::terrain_has(candidate.terrain, TerrainTrait::CommunicationBonus)
         })
         .count() as i64;
     let owned_properties = state
@@ -4028,30 +3721,20 @@ fn execute_tile_attack(
                 .as_ref()
                 .and_then(Option::as_ref)
                 .is_some_and(|owner| owner == player)
-                && terrain_data["terrains"][candidate.terrain.as_str()]["traits"]
-                    .as_array()
-                    .is_some_and(|traits| traits.iter().any(|value| value == "capturable"))
+                && ruleset::terrain_has(candidate.terrain, TerrainTrait::Capturable)
         })
         .count() as u64;
-    let attacker_terrain = &state.board.tiles[origin[1]][origin[0]].terrain;
-    let attacker_stars = terrain_data["terrains"][attacker_terrain.as_str()]["defense_stars"]
-        .as_u64()
-        .unwrap_or(0) as u8;
-    let combat_weather = match state.weather.kind {
-        WeatherKind::Clear => "clear",
-        WeatherKind::Rain => "rain",
-        WeatherKind::Snow => "snow",
-    };
+    let attacker_terrain = state.board.tiles[origin[1]][origin[0]].terrain;
+    let attacker_stars = ruleset::defense_stars(attacker_terrain);
+    let combat_weather = state.weather.kind;
     let no_capabilities = HashSet::new();
     let context = Combatant {
-        kind: &attacker.kind,
+        kind: attacker.kind,
         domain: unit_domain,
-        fire_mode,
+        fire_mode: fire_mode.as_str(),
         terrain: attacker_terrain,
         weather: combat_weather,
-        property: terrain_data["terrains"][attacker_terrain.as_str()]["traits"]
-            .as_array()
-            .is_some_and(|traits| traits.iter().any(|value| value == "capturable")),
+        property: ruleset::terrain_has(attacker_terrain, TerrainTrait::Capturable),
         capabilities: &no_capabilities,
     };
     let (attack, _, _, _, _) = commander::effective_combat(
@@ -4069,7 +3752,7 @@ fn execute_tile_attack(
     .ok_or_else(|| ExecuteError::InvalidState("commander combat overflow".into()))?;
     let hit = combat::damage(
         Side {
-            kind: &attacker.kind,
+            kind: attacker.kind,
             hp: attacker.hp,
             ammo: attacker.ammo,
             attack,
@@ -4114,7 +3797,7 @@ fn execute_tile_attack(
         "from_hp":from_hp, "to_hp":to_hp
     }));
     if to_hp == 0 {
-        next.board.tiles[position[1]][position[0]].terrain = destruction_replacement.into();
+        next.board.tiles[position[1]][position[0]].terrain = destruction_replacement;
         next.board.tiles[position[1]][position[0]].destructible_hp = None;
         events.push(json!({
             "type":"tile-terrain-changed", "position":position,
@@ -4149,27 +3832,22 @@ fn execute_move_attack(
     let origin = plan.origin;
 
     if plan.path.len() > 1 {
-        let combat_profiles: Value = serde_json::from_str(include_str!(
-            "../../../spec/rulesets/awbw/2026-07-10/combat-profiles.json"
-        ))
-        .expect("embedded combat profiles");
-        match combat_profiles["units"][attacker.kind.as_str()]["fire_mode"].as_str() {
-            Some("indirect") => {
+        match ruleset::profile(attacker.kind).fire_mode {
+            FireMode::Indirect => {
                 return Err(violation(
                     json!({"code":"ACTION_NOT_SUPPORTED","action":"move-and-fire"}),
                 ));
             }
-            Some("none") | None => {
+            FireMode::None => {
                 return Err(violation(
                     json!({"code":"ACTION_NOT_SUPPORTED","action":"attack"}),
                 ));
             }
-            Some("direct") => {}
-            Some(_) => return Err(ExecuteError::UnsupportedRuleset),
+            FireMode::Direct => {}
         }
 
         let destination = *plan.path.last().expect("origin was checked");
-        let visibility = AwbwVisibility::default();
+        let visibility = AwbwVisibility;
         if state.units.iter().any(|other| {
             other.id != unit_id
                 && board_position(other) == Some(destination)
@@ -4234,7 +3912,7 @@ fn execute_move_attack(
         .find(|candidate| candidate.id == player)
         .map(|candidate| candidate.team.as_str())
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
-    if !AwbwVisibility::default().visible_unit(state, actor_team, defender) {
+    if !AwbwVisibility.visible_unit(state, actor_team, defender) {
         return Err(violation(
             json!({"code":"INVALID_TARGET","target":target_id}),
         ));
@@ -4254,29 +3932,21 @@ fn execute_move_attack(
             json!({"code":"INVALID_TARGET","target":target_id}),
         ));
     }
-    let unit_data: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/units.json"
-    ))
-    .expect("embedded units");
-    let profile = &unit_data["units"][attacker.kind.as_str()];
-    let combat_profiles: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/combat-profiles.json"
-    ))
-    .expect("embedded combat profiles");
-    if combat_profiles["units"][attacker.kind.as_str()]["fire_mode"] == "none" {
+    let profile = ruleset::profile(attacker.kind);
+    if profile.fire_mode == FireMode::None {
         return Err(violation(
             json!({"code":"ACTION_NOT_SUPPORTED","action":"attack"}),
         ));
     }
     let distance = origin[0].abs_diff(dp[0]) + origin[1].abs_diff(dp[1]);
-    if let Some(range) = profile["indirect_range"].as_object() {
-        let min = range["min"].as_u64().unwrap() as usize;
-        let base_max = range["max"].as_u64().unwrap();
-        let domain = profile["domain"]
-            .as_str()
-            .ok_or(ExecuteError::UnsupportedRuleset)?;
+    if let Some(range) = profile.indirect_range {
+        let min = range.minimum as usize;
         let max = usize::try_from(commander::effective_attack_range(
-            state, attacker, base_max, domain, "indirect",
+            state,
+            attacker,
+            range.maximum,
+            profile.domain.as_str(),
+            "indirect",
         ))
         .map_err(|_| ExecuteError::InvalidState("attack range overflow".into()))?;
         if distance < min || distance > max {
@@ -4289,7 +3959,7 @@ fn execute_move_attack(
             json!({"code":"TARGET_OUT_OF_RANGE","target":target_id}),
         ));
     }
-    if combat::select_weapon(&attacker.kind, &defender.kind, attacker.ammo).is_none() {
+    if combat::select_weapon(attacker.kind, defender.kind, attacker.ammo).is_none() {
         return Err(violation(
             json!({"code":"INVALID_TARGET","target":target_id}),
         ));
@@ -4304,30 +3974,9 @@ fn execute_move_attack(
             .filter(|x| (domain.minimum..=domain.maximum).contains(x))
             .ok_or(ExecuteError::UnsupportedCommand)
     };
-    let terrain: Value = serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/terrain.json"
-    ))
-    .expect("embedded terrain");
-    let stars = |p: Position| {
-        terrain["terrains"][state.board.tiles[p[1]][p[0]].terrain.as_str()]["defense_stars"]
-            .as_u64()
-            .unwrap_or(0) as u8
-    };
-    let unit_domain = |kind: &str| match kind {
-        "infantry" | "mech" => "foot",
-        "apc" | "t-copter" | "lander" | "black-boat" | "cruiser" | "carrier" => "transport",
-        _ => match unit_data["units"][kind]["domain"].as_str() {
-            Some("ground") => "ground-vehicle",
-            Some("air") => "air",
-            Some("sea") => "naval",
-            _ => "ground-vehicle",
-        },
-    };
-    let fire_mode = |kind: &str| {
-        combat_profiles["units"][kind]["fire_mode"]
-            .as_str()
-            .unwrap_or("none")
-    };
+    let stars = |p: Position| ruleset::defense_stars(state.board.tiles[p[1]][p[0]].terrain);
+    let unit_domain = |kind: UnitKindId| combat_domain(ruleset::profile(kind));
+    let fire_mode = |kind: UnitKindId| ruleset::profile(kind).fire_mode.as_str();
     let tower_count = |owner: &str| {
         state
             .board
@@ -4339,19 +3988,11 @@ fn execute_move_attack(
                     .as_ref()
                     .and_then(Option::as_ref)
                     .is_some_and(|value| value == owner)
-                    && terrain["terrains"][tile.terrain.as_str()]["traits"]
-                        .as_array()
-                        .is_some_and(|traits| {
-                            traits.iter().any(|value| value == "communication-bonus")
-                        })
+                    && ruleset::terrain_has(tile.terrain, TerrainTrait::CommunicationBonus)
             })
             .count() as i64
     };
-    let is_property = |terrain_kind: &str| {
-        terrain["terrains"][terrain_kind]["traits"]
-            .as_array()
-            .is_some_and(|traits| traits.iter().any(|value| value == "capturable"))
-    };
+    let is_property = |terrain: TerrainId| ruleset::terrain_has(terrain, TerrainTrait::Capturable);
     let combat_context = |owner: &str, position: Position| CombatContext {
         tower_count: tower_count(owner),
         funds: state
@@ -4369,33 +4010,29 @@ fn execute_move_attack(
                     .as_ref()
                     .and_then(Option::as_ref)
                     .is_some_and(|value| value == owner)
-                    && is_property(&tile.terrain)
+                    && is_property(tile.terrain)
             })
             .count() as u64,
         base_terrain_stars: i64::from(stars(position)),
     };
     let no_capabilities = HashSet::new();
-    let combat_weather = match state.weather.kind {
-        WeatherKind::Clear => "clear",
-        WeatherKind::Rain => "rain",
-        WeatherKind::Snow => "snow",
-    };
+    let combat_weather = state.weather.kind;
     let attacker_context = Combatant {
-        kind: &attacker.kind,
-        domain: unit_domain(&attacker.kind),
-        fire_mode: fire_mode(&attacker.kind),
-        terrain: &state.board.tiles[origin[1]][origin[0]].terrain,
+        kind: attacker.kind,
+        domain: unit_domain(attacker.kind),
+        fire_mode: fire_mode(attacker.kind),
+        terrain: state.board.tiles[origin[1]][origin[0]].terrain,
         weather: combat_weather,
-        property: is_property(&state.board.tiles[origin[1]][origin[0]].terrain),
+        property: is_property(state.board.tiles[origin[1]][origin[0]].terrain),
         capabilities: &no_capabilities,
     };
     let defender_context = Combatant {
-        kind: &defender.kind,
-        domain: unit_domain(&defender.kind),
-        fire_mode: fire_mode(&attacker.kind),
-        terrain: &state.board.tiles[dp[1]][dp[0]].terrain,
+        kind: defender.kind,
+        domain: unit_domain(defender.kind),
+        fire_mode: fire_mode(attacker.kind),
+        terrain: state.board.tiles[dp[1]][dp[0]].terrain,
         weather: combat_weather,
-        property: is_property(&state.board.tiles[dp[1]][dp[0]].terrain),
+        property: is_property(state.board.tiles[dp[1]][dp[0]].terrain),
         capabilities: &no_capabilities,
     };
     let (attacker_attack, _, _, attacker_good, attacker_bad) = commander::effective_combat(
@@ -4425,7 +4062,7 @@ fn execute_move_attack(
     let defender_stars = u8::try_from(defender_stars)
         .map_err(|_| ExecuteError::InvalidState("terrain stars overflow".into()))?;
     let attacker_side = Side {
-        kind: &attacker.kind,
+        kind: attacker.kind,
         hp: attacker.hp,
         ammo: attacker.ammo,
         attack: attacker_attack,
@@ -4433,7 +4070,7 @@ fn execute_move_attack(
         terrain_stars: stars(origin),
     };
     let defender_side = Side {
-        kind: &defender.kind,
+        kind: defender.kind,
         hp: defender.hp,
         ammo: defender.ammo,
         attack: 100,
@@ -4444,19 +4081,19 @@ fn execute_move_attack(
         Weapon::Ammo => "ammo",
         Weapon::Unlimited => "unlimited",
     };
-    let defender_direct = combat_profiles["units"][defender.kind.as_str()]["fire_mode"] == "direct";
+    let defender_direct = ruleset::profile(defender.kind).fire_mode == FireMode::Direct;
     let counter_first_context = Combatant {
-        kind: &defender.kind,
-        domain: unit_domain(&defender.kind),
-        fire_mode: fire_mode(&defender.kind),
-        terrain: &state.board.tiles[dp[1]][dp[0]].terrain,
+        kind: defender.kind,
+        domain: unit_domain(defender.kind),
+        fire_mode: fire_mode(defender.kind),
+        terrain: state.board.tiles[dp[1]][dp[0]].terrain,
         weather: combat_weather,
-        property: is_property(&state.board.tiles[dp[1]][dp[0]].terrain),
+        property: is_property(state.board.tiles[dp[1]][dp[0]].terrain),
         capabilities: &no_capabilities,
     };
     let counter_first = distance == 1
         && defender_direct
-        && combat::select_weapon(&defender.kind, &attacker.kind, defender.ammo).is_some()
+        && combat::select_weapon(defender.kind, attacker.kind, defender.ammo).is_some()
         && commander::counter_first(
             state,
             &defender.owner,
@@ -4465,12 +4102,12 @@ fn execute_move_attack(
         );
     if counter_first {
         let countered_context = Combatant {
-            kind: &attacker.kind,
-            domain: unit_domain(&attacker.kind),
-            fire_mode: fire_mode(&defender.kind),
-            terrain: &state.board.tiles[origin[1]][origin[0]].terrain,
+            kind: attacker.kind,
+            domain: unit_domain(attacker.kind),
+            fire_mode: fire_mode(defender.kind),
+            terrain: state.board.tiles[origin[1]][origin[0]].terrain,
             weather: combat_weather,
-            property: is_property(&state.board.tiles[origin[1]][origin[0]].terrain),
+            property: is_property(state.board.tiles[origin[1]][origin[0]].terrain),
             capabilities: &no_capabilities,
         };
         let (counter_attack, _, _, counter_good, counter_bad) = commander::effective_combat(
@@ -4553,10 +4190,9 @@ fn execute_move_attack(
             &mut events,
             &defender.owner,
             &attacker.owner,
-            &attacker.kind,
+            attacker.kind,
             attacker.hp,
             attacker_remaining,
-            &unit_data,
         )?;
         apply_strike_power_charge(
             state,
@@ -4564,11 +4200,10 @@ fn execute_move_attack(
             &mut events,
             &defender.owner,
             &attacker.owner,
-            &attacker.kind,
+            attacker.kind,
             attacker.hp,
             attacker_remaining,
             "combat-counter",
-            &unit_data,
         )?;
         if attacker_remaining == 0 {
             events.push(json!({"type":"unit-removed","unit":unit_id,"reason":"combat-counter"}));
@@ -4604,10 +4239,9 @@ fn execute_move_attack(
             &mut events,
             &attacker.owner,
             &defender.owner,
-            &defender.kind,
+            defender.kind,
             defender.hp,
             defender_remaining,
-            &unit_data,
         )?;
         apply_strike_power_charge(
             state,
@@ -4615,11 +4249,10 @@ fn execute_move_attack(
             &mut events,
             &attacker.owner,
             &defender.owner,
-            &defender.kind,
+            defender.kind,
             defender.hp,
             defender_remaining,
             "combat",
-            &unit_data,
         )?;
         if defender_remaining == 0 {
             events.push(json!({"type":"unit-removed","unit":target_id,"reason":"combat"}));
@@ -4661,24 +4294,24 @@ fn execute_move_attack(
     let counter = if remaining > 0
         && distance == 1
         && defender_direct
-        && combat::select_weapon(&defender.kind, &attacker.kind, defender.ammo).is_some()
+        && combat::select_weapon(defender.kind, attacker.kind, defender.ammo).is_some()
     {
         let counter_context = Combatant {
-            kind: &defender.kind,
-            domain: unit_domain(&defender.kind),
-            fire_mode: fire_mode(&defender.kind),
-            terrain: &state.board.tiles[dp[1]][dp[0]].terrain,
+            kind: defender.kind,
+            domain: unit_domain(defender.kind),
+            fire_mode: fire_mode(defender.kind),
+            terrain: state.board.tiles[dp[1]][dp[0]].terrain,
             weather: combat_weather,
-            property: is_property(&state.board.tiles[dp[1]][dp[0]].terrain),
+            property: is_property(state.board.tiles[dp[1]][dp[0]].terrain),
             capabilities: &no_capabilities,
         };
         let countered_context = Combatant {
-            kind: &attacker.kind,
-            domain: unit_domain(&attacker.kind),
-            fire_mode: fire_mode(&defender.kind),
-            terrain: &state.board.tiles[origin[1]][origin[0]].terrain,
+            kind: attacker.kind,
+            domain: unit_domain(attacker.kind),
+            fire_mode: fire_mode(defender.kind),
+            terrain: state.board.tiles[origin[1]][origin[0]].terrain,
             weather: combat_weather,
-            property: is_property(&state.board.tiles[origin[1]][origin[0]].terrain),
+            property: is_property(state.board.tiles[origin[1]][origin[0]].terrain),
             capabilities: &no_capabilities,
         };
         let (counter_attack, _, _, counter_good, counter_bad) = commander::effective_combat(
@@ -4740,10 +4373,9 @@ fn execute_move_attack(
         &mut events,
         &attacker.owner,
         &defender.owner,
-        &defender.kind,
+        defender.kind,
         defender.hp,
         remaining,
-        &unit_data,
     )?;
     apply_strike_power_charge(
         state,
@@ -4751,11 +4383,10 @@ fn execute_move_attack(
         &mut events,
         &attacker.owner,
         &defender.owner,
-        &defender.kind,
+        defender.kind,
         defender.hp,
         remaining,
         "combat",
-        &unit_data,
     )?;
     if remaining > 0 {
         next.units[di].hp = remaining;
@@ -4775,10 +4406,9 @@ fn execute_move_attack(
             &mut events,
             &defender.owner,
             &attacker.owner,
-            &attacker.kind,
+            attacker.kind,
             attacker.hp,
             ahp,
-            &unit_data,
         )?;
         apply_strike_power_charge(
             state,
@@ -4786,11 +4416,10 @@ fn execute_move_attack(
             &mut events,
             &defender.owner,
             &attacker.owner,
-            &attacker.kind,
+            attacker.kind,
             attacker.hp,
             ahp,
             "combat-counter",
-            &unit_data,
         )?;
         next.units[ai].hp = ahp;
     }
@@ -4842,7 +4471,7 @@ fn execute_move_launch(
             "code":"INVALID_TARGET", "target":silo_position
         })));
     }
-    let visibility = AwbwVisibility::default();
+    let visibility = AwbwVisibility;
     if state.units.iter().any(|other| {
         other.id != unit_id
             && board_position(other) == Some(silo_position)
@@ -4918,13 +4547,13 @@ fn execute_move_explode(
 ) -> Result<Execution, ExecuteError> {
     let plan = validate_movement_prefix(state, player, unit_id, path)?;
     let unit = &state.units[plan.unit_index];
-    if unit.kind != "black-bomb" {
+    if unit.kind != UnitKind::BlackBomb {
         return Err(violation(json!({
             "code":"ACTION_NOT_SUPPORTED", "action":"move-explode"
         })));
     }
     let destination = *plan.path.last().expect("origin was checked");
-    let visibility = AwbwVisibility::default();
+    let visibility = AwbwVisibility;
     if state.units.iter().any(|other| {
         other.id != unit_id
             && board_position(other) == Some(destination)
@@ -5076,7 +4705,7 @@ fn execute_move_wait(
 ) -> Result<Execution, ExecuteError> {
     let plan = validate_movement_prefix(state, player, unit_id, path)?;
     let destination = *plan.path.last().expect("origin was checked");
-    let visibility = AwbwVisibility::default();
+    let visibility = AwbwVisibility;
     if state.units.iter().any(|other| {
         other.id != unit_id
             && board_position(other) == Some(destination)
@@ -5118,8 +4747,8 @@ mod tests {
         let mut blue = state.players[0].clone();
         blue.id = "blue".into();
         blue.team = "blue-team".into();
-        blue.commanders[0].id = "neutral".into();
-        state.players[0].commanders[0].id = "neutral".into();
+        blue.commanders[0].id = crate::semantic::CommanderId::Neutral;
+        state.players[0].commanders[0].id = crate::semantic::CommanderId::Neutral;
         state.players.push(blue);
         state.units[0].id = UnitId::new(0);
         state
@@ -5188,10 +4817,10 @@ mod tests {
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
-        state.units[0].kind = "carrier".into();
+        state.units[0].kind = UnitKindId::Carrier;
         state.units[0].fuel = 0;
         state.units[0].ammo = 9;
-        state.units[1].kind = "fighter".into();
+        state.units[1].kind = UnitKindId::Fighter;
         state.units[1].fuel = 30;
         state.units[1].ammo = 2;
         state.units[1].location = Location::Cargo {
@@ -5268,14 +4897,14 @@ mod tests {
         state.settings.fog = true;
         state.board.width = 4;
         let mut plain = state.board.tiles[0][0].clone();
-        plain.terrain = "plain".into();
+        plain.terrain = TerrainId::Plain;
         plain.owner = None;
         plain.capture_points = None;
         let destination = state.board.tiles[0][0].clone();
         state.board.tiles[0] = vec![plain.clone(), plain.clone(), plain, destination];
         let mut blocker = state.units[0].clone();
         blocker.id = UnitId::new(1);
-        blocker.kind = "tank".into();
+        blocker.kind = UnitKindId::Tank;
         blocker.owner = "blue".into();
         blocker.location = Location::Board { position: [3, 0] };
         state.units[0].location = Location::Board { position: [0, 0] };
@@ -5319,17 +4948,17 @@ mod tests {
         state.settings.fog = true;
         state.board.width = 7;
         let mut plain = state.board.tiles[0][0].clone();
-        plain.terrain = "plain".into();
+        plain.terrain = TerrainId::Plain;
         plain.owner = None;
         plain.capture_points = None;
         state.board.tiles[0] = vec![plain; 7];
-        state.units[0].kind = "stealth".into();
+        state.units[0].kind = UnitKindId::Stealth;
         state.units[0].fuel = 55;
         state.units[0].ammo = 6;
         state.units[0].location = Location::Board { position: [0, 0] };
         let mut blocker = state.units[0].clone();
         blocker.id = UnitId::new(1);
-        blocker.kind = "tank".into();
+        blocker.kind = UnitKindId::Tank;
         blocker.owner = "blue".into();
         blocker.concealment = Concealment::Exposed;
         blocker.location = Location::Board { position: [6, 0] };
@@ -5368,12 +4997,12 @@ mod tests {
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
         state.board.width = 6;
         let mut plain = state.board.tiles[0][0].clone();
-        plain.terrain = "plain".into();
+        plain.terrain = TerrainId::Plain;
         plain.owner = None;
         plain.capture_points = None;
         plain.silo = None;
         let mut silo = plain.clone();
-        silo.terrain = "missile-silo".into();
+        silo.terrain = TerrainId::MissileSilo;
         silo.silo = Some(Silo::Ready);
         state.board.tiles[0] = vec![
             plain,
@@ -5456,7 +5085,7 @@ mod tests {
         assert_eq!(result.events[3]["unit"], 1);
         assert_eq!(result.events[4]["unit"], 2);
         let observed = crate::semantic::observe_events(
-            &AwbwVisibility::default(),
+            &AwbwVisibility,
             &state,
             &result.state,
             &result.events,
@@ -5479,17 +5108,17 @@ mod tests {
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
         state.board.width = 7;
         let mut plain = state.board.tiles[0][0].clone();
-        plain.terrain = "plain".into();
+        plain.terrain = TerrainId::Plain;
         plain.owner = None;
         plain.capture_points = None;
         plain.silo = None;
         state.board.tiles[0] = vec![plain; 7];
         state.units[0].id = UnitId::new(0);
-        state.units[0].kind = "black-bomb".into();
+        state.units[0].kind = UnitKindId::BlackBomb;
         state.units[0].location = Location::Board { position: [0, 0] };
         let mut ally = state.units[0].clone();
         ally.id = UnitId::new(1);
-        ally.kind = "infantry".into();
+        ally.kind = UnitKindId::Infantry;
         ally.location = Location::Board { position: [2, 0] };
         ally.hp = 100;
         let mut enemy = ally.clone();
@@ -5657,13 +5286,13 @@ mod tests {
     fn movement_can_reveal_attack_target_under_fog() {
         let mut state = direct_combat_state(3);
         state.settings.fog = true;
-        state.board.tiles[0][2].terrain = "wood".into();
+        state.board.tiles[0][2].terrain = TerrainId::Wood;
         let mut defender = state.units[0].clone();
         defender.id = UnitId::new(1);
         defender.owner = "blue".into();
         defender.location = Location::Board { position: [2, 0] };
         state.units.push(defender);
-        let visibility = AwbwVisibility::default();
+        let visibility = AwbwVisibility;
         assert!(!visibility.visible_unit(&state, "red-team", &state.units[1]));
         let command: Command = serde_json::from_value(json!({
             "type":"move-attack", "player":"red", "unit":0,
@@ -5690,7 +5319,7 @@ mod tests {
         state.settings.fog = true;
         let mut blocker = state.units[0].clone();
         blocker.id = UnitId::new(1);
-        blocker.kind = "tank".into();
+        blocker.kind = UnitKindId::Tank;
         blocker.owner = "blue".into();
         blocker.location = Location::Board { position: [3, 0] };
         let mut target = state.units[0].clone();
@@ -5728,10 +5357,10 @@ mod tests {
     #[test]
     fn indirect_units_cannot_move_and_fire() {
         let mut state = direct_combat_state(4);
-        state.units[0].kind = "artillery".into();
+        state.units[0].kind = UnitKindId::Artillery;
         let mut defender = state.units[0].clone();
         defender.id = UnitId::new(1);
-        defender.kind = "infantry".into();
+        defender.kind = UnitKindId::Infantry;
         defender.owner = "blue".into();
         defender.location = Location::Board { position: [3, 0] };
         state.units.push(defender);
@@ -5766,8 +5395,8 @@ mod tests {
         let mut blue = state.players[0].clone();
         blue.id = "blue".into();
         blue.team = "blue-team".into();
-        blue.commanders[0].id = "neutral".into();
-        state.players[0].commanders[0].id = "neutral".into();
+        blue.commanders[0].id = crate::semantic::CommanderId::Neutral;
+        state.players[0].commanders[0].id = crate::semantic::CommanderId::Neutral;
         state.players.push(blue);
         let mut defender = state.units[0].clone();
         defender.id = UnitId::new(1);
@@ -5795,9 +5424,9 @@ mod tests {
         };
 
         let mut tank_vs_tank = state.clone();
-        tank_vs_tank.units[0].kind = "tank".into();
+        tank_vs_tank.units[0].kind = UnitKindId::Tank;
         tank_vs_tank.units[0].ammo = 9;
-        tank_vs_tank.units[1].kind = "tank".into();
+        tank_vs_tank.units[1].kind = UnitKindId::Tank;
         tank_vs_tank.units[1].ammo = 9;
         let result = attack(&tank_vs_tank);
         assert_eq!(result.events[0]["ammo_before"], 9);
@@ -5805,7 +5434,7 @@ mod tests {
         assert_eq!(result.events[1]["weapon"], "ammo");
 
         let mut tank_vs_infantry = state.clone();
-        tank_vs_infantry.units[0].kind = "tank".into();
+        tank_vs_infantry.units[0].kind = UnitKindId::Tank;
         tank_vs_infantry.units[0].ammo = 9;
         let result = attack(&tank_vs_infantry);
         assert_eq!(result.events[0]["weapon"], "unlimited");

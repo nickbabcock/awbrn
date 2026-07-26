@@ -33,6 +33,8 @@ jobs:
       run: |
         node spec/tools/validate-json.mjs
         node spec/tools/validate-ruleset.mjs
+    - name: Check generated ruleset tables are current
+      run: cargo run --locked --package xtask-ruleset -- --check
     - name: Check Rust implementation
       run: |
         cargo fmt --all -- --check

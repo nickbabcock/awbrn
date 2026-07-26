@@ -1,5 +1,6 @@
 [alias]
 xtask-assets = "run --package xtask-assets --"
+xtask-ruleset = "run --package xtask-ruleset --"
 
 [target.wasm32-unknown-unknown]
 rustflags = [

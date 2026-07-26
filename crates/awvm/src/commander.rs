@@ -4,10 +4,12 @@
 //! Transition reducers provide context; they never branch on commander names.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
 
-use crate::semantic::{Player, PowerState, State, Unit, WeatherKind};
+use crate::ruleset::{PropertyKind, Terrain, UnitKind};
+use crate::semantic::{CommanderId as CommanderKind, Player, PowerState, State, Unit, WeatherKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Strike {
@@ -15,13 +17,19 @@ pub enum Strike {
     Counter,
 }
 
+/// One side of an engagement, described in the vocabulary
+/// `commander-combat.json` predicates are written in.
+///
+/// `domain` stays a string because that vocabulary is finer than the one
+/// `units.json` defines: it separates foot soldiers and transports from other
+/// ground units.
 #[derive(Clone, Copy, Debug)]
 pub struct Combatant<'a> {
-    pub kind: &'a str,
+    pub kind: UnitKind,
     pub domain: &'a str,
     pub fire_mode: &'a str,
-    pub terrain: &'a str,
-    pub weather: &'a str,
+    pub terrain: Terrain,
+    pub weather: WeatherKind,
     pub property: bool,
     pub capabilities: &'a HashSet<String>,
 }
@@ -186,15 +194,15 @@ pub(crate) enum InstantEffect {
     RefreshUnitAction {
         target: UnitTarget,
         #[serde(default)]
-        exclude_unit_kinds: Vec<String>,
+        exclude_unit_kinds: Vec<UnitKind>,
     },
     ResupplyUnits {
         target: UnitTarget,
     },
     SpawnUnitsOnOwnedProperties {
         target: PropertyTarget,
-        property_kinds: Vec<String>,
-        unit_kind: String,
+        property_kinds: Vec<PropertyKind>,
+        unit_kind: UnitKind,
         hp: u8,
         resources: SpawnResources,
         action: SpawnAction,
@@ -515,34 +523,49 @@ struct CaptureStates {
     scop: Option<CaptureEffect>,
 }
 
-fn combat_table() -> CombatTable {
-    serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/commander-combat.json"
-    ))
-    .expect("embedded commander combat table")
+// The commander documents describe rule *programs* — predicates paired with
+// operators — rather than the dense value tables `xtask-ruleset` lowers. They
+// stay parsed structures, but parsed once for the process rather than once per
+// query: the reducer consults them several times per command, and re-parsing
+// them there was the bulk of the cost of executing one.
+
+fn combat_table() -> &'static CombatTable {
+    static TABLE: LazyLock<CombatTable> = LazyLock::new(|| {
+        serde_json::from_str(include_str!(
+            "../../../spec/rulesets/awbw/2026-07-10/commander-combat.json"
+        ))
+        .expect("embedded commander combat table")
+    });
+    &TABLE
 }
 
-fn profile_table() -> ProfileTable {
-    serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/commander-profiles.json"
-    ))
-    .expect("embedded commander profile table")
+fn profile_table() -> &'static ProfileTable {
+    static TABLE: LazyLock<ProfileTable> = LazyLock::new(|| {
+        serde_json::from_str(include_str!(
+            "../../../spec/rulesets/awbw/2026-07-10/commander-profiles.json"
+        ))
+        .expect("embedded commander profile table")
+    });
+    &TABLE
 }
 
-fn power_table() -> PowerTable {
-    serde_json::from_str(include_str!(
-        "../../../spec/rulesets/awbw/2026-07-10/commander-powers.json"
-    ))
-    .expect("embedded commander power table")
+fn power_table() -> &'static PowerTable {
+    static TABLE: LazyLock<PowerTable> = LazyLock::new(|| {
+        serde_json::from_str(include_str!(
+            "../../../spec/rulesets/awbw/2026-07-10/commander-powers.json"
+        ))
+        .expect("embedded commander power table")
+    });
+    &TABLE
 }
 
 pub(crate) fn power_activation(
-    commander: &str,
+    commander: CommanderKind,
     level: PowerLevel,
     power_uses: u64,
 ) -> Result<Option<PowerActivation>, PowerActivationError> {
     let table = power_table();
-    let Some(profile) = table.commanders.get(commander) else {
+    let Some(profile) = table.commanders.get(commander.as_str()) else {
         return Ok(None);
     };
     let definition = match level {
@@ -552,7 +575,7 @@ pub(crate) fn power_activation(
     let Some(definition) = definition else {
         return Ok(None);
     };
-    let cost = scaled_power_charge(&table, definition.stars, power_uses)?;
+    let cost = scaled_power_charge(table, definition.stars, power_uses)?;
     Ok(Some(PowerActivation {
         cost,
         instant_effects: definition.instant_effects.clone(),
@@ -584,11 +607,11 @@ fn scaled_power_charge(
 }
 
 pub(crate) fn maximum_power_charge(
-    commander: &str,
+    commander: CommanderKind,
     power_uses: u64,
 ) -> Result<Option<u64>, PowerActivationError> {
     let table = power_table();
-    let Some(profile) = table.commanders.get(commander) else {
+    let Some(profile) = table.commanders.get(commander.as_str()) else {
         return Ok(None);
     };
     let Some(stars) = profile
@@ -600,7 +623,7 @@ pub(crate) fn maximum_power_charge(
     else {
         return Ok(None);
     };
-    scaled_power_charge(&table, stars, power_uses).map(Some)
+    scaled_power_charge(table, stars, power_uses).map(Some)
 }
 
 pub(crate) fn strike_funds_gain(
@@ -623,7 +646,7 @@ pub(crate) fn strike_funds_gain(
         return Some(0);
     }
     let table = power_table();
-    let Some(profile) = table.commanders.get(commander) else {
+    let Some(profile) = table.commanders.get(commander.as_str()) else {
         return Some(0);
     };
     let definition = match power {
@@ -658,7 +681,7 @@ pub(crate) fn strike_funds_gain(
         })
 }
 
-fn active<'a>(state: &'a State, player_id: &str) -> Option<(&'a Player, &'a str, Power)> {
+fn active<'a>(state: &'a State, player_id: &str) -> Option<(&'a Player, CommanderKind, Power)> {
     let player = state.players.iter().find(|player| player.id == player_id)?;
     let (slot, power) = match player.power_state {
         PowerState::None => (
@@ -672,9 +695,7 @@ fn active<'a>(state: &'a State, player_id: &str) -> Option<(&'a Player, &'a str,
         PowerState::Scop { commander_slot } => (usize::from(commander_slot), Power::Scop),
     };
     let commander = player.commanders.get(slot)?;
-    commander
-        .active
-        .then_some((player, commander.id.as_str(), power))
+    commander.active.then_some((player, commander.id, power))
 }
 
 #[derive(Clone, Copy)]
@@ -685,14 +706,21 @@ enum Power {
 }
 
 fn predicate_matches(predicate: &Predicate, unit: Combatant<'_>, strike: Strike) -> bool {
-    (predicate.unit_kinds.is_empty() || predicate.unit_kinds.iter().any(|v| v == unit.kind))
+    (predicate.unit_kinds.is_empty()
+        || predicate.unit_kinds.iter().any(|v| v == unit.kind.as_str()))
         && (predicate.domains.is_empty() || predicate.domains.iter().any(|v| v == unit.domain))
         && (predicate.fire_modes.is_empty()
             || predicate.fire_modes.iter().any(|v| v == unit.fire_mode))
         && (predicate.terrain_kinds.is_empty()
-            || predicate.terrain_kinds.iter().any(|v| v == unit.terrain))
+            || predicate
+                .terrain_kinds
+                .iter()
+                .any(|v| v == unit.terrain.as_str()))
         && (predicate.weather_kinds.is_empty()
-            || predicate.weather_kinds.iter().any(|v| v == unit.weather))
+            || predicate
+                .weather_kinds
+                .iter()
+                .any(|v| v == unit.weather.as_str()))
         && predicate
             .property
             .is_none_or(|value| value == unit.property)
@@ -736,7 +764,7 @@ pub fn effective_combat(
             },
         ));
     };
-    let Some(profile) = table.commanders.get(commander) else {
+    let Some(profile) = table.commanders.get(commander.as_str()) else {
         return Some((
             100,
             100,
@@ -833,7 +861,7 @@ pub fn effective_enemy_terrain_stars(
     let Some((_, commander, power)) = active(state, owner) else {
         return Some(base.max(0));
     };
-    let Some(profile) = table.commanders.get(commander) else {
+    let Some(profile) = table.commanders.get(commander.as_str()) else {
         return Some(base.max(0));
     };
     let mut stars = base;
@@ -852,15 +880,24 @@ pub fn counter_first(state: &State, owner: &str, unit: Combatant<'_>, strike: St
     let Some((_, commander, power)) = active(state, owner) else {
         return false;
     };
-    table.commanders.get(commander).is_some_and(|profile| {
-        applicable_rules(profile, power).any(|rule| {
-            predicate_matches(&rule.when, unit, strike)
-                && matches!(rule.effect, Effect::CounterFirst)
+    table
+        .commanders
+        .get(commander.as_str())
+        .is_some_and(|profile| {
+            applicable_rules(profile, power).any(|rule| {
+                predicate_matches(&rule.when, unit, strike)
+                    && matches!(rule.effect, Effect::CounterFirst)
+            })
         })
-    })
 }
 
-fn value_add(rules: &StateValues, power: Power, kind: &str, domain: &str, fire_mode: &str) -> i64 {
+fn value_add(
+    rules: &StateValues,
+    power: Power,
+    kind: UnitKind,
+    domain: &str,
+    fire_mode: &str,
+) -> i64 {
     rules
         .day_to_day
         .iter()
@@ -870,7 +907,7 @@ fn value_add(rules: &StateValues, power: Power, kind: &str, domain: &str, fire_m
             Power::Scop => rules.scop.iter(),
         })
         .filter(|rule| {
-            (rule.unit_kinds.is_empty() || rule.unit_kinds.iter().any(|v| v == kind))
+            (rule.unit_kinds.is_empty() || rule.unit_kinds.iter().any(|v| v == kind.as_str()))
                 && (rule.domains.is_empty() || rule.domains.iter().any(|v| v == domain))
                 && (rule.fire_modes.is_empty() || rule.fire_modes.iter().any(|v| v == fire_mode))
         })
@@ -878,16 +915,16 @@ fn value_add(rules: &StateValues, power: Power, kind: &str, domain: &str, fire_m
         .sum()
 }
 
-fn effective_profile(state: &State, owner: &str) -> Option<(EffectiveProfile, Power)> {
+fn effective_profile(state: &State, owner: &str) -> Option<(&'static EffectiveProfile, Power)> {
     let (_, commander, power) = active(state, owner)?;
-    Some((profile_table().commanders.get(commander)?.clone(), power))
+    Some((profile_table().commanders.get(commander.as_str())?, power))
 }
 
 pub fn effective_move(state: &State, unit: &Unit, base: u64, domain: &str) -> u64 {
     let Some((profile, power)) = effective_profile(state, &unit.owner) else {
         return base;
     };
-    base.saturating_add_signed(value_add(&profile.movement, power, &unit.kind, domain, ""))
+    base.saturating_add_signed(value_add(&profile.movement, power, unit.kind, domain, ""))
 }
 
 pub fn effective_movement_cost(state: &State, unit: &Unit, base: Option<u64>) -> Option<u64> {
@@ -919,7 +956,7 @@ pub fn effective_vision(state: &State, unit: &Unit, base: i64, domain: &str) -> 
     let Some((profile, power)) = effective_profile(state, &unit.owner) else {
         return base;
     };
-    (base + value_add(&profile.vision, power, &unit.kind, domain, "")).max(0)
+    (base + value_add(&profile.vision, power, unit.kind, domain, "")).max(0)
 }
 
 pub fn reveals_concealing_terrain(state: &State, unit: &Unit) -> bool {
@@ -957,7 +994,7 @@ pub fn effective_attack_range(
     base.saturating_add_signed(value_add(
         &profile.attack_range,
         power,
-        &unit.kind,
+        unit.kind,
         domain,
         fire_mode,
     ))
@@ -996,14 +1033,16 @@ fn production_rules(
 pub fn commander_production_site(
     state: &State,
     player: &str,
-    terrain: &str,
+    terrain: Terrain,
     domain: Option<&str>,
 ) -> bool {
     let Some((profile, power)) = effective_profile(state, player) else {
         return false;
     };
     production_rules(&profile.production, power).any(|rule| {
-        rule.terrain_kinds.iter().any(|value| value == terrain)
+        rule.terrain_kinds
+            .iter()
+            .any(|value| value == terrain.as_str())
             && domain.is_none_or(|domain| rule.domains.iter().any(|value| value == domain))
     })
 }
@@ -1050,65 +1089,68 @@ pub fn effective_upkeep(state: &State, unit: &Unit, base: u64, domain: &str) -> 
     base.saturating_add_signed(add)
 }
 
-pub fn effective_weather<'a>(state: &'a State, unit: &Unit) -> &'a str {
+/// The weather column this unit's movement costs are read from, after the
+/// commander effects that let a unit ignore or reinterpret the real weather.
+pub fn effective_weather(state: &State, unit: &Unit) -> WeatherKind {
     let profile = effective_profile(state, &unit.owner).map(|(profile, _)| profile);
     match state.weather.kind {
-        WeatherKind::Snow if profile.as_ref().is_some_and(|p| p.ignores_snow_movement) => "clear",
-        WeatherKind::Rain if profile.as_ref().is_some_and(|p| p.ignores_rain_movement) => "clear",
-        WeatherKind::Rain if profile.as_ref().is_some_and(|p| p.rain_movement_as_snow) => "snow",
-        WeatherKind::Clear => "clear",
-        WeatherKind::Rain => "rain",
-        WeatherKind::Snow => "snow",
+        WeatherKind::Snow if profile.is_some_and(|p| p.ignores_snow_movement) => WeatherKind::Clear,
+        WeatherKind::Rain if profile.is_some_and(|p| p.ignores_rain_movement) => WeatherKind::Clear,
+        WeatherKind::Rain if profile.is_some_and(|p| p.rain_movement_as_snow) => WeatherKind::Snow,
+        other => other,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{InstantEffect, PowerLevel, UnitTarget, maximum_power_charge, power_activation};
+    use super::{
+        CommanderKind, InstantEffect, PowerLevel, UnitTarget, maximum_power_charge,
+        power_activation,
+    };
 
     #[test]
     fn adder_power_costs_scale_from_pre_activation_uses_and_cap() {
         assert_eq!(
-            power_activation("adder", PowerLevel::Cop, 0)
+            power_activation(CommanderKind::Adder, PowerLevel::Cop, 0)
                 .unwrap()
                 .unwrap()
                 .cost,
             18_000
         );
         assert_eq!(
-            power_activation("adder", PowerLevel::Scop, 0)
+            power_activation(CommanderKind::Adder, PowerLevel::Scop, 0)
                 .unwrap()
                 .unwrap()
                 .cost,
             45_000
         );
         assert_eq!(
-            power_activation("adder", PowerLevel::Cop, 1)
+            power_activation(CommanderKind::Adder, PowerLevel::Cop, 1)
                 .unwrap()
                 .unwrap()
                 .cost,
             21_600
         );
         assert_eq!(
-            power_activation("adder", PowerLevel::Cop, 10)
+            power_activation(CommanderKind::Adder, PowerLevel::Cop, 10)
                 .unwrap()
                 .unwrap()
                 .cost,
             54_000
         );
         assert_eq!(
-            power_activation("adder", PowerLevel::Cop, 100)
+            power_activation(CommanderKind::Adder, PowerLevel::Cop, 100)
                 .unwrap()
                 .unwrap()
                 .cost,
             54_000
         );
         assert_eq!(
-            power_activation("neutral", PowerLevel::Cop, 0).unwrap(),
+            power_activation(CommanderKind::Neutral, PowerLevel::Cop, 0).unwrap(),
             None
         );
         assert_eq!(
-            power_activation("andy", PowerLevel::Cop, 0)
+            power_activation(CommanderKind::Andy, PowerLevel::Cop, 0)
                 .unwrap()
                 .unwrap()
                 .instant_effects,
@@ -1118,13 +1160,19 @@ mod tests {
             }]
         );
         assert_eq!(
-            power_activation("hawke", PowerLevel::Scop, 0)
+            power_activation(CommanderKind::Hawke, PowerLevel::Scop, 0)
                 .unwrap()
                 .unwrap()
                 .cost,
             81_000
         );
-        assert_eq!(maximum_power_charge("hawke", 0).unwrap(), Some(81_000));
-        assert_eq!(maximum_power_charge("adder", 1).unwrap(), Some(54_000));
+        assert_eq!(
+            maximum_power_charge(CommanderKind::Hawke, 0).unwrap(),
+            Some(81_000)
+        );
+        assert_eq!(
+            maximum_power_charge(CommanderKind::Adder, 1).unwrap(),
+            Some(54_000)
+        );
     }
 }

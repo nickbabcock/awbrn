@@ -122,30 +122,72 @@ The `awvm-execute` bench reproduces the recorded baseline within noise
 (283.8 / 535.0 / 1375.1 µs against 282.0 / 538.7 / 1363.4), independently
 confirming the phase-1 target.
 
-### Phase 1 — generate the ruleset
+### Phase 1 — generate the ruleset · DONE
 
 Split the performance win from the type migration so a problem in either half
 does not block the other.
 
-- [ ] **1a** `crates/xtask-ruleset` generating `crates/awvm/src/generated/` from
+- [x] **1a** `crates/xtask-ruleset` generating `crates/awvm/src/generated/` from
       `spec/rulesets/awbw/2026-07-10/**`: `#[repr(u8)]` enums for unit kind,
       terrain, commander, movement class, domain, fire mode, weather; dense
       tables (`DAMAGE: [[Option<u8>; 25]; 25]`, movement costs, capabilities).
       Nothing uses it yet. Test asserts the generated tables round-trip against
       the JSON they came from.
-- [ ] **1b** Accessors taking the *existing* string types
+- [x] **1b** Accessors taking the *existing* string types
       (`fn unit_profile(kind: &UnitKindId) -> Option<&'static UnitProfile>`).
       Replace all 45 `include_str!` sites. Banks the whole ~100× win without
       changing a single type signature elsewhere.
-- [ ] **1c** Migrate the model to the enums — `UnitKindId(String)` →
+- [x] **1c** Migrate the model to the enums — `UnitKindId(String)` →
       `UnitKind`, etc. `awbrn_types::Unit` already has exactly the 25 variants
       `units.json` defines, in the same order.
-- [ ] **1d** Delete `awbrn-server`'s hand-written `PRIMARY_DAMAGE` /
+- [x] **1d** Delete `awbrn-server`'s hand-written `PRIMARY_DAMAGE` /
       `SECONDARY_DAMAGE` const arrays in favour of the generated tables.
-- [ ] **1e** `--check` mode wired into the awvm CI job.
+- [x] **1e** `--check` mode wired into the awvm CI job.
 
-**Gate:** conformance green; `execute` median under 10 µs; one damage matrix in
-the workspace.
+**Gate: met.** 384 conformance assertions pass, every `execute` median is under
+10 µs, and the only damage matrix left in the workspace is the generated one.
+
+| Before | After |
+| --- | --- |
+| 45 `include_str!` + `serde_json::from_str` sites in the hot path | 0 — dense statics indexed by enum |
+| `movement-infantry-plain-move` | 282.0 µs → 1.98 µs (142×) |
+| `combat-tile-indirect-lethal` | 538.7 µs → 4.46 µs (121×) |
+| `commander-colin-cop-combat` | 1363.4 µs → 6.22 µs (219×) |
+| `turn-end-turn-income-ready` | 110.0 µs → 3.28 µs (34×) |
+| Damage matrices in the workspace | 2 (awvm JSON + awbrn-server consts) → 1 |
+| Unknown unit kind / terrain | string that fails a table lookup mid-reduction | rejected at decode |
+
+Files: `crates/xtask-ruleset/` (generator), `crates/awvm/src/generated/ruleset.rs`
+(3,743 generated lines), `crates/awvm/src/ruleset.rs` (hand-written structs and
+accessors), `crates/awvm/tests/ruleset_tables.rs`. `cargo xtask-ruleset` alias in
+`.cargo/config.toml`, `mise run ruleset`, and a `--check` step in the awvm CI job.
+
+**The generated tables were verified to fail.** Mutating one damage value and one
+terrain's `defense_stars` in the checked-in file failed
+`damage_matrices_match_weapons_json` and `terrain_profiles_match_terrain_json`
+by name, and `--check` exited 1. Regenerating restored the file byte-for-byte.
+
+1c made the ruleset's vocabulary the model's: `UnitKindId`, `TerrainId`,
+`CommanderId` and `WeatherKind` are now re-exports of the generated `#[repr(u8)]`
+enums rather than `String` newtypes. The wire format is unchanged — each variant
+carries the specification's own identifier as its serde name — but an identifier
+outside the ruleset now fails to decode. `spec/protocol.md` only pins that a
+decoding failure is `status: "error"`, which it still is, and no fixture names an
+identifier the ruleset lacks.
+
+1d changed behaviour, deliberately. `awbrn-server`'s const arrays were labelled
+"AWDS base damage table" and disagree with `spec/rulesets/awbw/2026-07-10/weapons.json`
+in **22 of 1,250 entries** — most visibly, an AWDS cruiser's missiles hit ships
+(battleship, cruiser, lander) and an AWBW cruiser's do not. The server now reads
+the AWBW tables, which is the ruleset it claims to implement;
+`base_damage_follows_the_awbw_chart` pins three of the divergent pairs so the
+switch cannot silently revert. This gives `awvm` its first reverse dependency.
+
+**Still open:** only the single lowered revision exists. `ruleset::supports()`
+plus the existing `UnsupportedRuleset` gate refuses every other revision rather
+than evaluating it against the wrong numbers, so nothing is silently wrong — but
+the runtime loader the risks section calls for was not built, because no second
+revision exists to load. See *Known risks*.
 
 ### Phase 2 — type the boundary values
 
@@ -230,6 +272,20 @@ archived replays reproducing to their recorded end states.
   revision into `const` arrays is the fast path; a runtime loader must stay for
   others, but no second revision exists, so that path is untested by
   construction. Build it in phase 1 anyway.
+
+  **Not done in phase 1, and this is a deviation from the plan.** 1c made the
+  ruleset's vocabulary the model's type — `UnitKind`, `Terrain`, `CommanderKind`
+  are generated enums that a `serde` decode validates against *this* revision.
+  A runtime loader would need those types to be open again, which would give
+  back most of what 1b and 1c bought. Writing one against a hypothetical second
+  revision would also be guessing at what varies between revisions: whether a
+  revision may add a unit kind, or only retune numbers, decides whether the
+  loader can reuse the generated vocabulary at all, and nothing answers that
+  today. What exists instead is a refusal: `ruleset::supports()` gates on
+  `(id, revision)` and anything else is rejected as `UNSUPPORTED_RULESET`, so a
+  second revision fails loudly rather than being scored against the wrong
+  numbers. **Decide this when the second revision lands, and let its actual diff
+  against `2026-07-10` settle whether the vocabulary is shared or per-revision.**
 - **Phase 2 can break invisibly.** Serde derives reproducing the exact current
   JSON — field-order insignificance, `skip_serializing_if`, nested
   `ObservedUnitRef` shapes — is fiddly, and fixtures only assert 7% of
@@ -263,6 +319,10 @@ archived replays reproducing to their recorded end states.
 ## Progress log
 
 - **2026-07-25** — Baseline measured; plan written.
+- **2026-07-25** — Phase 1 complete. Ruleset lowered to generated statics;
+  `execute` is 34–219× faster and every case is under the 10 µs gate. Model
+  migrated to the generated enums. `awbrn-server`'s AWDS damage tables deleted in
+  favour of the AWBW ones (22 values changed — see phase 1). `--check` gate in CI.
 - **2026-07-25** — Phase 0 complete. Conformance playback extracted to
   `src/conformance.rs` behind a `Peer` trait; JSONL handler extracted to
   `src/protocol.rs`; 306-fixture in-process test; 655 lines of redundant
