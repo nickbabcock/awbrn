@@ -121,6 +121,12 @@ macro_rules! string_id {
                 }
             }
 
+            impl PartialEq<&$name> for $name {
+                fn eq(&self, other: &&$name) -> bool {
+                    self == *other
+                }
+            }
+
             impl PartialEq<str> for $name {
                 fn eq(&self, other: &str) -> bool {
                     self.as_str() == other
@@ -443,7 +449,7 @@ impl State {
     /// Resolve once at the edge of a command and index afterwards. The roster
     /// is short, so this is about saying which player a later index means, not
     /// about speed.
-    pub fn player_index(&self, id: &str) -> Option<PlayerIdx> {
+    pub fn player_index(&self, id: &PlayerId) -> Option<PlayerIdx> {
         self.players
             .iter()
             .position(|candidate| candidate.id == id)
@@ -458,11 +464,11 @@ impl State {
         &mut self.players[seat.get()]
     }
 
-    pub fn find_player(&self, id: &str) -> Option<&Player> {
+    pub fn find_player(&self, id: &PlayerId) -> Option<&Player> {
         self.players.iter().find(|candidate| candidate.id == id)
     }
 
-    pub fn find_player_mut(&mut self, id: &str) -> Option<&mut Player> {
+    pub fn find_player_mut(&mut self, id: &PlayerId) -> Option<&mut Player> {
         self.players.iter_mut().find(|candidate| candidate.id == id)
     }
 }
@@ -686,7 +692,7 @@ impl TileOwner {
         }
     }
 
-    pub fn is_owned_by(&self, player: &str) -> bool {
+    pub fn is_owned_by(&self, player: &PlayerId) -> bool {
         self.player().is_some_and(|held| held == player)
     }
 
@@ -846,8 +852,8 @@ pub enum Outcome {
 /// Ruleset-owned visibility. Implementations may build this from `world::fog`;
 /// the state projection remains independent of Bevy and cached viewpoints.
 pub trait Visibility {
-    fn visible_position(&self, state: &State, team: &str, position: Pos) -> bool;
-    fn visible_unit(&self, state: &State, team: &str, unit: &Unit) -> bool;
+    fn visible_position(&self, state: &State, team: &TeamId, position: Pos) -> bool;
+    fn visible_unit(&self, state: &State, team: &TeamId, unit: &Unit) -> bool;
 }
 
 /// Visibility operators for the `awbw/2026-07-10` profile.
@@ -857,16 +863,16 @@ pub trait Visibility {
 pub struct AwbwVisibility;
 
 impl AwbwVisibility {
-    fn team_players<'a>(&self, state: &'a State, team: &str) -> HashSet<&'a str> {
+    fn team_players<'a>(&self, state: &'a State, team: &TeamId) -> HashSet<&'a PlayerId> {
         state
             .players
             .iter()
             .filter(|player| player.team == team)
-            .map(|player| player.id.as_str())
+            .map(|player| &player.id)
             .collect()
     }
 
-    fn vision_level(&self, state: &State, team: &str, position: Pos) -> VisionLevel {
+    fn vision_level(&self, state: &State, team: &TeamId, position: Pos) -> VisionLevel {
         if position.x >= state.board.width() || position.y >= state.board.height() {
             return VisionLevel::None;
         }
@@ -878,7 +884,7 @@ impl AwbwVisibility {
         if tile
             .owner
             .player()
-            .is_some_and(|owner| team_players.contains(owner.as_str()))
+            .is_some_and(|owner| team_players.contains(owner))
         {
             return VisionLevel::Full;
         }
@@ -889,7 +895,7 @@ impl AwbwVisibility {
         }
         let mut level = VisionLevel::None;
         for unit in &state.units {
-            if !team_players.contains(unit.owner.as_str()) {
+            if !team_players.contains(&unit.owner) {
                 continue;
             }
             let Location::Board { position: source } = unit.location else {
@@ -933,13 +939,13 @@ enum VisionLevel {
 }
 
 impl Visibility for AwbwVisibility {
-    fn visible_position(&self, state: &State, team: &str, position: Pos) -> bool {
+    fn visible_position(&self, state: &State, team: &TeamId, position: Pos) -> bool {
         self.vision_level(state, team, position) == VisionLevel::Full
     }
 
-    fn visible_unit(&self, state: &State, team: &str, unit: &Unit) -> bool {
+    fn visible_unit(&self, state: &State, team: &TeamId, unit: &Unit) -> bool {
         let team_players = self.team_players(state, team);
-        if team_players.contains(unit.owner.as_str()) {
+        if team_players.contains(&unit.owner) {
             return true;
         }
         let Location::Board { position } = unit.location else {
@@ -950,13 +956,13 @@ impl Visibility for AwbwVisibility {
             .tile(position)
             .owner
             .player()
-            .is_some_and(|owner| team_players.contains(owner.as_str()))
+            .is_some_and(|owner| team_players.contains(owner))
         {
             return true;
         }
         if unit.concealment == Concealment::Hidden {
             return state.units.iter().any(|source| {
-                team_players.contains(source.owner.as_str())
+                team_players.contains(&source.owner)
                     && matches!(
                             source.location,
                             Location::Board { position: source_position }
@@ -1108,19 +1114,16 @@ pub enum ObserveError {
 pub fn observe(
     rules: &impl Visibility,
     state: &State,
-    recipient: &str,
+    recipient: &PlayerId,
 ) -> Result<Observation, ObserveError> {
     let recipient_player = state
         .players
         .iter()
         .find(|p| p.id == recipient)
-        .ok_or_else(|| ObserveError::UnknownRecipient(recipient.into()))?;
-    let owners: HashMap<&str, &str> = state
-        .players
-        .iter()
-        .map(|p| (p.id.as_str(), p.team.as_str()))
-        .collect();
-    let team = recipient_player.team.as_str();
+        .ok_or_else(|| ObserveError::UnknownRecipient(recipient.clone()))?;
+    let owners: HashMap<&PlayerId, &TeamId> =
+        state.players.iter().map(|p| (&p.id, &p.team)).collect();
+    let team = &recipient_player.team;
     let tiles = state
         .board
         .rows()
@@ -1190,7 +1193,7 @@ pub fn observe(
     let mut units = Vec::new();
     for u in &state.units {
         let owner_team = *owners
-            .get(u.owner.as_str())
+            .get(&u.owner)
             .ok_or_else(|| ObserveError::UnknownUnitOwner(u.owner.clone()))?;
         if owner_team == team
             || (matches!(u.location, Location::Board { .. }) && rules.visible_unit(state, team, u))
@@ -1203,7 +1206,7 @@ pub fn observe(
         Match::Active { draw_offers } => {
             let mut offers: Vec<_> = draw_offers
                 .iter()
-                .filter(|id| owners.get(id.as_str()).is_some_and(|t| *t == team))
+                .filter(|id| owners.get(id).is_some_and(|t| *t == team))
                 .cloned()
                 .collect();
             offers.sort();
@@ -1217,7 +1220,7 @@ pub fn observe(
     };
     Ok(Observation {
         ruleset: state.ruleset.clone(),
-        recipient: recipient.into(),
+        recipient: recipient.clone(),
         settings: state.settings.clone(),
         board: ObservedBoard {
             width: state.board.width(),
@@ -1239,35 +1242,33 @@ pub fn observe_events(
     state: &State,
     next_state: &State,
     events: &[Event],
-    recipient: &str,
+    recipient: &PlayerId,
 ) -> Result<Vec<serde_json::Value>, ObserveError> {
     let recipient_player = state
         .players
         .iter()
         .find(|player| player.id == recipient)
-        .ok_or_else(|| ObserveError::UnknownRecipient(recipient.into()))?;
-    let team = recipient_player.team.as_str();
-    let team_players: HashSet<&str> = state
+        .ok_or_else(|| ObserveError::UnknownRecipient(recipient.clone()))?;
+    let team = &recipient_player.team;
+    let team_players: HashSet<&PlayerId> = state
         .players
         .iter()
         .filter(|player| player.team == team)
-        .map(|player| player.id.as_str())
+        .map(|player| &player.id)
         .collect();
     observe(rules, state, recipient)?;
     let post = observe(rules, next_state, recipient)?;
     let visible_pre: HashSet<UnitId> = state
         .units
         .iter()
-        .filter(|unit| {
-            team_players.contains(unit.owner.as_str()) || rules.visible_unit(state, team, unit)
-        })
+        .filter(|unit| team_players.contains(&unit.owner) || rules.visible_unit(state, team, unit))
         .map(|unit| unit.id)
         .collect();
     let visible_post: HashSet<UnitId> = next_state
         .units
         .iter()
         .filter(|unit| {
-            team_players.contains(unit.owner.as_str()) || rules.visible_unit(next_state, team, unit)
+            team_players.contains(&unit.owner) || rules.visible_unit(next_state, team, unit)
         })
         .map(|unit| unit.id)
         .collect();
@@ -1326,7 +1327,7 @@ pub fn observe_events(
                     .iter()
                     .find(|unit| unit.id == id)
                     .ok_or(ObserveError::UnknownUnit(id))?;
-                if team_players.contains(unit.owner.as_str()) {
+                if team_players.contains(&unit.owner) {
                     output.push(serde_json::json!({
                         "type": "unit-moved",
                         "unit": ObservedUnitRef::Friendly { unit: id },
@@ -1365,7 +1366,7 @@ pub fn observe_events(
             Event::MovementTrapped { unit: id, .. } => {
                 let id = *id;
                 let actor = state.units.iter().find(|unit| unit.id == id);
-                if actor.is_some_and(|unit| team_players.contains(unit.owner.as_str())) {
+                if actor.is_some_and(|unit| team_players.contains(&unit.owner)) {
                     output.push(serde_json::json!({
                         "type":"movement-stopped",
                         "unit":ObservedUnitRef::Friendly { unit:id }
@@ -1382,7 +1383,7 @@ pub fn observe_events(
                     push_appeared(
                         unit,
                         *position,
-                        team_players.contains(unit.owner.as_str()),
+                        team_players.contains(&unit.owner),
                         &mut appeared,
                         &mut output,
                     );
@@ -1434,7 +1435,7 @@ pub fn observe_events(
                     .units
                     .iter()
                     .find(|unit| unit.id == id)
-                    .is_some_and(|unit| team_players.contains(unit.owner.as_str()));
+                    .is_some_and(|unit| team_players.contains(&unit.owner));
                 if own {
                     project_unit_fact(
                         id,
@@ -1465,7 +1466,7 @@ pub fn observe_events(
                     .units
                     .iter()
                     .find(|unit| unit.id == id)
-                    .is_some_and(|unit| team_players.contains(unit.owner.as_str()));
+                    .is_some_and(|unit| team_players.contains(&unit.owner));
                 if own {
                     project_unit_fact(
                         id,
@@ -1502,7 +1503,7 @@ pub fn observe_events(
             }
             // A player only learns their own funds changed; a power charge is
             // public, so it is projected to everyone.
-            Event::FundsChanged { player, .. } if !team_players.contains(player.as_str()) => {}
+            Event::FundsChanged { player, .. } if !team_players.contains(player) => {}
             Event::FundsChanged { player, .. } | Event::PowerChargeChanged { player, .. } => {
                 if let Some(snapshot) = post.players.iter().find(|candidate| match candidate {
                     ObservedPlayer::Private { id, .. } | ObservedPlayer::Public { id, .. } => {
@@ -1516,7 +1517,7 @@ pub fn observe_events(
                 }
             }
             Event::DrawOfferChanged { player, .. } => {
-                if team_players.contains(player.as_str()) {
+                if team_players.contains(player) {
                     output.push(serde_json::json!({"type":"public-event","kind":event.kind()}));
                 }
             }
@@ -1554,7 +1555,7 @@ fn project_unit_fact(
     next_state: &State,
     visible_pre: &HashSet<UnitId>,
     visible_post: &HashSet<UnitId>,
-    team_players: &HashSet<&str>,
+    team_players: &HashSet<&PlayerId>,
     appeared: &mut HashSet<UnitId>,
     disappeared: &mut HashSet<UnitId>,
     output: &mut Vec<serde_json::Value>,
@@ -1564,7 +1565,7 @@ fn project_unit_fact(
     };
     match (visible_pre.contains(&id), visible_post.contains(&id)) {
         (true, true) => {
-            let friendly = team_players.contains(unit.owner.as_str());
+            let friendly = team_players.contains(&unit.owner);
             let snapshot = observed_unit_snapshot(unit, friendly);
             output.push(serde_json::json!({
                 "type":"unit-changed", "unit":snapshot.reference, "state":snapshot, "reason":reason
@@ -1575,7 +1576,7 @@ fn project_unit_fact(
                 push_appeared(
                     unit,
                     position,
-                    team_players.contains(unit.owner.as_str()),
+                    team_players.contains(&unit.owner),
                     appeared,
                     output,
                 );
@@ -1602,8 +1603,8 @@ fn project_removal(
     rules: &impl Visibility,
     state: &State,
     next_state: &State,
-    team: &str,
-    team_players: &HashSet<&str>,
+    team: &TeamId,
+    team_players: &HashSet<&PlayerId>,
     visible_pre: &HashSet<UnitId>,
     disappeared: &mut HashSet<UnitId>,
     output: &mut Vec<serde_json::Value>,
@@ -1613,7 +1614,7 @@ fn project_removal(
         .iter()
         .find(|unit| unit.id == id)
         .ok_or(ObserveError::UnknownUnit(id))?;
-    if team_players.contains(unit.owner.as_str()) {
+    if team_players.contains(&unit.owner) {
         output.push(serde_json::json!({
             "type":"unit-removed",
             "unit":ObservedUnitRef::Friendly { unit:id },
@@ -1755,9 +1756,9 @@ mod tests {
     fn only_a_held_property_names_a_player() {
         assert_eq!(TileOwner::NotOwnable.player(), None);
         assert_eq!(TileOwner::Neutral.player(), None);
-        assert!(!TileOwner::Neutral.is_owned_by("red"));
-        assert!(TileOwner::Owned(PlayerId::from("red")).is_owned_by("red"));
-        assert!(!TileOwner::Owned(PlayerId::from("red")).is_owned_by("blue"));
+        assert!(!TileOwner::Neutral.is_owned_by(&PlayerId::from("red")));
+        assert!(TileOwner::Owned(PlayerId::from("red")).is_owned_by(&PlayerId::from("red")));
+        assert!(!TileOwner::Owned(PlayerId::from("red")).is_owned_by(&PlayerId::from("blue")));
         // A neutral property is still a property; a mountain is not.
         assert!(TileOwner::Neutral.is_ownable());
         assert!(!TileOwner::NotOwnable.is_ownable());
@@ -1767,8 +1768,12 @@ mod tests {
     /// mutation — a stale index silently returns the wrong unit.
     #[test]
     fn the_unit_index_survives_removal_and_growth() {
-        let mut units = UnitStore::new(vec![unit(0, "p1"), unit(1, "p2"), unit(2, "p1")])
-            .expect("distinct ids");
+        let mut units = UnitStore::new(vec![
+            unit(0, PlayerId::from("p1")),
+            unit(1, PlayerId::from("p2")),
+            unit(2, PlayerId::from("p1")),
+        ])
+        .expect("distinct ids");
 
         assert_eq!(units.index_of(UnitId::new(2)), Some(2));
         units.remove(0);
@@ -1776,7 +1781,7 @@ mod tests {
         assert_eq!(units.index_of(UnitId::new(1)), Some(0));
         assert_eq!(units.index_of(UnitId::new(2)), Some(1));
 
-        units.push(unit(7, "p1"));
+        units.push(unit(7, PlayerId::from("p1")));
         assert_eq!(units.index_of(UnitId::new(7)), Some(2));
         assert_eq!(units.get(UnitId::new(7)).unwrap().id, UnitId::new(7));
 
@@ -1790,7 +1795,10 @@ mod tests {
     #[test]
     fn duplicate_unit_ids_do_not_decode() {
         assert_eq!(
-            UnitStore::new(vec![unit(0, "p1"), unit(0, "p2")]),
+            UnitStore::new(vec![
+                unit(0, PlayerId::from("p1")),
+                unit(0, PlayerId::from("p2")),
+            ]),
             Err(DuplicateUnitId(UnitId::new(0)))
         );
     }
@@ -1798,7 +1806,11 @@ mod tests {
     /// The store is an array on the wire, exactly as it was as a `Vec`.
     #[test]
     fn the_store_travels_as_a_plain_array() {
-        let units = UnitStore::new(vec![unit(0, "p1"), unit(1, "p2")]).unwrap();
+        let units = UnitStore::new(vec![
+            unit(0, PlayerId::from("p1")),
+            unit(1, PlayerId::from("p2")),
+        ])
+        .unwrap();
         let wire = serde_json::to_value(&units).unwrap();
         assert!(wire.is_array());
         assert_eq!(wire.as_array().unwrap().len(), 2);
@@ -1872,10 +1884,10 @@ mod tests {
     }
     struct NoneVisible;
     impl Visibility for NoneVisible {
-        fn visible_position(&self, _: &State, _: &str, _: Pos) -> bool {
+        fn visible_position(&self, _: &State, _: &TeamId, _: Pos) -> bool {
             false
         }
-        fn visible_unit(&self, _: &State, _: &str, _: &Unit) -> bool {
+        fn visible_unit(&self, _: &State, _: &TeamId, _: &Unit) -> bool {
             false
         }
     }
@@ -1923,31 +1935,33 @@ mod tests {
     #[test]
     fn hidden_enemy_substitution_does_not_change_observation() {
         let mut s = fixture();
-        let a = observe(&NoneVisible, &s, "p1").unwrap();
+        let recipient = PlayerId::from("p1");
+        let a = observe(&NoneVisible, &s, &recipient).unwrap();
         s.units[1].id = UnitId::new(2);
         s.units.push(Unit {
             id: UnitId::new(3),
             ..s.units[1].clone()
         });
-        assert_eq!(a, observe(&NoneVisible, &s, "p1").unwrap());
+        assert_eq!(a, observe(&NoneVisible, &s, &recipient).unwrap());
     }
 
     #[test]
     fn visible_enemy_authoritative_id_is_not_observed() {
         struct AllVisible;
         impl Visibility for AllVisible {
-            fn visible_position(&self, _: &State, _: &str, _: Pos) -> bool {
+            fn visible_position(&self, _: &State, _: &TeamId, _: Pos) -> bool {
                 true
             }
-            fn visible_unit(&self, _: &State, _: &str, _: &Unit) -> bool {
+            fn visible_unit(&self, _: &State, _: &TeamId, _: &Unit) -> bool {
                 true
             }
         }
 
         let mut state = fixture();
-        let before = observe(&AllVisible, &state, "p1").unwrap();
+        let recipient = PlayerId::from("p1");
+        let before = observe(&AllVisible, &state, &recipient).unwrap();
         state.units[1].id = UnitId::new(99);
-        assert_eq!(before, observe(&AllVisible, &state, "p1").unwrap());
+        assert_eq!(before, observe(&AllVisible, &state, &recipient).unwrap());
         assert_eq!(
             before
                 .units
@@ -2006,7 +2020,14 @@ mod tests {
         }];
 
         assert_eq!(
-            observe_events(&AwbwVisibility, &state, &next_state, &events, "p1").unwrap(),
+            observe_events(
+                &AwbwVisibility,
+                &state,
+                &next_state,
+                &events,
+                &PlayerId::from("p1"),
+            )
+            .unwrap(),
             vec![serde_json::json!({
                 "type": "unit-moved",
                 "unit": {"type": "enemy", "position": Pos::new(3, 0)},
@@ -2063,7 +2084,10 @@ mod tests {
                     status: TeamStatus::Active,
                 },
             ],
-            players: vec![player("p1", "t1"), player("p2", "t2")],
+            players: vec![
+                player(PlayerId::from("p1"), TeamId::from("t1")),
+                player(PlayerId::from("p2"), TeamId::from("t2")),
+            ],
             turn: Turn {
                 day: 1,
                 active_player: "p1".into(),
@@ -2075,17 +2099,21 @@ mod tests {
                 kind: WeatherKind::Clear,
                 remaining_turns: 0,
             },
-            units: UnitStore::new(vec![unit(0, "p1"), unit(1, "p2")]).expect("distinct ids"),
+            units: UnitStore::new(vec![
+                unit(0, PlayerId::from("p1")),
+                unit(1, PlayerId::from("p2")),
+            ])
+            .expect("distinct ids"),
             next_unit_id: None,
             match_state: Match::Active {
                 draw_offers: vec![],
             },
         }
     }
-    fn player(id: &str, team: &str) -> Player {
+    fn player(id: PlayerId, team: TeamId) -> Player {
         Player {
-            id: id.into(),
-            team: team.into(),
+            id,
+            team,
             funds: 0,
             status: PlayerStatus::Active,
             commanders: vec![Commander {
@@ -2097,11 +2125,11 @@ mod tests {
             power_state: PowerState::None,
         }
     }
-    fn unit(id: u32, owner: &str) -> Unit {
+    fn unit(id: u32, owner: PlayerId) -> Unit {
         Unit {
             id: id.into(),
             kind: UnitKindId::Infantry,
-            owner: owner.into(),
+            owner,
             hp: 100,
             fuel: 99,
             ammo: 0,

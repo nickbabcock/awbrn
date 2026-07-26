@@ -17,7 +17,7 @@ use crate::violation::{Action, Violation};
 
 pub(crate) fn execute_produce_unit(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     position: Pos,
     kind: UnitKind,
 ) -> Result<Execution, ExecuteError> {
@@ -99,7 +99,7 @@ pub(crate) fn execute_produce_unit(
     next.units.push(Unit {
         id: allocated_id,
         kind,
-        owner: player.into(),
+        owner: player.clone(),
         hp: 100,
         fuel: max_fuel,
         ammo: max_ammo,
@@ -111,7 +111,7 @@ pub(crate) fn execute_produce_unit(
         state: next,
         events: vec![
             Event::FundsChanged {
-                player: PlayerId::from(player),
+                player: player.clone(),
                 from: funds,
                 to: funds - cost,
                 reason: ReasonId::from("unit-production"),
@@ -119,7 +119,7 @@ pub(crate) fn execute_produce_unit(
             Event::UnitCreated {
                 unit: allocated_id,
                 kind,
-                owner: PlayerId::from(player),
+                owner: player.clone(),
                 position,
             },
         ],
@@ -127,7 +127,7 @@ pub(crate) fn execute_produce_unit(
     })
 }
 
-pub(crate) fn player_owns_lab(state: &State, player: &str) -> bool {
+pub(crate) fn player_owns_lab(state: &State, player: &PlayerId) -> bool {
     state
         .board
         .tiles()
@@ -136,7 +136,7 @@ pub(crate) fn player_owns_lab(state: &State, player: &str) -> bool {
 
 pub(crate) fn execute_move_capture(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     unit_id: UnitId,
     path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
@@ -146,8 +146,7 @@ pub(crate) fn execute_move_capture(
     let origin = plan.origin();
     let path = plan.path();
     let profile = ruleset::profile(unit.kind);
-    let _intended_cost: u64 = plan.entry_costs().iter().sum();
-    let actor_team = plan.actor_team().as_str();
+    let actor_team = plan.actor_team();
     let unit_index = plan.unit_index();
     let entry_costs = plan.entry_costs();
     let visibility = AwbwVisibility;
@@ -160,7 +159,7 @@ pub(crate) fn execute_move_capture(
     let destination = *path.last().expect("origin was checked");
     let destination_tile = &state.board.tile(destination);
     let capturable = ruleset::terrain_has(destination_tile.terrain, TerrainTrait::Capturable);
-    let owner = destination_tile.owner.player().map(PlayerId::as_str);
+    let owner = destination_tile.owner.player();
     let owner_is_hostile = owner.is_none_or(|owner| {
         state
             .find_player(owner)
@@ -253,11 +252,11 @@ pub(crate) fn execute_move_capture(
             from: before,
             to: 0,
         });
-        tile.owner = TileOwner::Owned(player.into());
+        tile.owner = TileOwner::Owned(player.clone());
         events.push(Event::TileOwnerChanged {
             position: destination,
             from: previous_owner.clone(),
-            to: Some(PlayerId::from(player)),
+            to: Some(player.clone()),
         });
         tile.capture_points = Some(20);
         events.push(Event::CaptureChanged {
@@ -312,14 +311,14 @@ pub(crate) fn execute_move_capture(
             && let Some(previous_owner) = previous_owner
         {
             let cause = if defeats_owner {
-                "hq-capture"
+                ReasonId::from("hq-capture")
             } else {
-                "lab-capture"
+                ReasonId::from("lab-capture")
             };
             eliminate_player(
                 &mut next,
                 &previous_owner,
-                cause,
+                &cause,
                 Some(player),
                 Some(destination),
                 &mut events,
@@ -333,7 +332,7 @@ pub(crate) fn execute_move_capture(
     })
 }
 
-pub(crate) fn owned_unit_count(state: &State, player: &str) -> Result<u64, ExecuteError> {
+pub(crate) fn owned_unit_count(state: &State, player: &PlayerId) -> Result<u64, ExecuteError> {
     u64::try_from(
         state
             .units
@@ -344,7 +343,7 @@ pub(crate) fn owned_unit_count(state: &State, player: &str) -> Result<u64, Execu
     .map_err(|_| ExecuteError::InvalidState("owned unit count exceeds u64".into()))
 }
 
-pub(crate) fn capture_limit_count(state: &State, player: &str) -> u64 {
+pub(crate) fn capture_limit_count(state: &State, player: &PlayerId) -> u64 {
     state
         .board
         .tiles()

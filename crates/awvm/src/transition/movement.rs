@@ -9,7 +9,6 @@ use super::ReducerError as ExecuteError;
 use super::*;
 use crate::commander::{self};
 use crate::event::Event;
-use crate::random::RandomToken;
 use crate::ruleset::{self};
 use crate::semantic::{
     AwbwVisibility, Concealment, Location, PlayerId, Pos, State, UnitAction, UnitId,
@@ -90,7 +89,7 @@ pub(crate) fn plan(
     if unit.owner != player {
         return Err(violation(Violation::UnitNotOwned {
             unit: unit_id,
-            player: PlayerId::from(player),
+            player: player.clone(),
         }));
     }
     let Location::Board { position: origin } = unit.location else {
@@ -277,7 +276,7 @@ pub(crate) fn reset_capture_on_departure(
 
 pub(crate) fn execute_move_concealment(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     unit_id: UnitId,
     path: Vec<Pos>,
     hide: bool,
@@ -338,10 +337,9 @@ pub(crate) fn execute_move_concealment(
 
 pub(crate) fn execute_move_wait(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     unit_id: UnitId,
     path: Vec<Pos>,
-    _random: &[RandomToken],
 ) -> Result<Execution, ExecuteError> {
     let turn = ActiveTurn::open(state, player)?;
     let plan = turn.plan_move(unit_id, path)?;

@@ -22,8 +22,8 @@ pub(crate) fn apply_strike_funds(
     state: &State,
     next: &mut State,
     events: &mut Vec<Event>,
-    striker: &str,
-    target_owner: &str,
+    striker: &PlayerId,
+    target_owner: &PlayerId,
     target_kind: UnitKindId,
     from_hp: u8,
     to_hp: u8,
@@ -48,7 +48,7 @@ pub(crate) fn apply_strike_funds(
         .ok_or_else(|| ExecuteError::InvalidState("strike funds overflow".into()))?;
     player.funds = to;
     events.push(Event::FundsChanged {
-        player: PlayerId::from(striker),
+        player: striker.clone(),
         from,
         to,
         reason: ReasonId::from("commander-power"),
@@ -61,12 +61,12 @@ pub(crate) fn apply_strike_power_charge(
     state: &State,
     next: &mut State,
     events: &mut Vec<Event>,
-    striker: &str,
-    target_owner: &str,
+    striker: &PlayerId,
+    target_owner: &PlayerId,
     target_kind: UnitKindId,
     from_hp: u8,
     to_hp: u8,
-    reason: &str,
+    reason: &ReasonId,
 ) -> Result<(), ExecuteError> {
     let visual_damage = u64::from(from_hp.div_ceil(10).saturating_sub(to_hp.div_ceil(10)));
     if visual_damage == 0 {
@@ -137,11 +137,11 @@ pub(crate) fn apply_strike_power_charge(
             }
             next.player_mut(player_index).commanders[commander_slot].power_charge = to;
             events.push(Event::PowerChargeChanged {
-                player: PlayerId::from(player_id),
+                player: player_id.clone(),
                 commander_slot,
                 from,
                 to,
-                reason: ReasonId::from(reason),
+                reason: reason.clone(),
             });
         }
     }
@@ -151,7 +151,7 @@ pub(crate) fn apply_strike_power_charge(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn execute_tile_attack(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     unit_id: UnitId,
     attacker_index: usize,
     attacker: &Unit,
@@ -193,7 +193,7 @@ pub(crate) fn execute_tile_attack(
 
     let actor_team = state
         .find_player(player)
-        .map(|candidate| candidate.team.as_str())
+        .map(|candidate| &candidate.team)
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
     if state.settings.fog && !AwbwVisibility.visible_position(state, actor_team, position) {
         return Err(violation(Violation::InvalidTarget {
@@ -356,7 +356,7 @@ pub(crate) fn execute_tile_attack(
 
 pub(crate) fn execute_move_attack(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     unit_id: UnitId,
     path: Vec<Pos>,
     target: AttackTarget,
@@ -445,7 +445,7 @@ pub(crate) fn execute_move_attack(
     }
     let actor_team = state
         .find_player(player)
-        .map(|candidate| candidate.team.as_str())
+        .map(|candidate| &candidate.team)
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
     if !AwbwVisibility.visible_unit(state, actor_team, defender) {
         return Err(violation(Violation::InvalidTarget {
@@ -502,7 +502,7 @@ pub(crate) fn execute_move_attack(
     let stars = |p: Pos| ruleset::defense_stars(state.board.tile(p).terrain);
     let unit_domain = |kind: UnitKindId| combat_domain(ruleset::profile(kind));
     let fire_mode = |kind: UnitKindId| ruleset::profile(kind).fire_mode.as_str();
-    let tower_count = |owner: &str| {
+    let tower_count = |owner: &PlayerId| {
         state
             .board
             .tiles()
@@ -513,7 +513,7 @@ pub(crate) fn execute_move_attack(
             .count() as i64
     };
     let is_property = |terrain: TerrainId| ruleset::terrain_has(terrain, TerrainTrait::Capturable);
-    let combat_context = |owner: &str, position: Pos| CombatContext {
+    let combat_context = |owner: &PlayerId, position: Pos| CombatContext {
         tower_count: tower_count(owner),
         funds: state.find_player(owner).map_or(0, |player| player.funds),
         owned_properties: state
@@ -724,7 +724,7 @@ pub(crate) fn execute_move_attack(
             attacker.kind,
             attacker.hp,
             attacker_remaining,
-            "combat-counter",
+            &ReasonId::from("combat-counter"),
         )?;
         if attacker_remaining == 0 {
             events.push(Event::UnitRemoved {
@@ -733,7 +733,14 @@ pub(crate) fn execute_move_attack(
             });
             next.units.remove(ai);
             if !next.units.iter().any(|unit| unit.owner == attacker.owner) {
-                eliminate_player(&mut next, &attacker.owner, "rout", None, None, &mut events)?;
+                eliminate_player(
+                    &mut next,
+                    &attacker.owner,
+                    &ReasonId::from("rout"),
+                    None,
+                    None,
+                    &mut events,
+                )?;
             }
             return Ok(Execution {
                 state: next,
@@ -791,7 +798,7 @@ pub(crate) fn execute_move_attack(
             defender.kind,
             defender.hp,
             defender_remaining,
-            "combat",
+            &ReasonId::from("combat"),
         )?;
         if defender_remaining == 0 {
             events.push(Event::UnitRemoved {
@@ -822,7 +829,14 @@ pub(crate) fn execute_move_attack(
             reason: ReasonId::from("attack"),
         });
         if defender_remaining == 0 && !next.units.iter().any(|unit| unit.owner == defender_owner) {
-            eliminate_player(&mut next, &defender_owner, "rout", None, None, &mut events)?;
+            eliminate_player(
+                &mut next,
+                &defender_owner,
+                &ReasonId::from("rout"),
+                None,
+                None,
+                &mut events,
+            )?;
         }
         return Ok(Execution {
             state: next,
@@ -949,7 +963,7 @@ pub(crate) fn execute_move_attack(
         defender.kind,
         defender.hp,
         remaining,
-        "combat",
+        &ReasonId::from("combat"),
     )?;
     if remaining > 0 {
         next.units[di].hp = remaining;
@@ -998,7 +1012,7 @@ pub(crate) fn execute_move_attack(
             attacker.kind,
             attacker.hp,
             ahp,
-            "combat-counter",
+            &ReasonId::from("combat-counter"),
         )?;
         next.units[ai].hp = ahp;
     }
@@ -1021,7 +1035,14 @@ pub(crate) fn execute_move_attack(
         reason: ReasonId::from("attack"),
     });
     if remaining == 0 && !next.units.iter().any(|unit| unit.owner == defender_owner) {
-        eliminate_player(&mut next, &defender_owner, "rout", None, None, &mut events)?;
+        eliminate_player(
+            &mut next,
+            &defender_owner,
+            &ReasonId::from("rout"),
+            None,
+            None,
+            &mut events,
+        )?;
     }
     Ok(Execution {
         state: next,

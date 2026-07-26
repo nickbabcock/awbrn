@@ -27,7 +27,7 @@ pub(crate) fn day_limit_outcome(state: &State) -> Result<Outcome, ExecuteError> 
         let properties = state
             .board
             .tiles()
-            .filter(|tile| tile.owner.player().is_some_and(|owner| &player.id == owner))
+            .filter(|tile| tile.owner.player().is_some_and(|owner| player.id == owner))
             .count();
         scores.push((player.team.clone(), properties));
     }
@@ -59,7 +59,7 @@ pub(crate) fn day_limit_outcome(state: &State) -> Result<Outcome, ExecuteError> 
 
 pub(crate) fn turns_until_player_selection(
     state: &State,
-    player: &str,
+    player: &PlayerId,
 ) -> Result<u64, ExecuteError> {
     let order_len = state.turn.order.len();
     if order_len == 0 || state.turn.position >= order_len {
@@ -92,7 +92,7 @@ pub(crate) fn turns_until_player_selection(
 
 pub(crate) fn execute_end_turn(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     random: &[RandomToken],
 ) -> Result<Execution, ExecuteError> {
     execute_turn_boundary(state, player, BoundaryCommand::EndTurn, random)
@@ -107,7 +107,7 @@ pub(crate) enum BoundaryCommand {
 
 pub(crate) fn execute_turn_boundary(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     command: BoundaryCommand,
     random: &[RandomToken],
 ) -> Result<Execution, ExecuteError> {
@@ -125,7 +125,7 @@ pub(crate) fn execute_turn_boundary(
     }
     if state.turn.active_player != player {
         return Err(violation(Violation::NotActivePlayer {
-            player: PlayerId::from(player),
+            player: player.clone(),
         }));
     }
     let player_index = state
@@ -154,7 +154,7 @@ pub(crate) fn execute_turn_boundary(
     let mut next = state.clone();
     let mut tape = RandomTape::new(random);
     let mut events = vec![Event::PhaseChanged {
-        player: PlayerId::from(player),
+        player: player.clone(),
         from: Phase::UnitAction,
         to: Phase::TurnEnd,
     }];
@@ -181,7 +181,7 @@ pub(crate) fn execute_turn_boundary(
             let commander_id = next.player_mut(player_index).commanders[from_slot].id;
             next.player_mut(player_index).power_state = PowerState::None;
             events.push(Event::PowerEnded {
-                player: PlayerId::from(player),
+                player: player.clone(),
                 commander: commander_id,
                 power,
             });
@@ -189,13 +189,20 @@ pub(crate) fn execute_turn_boundary(
         next.player_mut(player_index).commanders[from_slot].active = false;
         next.player_mut(player_index).commanders[to_slot].active = true;
         events.push(Event::CommanderSwapped {
-            player: PlayerId::from(player),
+            player: player.clone(),
             from_slot,
             to_slot,
         });
     }
     if command == BoundaryCommand::Resign
-        && eliminate_player(&mut next, player, "resignation", None, None, &mut events)?
+        && eliminate_player(
+            &mut next,
+            player,
+            &ReasonId::from("resignation"),
+            None,
+            None,
+            &mut events,
+        )?
     {
         return Ok(Execution {
             state: next,
@@ -662,7 +669,14 @@ pub(crate) fn execute_turn_boundary(
         }
 
         if removed_units && !next.units.iter().any(|unit| unit.owner == successor_id) {
-            if eliminate_player(&mut next, &successor_id, "rout", None, None, &mut events)? {
+            if eliminate_player(
+                &mut next,
+                &successor_id,
+                &ReasonId::from("rout"),
+                None,
+                None,
+                &mut events,
+            )? {
                 return Ok(Execution {
                     state: next,
                     events,

@@ -23,13 +23,13 @@ use std::collections::HashSet;
 
 pub(crate) fn area_strike_centers(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     radius: usize,
     policies: &[AreaStrikePolicy],
 ) -> Result<Vec<Pos>, ExecuteError> {
     let actor_team = state
         .find_player(player)
-        .map(|candidate| candidate.team.as_str())
+        .map(|candidate| &candidate.team)
         .ok_or_else(|| ExecuteError::InvalidState("area-strike actor is missing".into()))?;
     let mut priced_units = Vec::new();
     for unit in &state.units {
@@ -136,7 +136,7 @@ pub(crate) fn area_strike_centers(
 
 pub(crate) fn execute_activate_power(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     level: PowerLevel,
 ) -> Result<Execution, ExecuteError> {
     let _turn = ActiveTurn::open(state, player)?;
@@ -195,7 +195,7 @@ pub(crate) fn execute_activate_power(
         },
     };
     let mut events = vec![Event::PowerActivated {
-        player: PlayerId::from(player),
+        player: player.clone(),
         commander: active_commander.id,
         power: level,
     }];
@@ -309,7 +309,7 @@ struct Activation<'a> {
     /// The state the command was validated against.
     state: &'a State,
     /// The activating player.
-    player: &'a str,
+    player: &'a PlayerId,
     seat: crate::semantic::PlayerIdx,
     /// The state being built.
     next: &'a mut State,
@@ -761,7 +761,7 @@ fn spawn_units_on_owned_properties(
         cx.next.units.push(Unit {
             id: allocated_id,
             kind: unit_kind,
-            owner: cx.player.into(),
+            owner: cx.player.clone(),
             hp,
             fuel: max_fuel,
             ammo: max_ammo,
@@ -772,7 +772,7 @@ fn spawn_units_on_owned_properties(
         cx.events.push(Event::UnitCreated {
             unit: allocated_id,
             kind: unit_kind,
-            owner: PlayerId::from(cx.player),
+            owner: cx.player.clone(),
             position,
         });
     }
@@ -1034,7 +1034,7 @@ fn multiply_funds_ratio(
     }
     cx.next.player_mut(cx.seat).funds = to;
     cx.events.push(Event::FundsChanged {
-        player: PlayerId::from(cx.player),
+        player: cx.player.clone(),
         from,
         to,
         reason: ReasonId::from("commander-power"),
@@ -1044,7 +1044,7 @@ fn multiply_funds_ratio(
 
 pub(crate) fn execute_tag(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     random: &[RandomToken],
 ) -> Result<Execution, ExecuteError> {
     execute_turn_boundary(state, player, BoundaryCommand::Tag, random)

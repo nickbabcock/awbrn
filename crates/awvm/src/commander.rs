@@ -9,7 +9,9 @@ use std::sync::LazyLock;
 use serde::{Deserialize, Serialize};
 
 use crate::ruleset::{PropertyKind, Terrain, UnitKind};
-use crate::semantic::{CommanderId as CommanderKind, Player, PowerState, State, Unit, WeatherKind};
+use crate::semantic::{
+    CommanderId as CommanderKind, Player, PlayerId, PowerState, State, Unit, WeatherKind,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Strike {
@@ -629,8 +631,8 @@ pub(crate) fn maximum_power_charge(
 
 pub(crate) fn strike_funds_gain(
     state: &State,
-    player: &str,
-    target_owner: &str,
+    player: &PlayerId,
+    target_owner: &PlayerId,
     from_hp: u8,
     to_hp: u8,
     target_value: u64,
@@ -682,7 +684,10 @@ pub(crate) fn strike_funds_gain(
         })
 }
 
-fn active<'a>(state: &'a State, player_id: &str) -> Option<(&'a Player, CommanderKind, Power)> {
+fn active<'a>(
+    state: &'a State,
+    player_id: &PlayerId,
+) -> Option<(&'a Player, CommanderKind, Power)> {
     let player = state.players.iter().find(|player| player.id == player_id)?;
     let (slot, power) = match player.power_state {
         PowerState::None => (
@@ -744,7 +749,7 @@ fn applicable_rules(profile: &CombatProfile, power: Power) -> impl Iterator<Item
 
 pub fn effective_combat(
     state: &State,
-    owner: &str,
+    owner: &PlayerId,
     unit: Combatant<'_>,
     strike: Strike,
     context: CombatContext,
@@ -853,7 +858,7 @@ pub fn effective_combat(
 
 pub fn effective_enemy_terrain_stars(
     state: &State,
-    owner: &str,
+    owner: &PlayerId,
     unit: Combatant<'_>,
     strike: Strike,
     base: i64,
@@ -876,7 +881,7 @@ pub fn effective_enemy_terrain_stars(
     Some(stars.max(0))
 }
 
-pub fn counter_first(state: &State, owner: &str, unit: Combatant<'_>, strike: Strike) -> bool {
+pub fn counter_first(state: &State, owner: &PlayerId, unit: Combatant<'_>, strike: Strike) -> bool {
     let table = combat_table();
     let Some((_, commander, power)) = active(state, owner) else {
         return false;
@@ -916,7 +921,10 @@ fn value_add(
         .sum()
 }
 
-fn effective_profile(state: &State, owner: &str) -> Option<(&'static EffectiveProfile, Power)> {
+fn effective_profile(
+    state: &State,
+    owner: &PlayerId,
+) -> Option<(&'static EffectiveProfile, Power)> {
     let (_, commander, power) = active(state, owner)?;
     Some((profile_table().commanders.get(commander.as_str())?, power))
 }
@@ -1009,7 +1017,7 @@ fn selected_rational(states: &RationalStates, power: Power) -> Option<Rational> 
     }
 }
 
-pub fn effective_build_cost(state: &State, player: &str, base: u64) -> Option<u64> {
+pub fn effective_build_cost(state: &State, player: &PlayerId, base: u64) -> Option<u64> {
     let Some((profile, power)) = effective_profile(state, player) else {
         return Some(base);
     };
@@ -1033,7 +1041,7 @@ fn production_rules(
 
 pub fn commander_production_site(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     terrain: Terrain,
     domain: Option<&str>,
 ) -> bool {
@@ -1070,7 +1078,7 @@ pub fn effective_capture_points(state: &State, unit: &Unit, visual_hp: u64) -> u
     }
 }
 
-pub fn effective_income_per_property(state: &State, player: &str) -> u64 {
+pub fn effective_income_per_property(state: &State, player: &PlayerId) -> u64 {
     let add =
         effective_profile(state, player).map_or(0, |(profile, _)| profile.income_per_property_add);
     state
@@ -1079,7 +1087,7 @@ pub fn effective_income_per_property(state: &State, player: &str) -> u64 {
         .saturating_add_signed(add)
 }
 
-pub fn effective_repair_bars(state: &State, player: &str) -> u64 {
+pub fn effective_repair_bars(state: &State, player: &PlayerId) -> u64 {
     2 + effective_profile(state, player).map_or(0, |(profile, _)| profile.repair_bars_add)
 }
 

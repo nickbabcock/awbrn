@@ -18,7 +18,7 @@ use crate::violation::{Action, Violation};
 
 pub(crate) fn execute_move_supply(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     unit_id: UnitId,
     path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
@@ -107,9 +107,9 @@ pub(crate) fn execute_move_supply(
 
 pub(crate) fn supply_target_eligible(
     state: &State,
-    source_owner: &str,
-    source_team: &str,
-    target_owner: &str,
+    source_owner: &PlayerId,
+    source_team: &crate::semantic::TeamId,
+    target_owner: &PlayerId,
     targets: TargetSet,
 ) -> bool {
     match targets {
@@ -122,7 +122,7 @@ pub(crate) fn supply_target_eligible(
 
 pub(crate) fn execute_move_repair(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     unit_id: UnitId,
     path: Vec<Pos>,
     target_id: UnitId,
@@ -138,16 +138,11 @@ pub(crate) fn execute_move_repair(
     };
     let target_index = state.units.index_of(target_id);
     let target = target_index.and_then(|index| state.units.at(index));
-    let target_team = target.and_then(|target| {
-        state
-            .find_player(&target.owner)
-            .map(|owner| owner.team.as_str())
-    });
+    let target_team =
+        target.and_then(|target| state.find_player(&target.owner).map(|owner| &owner.team));
     let target_position = target.and_then(board_position);
     if !target.is_some_and(|target| {
-        target.id != unit_id
-            && target_team == Some(plan.actor_team().as_str())
-            && target_position.is_some()
+        target.id != unit_id && target_team == Some(plan.actor_team()) && target_position.is_some()
     }) {
         return Err(violation(Violation::InvalidTarget {
             target: Some(target_id.into()),
@@ -216,7 +211,7 @@ pub(crate) fn execute_move_repair(
             let hp_after = (visual_hp + 1).min(10) * exact_hp;
             outcome.state.player_mut(player_index).funds -= heal_cost;
             outcome.events.push(Event::FundsChanged {
-                player: PlayerId::from(player),
+                player: player.clone(),
                 from: funds_before,
                 to: funds_before - heal_cost,
                 reason: ReasonId::from("unit-repair"),
@@ -239,7 +234,7 @@ pub(crate) fn execute_move_repair(
 
 pub(crate) fn execute_move_load(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     unit_id: UnitId,
     path: Vec<Pos>,
     transport_id: UnitId,
@@ -316,7 +311,7 @@ pub(crate) fn execute_move_load(
 
 pub(crate) fn execute_unload(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     transport_id: UnitId,
     cargo_id: UnitId,
     destination: Pos,
@@ -409,7 +404,7 @@ pub(crate) fn execute_unload(
 
 pub(crate) fn execute_move_join(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     unit_id: UnitId,
     path: Vec<Pos>,
     target_id: UnitId,
@@ -420,19 +415,15 @@ pub(crate) fn execute_move_join(
     let origin = plan.origin();
     let path = plan.path();
     let profile = ruleset::profile(unit.kind);
-    let _intended_cost: u64 = plan.entry_costs().iter().sum();
-    let actor_team = plan.actor_team().as_str();
+    let actor_team = plan.actor_team();
     let unit_index = plan.unit_index();
     let entry_costs = plan.entry_costs();
     let visibility = AwbwVisibility;
 
     let target_index = state.units.index_of(target_id);
     let target = target_index.and_then(|index| state.units.at(index));
-    let target_owner_team = target.and_then(|target| {
-        state
-            .find_player(&target.owner)
-            .map(|owner| owner.team.as_str())
-    });
+    let target_owner_team =
+        target.and_then(|target| state.find_player(&target.owner).map(|owner| &owner.team));
     let target_position = target.and_then(board_position);
     let target_valid = target.is_some_and(|target| {
         target.id != unit.id
@@ -551,7 +542,7 @@ pub(crate) fn execute_move_join(
             .checked_add(refund)
             .ok_or_else(|| ExecuteError::InvalidState("join refund overflow".into()))?;
         events.push(Event::FundsChanged {
-            player: PlayerId::from(player),
+            player: player.clone(),
             from: funds_before,
             to: next.player_mut(player_index).funds,
             reason: ReasonId::from("unit-join"),

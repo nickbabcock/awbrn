@@ -14,9 +14,9 @@ use crate::semantic::{
 
 pub(crate) fn eliminate_player(
     state: &mut State,
-    defeated_player: &str,
-    cause: &str,
-    beneficiary: Option<&str>,
+    defeated_player: &PlayerId,
+    cause: &ReasonId,
+    beneficiary: Option<&PlayerId>,
     trigger_hq: Option<Pos>,
     events: &mut Vec<Event>,
 ) -> Result<bool, ExecuteError> {
@@ -25,13 +25,13 @@ pub(crate) fn eliminate_player(
         .ok_or(ExecuteError::UnsupportedRuleset)?;
     let defeated_team = state.player_mut(player_index).team.clone();
     let previous_status = state.player_mut(player_index).status;
-    state.player_mut(player_index).status = if cause == "resignation" {
+    state.player_mut(player_index).status = if cause == &ReasonId::from("resignation") {
         PlayerStatus::Resigned
     } else {
         PlayerStatus::Eliminated
     };
     events.push(Event::PlayerStatusChanged {
-        player: PlayerId::from(defeated_player),
+        player: defeated_player.clone(),
         from: previous_status,
         to: state.player_mut(player_index).status,
     });
@@ -49,7 +49,7 @@ pub(crate) fn eliminate_player(
         team.status = TeamStatus::Eliminated;
         events.push(Event::TeamEliminated {
             team: defeated_team,
-            reason: ReasonId::from(cause),
+            reason: cause.clone(),
         });
     }
     let mut surviving_teams: Vec<_> = state
@@ -67,7 +67,7 @@ pub(crate) fn eliminate_player(
     if surviving_teams.len() == 1 {
         let outcome = Outcome::Victory {
             winners: surviving_teams,
-            reason: cause.into(),
+            reason: cause.clone(),
         };
         complete_match(state, outcome, events);
         return Ok(true);
@@ -134,7 +134,7 @@ pub(crate) fn eliminate_player(
             });
         }
         let previous_owner = tile.owner.to_optional();
-        let next_owner = beneficiary.map(PlayerId::from);
+        let next_owner = beneficiary.cloned();
         if previous_owner != next_owner {
             tile.owner = TileOwner::ownable(next_owner.clone());
             events.push(Event::TileOwnerChanged {
@@ -149,7 +149,7 @@ pub(crate) fn eliminate_player(
 
 pub(crate) fn execute_resign(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     random: &[RandomToken],
 ) -> Result<Execution, ExecuteError> {
     execute_turn_boundary(state, player, BoundaryCommand::Resign, random)

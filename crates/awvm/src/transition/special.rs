@@ -15,7 +15,7 @@ use crate::violation::{Action, Violation};
 
 pub(crate) fn execute_move_launch(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     unit_id: UnitId,
     path: Vec<Pos>,
     target: Pos,
@@ -116,7 +116,7 @@ pub(crate) fn execute_move_launch(
 
 pub(crate) fn execute_move_explode(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     unit_id: UnitId,
     path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
@@ -204,7 +204,7 @@ pub(crate) fn execute_move_explode(
         eliminate_player(
             &mut outcome.state,
             &exploding_owner,
-            "rout",
+            &ReasonId::from("rout"),
             None,
             None,
             &mut outcome.events,
@@ -219,7 +219,7 @@ pub(crate) fn execute_move_explode(
 
 pub(crate) fn execute_delete_unit(
     state: &State,
-    player: &str,
+    player: &PlayerId,
     unit_id: UnitId,
 ) -> Result<Execution, ExecuteError> {
     let _turn = ActiveTurn::open(state, player)?;
@@ -231,7 +231,7 @@ pub(crate) fn execute_delete_unit(
     if unit.owner != player {
         return Err(violation(Violation::UnitNotOwned {
             unit: unit_id,
-            player: PlayerId::from(player),
+            player: player.clone(),
         }));
     }
     let position = board_position(unit)
@@ -258,7 +258,14 @@ pub(crate) fn execute_delete_unit(
         reason: ReasonId::from("delete"),
     });
     if !next.units.iter().any(|unit| unit.owner == player) {
-        eliminate_player(&mut next, player, "rout", None, None, &mut events)?;
+        eliminate_player(
+            &mut next,
+            player,
+            &ReasonId::from("rout"),
+            None,
+            None,
+            &mut events,
+        )?;
     }
     Ok(Execution {
         state: next,

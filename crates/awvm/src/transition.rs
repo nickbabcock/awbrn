@@ -1,8 +1,6 @@
 //! Small authoritative reducer surface used by the conformance protocol.
 
 use serde::{Deserialize, Serialize};
-#[cfg(test)]
-use serde_json::Value;
 
 use crate::commander::{self, PowerLevel};
 use crate::event::{AttackTarget, Event};
@@ -220,9 +218,7 @@ fn reduce(
     random: &[RandomToken],
 ) -> Result<Execution, ReducerError> {
     match command {
-        Command::MoveWait { player, unit, path } => {
-            execute_move_wait(state, &player, unit, path, random)
-        }
+        Command::MoveWait { player, unit, path } => execute_move_wait(state, &player, unit, path),
         Command::MoveAttack {
             player,
             unit,
@@ -291,7 +287,7 @@ fn reduce(
 pub(crate) fn occupancy_is_disclosed(
     visibility: &impl Visibility,
     state: &State,
-    actor_team: &str,
+    actor_team: &crate::semantic::TeamId,
     unit: &Unit,
 ) -> bool {
     let owner_is_ally = state
@@ -372,13 +368,13 @@ pub(crate) fn draw(
 #[derive(Debug)]
 pub(crate) struct ActiveTurn<'a> {
     state: &'a State,
-    player: &'a str,
+    player: &'a PlayerId,
 }
 
 impl<'a> ActiveTurn<'a> {
     /// Run the shared checks, in the order `spec/model/violations.md` fixes:
     /// ruleset, then terminal match, then phase, then actor.
-    pub(crate) fn open(state: &'a State, player: &'a str) -> Result<Self, ReducerError> {
+    pub(crate) fn open(state: &'a State, player: &'a PlayerId) -> Result<Self, ReducerError> {
         if !ruleset::supports(&state.ruleset) {
             return Err(ReducerError::UnsupportedRuleset);
         }
@@ -393,7 +389,7 @@ impl<'a> ActiveTurn<'a> {
         }
         if state.turn.active_player != player {
             return Err(violation(Violation::NotActivePlayer {
-                player: PlayerId::from(player),
+                player: player.clone(),
             }));
         }
         Ok(Self { state, player })
@@ -403,7 +399,7 @@ impl<'a> ActiveTurn<'a> {
         self.state
     }
 
-    pub(crate) const fn player(&self) -> &'a str {
+    pub(crate) const fn player(&self) -> &'a PlayerId {
         self.player
     }
 
@@ -434,7 +430,7 @@ mod tests {
         UnitAction,
     };
     use crate::violation::Action;
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     fn execute(
         state: &State,
@@ -506,12 +502,14 @@ mod tests {
     #[test]
     fn opening_a_turn_checks_ruleset_then_match_then_phase_then_actor() {
         let base = movement_state(3);
-        assert!(ActiveTurn::open(&base, "red").is_ok());
+        let red = PlayerId::from("red");
+        let blue = PlayerId::from("blue");
+        assert!(ActiveTurn::open(&base, &red).is_ok());
 
         let mut wrong_ruleset = base.clone();
         wrong_ruleset.ruleset.revision = "1999-01-01".into();
         assert_eq!(
-            ActiveTurn::open(&wrong_ruleset, "red").unwrap_err(),
+            ActiveTurn::open(&wrong_ruleset, &red).unwrap_err(),
             ReducerError::UnsupportedRuleset
         );
 
@@ -522,14 +520,14 @@ mod tests {
             },
         };
         assert_eq!(
-            ActiveTurn::open(&finished, "red").unwrap_err(),
+            ActiveTurn::open(&finished, &red).unwrap_err(),
             violation(Violation::MatchFinished)
         );
 
         let mut wrong_phase = base.clone();
         wrong_phase.turn.phase = Phase::TurnEnd;
         assert_eq!(
-            ActiveTurn::open(&wrong_phase, "red").unwrap_err(),
+            ActiveTurn::open(&wrong_phase, &red).unwrap_err(),
             violation(Violation::WrongPhase {
                 expected: Phase::UnitAction,
                 actual: Phase::TurnEnd,
@@ -537,7 +535,7 @@ mod tests {
         );
 
         assert_eq!(
-            ActiveTurn::open(&base, "blue").unwrap_err(),
+            ActiveTurn::open(&base, &blue).unwrap_err(),
             violation(Violation::NotActivePlayer {
                 player: PlayerId::from("blue"),
             })
@@ -556,13 +554,13 @@ mod tests {
             },
         };
         assert_eq!(
-            ActiveTurn::open(&state, "red").unwrap_err(),
+            ActiveTurn::open(&state, &PlayerId::from("red")).unwrap_err(),
             violation(Violation::MatchFinished)
         );
     }
 
     fn plan_for(state: &State, path: Vec<Pos>) -> Result<(), ReducerError> {
-        ActiveTurn::open(state, "red")?.plan_move(UnitId::new(0), path)?;
+        ActiveTurn::open(state, &PlayerId::from("red"))?.plan_move(UnitId::new(0), path)?;
         Ok(())
     }
 
@@ -664,7 +662,7 @@ mod tests {
 
     fn direct_combat_state(width: usize) -> State {
         let case: Value = serde_json::from_str(include_str!(
-            "../../../../spec/fixtures/movement/infantry-plain-move.json"
+            "../../../spec/fixtures/movement/infantry-plain-move.json"
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
@@ -687,7 +685,7 @@ mod tests {
     #[test]
     fn scalar_power_activation_validates_availability_and_scaled_cost() {
         let case: Value = serde_json::from_str(include_str!(
-            "../../../../spec/fixtures/commander/adder-power-activation.json"
+            "../../../spec/fixtures/commander/adder-power-activation.json"
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
@@ -720,7 +718,7 @@ mod tests {
     #[test]
     fn random_weather_rejects_missing_and_wrong_tokens() {
         let case: Value = serde_json::from_str(include_str!(
-            "../../../../spec/fixtures/turn-hooks/random-weather-outcomes.json"
+            "../../../spec/fixtures/turn-hooks/random-weather-outcomes.json"
         ))
         .unwrap();
         let state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
@@ -740,7 +738,7 @@ mod tests {
     #[test]
     fn cargo_is_supplied_before_crashing_transport_removes_it() {
         let case: Value = serde_json::from_str(include_str!(
-            "../../../../spec/fixtures/turn-hooks/fuel-upkeep-and-crash.json"
+            "../../../spec/fixtures/turn-hooks/fuel-upkeep-and-crash.json"
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
@@ -782,7 +780,7 @@ mod tests {
     #[test]
     fn capture_move_resets_origin_before_attempting_destination() {
         let case: Value = serde_json::from_str(include_str!(
-            "../../../../spec/fixtures/capture/capture-city-partial.json"
+            "../../../spec/fixtures/capture/capture-city-partial.json"
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
@@ -835,7 +833,7 @@ mod tests {
     #[test]
     fn hidden_destination_occupant_traps_and_suppresses_capture() {
         let case: Value = serde_json::from_str(include_str!(
-            "../../../../spec/fixtures/capture/capture-city-complete.json"
+            "../../../spec/fixtures/capture/capture-city-complete.json"
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
@@ -898,7 +896,7 @@ mod tests {
     #[test]
     fn hidden_destination_occupant_traps_and_suppresses_concealment() {
         let case: Value = serde_json::from_str(include_str!(
-            "../../../../spec/fixtures/capture/capture-city-complete.json"
+            "../../../spec/fixtures/capture/capture-city-complete.json"
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
@@ -963,7 +961,7 @@ mod tests {
     #[test]
     fn move_launch_damages_all_board_units_in_stable_order_without_charge() {
         let case: Value = serde_json::from_str(include_str!(
-            "../../../../spec/fixtures/capture/capture-city-complete.json"
+            "../../../spec/fixtures/capture/capture-city-complete.json"
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
@@ -1035,7 +1033,7 @@ mod tests {
             &state,
             &result.state,
             &result.events,
-            "red",
+            &PlayerId::from("red"),
         )
         .unwrap();
         assert!(
@@ -1048,7 +1046,7 @@ mod tests {
     #[test]
     fn move_explode_damages_other_units_then_removes_bomb_without_charge() {
         let case: Value = serde_json::from_str(include_str!(
-            "../../../../spec/fixtures/capture/capture-city-complete.json"
+            "../../../spec/fixtures/capture/capture-city-complete.json"
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
@@ -1114,7 +1112,7 @@ mod tests {
     #[test]
     fn delete_unit_resets_capture_before_removal_without_charge() {
         let case: Value = serde_json::from_str(include_str!(
-            "../../../../spec/fixtures/capture/capture-city-complete.json"
+            "../../../spec/fixtures/capture/capture-city-complete.json"
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
@@ -1234,7 +1232,11 @@ mod tests {
         };
         state.units.push(defender);
         let visibility = AwbwVisibility;
-        assert!(!visibility.visible_unit(&state, "red-team", &state.units[1]));
+        assert!(!visibility.visible_unit(
+            &state,
+            &crate::semantic::TeamId::from("red-team"),
+            &state.units[1]
+        ));
         let command: Command = serde_json::from_value(json!({
             "type":"move-attack", "player":"red", "unit":0,
             "path":[Pos::new(0, 0),Pos::new(1, 0)],
@@ -1334,7 +1336,7 @@ mod tests {
     #[test]
     fn neutral_infantry_combat_consumes_counter_luck() {
         let case: Value = serde_json::from_str(include_str!(
-            "../../../../spec/fixtures/movement/infantry-plain-move.json"
+            "../../../spec/fixtures/movement/infantry-plain-move.json"
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
@@ -1403,7 +1405,7 @@ mod tests {
     #[test]
     fn lethal_combat_routes_last_unit_owner() {
         let case: Value = serde_json::from_str(include_str!(
-            "../../../../spec/fixtures/combat/neutral-infantry-counter.json"
+            "../../../spec/fixtures/combat/neutral-infantry-counter.json"
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();

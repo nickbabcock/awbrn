@@ -27,4 +27,5 @@ path = "src/criterion_main.rs"
 [[bench]]
 name = "awbrn-bench-gungraun"
 harness = false
+test = false
 path = "src/gungraun_main.rs"
