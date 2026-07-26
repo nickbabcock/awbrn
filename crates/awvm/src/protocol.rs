@@ -5,13 +5,17 @@
 //! conformance backend in [`crate::conformance`], so a test run cannot exercise
 //! a different path than an external implementation sees.
 
-use serde::Deserialize;
-use serde_json::{Value, json};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::event::Event;
 use crate::random::RandomToken;
-use crate::semantic::{self, AwbwVisibility, PlayerId, RulesetRef, State};
+use crate::ruleset;
+use crate::semantic::{
+    self, AwbwVisibility, Observation, ObservedEvent, PlayerId, RulesetRef, State,
+};
 use crate::transition::{self, Command, ExecuteError, ExecuteOutcome};
+use crate::violation::Violation;
 
 pub const PROTOCOL_VERSION: &str = "0.1.0";
 
@@ -267,30 +271,103 @@ struct Envelope {
     operation: String,
 }
 
-/// Handle one protocol request line and produce its response value.
-pub fn handle(line: &str) -> Value {
+/// One protocol response, as `spec/protocol.md` shapes it.
+///
+/// [`handle`] used to build a `serde_json::Value`, which the adapter binary
+/// then serialized a second time — the whole post-state written into a tree so
+/// it could be written again into bytes. Returning the typed shape means the
+/// production path serializes once, straight to its writer; the conformance
+/// runner, which genuinely needs a `Value` to compare against a fixture, is now
+/// the only caller that builds one.
+#[derive(Debug, Serialize)]
+pub struct Response {
+    pub protocol_version: &'static str,
+    pub request_id: String,
+    #[serde(flatten)]
+    pub body: ResponseBody,
+}
+
+impl Response {
+    fn new(request_id: impl Into<String>, body: ResponseBody) -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            request_id: request_id.into(),
+            body,
+        }
+    }
+
+    /// A transport, decoding, unsupported-feature, or internal failure.
+    pub fn error(
+        request_id: impl Into<String>,
+        code: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::new(
+            request_id,
+            ResponseBody::Error {
+                code,
+                message: message.into(),
+            },
+        )
+    }
+}
+
+/// What a response carries beyond its envelope.
+///
+/// Three different payloads all report `status: "ok"`, which is why this is
+/// serialize-only: the tag does not identify the branch, so there is nothing
+/// for a reader to dispatch on. A client decodes the payload it asked for.
+#[derive(Debug, Serialize)]
+#[serde(tag = "status")]
+pub enum ResponseBody {
+    #[serde(rename = "ok")]
+    Capabilities { features: &'static [&'static str] },
+    #[serde(rename = "ok")]
+    Observed { observation: Observation },
+    #[serde(rename = "ok")]
+    ObservedEvents { observed_events: Vec<ObservedEvent> },
+    #[serde(rename = "accepted")]
+    Accepted {
+        state: State,
+        events: Vec<Event>,
+        random_consumed: usize,
+    },
+    #[serde(rename = "rejected")]
+    Rejected {
+        violation: Violation,
+        random_consumed: usize,
+    },
+    #[serde(rename = "error")]
+    Error { code: &'static str, message: String },
+}
+
+/// Handle one protocol request line and produce its response.
+///
+/// The line is scanned for its envelope before the payload is decoded, because
+/// an unsupported protocol version has to be reported even when the payload is
+/// malformed. That pre-scan skips the heavy fields rather than materializing
+/// them: only the operation's own request type ever builds a `State`.
+pub fn handle(line: &str) -> Response {
     let envelope: Envelope = match serde_json::from_str(line) {
         Ok(v) => v,
-        Err(e) => return error("", "INVALID_REQUEST", e.to_string()),
+        Err(e) => return Response::error("", "INVALID_REQUEST", e.to_string()),
     };
     if envelope.protocol_version != PROTOCOL_VERSION {
-        return error(
+        return Response::error(
             &envelope.request_id,
             "UNSUPPORTED_PROTOCOL",
             envelope.protocol_version,
         );
     }
     match envelope.operation.as_str() {
-        "capabilities" => json!({
-            "protocol_version": PROTOCOL_VERSION,
-            "request_id": envelope.request_id,
-            "status": "ok",
-            "features": FEATURES,
-        }),
+        "capabilities" => Response::new(
+            envelope.request_id,
+            ResponseBody::Capabilities { features: FEATURES },
+        ),
         "execute" => execute(line, &envelope.request_id),
         "observe" => observe(line, &envelope.request_id),
         "observe-events" => observe_events(line, &envelope.request_id),
-        _ => error(
+        _ => Response::error(
             &envelope.request_id,
             "UNSUPPORTED_OPERATION",
             envelope.operation,
@@ -298,91 +375,98 @@ pub fn handle(line: &str) -> Value {
     }
 }
 
-fn execute(line: &str, request_id: &str) -> Value {
+fn execute(line: &str, request_id: &str) -> Response {
     let request: ExecuteRequest = match serde_json::from_str(line) {
         Ok(v) => v,
-        Err(e) => return error(request_id, "INVALID_REQUEST", e.to_string()),
+        Err(e) => return Response::error(request_id, "INVALID_REQUEST", e.to_string()),
     };
     if request.ruleset != request.state.ruleset {
-        return error(
-            &request.request_id,
+        return Response::error(
+            request.request_id,
             "RULESET_MISMATCH",
             "request ruleset does not equal state ruleset",
         );
     }
     let command: Command = match serde_json::from_value(request.command) {
         Ok(v) => v,
-        Err(e) => return error(&request.request_id, "INVALID_COMMAND", e.to_string()),
+        Err(e) => return Response::error(request.request_id, "INVALID_COMMAND", e.to_string()),
     };
-    match transition::execute(&request.state, command, &request.random) {
-        Ok(ExecuteOutcome::Accepted(result)) => {
-            json!({"protocol_version":PROTOCOL_VERSION,"request_id":request.request_id,"status":"accepted","state":result.state,"events":result.events,"random_consumed":result.random_consumed})
+    let body = match transition::execute(&request.state, command, &request.random) {
+        Ok(ExecuteOutcome::Accepted(result)) => ResponseBody::Accepted {
+            state: result.state,
+            events: result.events,
+            random_consumed: result.random_consumed,
+        },
+        Ok(ExecuteOutcome::Rejected(violation)) => ResponseBody::Rejected {
+            violation,
+            random_consumed: 0,
+        },
+        Err(ExecuteError::UnsupportedCommand) => {
+            return Response::error(
+                request.request_id,
+                "UNSUPPORTED_COMMAND",
+                "command is not implemented by this adapter",
+            );
         }
-        Ok(ExecuteOutcome::Rejected(violation)) => {
-            json!({"protocol_version":PROTOCOL_VERSION,"request_id":request.request_id,"status":"rejected","violation":violation,"random_consumed":0})
+        Err(ExecuteError::UnsupportedRuleset) => {
+            return Response::error(
+                request.request_id,
+                "UNSUPPORTED_RULESET",
+                "only awbw/2026-07-10 is implemented",
+            );
         }
-        Err(ExecuteError::UnsupportedCommand) => error(
-            &request.request_id,
-            "UNSUPPORTED_COMMAND",
-            "command is not implemented by this adapter",
-        ),
-        Err(ExecuteError::UnsupportedRuleset) => error(
-            &request.request_id,
-            "UNSUPPORTED_RULESET",
-            "only awbw/2026-07-10 is implemented",
-        ),
-        Err(ExecuteError::InvalidState(error_)) => {
-            error(&request.request_id, "INVALID_STATE", error_.to_string())
+        Err(ExecuteError::InvalidState(failure)) => {
+            return Response::error(request.request_id, "INVALID_STATE", failure.to_string());
         }
-        Err(ExecuteError::InvalidRandom(error_)) => {
-            error(&request.request_id, "INVALID_RANDOM", error_.to_string())
+        Err(ExecuteError::InvalidRandom(failure)) => {
+            return Response::error(request.request_id, "INVALID_RANDOM", failure.to_string());
         }
-    }
+    };
+    Response::new(request.request_id, body)
 }
 
-fn observe(line: &str, request_id: &str) -> Value {
+fn observe(line: &str, request_id: &str) -> Response {
     let request: ObserveRequest = match serde_json::from_str(line) {
         Ok(value) => value,
-        Err(error_) => return error(request_id, "INVALID_REQUEST", error_.to_string()),
+        Err(failure) => return Response::error(request_id, "INVALID_REQUEST", failure.to_string()),
     };
-    if let Err(response) = check_ruleset(&request.ruleset, [&request.state]) {
-        return error(request_id, response.0, response.1);
+    if let Err((code, message)) = check_ruleset(&request.ruleset, [&request.state]) {
+        return Response::error(request.request_id, code, message);
     }
-    let rules = AwbwVisibility;
-    match semantic::observe(&rules, &request.state, &request.recipient) {
-        Ok(observation) => json!({
-            "protocol_version": PROTOCOL_VERSION,
-            "request_id": request.request_id,
-            "status": "ok",
-            "observation": observation
-        }),
-        Err(error_) => error(&request.request_id, "OBSERVATION_ERROR", error_.to_string()),
+    match semantic::observe(&AwbwVisibility, &request.state, &request.recipient) {
+        Ok(observation) => {
+            Response::new(request.request_id, ResponseBody::Observed { observation })
+        }
+        Err(failure) => {
+            Response::error(request.request_id, "OBSERVATION_ERROR", failure.to_string())
+        }
     }
 }
 
-fn observe_events(line: &str, request_id: &str) -> Value {
+fn observe_events(line: &str, request_id: &str) -> Response {
     let request: ObserveEventsRequest = match serde_json::from_str(line) {
         Ok(value) => value,
-        Err(error_) => return error(request_id, "INVALID_REQUEST", error_.to_string()),
+        Err(failure) => return Response::error(request_id, "INVALID_REQUEST", failure.to_string()),
     };
-    if let Err(response) = check_ruleset(&request.ruleset, [&request.state, &request.next_state]) {
-        return error(request_id, response.0, response.1);
+    if let Err((code, message)) =
+        check_ruleset(&request.ruleset, [&request.state, &request.next_state])
+    {
+        return Response::error(request.request_id, code, message);
     }
-    let rules = AwbwVisibility;
     match semantic::observe_events(
-        &rules,
+        &AwbwVisibility,
         &request.state,
         &request.next_state,
         &request.events,
         &request.recipient,
     ) {
-        Ok(observed_events) => json!({
-            "protocol_version": PROTOCOL_VERSION,
-            "request_id": request.request_id,
-            "status": "ok",
-            "observed_events": observed_events
-        }),
-        Err(error_) => error(&request.request_id, "OBSERVATION_ERROR", error_.to_string()),
+        Ok(observed_events) => Response::new(
+            request.request_id,
+            ResponseBody::ObservedEvents { observed_events },
+        ),
+        Err(failure) => {
+            Response::error(request.request_id, "OBSERVATION_ERROR", failure.to_string())
+        }
     }
 }
 
@@ -390,7 +474,10 @@ fn check_ruleset<'a>(
     ruleset: &RulesetRef,
     states: impl IntoIterator<Item = &'a State>,
 ) -> Result<(), (&'static str, String)> {
-    if ruleset.id != "awbw" || ruleset.revision != "2026-07-10" {
+    // The same predicate `ActiveTurn::open` gates `execute` on. It used to be
+    // restated here as an inline pair of string compares, which is exactly the
+    // shape that goes stale when a second revision is lowered.
+    if !ruleset::supports(ruleset) {
         return Err((
             "UNSUPPORTED_RULESET",
             "only awbw/2026-07-10 is implemented".into(),
@@ -405,13 +492,15 @@ fn check_ruleset<'a>(
     Ok(())
 }
 
-fn error(request_id: &str, code: &str, message: impl Into<String>) -> Value {
-    json!({"protocol_version":PROTOCOL_VERSION,"request_id":request_id,"status":"error","code":code,"message":message.into()})
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    /// The response as it goes on the wire, which is what these assert about.
+    fn respond(request: &Value) -> Value {
+        serde_json::to_value(handle(&request.to_string())).expect("a response encodes")
+    }
 
     fn random_weather_request(random: Value) -> Value {
         let case: Value = serde_json::from_str(include_str!(
@@ -434,7 +523,7 @@ mod tests {
         let request = random_weather_request(json!([
             {"type": "weather-selection", "value": "sandstorm"}
         ]));
-        let response = handle(&request.to_string());
+        let response = respond(&request);
 
         assert_eq!(response["status"], "error");
         assert_eq!(response["code"], "INVALID_REQUEST");
@@ -443,7 +532,7 @@ mod tests {
     #[test]
     fn typed_random_errors_keep_their_protocol_code_and_message() {
         let request = random_weather_request(json!([]));
-        let response = handle(&request.to_string());
+        let response = respond(&request);
 
         assert_eq!(
             response,
@@ -472,7 +561,7 @@ mod tests {
             "recipient": "ghost",
         });
 
-        let response = handle(&request.to_string());
+        let response = respond(&request);
 
         assert_eq!(response["status"], "error");
         assert_eq!(response["code"], "OBSERVATION_ERROR");

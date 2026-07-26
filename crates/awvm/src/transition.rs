@@ -30,7 +30,16 @@ pub(crate) use special::*;
 pub(crate) use transport::*;
 pub(crate) use turn::*;
 
-#[derive(Clone, Debug, Deserialize)]
+/// One command, as `spec/schema/command.schema.json` describes it.
+///
+/// Every branch restates `player`, which every branch of the schema also
+/// requires. Holding it once in a `Command { player, action }` pair was tried
+/// and reverted: the flat wire shape then needs `#[serde(flatten)]`, which
+/// buffers the request map a second time before the tag can be dispatched, and
+/// that measured ~300 ns per decode — around a fifth of what `execute` costs on
+/// the movement benchmark. [`Command::player`] is exhaustive, so the repetition
+/// is a declaration cost and not a correctness one.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Command {
     MoveWait {
@@ -121,12 +130,15 @@ pub enum Command {
     Resign {
         player: PlayerId,
     },
+    /// A `type` this adapter does not implement. Reaching the reducer with one
+    /// is [`ExecuteError::UnsupportedCommand`], not a rules violation.
     #[serde(other)]
     Unsupported,
 }
 
 impl Command {
-    fn player(&self) -> Option<&PlayerId> {
+    /// The player acting, which every branch but [`Command::Unsupported`] names.
+    pub const fn player(&self) -> Option<&PlayerId> {
         match self {
             Self::MoveWait { player, .. }
             | Self::MoveAttack { player, .. }

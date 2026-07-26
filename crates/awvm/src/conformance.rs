@@ -129,7 +129,10 @@ pub struct InProcess;
 
 impl Peer for InProcess {
     fn exchange(&mut self, request: Value) -> Result<Value, ConformanceError> {
-        Ok(protocol::handle(&request.to_string()))
+        // A runner compares a response against a fixture's JSON, so this is the
+        // one caller that wants a tree rather than the bytes the adapter writes.
+        Ok(serde_json::to_value(protocol::handle(&request.to_string()))
+            .expect("a protocol response is representable as JSON"))
     }
 }
 

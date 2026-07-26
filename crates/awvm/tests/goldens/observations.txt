@@ -17,6 +17,7 @@ f2a4457ba69831c7  obs=10 ev=0  combat/movement-validation.json
 b022202cd1639b10  obs=4 ev=14  combat/power-charge-active-power-suppression.json
 c9a890cfcab84f43  obs=6 ev=27  combat/power-charge-attack-counter-global.json
 3d92fc016f418a22  obs=4 ev=10  combat/power-charge-effective-value-cap.json
+eca1163736131606  obs=4 ev=6  combat/tile-colin-scop-funds.json
 99408e690bbde978  obs=4 ev=6  combat/tile-direct-nonlethal-no-charge.json
 2e0a90999a0cb950  obs=4 ev=4  combat/tile-fog-global-seam.json
 2ef88c1d490a5978  obs=4 ev=8  combat/tile-indirect-lethal.json
@@ -248,6 +249,7 @@ de4e1b1f1f4c41eb  obs=6 ev=0  fog/sonja-owner-vision-and-allied-cargo.json
 e2af9cdb1f24d7b1  obs=6 ev=0  fog/source-maximum-and-air-over-woods.json
 fe6152f0f439014e  obs=6 ev=0  fog/team-property-sources.json
 67aa5c03096a999b  obs=2 ev=0  fog/teleporter-never-visible.json
+a9e6d364f6d40437  obs=2 ev=0  fog/teleporter-visible-without-fog.json
 0086e61852a8e8a9  obs=4 ev=2  fog/vision-sources-and-terrain.json
 394e567fc21a5639  obs=2 ev=4  join/join-after-capture-reset.json
 fcd63050bc7b477c  obs=2 ev=0  join/join-full-hp-rejected.json

@@ -5,7 +5,7 @@
 
 use super::ReducerError as ExecuteError;
 use super::*;
-use crate::combat::{self, Side};
+use crate::combat::{self, Hit, Side};
 use crate::commander::{self, CombatContext, Combatant, Strike};
 use crate::event::{AttackTarget, Event};
 use crate::random::{Luck, RandomTape, RandomToken};
@@ -16,6 +16,237 @@ use crate::semantic::{
 };
 use crate::violation::{Action, Violation};
 use std::collections::HashSet;
+use std::sync::LazyLock;
+
+/// Commander combat predicates take a capability set per combatant. No path
+/// through this module supplies one, so every combatant shares this empty set
+/// instead of allocating one per strike.
+static NO_CAPABILITIES: LazyLock<HashSet<String>> = LazyLock::new(HashSet::new);
+
+/// One side of an engagement: a unit and the tile the strike is scored from.
+///
+/// The position is carried rather than read back off the unit because
+/// move-and-attack scores the initiating strike from the destination it just
+/// resolved.
+#[derive(Clone, Copy)]
+struct Fighter<'a> {
+    unit: &'a Unit,
+    position: Pos,
+}
+
+fn is_property(terrain: TerrainId) -> bool {
+    ruleset::terrain_has(terrain, TerrainTrait::Capturable)
+}
+
+/// The board- and treasury-wide values a commander's combat rules read, for
+/// `owner` firing from or standing on `position`.
+fn combat_context(state: &State, owner: &PlayerId, position: Pos) -> CombatContext {
+    let mut tower_count = 0_i64;
+    let mut owned_properties = 0_u64;
+    for tile in state.board.tiles() {
+        if !tile.owner.player().is_some_and(|value| value == owner) {
+            continue;
+        }
+        if ruleset::terrain_has(tile.terrain, TerrainTrait::CommunicationBonus) {
+            tower_count += 1;
+        }
+        if is_property(tile.terrain) {
+            owned_properties += 1;
+        }
+    }
+    CombatContext {
+        tower_count,
+        funds: state.find_player(owner).map_or(0, |player| player.funds),
+        owned_properties,
+        base_terrain_stars: i64::from(ruleset::defense_stars(state.board.tile(position).terrain)),
+    }
+}
+
+/// The combatant a unit of `kind` presents while standing on `position`.
+///
+/// `fire_mode` is the *striker's* in both halves of a strike: a commander rule
+/// that reads it is asking how the shot was fired, not what the unit hit by it
+/// carries.
+fn combatant(
+    state: &State,
+    kind: UnitKindId,
+    position: Pos,
+    fire_mode: FireMode,
+) -> Combatant<'static> {
+    let terrain = state.board.tile(position).terrain;
+    Combatant {
+        kind,
+        domain: combat_domain(ruleset::profile(kind)),
+        fire_mode,
+        terrain,
+        weather: state.weather.kind,
+        property: is_property(terrain),
+        capabilities: &NO_CAPABILITIES,
+    }
+}
+
+/// The commander-adjusted numbers one strike is scored with.
+///
+/// Every strike resolves the same way: the striker supplies the attack modifier
+/// and the two luck domains, the target supplies defense and terrain stars, and
+/// the striker's commander then gets to modify the target's stars. Three sites
+/// spelled that out identically — the initiating hit, an ordinary counter, and
+/// the counter a `counter-first` commander fires first.
+struct StrikeValues {
+    attack: i64,
+    defense: i64,
+    terrain_stars: u8,
+    good_luck: commander::Domain,
+    bad_luck: commander::Domain,
+}
+
+impl StrikeValues {
+    /// The striker's half of [`combat::damage`].
+    ///
+    /// `hp` is a parameter because a counter is scored from what the initiating
+    /// hit left behind. The striker's own `defense` and `terrain_stars` never
+    /// enter the formula, which reads both only from the target.
+    fn striker_side(&self, unit: &Unit, hp: u8) -> Side {
+        Side {
+            kind: unit.kind,
+            hp,
+            ammo: unit.ammo,
+            attack: self.attack,
+            defense: 100,
+            terrain_stars: 0,
+        }
+    }
+
+    /// The target's half of [`combat::damage`]. Its `attack` and `ammo` are
+    /// inert for the same reason: only the striker fires.
+    fn target_side(&self, unit: &Unit, hp: u8) -> Side {
+        Side {
+            kind: unit.kind,
+            hp,
+            ammo: unit.ammo,
+            attack: 100,
+            defense: self.defense,
+            terrain_stars: self.terrain_stars,
+        }
+    }
+
+    /// Draw this strike's signed luck modifier off the tape, good roll first.
+    fn luck(&self, tape: &mut RandomTape<'_>) -> Result<i64, ExecuteError> {
+        Ok(draw(tape, Luck::Good, self.good_luck)? - draw(tape, Luck::Bad, self.bad_luck)?)
+    }
+}
+
+/// Score `striker` hitting `target` through both commanders' combat rules.
+fn resolve_strike(
+    state: &State,
+    striker: Fighter<'_>,
+    target: Fighter<'_>,
+    strike: Strike,
+) -> Result<StrikeValues, ExecuteError> {
+    let overflow = || ExecuteError::InvalidState("commander combat overflow".into());
+    let fire_mode = ruleset::profile(striker.unit.kind).fire_mode;
+    let striker_context = combatant(state, striker.unit.kind, striker.position, fire_mode);
+    let target_context = combatant(state, target.unit.kind, target.position, fire_mode);
+    let (attack, _, _, good_luck, bad_luck) = commander::effective_combat(
+        state,
+        &striker.unit.owner,
+        striker_context,
+        strike,
+        combat_context(state, &striker.unit.owner, striker.position),
+    )
+    .ok_or_else(overflow)?;
+    let (_, defense, base_stars, _, _) = commander::effective_combat(
+        state,
+        &target.unit.owner,
+        target_context,
+        strike,
+        combat_context(state, &target.unit.owner, target.position),
+    )
+    .ok_or_else(overflow)?;
+    let stars = commander::effective_enemy_terrain_stars(
+        state,
+        &striker.unit.owner,
+        striker_context,
+        strike,
+        base_stars,
+    )
+    .ok_or_else(overflow)?;
+    Ok(StrikeValues {
+        attack,
+        defense,
+        terrain_stars: u8::try_from(stars)
+            .map_err(|_| ExecuteError::InvalidState("terrain stars overflow".into()))?,
+        good_luck,
+        bad_luck,
+    })
+}
+
+/// Everything one landed strike does: the ammo it spends, the resolution and
+/// damage it reports, and the funds and power charge the exchange transfers.
+///
+/// `striker` and `target` are read from the authoritative pre-state, so
+/// `target_hp_after` is passed rather than derived. All four strikes an
+/// engagement can contain spelled this sequence out identically.
+#[allow(clippy::too_many_arguments)]
+fn apply_hit(
+    state: &State,
+    next: &mut State,
+    events: &mut Vec<Event>,
+    hit: &Hit,
+    striker: &Unit,
+    target: &Unit,
+    target_hp_after: u8,
+    reason: KnownReason,
+) -> Result<(), ExecuteError> {
+    if hit.weapon.ammo_cost > 0 {
+        let index = next
+            .units
+            .index_of(striker.id)
+            .expect("a striker is present when its strike lands");
+        let ammo_before = next.units[index].ammo;
+        next.units[index].ammo -= hit.weapon.ammo_cost;
+        events.push(Event::UnitResourced {
+            unit: striker.id,
+            fuel_before: striker.fuel,
+            fuel_after: striker.fuel,
+            ammo_before,
+            ammo_after: next.units[index].ammo,
+            reason: reason.into(),
+        });
+    }
+    events.push(Event::AttackResolved {
+        attacker: striker.id,
+        weapon: hit.weapon.weapon,
+        target: AttackTarget::Unit { unit: target.id },
+    });
+    events.push(Event::UnitDamaged {
+        unit: target.id,
+        from_hp: target.hp,
+        to_hp: target_hp_after,
+        reason: reason.into(),
+    });
+    apply_strike_funds(
+        state,
+        next,
+        events,
+        &striker.owner,
+        &target.owner,
+        target.kind,
+        target.hp,
+        target_hp_after,
+    )?;
+    apply_strike_power_charge(
+        state,
+        next,
+        events,
+        &striker.owner,
+        &target.owner,
+        target.kind,
+        target.hp,
+        target_hp_after,
+        reason,
+    )
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_strike_funds(
@@ -234,53 +465,12 @@ pub(crate) fn execute_tile_attack(
         }));
     }
 
-    let unit_domain = combat_domain(profile);
-    let tower_count = state
-        .board
-        .tiles()
-        .filter(|candidate| {
-            candidate
-                .owner
-                .player()
-                .is_some_and(|owner| owner == player)
-                && ruleset::terrain_has(candidate.terrain, TerrainTrait::CommunicationBonus)
-        })
-        .count() as i64;
-    let owned_properties = state
-        .board
-        .tiles()
-        .filter(|candidate| {
-            candidate
-                .owner
-                .player()
-                .is_some_and(|owner| owner == player)
-                && ruleset::terrain_has(candidate.terrain, TerrainTrait::Capturable)
-        })
-        .count() as u64;
-    let attacker_terrain = state.board.tile(origin).terrain;
-    let attacker_stars = ruleset::defense_stars(attacker_terrain);
-    let combat_weather = state.weather.kind;
-    let no_capabilities = HashSet::new();
-    let context = Combatant {
-        kind: attacker.kind,
-        domain: unit_domain,
-        fire_mode,
-        terrain: attacker_terrain,
-        weather: combat_weather,
-        property: ruleset::terrain_has(attacker_terrain, TerrainTrait::Capturable),
-        capabilities: &no_capabilities,
-    };
     let (attack, _, _, _, _) = commander::effective_combat(
         state,
         player,
-        context,
+        combatant(state, attacker.kind, origin, fire_mode),
         Strike::Initial,
-        CombatContext {
-            tower_count,
-            funds: state.players[attacker_index].funds,
-            owned_properties,
-            base_terrain_stars: i64::from(attacker_stars),
-        },
+        combat_context(state, player, origin),
     )
     .ok_or_else(|| ExecuteError::InvalidState("commander combat overflow".into()))?;
     let hit = combat::damage(
@@ -290,7 +480,8 @@ pub(crate) fn execute_tile_attack(
             ammo: attacker.ammo,
             attack,
             defense: 100,
-            terrain_stars: attacker_stars,
+            // The formula reads defense and terrain stars only from the target.
+            terrain_stars: 0,
         },
         Side {
             kind: target_kind,
@@ -447,625 +638,374 @@ fn execute_stationary_attack(
             return execute_tile_attack(state, player, unit_id, ai, attacker, origin, position);
         }
     };
-    let di = state.units.index_of(target_id).ok_or_else(|| {
-        violation(Violation::InvalidTarget {
-            target: Some(target_id.into()),
-        })
-    })?;
-    let defender = &state.units[di];
-    let defender_owner = defender.owner.clone();
-    let Location::Board { position: dp } = defender.location else {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(target_id.into()),
-        }));
-    };
-    if defender.owner == player {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(target_id.into()),
-        }));
+    let engagement = Engagement::open(state, player, ai, origin, target_id)?;
+    let mut tape = RandomTape::new(random);
+    if engagement.counter_comes_first() {
+        resolve_counter_first(&engagement, &mut tape)
+    } else {
+        resolve_exchange(&engagement, &mut tape)
     }
-    let actor_team = state
-        .find_player(player)
-        .map(|candidate| &candidate.team)
-        .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
-    if !AwbwVisibility.view(state, actor_team).unit(defender) {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(target_id.into()),
-        }));
-    }
-    let concealed_target_compatible = match (defender.concealment, defender.kind, attacker.kind) {
-        (Concealment::Hidden, UnitKindId::Sub, UnitKindId::Sub | UnitKindId::Cruiser)
-        | (Concealment::Hidden, UnitKindId::Stealth, UnitKindId::Fighter | UnitKindId::Stealth) => {
-            true
+}
+
+/// A validated unit-versus-unit engagement.
+///
+/// Opening one establishes everything the exchange needs and nothing about the
+/// order it happens in: both fighters, their indices in the authoritative
+/// state, whether the defender can answer at all, and the numbers the
+/// initiating strike is scored with. Which side fires first is then a question
+/// the commander layer answers, not a branch that re-derives the engagement.
+struct Engagement<'a> {
+    state: &'a State,
+    attacker: Fighter<'a>,
+    defender: Fighter<'a>,
+    attacker_index: usize,
+    defender_index: usize,
+    initial: StrikeValues,
+    /// Adjacent, direct-fire, and holding a weapon that bites — the three
+    /// conditions a counter needs before a commander is consulted.
+    counter_armed: bool,
+}
+
+impl<'a> Engagement<'a> {
+    /// Check the target and score the initiating strike.
+    fn open(
+        state: &'a State,
+        player: &PlayerId,
+        attacker_index: usize,
+        origin: Pos,
+        target_id: UnitId,
+    ) -> Result<Self, ExecuteError> {
+        let invalid = || {
+            violation(Violation::InvalidTarget {
+                target: Some(target_id.into()),
+            })
+        };
+        let attacker = &state.units[attacker_index];
+        let defender_index = state.units.index_of(target_id).ok_or_else(invalid)?;
+        let defender = &state.units[defender_index];
+        let Location::Board {
+            position: defender_position,
+        } = defender.location
+        else {
+            return Err(invalid());
+        };
+        if defender.owner == player {
+            return Err(invalid());
         }
-        (Concealment::Hidden, UnitKindId::Sub | UnitKindId::Stealth, _) => false,
-        _ => true,
-    };
-    if !concealed_target_compatible {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(target_id.into()),
-        }));
-    }
-    let profile = ruleset::profile(attacker.kind);
-    if profile.fire_mode == FireMode::None {
-        return Err(violation(Violation::ActionNotSupported {
-            action: Action::Attack,
-        }));
-    }
-    let distance = origin.distance(dp);
-    if let Some(range) = profile.indirect_range {
-        let min = range.minimum;
-        let max = commander::effective_attack_range(
-            state,
-            attacker,
-            range.maximum,
-            profile.domain,
-            FireMode::Indirect,
-        );
-        if distance < min || distance > max {
+        let actor_team = state
+            .find_player(player)
+            .map(|candidate| &candidate.team)
+            .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
+        if !AwbwVisibility.view(state, actor_team).unit(defender) {
+            return Err(invalid());
+        }
+        let concealed_target_compatible = match (defender.concealment, defender.kind, attacker.kind)
+        {
+            (Concealment::Hidden, UnitKindId::Sub, UnitKindId::Sub | UnitKindId::Cruiser)
+            | (
+                Concealment::Hidden,
+                UnitKindId::Stealth,
+                UnitKindId::Fighter | UnitKindId::Stealth,
+            ) => true,
+            (Concealment::Hidden, UnitKindId::Sub | UnitKindId::Stealth, _) => false,
+            _ => true,
+        };
+        if !concealed_target_compatible {
+            return Err(invalid());
+        }
+        let profile = ruleset::profile(attacker.kind);
+        if profile.fire_mode == FireMode::None {
+            return Err(violation(Violation::ActionNotSupported {
+                action: Action::Attack,
+            }));
+        }
+        let distance = origin.distance(defender_position);
+        if let Some(range) = profile.indirect_range {
+            let maximum = commander::effective_attack_range(
+                state,
+                attacker,
+                range.maximum,
+                profile.domain,
+                FireMode::Indirect,
+            );
+            if distance < range.minimum || distance > maximum {
+                return Err(violation(Violation::TargetOutOfRange {
+                    target: Some(target_id.into()),
+                }));
+            }
+        } else if distance != 1 {
             return Err(violation(Violation::TargetOutOfRange {
                 target: Some(target_id.into()),
             }));
         }
-    } else if distance != 1 {
-        return Err(violation(Violation::TargetOutOfRange {
-            target: Some(target_id.into()),
-        }));
-    }
-    if combat::select_weapon(attacker.kind, defender.kind, attacker.ammo).is_none() {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(target_id.into()),
-        }));
-    }
-    let mut tape = RandomTape::new(random);
-    let stars = |p: Pos| ruleset::defense_stars(state.board.tile(p).terrain);
-    let unit_domain = |kind: UnitKindId| combat_domain(ruleset::profile(kind));
-    let fire_mode = |kind: UnitKindId| ruleset::profile(kind).fire_mode;
-    let tower_count = |owner: &PlayerId| {
-        state
-            .board
-            .tiles()
-            .filter(|tile| {
-                tile.owner.player().is_some_and(|value| value == owner)
-                    && ruleset::terrain_has(tile.terrain, TerrainTrait::CommunicationBonus)
-            })
-            .count() as i64
-    };
-    let is_property = |terrain: TerrainId| ruleset::terrain_has(terrain, TerrainTrait::Capturable);
-    let combat_context = |owner: &PlayerId, position: Pos| CombatContext {
-        tower_count: tower_count(owner),
-        funds: state.find_player(owner).map_or(0, |player| player.funds),
-        owned_properties: state
-            .board
-            .tiles()
-            .filter(|tile| {
-                tile.owner.player().is_some_and(|value| value == owner) && is_property(tile.terrain)
-            })
-            .count() as u64,
-        base_terrain_stars: i64::from(stars(position)),
-    };
-    let no_capabilities = HashSet::new();
-    let combat_weather = state.weather.kind;
-    let attacker_context = Combatant {
-        kind: attacker.kind,
-        domain: unit_domain(attacker.kind),
-        fire_mode: fire_mode(attacker.kind),
-        terrain: state.board.tile(origin).terrain,
-        weather: combat_weather,
-        property: is_property(state.board.tile(origin).terrain),
-        capabilities: &no_capabilities,
-    };
-    let defender_context = Combatant {
-        kind: defender.kind,
-        domain: unit_domain(defender.kind),
-        fire_mode: fire_mode(attacker.kind),
-        terrain: state.board.tile(dp).terrain,
-        weather: combat_weather,
-        property: is_property(state.board.tile(dp).terrain),
-        capabilities: &no_capabilities,
-    };
-    let (attacker_attack, _, _, attacker_good, attacker_bad) = commander::effective_combat(
-        state,
-        &attacker.owner,
-        attacker_context,
-        Strike::Initial,
-        combat_context(&attacker.owner, origin),
-    )
-    .ok_or_else(|| ExecuteError::InvalidState("commander combat overflow".into()))?;
-    let (_, defender_defense, defender_stars, _, _) = commander::effective_combat(
-        state,
-        &defender.owner,
-        defender_context,
-        Strike::Initial,
-        combat_context(&defender.owner, dp),
-    )
-    .ok_or_else(|| ExecuteError::InvalidState("commander combat overflow".into()))?;
-    let defender_stars = commander::effective_enemy_terrain_stars(
-        state,
-        &attacker.owner,
-        attacker_context,
-        Strike::Initial,
-        defender_stars,
-    )
-    .ok_or_else(|| ExecuteError::InvalidState("commander combat overflow".into()))?;
-    let defender_stars = u8::try_from(defender_stars)
-        .map_err(|_| ExecuteError::InvalidState("terrain stars overflow".into()))?;
-    let attacker_side = Side {
-        kind: attacker.kind,
-        hp: attacker.hp,
-        ammo: attacker.ammo,
-        attack: attacker_attack,
-        defense: 100,
-        terrain_stars: stars(origin),
-    };
-    let defender_side = Side {
-        kind: defender.kind,
-        hp: defender.hp,
-        ammo: defender.ammo,
-        attack: 100,
-        defense: defender_defense,
-        terrain_stars: defender_stars,
-    };
-    let defender_direct = ruleset::profile(defender.kind).fire_mode == FireMode::Direct;
-    let counter_first_context = Combatant {
-        kind: defender.kind,
-        domain: unit_domain(defender.kind),
-        fire_mode: fire_mode(defender.kind),
-        terrain: state.board.tile(dp).terrain,
-        weather: combat_weather,
-        property: is_property(state.board.tile(dp).terrain),
-        capabilities: &no_capabilities,
-    };
-    let counter_first = distance == 1
-        && defender_direct
-        && combat::select_weapon(defender.kind, attacker.kind, defender.ammo).is_some()
-        && commander::counter_first(
-            state,
-            &defender.owner,
-            counter_first_context,
-            Strike::Counter,
-        );
-    if counter_first {
-        let countered_context = Combatant {
-            kind: attacker.kind,
-            domain: unit_domain(attacker.kind),
-            fire_mode: fire_mode(defender.kind),
-            terrain: state.board.tile(origin).terrain,
-            weather: combat_weather,
-            property: is_property(state.board.tile(origin).terrain),
-            capabilities: &no_capabilities,
+        if combat::select_weapon(attacker.kind, defender.kind, attacker.ammo).is_none() {
+            return Err(invalid());
+        }
+
+        let attacker = Fighter {
+            unit: attacker,
+            position: origin,
         };
-        let (counter_attack, _, _, counter_good, counter_bad) = commander::effective_combat(
+        let defender = Fighter {
+            unit: defender,
+            position: defender_position,
+        };
+        Ok(Self {
             state,
-            &defender.owner,
-            counter_first_context,
-            Strike::Counter,
-            combat_context(&defender.owner, dp),
-        )
-        .ok_or_else(|| ExecuteError::InvalidState("commander combat overflow".into()))?;
-        let (_, countered_defense, countered_stars, _, _) = commander::effective_combat(
-            state,
-            &attacker.owner,
-            countered_context,
-            Strike::Counter,
-            combat_context(&attacker.owner, origin),
-        )
-        .ok_or_else(|| ExecuteError::InvalidState("commander combat overflow".into()))?;
-        let countered_stars = commander::effective_enemy_terrain_stars(
-            state,
-            &defender.owner,
-            counter_first_context,
-            Strike::Counter,
-            countered_stars,
-        )
-        .ok_or_else(|| ExecuteError::InvalidState("commander combat overflow".into()))?;
-        let countered_stars = u8::try_from(countered_stars)
-            .map_err(|_| ExecuteError::InvalidState("terrain stars overflow".into()))?;
-        let counter_luck =
-            draw(&mut tape, Luck::Good, counter_good)? - draw(&mut tape, Luck::Bad, counter_bad)?;
-        let preemptive = combat::damage(
-            Side {
-                attack: counter_attack,
-                ..defender_side
-            },
-            Side {
-                defense: countered_defense,
-                terrain_stars: countered_stars,
-                ..attacker_side
-            },
-            counter_luck,
-        )
-        .expect("counter-first eligibility selected a weapon");
-        let attacker_remaining = attacker.hp.saturating_sub(preemptive.damage);
-        let initiating = if attacker_remaining > 0 {
-            let attack_luck = draw(&mut tape, Luck::Good, attacker_good)?
-                - draw(&mut tape, Luck::Bad, attacker_bad)?;
-            Some(
-                combat::damage(
-                    Side {
-                        hp: attacker_remaining,
-                        ..attacker_side
-                    },
-                    defender_side,
-                    attack_luck,
+            attacker,
+            defender,
+            attacker_index,
+            defender_index,
+            initial: resolve_strike(state, attacker, defender, Strike::Initial)?,
+            counter_armed: distance == 1
+                && ruleset::profile(defender.unit.kind).fire_mode == FireMode::Direct
+                && combat::select_weapon(
+                    defender.unit.kind,
+                    attacker.unit.kind,
+                    defender.unit.ammo,
                 )
-                .expect("initiating weapon was validated"),
-            )
-        } else {
-            None
-        };
-
-        let mut next = state.clone();
-        let mut events = Vec::new();
-        if preemptive.weapon.ammo_cost > 0 {
-            let index = next
-                .units
-                .index_of(target_id)
-                .expect("counter-first defender remains present");
-            let before = next.units[index].ammo;
-            next.units[index].ammo -= preemptive.weapon.ammo_cost;
-            events.push(Event::UnitResourced {
-                unit: target_id,
-                fuel_before: defender.fuel,
-                fuel_after: defender.fuel,
-                ammo_before: before,
-                ammo_after: next.units[index].ammo,
-                reason: KnownReason::CombatCounter.into(),
-            });
-        }
-        events.push(Event::AttackResolved {
-            attacker: target_id,
-            weapon: preemptive.weapon.weapon,
-            target: AttackTarget::Unit { unit: unit_id },
-        });
-        events.push(Event::UnitDamaged {
-            unit: unit_id,
-            from_hp: attacker.hp,
-            to_hp: attacker_remaining,
-            reason: KnownReason::CombatCounter.into(),
-        });
-        apply_strike_funds(
-            state,
-            &mut next,
-            &mut events,
-            &defender.owner,
-            &attacker.owner,
-            attacker.kind,
-            attacker.hp,
-            attacker_remaining,
-        )?;
-        apply_strike_power_charge(
-            state,
-            &mut next,
-            &mut events,
-            &defender.owner,
-            &attacker.owner,
-            attacker.kind,
-            attacker.hp,
-            attacker_remaining,
-            KnownReason::CombatCounter,
-        )?;
-        if attacker_remaining == 0 {
-            events.push(Event::UnitRemoved {
-                unit: unit_id,
-                reason: KnownReason::CombatCounter.into(),
-            });
-            next.units.remove(ai);
-            if !next.units.iter().any(|unit| unit.owner == attacker.owner) {
-                eliminate_player(
-                    &mut next,
-                    &attacker.owner,
-                    crate::ruleset::VictoryReason::Rout,
-                    None,
-                    None,
-                    &mut events,
-                )?;
-            }
-            return Ok(Execution {
-                state: next,
-                events,
-                random_consumed: tape.consumed(),
-            });
-        }
-        next.units[ai].hp = attacker_remaining;
-
-        let hit = initiating.expect("surviving attacker performs initiating strike");
-        let next_ai = next
-            .units
-            .index_of(unit_id)
-            .expect("surviving attacker remains present");
-        if hit.weapon.ammo_cost > 0 {
-            let before = next.units[next_ai].ammo;
-            next.units[next_ai].ammo -= hit.weapon.ammo_cost;
-            events.push(Event::UnitResourced {
-                unit: unit_id,
-                fuel_before: attacker.fuel,
-                fuel_after: attacker.fuel,
-                ammo_before: before,
-                ammo_after: next.units[next_ai].ammo,
-                reason: KnownReason::Combat.into(),
-            });
-        }
-        let defender_remaining = defender.hp.saturating_sub(hit.damage);
-        events.push(Event::AttackResolved {
-            attacker: unit_id,
-            weapon: hit.weapon.weapon,
-            target: AttackTarget::Unit { unit: target_id },
-        });
-        events.push(Event::UnitDamaged {
-            unit: target_id,
-            from_hp: defender.hp,
-            to_hp: defender_remaining,
-            reason: KnownReason::Combat.into(),
-        });
-        apply_strike_funds(
-            state,
-            &mut next,
-            &mut events,
-            &attacker.owner,
-            &defender.owner,
-            defender.kind,
-            defender.hp,
-            defender_remaining,
-        )?;
-        apply_strike_power_charge(
-            state,
-            &mut next,
-            &mut events,
-            &attacker.owner,
-            &defender.owner,
-            defender.kind,
-            defender.hp,
-            defender_remaining,
-            KnownReason::Combat,
-        )?;
-        if defender_remaining == 0 {
-            events.push(Event::UnitRemoved {
-                unit: target_id,
-                reason: KnownReason::Combat.into(),
-            });
-            let next_di = next
-                .units
-                .index_of(target_id)
-                .expect("lethal target remains until removal");
-            next.units.remove(next_di);
-        } else {
-            let next_di = next
-                .units
-                .index_of(target_id)
-                .expect("surviving target remains present");
-            next.units[next_di].hp = defender_remaining;
-        }
-        let next_ai = next
-            .units
-            .index_of(unit_id)
-            .expect("acting attacker survives counter-first engagement");
-        next.units[next_ai].action = UnitAction::Spent;
-        events.push(Event::UnitActionChanged {
-            unit: unit_id,
-            from: UnitAction::Ready,
-            to: UnitAction::Spent,
-            reason: KnownReason::Attack.into(),
-        });
-        if defender_remaining == 0 && !next.units.iter().any(|unit| unit.owner == defender_owner) {
-            eliminate_player(
-                &mut next,
-                &defender_owner,
-                crate::ruleset::VictoryReason::Rout,
-                None,
-                None,
-                &mut events,
-            )?;
-        }
-        return Ok(Execution {
-            state: next,
-            events,
-            random_consumed: tape.consumed(),
-        });
+                .is_some(),
+        })
     }
-    let attack_luck =
-        draw(&mut tape, Luck::Good, attacker_good)? - draw(&mut tape, Luck::Bad, attacker_bad)?;
-    let first = combat::damage(attacker_side, defender_side, attack_luck).ok_or_else(|| {
+
+    /// The numbers the defender's counter is scored with.
+    fn counter_values(&self) -> Result<StrikeValues, ExecuteError> {
+        resolve_strike(self.state, self.defender, self.attacker, Strike::Counter)
+    }
+
+    /// Whether the defender's commander turns the exchange around and fires
+    /// before the strike that provoked it.
+    fn counter_comes_first(&self) -> bool {
+        let defender = self.defender.unit;
+        self.counter_armed
+            && commander::counter_first(
+                self.state,
+                &defender.owner,
+                combatant(
+                    self.state,
+                    defender.kind,
+                    self.defender.position,
+                    ruleset::profile(defender.kind).fire_mode,
+                ),
+                Strike::Counter,
+            )
+    }
+}
+
+/// The ordinary exchange: the initiating strike lands, then the defender
+/// answers if it survived and can.
+fn resolve_exchange(
+    engagement: &Engagement<'_>,
+    tape: &mut RandomTape<'_>,
+) -> Result<Execution, ExecuteError> {
+    let state = engagement.state;
+    let attacker = engagement.attacker.unit;
+    let defender = engagement.defender.unit;
+    let attacker_index = engagement.attacker_index;
+    let defender_index = engagement.defender_index;
+
+    let attack_luck = engagement.initial.luck(tape)?;
+    let first = combat::damage(
+        engagement.initial.striker_side(attacker, attacker.hp),
+        engagement.initial.target_side(defender, defender.hp),
+        attack_luck,
+    )
+    .ok_or_else(|| {
         violation(Violation::InvalidTarget {
-            target: Some(target_id.into()),
+            target: Some(defender.id.into()),
         })
     })?;
-    let remaining = defender.hp.saturating_sub(first.damage);
-    let counter = if remaining > 0
-        && distance == 1
-        && defender_direct
-        && combat::select_weapon(defender.kind, attacker.kind, defender.ammo).is_some()
-    {
-        let counter_context = Combatant {
-            kind: defender.kind,
-            domain: unit_domain(defender.kind),
-            fire_mode: fire_mode(defender.kind),
-            terrain: state.board.tile(dp).terrain,
-            weather: combat_weather,
-            property: is_property(state.board.tile(dp).terrain),
-            capabilities: &no_capabilities,
-        };
-        let countered_context = Combatant {
-            kind: attacker.kind,
-            domain: unit_domain(attacker.kind),
-            fire_mode: fire_mode(defender.kind),
-            terrain: state.board.tile(origin).terrain,
-            weather: combat_weather,
-            property: is_property(state.board.tile(origin).terrain),
-            capabilities: &no_capabilities,
-        };
-        let (counter_attack, _, _, counter_good, counter_bad) = commander::effective_combat(
-            state,
-            &defender.owner,
-            counter_context,
-            Strike::Counter,
-            combat_context(&defender.owner, dp),
-        )
-        .ok_or_else(|| ExecuteError::InvalidState("commander combat overflow".into()))?;
-        let (_, countered_defense, countered_stars, _, _) = commander::effective_combat(
-            state,
-            &attacker.owner,
-            countered_context,
-            Strike::Counter,
-            combat_context(&attacker.owner, origin),
-        )
-        .ok_or_else(|| ExecuteError::InvalidState("commander combat overflow".into()))?;
-        let countered_stars = commander::effective_enemy_terrain_stars(
-            state,
-            &defender.owner,
-            counter_context,
-            Strike::Counter,
-            countered_stars,
-        )
-        .ok_or_else(|| ExecuteError::InvalidState("commander combat overflow".into()))?;
-        let countered_stars = u8::try_from(countered_stars)
-            .map_err(|_| ExecuteError::InvalidState("terrain stars overflow".into()))?;
-        let luck =
-            draw(&mut tape, Luck::Good, counter_good)? - draw(&mut tape, Luck::Bad, counter_bad)?;
+    let defender_remaining = defender.hp.saturating_sub(first.damage);
+    let counter = if defender_remaining > 0 && engagement.counter_armed {
+        let values = engagement.counter_values()?;
+        let luck = values.luck(tape)?;
         combat::damage(
-            Side {
-                hp: remaining,
-                attack: counter_attack,
-                ..defender_side
-            },
-            Side {
-                defense: countered_defense,
-                terrain_stars: countered_stars,
-                ..attacker_side
-            },
+            values.striker_side(defender, defender_remaining),
+            values.target_side(attacker, attacker.hp),
             luck,
         )
     } else {
         None
     };
+
     let mut next = state.clone();
     let mut events = Vec::new();
-    if first.weapon.ammo_cost > 0 {
-        let before = next.units[ai].ammo;
-        next.units[ai].ammo -= first.weapon.ammo_cost;
-        events.push(Event::UnitResourced {
-            unit: unit_id,
-            fuel_before: attacker.fuel,
-            fuel_after: attacker.fuel,
-            ammo_before: before,
-            ammo_after: next.units[ai].ammo,
-            reason: KnownReason::Combat.into(),
-        });
-    }
-    events.push(Event::AttackResolved {
-        attacker: unit_id,
-        weapon: first.weapon.weapon,
-        target: AttackTarget::Unit { unit: target_id },
-    });
-    events.push(Event::UnitDamaged {
-        unit: target_id,
-        from_hp: defender.hp,
-        to_hp: remaining,
-        reason: KnownReason::Combat.into(),
-    });
-    apply_strike_funds(
+    apply_hit(
         state,
         &mut next,
         &mut events,
-        &attacker.owner,
-        &defender.owner,
-        defender.kind,
-        defender.hp,
-        remaining,
-    )?;
-    apply_strike_power_charge(
-        state,
-        &mut next,
-        &mut events,
-        &attacker.owner,
-        &defender.owner,
-        defender.kind,
-        defender.hp,
-        remaining,
+        &first,
+        attacker,
+        defender,
+        defender_remaining,
         KnownReason::Combat,
     )?;
-    if remaining > 0 {
-        next.units[di].hp = remaining;
+    if defender_remaining > 0 {
+        next.units[defender_index].hp = defender_remaining;
     }
     if let Some(hit) = counter {
-        let before = next.units[di].ammo;
-        if hit.weapon.ammo_cost > 0 {
-            next.units[di].ammo -= hit.weapon.ammo_cost;
-            events.push(Event::UnitResourced {
-                unit: target_id,
-                fuel_before: defender.fuel,
-                fuel_after: defender.fuel,
-                ammo_before: before,
-                ammo_after: next.units[di].ammo,
-                reason: KnownReason::CombatCounter.into(),
-            });
-        }
-        let ahp = attacker.hp.saturating_sub(hit.damage);
-        events.push(Event::AttackResolved {
-            attacker: target_id,
-            weapon: hit.weapon.weapon,
-            target: AttackTarget::Unit { unit: unit_id },
-        });
-        events.push(Event::UnitDamaged {
-            unit: unit_id,
-            from_hp: attacker.hp,
-            to_hp: ahp,
-            reason: KnownReason::CombatCounter.into(),
-        });
-        apply_strike_funds(
+        let attacker_remaining = attacker.hp.saturating_sub(hit.damage);
+        apply_hit(
             state,
             &mut next,
             &mut events,
-            &defender.owner,
-            &attacker.owner,
-            attacker.kind,
-            attacker.hp,
-            ahp,
-        )?;
-        apply_strike_power_charge(
-            state,
-            &mut next,
-            &mut events,
-            &defender.owner,
-            &attacker.owner,
-            attacker.kind,
-            attacker.hp,
-            ahp,
+            &hit,
+            defender,
+            attacker,
+            attacker_remaining,
             KnownReason::CombatCounter,
         )?;
-        next.units[ai].hp = ahp;
+        next.units[attacker_index].hp = attacker_remaining;
     }
-    if remaining == 0 {
+    if defender_remaining == 0 {
         events.push(Event::UnitRemoved {
-            unit: target_id,
+            unit: defender.id,
             reason: KnownReason::Combat.into(),
         });
-        next.units.remove(di);
+        next.units.remove(defender_index);
     }
-    let next_ai = next
-        .units
-        .index_of(unit_id)
-        .expect("attacker survives this slice");
-    next.units[next_ai].action = UnitAction::Spent;
-    events.push(Event::UnitActionChanged {
-        unit: unit_id,
-        from: UnitAction::Ready,
-        to: UnitAction::Spent,
-        reason: KnownReason::Attack.into(),
-    });
-    if remaining == 0 && !next.units.iter().any(|unit| unit.owner == defender_owner) {
-        eliminate_player(
-            &mut next,
-            &defender_owner,
-            crate::ruleset::VictoryReason::Rout,
-            None,
-            None,
-            &mut events,
-        )?;
+    spend_attacker(&mut next, &mut events, attacker.id);
+    if defender_remaining == 0 {
+        rout_if_last_unit(&mut next, &defender.owner, &mut events)?;
     }
     Ok(Execution {
         state: next,
         events,
         random_consumed: tape.consumed(),
     })
+}
+
+/// The exchange a `counter-first` commander inverts: the defender fires before
+/// the strike that provoked it, and an attacker that does not survive never
+/// fires at all.
+fn resolve_counter_first(
+    engagement: &Engagement<'_>,
+    tape: &mut RandomTape<'_>,
+) -> Result<Execution, ExecuteError> {
+    let state = engagement.state;
+    let attacker = engagement.attacker.unit;
+    let defender = engagement.defender.unit;
+
+    let counter = engagement.counter_values()?;
+    let counter_luck = counter.luck(tape)?;
+    let preemptive = combat::damage(
+        counter.striker_side(defender, defender.hp),
+        counter.target_side(attacker, attacker.hp),
+        counter_luck,
+    )
+    .expect("counter-first eligibility selected a weapon");
+    let attacker_remaining = attacker.hp.saturating_sub(preemptive.damage);
+    let initiating = if attacker_remaining > 0 {
+        let attack_luck = engagement.initial.luck(tape)?;
+        Some(
+            combat::damage(
+                engagement
+                    .initial
+                    .striker_side(attacker, attacker_remaining),
+                engagement.initial.target_side(defender, defender.hp),
+                attack_luck,
+            )
+            .expect("initiating weapon was validated"),
+        )
+    } else {
+        None
+    };
+
+    let mut next = state.clone();
+    let mut events = Vec::new();
+    apply_hit(
+        state,
+        &mut next,
+        &mut events,
+        &preemptive,
+        defender,
+        attacker,
+        attacker_remaining,
+        KnownReason::CombatCounter,
+    )?;
+    if attacker_remaining == 0 {
+        events.push(Event::UnitRemoved {
+            unit: attacker.id,
+            reason: KnownReason::CombatCounter.into(),
+        });
+        next.units.remove(engagement.attacker_index);
+        rout_if_last_unit(&mut next, &attacker.owner, &mut events)?;
+        return Ok(Execution {
+            state: next,
+            events,
+            random_consumed: tape.consumed(),
+        });
+    }
+    next.units[engagement.attacker_index].hp = attacker_remaining;
+
+    let hit = initiating.expect("surviving attacker performs initiating strike");
+    let defender_remaining = defender.hp.saturating_sub(hit.damage);
+    apply_hit(
+        state,
+        &mut next,
+        &mut events,
+        &hit,
+        attacker,
+        defender,
+        defender_remaining,
+        KnownReason::Combat,
+    )?;
+    let defender_index = next
+        .units
+        .index_of(defender.id)
+        .expect("the target remains present until it is removed");
+    if defender_remaining == 0 {
+        events.push(Event::UnitRemoved {
+            unit: defender.id,
+            reason: KnownReason::Combat.into(),
+        });
+        next.units.remove(defender_index);
+    } else {
+        next.units[defender_index].hp = defender_remaining;
+    }
+    spend_attacker(&mut next, &mut events, attacker.id);
+    if defender_remaining == 0 {
+        rout_if_last_unit(&mut next, &defender.owner, &mut events)?;
+    }
+    Ok(Execution {
+        state: next,
+        events,
+        random_consumed: tape.consumed(),
+    })
+}
+
+/// Mark the acting unit spent. Both exchange orders end here, and both reach it
+/// only once the attacker is known to have survived.
+fn spend_attacker(next: &mut State, events: &mut Vec<Event>, attacker: UnitId) {
+    let index = next
+        .units
+        .index_of(attacker)
+        .expect("a spent attacker survived its own engagement");
+    next.units[index].action = UnitAction::Spent;
+    events.push(Event::UnitActionChanged {
+        unit: attacker,
+        from: UnitAction::Ready,
+        to: UnitAction::Spent,
+        reason: KnownReason::Attack.into(),
+    });
+}
+
+/// Eliminate `owner` if the strike just removed the last unit they had.
+fn rout_if_last_unit(
+    next: &mut State,
+    owner: &PlayerId,
+    events: &mut Vec<Event>,
+) -> Result<(), ExecuteError> {
+    if next.units.iter().any(|unit| unit.owner == *owner) {
+        return Ok(());
+    }
+    eliminate_player(
+        next,
+        owner,
+        ruleset::VictoryReason::Rout,
+        None,
+        None,
+        events,
+    )?;
+    Ok(())
 }

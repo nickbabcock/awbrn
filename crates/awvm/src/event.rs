@@ -344,6 +344,45 @@ pub enum EventKind {
 }
 
 impl EventKind {
+    /// Every kind, in declaration order.
+    pub const ALL: [Self; 35] = [
+        Self::PhaseChanged,
+        Self::TurnSelected,
+        Self::DayAdvanced,
+        Self::UnitMoved,
+        Self::MovementTrapped,
+        Self::UnitActionChanged,
+        Self::UnitCreated,
+        Self::UnitRemoved,
+        Self::UnitDamaged,
+        Self::UnitRepaired,
+        Self::UnitResourced,
+        Self::UnitLoaded,
+        Self::UnitUnloaded,
+        Self::UnitsJoined,
+        Self::ConcealmentChanged,
+        Self::TileOwnerChanged,
+        Self::TileTerrainChanged,
+        Self::CaptureChanged,
+        Self::SiloChanged,
+        Self::DestructibleDamaged,
+        Self::FundsChanged,
+        Self::AttackResolved,
+        Self::AreaStrikeResolved,
+        Self::PowerActivated,
+        Self::PowerEnded,
+        Self::PowerChargeChanged,
+        Self::CommanderSwapped,
+        Self::WeatherChanged,
+        Self::RandomOutcome,
+        Self::AutomaticSupply,
+        Self::AutomaticRepair,
+        Self::DrawOfferChanged,
+        Self::PlayerStatusChanged,
+        Self::TeamEliminated,
+        Self::MatchCompleted,
+    ];
+
     /// The identifier this kind is written as on the wire.
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -508,6 +547,26 @@ impl Serialize for ObservedReason {
     }
 }
 
+impl<'de> Deserialize<'de> for ObservedReason {
+    /// The wire carries one string, and the two variants exist to keep the
+    /// fallback from being spelled as a fresh one — so a reader has to pick.
+    ///
+    /// An event kind wins, because that is the only way the projection produces
+    /// the fallback, and the two vocabularies are disjoint:
+    /// `no_event_kind_is_also_a_reason` fails if they ever overlap.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::IntoDeserializer;
+        use serde::de::value::{Error as ValueError, StrDeserializer, StringDeserializer};
+        let text = String::deserialize(deserializer)?;
+        let kind: StrDeserializer<'_, ValueError> = text.as_str().into_deserializer();
+        if let Ok(kind) = EventKind::deserialize(kind) {
+            return Ok(Self::Kind(kind));
+        }
+        let declared: StringDeserializer<D::Error> = text.into_deserializer();
+        Reason::deserialize(declared).map(Self::Declared)
+    }
+}
+
 /// What an attack was aimed at.
 ///
 /// Shared with [`Command`](crate::transition::Command): the target a command
@@ -561,6 +620,39 @@ mod tests {
             event
         );
         value
+    }
+
+    /// [`ObservedReason`] is one string on the wire, and its reader resolves an
+    /// event kind before a declared reason. That tie-break is only harmless
+    /// while the two vocabularies are disjoint, which this pins.
+    #[test]
+    fn no_event_kind_is_also_a_reason() {
+        let reasons: Vec<&str> = KnownReason::ALL.iter().map(|r| r.as_str()).collect();
+        for kind in EventKind::ALL {
+            assert!(
+                !reasons.contains(&kind.as_str()),
+                "{} is both an event kind and a reason",
+                kind.as_str()
+            );
+        }
+    }
+
+    /// Both spellings of a reason survive the wire, and the fallback resolves
+    /// back to the kind it came from rather than to a fresh string.
+    #[test]
+    fn observed_reasons_round_trip_in_both_spellings() {
+        for reason in [
+            ObservedReason::Declared(KnownReason::Combat.into()),
+            ObservedReason::Declared(ReasonId::from("host-specific").into()),
+            ObservedReason::Kind(EventKind::UnitMoved),
+        ] {
+            let wire = serde_json::to_value(&reason).unwrap();
+            assert_eq!(wire, json!(reason.as_str()));
+            assert_eq!(
+                serde_json::from_value::<ObservedReason>(wire).unwrap(),
+                reason
+            );
+        }
     }
 
     #[test]
