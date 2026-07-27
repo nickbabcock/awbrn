@@ -197,7 +197,7 @@ fn an_out_of_domain_roll_is_rejected_like_a_malformed_tape() {
     assert!(
         matches!(
             execute_with(&state, attack, &mut Cheat),
-            Err(ExecuteError::UnsupportedCommand)
+            Err(ExecuteError::InvalidRandom(RandomError::OutOfDomain { .. }))
         ),
         "an out-of-domain roll must not resolve"
     );

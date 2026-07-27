@@ -614,6 +614,7 @@ name = "bench"
 version = "0.1.0"
 dependencies = [
  "awbrn-map",
+ "awbrn-server",
  "awbrn-types",
  "awbw-replay",
  "awvm",

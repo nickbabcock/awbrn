@@ -110,6 +110,7 @@ pub const FEATURES: &[&str] = &[
     "commander-effective-values-v1.sonja.day-to-day",
     "commander-effective-values-v1.sonja.cop",
     "commander-effective-values-v1.sonja.scop",
+    "commander-power-v1.validation",
     "commander-power-v1.adder.cop",
     "commander-power-v1.adder.scop",
     "commander-power-v1.andy.cop",
