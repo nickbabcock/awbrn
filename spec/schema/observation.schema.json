@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/observation.schema.json",
+  "title": "AWVM recipient observation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ruleset",
+    "recipient",
+    "settings",
+    "board",
+    "teams",
+    "players",
+    "turn",
+    "weather",
+    "units",
+    "match"
+  ],
+  "properties": {
+    "ruleset": { "$ref": "common.schema.json#/$defs/ruleset" },
+    "recipient": { "$ref": "common.schema.json#/$defs/player-id" },
+    "settings": { "$ref": "settings.schema.json" },
+    "board": { "$ref": "#/$defs/board" },
+    "teams": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/team" } },
+    "players": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/player" } },
+    "turn": { "$ref": "state.schema.json#/$defs/turn" },
+    "weather": { "$ref": "state.schema.json#/$defs/weather" },
+    "units": { "type": "array", "items": { "$ref": "#/$defs/unit" } },
+    "match": { "$ref": "#/$defs/match" }
+  },
+  "$defs": {
+    "position": { "$ref": "common.schema.json#/$defs/position" },
+    "unit-ref": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "unit"],
+          "properties": {
+            "type": { "const": "friendly" },
+            "unit": { "$ref": "common.schema.json#/$defs/unit-id" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "position"],
+          "properties": {
+            "type": { "const": "enemy" },
+            "position": { "$ref": "#/$defs/position" }
+          }
+        }
+      ]
+    },
+    "board": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height", "tiles"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "tiles": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/tile" } }
+        }
+      }
+    },
+    "tile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["terrain", "visibility"],
+      "properties": {
+        "terrain": { "$ref": "common.schema.json#/$defs/terrain-id" },
+        "visibility": { "enum": ["visible", "fogged"] },
+        "owner": {
+          "oneOf": [{ "$ref": "common.schema.json#/$defs/player-id" }, { "type": "null" }]
+        },
+        "capture_points": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "silo": { "enum": ["ready", "spent"] },
+        "destructible_hp": { "type": "integer", "minimum": 1 },
+        "teleporter": { "$ref": "common.schema.json#/$defs/teleporter-id" },
+        "trait_state": {
+          "type": "object",
+          "propertyNames": { "$ref": "common.schema.json#/$defs/trait-id" }
+        }
+      }
+    },
+    "team": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/team-id" },
+        "status": { "enum": ["active", "eliminated"] }
+      }
+    },
+    "public-commander": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "active", "power_charge"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/commander-id" },
+        "active": { "type": "boolean" },
+        "power_charge": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "private-commander": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "active", "power_charge", "power_uses"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/commander-id" },
+        "active": { "type": "boolean" },
+        "power_charge": { "type": "integer", "minimum": 0 },
+        "power_uses": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "player": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "team", "relation", "status", "commanders", "power_state"],
+          "properties": {
+            "id": { "$ref": "common.schema.json#/$defs/player-id" },
+            "team": { "$ref": "common.schema.json#/$defs/team-id" },
+            "relation": { "const": "opponent" },
+            "status": { "enum": ["active", "resigned", "timed-out", "eliminated"] },
+            "commanders": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 2,
+              "items": { "$ref": "#/$defs/public-commander" }
+            },
+            "power_state": { "$ref": "state.schema.json#/$defs/power-state" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "team", "relation", "funds", "status", "commanders", "power_state"],
+          "properties": {
+            "id": { "$ref": "common.schema.json#/$defs/player-id" },
+            "team": { "$ref": "common.schema.json#/$defs/team-id" },
+            "relation": { "enum": ["self", "ally"] },
+            "funds": { "type": "integer", "minimum": 0 },
+            "status": { "enum": ["active", "resigned", "timed-out", "eliminated"] },
+            "commanders": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 2,
+              "items": { "$ref": "#/$defs/private-commander" }
+            },
+            "power_state": { "$ref": "state.schema.json#/$defs/power-state" }
+          }
+        }
+      ]
+    },
+    "board-location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "position"],
+      "properties": { "type": { "const": "board" }, "position": { "$ref": "#/$defs/position" } }
+    },
+    "cargo-location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "transport", "slot"],
+      "properties": {
+        "type": { "const": "cargo" },
+        "transport": { "$ref": "common.schema.json#/$defs/unit-id" },
+        "slot": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "kind",
+        "owner",
+        "hp",
+        "fuel",
+        "ammo",
+        "action",
+        "concealment",
+        "location"
+      ],
+      "properties": {
+        "ref": { "$ref": "#/$defs/unit-ref" },
+        "kind": { "$ref": "common.schema.json#/$defs/unit-kind-id" },
+        "owner": { "$ref": "common.schema.json#/$defs/player-id" },
+        "hp": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "fuel": { "type": "integer", "minimum": 0 },
+        "ammo": { "type": "integer", "minimum": 0 },
+        "action": { "enum": ["ready", "moved", "spent", "immobilized"] },
+        "concealment": { "enum": ["exposed", "hidden"] },
+        "location": {
+          "oneOf": [{ "$ref": "#/$defs/board-location" }, { "$ref": "#/$defs/cargo-location" }]
+        }
+      }
+    },
+    "match": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "own_team_offers"],
+          "properties": {
+            "status": { "const": "active" },
+            "own_team_offers": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "common.schema.json#/$defs/player-id" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "outcome"],
+          "properties": {
+            "status": { "const": "finished" },
+            "outcome": {
+              "oneOf": [
+                { "$ref": "state.schema.json#/$defs/victory" },
+                { "$ref": "state.schema.json#/$defs/draw" },
+                { "$ref": "state.schema.json#/$defs/cancelled" }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

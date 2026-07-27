@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/combat-profiles.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "evidence", "units"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "status": { "enum": ["candidate", "confirmed"] },
+    "evidence": { "type": "object" },
+    "units": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fire_mode", "weapon_policy"],
+        "properties": {
+          "fire_mode": { "enum": ["none", "direct", "indirect"] },
+          "weapon_policy": { "enum": ["none", "unlimited", "ammo", "ammo-with-unlimited"] }
+        }
+      }
+    }
+  }
+}

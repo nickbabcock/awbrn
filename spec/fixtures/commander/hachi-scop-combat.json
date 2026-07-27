@@ -1,0 +1,214 @@
+{
+  "id": "hachi-scop-combat",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "commander-combat-v1.hachi.scop",
+  "evidence": { "confidence": "corroborated-implementation" },
+  "initial_state": {
+    "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+    "settings": {
+      "fog": false,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "enabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": { "lead": [], "backup": [] },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 3,
+      "height": 1,
+      "tiles": [[{ "terrain": "plain" }, { "terrain": "road" }, { "terrain": "plain" }]]
+    },
+    "teams": [
+      { "id": "red-team", "status": "active" },
+      { "id": "blue-team", "status": "active" }
+    ],
+    "players": [
+      {
+        "id": "red",
+        "team": "red-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "hachi", "active": true, "power_charge": 0, "power_uses": 1 }],
+        "power_state": { "type": "scop", "commander_slot": 0 }
+      },
+      {
+        "id": "blue",
+        "team": "blue-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      }
+    ],
+    "turn": {
+      "day": 1,
+      "active_player": "red",
+      "phase": "unit-action",
+      "order": ["red", "blue"],
+      "position": 0
+    },
+    "weather": { "kind": "clear", "remaining_turns": 0 },
+    "units": [
+      {
+        "id": 0,
+        "kind": "artillery",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 50,
+        "ammo": 6,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [0, 0] }
+      },
+      {
+        "id": 1,
+        "kind": "infantry",
+        "owner": "blue",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [2, 0] }
+      }
+    ],
+    "match": { "status": "active", "draw_offers": [] }
+  },
+  "steps": [
+    {
+      "id": "merchant-union-uses-shared-power-combat-bonus",
+      "command": {
+        "type": "move-attack",
+        "player": "red",
+        "unit": 0,
+        "path": [[0, 0]],
+        "target": { "type": "unit", "unit": 1 }
+      },
+      "random": [
+        { "type": "combat-good-luck", "value": 0 },
+        { "type": "combat-bad-luck", "value": 0 }
+      ],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "fog": false,
+            "income_per_property": 1000,
+            "starting_funds": 0,
+            "powers": "enabled",
+            "tags": false,
+            "weather": "clear",
+            "lab_units": [],
+            "unit_bans": [],
+            "commander_bans": { "lead": [], "backup": [] },
+            "capture_limit": null,
+            "day_limit": null,
+            "unit_limit": null
+          },
+          "board": {
+            "width": 3,
+            "height": 1,
+            "tiles": [[{ "terrain": "plain" }, { "terrain": "road" }, { "terrain": "plain" }]]
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "active" }
+          ],
+          "players": [
+            {
+              "id": "red",
+              "team": "red-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [{ "id": "hachi", "active": true, "power_charge": 0, "power_uses": 1 }],
+              "power_state": { "type": "scop", "commander_slot": 0 }
+            },
+            {
+              "id": "blue",
+              "team": "blue-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [
+                { "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }
+              ],
+              "power_state": { "type": "none" }
+            }
+          ],
+          "turn": {
+            "day": 1,
+            "active_player": "red",
+            "phase": "unit-action",
+            "order": ["red", "blue"],
+            "position": 0
+          },
+          "weather": { "kind": "clear", "remaining_turns": 0 },
+          "units": [
+            {
+              "id": 0,
+              "kind": "artillery",
+              "owner": "red",
+              "hp": 100,
+              "fuel": 50,
+              "ammo": 5,
+              "action": "spent",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [0, 0] }
+            },
+            {
+              "id": 1,
+              "kind": "infantry",
+              "owner": "blue",
+              "hp": 11,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [2, 0] }
+            }
+          ],
+          "match": { "status": "active", "draw_offers": [] }
+        },
+        "events": [
+          {
+            "type": "unit-resourced",
+            "unit": 0,
+            "fuel_before": 50,
+            "fuel_after": 50,
+            "ammo_before": 6,
+            "ammo_after": 5,
+            "reason": "combat"
+          },
+          {
+            "type": "attack-resolved",
+            "attacker": 0,
+            "weapon": "ammo",
+            "target": { "type": "unit", "unit": 1 }
+          },
+          {
+            "type": "unit-damaged",
+            "unit": 1,
+            "from_hp": 100,
+            "to_hp": 11,
+            "reason": "combat"
+          },
+          {
+            "type": "unit-action-changed",
+            "unit": 0,
+            "from": "ready",
+            "to": "spent",
+            "reason": "attack"
+          }
+        ],
+        "random_consumed": 2
+      }
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/settings.schema.json",
+  "title": "AWVM semantic match settings",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "fog",
+    "income_per_property",
+    "starting_funds",
+    "powers",
+    "tags",
+    "weather",
+    "lab_units",
+    "unit_bans",
+    "commander_bans",
+    "capture_limit",
+    "day_limit",
+    "unit_limit"
+  ],
+  "properties": {
+    "fog": { "type": "boolean" },
+    "income_per_property": { "type": "integer", "minimum": 0 },
+    "starting_funds": { "type": "integer", "minimum": 0 },
+    "powers": { "enum": ["enabled", "disabled"] },
+    "tags": { "type": "boolean" },
+    "weather": { "enum": ["clear", "rain", "snow", "random"] },
+    "lab_units": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/unit-kind-id" }
+    },
+    "unit_bans": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/unit-kind-id" }
+    },
+    "commander_bans": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lead", "backup"],
+      "properties": {
+        "lead": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "common.schema.json#/$defs/commander-id" }
+        },
+        "backup": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "common.schema.json#/$defs/commander-id" }
+        }
+      }
+    },
+    "capture_limit": {
+      "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }]
+    },
+    "day_limit": {
+      "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }]
+    },
+    "unit_limit": {
+      "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }]
+    }
+  }
+}

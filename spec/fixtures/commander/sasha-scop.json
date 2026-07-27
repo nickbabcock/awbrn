@@ -1,0 +1,553 @@
+{
+  "id": "sasha-war-bonds",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "commander-power-v1.sasha.scop",
+  "evidence": { "confidence": "corroborated-implementation" },
+  "initial_state": {
+    "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+    "settings": {
+      "fog": false,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "enabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": { "lead": [], "backup": [] },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 2,
+      "height": 1,
+      "tiles": [[{ "terrain": "plain" }, { "terrain": "plain" }]]
+    },
+    "teams": [
+      { "id": "red-team", "status": "active" },
+      { "id": "blue-team", "status": "active" }
+    ],
+    "players": [
+      {
+        "id": "red",
+        "team": "red-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "sasha", "active": true, "power_charge": 54000, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      },
+      {
+        "id": "blue",
+        "team": "blue-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      }
+    ],
+    "turn": {
+      "day": 1,
+      "active_player": "red",
+      "phase": "unit-action",
+      "order": ["red", "blue"],
+      "position": 0
+    },
+    "weather": { "kind": "clear", "remaining_turns": 0 },
+    "units": [
+      {
+        "id": 0,
+        "kind": "infantry",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [0, 0] }
+      },
+      {
+        "id": 1,
+        "kind": "infantry",
+        "owner": "blue",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [1, 0] }
+      }
+    ],
+    "match": { "status": "active", "draw_offers": [] }
+  },
+  "steps": [
+    {
+      "id": "activate-war-bonds",
+      "command": { "type": "activate-power", "player": "red", "level": "scop" },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "fog": false,
+            "income_per_property": 1000,
+            "starting_funds": 0,
+            "powers": "enabled",
+            "tags": false,
+            "weather": "clear",
+            "lab_units": [],
+            "unit_bans": [],
+            "commander_bans": { "lead": [], "backup": [] },
+            "capture_limit": null,
+            "day_limit": null,
+            "unit_limit": null
+          },
+          "board": {
+            "width": 2,
+            "height": 1,
+            "tiles": [[{ "terrain": "plain" }, { "terrain": "plain" }]]
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "active" }
+          ],
+          "players": [
+            {
+              "id": "red",
+              "team": "red-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [{ "id": "sasha", "active": true, "power_charge": 0, "power_uses": 1 }],
+              "power_state": { "type": "scop", "commander_slot": 0 }
+            },
+            {
+              "id": "blue",
+              "team": "blue-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [
+                { "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }
+              ],
+              "power_state": { "type": "none" }
+            }
+          ],
+          "turn": {
+            "day": 1,
+            "active_player": "red",
+            "phase": "unit-action",
+            "order": ["red", "blue"],
+            "position": 0
+          },
+          "weather": { "kind": "clear", "remaining_turns": 0 },
+          "units": [
+            {
+              "id": 0,
+              "kind": "infantry",
+              "owner": "red",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [0, 0] }
+            },
+            {
+              "id": 1,
+              "kind": "infantry",
+              "owner": "blue",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [1, 0] }
+            }
+          ],
+          "match": { "status": "active", "draw_offers": [] }
+        },
+        "events": [
+          { "type": "power-activated", "player": "red", "commander": "sasha", "power": "scop" }
+        ],
+        "random_consumed": 0
+      }
+    },
+    {
+      "id": "war-bonds-pays-for-visual-damage",
+      "command": {
+        "type": "move-attack",
+        "player": "red",
+        "unit": 0,
+        "path": [[0, 0]],
+        "target": { "type": "unit", "unit": 1 }
+      },
+      "random": [
+        { "type": "combat-good-luck", "value": 0 },
+        { "type": "combat-bad-luck", "value": 0 },
+        { "type": "combat-good-luck", "value": 0 },
+        { "type": "combat-bad-luck", "value": 0 }
+      ],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "board": {
+            "height": 1,
+            "tiles": [[{ "terrain": "plain" }, { "terrain": "plain" }]],
+            "width": 2
+          },
+          "match": { "draw_offers": [], "status": "active" },
+          "players": [
+            {
+              "commanders": [{ "active": true, "id": "sasha", "power_charge": 0, "power_uses": 1 }],
+              "funds": 250,
+              "id": "red",
+              "power_state": { "commander_slot": 0, "type": "scop" },
+              "status": "active",
+              "team": "red-team"
+            },
+            {
+              "commanders": [
+                { "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }
+              ],
+              "funds": 0,
+              "id": "blue",
+              "power_state": { "type": "none" },
+              "status": "active",
+              "team": "blue-team"
+            }
+          ],
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "capture_limit": null,
+            "commander_bans": { "backup": [], "lead": [] },
+            "day_limit": null,
+            "fog": false,
+            "income_per_property": 1000,
+            "lab_units": [],
+            "powers": "enabled",
+            "starting_funds": 0,
+            "tags": false,
+            "unit_bans": [],
+            "unit_limit": null,
+            "weather": "clear"
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "active" }
+          ],
+          "turn": {
+            "active_player": "red",
+            "day": 1,
+            "order": ["red", "blue"],
+            "phase": "unit-action",
+            "position": 0
+          },
+          "units": [
+            {
+              "action": "spent",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 80,
+              "id": 0,
+              "kind": "infantry",
+              "location": { "position": [0, 0], "type": "board" },
+              "owner": "red"
+            },
+            {
+              "action": "ready",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 46,
+              "id": 1,
+              "kind": "infantry",
+              "location": { "position": [1, 0], "type": "board" },
+              "owner": "blue"
+            }
+          ],
+          "weather": { "kind": "clear", "remaining_turns": 0 }
+        },
+        "events": [
+          {
+            "attacker": 0,
+            "target": { "type": "unit", "unit": 1 },
+            "type": "attack-resolved",
+            "weapon": "unlimited"
+          },
+          {
+            "from_hp": 100,
+            "reason": "combat",
+            "to_hp": 46,
+            "type": "unit-damaged",
+            "unit": 1
+          },
+          {
+            "from": 0,
+            "player": "red",
+            "reason": "commander-power",
+            "to": 250,
+            "type": "funds-changed"
+          },
+          {
+            "attacker": 1,
+            "target": { "type": "unit", "unit": 0 },
+            "type": "attack-resolved",
+            "weapon": "unlimited"
+          },
+          {
+            "from_hp": 100,
+            "reason": "combat-counter",
+            "to_hp": 80,
+            "type": "unit-damaged",
+            "unit": 0
+          },
+          {
+            "from": "ready",
+            "reason": "attack",
+            "to": "spent",
+            "type": "unit-action-changed",
+            "unit": 0
+          }
+        ],
+        "random_consumed": 4
+      }
+    },
+    {
+      "id": "war-bonds-persists-through-enemy-turn",
+      "command": { "type": "end-turn", "player": "red" },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "board": {
+            "height": 1,
+            "tiles": [[{ "terrain": "plain" }, { "terrain": "plain" }]],
+            "width": 2
+          },
+          "match": { "draw_offers": [], "status": "active" },
+          "players": [
+            {
+              "commanders": [{ "active": true, "id": "sasha", "power_charge": 0, "power_uses": 1 }],
+              "funds": 250,
+              "id": "red",
+              "power_state": { "commander_slot": 0, "type": "scop" },
+              "status": "active",
+              "team": "red-team"
+            },
+            {
+              "commanders": [
+                { "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }
+              ],
+              "funds": 0,
+              "id": "blue",
+              "power_state": { "type": "none" },
+              "status": "active",
+              "team": "blue-team"
+            }
+          ],
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "capture_limit": null,
+            "commander_bans": { "backup": [], "lead": [] },
+            "day_limit": null,
+            "fog": false,
+            "income_per_property": 1000,
+            "lab_units": [],
+            "powers": "enabled",
+            "starting_funds": 0,
+            "tags": false,
+            "unit_bans": [],
+            "unit_limit": null,
+            "weather": "clear"
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "active" }
+          ],
+          "turn": {
+            "active_player": "blue",
+            "day": 1,
+            "order": ["red", "blue"],
+            "phase": "unit-action",
+            "position": 1
+          },
+          "units": [
+            {
+              "action": "spent",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 80,
+              "id": 0,
+              "kind": "infantry",
+              "location": { "position": [0, 0], "type": "board" },
+              "owner": "red"
+            },
+            {
+              "action": "ready",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 46,
+              "id": 1,
+              "kind": "infantry",
+              "location": { "position": [1, 0], "type": "board" },
+              "owner": "blue"
+            }
+          ],
+          "weather": { "kind": "clear", "remaining_turns": 0 }
+        },
+        "events": [
+          { "from": "unit-action", "player": "red", "to": "turn-end", "type": "phase-changed" },
+          { "player": "blue", "position": 1, "type": "turn-selected" },
+          { "from": "turn-end", "player": "blue", "to": "turn-start", "type": "phase-changed" },
+          { "from": "turn-start", "player": "blue", "to": "unit-action", "type": "phase-changed" }
+        ],
+        "random_consumed": 0
+      }
+    },
+    {
+      "id": "war-bonds-pays-for-counter-damage",
+      "command": {
+        "type": "move-attack",
+        "player": "blue",
+        "unit": 1,
+        "path": [[1, 0]],
+        "target": { "type": "unit", "unit": 0 }
+      },
+      "random": [
+        { "type": "combat-good-luck", "value": 0 },
+        { "type": "combat-bad-luck", "value": 0 },
+        { "type": "combat-good-luck", "value": 0 },
+        { "type": "combat-bad-luck", "value": 0 }
+      ],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "board": {
+            "height": 1,
+            "tiles": [[{ "terrain": "plain" }, { "terrain": "plain" }]],
+            "width": 2
+          },
+          "match": { "draw_offers": [], "status": "active" },
+          "players": [
+            {
+              "commanders": [{ "active": true, "id": "sasha", "power_charge": 0, "power_uses": 1 }],
+              "funds": 400,
+              "id": "red",
+              "power_state": { "commander_slot": 0, "type": "scop" },
+              "status": "active",
+              "team": "red-team"
+            },
+            {
+              "commanders": [
+                { "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }
+              ],
+              "funds": 0,
+              "id": "blue",
+              "power_state": { "type": "none" },
+              "status": "active",
+              "team": "blue-team"
+            }
+          ],
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "capture_limit": null,
+            "commander_bans": { "backup": [], "lead": [] },
+            "day_limit": null,
+            "fog": false,
+            "income_per_property": 1000,
+            "lab_units": [],
+            "powers": "enabled",
+            "starting_funds": 0,
+            "tags": false,
+            "unit_bans": [],
+            "unit_limit": null,
+            "weather": "clear"
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "active" }
+          ],
+          "turn": {
+            "active_player": "blue",
+            "day": 1,
+            "order": ["red", "blue"],
+            "phase": "unit-action",
+            "position": 1
+          },
+          "units": [
+            {
+              "action": "spent",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 60,
+              "id": 0,
+              "kind": "infantry",
+              "location": { "position": [0, 0], "type": "board" },
+              "owner": "red"
+            },
+            {
+              "action": "spent",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 12,
+              "id": 1,
+              "kind": "infantry",
+              "location": { "position": [1, 0], "type": "board" },
+              "owner": "blue"
+            }
+          ],
+          "weather": { "kind": "clear", "remaining_turns": 0 }
+        },
+        "events": [
+          {
+            "attacker": 1,
+            "target": { "type": "unit", "unit": 0 },
+            "type": "attack-resolved",
+            "weapon": "unlimited"
+          },
+          {
+            "from_hp": 80,
+            "reason": "combat",
+            "to_hp": 60,
+            "type": "unit-damaged",
+            "unit": 0
+          },
+          {
+            "attacker": 0,
+            "target": { "type": "unit", "unit": 1 },
+            "type": "attack-resolved",
+            "weapon": "unlimited"
+          },
+          {
+            "from_hp": 46,
+            "reason": "combat-counter",
+            "to_hp": 12,
+            "type": "unit-damaged",
+            "unit": 1
+          },
+          {
+            "from": 250,
+            "player": "red",
+            "reason": "commander-power",
+            "to": 400,
+            "type": "funds-changed"
+          },
+          {
+            "from": "ready",
+            "reason": "attack",
+            "to": "spent",
+            "type": "unit-action-changed",
+            "unit": 1
+          }
+        ],
+        "random_consumed": 4
+      }
+    }
+  ]
+}

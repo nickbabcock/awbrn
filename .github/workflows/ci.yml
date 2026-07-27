@@ -13,6 +13,37 @@ permissions:
   contents: read
 
 jobs:
+  awvm:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: stable
+        components: rustfmt, clippy
+    - name: Enable pnpm
+      run: corepack enable
+    - name: Install JavaScript dependencies
+      run: pnpm install --frozen-lockfile
+    - name: Check fixture formatting
+      run: pnpm exec oxfmt --check spec/fixtures
+    - name: Validate schemas and ruleset data
+      run: |
+        node spec/tools/validate-json.mjs
+        node spec/tools/validate-ruleset.mjs
+    - name: Check generated ruleset tables are current
+      run: cargo run --locked --package xtask-ruleset -- --check
+    - name: Check Rust implementation
+      run: |
+        cargo fmt --all -- --check
+        cargo clippy --locked -p awvm --all-targets -- -D warnings
+        cargo test --locked -p awvm --all-targets
+        cargo build --locked -p awvm --bins
+    - name: Run conformance suite
+      run: target/debug/awvm-conformance target/debug/awvm-jsonl spec/fixtures
+
   test:
     runs-on: ${{ matrix.os }}
     strategy:

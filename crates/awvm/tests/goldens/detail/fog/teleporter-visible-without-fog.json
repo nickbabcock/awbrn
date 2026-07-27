@@ -1,0 +1,225 @@
+{
+  "initial_observations": {
+    "red": {
+      "board": {
+        "height": 1,
+        "tiles": [
+          [
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "teleporter",
+              "visibility": "visible"
+            }
+          ]
+        ],
+        "width": 2
+      },
+      "match": {
+        "own_team_offers": [],
+        "status": "active"
+      },
+      "players": [
+        {
+          "commanders": [
+            {
+              "active": true,
+              "id": "andy",
+              "power_charge": 0,
+              "power_uses": 0
+            }
+          ],
+          "funds": 0,
+          "id": "red",
+          "power_state": {
+            "type": "none"
+          },
+          "relation": "self",
+          "status": "active",
+          "team": "red-team"
+        }
+      ],
+      "recipient": "red",
+      "ruleset": {
+        "id": "awbw",
+        "revision": "2026-07-10"
+      },
+      "settings": {
+        "capture_limit": null,
+        "commander_bans": {
+          "backup": [],
+          "lead": []
+        },
+        "day_limit": null,
+        "fog": false,
+        "income_per_property": 1000,
+        "lab_units": [],
+        "powers": "disabled",
+        "starting_funds": 0,
+        "tags": false,
+        "unit_bans": [],
+        "unit_limit": null,
+        "weather": "clear"
+      },
+      "teams": [
+        {
+          "id": "red-team",
+          "status": "active"
+        }
+      ],
+      "turn": {
+        "active_player": "red",
+        "day": 1,
+        "order": [
+          "red"
+        ],
+        "phase": "unit-action",
+        "position": 0
+      },
+      "units": [
+        {
+          "action": "ready",
+          "ammo": 0,
+          "concealment": "exposed",
+          "fuel": 80,
+          "hp": 100,
+          "kind": "recon",
+          "location": {
+            "position": [
+              0,
+              0
+            ],
+            "type": "board"
+          },
+          "owner": "red",
+          "ref": {
+            "type": "friendly",
+            "unit": 0
+          }
+        }
+      ],
+      "weather": {
+        "kind": "clear",
+        "remaining_turns": 0
+      }
+    }
+  },
+  "steps": [
+    {
+      "id": "preserve-initial-observation",
+      "observations": {
+        "red": {
+          "board": {
+            "height": 1,
+            "tiles": [
+              [
+                {
+                  "terrain": "plain",
+                  "visibility": "visible"
+                },
+                {
+                  "terrain": "teleporter",
+                  "visibility": "visible"
+                }
+              ]
+            ],
+            "width": 2
+          },
+          "match": {
+            "own_team_offers": [],
+            "status": "active"
+          },
+          "players": [
+            {
+              "commanders": [
+                {
+                  "active": true,
+                  "id": "andy",
+                  "power_charge": 0,
+                  "power_uses": 0
+                }
+              ],
+              "funds": 0,
+              "id": "red",
+              "power_state": {
+                "type": "none"
+              },
+              "relation": "self",
+              "status": "active",
+              "team": "red-team"
+            }
+          ],
+          "recipient": "red",
+          "ruleset": {
+            "id": "awbw",
+            "revision": "2026-07-10"
+          },
+          "settings": {
+            "capture_limit": null,
+            "commander_bans": {
+              "backup": [],
+              "lead": []
+            },
+            "day_limit": null,
+            "fog": false,
+            "income_per_property": 1000,
+            "lab_units": [],
+            "powers": "disabled",
+            "starting_funds": 0,
+            "tags": false,
+            "unit_bans": [],
+            "unit_limit": null,
+            "weather": "clear"
+          },
+          "teams": [
+            {
+              "id": "red-team",
+              "status": "active"
+            }
+          ],
+          "turn": {
+            "active_player": "red",
+            "day": 1,
+            "order": [
+              "red"
+            ],
+            "phase": "unit-action",
+            "position": 0
+          },
+          "units": [
+            {
+              "action": "ready",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 80,
+              "hp": 100,
+              "kind": "recon",
+              "location": {
+                "position": [
+                  0,
+                  0
+                ],
+                "type": "board"
+              },
+              "owner": "red",
+              "ref": {
+                "type": "friendly",
+                "unit": 0
+              }
+            }
+          ],
+          "weather": {
+            "kind": "clear",
+            "remaining_turns": 0
+          }
+        }
+      },
+      "observed_events": {
+        "red": []
+      },
+      "status": "rejected"
+    }
+  ]
+}

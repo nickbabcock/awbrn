@@ -1,0 +1,107 @@
+{
+  "$schema": "../../../schema/terrain.schema.json",
+  "status": "candidate",
+  "evidence": {
+    "confidence": "documentation-only",
+    "note": "Trait names remain candidate vocabulary pending rule-specific confirmation. Mountains add three vision to eligible units; woods and reefs limit distant vision to air units. Teleporters are zero-star, non-property transit tiles that cannot receive vision in fog or hold a unit."
+  },
+  "terrains": {
+    "plain": { "defense_stars": 1, "property_kind": null, "traits": [] },
+    "mountain": {
+      "defense_stars": 4,
+      "property_kind": null,
+      "traits": ["elevated-vision"],
+      "vision_bonus": 3
+    },
+    "wood": {
+      "defense_stars": 2,
+      "property_kind": null,
+      "traits": ["conceals-in-fog"],
+      "vision_limit": 1
+    },
+    "river": { "defense_stars": 0, "property_kind": null, "traits": [] },
+    "road": { "defense_stars": 0, "property_kind": null, "traits": [] },
+    "bridge": { "defense_stars": 0, "property_kind": null, "traits": [] },
+    "sea": { "defense_stars": 0, "property_kind": null, "traits": [] },
+    "shoal": { "defense_stars": 0, "property_kind": null, "traits": [] },
+    "reef": {
+      "defense_stars": 1,
+      "property_kind": null,
+      "traits": ["conceals-in-fog"],
+      "vision_limit": 1
+    },
+    "city": {
+      "defense_stars": 3,
+      "property_kind": "city",
+      "traits": ["capturable", "income", "repairs-ground", "counts-toward-capture-limit"]
+    },
+    "base": {
+      "defense_stars": 3,
+      "property_kind": "base",
+      "traits": [
+        "capturable",
+        "income",
+        "repairs-ground",
+        "produces-ground",
+        "counts-toward-capture-limit"
+      ]
+    },
+    "airport": {
+      "defense_stars": 3,
+      "property_kind": "airport",
+      "traits": [
+        "capturable",
+        "income",
+        "repairs-air",
+        "produces-air",
+        "counts-toward-capture-limit"
+      ]
+    },
+    "port": {
+      "defense_stars": 3,
+      "property_kind": "port",
+      "traits": [
+        "capturable",
+        "income",
+        "repairs-sea",
+        "produces-sea",
+        "counts-toward-capture-limit"
+      ]
+    },
+    "hq": {
+      "defense_stars": 4,
+      "property_kind": "hq",
+      "traits": [
+        "capturable",
+        "income",
+        "repairs-ground",
+        "capture-defeats-owner",
+        "counts-toward-capture-limit"
+      ],
+      "elimination_replacement": "city"
+    },
+    "com-tower": {
+      "defense_stars": 3,
+      "property_kind": "com-tower",
+      "traits": ["capturable", "communication-bonus"]
+    },
+    "lab": { "defense_stars": 3, "property_kind": "lab", "traits": ["capturable", "lab-victory"] },
+    "missile-silo": { "defense_stars": 3, "property_kind": null, "traits": ["missile-silo"] },
+    "pipe": {
+      "defense_stars": 0,
+      "property_kind": null,
+      "traits": ["pipe-only", "always-visible"]
+    },
+    "pipe-seam": {
+      "defense_stars": 0,
+      "property_kind": null,
+      "traits": ["pipe-only", "destructible", "always-visible"],
+      "destructible": {
+        "maximum_hp": 100,
+        "target_kind": "neo-tank",
+        "destruction_replacement": "plain"
+      }
+    },
+    "teleporter": { "defense_stars": 0, "property_kind": null, "traits": ["teleporter"] }
+  }
+}

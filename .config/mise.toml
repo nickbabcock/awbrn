@@ -75,6 +75,22 @@ run = [
     "pnpm run test"
 ]
 
+[tasks."test:awvm"]
+description = "Run the AWVM tests and the full spec fixture corpus"
+run = [
+    "cargo test -p awvm --all-targets",
+]
+
+[tasks."test:rust"]
+description = "Run the Rust test suite"
+run = [
+    "cargo test --workspace --all-targets --no-fail-fast",
+]
+
+[tasks."test"]
+description = "Run the Rust and web test suites"
+depends = ["test:rust", "test:web"]
+
 [tasks."dev:web"]
 description = "Run the web server"
 dir = "web"
@@ -100,6 +116,10 @@ run = [
     "cargo xtask-assets co",
     "cargo xtask-assets logos",
 ]
+
+[tasks."ruleset"]
+description = "Regenerate the AWVM ruleset tables from spec/rulesets"
+run = "cargo xtask-ruleset"
 
 [tasks.pnpm-install]
 run = "pnpm install --optimistic-repeat-install"

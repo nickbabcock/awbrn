@@ -1,0 +1,582 @@
+{
+  "initial_observations": {
+    "blue": {
+      "board": {
+        "height": 1,
+        "tiles": [
+          [
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "wood",
+              "visibility": "visible"
+            }
+          ]
+        ],
+        "width": 3
+      },
+      "match": {
+        "own_team_offers": [],
+        "status": "active"
+      },
+      "players": [
+        {
+          "commanders": [
+            {
+              "active": true,
+              "id": "neutral",
+              "power_charge": 0
+            }
+          ],
+          "id": "red",
+          "power_state": {
+            "type": "none"
+          },
+          "relation": "opponent",
+          "status": "active",
+          "team": "red-team"
+        },
+        {
+          "commanders": [
+            {
+              "active": true,
+              "id": "neutral",
+              "power_charge": 0,
+              "power_uses": 0
+            }
+          ],
+          "funds": 0,
+          "id": "blue",
+          "power_state": {
+            "type": "none"
+          },
+          "relation": "self",
+          "status": "active",
+          "team": "blue-team"
+        }
+      ],
+      "recipient": "blue",
+      "ruleset": {
+        "id": "awbw",
+        "revision": "2026-07-10"
+      },
+      "settings": {
+        "capture_limit": null,
+        "commander_bans": {
+          "backup": [],
+          "lead": []
+        },
+        "day_limit": null,
+        "fog": true,
+        "income_per_property": 1000,
+        "lab_units": [],
+        "powers": "enabled",
+        "starting_funds": 0,
+        "tags": false,
+        "unit_bans": [],
+        "unit_limit": null,
+        "weather": "clear"
+      },
+      "teams": [
+        {
+          "id": "red-team",
+          "status": "active"
+        },
+        {
+          "id": "blue-team",
+          "status": "active"
+        }
+      ],
+      "turn": {
+        "active_player": "red",
+        "day": 1,
+        "order": [
+          "red",
+          "blue"
+        ],
+        "phase": "unit-action",
+        "position": 0
+      },
+      "units": [
+        {
+          "action": "ready",
+          "ammo": 9,
+          "concealment": "exposed",
+          "fuel": 70,
+          "hp": 100,
+          "kind": "tank",
+          "location": {
+            "position": [
+              2,
+              0
+            ],
+            "type": "board"
+          },
+          "owner": "blue",
+          "ref": {
+            "type": "friendly",
+            "unit": 1
+          }
+        },
+        {
+          "action": "ready",
+          "ammo": 9,
+          "concealment": "exposed",
+          "fuel": 50,
+          "hp": 100,
+          "kind": "artillery",
+          "location": {
+            "position": [
+              0,
+              0
+            ],
+            "type": "board"
+          },
+          "owner": "red",
+          "ref": {
+            "position": [
+              0,
+              0
+            ],
+            "type": "enemy"
+          }
+        }
+      ],
+      "weather": {
+        "kind": "clear",
+        "remaining_turns": 0
+      }
+    },
+    "red": {
+      "board": {
+        "height": 1,
+        "tiles": [
+          [
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "plain",
+              "visibility": "visible"
+            },
+            {
+              "terrain": "wood",
+              "visibility": "fogged"
+            }
+          ]
+        ],
+        "width": 3
+      },
+      "match": {
+        "own_team_offers": [],
+        "status": "active"
+      },
+      "players": [
+        {
+          "commanders": [
+            {
+              "active": true,
+              "id": "neutral",
+              "power_charge": 0,
+              "power_uses": 0
+            }
+          ],
+          "funds": 0,
+          "id": "red",
+          "power_state": {
+            "type": "none"
+          },
+          "relation": "self",
+          "status": "active",
+          "team": "red-team"
+        },
+        {
+          "commanders": [
+            {
+              "active": true,
+              "id": "neutral",
+              "power_charge": 0
+            }
+          ],
+          "id": "blue",
+          "power_state": {
+            "type": "none"
+          },
+          "relation": "opponent",
+          "status": "active",
+          "team": "blue-team"
+        }
+      ],
+      "recipient": "red",
+      "ruleset": {
+        "id": "awbw",
+        "revision": "2026-07-10"
+      },
+      "settings": {
+        "capture_limit": null,
+        "commander_bans": {
+          "backup": [],
+          "lead": []
+        },
+        "day_limit": null,
+        "fog": true,
+        "income_per_property": 1000,
+        "lab_units": [],
+        "powers": "enabled",
+        "starting_funds": 0,
+        "tags": false,
+        "unit_bans": [],
+        "unit_limit": null,
+        "weather": "clear"
+      },
+      "teams": [
+        {
+          "id": "red-team",
+          "status": "active"
+        },
+        {
+          "id": "blue-team",
+          "status": "active"
+        }
+      ],
+      "turn": {
+        "active_player": "red",
+        "day": 1,
+        "order": [
+          "red",
+          "blue"
+        ],
+        "phase": "unit-action",
+        "position": 0
+      },
+      "units": [
+        {
+          "action": "ready",
+          "ammo": 9,
+          "concealment": "exposed",
+          "fuel": 50,
+          "hp": 100,
+          "kind": "artillery",
+          "location": {
+            "position": [
+              0,
+              0
+            ],
+            "type": "board"
+          },
+          "owner": "red",
+          "ref": {
+            "type": "friendly",
+            "unit": 0
+          }
+        }
+      ],
+      "weather": {
+        "kind": "clear",
+        "remaining_turns": 0
+      }
+    }
+  },
+  "steps": [
+    {
+      "id": "reject-ground-unit-concealed-by-woods",
+      "observations": {
+        "blue": {
+          "board": {
+            "height": 1,
+            "tiles": [
+              [
+                {
+                  "terrain": "plain",
+                  "visibility": "visible"
+                },
+                {
+                  "terrain": "plain",
+                  "visibility": "visible"
+                },
+                {
+                  "terrain": "wood",
+                  "visibility": "visible"
+                }
+              ]
+            ],
+            "width": 3
+          },
+          "match": {
+            "own_team_offers": [],
+            "status": "active"
+          },
+          "players": [
+            {
+              "commanders": [
+                {
+                  "active": true,
+                  "id": "neutral",
+                  "power_charge": 0
+                }
+              ],
+              "id": "red",
+              "power_state": {
+                "type": "none"
+              },
+              "relation": "opponent",
+              "status": "active",
+              "team": "red-team"
+            },
+            {
+              "commanders": [
+                {
+                  "active": true,
+                  "id": "neutral",
+                  "power_charge": 0,
+                  "power_uses": 0
+                }
+              ],
+              "funds": 0,
+              "id": "blue",
+              "power_state": {
+                "type": "none"
+              },
+              "relation": "self",
+              "status": "active",
+              "team": "blue-team"
+            }
+          ],
+          "recipient": "blue",
+          "ruleset": {
+            "id": "awbw",
+            "revision": "2026-07-10"
+          },
+          "settings": {
+            "capture_limit": null,
+            "commander_bans": {
+              "backup": [],
+              "lead": []
+            },
+            "day_limit": null,
+            "fog": true,
+            "income_per_property": 1000,
+            "lab_units": [],
+            "powers": "enabled",
+            "starting_funds": 0,
+            "tags": false,
+            "unit_bans": [],
+            "unit_limit": null,
+            "weather": "clear"
+          },
+          "teams": [
+            {
+              "id": "red-team",
+              "status": "active"
+            },
+            {
+              "id": "blue-team",
+              "status": "active"
+            }
+          ],
+          "turn": {
+            "active_player": "red",
+            "day": 1,
+            "order": [
+              "red",
+              "blue"
+            ],
+            "phase": "unit-action",
+            "position": 0
+          },
+          "units": [
+            {
+              "action": "ready",
+              "ammo": 9,
+              "concealment": "exposed",
+              "fuel": 70,
+              "hp": 100,
+              "kind": "tank",
+              "location": {
+                "position": [
+                  2,
+                  0
+                ],
+                "type": "board"
+              },
+              "owner": "blue",
+              "ref": {
+                "type": "friendly",
+                "unit": 1
+              }
+            },
+            {
+              "action": "ready",
+              "ammo": 9,
+              "concealment": "exposed",
+              "fuel": 50,
+              "hp": 100,
+              "kind": "artillery",
+              "location": {
+                "position": [
+                  0,
+                  0
+                ],
+                "type": "board"
+              },
+              "owner": "red",
+              "ref": {
+                "position": [
+                  0,
+                  0
+                ],
+                "type": "enemy"
+              }
+            }
+          ],
+          "weather": {
+            "kind": "clear",
+            "remaining_turns": 0
+          }
+        },
+        "red": {
+          "board": {
+            "height": 1,
+            "tiles": [
+              [
+                {
+                  "terrain": "plain",
+                  "visibility": "visible"
+                },
+                {
+                  "terrain": "plain",
+                  "visibility": "visible"
+                },
+                {
+                  "terrain": "wood",
+                  "visibility": "fogged"
+                }
+              ]
+            ],
+            "width": 3
+          },
+          "match": {
+            "own_team_offers": [],
+            "status": "active"
+          },
+          "players": [
+            {
+              "commanders": [
+                {
+                  "active": true,
+                  "id": "neutral",
+                  "power_charge": 0,
+                  "power_uses": 0
+                }
+              ],
+              "funds": 0,
+              "id": "red",
+              "power_state": {
+                "type": "none"
+              },
+              "relation": "self",
+              "status": "active",
+              "team": "red-team"
+            },
+            {
+              "commanders": [
+                {
+                  "active": true,
+                  "id": "neutral",
+                  "power_charge": 0
+                }
+              ],
+              "id": "blue",
+              "power_state": {
+                "type": "none"
+              },
+              "relation": "opponent",
+              "status": "active",
+              "team": "blue-team"
+            }
+          ],
+          "recipient": "red",
+          "ruleset": {
+            "id": "awbw",
+            "revision": "2026-07-10"
+          },
+          "settings": {
+            "capture_limit": null,
+            "commander_bans": {
+              "backup": [],
+              "lead": []
+            },
+            "day_limit": null,
+            "fog": true,
+            "income_per_property": 1000,
+            "lab_units": [],
+            "powers": "enabled",
+            "starting_funds": 0,
+            "tags": false,
+            "unit_bans": [],
+            "unit_limit": null,
+            "weather": "clear"
+          },
+          "teams": [
+            {
+              "id": "red-team",
+              "status": "active"
+            },
+            {
+              "id": "blue-team",
+              "status": "active"
+            }
+          ],
+          "turn": {
+            "active_player": "red",
+            "day": 1,
+            "order": [
+              "red",
+              "blue"
+            ],
+            "phase": "unit-action",
+            "position": 0
+          },
+          "units": [
+            {
+              "action": "ready",
+              "ammo": 9,
+              "concealment": "exposed",
+              "fuel": 50,
+              "hp": 100,
+              "kind": "artillery",
+              "location": {
+                "position": [
+                  0,
+                  0
+                ],
+                "type": "board"
+              },
+              "owner": "red",
+              "ref": {
+                "type": "friendly",
+                "unit": 0
+              }
+            }
+          ],
+          "weather": {
+            "kind": "clear",
+            "remaining_turns": 0
+          }
+        }
+      },
+      "observed_events": {
+        "blue": [],
+        "red": []
+      },
+      "status": "rejected"
+    }
+  ]
+}

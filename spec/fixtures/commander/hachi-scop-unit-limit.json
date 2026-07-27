@@ -1,0 +1,85 @@
+{
+  "id": "hachi-scop-unit-limit",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "commander-effective-values-v1.hachi.scop.unit-limit",
+  "evidence": {
+    "confidence": "corroborated-implementation",
+    "note": "Merchant Union adds owned Cities as production sites and discounts the build, but does not bypass the match unit limit."
+  },
+  "initial_state": {
+    "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+    "settings": {
+      "fog": false,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "enabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": { "lead": [], "backup": [] },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": 1
+    },
+    "board": {
+      "width": 2,
+      "height": 1,
+      "tiles": [
+        [{ "terrain": "city", "owner": "red", "capture_points": 20 }, { "terrain": "plain" }]
+      ]
+    },
+    "teams": [{ "id": "red-team", "status": "active" }],
+    "players": [
+      {
+        "id": "red",
+        "team": "red-team",
+        "funds": 5000,
+        "status": "active",
+        "commanders": [{ "id": "hachi", "active": true, "power_charge": 0, "power_uses": 1 }],
+        "power_state": { "type": "scop", "commander_slot": 0 }
+      }
+    ],
+    "turn": {
+      "day": 1,
+      "active_player": "red",
+      "phase": "unit-action",
+      "order": ["red"],
+      "position": 0
+    },
+    "weather": { "kind": "clear", "remaining_turns": 0 },
+    "units": [
+      {
+        "id": 0,
+        "kind": "tank",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 70,
+        "ammo": 9,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [1, 0] }
+      }
+    ],
+    "next_unit_id": 1,
+    "match": { "status": "active", "draw_offers": [] }
+  },
+  "steps": [
+    {
+      "id": "merchant-union-obeys-unit-limit",
+      "command": {
+        "type": "produce-unit",
+        "player": "red",
+        "position": [0, 0],
+        "kind": "infantry"
+      },
+      "random": [],
+      "expect": {
+        "status": "rejected",
+        "violation": { "code": "UNIT_LIMIT_REACHED", "current": 1, "limit": 1 },
+        "random_consumed": 0
+      }
+    }
+  ]
+}

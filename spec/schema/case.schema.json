@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/case.schema.json",
+  "title": "AWVM executable conformance case",
+  "description": "A deterministic semantic scenario. Implementations receive only ruleset, initial_state, commands, and random tokens; all expect fields are assertions.",
+  "oneOf": [{ "$ref": "#/$defs/sequence-case" }, { "$ref": "#/$defs/equivalence-case" }],
+  "$defs": {
+    "feature-id": {
+      "description": "Dot-separated conformance feature path; the first segment must be a feature ID in the addressed ruleset manifest. See spec/protocol.md.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+(-[a-z0-9]+)*)*$"
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "spec_version": { "const": "0.1.0" },
+        "ruleset": { "$ref": "common.schema.json#/$defs/ruleset" },
+        "feature": { "$ref": "#/$defs/feature-id" },
+        "evidence": { "$ref": "#/$defs/evidence" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["confidence"],
+      "properties": {
+        "confidence": {
+          "enum": [
+            "confirmed-experiment",
+            "confirmed-replay",
+            "corroborated-implementation",
+            "documentation-only",
+            "hypothesis"
+          ]
+        },
+        "note": { "type": "string", "minLength": 1 }
+      }
+    },
+    "sequence-case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "spec_version",
+        "ruleset",
+        "feature",
+        "evidence",
+        "initial_state",
+        "steps"
+      ],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "spec_version": { "const": "0.1.0" },
+        "ruleset": { "$ref": "common.schema.json#/$defs/ruleset" },
+        "feature": { "$ref": "#/$defs/feature-id" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "initial_state": { "$ref": "state.schema.json" },
+        "initial_observations": { "$ref": "#/$defs/observations" },
+        "steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/step" } }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "command", "random", "expect"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "command": { "$ref": "command.schema.json" },
+        "random": { "type": "array", "items": { "$ref": "random.schema.json" } },
+        "expect": { "$ref": "#/$defs/step-result" }
+      }
+    },
+    "step-result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "state", "events", "random_consumed"],
+          "properties": {
+            "status": { "const": "accepted" },
+            "state": { "$ref": "state.schema.json" },
+            "events": { "type": "array", "items": { "$ref": "event.schema.json" } },
+            "random_consumed": { "type": "integer", "minimum": 0 },
+            "observations": { "$ref": "#/$defs/observations" },
+            "observed_events": { "$ref": "#/$defs/observed-events-by-recipient" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "violation", "random_consumed"],
+          "properties": {
+            "status": { "const": "rejected" },
+            "violation": { "$ref": "violation.schema.json" },
+            "random_consumed": { "const": 0 },
+            "observations": { "$ref": "#/$defs/observations" }
+          }
+        }
+      ]
+    },
+    "observations": {
+      "type": "object",
+      "propertyNames": { "$ref": "common.schema.json#/$defs/id" },
+      "additionalProperties": { "$ref": "observation.schema.json" }
+    },
+    "observed-events-by-recipient": {
+      "type": "object",
+      "propertyNames": { "$ref": "common.schema.json#/$defs/id" },
+      "additionalProperties": { "type": "array", "items": { "$ref": "observed-event.schema.json" } }
+    },
+    "equivalence-case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "spec_version",
+        "ruleset",
+        "feature",
+        "evidence",
+        "recipient",
+        "left",
+        "right",
+        "assert"
+      ],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "spec_version": { "const": "0.1.0" },
+        "ruleset": { "$ref": "common.schema.json#/$defs/ruleset" },
+        "feature": { "$ref": "#/$defs/feature-id" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "recipient": { "$ref": "common.schema.json#/$defs/id" },
+        "left": { "$ref": "#/$defs/equivalence-side" },
+        "right": { "$ref": "#/$defs/equivalence-side" },
+        "assert": { "enum": ["equal-observations", "equal-observations-and-events"] }
+      }
+    },
+    "equivalence-side": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["initial_state", "steps"],
+      "properties": {
+        "initial_state": { "$ref": "state.schema.json" },
+        "steps": { "type": "array", "items": { "$ref": "#/$defs/equivalence-step" } }
+      }
+    },
+    "equivalence-step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "random"],
+      "properties": {
+        "command": { "$ref": "command.schema.json" },
+        "random": { "type": "array", "items": { "$ref": "random.schema.json" } }
+      }
+    }
+  }
+}

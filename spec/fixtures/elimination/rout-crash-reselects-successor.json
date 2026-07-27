@@ -1,0 +1,264 @@
+{
+  "id": "rout-crash-reselects-successor",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "elimination-v1.rout.crash-reselects-successor",
+  "evidence": {
+    "confidence": "corroborated-implementation",
+    "note": "Blue's only unit crashes during blue's own turn-start, routing blue at the step-9 checkpoint. Blue keeps the income granted at step 4, because income precedes upkeep in the fixed phase order. The boundary loop then resumes and selects green without re-entering turn-end, so no phase-changed accompanies the hand-off."
+  },
+  "initial_state": {
+    "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+    "settings": {
+      "fog": false,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "disabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": { "lead": [], "backup": [] },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 5,
+      "height": 1,
+      "tiles": [
+        [
+          { "terrain": "city", "owner": "red", "capture_points": 20 },
+          { "terrain": "hq", "owner": "blue", "capture_points": 20 },
+          { "terrain": "plain" },
+          { "terrain": "city", "owner": "green", "capture_points": 20 },
+          { "terrain": "plain" }
+        ]
+      ]
+    },
+    "teams": [
+      { "id": "red-team", "status": "active" },
+      { "id": "blue-team", "status": "active" },
+      { "id": "green-team", "status": "active" }
+    ],
+    "players": [
+      {
+        "id": "red",
+        "team": "red-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "andy", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      },
+      {
+        "id": "blue",
+        "team": "blue-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "olaf", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      },
+      {
+        "id": "green",
+        "team": "green-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "grit", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      }
+    ],
+    "turn": {
+      "day": 2,
+      "active_player": "red",
+      "phase": "unit-action",
+      "order": ["red", "blue", "green"],
+      "position": 0
+    },
+    "weather": { "kind": "clear", "remaining_turns": 0 },
+    "units": [
+      {
+        "id": 0,
+        "kind": "fighter",
+        "owner": "blue",
+        "hp": 100,
+        "fuel": 5,
+        "ammo": 9,
+        "action": "spent",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [2, 0] }
+      },
+      {
+        "id": 1,
+        "kind": "infantry",
+        "owner": "green",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "spent",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [4, 0] }
+      },
+      {
+        "id": 2,
+        "kind": "infantry",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "spent",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [0, 0] }
+      }
+    ],
+    "match": { "status": "active", "draw_offers": [] }
+  },
+  "steps": [
+    {
+      "id": "red-ends-turn-blue-crashes-green-opens",
+      "command": { "type": "end-turn", "player": "red" },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "fog": false,
+            "income_per_property": 1000,
+            "starting_funds": 0,
+            "powers": "disabled",
+            "tags": false,
+            "weather": "clear",
+            "lab_units": [],
+            "unit_bans": [],
+            "commander_bans": { "lead": [], "backup": [] },
+            "capture_limit": null,
+            "day_limit": null,
+            "unit_limit": null
+          },
+          "board": {
+            "width": 5,
+            "height": 1,
+            "tiles": [
+              [
+                { "terrain": "city", "owner": "red", "capture_points": 20 },
+                { "terrain": "city", "owner": null, "capture_points": 20 },
+                { "terrain": "plain" },
+                { "terrain": "city", "owner": "green", "capture_points": 20 },
+                { "terrain": "plain" }
+              ]
+            ]
+          },
+          "teams": [
+            { "id": "red-team", "status": "active" },
+            { "id": "blue-team", "status": "eliminated" },
+            { "id": "green-team", "status": "active" }
+          ],
+          "players": [
+            {
+              "id": "red",
+              "team": "red-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [{ "id": "andy", "active": true, "power_charge": 0, "power_uses": 0 }],
+              "power_state": { "type": "none" }
+            },
+            {
+              "id": "blue",
+              "team": "blue-team",
+              "funds": 1000,
+              "status": "eliminated",
+              "commanders": [{ "id": "olaf", "active": true, "power_charge": 0, "power_uses": 0 }],
+              "power_state": { "type": "none" }
+            },
+            {
+              "id": "green",
+              "team": "green-team",
+              "funds": 1000,
+              "status": "active",
+              "commanders": [{ "id": "grit", "active": true, "power_charge": 0, "power_uses": 0 }],
+              "power_state": { "type": "none" }
+            }
+          ],
+          "turn": {
+            "day": 2,
+            "active_player": "green",
+            "phase": "unit-action",
+            "order": ["red", "blue", "green"],
+            "position": 2
+          },
+          "weather": { "kind": "clear", "remaining_turns": 0 },
+          "units": [
+            {
+              "id": 1,
+              "kind": "infantry",
+              "owner": "green",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [4, 0] }
+            },
+            {
+              "id": 2,
+              "kind": "infantry",
+              "owner": "red",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "spent",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [0, 0] }
+            }
+          ],
+          "match": { "status": "active", "draw_offers": [] }
+        },
+        "events": [
+          { "type": "phase-changed", "player": "red", "from": "unit-action", "to": "turn-end" },
+          { "type": "turn-selected", "player": "blue", "position": 1 },
+          { "type": "phase-changed", "player": "blue", "from": "turn-end", "to": "turn-start" },
+          {
+            "type": "funds-changed",
+            "player": "blue",
+            "from": 0,
+            "to": 1000,
+            "reason": "turn-start-income"
+          },
+          { "type": "unit-removed", "unit": 0, "reason": "fuel-depleted" },
+          {
+            "type": "player-status-changed",
+            "player": "blue",
+            "from": "active",
+            "to": "eliminated"
+          },
+          { "type": "team-eliminated", "team": "blue-team", "reason": "rout" },
+          {
+            "type": "tile-terrain-changed",
+            "position": [1, 0],
+            "from": "hq",
+            "to": "city",
+            "reason": "elimination"
+          },
+          { "type": "tile-owner-changed", "position": [1, 0], "from": "blue", "to": null },
+          { "type": "turn-selected", "player": "green", "position": 2 },
+          {
+            "type": "funds-changed",
+            "player": "green",
+            "from": 0,
+            "to": 1000,
+            "reason": "turn-start-income"
+          },
+          {
+            "type": "unit-action-changed",
+            "unit": 1,
+            "from": "spent",
+            "to": "ready",
+            "reason": "turn-start"
+          },
+          { "type": "phase-changed", "player": "green", "from": "turn-start", "to": "unit-action" }
+        ],
+        "random_consumed": 0
+      }
+    }
+  ]
+}

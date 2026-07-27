@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/commander-profiles.schema.json",
+  "title": "AWVM non-combat commander effective-value profiles",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "feature", "commanders"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "status": { "enum": ["partial", "complete"] },
+    "feature": { "$ref": "common.schema.json#/$defs/id" },
+    "commanders": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/commander" }
+    }
+  },
+  "$defs": {
+    "value-rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["add"],
+      "properties": {
+        "unit_kinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "common.schema.json#/$defs/id" }
+        },
+        "domains": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["ground", "air", "sea"] }
+        },
+        "fire_modes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["direct", "indirect"] }
+        },
+        "add": { "type": "integer", "minimum": -100, "maximum": 100 }
+      }
+    },
+    "rational": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["numerator", "denominator"],
+      "properties": {
+        "numerator": { "type": "integer", "minimum": 0 },
+        "denominator": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "rational-states": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "day_to_day": { "$ref": "#/$defs/rational" },
+        "cop": { "$ref": "#/$defs/rational" },
+        "scop": { "$ref": "#/$defs/rational" }
+      }
+    },
+    "production-rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["terrain_kinds", "domains"],
+      "properties": {
+        "terrain_kinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "common.schema.json#/$defs/id" }
+        },
+        "domains": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["ground", "air", "sea"] }
+        }
+      }
+    },
+    "production-states": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "day_to_day": { "type": "array", "items": { "$ref": "#/$defs/production-rule" } },
+        "cop": { "type": "array", "items": { "$ref": "#/$defs/production-rule" } },
+        "scop": { "type": "array", "items": { "$ref": "#/$defs/production-rule" } }
+      }
+    },
+    "movement-cost-rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operator", "value", "except_weather_kinds"],
+      "properties": {
+        "operator": { "const": "traversable-cost-set" },
+        "value": { "type": "integer", "minimum": 0 },
+        "except_weather_kinds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["clear", "rain", "snow"] }
+        }
+      }
+    },
+    "movement-cost-states": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "day_to_day": { "type": "array", "items": { "$ref": "#/$defs/movement-cost-rule" } },
+        "cop": { "type": "array", "items": { "$ref": "#/$defs/movement-cost-rule" } },
+        "scop": { "type": "array", "items": { "$ref": "#/$defs/movement-cost-rule" } }
+      }
+    },
+    "capture-effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["numerator", "denominator", "instant"],
+      "properties": {
+        "numerator": { "type": "integer", "minimum": 0 },
+        "denominator": { "type": "integer", "minimum": 1 },
+        "instant": { "type": "boolean" }
+      }
+    },
+    "capture-states": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "day_to_day": { "$ref": "#/$defs/capture-effect" },
+        "cop": { "$ref": "#/$defs/capture-effect" },
+        "scop": { "$ref": "#/$defs/capture-effect" }
+      }
+    },
+    "states": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "day_to_day": { "type": "array", "items": { "$ref": "#/$defs/value-rule" } },
+        "cop": { "type": "array", "items": { "$ref": "#/$defs/value-rule" } },
+        "scop": { "type": "array", "items": { "$ref": "#/$defs/value-rule" } }
+      }
+    },
+    "boolean-states": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "day_to_day": { "type": "boolean" },
+        "cop": { "type": "boolean" },
+        "scop": { "type": "boolean" }
+      }
+    },
+    "commander": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "movement": { "$ref": "#/$defs/states" },
+        "movement_cost": { "$ref": "#/$defs/movement-cost-states" },
+        "vision": { "$ref": "#/$defs/states" },
+        "reveals_concealing_terrain": { "$ref": "#/$defs/boolean-states" },
+        "attack_range": { "$ref": "#/$defs/states" },
+        "build_cost": { "$ref": "#/$defs/rational-states" },
+        "production": { "$ref": "#/$defs/production-states" },
+        "capture": { "$ref": "#/$defs/capture-states" },
+        "income_per_property_add": { "type": "integer", "minimum": -10000, "maximum": 10000 },
+        "repair_bars_add": { "type": "integer", "minimum": 0, "maximum": 8 },
+        "air_upkeep_add": { "type": "integer", "minimum": -99, "maximum": 99 },
+        "ignores_snow_movement": { "type": "boolean" },
+        "ignores_rain_movement": { "type": "boolean" },
+        "rain_movement_as_snow": { "type": "boolean" }
+      }
+    }
+  }
+}

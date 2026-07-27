@@ -1,0 +1,201 @@
+{
+  "id": "teleporter-corridor",
+  "spec_version": "0.1.0",
+  "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+  "feature": "movement-v1.move-wait.teleporter",
+  "evidence": {
+    "confidence": "documentation-only",
+    "note": "A five-step route longer than the Infantry's movement allowance succeeds because four teleporter entries cost zero. A teleporter may be traversed but cannot be the destination."
+  },
+  "initial_state": {
+    "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+    "settings": {
+      "fog": false,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "disabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": { "lead": [], "backup": [] },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 6,
+      "height": 1,
+      "tiles": [
+        [
+          { "terrain": "plain" },
+          { "terrain": "teleporter" },
+          { "terrain": "teleporter" },
+          { "terrain": "teleporter" },
+          { "terrain": "teleporter" },
+          { "terrain": "plain" }
+        ]
+      ]
+    },
+    "teams": [{ "id": "red-team", "status": "active" }],
+    "players": [
+      {
+        "id": "red",
+        "team": "red-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [{ "id": "sturm", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
+      }
+    ],
+    "turn": {
+      "day": 1,
+      "active_player": "red",
+      "phase": "unit-action",
+      "order": ["red"],
+      "position": 0
+    },
+    "weather": { "kind": "clear", "remaining_turns": 0 },
+    "units": [
+      {
+        "id": 0,
+        "kind": "infantry",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [0, 0] }
+      }
+    ],
+    "match": { "status": "active", "draw_offers": [] }
+  },
+  "steps": [
+    {
+      "id": "reject-teleporter-destination",
+      "command": {
+        "type": "move-wait",
+        "player": "red",
+        "unit": 0,
+        "path": [
+          [0, 0],
+          [1, 0],
+          [2, 0]
+        ]
+      },
+      "random": [],
+      "expect": {
+        "status": "rejected",
+        "violation": {
+          "code": "TERRAIN_IMPASSABLE",
+          "index": 2,
+          "position": [2, 0]
+        },
+        "random_consumed": 0
+      }
+    },
+    {
+      "id": "cross-zero-cost-corridor",
+      "command": {
+        "type": "move-wait",
+        "player": "red",
+        "unit": 0,
+        "path": [
+          [0, 0],
+          [1, 0],
+          [2, 0],
+          [3, 0],
+          [4, 0],
+          [5, 0]
+        ]
+      },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "ruleset": { "id": "awbw", "revision": "2026-07-10" },
+          "settings": {
+            "fog": false,
+            "income_per_property": 1000,
+            "starting_funds": 0,
+            "powers": "disabled",
+            "tags": false,
+            "weather": "clear",
+            "lab_units": [],
+            "unit_bans": [],
+            "commander_bans": { "lead": [], "backup": [] },
+            "capture_limit": null,
+            "day_limit": null,
+            "unit_limit": null
+          },
+          "board": {
+            "width": 6,
+            "height": 1,
+            "tiles": [
+              [
+                { "terrain": "plain" },
+                { "terrain": "teleporter" },
+                { "terrain": "teleporter" },
+                { "terrain": "teleporter" },
+                { "terrain": "teleporter" },
+                { "terrain": "plain" }
+              ]
+            ]
+          },
+          "teams": [{ "id": "red-team", "status": "active" }],
+          "players": [
+            {
+              "id": "red",
+              "team": "red-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [{ "id": "sturm", "active": true, "power_charge": 0, "power_uses": 0 }],
+              "power_state": { "type": "none" }
+            }
+          ],
+          "turn": {
+            "day": 1,
+            "active_player": "red",
+            "phase": "unit-action",
+            "order": ["red"],
+            "position": 0
+          },
+          "weather": { "kind": "clear", "remaining_turns": 0 },
+          "units": [
+            {
+              "id": 0,
+              "kind": "infantry",
+              "owner": "red",
+              "hp": 100,
+              "fuel": 98,
+              "ammo": 0,
+              "action": "spent",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [5, 0] }
+            }
+          ],
+          "match": { "status": "active", "draw_offers": [] }
+        },
+        "events": [
+          {
+            "type": "unit-moved",
+            "unit": 0,
+            "from": [0, 0],
+            "to": [5, 0],
+            "path": [
+              [0, 0],
+              [1, 0],
+              [2, 0],
+              [3, 0],
+              [4, 0],
+              [5, 0]
+            ],
+            "fuel_spent": 1
+          }
+        ],
+        "random_consumed": 0
+      }
+    }
+  ]
+}

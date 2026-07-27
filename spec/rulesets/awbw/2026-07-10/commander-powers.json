@@ -1,0 +1,327 @@
+{
+  "$schema": "../../../schema/commander-powers.schema.json",
+  "status": "complete",
+  "feature": "commander-power-v1",
+  "base_star_charge": 9000,
+  "use_cost_scaling": { "numerator": 1, "denominator": 5, "maximum_uses": 10 },
+  "commanders": {
+    "andy": {
+      "cop": {
+        "stars": 3,
+        "instant_effects": [{ "operator": "heal-visual-hp", "target": "owned-units", "amount": 2 }]
+      },
+      "scop": {
+        "stars": 6,
+        "instant_effects": [{ "operator": "heal-visual-hp", "target": "owned-units", "amount": 5 }]
+      }
+    },
+    "colin": {
+      "cop": {
+        "stars": 2,
+        "instant_effects": [
+          {
+            "operator": "multiply-funds-ratio",
+            "target": "activating-player",
+            "numerator": 3,
+            "denominator": 2
+          }
+        ]
+      },
+      "scop": { "stars": 6, "instant_effects": [] }
+    },
+    "drake": {
+      "cop": {
+        "stars": 4,
+        "instant_effects": [
+          {
+            "operator": "drain-current-fuel-ratio",
+            "target": "enemy-units",
+            "numerator": 1,
+            "denominator": 2
+          },
+          { "operator": "damage-exact-hp", "target": "enemy-units", "amount": 10, "minimum_hp": 1 }
+        ]
+      },
+      "scop": {
+        "stars": 7,
+        "instant_effects": [
+          {
+            "operator": "drain-current-fuel-ratio",
+            "target": "enemy-units",
+            "numerator": 1,
+            "denominator": 2
+          },
+          { "operator": "damage-exact-hp", "target": "enemy-units", "amount": 20, "minimum_hp": 1 },
+          { "operator": "set-weather", "kind": "rain", "duration": "until-owner-next-turn" }
+        ]
+      }
+    },
+    "eagle": {
+      "cop": {
+        "stars": 3,
+        "instant_effects": [
+          {
+            "operator": "refresh-unit-action",
+            "target": "owned-units",
+            "exclude_unit_kinds": ["infantry", "mech"]
+          }
+        ]
+      },
+      "scop": {
+        "stars": 9,
+        "instant_effects": [
+          {
+            "operator": "refresh-unit-action",
+            "target": "owned-units",
+            "exclude_unit_kinds": ["infantry", "mech"]
+          }
+        ]
+      }
+    },
+    "flak": {
+      "cop": { "stars": 3, "instant_effects": [] },
+      "scop": { "stars": 6, "instant_effects": [] }
+    },
+    "grimm": {
+      "cop": { "stars": 3, "instant_effects": [] },
+      "scop": { "stars": 6, "instant_effects": [] }
+    },
+    "grit": {
+      "cop": { "stars": 3, "instant_effects": [] },
+      "scop": { "stars": 6, "instant_effects": [] }
+    },
+    "hachi": {
+      "cop": { "stars": 3, "instant_effects": [] },
+      "scop": { "stars": 5, "instant_effects": [] }
+    },
+    "jess": {
+      "cop": {
+        "stars": 3,
+        "instant_effects": [{ "operator": "resupply-units", "target": "owned-units" }]
+      },
+      "scop": {
+        "stars": 6,
+        "instant_effects": [{ "operator": "resupply-units", "target": "owned-units" }]
+      }
+    },
+    "jake": {
+      "cop": { "stars": 3, "instant_effects": [] },
+      "scop": { "stars": 6, "instant_effects": [] }
+    },
+    "javier": {
+      "cop": { "stars": 3, "instant_effects": [] },
+      "scop": { "stars": 6, "instant_effects": [] }
+    },
+    "jugger": {
+      "cop": { "stars": 3, "instant_effects": [] },
+      "scop": { "stars": 7, "instant_effects": [] }
+    },
+    "kanbei": {
+      "cop": { "stars": 4, "instant_effects": [] },
+      "scop": { "stars": 7, "instant_effects": [] }
+    },
+    "kindle": {
+      "cop": {
+        "stars": 3,
+        "instant_effects": [
+          {
+            "operator": "damage-exact-hp",
+            "target": "enemy-units-on-properties",
+            "amount": 30,
+            "minimum_hp": 1
+          }
+        ]
+      },
+      "scop": { "stars": 6, "instant_effects": [] }
+    },
+    "lash": {
+      "cop": { "stars": 4, "instant_effects": [] },
+      "scop": { "stars": 7, "instant_effects": [] }
+    },
+    "nell": {
+      "cop": { "stars": 3, "instant_effects": [] },
+      "scop": { "stars": 6, "instant_effects": [] }
+    },
+    "max": {
+      "cop": { "stars": 3, "instant_effects": [] },
+      "scop": { "stars": 6, "instant_effects": [] }
+    },
+    "koal": {
+      "cop": { "stars": 3, "instant_effects": [] },
+      "scop": { "stars": 5, "instant_effects": [] }
+    },
+    "hawke": {
+      "cop": {
+        "stars": 5,
+        "instant_effects": [
+          { "operator": "heal-exact-hp", "target": "owned-units", "amount": 10 },
+          { "operator": "damage-exact-hp", "target": "enemy-units", "amount": 10, "minimum_hp": 1 }
+        ]
+      },
+      "scop": {
+        "stars": 9,
+        "instant_effects": [
+          { "operator": "heal-exact-hp", "target": "owned-units", "amount": 20 },
+          { "operator": "damage-exact-hp", "target": "enemy-units", "amount": 20, "minimum_hp": 1 }
+        ]
+      }
+    },
+    "olaf": {
+      "cop": {
+        "stars": 3,
+        "instant_effects": [
+          { "operator": "set-weather", "kind": "snow", "duration": "until-owner-next-turn" }
+        ]
+      },
+      "scop": {
+        "stars": 7,
+        "instant_effects": [
+          { "operator": "damage-exact-hp", "target": "enemy-units", "amount": 20, "minimum_hp": 1 },
+          { "operator": "set-weather", "kind": "snow", "duration": "until-owner-next-turn" }
+        ]
+      }
+    },
+    "rachel": {
+      "cop": { "stars": 3, "instant_effects": [] },
+      "scop": {
+        "stars": 6,
+        "instant_effects": [
+          {
+            "operator": "fire-area-strikes",
+            "target": "all-board-units",
+            "radius": 2,
+            "damage": 30,
+            "minimum_hp": 1,
+            "selection_policies": ["infantry-hp", "unit-value", "unit-hp"],
+            "friendly_contribution": "subtract"
+          }
+        ]
+      }
+    },
+    "sasha": {
+      "cop": {
+        "stars": 2,
+        "instant_effects": [
+          {
+            "operator": "reduce-power-charge-by-funds-ratio",
+            "target": "enemy-commander-slots",
+            "funds_per_full_bar": 50000
+          }
+        ]
+      },
+      "scop": {
+        "stars": 6,
+        "instant_effects": [],
+        "strike_effects": [
+          {
+            "operator": "gain-funds-from-visual-hp-damage",
+            "target": "enemy-unit",
+            "numerator": 1,
+            "denominator": 2,
+            "unit_value": "effective-build-cost"
+          }
+        ]
+      }
+    },
+    "sami": {
+      "cop": { "stars": 3, "instant_effects": [] },
+      "scop": { "stars": 8, "instant_effects": [] }
+    },
+    "sensei": {
+      "cop": {
+        "stars": 2,
+        "instant_effects": [
+          {
+            "operator": "spawn-units-on-owned-properties",
+            "target": "owned-properties",
+            "property_kinds": ["city"],
+            "unit_kind": "infantry",
+            "hp": 90,
+            "resources": "unit-maxima",
+            "action": "ready",
+            "concealment": "exposed",
+            "occupied_tiles": "skip",
+            "order": "y-then-x",
+            "unit_limit": "settings"
+          }
+        ]
+      },
+      "scop": {
+        "stars": 6,
+        "instant_effects": [
+          {
+            "operator": "spawn-units-on-owned-properties",
+            "target": "owned-properties",
+            "property_kinds": ["city"],
+            "unit_kind": "mech",
+            "hp": 90,
+            "resources": "unit-maxima",
+            "action": "ready",
+            "concealment": "exposed",
+            "occupied_tiles": "skip",
+            "order": "y-then-x",
+            "unit_limit": "settings"
+          }
+        ]
+      }
+    },
+    "sonja": {
+      "cop": { "stars": 3, "instant_effects": [] },
+      "scop": { "stars": 5, "instant_effects": [] }
+    },
+    "sturm": {
+      "cop": {
+        "stars": 6,
+        "instant_effects": [
+          {
+            "operator": "fire-targeted-area-strike",
+            "target": "enemy-unit-centers",
+            "radius": 2,
+            "damage": 40,
+            "minimum_hp": 1,
+            "selection_policy": "unit-value",
+            "friendly_contribution": "subtract",
+            "unit_value": "base-build-cost"
+          }
+        ]
+      },
+      "scop": {
+        "stars": 10,
+        "instant_effects": [
+          {
+            "operator": "fire-targeted-area-strike",
+            "target": "enemy-unit-centers",
+            "radius": 2,
+            "damage": 80,
+            "minimum_hp": 1,
+            "selection_policy": "unit-value",
+            "friendly_contribution": "subtract",
+            "unit_value": "base-build-cost"
+          }
+        ]
+      }
+    },
+    "von-bolt": {
+      "scop": {
+        "stars": 10,
+        "instant_effects": [
+          {
+            "operator": "fire-immobilizing-area-strike",
+            "target": "enemy-units",
+            "radius": 2,
+            "damage": 30,
+            "minimum_hp": 1,
+            "selection_policy": "unit-value",
+            "friendly_contribution": "subtract",
+            "unit_value": "base-build-cost",
+            "duration": "through-target-next-turn"
+          }
+        ]
+      }
+    },
+    "adder": {
+      "cop": { "stars": 2, "instant_effects": [] },
+      "scop": { "stars": 5, "instant_effects": [] }
+    }
+  }
+}

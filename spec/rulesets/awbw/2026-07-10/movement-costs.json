@@ -1,0 +1,652 @@
+{
+  "$schema": "../../../schema/movement-costs.schema.json",
+  "status": "candidate",
+  "evidence": {
+    "confidence": "documentation-only",
+    "note": "Ordinary terrain costs are transcribed from the official terrain chart, where null corresponds to '-' and means impassable. Teleporter zero-cost traversal follows the AWBW Wiki's documented black-tile behavior; its chart '-' is not interpreted as impassable."
+  },
+  "weather": ["clear", "rain", "snow"],
+  "movement_classes": ["foot", "boot", "treads", "tires", "air", "sea", "lander", "pipe"],
+  "terrains": {
+    "plain": {
+      "clear": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 2,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "rain": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 2,
+        "tires": 3,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "snow": {
+        "foot": 2,
+        "boot": 1,
+        "treads": 2,
+        "tires": 3,
+        "air": 2,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      }
+    },
+    "mountain": {
+      "clear": {
+        "foot": 2,
+        "boot": 1,
+        "treads": null,
+        "tires": null,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "rain": {
+        "foot": 2,
+        "boot": 1,
+        "treads": null,
+        "tires": null,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "snow": {
+        "foot": 4,
+        "boot": 2,
+        "treads": null,
+        "tires": null,
+        "air": 2,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      }
+    },
+    "wood": {
+      "clear": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 2,
+        "tires": 3,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "rain": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 3,
+        "tires": 4,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "snow": {
+        "foot": 2,
+        "boot": 1,
+        "treads": 2,
+        "tires": 3,
+        "air": 2,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      }
+    },
+    "river": {
+      "clear": {
+        "foot": 2,
+        "boot": 1,
+        "treads": null,
+        "tires": null,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "rain": {
+        "foot": 2,
+        "boot": 1,
+        "treads": null,
+        "tires": null,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "snow": {
+        "foot": 2,
+        "boot": 1,
+        "treads": null,
+        "tires": null,
+        "air": 2,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      }
+    },
+    "road": {
+      "clear": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "rain": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "snow": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 2,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      }
+    },
+    "bridge": {
+      "clear": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "rain": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "snow": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 2,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      }
+    },
+    "sea": {
+      "clear": {
+        "foot": null,
+        "boot": null,
+        "treads": null,
+        "tires": null,
+        "air": 1,
+        "sea": 1,
+        "lander": 1,
+        "pipe": null
+      },
+      "rain": {
+        "foot": null,
+        "boot": null,
+        "treads": null,
+        "tires": null,
+        "air": 1,
+        "sea": 1,
+        "lander": 1,
+        "pipe": null
+      },
+      "snow": {
+        "foot": null,
+        "boot": null,
+        "treads": null,
+        "tires": null,
+        "air": 2,
+        "sea": 2,
+        "lander": 2,
+        "pipe": null
+      }
+    },
+    "shoal": {
+      "clear": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": 1,
+        "pipe": null
+      },
+      "rain": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": 1,
+        "pipe": null
+      },
+      "snow": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 2,
+        "sea": null,
+        "lander": 1,
+        "pipe": null
+      }
+    },
+    "reef": {
+      "clear": {
+        "foot": null,
+        "boot": null,
+        "treads": null,
+        "tires": null,
+        "air": 1,
+        "sea": 2,
+        "lander": 2,
+        "pipe": null
+      },
+      "rain": {
+        "foot": null,
+        "boot": null,
+        "treads": null,
+        "tires": null,
+        "air": 1,
+        "sea": 2,
+        "lander": 2,
+        "pipe": null
+      },
+      "snow": {
+        "foot": null,
+        "boot": null,
+        "treads": null,
+        "tires": null,
+        "air": 2,
+        "sea": 2,
+        "lander": 2,
+        "pipe": null
+      }
+    },
+    "city": {
+      "clear": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "rain": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "snow": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 2,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      }
+    },
+    "base": {
+      "clear": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": 1
+      },
+      "rain": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": 1
+      },
+      "snow": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 2,
+        "sea": null,
+        "lander": null,
+        "pipe": 1
+      }
+    },
+    "airport": {
+      "clear": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "rain": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "snow": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 2,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      }
+    },
+    "port": {
+      "clear": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": 1,
+        "lander": 1,
+        "pipe": null
+      },
+      "rain": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": 1,
+        "lander": 1,
+        "pipe": null
+      },
+      "snow": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 2,
+        "sea": 2,
+        "lander": 2,
+        "pipe": null
+      }
+    },
+    "hq": {
+      "clear": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "rain": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "snow": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 2,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      }
+    },
+    "pipe": {
+      "clear": {
+        "foot": null,
+        "boot": null,
+        "treads": null,
+        "tires": null,
+        "air": null,
+        "sea": null,
+        "lander": null,
+        "pipe": 1
+      },
+      "rain": {
+        "foot": null,
+        "boot": null,
+        "treads": null,
+        "tires": null,
+        "air": null,
+        "sea": null,
+        "lander": null,
+        "pipe": 1
+      },
+      "snow": {
+        "foot": null,
+        "boot": null,
+        "treads": null,
+        "tires": null,
+        "air": null,
+        "sea": null,
+        "lander": null,
+        "pipe": 1
+      }
+    },
+    "pipe-seam": {
+      "clear": {
+        "foot": null,
+        "boot": null,
+        "treads": null,
+        "tires": null,
+        "air": null,
+        "sea": null,
+        "lander": null,
+        "pipe": 1
+      },
+      "rain": {
+        "foot": null,
+        "boot": null,
+        "treads": null,
+        "tires": null,
+        "air": null,
+        "sea": null,
+        "lander": null,
+        "pipe": 1
+      },
+      "snow": {
+        "foot": null,
+        "boot": null,
+        "treads": null,
+        "tires": null,
+        "air": null,
+        "sea": null,
+        "lander": null,
+        "pipe": 1
+      }
+    },
+    "missile-silo": {
+      "clear": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "rain": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "snow": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 2,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      }
+    },
+    "com-tower": {
+      "clear": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "rain": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "snow": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 2,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      }
+    },
+    "lab": {
+      "clear": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "rain": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 1,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      },
+      "snow": {
+        "foot": 1,
+        "boot": 1,
+        "treads": 1,
+        "tires": 1,
+        "air": 2,
+        "sea": null,
+        "lander": null,
+        "pipe": null
+      }
+    },
+    "teleporter": {
+      "clear": {
+        "foot": 0,
+        "boot": 0,
+        "treads": 0,
+        "tires": 0,
+        "air": 0,
+        "sea": 0,
+        "lander": 0,
+        "pipe": 0
+      },
+      "rain": {
+        "foot": 0,
+        "boot": 0,
+        "treads": 0,
+        "tires": 0,
+        "air": 0,
+        "sea": 0,
+        "lander": 0,
+        "pipe": 0
+      },
+      "snow": {
+        "foot": 0,
+        "boot": 0,
+        "treads": 0,
+        "tires": 0,
+        "air": 0,
+        "sea": 0,
+        "lander": 0,
+        "pipe": 0
+      }
+    }
+  }
+}

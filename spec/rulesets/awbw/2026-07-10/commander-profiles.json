@@ -1,0 +1,216 @@
+{
+  "$schema": "../../../schema/commander-profiles.schema.json",
+  "status": "complete",
+  "feature": "commander-effective-values-v1",
+  "commanders": {
+    "neutral": {},
+    "flak": {},
+    "grimm": {},
+    "hawke": {},
+    "javier": {},
+    "jugger": {},
+    "kindle": {},
+    "nell": {},
+    "von-bolt": {},
+    "adder": { "movement": { "cop": [{ "add": 1 }], "scop": [{ "add": 2 }] } },
+    "andy": { "movement": { "scop": [{ "add": 1 }] } },
+    "colin": {
+      "build_cost": {
+        "day_to_day": { "numerator": 4, "denominator": 5 },
+        "cop": { "numerator": 4, "denominator": 5 },
+        "scop": { "numerator": 4, "denominator": 5 }
+      }
+    },
+    "drake": {
+      "movement": { "day_to_day": [{ "domains": ["sea"], "add": 1 }] },
+      "ignores_rain_movement": true
+    },
+    "eagle": { "air_upkeep_add": -2 },
+    "grit": {
+      "attack_range": {
+        "day_to_day": [{ "fire_modes": ["indirect"], "add": 1 }],
+        "cop": [{ "fire_modes": ["indirect"], "add": 1 }],
+        "scop": [{ "fire_modes": ["indirect"], "add": 2 }]
+      }
+    },
+    "hachi": {
+      "build_cost": {
+        "day_to_day": { "numerator": 9, "denominator": 10 },
+        "cop": { "numerator": 1, "denominator": 2 },
+        "scop": { "numerator": 1, "denominator": 2 }
+      },
+      "production": { "scop": [{ "terrain_kinds": ["city"], "domains": ["ground"] }] }
+    },
+    "jake": {
+      "movement": {
+        "scop": [
+          {
+            "domains": ["ground"],
+            "unit_kinds": [
+              "anti-air",
+              "apc",
+              "artillery",
+              "md-tank",
+              "mega-tank",
+              "missile",
+              "neo-tank",
+              "piperunner",
+              "recon",
+              "rocket",
+              "tank"
+            ],
+            "add": 2
+          }
+        ]
+      },
+      "attack_range": {
+        "cop": [{ "domains": ["ground"], "fire_modes": ["indirect"], "add": 1 }],
+        "scop": [{ "domains": ["ground"], "fire_modes": ["indirect"], "add": 1 }]
+      }
+    },
+    "jess": {
+      "movement": {
+        "cop": [
+          {
+            "domains": ["ground"],
+            "unit_kinds": [
+              "anti-air",
+              "apc",
+              "artillery",
+              "md-tank",
+              "mega-tank",
+              "missile",
+              "neo-tank",
+              "piperunner",
+              "recon",
+              "rocket",
+              "tank"
+            ],
+            "add": 1
+          }
+        ],
+        "scop": [
+          {
+            "domains": ["ground"],
+            "unit_kinds": [
+              "anti-air",
+              "apc",
+              "artillery",
+              "md-tank",
+              "mega-tank",
+              "missile",
+              "neo-tank",
+              "piperunner",
+              "recon",
+              "rocket",
+              "tank"
+            ],
+            "add": 2
+          }
+        ]
+      }
+    },
+    "koal": { "movement": { "cop": [{ "add": 1 }], "scop": [{ "add": 2 }] } },
+    "lash": {
+      "movement_cost": {
+        "cop": [
+          { "operator": "traversable-cost-set", "value": 1, "except_weather_kinds": ["snow"] }
+        ],
+        "scop": [
+          { "operator": "traversable-cost-set", "value": 1, "except_weather_kinds": ["snow"] }
+        ]
+      }
+    },
+    "kanbei": {
+      "build_cost": {
+        "day_to_day": { "numerator": 6, "denominator": 5 },
+        "cop": { "numerator": 6, "denominator": 5 },
+        "scop": { "numerator": 6, "denominator": 5 }
+      }
+    },
+    "max": {
+      "movement": {
+        "cop": [
+          {
+            "unit_kinds": [
+              "anti-air",
+              "b-copter",
+              "bomber",
+              "cruiser",
+              "fighter",
+              "md-tank",
+              "mega-tank",
+              "neo-tank",
+              "recon",
+              "stealth",
+              "sub",
+              "tank"
+            ],
+            "add": 1
+          }
+        ],
+        "scop": [
+          {
+            "unit_kinds": [
+              "anti-air",
+              "b-copter",
+              "bomber",
+              "cruiser",
+              "fighter",
+              "md-tank",
+              "mega-tank",
+              "neo-tank",
+              "recon",
+              "stealth",
+              "sub",
+              "tank"
+            ],
+            "add": 2
+          }
+        ]
+      },
+      "attack_range": { "day_to_day": [{ "fire_modes": ["indirect"], "add": -1 }] }
+    },
+    "olaf": { "ignores_snow_movement": true, "rain_movement_as_snow": true },
+    "rachel": { "repair_bars_add": 1 },
+    "sami": {
+      "movement": {
+        "day_to_day": [
+          {
+            "unit_kinds": ["apc", "black-boat", "carrier", "cruiser", "lander", "t-copter"],
+            "add": 1
+          }
+        ],
+        "cop": [{ "unit_kinds": ["infantry", "mech"], "add": 1 }],
+        "scop": [{ "unit_kinds": ["infantry", "mech"], "add": 2 }]
+      },
+      "capture": {
+        "day_to_day": { "numerator": 3, "denominator": 2, "instant": false },
+        "cop": { "numerator": 3, "denominator": 2, "instant": false },
+        "scop": { "numerator": 1, "denominator": 1, "instant": true }
+      }
+    },
+    "sasha": { "income_per_property_add": 100 },
+    "sensei": {
+      "movement": {
+        "day_to_day": [
+          {
+            "unit_kinds": ["apc", "black-boat", "carrier", "cruiser", "lander", "t-copter"],
+            "add": 1
+          }
+        ]
+      }
+    },
+    "sturm": {
+      "movement_cost": {
+        "day_to_day": [
+          { "operator": "traversable-cost-set", "value": 1, "except_weather_kinds": ["snow"] }
+        ]
+      }
+    },
+    "sonja": {
+      "vision": { "day_to_day": [{ "add": 1 }], "cop": [{ "add": 1 }], "scop": [{ "add": 1 }] },
+      "reveals_concealing_terrain": { "cop": true, "scop": true }
+    }
+  }
+}

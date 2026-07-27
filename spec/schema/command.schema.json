@@ -1,0 +1,267 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/command.schema.json",
+  "title": "AWVM canonical command",
+  "oneOf": [
+    { "$ref": "#/$defs/move-wait" },
+    { "$ref": "#/$defs/move-attack" },
+    { "$ref": "#/$defs/move-capture" },
+    { "$ref": "#/$defs/move-load" },
+    { "$ref": "#/$defs/move-join" },
+    { "$ref": "#/$defs/move-supply" },
+    { "$ref": "#/$defs/move-repair" },
+    { "$ref": "#/$defs/move-hide" },
+    { "$ref": "#/$defs/move-reveal" },
+    { "$ref": "#/$defs/move-launch" },
+    { "$ref": "#/$defs/move-explode" },
+    { "$ref": "#/$defs/unload" },
+    { "$ref": "#/$defs/delete-unit" },
+    { "$ref": "#/$defs/produce-unit" },
+    { "$ref": "#/$defs/activate-power" },
+    { "$ref": "#/$defs/tag" },
+    { "$ref": "#/$defs/end-turn" },
+    { "$ref": "#/$defs/resign" }
+  ],
+  "$defs": {
+    "path": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "common.schema.json#/$defs/position" }
+    },
+    "attack-target": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "unit"],
+          "properties": {
+            "type": { "const": "unit" },
+            "unit": { "$ref": "common.schema.json#/$defs/unit-id" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "position"],
+          "properties": {
+            "type": { "const": "tile" },
+            "position": { "$ref": "common.schema.json#/$defs/position" }
+          }
+        }
+      ]
+    },
+    "move-base-properties": {
+      "type": "object",
+      "properties": {
+        "player": { "$ref": "common.schema.json#/$defs/player-id" },
+        "unit": { "$ref": "common.schema.json#/$defs/unit-id" },
+        "path": { "$ref": "#/$defs/path" }
+      },
+      "required": ["type", "player", "unit", "path"]
+    },
+    "move-wait": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "unit", "path"],
+      "properties": {
+        "type": { "const": "move-wait" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" },
+        "unit": { "$ref": "common.schema.json#/$defs/unit-id" },
+        "path": { "$ref": "#/$defs/path" }
+      }
+    },
+    "move-attack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "unit", "path", "target"],
+      "properties": {
+        "type": { "const": "move-attack" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" },
+        "unit": { "$ref": "common.schema.json#/$defs/unit-id" },
+        "path": { "$ref": "#/$defs/path" },
+        "target": { "$ref": "#/$defs/attack-target" }
+      }
+    },
+    "move-capture": { "$ref": "#/$defs/simple-move-capture" },
+    "simple-move-capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "unit", "path"],
+      "properties": {
+        "type": { "const": "move-capture" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" },
+        "unit": { "$ref": "common.schema.json#/$defs/unit-id" },
+        "path": { "$ref": "#/$defs/path" }
+      }
+    },
+    "move-load": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "unit", "path", "transport"],
+      "properties": {
+        "type": { "const": "move-load" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" },
+        "unit": { "$ref": "common.schema.json#/$defs/unit-id" },
+        "path": { "$ref": "#/$defs/path" },
+        "transport": { "$ref": "common.schema.json#/$defs/unit-id" }
+      }
+    },
+    "move-join": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "unit", "path", "target"],
+      "properties": {
+        "type": { "const": "move-join" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" },
+        "unit": { "$ref": "common.schema.json#/$defs/unit-id" },
+        "path": { "$ref": "#/$defs/path" },
+        "target": { "$ref": "common.schema.json#/$defs/unit-id" }
+      }
+    },
+    "move-supply": { "$ref": "#/$defs/simple-move-supply" },
+    "simple-move-supply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "unit", "path"],
+      "properties": {
+        "type": { "const": "move-supply" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" },
+        "unit": { "$ref": "common.schema.json#/$defs/unit-id" },
+        "path": { "$ref": "#/$defs/path" }
+      }
+    },
+    "move-repair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "unit", "path", "target"],
+      "properties": {
+        "type": { "const": "move-repair" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" },
+        "unit": { "$ref": "common.schema.json#/$defs/unit-id" },
+        "path": { "$ref": "#/$defs/path" },
+        "target": { "$ref": "common.schema.json#/$defs/unit-id" }
+      }
+    },
+    "move-hide": { "$ref": "#/$defs/simple-move-hide" },
+    "simple-move-hide": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "unit", "path"],
+      "properties": {
+        "type": { "const": "move-hide" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" },
+        "unit": { "$ref": "common.schema.json#/$defs/unit-id" },
+        "path": { "$ref": "#/$defs/path" }
+      }
+    },
+    "move-reveal": { "$ref": "#/$defs/simple-move-reveal" },
+    "simple-move-reveal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "unit", "path"],
+      "properties": {
+        "type": { "const": "move-reveal" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" },
+        "unit": { "$ref": "common.schema.json#/$defs/unit-id" },
+        "path": { "$ref": "#/$defs/path" }
+      }
+    },
+    "move-launch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "unit", "path", "target"],
+      "properties": {
+        "type": { "const": "move-launch" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" },
+        "unit": { "$ref": "common.schema.json#/$defs/unit-id" },
+        "path": { "$ref": "#/$defs/path" },
+        "target": { "$ref": "common.schema.json#/$defs/position" }
+      }
+    },
+    "move-explode": { "$ref": "#/$defs/simple-move-explode" },
+    "simple-move-explode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "unit", "path"],
+      "properties": {
+        "type": { "const": "move-explode" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" },
+        "unit": { "$ref": "common.schema.json#/$defs/unit-id" },
+        "path": { "$ref": "#/$defs/path" }
+      }
+    },
+    "unload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "transport", "cargo", "destination"],
+      "properties": {
+        "type": { "const": "unload" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" },
+        "transport": { "$ref": "common.schema.json#/$defs/unit-id" },
+        "cargo": { "$ref": "common.schema.json#/$defs/unit-id" },
+        "destination": { "$ref": "common.schema.json#/$defs/position" }
+      }
+    },
+    "delete-unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "unit"],
+      "properties": {
+        "type": { "const": "delete-unit" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" },
+        "unit": { "$ref": "common.schema.json#/$defs/unit-id" }
+      }
+    },
+    "produce-unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "position", "kind"],
+      "properties": {
+        "type": { "const": "produce-unit" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" },
+        "position": { "$ref": "common.schema.json#/$defs/position" },
+        "kind": { "$ref": "common.schema.json#/$defs/unit-kind-id" }
+      }
+    },
+    "activate-power": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player", "level"],
+      "properties": {
+        "type": { "const": "activate-power" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" },
+        "level": { "enum": ["cop", "scop"] }
+      }
+    },
+    "tag": { "$ref": "#/$defs/simple-player-tag" },
+    "simple-player-tag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player"],
+      "properties": {
+        "type": { "const": "tag" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" }
+      }
+    },
+    "end-turn": { "$ref": "#/$defs/simple-player-end-turn" },
+    "simple-player-end-turn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player"],
+      "properties": {
+        "type": { "const": "end-turn" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" }
+      }
+    },
+    "resign": { "$ref": "#/$defs/simple-player-resign" },
+    "simple-player-resign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "player"],
+      "properties": {
+        "type": { "const": "resign" },
+        "player": { "$ref": "common.schema.json#/$defs/player-id" }
+      }
+    }
+  }
+}
