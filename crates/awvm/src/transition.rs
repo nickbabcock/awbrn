@@ -434,18 +434,19 @@ impl<'a> Draws<'a> {
 
 /// Draw one combat luck roll.
 ///
-/// A malformed combat tape has always reported `UNSUPPORTED_COMMAND` rather than
-/// the execution failure `spec/model/violations.md` describes for "missing,
-/// wrong-type, or out-of-domain random input". Preserved rather than corrected,
-/// so typing the tape stays invisible on the wire; see handoff.md.
+/// A malformed tape is an *execution error* — `spec/model/violations.md` item 5
+/// puts "missing, wrong-type, or out-of-domain random input" there explicitly,
+/// alongside stale state binding, and apart from both violations and
+/// unsupported commands. This path used to report `UNSUPPORTED_COMMAND`, which
+/// told a caller its command was not implemented when the command was fine and
+/// the tape was not. The weather draw (`turn::advance_weather`) always reported
+/// the execution failure; the two agree now.
 pub(crate) fn draw(
     draws: &mut Draws<'_>,
     polarity: Luck,
     domain: commander::Domain,
 ) -> Result<i64, ReducerError> {
-    draws
-        .luck(polarity, domain)
-        .map_err(|_| ReducerError::UnsupportedCommand)
+    Ok(draws.luck(polarity, domain)?)
 }
 
 /// Proof that a command got past the checks every unit action shares.

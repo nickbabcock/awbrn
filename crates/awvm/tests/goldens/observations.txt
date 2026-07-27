@@ -170,6 +170,7 @@ b5da4bb2e3b38d70  obs=4 ev=2  commander/nell-cop.json
 c47a8ed263b0a471  obs=4 ev=2  commander/olaf-movement-snow.json
 8e9cfe0cc9215cfb  obs=4 ev=10  commander/olaf-scop-snow-combat.json
 6198c98f834850c7  obs=4 ev=8  commander/olaf-scop.json
+94d9b8006b44705e  obs=2 ev=0  commander/power-insufficient-charge.json
 ae6e9652b7e45b9a  obs=4 ev=6  commander/rachel-cop-combat.json
 dd4735422ce8e151  obs=4 ev=2  commander/rachel-cop.json
 251aae8e3fb9f0b7  obs=4 ev=8  commander/rachel-day-to-day-combat.json
@@ -261,10 +262,13 @@ c4b6f0ae7228f5ad  obs=2 ev=3  join/join-no-overflow.json
 5ef35b30b53b48cc  obs=4 ev=3  launch/move-launch-hidden-blocker.json
 796f07547a5f529e  obs=8 ev=0  launch/move-launch-validation.json
 d81cc3d0c06517cf  obs=2 ev=1  movement/infantry-plain-move.json
+3f719ea7333bab91  obs=4 ev=0  movement/match-finished-rejected.json
 34bc012594f1cb5a  obs=2 ev=2  movement/move-wait-capture-reset.json
+488a832a631b2944  obs=8 ev=0  movement/path-validation.json
 f66392afd0f4a409  obs=2 ev=0  movement/repeated-position-precedence.json
 88e88d84d728f0d6  obs=3 ev=1  movement/teleporter-corridor.json
 ede109191837e1f2  obs=4 ev=3  movement/teleporter-hidden-trap.json
+60fd18058624eb96  obs=2 ev=0  movement/wrong-phase-rejected.json
 72c3d983573e6f4d  obs=2 ev=0  production/lab-unit-ban-wins.json
 2bc26e468b391d56  obs=2 ev=0  production/lab-unit-hachi-site.json
 fed6078b720f8901  obs=4 ev=0  production/lab-unit-lost-lab.json

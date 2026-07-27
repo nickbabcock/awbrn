@@ -12,6 +12,7 @@ awvm = { path = "../awvm" }
 serde_json.workspace = true
 awbrn-types = { path = "../awbrn-types" }
 awbrn-map = { path = "../awbrn-map" }
+awbrn-server = { path = "../awbrn-server" }
 awbw-replay = { path = "../awbw-replay" }
 criterion = { workspace = true }
 
