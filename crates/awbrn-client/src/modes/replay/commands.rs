@@ -21,6 +21,7 @@ use awbrn_game::replay::{
     apply_non_move_action as game_apply_non_move_action,
 };
 use awbrn_game::world::{CarriedBy, Faction, StrongIdMap, Unit};
+use awbrn_types::UnitExt;
 
 #[derive(Resource, Debug, Default)]
 pub struct ReplayAdvanceLock {
@@ -782,7 +783,7 @@ mod tests {
             &mut app,
             Position::new(2, 3),
             CoreUnitId::new(1),
-            awbrn_types::Unit::APC,
+            awbrn_types::Unit::Apc,
             PlayerFaction::OrangeStar,
         );
         let target = spawn_test_unit_kind(
@@ -803,7 +804,7 @@ mod tests {
                         CoreUnitId::new(1),
                         2,
                         2,
-                        awbrn_types::Unit::APC,
+                        awbrn_types::Unit::Apc,
                         55,
                         0,
                     ),
@@ -854,7 +855,7 @@ mod tests {
             &mut app,
             Position::new(2, 3),
             CoreUnitId::new(1),
-            awbrn_types::Unit::APC,
+            awbrn_types::Unit::Apc,
             PlayerFaction::OrangeStar,
         );
         let target = spawn_test_unit_kind(
@@ -877,7 +878,7 @@ mod tests {
                             CoreUnitId::new(1),
                             2,
                             2,
-                            awbrn_types::Unit::APC,
+                            awbrn_types::Unit::Apc,
                             55,
                             0,
                         )),
@@ -1041,7 +1042,7 @@ mod tests {
             &mut app,
             Position::new(2, 2),
             CoreUnitId::new(1),
-            awbrn_types::Unit::APC,
+            awbrn_types::Unit::Apc,
             PlayerFaction::OrangeStar,
         );
         let cargo = spawn_test_unit(&mut app, Position::new(2, 3), CoreUnitId::new(2));

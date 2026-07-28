@@ -1,7 +1,2 @@
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Default)]
-pub enum Weather {
-    #[default]
-    Clear,
-    Rain,
-    Snow,
-}
+/// Canonical weather vocabulary generated from the AWBW ruleset.
+pub use awvm::ruleset::WeatherKind as Weather;

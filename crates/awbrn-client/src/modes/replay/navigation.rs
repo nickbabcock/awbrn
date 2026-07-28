@@ -8,7 +8,7 @@ use crate::render::animation::{
 pub(crate) use awbrn_game::replay::replay_move_view;
 use awbrn_game::world::{Faction, GameMap, Unit, UnitActive};
 use awbrn_map::Position;
-use awbrn_types::{GraphicalMovement, UnitDomain};
+use awbrn_types::{GraphicalMovement, UnitDomain, UnitExt};
 use awbw_replay::turn_models::{MoveAction, TargetedPlayer};
 use bevy::prelude::*;
 use std::time::Duration;

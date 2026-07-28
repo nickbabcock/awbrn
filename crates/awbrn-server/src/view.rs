@@ -10,7 +10,7 @@ use awbrn_types::{
     PlayerFaction, Property, RiverType, RoadType, SeaDirection, ShoalDirection, Unit as ServerUnit,
 };
 use awvm::event::{AttackTarget, Event};
-use awvm::ruleset::{KnownReason, Terrain, UnitKind};
+use awvm::ruleset::{KnownReason, Terrain};
 use awvm::semantic::{
     AwbwVisibility, Concealment, Location, Match, ObservedEvent, ObservedUnit, ObservedUnitRef,
     Outcome, Phase, PlayerId as VmPlayerId, Pos, Reason, State, TileOwner, UnitId, Viewpoint,
@@ -569,7 +569,7 @@ fn visible_unit(
         .map(|remaining| 20 - remaining);
     Some(VisibleUnit {
         id: server_unit_id(unit.id),
-        unit_type: server_unit(unit.kind),
+        unit_type: unit.kind,
         faction: authority
             .player_faction(&unit.owner)
             .expect("every unit owner has a faction"),
@@ -725,36 +725,6 @@ fn push_unique_unit(units: &mut Vec<VisibleUnit>, unit: VisibleUnit) {
 fn push_unique_id(ids: &mut Vec<ServerUnitId>, id: ServerUnitId) {
     if !ids.contains(&id) {
         ids.push(id);
-    }
-}
-
-fn server_unit(kind: UnitKind) -> ServerUnit {
-    match kind {
-        UnitKind::AntiAir => ServerUnit::AntiAir,
-        UnitKind::Apc => ServerUnit::APC,
-        UnitKind::Artillery => ServerUnit::Artillery,
-        UnitKind::BCopter => ServerUnit::BCopter,
-        UnitKind::Battleship => ServerUnit::Battleship,
-        UnitKind::BlackBoat => ServerUnit::BlackBoat,
-        UnitKind::BlackBomb => ServerUnit::BlackBomb,
-        UnitKind::Bomber => ServerUnit::Bomber,
-        UnitKind::Carrier => ServerUnit::Carrier,
-        UnitKind::Cruiser => ServerUnit::Cruiser,
-        UnitKind::Fighter => ServerUnit::Fighter,
-        UnitKind::Infantry => ServerUnit::Infantry,
-        UnitKind::Lander => ServerUnit::Lander,
-        UnitKind::MdTank => ServerUnit::MdTank,
-        UnitKind::Mech => ServerUnit::Mech,
-        UnitKind::MegaTank => ServerUnit::MegaTank,
-        UnitKind::Missile => ServerUnit::Missile,
-        UnitKind::NeoTank => ServerUnit::NeoTank,
-        UnitKind::Piperunner => ServerUnit::PipeRunner,
-        UnitKind::Recon => ServerUnit::Recon,
-        UnitKind::Rocket => ServerUnit::Rocket,
-        UnitKind::Stealth => ServerUnit::Stealth,
-        UnitKind::Sub => ServerUnit::Sub,
-        UnitKind::TCopter => ServerUnit::TCopter,
-        UnitKind::Tank => ServerUnit::Tank,
     }
 }
 

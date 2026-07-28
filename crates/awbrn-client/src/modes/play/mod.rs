@@ -8,7 +8,7 @@ use awbrn_game::world::{
     BoardIndex, CarriedBy, Faction, FriendlyFactions, Fuel, GameMap, Unit, UnitActive,
 };
 use awbrn_map::{MovementMap, PathFinder, Position, TerrainCosts};
-use awbrn_types::{GraphicalTerrain, MovementCost, MovementTerrain, UnitMovement};
+use awbrn_types::{GraphicalTerrain, MovementCost, MovementTerrain, UnitExt, UnitMovement};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 

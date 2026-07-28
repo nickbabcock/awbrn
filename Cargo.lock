@@ -553,6 +553,7 @@ dependencies = [
 name = "awbrn-types"
 version = "0.1.0"
 dependencies = [
+ "awvm",
  "bevy",
  "serde",
  "serde_json",

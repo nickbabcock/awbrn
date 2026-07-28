@@ -167,7 +167,7 @@ mod tests {
     use awbrn_game::MapPosition;
     use awbrn_game::world::{Faction, GameMap, TerrainTile, Unit, VisionRange};
     use awbrn_map::AwbrnMap;
-    use awbrn_types::{AwbwGamePlayerId, PlayerFaction, Property, UnitDomain, Weather};
+    use awbrn_types::{AwbwGamePlayerId, PlayerFaction, Property, UnitDomain, UnitExt, Weather};
     use bevy::prelude::App;
 
     #[test]

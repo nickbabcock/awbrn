@@ -1,21 +1,11 @@
 use crate::MovementTerrain;
 
-/// Represents different movement capabilities of units
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum UnitMovement {
-    Foot,   // Infantry
-    Boot,   // Mech
-    Treads, // Tank-type units
-    Tires,  // Wheeled vehicles
-    Sea,    // Ships
-    Lander, // Transport ships
-    Air,    // Flying units
-    Pipe,   // Pipe units
-}
+/// Canonical movement-class vocabulary generated from the AWBW ruleset.
+pub use awvm::ruleset::MovementClass as UnitMovement;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MovementCost {
-    costs: [Option<u8>; 11],
+    costs: [Option<u8>; UnitMovement::COUNT],
 }
 
 impl MovementCost {
@@ -31,7 +21,7 @@ impl MovementCost {
     pub const TELEPORT: MovementCost = TELEPORT_MOVEMENT;
 
     pub const fn new(data: &[(UnitMovement, Option<u8>)]) -> Self {
-        let mut costs = [None; 11];
+        let mut costs = [None; UnitMovement::COUNT];
         let mut i = 0;
         while i < data.len() {
             let (movement_type, cost) = data[i];

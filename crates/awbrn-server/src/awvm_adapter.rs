@@ -5,12 +5,12 @@ use std::collections::HashMap;
 
 use awbrn_map::{AwbrnMap, Position};
 use awbrn_types::{
-    AwbwTerrain, Co, Faction, GraphicalTerrain, MissileSiloStatus, PlayerFaction, Property,
+    AwbwTerrain, Faction, GraphicalTerrain, MissileSiloStatus, PlayerFaction, Property,
     Unit as ServerUnit,
 };
 use awvm::event::{AttackTarget, Event};
 use awvm::random::{RandomToken, Recording};
-use awvm::ruleset::{CommanderKind, RULESET_ID, RULESET_REVISION, Terrain, UnitKind, WeatherKind};
+use awvm::ruleset::{RULESET_ID, RULESET_REVISION, Terrain, WeatherKind, profile};
 use awvm::semantic::{
     Board, Commander, CommanderBans, Concealment, Location, Match, Phase, Player, PlayerId,
     PlayerStatus, Pos, PowerState, RulesetId, RulesetRef, RulesetRevision, Settings, Silo, State,
@@ -173,13 +173,14 @@ impl Authority {
             .cloned()
             .unwrap_or_else(|| panic!("spawned unit faction {faction:?} has no player"));
         let id = unit_id(id);
+        let profile = profile(kind);
         self.state.units.push(Unit {
             id,
-            kind: unit_kind(kind),
+            kind,
             owner,
             hp: 100,
-            fuel: u64::from(kind.max_fuel()),
-            ammo: u64::from(kind.max_ammo()),
+            fuel: profile.max_fuel,
+            ammo: profile.max_ammo,
             action: if active {
                 UnitAction::Ready
             } else {
@@ -304,7 +305,7 @@ fn commands(
         } => one(Command::ProduceUnit {
             player,
             position: pos(*position),
-            kind: unit_kind(*unit_type),
+            kind: *unit_type,
         }),
         GameCommand::EndTurn => one(Command::EndTurn { player }),
         GameCommand::MoveUnit {
@@ -394,7 +395,7 @@ fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
                 funds: u64::from(player.starting_funds),
                 status: PlayerStatus::Active,
                 commanders: vec![Commander {
-                    id: commander(player.co),
+                    id: player.co,
                     active: true,
                     power_charge: 0,
                     power_uses: 0,
@@ -538,70 +539,6 @@ pub(crate) fn semantic_terrain(terrain: AwbwTerrain) -> Terrain {
         AwbwTerrain::MissileSilo(_) => Terrain::MissileSilo,
         AwbwTerrain::PipeSeam(_) => Terrain::PipeSeam,
         AwbwTerrain::Teleporter => Terrain::Teleporter,
-    }
-}
-
-fn commander(co: Co) -> CommanderKind {
-    match co {
-        Co::Andy => CommanderKind::Andy,
-        Co::Nell => CommanderKind::Nell,
-        Co::Hachi => CommanderKind::Hachi,
-        Co::Jake => CommanderKind::Jake,
-        Co::Rachel => CommanderKind::Rachel,
-        Co::Colin => CommanderKind::Colin,
-        Co::Sasha => CommanderKind::Sasha,
-        Co::Grimm => CommanderKind::Grimm,
-        Co::Grit => CommanderKind::Grit,
-        Co::Olaf => CommanderKind::Olaf,
-        Co::Eagle => CommanderKind::Eagle,
-        Co::Drake => CommanderKind::Drake,
-        Co::Jess => CommanderKind::Jess,
-        Co::Javier => CommanderKind::Javier,
-        Co::Max => CommanderKind::Max,
-        Co::Adder => CommanderKind::Adder,
-        Co::Flak => CommanderKind::Flak,
-        Co::Lash => CommanderKind::Lash,
-        Co::Hawke => CommanderKind::Hawke,
-        Co::Jugger => CommanderKind::Jugger,
-        Co::Kindle => CommanderKind::Kindle,
-        Co::Koal => CommanderKind::Koal,
-        Co::Sami => CommanderKind::Sami,
-        Co::Sonja => CommanderKind::Sonja,
-        Co::Kanbei => CommanderKind::Kanbei,
-        Co::Sensei => CommanderKind::Sensei,
-        Co::Sturm => CommanderKind::Sturm,
-        Co::VonBolt => CommanderKind::VonBolt,
-        Co::NoCo => CommanderKind::Neutral,
-    }
-}
-
-fn unit_kind(unit: ServerUnit) -> UnitKind {
-    match unit {
-        ServerUnit::AntiAir => UnitKind::AntiAir,
-        ServerUnit::APC => UnitKind::Apc,
-        ServerUnit::Artillery => UnitKind::Artillery,
-        ServerUnit::BCopter => UnitKind::BCopter,
-        ServerUnit::Battleship => UnitKind::Battleship,
-        ServerUnit::BlackBoat => UnitKind::BlackBoat,
-        ServerUnit::BlackBomb => UnitKind::BlackBomb,
-        ServerUnit::Bomber => UnitKind::Bomber,
-        ServerUnit::Carrier => UnitKind::Carrier,
-        ServerUnit::Cruiser => UnitKind::Cruiser,
-        ServerUnit::Fighter => UnitKind::Fighter,
-        ServerUnit::Infantry => UnitKind::Infantry,
-        ServerUnit::Lander => UnitKind::Lander,
-        ServerUnit::MdTank => UnitKind::MdTank,
-        ServerUnit::Mech => UnitKind::Mech,
-        ServerUnit::MegaTank => UnitKind::MegaTank,
-        ServerUnit::Missile => UnitKind::Missile,
-        ServerUnit::NeoTank => UnitKind::NeoTank,
-        ServerUnit::PipeRunner => UnitKind::Piperunner,
-        ServerUnit::Recon => UnitKind::Recon,
-        ServerUnit::Rocket => UnitKind::Rocket,
-        ServerUnit::Stealth => UnitKind::Stealth,
-        ServerUnit::Sub => UnitKind::Sub,
-        ServerUnit::TCopter => UnitKind::TCopter,
-        ServerUnit::Tank => UnitKind::Tank,
     }
 }
 

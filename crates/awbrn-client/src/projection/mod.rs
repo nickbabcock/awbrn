@@ -13,7 +13,7 @@ use awbrn_game::world::{
 };
 use awbrn_map::Position;
 use awbrn_types::{
-    Faction as TerrainFaction, GraphicalTerrain, Property, PropertyKind, UnitDomain,
+    Faction as TerrainFaction, GraphicalTerrain, Property, PropertyKind, UnitDomain, UnitExt,
 };
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;

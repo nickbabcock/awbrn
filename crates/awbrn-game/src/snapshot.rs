@@ -477,7 +477,7 @@ mod tests {
                 MapPosition::new(0, 0),
                 Faction(PlayerFaction::OrangeStar),
                 AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
-                Unit(awbrn_types::Unit::APC),
+                Unit(awbrn_types::Unit::Apc),
                 UnitActive,
             ))
             .id();
@@ -599,6 +599,11 @@ mod tests {
             .find(|entity| entity.id == "unit:7")
             .unwrap();
 
+        let kind = unit
+            .components
+            .iter()
+            .find(|component| component.type_path.ends_with("world::units::Unit"))
+            .unwrap();
         let fuel = unit
             .components
             .iter()
@@ -615,6 +620,7 @@ mod tests {
             .find(|component| component.type_path.ends_with("VisionRange"))
             .unwrap();
 
+        assert_eq!(kind.value, Value::String("tank".into()));
         assert_eq!(fuel.value, Value::Number(37.into()));
         assert_eq!(ammo.value, Value::Number(5.into()));
         assert_eq!(vision_range.value, Value::Number(6.into()));

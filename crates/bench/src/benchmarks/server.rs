@@ -121,7 +121,7 @@ const ROSTER: [Unit; 5] = [
     Unit::Mech,
     Unit::Tank,
     Unit::Artillery,
-    Unit::APC,
+    Unit::Apc,
 ];
 
 /// The tile the mover starts on, and the two it walks to. Kept clear of every

@@ -6,7 +6,6 @@ use awbrn_types::{
 };
 use insta::assert_json_snapshot;
 use std::collections::{BTreeMap, HashMap};
-use strum::VariantArray;
 
 // Helper function to generate all PlayerFaction variants
 fn all_player_factions() -> Vec<PlayerFaction> {
@@ -286,7 +285,7 @@ fn snapshot_all_unit_sprite_indices() {
             let faction_name = format!("{:?}", faction);
             let mut unit_indices = BTreeMap::new();
 
-            for unit in Unit::VARIANTS {
+            for unit in &Unit::ALL {
                 // Use the new animation system but maintain the old snapshot format
                 let animation_frames = get_unit_animation_frames(*movement, *unit, *faction);
                 let unit_name = format!("{:?}", unit);
@@ -319,7 +318,7 @@ fn no_overlapping_unit_indices() {
 
     for movement in &all_movements {
         for faction in &all_factions {
-            for unit in Unit::VARIANTS {
+            for unit in &Unit::ALL {
                 let sprite = unit_spritesheet_index(*movement, *unit, *faction);
                 let start_index = sprite.index();
                 let end_index = start_index + sprite.animation_frames() as u16;

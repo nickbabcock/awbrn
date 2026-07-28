@@ -3,6 +3,7 @@ use std::num::NonZeroU8;
 use awbrn_map::{AwbrnMap, Position};
 use awbrn_types::{
     Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, Property, SeaDirection, Unit,
+    UnitExt,
 };
 
 use awbrn_server::{
@@ -1314,7 +1315,7 @@ fn primary_weapon_attack_consumes_ammo() {
 #[test]
 fn supply_restores_self_owned_adjacent_fuel_and_ammo() {
     let mut server = GameServer::new(two_player_setup(5, 3)).unwrap();
-    let apc = server.spawn_unit(Position::new(1, 1), Unit::APC, PlayerFaction::OrangeStar);
+    let apc = server.spawn_unit(Position::new(1, 1), Unit::Apc, PlayerFaction::OrangeStar);
     let infantry = server.spawn_unit(
         Position::new(0, 0),
         Unit::Infantry,
@@ -1374,7 +1375,7 @@ fn supply_restores_self_owned_adjacent_fuel_and_ammo() {
 #[test]
 fn supply_without_adjacent_self_owned_units_is_a_valid_noop() {
     let mut server = GameServer::new(allied_player_setup(3, 1)).unwrap();
-    let apc = server.spawn_unit(Position::new(0, 0), Unit::APC, PlayerFaction::OrangeStar);
+    let apc = server.spawn_unit(Position::new(0, 0), Unit::Apc, PlayerFaction::OrangeStar);
     let neighboring_ally =
         server.spawn_unit(Position::new(1, 0), Unit::Infantry, PlayerFaction::BlueMoon);
     let before = server.player_view(p1()).unwrap();
@@ -1407,7 +1408,7 @@ fn supply_without_adjacent_self_owned_units_is_a_valid_noop() {
 #[test]
 fn supply_does_not_restore_allied_teammate_units() {
     let mut server = GameServer::new(allied_player_setup(4, 2)).unwrap();
-    let apc = server.spawn_unit(Position::new(0, 0), Unit::APC, PlayerFaction::OrangeStar);
+    let apc = server.spawn_unit(Position::new(0, 0), Unit::Apc, PlayerFaction::OrangeStar);
     server.spawn_unit(
         Position::new(0, 1),
         Unit::Infantry,
@@ -1465,7 +1466,7 @@ fn load_removes_cargo_from_map_and_unload_restores_it() {
         Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
-    let apc = server.spawn_unit(Position::new(1, 0), Unit::APC, PlayerFaction::OrangeStar);
+    let apc = server.spawn_unit(Position::new(1, 0), Unit::Apc, PlayerFaction::OrangeStar);
 
     server
         .submit_command(
@@ -1533,7 +1534,7 @@ fn load_rejects_full_transport() {
         Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
-    let apc = server.spawn_unit(Position::new(1, 0), Unit::APC, PlayerFaction::OrangeStar);
+    let apc = server.spawn_unit(Position::new(1, 0), Unit::Apc, PlayerFaction::OrangeStar);
     let second = server.spawn_unit(Position::new(2, 0), Unit::Mech, PlayerFaction::OrangeStar);
 
     server
@@ -1571,8 +1572,8 @@ fn load_does_not_leak_fogged_destination_coordinates() {
         Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
-    let transport = server.spawn_unit(Position::new(2, 0), Unit::APC, PlayerFaction::OrangeStar);
-    server.spawn_unit(Position::new(0, 0), Unit::APC, PlayerFaction::BlueMoon);
+    let transport = server.spawn_unit(Position::new(2, 0), Unit::Apc, PlayerFaction::OrangeStar);
+    server.spawn_unit(Position::new(0, 0), Unit::Apc, PlayerFaction::BlueMoon);
 
     let result = server
         .submit_command(
@@ -1615,7 +1616,7 @@ fn unload_rejects_occupied_or_impassable_target() {
         Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
-    let apc = server.spawn_unit(Position::new(1, 1), Unit::APC, PlayerFaction::OrangeStar);
+    let apc = server.spawn_unit(Position::new(1, 1), Unit::Apc, PlayerFaction::OrangeStar);
     server.spawn_unit(Position::new(2, 1), Unit::Tank, PlayerFaction::OrangeStar);
 
     server
@@ -2389,7 +2390,7 @@ fn stored_events_require_submitter_and_random_tape() {
         "command": {
             "type": "build",
             "position": {"x": 0, "y": 0},
-            "unit_type": "Infantry"
+            "unit_type": "infantry"
         },
         "random": []
     });
@@ -2398,7 +2399,7 @@ fn stored_events_require_submitter_and_random_tape() {
         "command": {
             "type": "build",
             "position": {"x": 0, "y": 0},
-            "unit_type": "Infantry"
+            "unit_type": "infantry"
         }
     });
 

@@ -42,7 +42,7 @@ fn get_animation_data(unit: Unit) -> (u16, UnitAnimationData) {
             &[80, 80, 80],
             &[80, 80, 80],
         )),
-        Unit::APC => (69, UnitAnimationData::new(
+        Unit::Apc => (69, UnitAnimationData::new(
             &[160, 160, 320, 160],
             &[80, 80, 80],
             &[80, 80, 80],
@@ -144,7 +144,7 @@ fn get_animation_data(unit: Unit) -> (u16, UnitAnimationData) {
             &[80, 80, 80],
             &[80, 80, 80],
         )),
-        Unit::PipeRunner => (248, UnitAnimationData::new(
+        Unit::Piperunner => (248, UnitAnimationData::new(
             &[480, 320],
             &[80, 80, 80],
             &[80, 80, 80],

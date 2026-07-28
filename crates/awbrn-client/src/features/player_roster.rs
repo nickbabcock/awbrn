@@ -5,7 +5,7 @@ use crate::features::player_display::{PlayerDisplayFactionOverrides, display_fac
 use awbrn_content::co_portrait_by_awbw_id;
 use awbrn_game::replay::{AwbwUnitId, ReplayState};
 use awbrn_game::world::{Faction, FogActive, FriendlyFactions, GraphicalHp, TerrainTile, Unit};
-use awbrn_types::{Faction as TerrainFaction, GraphicalTerrain, PlayerFaction};
+use awbrn_types::{Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, UnitExt};
 use awbw_replay::AwbwReplay;
 use awbw_replay::game_models::AwbwPlayer;
 use bevy::prelude::*;

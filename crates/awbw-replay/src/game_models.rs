@@ -1,7 +1,7 @@
 use crate::de::{bool_ynstr, deserialize_sub_dive, non_negative_u32, values_only};
 use awbrn_types::{
     AwbwCoId, AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId, AwbwTerrain, AwbwUnitId, Co,
-    PlayerFaction, Unit,
+    CoExt, PlayerFaction, Unit,
 };
 use serde::{Deserialize, Serialize};
 

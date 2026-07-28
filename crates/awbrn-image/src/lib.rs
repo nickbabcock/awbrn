@@ -13,7 +13,7 @@ use awbrn_content::{
     UNIT_SPRITESHEET_PADDING_Y, spritesheet_index, unit_spritesheet_index,
 };
 use awbrn_map::{AwbrnMap, AwbwMap, PredeployedUnit};
-use awbrn_types::{GraphicalMovement, GraphicalTerrain, PlayerFaction, Unit, Weather};
+use awbrn_types::{GraphicalMovement, GraphicalTerrain, PlayerFaction, Unit, UnitExt, Weather};
 use image::{GenericImageView, RgbaImage, imageops};
 
 /// Logical tile size, in pixels.
