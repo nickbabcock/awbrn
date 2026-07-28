@@ -6,9 +6,9 @@ use awbrn_types::{
 };
 
 use awbrn_server::{
-    CaptureEvent, Co, CombatOutcome, CommandError, GameCommand, GameServer, GameSetup, PlayerId,
-    PlayerSetup, PostMoveAction, ReplayError, ReplayEventError, ServerUnitId, SetupError,
-    StoredActionEvent, reconstruct_from_events,
+    CaptureEvent, Co, CommandError, GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup,
+    PostMoveAction, ReplayError, ReplayEventError, ServerUnitId, SetupError, StoredActionEvent,
+    reconstruct_from_events,
 };
 
 fn attack_command(unit_id: ServerUnitId, path: Vec<Position>, target: Position) -> GameCommand {
@@ -54,8 +54,9 @@ fn submit_and_store(
 ) -> awbrn_server::CommandResult {
     let result = server.submit_command(player, command.clone()).unwrap();
     events.push(StoredActionEvent {
+        player,
         command,
-        combat_outcome: result.combat_outcome,
+        random: server.last_random().to_vec(),
     });
     result
 }
@@ -235,6 +236,27 @@ fn server_rejects_more_than_255_players() {
 }
 
 #[test]
+fn server_rejects_map_dimensions_outside_awvm_domain() {
+    let mut setup = two_player_setup(256, 1);
+    let err = GameServer::new(setup.clone()).err().unwrap();
+    assert_eq!(
+        err,
+        SetupError::InvalidMap {
+            reason: "map width 256 exceeds AWVM's 255-tile limit".into(),
+        }
+    );
+
+    setup.map = AwbrnMap::new(1, 256, GraphicalTerrain::Plain);
+    let err = GameServer::new(setup).err().unwrap();
+    assert_eq!(
+        err,
+        SetupError::InvalidMap {
+            reason: "map height 256 exceeds AWVM's 255-tile limit".into(),
+        }
+    );
+}
+
+#[test]
 fn create_server_and_spawn_unit() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
     let id = server.spawn_unit(
@@ -245,7 +267,7 @@ fn create_server_and_spawn_unit() {
 
     assert_eq!(id, ServerUnitId(1));
 
-    let view = server.player_view(p1());
+    let view = server.player_view(p1()).unwrap();
     assert_eq!(view.units.len(), 1);
     assert_eq!(view.units[0].unit_type, awbrn_types::Unit::Infantry);
     assert_eq!(view.units[0].position, Position::new(2, 2));
@@ -254,6 +276,13 @@ fn create_server_and_spawn_unit() {
     assert_eq!(view.my_funds, 1000);
     assert_eq!(view.state.day, 1);
     assert_eq!(view.state.active_player, p1());
+}
+
+#[test]
+fn player_view_returns_none_for_unknown_player() {
+    let server = GameServer::new(two_player_setup(2, 2)).unwrap();
+
+    assert!(server.player_view(PlayerId(99)).is_none());
 }
 
 #[test]
@@ -288,7 +317,7 @@ fn build_infantry_from_owned_base_deducts_funds_and_spawns_unit() {
     assert_eq!(built.fuel, Some(Unit::Infantry.max_fuel()));
     assert_eq!(built.ammo, Some(Unit::Infantry.max_ammo()));
 
-    let view = server.player_view(p1());
+    let view = server.player_view(p1()).unwrap();
     assert_eq!(view.my_funds, 0);
     let built = view
         .units
@@ -477,7 +506,7 @@ fn build_supports_airport_and_port_domains() {
         .submit_command(p1(), build_command(port, Unit::Lander))
         .unwrap();
 
-    let view = server.player_view(p1());
+    let view = server.player_view(p1()).unwrap();
     assert!(
         view.units
             .iter()
@@ -488,7 +517,9 @@ fn build_supports_airport_and_port_domains() {
             .iter()
             .any(|unit| unit.position == port && unit.unit_type == Unit::Lander)
     );
-    assert_eq!(view.my_funds, 3000);
+    // AWVM applies the normative turn-start income hook before the second
+    // build: the airport and port contribute 2,000 funds.
+    assert_eq!(view.my_funds, 5000);
 }
 
 #[test]
@@ -571,7 +602,7 @@ fn move_unit_updates_position() {
         .unwrap();
 
     // Verify unit moved.
-    let view = server.player_view(p1());
+    let view = server.player_view(p1()).unwrap();
     assert_eq!(view.units[0].position, Position::new(2, 0));
 
     // Verify fuel consumed (2 tiles moved).
@@ -671,7 +702,7 @@ fn end_turn_switches_active_player() {
     let result = server.submit_command(p1(), GameCommand::EndTurn).unwrap();
 
     // Check turn changed.
-    let view = server.player_view(p2());
+    let view = server.player_view(p2()).unwrap();
     assert_eq!(view.state.active_player, p2());
     assert_eq!(view.state.day, 1); // Still day 1 (player 2's first turn).
 
@@ -694,7 +725,7 @@ fn full_round_increments_day() {
     // Player 2 ends turn → wraps around to player 1, new day.
     let result = server.submit_command(p2(), GameCommand::EndTurn).unwrap();
 
-    let view = server.player_view(p1());
+    let view = server.player_view(p1()).unwrap();
     assert_eq!(view.state.day, 2);
     assert_eq!(view.state.active_player, p1());
 
@@ -751,7 +782,7 @@ fn move_with_no_displacement_still_deactivates() {
         .unwrap();
 
     // Unit should be at the same position but deactivated.
-    let view = server.player_view(p1());
+    let view = server.player_view(p1()).unwrap();
     assert_eq!(view.units[0].position, Position::new(2, 2));
 
     // Should not be able to act again.
@@ -813,12 +844,12 @@ fn fog_hides_enemy_units() {
         PlayerFaction::BlueMoon,
     );
 
-    let p1_view = server.player_view(p1());
+    let p1_view = server.player_view(p1()).unwrap();
     // Player 1 should see their own unit but not the enemy.
     assert_eq!(p1_view.units.len(), 1);
     assert_eq!(p1_view.units[0].faction, PlayerFaction::OrangeStar);
 
-    let p2_view = server.player_view(p2());
+    let p2_view = server.player_view(p2()).unwrap();
     // Player 2 should see their own unit but not player 1's.
     assert_eq!(p2_view.units.len(), 1);
     assert_eq!(p2_view.units[0].faction, PlayerFaction::BlueMoon);
@@ -845,7 +876,7 @@ fn fog_reveals_units_within_vision() {
         PlayerFaction::BlueMoon,
     );
 
-    let p1_view = server.player_view(p1());
+    let p1_view = server.player_view(p1()).unwrap();
     // Player 1 should see both units.
     assert_eq!(p1_view.units.len(), 2);
 }
@@ -865,7 +896,7 @@ fn own_unit_fuel_visible_enemy_fuel_hidden() {
         PlayerFaction::BlueMoon,
     );
 
-    let view = server.player_view(p1());
+    let view = server.player_view(p1()).unwrap();
     let own = view
         .units
         .iter()
@@ -920,7 +951,7 @@ fn allied_units_share_fuel_and_ammo_visibility() {
         PlayerFaction::BlueMoon,
     );
 
-    let view = server.player_view(p1());
+    let view = server.player_view(p1()).unwrap();
     let allied = view
         .units
         .iter()
@@ -958,7 +989,7 @@ fn attack_kills_defender() {
         .unwrap();
 
     // Defender should no longer appear in p2's view.
-    let p2_view = server.player_view(p2());
+    let p2_view = server.player_view(p2()).unwrap();
     assert!(
         !p2_view.units.iter().any(|u| u.id == defender),
         "defender should be destroyed"
@@ -995,7 +1026,7 @@ fn attack_reduces_hp_without_killing() {
         )
         .unwrap();
 
-    let p1_view = server.player_view(p1());
+    let p1_view = server.player_view(p1()).unwrap();
 
     // Both units should still exist.
     assert_eq!(p1_view.units.len(), 2);
@@ -1016,6 +1047,16 @@ fn attack_reduces_hp_without_killing() {
         event.attacker_hp_after.0 > 0,
         "attacker should still have HP after counterattack"
     );
+    assert!(matches!(
+        server.last_random(),
+        [
+            awvm::random::RandomToken::CombatGoodLuck(_),
+            awvm::random::RandomToken::CombatBadLuck(_),
+            awvm::random::RandomToken::CombatGoodLuck(_),
+            awvm::random::RandomToken::CombatBadLuck(_),
+        ]
+    ));
+    assert_eq!(server.recorded_random(), server.last_random());
 }
 
 #[test]
@@ -1157,6 +1198,45 @@ fn attack_no_weapon_against_type_rejected() {
 }
 
 #[test]
+fn fogged_indirect_attacker_is_not_disclosed_in_combat_event() {
+    let mut setup = two_player_setup(7, 1);
+    setup.fog_enabled = true;
+    let mut server = GameServer::new(setup).unwrap();
+    let attacker = server.spawn_unit(Position::new(0, 0), Unit::Rocket, PlayerFaction::OrangeStar);
+    server.spawn_unit(
+        Position::new(4, 0),
+        Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    server.spawn_unit(Position::new(5, 0), Unit::Tank, PlayerFaction::BlueMoon);
+
+    let result = server
+        .submit_command(
+            p1(),
+            attack_command(attacker, vec![Position::new(0, 0)], Position::new(5, 0)),
+        )
+        .unwrap();
+
+    let p1_update = &result
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p1())
+        .unwrap()
+        .1;
+    assert!(p1_update.combat_event.is_some());
+    let p2_update = &result
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p2())
+        .unwrap()
+        .1;
+    assert!(
+        p2_update.combat_event.is_none(),
+        "the defender must not learn a fogged indirect attacker's id or HP"
+    );
+}
+
+#[test]
 fn attack_no_unit_at_target_rejected() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
 
@@ -1196,6 +1276,7 @@ fn primary_weapon_attack_consumes_ammo() {
 
     let initial_ammo = server
         .player_view(p1())
+        .unwrap()
         .units
         .iter()
         .find(|u| u.id == attacker)
@@ -1213,6 +1294,7 @@ fn primary_weapon_attack_consumes_ammo() {
 
     let ammo_after = server
         .player_view(p1())
+        .unwrap()
         .units
         .iter()
         .find(|u| u.id == attacker)
@@ -1261,13 +1343,17 @@ fn supply_restores_self_owned_adjacent_fuel_and_ammo() {
         )
         .unwrap();
 
-    let before = server.player_view(p1());
+    let before = server.player_view(p1()).unwrap();
     let low_fuel = before
         .units
         .iter()
         .find(|unit| unit.id == infantry)
         .unwrap();
-    assert!(low_fuel.fuel.unwrap() < Unit::Infantry.max_fuel());
+    assert_eq!(
+        low_fuel.fuel,
+        Some(Unit::Infantry.max_fuel()),
+        "the adjacent APC automatically supplies at turn start"
+    );
     let low_ammo = before.units.iter().find(|unit| unit.id == mech).unwrap();
     assert!(low_ammo.ammo.unwrap() < Unit::Mech.max_ammo());
 
@@ -1278,7 +1364,7 @@ fn supply_restores_self_owned_adjacent_fuel_and_ammo() {
         )
         .unwrap();
 
-    let after = server.player_view(p1());
+    let after = server.player_view(p1()).unwrap();
     let supplied_infantry = after.units.iter().find(|unit| unit.id == infantry).unwrap();
     assert_eq!(supplied_infantry.fuel, Some(Unit::Infantry.max_fuel()));
     let supplied_mech = after.units.iter().find(|unit| unit.id == mech).unwrap();
@@ -1286,19 +1372,36 @@ fn supply_restores_self_owned_adjacent_fuel_and_ammo() {
 }
 
 #[test]
-fn supply_rejects_when_no_adjacent_self_owned_units_exist() {
+fn supply_without_adjacent_self_owned_units_is_a_valid_noop() {
     let mut server = GameServer::new(allied_player_setup(3, 1)).unwrap();
     let apc = server.spawn_unit(Position::new(0, 0), Unit::APC, PlayerFaction::OrangeStar);
-    server.spawn_unit(Position::new(1, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+    let neighboring_ally =
+        server.spawn_unit(Position::new(1, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+    let before = server.player_view(p1()).unwrap();
+    let neighboring_ally_before = before
+        .units
+        .iter()
+        .find(|unit| unit.id == neighboring_ally)
+        .unwrap();
+    let resources_before = (neighboring_ally_before.fuel, neighboring_ally_before.ammo);
 
-    let err = server
+    server
         .submit_command(
             p1(),
             action_command(apc, vec![Position::new(0, 0)], PostMoveAction::Supply),
         )
-        .unwrap_err();
+        .unwrap();
 
-    assert!(matches!(err, CommandError::InvalidAction { .. }));
+    let after = server.player_view(p1()).unwrap();
+    let neighboring_ally_after = after
+        .units
+        .iter()
+        .find(|unit| unit.id == neighboring_ally)
+        .unwrap();
+    assert_eq!(
+        (neighboring_ally_after.fuel, neighboring_ally_after.ammo),
+        resources_before
+    );
 }
 
 #[test]
@@ -1328,6 +1431,7 @@ fn supply_does_not_restore_allied_teammate_units() {
 
     let fuel_before = server
         .player_view(p1())
+        .unwrap()
         .units
         .iter()
         .find(|unit| unit.id == allied_infantry)
@@ -1344,6 +1448,7 @@ fn supply_does_not_restore_allied_teammate_units() {
 
     let fuel_after = server
         .player_view(p1())
+        .unwrap()
         .units
         .iter()
         .find(|unit| unit.id == allied_infantry)
@@ -1376,6 +1481,7 @@ fn load_removes_cargo_from_map_and_unload_restores_it() {
     assert!(
         !server
             .player_view(p1())
+            .unwrap()
             .units
             .iter()
             .any(|unit| unit.id == cargo),
@@ -1396,7 +1502,7 @@ fn load_removes_cargo_from_map_and_unload_restores_it() {
         )
         .unwrap();
 
-    let view = server.player_view(p1());
+    let view = server.player_view(p1()).unwrap();
     assert_eq!(
         view.units
             .iter()
@@ -1528,7 +1634,7 @@ fn unload_rejects_occupied_or_impassable_target() {
             p1(),
             action_command(
                 apc,
-                vec![Position::new(1, 1)],
+                vec![Position::new(1, 1), Position::new(1, 2)],
                 PostMoveAction::Unload {
                     cargo_id: cargo,
                     position: Position::new(2, 1),
@@ -1537,6 +1643,18 @@ fn unload_rejects_occupied_or_impassable_target() {
         )
         .unwrap_err();
     assert!(matches!(occupied_err, CommandError::InvalidAction { .. }));
+    assert_eq!(
+        server
+            .player_view(p1())
+            .unwrap()
+            .units
+            .iter()
+            .find(|unit| unit.id == apc)
+            .unwrap()
+            .position,
+        Position::new(1, 1),
+        "a rejected compound move-plus-unload must roll back the move"
+    );
 
     let impassable_err = server
         .submit_command(
@@ -1563,6 +1681,7 @@ fn hide_and_unhide_change_enemy_player_view() {
     assert!(
         server
             .player_view(p2())
+            .unwrap()
             .units
             .iter()
             .any(|unit| unit.id == sub)
@@ -1591,6 +1710,7 @@ fn hide_and_unhide_change_enemy_player_view() {
     assert!(
         server
             .player_view(p1())
+            .unwrap()
             .units
             .iter()
             .any(|unit| unit.id == sub && unit.hiding),
@@ -1599,6 +1719,7 @@ fn hide_and_unhide_change_enemy_player_view() {
     assert!(
         !server
             .player_view(p2())
+            .unwrap()
             .units
             .iter()
             .any(|unit| unit.id == sub),
@@ -1630,6 +1751,7 @@ fn hide_and_unhide_change_enemy_player_view() {
     assert!(
         server
             .player_view(p1())
+            .unwrap()
             .units
             .iter()
             .any(|unit| unit.id == sub && !unit.hiding),
@@ -1639,6 +1761,7 @@ fn hide_and_unhide_change_enemy_player_view() {
     assert!(
         server
             .player_view(p2())
+            .unwrap()
             .units
             .iter()
             .any(|unit| unit.id == sub),
@@ -1675,6 +1798,7 @@ fn hide_and_unhide_refresh_detecting_enemy_visible_unit() {
     assert!(
         server
             .player_view(p2())
+            .unwrap()
             .units
             .iter()
             .any(|unit| unit.id == sub && unit.hiding)
@@ -1721,7 +1845,7 @@ fn hide_rejects_non_hidden_capable_units() {
 }
 
 #[test]
-fn join_caps_target_hp_and_removes_source_id() {
+fn join_rejects_a_target_already_at_full_visual_hp() {
     let mut server = GameServer::new(two_player_setup(4, 1)).unwrap();
     let source = server.spawn_unit(
         Position::new(0, 0),
@@ -1734,8 +1858,7 @@ fn join_caps_target_hp_and_removes_source_id() {
         PlayerFaction::OrangeStar,
     );
 
-    let starting_funds = server.player_view(p1()).my_funds;
-    let result = server
+    let error = server
         .submit_command(
             p1(),
             action_command(
@@ -1744,34 +1867,12 @@ fn join_caps_target_hp_and_removes_source_id() {
                 PostMoveAction::Join { target_id: target },
             ),
         )
-        .unwrap();
-    let expected_refund = Unit::Infantry.base_cost();
-
-    let view = server.player_view(p1());
-    assert!(!view.units.iter().any(|unit| unit.id == source));
-    let joined = view.units.iter().find(|unit| unit.id == target).unwrap();
-    assert_eq!(joined.hp, 10);
-    assert_eq!(view.my_funds, starting_funds + expected_refund);
-    let p1_update = result
-        .updates
-        .iter()
-        .find(|(player, _)| *player == p1())
-        .unwrap()
-        .1
-        .clone();
-    assert_eq!(p1_update.my_funds, Some(starting_funds + expected_refund));
-
-    let err = server
-        .submit_command(
-            p1(),
-            action_command(
-                source,
-                vec![Position::new(1, 0), Position::new(2, 0)],
-                PostMoveAction::Wait,
-            ),
-        )
         .unwrap_err();
-    assert!(matches!(err, CommandError::InvalidUnit(id) if id == source));
+
+    let view = server.player_view(p1()).unwrap();
+    assert!(matches!(error, CommandError::InvalidAction { .. }));
+    assert!(view.units.iter().any(|unit| unit.id == source));
+    assert!(view.units.iter().any(|unit| unit.id == target));
 }
 
 #[test]
@@ -1856,6 +1957,7 @@ fn full_hp_infantry_captures_property_in_two_capture_actions() {
     assert_eq!(
         server
             .player_view(p1())
+            .unwrap()
             .units
             .iter()
             .find(|unit| unit.id == infantry)
@@ -1893,6 +1995,7 @@ fn full_hp_infantry_captures_property_in_two_capture_actions() {
 
     let terrain = server
         .player_view(p1())
+        .unwrap()
         .terrain
         .into_iter()
         .find(|tile| tile.position == Position::new(0, 0))
@@ -1906,6 +2009,7 @@ fn full_hp_infantry_captures_property_in_two_capture_actions() {
     assert_eq!(
         server
             .player_view(p1())
+            .unwrap()
             .units
             .iter()
             .find(|unit| unit.id == infantry)
@@ -1982,6 +2086,7 @@ fn moving_away_loses_capture_progress() {
     assert_eq!(
         server
             .player_view(p1())
+            .unwrap()
             .units
             .iter()
             .find(|unit| unit.id == infantry)
@@ -2019,6 +2124,7 @@ fn damaged_infantry_takes_more_than_two_capture_actions() {
         .unwrap();
     let damaged_hp = server
         .player_view(p1())
+        .unwrap()
         .units
         .iter()
         .find(|unit| unit.id == infantry)
@@ -2038,6 +2144,7 @@ fn damaged_infantry_takes_more_than_two_capture_actions() {
 
     let terrain = server
         .player_view(p1())
+        .unwrap()
         .terrain
         .into_iter()
         .find(|tile| tile.position == Position::new(0, 0))
@@ -2049,6 +2156,7 @@ fn damaged_infantry_takes_more_than_two_capture_actions() {
     assert_eq!(
         server
             .player_view(p1())
+            .unwrap()
             .units
             .iter()
             .find(|unit| unit.id == infantry)
@@ -2220,27 +2328,28 @@ fn reconstruct_replays_action_log_to_matching_player_views() {
 
     let encoded = serde_json::to_string(&events).unwrap();
     let decoded: Vec<StoredActionEvent> = serde_json::from_str(&encoded).unwrap();
-    let mut reconstructed = reconstruct_from_events(setup, &decoded).unwrap();
+    let reconstructed = reconstruct_from_events(setup, &decoded).unwrap();
 
     for player in [p1(), p2()] {
         assert_eq!(
-            serde_json::to_value(original.player_view(player)).unwrap(),
-            serde_json::to_value(reconstructed.player_view(player)).unwrap()
+            serde_json::to_value(original.player_view(player).unwrap()).unwrap(),
+            serde_json::to_value(reconstructed.player_view(player).unwrap()).unwrap()
         );
     }
 }
 
 #[test]
-fn replay_attack_requires_stored_combat_outcome() {
+fn replay_attack_requires_stored_randomness() {
     let (setup, mut events) = valid_attack_replay_prefix();
     let index = events.len();
     events.push(StoredActionEvent {
+        player: p1(),
         command: attack_command(
             ServerUnitId(1),
             vec![Position::new(1, 0), Position::new(2, 0)],
             Position::new(3, 0),
         ),
-        combat_outcome: None,
+        random: Vec::new(),
     });
 
     let err = expect_replay_error(setup, &events);
@@ -2249,20 +2358,18 @@ fn replay_attack_requires_stored_combat_outcome() {
         err,
         ReplayError::Event {
             index: err_index,
-            source: ReplayEventError::MissingCombatOutcome,
+            source: ReplayEventError::Command(CommandError::InvalidAction { .. }),
         } if err_index == index
     ));
 }
 
 #[test]
-fn replay_rejects_combat_outcome_on_non_attack() {
+fn replay_uses_stored_submitter_and_rejects_corrupted_turn_order() {
     let setup = replay_combat_setup();
     let events = vec![StoredActionEvent {
-        command: build_command(Position::new(0, 0), Unit::Infantry),
-        combat_outcome: Some(CombatOutcome {
-            attacker_damage_pts: 1,
-            defender_damage_pts: None,
-        }),
+        player: p2(),
+        command: build_command(Position::new(3, 0), Unit::Infantry),
+        random: Vec::new(),
     }];
 
     let err = expect_replay_error(setup, &events);
@@ -2271,7 +2378,50 @@ fn replay_rejects_combat_outcome_on_non_attack() {
         err,
         ReplayError::Event {
             index: 0,
-            source: ReplayEventError::UnexpectedCombatOutcome,
+            source: ReplayEventError::Command(CommandError::NotYourTurn),
+        }
+    ));
+}
+
+#[test]
+fn stored_events_require_submitter_and_random_tape() {
+    let without_player = serde_json::json!({
+        "command": {
+            "type": "build",
+            "position": {"x": 0, "y": 0},
+            "unit_type": "Infantry"
+        },
+        "random": []
+    });
+    let without_random = serde_json::json!({
+        "player": 0,
+        "command": {
+            "type": "build",
+            "position": {"x": 0, "y": 0},
+            "unit_type": "Infantry"
+        }
+    });
+
+    assert!(serde_json::from_value::<StoredActionEvent>(without_player).is_err());
+    assert!(serde_json::from_value::<StoredActionEvent>(without_random).is_err());
+}
+
+#[test]
+fn replay_rejects_randomness_on_non_random_command() {
+    let setup = replay_combat_setup();
+    let events = vec![StoredActionEvent {
+        player: p1(),
+        command: build_command(Position::new(0, 0), Unit::Infantry),
+        random: vec![awvm::random::RandomToken::CombatGoodLuck(1)],
+    }];
+
+    let err = expect_replay_error(setup, &events);
+
+    assert!(matches!(
+        err,
+        ReplayError::Event {
+            index: 0,
+            source: ReplayEventError::Command(CommandError::InvalidAction { .. }),
         }
     ));
 }
@@ -2280,12 +2430,13 @@ fn replay_rejects_combat_outcome_on_non_attack() {
 fn replay_invalid_command_returns_error() {
     let setup = replay_combat_setup();
     let events = vec![StoredActionEvent {
+        player: p1(),
         command: action_command(
             ServerUnitId(99),
             vec![Position::new(0, 0)],
             PostMoveAction::Wait,
         ),
-        combat_outcome: None,
+        random: Vec::new(),
     }];
 
     let err = expect_replay_error(setup, &events);
@@ -2300,19 +2451,22 @@ fn replay_invalid_command_returns_error() {
 }
 
 #[test]
-fn replay_rejects_impossible_combat_deltas() {
+fn replay_rejects_out_of_domain_randomness() {
     let (setup, mut events) = valid_attack_replay_prefix();
     let index = events.len();
     events.push(StoredActionEvent {
+        player: p1(),
         command: attack_command(
             ServerUnitId(1),
             vec![Position::new(1, 0), Position::new(2, 0)],
             Position::new(3, 0),
         ),
-        combat_outcome: Some(CombatOutcome {
-            attacker_damage_pts: 200,
-            defender_damage_pts: None,
-        }),
+        random: vec![
+            awvm::random::RandomToken::CombatGoodLuck(200),
+            awvm::random::RandomToken::CombatBadLuck(0),
+            awvm::random::RandomToken::CombatGoodLuck(0),
+            awvm::random::RandomToken::CombatBadLuck(0),
+        ],
     });
 
     let err = expect_replay_error(setup, &events);
@@ -2321,7 +2475,7 @@ fn replay_rejects_impossible_combat_deltas() {
         err,
         ReplayError::Event {
             index: err_index,
-            source: ReplayEventError::InvalidCombatOutcome { .. },
+            source: ReplayEventError::Command(CommandError::InvalidAction { .. }),
         } if err_index == index
     ));
 }

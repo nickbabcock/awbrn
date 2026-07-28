@@ -113,6 +113,7 @@ impl<E: Entropy + ?Sized> Entropy for &mut E {
 /// tape that RNG produced to persist, so the same command can be replayed
 /// through [`crate::transition::execute`] and checked token-for-token. Wrapping
 /// its source in this is how it gets the second without giving up the first.
+#[derive(Clone)]
 pub struct Recording<E> {
     source: E,
     drawn: Vec<RandomToken>,

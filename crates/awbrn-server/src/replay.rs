@@ -1,15 +1,16 @@
 use std::fmt;
 
-use crate::command::{GameCommand, PostMoveAction};
-use crate::damage::CombatOutcome;
+use crate::command::GameCommand;
 use crate::error::CommandError;
+use crate::player::PlayerId;
 use crate::server::GameServer;
 use crate::setup::{GameSetup, SetupError};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct StoredActionEvent {
+    pub player: PlayerId,
     pub command: GameCommand,
-    pub combat_outcome: Option<CombatOutcome>,
+    pub random: Vec<awvm::random::RandomToken>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -24,9 +25,6 @@ pub enum ReplayError {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ReplayEventError {
     Command(CommandError),
-    MissingCombatOutcome,
-    UnexpectedCombatOutcome,
-    InvalidCombatOutcome { reason: String },
 }
 
 impl From<CommandError> for ReplayEventError {
@@ -68,11 +66,6 @@ impl fmt::Display for ReplayEventError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Command(error) => write!(f, "{error}"),
-            Self::MissingCombatOutcome => write!(f, "attack event is missing combat outcome"),
-            Self::UnexpectedCombatOutcome => {
-                write!(f, "non-attack event unexpectedly included combat outcome")
-            }
-            Self::InvalidCombatOutcome { reason } => write!(f, "invalid combat outcome: {reason}"),
         }
     }
 }
@@ -81,9 +74,6 @@ impl std::error::Error for ReplayEventError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Command(error) => Some(error),
-            Self::MissingCombatOutcome
-            | Self::UnexpectedCombatOutcome
-            | Self::InvalidCombatOutcome { .. } => None,
         }
     }
 }
@@ -101,14 +91,4 @@ pub fn reconstruct_from_events(
     }
 
     Ok(server)
-}
-
-pub(crate) fn command_is_attack(command: &GameCommand) -> bool {
-    matches!(
-        command,
-        GameCommand::MoveUnit {
-            action: Some(PostMoveAction::Attack { .. }),
-            ..
-        }
-    )
 }
