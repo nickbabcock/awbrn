@@ -1,13 +1,51 @@
-#[cfg(not(test))]
 use bench::benchmarks::{
     awvm::gungraun_benches::awvm_benches, map::gungraun_benches::map_benches,
     replay::gungraun_benches::replay_benches, server::gungraun_benches::server_benches,
 };
 
-#[cfg(not(test))]
-gungraun::main!(
-    library_benchmark_groups = [awvm_benches, map_benches, replay_benches, server_benches]
-);
+mod instrumented {
+    use super::{awvm_benches, map_benches, replay_benches, server_benches};
+    use gungraun::main;
 
-#[cfg(test)]
-fn main() {}
+    main!(library_benchmark_groups = [awvm_benches, map_benches, replay_benches, server_benches]);
+
+    pub fn run() {
+        main();
+    }
+}
+
+fn run_once() {
+    macro_rules! run_once {
+        ($($group:ident),+ $(,)?) => {
+            $(
+                $group::__run_setup(true);
+                for (_, _, benches) in $group::__BENCHES {
+                    for benchmark in *benches {
+                        match benchmark.func {
+                            gungraun::__internal::InternalLibFunctionKind::Iter(function) => {
+                                for index in 0..function(None) {
+                                    function(Some(index));
+                                }
+                            }
+                            gungraun::__internal::InternalLibFunctionKind::Default(function) => {
+                                function();
+                            }
+                        }
+                    }
+                }
+                $group::__run_teardown(true);
+            )+
+        };
+    }
+
+    run_once!(awvm_benches, map_benches, replay_benches, server_benches,);
+}
+
+fn main() {
+    let mut args = std::env::args().skip(1);
+    if args.any(|arg| matches!(arg.as_str(), "--bench" | "--gungraun-run")) {
+        instrumented::run();
+    } else {
+        run_once();
+    }
+}
