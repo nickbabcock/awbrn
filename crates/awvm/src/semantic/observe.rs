@@ -17,7 +17,7 @@ use super::{
     BoardShapeError, Commander, CommanderId, Concealment, Location, Match, Outcome, PlayerId,
     PlayerStatus, Pos, PowerState, RareTileState, RulesetRef, Settings, Silo, State, Team, TeamId,
     TeleporterId, TerrainId, TileOwner, TraitId, Turn, Unit, UnitAction, UnitId, UnitKindId,
-    UnitStore, Viewpoint, Visibility, Weather, owner_is_absent,
+    Viewpoint, Visibility, Weather, owner_is_absent,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -394,11 +394,11 @@ pub enum ObservedEvent {
 
 /// What one command looked like to one recipient.
 ///
-/// The post-observation is not a convenience: `public-event` carries no payload,
-/// so `spec/model/observation.md:329` makes `post` the authority for every
-/// public value the events only signal. Projecting the events already requires
-/// computing it, so returning it costs nothing and saves the caller a second
-/// full projection.
+/// The post-observation is part of this contract because `public-event` carries
+/// no payload: `spec/model/observation.md:329` makes `post` the authority for
+/// every public value those events only signal. Callers that need only event
+/// payloads should use [`observe_events`], which avoids constructing the full
+/// post-observation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObservedTransition {
     pub post: Observation,
@@ -434,9 +434,10 @@ pub fn observe(
 ///
 /// Both halves are needed together. A `public-event` carries no payload, so
 /// `spec/model/observation.md:329` makes the post-observation the authority for
-/// every value those events merely signal — and projecting the events has to
-/// compute it regardless, to fill in the tile and player snapshots that
-/// `tile-changed` and `player-changed` carry.
+/// every value those events merely signal. This function constructs that full
+/// observation and reuses its tile and player snapshots while projecting
+/// events; [`observe_events`] instead constructs only the snapshots named by
+/// events.
 pub fn observe_transition(
     rules: &impl Visibility,
     state: &State,
@@ -444,63 +445,22 @@ pub fn observe_transition(
     events: &[Event],
     recipient: &PlayerId,
 ) -> Result<ObservedTransition, ObserveError> {
-    let team = recipient_team(state, recipient)?;
-    // The prior state is validated, not projected. This used to call `observe`
-    // and drop the result, which cost a whole board projection to reach these
-    // two checks.
-    for unit in &state.units {
-        if state.find_player(&unit.owner).is_none() {
-            return Err(ObserveError::UnknownUnitOwner(unit.owner.clone()));
-        }
-    }
-    // The recipient's team is taken from `state` throughout, which is what the
-    // event projection has always done. A recipient who changed teams between
-    // the two states is not a transition the specification admits; this still
-    // rejects one who is absent from `next_state` altogether.
-    recipient_team(next_state, recipient)?;
-
-    let pre_view = rules.view(state, team);
-    let post_view = rules.view(next_state, team);
-    let post = project_state(&post_view, next_state, recipient, team)?;
-
-    let teammates: Vec<&PlayerId> = state
-        .players
-        .iter()
-        .filter(|player| player.team == team)
-        .map(|player| &player.id)
-        .collect();
-    let visible = |view: &dyn Fn(&Unit) -> bool, units: &UnitStore| -> HashSet<UnitId> {
-        units
-            .iter()
-            .filter(|unit| view(unit))
-            .map(|u| u.id)
-            .collect()
-    };
-    let mut projection = Projection {
-        pre_view: &pre_view,
-        post_view: &post_view,
-        state,
-        next_state,
-        post,
-        teammates,
-        visible_pre: visible(&|unit| pre_view.unit(unit), &state.units),
-        visible_post: visible(&|unit| post_view.unit(unit), &next_state.units),
-        appeared: HashSet::new(),
-        disappeared: HashSet::new(),
-        output: Vec::new(),
-    };
+    let mut projection = transition_projection(rules, state, next_state, recipient, true)?;
     projection.project(events)?;
     Ok(ObservedTransition {
-        post: projection.post,
+        post: projection
+            .post
+            .expect("observe_transition always projects the post-state"),
         events: projection.output,
     })
 }
 
 /// Project authoritative transition events for one recipient.
 ///
-/// A caller that also needs the post-observation — which anything acting on a
-/// `public-event` does — should use [`observe_transition`] rather than calling
-/// both, since this discards an observation it had to compute.
+/// A caller that needs the recipient-safe post-state referenced by a
+/// `public-event` should use [`observe_transition`]. Event-only callers use
+/// this path so tile and player changes project just their snapshots, without
+/// allocating an otherwise-unused full board observation.
 pub fn observe_events(
     rules: &impl Visibility,
     state: &State,
@@ -508,8 +468,58 @@ pub fn observe_events(
     events: &[Event],
     recipient: &PlayerId,
 ) -> Result<Vec<ObservedEvent>, ObserveError> {
-    observe_transition(rules, state, next_state, events, recipient)
-        .map(|transition| transition.events)
+    let mut projection = transition_projection(rules, state, next_state, recipient, false)?;
+    projection.project(events)?;
+    Ok(projection.output)
+}
+
+fn transition_projection<'a, R: Visibility>(
+    rules: &'a R,
+    state: &'a State,
+    next_state: &'a State,
+    recipient: &'a PlayerId,
+    include_post: bool,
+) -> Result<Projection<'a, R::View<'a>>, ObserveError> {
+    let team = recipient_team(state, recipient)?;
+    // The inputs are supplied independently over the protocol. Validate both
+    // stores even on the event-only path so it has the same error contract as
+    // a full post-observation.
+    for candidate in [state, next_state] {
+        for unit in &candidate.units {
+            if candidate.find_player(&unit.owner).is_none() {
+                return Err(ObserveError::UnknownUnitOwner(unit.owner.clone()));
+            }
+        }
+    }
+    // The recipient's team is taken from `state` throughout. A recipient who
+    // changed teams is not a transition the specification admits; this still
+    // rejects one who is absent from `next_state` altogether.
+    recipient_team(next_state, recipient)?;
+
+    let pre_view = rules.view(state, team);
+    let post_view = rules.view(next_state, team);
+    let post = include_post
+        .then(|| project_state(&post_view, next_state, recipient, team))
+        .transpose()?;
+    let teammates: Vec<&PlayerId> = state
+        .players
+        .iter()
+        .filter(|player| player.team == team)
+        .map(|player| &player.id)
+        .collect();
+    Ok(Projection {
+        pre_view,
+        post_view,
+        state,
+        next_state,
+        post,
+        recipient,
+        team,
+        teammates,
+        appeared: HashSet::new(),
+        disappeared: HashSet::new(),
+        output: Vec::new(),
+    })
 }
 
 fn recipient_team<'a>(state: &'a State, recipient: &PlayerId) -> Result<&'a TeamId, ObserveError> {
@@ -531,70 +541,12 @@ fn project_state(
         .board
         .rows()
         .flatten()
-        .map(|(position, t)| {
-            let visible = view.position(position);
-            // A teleporter pairing is disclosed even through fog; the rest of a
-            // tile's rare state is not.
-            let rare = RareTileState {
-                destructible_hp: visible.then_some(t.destructible_hp()).flatten(),
-                teleporter: t.teleporter().cloned(),
-                trait_state: visible.then(|| t.trait_state().cloned()).flatten(),
-            };
-            ObservedTile {
-                terrain: t.terrain,
-                visibility: if visible {
-                    TileVisibility::Visible
-                } else {
-                    TileVisibility::Fogged
-                },
-                owner: if visible {
-                    t.owner.clone()
-                } else {
-                    TileOwner::NotOwnable
-                },
-                capture_points: visible.then_some(t.capture_points).flatten(),
-                silo: visible.then_some(t.silo).flatten(),
-                rare: (!rare.is_empty()).then(|| Box::new(rare)),
-            }
-        })
+        .map(|(position, t)| projected_tile(view, position, t))
         .collect();
     let players = state
         .players
         .iter()
-        .map(|p| {
-            if p.team == team {
-                ObservedPlayer::Private {
-                    id: p.id.clone(),
-                    team: p.team.clone(),
-                    relation: if p.id == recipient {
-                        Relation::Self_
-                    } else {
-                        Relation::Ally
-                    },
-                    funds: p.funds,
-                    status: p.status,
-                    commanders: p.commanders.clone(),
-                    power_state: p.power_state.clone(),
-                }
-            } else {
-                ObservedPlayer::Public {
-                    id: p.id.clone(),
-                    team: p.team.clone(),
-                    relation: Relation::Opponent,
-                    status: p.status,
-                    commanders: p
-                        .commanders
-                        .iter()
-                        .map(|c| PublicCommander {
-                            id: c.id,
-                            active: c.active,
-                            power_charge: c.power_charge,
-                        })
-                        .collect(),
-                    power_state: p.power_state.clone(),
-                }
-            }
-        })
+        .map(|player| projected_player(player, recipient, team))
         .collect();
     let mut units = Vec::new();
     for u in &state.units {
@@ -639,6 +591,68 @@ fn project_state(
     })
 }
 
+fn projected_tile(view: &impl Viewpoint, position: Pos, tile: &super::Tile) -> ObservedTile {
+    let visible = view.position(position);
+    // A teleporter pairing is disclosed even through fog; the rest of a
+    // tile's rare state is not.
+    let rare = RareTileState {
+        destructible_hp: visible.then_some(tile.destructible_hp()).flatten(),
+        teleporter: tile.teleporter().cloned(),
+        trait_state: visible.then(|| tile.trait_state().cloned()).flatten(),
+    };
+    ObservedTile {
+        terrain: tile.terrain,
+        visibility: if visible {
+            TileVisibility::Visible
+        } else {
+            TileVisibility::Fogged
+        },
+        owner: if visible {
+            tile.owner.clone()
+        } else {
+            TileOwner::NotOwnable
+        },
+        capture_points: visible.then_some(tile.capture_points).flatten(),
+        silo: visible.then_some(tile.silo).flatten(),
+        rare: (!rare.is_empty()).then(|| Box::new(rare)),
+    }
+}
+
+fn projected_player(player: &super::Player, recipient: &PlayerId, team: &TeamId) -> ObservedPlayer {
+    if player.team == *team {
+        ObservedPlayer::Private {
+            id: player.id.clone(),
+            team: player.team.clone(),
+            relation: if player.id == *recipient {
+                Relation::Self_
+            } else {
+                Relation::Ally
+            },
+            funds: player.funds,
+            status: player.status,
+            commanders: player.commanders.clone(),
+            power_state: player.power_state.clone(),
+        }
+    } else {
+        ObservedPlayer::Public {
+            id: player.id.clone(),
+            team: player.team.clone(),
+            relation: Relation::Opponent,
+            status: player.status,
+            commanders: player
+                .commanders
+                .iter()
+                .map(|commander| PublicCommander {
+                    id: commander.id,
+                    active: commander.active,
+                    power_charge: commander.power_charge,
+                })
+                .collect(),
+            power_state: player.power_state.clone(),
+        }
+    }
+}
+
 /// The context every event's projection shares.
 ///
 /// These were eleven parameters threaded through free functions, which is why
@@ -646,18 +660,18 @@ fn project_state(
 /// derivable from an event alone: whether a unit was visible before and after is
 /// what decides between reporting a change, an appearance, and a disappearance.
 struct Projection<'a, V: Viewpoint> {
-    pre_view: &'a V,
-    post_view: &'a V,
+    pre_view: V,
+    post_view: V,
     state: &'a State,
     next_state: &'a State,
-    /// The post-state as the recipient sees it, which is where `tile-changed`
-    /// and `player-changed` take their snapshots from, and which
-    /// [`observe_transition`] hands back.
-    post: Observation,
+    /// The complete post-state when the caller requested an
+    /// [`ObservedTransition`]. Event-only projection leaves this absent and
+    /// constructs `tile-changed` and `player-changed` snapshots directly.
+    post: Option<Observation>,
+    recipient: &'a PlayerId,
+    team: &'a TeamId,
     /// The recipient's own team. Short enough that a scan beats hashing.
     teammates: Vec<&'a PlayerId>,
-    visible_pre: HashSet<UnitId>,
-    visible_post: HashSet<UnitId>,
     /// Appearances and disappearances already announced, so that several events
     /// about one unit produce at most one of each.
     appeared: HashSet<UnitId>,
@@ -668,6 +682,20 @@ struct Projection<'a, V: Viewpoint> {
 impl<V: Viewpoint> Projection<'_, V> {
     fn owns(&self, player: &PlayerId) -> bool {
         self.teammates.contains(&player)
+    }
+
+    fn visible_pre(&self, id: UnitId) -> bool {
+        self.state
+            .units
+            .get(id)
+            .is_some_and(|unit| self.pre_view.unit(unit))
+    }
+
+    fn visible_post(&self, id: UnitId) -> bool {
+        self.next_state
+            .units
+            .get(id)
+            .is_some_and(|unit| self.post_view.unit(unit))
     }
 
     fn project(&mut self, events: &[Event]) -> Result<(), ObserveError> {
@@ -709,7 +737,7 @@ impl<V: Viewpoint> Projection<'_, V> {
                     unit: id, position, ..
                 } => {
                     let id = *id;
-                    if self.visible_post.contains(&id)
+                    if self.visible_post(id)
                         && let Some(unit) = self.next_state.units.get(id)
                     {
                         let friendly = self.owns(&unit.owner);
@@ -726,7 +754,7 @@ impl<V: Viewpoint> Projection<'_, V> {
                     let unit = self.state.units.get(id);
                     if unit.is_some_and(|unit| self.owns(&unit.owner)) {
                         self.unit_fact(id, reason);
-                    } else if self.visible_pre.contains(&id)
+                    } else if self.visible_pre(id)
                         && let Some(position) = unit.and_then(board_position)
                     {
                         self.push_disappeared(id, position);
@@ -739,7 +767,7 @@ impl<V: Viewpoint> Projection<'_, V> {
                     let unit = self.next_state.units.get(id);
                     if unit.is_some_and(|unit| self.owns(&unit.owner)) {
                         self.unit_fact(id, reason);
-                    } else if self.visible_post.contains(&id)
+                    } else if self.visible_post(id)
                         && let Some(unit) = unit
                     {
                         self.push_appeared(unit, *position, false);
@@ -752,9 +780,19 @@ impl<V: Viewpoint> Projection<'_, V> {
                 | Event::DestructibleDamaged { position, .. } => {
                     let position = *position;
                     if self.pre_view.position(position) || self.post_view.position(position) {
+                        let tile = self.post.as_ref().map_or_else(
+                            || {
+                                projected_tile(
+                                    &self.post_view,
+                                    position,
+                                    self.next_state.board.tile(position),
+                                )
+                            },
+                            |post| post.board.tile(position).clone(),
+                        );
                         self.output.push(ObservedEvent::TileChanged {
                             position,
-                            tile: self.post.board.tile(position).clone(),
+                            tile,
                             reason,
                         });
                     }
@@ -763,15 +801,23 @@ impl<V: Viewpoint> Projection<'_, V> {
                 // public, so it is projected to everyone.
                 Event::FundsChanged { player, .. } if !self.owns(player) => {}
                 Event::FundsChanged { player, .. } | Event::PowerChargeChanged { player, .. } => {
-                    if let Some(snapshot) =
-                        self.post.players.iter().find(|candidate| match candidate {
-                            ObservedPlayer::Private { id, .. }
-                            | ObservedPlayer::Public { id, .. } => id == player,
-                        })
-                    {
+                    if let Some(player_state) = self.next_state.find_player(player) {
+                        let snapshot = self
+                            .post
+                            .as_ref()
+                            .and_then(|post| {
+                                post.players.iter().find(|candidate| match candidate {
+                                    ObservedPlayer::Private { id, .. }
+                                    | ObservedPlayer::Public { id, .. } => id == player,
+                                })
+                            })
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                projected_player(player_state, self.recipient, self.team)
+                            });
                         self.output.push(ObservedEvent::PlayerChanged {
                             player: player.clone(),
-                            state: snapshot.clone(),
+                            state: snapshot,
                             reason,
                         });
                     }
@@ -837,10 +883,7 @@ impl<V: Viewpoint> Projection<'_, V> {
         let Some(unit) = self.next_state.units.get(id) else {
             return;
         };
-        match (
-            self.visible_pre.contains(&id),
-            self.visible_post.contains(&id),
-        ) {
+        match (self.visible_pre(id), self.visible_post(id)) {
             (true, true) => {
                 let snapshot = observed_unit_snapshot(unit, self.owns(&unit.owner));
                 self.output.push(ObservedEvent::UnitChanged {
@@ -887,10 +930,7 @@ impl<V: Viewpoint> Projection<'_, V> {
             });
             return Ok(());
         }
-        match (
-            self.visible_pre.contains(&id),
-            self.visible_post.contains(&id),
-        ) {
+        match (self.visible_pre(id), self.visible_post(id)) {
             (true, false) => self.push_disappeared(id, from),
             (false, true) => {
                 if let Some(snapshot) = self.next_state.units.get(id) {
@@ -937,7 +977,7 @@ impl<V: Viewpoint> Projection<'_, V> {
                 unit: ObservedUnitRef::Friendly { unit: id },
                 reason,
             });
-        } else if self.visible_pre.contains(&id) {
+        } else if self.visible_pre(id) {
             // A removed enemy that was visible must have been on the board:
             // visibility is only ever computed for board positions.
             let position = board_position(unit).ok_or(ObserveError::UnknownUnit(id))?;

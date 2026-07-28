@@ -243,7 +243,7 @@ pub fn run_submit(submission: &mut Submission) -> usize {
 }
 
 pub fn run_player_view(server: &mut GameServer) -> usize {
-    server.player_view(PlayerId(0)).units.len()
+    server.player_view(PlayerId(0)).unwrap().units.len()
 }
 
 pub fn run_spectator_view(server: &mut GameServer) -> usize {

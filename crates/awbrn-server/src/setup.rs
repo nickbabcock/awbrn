@@ -2,12 +2,6 @@ use std::num::NonZeroU8;
 
 use awbrn_map::AwbrnMap;
 use awbrn_types::{Co, PlayerFaction};
-use bevy::prelude::*;
-
-use crate::player::{PlayerId, PlayerRegistry, PlayerSlot};
-use crate::state::{ServerGameState, TurnPhase};
-use crate::unit_id::ServerUnitId;
-use awbrn_game::world::{GameMap, StrongIdMap};
 
 /// Configuration for a single player joining a game.
 #[derive(Debug, Clone)]
@@ -28,7 +22,7 @@ pub struct GameSetup {
     pub rng_seed: u64,
 }
 
-#[derive(Resource)]
+#[derive(Clone)]
 pub struct GameRng {
     state: u64,
 }
@@ -69,87 +63,52 @@ impl GameRng {
     }
 }
 
+impl awvm::random::Entropy for GameRng {
+    fn luck(
+        &mut self,
+        _polarity: awvm::random::Luck,
+        domain: awvm::commander::Domain,
+    ) -> Result<i64, awvm::random::RandomError> {
+        let width = u64::try_from(domain.maximum - domain.minimum)
+            .expect("commander luck domains are ordered");
+        let offset = if width == 0 {
+            0
+        } else {
+            let range = width + 1;
+            let max_usable = u64::MAX - (u64::MAX % range);
+            loop {
+                let sample = self.next_u64();
+                if sample < max_usable {
+                    break sample % range;
+                }
+            }
+        };
+        Ok(domain.minimum + offset as i64)
+    }
+
+    fn weather(&mut self) -> Result<awvm::ruleset::WeatherKind, awvm::random::RandomError> {
+        Ok(match self.roll(2) {
+            0 => awvm::ruleset::WeatherKind::Clear,
+            1 => awvm::ruleset::WeatherKind::Rain,
+            _ => awvm::ruleset::WeatherKind::Snow,
+        })
+    }
+}
+
 /// Error returned when a game cannot be initialized from the provided setup.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SetupError {
     InvalidPlayers { reason: String },
+    InvalidMap { reason: String },
 }
 
 impl std::fmt::Display for SetupError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidPlayers { reason } => write!(f, "invalid game setup: {reason}"),
+            Self::InvalidMap { reason } => write!(f, "invalid game map: {reason}"),
         }
     }
 }
 
 impl std::error::Error for SetupError {}
-
-/// Initialize the server world with all required resources and terrain entities.
-pub(crate) fn initialize_server_world(setup: GameSetup) -> Result<World, SetupError> {
-    if setup.players.is_empty() {
-        return Err(SetupError::InvalidPlayers {
-            reason: "game must contain at least one player".into(),
-        });
-    }
-    if setup.players.len() > u8::MAX as usize {
-        return Err(SetupError::InvalidPlayers {
-            reason: format!(
-                "game supports at most {} players, got {}",
-                u8::MAX,
-                setup.players.len()
-            ),
-        });
-    }
-
-    // Use a temporary App to apply GameWorldPlugin (registers types, observers, resources).
-    let mut app = App::new();
-    app.add_plugins(awbrn_game::GameWorldPlugin);
-    app.finish();
-    app.cleanup();
-
-    let mut world = std::mem::take(app.world_mut());
-
-    // Set up the map.
-    world.resource_mut::<GameMap>().set(setup.map);
-    awbrn_game::world::initialize_terrain_semantic_world(&mut world);
-
-    // Build player registry.
-    let players: Vec<PlayerSlot> = setup
-        .players
-        .iter()
-        .enumerate()
-        .map(|(i, p)| PlayerSlot {
-            id: PlayerId(i as u8),
-            faction: p.faction,
-            team: p.team,
-            funds: p.starting_funds,
-            eliminated: false,
-            co: p.co,
-        })
-        .collect();
-
-    let first_player = players
-        .first()
-        .expect("game must have at least one player")
-        .id;
-
-    world.insert_resource(PlayerRegistry::new(players));
-    world.insert_resource(GameRng::from_seed(setup.rng_seed));
-
-    // Server game state.
-    world.insert_resource(ServerGameState {
-        day: 1,
-        active_player: first_player,
-        phase: TurnPhase::PlayerTurn,
-        next_unit_id: 1,
-    });
-
-    // Unit ID index.
-    world.insert_resource(StrongIdMap::<ServerUnitId>::default());
-
-    // Fog configuration.
-    world.resource_mut::<awbrn_game::world::FogActive>().0 = setup.fog_enabled;
-
-    Ok(world)
-}

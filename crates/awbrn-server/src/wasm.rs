@@ -112,8 +112,9 @@ impl WasmMatch {
         Ok(WasmActionResponse {
             player_messages_by_slot,
             stored_action_event: StoredActionEvent {
+                player,
                 command: stored_command,
-                combat_outcome,
+                random: self.server.last_random().to_vec(),
             },
             spectator_message,
             combat_outcome,
@@ -130,10 +131,10 @@ impl WasmMatch {
             ));
         }
 
-        Ok(player_game_state(
-            &self.server.player_view(player),
-            player_slot,
-        ))
+        let view = self.server.player_view(player).ok_or_else(|| {
+            invalid_input("player_slot", format!("unknown player slot {player_slot}"))
+        })?;
+        Ok(player_game_state(&view, player_slot))
     }
 
     #[wasm_bindgen(js_name = spectatorGameState)]
@@ -155,8 +156,10 @@ impl WasmMatch {
             ));
         }
 
-        serde_wasm_bindgen::to_value(&self.server.player_view(player))
-            .map_err(|error| JsError::new(&error.to_string()))
+        serde_wasm_bindgen::to_value(&self.server.player_view(player).ok_or_else(|| {
+            invalid_input("player_slot", format!("unknown player slot {player_slot}"))
+        })?)
+        .map_err(|error| JsError::new(&error.to_string()))
     }
 
     pub fn spectator_view(&mut self) -> Result<JsValue, JsError> {
@@ -618,6 +621,15 @@ fn setup_error(error: crate::SetupError) -> JsError {
             400,
             json!({
                 "type": "invalidPlayers",
+                "reason": reason,
+            }),
+        ),
+        crate::SetupError::InvalidMap { reason } => js_error(
+            "setupError",
+            format!("invalid game map: {reason}"),
+            400,
+            json!({
+                "type": "invalidMap",
                 "reason": reason,
             }),
         ),

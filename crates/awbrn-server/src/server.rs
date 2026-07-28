@@ -1,28 +1,24 @@
-use bevy::prelude::*;
-
-use crate::apply;
 use crate::command::GameCommand;
 use crate::error::CommandError;
 use crate::player::PlayerId;
 use crate::replay::{ReplayEventError, StoredActionEvent};
-use crate::setup::{GameSetup, SetupError, initialize_server_world};
+use crate::setup::{GameSetup, SetupError};
 use crate::unit_id::ServerUnitId;
-use crate::validate;
 use crate::view::{self, CommandResult, PlayerView, SpectatorView};
 
 use awbrn_map::Position;
 use awbrn_types::{PlayerFaction, Unit};
 
-/// Authoritative game server that owns a Bevy World and processes player commands.
+/// Authoritative game server driven by AWVM.
 pub struct GameServer {
-    world: World,
+    authority: crate::awvm_adapter::Authority,
 }
 
 impl GameServer {
     /// Create a new game server with the given configuration.
     pub fn new(setup: GameSetup) -> Result<Self, SetupError> {
-        let world = initialize_server_world(setup)?;
-        Ok(Self { world })
+        let authority = crate::awvm_adapter::Authority::new(&setup)?;
+        Ok(Self { authority })
     }
 
     /// Submit a command from a player. Returns per-player updates on success.
@@ -31,52 +27,44 @@ impl GameServer {
         player: PlayerId,
         command: GameCommand,
     ) -> Result<CommandResult, CommandError> {
-        // Validate the command.
-        validate::validate_command(&mut self.world, player, &command)?;
-
-        // Snapshot fog state before applying.
-        let pre_fog = view::snapshot_pre_fog(&mut self.world);
-
-        // Apply the command.
-        let outcome = apply::apply_command(&mut self.world, &command);
-
-        // Build per-player updates.
-        let result = view::build_command_result(&mut self.world, &outcome, &pre_fog);
-        Ok(result)
+        let transition = self.authority.execute(player, &command)?;
+        Ok(view::build_command_result(&self.authority, &transition))
     }
 
     pub(crate) fn replay_stored_action_event(
         &mut self,
         event: &StoredActionEvent,
     ) -> Result<(), ReplayEventError> {
-        let player = self
-            .world
-            .resource::<crate::state::ServerGameState>()
-            .active_player;
-        validate::validate_command(&mut self.world, player, &event.command)?;
-        apply::apply_command_with_stored_combat(
-            &mut self.world,
-            &event.command,
-            event.combat_outcome.as_ref(),
-        )?;
+        self.authority
+            .execute_recorded(event.player, &event.command, &event.random)?;
         Ok(())
     }
 
     /// Get the full visible state for a player (for initial load or reconnection).
-    pub fn player_view(&mut self, player: PlayerId) -> PlayerView {
-        view::build_player_view(&mut self.world, player)
+    pub fn player_view(&self, player: PlayerId) -> Option<PlayerView> {
+        view::build_player_view(&self.authority, player)
     }
 
     /// Get the full public state for a non-fog spectator.
-    pub fn spectator_view(&mut self) -> SpectatorView {
-        view::build_spectator_view(&mut self.world)
+    pub fn spectator_view(&self) -> SpectatorView {
+        view::build_spectator_view(&self.authority)
     }
 
     pub fn has_player(&self, player: PlayerId) -> bool {
-        self.world
-            .resource::<crate::player::PlayerRegistry>()
-            .get(player)
+        self.authority
+            .state()
+            .find_player(&self.authority.player(player))
             .is_some()
+    }
+
+    /// Every random token drawn by AWVM since this server was created.
+    pub fn recorded_random(&self) -> &[awvm::random::RandomToken] {
+        self.authority.random_tokens()
+    }
+
+    /// Random tokens drawn while executing the most recently accepted command.
+    pub fn last_random(&self) -> &[awvm::random::RandomToken] {
+        self.authority.last_random_tokens()
     }
 
     /// Spawn a unit into the game world. Returns the assigned [`ServerUnitId`].
@@ -86,35 +74,15 @@ impl GameServer {
         unit_type: Unit,
         faction: PlayerFaction,
     ) -> ServerUnitId {
-        spawn_unit_entity(&mut self.world, position, unit_type, faction, true)
+        let id = ServerUnitId(
+            self.authority
+                .state()
+                .next_unit_id
+                .expect("server states allocate unit ids")
+                .into(),
+        );
+        self.authority
+            .spawn_unit(id, position, unit_type, faction, true);
+        id
     }
-}
-
-pub(crate) fn spawn_unit_entity(
-    world: &mut World,
-    position: Position,
-    unit_type: Unit,
-    faction: PlayerFaction,
-    active: bool,
-) -> ServerUnitId {
-    let id = world
-        .resource_mut::<crate::state::ServerGameState>()
-        .allocate_unit_id();
-
-    let mut entity = world.spawn((
-        awbrn_game::MapPosition::from(position),
-        awbrn_game::world::Unit(unit_type),
-        awbrn_game::world::Faction(faction),
-        awbrn_game::world::UnitHp(awbrn_types::ExactHp::new(100)),
-        awbrn_game::world::Fuel(unit_type.max_fuel()),
-        awbrn_game::world::Ammo(unit_type.max_ammo()),
-        awbrn_game::world::VisionRange(unit_type.base_vision()),
-        id,
-    ));
-
-    if active {
-        entity.insert(awbrn_game::world::UnitActive);
-    }
-
-    id
 }
