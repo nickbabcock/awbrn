@@ -258,8 +258,9 @@ fcd63050bc7b477c  obs=2 ev=0  join/join-full-hp-rejected.json
 206d6cbe093022d3  obs=2 ev=4  join/join-infantry-merge.json
 cbff14794963cfe0  obs=2 ev=3  join/join-mech-caps-fuel-ammo.json
 c4b6f0ae7228f5ad  obs=2 ev=3  join/join-no-overflow.json
-037736ebce5074b0  obs=4 ev=7  launch/move-launch-effects.json
+7b11900f68e34209  obs=4 ev=6  launch/move-launch-effects.json
 5ef35b30b53b48cc  obs=4 ev=3  launch/move-launch-hidden-blocker.json
+8395ec1acf9091a4  obs=2 ev=4  launch/move-launch-radius-two.json
 796f07547a5f529e  obs=8 ev=0  launch/move-launch-validation.json
 d81cc3d0c06517cf  obs=2 ev=1  movement/infantry-plain-move.json
 3f719ea7333bab91  obs=4 ev=0  movement/match-finished-rejected.json

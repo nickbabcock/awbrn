@@ -292,7 +292,7 @@
               "ammo": 0,
               "concealment": "exposed",
               "fuel": 98,
-              "hp": 1,
+              "hp": 20,
               "id": 0,
               "kind": "infantry",
               "location": {
@@ -351,16 +351,9 @@
             "center": [4, 0],
             "damage": 30,
             "policy": "unit-hp",
-            "radius": 3,
+            "radius": 2,
             "strike": 0,
             "type": "area-strike-resolved"
-          },
-          {
-            "from_hp": 20,
-            "reason": "missile-silo",
-            "to_hp": 1,
-            "type": "unit-damaged",
-            "unit": 0
           },
           {
             "from_hp": 100,
@@ -403,34 +396,9 @@
               "center": [4, 0],
               "damage": 30,
               "policy": "unit-hp",
-              "radius": 3,
+              "radius": 2,
               "strike": 0,
               "type": "area-strike-resolved"
-            },
-            {
-              "reason": "missile-silo",
-              "state": {
-                "action": "spent",
-                "ammo": 0,
-                "concealment": "exposed",
-                "fuel": 98,
-                "hp": 1,
-                "kind": "infantry",
-                "location": {
-                  "position": [1, 0],
-                  "type": "board"
-                },
-                "owner": "red",
-                "ref": {
-                  "type": "friendly",
-                  "unit": 0
-                }
-              },
-              "type": "unit-changed",
-              "unit": {
-                "type": "friendly",
-                "unit": 0
-              }
             },
             {
               "reason": "missile-silo",
