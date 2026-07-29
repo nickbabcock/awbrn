@@ -38,8 +38,8 @@ fn every_fixture_conforms() {
     // Guards against the runner silently asserting nothing — a passing run with
     // zero assertions would otherwise look identical to a passing run.
     assert!(
-        summary.passed >= 394,
-        "expected at least 394 assertions, ran {}",
+        summary.passed >= 395,
+        "expected at least 395 assertions, ran {}",
         summary.passed
     );
 }
@@ -50,8 +50,8 @@ fn every_fixture_on_disk_is_reachable() {
     let mut files = Vec::new();
     conformance::collect_json(&root, &mut files).expect("walk fixture root");
     assert!(
-        files.len() >= 313,
-        "expected at least 313 fixtures on disk, found {}",
+        files.len() >= 314,
+        "expected at least 314 fixtures on disk, found {}",
         files.len()
     );
 }

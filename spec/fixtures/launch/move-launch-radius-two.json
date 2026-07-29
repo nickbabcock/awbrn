@@ -1,0 +1,289 @@
+{
+  "id": "move-launch-radius-two",
+  "spec_version": "0.1.0",
+  "ruleset": {
+    "id": "awbw",
+    "revision": "2026-07-10"
+  },
+  "feature": "move-launch-v1",
+  "evidence": {
+    "confidence": "confirmed-replay",
+    "note": "AWBW replay 1699315 leaves a unit at Manhattan distance 3 undamaged while damaging units at distance 2."
+  },
+  "initial_state": {
+    "ruleset": {
+      "id": "awbw",
+      "revision": "2026-07-10"
+    },
+    "settings": {
+      "fog": false,
+      "income_per_property": 1000,
+      "starting_funds": 0,
+      "powers": "disabled",
+      "tags": false,
+      "weather": "clear",
+      "lab_units": [],
+      "unit_bans": [],
+      "commander_bans": {
+        "lead": [],
+        "backup": []
+      },
+      "capture_limit": null,
+      "day_limit": null,
+      "unit_limit": null
+    },
+    "board": {
+      "width": 4,
+      "height": 1,
+      "tiles": [
+        [
+          {
+            "terrain": "missile-silo",
+            "silo": "ready"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          },
+          {
+            "terrain": "plain"
+          }
+        ]
+      ]
+    },
+    "teams": [
+      {
+        "id": "red-team",
+        "status": "active"
+      }
+    ],
+    "players": [
+      {
+        "id": "red",
+        "team": "red-team",
+        "funds": 0,
+        "status": "active",
+        "commanders": [
+          {
+            "id": "neutral",
+            "active": true,
+            "power_charge": 0,
+            "power_uses": 0
+          }
+        ],
+        "power_state": {
+          "type": "none"
+        }
+      }
+    ],
+    "turn": {
+      "day": 1,
+      "active_player": "red",
+      "phase": "unit-action",
+      "order": ["red"],
+      "position": 0
+    },
+    "weather": {
+      "kind": "clear",
+      "remaining_turns": 0
+    },
+    "units": [
+      {
+        "id": 0,
+        "kind": "infantry",
+        "owner": "red",
+        "hp": 20,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": {
+          "type": "board",
+          "position": [0, 0]
+        }
+      },
+      {
+        "id": 1,
+        "kind": "infantry",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": {
+          "type": "board",
+          "position": [1, 0]
+        }
+      }
+    ],
+    "match": {
+      "status": "active",
+      "draw_offers": []
+    }
+  },
+  "steps": [
+    {
+      "id": "distance-two-is-hit-and-distance-three-is-not",
+      "command": {
+        "type": "move-launch",
+        "player": "red",
+        "unit": 0,
+        "path": [[0, 0]],
+        "target": [3, 0]
+      },
+      "random": [],
+      "expect": {
+        "status": "accepted",
+        "state": {
+          "ruleset": {
+            "id": "awbw",
+            "revision": "2026-07-10"
+          },
+          "settings": {
+            "fog": false,
+            "income_per_property": 1000,
+            "starting_funds": 0,
+            "powers": "disabled",
+            "tags": false,
+            "weather": "clear",
+            "lab_units": [],
+            "unit_bans": [],
+            "commander_bans": {
+              "lead": [],
+              "backup": []
+            },
+            "capture_limit": null,
+            "day_limit": null,
+            "unit_limit": null
+          },
+          "board": {
+            "width": 4,
+            "height": 1,
+            "tiles": [
+              [
+                {
+                  "terrain": "missile-silo",
+                  "silo": "spent"
+                },
+                {
+                  "terrain": "plain"
+                },
+                {
+                  "terrain": "plain"
+                },
+                {
+                  "terrain": "plain"
+                }
+              ]
+            ]
+          },
+          "teams": [
+            {
+              "id": "red-team",
+              "status": "active"
+            }
+          ],
+          "players": [
+            {
+              "id": "red",
+              "team": "red-team",
+              "funds": 0,
+              "status": "active",
+              "commanders": [
+                {
+                  "id": "neutral",
+                  "active": true,
+                  "power_charge": 0,
+                  "power_uses": 0
+                }
+              ],
+              "power_state": {
+                "type": "none"
+              }
+            }
+          ],
+          "turn": {
+            "day": 1,
+            "active_player": "red",
+            "phase": "unit-action",
+            "order": ["red"],
+            "position": 0
+          },
+          "weather": {
+            "kind": "clear",
+            "remaining_turns": 0
+          },
+          "units": [
+            {
+              "id": 0,
+              "kind": "infantry",
+              "owner": "red",
+              "hp": 20,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "spent",
+              "concealment": "exposed",
+              "location": {
+                "type": "board",
+                "position": [0, 0]
+              }
+            },
+            {
+              "id": 1,
+              "kind": "infantry",
+              "owner": "red",
+              "hp": 70,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "ready",
+              "concealment": "exposed",
+              "location": {
+                "type": "board",
+                "position": [1, 0]
+              }
+            }
+          ],
+          "match": {
+            "status": "active",
+            "draw_offers": []
+          }
+        },
+        "events": [
+          {
+            "type": "unit-moved",
+            "unit": 0,
+            "from": [0, 0],
+            "to": [0, 0],
+            "path": [[0, 0]],
+            "fuel_spent": 0
+          },
+          {
+            "type": "area-strike-resolved",
+            "strike": 0,
+            "policy": "unit-hp",
+            "center": [3, 0],
+            "radius": 2,
+            "damage": 30
+          },
+          {
+            "type": "unit-damaged",
+            "unit": 1,
+            "from_hp": 100,
+            "to_hp": 70,
+            "reason": "missile-silo"
+          },
+          {
+            "type": "silo-changed",
+            "position": [0, 0],
+            "from": "ready",
+            "to": "spent"
+          }
+        ],
+        "random_consumed": 0
+      }
+    }
+  ]
+}

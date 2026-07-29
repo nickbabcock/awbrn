@@ -61,13 +61,14 @@ pub(crate) fn execute_move_launch(
     }
 
     // AWBW's silo missile is three visual bars (30 exact HP), nonlethal, and
-    // affects every board unit, including allies. Derive the list after the
-    // move and sort it so event order is independent of state-vector order.
+    // affects every board unit within a two-tile Manhattan radius, including
+    // allies. Derive the list after the move and sort it so event order is
+    // independent of state-vector order.
     outcome.events.push(Event::AreaStrikeResolved {
         strike: 0,
         policy: AreaStrikePolicy::UnitHp,
         center: target,
-        radius: 3,
+        radius: 2,
         damage: 30,
     });
     let mut affected: Vec<UnitId> = outcome
@@ -76,7 +77,7 @@ pub(crate) fn execute_move_launch(
         .iter()
         .filter(|unit| {
             board_position(unit).is_some_and(|position| {
-                position.x.abs_diff(target.x) + position.y.abs_diff(target.y) <= 3
+                position.x.abs_diff(target.x) + position.y.abs_diff(target.y) <= 2
             })
         })
         .map(|unit| unit.id)

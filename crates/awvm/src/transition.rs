@@ -1170,7 +1170,7 @@ mod tests {
     }
 
     #[test]
-    fn move_launch_damages_all_board_units_in_stable_order_without_charge() {
+    fn move_launch_damages_units_in_radius_in_stable_order_without_charge() {
         let case: Value = serde_json::from_str(include_str!(
             "../../../spec/fixtures/capture/capture-city-complete.json"
         ))
@@ -1221,7 +1221,7 @@ mod tests {
             Some(Silo::Spent)
         );
         assert_eq!(result.state.players[0].commanders[0].power_charge, 0);
-        assert_eq!(result.state.units.get(UnitId::new(0)).unwrap().hp, 1);
+        assert_eq!(result.state.units.get(UnitId::new(0)).unwrap().hp, 20);
         assert_eq!(result.state.units.get(UnitId::new(1)).unwrap().hp, 70);
         assert_eq!(result.state.units.get(UnitId::new(2)).unwrap().hp, 1);
         let types: Vec<_> = result.events.iter().map(Event::kind).collect();
@@ -1232,13 +1232,11 @@ mod tests {
                 EventKind::AreaStrikeResolved,
                 EventKind::UnitDamaged,
                 EventKind::UnitDamaged,
-                EventKind::UnitDamaged,
                 EventKind::SiloChanged
             ]
         );
-        assert_eq!(event_unit(&result.events[2]), UnitId::new(0));
-        assert_eq!(event_unit(&result.events[3]), UnitId::new(1));
-        assert_eq!(event_unit(&result.events[4]), UnitId::new(2));
+        assert_eq!(event_unit(&result.events[2]), UnitId::new(1));
+        assert_eq!(event_unit(&result.events[3]), UnitId::new(2));
         let observed = crate::semantic::observe_events(
             &AwbwVisibility,
             &state,
