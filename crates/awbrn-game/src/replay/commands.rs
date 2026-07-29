@@ -276,10 +276,14 @@ pub fn apply_attack_seam(attack_seam_action: &AttackSeamAction, world: &mut Worl
 
 pub fn apply_build(new_unit: &UnitMap, world: &mut World) {
     // Collect units to spawn (avoids holding borrow on registry while mutating world)
+    let mut seen = std::collections::HashSet::new();
     let units_to_spawn: Vec<_> = new_unit
         .iter()
         .filter_map(|(_player, unit_data)| {
             let unit = unit_data.get_value()?;
+            if !seen.insert(unit.units_id) {
+                return None;
+            }
             let x = unit.units_x?;
             let y = unit.units_y?;
             let faction = world
@@ -514,18 +518,27 @@ pub fn apply_unload(
 
 pub fn apply_fire(fire_action: &FireAction, world: &mut World) {
     let mut attacker_entity = None;
+    let mut updated_units = std::collections::HashSet::new();
 
     for (_player, combat_vision) in fire_action.combat_info_vision.iter() {
         let combat_info = &combat_vision.combat_info;
 
-        if let Some(attacker_unit) = combat_info.attacker.get_value() {
+        if let Some(attacker_unit) = combat_info
+            .attacker
+            .get_value()
+            .filter(|unit| updated_units.insert(unit.units_id))
+        {
             let entity = update_combat_unit_state(world, attacker_unit);
             if attacker_entity.is_none() {
                 attacker_entity = entity;
             }
         }
 
-        if let Some(defender_unit) = combat_info.defender.get_value() {
+        if let Some(defender_unit) = combat_info
+            .defender
+            .get_value()
+            .filter(|unit| updated_units.insert(unit.units_id))
+        {
             update_combat_unit_state(world, defender_unit);
         }
     }
@@ -1438,37 +1451,47 @@ mod tests {
     }
 
     #[test]
-    fn fire_action_despawns_unit_at_zero_hp() {
+    fn fire_action_deduplicates_views_and_despawns_unit_at_zero_hp() {
         let mut app = replay_turn_test_app();
         app.add_observer(crate::world::units::on_unit_destroyed);
         let attacker = spawn_test_unit(&mut app, Position::new(2, 2), CoreUnitId::new(1));
         let defender = spawn_test_unit(&mut app, Position::new(3, 2), CoreUnitId::new(2));
 
+        let combat_info = CombatInfo {
+            attacker: Masked::Visible(CombatUnit {
+                units_ammo: 4,
+                units_hit_points: Some(test_hp(8)),
+                units_id: CoreUnitId::new(1),
+                units_x: 2,
+                units_y: 2,
+            }),
+            defender: Masked::Visible(CombatUnit {
+                units_ammo: 2,
+                units_hit_points: Some(test_hp(0)),
+                units_id: CoreUnitId::new(2),
+                units_x: 3,
+                units_y: 2,
+            }),
+        };
         let fire = Action::Fire {
             move_action: None,
             fire_action: FireAction {
-                combat_info_vision: [(
-                    TargetedPlayer::Global,
-                    CombatInfoVision {
-                        has_vision: true,
-                        combat_info: CombatInfo {
-                            attacker: Masked::Visible(CombatUnit {
-                                units_ammo: 4,
-                                units_hit_points: Some(test_hp(8)),
-                                units_id: CoreUnitId::new(1),
-                                units_x: 2,
-                                units_y: 2,
-                            }),
-                            defender: Masked::Visible(CombatUnit {
-                                units_ammo: 2,
-                                units_hit_points: Some(test_hp(0)),
-                                units_id: CoreUnitId::new(2),
-                                units_x: 3,
-                                units_y: 2,
-                            }),
+                combat_info_vision: [
+                    (
+                        TargetedPlayer::Global,
+                        CombatInfoVision {
+                            has_vision: true,
+                            combat_info: combat_info.clone(),
                         },
-                    },
-                )]
+                    ),
+                    (
+                        TargetedPlayer::Player(awbrn_types::AwbwGamePlayerId::new(10)),
+                        CombatInfoVision {
+                            has_vision: true,
+                            combat_info,
+                        },
+                    ),
+                ]
                 .into(),
                 cop_values: CopValues {
                     attacker: CopValueInfo {
@@ -1558,13 +1581,17 @@ mod tests {
     #[test]
     fn build_spawns_units_with_vision_range() {
         let mut app = replay_turn_test_app();
+        let built_unit = test_unit_property(CoreUnitId::new(7), 4, 5);
 
         apply_non_move_action(
             &Action::Build {
-                new_unit: [(
-                    TargetedPlayer::Global,
-                    Hidden::Visible(test_unit_property(CoreUnitId::new(7), 4, 5)),
-                )]
+                new_unit: [
+                    (TargetedPlayer::Global, Hidden::Visible(built_unit.clone())),
+                    (
+                        TargetedPlayer::Player(awbrn_types::AwbwGamePlayerId::new(10)),
+                        Hidden::Visible(built_unit),
+                    ),
+                ]
                 .into(),
                 discovered: Default::default(),
             },
@@ -1572,12 +1599,13 @@ mod tests {
         );
 
         let mut query = app.world_mut().query::<(&AwbwUnitId, &VisionRange)>();
-        let (_, vision_range) = query
+        let built_units: Vec<_> = query
             .iter(app.world())
-            .find(|(unit_id, _)| unit_id.0 == CoreUnitId::new(7))
-            .expect("built unit should exist");
+            .filter(|(unit_id, _)| unit_id.0 == CoreUnitId::new(7))
+            .collect();
 
-        assert_eq!(vision_range.0, 2);
+        assert_eq!(built_units.len(), 1, "targeted views describe one unit");
+        assert_eq!(built_units[0].1.0, 2);
     }
 
     #[test]

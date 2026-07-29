@@ -1,4 +1,5 @@
 use std::io::BufWriter;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 
 use awbrn_client::core::CorePlugin;
@@ -32,12 +33,62 @@ struct ReplaySnapshotRow {
     checksum: String,
 }
 
-#[test]
-fn replay_semantic_snapshots_1362397() {
-    let replay_bytes = std::fs::read(replay_fixture_path("1362397.zip")).unwrap();
+macro_rules! replay_semantic_snapshot {
+    ($test_name:ident, $replay_file:literal, $map_file:literal) => {
+        #[test]
+        fn $test_name() {
+            let rows = replay_semantic_snapshot_rows($replay_file, $map_file);
+            assert_json_snapshot!(rows);
+        }
+    };
+}
+
+replay_semantic_snapshot!(
+    replay_semantic_snapshots_1362397,
+    "1362397.zip",
+    "162795.json"
+);
+replay_semantic_snapshot!(
+    replay_semantic_snapshots_1391406,
+    "1391406.zip",
+    "146471.json"
+);
+replay_semantic_snapshot!(
+    replay_semantic_snapshots_1403019,
+    "1403019.zip",
+    "168602.json"
+);
+replay_semantic_snapshot!(
+    replay_semantic_snapshots_1419680,
+    "1419680.zip",
+    "73021.json"
+);
+replay_semantic_snapshot!(
+    replay_semantic_snapshots_1468032,
+    "1468032_landfall_2025-12-22.zip",
+    "108806.json"
+);
+replay_semantic_snapshot!(
+    replay_semantic_snapshots_1563018,
+    "1563018.zip",
+    "96502.json"
+);
+replay_semantic_snapshot!(
+    replay_semantic_snapshots_1578186,
+    "replay_1578186_d-day_2026-01-14.zip",
+    "67073.json"
+);
+replay_semantic_snapshot!(
+    replay_semantic_snapshots_1699315,
+    "replay_1699315_missle-bomb_2026-07-28.zip",
+    "178597.json"
+);
+
+fn replay_semantic_snapshot_rows(replay_file: &str, map_file: &str) -> Vec<ReplaySnapshotRow> {
+    let replay_bytes = std::fs::read(replay_fixture_path(replay_file)).unwrap();
     let replay = ReplayParser::new().parse(&replay_bytes).unwrap();
 
-    let map_path = map_fixture_path("162795.json");
+    let map_path = map_fixture_path(map_file);
     let map_data: AwbwMapData = serde_json::from_slice(&std::fs::read(map_path).unwrap()).unwrap();
     let mut awbw_map = AwbwMap::try_from(&map_data).unwrap();
     apply_replay_building_overrides(&mut awbw_map, &replay.games.first().unwrap().buildings);
@@ -61,31 +112,47 @@ fn replay_semantic_snapshots_1362397() {
     let actions = app.world().resource::<LoadedReplay>().0.turns.clone();
     let mut rows = Vec::with_capacity(actions.len());
     for (action_index, action) in actions.into_iter().enumerate() {
-        ReplayTurnCommand {
-            action: action.clone(),
-        }
-        .apply(app.world_mut());
-        // The replay controls own cursor advancement in the real app before they queue the
-        // command. The command itself only mutates semantic world state, so the headless harness
-        // mirrors the control-layer cursor update here.
-        app.world_mut()
-            .resource_mut::<ReplayState>()
-            .next_action_index += 1;
+        let action_kind = action.kind_name();
+        catch_unwind(AssertUnwindSafe(|| {
+            ReplayTurnCommand {
+                action: action.clone(),
+            }
+            .apply(app.world_mut());
+            // The replay controls own cursor advancement in the real app before they queue the
+            // command. The command itself only mutates semantic world state, so the headless
+            // harness mirrors the control-layer cursor update here.
+            app.world_mut()
+                .resource_mut::<ReplayState>()
+                .next_action_index += 1;
 
-        settle_replay_semantics(app.world_mut());
+            settle_replay_semantics(app.world_mut());
+        }))
+        .unwrap_or_else(|_| {
+            panic!("{replay_file} panicked at action {action_index} ({action_kind})")
+        });
 
-        let snapshot = capture_game_snapshot(app.world_mut()).unwrap();
+        let snapshot = capture_game_snapshot(app.world_mut()).unwrap_or_else(|error| {
+            panic!(
+                "{replay_file} could not snapshot action {action_index} ({action_kind}): {error}"
+            )
+        });
         let type_registry = app.world().resource::<AppTypeRegistry>().read();
-        let canonical = canonicalize_replay_semantic_snapshot(&snapshot, &type_registry).unwrap();
+        let canonical = canonicalize_replay_semantic_snapshot(&snapshot, &type_registry)
+            .unwrap_or_else(|error| {
+                panic!(
+                    "{replay_file} could not canonicalize action {action_index} \
+                     ({action_kind}): {error}"
+                )
+            });
         rows.push(ReplaySnapshotRow {
             action_index,
             day: canonical.day,
-            action_kind: action.kind_name(),
+            action_kind,
             checksum: checksum(&canonical),
         });
     }
 
-    assert_json_snapshot!(rows);
+    rows
 }
 
 fn settle_replay_semantics(world: &mut World) {
