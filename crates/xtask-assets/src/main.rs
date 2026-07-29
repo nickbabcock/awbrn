@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use awbrn_types::{PlayerFaction, Unit};
+use awbrn_types::{PlayerFaction, Unit, UnitExt};
 use image::{ImageReader, RgbaImage};
 use indexmap::IndexMap;
 use oxipng::{InFile, Options, OutFile};
@@ -1317,8 +1317,8 @@ fn build_unit_definitions(units: Vec<(String, UnitEntry)>) -> Result<Vec<UnitDef
         });
     }
 
-    for unit in Unit::VARIANTS {
-        if !seen.contains(unit) {
+    for unit in Unit::ALL {
+        if !seen.contains(&unit) {
             return Err(anyhow!("Missing unit definition for {unit:?}"));
         }
     }
@@ -1381,12 +1381,12 @@ fn unit_definition_total_frames(entry: &UnitDefinition) -> usize {
         + entry.move_side.frames.len()
 }
 
-fn compute_unit_base_offsets(units: &[UnitDefinition]) -> Vec<(String, u16)> {
+fn compute_unit_base_offsets(units: &[UnitDefinition]) -> Vec<(Unit, u16)> {
     let mut offsets = Vec::with_capacity(units.len());
     let mut offset: u16 = 0;
 
     for unit in units {
-        offsets.push((format!("{:?}", unit.unit), offset));
+        offsets.push((unit.unit, offset));
         let total_frames = unit_definition_total_frames(unit);
         offset = offset
             .checked_add(total_frames as u16)
@@ -1394,6 +1394,16 @@ fn compute_unit_base_offsets(units: &[UnitDefinition]) -> Vec<(String, u16)> {
     }
 
     offsets
+}
+
+fn unit_atlas_key(unit: Unit) -> String {
+    match unit {
+        // These asset names intentionally differ from the generated AWVM enum
+        // variant names. Keep the manifest contract stable across enum changes.
+        Unit::Apc => "APC".to_string(),
+        Unit::Piperunner => "PipeRunner".to_string(),
+        _ => format!("{unit:?}"),
+    }
 }
 
 fn render_unit_animation_data(units: &[UnitDefinition], spritesheet: SpritesheetBuild) -> String {
@@ -1435,14 +1445,14 @@ fn render_unit_animation_data(units: &[UnitDefinition], spritesheet: Spritesheet
     output.push_str("    match unit {\n");
 
     let unit_offsets = compute_unit_base_offsets(units);
-    for ((unit_name, offset), unit) in unit_offsets.iter().zip(units) {
+    for ((unit_kind, offset), unit) in unit_offsets.iter().zip(units) {
         let idle_frames = format_frame_list(&unit.idle.frames);
         let move_up_frames = format_frame_list(&unit.move_up.frames);
         let move_down_frames = format_frame_list(&unit.move_down.frames);
         let move_side_frames = format_frame_list(&unit.move_side.frames);
 
         output.push_str(&format!(
-            "        Unit::{unit_name} => ({offset}, UnitAnimationData::new(\n"
+            "        Unit::{unit_kind:?} => ({offset}, UnitAnimationData::new(\n"
         ));
         output.push_str(&format!("            &[{idle_frames}],\n"));
         output.push_str(&format!("            &[{move_up_frames}],\n"));
@@ -1489,8 +1499,8 @@ fn write_unit_atlas_manifest(
     let unit_offsets = compute_unit_base_offsets(units);
     let units_manifest = unit_offsets
         .iter()
-        .map(|(key, base_offset)| UnitAtlasUnitEntry {
-            key: key.clone(),
+        .map(|(unit, base_offset)| UnitAtlasUnitEntry {
+            key: unit_atlas_key(*unit),
             base_offset: *base_offset,
         })
         .collect::<Vec<_>>();

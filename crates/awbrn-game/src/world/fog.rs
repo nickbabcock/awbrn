@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use awbrn_map::Position;
-use awbrn_types::{GraphicalTerrain, PlayerFaction, UnitDomain, Weather};
+use awbrn_types::{GraphicalTerrain, PlayerFaction, UnitDomain, UnitExt, Weather};
 use bevy::prelude::*;
 
 use super::map::GameMap;

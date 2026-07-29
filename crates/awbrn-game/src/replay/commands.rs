@@ -5,7 +5,7 @@
 //! and adds visual follow-up where needed.
 
 use awbrn_map::Position;
-use awbrn_types::{AwbwTerrain, GraphicalTerrain, PlayerFaction, Property};
+use awbrn_types::{AwbwTerrain, GraphicalTerrain, PlayerFaction, Property, UnitExt};
 use awbw_replay::turn_models::{
     Action, AttackSeamAction, AttackSeamCombat, CaptureAction, CombatUnit, FireAction, HpEffect,
     JoinAction, LoadAction, MoveAction, NewUnit, PowerAction, RepairAction, RepairedUnit,
@@ -1232,7 +1232,7 @@ mod tests {
             &mut app,
             Position::new(2, 2),
             CoreUnitId::new(1),
-            awbrn_types::Unit::APC,
+            awbrn_types::Unit::Apc,
             PlayerFaction::OrangeStar,
         );
         let target = spawn_test_unit_kind(
@@ -1280,7 +1280,7 @@ mod tests {
             &mut app,
             Position::new(2, 2),
             CoreUnitId::new(1),
-            awbrn_types::Unit::APC,
+            awbrn_types::Unit::Apc,
             PlayerFaction::OrangeStar,
         );
         let global_target = spawn_test_unit_kind(
@@ -1418,7 +1418,7 @@ mod tests {
             &mut app,
             Position::new(2, 2),
             CoreUnitId::new(1),
-            awbrn_types::Unit::APC,
+            awbrn_types::Unit::Apc,
             PlayerFaction::OrangeStar,
         );
         let repaired = spawn_test_unit_kind(

@@ -14,9 +14,21 @@ pub fn on_unit_destroyed(trigger: On<UnitDestroyed>, mut commands: Commands) {
     commands.entity(trigger.entity).despawn();
 }
 
-#[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(
+    Component,
+    Reflect,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[component(immutable)]
-#[reflect(Component)]
+#[reflect(opaque)]
+#[reflect(Component, Serialize, Deserialize)]
 /// `Unit` must only exist on entities that also have `MapPosition`.
 pub struct Unit(pub awbrn_types::Unit);
 

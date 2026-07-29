@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::num::NonZeroU8;
 
-use awbrn_types::{Co, CoStats, PlayerFaction};
+use awbrn_types::{Co, PlayerFaction};
 
 /// Opaque player identifier assigned by the server at game creation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -45,10 +45,6 @@ impl PlayerRegistry {
 
     pub fn faction_for_player(&self, player: PlayerId) -> Option<PlayerFaction> {
         self.get(player).map(|p| p.faction)
-    }
-
-    pub fn co_stats_for_player(&self, player: PlayerId) -> Option<CoStats> {
-        self.get(player).map(|slot| slot.co.stats())
     }
 
     /// Get the set of factions friendly to the given player (same team, or just

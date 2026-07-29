@@ -10,7 +10,7 @@ mod unit_id;
 mod view;
 mod wasm;
 
-pub use awbrn_types::{Co, CoStats};
+pub use awbrn_types::Co;
 pub use command::{GameCommand, PostMoveAction};
 pub use error::CommandError;
 pub use player::{PlayerId, PlayerRegistry};

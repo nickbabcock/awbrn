@@ -11,7 +11,7 @@ use wasm_bindgen::prelude::*;
 use crate::view::{VisibleTerrain, VisibleUnit};
 use crate::{CaptureEvent, PlayerUpdate, PlayerView, SpectatorView};
 use crate::{CombatOutcome, GameServer, GameSetup, PlayerSetup, StoredActionEvent};
-use awbrn_types::{AwbwCoId, Co};
+use awbrn_types::{AwbwCoId, Co, CoExt};
 
 #[wasm_bindgen]
 pub struct WasmMatch {

@@ -52,7 +52,7 @@ mod tests {
 
     #[test]
     fn deserialize_build() {
-        let json = r#"{"type":"build","position":{"x":0,"y":0},"unit_type":"Infantry"}"#;
+        let json = r#"{"type":"build","position":{"x":0,"y":0},"unit_type":"infantry"}"#;
         let cmd: GameCommand = serde_json::from_str(json).unwrap();
         match cmd {
             GameCommand::Build {
