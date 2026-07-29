@@ -5,11 +5,14 @@
 //! and adds visual follow-up where needed.
 
 use awbrn_map::Position;
-use awbrn_types::{AwbwTerrain, GraphicalTerrain, PlayerFaction, Property, UnitExt};
+use awbrn_types::{
+    AwbwTerrain, GraphicalTerrain, MissileSiloStatus, PlayerFaction, Property, UnitExt,
+};
 use awbw_replay::turn_models::{
-    Action, AttackSeamAction, AttackSeamCombat, CaptureAction, CombatUnit, FireAction, HpEffect,
-    JoinAction, LoadAction, MoveAction, NewUnit, PowerAction, RepairAction, RepairedUnit,
-    SupplyAction, TargetedPlayer, UnitAddGroup, UnitChange, UnitMap, UnitProperty, UpdatedInfo,
+    Action, AttackSeamAction, AttackSeamCombat, CaptureAction, CombatUnit, ExplodeAction,
+    FireAction, HpEffect, JoinAction, LaunchAction, LoadAction, MoveAction, NewUnit, PowerAction,
+    RepairAction, RepairedUnit, SupplyAction, TargetedPlayer, UnitAddGroup, UnitChange, UnitMap,
+    UnitProperty, UpdatedInfo,
 };
 use bevy::{log, prelude::*};
 
@@ -107,7 +110,9 @@ pub fn apply_non_move_action(action: &Action, world: &mut World) {
             capture_action,
             ..
         } => apply_capture(capture_action, move_action.as_ref(), world),
+        Action::Launch { launch_action, .. } => apply_launch(launch_action, world),
         Action::Load { load_action, .. } => apply_load(load_action, world),
+        Action::Explode { explode_action, .. } => apply_explode(explode_action, world),
         Action::Unload {
             unit, transport_id, ..
         } => apply_unload(unit, *transport_id, world),
@@ -127,6 +132,96 @@ pub fn apply_non_move_action(action: &Action, world: &mut World) {
         Action::Unhide { move_action } => apply_unhide(move_action.as_ref(), world),
         Action::Move(_) => {}
         _ => log::warn!("Unhandled action: {:?}", action),
+    }
+}
+
+pub fn apply_launch(launch_action: &LaunchAction, world: &mut World) {
+    let silo = Position::new(launch_action.silo_x as usize, launch_action.silo_y as usize);
+    let launching_unit = world
+        .resource::<BoardIndex>()
+        .unit_entity(silo)
+        .ok()
+        .flatten();
+    if let Some(entity) = launching_unit {
+        world.entity_mut(entity).remove::<UnitActive>();
+    }
+
+    let target = Position::new(
+        launch_action.target_x as usize,
+        launch_action.target_y as usize,
+    );
+    apply_area_hp_delta(world, target, 3, launch_action.hp, None);
+
+    set_terrain_at(
+        world,
+        silo,
+        GraphicalTerrain::MissileSilo(MissileSiloStatus::Unloaded),
+        None,
+    );
+}
+
+pub fn apply_explode(explode_action: &ExplodeAction, world: &mut World) {
+    let exploding_entity = world
+        .resource::<StrongIdMap<AwbwUnitId>>()
+        .get(&AwbwUnitId(explode_action.unit_id));
+
+    let center = explode_action
+        .vision
+        .values()
+        .find_map(awbw_replay::Masked::get_value)
+        .map(|coordinate| Position::new(coordinate.x as usize, coordinate.y as usize))
+        .or_else(|| {
+            exploding_entity
+                .and_then(|entity| world.get::<MapPosition>(entity).map(MapPosition::position))
+        });
+
+    if let Some(center) = center {
+        apply_area_hp_delta(world, center, 3, explode_action.hp, exploding_entity);
+    } else {
+        log::warn!(
+            "Explode action for unit {} has no visible blast coordinate",
+            explode_action.unit_id.as_u32()
+        );
+    }
+
+    if let Some(entity) = exploding_entity {
+        world.despawn(entity);
+    } else {
+        log::warn!(
+            "Exploding unit entity not found for ID: {}",
+            explode_action.unit_id.as_u32()
+        );
+    }
+}
+
+fn apply_area_hp_delta(
+    world: &mut World,
+    center: Position,
+    radius: usize,
+    hp_delta: i32,
+    excluded: Option<Entity>,
+) {
+    let targets: Vec<Entity> = {
+        let mut query = world.query::<(Entity, &MapPosition, &GraphicalHp)>();
+        query
+            .iter(world)
+            .filter(|(entity, position, _)| {
+                Some(*entity) != excluded
+                    && position.position().x.abs_diff(center.x)
+                        + position.position().y.abs_diff(center.y)
+                        <= radius
+            })
+            .map(|(entity, _, _)| entity)
+            .collect()
+    };
+
+    for entity in targets {
+        let current = world
+            .get::<GraphicalHp>(entity)
+            .map(|hp| i32::from(hp.value()))
+            .unwrap_or(10);
+        let next = current.saturating_add(hp_delta).clamp(1, 10) as u8;
+        world.entity_mut(entity).insert(GraphicalHp(next));
     }
 }
 
@@ -1048,10 +1143,10 @@ mod tests {
     };
     use awbw_replay::turn_models::{
         AttackSeamAction, AttackSeamCombat, BuildingInfo, CaptureAction, CombatInfo,
-        CombatInfoVision, CombatUnit, CopValueInfo, CopValues, FireAction, GlobalStatBoost,
-        HpChange, HpEffect, JoinAction, LoadAction, PathTile, PowerAction, RepairAction,
-        RepairedUnit, SupplyAction, TargetedPlayer, UnitProperty, UpdatedInfo, WeatherChange,
-        WeatherCode,
+        CombatInfoVision, CombatUnit, Coordinate, CopValueInfo, CopValues, ExplodeAction,
+        FireAction, GlobalStatBoost, HpChange, HpEffect, JoinAction, LaunchAction, LoadAction,
+        PathTile, PowerAction, RepairAction, RepairedUnit, SupplyAction, TargetedPlayer,
+        UnitProperty, UpdatedInfo, WeatherChange, WeatherCode,
     };
     use awbw_replay::{Hidden, Masked};
 
@@ -2386,5 +2481,115 @@ mod tests {
             Position::new(4, 1)
         );
         assert!(app.world().entity(cargo).get::<CarriedBy>().is_none());
+    }
+
+    #[test]
+    fn launch_spends_silo_and_applies_nonlethal_area_damage() {
+        let mut app = replay_turn_test_app();
+        let silo_position = Position::new(2, 2);
+        let target_position = Position::new(7, 2);
+        let silo = spawn_test_terrain(
+            &mut app,
+            silo_position,
+            GraphicalTerrain::MissileSilo(MissileSiloStatus::Loaded),
+            None,
+        );
+        let launching_unit = spawn_test_unit(&mut app, silo_position, CoreUnitId::new(4));
+        let in_range = spawn_test_unit(&mut app, Position::new(5, 2), CoreUnitId::new(1));
+        let at_floor = spawn_test_unit(&mut app, Position::new(7, 3), CoreUnitId::new(2));
+        let out_of_range = spawn_test_unit(&mut app, Position::new(3, 2), CoreUnitId::new(3));
+        app.world_mut().entity_mut(at_floor).insert(GraphicalHp(2));
+
+        apply_launch(
+            &LaunchAction {
+                silo_x: silo_position.x as u32,
+                silo_y: silo_position.y as u32,
+                target_x: target_position.x as u32,
+                target_y: target_position.y as u32,
+                hp: -3,
+            },
+            app.world_mut(),
+        );
+
+        assert_eq!(
+            app.world().entity(silo).get::<TerrainTile>(),
+            Some(&TerrainTile {
+                terrain: GraphicalTerrain::MissileSilo(MissileSiloStatus::Unloaded),
+            })
+        );
+        assert!(!app.world().entity(launching_unit).contains::<UnitActive>());
+        assert_eq!(
+            app.world().entity(in_range).get::<GraphicalHp>(),
+            Some(&GraphicalHp(7))
+        );
+        assert_eq!(
+            app.world().entity(at_floor).get::<GraphicalHp>(),
+            Some(&GraphicalHp(1))
+        );
+        assert_eq!(
+            app.world().entity(out_of_range).get::<GraphicalHp>(),
+            Some(&GraphicalHp(10))
+        );
+    }
+
+    #[test]
+    fn area_hp_delta_saturates_before_clamping() {
+        let mut app = replay_turn_test_app();
+        let position = Position::new(2, 2);
+        let unit = spawn_test_unit(&mut app, position, CoreUnitId::new(1));
+
+        apply_area_hp_delta(app.world_mut(), position, 0, i32::MAX, None);
+
+        assert_eq!(
+            app.world().entity(unit).get::<GraphicalHp>(),
+            Some(&GraphicalHp(10))
+        );
+    }
+
+    #[test]
+    fn explode_removes_black_bomb_and_applies_nonlethal_area_damage() {
+        let mut app = replay_turn_test_app();
+        let center = Position::new(5, 1);
+        let bomb = spawn_test_unit_kind(
+            &mut app,
+            center,
+            CoreUnitId::new(1),
+            awbrn_types::Unit::BlackBomb,
+            PlayerFaction::OrangeStar,
+        );
+        let in_range = spawn_test_unit(&mut app, Position::new(7, 2), CoreUnitId::new(2));
+        let at_floor = spawn_test_unit(&mut app, Position::new(5, 4), CoreUnitId::new(3));
+        let out_of_range = spawn_test_unit(&mut app, Position::new(8, 2), CoreUnitId::new(4));
+        app.world_mut().entity_mut(at_floor).insert(GraphicalHp(4));
+
+        apply_explode(
+            &ExplodeAction {
+                hp: -5,
+                vision: [(
+                    TargetedPlayer::Global,
+                    Masked::Visible(Coordinate {
+                        x: center.x as u32,
+                        y: center.y as u32,
+                    }),
+                )]
+                .into(),
+                unit_id: CoreUnitId::new(1),
+            },
+            app.world_mut(),
+        );
+
+        assert!(app.world().get_entity(bomb).is_err());
+        assert_eq!(
+            app.world().entity(in_range).get::<GraphicalHp>(),
+            Some(&GraphicalHp(5))
+        );
+        assert_eq!(
+            app.world().entity(at_floor).get::<GraphicalHp>(),
+            Some(&GraphicalHp(1))
+        );
+        assert_eq!(
+            app.world().entity(out_of_range).get::<GraphicalHp>(),
+            Some(&GraphicalHp(10))
+        );
     }
 }

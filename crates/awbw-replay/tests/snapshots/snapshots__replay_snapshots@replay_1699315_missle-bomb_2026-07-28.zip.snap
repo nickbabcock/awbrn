@@ -1,0 +1,39 @@
+---
+source: crates/awbw-replay/tests/snapshots.rs
+expression: snapshot
+input_file: assets/replays/replay_1699315_missle-bomb_2026-07-28.zip
+---
+{
+  "checksum": "0xc1c229a0a56580d294c4d4e108ce359e7d17cb8de059eca16455dc6c94da9d6c",
+  "file_entries": [
+    {
+      "data": {
+        "Game": {
+          "count": 3
+        }
+      },
+      "file_path": "1699315",
+      "file_size": 4969
+    },
+    {
+      "data": {
+        "Turn": {
+          "turns": [
+            {
+              "day": 1,
+              "elements": 3,
+              "player_id": 4086370
+            },
+            {
+              "day": 1,
+              "elements": 1,
+              "player_id": 4086371
+            }
+          ]
+        }
+      },
+      "file_path": "a1699315",
+      "file_size": 952
+    }
+  ]
+}

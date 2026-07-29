@@ -43,6 +43,13 @@ pub enum Action {
         #[serde(rename = "Join")]
         join_action: JoinAction,
     },
+    Launch {
+        #[serde(rename = "Move", deserialize_with = "empty_field_action")]
+        move_action: Option<MoveAction>,
+
+        #[serde(rename = "Launch")]
+        launch_action: LaunchAction,
+    },
     Load {
         #[serde(rename = "Move", deserialize_with = "empty_field_action")]
         move_action: Option<MoveAction>,
@@ -51,6 +58,13 @@ pub enum Action {
         load_action: LoadAction,
     },
     Move(MoveAction),
+    Explode {
+        #[serde(rename = "Move", deserialize_with = "empty_field_action")]
+        move_action: Option<MoveAction>,
+
+        #[serde(rename = "Explode")]
+        explode_action: ExplodeAction,
+    },
     Power(PowerAction),
     Repair {
         #[serde(rename = "Move", deserialize_with = "empty_field_action")]
@@ -109,8 +123,10 @@ impl Action {
             Action::End { .. } => "End",
             Action::Fire { .. } => "Fire",
             Action::Join { .. } => "Join",
+            Action::Launch { .. } => "Launch",
             Action::Load { .. } => "Load",
             Action::Move(_) => "Move",
+            Action::Explode { .. } => "Explode",
             Action::Power(_) => "Power",
             Action::Repair { .. } => "Repair",
             Action::Resign { .. } => "Resign",
@@ -130,7 +146,9 @@ impl Action {
             Action::Capt { move_action, .. } => move_action.as_ref(),
             Action::Fire { move_action, .. } => move_action.as_ref(),
             Action::Join { move_action, .. } => move_action.as_ref(),
+            Action::Launch { move_action, .. } => move_action.as_ref(),
             Action::Load { move_action, .. } => move_action.as_ref(),
+            Action::Explode { move_action, .. } => move_action.as_ref(),
             Action::Repair { move_action, .. } => move_action.as_ref(),
             Action::Supply { move_action, .. } => move_action.as_ref(),
             Action::Hide { move_action, .. } => move_action.as_ref(),
@@ -211,6 +229,29 @@ pub struct MoveAction {
     pub trapped: bool,
     #[serde(deserialize_with = "empty_field_action")]
     pub discovered: Option<indexmap::IndexMap<TargetedPlayer, Option<Discovery>>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct LaunchAction {
+    #[serde(rename = "siloX")]
+    pub silo_x: u32,
+    #[serde(rename = "siloY")]
+    pub silo_y: u32,
+    #[serde(rename = "targetX")]
+    pub target_x: u32,
+    #[serde(rename = "targetY")]
+    pub target_y: u32,
+    /// Display-HP delta applied to units in the blast radius.
+    pub hp: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct ExplodeAction {
+    /// Display-HP delta applied to units in the blast radius.
+    pub hp: i32,
+    pub vision: indexmap::IndexMap<TargetedPlayer, Masked<Coordinate>>,
+    #[serde(rename = "unitId")]
+    pub unit_id: AwbwUnitId,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
