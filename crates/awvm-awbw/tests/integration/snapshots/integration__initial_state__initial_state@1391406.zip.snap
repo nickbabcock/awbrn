@@ -1,0 +1,6 @@
+---
+source: crates/awvm-awbw/tests/initial_state.rs
+expression: snapshot
+input_file: assets/replays/1391406.zip
+---
+map=146471 size=22x18 players=2 units=1 state=8a03867df9856675 observations=5580732dfe3b6276

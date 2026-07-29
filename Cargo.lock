@@ -605,6 +605,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "awvm-awbw"
+version = "0.1.0"
+dependencies = [
+ "awbrn-map",
+ "awbrn-types",
+ "awbw-replay",
+ "awvm",
+ "highway",
+ "indexmap",
+ "insta",
+ "rayon",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

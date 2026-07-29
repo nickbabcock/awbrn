@@ -1,0 +1,6 @@
+---
+source: crates/awvm-awbw/tests/initial_state.rs
+expression: snapshot
+input_file: assets/replays/1468032_landfall_2025-12-22.zip
+---
+map=108806 size=27x27 players=6 units=5 state=025ab220e5992ced observations=00934414de0035e6

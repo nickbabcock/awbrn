@@ -1,0 +1,6 @@
+---
+source: crates/awvm-awbw/tests/initial_state.rs
+expression: snapshot
+input_file: assets/replays/replay_1699315_missle-bomb_2026-07-28.zip
+---
+map=178597 size=27x8 players=2 units=27 state=a648c62791f5e13d observations=c9244b06fa9468af

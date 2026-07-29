@@ -12,9 +12,7 @@ use awbrn_client::modes::replay::commands::{
 };
 use awbrn_client::render::UiAtlasResource;
 use awbrn_game::replay::ReplayState;
-use awbrn_game::snapshot::{
-    CanonicalReplaySnapshot, canonicalize_replay_semantic_snapshot, capture_game_snapshot,
-};
+use awbrn_game::snapshot::{GameSnapshot, capture_game_snapshot, write_replay_semantic_snapshot};
 use awbrn_game::world::GameMap;
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
 use awbw_replay::ReplayParser;
@@ -110,7 +108,14 @@ fn replay_semantic_snapshot_rows(replay_file: &str, map_file: &str) -> Vec<Repla
     initialize_replay_semantic_world(app.world_mut());
 
     let actions = app.world().resource::<LoadedReplay>().0.turns.clone();
-    let mut rows = Vec::with_capacity(actions.len());
+    let last_index = actions.len().saturating_sub(1);
+    // Digests are checkpointed at turn starts instead of taken per action.
+    // World state is cumulative, so a divergence anywhere inside a turn still
+    // shows up at the next checkpoint, and capturing plus canonicalizing every
+    // unit and terrain tile on all ~13k archived actions dominated this
+    // suite's runtime.
+    let mut checkpoint = turn_key(app.world());
+    let mut rows = Vec::new();
     for (action_index, action) in actions.into_iter().enumerate() {
         let action_kind = action.kind_name();
         catch_unwind(AssertUnwindSafe(|| {
@@ -131,28 +136,40 @@ fn replay_semantic_snapshot_rows(replay_file: &str, map_file: &str) -> Vec<Repla
             panic!("{replay_file} panicked at action {action_index} ({action_kind})")
         });
 
+        let post_key = turn_key(app.world());
+        if post_key == checkpoint && action_index != last_index {
+            continue;
+        }
+        checkpoint = post_key;
+
         let snapshot = capture_game_snapshot(app.world_mut()).unwrap_or_else(|error| {
             panic!(
                 "{replay_file} could not snapshot action {action_index} ({action_kind}): {error}"
             )
         });
+        let day = snapshot.day;
         let type_registry = app.world().resource::<AppTypeRegistry>().read();
-        let canonical = canonicalize_replay_semantic_snapshot(&snapshot, &type_registry)
-            .unwrap_or_else(|error| {
-                panic!(
-                    "{replay_file} could not canonicalize action {action_index} \
-                     ({action_kind}): {error}"
-                )
-            });
+        let checksum = checksum(&snapshot, &type_registry).unwrap_or_else(|error| {
+            panic!(
+                "{replay_file} could not canonicalize action {action_index} \
+                 ({action_kind}): {error}"
+            )
+        });
         rows.push(ReplaySnapshotRow {
             action_index,
-            day: canonical.day,
+            day,
             action_kind,
-            checksum: checksum(&canonical),
+            checksum,
         });
     }
 
     rows
+}
+
+/// The turn the world is in: digests are checkpointed when this changes.
+fn turn_key(world: &World) -> (u32, Option<awbrn_types::AwbwGamePlayerId>) {
+    let replay_state = world.resource::<ReplayState>();
+    (replay_state.day, replay_state.active_player_id)
 }
 
 fn settle_replay_semantics(world: &mut World) {
@@ -243,15 +260,21 @@ fn insert_test_ui_atlas(app: &mut App) {
     });
 }
 
-fn checksum(snapshot: &CanonicalReplaySnapshot) -> String {
+/// Digest the canonical replay-semantic form without materializing it: the
+/// value is only ever hashed, and building the tree first dominated this
+/// suite's runtime.
+fn checksum(
+    snapshot: &GameSnapshot,
+    type_registry: &bevy::reflect::TypeRegistry,
+) -> Result<String, awbrn_game::snapshot::GameSnapshotError> {
     let hasher = highway::HighwayHasher::new(highway::Key::default());
     let mut writer = BufWriter::with_capacity(0x8000, hasher);
-    serde_json::to_writer(&mut writer, snapshot).unwrap();
+    write_replay_semantic_snapshot(snapshot, type_registry, &mut writer)?;
     let hash = writer.into_inner().unwrap().finalize256();
-    format!(
+    Ok(format!(
         "0x{:016x}{:016x}{:016x}{:016x}",
         hash[0], hash[1], hash[2], hash[3]
-    )
+    ))
 }
 
 fn replay_fixture_path(file_name: &str) -> std::path::PathBuf {

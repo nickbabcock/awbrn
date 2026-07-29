@@ -1,0 +1,40 @@
+---
+source: crates/awvm-awbw/tests/integration/recorded_outcomes.rs
+expression: outcome.snapshot
+input_file: assets/replays/1563018.zip
+---
+00002 d=1 p=3625127 End        s=185fae5bf3672b49 o=36175662bca6b4dc
+00006 d=2 p=3650740 Tag        s=debf56366564e2cd o=e3df1125b9b73123
+00011 d=2 p=3625127 End        s=dc6da8c5759a3de5 o=dd94a1d463fd8e76
+00017 d=3 p=3650740 End        s=ab5a0771eb7311a9 o=063be37047c74018
+00024 d=3 p=3625127 End        s=34f73f73aec32762 o=a430fa804c7d5fc4
+00033 d=4 p=3650740 End        s=342079144c3bbe4e o=42406b6a52b4dc01
+00043 d=4 p=3625127 End        s=9da153174ebaafeb o=65dc592576ccbcdc
+00055 d=5 p=3650740 End        s=a37fd5539a42ae04 o=702563cb0925c71c
+00068 d=5 p=3625127 End        s=87afd882baf3dd50 o=7a31c5c63b373567
+00083 d=6 p=3650740 End        s=bc18c1aa95707442 o=aa7d9e06044fd01f
+00099 d=6 p=3625127 End        s=9d4c90cbab1af883 o=2c6b1c9e7638cde1
+00117 d=7 p=3650740 End        s=98cd702db971c8d3 o=0ab97029152ec8dd
+00136 d=7 p=3625127 Tag        s=c8483520d66785d1 o=fa12151143595de7
+00157 d=8 p=3650740 Tag        s=487622ffbbd6af11 o=ebba9f0516ff7384
+00178 d=8 p=3625127 End        s=392461ea0bdcc53b o=e5fe7c8f48aee1a1
+00202 d=9 p=3650740 End        s=53c6c876c4fcef8d o=4aefa8a79cbe2d1a
+00224 d=9 p=3625127 End        s=0977395ec3d31b8f o=54626dd0490bbc3b
+00251 d=10 p=3650740 End        s=cdaf5a0a8e4843ac o=ece5972a363dd43d
+00278 d=10 p=3625127 End        s=cc663efe6cf7a244 o=3c1256feb9431195
+00306 d=11 p=3650740 End        s=0325a322afda2b21 o=60f94f30cb902417
+00331 d=11 p=3625127 End        s=f979889ff281fbc7 o=6b900bc0bcd79a27
+00362 d=12 p=3650740 End        s=5b94e8339a155c53 o=6cf3343ef6013f7f
+00388 d=12 p=3625127 End        s=cf600d5dc257bde0 o=057691b0d77e5c1a
+00420 d=13 p=3650740 End        s=576db61656780423 o=8b4d415096a84899
+00443 d=13 p=3625127 End        s=760c031ad8170df7 o=ee192c93e5ca0b65
+00476 d=14 p=3650740 End        s=6420080dc1a91af3 o=90ed9187b84a684e
+00496 d=14 p=3625127 Tag        s=cd67ff73ccea47a0 o=acd7c826f6c79b7d
+00528 d=15 p=3650740 End        s=70a5af982bef08a3 o=afdaa007c3c42b19
+00548 d=15 p=3625127 End        s=72699f69f6977696 o=90c1afb8ab8d5715
+00581 d=16 p=3650740 End        s=5b80cb91e97192f8 o=11f1b4d41ef38ee0
+00602 d=16 p=3625127 Tag        s=6e49911d87d4023a o=f0148c7cceed9f14
+00634 d=17 p=3650740 End        s=33e0c09a910e33fb o=4165055f098ccc2e
+00653 d=17 p=3625127 End        s=02c54c567dda2e83 o=a86625790c6024a9
+00687 d=18 p=3650740 End        s=01bebed862f34130 o=7e3faf4e8abfd8fa
+00689 d=18 p=3650740 Resign     s=80d4387e3b3df871 o=a4142e714a670268
