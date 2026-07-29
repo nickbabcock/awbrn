@@ -283,10 +283,9 @@ pub fn reachable(state: &State, unit: UnitId) -> Result<MoveField, QueryError> {
         if steps[index_of(position)].is_some_and(|step| step.cost < cost) {
             continue;
         }
-        // A tile whose occupant the mover can see blocks the route *through*
-        // it, for an ally as much as an enemy (`spec/semantics/movement.md`,
-        // occupancy). It remains reachable as a terminal.
-        if position != origin && occupancy.blocks(position) {
+        // A disclosed enemy blocks the route through its tile. Allied units
+        // may be crossed but remain invalid destinations.
+        if position != origin && occupancy.blocks_route(position) {
             continue;
         }
         for next in position.orthogonal() {
@@ -304,7 +303,7 @@ pub fn reachable(state: &State, unit: UnitId) -> Result<MoveField, QueryError> {
             }
             steps[index_of(next)] = Some(Step {
                 cost: total,
-                can_stop: !is_teleporter(state, next) && !occupancy.blocks(next),
+                can_stop: !is_teleporter(state, next) && !occupancy.blocks_stop(next),
                 previous: Some(position),
             });
             frontier.push(Frontier {
@@ -589,17 +588,19 @@ pub fn production_options(state: &State, player: &PlayerId, position: Pos) -> Ve
         .collect()
 }
 
-/// Which tiles hold a unit whose occupancy is disclosed to the moving team,
-/// which is what makes one a blocker.
+/// Which tiles have disclosed occupants that block stopping or traversal.
 struct Occupancy {
-    blocked: Vec<bool>,
+    stop: Vec<bool>,
+    route: Vec<bool>,
     width: u8,
 }
 
 impl Occupancy {
     fn new(state: &State, mover: &Unit, team: &TeamId) -> Self {
         let width = state.board.width();
-        let mut blocked = vec![false; usize::from(width) * usize::from(state.board.height())];
+        let size = usize::from(width) * usize::from(state.board.height());
+        let mut stop = vec![false; size];
+        let mut route = vec![false; size];
         let view = AwbwVisibility.view(state, team);
         for unit in state.units.iter() {
             if unit.id == mover.id {
@@ -609,15 +610,26 @@ impl Occupancy {
                 continue;
             };
             if state.board.contains(position) && view.unit(unit) {
-                blocked[usize::from(position.y) * usize::from(width) + usize::from(position.x)] =
-                    true;
+                let index = usize::from(position.y) * usize::from(width) + usize::from(position.x);
+                stop[index] = true;
+                route[index] = state
+                    .find_player(&unit.owner)
+                    .is_some_and(|owner| owner.team != *team);
             }
         }
-        Self { blocked, width }
+        Self { stop, route, width }
     }
 
-    fn blocks(&self, position: Pos) -> bool {
-        self.blocked[usize::from(position.y) * usize::from(self.width) + usize::from(position.x)]
+    fn index(&self, position: Pos) -> usize {
+        usize::from(position.y) * usize::from(self.width) + usize::from(position.x)
+    }
+
+    fn blocks_stop(&self, position: Pos) -> bool {
+        self.stop[self.index(position)]
+    }
+
+    fn blocks_route(&self, position: Pos) -> bool {
+        self.route[self.index(position)]
     }
 }
 

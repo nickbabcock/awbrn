@@ -355,7 +355,7 @@ fn heal_exact_hp(cx: &mut Activation<'_>, amount: u8) -> Result<(), ExecuteError
         .next
         .units
         .iter()
-        .filter(|unit| unit.owner == cx.player)
+        .filter(|unit| unit.owner == cx.player && matches!(unit.location, Location::Board { .. }))
         .map(|unit| unit.id)
         .collect();
     targets.sort();
@@ -403,14 +403,16 @@ fn damage_exact_hp(
         .iter()
         .filter(|unit| {
             enemy_owners.contains(unit.owner.as_str())
-                && (!properties_only
-                    || match unit.location {
-                        Location::Board { position } => ruleset::terrain_has(
-                            cx.next.board.tile(position).terrain,
-                            TerrainTrait::Capturable,
-                        ),
-                        Location::Cargo { .. } => false,
-                    })
+                && match unit.location {
+                    Location::Board { position } => {
+                        !properties_only
+                            || ruleset::terrain_has(
+                                cx.next.board.tile(position).terrain,
+                                TerrainTrait::Capturable,
+                            )
+                    }
+                    Location::Cargo { .. } => false,
+                }
         })
         .map(|unit| unit.id)
         .collect();
@@ -478,7 +480,10 @@ fn drain_current_fuel_ratio(
         .next
         .units
         .iter()
-        .filter(|unit| enemy_owners.contains(unit.owner.as_str()))
+        .filter(|unit| {
+            enemy_owners.contains(unit.owner.as_str())
+                && matches!(unit.location, Location::Board { .. })
+        })
         .map(|unit| unit.id)
         .collect();
     targets.sort();
@@ -634,7 +639,11 @@ fn refresh_unit_action(
         .next
         .units
         .iter()
-        .filter(|unit| unit.owner == cx.player && !exclude_unit_kinds.contains(&unit.kind))
+        .filter(|unit| {
+            unit.owner == cx.player
+                && matches!(unit.location, Location::Board { .. })
+                && !exclude_unit_kinds.contains(&unit.kind)
+        })
         .map(|unit| unit.id)
         .collect();
     targets.sort();

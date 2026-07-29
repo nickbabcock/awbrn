@@ -7,7 +7,8 @@
   },
   "feature": "commander-power-v1.jess.scop",
   "evidence": {
-    "confidence": "corroborated-implementation"
+    "confidence": "confirmed-experiment",
+    "note": "Loaded cargo receives Overdrive resupply."
   },
   "initial_state": {
     "ruleset": {
@@ -147,8 +148,9 @@
         "action": "spent",
         "concealment": "exposed",
         "location": {
-          "type": "board",
-          "position": [1, 0]
+          "type": "cargo",
+          "transport": 4,
+          "slot": 0
         }
       },
       {
@@ -163,6 +165,20 @@
         "location": {
           "type": "board",
           "position": [2, 0]
+        }
+      },
+      {
+        "id": 4,
+        "kind": "apc",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 50,
+        "ammo": 0,
+        "action": "spent",
+        "concealment": "exposed",
+        "location": {
+          "type": "board",
+          "position": [1, 0]
         }
       }
     ],
@@ -320,8 +336,9 @@
               "id": 2,
               "kind": "infantry",
               "location": {
-                "position": [1, 0],
-                "type": "board"
+                "slot": 0,
+                "transport": 4,
+                "type": "cargo"
               },
               "owner": "red"
             },
@@ -335,6 +352,20 @@
               "kind": "b-copter",
               "location": {
                 "position": [2, 0],
+                "type": "board"
+              },
+              "owner": "red"
+            },
+            {
+              "action": "spent",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 70,
+              "hp": 100,
+              "id": 4,
+              "kind": "apc",
+              "location": {
+                "position": [1, 0],
                 "type": "board"
               },
               "owner": "red"
@@ -369,6 +400,15 @@
             "reason": "commander-power",
             "type": "unit-resourced",
             "unit": 2
+          },
+          {
+            "ammo_after": 0,
+            "ammo_before": 0,
+            "fuel_after": 70,
+            "fuel_before": 50,
+            "reason": "commander-power",
+            "type": "unit-resourced",
+            "unit": 4
           }
         ],
         "random_consumed": 0

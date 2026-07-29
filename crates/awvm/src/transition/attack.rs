@@ -842,6 +842,7 @@ fn resolve_exchange(
     if defender_remaining > 0 {
         next.units[defender_index].hp = defender_remaining;
     }
+    let mut attacker_removed = false;
     if let Some(hit) = counter {
         let attacker_remaining = attacker.hp.saturating_sub(hit.damage);
         apply_hit(
@@ -854,16 +855,34 @@ fn resolve_exchange(
             attacker_remaining,
             KnownReason::CombatCounter,
         )?;
-        next.units[attacker_index].hp = attacker_remaining;
+        if attacker_remaining == 0 {
+            let Location::Board { position } = attacker.location else {
+                unreachable!("an attacking unit is on the board");
+            };
+            movement::reset_capture_on_removal(&mut next, position, &mut events);
+            remove_combatant_and_cargo(
+                &mut next,
+                attacker.id,
+                KnownReason::CombatCounter,
+                &mut events,
+            );
+            attacker_removed = true;
+        } else {
+            next.units[attacker_index].hp = attacker_remaining;
+        }
     }
     if defender_remaining == 0 {
-        events.push(Event::UnitRemoved {
-            unit: defender.id,
-            reason: KnownReason::Combat.into(),
-        });
-        next.units.remove(defender_index);
+        let Location::Board { position } = defender.location else {
+            unreachable!("a defending unit is on the board");
+        };
+        movement::reset_capture_on_removal(&mut next, position, &mut events);
+        remove_combatant_and_cargo(&mut next, defender.id, KnownReason::Combat, &mut events);
     }
-    spend_attacker(&mut next, &mut events, attacker.id);
+    if !attacker_removed {
+        spend_attacker(&mut next, &mut events, attacker.id);
+    } else {
+        rout_if_last_unit(&mut next, &attacker.owner, &mut events)?;
+    }
     if defender_remaining == 0 {
         rout_if_last_unit(&mut next, &defender.owner, &mut events)?;
     }
@@ -923,11 +942,16 @@ fn resolve_counter_first(
         KnownReason::CombatCounter,
     )?;
     if attacker_remaining == 0 {
-        events.push(Event::UnitRemoved {
-            unit: attacker.id,
-            reason: KnownReason::CombatCounter.into(),
-        });
-        next.units.remove(engagement.attacker_index);
+        let Location::Board { position } = attacker.location else {
+            unreachable!("an attacking unit is on the board");
+        };
+        movement::reset_capture_on_removal(&mut next, position, &mut events);
+        remove_combatant_and_cargo(
+            &mut next,
+            attacker.id,
+            KnownReason::CombatCounter,
+            &mut events,
+        );
         rout_if_last_unit(&mut next, &attacker.owner, &mut events)?;
         return Ok(Execution {
             state: next,
@@ -949,17 +973,17 @@ fn resolve_counter_first(
         defender_remaining,
         KnownReason::Combat,
     )?;
-    let defender_index = next
-        .units
-        .index_of(defender.id)
-        .expect("the target remains present until it is removed");
     if defender_remaining == 0 {
-        events.push(Event::UnitRemoved {
-            unit: defender.id,
-            reason: KnownReason::Combat.into(),
-        });
-        next.units.remove(defender_index);
+        let Location::Board { position } = defender.location else {
+            unreachable!("a defending unit is on the board");
+        };
+        movement::reset_capture_on_removal(&mut next, position, &mut events);
+        remove_combatant_and_cargo(&mut next, defender.id, KnownReason::Combat, &mut events);
     } else {
+        let defender_index = next
+            .units
+            .index_of(defender.id)
+            .expect("the target remains present until it is removed");
         next.units[defender_index].hp = defender_remaining;
     }
     spend_attacker(&mut next, &mut events, attacker.id);
@@ -971,6 +995,44 @@ fn resolve_counter_first(
         events,
         random_consumed: draws.drawn(),
     })
+}
+
+/// Remove a destroyed board unit and any units it carried.
+///
+/// Cargo loss is a consequence of losing the carrier, not another combat
+/// strike, so it emits removal facts but earns no combat power charge.
+fn remove_combatant_and_cargo(
+    next: &mut State,
+    unit: UnitId,
+    reason: KnownReason,
+    events: &mut Vec<Event>,
+) {
+    let mut cargo: Vec<_> = next
+        .units
+        .iter()
+        .filter_map(|candidate| match candidate.location {
+            Location::Cargo { transport, slot } if transport == unit => Some((slot, candidate.id)),
+            _ => None,
+        })
+        .collect();
+    cargo.sort();
+    next.units.retain(|candidate| {
+        candidate.id != unit
+            && !matches!(
+                candidate.location,
+                Location::Cargo { transport, .. } if transport == unit
+            )
+    });
+    events.push(Event::UnitRemoved {
+        unit,
+        reason: reason.into(),
+    });
+    for (_, cargo) in cargo {
+        events.push(Event::UnitRemoved {
+            unit: cargo,
+            reason: KnownReason::CarrierLost.into(),
+        });
+    }
 }
 
 /// Mark the acting unit spent. Both exchange orders end here, and both reach it

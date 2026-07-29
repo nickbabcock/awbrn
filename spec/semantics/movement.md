@@ -71,13 +71,14 @@ transport's tile independently. The acting unit is ignored at `p_0`.
 
 For `move-wait`:
 
-- a visible enemy or allied unit on any `p_i`, `i > 0`, blocks the path;
-- an occupied intermediate position produces `PATH_OCCUPIED`;
+- an allied unit may be crossed at an intermediate position but may not be the
+  intended destination;
+- a disclosed enemy unit on any `p_i`, `i > 0`, blocks the path;
+- an enemy-occupied intermediate position produces `PATH_OCCUPIED`;
 - an occupied intended destination produces `DESTINATION_OCCUPIED`;
 - a hidden enemy obstruction under fog is not a validation failure and is
   handled by the trap execution below; and
-- a hidden allied unit is known through shared allied vision and is therefore
-  treated as a disclosed obstruction, not a trap.
+- an allied unit is known through shared allied vision and is never a trap.
 
 “Allied” means owned by any player on the actor's team. Join and load commands
 may license their declared destination occupant, but never an intermediate
@@ -116,9 +117,10 @@ completed over the path before the next category begins. Thus a later
 out-of-bounds position does not outrank an earlier non-adjacent step, and an
 impassable tile does not outrank any out-of-bounds position.
 
-`PATH_OCCUPIED` scans `p_1` through `p_(k-1)`. Destination occupancy is deferred
-until after family-specific checks because load/join may license it. For
-`move-wait`, the family-specific list is empty.
+`PATH_OCCUPIED` scans `p_1` through `p_(k-1)` for disclosed enemy occupancy;
+allied occupancy does not stop intermediate traversal. Destination occupancy
+is deferred until after family-specific checks because load/join may license
+it. For `move-wait`, the family-specific list is empty.
 
 Movement and fuel compare the intended full-path cost against the effective
 allowance and current fuel. Equality is legal. A one-position path is legal at
@@ -238,6 +240,8 @@ Documentation-only:
 - AWBW official terrain chart: the profile's weather/class/terrain costs.
 - AWBW Wiki “Units”: fuel spent equals movement points spent, including terrain
   and weather modifiers.
+- Archived AWBW replay `1362397`, action 45: a T-Copter's submitted path
+  crosses its own Infantry at intermediate position `[13,7]`.
 - AWBW Wiki “Fog of War”: a hidden enemy interrupts movement at first contact
   and the trapped unit loses all remaining actions.
 - AWBW Wiki “AWBW Guide”: manually selected paths must fit movement and may not

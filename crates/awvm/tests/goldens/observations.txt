@@ -9,6 +9,8 @@ c5463462544e62e7  obs=4 ev=10  capture/capture-limit-precedes-hq.json
 4e0f6734e99fa404  obs=2 ev=0  capture/capture-noncapturer-rejected.json
 db403f863b43b1a7  obs=4 ev=8  capture/lab-ignored-with-hq.json
 45f947759da1556e  obs=6 ev=22  capture/lab-last-owned-lab.json
+66515e516d07717e  obs=4 ev=11  combat/carrier-loss-no-cargo-charge.json
+016b613e343bc08c  obs=4 ev=6  combat/lethal-capture-reset.json
 6215a59df49fbf34  obs=4 ev=10  combat/movement-direct-fog-capture.json
 e6c1d55dbd31ea57  obs=4 ev=3  combat/movement-hidden-blocker.json
 6ddfce451867b40f  obs=4 ev=8  combat/movement-tile-target.json
@@ -55,7 +57,7 @@ c0692d28c186322b  obs=4 ev=6  commander/drake-cop-combat.json
 7793c7e990b41333  obs=4 ev=16  commander/drake-day-to-day-combat.json
 af11b70e60f14885  obs=6 ev=4  commander/drake-day-to-day.json
 6fcf52e5370f5854  obs=4 ev=6  commander/drake-scop-combat.json
-e63b7f9d90fbd535  obs=6 ev=12  commander/drake-scop.json
+c0598516807940a7  obs=6 ev=12  commander/drake-scop.json
 772fd361e6fefc74  obs=4 ev=6  commander/eagle-cop-activation.json
 5a37bc5031b9b179  obs=4 ev=6  commander/eagle-cop.json
 c5bee54080e12499  obs=4 ev=8  commander/eagle-day-to-day-air-combat.json
@@ -91,7 +93,7 @@ ca27a2d48edd99e7  obs=4 ev=2  commander/hachi-scop-activation.json
 a0164822db8973f3  obs=2 ev=0  commander/hachi-scop-unit-limit.json
 517e66ab9efa2bb7  obs=2 ev=2  commander/hachi-scop.json
 dc92661fee749d6b  obs=4 ev=6  commander/hawke-cop-combat.json
-482441911fce6951  obs=6 ev=15  commander/hawke-cop.json
+3aa44023931bae61  obs=6 ev=15  commander/hawke-cop.json
 eec2214ccf006f1f  obs=4 ev=8  commander/hawke-day-to-day-combat.json
 a1dfb4d4b802cdec  obs=4 ev=6  commander/hawke-scop-combat.json
 bdc2e277a85c3a30  obs=4 ev=8  commander/hawke-scop.json
@@ -112,11 +114,11 @@ ba41d9f5a8bc0d8e  obs=4 ev=8  commander/javier-day-to-day-indirect-defense.json
 1270cac79ea97f86  obs=4 ev=2  commander/javier-scop.json
 49fbed91d2937617  obs=4 ev=10  commander/jess-cop-combat.json
 db40ea14aea3d463  obs=4 ev=2  commander/jess-cop-movement.json
-fe2a26bd26ddd194  obs=4 ev=6  commander/jess-cop.json
+f3200ee41c08031d  obs=4 ev=7  commander/jess-cop.json
 29d153a5e838dfd9  obs=4 ev=14  commander/jess-day-to-day-combat.json
 b56c25b7a8d945dd  obs=4 ev=10  commander/jess-scop-combat.json
 053a22d1900cb8a7  obs=4 ev=2  commander/jess-scop-movement.json
-8a51b669b74fe1a5  obs=4 ev=6  commander/jess-scop.json
+80042986c92a6a98  obs=4 ev=7  commander/jess-scop.json
 fd2aeaaf7d055379  obs=4 ev=6  commander/jugger-cop-combat.json
 46dd3e61cba8d8f7  obs=4 ev=2  commander/jugger-cop.json
 d1d952c1627f3967  obs=4 ev=8  commander/jugger-day-to-day-combat.json
@@ -262,6 +264,7 @@ c4b6f0ae7228f5ad  obs=2 ev=3  join/join-no-overflow.json
 5ef35b30b53b48cc  obs=4 ev=3  launch/move-launch-hidden-blocker.json
 8395ec1acf9091a4  obs=2 ev=4  launch/move-launch-radius-two.json
 796f07547a5f529e  obs=8 ev=0  launch/move-launch-validation.json
+9964111ae3cc7e7f  obs=2 ev=1  movement/allied-intermediate-traversal.json
 d81cc3d0c06517cf  obs=2 ev=1  movement/infantry-plain-move.json
 3f719ea7333bab91  obs=4 ev=0  movement/match-finished-rejected.json
 34bc012594f1cb5a  obs=2 ev=2  movement/move-wait-capture-reset.json
