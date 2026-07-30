@@ -12,9 +12,9 @@ use awbrn_types::{
 use awvm::event::{AttackTarget, Event};
 use awvm::ruleset::{KnownReason, Terrain};
 use awvm::semantic::{
-    AwbwVisibility, Concealment, Location, Match, ObservedEvent, ObservedUnit, ObservedUnitRef,
-    Outcome, Phase, PlayerId as VmPlayerId, Pos, Reason, State, TileOwner, UnitId, Viewpoint,
-    Visibility, observe_events,
+    AwbwVisibility, Concealment, Location, Match, ObservedEvent, ObservedTransition, ObservedUnit,
+    ObservedUnitRef, Outcome, Phase, PlayerId as VmPlayerId, Pos, Reason, State, TileOwner, UnitId,
+    Viewpoint, Visibility, observe_events, observe_transition,
 };
 
 use crate::awvm_adapter::{AcceptedTransition, Authority, semantic_terrain};
@@ -137,6 +137,7 @@ pub struct PlayerUpdate {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CommandResult {
     pub updates: Vec<(PlayerId, PlayerUpdate)>,
+    pub observed_transitions: Vec<(PlayerId, ObservedTransition)>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub combat_outcome: Option<CombatOutcome>,
 }
@@ -214,6 +215,21 @@ pub(crate) fn build_command_result(
 ) -> CommandResult {
     let combat_outcome = combat_outcome(&transition.prior, authority.state(), &transition.events);
     let players = authority.players().collect::<Vec<_>>();
+    let observed_transitions = players
+        .iter()
+        .map(|player| {
+            let recipient = authority.player(*player);
+            let transition = observe_transition(
+                &AwbwVisibility,
+                &transition.prior,
+                authority.state(),
+                &transition.events,
+                &recipient,
+            )
+            .expect("an authoritative transition projects for every server player");
+            (*player, transition)
+        })
+        .collect();
     let mut projected_teams = Vec::new();
     let mut updates = Vec::with_capacity(players.len());
     for player in &players {
@@ -276,6 +292,7 @@ pub(crate) fn build_command_result(
     updates.sort_by_key(|(player, _)| player.0);
     CommandResult {
         updates,
+        observed_transitions,
         combat_outcome,
     }
 }

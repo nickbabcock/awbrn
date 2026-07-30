@@ -136,6 +136,8 @@ pub struct PlayerRosterEntry {
     pub co_name: Option<String>,
     pub tag_co_key: Option<String>,
     pub tag_co_name: Option<String>,
+    /// Public CO power charge. `None` before any transition has reported one.
+    pub power_charge: Option<u32>,
     pub stats: PlayerRosterStats,
 }
 

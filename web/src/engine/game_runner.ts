@@ -7,6 +7,7 @@ import {
 } from "#/canvas_courier/index.ts";
 import type { AwbwMapData } from "#/awbw/schemas.ts";
 import type { GameEvent } from "#/wasm/awbrn_wasm.js";
+import type { LiveMatchPlayer } from "./worker_module";
 import { gameAssetConfig } from "./asset_manifest";
 import { useGameStore } from "./store";
 import type { GameWorker } from "./worker_types";
@@ -19,6 +20,7 @@ export class GameRunner implements CanvasCourierController {
   private activeSurface: GameSurface | undefined;
   private createGamePromise: Promise<GameInstance> | undefined;
   private game: GameInstance | undefined;
+  private pendingLiveTransitions: unknown[] = [];
   private rawWorker: Worker | undefined;
   private surfaceVersion = 0;
   private readonly transport = new CanvasCourierTransport();
@@ -60,6 +62,24 @@ export class GameRunner implements CanvasCourierController {
     await game.loadMatchMap(map);
   }
 
+  async loadLiveMatch(
+    map: AwbwMapData,
+    players: LiveMatchPlayer[],
+    observation: unknown,
+  ): Promise<void> {
+    const game = await this.requireGame();
+    await game.loadLiveMatch(map, players, observation);
+  }
+
+  async applyLiveTransition(transition: unknown): Promise<void> {
+    if (!this.game && !this.createGamePromise) {
+      this.pendingLiveTransitions.push(transition);
+      return;
+    }
+    const game = await this.requireGame();
+    await game.applyLiveTransition(transition);
+  }
+
   async setPlayerDisplayFaction(playerId: number, factionId: number | null): Promise<void> {
     const game = await this.requireGame();
     await game.setPlayerDisplayFaction(playerId, factionId);
@@ -70,6 +90,7 @@ export class GameRunner implements CanvasCourierController {
     this.activeSurface = undefined;
     this.transport.dispose();
     this.game = undefined;
+    this.pendingLiveTransitions = [];
     this.createGamePromise = undefined;
     this.transferredCanvas = undefined;
     this.worker = undefined;
@@ -96,8 +117,13 @@ export class GameRunner implements CanvasCourierController {
             this.handleGameEvent(event);
           }),
         )
-        .then((game) => {
+        .then(async (game) => {
           this.game = game;
+          const pendingTransitions = this.pendingLiveTransitions;
+          this.pendingLiveTransitions = [];
+          for (const transition of pendingTransitions) {
+            await game.applyLiveTransition(transition);
+          }
           return game;
         })
         .catch((error) => {

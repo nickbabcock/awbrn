@@ -201,6 +201,14 @@ export function ReplayPage() {
                     value: formatMaybeMoney(player.stats.income),
                     icon: <StatIcon spriteName="BuildingsCaptured.png" />,
                   },
+                  {
+                    // Charge is public in AWVM, so it shows even under fog when
+                    // the funds and unit stats above are hidden.
+                    key: "power",
+                    label: "Power",
+                    value: formatMaybeCount(player.powerCharge),
+                    icon: <StatIcon spriteName="NormalPower.png" />,
+                  },
                 ];
 
                 return (

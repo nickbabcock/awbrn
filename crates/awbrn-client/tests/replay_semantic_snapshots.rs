@@ -2,7 +2,7 @@ use std::io::BufWriter;
 use std::path::Path;
 
 use awbrn_client::loading::apply_replay_building_overrides;
-use awbrn_client::modes::replay::commands::{
+use awbrn_client::modes::replay::presentation::{
     ReplayAdvanceLock, ReplayFollowupCommand, ReplayTransitionSource, ReplayTurnCommand,
 };
 use awbrn_game::GameWorldPlugin;
@@ -117,9 +117,7 @@ fn replay_semantic_snapshot_rows(replay_file: &str, map_file: &str) -> Vec<Repla
                 .release_for(entity)
                 .unwrap();
             ReplayFollowupCommand {
-                action: followup.action,
                 transitions: followup.transitions,
-                recompute_fog: followup.recompute_fog,
             }
             .apply(app.world_mut());
         }

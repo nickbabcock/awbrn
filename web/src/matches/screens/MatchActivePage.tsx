@@ -1,6 +1,6 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CoPortrait } from "#/components/CoPortrait.tsx";
 import {
   DEFAULT_CO_PORTRAIT_KEY,
@@ -18,17 +18,41 @@ import type { InitialBoardMessage, MatchWebSocketMessage } from "#/matches/match
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
 import { useActiveMatchRunner } from "#/engine/runtime_context.tsx";
 import type { GameRunner } from "#/engine/game_runner.ts";
+import type { LiveMatchPlayer } from "#/engine/worker_module.ts";
 
 export function MatchActivePage({ matchId }: { matchId: string }) {
   const { data: match } = useSuspenseQuery(matchDetailQueryOptions(matchId, null));
   const portraitCatalog = useMemo(() => loadCoPortraitCatalog(), []);
   const runner = useActiveMatchRunner();
+  const livePlayers = useMemo<LiveMatchPlayer[]>(
+    () =>
+      match.participants.map((participant) => ({
+        playerId: participant.slotIndex,
+        factionId: participant.factionId,
+      })),
+    [match.participants],
+  );
   const [initialBoard, setInitialBoard] = useState<InitialBoardMessage | null>(null);
-  const handleMatchMessage = useCallback((msg: MatchWebSocketMessage) => {
-    if (msg.type === "initialBoard") {
-      setInitialBoard(msg);
-    }
-  }, []);
+  const handleMatchMessage = useCallback(
+    (msg: MatchWebSocketMessage) => {
+      if (msg.type === "initialBoard") {
+        setInitialBoard(msg);
+        return;
+      }
+      if (msg.type === "playerUpdate") {
+        void runner.applyLiveTransition(msg.transition).catch((error) => {
+          console.error("Error applying live player transition:", error);
+        });
+        return;
+      }
+      if (msg.type === "spectatorState" && msg.transition) {
+        void runner.applyLiveTransition(msg.transition).catch((error) => {
+          console.error("Error applying live spectator transition:", error);
+        });
+      }
+    },
+    [runner],
+  );
   const { status } = useMatchWebSocket(matchId, handleMatchMessage);
 
   return (
@@ -48,7 +72,12 @@ export function MatchActivePage({ matchId }: { matchId: string }) {
 
           <div {...stylex.props(styles.mainGrid)}>
             <Frame as="section" surface="panel" padding="none" xstyle={styles.gameSection}>
-              <ActiveMatchBoard runner={runner} initialBoard={initialBoard} status={status} />
+              <ActiveMatchBoard
+                runner={runner}
+                initialBoard={initialBoard}
+                players={livePlayers}
+                status={status}
+              />
             </Frame>
 
             <Frame as="section" surface="panel" padding="none" xstyle={styles.rosterSection}>
@@ -99,15 +128,22 @@ export function MatchActivePage({ matchId }: { matchId: string }) {
 function ActiveMatchBoard({
   runner,
   initialBoard,
+  players,
   status,
 }: {
   runner: GameRunner;
   initialBoard: InitialBoardMessage | null;
+  players: LiveMatchPlayer[];
   status: string;
 }) {
   const { canvasRef, surfaceRef } = useCanvasCourierSurface({
     controller: runner,
   });
+
+  // The roster is read through a ref: a new array identity (a query refetch,
+  // for instance) must not reload the match and discard applied transitions.
+  const playersRef = useRef(players);
+  playersRef.current = players;
 
   useEffect(() => {
     if (!initialBoard) {
@@ -119,7 +155,15 @@ function ActiveMatchBoard({
     void Promise.resolve()
       .then(async () => {
         if (!cancelled) {
-          await runner.loadMatchMap(initialBoard.map);
+          if (initialBoard.gameState) {
+            await runner.loadLiveMatch(
+              initialBoard.map,
+              playersRef.current,
+              initialBoard.gameState.observation,
+            );
+          } else {
+            await runner.loadMatchMap(initialBoard.map);
+          }
         }
       })
       .catch((error) => {

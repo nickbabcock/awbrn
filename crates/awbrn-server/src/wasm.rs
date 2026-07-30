@@ -76,6 +76,11 @@ impl WasmMatch {
             .submit_command(player, command)
             .map_err(command_error)?;
         let combat_outcome = result.combat_outcome;
+        let typed_transitions = result
+            .observed_transitions
+            .into_iter()
+            .map(|(player, transition)| (player.0.to_string(), serialized_value(&transition)))
+            .collect::<BTreeMap<_, _>>();
 
         let spectator_view = if self.fog_enabled {
             None
@@ -90,11 +95,19 @@ impl WasmMatch {
             SpectatorMessage::SpectatorNotice { fog_active: true }
         } else {
             SpectatorMessage::SpectatorState {
-                game_state: spectator_game_state(
+                game_state: Box::new(spectator_game_state(
                     spectator_view
                         .as_ref()
                         .expect("non-fog matches should build spectator state"),
-                ),
+                    self.server
+                        .spectator_observation()
+                        .expect("a live match has a spectator observation"),
+                )),
+                transition: self
+                    .server
+                    .spectator_player()
+                    .and_then(|player| typed_transitions.get(&player.0.to_string()))
+                    .cloned(),
             }
         };
 
@@ -104,7 +117,14 @@ impl WasmMatch {
             .map(|(id, update)| {
                 (
                     id.0.to_string(),
-                    player_update_message(&update, public_players.clone()),
+                    player_update_message(
+                        &update,
+                        public_players.clone(),
+                        typed_transitions
+                            .get(&id.0.to_string())
+                            .cloned()
+                            .expect("every player update has a typed transition"),
+                    ),
                 )
             })
             .collect();
@@ -134,7 +154,10 @@ impl WasmMatch {
         let view = self.server.player_view(player).ok_or_else(|| {
             invalid_input("player_slot", format!("unknown player slot {player_slot}"))
         })?;
-        Ok(player_game_state(&view, player_slot))
+        let observation = self.server.player_observation(player).ok_or_else(|| {
+            invalid_input("player_slot", format!("unknown player slot {player_slot}"))
+        })?;
+        Ok(player_game_state(&view, player_slot, observation))
     }
 
     #[wasm_bindgen(js_name = spectatorGameState)]
@@ -142,7 +165,12 @@ impl WasmMatch {
         let game_state = if self.fog_enabled {
             None
         } else {
-            Some(spectator_game_state(&self.server.spectator_view()))
+            Some(spectator_game_state(
+                &self.server.spectator_view(),
+                self.server
+                    .spectator_observation()
+                    .expect("a live match has a spectator observation"),
+            ))
         };
         Ok(SpectatorGameStateResponse { game_state })
     }
@@ -226,6 +254,8 @@ pub struct MatchGameState {
     pub players: Vec<PublicPlayerState>,
     pub units: Vec<WireVisibleUnit>,
     pub terrain: Vec<WireVisibleTerrain>,
+    #[tsify(type = "unknown")]
+    pub observation: awvm::semantic::Observation,
 }
 
 #[derive(Tsify, Serialize, Clone)]
@@ -283,8 +313,14 @@ pub struct WirePosition {
     rename_all_fields = "camelCase"
 )]
 pub enum SpectatorMessage {
-    SpectatorNotice { fog_active: bool },
-    SpectatorState { game_state: MatchGameState },
+    SpectatorNotice {
+        fog_active: bool,
+    },
+    SpectatorState {
+        game_state: Box<MatchGameState>,
+        #[tsify(type = "unknown")]
+        transition: Option<Value>,
+    },
 }
 
 #[derive(Tsify, Serialize)]
@@ -310,6 +346,8 @@ pub struct PlayerUpdateMessage {
     pub turn_change: Option<TurnChangeMessage>,
     #[tsify(type = "number | null")]
     pub funds_changed: Option<u32>,
+    #[tsify(type = "unknown")]
+    pub transition: Value,
 }
 
 #[derive(Tsify, Serialize)]
@@ -363,7 +401,11 @@ pub enum CaptureEventMessage {
     },
 }
 
-fn player_game_state(view: &PlayerView, viewer_slot_index: u8) -> MatchGameState {
+fn player_game_state(
+    view: &PlayerView,
+    viewer_slot_index: u8,
+    observation: awvm::semantic::Observation,
+) -> MatchGameState {
     MatchGameState {
         viewer_slot_index: Some(viewer_slot_index),
         day: view.state.day,
@@ -380,10 +422,14 @@ fn player_game_state(view: &PlayerView, viewer_slot_index: u8) -> MatchGameState
             .collect(),
         units: visible_units(&view.units),
         terrain: visible_terrain(&view.terrain),
+        observation,
     }
 }
 
-fn spectator_game_state(view: &SpectatorView) -> MatchGameState {
+fn spectator_game_state(
+    view: &SpectatorView,
+    observation: awvm::semantic::Observation,
+) -> MatchGameState {
     MatchGameState {
         viewer_slot_index: None,
         day: view.state.day,
@@ -393,6 +439,7 @@ fn spectator_game_state(view: &SpectatorView) -> MatchGameState {
         players: public_player_states(view),
         units: visible_units(&view.units),
         terrain: visible_terrain(&view.terrain),
+        observation,
     }
 }
 
@@ -409,6 +456,7 @@ fn public_player_states(view: &SpectatorView) -> Vec<PublicPlayerState> {
 fn player_update_message(
     update: &PlayerUpdate,
     players: Vec<PublicPlayerState>,
+    transition: Value,
 ) -> PlayerUpdateMessage {
     PlayerUpdateMessage {
         message_type: "playerUpdate",
@@ -455,6 +503,7 @@ fn player_update_message(
                 new_day: turn_change.new_day,
             }),
         funds_changed: update.my_funds,
+        transition,
     }
 }
 

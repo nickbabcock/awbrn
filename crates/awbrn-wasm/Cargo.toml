@@ -11,6 +11,7 @@ awbrn-client = { path = "../awbrn-client" }
 awbrn-map = { path = "../awbrn-map" }
 awbrn-types = { path = "../awbrn-types", features = ["bevy"] }
 awbw-replay = { path = "../awbw-replay" }
+awvm = { path = "../awvm" }
 bevy = { workspace = true, features = [
     "bevy_asset",
     "bevy_camera",

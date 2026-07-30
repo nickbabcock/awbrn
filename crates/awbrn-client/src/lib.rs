@@ -15,6 +15,7 @@ pub use features::event_bus::{
 };
 pub use json_plugin::*;
 pub use loading::{
-    MapAssetPathResolver, PendingGameStart, PendingMatchMap, ReplayToLoad, StaticAssetPathResolver,
+    LiveMatchPlayer, MapAssetPathResolver, PendingGameStart, PendingLiveMatch,
+    PendingLiveTransitions, PendingMatchMap, ReplayToLoad, StaticAssetPathResolver,
 };
 pub use ui_atlas::*;

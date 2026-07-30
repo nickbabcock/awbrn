@@ -1,0 +1,557 @@
+//! Replay and live presentation over typed AWVM observation transitions.
+//!
+//! Historical actions advance the recorded-outcome adapter. Both historical
+//! and live presentation then consume only recipient-safe
+//! `ObservedTransition` values.
+
+use awbw_replay::turn_models::Action;
+use awvm::semantic::{ObservedEvent, ObservedTransition, ObservedUnitRef, PlayerId, Pos};
+use bevy::{log, prelude::*};
+
+use crate::features::event_bus::{EventSink, NewDay as ExternalNewDay};
+use crate::features::player_roster::{
+    PlayerFunds, PlayerPowerCharges, PlayerRosterConfig, PlayerUnitCosts, active_power_charge,
+    emit_player_roster_updated,
+};
+use crate::modes::replay::navigation::PendingCourseArrows;
+use crate::render::animation::UnitPathAnimation;
+use awbrn_game::replay::{
+    AwbwUnitId, NewDay, ReplayState, ReplayViewpoint, apply_observed_transition,
+    apply_observed_transitions,
+};
+use awbrn_game::world::{BoardIndex, CarriedBy, Faction, StrongIdMap, Unit};
+use awbrn_types::UnitExt;
+
+/// Historical replay source for the typed presentation boundary.
+///
+/// `RecordedAdapter` applies archived graphical outcomes and never executes an
+/// AWVM command or reconstructs random tokens.
+#[derive(Resource)]
+pub struct ReplayTransitionSource {
+    adapter: awvm_awbw::RecordedAdapter,
+}
+
+impl ReplayTransitionSource {
+    pub fn new(adapter: awvm_awbw::RecordedAdapter) -> Self {
+        Self { adapter }
+    }
+}
+
+/// Terminal marker for a replay whose typed source can no longer be trusted.
+///
+/// A failed advance or projection desynchronizes the adapter from the archived
+/// action stream, so every later action would compound the divergence. The
+/// marker halts advancement instead of logging once per remaining action.
+#[derive(Resource, Debug)]
+pub struct ReplayTransitionFailed;
+
+#[derive(Resource, Debug, Default)]
+pub struct ReplayAdvanceLock {
+    active_entity: Option<Entity>,
+    deferred_transitions: Option<DeferredTransitions>,
+}
+
+impl ReplayAdvanceLock {
+    pub fn is_active(&self) -> bool {
+        self.active_entity.is_some()
+    }
+
+    fn activate_typed(&mut self, entity: Entity, transitions: Vec<ObservedTransition>) {
+        self.active_entity = Some(entity);
+        self.deferred_transitions = Some(DeferredTransitions::Complete(transitions));
+    }
+
+    fn activate_recipient(&mut self, entity: Entity, transition: ObservedTransition) {
+        self.active_entity = Some(entity);
+        self.deferred_transitions = Some(DeferredTransitions::Recipient(Box::new(transition)));
+    }
+
+    pub fn active_entity(&self) -> Option<Entity> {
+        self.active_entity
+    }
+
+    pub fn release_for(&mut self, entity: Entity) -> Option<ReplayAnimationFollowup> {
+        if self.active_entity != Some(entity) {
+            return None;
+        }
+
+        self.active_entity = None;
+        Some(ReplayAnimationFollowup {
+            transitions: self.deferred_transitions.take(),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct ReplayAnimationFollowup {
+    pub transitions: Option<DeferredTransitions>,
+}
+
+pub struct ReplayFollowupCommand {
+    pub transitions: Option<DeferredTransitions>,
+}
+
+impl Command for ReplayFollowupCommand {
+    type Out = ();
+
+    fn apply(self, world: &mut World) {
+        if let Some(transitions) = &self.transitions {
+            // The apply paths already emit the roster snapshot.
+            apply_deferred_transitions(transitions, world);
+            return;
+        }
+        emit_player_roster_updated(world);
+    }
+}
+
+#[derive(Debug)]
+pub enum DeferredTransitions {
+    Complete(Vec<ObservedTransition>),
+    Recipient(Box<ObservedTransition>),
+}
+
+/// Apply one live server transition through the same typed presentation and
+/// animation path used by archived replay playback.
+pub struct LiveTransitionCommand {
+    pub transition: ObservedTransition,
+}
+
+impl Command for LiveTransitionCommand {
+    type Out = ();
+
+    fn apply(self, world: &mut World) {
+        if start_typed_movement_animation(
+            std::slice::from_ref(&self.transition),
+            DeferredTransitions::Recipient(Box::new(self.transition.clone())),
+            world,
+        ) {
+            return;
+        }
+        apply_recipient_transition(&self.transition, world);
+    }
+}
+
+/// A custom Command for processing replay turn actions.
+pub struct ReplayTurnCommand {
+    pub action: Action,
+}
+
+impl Command for ReplayTurnCommand {
+    type Out = ();
+
+    fn apply(self, world: &mut World) {
+        if !world.contains_resource::<ReplayTransitionSource>() {
+            log::error!("Cannot advance replay without a typed transition source");
+            return;
+        }
+        self.apply_typed(world);
+    }
+}
+
+impl ReplayTurnCommand {
+    fn apply_typed(self, world: &mut World) {
+        if world.contains_resource::<ReplayTransitionFailed>() {
+            return;
+        }
+
+        let observed = {
+            let mut source = world.resource_mut::<ReplayTransitionSource>();
+            source
+                .adapter
+                .advance(&self.action)
+                .map_err(|error| format!("Could not advance recorded replay outcome: {error}"))
+                .and_then(|transition| {
+                    let players = transition.post_state().players.clone();
+                    players
+                        .iter()
+                        .map(|player| transition.observe(&player.id))
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|error| {
+                            format!("Could not project recorded replay outcome: {error}")
+                        })
+                })
+        };
+        let observed = match observed {
+            Ok(observed) => observed,
+            Err(error) => {
+                log::error!("{error}");
+                world.insert_resource(ReplayTransitionFailed);
+                return;
+            }
+        };
+
+        update_player_roster_unit_costs(&self.action, world);
+
+        if start_typed_movement_animation(
+            &observed,
+            DeferredTransitions::Complete(observed.clone()),
+            world,
+        ) {
+            return;
+        }
+
+        apply_typed_transitions(&observed, world);
+    }
+}
+
+fn apply_deferred_transitions(transitions: &DeferredTransitions, world: &mut World) {
+    match transitions {
+        DeferredTransitions::Complete(transitions) => apply_typed_transitions(transitions, world),
+        DeferredTransitions::Recipient(transition) => {
+            apply_recipient_transition(transition, world);
+        }
+    }
+}
+
+fn apply_typed_transitions(transitions: &[ObservedTransition], world: &mut World) {
+    let previous_day = world
+        .get_resource::<ReplayState>()
+        .map_or(1, |state| state.day);
+    if let Err(error) = apply_observed_transitions(world, transitions) {
+        log::error!("Could not apply typed replay presentation transition: {error}");
+        return;
+    }
+    sync_player_roster_from_transition(transitions, world);
+    let current_day = world
+        .get_resource::<ReplayState>()
+        .map_or(previous_day, |state| state.day);
+    if current_day != previous_day {
+        world.trigger(NewDay { day: current_day });
+    }
+    emit_player_roster_updated(world);
+}
+
+fn apply_recipient_transition(transition: &ObservedTransition, world: &mut World) {
+    let previous_day = world
+        .get_resource::<ReplayState>()
+        .map_or(1, |state| state.day);
+    if let Err(error) = apply_observed_transition(world, transition) {
+        log::error!("Could not apply live typed presentation transition: {error}");
+        return;
+    }
+    sync_player_roster_from_transition(std::slice::from_ref(transition), world);
+    let current_day = world
+        .get_resource::<ReplayState>()
+        .map_or(previous_day, |state| state.day);
+    if current_day != previous_day {
+        world.trigger(NewDay { day: current_day });
+    }
+    emit_player_roster_updated(world);
+}
+
+fn sync_player_roster_from_transition(transitions: &[ObservedTransition], world: &mut World) {
+    let updates = transitions
+        .iter()
+        .flat_map(|transition| transition.post.players.iter())
+        .filter_map(|player| {
+            let awvm::semantic::ObservedPlayer::Private { id, funds, .. } = player else {
+                return None;
+            };
+            Some((parse_player_id(id)?, u32::try_from(*funds).ok()?))
+        })
+        .collect::<Vec<_>>();
+    if let Some(mut player_funds) = world.get_resource_mut::<PlayerFunds>() {
+        for (player, funds) in updates {
+            player_funds.set(player, funds);
+        }
+    }
+
+    let statuses = transitions
+        .first()
+        .into_iter()
+        .flat_map(|transition| transition.post.players.iter())
+        .filter_map(|player| match player {
+            awvm::semantic::ObservedPlayer::Private { id, status, .. }
+            | awvm::semantic::ObservedPlayer::Public { id, status, .. } => {
+                Some((parse_player_id(id)?, *status))
+            }
+        })
+        .collect::<Vec<_>>();
+    // Power charge is public in AWVM, so every transition reports it for every
+    // player and the first one is authoritative for all of them.
+    let charges = transitions
+        .first()
+        .into_iter()
+        .flat_map(|transition| transition.post.players.iter())
+        .filter_map(|player| {
+            let id = match player {
+                awvm::semantic::ObservedPlayer::Private { id, .. }
+                | awvm::semantic::ObservedPlayer::Public { id, .. } => id,
+            };
+            Some((parse_player_id(id)?, active_power_charge(player)?))
+        })
+        .collect::<Vec<_>>();
+    if let Some(mut power_charges) = world.get_resource_mut::<PlayerPowerCharges>() {
+        for (player, charge) in charges {
+            power_charges.set(player, charge);
+        }
+    }
+
+    if let Some(mut config) = world.get_resource_mut::<PlayerRosterConfig>() {
+        for (player, status) in statuses {
+            if let Some(entry) = config
+                .players
+                .iter_mut()
+                .find(|entry| entry.player_id == player)
+            {
+                entry.eliminated = status != awvm::semantic::PlayerStatus::Active;
+            }
+        }
+    }
+}
+
+/// Record what a built unit actually cost.
+///
+/// Transitions carry no purchase price, and the ruleset base cost is already
+/// the fallback in `player_roster_snapshot`, so only the archived action can
+/// supply a discounted CO price.
+fn update_player_roster_unit_costs(action: &Action, world: &mut World) {
+    let updates = collect_player_roster_unit_cost_updates(action);
+    let Some(mut unit_costs) = world.get_resource_mut::<PlayerUnitCosts>() else {
+        return;
+    };
+
+    for (unit_id, cost) in updates {
+        unit_costs.set(unit_id, cost);
+    }
+}
+
+fn collect_player_roster_unit_cost_updates(action: &Action) -> Vec<(AwbwUnitId, u32)> {
+    match action {
+        Action::Build { new_unit, .. } => new_unit
+            .values()
+            .find_map(|unit| unit.get_value())
+            .map(|unit| {
+                vec![(
+                    AwbwUnitId(unit.units_id),
+                    unit.units_cost.unwrap_or(unit.units_name.base_cost()),
+                )]
+            })
+            .unwrap_or_default(),
+        Action::Power(power_action) => power_action
+            .unit_add
+            .as_ref()
+            .into_iter()
+            .flat_map(|groups| groups.values())
+            .flat_map(|group| {
+                group
+                    .units
+                    .iter()
+                    .map(|unit| (AwbwUnitId(unit.units_id), group.unit_name.base_cost()))
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Mask a typed movement path the same way the legacy reducer masked course
+/// arrows: friendly movers are always drawn, foreign movers only on tiles the
+/// viewer can actually see.
+fn typed_path_for_current_view(
+    path: &[awbrn_map::Position],
+    entity: Entity,
+    world: &World,
+) -> Vec<crate::modes::replay::navigation::ReplayPathTile> {
+    use crate::features::fog::{FogActive, FogOfWarMap, FriendlyFactions};
+    use crate::modes::replay::navigation::ReplayPathTile;
+
+    let visible = |unit_visible: bool| {
+        path.iter()
+            .map(move |position| ReplayPathTile {
+                position: *position,
+                unit_visible,
+            })
+            .collect::<Vec<_>>()
+    };
+
+    // Headless fixtures install the semantic world without the fog feature.
+    let (Some(fog_active), Some(friendly), Some(fog_map)) = (
+        world.get_resource::<FogActive>(),
+        world.get_resource::<FriendlyFactions>(),
+        world.get_resource::<FogOfWarMap>(),
+    ) else {
+        return visible(true);
+    };
+    if !fog_active.0 {
+        return visible(true);
+    }
+
+    let Some(faction) = world
+        .entity(entity)
+        .get::<Faction>()
+        .map(|faction| faction.0)
+    else {
+        return visible(true);
+    };
+    if friendly.0.contains(&faction) {
+        return visible(true);
+    }
+
+    let unit_is_air = world
+        .entity(entity)
+        .get::<Unit>()
+        .is_some_and(|unit| unit.0.domain() == awbrn_types::UnitDomain::Air);
+    path.iter()
+        .map(|position| ReplayPathTile {
+            position: *position,
+            unit_visible: fog_map.is_unit_visible(*position, unit_is_air),
+        })
+        .collect()
+}
+
+fn start_typed_movement_animation(
+    transitions: &[ObservedTransition],
+    deferred: DeferredTransitions,
+    world: &mut World,
+) -> bool {
+    let Some((unit, origin, path)) = movement_for_current_view(transitions, world) else {
+        return false;
+    };
+    if path.len() < 2 {
+        return false;
+    }
+    let Some(entity) = entity_for_observed_unit(unit, origin, world) else {
+        return false;
+    };
+    let idle_flip_x = world
+        .entity(entity)
+        .get::<Sprite>()
+        .map(|sprite| sprite.flip_x)
+        .unwrap_or(false);
+    let Some(animation) = UnitPathAnimation::new(path.clone(), idle_flip_x) else {
+        return false;
+    };
+    let arrow_path = typed_path_for_current_view(&path, entity, world);
+    // A path the viewer cannot see anywhere stays unanimated: the state change
+    // still applies, just without motion.
+    if !arrow_path.iter().any(|tile| tile.unit_visible) {
+        return false;
+    }
+    world
+        .entity_mut(entity)
+        .insert((animation, PendingCourseArrows { path: arrow_path }));
+    match deferred {
+        DeferredTransitions::Complete(transitions) => world
+            .resource_mut::<ReplayAdvanceLock>()
+            .activate_typed(entity, transitions),
+        DeferredTransitions::Recipient(transition) => world
+            .resource_mut::<ReplayAdvanceLock>()
+            .activate_recipient(entity, *transition),
+    }
+    true
+}
+
+fn movement_for_current_view<'a>(
+    transitions: &'a [ObservedTransition],
+    world: &World,
+) -> Option<(
+    ObservedUnitRef,
+    awbrn_map::Position,
+    Vec<awbrn_map::Position>,
+)> {
+    let selected = if transitions.len() == 1 {
+        transitions.first()
+    } else {
+        match world.get_resource::<ReplayViewpoint>() {
+            Some(ReplayViewpoint::Player(player)) => transition_for_player(transitions, *player),
+            Some(ReplayViewpoint::ActivePlayer) => world
+                .get_resource::<ReplayState>()
+                .and_then(|state| state.active_player_id)
+                .and_then(|player| transition_for_player(transitions, player)),
+            Some(ReplayViewpoint::Spectator) | None => None,
+        }
+    };
+    let mut candidates: Box<dyn Iterator<Item = &'a ObservedEvent> + 'a> =
+        if let Some(transition) = selected {
+            Box::new(transition.events.iter())
+        } else {
+            Box::new(
+                transitions
+                    .iter()
+                    .flat_map(|transition| transition.events.iter())
+                    .filter(|event| {
+                        matches!(
+                            event,
+                            ObservedEvent::UnitMoved {
+                                unit: ObservedUnitRef::Friendly { .. },
+                                ..
+                            }
+                        )
+                    }),
+            )
+        };
+    candidates.find_map(|event| match event {
+        ObservedEvent::UnitMoved {
+            unit, from, path, ..
+        } => Some((
+            *unit,
+            position_from_pos(*from),
+            path.iter().copied().map(position_from_pos).collect(),
+        )),
+        ObservedEvent::UnitAppeared { .. }
+        | ObservedEvent::UnitDisappeared { .. }
+        | ObservedEvent::MovementStopped { .. }
+        | ObservedEvent::UnitChanged { .. }
+        | ObservedEvent::UnitRemoved { .. }
+        | ObservedEvent::TileChanged { .. }
+        | ObservedEvent::PlayerChanged { .. }
+        | ObservedEvent::AreaStrikeResolved { .. }
+        | ObservedEvent::PublicEvent { .. } => None,
+    })
+}
+
+fn transition_for_player(
+    transitions: &[ObservedTransition],
+    player: awbrn_types::AwbwGamePlayerId,
+) -> Option<&ObservedTransition> {
+    transitions
+        .iter()
+        .find(|transition| parse_player_id(&transition.post.recipient) == Some(player))
+}
+
+fn parse_player_id(id: &PlayerId) -> Option<awbrn_types::AwbwGamePlayerId> {
+    id.as_str()
+        .parse()
+        .ok()
+        .map(awbrn_types::AwbwGamePlayerId::new)
+}
+
+fn entity_for_observed_unit(
+    unit: ObservedUnitRef,
+    origin: awbrn_map::Position,
+    world: &World,
+) -> Option<Entity> {
+    match unit {
+        ObservedUnitRef::Friendly { unit } => {
+            let id = awbrn_types::AwbwUnitId::new(unit.get());
+            world
+                .resource::<StrongIdMap<AwbwUnitId>>()
+                .get(&AwbwUnitId(id))
+        }
+        ObservedUnitRef::Enemy { .. } => world
+            .resource::<BoardIndex>()
+            .unit_entity(origin)
+            .ok()
+            .flatten(),
+    }
+}
+
+fn position_from_pos(position: Pos) -> awbrn_map::Position {
+    awbrn_map::Position::new(usize::from(position.x), usize::from(position.y))
+}
+
+/// Observer: when `CarriedBy` is added to an entity, hide it visually.
+pub(crate) fn on_carried_by_add(trigger: On<Insert, CarriedBy>, mut commands: Commands) {
+    commands.entity(trigger.entity).insert(Visibility::Hidden);
+}
+
+/// Observer: when `CarriedBy` is removed, keep the entity hidden until the
+/// projection pass decides whether it is visible.
+pub(crate) fn on_carried_by_remove(trigger: On<Remove, CarriedBy>, mut commands: Commands) {
+    commands.entity(trigger.entity).insert(Visibility::Hidden);
+}
+
+/// Forward semantic day changes to registered client sinks.
+pub(crate) fn on_new_day(trigger: On<NewDay>, sink: If<Res<EventSink<ExternalNewDay>>>) {
+    sink.emit(ExternalNewDay { day: trigger.day });
+}

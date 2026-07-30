@@ -8,6 +8,7 @@ use crate::view::{self, CommandResult, PlayerView, SpectatorView};
 
 use awbrn_map::Position;
 use awbrn_types::{PlayerFaction, Unit};
+use awvm::semantic::{AwbwVisibility, Observation, observe};
 
 /// Authoritative game server driven by AWVM.
 pub struct GameServer {
@@ -43,6 +44,31 @@ impl GameServer {
     /// Get the full visible state for a player (for initial load or reconnection).
     pub fn player_view(&self, player: PlayerId) -> Option<PlayerView> {
         view::build_player_view(&self.authority, player)
+    }
+
+    /// Get the typed recipient-safe state used by presentation clients.
+    pub fn player_observation(&self, player: PlayerId) -> Option<Observation> {
+        let recipient = self.authority.player(player);
+        self.authority.state().find_player(&recipient)?;
+        observe(&AwbwVisibility, self.authority.state(), &recipient).ok()
+    }
+
+    /// The player slot whose recipient projection stands in for the spectator
+    /// view. Callers that pair an observation with a transition must use this
+    /// slot for both.
+    pub fn spectator_player(&self) -> Option<PlayerId> {
+        if self.authority.state().settings.fog {
+            return None;
+        }
+        self.authority.players().next()
+    }
+
+    /// A non-fog spectator may use any recipient projection: all board and unit
+    /// facts are public when fog is disabled. Fog matches have no spectator
+    /// projection, because every recipient view hides something.
+    pub fn spectator_observation(&self) -> Option<Observation> {
+        self.spectator_player()
+            .and_then(|player| self.player_observation(player))
     }
 
     /// Get the full public state for a non-fog spectator.

@@ -2,12 +2,14 @@ use crate::features::event_bus::{
     EventSink, PlayerRosterEntry, PlayerRosterSnapshot, PlayerRosterStats,
 };
 use crate::features::player_display::{PlayerDisplayFactionOverrides, display_faction_for_player};
-use awbrn_content::co_portrait_by_awbw_id;
+use crate::loading::LiveMatchPlayer;
+use awbrn_content::{CoPortraitMetadata, co_portrait_by_awbw_id, co_portraits};
 use awbrn_game::replay::{AwbwUnitId, ReplayState};
 use awbrn_game::world::{Faction, FogActive, FriendlyFactions, GraphicalHp, TerrainTile, Unit};
 use awbrn_types::{Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, UnitExt};
 use awbw_replay::AwbwReplay;
 use awbw_replay::game_models::AwbwPlayer;
+use awvm::semantic::{Observation, ObservedPlayer};
 use bevy::prelude::*;
 use std::collections::HashMap;
 
@@ -50,6 +52,25 @@ impl PlayerFunds {
 
     pub fn get(&self, player_id: awbrn_types::AwbwGamePlayerId) -> u32 {
         self.0.get(&player_id).copied().unwrap_or_default()
+    }
+}
+
+/// Public CO power charge per player.
+///
+/// AWVM computes charge from the funds value of damage dealt and projects it to
+/// every recipient, so this is a cache of an authoritative fact rather than a
+/// client-side derivation. It is deliberately not fog-gated: `observe` treats
+/// funds as owner-only but power charge as public.
+#[derive(Resource, Clone, Default)]
+pub struct PlayerPowerCharges(pub HashMap<awbrn_types::AwbwGamePlayerId, u32>);
+
+impl PlayerPowerCharges {
+    pub fn set(&mut self, player_id: awbrn_types::AwbwGamePlayerId, charge: u32) {
+        self.0.insert(player_id, charge);
+    }
+
+    pub fn get(&self, player_id: awbrn_types::AwbwGamePlayerId) -> Option<u32> {
+        self.0.get(&player_id).copied()
     }
 }
 
@@ -103,6 +124,154 @@ pub fn player_roster_seed_from_replay(
     ))
 }
 
+/// Seed the roster for a live match from its bootstrap observation.
+///
+/// A live match has no AWBW replay record to read, so identity comes from the
+/// bootstrap player list and everything else from the observation. `match_id`
+/// and `map_id` are not part of the live payload and stay zero.
+pub fn player_roster_seed_from_live_match(
+    players: &[LiveMatchPlayer],
+    observation: &Observation,
+) -> (
+    PlayerRosterConfig,
+    PlayerFunds,
+    PlayerUnitCosts,
+    PlayerPowerCharges,
+) {
+    let teams = observation
+        .players
+        .iter()
+        .map(observed_player_team)
+        .collect::<std::collections::HashSet<_>>();
+    let team_game = teams.len() > 1 && teams.len() < observation.players.len();
+
+    let mut config_players = Vec::with_capacity(players.len());
+    let mut funds = PlayerFunds::default();
+    let mut charges = PlayerPowerCharges::default();
+
+    for (index, player) in players.iter().enumerate() {
+        let Some(faction) = PlayerFaction::from_id(player.faction_id) else {
+            continue;
+        };
+        let player_id = awbrn_types::AwbwGamePlayerId::new(player.player_id);
+        let observed = observation.players.iter().find(|candidate| {
+            observed_player_id(candidate).as_str() == player.player_id.to_string()
+        });
+
+        let commanders = observed.map(observed_player_commanders).unwrap_or_default();
+        let co = commanders
+            .first()
+            .and_then(|kind| co_portrait_for_commander(*kind));
+        let tag_co = commanders
+            .get(1)
+            .and_then(|kind| co_portrait_for_commander(*kind));
+
+        if let Some(observed) = observed {
+            if let ObservedPlayer::Private { funds: value, .. } = observed {
+                funds.set(player_id, u32::try_from(*value).unwrap_or(u32::MAX));
+            }
+            if let Some(charge) = active_power_charge(observed) {
+                charges.set(player_id, charge);
+            }
+        }
+
+        config_players.push(PlayerRosterPlayer {
+            player_id,
+            // A live match carries no AWBW user account, and turn order follows
+            // the bootstrap player list.
+            user_id: awbrn_types::AwbwPlayerId::new(0),
+            turn_order: index as u32,
+            team: team_game
+                .then(|| observed.map(|observed| observed_player_team(observed).to_string()))
+                .flatten(),
+            eliminated: observed.is_some_and(|observed| {
+                observed_player_status(observed) != awvm::semantic::PlayerStatus::Active
+            }),
+            faction,
+            faction_code: faction.country_code().to_string(),
+            faction_name: faction.name().to_string(),
+            co_key: co.map(|portrait| portrait.key().to_string()),
+            co_name: co.map(|portrait| portrait.display_name().to_string()),
+            tag_co_key: tag_co.map(|portrait| portrait.key().to_string()),
+            tag_co_name: tag_co.map(|portrait| portrait.display_name().to_string()),
+        });
+    }
+
+    (
+        PlayerRosterConfig {
+            match_id: 0,
+            map_id: 0,
+            funds_per_property: u32::try_from(observation.settings.income_per_property)
+                .unwrap_or_default(),
+            players: config_players,
+        },
+        funds,
+        // Live builds have no recorded purchase price; `player_roster_snapshot`
+        // falls back to the ruleset base cost for any unit missing here.
+        PlayerUnitCosts::default(),
+        charges,
+    )
+}
+
+fn observed_player_id(player: &ObservedPlayer) -> &awvm::semantic::PlayerId {
+    match player {
+        ObservedPlayer::Private { id, .. } | ObservedPlayer::Public { id, .. } => id,
+    }
+}
+
+fn observed_player_team(player: &ObservedPlayer) -> &str {
+    match player {
+        ObservedPlayer::Private { team, .. } | ObservedPlayer::Public { team, .. } => team.as_str(),
+    }
+}
+
+fn observed_player_status(player: &ObservedPlayer) -> awvm::semantic::PlayerStatus {
+    match player {
+        ObservedPlayer::Private { status, .. } | ObservedPlayer::Public { status, .. } => *status,
+    }
+}
+
+fn observed_player_commanders(player: &ObservedPlayer) -> Vec<awvm::semantic::CommanderId> {
+    match player {
+        ObservedPlayer::Private { commanders, .. } => {
+            commanders.iter().map(|commander| commander.id).collect()
+        }
+        ObservedPlayer::Public { commanders, .. } => {
+            commanders.iter().map(|commander| commander.id).collect()
+        }
+    }
+}
+
+/// The charge of the commander currently leading, falling back to the first.
+pub fn active_power_charge(player: &ObservedPlayer) -> Option<u32> {
+    let charge = match player {
+        ObservedPlayer::Private { commanders, .. } => commanders
+            .iter()
+            .find(|commander| commander.active)
+            .or_else(|| commanders.first())
+            .map(|commander| commander.power_charge),
+        ObservedPlayer::Public { commanders, .. } => commanders
+            .iter()
+            .find(|commander| commander.active)
+            .or_else(|| commanders.first())
+            .map(|commander| commander.power_charge),
+    }?;
+    u32::try_from(charge).ok()
+}
+
+/// AWVM names commanders by the same kebab key the portrait table uses, except
+/// for the no-CO placeholder.
+fn co_portrait_for_commander(kind: awvm::semantic::CommanderId) -> Option<CoPortraitMetadata> {
+    let key = match kind {
+        awvm::semantic::CommanderId::Neutral => "no-co",
+        other => other.as_str(),
+    };
+    co_portraits()
+        .iter()
+        .copied()
+        .find(|portrait| portrait.key() == key)
+}
+
 fn player_roster_player(player: &AwbwPlayer, team_game: bool) -> PlayerRosterPlayer {
     let co = co_portrait_by_awbw_id(player.co_id);
     let tag_co = player.tags_co_id.and_then(co_portrait_by_awbw_id);
@@ -127,6 +296,10 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
     let config = world.get_resource::<PlayerRosterConfig>()?.clone();
     let funds = world.get_resource::<PlayerFunds>()?.clone();
     let unit_costs = world.get_resource::<PlayerUnitCosts>()?.clone();
+    let power_charges = world
+        .get_resource::<PlayerPowerCharges>()
+        .cloned()
+        .unwrap_or_default();
     let replay_state = *world.get_resource::<ReplayState>()?;
     let fog_active = world.get_resource::<FogActive>().is_some_and(|fog| fog.0);
     let display_faction_overrides = world
@@ -247,6 +420,9 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
                     co_name: player.co_name.clone(),
                     tag_co_key: player.tag_co_key.clone(),
                     tag_co_name: player.tag_co_name.clone(),
+                    // Charge stays outside `stats` because AWVM projects it to
+                    // every player, fog or not.
+                    power_charge: power_charges.get(player.player_id),
                     stats,
                 }
             })
