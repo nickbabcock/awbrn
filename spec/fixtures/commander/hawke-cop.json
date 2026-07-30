@@ -7,7 +7,8 @@
   },
   "feature": "commander-power-v1.hawke.cop",
   "evidence": {
-    "confidence": "corroborated-implementation"
+    "confidence": "confirmed-replay",
+    "note": "Archived AWBW replay 1468032 actions 1120/1179 and 1904/1912 show loaded cargo is excluded from Black Wave damage."
   },
   "initial_state": {
     "ruleset": {
@@ -193,10 +194,10 @@
       },
       {
         "id": 4,
-        "kind": "infantry",
+        "kind": "apc",
         "owner": "blue",
         "hp": 5,
-        "fuel": 99,
+        "fuel": 70,
         "ammo": 0,
         "action": "ready",
         "concealment": "exposed",
@@ -231,6 +232,21 @@
         "location": {
           "type": "board",
           "position": [6, 0]
+        }
+      },
+      {
+        "id": 7,
+        "kind": "infantry",
+        "owner": "blue",
+        "hp": 55,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "spent",
+        "concealment": "exposed",
+        "location": {
+          "type": "cargo",
+          "transport": 4,
+          "slot": 0
         }
       }
     ],
@@ -435,10 +451,10 @@
             },
             {
               "id": 4,
-              "kind": "infantry",
+              "kind": "apc",
               "owner": "blue",
               "hp": 1,
-              "fuel": 99,
+              "fuel": 70,
               "ammo": 0,
               "action": "ready",
               "concealment": "exposed",
@@ -473,6 +489,21 @@
               "location": {
                 "type": "board",
                 "position": [6, 0]
+              }
+            },
+            {
+              "id": 7,
+              "kind": "infantry",
+              "owner": "blue",
+              "hp": 55,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "spent",
+              "concealment": "exposed",
+              "location": {
+                "type": "cargo",
+                "transport": 4,
+                "slot": 0
               }
             }
           ],

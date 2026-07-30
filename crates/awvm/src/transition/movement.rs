@@ -182,6 +182,9 @@ pub(crate) fn plan(
         if state.units.iter().any(|other| {
             other.id != unit_id
                 && board_position(other) == Some(position)
+                && state
+                    .find_player(&other.owner)
+                    .is_some_and(|owner| owner.team != actor_team)
                 && occupancy_is_disclosed(&view, other)
         }) {
             return Err(violation(Violation::PathOccupied { index, position }));
@@ -292,11 +295,15 @@ pub(crate) fn reset_capture_on_departure(
     if actual_path.len() < 2 || !state.units.contains(unit_id) {
         return;
     }
-    let tile = &mut state.board.tile_mut(origin);
+    reset_capture_on_removal(state, origin, events);
+}
+
+pub(crate) fn reset_capture_on_removal(state: &mut State, position: Pos, events: &mut Vec<Event>) {
+    let tile = &mut state.board.tile_mut(position);
     if let Some(before) = tile.capture_points.filter(|points| *points < 20) {
         tile.capture_points = Some(20);
         events.push(Event::CaptureChanged {
-            position: origin,
+            position,
             from: before,
             to: 20,
         });

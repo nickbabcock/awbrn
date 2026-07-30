@@ -1,11 +1,11 @@
 {
-  "id": "drake-typhoon",
+  "id": "combat-carrier-loss-no-cargo-charge",
   "spec_version": "0.1.0",
   "ruleset": { "id": "awbw", "revision": "2026-07-10" },
-  "feature": "commander-power-v1.drake.scop",
+  "feature": "combat-power-charge-v1.carrier-loss",
   "evidence": {
     "confidence": "confirmed-experiment",
-    "note": "Loaded cargo is off-map and is excluded from Typhoon fuel drain and damage."
+    "note": "AWBW cargo lost with a destroyed transport does not add CO power charge."
   },
   "initial_state": {
     "ruleset": { "id": "awbw", "revision": "2026-07-10" },
@@ -38,15 +38,14 @@
         "team": "red-team",
         "funds": 0,
         "status": "active",
-        "commanders": [{ "id": "drake", "active": true, "power_charge": 63000, "power_uses": 0 }],
-        "power_state": { "type": "none" }
-      },
-      {
-        "id": "ally",
-        "team": "red-team",
-        "funds": 0,
-        "status": "active",
-        "commanders": [{ "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "commanders": [
+          {
+            "id": "nell",
+            "active": true,
+            "power_charge": 0,
+            "power_uses": 0
+          }
+        ],
         "power_state": { "type": "none" }
       },
       {
@@ -54,7 +53,14 @@
         "team": "blue-team",
         "funds": 0,
         "status": "active",
-        "commanders": [{ "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "commanders": [
+          {
+            "id": "nell",
+            "active": true,
+            "power_charge": 0,
+            "power_uses": 0
+          }
+        ],
         "power_state": { "type": "none" }
       }
     ],
@@ -62,28 +68,28 @@
       "day": 1,
       "active_player": "red",
       "phase": "unit-action",
-      "order": ["red", "ally", "blue"],
+      "order": ["red", "blue"],
       "position": 0
     },
-    "weather": { "kind": "snow", "remaining_turns": 2 },
+    "weather": { "kind": "clear", "remaining_turns": 0 },
     "units": [
       {
         "id": 0,
-        "kind": "infantry",
+        "kind": "tank",
         "owner": "red",
         "hp": 100,
-        "fuel": 99,
-        "ammo": 0,
+        "fuel": 70,
+        "ammo": 9,
         "action": "ready",
         "concealment": "exposed",
         "location": { "type": "board", "position": [0, 0] }
       },
       {
         "id": 1,
-        "kind": "infantry",
-        "owner": "ally",
-        "hp": 50,
-        "fuel": 77,
+        "kind": "apc",
+        "owner": "blue",
+        "hp": 30,
+        "fuel": 70,
         "ammo": 0,
         "action": "ready",
         "concealment": "exposed",
@@ -91,34 +97,43 @@
       },
       {
         "id": 2,
-        "kind": "apc",
+        "kind": "infantry",
         "owner": "blue",
-        "hp": 15,
-        "fuel": 51,
+        "hp": 100,
+        "fuel": 99,
         "ammo": 0,
-        "action": "ready",
+        "action": "spent",
         "concealment": "exposed",
-        "location": { "type": "board", "position": [2, 0] }
+        "location": { "type": "cargo", "transport": 1, "slot": 0 }
       },
       {
         "id": 3,
         "kind": "infantry",
         "owner": "blue",
-        "hp": 50,
-        "fuel": 77,
+        "hp": 100,
+        "fuel": 99,
         "ammo": 0,
-        "action": "spent",
+        "action": "ready",
         "concealment": "exposed",
-        "location": { "type": "cargo", "transport": 2, "slot": 0 }
+        "location": { "type": "board", "position": [2, 0] }
       }
     ],
     "match": { "status": "active", "draw_offers": [] }
   },
   "steps": [
     {
-      "id": "activate-typhoon",
-      "command": { "type": "activate-power", "player": "red", "level": "scop" },
-      "random": [],
+      "id": "destroy-transport-with-cargo",
+      "command": {
+        "type": "move-attack",
+        "player": "red",
+        "unit": 0,
+        "path": [[0, 0]],
+        "target": { "type": "unit", "unit": 1 }
+      },
+      "random": [
+        { "type": "combat-good-luck", "value": 0 },
+        { "type": "combat-bad-luck", "value": 0 }
+      ],
       "expect": {
         "status": "accepted",
         "state": {
@@ -152,16 +167,13 @@
               "team": "red-team",
               "funds": 0,
               "status": "active",
-              "commanders": [{ "id": "drake", "active": true, "power_charge": 0, "power_uses": 1 }],
-              "power_state": { "type": "scop", "commander_slot": 0 }
-            },
-            {
-              "id": "ally",
-              "team": "red-team",
-              "funds": 0,
-              "status": "active",
               "commanders": [
-                { "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }
+                {
+                  "id": "nell",
+                  "active": true,
+                  "power_charge": 750,
+                  "power_uses": 0
+                }
               ],
               "power_state": { "type": "none" }
             },
@@ -171,7 +183,12 @@
               "funds": 0,
               "status": "active",
               "commanders": [
-                { "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }
+                {
+                  "id": "nell",
+                  "active": true,
+                  "power_charge": 1500,
+                  "power_uses": 0
+                }
               ],
               "power_state": { "type": "none" }
             }
@@ -180,85 +197,86 @@
             "day": 1,
             "active_player": "red",
             "phase": "unit-action",
-            "order": ["red", "ally", "blue"],
+            "order": ["red", "blue"],
             "position": 0
           },
-          "weather": { "kind": "rain", "remaining_turns": 3 },
+          "weather": { "kind": "clear", "remaining_turns": 0 },
           "units": [
             {
               "id": 0,
-              "kind": "infantry",
+              "kind": "tank",
               "owner": "red",
               "hp": 100,
-              "fuel": 99,
-              "ammo": 0,
-              "action": "ready",
+              "fuel": 70,
+              "ammo": 8,
+              "action": "spent",
               "concealment": "exposed",
               "location": { "type": "board", "position": [0, 0] }
-            },
-            {
-              "id": 1,
-              "kind": "infantry",
-              "owner": "ally",
-              "hp": 50,
-              "fuel": 77,
-              "ammo": 0,
-              "action": "ready",
-              "concealment": "exposed",
-              "location": { "type": "board", "position": [1, 0] }
-            },
-            {
-              "id": 2,
-              "kind": "apc",
-              "owner": "blue",
-              "hp": 1,
-              "fuel": 26,
-              "ammo": 0,
-              "action": "ready",
-              "concealment": "exposed",
-              "location": { "type": "board", "position": [2, 0] }
             },
             {
               "id": 3,
               "kind": "infantry",
               "owner": "blue",
-              "hp": 50,
-              "fuel": 77,
+              "hp": 100,
+              "fuel": 99,
               "ammo": 0,
-              "action": "spent",
+              "action": "ready",
               "concealment": "exposed",
-              "location": { "type": "cargo", "transport": 2, "slot": 0 }
+              "location": { "type": "board", "position": [2, 0] }
             }
           ],
           "match": { "status": "active", "draw_offers": [] }
         },
         "events": [
-          { "type": "power-activated", "player": "red", "commander": "drake", "power": "scop" },
           {
             "type": "unit-resourced",
-            "unit": 2,
-            "fuel_before": 51,
-            "fuel_after": 26,
-            "ammo_before": 0,
-            "ammo_after": 0,
-            "reason": "commander-power"
+            "unit": 0,
+            "fuel_before": 70,
+            "fuel_after": 70,
+            "ammo_before": 9,
+            "ammo_after": 8,
+            "reason": "combat"
+          },
+          {
+            "type": "attack-resolved",
+            "attacker": 0,
+            "weapon": "ammo",
+            "target": { "type": "unit", "unit": 1 }
           },
           {
             "type": "unit-damaged",
-            "unit": 2,
-            "from_hp": 15,
-            "to_hp": 1,
-            "reason": "commander-power"
+            "unit": 1,
+            "from_hp": 30,
+            "to_hp": 0,
+            "reason": "combat"
           },
           {
-            "type": "weather-changed",
-            "from": "snow",
-            "to": "rain",
-            "remaining_turns": 3,
-            "reason": "commander-power"
+            "type": "power-charge-changed",
+            "player": "red",
+            "commander_slot": 0,
+            "from": 0,
+            "to": 750,
+            "reason": "combat"
+          },
+          {
+            "type": "power-charge-changed",
+            "player": "blue",
+            "commander_slot": 0,
+            "from": 0,
+            "to": 1500,
+            "reason": "combat"
+          },
+          { "type": "unit-removed", "unit": 1, "reason": "combat" },
+          { "type": "unit-removed", "unit": 2, "reason": "carrier-lost" },
+          {
+            "type": "unit-action-changed",
+            "unit": 0,
+            "from": "ready",
+            "to": "spent",
+            "reason": "attack"
           }
         ],
-        "random_consumed": 0
+        "random_consumed": 2
       }
     }
   ]

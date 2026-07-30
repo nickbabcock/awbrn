@@ -7,7 +7,8 @@
   },
   "feature": "commander-power-v1.jess.cop",
   "evidence": {
-    "confidence": "corroborated-implementation"
+    "confidence": "confirmed-replay",
+    "note": "Landfall replay actions 1909/1912 and 4322/4346 show Turbo Charge resupplying loaded cargo even though the Power recipient rows omit it."
   },
   "initial_state": {
     "ruleset": {
@@ -139,7 +140,7 @@
       },
       {
         "id": 2,
-        "kind": "infantry",
+        "kind": "apc",
         "owner": "red",
         "hp": 100,
         "fuel": 50,
@@ -163,6 +164,21 @@
         "location": {
           "type": "board",
           "position": [2, 0]
+        }
+      },
+      {
+        "id": 4,
+        "kind": "infantry",
+        "owner": "red",
+        "hp": 100,
+        "fuel": 50,
+        "ammo": 0,
+        "action": "spent",
+        "concealment": "exposed",
+        "location": {
+          "type": "cargo",
+          "transport": 2,
+          "slot": 0
         }
       }
     ],
@@ -315,10 +331,10 @@
               "action": "spent",
               "ammo": 0,
               "concealment": "exposed",
-              "fuel": 99,
+              "fuel": 70,
               "hp": 100,
               "id": 2,
-              "kind": "infantry",
+              "kind": "apc",
               "location": {
                 "position": [1, 0],
                 "type": "board"
@@ -336,6 +352,21 @@
               "location": {
                 "position": [2, 0],
                 "type": "board"
+              },
+              "owner": "red"
+            },
+            {
+              "action": "spent",
+              "ammo": 0,
+              "concealment": "exposed",
+              "fuel": 99,
+              "hp": 100,
+              "id": 4,
+              "kind": "infantry",
+              "location": {
+                "slot": 0,
+                "transport": 2,
+                "type": "cargo"
               },
               "owner": "red"
             }
@@ -364,11 +395,20 @@
           {
             "ammo_after": 0,
             "ammo_before": 0,
-            "fuel_after": 99,
+            "fuel_after": 70,
             "fuel_before": 50,
             "reason": "commander-power",
             "type": "unit-resourced",
             "unit": 2
+          },
+          {
+            "ammo_after": 0,
+            "ammo_before": 0,
+            "fuel_after": 99,
+            "fuel_before": 50,
+            "reason": "commander-power",
+            "type": "unit-resourced",
+            "unit": 4
           }
         ],
         "random_consumed": 0

@@ -42,6 +42,11 @@ Zero HP is an event value, not a state value. A lethal strike emits
 `unit-damaged` with `to_hp: 0`, performs any capture reset, and removes the unit
 before the complete post-state is exposed.
 
+If the removed unit is a transport carrying cargo, remove the transport first,
+then remove its cargo in ascending slot order with reason `carrier-lost`.
+Those cargo removals are consequences of losing the carrier, not additional
+strikes: they emit no `unit-damaged` event and add no combat power charge.
+
 For every executed strike consume one token of type `combat-good-luck`, then
 one token of type `combat-bad-luck`. A token value MUST lie in the applicable
 inclusive domain and is the resulting `G` or `L`; no scaling is performed.
@@ -56,7 +61,8 @@ when that strike begins.
 
 For this slice events are ordered: movement events (when the path changes
 position), attacker resource change if ammo was spent, `attack-resolved`,
-defender `unit-damaged`, then defender removal if lethal.
+defender `unit-damaged`, then defender removal and any `carrier-lost` cargo
+removals if lethal.
 For a counter, append its resource change, `attack-resolved`, attacker damage,
 and attacker removal in the same order. Finally emit the acting unit's
 `unit-action-changed`. Capture reset caused by damage follows

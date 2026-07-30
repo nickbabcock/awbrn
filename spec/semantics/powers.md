@@ -126,9 +126,10 @@ use-counter changes; no separate public meter event is emitted.
 { "operator": "heal-visual-hp", "target": "owned-units", "amount": 2 }
 ```
 
-`owned-units` selects every living unit whose owner is the activating player,
-including cargo, and orders the selection by ascending unit ID. For each
-selected unit independently:
+`owned-units` selects every living **on-board** unit whose owner is the
+activating player and orders the selection by ascending unit ID. Cargo is
+excluded because a loaded unit is not present on the map. For each selected
+unit independently:
 
 ```text
 from = exact HP before this effect
@@ -149,7 +150,7 @@ fact. The operator never changes fuel, ammo, funds, action state, or location.
 { "operator": "heal-exact-hp", "target": "owned-units", "amount": 10 }
 ```
 
-`owned-units` has the same ownership, cargo inclusion, and ascending unit-ID
+`owned-units` has the same ownership, board-location requirement and ascending unit-ID
 ordering as `heal-visual-hp`. For each selected unit independently:
 
 ```text
@@ -174,8 +175,9 @@ Hawke's COP uses `amount: 10`, and his SCOP uses `amount: 20`.
 ```
 
 Let the activating player's team be `T`. `enemy-units` selects every living
-unit, including cargo, whose owner's team is not `T`; units owned by another
-player on `T` are not enemies. The selection is ordered by ascending unit ID.
+on-board unit whose owner's team is not `T`; units owned by another player on
+`T` are not enemies. Cargo is excluded. The selection is ordered by ascending
+unit ID.
 `enemy-units-on-properties` instead selects only such enemy units with a board
 location whose terrain has the ruleset `capturable` trait. Property ownership
 is irrelevant; cargo and units on other terrain are excluded. The filtered
@@ -211,7 +213,7 @@ or location.
 }
 ```
 
-`enemy-units` uses the same enemy-team selection, cargo inclusion, and
+`enemy-units` uses the same enemy-team selection, board-location requirement, and
 ascending unit-ID ordering as `damage-exact-hp`. For each selected unit:
 
 ```text
@@ -532,10 +534,11 @@ cost nor any power charge. Funds overflow is an invalid state.
 }
 ```
 
-`owned-units` starts with every living unit owned by the activating player.
-The revisioned `exclude_unit_kinds` predicate then removes matching kinds, and
-the remaining selection is ordered by ascending unit ID. For each selected
-unit whose action is `spent`, set its action to `ready` and emit
+`owned-units` starts with every living on-board unit owned by the activating
+player; cargo is excluded. The revisioned `exclude_unit_kinds` predicate then
+removes matching kinds, and the remaining selection is ordered by ascending
+unit ID. For each selected unit whose action is `spent`, set its action to
+`ready` and emit
 `unit-action-changed { unit, from: "spent", to: "ready", reason:
 "commander-power" }`.
 
@@ -552,10 +555,12 @@ same turn.
 { "operator": "resupply-units", "target": "owned-units" }
 ```
 
-`owned-units` selects every living unit owned by the activating player,
-including cargo, and orders the selection by ascending unit ID. Each selected
-unit's fuel and ammo are independently set to the revisioned maxima in
-`units.json`. When either value changes, emit:
+For this operator, `owned-units` selects every living unit owned by the
+activating player, including loaded cargo, and orders the selection by
+ascending unit ID. This is a resupply-specific exception to the board-only
+selection used by direct HP, fuel-drain, and action-refresh power effects.
+Each selected unit's fuel and ammo are independently set to the revisioned
+maxima in `units.json`. When either value changes, emit:
 
 ```text
 unit-resourced {
@@ -569,6 +574,9 @@ unit-resourced {
 A unit already at both maxima emits no event. A unit kind with maximum ammo
 zero may still emit when its fuel changes, with both ammo fields zero. The
 operator does not alter HP, action state, concealment, location, or funds.
+AWBW's archived Power payload omits loaded cargo from its recipient rows even
+though Jess's Turbo Charge and Overdrive update the cargo's internal fuel and
+ammo; a later Unload exposes the resupplied values.
 
 ## `spawn-units-on-owned-properties`
 
