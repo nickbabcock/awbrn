@@ -1,0 +1,41 @@
+---
+source: crates/awvm-awbw/tests/integration/recorded_outcomes.rs
+expression: outcome.snapshot
+input_file: assets/replays/replay_1578186_d-day_2026-01-14.zip
+---
+00004 d=1 p=3654564 End        s=189bb2346323b7b7 o=df196727c86db35d
+00008 d=2 p=3653682 End        s=8a1d90e81611fc20 o=ee794230adea6b4c
+00015 d=2 p=3654564 End        s=0c637c18f7246cbb o=057336f4edcbf333
+00022 d=3 p=3653682 End        s=9900bb5ed5676874 o=9d7a82c52fd291a4
+00033 d=3 p=3654564 End        s=83a52aac98f5bc7d o=7dc0e4b59c131adc
+00044 d=4 p=3653682 End        s=ec8b3aeee27d7402 o=2601f0a6078fccf0
+00057 d=4 p=3654564 End        s=a90dc9402a24299e o=a9dddb9f9497852f
+00071 d=5 p=3653682 End        s=acfbc4f6c2dbe011 o=76e110e92a51c569
+00086 d=5 p=3654564 End        s=53243e9fbc967432 o=b33714ee0cbb122f
+00103 d=6 p=3653682 End        s=fbd4a8c5d6591a1d o=2b192505c61965da
+00123 d=6 p=3654564 End        s=c5db8f152ad0b076 o=c9274c8c7cfea108
+00141 d=7 p=3653682 End        s=0ceceef8858a14ea o=15faa10fa7d247dd
+00162 d=7 p=3654564 End        s=eb526f54ee7441bb o=33e177055c2bb62a
+00185 d=8 p=3653682 End        s=994369578935fdc0 o=338dafe2b99459a0
+00212 d=8 p=3654564 End        s=73376074635cf5d8 o=940a1503636e286d
+00235 d=9 p=3653682 End        s=8ac0468a4c12815d o=802c10b35d49dc4e
+00263 d=9 p=3654564 End        s=e4fd00e06aefa2ff o=5e3fb52ec15da7ce
+00291 d=10 p=3653682 End        s=5765876117d4a344 o=bd8fa5f33ff74179
+00325 d=10 p=3654564 End        s=6c7b28b6f853b158 o=d904e1e828cd62dd
+00355 d=11 p=3653682 End        s=4bffe9412d55c21b o=0fd4dbad1043cb38
+00388 d=11 p=3654564 End        s=d4b105176444064b o=b2ca72eebed5cfe7
+00421 d=12 p=3653682 End        s=01354ebc883743cf o=07fb665ad80c3119
+00458 d=12 p=3654564 End        s=0553bc0990a4c0f9 o=2bc8ac2658f5b731
+00487 d=13 p=3653682 End        s=fa31be052f60107e o=f49b675afcb6545d
+00521 d=13 p=3654564 End        s=2faad3e106ef8743 o=79bb7e7b24703028
+00550 d=14 p=3653682 End        s=e1889d09d5637c64 o=5da4439dfc55b66b
+00588 d=14 p=3654564 End        s=a163a89e6648ee3e o=de6cf57f1aa2f434
+00607 d=15 p=3653682 End        s=ea91dd66d111c2c1 o=a7ece463e77d0cf7
+00643 d=15 p=3654564 End        s=ad1e0bfd2d6d5ffe o=d6fe02d6aded33d8
+00668 d=16 p=3653682 End        s=19e73eb02c730e2c o=13622390daca4ee7
+00706 d=16 p=3654564 End        s=c7ea5aca9c2116e2 o=20be29712c308019
+00730 d=17 p=3653682 End        s=e332285c2f05856c o=96dd72b7e44f6c2e
+00765 d=17 p=3654564 End        s=afd285e70cc77ddc o=24f9d5063a99e82f
+00790 d=18 p=3653682 End        s=a3f9648db2ea84d6 o=e6059025436e1c87
+00829 d=18 p=3654564 End        s=439f5740282b2452 o=159fb960977771b0
+00846 d=18 p=3654564 Resign     s=e7530a56527c3535 o=1dd774ebd5d1705e

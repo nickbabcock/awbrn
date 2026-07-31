@@ -1,0 +1,129 @@
+---
+source: crates/awvm-awbw/tests/integration/compatibility_corpus.rs
+expression: snapshot
+---
+[fog-off pre-power prefix]
+total=1981 compatible=1473 divergent=0 insufficient=508
+by-action (compatible/divergent/insufficient):
+  AttackSeam    12/    0/    0
+  Build          0/    0/  332
+  Capt         195/    0/  176
+  End          145/    0/    0
+  Explode        1/    0/    0
+  Fire         181/    0/    0
+  Join           5/    0/    0
+  Launch         1/    0/    0
+  Load          27/    0/    0
+  Move         878/    0/    0
+  Supply         2/    0/    0
+  Unload        26/    0/    0
+divergence-buckets:
+insufficient-buckets:
+    332 Build does not record the AWVM-assigned unit identifier
+    176 missing-move
+bucket-samples:
+  I:Build does not record the AWVM-assigned unit identifier 1362397.zip:0:Build, 1362397.zip:1:Build, 1362397.zip:3:Build
+  I:missing-move 1362397.zip:56:Capt, 1362397.zip:63:Capt, 1362397.zip:83:Capt
+per-action-classification-digests:
+  1362397.zip 450a6fb0fa4255aa
+  1419680.zip 5bcbee9ac160240b
+  1468032_landfall_2025-12-22.zip 10c3a35cf87bc151
+  replay_1699315_missle-bomb_2026-07-28.zip f2bbce197cebff91
+
+[all fog-off]
+total=7226 compatible=6041 divergent=7 insufficient=1178
+by-action (compatible/divergent/insufficient):
+  AttackSeam    30/    0/    0
+  Build          0/    0/  929
+  Capt         257/    0/  236
+  End          373/    0/    0
+  Explode        1/    0/    0
+  Fire        1363/    7/    0
+  Join          54/    0/    0
+  Launch         1/    0/    0
+  Load          80/    0/    0
+  Move        3732/    0/    0
+  Power         37/    0/    5
+  Repair         1/    0/    0
+  Resign         0/    0/    8
+  Supply        34/    0/    0
+  Unload        78/    0/    0
+divergence-buckets:
+      4 mismatch:players+units
+      3 mismatch:units
+insufficient-buckets:
+    929 Build does not record the AWVM-assigned unit identifier
+     13 broad-exact-hp-dependence
+    236 missing-move
+bucket-samples:
+  D:mismatch:players+units 1362397.zip:691:Fire, 1362397.zip:1132:Fire, 1468032_landfall_2025-12-22.zip:2483:Fire
+  D:mismatch:units 1468032_landfall_2025-12-22.zip:2499:Fire, 1468032_landfall_2025-12-22.zip:3427:Fire, 1468032_landfall_2025-12-22.zip:4372:Fire
+  I:Build does not record the AWVM-assigned unit identifier 1362397.zip:0:Build, 1362397.zip:1:Build, 1362397.zip:3:Build
+  I:broad-exact-hp-dependence 1362397.zip:1792:Resign, 1362397.zip:1793:Resign, 1362397.zip:1794:Resign
+  I:missing-move 1362397.zip:56:Capt, 1362397.zip:63:Capt, 1362397.zip:83:Capt
+per-action-classification-digests:
+  1362397.zip b9952a47bd299878
+  1419680.zip 52d81acda70973c7
+  1468032_landfall_2025-12-22.zip 949359c38480ded3
+  replay_1699315_missle-bomb_2026-07-28.zip f2bbce197cebff91
+
+[all fog]
+total=5703 compatible=4130 divergent=423 insufficient=1150
+by-action (compatible/divergent/insufficient):
+  AttackSeam    16/    1/    0
+  Build          0/    0/  742
+  Capt         280/   16/  303
+  Delete         1/    0/    0
+  End          173/    0/   52
+  Fire         806/  121/   35
+  Hide           2/    0/    0
+  Join          21/    2/    0
+  Load         160/    2/    0
+  Move        2494/  248/    0
+  Power         20/    0/    9
+  Repair         4/    0/    1
+  Resign         0/    0/    6
+  Supply        24/    4/    2
+  Tag            5/    0/    0
+  Unhide         1/    0/    0
+  Unload       123/   29/    0
+divergence-buckets:
+     22 mismatch:players
+      6 mismatch:players+units
+     74 mismatch:units
+     20 rejected:DestinationOccupied
+      2 rejected:InvalidTarget
+      9 rejected:PathNonAdjacent
+      9 rejected:PathOccupied
+    264 rejected:PathOriginMismatch
+      1 rejected:TargetOutOfRange
+      4 rejected:UnitNotFound
+      1 rejected:UnitNotOnBoard
+     11 rejected:UnitNotOwned
+insufficient-buckets:
+    742 Build does not record the AWVM-assigned unit identifier
+     35 advisory-search-limit
+     67 broad-exact-hp-dependence
+    306 missing-move
+bucket-samples:
+  D:mismatch:players 1563018.zip:284:Fire, 1563018.zip:287:Fire, 1563018.zip:335:Fire
+  D:mismatch:players+units 1403019.zip:653:Fire, 1403019.zip:1105:Fire, 1403019.zip:1228:Fire
+  D:mismatch:units 1391406.zip:163:Unload, 1391406.zip:240:Move, 1391406.zip:269:Unload
+  D:rejected:DestinationOccupied 1391406.zip:446:Move, 1391406.zip:820:Move, 1403019.zip:561:Fire
+  D:rejected:InvalidTarget 1403019.zip:629:Load, 1403019.zip:660:Unload
+  D:rejected:PathNonAdjacent 1403019.zip:702:Move, 1403019.zip:1545:Move, 1403019.zip:1587:Fire
+  D:rejected:PathOccupied 1403019.zip:2393:Move, 1403019.zip:2418:Fire, 1403019.zip:2433:Move
+  D:rejected:PathOriginMismatch 1391406.zip:186:Move, 1391406.zip:195:Move, 1391406.zip:230:Capt
+  D:rejected:TargetOutOfRange 1403019.zip:575:Fire
+  D:rejected:UnitNotFound 1403019.zip:633:Move, 1403019.zip:634:Move, 1403019.zip:659:Move
+  D:rejected:UnitNotOnBoard 1403019.zip:625:Move
+  D:rejected:UnitNotOwned 1403019.zip:541:Move, 1403019.zip:542:Fire, 1403019.zip:543:Fire
+  I:Build does not record the AWVM-assigned unit identifier 1391406.zip:0:Build, 1391406.zip:1:Build, 1391406.zip:4:Build
+  I:advisory-search-limit 1563018.zip:216:Fire, 1563018.zip:235:Fire, 1563018.zip:258:Fire
+  I:broad-exact-hp-dependence 1391406.zip:554:Power, 1391406.zip:589:Power, 1391406.zip:649:End
+  I:missing-move 1391406.zip:12:Capt, 1391406.zip:18:Capt, 1391406.zip:25:Capt
+per-action-classification-digests:
+  1391406.zip 99238581d22fcffe
+  1403019.zip 4a82ef735044e505
+  1563018.zip 5144dd280ddc9040
+  replay_1578186_d-day_2026-01-14.zip 47e433764e6b303f

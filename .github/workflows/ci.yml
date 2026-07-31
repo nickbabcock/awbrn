@@ -83,7 +83,7 @@ jobs:
 
     - run: cargo test --locked --workspace --all-targets --profile ci --no-fail-fast --verbose
       if: matrix.build != 'win-msvc'
-    - run: cargo test --locked --workspace --all-targets --profile ci --no-fail-fast --verbose -p awbrn-desktop --no-default-features && cargo test --locked --workspace --all-targets --profile ci --no-fail-fast --verbose --exclude awbrn-desktop
+    - run: cargo test --locked --all-targets --profile ci --no-fail-fast --verbose -p awbrn-desktop --no-default-features && cargo test --locked --workspace --all-targets --profile ci --no-fail-fast --verbose --exclude awbrn-desktop
       if: matrix.build == 'win-msvc'
 
   build:

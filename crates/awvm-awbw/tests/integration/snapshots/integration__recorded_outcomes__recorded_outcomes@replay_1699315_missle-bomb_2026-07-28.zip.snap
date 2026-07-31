@@ -1,0 +1,7 @@
+---
+source: crates/awvm-awbw/tests/integration/recorded_outcomes.rs
+expression: outcome.snapshot
+input_file: assets/replays/replay_1699315_missle-bomb_2026-07-28.zip
+---
+00002 d=1 p=4086371 End        s=687b47d1ea817a5c o=30e4dad5b955b52b
+00003 d=2 p=4086370 End        s=08d11eeb4a05ca98 o=29e9200e8f764188

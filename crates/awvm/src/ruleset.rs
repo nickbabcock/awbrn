@@ -21,7 +21,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::semantic::RulesetRef;
+use crate::semantic::{Pos, RulesetRef};
 
 /// Base damage of one weapon against every unit kind.
 pub type DamageRow = [Option<u8>; UnitKind::COUNT];
@@ -232,6 +232,39 @@ impl TerrainTraits {
         self.0 & (1 << value.index()) != 0
     }
 }
+
+/// A single-use area effect with a fixed shape and damage.
+///
+/// Normative source:
+/// * `spec/semantics/launch.md`
+/// * `spec/semantics/explode.md`
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AreaStrikeProfile {
+    /// Manhattan radius around the center tile, inclusive.
+    pub radius: usize,
+    /// Exact HP removed from every covered unit. Nonlethal.
+    pub damage: u8,
+}
+
+impl AreaStrikeProfile {
+    /// Whether a strike centered on `center` reaches `position`.
+    pub fn covers(&self, center: Pos, position: Pos) -> bool {
+        center.distance(position) <= self.radius as u64
+    }
+}
+
+/// A missile silo launch: three visual bars over a two-tile radius, hitting
+/// allied and enemy units alike.
+pub const MISSILE_SILO_STRIKE: AreaStrikeProfile = AreaStrikeProfile {
+    radius: 2,
+    damage: 30,
+};
+
+/// A detonating unit: five visual bars over a three-tile radius.
+pub const UNIT_EXPLOSION: AreaStrikeProfile = AreaStrikeProfile {
+    radius: 3,
+    damage: 50,
+};
 
 /// A set of consumable resources, held as a bitmask over [`Resource::index`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

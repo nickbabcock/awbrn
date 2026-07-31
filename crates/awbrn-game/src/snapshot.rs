@@ -261,6 +261,209 @@ pub fn canonicalize_replay_semantic_snapshot(
     })
 }
 
+/// Serialize the canonical replay-semantic form of `snapshot` as JSON.
+///
+/// The content and ordering match [`canonicalize_replay_semantic_snapshot`],
+/// but component values are written straight out of reflection instead of being
+/// buffered into a [`Value`] tree first. Callers that only digest the canonical
+/// form should prefer this: building the tree costs more than the reflection
+/// walk that fills it, and a per-action digest pays that on every action.
+///
+/// Object keys therefore appear in declaration order rather than [`Value`]'s
+/// ordering, so the bytes differ from serializing a [`CanonicalReplaySnapshot`]
+/// even though the two describe the same value.
+pub fn write_replay_semantic_snapshot<W: std::io::Write>(
+    snapshot: &GameSnapshot,
+    type_registry: &TypeRegistry,
+    writer: W,
+) -> Result<(), GameSnapshotError> {
+    let semantic_ids = semantic_id_map(&snapshot.scene.entities)?;
+    let processor = SemanticEntityProcessor {
+        semantic_ids: &semantic_ids,
+    };
+    let view = ReplaySemanticView::new(snapshot, &processor, type_registry)?;
+    serde_json::to_writer(writer, &view)
+        .map_err(|error| GameSnapshotError::Serialization(error.to_string()))
+}
+
+/// A borrowed, pre-ordered view of the canonical form, serialized on demand.
+struct ReplaySemanticView<'a> {
+    snapshot: &'a GameSnapshot,
+    processor: &'a SemanticEntityProcessor<'a>,
+    type_registry: &'a TypeRegistry,
+    /// Resource components, ordered by type path.
+    resources: Vec<ReflectEntry<'a>>,
+    /// Entities ordered by semantic id, each with its components ordered by
+    /// type path.
+    entities: Vec<(&'a str, Vec<ReflectEntry<'a>>)>,
+}
+
+/// One reflected value paired with the type path it is keyed by.
+struct ReflectEntry<'a> {
+    type_path: &'a str,
+    value: &'a dyn PartialReflect,
+}
+
+impl<'a> ReplaySemanticView<'a> {
+    fn new(
+        snapshot: &'a GameSnapshot,
+        processor: &'a SemanticEntityProcessor<'a>,
+        type_registry: &'a TypeRegistry,
+    ) -> Result<Self, GameSnapshotError> {
+        let mut resources = entries(snapshot.scene.resources.iter().map(AsRef::as_ref));
+        resources.sort_by_key(|entry| entry.type_path);
+
+        let mut entities = snapshot
+            .scene
+            .entities
+            .iter()
+            .map(|entity| {
+                let id = processor
+                    .semantic_ids
+                    .get(&entity.entity)
+                    .map(String::as_str)
+                    .ok_or(GameSnapshotError::MissingEntityMapping(entity.entity))?;
+                let mut components = entries(entity.components.iter().map(AsRef::as_ref));
+                components.sort_by_key(|entry| entry.type_path);
+                Ok((id, components))
+            })
+            .collect::<Result<Vec<_>, GameSnapshotError>>()?;
+        entities.sort_by_key(|(id, _)| *id);
+
+        Ok(Self {
+            snapshot,
+            processor,
+            type_registry,
+            resources,
+            entities,
+        })
+    }
+}
+
+fn entries<'a>(values: impl Iterator<Item = &'a dyn PartialReflect>) -> Vec<ReflectEntry<'a>> {
+    values
+        .map(|value| ReflectEntry {
+            type_path: type_path_of(value),
+            value,
+        })
+        .collect()
+}
+
+fn type_path_of(value: &dyn PartialReflect) -> &str {
+    value
+        .get_represented_type_info()
+        .map_or_else(|| value.reflect_type_path(), |info| info.type_path())
+}
+
+impl Serialize for ReplaySemanticView<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct as _;
+
+        let mut state = serializer.serialize_struct("CanonicalReplaySnapshot", 5)?;
+        state.serialize_field("next_action_index", &self.snapshot.next_action_index)?;
+        state.serialize_field("day", &self.snapshot.day)?;
+        state.serialize_field("active_player_id", &self.snapshot.active_player_id)?;
+        state.serialize_field(
+            "resources",
+            &EntriesView {
+                entries: &self.resources,
+                processor: self.processor,
+                type_registry: self.type_registry,
+            },
+        )?;
+        state.serialize_field("entities", &EntitiesView { view: self })?;
+        state.end()
+    }
+}
+
+struct EntitiesView<'a> {
+    view: &'a ReplaySemanticView<'a>,
+}
+
+impl Serialize for EntitiesView<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::{SerializeSeq as _, SerializeStruct as _};
+
+        struct EntityView<'a> {
+            id: &'a str,
+            components: &'a [ReflectEntry<'a>],
+            processor: &'a SemanticEntityProcessor<'a>,
+            type_registry: &'a TypeRegistry,
+        }
+
+        impl Serialize for EntityView<'_> {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                let mut state = serializer.serialize_struct("CanonicalReplayEntity", 2)?;
+                state.serialize_field("id", self.id)?;
+                state.serialize_field(
+                    "components",
+                    &EntriesView {
+                        entries: self.components,
+                        processor: self.processor,
+                        type_registry: self.type_registry,
+                    },
+                )?;
+                state.end()
+            }
+        }
+
+        let mut seq = serializer.serialize_seq(Some(self.view.entities.len()))?;
+        for (id, components) in &self.view.entities {
+            seq.serialize_element(&EntityView {
+                id,
+                components,
+                processor: self.view.processor,
+                type_registry: self.view.type_registry,
+            })?;
+        }
+        seq.end()
+    }
+}
+
+struct EntriesView<'a> {
+    entries: &'a [ReflectEntry<'a>],
+    processor: &'a SemanticEntityProcessor<'a>,
+    type_registry: &'a TypeRegistry,
+}
+
+impl Serialize for EntriesView<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::{SerializeSeq as _, SerializeStruct as _};
+
+        struct EntryView<'a> {
+            entry: &'a ReflectEntry<'a>,
+            processor: &'a SemanticEntityProcessor<'a>,
+            type_registry: &'a TypeRegistry,
+        }
+
+        impl Serialize for EntryView<'_> {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                let mut state = serializer.serialize_struct("CanonicalSceneEntry", 2)?;
+                state.serialize_field("type_path", self.entry.type_path)?;
+                state.serialize_field(
+                    "value",
+                    &TypedReflectSerializer::with_processor(
+                        self.entry.value,
+                        self.type_registry,
+                        self.processor,
+                    ),
+                )?;
+                state.end()
+            }
+        }
+
+        let mut seq = serializer.serialize_seq(Some(self.entries.len()))?;
+        for entry in self.entries {
+            seq.serialize_element(&EntryView {
+                entry,
+                processor: self.processor,
+                type_registry: self.type_registry,
+            })?;
+        }
+        seq.end()
+    }
+}
+
 fn game_semantic_component_filter(world: &World) -> WorldFilter {
     let type_registry = world.resource::<AppTypeRegistry>();
     let type_registry = type_registry.read();
@@ -439,6 +642,47 @@ mod tests {
             canonicalize_replay_semantic_snapshot(&restored_snapshot, &type_registry).unwrap();
 
         assert_eq!(canonical, restored_canonical);
+    }
+
+    #[test]
+    fn streamed_snapshot_describes_the_same_value_as_the_canonical_tree() {
+        let mut app = snapshot_test_app();
+        app.world_mut().insert_resource(ReplayState {
+            next_action_index: 7,
+            day: 3,
+            active_player_id: Some(AwbwGamePlayerId::new(42)),
+        });
+        app.world_mut().spawn((
+            MapPosition::new(0, 0),
+            TerrainTile {
+                terrain: GraphicalTerrain::Plain,
+            },
+            TerrainHp(55),
+        ));
+        app.world_mut().spawn((
+            MapPosition::new(1, 0),
+            Faction(PlayerFaction::OrangeStar),
+            AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
+            Unit(awbrn_types::Unit::Infantry),
+            UnitActive,
+            Fuel(60),
+            Ammo(3),
+            VisionRange(2),
+        ));
+
+        let snapshot = capture_game_snapshot(app.world_mut()).unwrap();
+        let type_registry = app.world().resource::<AppTypeRegistry>().read();
+        let canonical = canonicalize_replay_semantic_snapshot(&snapshot, &type_registry).unwrap();
+
+        let mut streamed = Vec::new();
+        write_replay_semantic_snapshot(&snapshot, &type_registry, &mut streamed).unwrap();
+
+        // Compared as values, not bytes: the streamed form emits object keys in
+        // declaration order while the tree emits them in `Value` order.
+        assert_eq!(
+            serde_json::from_slice::<Value>(&streamed).unwrap(),
+            serde_json::to_value(&canonical).unwrap()
+        );
     }
 
     #[test]

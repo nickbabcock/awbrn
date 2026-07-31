@@ -9,7 +9,7 @@ use super::ReducerError as ExecuteError;
 use super::*;
 use crate::commander::AreaStrikePolicy;
 use crate::event::Event;
-use crate::ruleset::UnitKind;
+use crate::ruleset::{MISSILE_SILO_STRIKE, UNIT_EXPLOSION, UnitKind};
 use crate::semantic::{AwbwVisibility, KnownReason, Pos, Silo, UnitId, VictoryReason, Visibility};
 use crate::violation::{Action, Violation};
 
@@ -60,26 +60,22 @@ pub(crate) fn execute_move_launch(
         });
     }
 
-    // AWBW's silo missile is three visual bars (30 exact HP), nonlethal, and
-    // affects every board unit within a two-tile Manhattan radius, including
-    // allies. Derive the list after the move and sort it so event order is
-    // independent of state-vector order.
+    // AWBW's silo missile is nonlethal and affects every board unit in range,
+    // including allies. Derive the list after the move and sort it so event
+    // order is independent of state-vector order.
+    let strike = MISSILE_SILO_STRIKE;
     outcome.events.push(Event::AreaStrikeResolved {
         strike: 0,
         policy: AreaStrikePolicy::UnitHp,
         center: target,
-        radius: 2,
-        damage: 30,
+        radius: strike.radius,
+        damage: strike.damage,
     });
     let mut affected: Vec<UnitId> = outcome
         .state
         .units
         .iter()
-        .filter(|unit| {
-            board_position(unit).is_some_and(|position| {
-                position.x.abs_diff(target.x) + position.y.abs_diff(target.y) <= 2
-            })
-        })
+        .filter(|unit| board_position(unit).is_some_and(|position| strike.covers(target, position)))
         .map(|unit| unit.id)
         .collect();
     affected.sort();
@@ -90,7 +86,7 @@ pub(crate) fn execute_move_launch(
             .get_mut(id)
             .expect("launch target remains present");
         let from_hp = unit.hp;
-        let to_hp = from_hp.saturating_sub(30).max(1);
+        let to_hp = from_hp.saturating_sub(strike.damage).max(1);
         if to_hp != from_hp {
             unit.hp = to_hp;
             outcome.events.push(Event::UnitDamaged {
@@ -148,12 +144,13 @@ pub(crate) fn execute_move_explode(
         });
     }
 
+    let strike = UNIT_EXPLOSION;
     outcome.events.push(Event::AreaStrikeResolved {
         strike: 0,
         policy: AreaStrikePolicy::UnitHp,
         center: destination,
-        radius: 3,
-        damage: 50,
+        radius: strike.radius,
+        damage: strike.damage,
     });
     let mut affected: Vec<UnitId> = outcome
         .state
@@ -161,9 +158,7 @@ pub(crate) fn execute_move_explode(
         .iter()
         .filter(|unit| unit.id != unit_id)
         .filter(|unit| {
-            board_position(unit).is_some_and(|position| {
-                position.x.abs_diff(destination.x) + position.y.abs_diff(destination.y) <= 3
-            })
+            board_position(unit).is_some_and(|position| strike.covers(destination, position))
         })
         .map(|unit| unit.id)
         .collect();
@@ -175,7 +170,7 @@ pub(crate) fn execute_move_explode(
             .get_mut(id)
             .expect("explosion target remains present");
         let from_hp = unit.hp;
-        let to_hp = from_hp.saturating_sub(50).max(1);
+        let to_hp = from_hp.saturating_sub(strike.damage).max(1);
         if to_hp == from_hp {
             continue;
         }

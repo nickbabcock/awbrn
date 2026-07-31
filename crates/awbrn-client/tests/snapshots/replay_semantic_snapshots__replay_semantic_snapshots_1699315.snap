@@ -4,27 +4,15 @@ expression: rows
 ---
 [
   {
-    "action_index": 0,
-    "day": 1,
-    "action_kind": "Launch",
-    "checksum": "0x8cf8d4e6627fc68c8ec632aece8a1ebe7dedd3fd679e8c38c742963c8a220f39"
-  },
-  {
-    "action_index": 1,
-    "day": 1,
-    "action_kind": "Explode",
-    "checksum": "0xc42e5ad6f08a7d4cadb08dc9e5a7142e617f3e43f6005cd9101266956d0c0aa0"
-  },
-  {
     "action_index": 2,
     "day": 1,
     "action_kind": "End",
-    "checksum": "0x920a4511a22e25c5ed959f3ae4983b7ba4ae118645b042287be9f3bea1aa4391"
+    "checksum": "0x441eee4d76dc88878d5201c2310434dfa021b8bf51cbafa14a5935eb5b2c3e72"
   },
   {
     "action_index": 3,
     "day": 2,
     "action_kind": "End",
-    "checksum": "0x0e04f0b4b259b6f72f40ba38b031461b1ac12b0f5848391ba7278bc4dfc9034c"
+    "checksum": "0x70d2a484f4acba501bbbe54bc173f22c5f7aedfed0907ebb58b554843bc26356"
   }
 ]
