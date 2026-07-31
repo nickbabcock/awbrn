@@ -12,6 +12,9 @@ use awbrn_types::{GraphicalTerrain, MovementCost, MovementTerrain, UnitExt, Unit
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
+use crate::loading::{LiveMatchBootstrap, PendingLiveTransitions};
+use crate::modes::replay::presentation::{LiveTransitionCommand, ReplayAdvanceLock};
+
 const MOVE_RANGE_COLOR: Color = Color::srgba(0.1, 0.9, 0.75, 0.42);
 
 const MOVE_RANGE_SPRITE_SIZE: SpriteSize = SpriteSize {
@@ -411,6 +414,88 @@ pub(crate) fn cleanup_play_selection(
     }
 }
 
+pub(crate) fn initialize_live_semantic_world(world: &mut World) {
+    awbrn_game::world::initialize_terrain_semantic_world(world);
+    let Some(bootstrap) = world.remove_resource::<LiveMatchBootstrap>() else {
+        return;
+    };
+
+    let (config, funds, unit_costs, power_charges) =
+        crate::features::player_roster::player_roster_seed_from_live_match(
+            &bootstrap.players,
+            &bootstrap.observation,
+        );
+    world.insert_resource(config);
+    world.insert_resource(funds);
+    world.insert_resource(unit_costs);
+    world.insert_resource(power_charges);
+
+    let mut registry = awbrn_game::replay::ReplayPlayerRegistry::default();
+    for player in &bootstrap.players {
+        let Some(faction) = awbrn_types::PlayerFaction::from_id(player.faction_id) else {
+            warn!(
+                "Ignoring invalid faction {} for live player {}",
+                player.faction_id, player.player_id
+            );
+            continue;
+        };
+        registry.add_player(
+            awbrn_types::AwbwGamePlayerId::new(player.player_id),
+            faction,
+            0,
+        );
+    }
+    let recipient = bootstrap
+        .observation
+        .recipient
+        .as_str()
+        .parse::<u32>()
+        .ok()
+        .map(awbrn_types::AwbwGamePlayerId::new);
+    let friendly = recipient
+        .map(|player| registry.friendly_factions_for_player(player))
+        .unwrap_or_default();
+    let knowledge = awbrn_game::replay::ReplayTerrainKnowledge::from_map_and_registry(
+        world.resource::<GameMap>(),
+        &registry,
+    );
+    world.insert_resource(registry);
+    world.insert_resource(knowledge);
+    world.insert_resource(awbrn_game::replay::ReplayState::default());
+    world.insert_resource(
+        recipient
+            .map(awbrn_game::replay::ReplayViewpoint::Player)
+            .unwrap_or(awbrn_game::replay::ReplayViewpoint::Spectator),
+    );
+    world.resource_mut::<FriendlyFactions>().0 = friendly;
+
+    let transition = awvm::semantic::ObservedTransition {
+        post: bootstrap.observation,
+        events: Vec::new(),
+    };
+    if let Err(error) = awbrn_game::replay::apply_observed_transition(world, &transition) {
+        error!("Could not initialize live typed presentation state: {error}");
+    }
+    crate::features::player_roster::emit_player_roster_updated(world);
+}
+
+pub(crate) fn apply_pending_live_transition(
+    mut commands: Commands,
+    mut pending: Option<ResMut<PendingLiveTransitions>>,
+    lock: Res<ReplayAdvanceLock>,
+) {
+    if lock.is_active() {
+        return;
+    }
+    let Some(transition) = pending
+        .as_deref_mut()
+        .and_then(|pending| pending.0.pop_front())
+    else {
+        return;
+    };
+    commands.queue(LiveTransitionCommand { transition });
+}
+
 pub struct PlayPlugin;
 
 impl Plugin for PlayPlugin {
@@ -419,6 +504,7 @@ impl Plugin for PlayPlugin {
             .init_resource::<MoveRange>()
             .init_resource::<PendingMoveDestination>()
             .init_resource::<PlayUiPhase>()
+            .init_resource::<ReplayAdvanceLock>()
             .add_systems(
                 Update,
                 (
@@ -428,6 +514,7 @@ impl Plugin for PlayPlugin {
                     clear_selection_on_escape,
                     clear_invalid_selection,
                     sync_move_range_highlights,
+                    apply_pending_live_transition,
                 )
                     .chain()
                     .run_if(in_state(GameMode::Game).and_then(in_state(AppState::InGame))),
@@ -439,8 +526,19 @@ impl Plugin for PlayPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::loading::{LiveMatchBootstrap, LiveMatchPlayer};
+    use crate::modes::replay::presentation::{
+        DeferredTransitions, LiveTransitionCommand, ReplayFollowupCommand,
+    };
+    use crate::render::animation::UnitPathAnimation;
+    use awbrn_game::GameWorldPlugin;
     use awbrn_game::world::initialize_terrain_semantic_world;
+    use awbrn_map::{AwbwMap, AwbwMapData};
     use awbrn_types::PlayerFaction;
+    use awbw_replay::ReplayParser;
+    use awvm::semantic::{AwbwVisibility, observe};
+    use awvm_awbw::RecordedAdapter;
+    use std::path::Path;
 
     fn play_test_app() -> App {
         let mut app = App::new();
@@ -492,6 +590,170 @@ mod tests {
             .resource_mut::<Messages<TileClicked>>()
             .write(TileClicked { position });
         app.update();
+    }
+
+    #[test]
+    fn live_recipient_movement_uses_typed_animation_and_followup() {
+        let replay = ReplayParser::new()
+            .parse(
+                &std::fs::read(
+                    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/replays/1362397.zip"),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let map_data: AwbwMapData = serde_json::from_slice(
+            &std::fs::read(
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/maps/162795.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let mut adapter = RecordedAdapter::new(&replay, &map_data).unwrap();
+        let recipient = adapter.state().players[0].id.clone();
+        let observation = observe(&AwbwVisibility, adapter.state(), &recipient).unwrap();
+
+        let mut app = App::new();
+        app.add_plugins(GameWorldPlugin);
+        app.world_mut()
+            .resource_mut::<GameMap>()
+            .set(awbrn_map::AwbrnMap::from_map(
+                &AwbwMap::try_from(&map_data).unwrap(),
+            ));
+        app.world_mut().insert_resource(LiveMatchBootstrap {
+            players: replay.games[0]
+                .players
+                .iter()
+                .map(|player| LiveMatchPlayer {
+                    player_id: player.id.as_u32(),
+                    faction_id: player.faction.id(),
+                })
+                .collect(),
+            observation,
+        });
+        app.world_mut()
+            .insert_resource(ReplayAdvanceLock::default());
+        initialize_live_semantic_world(app.world_mut());
+
+        for action in &replay.turns {
+            let transition = adapter.advance(action).unwrap();
+            let observed = transition.observe(&recipient).unwrap();
+            LiveTransitionCommand {
+                transition: observed,
+            }
+            .apply(app.world_mut());
+            let Some(entity) = app.world().resource::<ReplayAdvanceLock>().active_entity() else {
+                continue;
+            };
+            let destination = *app
+                .world()
+                .entity(entity)
+                .get::<UnitPathAnimation>()
+                .unwrap()
+                .path
+                .last()
+                .unwrap();
+            let followup = app
+                .world_mut()
+                .resource_mut::<ReplayAdvanceLock>()
+                .release_for(entity)
+                .unwrap();
+            assert!(matches!(
+                followup.transitions,
+                Some(DeferredTransitions::Recipient(_))
+            ));
+            ReplayFollowupCommand {
+                transitions: followup.transitions,
+            }
+            .apply(app.world_mut());
+            assert_eq!(
+                app.world()
+                    .entity(entity)
+                    .get::<MapPosition>()
+                    .unwrap()
+                    .position(),
+                destination
+            );
+            return;
+        }
+
+        panic!("fixture did not produce movement visible to the live recipient");
+    }
+
+    #[test]
+    fn live_bootstrap_seeds_the_player_roster_and_power_charge() {
+        use crate::features::player_roster::{PlayerFunds, PlayerPowerCharges, PlayerRosterConfig};
+
+        let replay = ReplayParser::new()
+            .parse(
+                &std::fs::read(
+                    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/replays/1362397.zip"),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let map_data: AwbwMapData = serde_json::from_slice(
+            &std::fs::read(
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/maps/162795.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let adapter = RecordedAdapter::new(&replay, &map_data).unwrap();
+        let recipient = adapter.state().players[0].id.clone();
+        let observation = observe(&AwbwVisibility, adapter.state(), &recipient).unwrap();
+
+        let mut app = App::new();
+        app.add_plugins(GameWorldPlugin);
+        app.world_mut()
+            .resource_mut::<GameMap>()
+            .set(awbrn_map::AwbrnMap::from_map(
+                &AwbwMap::try_from(&map_data).unwrap(),
+            ));
+        app.world_mut().insert_resource(LiveMatchBootstrap {
+            players: replay.games[0]
+                .players
+                .iter()
+                .map(|player| LiveMatchPlayer {
+                    player_id: player.id.as_u32(),
+                    faction_id: player.faction.id(),
+                })
+                .collect(),
+            observation,
+        });
+        app.world_mut()
+            .insert_resource(ReplayAdvanceLock::default());
+        initialize_live_semantic_world(app.world_mut());
+
+        let config = app.world().resource::<PlayerRosterConfig>();
+        assert_eq!(config.players.len(), replay.games[0].players.len());
+        assert!(
+            config.players.iter().all(|player| player.co_key.is_some()),
+            "every live player should resolve a CO portrait from its commander"
+        );
+
+        // The recipient's own funds are private and only they observe them.
+        let recipient_id =
+            awbrn_types::AwbwGamePlayerId::new(recipient.as_str().parse::<u32>().unwrap());
+        assert_eq!(
+            app.world().resource::<PlayerFunds>().get(recipient_id),
+            replay.games[0]
+                .players
+                .iter()
+                .find(|player| player.id.as_u32() == recipient_id.as_u32())
+                .unwrap()
+                .funds
+        );
+
+        // Power charge is public, so it is seeded for every player.
+        let charges = app.world().resource::<PlayerPowerCharges>();
+        for player in &config.players {
+            assert!(
+                charges.get(player.player_id).is_some(),
+                "power charge is public and should be seeded for player {}",
+                player.player_id.as_u32()
+            );
+        }
     }
 
     #[test]

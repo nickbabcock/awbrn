@@ -5,7 +5,6 @@ use crate::render::animation::{
     Animation, UnitPathAnimation, UnitVisualState, ease_out_quint, flip_x_for_lateral_direction,
     flip_x_for_movement, restore_unit_visual_state, set_unit_animation_state,
 };
-pub(crate) use awbrn_game::replay::replay_move_view;
 use awbrn_game::world::{Faction, GameMap, Unit, UnitActive};
 use awbrn_map::Position;
 use awbrn_types::{GraphicalMovement, UnitDomain, UnitExt};
@@ -13,7 +12,7 @@ use awbw_replay::turn_models::{MoveAction, TargetedPlayer};
 use bevy::prelude::*;
 use std::time::Duration;
 
-use crate::modes::replay::commands::{ReplayAdvanceLock, ReplayFollowupCommand};
+use crate::modes::replay::presentation::{ReplayAdvanceLock, ReplayFollowupCommand};
 
 /// Multiplier for replay path-related animation timing.
 pub const REPLAY_PATH_ANIMATION_SPEED_FACTOR: f32 = 3.0;
@@ -64,6 +63,22 @@ pub fn action_requires_path_animation(action: &awbw_replay::turn_models::Action)
         .is_some_and(|path| path.len() >= 2)
 }
 
+/// Returns the first visible unit projection carried by an archived move.
+pub(crate) fn replay_move_view(
+    move_action: &MoveAction,
+) -> Option<(TargetedPlayer, &awbw_replay::turn_models::UnitProperty)> {
+    move_action
+        .unit
+        .get(&TargetedPlayer::Global)
+        .and_then(awbw_replay::Hidden::get_value)
+        .map(|unit| (TargetedPlayer::Global, unit))
+        .or_else(|| {
+            move_action.unit.iter().find_map(|(targeted_player, unit)| {
+                unit.get_value().map(|unit| (*targeted_player, unit))
+            })
+        })
+}
+
 pub fn movement_direction(from: Position, to: Position) -> GraphicalMovement {
     if from.y > to.y {
         GraphicalMovement::Up
@@ -94,10 +109,6 @@ pub fn unit_path_segment_durations(path_len: usize) -> Option<Vec<Duration>> {
     }
 
     Some(durations)
-}
-
-pub(crate) fn path_positions(path: &[ReplayPathTile]) -> Vec<Position> {
-    path.iter().map(|tile| tile.position).collect()
 }
 
 pub(crate) fn replay_path_tiles(
@@ -533,9 +544,7 @@ pub(crate) fn animate_unit_paths(
 
             if let Some(followup) = replay_lock.release_for(entity) {
                 commands.queue(ReplayFollowupCommand {
-                    action: followup.action,
                     transitions: followup.transitions,
-                    recompute_fog: followup.recompute_fog,
                 });
             }
         }

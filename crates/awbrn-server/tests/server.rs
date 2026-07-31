@@ -11,6 +11,7 @@ use awbrn_server::{
     PostMoveAction, ReplayError, ReplayEventError, ServerUnitId, SetupError, StoredActionEvent,
     reconstruct_from_events,
 };
+use awvm::semantic::{ObservedEvent, ObservedUnitRef};
 
 fn attack_command(unit_id: ServerUnitId, path: Vec<Position>, target: Position) -> GameCommand {
     GameCommand::MoveUnit {
@@ -611,6 +612,29 @@ fn move_unit_updates_position() {
 
     // Verify the update was sent to both players.
     assert_eq!(result.updates.len(), 2);
+    assert_eq!(result.observed_transitions.len(), 2);
+    let (_, transition) = result
+        .observed_transitions
+        .iter()
+        .find(|(player, _)| *player == p1())
+        .unwrap();
+    assert!(transition.events.iter().any(|event| {
+        matches!(
+            event,
+            ObservedEvent::UnitMoved {
+                unit: ObservedUnitRef::Friendly { .. },
+                from,
+                to,
+                ..
+            } if *from == awvm::semantic::Pos::new(0, 0)
+                && *to == awvm::semantic::Pos::new(2, 0)
+        )
+    }));
+    assert_eq!(
+        server.player_observation(p1()).unwrap(),
+        transition.post,
+        "the websocket bootstrap and incremental transition must use the same projection"
+    );
 }
 
 #[test]

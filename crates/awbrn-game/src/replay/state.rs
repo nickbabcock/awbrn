@@ -6,6 +6,12 @@ use std::collections::HashMap;
 
 use crate::world::StrongIdMap;
 
+/// Event triggered when a new day begins during replay playback.
+#[derive(Event, Debug, Clone)]
+pub struct NewDay {
+    pub day: u32,
+}
+
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[component(immutable, on_add = on_awbw_unit_id_add, on_remove = on_awbw_unit_id_remove)]
 #[reflect(Component)]

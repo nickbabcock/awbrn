@@ -1,6 +1,6 @@
 use crate::loading::LoadedReplay;
-use crate::modes::replay::commands::{ReplayAdvanceLock, ReplayTurnCommand};
 use crate::modes::replay::navigation::action_requires_path_animation;
+use crate::modes::replay::presentation::{ReplayAdvanceLock, ReplayTurnCommand};
 use crate::modes::replay::state::ReplayControlState;
 use awbrn_game::replay::ReplayState;
 use bevy::input::{ButtonState, keyboard::KeyboardInput};

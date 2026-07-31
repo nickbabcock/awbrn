@@ -2,9 +2,11 @@ use awbw_replay::AwbwReplay;
 use bevy::prelude::*;
 
 use crate::features::player_display::PlayerDisplayFactionOverrides;
-use crate::features::player_roster::{emit_player_roster_updated, player_roster_seed_from_replay};
+use crate::features::player_roster::{
+    PlayerPowerCharges, emit_player_roster_updated, player_roster_seed_from_replay,
+};
 use crate::loading::LoadedReplay;
-use crate::modes::replay::commands::ReplayAdvanceLock;
+use crate::modes::replay::presentation::ReplayAdvanceLock;
 use awbrn_game::replay::initialize_replay_semantic_world;
 
 pub fn initialize_replay_semantic_world_for_client(world: &mut World) {
@@ -23,6 +25,10 @@ pub fn initialize_replay_semantic_world_for_client(world: &mut World) {
         world.insert_resource(funds);
         world.insert_resource(unit_costs);
     }
+
+    // Charges arrive with the first applied transition; the resource has to
+    // exist before then for the replay path to record them.
+    world.init_resource::<PlayerPowerCharges>();
 
     world.init_resource::<PlayerDisplayFactionOverrides>();
     world

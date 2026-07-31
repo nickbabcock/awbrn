@@ -15,10 +15,21 @@ const initialized = init({ module_or_path: wasmPath });
 
 export type GameDisplay = CanvasDisplay;
 
+export interface LiveMatchPlayer {
+  playerId: number;
+  factionId: number;
+}
+
 export interface GameInstance {
   newReplay: (file: File | FileSystemFileHandle) => Promise<void>;
   loadMapPreview: (mapId: number) => Promise<void>;
   loadMatchMap: (map: AwbwMapData) => Promise<void>;
+  loadLiveMatch: (
+    map: AwbwMapData,
+    players: LiveMatchPlayer[],
+    observation: unknown,
+  ) => Promise<void>;
+  applyLiveTransition: (transition: unknown) => Promise<void>;
   setPlayerDisplayFaction: (playerId: number, factionId: number | null) => Promise<void>;
 }
 
@@ -147,6 +158,12 @@ export const createGame = async (
     },
     loadMatchMap: async (map: AwbwMapData) => {
       app.load_match_map(map);
+    },
+    loadLiveMatch: async (map: AwbwMapData, players: LiveMatchPlayer[], observation: unknown) => {
+      app.load_live_match(map, players, observation);
+    },
+    applyLiveTransition: async (transition: unknown) => {
+      app.apply_live_transition(transition);
     },
     setPlayerDisplayFaction: async (playerId: number, factionId: number | null) => {
       app.set_player_display_faction(playerId, factionId);

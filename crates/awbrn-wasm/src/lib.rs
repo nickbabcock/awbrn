@@ -1,7 +1,8 @@
 use awbrn_client::{
-    AwbrnPlugin, EventSink, MapAssetPathResolver, MapDimensions, NewDay, PendingGameStart,
-    PendingMatchMap, PlayerRosterSnapshot, ReplayLoaded, ReplayToLoad, StaticAssetPathResolver,
-    TileSelected, UnitBuilt, UnitMoved, core::coords::LogicalPx,
+    AwbrnPlugin, EventSink, LiveMatchPlayer, MapAssetPathResolver, MapDimensions, NewDay,
+    PendingGameStart, PendingLiveMatch, PendingLiveTransitions, PendingMatchMap,
+    PlayerRosterSnapshot, ReplayLoaded, ReplayToLoad, StaticAssetPathResolver, TileSelected,
+    UnitBuilt, UnitMoved, core::coords::LogicalPx,
 };
 use awbrn_map::AwbwMapData;
 use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
@@ -447,6 +448,51 @@ impl BevyApp {
             .map_err(|error| JsError::new(&format!("Invalid AWBW match map data: {error}")))?;
 
         self.app.world_mut().insert_resource(PendingMatchMap(map));
+
+        Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub fn load_live_match(
+        &mut self,
+        map_data: JsValue,
+        players: JsValue,
+        observation: JsValue,
+    ) -> Result<(), JsError> {
+        let map = serde_wasm_bindgen::from_value::<AwbwMapData>(map_data)
+            .map_err(|error| JsError::new(&format!("Invalid AWBW live match map: {error}")))?;
+        let players = serde_wasm_bindgen::from_value::<Vec<LiveMatchPlayer>>(players)
+            .map_err(|error| JsError::new(&format!("Invalid live match players: {error}")))?;
+        let observation =
+            serde_wasm_bindgen::from_value::<awvm::semantic::Observation>(observation)
+                .map_err(|error| JsError::new(&format!("Invalid live observation: {error}")))?;
+
+        let world = self.app.world_mut();
+        // A new baseline supersedes anything queued before it: transitions from
+        // the previous connection no longer apply to this snapshot.
+        world.remove_resource::<PendingLiveTransitions>();
+        world.insert_resource(PendingLiveMatch {
+            map,
+            players,
+            observation,
+        });
+
+        Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub fn apply_live_transition(&mut self, transition: JsValue) -> Result<(), JsError> {
+        let transition =
+            serde_wasm_bindgen::from_value::<awvm::semantic::ObservedTransition>(transition)
+                .map_err(|error| JsError::new(&format!("Invalid live transition: {error}")))?;
+        let world = self.app.world_mut();
+        if let Some(mut pending) = world.get_resource_mut::<PendingLiveTransitions>() {
+            pending.push(transition);
+        } else {
+            let mut pending = PendingLiveTransitions::default();
+            pending.push(transition);
+            world.insert_resource(pending);
+        }
 
         Ok(())
     }

@@ -45,6 +45,7 @@ const gameState: MatchGameState = {
   players: [{ slotIndex: 0, funds: 1000 }],
   units: [],
   terrain: [],
+  observation: {},
 };
 
 describe("initial match connection messages", () => {
@@ -138,6 +139,7 @@ describe("wasm action responses", () => {
             captureEvents: [],
             turnChange: { newActivePlayerSlot: 1, newDay: null },
             fundsChanged: 900,
+            transition: {},
           },
         ],
       ]),

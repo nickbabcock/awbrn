@@ -7,9 +7,11 @@ use awbrn_game::world::GameMap;
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
 use awbw_replay::game_models::AwbwPlayer;
 use awbw_replay::{AwbwReplay, ReplayParser, game_models::AwbwBuilding};
+use awvm::semantic::{Observation, ObservedTransition};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use serde::Deserialize;
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 /// Trait for resolving map asset paths from map IDs
@@ -65,6 +67,37 @@ pub struct PendingGameStart(pub u32);
 /// Resource containing AWBW map data supplied by the match server.
 #[derive(Resource)]
 pub struct PendingMatchMap(pub AwbwMapData);
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveMatchPlayer {
+    pub player_id: u32,
+    pub faction_id: u8,
+}
+
+/// Complete typed bootstrap payload for an active live match.
+#[derive(Resource)]
+pub struct PendingLiveMatch {
+    pub map: AwbwMapData,
+    pub players: Vec<LiveMatchPlayer>,
+    pub observation: Observation,
+}
+
+#[derive(Resource)]
+pub(crate) struct LiveMatchBootstrap {
+    pub(crate) players: Vec<LiveMatchPlayer>,
+    pub(crate) observation: Observation,
+}
+
+/// Typed server transitions waiting to enter the presentation command queue.
+#[derive(Resource, Debug, Default)]
+pub struct PendingLiveTransitions(pub VecDeque<ObservedTransition>);
+
+impl PendingLiveTransitions {
+    pub fn push(&mut self, transition: ObservedTransition) {
+        self.0.push_back(transition);
+    }
+}
 
 #[derive(Resource, Clone)]
 pub(crate) struct MapPathResolver(pub(crate) Arc<dyn MapAssetPathResolver>);
@@ -241,6 +274,32 @@ pub(crate) fn detect_pending_match_map(
     info!("Started game mode from match map data");
 }
 
+pub(crate) fn detect_pending_live_match(
+    mut commands: Commands,
+    pending: Res<PendingLiveMatch>,
+    mut transitions: LoadingTransitions,
+    asset_loader: ClientAssetLoader,
+) {
+    let awbw_map = match AwbwMap::try_from(&pending.map) {
+        Ok(map) => map,
+        Err(error) => {
+            error!("Failed to parse live match map data: {error:?}");
+            commands.remove_resource::<PendingLiveMatch>();
+            return;
+        }
+    };
+
+    commands.insert_resource(PendingLoadedMatchMap(AwbrnMap::from_map(&awbw_map)));
+    commands.insert_resource(LiveMatchBootstrap {
+        players: pending.players.clone(),
+        observation: pending.observation.clone(),
+    });
+    commands.remove_resource::<PendingLiveMatch>();
+    commands.insert_resource(asset_loader.load_pending_ui_atlas());
+    transitions.begin_loading(GameMode::Game);
+    info!("Started loading active match from typed observation");
+}
+
 pub(crate) fn check_assets_loaded(
     mut commands: Commands,
     map_handle: Res<MapAssetHandle>,
@@ -264,7 +323,7 @@ pub(crate) fn check_assets_loaded(
         match awvm_awbw::RecordedAdapter::new(&replay.0, &awbw_map_asset.0) {
             Ok(adapter) => {
                 commands.insert_resource(
-                    crate::modes::replay::commands::ReplayTransitionSource::new(adapter),
+                    crate::modes::replay::presentation::ReplayTransitionSource::new(adapter),
                 );
             }
             Err(error) => {
@@ -446,6 +505,7 @@ impl Plugin for LoadingPlugin {
                     detect_replay_to_load.run_if(resource_exists::<ReplayToLoad>),
                     detect_pending_game_start.run_if(resource_exists::<PendingGameStart>),
                     detect_pending_match_map.run_if(resource_exists::<PendingMatchMap>),
+                    detect_pending_live_match.run_if(resource_exists::<PendingLiveMatch>),
                     emit_pending_replay_loaded_event
                         .run_if(resource_exists::<PendingReplayLoadedEvent>),
                 ),

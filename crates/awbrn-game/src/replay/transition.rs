@@ -19,9 +19,24 @@ use bevy::prelude::*;
 use crate::MapPosition;
 use crate::replay::{AwbwUnitId, ReplayPlayerRegistry, ReplayState};
 use crate::world::{
-    Ammo, BoardIndex, CaptureProgress, CarriedBy, CurrentWeather, Faction, Fuel, GameMap,
-    GraphicalHp, Hiding, StrongIdMap, TerrainHp, TerrainTile, Unit, UnitActive, VisionRange,
+    Ammo, BoardIndex, CaptureProgress, CarriedBy, CurrentWeather, Faction, FogActive, FogOfWarMap,
+    Fuel, GameMap, GraphicalHp, Hiding, StrongIdMap, TerrainHp, TerrainTile, Unit, UnitActive,
+    VisionRange,
 };
+
+#[derive(Component)]
+struct RecipientEnemy;
+
+#[derive(Resource)]
+struct RecipientEnemyIds {
+    next: u32,
+}
+
+impl Default for RecipientEnemyIds {
+    fn default() -> Self {
+        Self { next: u32::MAX }
+    }
+}
 
 /// Reconcile a complete set of recipient projections into the presentation ECS.
 ///
@@ -48,6 +63,26 @@ pub fn apply_observed_transitions(
     let capture_points = sync_tiles(world, transitions)?;
     sync_units(world, &units, &capture_points)?;
     world.trigger(super::ReplayFogDirty);
+    Ok(())
+}
+
+/// Reconcile one recipient-safe transition into the presentation ECS.
+///
+/// Unlike [`apply_observed_transitions`], this mode never requires or infers
+/// other players' private projections. Friendly units retain their semantic
+/// IDs. Visible enemies receive presentation-local IDs and are matched by the
+/// positions and movement facts the recipient is entitled to observe.
+pub fn apply_observed_transition(
+    world: &mut World,
+    transition: &ObservedTransition,
+) -> Result<(), TransitionApplyError> {
+    consume_events(&transition.events);
+    let units = collect_recipient_units(world, transition)?;
+    sync_replay_state(world, &transition.post)?;
+    sync_weather(world, &transition.post);
+    let capture_points = sync_tiles(world, std::slice::from_ref(transition))?;
+    sync_units(world, &units, &capture_points)?;
+    sync_recipient_fog(world, &transition.post);
     Ok(())
 }
 
@@ -133,6 +168,130 @@ fn collect_owned_units(
         }
     }
     Ok(units)
+}
+
+fn collect_recipient_units(
+    world: &mut World,
+    transition: &ObservedTransition,
+) -> Result<BTreeMap<RawAwbwUnitId, ObservedUnit>, TransitionApplyError> {
+    world.init_resource::<RecipientEnemyIds>();
+    let moved_enemies = transition
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            ObservedEvent::UnitMoved {
+                unit: ObservedUnitRef::Enemy { .. },
+                from,
+                to,
+                ..
+            } => Some((*from, *to)),
+            ObservedEvent::UnitMoved { .. }
+            | ObservedEvent::UnitAppeared { .. }
+            | ObservedEvent::UnitDisappeared { .. }
+            | ObservedEvent::MovementStopped { .. }
+            | ObservedEvent::UnitChanged { .. }
+            | ObservedEvent::UnitRemoved { .. }
+            | ObservedEvent::TileChanged { .. }
+            | ObservedEvent::PlayerChanged { .. }
+            | ObservedEvent::AreaStrikeResolved { .. }
+            | ObservedEvent::PublicEvent { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    let mut used = std::collections::HashSet::new();
+    let mut units = BTreeMap::new();
+    for unit in &transition.post.units {
+        let id = match unit.reference {
+            ObservedUnitRef::Friendly { unit } => RawAwbwUnitId::new(unit.get()),
+            ObservedUnitRef::Enemy { position } => {
+                let post = map_position(position);
+                let moved_from = moved_enemies
+                    .iter()
+                    .find_map(|(from, to)| (*to == position).then_some(map_position(*from)));
+                let existing = moved_from
+                    .and_then(|position| recipient_enemy_at(world, position))
+                    .or_else(|| recipient_enemy_at(world, post))
+                    .filter(|id| !used.contains(id));
+                existing.unwrap_or_else(|| spawn_recipient_enemy(world, unit, post))
+            }
+        };
+        used.insert(id);
+        units.insert(id, unit.clone());
+    }
+    Ok(units)
+}
+
+fn recipient_enemy_at(world: &World, position: Position) -> Option<RawAwbwUnitId> {
+    let entity = world
+        .resource::<BoardIndex>()
+        .unit_entity(position)
+        .ok()
+        .flatten()?;
+    world.get::<RecipientEnemy>(entity)?;
+    world.get::<AwbwUnitId>(entity).map(|id| id.0)
+}
+
+fn spawn_recipient_enemy(
+    world: &mut World,
+    unit: &ObservedUnit,
+    position: Position,
+) -> RawAwbwUnitId {
+    let id = loop {
+        let candidate = {
+            let mut ids = world.resource_mut::<RecipientEnemyIds>();
+            let candidate = ids.next;
+            ids.next = ids.next.saturating_sub(1);
+            RawAwbwUnitId::new(candidate)
+        };
+        if world
+            .resource::<StrongIdMap<AwbwUnitId>>()
+            .get(&AwbwUnitId(candidate))
+            .is_none()
+        {
+            break candidate;
+        }
+    };
+    world.spawn((
+        AwbwUnitId(id),
+        Unit(unit.kind),
+        MapPosition::from(position),
+        RecipientEnemy,
+    ));
+    id
+}
+
+fn sync_recipient_fog(world: &mut World, observation: &Observation) {
+    let fog = observation.settings.fog;
+    let width = usize::from(observation.board.width());
+    let height = usize::from(observation.board.height());
+    let mut fog_map = world.resource_mut::<FogOfWarMap>();
+    fog_map.reset(width, height);
+    if !fog {
+        fog_map.reveal_all();
+    } else {
+        for position in observation.board.positions() {
+            if observation.board.tile(position).visibility
+                == awvm::semantic::TileVisibility::Visible
+            {
+                fog_map.reveal(map_position(position));
+            }
+        }
+        for unit in &observation.units {
+            let Location::Board { position } = unit.location else {
+                continue;
+            };
+            let position = map_position(position);
+            if awvm::ruleset::profile(unit.kind).domain == awvm::ruleset::Domain::Air {
+                fog_map.reveal_air_units(position);
+            } else {
+                fog_map.reveal(position);
+            }
+        }
+    }
+    world.resource_mut::<FogActive>().0 = fog;
+}
+
+fn map_position(position: awvm::semantic::Pos) -> Position {
+    Position::new(usize::from(position.x), usize::from(position.y))
 }
 
 fn sync_replay_state(world: &mut World, post: &Observation) -> Result<(), TransitionApplyError> {
