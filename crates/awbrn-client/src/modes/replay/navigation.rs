@@ -534,6 +534,7 @@ pub(crate) fn animate_unit_paths(
             if let Some(followup) = replay_lock.release_for(entity) {
                 commands.queue(ReplayFollowupCommand {
                     action: followup.action,
+                    transitions: followup.transitions,
                     recompute_fog: followup.recompute_fog,
                 });
             }

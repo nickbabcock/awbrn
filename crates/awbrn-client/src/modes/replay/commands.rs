@@ -1,10 +1,12 @@
-//! Replay command system for processing AWBW replay actions.
+//! Replay presentation over typed AWVM observation transitions.
 //!
-//! Uses a custom Bevy Command to get direct `&mut World` access, enabling
-//! immediate mutations that are visible to subsequent queries within the same
-//! command execution.
+//! Historical actions advance the recorded-outcome adapter, then presentation
+//! consumes only recipient-safe `ObservedTransition` values. The legacy action
+//! reducer remains temporarily as a fallback for its isolated tests until phase
+//! 5.4d removes it.
 
 use awbw_replay::turn_models::{Action, MoveAction};
+use awvm::semantic::{ObservedEvent, ObservedTransition, ObservedUnitRef, PlayerId, Pos};
 use bevy::{log, prelude::*};
 
 use crate::features::event_bus::{EventSink, NewDay as ExternalNewDay};
@@ -17,16 +19,40 @@ use crate::modes::replay::navigation::{
 };
 use crate::render::animation::UnitPathAnimation;
 use awbrn_game::replay::{
-    AwbwUnitId, NewDay, ReplayState, apply_move_state,
-    apply_non_move_action as game_apply_non_move_action,
+    AwbwUnitId, NewDay, ReplayState, ReplayViewpoint, apply_move_state,
+    apply_non_move_action as game_apply_non_move_action, apply_observed_transitions,
 };
-use awbrn_game::world::{CarriedBy, Faction, StrongIdMap, Unit};
+use awbrn_game::world::{BoardIndex, CarriedBy, Faction, StrongIdMap, Unit};
 use awbrn_types::UnitExt;
+
+/// Historical replay source for the typed presentation boundary.
+///
+/// `RecordedAdapter` applies archived graphical outcomes and never executes an
+/// AWVM command or reconstructs random tokens.
+#[derive(Resource)]
+pub struct ReplayTransitionSource {
+    adapter: awvm_awbw::RecordedAdapter,
+}
+
+impl ReplayTransitionSource {
+    pub fn new(adapter: awvm_awbw::RecordedAdapter) -> Self {
+        Self { adapter }
+    }
+}
+
+/// Terminal marker for a replay whose typed source can no longer be trusted.
+///
+/// A failed advance or projection desynchronizes the adapter from the archived
+/// action stream, so every later action would compound the divergence. The
+/// marker halts advancement instead of logging once per remaining action.
+#[derive(Resource, Debug)]
+pub struct ReplayTransitionFailed;
 
 #[derive(Resource, Debug, Default)]
 pub struct ReplayAdvanceLock {
     active_entity: Option<Entity>,
     deferred_action: Option<Action>,
+    deferred_transitions: Option<Vec<ObservedTransition>>,
     recompute_fog: bool,
 }
 
@@ -43,7 +69,15 @@ impl ReplayAdvanceLock {
     ) {
         self.active_entity = Some(entity);
         self.deferred_action = deferred_action;
+        self.deferred_transitions = None;
         self.recompute_fog = recompute_fog;
+    }
+
+    fn activate_typed(&mut self, entity: Entity, transitions: Vec<ObservedTransition>) {
+        self.active_entity = Some(entity);
+        self.deferred_action = None;
+        self.deferred_transitions = Some(transitions);
+        self.recompute_fog = false;
     }
 
     pub fn active_entity(&self) -> Option<Entity> {
@@ -58,6 +92,7 @@ impl ReplayAdvanceLock {
         self.active_entity = None;
         Some(ReplayAnimationFollowup {
             action: self.deferred_action.take(),
+            transitions: self.deferred_transitions.take(),
             recompute_fog: std::mem::take(&mut self.recompute_fog),
         })
     }
@@ -66,11 +101,13 @@ impl ReplayAdvanceLock {
 #[derive(Debug)]
 pub struct ReplayAnimationFollowup {
     pub action: Option<Action>,
+    pub transitions: Option<Vec<ObservedTransition>>,
     pub recompute_fog: bool,
 }
 
 pub struct ReplayFollowupCommand {
     pub action: Option<Action>,
+    pub transitions: Option<Vec<ObservedTransition>>,
     pub recompute_fog: bool,
 }
 
@@ -78,6 +115,14 @@ impl Command for ReplayFollowupCommand {
     type Out = ();
 
     fn apply(self, world: &mut World) {
+        if let Some(transitions) = &self.transitions {
+            // apply_typed_transitions already emits the roster snapshot.
+            apply_typed_transitions(transitions, world);
+            if self.recompute_fog {
+                world.trigger(super::fog::ReplayFogDirty);
+            }
+            return;
+        }
         if let Some(action) = &self.action {
             apply_non_move_action(action, world);
             update_player_roster_funds(action, world);
@@ -99,6 +144,59 @@ impl Command for ReplayTurnCommand {
     type Out = ();
 
     fn apply(self, world: &mut World) {
+        if world.contains_resource::<ReplayTransitionSource>() {
+            self.apply_typed(world);
+            return;
+        }
+
+        // Transitional fallback for isolated legacy reducer tests. Loaded
+        // replay clients always install ReplayTransitionSource.
+        self.apply_legacy(world);
+    }
+}
+
+impl ReplayTurnCommand {
+    fn apply_typed(self, world: &mut World) {
+        if world.contains_resource::<ReplayTransitionFailed>() {
+            return;
+        }
+
+        let observed = {
+            let mut source = world.resource_mut::<ReplayTransitionSource>();
+            source
+                .adapter
+                .advance(&self.action)
+                .map_err(|error| format!("Could not advance recorded replay outcome: {error}"))
+                .and_then(|transition| {
+                    let players = transition.post_state().players.clone();
+                    players
+                        .iter()
+                        .map(|player| transition.observe(&player.id))
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|error| {
+                            format!("Could not project recorded replay outcome: {error}")
+                        })
+                })
+        };
+        let observed = match observed {
+            Ok(observed) => observed,
+            Err(error) => {
+                log::error!("{error}");
+                world.insert_resource(ReplayTransitionFailed);
+                return;
+            }
+        };
+
+        update_player_roster_unit_costs(&self.action, world);
+
+        if start_typed_movement_animation(&observed, world) {
+            return;
+        }
+
+        apply_typed_transitions(&observed, world);
+    }
+
+    fn apply_legacy(self, world: &mut World) {
         if let Some(mov) = self.action.move_action()
             && Self::apply_move(mov, &self.action, world)
         {
@@ -113,6 +211,244 @@ impl Command for ReplayTurnCommand {
         world.trigger(super::fog::ReplayFogDirty);
         emit_player_roster_updated(world);
     }
+}
+
+fn apply_typed_transitions(transitions: &[ObservedTransition], world: &mut World) {
+    let previous_day = world
+        .get_resource::<ReplayState>()
+        .map_or(1, |state| state.day);
+    if let Err(error) = apply_observed_transitions(world, transitions) {
+        log::error!("Could not apply typed replay presentation transition: {error}");
+        return;
+    }
+    sync_player_roster_from_transition(transitions, world);
+    let current_day = world
+        .get_resource::<ReplayState>()
+        .map_or(previous_day, |state| state.day);
+    if current_day != previous_day {
+        world.trigger(NewDay { day: current_day });
+    }
+    emit_player_roster_updated(world);
+}
+
+fn sync_player_roster_from_transition(transitions: &[ObservedTransition], world: &mut World) {
+    // Funds must be collected across every transition: only the recipient sees
+    // its own funds, so each player's value lives in a different projection.
+    // Statuses come from the first transition because both observed player
+    // variants expose them.
+    let updates = transitions
+        .iter()
+        .flat_map(|transition| transition.post.players.iter())
+        .filter_map(|player| {
+            let awvm::semantic::ObservedPlayer::Private { id, funds, .. } = player else {
+                return None;
+            };
+            Some((parse_player_id(id)?, u32::try_from(*funds).ok()?))
+        })
+        .collect::<Vec<_>>();
+    if let Some(mut player_funds) = world.get_resource_mut::<PlayerFunds>() {
+        for (player, funds) in updates {
+            player_funds.set(player, funds);
+        }
+    }
+
+    let statuses = transitions
+        .first()
+        .into_iter()
+        .flat_map(|transition| transition.post.players.iter())
+        .filter_map(|player| match player {
+            awvm::semantic::ObservedPlayer::Private { id, status, .. }
+            | awvm::semantic::ObservedPlayer::Public { id, status, .. } => {
+                Some((parse_player_id(id)?, *status))
+            }
+        })
+        .collect::<Vec<_>>();
+    if let Some(mut config) = world.get_resource_mut::<PlayerRosterConfig>() {
+        for (player, status) in statuses {
+            if let Some(entry) = config
+                .players
+                .iter_mut()
+                .find(|entry| entry.player_id == player)
+            {
+                entry.eliminated = status != awvm::semantic::PlayerStatus::Active;
+            }
+        }
+    }
+}
+
+fn start_typed_movement_animation(transitions: &[ObservedTransition], world: &mut World) -> bool {
+    let Some((unit, path)) = movement_for_current_view(transitions, world) else {
+        return false;
+    };
+    if path.len() < 2 {
+        return false;
+    }
+    let Some(entity) = entity_for_observed_unit(unit, path[0], world) else {
+        return false;
+    };
+    let idle_flip_x = world
+        .entity(entity)
+        .get::<Sprite>()
+        .map(|sprite| sprite.flip_x)
+        .unwrap_or(false);
+    let Some(animation) = UnitPathAnimation::new(path.clone(), idle_flip_x) else {
+        return false;
+    };
+    let arrow_path = typed_path_for_current_view(&path, entity, world);
+    // A path the viewer cannot see anywhere stays unanimated, matching the
+    // legacy reducer: the state change still applies, just without motion.
+    if !arrow_path.iter().any(|tile| tile.unit_visible) {
+        return false;
+    }
+    world
+        .entity_mut(entity)
+        .insert((animation, PendingCourseArrows { path: arrow_path }));
+    world
+        .resource_mut::<ReplayAdvanceLock>()
+        .activate_typed(entity, transitions.to_vec());
+    true
+}
+
+/// Mask a typed movement path the same way the legacy reducer masks course
+/// arrows: friendly movers are always drawn, foreign movers only on tiles the
+/// viewer can actually see.
+fn typed_path_for_current_view(
+    path: &[awbrn_map::Position],
+    entity: Entity,
+    world: &World,
+) -> Vec<crate::modes::replay::navigation::ReplayPathTile> {
+    use crate::features::fog::{FogActive, FogOfWarMap, FriendlyFactions};
+    use crate::modes::replay::navigation::ReplayPathTile;
+
+    let visible = |unit_visible: bool| {
+        path.iter()
+            .map(move |position| ReplayPathTile {
+                position: *position,
+                unit_visible,
+            })
+            .collect::<Vec<_>>()
+    };
+
+    // Headless fixtures install the semantic world without the fog feature.
+    let (Some(fog_active), Some(friendly), Some(fog_map)) = (
+        world.get_resource::<FogActive>(),
+        world.get_resource::<FriendlyFactions>(),
+        world.get_resource::<FogOfWarMap>(),
+    ) else {
+        return visible(true);
+    };
+    if !fog_active.0 {
+        return visible(true);
+    }
+
+    let Some(faction) = world
+        .entity(entity)
+        .get::<Faction>()
+        .map(|faction| faction.0)
+    else {
+        return visible(true);
+    };
+    if friendly.0.contains(&faction) {
+        return visible(true);
+    }
+
+    let unit_is_air = world
+        .entity(entity)
+        .get::<Unit>()
+        .is_some_and(|unit| unit.0.domain() == awbrn_types::UnitDomain::Air);
+    path.iter()
+        .map(|position| ReplayPathTile {
+            position: *position,
+            unit_visible: fog_map.is_unit_visible(*position, unit_is_air),
+        })
+        .collect()
+}
+
+fn movement_for_current_view<'a>(
+    transitions: &'a [ObservedTransition],
+    world: &World,
+) -> Option<(ObservedUnitRef, Vec<awbrn_map::Position>)> {
+    let selected = match world.get_resource::<ReplayViewpoint>() {
+        Some(ReplayViewpoint::Player(player)) => transition_for_player(transitions, *player),
+        Some(ReplayViewpoint::ActivePlayer) => world
+            .get_resource::<ReplayState>()
+            .and_then(|state| state.active_player_id)
+            .and_then(|player| transition_for_player(transitions, player)),
+        Some(ReplayViewpoint::Spectator) | None => None,
+    };
+    let mut candidates: Box<dyn Iterator<Item = &'a ObservedEvent> + 'a> =
+        if let Some(transition) = selected {
+            Box::new(transition.events.iter())
+        } else {
+            Box::new(
+                transitions
+                    .iter()
+                    .flat_map(|transition| transition.events.iter())
+                    .filter(|event| {
+                        matches!(
+                            event,
+                            ObservedEvent::UnitMoved {
+                                unit: ObservedUnitRef::Friendly { .. },
+                                ..
+                            }
+                        )
+                    }),
+            )
+        };
+    candidates.find_map(|event| match event {
+        ObservedEvent::UnitMoved { unit, path, .. } => {
+            Some((*unit, path.iter().copied().map(position_from_pos).collect()))
+        }
+        ObservedEvent::UnitAppeared { .. }
+        | ObservedEvent::UnitDisappeared { .. }
+        | ObservedEvent::MovementStopped { .. }
+        | ObservedEvent::UnitChanged { .. }
+        | ObservedEvent::UnitRemoved { .. }
+        | ObservedEvent::TileChanged { .. }
+        | ObservedEvent::PlayerChanged { .. }
+        | ObservedEvent::AreaStrikeResolved { .. }
+        | ObservedEvent::PublicEvent { .. } => None,
+    })
+}
+
+fn transition_for_player(
+    transitions: &[ObservedTransition],
+    player: awbrn_types::AwbwGamePlayerId,
+) -> Option<&ObservedTransition> {
+    transitions
+        .iter()
+        .find(|transition| parse_player_id(&transition.post.recipient) == Some(player))
+}
+
+fn parse_player_id(id: &PlayerId) -> Option<awbrn_types::AwbwGamePlayerId> {
+    id.as_str()
+        .parse()
+        .ok()
+        .map(awbrn_types::AwbwGamePlayerId::new)
+}
+
+fn entity_for_observed_unit(
+    unit: ObservedUnitRef,
+    origin: awbrn_map::Position,
+    world: &World,
+) -> Option<Entity> {
+    match unit {
+        ObservedUnitRef::Friendly { unit } => {
+            let id = awbrn_types::AwbwUnitId::new(unit.get());
+            world
+                .resource::<StrongIdMap<AwbwUnitId>>()
+                .get(&AwbwUnitId(id))
+        }
+        ObservedUnitRef::Enemy { .. } => world
+            .resource::<BoardIndex>()
+            .unit_entity(origin)
+            .ok()
+            .flatten(),
+    }
+}
+
+fn position_from_pos(position: Pos) -> awbrn_map::Position {
+    awbrn_map::Position::new(usize::from(position.x), usize::from(position.y))
 }
 
 pub(crate) fn apply_non_move_action(action: &Action, world: &mut World) {
@@ -513,6 +849,7 @@ mod tests {
             .expect("capture action should be deferred while the move animates");
         ReplayFollowupCommand {
             action: deferred_action.action,
+            transitions: deferred_action.transitions,
             recompute_fog: deferred_action.recompute_fog,
         }
         .apply(app.world_mut());
@@ -839,6 +1176,7 @@ mod tests {
 
         ReplayFollowupCommand {
             action: deferred_action.action,
+            transitions: deferred_action.transitions,
             recompute_fog: deferred_action.recompute_fog,
         }
         .apply(app.world_mut());
@@ -922,6 +1260,7 @@ mod tests {
 
         ReplayFollowupCommand {
             action: deferred_action.action,
+            transitions: deferred_action.transitions,
             recompute_fog: deferred_action.recompute_fog,
         }
         .apply(app.world_mut());
@@ -1011,6 +1350,7 @@ mod tests {
             .expect("join action should be deferred while the move animates");
         ReplayFollowupCommand {
             action: deferred.action,
+            transitions: deferred.transitions,
             recompute_fog: deferred.recompute_fog,
         }
         .apply(app.world_mut());
@@ -1101,6 +1441,7 @@ mod tests {
             .expect("load action should be deferred while the move animates");
         ReplayFollowupCommand {
             action: deferred.action,
+            transitions: deferred.transitions,
             recompute_fog: deferred.recompute_fog,
         }
         .apply(app.world_mut());

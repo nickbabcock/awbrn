@@ -462,6 +462,8 @@ dependencies = [
  "awbrn-map",
  "awbrn-types",
  "awbw-replay",
+ "awvm",
+ "awvm-awbw",
  "bevy",
  "highway",
  "indexmap",
@@ -501,11 +503,14 @@ dependencies = [
  "awbrn-map",
  "awbrn-types",
  "awbw-replay",
+ "awvm",
+ "awvm-awbw",
  "bevy",
  "indexmap",
  "insta",
  "serde",
  "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
