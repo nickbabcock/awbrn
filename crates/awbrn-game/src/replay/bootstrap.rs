@@ -1,8 +1,8 @@
 //! Bootstrap logic for initializing the ECS world from an AWBW replay.
 //!
 //! This module contains the pure game-logic bootstrap that sets up terrain,
-//! units, fog resources, and replay state. It does not insert any client-only
-//! resources (such as `ReplayAdvanceLock`).
+//! units, presentation visibility, and replay state. It does not insert any
+//! client-only resources (such as `ReplayAdvanceLock`).
 
 use awbrn_map::Position;
 use awbrn_types::PlayerFaction;
@@ -11,18 +11,18 @@ use bevy::prelude::*;
 
 use crate::MapPosition;
 use crate::replay::{
-    AwbwUnitId, ReplayFogEnabled, ReplayPlayerRegistry, ReplayState, ReplayTerrainKnowledge,
+    AwbwUnitId, RecipientObservations, ReplayPlayerRegistry, ReplayState, ReplayTerrainKnowledge,
 };
 use crate::world::{
-    Ammo, Faction, FogActive, FogOfWarMap, FriendlyFactions, Fuel, GameMap, GraphicalHp, TerrainHp,
-    TerrainTile, Unit, UnitActive, VisionRange, initialize_terrain_semantic_world,
+    Ammo, Faction, FriendlyFactions, Fuel, GameMap, GraphicalHp, TerrainHp, TerrainTile, Unit,
+    UnitActive, ViewerVisibility, VisionRange, initialize_terrain_semantic_world,
 };
 
 /// Initialize the ECS world for replay playback from a parsed `AwbwReplay`.
 ///
-/// Sets up terrain HP for pipe seams, spawns unit entities, and configures
-/// fog-of-war resources. Does NOT insert `ReplayAdvanceLock` — the client
-/// layer is responsible for that.
+/// Sets up terrain HP for pipe seams, spawns unit entities, and installs the
+/// presentation-visibility resources. Does NOT insert `ReplayAdvanceLock` —
+/// the client layer is responsible for that.
 pub fn initialize_replay_semantic_world(replay: &AwbwReplay, world: &mut World) {
     initialize_terrain_semantic_world(world);
 
@@ -39,11 +39,10 @@ pub fn initialize_replay_semantic_world(replay: &AwbwReplay, world: &mut World) 
         }
     }
 
-    let (replay_units, fog_enabled, player_registry, first_player_id) = replay
+    let (replay_units, player_registry, first_player_id) = replay
         .games
         .first()
         .map(|first_game| {
-            let fog_enabled = first_game.fog;
             let mut registry = ReplayPlayerRegistry::default();
             let mut sorted_players = first_game.players.iter().collect::<Vec<_>>();
             sorted_players.sort_by_key(|p| p.order);
@@ -89,7 +88,7 @@ pub fn initialize_replay_semantic_world(replay: &AwbwReplay, world: &mut World) 
                 })
                 .collect::<Vec<_>>();
 
-            (units, fog_enabled, registry, first_player_id)
+            (units, registry, first_player_id)
         })
         .unwrap_or_default();
 
@@ -97,22 +96,16 @@ pub fn initialize_replay_semantic_world(replay: &AwbwReplay, world: &mut World) 
         world.spawn(replay_unit);
     }
 
-    // Initialize fog resources
-    let (map_width, map_height, terrain_knowledge) = {
+    // Presentation visibility stays omniscient until the first projection
+    // arrives; the viewpoint defaults to spectator, which is the same view.
+    let terrain_knowledge = {
         let game_map = world.resource::<GameMap>();
-        (
-            game_map.width(),
-            game_map.height(),
-            ReplayTerrainKnowledge::from_map_and_registry(game_map, &player_registry),
-        )
+        ReplayTerrainKnowledge::from_map_and_registry(game_map, &player_registry)
     };
-    world
-        .resource_mut::<FogOfWarMap>()
-        .reset(map_width, map_height);
-    world.insert_resource(ReplayFogEnabled(fog_enabled));
     world.insert_resource(player_registry);
     world.insert_resource(terrain_knowledge);
-    world.insert_resource(FogActive(false)); // Spectator by default
+    world.insert_resource(RecipientObservations::default());
+    world.insert_resource(ViewerVisibility::default());
     world.insert_resource(FriendlyFactions::default());
 
     world.insert_resource(ReplayState {

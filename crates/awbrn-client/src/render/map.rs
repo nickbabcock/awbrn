@@ -308,7 +308,7 @@ impl Plugin for MapVisualsPlugin {
 mod tests {
     use super::*;
     use crate::core::coords::TILE_SIZE;
-    use crate::features::{FogActive, FogOfWarMap, FriendlyFactions};
+    use crate::features::{FriendlyFactions, ViewerVisibility};
     use crate::projection::project_terrain_render_state;
     use awbrn_game::MapPosition;
     use awbrn_game::world::TerrainTile;
@@ -323,8 +323,7 @@ mod tests {
             texture: Handle::default(),
             layout: Handle::default(),
         });
-        app.init_resource::<FogOfWarMap>();
-        app.init_resource::<FogActive>();
+        app.init_resource::<ViewerVisibility>();
         app.init_resource::<FriendlyFactions>();
         app.add_systems(
             Update,

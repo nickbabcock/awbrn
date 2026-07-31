@@ -19,7 +19,7 @@ use awbrn_game::replay::{
     AwbwUnitId, NewDay, ReplayState, ReplayViewpoint, apply_observed_transition,
     apply_observed_transitions,
 };
-use awbrn_game::world::{BoardIndex, CarriedBy, Faction, StrongIdMap, Unit};
+use awbrn_game::world::{BoardIndex, CarriedBy, StrongIdMap};
 use awbrn_types::UnitExt;
 
 /// Historical replay source for the typed presentation boundary.
@@ -34,6 +34,24 @@ pub struct ReplayTransitionSource {
 impl ReplayTransitionSource {
     pub fn new(adapter: awvm_awbw::RecordedAdapter) -> Self {
         Self { adapter }
+    }
+
+    /// Each player's view of the archive before any action is applied.
+    ///
+    /// Bootstrap spawns units from the replay's own roster, so the ECS is
+    /// already populated; these projections are what a viewpoint switch made
+    /// before the first action selects between.
+    pub fn initial_observations(&self) -> Result<Vec<awvm::semantic::Observation>, String> {
+        let state = self.adapter.state();
+        state
+            .players
+            .iter()
+            .map(|player| {
+                awvm::semantic::observe(&awvm::semantic::AwbwVisibility, state, &player.id).map_err(
+                    |error| format!("Could not project the initial archive state: {error}"),
+                )
+            })
+            .collect()
     }
 }
 
@@ -344,57 +362,21 @@ fn collect_player_roster_unit_cost_updates(action: &Action) -> Vec<(AwbwUnitId, 
     }
 }
 
-/// Mask a typed movement path the same way the legacy reducer masked course
-/// arrows: friendly movers are always drawn, foreign movers only on tiles the
-/// viewer can actually see.
+/// Turn a projected movement path into course-arrow tiles.
+///
+/// `ObservedEvent::UnitMoved` already reports only the stretch the recipient
+/// could watch (`spec/semantics/fog.md`), so every position that reaches here
+/// is one the viewer is entitled to see. `unit_visible` stays on the tile
+/// because the archived AWBW path in `replay_path_tiles` still carries it.
 fn typed_path_for_current_view(
     path: &[awbrn_map::Position],
-    entity: Entity,
-    world: &World,
 ) -> Vec<crate::modes::replay::navigation::ReplayPathTile> {
-    use crate::features::fog::{FogActive, FogOfWarMap, FriendlyFactions};
     use crate::modes::replay::navigation::ReplayPathTile;
 
-    let visible = |unit_visible: bool| {
-        path.iter()
-            .map(move |position| ReplayPathTile {
-                position: *position,
-                unit_visible,
-            })
-            .collect::<Vec<_>>()
-    };
-
-    // Headless fixtures install the semantic world without the fog feature.
-    let (Some(fog_active), Some(friendly), Some(fog_map)) = (
-        world.get_resource::<FogActive>(),
-        world.get_resource::<FriendlyFactions>(),
-        world.get_resource::<FogOfWarMap>(),
-    ) else {
-        return visible(true);
-    };
-    if !fog_active.0 {
-        return visible(true);
-    }
-
-    let Some(faction) = world
-        .entity(entity)
-        .get::<Faction>()
-        .map(|faction| faction.0)
-    else {
-        return visible(true);
-    };
-    if friendly.0.contains(&faction) {
-        return visible(true);
-    }
-
-    let unit_is_air = world
-        .entity(entity)
-        .get::<Unit>()
-        .is_some_and(|unit| unit.0.domain() == awbrn_types::UnitDomain::Air);
     path.iter()
         .map(|position| ReplayPathTile {
             position: *position,
-            unit_visible: fog_map.is_unit_visible(*position, unit_is_air),
+            unit_visible: true,
         })
         .collect()
 }
@@ -421,12 +403,9 @@ fn start_typed_movement_animation(
     let Some(animation) = UnitPathAnimation::new(path.clone(), idle_flip_x) else {
         return false;
     };
-    let arrow_path = typed_path_for_current_view(&path, entity, world);
-    // A path the viewer cannot see anywhere stays unanimated: the state change
-    // still applies, just without motion.
-    if !arrow_path.iter().any(|tile| tile.unit_visible) {
-        return false;
-    }
+    // A move the viewer could watch nowhere reports an empty path and was
+    // already rejected above, so the state change applies without motion.
+    let arrow_path = typed_path_for_current_view(&path);
     world
         .entity_mut(entity)
         .insert((animation, PendingCourseArrows { path: arrow_path }));

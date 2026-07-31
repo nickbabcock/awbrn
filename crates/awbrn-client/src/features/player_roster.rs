@@ -5,13 +5,13 @@ use crate::features::player_display::{PlayerDisplayFactionOverrides, display_fac
 use crate::loading::LiveMatchPlayer;
 use awbrn_content::{CoPortraitMetadata, co_portrait_by_awbw_id, co_portraits};
 use awbrn_game::replay::{AwbwUnitId, ReplayState};
-use awbrn_game::world::{Faction, FogActive, FriendlyFactions, GraphicalHp, TerrainTile, Unit};
+use awbrn_game::world::{Faction, GraphicalHp, TerrainTile, Unit, ViewerVisibility};
 use awbrn_types::{Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, UnitExt};
 use awbw_replay::AwbwReplay;
 use awbw_replay::game_models::AwbwPlayer;
 use awvm::semantic::{Observation, ObservedPlayer};
 use bevy::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Resource, Clone)]
 pub struct PlayerRosterConfig {
@@ -301,14 +301,21 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
         .cloned()
         .unwrap_or_default();
     let replay_state = *world.get_resource::<ReplayState>()?;
-    let fog_active = world.get_resource::<FogActive>().is_some_and(|fog| fog.0);
     let display_faction_overrides = world
         .get_resource::<PlayerDisplayFactionOverrides>()
         .cloned();
-    let friendly_factions = world
-        .get_resource::<FriendlyFactions>()
-        .map(|factions| factions.0.clone())
-        .unwrap_or_default();
+    // Whose funds and roster are disclosed is the projection's own rule: a
+    // teammate is reported privately and an opponent publicly.
+    let disclosed = config
+        .players
+        .iter()
+        .filter(|player| {
+            world
+                .get_resource::<ViewerVisibility>()
+                .is_none_or(|visibility| visibility.player_disclosed(player.player_id))
+        })
+        .map(|player| player.player_id)
+        .collect::<HashSet<_>>();
     let mut unit_counts = config
         .players
         .iter()
@@ -364,7 +371,7 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
             .players
             .iter()
             .map(|player| {
-                let stats = if fog_active && !friendly_factions.contains(&player.faction) {
+                let stats = if !disclosed.contains(&player.player_id) {
                     PlayerRosterStats {
                         funds: None,
                         unit_count: None,
@@ -471,10 +478,10 @@ pub fn player_id_for_faction(
 mod tests {
     use super::*;
     use awbrn_game::GameWorldPlugin;
-    use awbrn_game::world::{FogActive, FriendlyFactions, GraphicalHp};
+    use awbrn_game::world::{GraphicalHp, ViewerVisibility};
     use awbrn_types::{AwbwGamePlayerId, AwbwPlayerId};
     use bevy::app::App;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
 
     #[test]
     fn fog_hides_opponent_roster_stats() {
@@ -529,9 +536,13 @@ mod tests {
             day: 1,
             active_player_id: Some(AwbwGamePlayerId::new(1)),
         });
-        app.world_mut().insert_resource(FogActive(true));
-        app.world_mut()
-            .insert_resource(FriendlyFactions(HashSet::from([PlayerFaction::OrangeStar])));
+        // Orange Star's own projection reports Orange Star privately and
+        // Blue Moon publicly.
+        {
+            let mut visibility = app.world_mut().resource_mut::<ViewerVisibility>();
+            visibility.reset(true, 1, 1);
+            visibility.set_player_disclosed(AwbwGamePlayerId::new(1));
+        }
 
         app.world_mut().spawn((
             Faction(PlayerFaction::OrangeStar),

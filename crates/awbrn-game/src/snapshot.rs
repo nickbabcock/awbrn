@@ -14,10 +14,10 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::MapPosition;
-use crate::replay::{AwbwUnitId, ReplayFogDirty, ReplayState};
+use crate::replay::{AwbwUnitId, ReplayState};
 use crate::world::{
-    Ammo, CaptureProgress, CarriedBy, Faction, FogActive, FogOfWarMap, FriendlyFactions, Fuel,
-    GraphicalHp, HasCargo, TerrainHp, TerrainTile, Unit, UnitActive, VisionRange,
+    Ammo, CaptureProgress, CarriedBy, Faction, Fuel, GraphicalHp, HasCargo, TerrainHp, TerrainTile,
+    Unit, UnitActive, VisionRange,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -215,13 +215,6 @@ pub fn restore_game_snapshot(
             day: snapshot.day,
             active_player_id: snapshot.active_player_id,
         });
-    }
-
-    if world.contains_resource::<FogActive>()
-        && world.contains_resource::<FogOfWarMap>()
-        && world.contains_resource::<FriendlyFactions>()
-    {
-        world.trigger(ReplayFogDirty);
     }
 
     Ok(())

@@ -1,15 +1,11 @@
 pub mod bootstrap;
 pub(crate) mod controls;
-pub mod fog;
 pub mod navigation;
 pub mod presentation;
 pub(crate) mod state;
 
 use crate::core::{AppState, GameMode};
-use awbrn_game::replay::{
-    ReplayViewpoint, sync_viewpoint, trigger_fog_recompute_on_weather_change,
-};
-use awbrn_game::world::CurrentWeather;
+use awbrn_game::replay::{ReplayViewpoint, refresh_viewer_visibility};
 use bevy::prelude::*;
 
 pub struct ReplayPlugin;
@@ -18,7 +14,6 @@ impl Plugin for ReplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<presentation::ReplayAdvanceLock>()
             .add_plugins(navigation::NavigationPlugin)
-            .add_observer(fog::on_replay_fog_dirty)
             .add_observer(presentation::on_carried_by_add)
             .add_observer(presentation::on_carried_by_remove)
             .add_observer(presentation::on_new_day)
@@ -27,16 +22,12 @@ impl Plugin for ReplayPlugin {
                 controls::handle_replay_controls
                     .run_if(in_state(GameMode::Replay).and_then(in_state(AppState::InGame))),
             )
+            // Switching viewpoint re-selects a recipient projection the ECS
+            // was already reconciled from; nothing recomputes vision.
             .add_systems(
                 Update,
-                sync_viewpoint
+                refresh_viewer_visibility
                     .run_if(resource_changed::<ReplayViewpoint>)
-                    .run_if(in_state(GameMode::Replay).and_then(in_state(AppState::InGame))),
-            )
-            .add_systems(
-                Update,
-                trigger_fog_recompute_on_weather_change
-                    .run_if(resource_changed::<CurrentWeather>)
                     .run_if(in_state(GameMode::Replay).and_then(in_state(AppState::InGame))),
             );
     }

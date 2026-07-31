@@ -398,8 +398,7 @@ mod tests {
     use crate::projection::project_unit_render_state;
     use crate::render::UiAtlasResource;
     use awbrn_game::world::{
-        CaptureProgress, CarriedBy, FogActive, FogOfWarMap, FriendlyFactions, GraphicalHp,
-        UnitActive,
+        CaptureProgress, CarriedBy, FriendlyFactions, GraphicalHp, UnitActive, ViewerVisibility,
     };
     use awbrn_types::{GraphicalMovement, PlayerFaction};
     use bevy::asset::Assets;
@@ -468,8 +467,7 @@ mod tests {
             layout: Handle::default(),
         });
         app.insert_resource(atlas_assets);
-        app.init_resource::<FogOfWarMap>();
-        app.init_resource::<FogActive>();
+        app.init_resource::<ViewerVisibility>();
         app.init_resource::<FriendlyFactions>();
         app.register_required_components::<Unit, UnitOverlayRegistry>()
             .add_observer(handle_unit_spawn)
