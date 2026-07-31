@@ -1,24 +1,19 @@
 use std::io::BufWriter;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 
-use awbrn_client::core::CorePlugin;
-use awbrn_client::features::CurrentWeather;
-use awbrn_client::loading::{LoadedReplay, apply_replay_building_overrides};
-use awbrn_client::modes::replay::ReplayPlugin;
-use awbrn_client::modes::replay::bootstrap::initialize_replay_semantic_world_for_client as initialize_replay_semantic_world;
+use awbrn_client::loading::apply_replay_building_overrides;
 use awbrn_client::modes::replay::commands::{
-    ReplayAdvanceLock, ReplayFollowupCommand, ReplayTurnCommand,
+    ReplayAdvanceLock, ReplayFollowupCommand, ReplayTransitionSource, ReplayTurnCommand,
 };
-use awbrn_client::render::UiAtlasResource;
-use awbrn_game::replay::ReplayState;
+use awbrn_game::GameWorldPlugin;
+use awbrn_game::replay::{ReplayState, ReplayViewpoint, initialize_replay_semantic_world};
 use awbrn_game::snapshot::{GameSnapshot, capture_game_snapshot, write_replay_semantic_snapshot};
 use awbrn_game::world::GameMap;
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
 use awbw_replay::ReplayParser;
+use awvm_awbw::RecordedAdapter;
 use bevy::ecs::reflect::AppTypeRegistry;
 use bevy::prelude::*;
-use bevy::state::app::StatesPlugin;
 use highway::HighwayHash;
 use insta::assert_json_snapshot;
 use serde::Serialize;
@@ -92,22 +87,18 @@ fn replay_semantic_snapshot_rows(replay_file: &str, map_file: &str) -> Vec<Repla
     apply_replay_building_overrides(&mut awbw_map, &replay.games.first().unwrap().buildings);
 
     let mut app = App::new();
-    app.add_plugins((
-        StatesPlugin,
-        CorePlugin,
-        ReplayPlugin,
-        awbrn_client::features::fog::FogPlugin,
-    ));
-    app.insert_resource(CurrentWeather::default());
-    app.insert_resource(LoadedReplay(replay));
-    insert_test_ui_atlas(&mut app);
+    app.add_plugins(GameWorldPlugin);
     app.world_mut()
         .resource_mut::<GameMap>()
         .set(AwbrnMap::from_map(&awbw_map));
 
-    initialize_replay_semantic_world(app.world_mut());
+    initialize_replay_semantic_world(&replay, app.world_mut());
 
-    let actions = app.world().resource::<LoadedReplay>().0.turns.clone();
+    let actions = replay.turns.clone();
+    let adapter = RecordedAdapter::new(&replay, &map_data).unwrap();
+    app.insert_resource(ReplayTransitionSource::new(adapter));
+    app.insert_resource(ReplayAdvanceLock::default());
+    app.insert_resource(ReplayViewpoint::Spectator);
     let last_index = actions.len().saturating_sub(1);
     // Digests are checkpointed at turn starts instead of taken per action.
     // World state is cumulative, so a divergence anywhere inside a turn still
@@ -118,23 +109,23 @@ fn replay_semantic_snapshot_rows(replay_file: &str, map_file: &str) -> Vec<Repla
     let mut rows = Vec::new();
     for (action_index, action) in actions.into_iter().enumerate() {
         let action_kind = action.kind_name();
-        catch_unwind(AssertUnwindSafe(|| {
-            ReplayTurnCommand {
-                action: action.clone(),
+        ReplayTurnCommand { action }.apply(app.world_mut());
+        if let Some(entity) = app.world().resource::<ReplayAdvanceLock>().active_entity() {
+            let followup = app
+                .world_mut()
+                .resource_mut::<ReplayAdvanceLock>()
+                .release_for(entity)
+                .unwrap();
+            ReplayFollowupCommand {
+                action: followup.action,
+                transitions: followup.transitions,
+                recompute_fog: followup.recompute_fog,
             }
             .apply(app.world_mut());
-            // The replay controls own cursor advancement in the real app before they queue the
-            // command. The command itself only mutates semantic world state, so the headless
-            // harness mirrors the control-layer cursor update here.
-            app.world_mut()
-                .resource_mut::<ReplayState>()
-                .next_action_index += 1;
-
-            settle_replay_semantics(app.world_mut());
-        }))
-        .unwrap_or_else(|_| {
-            panic!("{replay_file} panicked at action {action_index} ({action_kind})")
-        });
+        }
+        app.world_mut()
+            .resource_mut::<ReplayState>()
+            .next_action_index += 1;
 
         let post_key = turn_key(app.world());
         if post_key == checkpoint && action_index != last_index {
@@ -170,94 +161,6 @@ fn replay_semantic_snapshot_rows(replay_file: &str, map_file: &str) -> Vec<Repla
 fn turn_key(world: &World) -> (u32, Option<awbrn_types::AwbwGamePlayerId>) {
     let replay_state = world.resource::<ReplayState>();
     (replay_state.day, replay_state.active_player_id)
-}
-
-fn settle_replay_semantics(world: &mut World) {
-    loop {
-        let active_entity = world.resource::<ReplayAdvanceLock>().active_entity();
-        let Some(active_entity) = active_entity else {
-            break;
-        };
-
-        let deferred_action = {
-            let mut replay_lock = world.resource_mut::<ReplayAdvanceLock>();
-            replay_lock.release_for(active_entity)
-        };
-
-        if let Some(followup) = deferred_action {
-            ReplayFollowupCommand {
-                action: followup.action,
-                recompute_fog: followup.recompute_fog,
-            }
-            .apply(world);
-        }
-    }
-}
-
-fn insert_test_ui_atlas(app: &mut App) {
-    if !app
-        .world()
-        .contains_resource::<Assets<awbrn_client::UiAtlasAsset>>()
-    {
-        app.insert_resource(Assets::<awbrn_client::UiAtlasAsset>::default());
-    }
-    if !app
-        .world()
-        .contains_resource::<Assets<TextureAtlasLayout>>()
-    {
-        app.insert_resource(Assets::<TextureAtlasLayout>::default());
-    }
-
-    let atlas_handle = {
-        let mut assets = app
-            .world_mut()
-            .resource_mut::<Assets<awbrn_client::UiAtlasAsset>>();
-        assets.add(awbrn_client::UiAtlasAsset {
-            size: awbrn_client::UiAtlasSize {
-                width: 48,
-                height: 16,
-            },
-            sprites: vec![
-                awbrn_client::UiAtlasSprite {
-                    name: "Arrow_Body.png".to_string(),
-                    x: 0,
-                    y: 0,
-                    width: 16,
-                    height: 16,
-                },
-                awbrn_client::UiAtlasSprite {
-                    name: "Arrow_Curved.png".to_string(),
-                    x: 16,
-                    y: 0,
-                    width: 16,
-                    height: 16,
-                },
-                awbrn_client::UiAtlasSprite {
-                    name: "Arrow_Tip.png".to_string(),
-                    x: 32,
-                    y: 0,
-                    width: 16,
-                    height: 16,
-                },
-            ],
-        })
-    };
-    let layout_handle = {
-        let mut layouts = app.world_mut().resource_mut::<Assets<TextureAtlasLayout>>();
-        layouts.add(TextureAtlasLayout::from_grid(
-            UVec2::new(16, 16),
-            3,
-            1,
-            None,
-            None,
-        ))
-    };
-
-    app.world_mut().insert_resource(UiAtlasResource {
-        handle: atlas_handle,
-        texture: Handle::default(),
-        layout: layout_handle,
-    });
 }
 
 /// Digest the canonical replay-semantic form without materializing it: the

@@ -7,12 +7,12 @@ expression: rows
     "action_index": 2,
     "day": 1,
     "action_kind": "End",
-    "checksum": "0x441eee4d76dc88878d5201c2310434dfa021b8bf51cbafa14a5935eb5b2c3e72"
+    "checksum": "0x0a2a2a6c6587dbb0963c43cc2023061866d2236af52260ad126bd445215405e4"
   },
   {
     "action_index": 3,
     "day": 2,
     "action_kind": "End",
-    "checksum": "0x70d2a484f4acba501bbbe54bc173f22c5f7aedfed0907ebb58b554843bc26356"
+    "checksum": "0xf811f004566d6f89340e566c02b3112571856f0788d8de4a889d9208a4f1efd9"
   }
 ]

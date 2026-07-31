@@ -2,6 +2,7 @@ pub mod bootstrap;
 pub mod commands;
 pub mod fog;
 pub mod state;
+pub mod transition;
 
 pub use crate::world::{
     FriendlyUnit, collect_friendly_units, range_modifier_for_weather, rebuild_fog_map,
@@ -16,3 +17,4 @@ pub use fog::{
     trigger_fog_recompute_on_weather_change,
 };
 pub use state::{AwbwUnitId, PowerMovementBoosts, PowerVisionBoosts, ReplayState};
+pub use transition::{TransitionApplyError, apply_observed_transitions};

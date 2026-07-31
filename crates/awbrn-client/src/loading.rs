@@ -109,6 +109,13 @@ pub(crate) struct ClientAssetLoader<'w> {
     asset_server: Res<'w, AssetServer>,
 }
 
+#[derive(SystemParam)]
+pub(crate) struct ReplayAssetInputs<'w> {
+    maps: Res<'w, Assets<AwbwMapAsset>>,
+    ui_atlases: Res<'w, Assets<UiAtlasAsset>>,
+    replay: Option<Res<'w, LoadedReplay>>,
+}
+
 impl ClientAssetLoader<'_> {
     pub fn load_map(&self, map_id: u32) -> Handle<AwbwMapAsset> {
         let asset_path = self.map_resolver.0.resolve_path(map_id);
@@ -235,26 +242,40 @@ pub(crate) fn detect_pending_match_map(
 }
 
 pub(crate) fn check_assets_loaded(
+    mut commands: Commands,
     map_handle: Res<MapAssetHandle>,
     pending_ui: Res<PendingUiAtlas>,
-    awbw_maps: Res<Assets<AwbwMapAsset>>,
-    ui_atlas_assets: Res<Assets<UiAtlasAsset>>,
-    loaded_replay: Option<Res<LoadedReplay>>,
+    assets: ReplayAssetInputs,
     mut game_map: ResMut<GameMap>,
     mut next_state: ResMut<NextState<LoadingState>>,
 ) {
-    let Some(awbw_map_asset) = awbw_maps.get(&map_handle.0) else {
+    let Some(awbw_map_asset) = assets.maps.get(&map_handle.0) else {
         return;
     };
 
-    if ui_atlas_assets.get(&pending_ui.atlas).is_none() {
+    if assets.ui_atlases.get(&pending_ui.atlas).is_none() {
         return;
     }
 
     let mut awbw_map = awbw_map_asset.to_awbw_map();
-    if let Some(replay) = loaded_replay
+    if let Some(replay) = assets.replay
         && let Some(first_game) = replay.0.games.first()
     {
+        match awvm_awbw::RecordedAdapter::new(&replay.0, &awbw_map_asset.0) {
+            Ok(adapter) => {
+                commands.insert_resource(
+                    crate::modes::replay::commands::ReplayTransitionSource::new(adapter),
+                );
+            }
+            Err(error) => {
+                error!("Failed to initialize typed replay transition source: {error}");
+                // The adapter cannot recover on a later frame, and this system
+                // reruns while MapAssetHandle exists. Drop the handle so the
+                // failure is terminal instead of a per-frame retry and log.
+                commands.remove_resource::<MapAssetHandle>();
+                return;
+            }
+        }
         apply_replay_building_overrides(&mut awbw_map, &first_game.buildings);
     }
     let awbrn_map = AwbrnMap::from_map(&awbw_map);
