@@ -452,9 +452,6 @@ pub(crate) fn initialize_live_semantic_world(world: &mut World) {
         .parse::<u32>()
         .ok()
         .map(awbrn_types::AwbwGamePlayerId::new);
-    let friendly = recipient
-        .map(|player| registry.friendly_factions_for_player(player))
-        .unwrap_or_default();
     let knowledge = awbrn_game::replay::ReplayTerrainKnowledge::from_map_and_registry(
         world.resource::<GameMap>(),
         &registry,
@@ -467,8 +464,6 @@ pub(crate) fn initialize_live_semantic_world(world: &mut World) {
             .map(awbrn_game::replay::ReplayViewpoint::Player)
             .unwrap_or(awbrn_game::replay::ReplayViewpoint::Spectator),
     );
-    world.resource_mut::<FriendlyFactions>().0 = friendly;
-
     let transition = awvm::semantic::ObservedTransition {
         post: bootstrap.observation,
         events: Vec::new(),

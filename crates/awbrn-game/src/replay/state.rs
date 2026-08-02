@@ -1,8 +1,7 @@
-use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
+use awbrn_types::AwbwGamePlayerId;
 use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
-use std::collections::HashMap;
 
 use crate::world::StrongIdMap;
 
@@ -30,14 +29,6 @@ fn on_awbw_unit_id_remove(mut world: DeferredWorld, context: HookContext) {
         .resource_mut::<StrongIdMap<AwbwUnitId>>()
         .remove(unit_id);
 }
-
-/// Temporary vision range boosts granted by CO powers, per faction.
-#[derive(Resource, Debug, Default, Clone)]
-pub struct PowerVisionBoosts(pub HashMap<PlayerFaction, i32>);
-
-/// Temporary movement range boosts granted by CO powers, per faction.
-#[derive(Resource, Debug, Default, Clone)]
-pub struct PowerMovementBoosts(pub HashMap<PlayerFaction, i32>);
 
 /// Resource tracking the current state of replay playback.
 #[derive(Resource, Reflect, Debug, Clone, Copy, PartialEq, Eq)]

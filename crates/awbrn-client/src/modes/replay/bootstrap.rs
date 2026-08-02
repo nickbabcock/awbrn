@@ -6,8 +6,27 @@ use crate::features::player_roster::{
     PlayerPowerCharges, emit_player_roster_updated, player_roster_seed_from_replay,
 };
 use crate::loading::LoadedReplay;
-use crate::modes::replay::presentation::ReplayAdvanceLock;
-use awbrn_game::replay::initialize_replay_semantic_world;
+use crate::modes::replay::presentation::{ReplayAdvanceLock, ReplayTransitionSource};
+use awbrn_game::replay::{
+    RecipientObservations, initialize_replay_semantic_world, refresh_viewer_visibility,
+};
+
+/// Hand the presentation the projections of the archive's opening state.
+///
+/// Without them a viewpoint switched before the first action has nothing to
+/// select and falls back to the omniscient spectator view.
+fn seed_initial_observations(world: &mut World) {
+    let Some(source) = world.get_resource::<ReplayTransitionSource>() else {
+        return;
+    };
+    match source.initial_observations() {
+        Ok(observations) => world
+            .resource_mut::<RecipientObservations>()
+            .set(observations),
+        Err(error) => error!("{error}"),
+    }
+    refresh_viewer_visibility(world);
+}
 
 pub fn initialize_replay_semantic_world_for_client(world: &mut World) {
     let replay = world
@@ -19,6 +38,7 @@ pub fn initialize_replay_semantic_world_for_client(world: &mut World) {
         });
 
     initialize_replay_semantic_world(&replay, world);
+    seed_initial_observations(world);
 
     if let Some((config, funds, unit_costs)) = player_roster_seed_from_replay(&replay) {
         world.insert_resource(config);
@@ -44,7 +64,7 @@ pub fn initialize_replay_semantic_world_for_client(world: &mut World) {
 mod tests {
     use super::*;
     use crate::core::CorePlugin;
-    use crate::features::fog::FogPlugin;
+    use crate::features::visibility::VisibilityPlugin;
     use crate::modes::replay::ReplayPlugin;
     use awbrn_game::MapPosition;
     use awbrn_game::world::{GameMap, TerrainHp, TerrainTile};
@@ -107,7 +127,7 @@ mod tests {
 
     fn bootstrap_test_app() -> App {
         let mut app = App::new();
-        app.add_plugins((StatesPlugin, CorePlugin, ReplayPlugin, FogPlugin));
+        app.add_plugins((StatesPlugin, CorePlugin, ReplayPlugin, VisibilityPlugin));
         app
     }
 

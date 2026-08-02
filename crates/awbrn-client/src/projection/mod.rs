@@ -5,16 +5,15 @@ use crate::features::player_display::{
 use crate::features::player_roster::PlayerRosterConfig;
 use awbrn_game::MapPosition;
 use awbrn_game::replay::{
-    ReplayKnowledgeKey, ReplayPlayerRegistry, ReplayState, ReplayTerrainKnowledge, ReplayViewpoint,
+    AwbwUnitId, ReplayKnowledgeKey, ReplayPlayerRegistry, ReplayState, ReplayTerrainKnowledge,
+    ReplayViewpoint,
 };
 use awbrn_game::world::{
-    CaptureProgress, CarriedBy, Faction, FogActive, FogOfWarMap, FriendlyFactions, GraphicalHp,
-    HasCargo, Hiding, TerrainTile, Unit, UnitActive,
+    CaptureProgress, CarriedBy, Faction, GraphicalHp, HasCargo, Hiding, TerrainTile, Unit,
+    UnitActive, ViewerVisibility,
 };
 use awbrn_map::Position;
-use awbrn_types::{
-    Faction as TerrainFaction, GraphicalTerrain, Property, PropertyKind, UnitDomain, UnitExt,
-};
+use awbrn_types::{Faction as TerrainFaction, GraphicalTerrain, Property, PropertyKind};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
@@ -50,17 +49,14 @@ pub struct ProjectedTerrainRenderState(pub GraphicalTerrain);
 
 #[derive(SystemParam)]
 pub(crate) struct UnitProjectionResources<'w> {
-    fog_map: Res<'w, FogOfWarMap>,
-    fog_active: Res<'w, FogActive>,
-    friendly: Res<'w, FriendlyFactions>,
+    visibility: Res<'w, ViewerVisibility>,
     player_roster: Option<Res<'w, PlayerRosterConfig>>,
     display_faction_overrides: Option<Res<'w, PlayerDisplayFactionOverrides>>,
 }
 
 #[derive(SystemParam)]
 pub(crate) struct TerrainProjectionResources<'w> {
-    fog_map: Res<'w, FogOfWarMap>,
-    fog_active: Res<'w, FogActive>,
+    visibility: Res<'w, ViewerVisibility>,
     player_roster: Option<Res<'w, PlayerRosterConfig>>,
     display_faction_overrides: Option<Res<'w, PlayerDisplayFactionOverrides>>,
     viewpoint: Option<Res<'w, ReplayViewpoint>>,
@@ -69,20 +65,11 @@ pub(crate) struct TerrainProjectionResources<'w> {
     knowledge: Option<Res<'w, ReplayTerrainKnowledge>>,
 }
 
-#[derive(Clone, Copy)]
-struct UnitVisibilityInput {
-    unit: Unit,
-    faction: Faction,
-    position: Option<MapPosition>,
-    is_hiding: bool,
-    is_carried: bool,
-}
-
 type UnitProjectionItem<'a> = (
     Entity,
     &'a Unit,
     &'a Faction,
-    Option<&'a MapPosition>,
+    Option<&'a AwbwUnitId>,
     Option<Ref<'a, UnitActive>>,
     Has<CaptureProgress>,
     Has<HasCargo>,
@@ -128,35 +115,36 @@ fn projected_health(hp: Option<&GraphicalHp>) -> Option<u8> {
         .map(GraphicalHp::value)
 }
 
-fn unit_visible_to_viewer(resources: &UnitProjectionResources, input: UnitVisibilityInput) -> bool {
-    if input.is_carried {
+/// Whether the viewer may see this unit.
+///
+/// The selected recipient's projection already applied every rule in
+/// `spec/semantics/fog.md` — range, terrain, weather, detection and
+/// concealment — so this is a lookup, not a second decision. Carried units are
+/// never drawn, and a unit the presentation spawned without a semantic id
+/// cannot be named by a projection.
+fn unit_visible_to_viewer(
+    resources: &UnitProjectionResources,
+    unit_id: Option<&AwbwUnitId>,
+    is_carried: bool,
+) -> bool {
+    if is_carried {
         return false;
     }
 
-    if !resources.fog_active.0 || resources.friendly.0.contains(&input.faction.0) {
-        return true;
+    match unit_id {
+        Some(unit_id) => resources.visibility.unit_visible(unit_id.0),
+        None => !resources.visibility.fog_active(),
     }
-
-    let Some(position) = input.position else {
-        return false;
-    };
-
-    !input.is_hiding
-        && resources.fog_map.is_unit_visible(
-            position.position(),
-            input.unit.0.domain() == UnitDomain::Air,
-        )
 }
 
 fn terrain_for_viewer(
-    fog_map: &FogOfWarMap,
-    fog_active: bool,
+    visibility: &ViewerVisibility,
     knowledge: Option<&ReplayTerrainKnowledge>,
     knowledge_key: Option<ReplayKnowledgeKey>,
     position: Position,
     actual: GraphicalTerrain,
 ) -> GraphicalTerrain {
-    if !fog_active || !fog_map.is_fogged(position) {
+    if !visibility.is_fogged(position) {
         return actual;
     }
 
@@ -218,7 +206,7 @@ pub(crate) fn project_unit_render_state(
         entity,
         unit,
         faction,
-        position,
+        unit_id,
         unit_active,
         is_capturing,
         has_cargo,
@@ -240,16 +228,7 @@ pub(crate) fn project_unit_render_state(
         let next = ProjectedUnitRenderState {
             unit: *unit,
             faction: Faction(display_faction),
-            visible: unit_visible_to_viewer(
-                &resources,
-                UnitVisibilityInput {
-                    unit: *unit,
-                    faction: *faction,
-                    position: position.copied(),
-                    is_hiding,
-                    is_carried,
-                },
-            ),
+            visible: unit_visible_to_viewer(&resources, unit_id, is_carried),
             active: is_active,
             overlays: ProjectedUnitOverlayFlags {
                 health: projected_health(hp),
@@ -273,7 +252,7 @@ pub(crate) fn project_terrain_render_state(
     terrain_tiles: Query<TerrainProjectionItem<'_>, With<TerrainTile>>,
 ) {
     let knowledge_key = current_knowledge_key(
-        resources.fog_active.0,
+        resources.visibility.fog_active(),
         resources.viewpoint.as_deref(),
         resources.replay_state.as_deref(),
         resources.registry.as_deref(),
@@ -281,8 +260,7 @@ pub(crate) fn project_terrain_render_state(
 
     for (entity, terrain_tile, position, current) in &terrain_tiles {
         let visible_terrain = terrain_for_viewer(
-            resources.fog_map.as_ref(),
-            resources.fog_active.0,
+            resources.visibility.as_ref(),
             resources.knowledge.as_deref(),
             knowledge_key,
             position.position(),
@@ -324,5 +302,117 @@ impl Plugin for ClientProjectionPlugin {
             Update,
             project_terrain_render_state.in_set(ClientProjectionSet::DerivePresentation),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use awbrn_game::GameWorldPlugin;
+    use awbrn_game::world::GameMap;
+    use awbrn_map::AwbrnMap;
+    use awbrn_types::{AwbwGamePlayerId, PlayerFaction, Property};
+
+    /// A fogged property keeps the owner the viewer last saw on it.
+    ///
+    /// A projection reports a fogged tile's terrain but not its owner, so the
+    /// sprite has to come from `ReplayTerrainKnowledge`. Once the tile is
+    /// visible again the actual owner takes over.
+    #[test]
+    fn a_fogged_property_draws_the_owner_the_viewer_last_saw() {
+        let player = AwbwGamePlayerId::new(1);
+        let remembered = GraphicalTerrain::Property(Property::City(TerrainFaction::Player(
+            PlayerFaction::OrangeStar,
+        )));
+        let actual = GraphicalTerrain::Property(Property::City(TerrainFaction::Player(
+            PlayerFaction::BlueMoon,
+        )));
+
+        let mut app = App::new();
+        app.add_plugins(GameWorldPlugin);
+        app.add_systems(Update, project_terrain_render_state);
+
+        let mut registry = ReplayPlayerRegistry::default();
+        registry.add_player(player, PlayerFaction::OrangeStar, 0);
+        app.world_mut()
+            .resource_mut::<GameMap>()
+            .set(AwbrnMap::new(1, 1, remembered));
+        let knowledge = {
+            let game_map = app.world().resource::<GameMap>();
+            ReplayTerrainKnowledge::from_map_and_registry(game_map, &registry)
+        };
+        app.world_mut().insert_resource(registry);
+        app.world_mut().insert_resource(knowledge);
+        app.world_mut()
+            .insert_resource(ReplayViewpoint::Player(player));
+        app.world_mut().insert_resource(ReplayState {
+            active_player_id: Some(player),
+            ..ReplayState::default()
+        });
+        app.world_mut()
+            .resource_mut::<GameMap>()
+            .set(AwbrnMap::new(1, 1, actual));
+        let entity = app
+            .world_mut()
+            .spawn((MapPosition::new(0, 0), TerrainTile { terrain: actual }))
+            .id();
+
+        app.world_mut()
+            .resource_mut::<ViewerVisibility>()
+            .reset(true, 1, 1);
+        app.update();
+        assert_eq!(
+            app.world()
+                .entity(entity)
+                .get::<ProjectedTerrainRenderState>(),
+            Some(&ProjectedTerrainRenderState(remembered))
+        );
+
+        app.world_mut()
+            .resource_mut::<ViewerVisibility>()
+            .set_tile_visible(Position::new(0, 0));
+        app.update();
+        assert_eq!(
+            app.world()
+                .entity(entity)
+                .get::<ProjectedTerrainRenderState>(),
+            Some(&ProjectedTerrainRenderState(actual))
+        );
+    }
+
+    /// Unit visibility is a lookup into the selected projection.
+    #[test]
+    fn a_unit_is_drawn_only_when_the_projection_named_it() {
+        let mut app = App::new();
+        app.add_plugins(GameWorldPlugin);
+        app.add_systems(Update, project_unit_render_state);
+
+        let seen = awbrn_types::AwbwUnitId::new(1);
+        let unseen = awbrn_types::AwbwUnitId::new(2);
+        for id in [seen, unseen] {
+            app.world_mut().spawn((
+                AwbwUnitId(id),
+                Unit(awbrn_types::Unit::Infantry),
+                Faction(PlayerFaction::OrangeStar),
+                MapPosition::new(0, 0),
+            ));
+        }
+        {
+            let mut visibility = app.world_mut().resource_mut::<ViewerVisibility>();
+            visibility.reset(true, 1, 1);
+            visibility.set_unit_visible(seen);
+        }
+        app.update();
+
+        let mut query = app
+            .world_mut()
+            .query::<(&AwbwUnitId, &ProjectedUnitRenderState)>();
+        let mut drawn = query
+            .iter(app.world())
+            .filter(|(_, state)| state.visible)
+            .map(|(id, _)| id.0)
+            .collect::<Vec<_>>();
+        drawn.sort_unstable();
+        assert_eq!(drawn, vec![seen]);
     }
 }

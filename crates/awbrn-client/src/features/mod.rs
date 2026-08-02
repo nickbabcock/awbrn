@@ -1,12 +1,12 @@
 pub mod camera;
 pub mod event_bus;
-pub mod fog;
 pub mod input;
 pub mod player_display;
 pub mod player_roster;
+pub mod visibility;
 pub mod weather;
 
-pub use awbrn_game::world::{CurrentWeather, FogActive, FogOfWarMap, FriendlyFactions};
+pub use awbrn_game::world::{CurrentWeather, FriendlyFactions, ViewerVisibility};
 pub use camera::CameraScale;
 pub use event_bus::{
     EventSink, MapDimensions, NewDay, PlayerRosterEntry, PlayerRosterSnapshot, PlayerRosterStats,
@@ -24,7 +24,7 @@ impl Plugin for FeaturesPlugin {
             weather::WeatherPlugin,
             camera::CameraPlugin,
             input::InputPlugin,
-            fog::FogPlugin,
+            visibility::VisibilityPlugin,
             player_display::PlayerDisplayPlugin,
         ));
     }

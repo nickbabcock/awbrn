@@ -2,7 +2,7 @@ use awbrn_map::Position;
 use bevy::prelude::*;
 
 use crate::core::{AppState, RenderLayer, SpriteSize};
-use crate::features::fog::{FogActive, FogOfWarMap};
+use crate::features::visibility::ViewerVisibility;
 use awbrn_game::world::GameMap;
 
 const FOG_OVERLAY_ALPHA: f32 = 0.75;
@@ -55,12 +55,11 @@ pub fn spawn_fog_overlay_tiles(
 }
 
 fn update_fog_overlay(
-    fog_map: Res<FogOfWarMap>,
-    fog_active: Res<FogActive>,
+    visibility: Res<ViewerVisibility>,
     mut query: Query<(&FogTilePosition, &mut Sprite), With<FogOverlayTile>>,
 ) {
     for (tile_pos, mut sprite) in &mut query {
-        let target_alpha = if fog_active.0 && fog_map.is_fogged(tile_pos.0) {
+        let target_alpha = if visibility.is_fogged(tile_pos.0) {
             FOG_OVERLAY_ALPHA
         } else {
             0.0
@@ -77,7 +76,7 @@ impl Plugin for FogOverlayPlugin {
             Update,
             update_fog_overlay
                 .run_if(in_state(AppState::InGame))
-                .run_if(resource_changed::<FogOfWarMap>.or_else(resource_changed::<FogActive>)),
+                .run_if(resource_changed::<ViewerVisibility>),
         );
     }
 }
@@ -91,9 +90,14 @@ mod tests {
     fn fog_overlay_test_app() -> App {
         let mut app = App::new();
         app.init_resource::<GameMap>();
-        app.init_resource::<FogOfWarMap>();
-        app.init_resource::<FogActive>();
+        app.init_resource::<ViewerVisibility>();
         app
+    }
+
+    fn fog_everything(app: &mut App, width: usize, height: usize) {
+        app.world_mut()
+            .resource_mut::<ViewerVisibility>()
+            .reset(true, width, height);
     }
 
     #[test]
@@ -121,8 +125,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<GameMap>()
             .set(awbrn_map::AwbrnMap::new(2, 2, GraphicalTerrain::Plain));
-        app.world_mut().resource_mut::<FogActive>().0 = true;
-        app.world_mut().resource_mut::<FogOfWarMap>().reset(2, 2);
+        fog_everything(&mut app, 2, 2);
 
         app.world_mut()
             .run_system_once(spawn_fog_overlay_tiles)
@@ -147,7 +150,6 @@ mod tests {
         app.world_mut()
             .resource_mut::<GameMap>()
             .set(awbrn_map::AwbrnMap::new(2, 2, GraphicalTerrain::Plain));
-        app.world_mut().resource_mut::<FogActive>().0 = false;
 
         app.world_mut()
             .run_system_once(spawn_fog_overlay_tiles)
@@ -171,12 +173,10 @@ mod tests {
         app.world_mut()
             .resource_mut::<GameMap>()
             .set(awbrn_map::AwbrnMap::new(2, 1, GraphicalTerrain::Plain));
-        app.world_mut().resource_mut::<FogActive>().0 = true;
-        {
-            let mut fog_map = app.world_mut().resource_mut::<FogOfWarMap>();
-            fog_map.reset(2, 1);
-            fog_map.reveal(Position::new(0, 0));
-        }
+        fog_everything(&mut app, 2, 1);
+        app.world_mut()
+            .resource_mut::<ViewerVisibility>()
+            .set_tile_visible(Position::new(0, 0));
 
         app.world_mut()
             .run_system_once(spawn_fog_overlay_tiles)
@@ -200,33 +200,5 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn air_units_visible_tiles_still_get_fog_overlay() {
-        let mut app = fog_overlay_test_app();
-        app.world_mut()
-            .resource_mut::<GameMap>()
-            .set(awbrn_map::AwbrnMap::new(1, 1, GraphicalTerrain::Plain));
-        app.world_mut().resource_mut::<FogActive>().0 = true;
-        {
-            let mut fog_map = app.world_mut().resource_mut::<FogOfWarMap>();
-            fog_map.reset(1, 1);
-            fog_map.reveal_air_units(Position::new(0, 0));
-        }
-
-        app.world_mut()
-            .run_system_once(spawn_fog_overlay_tiles)
-            .unwrap();
-        app.world_mut().run_system_once(update_fog_overlay).unwrap();
-
-        let mut query = app
-            .world_mut()
-            .query_filtered::<&Sprite, With<FogOverlayTile>>();
-        let sprite = query.iter(app.world()).next().unwrap();
-        assert!(
-            (sprite.color.alpha() - FOG_OVERLAY_ALPHA).abs() < f32::EPSILON,
-            "AirUnitsVisible tile should still have fog overlay"
-        );
     }
 }

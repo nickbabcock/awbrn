@@ -17,11 +17,12 @@ use awvm::semantic::{
 use bevy::prelude::*;
 
 use crate::MapPosition;
-use crate::replay::{AwbwUnitId, ReplayPlayerRegistry, ReplayState};
+use crate::replay::{
+    AwbwUnitId, RecipientObservations, ReplayPlayerRegistry, ReplayState, refresh_viewer_visibility,
+};
 use crate::world::{
-    Ammo, BoardIndex, CaptureProgress, CarriedBy, CurrentWeather, Faction, FogActive, FogOfWarMap,
-    Fuel, GameMap, GraphicalHp, Hiding, StrongIdMap, TerrainHp, TerrainTile, Unit, UnitActive,
-    VisionRange,
+    Ammo, BoardIndex, CaptureProgress, CarriedBy, CurrentWeather, Faction, Fuel, GameMap,
+    GraphicalHp, Hiding, StrongIdMap, TerrainHp, TerrainTile, Unit, UnitActive, VisionRange,
 };
 
 #[derive(Component)]
@@ -62,7 +63,8 @@ pub fn apply_observed_transitions(
     sync_weather(world, post);
     let capture_points = sync_tiles(world, transitions)?;
     sync_units(world, &units, &capture_points)?;
-    world.trigger(super::ReplayFogDirty);
+    store_observations(world, transitions);
+    refresh_viewer_visibility(world);
     Ok(())
 }
 
@@ -82,7 +84,8 @@ pub fn apply_observed_transition(
     sync_weather(world, &transition.post);
     let capture_points = sync_tiles(world, std::slice::from_ref(transition))?;
     sync_units(world, &units, &capture_points)?;
-    sync_recipient_fog(world, &transition.post);
+    store_observations(world, std::slice::from_ref(transition));
+    refresh_viewer_visibility(world);
     Ok(())
 }
 
@@ -259,35 +262,18 @@ fn spawn_recipient_enemy(
     id
 }
 
-fn sync_recipient_fog(world: &mut World, observation: &Observation) {
-    let fog = observation.settings.fog;
-    let width = usize::from(observation.board.width());
-    let height = usize::from(observation.board.height());
-    let mut fog_map = world.resource_mut::<FogOfWarMap>();
-    fog_map.reset(width, height);
-    if !fog {
-        fog_map.reveal_all();
-    } else {
-        for position in observation.board.positions() {
-            if observation.board.tile(position).visibility
-                == awvm::semantic::TileVisibility::Visible
-            {
-                fog_map.reveal(map_position(position));
-            }
-        }
-        for unit in &observation.units {
-            let Location::Board { position } = unit.location else {
-                continue;
-            };
-            let position = map_position(position);
-            if awvm::ruleset::profile(unit.kind).domain == awvm::ruleset::Domain::Air {
-                fog_map.reveal_air_units(position);
-            } else {
-                fog_map.reveal(position);
-            }
-        }
-    }
-    world.resource_mut::<FogActive>().0 = fog;
+/// Keep the projections the ECS was reconciled from.
+///
+/// Presentation visibility is a restatement of one of these, so a viewpoint
+/// change can re-select without asking the rules engine again.
+fn store_observations(world: &mut World, transitions: &[ObservedTransition]) {
+    world.init_resource::<RecipientObservations>();
+    world.resource_mut::<RecipientObservations>().set(
+        transitions
+            .iter()
+            .map(|transition| transition.post.clone())
+            .collect(),
+    );
 }
 
 fn map_position(position: awvm::semantic::Pos) -> Position {

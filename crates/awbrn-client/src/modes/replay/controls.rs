@@ -50,12 +50,12 @@ pub(crate) fn handle_replay_controls(
     mut replay_state: ResMut<ReplayState>,
     loaded_replay: Res<LoadedReplay>,
     replay_lock: Res<ReplayAdvanceLock>,
-    fog_params: (
-        ResMut<super::fog::ReplayViewpoint>,
-        Res<super::fog::ReplayPlayerRegistry>,
+    viewpoint_params: (
+        ResMut<awbrn_game::replay::ReplayViewpoint>,
+        Res<awbrn_game::replay::ReplayPlayerRegistry>,
     ),
 ) {
-    let (mut viewpoint, registry) = fog_params;
+    let (mut viewpoint, registry) = viewpoint_params;
     let mut replay_blocked = replay_lock.is_active();
 
     for event in keyboard_input.read() {
@@ -91,10 +91,10 @@ pub(crate) fn handle_replay_controls(
                 }
             }
             KeyCode::Digit0 | KeyCode::Numpad0 => {
-                viewpoint.set_if_neq(super::fog::ReplayViewpoint::Spectator);
+                viewpoint.set_if_neq(awbrn_game::replay::ReplayViewpoint::Spectator);
             }
             KeyCode::Tab => {
-                viewpoint.set_if_neq(super::fog::ReplayViewpoint::ActivePlayer);
+                viewpoint.set_if_neq(awbrn_game::replay::ReplayViewpoint::ActivePlayer);
             }
             key @ (KeyCode::Digit1
             | KeyCode::Digit2
@@ -124,7 +124,7 @@ pub(crate) fn handle_replay_controls(
                     _ => unreachable!(),
                 };
                 if let Some(player_id) = registry.player_id_at_index(index) {
-                    viewpoint.set_if_neq(super::fog::ReplayViewpoint::Player(player_id));
+                    viewpoint.set_if_neq(awbrn_game::replay::ReplayViewpoint::Player(player_id));
                 }
             }
             _ => {}
@@ -245,15 +245,12 @@ mod tests {
             games: Vec::new(),
             turns: actions,
         }));
-        app.init_resource::<crate::features::fog::FogOfWarMap>();
-        app.init_resource::<crate::features::fog::FogActive>();
-        app.init_resource::<crate::features::fog::FriendlyFactions>();
-        app.init_resource::<crate::modes::replay::fog::ReplayFogEnabled>();
-        app.init_resource::<crate::modes::replay::fog::ReplayTerrainKnowledge>();
-        app.init_resource::<crate::modes::replay::fog::ReplayViewpoint>();
-        app.init_resource::<crate::modes::replay::fog::ReplayPlayerRegistry>();
-        app.init_resource::<awbrn_game::replay::PowerVisionBoosts>();
-        app.add_observer(crate::modes::replay::fog::on_replay_fog_dirty);
+        app.init_resource::<crate::features::visibility::ViewerVisibility>();
+        app.init_resource::<crate::features::visibility::FriendlyFactions>();
+        app.init_resource::<awbrn_game::replay::ReplayTerrainKnowledge>();
+        app.init_resource::<awbrn_game::replay::RecipientObservations>();
+        app.init_resource::<awbrn_game::replay::ReplayViewpoint>();
+        app.init_resource::<awbrn_game::replay::ReplayPlayerRegistry>();
         app
     }
 

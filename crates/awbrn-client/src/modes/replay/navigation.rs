@@ -5,9 +5,10 @@ use crate::render::animation::{
     Animation, UnitPathAnimation, UnitVisualState, ease_out_quint, flip_x_for_lateral_direction,
     flip_x_for_movement, restore_unit_visual_state, set_unit_animation_state,
 };
+use awbrn_game::replay::AwbwUnitId;
 use awbrn_game::world::{Faction, GameMap, Unit, UnitActive};
 use awbrn_map::Position;
-use awbrn_types::{GraphicalMovement, UnitDomain, UnitExt};
+use awbrn_types::GraphicalMovement;
 use awbw_replay::turn_models::{MoveAction, TargetedPlayer};
 use bevy::prelude::*;
 use std::time::Duration;
@@ -392,6 +393,7 @@ type UnitPathAnimationQuery<'w, 's> = Query<
         &'static mut Sprite,
         &'static Unit,
         &'static Faction,
+        Option<&'static AwbwUnitId>,
         Option<&'static mut Animation>,
         Has<UnitActive>,
         &'static mut Visibility,
@@ -403,14 +405,9 @@ pub(crate) fn animate_unit_paths(
     time: Res<Time>,
     game_map: Res<GameMap>,
     mut replay_lock: ResMut<ReplayAdvanceLock>,
-    fog_params: (
-        Res<crate::features::fog::FogOfWarMap>,
-        Res<crate::features::fog::FogActive>,
-        Res<crate::features::fog::FriendlyFactions>,
-    ),
+    viewer: Res<crate::features::visibility::ViewerVisibility>,
     mut query: UnitPathAnimationQuery,
 ) {
-    let (fog_map, fog_active, friendly) = fog_params;
     for (
         entity,
         mut transform,
@@ -419,6 +416,7 @@ pub(crate) fn animate_unit_paths(
         mut sprite,
         unit,
         faction,
+        unit_id,
         animation,
         has_active,
         mut visibility,
@@ -471,8 +469,6 @@ pub(crate) fn animate_unit_paths(
             faction: *faction,
             flip_x,
         };
-        let unit_is_air = unit.0.domain() == UnitDomain::Air;
-
         if previous_elapsed.is_zero()
             || segment_index != path_animation.current_segment
             || movement != path_animation.current_movement
@@ -489,15 +485,11 @@ pub(crate) fn animate_unit_paths(
             );
         }
 
-        // Per-tile fog visibility: enemy units appear/disappear as they cross
-        // visible tile boundaries during path animation.
-        let from_pos = path_animation.path[segment_index];
-        let to_pos = path_animation.path[segment_index + 1];
-        let visible_to_viewer = !fog_active.0
-            || friendly.0.contains(&faction.0)
-            || fog_map.is_unit_visible(from_pos, unit_is_air)
-            || fog_map.is_unit_visible(to_pos, unit_is_air);
-        let target = if visible_to_viewer {
+        // The animated path is the one the selected projection reported, so
+        // every tile on it is a tile the viewer could watch. What remains to
+        // ask is whether the mover itself is disclosed.
+        let disclosed = unit_id.is_none_or(|unit_id| viewer.unit_visible(unit_id.0));
+        let target = if disclosed {
             Visibility::Inherited
         } else {
             Visibility::Hidden
@@ -531,16 +523,6 @@ pub(crate) fn animate_unit_paths(
                 idle_visual_state,
                 has_active,
             );
-
-            let final_visible_to_viewer = !fog_active.0
-                || friendly.0.contains(&faction.0)
-                || fog_map.is_unit_visible(*path_animation.path.last().unwrap(), unit_is_air);
-            let final_target = if final_visible_to_viewer {
-                Visibility::Inherited
-            } else {
-                Visibility::Hidden
-            };
-            visibility.set_if_neq(final_target);
 
             if let Some(followup) = replay_lock.release_for(entity) {
                 commands.queue(ReplayFollowupCommand {

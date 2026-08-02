@@ -1,18 +1,25 @@
+//! Selecting a recipient projection and restating it as presentation state.
+//!
+//! The ECS holds a merged presentation roster: `apply_observed_transitions`
+//! takes every player's projection so that a unit hidden from one recipient is
+//! still available through its owner's. Rendering, however, shows one
+//! viewpoint. This module keeps the projections that produced the current ECS
+//! state, selects the one the viewpoint names, and restates it as
+//! [`ViewerVisibility`] and [`ReplayTerrainKnowledge`].
+//!
+//! Switching viewpoints re-selects; it never recomputes vision.
+
 use std::collections::{HashMap, HashSet};
 
 use awbrn_map::Position;
-use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
+use awbrn_types::{AwbwGamePlayerId, AwbwUnitId as RawAwbwUnitId, PlayerFaction};
+use awvm::semantic::{Observation, ObservedPlayer, ObservedUnitRef, TileVisibility};
 use bevy::prelude::*;
 
-use crate::replay::ReplayState;
-use crate::world::{FogActive, FriendlyFactions, GameMap};
+use crate::replay::{AwbwUnitId, ReplayState};
+use crate::world::{BoardIndex, FriendlyFactions, GameMap, ViewerVisibility};
 
-/// Whether the underlying replay uses fog of war.
-/// Derived from the game's `fog` field at bootstrap.
-#[derive(Resource, Default)]
-pub struct ReplayFogEnabled(pub bool);
-
-/// Selects whose perspective the fog is computed for.
+/// Selects whose perspective the presentation is drawn from.
 #[derive(Resource, Default, Debug, Clone, PartialEq, Eq)]
 pub enum ReplayViewpoint {
     #[default]
@@ -23,9 +30,36 @@ pub enum ReplayViewpoint {
     Player(AwbwGamePlayerId),
 }
 
-/// Trigger to recompute the fog map from current game state.
-#[derive(Event, Debug, Default, Clone, Copy)]
-pub struct ReplayFogDirty;
+/// The recipient projections the current ECS state was reconciled from.
+///
+/// Archived playback supplies one per player; a live client supplies only its
+/// own. Holding them is what lets a viewpoint change re-select instead of
+/// asking the rules engine again.
+#[derive(Resource, Default, Debug)]
+pub struct RecipientObservations(Vec<Observation>);
+
+impl RecipientObservations {
+    pub fn set(&mut self, observations: Vec<Observation>) {
+        self.0 = observations;
+    }
+
+    pub fn for_player(&self, player: AwbwGamePlayerId) -> Option<&Observation> {
+        self.0
+            .iter()
+            .find(|observation| parse_player_id(observation.recipient.as_str()) == Some(player))
+    }
+
+    /// The single projection a live client holds, if that is all there is.
+    ///
+    /// A live match sends only the recipient's own view, so there is nothing
+    /// to select between and no viewpoint to name it with.
+    fn sole(&self) -> Option<&Observation> {
+        match self.0.as_slice() {
+            [observation] => Some(observation),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ReplayKnowledgeKey {
@@ -33,6 +67,11 @@ pub enum ReplayKnowledgeKey {
     Team(u8),
 }
 
+/// The last terrain each viewpoint saw at each position.
+///
+/// A projection reports a fogged tile's terrain but not its owner
+/// (`spec/semantics/fog.md`), so the property sprite a viewer remembers is
+/// presentation memory the observation cannot supply.
 #[derive(Resource, Default)]
 pub struct ReplayTerrainKnowledge {
     pub by_view: HashMap<ReplayKnowledgeKey, HashMap<Position, awbrn_types::GraphicalTerrain>>,
@@ -163,46 +202,149 @@ impl ReplayPlayerRegistry {
     }
 }
 
-/// Update `FogActive` and `FriendlyFactions` from the current `ReplayViewpoint`,
-/// then trigger `ReplayFogDirty` so the map is recomputed.
-pub fn sync_viewpoint(world: &mut World) {
-    let viewpoint = world.resource::<ReplayViewpoint>().clone();
-    let fog_enabled = world.resource::<ReplayFogEnabled>().0;
-    let active_player_id = world.resource::<ReplayState>().active_player_id;
-    let next_view = match viewpoint {
-        ReplayViewpoint::Spectator => (false, HashSet::new()),
-        ReplayViewpoint::ActivePlayer => active_player_id
-            .map(|active_id| {
-                (
-                    fog_enabled,
-                    world
-                        .resource::<ReplayPlayerRegistry>()
-                        .friendly_factions_for_player(active_id),
-                )
-            })
-            .unwrap_or_else(|| (false, HashSet::new())),
-        ReplayViewpoint::Player(id) => (
-            fog_enabled,
+/// Restate the selected recipient projection as presentation state.
+///
+/// Run after the ECS has been reconciled — enemy units are identified by the
+/// position their projection reports them at, so `BoardIndex` must already
+/// agree with the observation.
+pub fn refresh_viewer_visibility(world: &mut World) {
+    world.init_resource::<RecipientObservations>();
+    world.init_resource::<ViewerVisibility>();
+    world.init_resource::<FriendlyFactions>();
+
+    let viewer = selected_player(world);
+    let observation = viewer
+        .and_then(|player| {
+            world
+                .resource::<RecipientObservations>()
+                .for_player(player)
+                .cloned()
+        })
+        .or_else(|| world.resource::<RecipientObservations>().sole().cloned());
+
+    let friendly = viewer
+        .map(|player| {
             world
                 .resource::<ReplayPlayerRegistry>()
-                .friendly_factions_for_player(id),
-        ),
+                .friendly_factions_for_player(player)
+        })
+        .unwrap_or_default();
+    let mut friendly_factions = world.resource_mut::<FriendlyFactions>();
+    if friendly_factions.0 != friendly {
+        friendly_factions.0 = friendly;
+    }
+
+    let Some(observation) = observation else {
+        world.resource_mut::<ViewerVisibility>().clear();
+        return;
     };
 
-    let fog_changed = world.resource::<FogActive>().0 != next_view.0;
-    let friendly_changed = world.resource::<FriendlyFactions>().0 != next_view.1;
-    if !fog_changed && !friendly_changed {
+    apply_observation_visibility(world, &observation);
+    refresh_terrain_knowledge(world, viewer);
+}
+
+fn selected_player(world: &World) -> Option<AwbwGamePlayerId> {
+    match world.get_resource::<ReplayViewpoint>()? {
+        ReplayViewpoint::Spectator => None,
+        ReplayViewpoint::ActivePlayer => world.get_resource::<ReplayState>()?.active_player_id,
+        ReplayViewpoint::Player(player) => Some(*player),
+    }
+}
+
+fn apply_observation_visibility(world: &mut World, observation: &Observation) {
+    let width = usize::from(observation.board.width());
+    let height = usize::from(observation.board.height());
+
+    // A friendly unit keeps its semantic id in the ECS. An enemy is referenced
+    // only by position, so resolve it against the board before borrowing the
+    // resource mutably.
+    let visible_units = observation
+        .units
+        .iter()
+        .filter_map(|unit| match unit.reference {
+            ObservedUnitRef::Friendly { unit } => Some(RawAwbwUnitId::new(unit.get())),
+            ObservedUnitRef::Enemy { position } => unit_at(world, map_position(position)),
+        })
+        .collect::<Vec<_>>();
+
+    let mut visibility = world.resource_mut::<ViewerVisibility>();
+    visibility.reset(observation.settings.fog, width, height);
+    for position in observation.board.positions() {
+        if observation.board.tile(position).visibility == TileVisibility::Visible {
+            visibility.set_tile_visible(map_position(position));
+        }
+    }
+    for unit in visible_units {
+        visibility.set_unit_visible(unit);
+    }
+    for player in &observation.players {
+        // Only a teammate's projection carries funds and commander state, and
+        // that is exactly the disclosure the roster reports.
+        if let ObservedPlayer::Private { id, .. } = player
+            && let Some(player) = parse_player_id(id.as_str())
+        {
+            visibility.set_player_disclosed(player);
+        }
+    }
+}
+
+/// Record the terrain the selected viewpoint can currently see.
+///
+/// A fogged property keeps the owner the viewer last saw on it, which is what
+/// `terrain_for_viewer` draws.
+fn refresh_terrain_knowledge(world: &mut World, viewer: Option<AwbwGamePlayerId>) {
+    if !world.resource::<ViewerVisibility>().fog_active() {
+        return;
+    }
+    let Some(key) = viewer.and_then(|player| {
+        world
+            .get_resource::<ReplayPlayerRegistry>()?
+            .knowledge_key_for_player(player)
+    }) else {
+        return;
+    };
+    if !world.contains_resource::<ReplayTerrainKnowledge>() {
         return;
     }
 
-    world.resource_mut::<FogActive>().0 = next_view.0;
-    world.resource_mut::<FriendlyFactions>().0 = next_view.1;
-    world.trigger(ReplayFogDirty);
+    let seen = {
+        let visibility = world.resource::<ViewerVisibility>();
+        let game_map = world.resource::<GameMap>();
+        (0..game_map.height())
+            .flat_map(|y| (0..game_map.width()).map(move |x| Position::new(x, y)))
+            .filter(|position| !visibility.is_fogged(*position))
+            .filter_map(|position| {
+                game_map
+                    .terrain_at(position)
+                    .map(|terrain| (position, terrain))
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let mut knowledge = world.resource_mut::<ReplayTerrainKnowledge>();
+    let Some(known) = knowledge.by_view.get_mut(&key) else {
+        return;
+    };
+    for (position, terrain) in seen {
+        known.insert(position, terrain);
+    }
 }
 
-/// Trigger a full fog recompute. Call when weather changes during a replay.
-pub fn trigger_fog_recompute_on_weather_change(world: &mut World) {
-    world.trigger(ReplayFogDirty);
+fn unit_at(world: &World, position: Position) -> Option<RawAwbwUnitId> {
+    let entity = world
+        .get_resource::<BoardIndex>()?
+        .unit_entity(position)
+        .ok()
+        .flatten()?;
+    world.get::<AwbwUnitId>(entity).map(|id| id.0)
+}
+
+fn map_position(position: awvm::semantic::Pos) -> Position {
+    Position::new(usize::from(position.x), usize::from(position.y))
+}
+
+fn parse_player_id(id: &str) -> Option<AwbwGamePlayerId> {
+    id.parse::<u32>().ok().map(AwbwGamePlayerId::new)
 }
 
 #[cfg(test)]
