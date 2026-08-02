@@ -52,6 +52,8 @@ pub(crate) struct UnitProjectionResources<'w> {
     visibility: Res<'w, ViewerVisibility>,
     player_roster: Option<Res<'w, PlayerRosterConfig>>,
     display_faction_overrides: Option<Res<'w, PlayerDisplayFactionOverrides>>,
+    registry: Option<Res<'w, ReplayPlayerRegistry>>,
+    replay_state: Option<Res<'w, ReplayState>>,
 }
 
 #[derive(SystemParam)]
@@ -107,6 +109,32 @@ fn current_knowledge_key(
             .active_player_id
             .and_then(|id| registry.knowledge_key_for_player(id)),
         ReplayViewpoint::Player(id) => registry.knowledge_key_for_player(*id),
+    }
+}
+
+/// The faction whose turn it is, if the presentation knows one.
+fn active_faction(
+    replay_state: Option<&ReplayState>,
+    registry: Option<&ReplayPlayerRegistry>,
+) -> Option<awbrn_types::PlayerFaction> {
+    let player = replay_state?.active_player_id?;
+    registry?.faction_for_player(player)
+}
+
+/// Whether a unit is drawn ready rather than greyed out.
+///
+/// Only the player whose turn it is can spend units, so a waiting unit of any
+/// other player says nothing to the viewer. AWBW greys out the current
+/// player's spent units alone, and the presentation follows it. Without a
+/// known active faction every unit falls back to its own `UnitActive`.
+fn unit_is_active(
+    is_active: bool,
+    faction: Faction,
+    active_faction: Option<awbrn_types::PlayerFaction>,
+) -> bool {
+    match active_faction {
+        Some(active) => is_active || faction.0 != active,
+        None => is_active,
     }
 }
 
@@ -202,6 +230,11 @@ pub(crate) fn project_unit_render_state(
     resources: UnitProjectionResources,
     units: Query<UnitProjectionItem<'_>, With<Unit>>,
 ) {
+    let active_faction = active_faction(
+        resources.replay_state.as_deref(),
+        resources.registry.as_deref(),
+    );
+
     for (
         entity,
         unit,
@@ -229,7 +262,7 @@ pub(crate) fn project_unit_render_state(
             unit: *unit,
             faction: Faction(display_faction),
             visible: unit_visible_to_viewer(&resources, unit_id, is_carried),
-            active: is_active,
+            active: unit_is_active(is_active, *faction, active_faction),
             overlays: ProjectedUnitOverlayFlags {
                 health: projected_health(hp),
                 capturing: is_capturing,
@@ -414,5 +447,63 @@ mod tests {
             .collect::<Vec<_>>();
         drawn.sort_unstable();
         assert_eq!(drawn, vec![seen]);
+    }
+
+    /// Only the current player has spent units to grey out.
+    #[test]
+    fn a_waiting_unit_of_another_player_is_still_drawn_ready() {
+        let current = AwbwGamePlayerId::new(1);
+        let other = AwbwGamePlayerId::new(2);
+
+        let mut app = App::new();
+        app.add_plugins(GameWorldPlugin);
+        app.add_systems(Update, project_unit_render_state);
+
+        let mut registry = ReplayPlayerRegistry::default();
+        registry.add_player(current, PlayerFaction::OrangeStar, 0);
+        registry.add_player(other, PlayerFaction::BlueMoon, 0);
+        app.world_mut().insert_resource(registry);
+        app.world_mut().insert_resource(ReplayState {
+            active_player_id: Some(current),
+            ..ReplayState::default()
+        });
+
+        // Neither unit can act: one has spent its turn, the other is waiting
+        // for a turn it does not have yet.
+        let spent = app
+            .world_mut()
+            .spawn((
+                Unit(awbrn_types::Unit::Infantry),
+                Faction(PlayerFaction::OrangeStar),
+                MapPosition::new(0, 0),
+            ))
+            .id();
+        let waiting = app
+            .world_mut()
+            .spawn((
+                Unit(awbrn_types::Unit::Infantry),
+                Faction(PlayerFaction::BlueMoon),
+                MapPosition::new(1, 0),
+            ))
+            .id();
+
+        app.update();
+
+        assert!(
+            !app.world()
+                .entity(spent)
+                .get::<ProjectedUnitRenderState>()
+                .unwrap()
+                .active,
+            "the current player's spent unit is greyed out"
+        );
+        assert!(
+            app.world()
+                .entity(waiting)
+                .get::<ProjectedUnitRenderState>()
+                .unwrap()
+                .active,
+            "another player's unit is drawn ready"
+        );
     }
 }

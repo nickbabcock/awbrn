@@ -334,11 +334,10 @@ pub(crate) fn handle_unit_spawn(
     trigger: On<Insert, Unit>,
     mut commands: Commands,
     unit_atlas: Res<UnitAtlasResource>,
-    mut query: Query<(&Unit, &Faction, Has<UnitActive>)>,
+    query: Query<(&Unit, &Faction, Has<UnitActive>), Without<Sprite>>,
 ) {
     let entity = trigger.entity;
-    let Ok((unit, faction, has_active)) = query.get_mut(entity) else {
-        warn!("Unit entity {:?} not found in query", entity);
+    let Ok((unit, faction, has_active)) = query.get(entity) else {
         return;
     };
 
@@ -537,6 +536,45 @@ mod tests {
         assert_eq!(animation.start_index, expected.start_index());
         assert_eq!(animation.frame_durations, expected.raw());
         assert_eq!(animation.current_frame, 0);
+    }
+
+    /// Transition sync rewrites `Unit` on every action.
+    ///
+    /// The spawn observer must not treat that as a new unit: it would restart
+    /// the idle animation and hide a unit whose projected state has not
+    /// changed, which leaves every unit but the ones that acted invisible.
+    #[test]
+    fn rewriting_unit_keeps_the_sprite_and_the_visibility() {
+        let mut app = unit_render_test_app();
+        let entity = spawn_test_unit(&mut app, PlayerFaction::GreenEarth, true);
+
+        app.update();
+        let frame = 3;
+        app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<Animation>()
+            .unwrap()
+            .current_frame = frame;
+
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(Unit(awbrn_types::Unit::Infantry));
+        app.update();
+
+        assert_eq!(
+            app.world().entity(entity).get::<Visibility>(),
+            Some(&Visibility::Inherited),
+            "a rewritten unit stays visible"
+        );
+        assert_eq!(
+            app.world()
+                .entity(entity)
+                .get::<Animation>()
+                .unwrap()
+                .current_frame,
+            frame,
+            "a rewritten unit keeps its idle animation"
+        );
     }
 
     #[test]

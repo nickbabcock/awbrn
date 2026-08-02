@@ -715,7 +715,14 @@ fn run_tiles() -> Result<()> {
     all_frames.extend(snow_frames);
     all_frames.extend(rain_frames);
 
-    let _tilesheet = build_spritesheet(&all_frames, &tilesheet_path, TILESHEET_COLUMNS, 0)?;
+    // Terrain fills its own frame, so an opaque border is correct here.
+    let _tilesheet = build_spritesheet(
+        &all_frames,
+        &tilesheet_path,
+        TILESHEET_COLUMNS,
+        0,
+        SpriteRepair::None,
+    )?;
     optimize_png(&tilesheet_path)?;
 
     let tilesheet_rows = (all_frames.len() as u32).div_ceil(TILESHEET_COLUMNS);
@@ -759,6 +766,7 @@ fn run_units() -> Result<()> {
         &unitsheet_path,
         UNITSHEET_COLUMNS,
         UNIT_SPRITESHEET_BLEED,
+        SpriteRepair::FlattenedBackground,
     )?;
     optimize_png(&unitsheet_path)?;
 
@@ -811,7 +819,7 @@ fn run_logos() -> Result<()> {
     // Checked-in source logos were downloaded from:
     // https://awbw.amarriner.com/terrain/aw2/{code}logo.gif
     let paths = collect_logo_paths(&countries, &logos_root)?;
-    let spritesheet = build_spritesheet(&paths, &sheet_path, LOGO_COLUMNS, 0)?;
+    let spritesheet = build_spritesheet(&paths, &sheet_path, LOGO_COLUMNS, 0, SpriteRepair::None)?;
     validate_logo_dimensions(spritesheet)?;
     optimize_png(&sheet_path)?;
 
@@ -849,7 +857,13 @@ fn run_co_portraits() -> Result<()> {
         .iter()
         .map(|portrait| portrait.image_path.clone())
         .collect::<Vec<_>>();
-    let spritesheet = build_spritesheet(&paths, &sheet_path, CO_PORTRAIT_COLUMNS, 0)?;
+    let spritesheet = build_spritesheet(
+        &paths,
+        &sheet_path,
+        CO_PORTRAIT_COLUMNS,
+        0,
+        SpriteRepair::None,
+    )?;
     optimize_png(&sheet_path)?;
 
     let co_portrait_data = build_co_portrait_data(&portraits, spritesheet)?;
@@ -1881,13 +1895,17 @@ fn build_spritesheet(
     output_path: &Path,
     columns: u32,
     bleed: u32,
+    repair: SpriteRepair,
 ) -> Result<SpritesheetBuild> {
     let mut images = Vec::new();
     let mut max_width = 0;
     let mut max_height = 0;
 
     for path in paths {
-        let rgba = load_rgba_image(path)?;
+        let mut rgba = load_rgba_image(path)?;
+        if repair == SpriteRepair::FlattenedBackground {
+            repair_flattened_background(&mut rgba);
+        }
         let (width, height) = rgba.dimensions();
         max_width = max_width.max(width);
         max_height = max_height.max(height);
@@ -2009,6 +2027,74 @@ fn validate_logo_dimensions(spritesheet: SpritesheetBuild) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Whether a source frame is packed as authored or repaired first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpriteRepair {
+    /// Pack the frame exactly as it is.
+    None,
+    /// Give back the transparency a flattened frame lost.
+    FlattenedBackground,
+}
+
+/// Remove the background a unit frame was flattened onto.
+///
+/// Some upstream unit frames arrive with no transparency: the art sits in a
+/// solid block of background colour, which draws as a box around the unit. A
+/// unit frame never fills its own frame, so a fully opaque border identifies
+/// these frames and nothing else — as of AWBW-Replay-Player v0.13.1 it selects
+/// the 47 damaged Silver Claw frames and the three damaged Bomber frames,
+/// leaving the other 5698 frames untouched.
+///
+/// Only background colour that touches the border is removed. An enclosed
+/// pixel of the same colour is part of the art — a cockpit window, a hull
+/// highlight — and stays. Terrain does fill its frame, which is why this is a
+/// unit-frame repair.
+fn repair_flattened_background(image: &mut RgbaImage) -> bool {
+    let (width, height) = image.dimensions();
+    if width == 0 || height == 0 || !border_is_opaque(image) {
+        return false;
+    }
+
+    let background = *image.get_pixel(0, 0);
+    let mut pending = border_positions(width, height)
+        .filter(|(x, y)| *image.get_pixel(*x, *y) == background)
+        .collect::<Vec<_>>();
+
+    // Clearing a pixel also marks it as visited: the cleared alpha can no
+    // longer equal the opaque background colour.
+    while let Some((x, y)) = pending.pop() {
+        if *image.get_pixel(x, y) != background {
+            continue;
+        }
+        image.put_pixel(x, y, image::Rgba([0, 0, 0, 0]));
+
+        pending.extend(
+            [
+                (x.checked_sub(1), Some(y)),
+                (Some(x + 1), Some(y)),
+                (Some(x), y.checked_sub(1)),
+                (Some(x), Some(y + 1)),
+            ]
+            .into_iter()
+            .filter_map(|(x, y)| Some((x?, y?)))
+            .filter(|(x, y)| *x < width && *y < height),
+        );
+    }
+
+    true
+}
+
+fn border_is_opaque(image: &RgbaImage) -> bool {
+    let (width, height) = image.dimensions();
+    border_positions(width, height).all(|(x, y)| image.get_pixel(x, y).0[3] == u8::MAX)
+}
+
+fn border_positions(width: u32, height: u32) -> impl Iterator<Item = (u32, u32)> {
+    let rows = (0..width).flat_map(move |x| [(x, 0), (x, height - 1)]);
+    let columns = (0..height).flat_map(move |y| [(0, y), (width - 1, y)]);
+    rows.chain(columns)
 }
 
 fn extrude_rect(sheet: &mut RgbaImage, x: u32, y: u32, width: u32, height: u32, bleed: u32) {
@@ -2378,4 +2464,76 @@ fn render_terrain_animation_data(tiles: &[TileMetadata]) -> String {
     output.push_str("        _ => None,\n");
     output.push_str("    }\n}\n");
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::Rgba;
+
+    const CLEAR: Rgba<u8> = Rgba([0, 0, 0, 0]);
+    const WHITE: Rgba<u8> = Rgba([255, 255, 255, 255]);
+    const BODY: Rgba<u8> = Rgba([40, 60, 90, 255]);
+
+    /// A flattened frame keeps its art and loses only its background.
+    #[test]
+    fn repairing_a_flattened_frame_spares_an_enclosed_pixel() {
+        // A ring of body colour around one white pixel, in a white block. The
+        // enclosed white is a highlight; the rest is background.
+        let mut image = RgbaImage::from_pixel(5, 5, WHITE);
+        for x in 1..4 {
+            for y in 1..4 {
+                image.put_pixel(x, y, BODY);
+            }
+        }
+        image.put_pixel(2, 2, WHITE);
+
+        assert!(repair_flattened_background(&mut image));
+
+        assert_eq!(*image.get_pixel(0, 0), CLEAR, "the border is background");
+        assert_eq!(*image.get_pixel(4, 4), CLEAR, "the border is background");
+        assert_eq!(*image.get_pixel(1, 1), BODY, "the art is kept");
+        assert_eq!(
+            *image.get_pixel(2, 2),
+            WHITE,
+            "an enclosed background colour is art, not background"
+        );
+    }
+
+    /// Background colour reaches the border through a gap in the art.
+    #[test]
+    fn repairing_a_flattened_frame_follows_a_gap_inward() {
+        let mut image = RgbaImage::from_pixel(3, 3, WHITE);
+        image.put_pixel(0, 1, BODY);
+        image.put_pixel(2, 1, BODY);
+
+        assert!(repair_flattened_background(&mut image));
+
+        assert_eq!(*image.get_pixel(1, 1), CLEAR);
+        assert_eq!(*image.get_pixel(0, 1), BODY);
+    }
+
+    /// A correctly authored frame is identified by its transparent border and
+    /// is never touched.
+    #[test]
+    fn a_frame_with_a_transparent_border_is_left_alone() {
+        let mut image = RgbaImage::from_pixel(3, 3, CLEAR);
+        image.put_pixel(1, 1, WHITE);
+
+        assert!(!repair_flattened_background(&mut image));
+        assert_eq!(*image.get_pixel(1, 1), WHITE, "white art survives");
+    }
+
+    /// The background is whatever colour was flattened in, not white.
+    #[test]
+    fn repairing_a_flattened_frame_reads_the_background_colour_from_the_frame() {
+        let grey = Rgba([176, 184, 200, 255]);
+        let mut image = RgbaImage::from_pixel(3, 3, grey);
+        image.put_pixel(1, 1, WHITE);
+
+        assert!(repair_flattened_background(&mut image));
+
+        assert_eq!(*image.get_pixel(0, 0), CLEAR);
+        assert_eq!(*image.get_pixel(1, 1), WHITE);
+    }
 }
