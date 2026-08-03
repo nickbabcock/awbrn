@@ -40,9 +40,6 @@ export function MatchesBrowsePage() {
     <Section padding={6} variant="transparent">
       <VStack gap={6}>
         <VStack gap={2}>
-          <Text color="accent" type="supporting" weight="bold">
-            Match browser
-          </Text>
           <Heading level={1} type="display-2">
             Open lobbies
           </Heading>

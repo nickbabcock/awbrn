@@ -6,55 +6,17 @@ import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { FileInput } from "@astryxdesign/core/FileInput";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
-import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
-import { Section } from "@astryxdesign/core/Section";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Text } from "@astryxdesign/core/Text";
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useState } from "react";
 import { resolveAwbwUsername } from "#/awbw/api.ts";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
-import { CoPortrait } from "#/components/CoPortrait.tsx";
-import { FactionSelectionControl } from "#/components/FactionSelectionControl.tsx";
 import { loadCoPortraitCatalog, type CoPortraitCatalog } from "#/components/co_portraits.ts";
-import { PlayerHeader } from "#/components/PlayerHeader.tsx";
 import { useReplayRunner } from "#/engine/runtime_context.tsx";
 import { useGameActions, useGameStore } from "#/engine/store.ts";
 import { getFactionByCode } from "#/factions.ts";
-import { infantrySpriteStyle, uiAtlasSpriteStyle } from "./roster_icons";
-
-const formatMoney = (value: number) => value.toLocaleString();
-const formatMaybeMoney = (value: number | null | undefined) =>
-  value == null ? "--" : formatMoney(value);
-const formatMaybeCount = (value: number | null | undefined) =>
-  value == null ? "--" : value.toString();
-
-function StatIcon({
-  spriteName,
-  factionCode,
-  coinOverlay = false,
-}: {
-  spriteName?: string;
-  factionCode?: string;
-  coinOverlay?: boolean;
-}) {
-  const baseStyle = spriteName
-    ? uiAtlasSpriteStyle(spriteName)
-    : factionCode
-      ? infantrySpriteStyle(factionCode)
-      : null;
-  const coinStyle = coinOverlay ? uiAtlasSpriteStyle("Coin.png") : null;
-
-  return (
-    <span aria-hidden="true" {...stylex.props(styles.statIconStack)}>
-      <span style={baseStyle ?? undefined} {...stylex.props(styles.statIcon)} />
-      {coinStyle ? (
-        <span style={coinStyle} {...stylex.props(styles.statIcon, styles.statIconCoin)} />
-      ) : null}
-    </span>
-  );
-}
+import { RosterRow } from "./RosterRow";
 
 export function ReplayPage() {
   const currentDay = useGameStore((state) => state.currentDay);
@@ -137,200 +99,133 @@ export function ReplayPage() {
     }
   }
 
+  const replayLoader = (
+    <FileInput
+      accept=".zip"
+      changeAction={handleReplayFileChange}
+      description={playerRoster ? undefined : "AWBW replay archives, in .zip format"}
+      isLabelHidden={Boolean(playerRoster)}
+      label="Load a replay"
+      mode={playerRoster ? "input" : "dropzone"}
+      onChange={(files) => setReplayFile(Array.isArray(files) ? (files[0] ?? null) : files)}
+      value={replayFile}
+      width={playerRoster ? 260 : "100%"}
+    />
+  );
+
   return (
-    <Section padding={4} variant="transparent">
-      <VStack gap={4}>
-        <HStack align="center" gap={3} justify="between" wrap="wrap">
-          <VStack gap={1}>
-            <Text color="accent" type="supporting" weight="bold">
-              Replay viewer
-            </Text>
-            <Heading level={1}>Battle review</Heading>
-          </VStack>
-          <Badge label={`Day ${currentDay}`} variant="info" />
-        </HStack>
+    <VStack gap={4} padding={4}>
+      <Heading level={1}>Battle review</Heading>
 
-        {replayError ? (
-          <Banner description={replayError} status="error" title="Replay failed to load" />
-        ) : null}
+      {replayError ? (
+        <Banner description={replayError} status="error" title="Replay failed to load" />
+      ) : null}
 
-        <Grid align="start" columns={{ minWidth: 300, max: 2, repeat: "fit" }} gap={4}>
-          <Card padding={0} width="100%">
-            <Section
+      <Grid align="start" columns={{ minWidth: 360, max: 2, repeat: "fit" }} gap={4}>
+        {/* The board is the artifact; everything else frames it. */}
+        <Card padding={0} variant="muted" xstyle={styles.boardPanel}>
+          <VStack
+            gap={0}
+            ref={surfaceRef}
+            xstyle={[styles.gameSurface, !playerRoster && styles.gameSurfaceEmpty]}
+          >
+            <canvas
+              ref={canvasRef}
+              width={960}
               height={640}
-              padding={0}
-              ref={surfaceRef}
-              variant="muted"
-              xstyle={styles.gameSurface}
-            >
-              <canvas
-                ref={canvasRef}
-                width={960}
-                height={640}
-                tabIndex={0}
-                {...stylex.props(styles.gameCanvas, !replayFile && styles.gameCanvasHidden)}
-              />
-              {!playerRoster ? (
-                <Center height="100%" width="100%" xstyle={styles.emptyOverlay}>
-                  <EmptyState
-                    description="Choose an AWBW .zip replay to begin."
-                    headingLevel={2}
-                    title="Load a replay"
-                  />
-                </Center>
-              ) : null}
-            </Section>
-          </Card>
-
-          <VStack gap={4}>
-            <Card padding={4} width="100%">
-              <FileInput
-                accept=".zip"
-                changeAction={handleReplayFileChange}
-                description="AWBW replay archives in .zip format"
-                label="Load replay"
-                mode="dropzone"
-                onChange={(files) =>
-                  setReplayFile(Array.isArray(files) ? (files[0] ?? null) : files)
-                }
-                value={replayFile}
-                width="100%"
-              />
-            </Card>
-
-            <Section padding={4} variant="section" xstyle={styles.rosterPanel}>
-              <VStack gap={3}>
-                <VStack gap={1}>
-                  <Heading level={2}>Replay roster</Heading>
-                  {playerRoster ? (
-                    <Text color="secondary" type="supporting">
-                      Game {playerRoster.matchId} · Map {playerRoster.mapId}
-                    </Text>
-                  ) : null}
+              tabIndex={0}
+              {...stylex.props(styles.gameCanvas, !playerRoster && styles.gameCanvasHidden)}
+            />
+            {!playerRoster ? (
+              <Center height="100%" width="100%" xstyle={styles.loaderOverlay}>
+                <VStack gap={3} maxWidth={420} width="100%">
+                  {replayLoader}
                 </VStack>
-
-                {playerRoster ? (
-                  <VStack gap={3}>
-                    {playerRoster.players.map((player) => {
-                      const playerName = playerNames[player.userId] ?? `Player ${player.turnOrder}`;
-                      const isActivePlayer = playerRoster.activePlayerId === player.playerId;
-                      const playerMeta = [
-                        player.team ? `Team ${player.team}` : null,
-                        player.eliminated ? "Eliminated" : null,
-                      ].filter((value): value is string => value !== null);
-
-                      return (
-                        <Section key={player.playerId} padding={0} variant="muted">
-                          <VStack gap={2}>
-                            <PlayerHeader
-                              factionCode={player.displayFactionCode}
-                              name={playerName}
-                              trailing={
-                                <>
-                                  {isActivePlayer ? (
-                                    <StatusDot label="Active turn" variant="accent" />
-                                  ) : null}
-                                  <FactionSelectionControl
-                                    disabled={false}
-                                    factionCode={player.displayFactionCode}
-                                    onChange={(factionId) =>
-                                      handlePlayerDisplayFactionChange(
-                                        player.playerId,
-                                        factionId === getFactionByCode(player.actualFactionCode)?.id
-                                          ? null
-                                          : factionId,
-                                      )
-                                    }
-                                  />
-                                </>
-                              }
-                            />
-                            <Section padding={3} variant="transparent">
-                              <VStack gap={3}>
-                                <HStack align="center" gap={2}>
-                                  <CoPortrait
-                                    catalog={portraitCatalog}
-                                    coKey={player.coKey}
-                                    fallbackLabel={player.coName ?? "?"}
-                                  />
-                                  {player.tagCoKey ? (
-                                    <CoPortrait
-                                      catalog={portraitCatalog}
-                                      coKey={player.tagCoKey}
-                                      fallbackLabel={player.tagCoName ?? "?"}
-                                    />
-                                  ) : null}
-                                  {playerMeta.length > 0 ? (
-                                    <Text color="secondary" type="supporting">
-                                      {playerMeta.join(" · ")}
-                                    </Text>
-                                  ) : null}
-                                </HStack>
-                                <MetadataList columns="multi" label={{ position: "top" }}>
-                                  <MetadataListItem
-                                    icon={<StatIcon spriteName="Coin.png" />}
-                                    label="Funds"
-                                  >
-                                    {formatMaybeMoney(player.stats.funds)}
-                                  </MetadataListItem>
-                                  <MetadataListItem
-                                    icon={<StatIcon factionCode={player.displayFactionCode} />}
-                                    label="Units"
-                                  >
-                                    {formatMaybeCount(player.stats.unitCount)}
-                                  </MetadataListItem>
-                                  <MetadataListItem
-                                    icon={
-                                      <StatIcon
-                                        coinOverlay
-                                        factionCode={player.displayFactionCode}
-                                      />
-                                    }
-                                    label="Value"
-                                  >
-                                    {formatMaybeMoney(player.stats.unitValue)}
-                                  </MetadataListItem>
-                                  <MetadataListItem
-                                    icon={<StatIcon spriteName="BuildingsCaptured.png" />}
-                                    label="Income"
-                                  >
-                                    {formatMaybeMoney(player.stats.income)}
-                                  </MetadataListItem>
-                                  <MetadataListItem
-                                    icon={<StatIcon spriteName="NormalPower.png" />}
-                                    label="Power"
-                                  >
-                                    {formatMaybeCount(player.powerCharge)}
-                                  </MetadataListItem>
-                                </MetadataList>
-                              </VStack>
-                            </Section>
-                          </VStack>
-                        </Section>
-                      );
-                    })}
-                  </VStack>
-                ) : (
-                  <EmptyState
-                    description="Load a replay to inspect player CO portraits and public stats."
-                    headingLevel={3}
-                    isCompact
-                    title="No roster loaded"
-                  />
-                )}
-              </VStack>
-            </Section>
+              </Center>
+            ) : null}
           </VStack>
-        </Grid>
-      </VStack>
-    </Section>
+
+          {/* The game's own status line, kept on the board it describes. */}
+          <HStack
+            align="center"
+            gap={3}
+            justify="between"
+            paddingBlock={2}
+            paddingInline={3}
+            wrap="wrap"
+            xstyle={styles.boardHud}
+          >
+            <HStack align="center" gap={2} wrap="wrap">
+              <Badge label={`Day ${currentDay}`} variant="info" />
+              {playerRoster ? (
+                <Text type="supporting">
+                  Game {playerRoster.matchId} · Map {playerRoster.mapId}
+                </Text>
+              ) : (
+                <Text type="supporting">No replay loaded</Text>
+              )}
+            </HStack>
+            {playerRoster ? replayLoader : null}
+          </HStack>
+        </Card>
+
+        {/* The armies need no visible title: the board names the battle, and
+            each row names its own army. */}
+        <section aria-label="Armies">
+          <Card padding={0} xstyle={styles.rosterPanel}>
+            {playerRoster ? (
+              playerRoster.players.map((player) => (
+                <RosterRow
+                  isActive={playerRoster.activePlayerId === player.playerId}
+                  key={player.playerId}
+                  name={playerNames[player.userId] ?? `Player ${player.turnOrder}`}
+                  onFactionChange={(factionId) =>
+                    handlePlayerDisplayFactionChange(
+                      player.playerId,
+                      factionId === getFactionByCode(player.actualFactionCode)?.id
+                        ? null
+                        : factionId,
+                    )
+                  }
+                  player={player}
+                  portraitCatalog={portraitCatalog}
+                />
+              ))
+            ) : (
+              <VStack gap={0} padding={3}>
+                <EmptyState
+                  description="Once a replay is loaded, every army lists its CO, funds, and unit strength here."
+                  headingLevel={3}
+                  isCompact
+                  title="No armies yet"
+                />
+              </VStack>
+            )}
+          </Card>
+        </section>
+      </Grid>
+    </VStack>
   );
 }
 
 const styles = stylex.create({
+  boardPanel: {
+    overflow: "hidden",
+    maxWidth: 1120,
+    justifySelf: "stretch",
+  },
   gameSurface: {
     position: "relative",
-    overflow: "hidden",
+    // The engine draws 960x640; the frame keeps that ratio at every width so
+    // the map is never stretched on a phone.
+    aspectRatio: "3 / 2",
+    backgroundColor: "var(--color-background-inverted)",
+  },
+  // With no replay the frame only has to say where the board goes, so it stops
+  // reserving a board's worth of empty ground.
+  gameSurfaceEmpty: {
+    aspectRatio: "auto",
+    height: 360,
   },
   gameCanvas: {
     display: "block",
@@ -342,34 +237,20 @@ const styles = stylex.create({
   gameCanvasHidden: {
     visibility: "hidden",
   },
-  emptyOverlay: {
+  loaderOverlay: {
     position: "absolute",
     inset: 0,
-    pointerEvents: "none",
+    padding: "var(--spacing-4)",
+    backgroundColor: "var(--color-background-muted)",
+  },
+  boardHud: {
+    borderTopWidth: "var(--border-width)",
+    borderTopStyle: "solid",
+    borderTopColor: "var(--color-border-emphasized)",
+    backgroundColor: "var(--color-background-surface)",
   },
   rosterPanel: {
-    maxHeight: 760,
-    overflowY: "auto",
-  },
-  statIconStack: {
-    position: "relative",
-    display: "inline-flex",
-    width: 18,
-    height: 18,
-    flex: "0 0 auto",
-  },
-  statIcon: {
-    display: "block",
-    width: 16,
-    height: 16,
-    imageRendering: "pixelated",
-    backgroundRepeat: "no-repeat",
-  },
-  statIconCoin: {
-    position: "absolute",
-    right: -2,
-    bottom: -2,
-    width: 10,
-    height: 10,
+    overflow: "hidden",
+    alignSelf: "start",
   },
 });

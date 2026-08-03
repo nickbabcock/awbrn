@@ -68,9 +68,6 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
         >
           <Section padding={6} variant="muted">
             <VStack gap={3}>
-              <Text color="accent" type="supporting" weight="bold">
-                Access
-              </Text>
               <Heading level={1} type="display-2">
                 {isRegister ? "Register" : "Sign In"}
               </Heading>
@@ -125,7 +122,7 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
                   variant="primary"
                   width="100%"
                 />
-                <Text color="secondary" type="supporting">
+                <Text color="secondary">
                   {isRegister ? (
                     <>
                       Already have an account?{" "}

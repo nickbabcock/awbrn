@@ -16,7 +16,6 @@ import { Plus as PlusIcon } from "pixelarticons/react/Plus";
 import { useAppSession } from "#/auth/useAppSession.ts";
 import { awbwMapDataQueryOptions } from "#/awbw/awbw.queries.ts";
 import { CoPortrait } from "#/components/CoPortrait.tsx";
-import { FactionSelectionControl } from "#/components/FactionSelectionControl.tsx";
 import {
   DEFAULT_CO_PORTRAIT_KEY,
   getCoPortraitByAwbwId,
@@ -232,13 +231,12 @@ export function MatchLobbyPage({
                       <VStack gap={2}>
                         <PlayerHeader
                           factionCode={faction?.code ?? "os"}
+                          isFactionLocked={!isInteractive || isLocked}
                           name={participant ? participant.userName : "Open seat"}
-                          trailing={
-                            participant !== null ? (
-                              <FactionSelectionControl
-                                disabled={isLocked}
-                                factionCode={faction?.code ?? "os"}
-                                onChange={(nextValue) =>
+                          onFactionChange={
+                            participant === null || !isInteractive
+                              ? undefined
+                              : (nextValue) =>
                                   submitAction(
                                     {
                                       action: "updateParticipant",
@@ -247,9 +245,6 @@ export function MatchLobbyPage({
                                     },
                                     "faction",
                                   )
-                                }
-                              />
-                            ) : null
                           }
                         />
 

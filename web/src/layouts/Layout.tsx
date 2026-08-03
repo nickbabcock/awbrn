@@ -127,7 +127,7 @@ export function Layout({ children }: { children: ReactNode }) {
   );
 
   return (
-    <AppShell contentPadding={0} height="auto" topNav={topNav} variant="surface">
+    <AppShell contentPadding={0} height="auto" topNav={topNav} variant="wash">
       {children}
     </AppShell>
   );
