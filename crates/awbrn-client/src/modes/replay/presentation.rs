@@ -7,17 +7,18 @@
 use awbw_replay::turn_models::Action;
 use awvm::semantic::{ObservedEvent, ObservedTransition, ObservedUnitRef, PlayerId, Pos};
 use bevy::{log, prelude::*};
+use std::collections::BTreeMap;
 
 use crate::features::event_bus::{EventSink, NewDay as ExternalNewDay};
 use crate::features::player_roster::{
     PlayerFunds, PlayerPowerCharges, PlayerRosterConfig, PlayerUnitCosts, active_power_charge,
-    emit_player_roster_updated,
+    emit_player_roster_updated, player_roster_seed_from_replay,
 };
 use crate::modes::replay::navigation::PendingCourseArrows;
 use crate::render::animation::UnitPathAnimation;
 use awbrn_game::replay::{
-    AwbwUnitId, NewDay, ReplayState, ReplayViewpoint, apply_observed_transition,
-    apply_observed_transitions,
+    AwbwUnitId, NewDay, ReplayState, ReplayTerrainKnowledge, ReplayViewpoint, TransitionApplyError,
+    apply_observed_transition, apply_observed_transitions,
 };
 use awbrn_game::world::{BoardIndex, CarriedBy, StrongIdMap};
 use awbrn_types::UnitExt;
@@ -28,12 +29,25 @@ use awbrn_types::UnitExt;
 /// AWVM command or reconstructs random tokens.
 #[derive(Resource)]
 pub struct ReplayTransitionSource {
+    initial_adapter: awvm_awbw::RecordedAdapter,
     adapter: awvm_awbw::RecordedAdapter,
+    checkpoints: BTreeMap<usize, awvm_awbw::RecordedAdapter>,
+    initial_terrain_knowledge: Option<ReplayTerrainKnowledge>,
 }
 
 impl ReplayTransitionSource {
     pub fn new(adapter: awvm_awbw::RecordedAdapter) -> Self {
-        Self { adapter }
+        let checkpoints = BTreeMap::from([(0, adapter.clone())]);
+        Self {
+            initial_adapter: adapter.clone(),
+            adapter,
+            checkpoints,
+            initial_terrain_knowledge: None,
+        }
+    }
+
+    pub(crate) fn set_initial_terrain_knowledge(&mut self, knowledge: ReplayTerrainKnowledge) {
+        self.initial_terrain_knowledge = Some(knowledge);
     }
 
     /// Each player's view of the archive before any action is applied.
@@ -42,17 +56,65 @@ impl ReplayTransitionSource {
     /// already populated; these projections are what a viewpoint switch made
     /// before the first action selects between.
     pub fn initial_observations(&self) -> Result<Vec<awvm::semantic::Observation>, String> {
-        let state = self.adapter.state();
-        state
-            .players
-            .iter()
-            .map(|player| {
-                awvm::semantic::observe(&awvm::semantic::AwbwVisibility, state, &player.id).map_err(
-                    |error| format!("Could not project the initial archive state: {error}"),
-                )
-            })
-            .collect()
+        observations_for_state(self.initial_adapter.state())
     }
+
+    fn rebuild_to(
+        &mut self,
+        replay: &awbw_replay::AwbwReplay,
+        target_index: usize,
+    ) -> Result<(awvm_awbw::RecordedAdapter, Vec<ObservedTransition>), String> {
+        const CHECKPOINT_INTERVAL: usize = 64;
+
+        let (checkpoint_index, mut adapter) = self
+            .checkpoints
+            .range(..=target_index)
+            .next_back()
+            .map(|(index, adapter)| (*index, adapter.clone()))
+            .unwrap_or_else(|| (0, self.initial_adapter.clone()));
+        for (index, action) in replay
+            .turns
+            .iter()
+            .enumerate()
+            .take(target_index)
+            .skip(checkpoint_index)
+        {
+            adapter.advance(action).map_err(|error| {
+                format!(
+                    "Could not rebuild recorded replay through action {index} ({}): {error}",
+                    action.kind_name()
+                )
+            })?;
+            let completed = index + 1;
+            if completed % CHECKPOINT_INTERVAL == 0 {
+                self.checkpoints
+                    .entry(completed)
+                    .or_insert_with(|| adapter.clone());
+            }
+        }
+
+        let transitions = observations_for_state(adapter.state())?
+            .into_iter()
+            .map(|post| ObservedTransition {
+                post,
+                events: Vec::new(),
+            })
+            .collect();
+        Ok((adapter, transitions))
+    }
+}
+
+fn observations_for_state(
+    state: &awvm::semantic::State,
+) -> Result<Vec<awvm::semantic::Observation>, String> {
+    state
+        .players
+        .iter()
+        .map(|player| {
+            awvm::semantic::observe(&awvm::semantic::AwbwVisibility, state, &player.id)
+                .map_err(|error| format!("Could not project the archive state: {error}"))
+        })
+        .collect()
 }
 
 /// Terminal marker for a replay whose typed source can no longer be trusted.
@@ -166,6 +228,69 @@ impl Command for ReplayTurnCommand {
     }
 }
 
+/// Restore one stable replay action boundary without presenting the actions
+/// used to calculate it. The adapter is rebuilt in local memory first; only
+/// the final projections are committed to the ECS.
+pub struct ReplayRewindCommand {
+    pub target_index: u32,
+}
+
+impl Command for ReplayRewindCommand {
+    type Out = ();
+
+    fn apply(self, world: &mut World) {
+        if world
+            .get_resource::<ReplayAdvanceLock>()
+            .is_some_and(ReplayAdvanceLock::is_active)
+        {
+            return;
+        }
+
+        let Some(replay) = world.get_resource::<crate::loading::LoadedReplay>() else {
+            log::error!("Cannot rewind replay without a loaded replay");
+            return;
+        };
+        let target_index = usize::try_from(self.target_index)
+            .unwrap_or(usize::MAX)
+            .min(replay.0.turns.len());
+
+        if !world.contains_resource::<ReplayTransitionSource>() {
+            log::error!("Cannot rewind replay without a typed transition source");
+            return;
+        }
+        let rebuilt = world.resource_scope(|world, mut source: Mut<ReplayTransitionSource>| {
+            let replay = &world.resource::<crate::loading::LoadedReplay>().0;
+            source.rebuild_to(replay, target_index)
+        });
+        let (adapter, transitions) = match rebuilt {
+            Ok(rebuilt) => rebuilt,
+            Err(error) => {
+                log::error!("{error}");
+                return;
+            }
+        };
+
+        // Reset action-derived roster caches before applying the final AWVM
+        // projections. All of this happens in one deferred command, between
+        // rendered frames, so no intermediate replay state is observable.
+        reset_player_roster_for_rewind(target_index, world);
+        if let Some(knowledge) = world
+            .resource::<ReplayTransitionSource>()
+            .initial_terrain_knowledge
+            .clone()
+        {
+            world.insert_resource(knowledge);
+        }
+        if let Err(error) = apply_typed_transitions(&transitions, world, true) {
+            log::error!("Could not apply typed replay presentation transition: {error}");
+            return;
+        }
+        world.resource_mut::<ReplayState>().next_action_index = target_index as u32;
+        world.resource_mut::<ReplayTransitionSource>().adapter = adapter;
+        world.remove_resource::<ReplayTransitionFailed>();
+    }
+}
+
 impl ReplayTurnCommand {
     fn apply_typed(self, world: &mut World) {
         if world.contains_resource::<ReplayTransitionFailed>() {
@@ -208,35 +333,65 @@ impl ReplayTurnCommand {
             return;
         }
 
-        apply_typed_transitions(&observed, world);
+        if let Err(error) = apply_typed_transitions(&observed, world, true) {
+            log::error!("Could not apply typed replay presentation transition: {error}");
+            world.insert_resource(ReplayTransitionFailed);
+        }
     }
 }
 
 fn apply_deferred_transitions(transitions: &DeferredTransitions, world: &mut World) {
     match transitions {
-        DeferredTransitions::Complete(transitions) => apply_typed_transitions(transitions, world),
+        DeferredTransitions::Complete(transitions) => {
+            if let Err(error) = apply_typed_transitions(transitions, world, true) {
+                log::error!("Could not apply typed replay presentation transition: {error}");
+                world.insert_resource(ReplayTransitionFailed);
+            }
+        }
         DeferredTransitions::Recipient(transition) => {
             apply_recipient_transition(transition, world);
         }
     }
 }
 
-fn apply_typed_transitions(transitions: &[ObservedTransition], world: &mut World) {
+fn apply_typed_transitions(
+    transitions: &[ObservedTransition],
+    world: &mut World,
+    emit_new_day: bool,
+) -> Result<(), TransitionApplyError> {
     let previous_day = world
         .get_resource::<ReplayState>()
         .map_or(1, |state| state.day);
-    if let Err(error) = apply_observed_transitions(world, transitions) {
-        log::error!("Could not apply typed replay presentation transition: {error}");
-        return;
-    }
+    apply_observed_transitions(world, transitions)?;
     sync_player_roster_from_transition(transitions, world);
     let current_day = world
         .get_resource::<ReplayState>()
         .map_or(previous_day, |state| state.day);
-    if current_day != previous_day {
+    if emit_new_day && current_day != previous_day {
         world.trigger(NewDay { day: current_day });
     }
     emit_player_roster_updated(world);
+    Ok(())
+}
+
+fn reset_player_roster_for_rewind(target_index: usize, world: &mut World) {
+    let rebuilt = {
+        let replay = &world.resource::<crate::loading::LoadedReplay>().0;
+        let Some((config, funds, mut unit_costs)) = player_roster_seed_from_replay(replay) else {
+            return;
+        };
+        for action in replay.turns.iter().take(target_index) {
+            for (unit_id, cost) in collect_player_roster_unit_cost_updates(action) {
+                unit_costs.set(unit_id, cost);
+            }
+        }
+        (config, funds, unit_costs)
+    };
+    let (config, funds, unit_costs) = rebuilt;
+    world.insert_resource(config);
+    world.insert_resource(funds);
+    world.insert_resource(unit_costs);
+    world.insert_resource(PlayerPowerCharges::default());
 }
 
 fn apply_recipient_transition(transition: &ObservedTransition, world: &mut World) {
