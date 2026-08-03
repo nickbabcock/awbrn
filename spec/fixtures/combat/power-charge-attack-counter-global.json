@@ -518,7 +518,8 @@
                   {
                     "active": true,
                     "id": "andy",
-                    "power_charge": 3150
+                    "power_charge": 3150,
+                    "power_uses": 0
                   }
                 ],
                 "id": "red",
@@ -534,7 +535,8 @@
                   {
                     "active": true,
                     "id": "olaf",
-                    "power_charge": 4200
+                    "power_charge": 4200,
+                    "power_uses": 0
                   }
                 ],
                 "id": "blue",
@@ -726,7 +728,8 @@
                   {
                     "active": true,
                     "id": "andy",
-                    "power_charge": 3150
+                    "power_charge": 3150,
+                    "power_uses": 0
                   }
                 ],
                 "id": "red",
@@ -747,7 +750,8 @@
                   {
                     "active": true,
                     "id": "olaf",
-                    "power_charge": 4200
+                    "power_charge": 4200,
+                    "power_uses": 0
                   }
                 ],
                 "id": "blue",
@@ -818,7 +822,8 @@
                   {
                     "active": true,
                     "id": "olaf",
-                    "power_charge": 4200
+                    "power_charge": 4200,
+                    "power_uses": 0
                   }
                 ],
                 "id": "blue",
@@ -839,7 +844,8 @@
                   {
                     "active": true,
                     "id": "andy",
-                    "power_charge": 3150
+                    "power_charge": 3150,
+                    "power_uses": 0
                   }
                 ],
                 "id": "red",
@@ -922,7 +928,8 @@
             {
               "active": true,
               "id": "andy",
-              "power_charge": 0
+              "power_charge": 0,
+              "power_uses": 0
             }
           ],
           "id": "red",
@@ -938,7 +945,8 @@
             {
               "active": true,
               "id": "olaf",
-              "power_charge": 0
+              "power_charge": 0,
+              "power_uses": 0
             }
           ],
           "id": "blue",

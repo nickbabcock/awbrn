@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use awbrn_client::features::player_roster::PlayerPowerCharges;
+use awbrn_client::features::player_roster::PlayerPowerMeters;
 use awbrn_client::loading::LoadedReplay;
 use awbrn_client::loading::apply_replay_building_overrides;
 use awbrn_client::modes::replay::bootstrap::initialize_replay_semantic_world_for_client;
@@ -90,10 +90,10 @@ fn archived_movement_animates_and_applies_only_typed_transitions() {
     panic!("fixture did not produce an observable typed movement");
 }
 
-/// Power charge is an authoritative AWVM fact projected to every player, so the
-/// presentation cache must track it rather than derive it from unit costs.
+/// Power charge and use count are public AWVM facts. The presentation cache
+/// combines them with canonical COP/SCOP cost queries for a complete meter.
 #[test]
-fn typed_transitions_record_public_power_charge() {
+fn typed_transitions_record_public_power_meter() {
     let replay_bytes = std::fs::read(replay_fixture_path("1362397.zip")).unwrap();
     let replay = ReplayParser::new().parse(&replay_bytes).unwrap();
     let map_data: AwbwMapData =
@@ -115,13 +115,20 @@ fn typed_transitions_record_public_power_charge() {
             .apply(app.world_mut());
         }
 
-        let charges = app.world().resource::<PlayerPowerCharges>();
+        let meters = app.world().resource::<PlayerPowerMeters>();
         assert_eq!(
-            charges.0.len(),
+            meters.0.len(),
             replay.games.first().unwrap().players.len(),
             "every applied transition reports a charge for each player"
         );
-        if charges.0.values().any(|charge| *charge > 0) {
+        assert!(
+            meters
+                .0
+                .values()
+                .all(|meter| meter.cop_cost.is_some() || meter.scop_cost.is_some()),
+            "every CO should expose at least one power threshold"
+        );
+        if meters.0.values().any(|meter| meter.charge > 0) {
             charged = true;
             break;
         }
@@ -155,6 +162,27 @@ fn initial_observations_stay_at_the_opening_state_after_advancing() {
             .unwrap(),
         initial
     );
+}
+
+#[test]
+fn rewind_to_start_restores_every_players_opening_power_meter() {
+    let replay_bytes = std::fs::read(replay_fixture_path("1362397.zip")).unwrap();
+    let replay = ReplayParser::new().parse(&replay_bytes).unwrap();
+    let map_data: AwbwMapData =
+        serde_json::from_slice(&std::fs::read(map_fixture_path("162795.json")).unwrap()).unwrap();
+    let mut app = replay_test_app(&replay, &map_data);
+    let opening_meters = app.world().resource::<PlayerPowerMeters>().clone();
+
+    apply_settled_action(&mut app, &replay, 0);
+    ReplayRewindCommand { target_index: 0 }.apply(app.world_mut());
+
+    let restored_meters = app.world().resource::<PlayerPowerMeters>();
+    for player in &replay.games.first().unwrap().players {
+        let opening = opening_meters
+            .get(player.id)
+            .expect("every player should have an opening power meter");
+        assert_eq!(restored_meters.get(player.id), Some(opening));
+    }
 }
 
 #[derive(Resource, Default)]

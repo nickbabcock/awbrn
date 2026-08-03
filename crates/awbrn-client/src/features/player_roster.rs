@@ -55,21 +55,27 @@ impl PlayerFunds {
     }
 }
 
-/// Public CO power charge per player.
+/// Public CO power meter values for the active commander of each player.
 ///
-/// AWVM computes charge from the funds value of damage dealt and projects it to
-/// every recipient, so this is a cache of an authoritative fact rather than a
-/// client-side derivation. It is deliberately not fog-gated: `observe` treats
-/// funds as owner-only but power charge as public.
-#[derive(Resource, Clone, Default)]
-pub struct PlayerPowerCharges(pub HashMap<awbrn_types::AwbwGamePlayerId, u32>);
+/// The current charge and use count are public AWVM facts. COP and SCOP costs
+/// are calculated through AWVM's revisioned commander query, keeping the UI
+/// payload self-contained without duplicating the scaling formula.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlayerPowerMeter {
+    pub charge: u32,
+    pub cop_cost: Option<u32>,
+    pub scop_cost: Option<u32>,
+}
 
-impl PlayerPowerCharges {
-    pub fn set(&mut self, player_id: awbrn_types::AwbwGamePlayerId, charge: u32) {
-        self.0.insert(player_id, charge);
+#[derive(Resource, Clone, Default)]
+pub struct PlayerPowerMeters(pub HashMap<awbrn_types::AwbwGamePlayerId, PlayerPowerMeter>);
+
+impl PlayerPowerMeters {
+    pub fn set(&mut self, player_id: awbrn_types::AwbwGamePlayerId, meter: PlayerPowerMeter) {
+        self.0.insert(player_id, meter);
     }
 
-    pub fn get(&self, player_id: awbrn_types::AwbwGamePlayerId) -> Option<u32> {
+    pub fn get(&self, player_id: awbrn_types::AwbwGamePlayerId) -> Option<PlayerPowerMeter> {
         self.0.get(&player_id).copied()
     }
 }
@@ -136,7 +142,7 @@ pub fn player_roster_seed_from_live_match(
     PlayerRosterConfig,
     PlayerFunds,
     PlayerUnitCosts,
-    PlayerPowerCharges,
+    PlayerPowerMeters,
 ) {
     let teams = observation
         .players
@@ -147,7 +153,7 @@ pub fn player_roster_seed_from_live_match(
 
     let mut config_players = Vec::with_capacity(players.len());
     let mut funds = PlayerFunds::default();
-    let mut charges = PlayerPowerCharges::default();
+    let mut power_meters = PlayerPowerMeters::default();
 
     for (index, player) in players.iter().enumerate() {
         let Some(faction) = PlayerFaction::from_id(player.faction_id) else {
@@ -170,8 +176,8 @@ pub fn player_roster_seed_from_live_match(
             if let ObservedPlayer::Private { funds: value, .. } = observed {
                 funds.set(player_id, u32::try_from(*value).unwrap_or(u32::MAX));
             }
-            if let Some(charge) = active_power_charge(observed) {
-                charges.set(player_id, charge);
+            if let Some(meter) = active_power_meter(observed) {
+                power_meters.set(player_id, meter);
             }
         }
 
@@ -209,7 +215,7 @@ pub fn player_roster_seed_from_live_match(
         // Live builds have no recorded purchase price; `player_roster_snapshot`
         // falls back to the ruleset base cost for any unit missing here.
         PlayerUnitCosts::default(),
-        charges,
+        power_meters,
     )
 }
 
@@ -242,21 +248,48 @@ fn observed_player_commanders(player: &ObservedPlayer) -> Vec<awvm::semantic::Co
     }
 }
 
-/// The charge of the commander currently leading, falling back to the first.
-pub fn active_power_charge(player: &ObservedPlayer) -> Option<u32> {
-    let charge = match player {
+/// Meter values for the commander currently leading, falling back to the first.
+pub fn active_power_meter(player: &ObservedPlayer) -> Option<PlayerPowerMeter> {
+    let (commander, charge, power_uses) = match player {
         ObservedPlayer::Private { commanders, .. } => commanders
             .iter()
             .find(|commander| commander.active)
             .or_else(|| commanders.first())
-            .map(|commander| commander.power_charge),
+            .map(|commander| (commander.id, commander.power_charge, commander.power_uses)),
         ObservedPlayer::Public { commanders, .. } => commanders
             .iter()
             .find(|commander| commander.active)
             .or_else(|| commanders.first())
-            .map(|commander| commander.power_charge),
+            .map(|commander| (commander.id, commander.power_charge, commander.power_uses)),
     }?;
-    u32::try_from(charge).ok()
+    let cost = |level| {
+        awvm::commander::power_activation_cost(commander, level, power_uses)
+            .ok()
+            .flatten()
+            .and_then(|cost| u32::try_from(cost).ok())
+    };
+    Some(PlayerPowerMeter {
+        charge: u32::try_from(charge).ok()?,
+        cop_cost: cost(awvm::commander::PowerLevel::Cop),
+        scop_cost: cost(awvm::commander::PowerLevel::Scop),
+    })
+}
+
+/// Collect every public power meter from one canonical observation.
+pub fn power_meters_from_observation(observation: &Observation) -> PlayerPowerMeters {
+    PlayerPowerMeters(
+        observation
+            .players
+            .iter()
+            .filter_map(|player| {
+                let player_id = observed_player_id(player).as_str().parse().ok()?;
+                Some((
+                    awbrn_types::AwbwGamePlayerId::new(player_id),
+                    active_power_meter(player)?,
+                ))
+            })
+            .collect(),
+    )
 }
 
 /// AWVM names commanders by the same kebab key the portrait table uses, except
@@ -296,8 +329,8 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
     let config = world.get_resource::<PlayerRosterConfig>()?.clone();
     let funds = world.get_resource::<PlayerFunds>()?.clone();
     let unit_costs = world.get_resource::<PlayerUnitCosts>()?.clone();
-    let power_charges = world
-        .get_resource::<PlayerPowerCharges>()
+    let power_meters = world
+        .get_resource::<PlayerPowerMeters>()
         .cloned()
         .unwrap_or_default();
     let replay_state = *world.get_resource::<ReplayState>()?;
@@ -411,6 +444,7 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
                 );
                 let display_faction_code = display_faction.country_code().to_string();
                 let display_faction_name = display_faction.name().to_string();
+                let power_meter = power_meters.get(player.player_id);
                 PlayerRosterEntry {
                     player_id: player.player_id.as_u32(),
                     user_id: player.user_id.as_u32(),
@@ -427,9 +461,11 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
                     co_name: player.co_name.clone(),
                     tag_co_key: player.tag_co_key.clone(),
                     tag_co_name: player.tag_co_name.clone(),
-                    // Charge stays outside `stats` because AWVM projects it to
-                    // every player, fog or not.
-                    power_charge: power_charges.get(player.player_id),
+                    // Power meter values stay outside `stats` because AWVM
+                    // projects their inputs to every player, fog or not.
+                    power_charge: power_meter.map(|meter| meter.charge),
+                    cop_cost: power_meter.and_then(|meter| meter.cop_cost),
+                    scop_cost: power_meter.and_then(|meter| meter.scop_cost),
                     stats,
                 }
             })

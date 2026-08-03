@@ -3,7 +3,8 @@ use bevy::prelude::*;
 
 use crate::features::player_display::PlayerDisplayFactionOverrides;
 use crate::features::player_roster::{
-    PlayerPowerCharges, emit_player_roster_updated, player_roster_seed_from_replay,
+    PlayerPowerMeters, emit_player_roster_updated, player_roster_seed_from_replay,
+    power_meters_from_observation,
 };
 use crate::loading::LoadedReplay;
 use crate::modes::replay::presentation::{ReplayAdvanceLock, ReplayTransitionSource};
@@ -21,9 +22,14 @@ fn seed_initial_observations(world: &mut World) {
         return;
     };
     match source.initial_observations() {
-        Ok(observations) => world
-            .resource_mut::<RecipientObservations>()
-            .set(observations),
+        Ok(observations) => {
+            if let Some(observation) = observations.first() {
+                world.insert_resource(power_meters_from_observation(observation));
+            }
+            world
+                .resource_mut::<RecipientObservations>()
+                .set(observations);
+        }
         Err(error) => error!("{error}"),
     }
     refresh_viewer_visibility(world);
@@ -51,9 +57,8 @@ pub fn initialize_replay_semantic_world_for_client(world: &mut World) {
         world.insert_resource(unit_costs);
     }
 
-    // Charges arrive with the first applied transition; the resource has to
-    // exist before then for the replay path to record them.
-    world.init_resource::<PlayerPowerCharges>();
+    // An empty replay has no opening observation from which to seed meters.
+    world.init_resource::<PlayerPowerMeters>();
 
     world.init_resource::<PlayerDisplayFactionOverrides>();
     world

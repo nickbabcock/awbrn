@@ -11,8 +11,8 @@ use std::collections::BTreeMap;
 
 use crate::features::event_bus::{EventSink, NewDay as ExternalNewDay};
 use crate::features::player_roster::{
-    PlayerFunds, PlayerPowerCharges, PlayerRosterConfig, PlayerUnitCosts, active_power_charge,
-    emit_player_roster_updated, player_roster_seed_from_replay,
+    PlayerFunds, PlayerPowerMeters, PlayerRosterConfig, PlayerUnitCosts, active_power_meter,
+    emit_player_roster_updated, player_roster_seed_from_replay, power_meters_from_observation,
 };
 use crate::modes::replay::navigation::PendingCourseArrows;
 use crate::render::animation::UnitPathAnimation;
@@ -391,7 +391,17 @@ fn reset_player_roster_for_rewind(target_index: usize, world: &mut World) {
     world.insert_resource(config);
     world.insert_resource(funds);
     world.insert_resource(unit_costs);
-    world.insert_resource(PlayerPowerCharges::default());
+    let power_meters = (target_index == 0)
+        .then(|| {
+            world
+                .resource::<ReplayTransitionSource>()
+                .initial_observations()
+                .ok()
+                .and_then(|observations| observations.first().map(power_meters_from_observation))
+        })
+        .flatten()
+        .unwrap_or_default();
+    world.insert_resource(power_meters);
 }
 
 fn apply_recipient_transition(transition: &ObservedTransition, world: &mut World) {
@@ -440,9 +450,9 @@ fn sync_player_roster_from_transition(transitions: &[ObservedTransition], world:
             }
         })
         .collect::<Vec<_>>();
-    // Power charge is public in AWVM, so every transition reports it for every
-    // player and the first one is authoritative for all of them.
-    let charges = transitions
+    // Power meter inputs are public in AWVM, so every transition reports them
+    // for every player and the first one is authoritative for all of them.
+    let power_meters = transitions
         .first()
         .into_iter()
         .flat_map(|transition| transition.post.players.iter())
@@ -451,12 +461,12 @@ fn sync_player_roster_from_transition(transitions: &[ObservedTransition], world:
                 awvm::semantic::ObservedPlayer::Private { id, .. }
                 | awvm::semantic::ObservedPlayer::Public { id, .. } => id,
             };
-            Some((parse_player_id(id)?, active_power_charge(player)?))
+            Some((parse_player_id(id)?, active_power_meter(player)?))
         })
         .collect::<Vec<_>>();
-    if let Some(mut power_charges) = world.get_resource_mut::<PlayerPowerCharges>() {
-        for (player, charge) in charges {
-            power_charges.set(player, charge);
+    if let Some(mut meters) = world.get_resource_mut::<PlayerPowerMeters>() {
+        for (player, meter) in power_meters {
+            meters.set(player, meter);
         }
     }
 

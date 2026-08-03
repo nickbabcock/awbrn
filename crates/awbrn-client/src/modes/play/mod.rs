@@ -420,7 +420,7 @@ pub(crate) fn initialize_live_semantic_world(world: &mut World) {
         return;
     };
 
-    let (config, funds, unit_costs, power_charges) =
+    let (config, funds, unit_costs, power_meters) =
         crate::features::player_roster::player_roster_seed_from_live_match(
             &bootstrap.players,
             &bootstrap.observation,
@@ -428,7 +428,7 @@ pub(crate) fn initialize_live_semantic_world(world: &mut World) {
     world.insert_resource(config);
     world.insert_resource(funds);
     world.insert_resource(unit_costs);
-    world.insert_resource(power_charges);
+    world.insert_resource(power_meters);
 
     let mut registry = awbrn_game::replay::ReplayPlayerRegistry::default();
     for player in &bootstrap.players {
@@ -676,8 +676,8 @@ mod tests {
     }
 
     #[test]
-    fn live_bootstrap_seeds_the_player_roster_and_power_charge() {
-        use crate::features::player_roster::{PlayerFunds, PlayerPowerCharges, PlayerRosterConfig};
+    fn live_bootstrap_seeds_the_player_roster_and_power_meter() {
+        use crate::features::player_roster::{PlayerFunds, PlayerPowerMeters, PlayerRosterConfig};
 
         let replay = ReplayParser::new()
             .parse(
@@ -741,11 +741,11 @@ mod tests {
         );
 
         // Power charge is public, so it is seeded for every player.
-        let charges = app.world().resource::<PlayerPowerCharges>();
+        let meters = app.world().resource::<PlayerPowerMeters>();
         for player in &config.players {
             assert!(
-                charges.get(player.player_id).is_some(),
-                "power charge is public and should be seeded for player {}",
+                meters.get(player.player_id).is_some(),
+                "power meter is public and should be seeded for player {}",
                 player.player_id.as_u32()
             );
         }

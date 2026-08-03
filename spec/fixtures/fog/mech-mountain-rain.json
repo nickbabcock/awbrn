@@ -237,7 +237,8 @@
             {
               "id": "andy",
               "active": true,
-              "power_charge": 0
+              "power_charge": 0,
+              "power_uses": 0
             }
           ],
           "power_state": {

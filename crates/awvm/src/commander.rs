@@ -646,6 +646,21 @@ pub(crate) fn power_activation(
     }))
 }
 
+/// Return the current charge required to activate one commander-power level.
+///
+/// This is the presentation-safe cost query: callers can render a power meter
+/// using the same revisioned scaling rules as command validation without
+/// interpreting the embedded commander table themselves. `None` means that
+/// the commander does not support the requested level.
+pub fn power_activation_cost(
+    commander: CommanderKind,
+    level: PowerLevel,
+    power_uses: u64,
+) -> Result<Option<u64>, PowerActivationError> {
+    power_activation(commander, level, power_uses)
+        .map(|activation| activation.map(|activation| activation.cost))
+}
+
 fn scaled_power_charge(
     table: &PowerTable,
     stars: u64,

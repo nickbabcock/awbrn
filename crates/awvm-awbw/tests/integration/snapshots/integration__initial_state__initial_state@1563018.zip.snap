@@ -1,6 +1,6 @@
 ---
-source: crates/awvm-awbw/tests/initial_state.rs
+source: crates/awvm-awbw/tests/integration/initial_state.rs
 expression: snapshot
 input_file: assets/replays/1563018.zip
 ---
-map=96502 size=21x19 players=2 units=1 state=666db78eb30b7b8a observations=cacde78325f02c97
+map=96502 size=21x19 players=2 units=1 state=666db78eb30b7b8a observations=d8d9b11290357acf

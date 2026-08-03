@@ -1,6 +1,6 @@
 ---
-source: crates/awvm-awbw/tests/initial_state.rs
+source: crates/awvm-awbw/tests/integration/initial_state.rs
 expression: snapshot
 input_file: assets/replays/replay_1578186_d-day_2026-01-14.zip
 ---
-map=67073 size=19x19 players=2 units=5 state=720a0a4d54f3cfce observations=754141983bc6a27e
+map=67073 size=19x19 players=2 units=5 state=720a0a4d54f3cfce observations=7066a966e909a268
