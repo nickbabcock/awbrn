@@ -167,9 +167,6 @@ export function NewMatchPage() {
         <Card padding={6} width="100%">
           <VStack gap={6}>
             <VStack gap={2}>
-              <Text color="accent" type="supporting" weight="bold">
-                Match setup
-              </Text>
               <Heading level={1} type="display-2">
                 Create match
               </Heading>
@@ -227,7 +224,7 @@ export function NewMatchPage() {
               </Grid>
 
               {!session ? (
-                <Text type="supporting" weight="medium">
+                <Text weight="medium">
                   <RouterTextLink to="/auth" search={{ mode: undefined }}>
                     Sign in
                   </RouterTextLink>{" "}
@@ -261,9 +258,6 @@ export function NewMatchPage() {
         <Section padding={6} variant="muted">
           <VStack gap={4}>
             <VStack gap={1}>
-              <Text color="accent" type="supporting" weight="bold">
-                Battlefield
-              </Text>
               <Heading level={2}>Map preview</Heading>
               <Text color="secondary" type="supporting">
                 {mapData

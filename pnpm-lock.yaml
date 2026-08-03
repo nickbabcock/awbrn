@@ -41,12 +41,15 @@ importers:
       '@astryxdesign/theme-neutral':
         specifier: ^0.2.0
         version: 0.2.0(@astryxdesign/core@0.2.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react@19.2.5)
+      '@fontsource/bungee':
+        specifier: 5.3.0
+        version: 5.3.0
       '@fontsource/nunito':
         specifier: 5.2.7
         version: 5.2.7
-      '@fontsource/press-start-2p':
-        specifier: 5.2.7
-        version: 5.2.7
+      '@fontsource/silkscreen':
+        specifier: 5.3.0
+        version: 5.3.0
       '@stylexjs/stylex':
         specifier: 0.19.0
         version: 0.19.0
@@ -1165,11 +1168,14 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@fontsource/bungee@5.3.0':
+    resolution: {integrity: sha512-vKwbDE7yMrqfGxgFan+diPLwgWp9j4FGYaLm+OhUoqYO6Pr02QIi/p0KiTW0E/7uiXqfTd6cMj+/E4h2sc3Ocg==}
+
   '@fontsource/nunito@5.2.7':
     resolution: {integrity: sha512-pmtBq0H9ex9nk+RtJYEJOD9pag393iHETnl/PVKleF4i06cd0ttngK5ZCTgYb5eOqR3Xdlrjtev8m7bmgYprew==}
 
-  '@fontsource/press-start-2p@5.2.7':
-    resolution: {integrity: sha512-ezSxYRchANoteja170ZHh2Tt4oejmVEvX42VFPOVVvERSZ68pcuZFjbhHfrK/sNjYmaGg656y7B3431ojO9PCQ==}
+  '@fontsource/silkscreen@5.3.0':
+    resolution: {integrity: sha512-M1NQ3LQH0LFNvyFPd/piHEGMImPPtpLglNnLC6Vdcq9kL0jNIOtTQmksAWCc4enbDnw1OnIpZtjNEfRqYm/QmA==}
 
   '@formatjs/fast-memoize@3.1.7':
     resolution: {integrity: sha512-zXfhLpvA6T7+efdt9JLbBwZ00tT7NsBMDVnDu8rpHeNNv8KfRZAMo2gkG0k9lK/Nzc//3kJ9pImsfuJxk3KhUA==}
@@ -3763,9 +3769,11 @@ snapshots:
   '@esbuild/win32-x64@0.27.7':
     optional: true
 
+  '@fontsource/bungee@5.3.0': {}
+
   '@fontsource/nunito@5.2.7': {}
 
-  '@fontsource/press-start-2p@5.2.7': {}
+  '@fontsource/silkscreen@5.3.0': {}
 
   '@formatjs/fast-memoize@3.1.7': {}
 

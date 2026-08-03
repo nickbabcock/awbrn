@@ -63,9 +63,6 @@ export function MatchActivePage({ matchId }: { matchId: string }) {
     <Section padding={6} variant="transparent">
       <VStack gap={6}>
         <VStack gap={2}>
-          <Text color="accent" type="supporting" weight="bold">
-            Match active
-          </Text>
           <Heading level={1} type="display-2">
             {match.name}
           </Heading>
@@ -85,12 +82,7 @@ export function MatchActivePage({ matchId }: { matchId: string }) {
 
           <Section padding={5} variant="section">
             <VStack gap={4}>
-              <VStack gap={1}>
-                <Text color="accent" type="supporting" weight="bold">
-                  Roster
-                </Text>
-                <Heading level={2}>Players</Heading>
-              </VStack>
+              <Heading level={2}>Players</Heading>
               <VStack gap={3}>
                 {match.participants.map((participant) => {
                   const faction = getFactionById(participant.factionId);

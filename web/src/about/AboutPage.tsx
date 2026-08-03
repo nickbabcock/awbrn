@@ -19,12 +19,7 @@ export function AboutPage() {
   return (
     <Section padding={6} variant="transparent">
       <VStack gap={6} width="100%">
-        <VStack gap={1}>
-          <Text color="accent" type="supporting" weight="bold">
-            About
-          </Text>
-          <Heading level={1}>What&apos;s in a name</Heading>
-        </VStack>
+        <Heading level={1}>What&apos;s in a name</Heading>
 
         <Grid
           align="start"
@@ -56,7 +51,7 @@ export function AboutPage() {
                   </HStack>
                 ))}
               </VStack>
-              <Text color="secondary" type="supporting">
+              <Text color="secondary">
                 Load a <Code>.zip</Code> replay, step through every turn, and inspect the
                 battlefield without losing the character of the source game.
               </Text>

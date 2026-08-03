@@ -25,6 +25,8 @@ interface CoPortraitAtlasData {
 
 export interface CoPortraitEntry extends CoPortraitAtlasEntry {
   sheetUrl: string;
+  sheetWidth: number;
+  sheetHeight: number;
 }
 
 export type CoPortraitCatalog = Map<string, CoPortraitEntry>;
@@ -36,9 +38,12 @@ let catalogByAwbwId: Map<number, CoPortraitEntry> | undefined;
 
 export function loadCoPortraitCatalog(): CoPortraitCatalog {
   if (!catalog) {
-    const portraits = (coPortraitAtlas as CoPortraitAtlasData).portraits.map((portrait) => ({
+    const atlas = coPortraitAtlas as CoPortraitAtlasData;
+    const portraits = atlas.portraits.map((portrait) => ({
       ...portrait,
       sheetUrl: coPortraitSheetAssetUrl,
+      sheetWidth: atlas.size.width,
+      sheetHeight: atlas.size.height,
     }));
     catalog = new Map(portraits.map((portrait) => [portrait.key, portrait]));
     catalogByAwbwId = new Map(portraits.map((portrait) => [portrait.awbwId, portrait]));

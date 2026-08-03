@@ -39,7 +39,7 @@ export const Route = createRootRouteWithContext<{
 
 function RootComponent() {
   return (
-    <Theme mode="system" theme={awbrnTheme}>
+    <Theme mode="light" theme={awbrnTheme}>
       <LinkProvider component={RouterLink}>
         <GameRuntimeProvider>
           <Layout>

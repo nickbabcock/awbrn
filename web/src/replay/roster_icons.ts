@@ -45,6 +45,7 @@ export function uiAtlasSpriteStyle(name: string): CSSProperties | null {
     backgroundImage: `url(${uiTextureUrl})`,
     backgroundPosition: `-${sprite.x}px -${sprite.y}px`,
     backgroundRepeat: "no-repeat",
+    imageRendering: "pixelated",
   };
 }
 
@@ -72,5 +73,6 @@ export function infantrySpriteStyle(factionCode: string): CSSProperties | null {
     backgroundImage: `url(${unitsTextureUrl})`,
     backgroundPosition: `-${x + INFANTRY_VISIBLE_X}px -${y + INFANTRY_VISIBLE_Y}px`,
     backgroundRepeat: "no-repeat",
+    imageRendering: "pixelated",
   };
 }
