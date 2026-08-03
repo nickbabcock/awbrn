@@ -1,0 +1,381 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-03T00:00:00.000Z",
+  "title": "Design System: AWBRN",
+  "extensions": {
+    "colorMeta": {
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#16181d",
+        "tonalRamp": [
+          "#0b0c0f",
+          "#16181d",
+          "#2b2e37",
+          "#454a58",
+          "#646a7c",
+          "#8d93a3",
+          "#b8bcc7",
+          "#e4e6ea"
+        ]
+      },
+      "sky": {
+        "role": "secondary",
+        "displayName": "Open Sky",
+        "canonical": "#6bb4db",
+        "tonalRamp": [
+          "#0f2b3b",
+          "#194459",
+          "#245e7a",
+          "#31799a",
+          "#4595bb",
+          "#6bb4db",
+          "#9bcfe9",
+          "#cfe9f5"
+        ]
+      },
+      "menu-cream": {
+        "role": "neutral",
+        "displayName": "Menu Cream",
+        "canonical": "#fff8e4",
+        "tonalRamp": [
+          "#3a3426",
+          "#4a422c",
+          "#6b6040",
+          "#8f8156",
+          "#b4a473",
+          "#d8c89b",
+          "#f0e4c4",
+          "#fff8e4"
+        ]
+      },
+      "panel-white": {
+        "role": "neutral",
+        "displayName": "Panel White",
+        "canonical": "#fffcf2",
+        "tonalRamp": [
+          "#3d3a2f",
+          "#544f40",
+          "#6f6955",
+          "#8f886f",
+          "#b2aa8d",
+          "#d5cdaf",
+          "#efe9d3",
+          "#fffcf2"
+        ]
+      },
+      "road-tan": {
+        "role": "neutral",
+        "displayName": "Road Tan",
+        "canonical": "#efdcae",
+        "tonalRamp": [
+          "#3a3323",
+          "#514831",
+          "#6e6142",
+          "#8d7d56",
+          "#ad9b6e",
+          "#cbba8e",
+          "#efdcae",
+          "#f8eed2"
+        ]
+      },
+      "command-orange": {
+        "role": "primary",
+        "displayName": "Command Orange",
+        "canonical": "#f07c1e",
+        "tonalRamp": [
+          "#3d1c02",
+          "#5c2b04",
+          "#7f3d07",
+          "#a3510b",
+          "#c86610",
+          "#f07c1e",
+          "#f9a75f",
+          "#fdd2a8"
+        ]
+      },
+      "deep-orange": {
+        "role": "primary",
+        "displayName": "Deep Orange",
+        "canonical": "#a34803",
+        "tonalRamp": [
+          "#2c1301",
+          "#431d01",
+          "#5d2902",
+          "#7a3602",
+          "#a34803",
+          "#c95f10",
+          "#e88a3f",
+          "#f6bc86"
+        ]
+      },
+      "briefing-brown": {
+        "role": "neutral",
+        "displayName": "Briefing Brown",
+        "canonical": "#443c2e",
+        "tonalRamp": [
+          "#1c1913",
+          "#2d281e",
+          "#443c2e",
+          "#5e5340",
+          "#7c6e55",
+          "#9d8d70",
+          "#c0b294",
+          "#e0d6c0"
+        ]
+      },
+      "repair-green": {
+        "role": "tertiary",
+        "displayName": "Repair Green",
+        "canonical": "#1e8a3c",
+        "tonalRamp": [
+          "#062a11",
+          "#0a3a19",
+          "#0f5526",
+          "#177034",
+          "#1e8a3c",
+          "#2fae53",
+          "#63cd80",
+          "#a7e6ba"
+        ]
+      },
+      "damage-red": {
+        "role": "tertiary",
+        "displayName": "Damage Red",
+        "canonical": "#c9221a",
+        "tonalRamp": [
+          "#330705",
+          "#4d0b08",
+          "#6d100c",
+          "#901611",
+          "#b31c16",
+          "#c9221a",
+          "#e2564f",
+          "#f4a19c"
+        ]
+      },
+      "low-supply-amber": {
+        "role": "tertiary",
+        "displayName": "Low Supply Amber",
+        "canonical": "#b98100",
+        "tonalRamp": [
+          "#301f00",
+          "#472f00",
+          "#634100",
+          "#815400",
+          "#9d6800",
+          "#b98100",
+          "#e0a92c",
+          "#f5d485"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page titles only, one per screen. The box-art voice."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Panel titles and match names. Still the box-art voice."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Headings below level 2, set in the body face at full weight because the signage face turns into noise at these sizes."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "All prose. Anything with a verb in it. Measure stays within 65-75ch."
+      },
+      "label": {
+        "displayName": "HUD Label",
+        "purpose": "Readouts, metadata strips, nav tabs, button text, badges. Never running prose, never below 12px."
+      }
+    },
+    "shadows": [
+      {
+        "name": "low",
+        "value": "2px 2px 0 0 rgba(22,24,29,0.34), 2px 3px 6px 0 rgba(22,24,29,0.16)",
+        "purpose": "Buttons and banners: chrome that sits just off the surface."
+      },
+      {
+        "name": "med",
+        "value": "3px 3px 0 0 rgba(22,24,29,0.34), 4px 6px 10px 0 rgba(22,24,29,0.16)",
+        "purpose": "Default for panels, cards, sections, lists, and the nav bar."
+      },
+      {
+        "name": "high",
+        "value": "5px 5px 0 0 rgba(22,24,29,0.34), 7px 10px 18px 0 rgba(22,24,29,0.16)",
+        "purpose": "Content that overlays other content."
+      },
+      {
+        "name": "field-inset",
+        "value": "inset 2px 2px 0 0 rgba(22,24,29,0.12)",
+        "purpose": "Inputs invert the depth model: a field sinks into the panel while a button rises off it."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Exponential settle. Menu snap, not web easing."
+      },
+      {
+        "name": "duration-fast",
+        "value": "90ms",
+        "purpose": "Micro-interactions, including the press gesture."
+      },
+      { "name": "duration-medium", "value": "150ms", "purpose": "Entrance and exit." },
+      { "name": "duration-slow", "value": "520ms", "purpose": "Continuous motion." }
+    ],
+    "groundPlane": {
+      "backgroundColor": "#6bb4db",
+      "backgroundImage": "radial-gradient(120% 65% at 50% -12%, rgba(255,255,255,0.38), rgba(255,255,255,0) 62%), linear-gradient(to right, rgba(255,255,255,0.11) 2px, rgba(255,255,255,0) 2px), linear-gradient(to bottom, rgba(255,255,255,0.11) 2px, rgba(255,255,255,0) 2px)",
+      "backgroundSize": "100% 100%, 32px 32px, 32px 32px",
+      "backgroundAttachment": "fixed",
+      "purpose": "Sky, sun wash, and a fixed 32px tile grid. Every shell region between the app shell and the content must be transparent or the ground breaks."
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one call to action. Black on orange, the relationship the game's logo uses.",
+      "html": "<button class=\"ds-btn-primary\">Create lobby</button>",
+      "css": ".ds-btn-primary { background: #f07c1e; color: #16181d; border: 2px solid #16181d; border-radius: 2px; padding: 8px 16px; font-family: Silkscreen, ui-monospace, monospace; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; box-shadow: 2px 2px 0 0 rgba(22,24,29,0.34), 2px 3px 6px 0 rgba(22,24,29,0.16); transition: transform 90ms cubic-bezier(0.16,1,0.3,1), box-shadow 90ms cubic-bezier(0.16,1,0.3,1); } .ds-btn-primary:focus-visible { outline: 2px solid #16181d; outline-offset: 3px; } .ds-btn-primary:active { transform: translate(2px, 2px); box-shadow: none; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A menu key that is not the primary command.",
+      "html": "<button class=\"ds-btn-secondary\">Load map</button>",
+      "css": ".ds-btn-secondary { background: #fff8e4; color: #16181d; border: 2px solid #16181d; border-radius: 2px; padding: 8px 16px; font-family: Silkscreen, ui-monospace, monospace; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; box-shadow: 2px 2px 0 0 rgba(22,24,29,0.34), 2px 3px 6px 0 rgba(22,24,29,0.16); transition: transform 90ms cubic-bezier(0.16,1,0.3,1), box-shadow 90ms cubic-bezier(0.16,1,0.3,1); } .ds-btn-secondary:active { transform: translate(2px, 2px); box-shadow: none; }"
+    },
+    {
+      "name": "Disabled Button",
+      "kind": "button",
+      "refersTo": "button-disabled",
+      "description": "A greyed-out command is still a key on the menu: it keeps its outline and lies flat.",
+      "html": "<button class=\"ds-btn-disabled\" disabled>Create lobby</button>",
+      "css": ".ds-btn-disabled { background: #efdcae; color: #6d6350; border: 2px solid rgba(22,24,29,0.4); border-radius: 2px; padding: 8px 16px; font-family: Silkscreen, ui-monospace, monospace; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; box-shadow: none; }"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "The standard menu panel: one black outline, square corners, cast onto the terrain.",
+      "html": "<div class=\"ds-card\"><h3 class=\"ds-card-title\">Map preview</h3><p class=\"ds-card-body\">Load a map to inspect its terrain.</p></div>",
+      "css": ".ds-card { background: #fffcf2; color: #16181d; border: 2px solid #16181d; border-radius: 4px; padding: 24px; box-shadow: 3px 3px 0 0 rgba(22,24,29,0.34), 4px 6px 10px 0 rgba(22,24,29,0.16); } .ds-card-title { font-family: Bungee, system-ui, sans-serif; font-size: 28.4px; font-weight: 400; line-height: 1.2; letter-spacing: 0.01em; margin: 0 0 8px; } .ds-card-body { font-family: Nunito, system-ui, sans-serif; font-size: 16px; line-height: 1.5; margin: 0; }"
+    },
+    {
+      "name": "Faction Panel",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "An army's panel wears its color as a bar across the top, the way the unit-info window does in game, and still names the army in text.",
+      "html": "<div class=\"ds-card-faction\"><h3 class=\"ds-card-title\">Orange Star</h3><p class=\"ds-card-body\">Andy &middot; 12 units &middot; 8,000 funds</p></div>",
+      "css": ".ds-card-faction { background: #ff4f4e26; color: #16181d; border: 2px solid #16181d; border-radius: 4px; padding: 24px; box-shadow: inset 0 6px 0 0 #ff4f4e, 3px 3px 0 0 rgba(22,24,29,0.34), 4px 6px 10px 0 rgba(22,24,29,0.16); } .ds-card-title { font-family: Bungee, system-ui, sans-serif; font-size: 28.4px; font-weight: 400; line-height: 1.2; margin: 0 0 8px; } .ds-card-body { font-family: Silkscreen, ui-monospace, monospace; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; margin: 0; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "text-input",
+      "description": "Fields invert the depth model: an inset shadow sinks the field into the panel.",
+      "html": "<input class=\"ds-input\" type=\"text\" value=\"Riverside Duel\" />",
+      "css": ".ds-input { background: #fffdf7; color: #16181d; border: 2px solid #16181d; border-radius: 2px; padding: 8px 12px; font-family: Nunito, system-ui, sans-serif; font-size: 16px; box-shadow: inset 2px 2px 0 0 rgba(22,24,29,0.12); } .ds-input:focus-visible { outline: 2px solid #f07c1e; outline-offset: 2px; }"
+    },
+    {
+      "name": "Navigation Tab",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Tabs are HUD labels; the selected tab is the game's cursor, flush on the chrome rather than above it.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item\" href=\"#\">Play</a><a class=\"ds-nav-item ds-nav-item-selected\" href=\"#\">Matches</a><a class=\"ds-nav-item\" href=\"#\">About</a></nav>",
+      "css": ".ds-nav { display: flex; gap: 8px; background: #fff8e4; border-bottom: 3px solid #16181d; padding: 10px 16px; box-shadow: 3px 3px 0 0 rgba(22,24,29,0.34); } .ds-nav-item { font-family: Silkscreen, ui-monospace, monospace; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: #443c2e; text-decoration: none; padding: 6px 10px; border: 2px solid transparent; border-radius: 2px; } .ds-nav-item-selected { background: #f07c1e; color: #16181d; border-color: #16181d; } .ds-nav-item:active { transform: translate(2px, 2px); }"
+    },
+    {
+      "name": "Empty State Well",
+      "kind": "custom",
+      "refersTo": "empty-state",
+      "description": "Always sits inside a panel already, so it gets a recessed well rather than a second outline.",
+      "html": "<div class=\"ds-empty\"><strong class=\"ds-empty-title\">No map loaded</strong><span class=\"ds-empty-body\">Enter an AWBW map ID and load it to inspect the battlefield.</span></div>",
+      "css": ".ds-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; background: #efdcae; border: 2px dashed rgba(22,24,29,0.3); border-radius: 2px; padding: 24px; box-shadow: none; text-align: center; } .ds-empty-title { font-family: Nunito, system-ui, sans-serif; font-weight: 700; font-size: 16px; color: #16181d; } .ds-empty-body { font-family: Nunito, system-ui, sans-serif; font-size: 14px; color: #443c2e; }"
+    },
+    {
+      "name": "Match Row",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "Dense data is rows, edge to edge, never card-wrapped. The metadata strip is where the HUD face does its best work.",
+      "html": "<ul class=\"ds-list\"><li class=\"ds-list-item\"><span class=\"ds-thumb\"></span><span><span class=\"ds-row-title\">Foreign Invasion</span><span class=\"ds-row-meta\">Host Migration Tester &middot; Map 162795 &middot; Fog off &middot; 1,000 funds</span></span></li></ul>",
+      "css": ".ds-list { list-style: none; margin: 0; padding: 0; background: #fff8e4; border: 2px solid #16181d; border-radius: 4px; overflow: hidden; box-shadow: 3px 3px 0 0 rgba(22,24,29,0.34), 4px 6px 10px 0 rgba(22,24,29,0.16); } .ds-list-item { display: flex; gap: 12px; align-items: center; padding: 16px; border-bottom: 2px solid rgba(22,24,29,0.18); } .ds-thumb { width: 48px; height: 48px; flex: 0 0 auto; background: #6bb4db; border: 2px solid #16181d; border-radius: 2px; image-rendering: pixelated; } .ds-row-title { display: block; font-family: Bungee, system-ui, sans-serif; font-size: 28.4px; line-height: 1.2; color: #16181d; } .ds-row-meta { display: block; font-family: Silkscreen, ui-monospace, monospace; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: #443c2e; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Daylight Command Menu",
+    "overview": "AWBRN takes its design system from four surfaces of Advance Wars at once, each assigned one job. The in-game menu chrome supplies the component language: cream panels outlined in a single black, square-cornered, cast onto what is behind them. The map tile grid supplies the ground plane, an open sky under a fixed grid that every page floats above. The CO intel and briefing screens supply data display: portraits at native resolution, meters, and stat readouts. The box art and manual supply the voices, a signage display face and a bitmap HUD face.\n\nThe system is daylight only, and that is a commitment rather than a default. The source game is played in the open under a high sun; there is no night palette, and adding one would mean inventing a world the game does not have. Interface quality is the product's stated position, so the system is built to be recognized before a word is read: a player who knows the game should know this is for them from the first viewport.\n\nThe anti-reference is the neutral SaaS dashboard, which is where every tool in this category lands, and which the previous AWBRN theme was drifting toward: a generic component library wearing a retro font. The refusal is specific. There are no soft grays, no ambient blur-only shadows, no rounded-rectangle cards on a white page.",
+    "keyCharacteristics": [
+      "One black outline on every piece of chrome, two pixels wide",
+      "Panels float on visible terrain, never on a flat page",
+      "Three type voices with strictly separated jobs",
+      "Square corners; the largest radius in the system is 4px",
+      "Color carries army identity, but never alone"
+    ],
+    "rules": [
+      {
+        "name": "The One Black Rule",
+        "body": "Every border, divider, outline, and primary text run uses the same ink. There is no border gray, no text gray, and no softened outline. If something needs to recede, it changes opacity of that one black.",
+        "section": "colors"
+      },
+      {
+        "name": "The Army Never Rides Alone Rule",
+        "body": "A faction's color never carries its identity by itself. Every faction surface also shows the army's letter or its name. Faction panels wear the color as a bar across the top and still name the army in text.",
+        "section": "colors"
+      },
+      {
+        "name": "The Terrain Is Not A Fill Rule",
+        "body": "Sky is the ground plane and nothing else. A component that wants to be blue is wrong; components are cream, white, or tan.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Voice Per Sentence Rule",
+        "body": "A single sentence never mixes the HUD face with the body face. A metadata strip is HUD. A sentence with a verb is body. A line that has a link inside it is body, always.",
+        "section": "typography"
+      },
+      {
+        "name": "The Bitmap Floor Rule",
+        "body": "Silkscreen never renders below 12px, and never sets more than two lines of running text. Below that size, or beyond that length, the bitmap stops being readable and becomes texture.",
+        "section": "typography"
+      },
+      {
+        "name": "The No Stacked Chrome Rule",
+        "body": "Anything already inside a panel does not get its own outline and shadow. Empty states, wells, and nested regions get a recessed tan fill with a dashed rule instead. Two borders in a row is the tell of a system that stopped thinking about where its components live.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Press Goes Down Rule",
+        "body": "The system has exactly one authored gesture. A pressed button or navigation tab moves 2px into its own shadow and the shadow is removed, so the key physically goes down. Nothing else in the system scales, fades, or lifts on interaction.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do give every panel, control, and sprite a 2px ink border.",
+      "Do put content in panels on the terrain, and keep every shell region between the app shell and the content transparent.",
+      "Do pair the hard shadow step with its soft blur. Both halves, always.",
+      "Do use the HUD face for readouts, labels, tabs, buttons, and badges, and the body face for anything with a verb in it.",
+      "Do render sprite art with image-rendering: pixelated.",
+      "Do name a status for what it means in the game (repair, damage, low supply) rather than for a severity level.",
+      "Do check secondary text against the sky as well as against cream. Sky is a mid-tone and it is the harder ground."
+    ],
+    "donts": [
+      "Don't add a dark mode. The system is daylight only and the app pins <Theme mode=\"light\">. A half-built night palette reads as a bug.",
+      "Don't put an eyebrow or kicker above a heading. The heading carries its own weight.",
+      "Don't give a component its own border and shadow when it already sits inside a panel. Use a recessed tan well with a dashed rule.",
+      "Don't set running prose in Silkscreen, or set it below 12px.",
+      "Don't use sky as a component fill, or any faction color as a page ground.",
+      "Don't encode a faction by color alone; always show the letter or the name.",
+      "Don't introduce a second black, a gray border, or a radius above 4px.",
+      "Don't add a second interaction gesture. The press-into-shadow is the whole motion vocabulary.",
+      "Don't override --color-* in :root. Brand and accent changes go through src/themes/awbrnTheme.ts and pnpm run theme:build."
+    ]
+  }
+}
