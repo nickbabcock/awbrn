@@ -8,7 +8,8 @@ use crate::features::player_roster::{
 use crate::loading::LoadedReplay;
 use crate::modes::replay::presentation::{ReplayAdvanceLock, ReplayTransitionSource};
 use awbrn_game::replay::{
-    RecipientObservations, initialize_replay_semantic_world, refresh_viewer_visibility,
+    RecipientObservations, ReplayTerrainKnowledge, initialize_replay_semantic_world,
+    refresh_viewer_visibility,
 };
 
 /// Hand the presentation the projections of the archive's opening state.
@@ -38,6 +39,10 @@ pub fn initialize_replay_semantic_world_for_client(world: &mut World) {
         });
 
     initialize_replay_semantic_world(&replay, world);
+    let initial_terrain_knowledge = world.resource::<ReplayTerrainKnowledge>().clone();
+    if let Some(mut source) = world.get_resource_mut::<ReplayTransitionSource>() {
+        source.set_initial_terrain_knowledge(initial_terrain_knowledge);
+    }
     seed_initial_observations(world);
 
     if let Some((config, funds, unit_costs)) = player_roster_seed_from_replay(&replay) {

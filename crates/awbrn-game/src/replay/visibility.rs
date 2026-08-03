@@ -72,7 +72,7 @@ pub enum ReplayKnowledgeKey {
 /// A projection reports a fogged tile's terrain but not its owner
 /// (`spec/semantics/fog.md`), so the property sprite a viewer remembers is
 /// presentation memory the observation cannot supply.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Clone)]
 pub struct ReplayTerrainKnowledge {
     pub by_view: HashMap<ReplayKnowledgeKey, HashMap<Position, awbrn_types::GraphicalTerrain>>,
 }
