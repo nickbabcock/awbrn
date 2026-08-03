@@ -1,0 +1,1 @@
+export const TWO_COLUMN_GRID_MIN_WIDTH = 320;

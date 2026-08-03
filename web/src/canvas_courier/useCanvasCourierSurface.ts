@@ -2,7 +2,7 @@ import { useCallback, useEffect, useEffectEvent, useRef } from "react";
 import type { CanvasCourierController } from "./types";
 
 export function useCanvasCourierSurface({ controller }: { controller: CanvasCourierController }) {
-  const surfaceRef = useRef<HTMLDivElement>(null);
+  const surfaceRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<OffscreenCanvas | null>(null);
 

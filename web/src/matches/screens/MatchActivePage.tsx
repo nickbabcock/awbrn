@@ -1,24 +1,28 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
+import { Card } from "@astryxdesign/core/Card";
+import { Grid } from "@astryxdesign/core/Grid";
+import { Heading } from "@astryxdesign/core/Heading";
+import { Section } from "@astryxdesign/core/Section";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { Text } from "@astryxdesign/core/Text";
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
 import { CoPortrait } from "#/components/CoPortrait.tsx";
 import {
   DEFAULT_CO_PORTRAIT_KEY,
   getCoPortraitByAwbwId,
   loadCoPortraitCatalog,
 } from "#/components/co_portraits.ts";
-import { getFactionById } from "#/factions.ts";
-import { getFactionVisual } from "#/faction_visuals.ts";
 import { PlayerHeader } from "#/components/PlayerHeader.tsx";
-import { Frame, Heading, Kicker, Page, Section, Text } from "#/ui/primitives.tsx";
-import { tokens } from "#/ui/theme.stylex.ts";
-import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
-import { useMatchWebSocket } from "#/matches/match_websocket.ts";
-import type { InitialBoardMessage, MatchWebSocketMessage } from "#/matches/match_protocol.ts";
-import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
 import { useActiveMatchRunner } from "#/engine/runtime_context.tsx";
 import type { GameRunner } from "#/engine/game_runner.ts";
 import type { LiveMatchPlayer } from "#/engine/worker_module.ts";
+import { getFactionById } from "#/factions.ts";
+import { useMatchWebSocket } from "#/matches/match_websocket.ts";
+import type { InitialBoardMessage, MatchWebSocketMessage } from "#/matches/match_protocol.ts";
+import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
 
 export function MatchActivePage({ matchId }: { matchId: string }) {
   const { data: match } = useSuspenseQuery(matchDetailQueryOptions(matchId, null));
@@ -34,19 +38,19 @@ export function MatchActivePage({ matchId }: { matchId: string }) {
   );
   const [initialBoard, setInitialBoard] = useState<InitialBoardMessage | null>(null);
   const handleMatchMessage = useCallback(
-    (msg: MatchWebSocketMessage) => {
-      if (msg.type === "initialBoard") {
-        setInitialBoard(msg);
+    (message: MatchWebSocketMessage) => {
+      if (message.type === "initialBoard") {
+        setInitialBoard(message);
         return;
       }
-      if (msg.type === "playerUpdate") {
-        void runner.applyLiveTransition(msg.transition).catch((error) => {
+      if (message.type === "playerUpdate") {
+        void runner.applyLiveTransition(message.transition).catch((error) => {
           console.error("Error applying live player transition:", error);
         });
         return;
       }
-      if (msg.type === "spectatorState" && msg.transition) {
-        void runner.applyLiveTransition(msg.transition).catch((error) => {
+      if (message.type === "spectatorState" && message.transition) {
+        void runner.applyLiveTransition(message.transition).catch((error) => {
           console.error("Error applying live spectator transition:", error);
         });
       }
@@ -56,72 +60,71 @@ export function MatchActivePage({ matchId }: { matchId: string }) {
   const { status } = useMatchWebSocket(matchId, handleMatchMessage);
 
   return (
-    <Page width="wide">
-      <Section>
-        <div {...stylex.props(styles.layout)}>
-          <header {...stylex.props(styles.header)}>
-            <div {...stylex.props(styles.headerCopy)}>
-              <Kicker xstyle={styles.headerKicker}>Match Active</Kicker>
-              <Heading size="display">{match.name}</Heading>
-              <Text size="lg" tone="strong">
-                Map {match.mapId} · {match.maxPlayers} players ·{" "}
-                {match.settings.fogEnabled ? "Fog on" : "Fog off"}
-              </Text>
-            </div>
-          </header>
+    <Section padding={6} variant="transparent">
+      <VStack gap={6}>
+        <VStack gap={2}>
+          <Text color="accent" type="supporting" weight="bold">
+            Match active
+          </Text>
+          <Heading level={1} type="display-2">
+            {match.name}
+          </Heading>
+          <Text color="secondary" type="large">
+            Map {match.mapId} · {match.maxPlayers} players ·{" "}
+            {match.settings.fogEnabled ? "Fog on" : "Fog off"}
+          </Text>
+        </VStack>
 
-          <div {...stylex.props(styles.mainGrid)}>
-            <Frame as="section" surface="panel" padding="none" xstyle={styles.gameSection}>
-              <ActiveMatchBoard
-                runner={runner}
-                initialBoard={initialBoard}
-                players={livePlayers}
-                status={status}
-              />
-            </Frame>
+        <Grid align="start" columns={{ minWidth: 300, max: 2, repeat: "fit" }} gap={6}>
+          <ActiveMatchBoard
+            initialBoard={initialBoard}
+            players={livePlayers}
+            runner={runner}
+            status={status}
+          />
 
-            <Frame as="section" surface="panel" padding="none" xstyle={styles.rosterSection}>
-              <div {...stylex.props(styles.rosterInner)}>
-                <div {...stylex.props(styles.sectionHeader)}>
-                  <Kicker>Roster</Kicker>
-                  <Heading size="lg">Players</Heading>
-                </div>
+          <Section padding={5} variant="section">
+            <VStack gap={4}>
+              <VStack gap={1}>
+                <Text color="accent" type="supporting" weight="bold">
+                  Roster
+                </Text>
+                <Heading level={2}>Players</Heading>
+              </VStack>
+              <VStack gap={3}>
+                {match.participants.map((participant) => {
+                  const faction = getFactionById(participant.factionId);
+                  const portrait = getCoPortraitByAwbwId(participant.coId);
 
-                <div {...stylex.props(styles.participantList)}>
-                  {match.participants.map((participant) => {
-                    const faction = getFactionById(participant.factionId);
-                    const factionVisual = getFactionVisual(faction?.code ?? "os");
-                    const portrait = getCoPortraitByAwbwId(participant.coId);
-
-                    return (
-                      <div
-                        key={participant.slotIndex}
-                        {...stylex.props(styles.participantCard(factionVisual.accent))}
-                      >
+                  return (
+                    <Section key={participant.slotIndex} padding={0} variant="muted">
+                      <VStack gap={2}>
                         <PlayerHeader
                           factionCode={faction?.code ?? "os"}
                           name={participant.userName}
                         />
-                        <div {...stylex.props(styles.participantBody)}>
-                          <CoPortrait
-                            catalog={portraitCatalog}
-                            coKey={portrait?.key ?? DEFAULT_CO_PORTRAIT_KEY}
-                            fallbackLabel={portrait?.displayName ?? "No CO"}
-                          />
-                          <Text size="sm" tone="muted">
-                            {portrait?.displayName ?? "No CO"}
-                          </Text>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </Frame>
-          </div>
-        </div>
-      </Section>
-    </Page>
+                        <Section padding={3} variant="transparent">
+                          <HStack align="center" gap={3}>
+                            <CoPortrait
+                              catalog={portraitCatalog}
+                              coKey={portrait?.key ?? DEFAULT_CO_PORTRAIT_KEY}
+                              fallbackLabel={portrait?.displayName ?? "No CO"}
+                            />
+                            <Text color="secondary" type="supporting">
+                              {portrait?.displayName ?? "No CO"}
+                            </Text>
+                          </HStack>
+                        </Section>
+                      </VStack>
+                    </Section>
+                  );
+                })}
+              </VStack>
+            </VStack>
+          </Section>
+        </Grid>
+      </VStack>
+    </Section>
   );
 }
 
@@ -136,184 +139,86 @@ function ActiveMatchBoard({
   players: LiveMatchPlayer[];
   status: string;
 }) {
-  const { canvasRef, surfaceRef } = useCanvasCourierSurface({
-    controller: runner,
-  });
-
-  // The roster is read through a ref: a new array identity (a query refetch,
-  // for instance) must not reload the match and discard applied transitions.
+  const { canvasRef, surfaceRef } = useCanvasCourierSurface({ controller: runner });
   const playersRef = useRef(players);
   playersRef.current = players;
 
   useEffect(() => {
-    if (!initialBoard) {
-      return;
-    }
+    if (!initialBoard) return;
 
     let cancelled = false;
-
     void Promise.resolve()
       .then(async () => {
-        if (!cancelled) {
-          if (initialBoard.gameState) {
-            await runner.loadLiveMatch(
-              initialBoard.map,
-              playersRef.current,
-              initialBoard.gameState.observation,
-            );
-          } else {
-            await runner.loadMatchMap(initialBoard.map);
-          }
+        if (cancelled) return;
+        if (initialBoard.gameState) {
+          await runner.loadLiveMatch(
+            initialBoard.map,
+            playersRef.current,
+            initialBoard.gameState.observation,
+          );
+        } else {
+          await runner.loadMatchMap(initialBoard.map);
         }
       })
-      .catch((error) => {
-        console.error("Error loading match map:", error);
-      });
+      .catch((error) => console.error("Error loading match map:", error));
 
     return () => {
       cancelled = true;
     };
   }, [initialBoard, runner]);
 
+  const statusText = initialBoard
+    ? `${initialBoard.map.Name} loaded from match state`
+    : status === "connected"
+      ? "Waiting for board state…"
+      : status === "connecting"
+        ? "Connecting to match…"
+        : status === "error"
+          ? "Connection error — retrying."
+          : "Disconnected — reconnecting.";
+
   return (
-    <div {...stylex.props(styles.gameBoardShell)}>
-      <div ref={surfaceRef} {...stylex.props(styles.gameSurface)}>
-        <canvas
-          ref={canvasRef}
-          width={960}
-          height={640}
-          tabIndex={0}
-          {...stylex.props(styles.gameCanvas)}
-        />
-      </div>
-      <div {...stylex.props(styles.boardStatus)}>
-        <div {...stylex.props(styles.statusDot(status))} />
-        <Text size="sm" tone={status === "connected" ? "strong" : "muted"}>
-          {initialBoard
-            ? `${initialBoard.map.Name} loaded from match state`
-            : status === "connected"
-              ? "Waiting for board state..."
-              : status === "connecting"
-                ? "Connecting to match..."
-                : status === "error"
-                  ? "Connection error — retrying."
-                  : "Disconnected — reconnecting."}
-        </Text>
-      </div>
-    </div>
+    <Card padding={0} width="100%">
+      <VStack gap={0}>
+        <Section height={520} padding={0} ref={surfaceRef} variant="muted">
+          <canvas
+            ref={canvasRef}
+            width={960}
+            height={640}
+            tabIndex={0}
+            {...stylex.props(styles.canvas)}
+          />
+        </Section>
+        <Section dividers={["top"]} padding={3} variant="section">
+          <HStack align="center" gap={2}>
+            <StatusDot
+              isPulsing={status === "connecting"}
+              label={statusText}
+              variant={statusVariant(status)}
+            />
+            <Text color={status === "connected" ? "primary" : "secondary"} type="supporting">
+              {statusText}
+            </Text>
+          </HStack>
+        </Section>
+      </VStack>
+    </Card>
   );
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  connected: "#4ade80",
-  connecting: "#facc15",
-  disconnected: "#94a3b8",
-  error: "#f87171",
-};
+function statusVariant(status: string): "success" | "warning" | "error" | "neutral" {
+  if (status === "connected") return "success";
+  if (status === "connecting") return "warning";
+  if (status === "error") return "error";
+  return "neutral";
+}
 
 const styles = stylex.create({
-  layout: {
-    display: "grid",
-    gap: tokens.space6,
-  },
-  header: {
-    paddingBottom: tokens.space5,
-    borderBottomWidth: 3,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.chromeBorderSoft,
-  },
-  headerCopy: {
-    display: "grid",
-    gap: tokens.space2,
-  },
-  headerKicker: {
-    color: tokens.brandHover,
-  },
-  mainGrid: {
-    display: "grid",
-    gap: tokens.space8,
-    gridTemplateColumns: {
-      default: "minmax(0, 1fr) minmax(360px, 460px)",
-      "@media (max-width: 980px)": "1fr",
-    },
-    alignItems: "start",
-  },
-  gameSection: {
-    overflow: "hidden",
-    minHeight: 520,
-  },
-  gameBoardShell: {
-    position: "relative",
-    display: "grid",
-    minHeight: 520,
-    backgroundColor: "#0b1020",
-  },
-  gameSurface: {
-    width: "100%",
-    height: 520,
-    overflow: "hidden",
-  },
-  gameCanvas: {
+  canvas: {
     display: "block",
     width: "100%",
     height: "100%",
     imageRendering: "pixelated",
     outline: "none",
-  },
-  boardStatus: {
-    position: "absolute",
-    left: tokens.space4,
-    bottom: tokens.space4,
-    display: "flex",
-    alignItems: "center",
-    gap: tokens.space2,
-    maxWidth: "calc(100% - 32px)",
-    paddingTop: tokens.space2,
-    paddingRight: tokens.space3,
-    paddingBottom: tokens.space2,
-    paddingLeft: tokens.space3,
-    borderWidth: 2,
-    borderStyle: "solid",
-    borderColor: tokens.strokeHeavy,
-    borderRadius: tokens.radius2,
-    backgroundColor: "rgba(11, 16, 32, 0.88)",
-  },
-  statusDot: (status: string) => ({
-    width: 10,
-    height: 10,
-    borderRadius: "50%",
-    backgroundColor: STATUS_COLORS[status] ?? STATUS_COLORS.disconnected,
-  }),
-  rosterSection: {
-    overflow: "visible",
-  },
-  rosterInner: {
-    display: "grid",
-    gap: tokens.space4,
-    alignContent: "start",
-    padding: tokens.space6,
-  },
-  sectionHeader: {
-    display: "grid",
-    gap: tokens.space1,
-  },
-  participantList: {
-    display: "grid",
-    gap: tokens.space3,
-  },
-  participantCard: (accent: string) => ({
-    display: "grid",
-    borderWidth: 2,
-    borderStyle: "solid",
-    borderColor: accent,
-    borderRadius: tokens.radius2,
-    overflow: "hidden",
-    boxShadow: `${tokens.highlightInset}, ${tokens.shadowHardSm}`,
-  }),
-  participantBody: {
-    display: "flex",
-    alignItems: "center",
-    gap: tokens.space3,
-    padding: tokens.space3,
   },
 });

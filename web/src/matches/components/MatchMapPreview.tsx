@@ -1,32 +1,16 @@
+import { Card } from "@astryxdesign/core/Card";
+import { Section } from "@astryxdesign/core/Section";
 import * as stylex from "@stylexjs/stylex";
 import { useEffect } from "react";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
 import type { GameRunner } from "#/engine/game_runner.ts";
-import { tokens } from "#/ui/theme.stylex.ts";
-import type { XStyle } from "#/ui/stylex.ts";
 
 const styles = stylex.create({
-  root: {
-    width: "100%",
-  },
-  frame: {
-    display: "flex",
-    justifyContent: "flex-start",
-    overflow: "auto",
-    minHeight: 240,
-    borderWidth: 3,
-    borderStyle: "solid",
-    borderColor: tokens.strokeHeavy,
-    borderRadius: tokens.radius3,
-    backgroundImage:
-      "linear-gradient(180deg, rgba(23, 28, 40, 0.88), rgba(8, 11, 18, 0.96)), radial-gradient(circle at top, rgba(255, 255, 255, 0.08), transparent 55%)",
-    boxShadow: `${tokens.highlightInsetChrome}, ${tokens.shadowHardLg}`,
-    padding: tokens.space4,
+  viewport: {
+    overflowX: "auto",
   },
   surface: {
     flex: "0 0 auto",
-    width: 600,
-    height: 400,
     overflow: "hidden",
   },
   canvas: {
@@ -38,15 +22,7 @@ const styles = stylex.create({
   },
 });
 
-export function MatchMapPreview({
-  mapId,
-  runner,
-  xstyle,
-}: {
-  mapId: number | null;
-  runner: GameRunner;
-  xstyle?: XStyle;
-}) {
+export function MatchMapPreview({ mapId, runner }: { mapId: number | null; runner: GameRunner }) {
   const { canvasRef, surfaceRef } = useCanvasCourierSurface({
     controller: runner,
   });
@@ -74,18 +50,23 @@ export function MatchMapPreview({
   }, [mapId, runner]);
 
   return (
-    <div {...stylex.props(styles.root, xstyle)}>
-      <div {...stylex.props(styles.frame)}>
-        <div ref={surfaceRef} {...stylex.props(styles.surface)}>
-          <canvas
-            ref={canvasRef}
-            width={600}
-            height={400}
-            tabIndex={-1}
-            {...stylex.props(styles.canvas)}
-          />
-        </div>
-      </div>
-    </div>
+    <Card padding={4} width="100%" xstyle={styles.viewport}>
+      <Section
+        height={400}
+        padding={0}
+        ref={surfaceRef}
+        variant="muted"
+        width={600}
+        xstyle={styles.surface}
+      >
+        <canvas
+          ref={canvasRef}
+          width={600}
+          height={400}
+          tabIndex={-1}
+          {...stylex.props(styles.canvas)}
+        />
+      </Section>
+    </Card>
   );
 }

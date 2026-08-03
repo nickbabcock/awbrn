@@ -1,27 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
-import * as stylex from "@stylexjs/stylex";
+import { useNavigate } from "@tanstack/react-router";
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
+import { EmptyState } from "@astryxdesign/core/EmptyState";
+import { Grid } from "@astryxdesign/core/Grid";
+import { Heading } from "@astryxdesign/core/Heading";
+import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
+import { NumberInput } from "@astryxdesign/core/NumberInput";
+import { Section } from "@astryxdesign/core/Section";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { useAppSession } from "#/auth/useAppSession.ts";
 import { AwbwMapDataQueryError, awbwMapDataQueryOptions } from "#/awbw/awbw.queries.ts";
 import { usePreviewRunner } from "#/engine/runtime_context.tsx";
-import {
-  Button,
-  CheckboxField,
-  Frame,
-  Heading,
-  Inline,
-  Kicker,
-  Page,
-  Section,
-  Stack,
-  Text,
-  TextField,
-} from "#/ui/primitives.tsx";
-import { tokens } from "#/ui/theme.stylex.ts";
+import { RouterTextLink } from "#/ui/astryx-links.tsx";
 import { MatchMapPreview } from "#/matches/components/MatchMapPreview.tsx";
 import { createMatchFn } from "#/matches/matches.functions.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
+import { TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
 
 export function NewMatchPage() {
   const navigate = useNavigate();
@@ -38,8 +38,13 @@ export function NewMatchPage() {
   const [mapError, setMapError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const mapLoadRequestRef = useRef(0);
+  const matchNameRef = useRef("");
   const [lastAutoMatchName, setLastAutoMatchName] = useState<string | null>(null);
   const lastAutoMatchNameRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    lastAutoMatchNameRef.current = lastAutoMatchName;
+  }, [lastAutoMatchName]);
 
   const parsedMapId = useMemo(() => {
     const value = Number(mapIdInput);
@@ -50,10 +55,6 @@ export function NewMatchPage() {
     const value = Number(startingFunds);
     return Number.isSafeInteger(value) && value >= 0 ? value : null;
   }, [startingFunds]);
-
-  useEffect(() => {
-    lastAutoMatchNameRef.current = lastAutoMatchName;
-  }, [lastAutoMatchName]);
 
   const mapQuery = useQuery({
     ...awbwMapDataQueryOptions(loadedMapId ?? 0),
@@ -72,6 +73,14 @@ export function NewMatchPage() {
     },
   });
 
+  function handleMapIdChange(value: number): void {
+    mapLoadRequestRef.current += 1;
+    setLoadingMapId(null);
+    setMapIdInput(String(value));
+    setLoadedMapId(null);
+    setMapError(null);
+  }
+
   async function handleLoadMap(): Promise<void> {
     const requestId = mapLoadRequestRef.current + 1;
     mapLoadRequestRef.current = requestId;
@@ -88,38 +97,29 @@ export function NewMatchPage() {
 
     try {
       const nextMap = await queryClient.fetchQuery(awbwMapDataQueryOptions(parsedMapId));
-      if (mapLoadRequestRef.current !== requestId) {
-        return;
-      }
+      if (mapLoadRequestRef.current !== requestId) return;
+      const currentMatchName = matchNameRef.current;
+      const shouldAssignAutoName =
+        !currentMatchName.trim() || currentMatchName === lastAutoMatchNameRef.current;
 
       startTransition(() => {
         setLoadedMapId(parsedMapId);
         setMapError(null);
-        setMatchName((previous) => {
-          const previousAutoName = lastAutoMatchNameRef.current;
-          const shouldAutoFill = !previous.trim() || previous === previousAutoName;
-
-          if (!shouldAutoFill) {
-            return previous;
-          }
-
+        if (shouldAssignAutoName) {
+          matchNameRef.current = nextMap.Name;
+          setMatchName(nextMap.Name);
+          lastAutoMatchNameRef.current = nextMap.Name;
           setLastAutoMatchName(nextMap.Name);
-          return nextMap.Name;
-        });
+        }
       });
     } catch (error) {
-      if (mapLoadRequestRef.current !== requestId) {
-        return;
-      }
-
+      if (mapLoadRequestRef.current !== requestId) return;
       startTransition(() => {
         setLoadedMapId(null);
         setMapError(formatMapPreviewError(error));
       });
     } finally {
-      if (mapLoadRequestRef.current === requestId) {
-        setLoadingMapId(null);
-      }
+      if (mapLoadRequestRef.current === requestId) setLoadingMapId(null);
     }
   }
 
@@ -142,7 +142,6 @@ export function NewMatchPage() {
     }
 
     setCreateError(null);
-
     try {
       const match = await createMatchMutation.mutateAsync({
         data: {
@@ -152,7 +151,6 @@ export function NewMatchPage() {
           settings: { fogEnabled, startingFunds: parsedStartingFunds },
         },
       });
-
       await navigate({ to: "/matches/$matchId", params: { matchId: match.matchId } });
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : "Failed to create the lobby.");
@@ -160,175 +158,142 @@ export function NewMatchPage() {
   }
 
   return (
-    <Page width="wide">
-      <Section>
-        <div {...stylex.props(styles.layout)}>
-          <Frame xstyle={styles.setupFrame}>
-            <Stack gap="lg">
-              <Stack gap="sm" xstyle={styles.setupHeader}>
-                <Kicker xstyle={styles.setupKicker}>Match Setup</Kicker>
-                <Heading size="display">Create Match</Heading>
-                <Text size="lg" tone="strong" xstyle={styles.lead}>
-                  Load an AWBW map, inspect the battlefield, and dial in the starting rules before
-                  the lobby goes live.
-                </Text>
-              </Stack>
+    <Section padding={6} variant="transparent">
+      <Grid
+        align="start"
+        columns={{ minWidth: TWO_COLUMN_GRID_MIN_WIDTH, max: 2, repeat: "fit" }}
+        gap={8}
+      >
+        <Card padding={6} width="100%">
+          <VStack gap={6}>
+            <VStack gap={2}>
+              <Text color="accent" type="supporting" weight="bold">
+                Match setup
+              </Text>
+              <Heading level={1} type="display-2">
+                Create match
+              </Heading>
+              <Text color="secondary" type="large">
+                Load an AWBW map, inspect the battlefield, and dial in the starting rules before the
+                lobby goes live.
+              </Text>
+            </VStack>
 
-              <Stack gap="md">
-                <TextField
-                  label="Match Name"
-                  onChange={(event) => {
-                    setMatchName(event.target.value);
-                    setLastAutoMatchName(null);
-                  }}
-                  placeholder="Riverside Duel"
-                  type="text"
-                  value={matchName}
+            <VStack gap={4}>
+              <TextInput
+                isRequired
+                label="Match name"
+                onChange={(value) => {
+                  matchNameRef.current = value;
+                  setMatchName(value);
+                  lastAutoMatchNameRef.current = null;
+                  setLastAutoMatchName(null);
+                }}
+                placeholder="Riverside Duel"
+                value={matchName}
+              />
+
+              <HStack align="end" gap={2} wrap="wrap">
+                <NumberInput
+                  isIntegerOnly
+                  isRequired
+                  label="AWBW map ID"
+                  min={1}
+                  onChange={handleMapIdChange}
+                  value={parsedMapId}
+                  width="100%"
                 />
+                <Button
+                  clickAction={handleLoadMap}
+                  isLoading={isLoadingMap}
+                  label="Load map"
+                  variant="secondary"
+                />
+              </HStack>
 
-                <div {...stylex.props(styles.dualRow)}>
-                  <TextField
-                    label="AWBW Map ID"
-                    onChange={(event) => {
-                      mapLoadRequestRef.current += 1;
-                      setLoadingMapId(null);
-                      setMapIdInput(event.target.value);
-                      setLoadedMapId(null);
-                      setMapError(null);
-                    }}
-                    type="text"
-                    inputMode="numeric"
-                    value={mapIdInput}
-                  />
-                  <Button
-                    disabled={isLoadingMap}
-                    tone="success"
-                    xstyle={styles.actionButton}
-                    onClick={() => {
-                      void handleLoadMap();
-                    }}
-                    type="button"
-                  >
-                    {isLoadingMap ? "Loading..." : "Load Map"}
-                  </Button>
-                </div>
+              <Grid columns={{ minWidth: 220, max: 2, repeat: "fit" }} gap={4}>
+                <NumberInput
+                  isIntegerOnly
+                  isRequired
+                  label="Starting funds"
+                  min={0}
+                  onChange={(value) => setStartingFunds(String(value))}
+                  value={parsedStartingFunds}
+                />
+                <VStack gap={2}>
+                  <CheckboxInput label="Fog enabled" onChange={setFogEnabled} value={fogEnabled} />
+                  <CheckboxInput label="Private match" onChange={setIsPrivate} value={isPrivate} />
+                </VStack>
+              </Grid>
 
-                <div {...stylex.props(styles.settingsRow)}>
-                  <TextField
-                    label="Starting Funds"
-                    onChange={(event) => setStartingFunds(event.target.value)}
-                    type="text"
-                    inputMode="numeric"
-                    value={startingFunds}
-                  />
-                  <Stack gap="sm" xstyle={styles.checkboxGroup}>
-                    <CheckboxField
-                      checked={fogEnabled}
-                      label="Fog Enabled"
-                      onChange={setFogEnabled}
-                    />
-                    <CheckboxField
-                      checked={isPrivate}
-                      label="Private Match"
-                      onChange={setIsPrivate}
-                    />
-                  </Stack>
-                </div>
-
-                <div {...stylex.props(styles.setupFooter)}>
-                  {!session ? (
-                    <Text size="sm" tone="strong">
-                      <Link to="/auth" search={{}}>
-                        Sign in
-                      </Link>{" "}
-                      to create a lobby.
-                    </Text>
-                  ) : (
-                    <Text size="sm" tone="strong">
-                      Lobby creator: {session.user.name}
-                    </Text>
-                  )}
-
-                  {mapError ? (
-                    <Text aria-live="polite" role="status" size="sm" tone="danger">
-                      {mapError}
-                    </Text>
-                  ) : null}
-                  {createError ? (
-                    <Text aria-live="polite" role="status" size="sm" tone="danger">
-                      {createError}
-                    </Text>
-                  ) : null}
-
-                  <Inline gap="sm">
-                    <Button
-                      disabled={createMatchMutation.isPending || mapData === null || !session}
-                      tone="brand"
-                      xstyle={styles.primaryAction}
-                      onClick={() => {
-                        void handleCreateLobby();
-                      }}
-                      type="button"
-                    >
-                      {createMatchMutation.isPending ? "Creating Lobby..." : "Create Lobby"}
-                    </Button>
-                  </Inline>
-                </div>
-              </Stack>
-            </Stack>
-          </Frame>
-
-          <Frame xstyle={styles.previewFrame}>
-            <Stack gap="md">
-              <Stack gap="xs">
-                <Kicker>Battlefield</Kicker>
-                <Heading size="lg">Map Preview</Heading>
-                <Text size="sm">
-                  {mapData
-                    ? `${mapData.Name} · ${mapData.Author}`
-                    : "Load a map to inspect its terrain."}
+              {!session ? (
+                <Text type="supporting" weight="medium">
+                  <RouterTextLink to="/auth" search={{ mode: undefined }}>
+                    Sign in
+                  </RouterTextLink>{" "}
+                  to create a lobby.
                 </Text>
-              </Stack>
-              {mapData && parsedMapId !== null ? (
-                <Stack gap="md">
-                  <MatchMapPreview
-                    mapId={parsedMapId}
-                    runner={previewRunner}
-                    xstyle={styles.previewCanvas}
-                  />
-                  <div {...stylex.props(styles.metaGrid)}>
-                    <div {...stylex.props(styles.metaItem)}>
-                      <Text size="sm" tone="muted">
-                        Players
-                      </Text>
-                      <Text tone="strong">{mapData["Player Count"]}</Text>
-                    </div>
-                    <div {...stylex.props(styles.metaItem)}>
-                      <Text size="sm" tone="muted">
-                        Size
-                      </Text>
-                      <Text tone="strong">
-                        {mapData["Size X"]} × {mapData["Size Y"]}
-                      </Text>
-                    </div>
-                    <div {...stylex.props(styles.metaItem)}>
-                      <Text size="sm" tone="muted">
-                        Published
-                      </Text>
-                      <Text tone="strong">{mapData["Published Date"]}</Text>
-                    </div>
-                  </div>
-                </Stack>
               ) : (
-                <Text size="lg" tone="muted" xstyle={styles.emptyPreview}>
-                  No map loaded.
+                <Text type="supporting" weight="medium">
+                  Lobby creator: {session.user.name}
                 </Text>
               )}
-            </Stack>
-          </Frame>
-        </div>
-      </Section>
-    </Page>
+
+              {mapError ? (
+                <Banner description={mapError} status="error" title="Map preview failed" />
+              ) : null}
+              {createError ? (
+                <Banner description={createError} status="error" title="Lobby creation failed" />
+              ) : null}
+
+              <Button
+                clickAction={handleCreateLobby}
+                isDisabled={createMatchMutation.isPending || mapData === null || !session}
+                isLoading={createMatchMutation.isPending}
+                label="Create lobby"
+                variant="primary"
+                width="100%"
+              />
+            </VStack>
+          </VStack>
+        </Card>
+
+        <Section padding={6} variant="muted">
+          <VStack gap={4}>
+            <VStack gap={1}>
+              <Text color="accent" type="supporting" weight="bold">
+                Battlefield
+              </Text>
+              <Heading level={2}>Map preview</Heading>
+              <Text color="secondary" type="supporting">
+                {mapData
+                  ? `${mapData.Name} · ${mapData.Author}`
+                  : "Load a map to inspect its terrain."}
+              </Text>
+            </VStack>
+            {mapData && parsedMapId !== null ? (
+              <VStack gap={4}>
+                <MatchMapPreview mapId={parsedMapId} runner={previewRunner} />
+                <MetadataList columns={3} label={{ position: "top" }}>
+                  <MetadataListItem label="Players">{mapData["Player Count"]}</MetadataListItem>
+                  <MetadataListItem label="Size">
+                    {mapData["Size X"]} × {mapData["Size Y"]}
+                  </MetadataListItem>
+                  <MetadataListItem label="Published">{mapData["Published Date"]}</MetadataListItem>
+                </MetadataList>
+              </VStack>
+            ) : (
+              <EmptyState
+                description="Enter an AWBW map ID and load it to inspect the battlefield."
+                headingLevel={3}
+                isCompact
+                title="No map loaded"
+              />
+            )}
+          </VStack>
+        </Section>
+      </Grid>
+    </Section>
   );
 }
 
@@ -339,98 +304,3 @@ function formatMapPreviewError(error: unknown): string {
 
   return "Map preview failed to load.";
 }
-
-const styles = stylex.create({
-  layout: {
-    display: "grid",
-    gap: tokens.space8,
-    gridTemplateColumns: {
-      default: "minmax(320px, 480px) minmax(0, 1fr)",
-      "@media (max-width: 860px)": "1fr",
-    },
-    alignItems: "start",
-  },
-  lead: {
-    maxWidth: 540,
-  },
-  setupFrame: {
-    backgroundColor: tokens.panelRaised,
-    backgroundImage:
-      "linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 34%), linear-gradient(135deg, rgba(231, 100, 38, 0.12), rgba(0, 0, 0, 0) 54%)",
-  },
-  setupHeader: {
-    paddingBottom: tokens.space4,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: "rgba(61, 45, 26, 0.16)",
-  },
-  setupKicker: {
-    color: tokens.brandHover,
-  },
-  dualRow: {
-    display: "grid",
-    gap: tokens.space3,
-    gridTemplateColumns: {
-      default: "minmax(0, 1fr) auto",
-      "@media (max-width: 640px)": "1fr",
-    },
-    alignItems: "end",
-  },
-  settingsRow: {
-    display: "grid",
-    gap: tokens.space4,
-    gridTemplateColumns: {
-      default: "minmax(0, 1fr) minmax(220px, 280px)",
-      "@media (max-width: 860px)": "1fr",
-    },
-    alignItems: "start",
-  },
-  checkboxGroup: {
-    paddingTop: tokens.space6,
-  },
-  setupFooter: {
-    display: "grid",
-    gap: tokens.space3,
-    paddingTop: tokens.space4,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: "rgba(61, 45, 26, 0.16)",
-  },
-  actionButton: {
-    minWidth: 132,
-  },
-  primaryAction: {
-    minWidth: 180,
-  },
-  previewFrame: {
-    backgroundImage:
-      "linear-gradient(180deg, rgba(47, 109, 168, 0.16), transparent 42%), linear-gradient(135deg, rgba(29, 37, 50, 0.08), transparent 45%)",
-  },
-  previewCanvas: {
-    width: "100%",
-  },
-  metaGrid: {
-    display: "grid",
-    gap: tokens.space3,
-    gridTemplateColumns: {
-      default: "repeat(3, minmax(0, 1fr))",
-      "@media (max-width: 640px)": "1fr",
-    },
-  },
-  metaItem: {
-    display: "grid",
-    gap: 4,
-    padding: tokens.space3,
-    borderWidth: 2,
-    borderStyle: "solid",
-    borderColor: tokens.strokeBase,
-    borderRadius: tokens.radius2,
-    backgroundColor: tokens.panelRaised,
-    boxShadow: `${tokens.highlightInset}, ${tokens.shadowHardSm}`,
-  },
-  emptyPreview: {
-    minHeight: 320,
-    display: "flex",
-    alignItems: "center",
-  },
-});

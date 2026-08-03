@@ -1,8 +1,15 @@
 /// <reference types="vite/client" />
 import type { QueryClient } from "@tanstack/react-query";
-import { HeadContent, Outlet, Scripts, createRootRouteWithContext } from "@tanstack/react-router";
-import * as stylex from "@stylexjs/stylex";
-import type { ReactNode } from "react";
+import {
+  Link,
+  HeadContent,
+  Outlet,
+  Scripts,
+  createRootRouteWithContext,
+} from "@tanstack/react-router";
+import { LinkProvider } from "@astryxdesign/core/Link";
+import { Theme } from "@astryxdesign/core/theme";
+import { forwardRef, type ComponentPropsWithoutRef, type ReactNode } from "react";
 import { sessionQueryOptions } from "#/auth/auth.queries.ts";
 import { DefaultCatchBoundary } from "#/components/DefaultCatchBoundary.tsx";
 import { NotFound } from "#/components/NotFound.tsx";
@@ -10,7 +17,7 @@ import { GameRuntimeProvider } from "#/engine/runtime_context.tsx";
 import { Layout } from "#/layouts/Layout.tsx";
 import { DevStyleXInject } from "#/styles/DevStyleXInject.tsx";
 import resetCss from "#/styles/reset.css?url";
-import { appTheme, rootStyles } from "#/ui/theme.stylex.ts";
+import { awbrnTheme } from "#/themes/awbrn.js";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -32,25 +39,38 @@ export const Route = createRootRouteWithContext<{
 
 function RootComponent() {
   return (
-    <GameRuntimeProvider>
-      <Layout>
-        <Outlet />
-      </Layout>
-    </GameRuntimeProvider>
+    <Theme mode="system" theme={awbrnTheme}>
+      <LinkProvider component={RouterLink}>
+        <GameRuntimeProvider>
+          <Layout>
+            <Outlet />
+          </Layout>
+        </GameRuntimeProvider>
+      </LinkProvider>
+    </Theme>
   );
 }
 
+type RouterLinkProps = Omit<ComponentPropsWithoutRef<"a">, "href"> & {
+  href?: string;
+};
+
+const RouterLink = forwardRef<HTMLAnchorElement, RouterLinkProps>(function RouterLink(
+  { href = "/", ...props },
+  ref,
+) {
+  return <Link {...props} ref={ref} to={href} />;
+});
+
 function RootDocument({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" {...stylex.props(appTheme, rootStyles.html)}>
+    <html lang="en">
       <head>
         <HeadContent />
         {import.meta.env.DEV ? <DevStyleXInject /> : null}
       </head>
-      <body {...stylex.props(rootStyles.body)}>
-        <div id="app-root" {...stylex.props(rootStyles.appRoot)}>
-          {children}
-        </div>
+      <body>
+        <main id="app-root">{children}</main>
         <Scripts />
       </body>
     </html>
