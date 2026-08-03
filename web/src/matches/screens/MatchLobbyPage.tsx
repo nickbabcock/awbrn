@@ -1,7 +1,13 @@
-import { Popover } from "@base-ui/react/popover";
-import { ScrollArea } from "@base-ui/react/scroll-area";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import * as stylex from "@stylexjs/stylex";
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { Grid } from "@astryxdesign/core/Grid";
+import { Heading } from "@astryxdesign/core/Heading";
+import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
+import { Section } from "@astryxdesign/core/Section";
+import { Selector } from "@astryxdesign/core/Selector";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
 import { useEffect, useMemo, useState } from "react";
 import { Cancel as CancelIcon } from "pixelarticons/react/Cancel";
 import { Check as CheckIcon } from "pixelarticons/react/Check";
@@ -18,28 +24,25 @@ import {
   loadCoPortraitCatalog,
   type CoPortraitCatalog,
 } from "#/components/co_portraits.ts";
+import { PlayerHeader } from "#/components/PlayerHeader.tsx";
 import { usePreviewRunner } from "#/engine/runtime_context.tsx";
 import { defaultFactionIdForSlot, getFactionById } from "#/factions.ts";
-import { getFactionVisual } from "#/faction_visuals.ts";
-import { PlayerHeader } from "#/components/PlayerHeader.tsx";
-import { Button, Frame, Heading, Kicker, Notice, Page, Section, Text } from "#/ui/primitives.tsx";
-import { tokens } from "#/ui/theme.stylex.ts";
 import { MatchMapPreview } from "#/matches/components/MatchMapPreview.tsx";
 import { mutateMatchFn } from "#/matches/matches.functions.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
 import type { MatchMutationRequest, MatchSnapshot } from "#/matches/schemas.ts";
 
-const coOptions = listCoPortraits();
-const selectableCoOptions = coOptions.filter((option) => option.key !== DEFAULT_CO_PORTRAIT_KEY);
-const rowReveal = stylex.keyframes({
-  from: { opacity: 0, transform: "translateY(10px)" },
-  to: { opacity: 1, transform: "translateY(0)" },
-});
-const popIn = stylex.keyframes({
-  from: { opacity: 0, transform: "translateY(8px) scale(0.98)" },
-  to: { opacity: 1, transform: "translateY(0) scale(1)" },
-});
+const selectableCoOptions = listCoPortraits().filter(
+  (option) => option.key !== DEFAULT_CO_PORTRAIT_KEY,
+);
+const coSelectorOptions = [
+  { label: "No CO", value: "none" },
+  ...selectableCoOptions.map((option) => ({
+    label: option.displayName,
+    value: String(option.awbwId),
+  })),
+];
 
 export function MatchLobbyPage({
   matchId,
@@ -56,7 +59,6 @@ export function MatchLobbyPage({
   const { data: match } = useSuspenseQuery(detailQueryOptions);
   const mapQuery = useQuery(awbwMapDataQueryOptions(match.mapId));
   const mapData = mapQuery.data ?? null;
-  const mapError = mapQuery.isError ? "Map metadata could not be loaded." : null;
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
@@ -117,11 +119,10 @@ export function MatchLobbyPage({
   async function submitAction(action: MatchMutationRequest, pendingLabel: string): Promise<void> {
     setPendingAction(pendingLabel);
     setActionError(null);
-
     try {
       await matchMutation.mutateAsync(action);
     } catch {
-      // onError owns the user-facing message and rollback.
+      // onError owns the user-facing message and optimistic rollback.
     } finally {
       setPendingAction(null);
     }
@@ -131,266 +132,168 @@ export function MatchLobbyPage({
     match.isPrivate && match.joinSlug && typeof window !== "undefined"
       ? `${window.location.origin}/matches/${match.matchId}?join=${match.joinSlug}`
       : null;
-  const phaseLabel = formatPhaseLabel(match.phase);
 
   return (
-    <Page width="wide">
-      <Section>
-        <div {...stylex.props(styles.page)}>
-          <div {...stylex.props(styles.layout)}>
-            <header {...stylex.props(styles.header)}>
-              <div {...stylex.props(styles.headerCopy)}>
-                <Kicker xstyle={styles.headerKicker}>{phaseLabel}</Kicker>
-                <Heading size="display">{match.name}</Heading>
-                <Text size="lg" tone="strong">
-                  Map {match.mapId} · {match.maxPlayers} players ·{" "}
-                  {match.isPrivate ? "Private invite" : "Open lobby"}
+    <Section padding={6} variant="transparent">
+      <VStack gap={6}>
+        <Grid align="end" columns={{ minWidth: 320, max: 2, repeat: "fit" }} gap={5}>
+          <VStack gap={2}>
+            <Text color="accent" type="supporting" weight="bold">
+              {formatPhaseLabel(match.phase)}
+            </Text>
+            <Heading level={1} type="display-2">
+              {match.name}
+            </Heading>
+            <Text color="secondary" type="large">
+              Map {match.mapId} · {match.maxPlayers} players ·{" "}
+              {match.isPrivate ? "Private invite" : "Open lobby"}
+            </Text>
+          </VStack>
+          <MetadataList columns="single" label={{ position: "start", width: 120 }}>
+            <MetadataListItem label="Creator">{match.creatorName}</MetadataListItem>
+            <MetadataListItem label="Match rules">
+              {match.settings.fogEnabled ? "Fog on" : "Fog off"} ·{" "}
+              {match.settings.startingFunds.toLocaleString()} funds
+            </MetadataListItem>
+            {shareUrl ? (
+              <MetadataListItem label="Private join link">{shareUrl}</MetadataListItem>
+            ) : null}
+          </MetadataList>
+        </Grid>
+
+        <Grid align="start" columns={{ minWidth: 300, max: 2, repeat: "fit" }} gap={6}>
+          <Section padding={5} variant="muted">
+            <VStack gap={4}>
+              <VStack gap={1}>
+                <Text color="accent" type="supporting" weight="bold">
+                  Map
                 </Text>
-              </div>
-              <div {...stylex.props(styles.headerFacts)}>
-                <div {...stylex.props(styles.headerFact)}>
-                  <Text size="sm" tone="muted" xstyle={styles.factLabel}>
-                    Creator
-                  </Text>
-                  <Text tone="strong">{match.creatorName}</Text>
-                </div>
-                <div {...stylex.props(styles.headerFact)}>
-                  <Text size="sm" tone="muted" xstyle={styles.factLabel}>
-                    Match Rules
-                  </Text>
-                  <Text tone="strong">
-                    {match.settings.fogEnabled ? "Fog on" : "Fog off"} ·{" "}
-                    {match.settings.startingFunds.toLocaleString()} funds
-                  </Text>
-                </div>
-                {shareUrl ? (
-                  <div {...stylex.props(styles.headerFact, styles.headerFactWide)}>
-                    <Text size="sm" tone="muted" xstyle={styles.factLabel}>
-                      Private Join Link
-                    </Text>
-                    <Text size="sm" tone="strong" xstyle={styles.shareLink}>
-                      {shareUrl}
-                    </Text>
-                  </div>
-                ) : null}
-              </div>
-            </header>
+                <Heading level={2}>{mapData?.Name ?? `Map ${match.mapId}`}</Heading>
+                <Text color="secondary" type="supporting">
+                  {mapData
+                    ? `${mapData.Author} · ${mapData["Size X"]} × ${mapData["Size Y"]}`
+                    : "Preview the terrain before everyone locks in."}
+                </Text>
+              </VStack>
+              <MatchMapPreview mapId={match.mapId} runner={previewRunner} />
+              <MetadataList columns={3} label={{ position: "top" }}>
+                <MetadataListItem label="Layout">
+                  {mapData
+                    ? `${mapData["Size X"]} × ${mapData["Size Y"]}`
+                    : `${match.maxPlayers} player map`}
+                </MetadataListItem>
+                <MetadataListItem label="Visibility">
+                  {match.settings.fogEnabled ? "Fog enabled" : "Clear vision"}
+                </MetadataListItem>
+                <MetadataListItem label="Economy">
+                  {match.settings.startingFunds.toLocaleString()} starting funds
+                </MetadataListItem>
+              </MetadataList>
+              {mapQuery.isError ? (
+                <Banner status="warning" title="Map metadata could not be loaded" />
+              ) : null}
+            </VStack>
+          </Section>
 
-            <div {...stylex.props(styles.mainGrid)}>
-              <Frame as="section" surface="panel" padding="none" xstyle={styles.mapSection}>
-                <div {...stylex.props(styles.mapSectionInner)}>
-                  <div {...stylex.props(styles.sectionHeader)}>
-                    <Kicker>Map</Kicker>
-                    <Heading size="lg">{mapData?.Name ?? `Map ${match.mapId}`}</Heading>
-                    <Text size="sm" tone="muted">
-                      {mapData
-                        ? `${mapData.Author} · ${mapData["Size X"]} × ${mapData["Size Y"]}`
-                        : "Preview the terrain before everyone locks in."}
-                    </Text>
-                  </div>
+          <Section padding={5} variant="section">
+            <VStack gap={4}>
+              <VStack gap={1}>
+                <Text color="accent" type="supporting" weight="bold">
+                  Roster
+                </Text>
+                <Heading level={2}>Choose CO and army look</Heading>
+              </VStack>
 
-                  <div {...stylex.props(styles.mapPreviewWrap)}>
-                    <MatchMapPreview
-                      mapId={match.mapId}
-                      runner={previewRunner}
-                      xstyle={styles.previewCanvas}
-                    />
-                  </div>
+              {actionError ? (
+                <Banner description={actionError} status="error" title="Lobby update failed" />
+              ) : null}
+              {!session ? (
+                <Banner status="info" title="Sign in to claim a seat in the lobby" />
+              ) : null}
+              {match.phase === "starting" ? (
+                <Banner status="info" title="All players are ready. Starting the match…" />
+              ) : null}
+              {match.phase === "active" ? (
+                <Banner status="info" title="The match is active. Lobby controls are locked." />
+              ) : null}
 
-                  <div {...stylex.props(styles.metaGrid)}>
-                    <div {...stylex.props(styles.metaItem)}>
-                      <Text size="sm" tone="muted" xstyle={styles.factLabel}>
-                        Layout
-                      </Text>
-                      <Text tone="strong">
-                        {mapData
-                          ? `${mapData["Size X"]} × ${mapData["Size Y"]}`
-                          : `${match.maxPlayers} player map`}
-                      </Text>
-                    </div>
-                    <div {...stylex.props(styles.metaItem)}>
-                      <Text size="sm" tone="muted" xstyle={styles.factLabel}>
-                        Visibility
-                      </Text>
-                      <Text tone="strong">
-                        {match.settings.fogEnabled ? "Fog enabled" : "Clear vision"}
-                      </Text>
-                    </div>
-                    <div {...stylex.props(styles.metaItem)}>
-                      <Text size="sm" tone="muted" xstyle={styles.factLabel}>
-                        Economy
-                      </Text>
-                      <Text tone="strong">
-                        {match.settings.startingFunds.toLocaleString()} starting funds
-                      </Text>
-                    </div>
-                  </div>
+              <VStack gap={3}>
+                {Array.from({ length: match.maxPlayers }, (_, slotIndex) => {
+                  const participant = participantsBySlot.get(slotIndex) ?? null;
+                  const isMine = participant?.userId === currentUserId;
+                  const fallbackFactionId =
+                    participant?.factionId ?? defaultFactionIdForSlot(slotIndex);
+                  const faction = getFactionById(fallbackFactionId);
+                  const isInteractive = isMine && match.phase === "lobby";
+                  const isLocked = pendingAction !== null || match.phase !== "lobby";
 
-                  {mapError ? (
-                    <Text size="sm" tone="danger">
-                      {mapError}
-                    </Text>
-                  ) : null}
-                </div>
-              </Frame>
+                  return (
+                    <Section key={slotIndex} padding={0} variant="muted">
+                      <VStack gap={2}>
+                        <PlayerHeader
+                          factionCode={faction?.code ?? "os"}
+                          name={participant ? participant.userName : "Open seat"}
+                          trailing={
+                            participant !== null ? (
+                              <FactionSelectionControl
+                                disabled={isLocked}
+                                factionCode={faction?.code ?? "os"}
+                                onChange={(nextValue) =>
+                                  submitAction(
+                                    {
+                                      action: "updateParticipant",
+                                      factionId: nextValue,
+                                      joinSlug,
+                                    },
+                                    "faction",
+                                  )
+                                }
+                              />
+                            ) : null
+                          }
+                        />
 
-              <Frame as="section" surface="panel" padding="none" xstyle={styles.rosterSection}>
-                <div {...stylex.props(styles.rosterSectionInner)}>
-                  <div {...stylex.props(styles.sectionHeader)}>
-                    <Kicker>Roster</Kicker>
-                    <Heading size="lg">Choose CO and army look</Heading>
-                  </div>
-
-                  <div {...stylex.props(styles.statusStack)}>
-                    {actionError ? <Notice tone="danger">{actionError}</Notice> : null}
-                    {!session ? (
-                      <Text size="sm" tone="muted">
-                        Sign in to claim a seat in the lobby.
-                      </Text>
-                    ) : null}
-                    {match.phase === "starting" ? (
-                      <Text size="sm" tone="muted">
-                        All players are ready. Starting the match...
-                      </Text>
-                    ) : null}
-                    {match.phase === "active" ? (
-                      <Text size="sm" tone="muted">
-                        The match is active. Lobby controls are locked.
-                      </Text>
-                    ) : null}
-                  </div>
-
-                  <div {...stylex.props(styles.participantList)}>
-                    {Array.from({ length: match.maxPlayers }, (_, slotIndex) => {
-                      const participant = participantsBySlot.get(slotIndex) ?? null;
-                      const isMine = participant?.userId === currentUserId;
-                      const fallbackFactionId =
-                        participant?.factionId ?? defaultFactionIdForSlot(slotIndex);
-                      const faction = getFactionById(fallbackFactionId);
-                      const factionVisual = getFactionVisual(faction?.code ?? "os");
-                      const isInteractive = isMine && match.phase === "lobby";
-                      const isLocked = pendingAction !== null || match.phase !== "lobby";
-
-                      return (
-                        <div
-                          key={slotIndex}
-                          style={{ animationDelay: `${slotIndex * 45}ms` }}
-                          {...stylex.props(
-                            styles.participantCard(factionVisual.accent),
-                            participant === null && styles.participantCardOpen,
-                          )}
-                        >
-                          <PlayerHeader
-                            factionCode={faction?.code ?? "os"}
-                            name={participant ? participant.userName : "Open Seat"}
-                            trailing={
-                              <>
-                                {participant !== null ? (
-                                  <FactionSelectionControl
-                                    disabled={isLocked}
-                                    factionCode={faction?.code ?? "os"}
-                                    onDark
-                                    onChange={(nextValue) => {
-                                      return submitAction(
-                                        {
-                                          action: "updateParticipant",
-                                          factionId: nextValue,
-                                          joinSlug,
-                                        },
-                                        "faction",
-                                      );
-                                    }}
-                                  />
-                                ) : null}
-                                {participant === null ? (
-                                  <Button
-                                    disabled={isLocked || !session || myParticipant !== null}
-                                    onClick={() => {
-                                      void submitAction(
-                                        {
-                                          action: "join",
-                                          slotIndex,
-                                          factionId: defaultFactionIdForSlot(slotIndex),
-                                          joinSlug,
-                                        },
-                                        `join-${slotIndex}`,
-                                      );
-                                    }}
-                                    size="sm"
-                                    tone="brand"
-                                    type="button"
-                                  >
-                                    <PlusIcon width={14} height={14} aria-hidden />
-                                    Claim
-                                  </Button>
-                                ) : isMine ? (
-                                  <>
-                                    <Button
-                                      aria-label={participant.ready ? "Unready" : "Ready up"}
-                                      disabled={isLocked}
-                                      onClick={() => {
-                                        void submitAction(
-                                          {
-                                            action: "updateParticipant",
-                                            ready: !participant.ready,
-                                            joinSlug,
-                                          },
-                                          "ready",
-                                        );
-                                      }}
-                                      size="sm"
-                                      tone="success"
-                                      type="button"
-                                      variant={participant.ready ? "outline" : "solid"}
-                                      xstyle={styles.iconButton}
-                                    >
-                                      {participant.ready ? (
-                                        <CancelIcon width={14} height={14} aria-hidden />
-                                      ) : (
-                                        <CheckIcon width={14} height={14} aria-hidden />
-                                      )}
-                                    </Button>
-                                    <Button
-                                      aria-label="Leave lobby"
-                                      disabled={isLocked}
-                                      onClick={() => {
-                                        void submitAction({ action: "leave" }, "leave");
-                                      }}
-                                      size="sm"
-                                      tone="neutral"
-                                      type="button"
-                                      variant="outline"
-                                      xstyle={styles.iconButton}
-                                    >
-                                      <LogoutIcon width={14} height={14} aria-hidden />
-                                    </Button>
-                                  </>
-                                ) : null}
-                              </>
-                            }
-                          />
-                          {participant !== null ? (
-                            <div {...stylex.props(styles.participantBody)}>
+                        {participant === null ? (
+                          <Section padding={3} variant="transparent">
+                            <Button
+                              clickAction={() =>
+                                submitAction(
+                                  {
+                                    action: "join",
+                                    slotIndex,
+                                    factionId: defaultFactionIdForSlot(slotIndex),
+                                    joinSlug,
+                                  },
+                                  `join-${slotIndex}`,
+                                )
+                              }
+                              icon={<PlusIcon aria-hidden height={14} width={14} />}
+                              isDisabled={isLocked || !session || myParticipant !== null}
+                              label="Claim seat"
+                              size="sm"
+                              variant="primary"
+                              width="100%"
+                            />
+                          </Section>
+                        ) : (
+                          <Section padding={3} variant="transparent">
+                            <VStack gap={3}>
                               <CoSelectionControl
                                 catalog={portraitCatalog}
                                 coId={participant.coId}
                                 disabled={isLocked}
                                 interactive={isInteractive}
-                                onChange={(nextValue) => {
+                                onChange={(nextValue) =>
                                   void submitAction(
-                                    {
-                                      action: "updateParticipant",
-                                      coId: nextValue,
-                                      joinSlug,
-                                    },
+                                    { action: "updateParticipant", coId: nextValue, joinSlug },
                                     "co",
-                                  );
-                                }}
+                                  )
+                                }
                               />
                               <Text
-                                size="sm"
-                                tone={participant.ready ? "success" : "muted"}
-                                xstyle={styles.participantState}
+                                color={participant.ready ? "accent" : "secondary"}
+                                type="supporting"
+                                weight="bold"
                               >
                                 {participant.ready
                                   ? "Ready"
@@ -398,19 +301,54 @@ export function MatchLobbyPage({
                                     ? "In match"
                                     : "Waiting"}
                               </Text>
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </Frame>
-            </div>
-          </div>
-        </div>
-      </Section>
-    </Page>
+                              {isMine ? (
+                                <HStack gap={2} wrap="wrap">
+                                  <Button
+                                    clickAction={() =>
+                                      submitAction(
+                                        {
+                                          action: "updateParticipant",
+                                          ready: !participant.ready,
+                                          joinSlug,
+                                        },
+                                        "ready",
+                                      )
+                                    }
+                                    icon={
+                                      participant.ready ? (
+                                        <CancelIcon aria-hidden height={14} width={14} />
+                                      ) : (
+                                        <CheckIcon aria-hidden height={14} width={14} />
+                                      )
+                                    }
+                                    isDisabled={isLocked}
+                                    label={participant.ready ? "Unready" : "Ready up"}
+                                    size="sm"
+                                    variant="primary"
+                                  />
+                                  <Button
+                                    clickAction={() => submitAction({ action: "leave" }, "leave")}
+                                    icon={<LogoutIcon aria-hidden height={14} width={14} />}
+                                    isDisabled={isLocked}
+                                    label="Leave"
+                                    size="sm"
+                                    variant="secondary"
+                                  />
+                                </HStack>
+                              ) : null}
+                            </VStack>
+                          </Section>
+                        )}
+                      </VStack>
+                    </Section>
+                  );
+                })}
+              </VStack>
+            </VStack>
+          </Section>
+        </Grid>
+      </VStack>
+    </Section>
   );
 }
 
@@ -427,454 +365,48 @@ function CoSelectionControl({
   interactive: boolean;
   onChange: (nextValue: number | null) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const selectedPortrait = getCoPortraitByAwbwId(coId);
   const title = selectedPortrait?.displayName ?? "No CO";
 
-  const portrait = (
-    <CoPortrait
-      catalog={catalog}
-      coKey={selectedPortrait?.key ?? DEFAULT_CO_PORTRAIT_KEY}
-      fallbackLabel={title}
-    />
-  );
-
-  if (!interactive) {
-    return <div>{portrait}</div>;
-  }
-
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger
-        aria-label={`CO: ${title} — click to change`}
-        disabled={disabled}
-        {...stylex.props(styles.portraitButton, disabled && styles.portraitButtonDisabled)}
-      >
-        {portrait}
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Positioner align="start" sideOffset={10}>
-          <Popover.Popup initialFocus={false} {...stylex.props(styles.pickerPopup, styles.coPopup)}>
-            <ScrollArea.Root>
-              <ScrollArea.Viewport {...stylex.props(styles.pickerViewport)}>
-                <ScrollArea.Content>
-                  <div {...stylex.props(styles.coGrid)}>
-                    <button
-                      onClick={() => {
-                        onChange(null);
-                        setOpen(false);
-                      }}
-                      type="button"
-                      {...stylex.props(styles.coTile, coId === null && styles.coTileSelected)}
-                    >
-                      <CoPortrait
-                        catalog={catalog}
-                        coKey={DEFAULT_CO_PORTRAIT_KEY}
-                        fallbackLabel="No CO"
-                      />
-                      <span {...stylex.props(styles.tileTitle)}>No CO</span>
-                      <span {...stylex.props(styles.tileMeta)}>Clear selection</span>
-                    </button>
-                    {selectableCoOptions.map((option) => (
-                      <button
-                        key={option.awbwId}
-                        onClick={() => {
-                          onChange(option.awbwId);
-                          setOpen(false);
-                        }}
-                        type="button"
-                        {...stylex.props(
-                          styles.coTile,
-                          option.awbwId === coId && styles.coTileSelected,
-                        )}
-                      >
-                        <CoPortrait
-                          catalog={catalog}
-                          coKey={option.key}
-                          fallbackLabel={option.displayName}
-                        />
-                        <span {...stylex.props(styles.tileTitle)}>{option.displayName}</span>
-                      </button>
-                    ))}
-                  </div>
-                </ScrollArea.Content>
-              </ScrollArea.Viewport>
-            </ScrollArea.Root>
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
+    <HStack align="center" gap={3} wrap="wrap">
+      <CoPortrait
+        catalog={catalog}
+        coKey={selectedPortrait?.key ?? DEFAULT_CO_PORTRAIT_KEY}
+        fallbackLabel={title}
+      />
+      {interactive ? (
+        <Selector
+          isDisabled={disabled}
+          label="Commanding officer"
+          onChange={(value) => onChange(value === "none" ? null : Number(value))}
+          options={coSelectorOptions}
+          size="sm"
+          value={coId === null ? "none" : String(coId)}
+          width={200}
+        />
+      ) : (
+        <Text weight="bold">{title}</Text>
+      )}
+    </HStack>
   );
 }
 
 function formatPhaseLabel(phase: MatchSnapshot["phase"] | null): string {
   switch (phase) {
     case "active":
-      return "Match Active";
+      return "Match active";
     case "starting":
-      return "Match Starting";
+      return "Match starting";
     case "completed":
-      return "Match Complete";
+      return "Match complete";
     case "cancelled":
-      return "Match Cancelled";
+      return "Match cancelled";
     case "draft":
       return "Draft";
     case "lobby":
-      return "Lobby Setup";
+      return "Lobby setup";
     default:
       return "Lobby";
   }
 }
-
-const styles = stylex.create({
-  page: {
-    width: "100%",
-  },
-  layout: {
-    display: "grid",
-    gap: tokens.space6,
-  },
-  header: {
-    display: "grid",
-    gap: tokens.space5,
-    gridTemplateColumns: {
-      default: "minmax(0, 1.2fr) minmax(280px, 0.8fr)",
-      "@media (max-width: 860px)": "1fr",
-    },
-    alignItems: "end",
-    paddingBottom: tokens.space5,
-    borderBottomWidth: 3,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.chromeBorderSoft,
-  },
-  headerCopy: {
-    display: "grid",
-    gap: tokens.space2,
-  },
-  headerKicker: {
-    color: tokens.brandHover,
-  },
-  headerFacts: {
-    display: "grid",
-    gap: tokens.space3,
-    alignContent: "start",
-  },
-  headerFact: {
-    display: "grid",
-    gap: 4,
-  },
-  headerFactWide: {
-    minWidth: 0,
-  },
-  factLabel: {
-    fontFamily: tokens.fontPixel,
-    fontSize: 8,
-    letterSpacing: tokens.trackingPixel,
-    textTransform: "uppercase",
-  },
-  shareLink: {
-    wordBreak: "break-all",
-  },
-  mainGrid: {
-    display: "grid",
-    gap: tokens.space8,
-    gridTemplateColumns: {
-      default: "minmax(0, 1fr) minmax(360px, 460px)",
-      "@media (max-width: 980px)": "1fr",
-    },
-    alignItems: "start",
-  },
-  mapSection: {
-    overflow: "visible",
-  },
-  mapSectionInner: {
-    display: "grid",
-    gap: tokens.space4,
-    padding: tokens.space6,
-  },
-  rosterSection: {
-    overflow: "visible",
-  },
-  rosterSectionInner: {
-    display: "grid",
-    gap: tokens.space4,
-    alignContent: "start",
-    padding: tokens.space6,
-  },
-  sectionHeader: {
-    display: "grid",
-    gap: tokens.space1,
-  },
-  mapPreviewWrap: {
-    animationDuration: "240ms",
-    animationFillMode: "both",
-    animationName: rowReveal,
-  },
-  previewCanvas: {
-    width: "100%",
-  },
-  metaGrid: {
-    display: "grid",
-    gap: tokens.space3,
-    gridTemplateColumns: {
-      default: "repeat(3, minmax(0, 1fr))",
-      "@media (max-width: 640px)": "1fr",
-    },
-  },
-  metaItem: {
-    display: "grid",
-    gap: 4,
-    paddingTop: tokens.space3,
-    borderTopWidth: 3,
-    borderTopStyle: "solid",
-    borderTopColor: tokens.strokeLight,
-  },
-  statusStack: {
-    display: "grid",
-    gap: tokens.space2,
-  },
-  participantList: {
-    display: "grid",
-    gap: tokens.space3,
-  },
-  participantCard: (accent: string) => ({
-    display: "grid",
-    borderWidth: 2,
-    borderStyle: "solid",
-    borderColor: accent,
-    borderRadius: tokens.radius2,
-    overflow: "hidden",
-    boxShadow: `${tokens.highlightInset}, ${tokens.shadowHardSm}`,
-    animationDuration: "220ms",
-    animationFillMode: "both",
-    animationName: rowReveal,
-  }),
-  participantCardOpen: {
-    borderStyle: "dashed",
-    borderColor: tokens.strokeBase,
-  },
-  participantBody: {
-    display: "flex",
-    alignItems: "center",
-    gap: tokens.space3,
-    padding: tokens.space3,
-  },
-  portraitButton: {
-    display: "block",
-    padding: tokens.space1,
-    borderWidth: 2,
-    borderStyle: "solid",
-    borderColor: tokens.strokeBase,
-    borderRadius: tokens.radius2,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    cursor: "pointer",
-    transitionDuration: tokens.transitionFast,
-    transitionProperty: "transform, box-shadow, border-color, background-color, opacity",
-    transform: {
-      default: "translateY(0)",
-      ":hover": "translate(-1px, -1px)",
-      ":active": `translate(${tokens.pressOffsetSm}, ${tokens.pressOffsetSm})`,
-      ":disabled": "translateY(0)",
-    },
-    boxShadow: {
-      default: `${tokens.highlightInset}, ${tokens.shadowHardSm}`,
-      ":hover": `${tokens.highlightInset}, ${tokens.shadowHardMd}`,
-      ":active": tokens.highlightInset,
-      ":disabled": `${tokens.highlightInset}, ${tokens.shadowHardSm}`,
-    },
-  },
-  portraitButtonDisabled: {
-    opacity: 0.55,
-    cursor: "not-allowed",
-  },
-  participantState: {
-    fontFamily: tokens.fontPixel,
-    fontSize: 8,
-    letterSpacing: tokens.trackingPixel,
-    textTransform: "uppercase",
-  },
-  factionBadge: (accentSoft: string, accent: string) => ({
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: 24,
-    height: 24,
-    borderRadius: tokens.radius1,
-    borderWidth: 2,
-    borderStyle: "solid",
-    borderColor: accent,
-    backgroundColor: accentSoft,
-  }),
-  factionBadgeButton: {
-    cursor: "pointer",
-    transitionDuration: tokens.transitionFast,
-    transitionProperty: "transform, box-shadow, opacity",
-    transform: {
-      default: "translateY(0)",
-      ":hover": "translate(-1px, -1px)",
-      ":active": `translate(${tokens.pressOffsetSm}, ${tokens.pressOffsetSm})`,
-      ":disabled": "translateY(0)",
-    },
-    boxShadow: {
-      default: tokens.shadowHardSm,
-      ":hover": tokens.shadowHardMd,
-      ":active": "none",
-    },
-    opacity: {
-      default: 1,
-      ":disabled": 0.55,
-    },
-  },
-  factionBadgeDarkButton: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: 24,
-    height: 24,
-    borderRadius: tokens.radius1,
-    backgroundColor: "rgba(255, 255, 255, 0.16)",
-    borderWidth: 2,
-    borderStyle: "solid",
-    borderColor: "rgba(255, 255, 255, 0.24)",
-    cursor: "pointer",
-    transitionDuration: tokens.transitionFast,
-    transitionProperty: "transform, box-shadow, opacity",
-    transform: {
-      default: "translateY(0)",
-      ":hover": "translate(-1px, -1px)",
-      ":active": `translate(${tokens.pressOffsetSm}, ${tokens.pressOffsetSm})`,
-      ":disabled": "translateY(0)",
-    },
-    opacity: {
-      default: 1,
-      ":disabled": 0.55,
-    },
-  },
-  actions: {
-    display: "flex",
-    gap: tokens.space2,
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
-  },
-  iconButton: {
-    paddingInline: tokens.space2,
-  },
-  pickerPopup: {
-    borderWidth: 3,
-    borderStyle: "solid",
-    borderColor: tokens.strokeHeavy,
-    borderRadius: tokens.radius3,
-    backgroundColor: tokens.panelRaised,
-    boxShadow: `${tokens.highlightInset}, ${tokens.shadowHardLg}`,
-    padding: tokens.space3,
-    animationDuration: "140ms",
-    animationFillMode: "both",
-    animationName: popIn,
-  },
-  coPopup: {
-    width: "min(700px, calc(100vw - 32px))",
-  },
-  factionPopup: {
-    width: "min(420px, calc(100vw - 32px))",
-  },
-  pickerViewport: {
-    maxHeight: "min(420px, 60vh)",
-  },
-  coGrid: {
-    display: "grid",
-    gap: tokens.space2,
-    gridTemplateColumns: {
-      default: "repeat(auto-fill, minmax(120px, 1fr))",
-      "@media (max-width: 640px)": "repeat(2, minmax(0, 1fr))",
-    },
-  },
-  factionGrid: {
-    display: "grid",
-    gap: tokens.space1,
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  },
-  factionPickerIntro: {
-    paddingBottom: tokens.space3,
-  },
-  coTile: {
-    display: "grid",
-    gap: tokens.space2,
-    justifyItems: "start",
-    alignContent: "start",
-    padding: tokens.space2,
-    borderWidth: 2,
-    borderStyle: "solid",
-    borderColor: tokens.strokeBase,
-    borderRadius: tokens.radius2,
-    backgroundColor: tokens.panelBg,
-    boxShadow: `${tokens.highlightInset}, ${tokens.shadowHardSm}`,
-    cursor: "pointer",
-    textAlign: "left",
-    transitionDuration: tokens.transitionFast,
-    transitionProperty: "transform, box-shadow, border-color, background-color",
-    transform: {
-      default: "translateY(0)",
-      ":hover": "translate(-1px, -1px)",
-      ":active": `translate(${tokens.pressOffsetSm}, ${tokens.pressOffsetSm})`,
-    },
-  },
-  coTileSelected: {
-    borderColor: tokens.strokeHeavy,
-    backgroundColor: tokens.brandSoft,
-  },
-  factionTile: (wash: string) => ({
-    display: "flex",
-    alignItems: "center",
-    gap: tokens.space2,
-    width: "100%",
-    padding: tokens.space1,
-    borderWidth: 2,
-    borderStyle: "solid",
-    borderColor: tokens.strokeBase,
-    borderRadius: tokens.radius2,
-    backgroundColor: wash,
-    boxShadow: `${tokens.highlightInset}, ${tokens.shadowHardSm}`,
-    cursor: "pointer",
-    textAlign: "left",
-    transitionDuration: tokens.transitionFast,
-    transitionProperty: "transform, box-shadow, border-color, background-color",
-    transform: {
-      default: "translateY(0)",
-      ":hover": "translate(-1px, -1px)",
-      ":active": `translate(${tokens.pressOffsetSm}, ${tokens.pressOffsetSm})`,
-    },
-  }),
-  tileTitle: {
-    color: tokens.inkStrong,
-    fontFamily: tokens.fontBody,
-    fontSize: tokens.textSm,
-    fontWeight: 800,
-  },
-  tileMeta: {
-    color: tokens.inkMuted,
-    fontFamily: tokens.fontPixel,
-    fontSize: 8,
-    letterSpacing: tokens.trackingPixel,
-    textTransform: "uppercase",
-  },
-  dropdownSubtitle: {
-    color: tokens.inkMuted,
-    fontFamily: tokens.fontBody,
-    fontSize: tokens.textSm,
-    lineHeight: tokens.leadingBody,
-  },
-  factionLogoWrap: {
-    flex: "0 0 auto",
-    width: 14,
-    height: 14,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  factionLogo: {
-    width: 14,
-    height: 14,
-    backgroundRepeat: "no-repeat",
-    imageRendering: "pixelated",
-  },
-});

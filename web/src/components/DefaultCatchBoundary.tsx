@@ -1,21 +1,18 @@
 import {
   ErrorComponent,
-  Link,
   rootRouteId,
   useMatch,
   useRouter,
   type ErrorComponentProps,
 } from "@tanstack/react-router";
-import * as stylex from "@stylexjs/stylex";
-import { Button, Frame, Inline, Page, Section, Stack, Text } from "#/ui/primitives.tsx";
-import { recoveryLinkStyle } from "#/ui/links.tsx";
-import { sxClassName } from "#/ui/stylex.ts";
-
-const styles = stylex.create({
-  frame: {
-    maxWidth: 800,
-  },
-});
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import { Center } from "@astryxdesign/core/Center";
+import { Section } from "@astryxdesign/core/Section";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
+import { RouterButton } from "#/ui/astryx-links.tsx";
 
 export function DefaultCatchBoundary({ error }: ErrorComponentProps) {
   const router = useRouter();
@@ -26,63 +23,39 @@ export function DefaultCatchBoundary({ error }: ErrorComponentProps) {
 
   console.error("Route error:", error);
 
-  return (
-    <Page width="content">
-      <Section>
-        <Frame xstyle={styles.frame}>
-          <Stack gap="lg">
-            <Stack gap="sm">
-              <Text tone="muted" size="sm">
-                Router
-              </Text>
-              <Text as="h1" size="lg" tone="strong">
-                Route Error
-              </Text>
-              <div>
-                <ErrorComponent error={error} />
-              </div>
-            </Stack>
-            <Inline gap="sm">
-              <Button
-                tone="brand"
-                type="button"
-                onClick={() => {
-                  void router.invalidate();
-                }}
-              >
-                Try Again
-              </Button>
-              {isRoot ? (
-                <Link className={sxClassName(recoveryLinkStyle)} to="/">
-                  Home
-                </Link>
-              ) : (
-                <Button
-                  tone="neutral"
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    if (window.history.length <= 1) {
-                      void router.navigate({ to: "/" });
-                      return;
-                    }
+  function handleGoBack() {
+    if (!router.history.canGoBack()) {
+      void router.navigate({ to: "/" });
+      return;
+    }
 
-                    const previousHref = window.location.href;
-                    window.history.back();
-                    window.setTimeout(() => {
-                      if (window.location.href === previousHref) {
-                        void router.navigate({ to: "/" });
-                      }
-                    }, 160);
-                  }}
-                >
-                  Go Back
-                </Button>
+    router.history.back();
+  }
+
+  return (
+    <Section padding={6} variant="transparent">
+      <Center axis="horizontal" width="100%">
+        <Card maxWidth={800} padding={8} width="100%">
+          <VStack gap={4}>
+            <Text color="secondary" type="supporting" weight="bold">
+              Router
+            </Text>
+            <Banner
+              description={<ErrorComponent error={error} />}
+              status="error"
+              title="Route error"
+            />
+            <HStack gap={2} wrap="wrap">
+              <Button clickAction={() => router.invalidate()} label="Try again" variant="primary" />
+              {isRoot ? (
+                <RouterButton label="Home" to="/" variant="secondary" />
+              ) : (
+                <Button label="Go back" onClick={handleGoBack} variant="secondary" />
               )}
-            </Inline>
-          </Stack>
-        </Frame>
-      </Section>
-    </Page>
+            </HStack>
+          </VStack>
+        </Card>
+      </Center>
+    </Section>
   );
 }

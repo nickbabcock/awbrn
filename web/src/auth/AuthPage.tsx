@@ -1,23 +1,23 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useRouter } from "@tanstack/react-router";
-import * as stylex from "@stylexjs/stylex";
+import { useNavigate, useRouter } from "@tanstack/react-router";
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import { Center } from "@astryxdesign/core/Center";
+import { FormLayout } from "@astryxdesign/core/FormLayout";
+import { Grid } from "@astryxdesign/core/Grid";
+import { Heading } from "@astryxdesign/core/Heading";
+import { Section } from "@astryxdesign/core/Section";
+import { VStack } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import { useState } from "react";
 import { authClient } from "./client";
 import { authSignInSchema, authSignUpSchema } from "./schemas";
 import { authKeys } from "./auth.keys";
 import { matchKeys } from "#/matches/matches.keys.ts";
-import {
-  Button,
-  Frame,
-  Heading,
-  Kicker,
-  Page,
-  Section,
-  Stack,
-  Text,
-  TextField,
-} from "#/ui/primitives.tsx";
-import { tokens } from "#/ui/theme.stylex.ts";
+import { RouterTextLink } from "#/ui/astryx-links.tsx";
+import { TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
 
 export function AuthPage({ isRegister }: { isRegister: boolean }) {
   const navigate = useNavigate();
@@ -57,108 +57,99 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
   }
 
   return (
-    <Page width="wide">
-      <Section>
-        <div {...stylex.props(styles.layout)}>
-          <Frame xstyle={styles.introFrame}>
-            <Stack gap="lg">
-              <Kicker xstyle={styles.introKicker}>Access</Kicker>
-              <Heading size="display">{isRegister ? "Register" : "Sign In"}</Heading>
-              <Text size="lg" tone="strong" xstyle={styles.lead}>
+    <Section padding={6} variant="transparent">
+      <Center axis="horizontal" width="100%">
+        <Grid
+          align="start"
+          columns={{ minWidth: TWO_COLUMN_GRID_MIN_WIDTH, max: 2, repeat: "fit" }}
+          gap={8}
+          maxWidth={1200}
+          width="100%"
+        >
+          <Section padding={6} variant="muted">
+            <VStack gap={3}>
+              <Text color="accent" type="supporting" weight="bold">
+                Access
+              </Text>
+              <Heading level={1} type="display-2">
+                {isRegister ? "Register" : "Sign In"}
+              </Heading>
+              <Text type="large" weight="medium">
                 Use the same field manual language as the rest of the app: clear intent, direct
                 actions, no filler.
               </Text>
-            </Stack>
-          </Frame>
-          <Frame xstyle={styles.formFrame}>
+            </VStack>
+          </Section>
+          <Card padding={6} width="100%">
             <form onSubmit={handleSubmit}>
-              <Stack gap="md">
-                {isRegister ? (
-                  <TextField
-                    autoComplete="name"
-                    id="name"
-                    label="Name"
-                    onChange={(e) => setName(e.target.value)}
-                    required
-                    type="text"
-                    value={name}
+              <VStack gap={4}>
+                <FormLayout>
+                  {isRegister ? (
+                    <TextInput
+                      autoComplete="name"
+                      id="name"
+                      isRequired
+                      label="Name"
+                      onChange={setName}
+                      type="text"
+                      value={name}
+                    />
+                  ) : null}
+                  <TextInput
+                    autoComplete="email"
+                    id="email"
+                    isRequired
+                    label="Email"
+                    onChange={setEmail}
+                    type="email"
+                    value={email}
                   />
-                ) : null}
-                <TextField
-                  autoComplete="email"
-                  id="email"
-                  label="Email"
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  type="email"
-                  value={email}
-                />
-                <TextField
-                  autoComplete={isRegister ? "new-password" : "current-password"}
-                  id="password"
-                  label="Password"
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  type="password"
-                  value={password}
-                />
+                  <TextInput
+                    autoComplete={isRegister ? "new-password" : "current-password"}
+                    id="password"
+                    isRequired
+                    label="Password"
+                    onChange={setPassword}
+                    type="password"
+                    value={password}
+                  />
+                </FormLayout>
                 {error ? (
-                  <Text role="alert" size="sm" tone="danger">
-                    {error}
-                  </Text>
+                  <Banner status="error" title="Authentication failed" description={error} />
                 ) : null}
-                <Button fullWidth tone="success" type="submit" disabled={isPending}>
-                  {isPending ? "Working..." : isRegister ? "Create Account" : "Sign In"}
-                </Button>
-                <Text size="sm" tone="muted">
+                <Button
+                  isDisabled={isPending}
+                  isLoading={isPending}
+                  label={isRegister ? "Create account" : "Sign in"}
+                  type="submit"
+                  variant="primary"
+                  width="100%"
+                />
+                <Text color="secondary" type="supporting">
                   {isRegister ? (
                     <>
-                      Already have an account? <Link to="/auth">Sign in →</Link>
+                      Already have an account?{" "}
+                      <RouterTextLink to="/auth" search={{ mode: undefined }}>
+                        Sign in →
+                      </RouterTextLink>
                     </>
                   ) : (
                     <>
                       New here?{" "}
-                      <Link to="/auth" search={{ mode: "register" }}>
+                      <RouterTextLink to="/auth" search={{ mode: "register" }}>
                         Create an account →
-                      </Link>
+                      </RouterTextLink>
                     </>
                   )}
                 </Text>
-              </Stack>
+              </VStack>
             </form>
-          </Frame>
-        </div>
-      </Section>
-    </Page>
+          </Card>
+        </Grid>
+      </Center>
+    </Section>
   );
 }
-
-const styles = stylex.create({
-  layout: {
-    display: "grid",
-    gap: tokens.space8,
-    gridTemplateColumns: {
-      default: "minmax(0, 1.1fr) minmax(320px, 420px)",
-      "@media (max-width: 860px)": "1fr",
-    },
-    alignItems: "start",
-  },
-  lead: {
-    maxWidth: 560,
-  },
-  introFrame: {
-    backgroundColor: tokens.panelRaised,
-    backgroundImage:
-      "linear-gradient(180deg, rgba(255,255,255,0.26), transparent 38%), linear-gradient(135deg, rgba(47, 109, 168, 0.12), transparent 56%)",
-  },
-  introKicker: {
-    color: tokens.infoHover,
-  },
-  formFrame: {
-    backgroundImage:
-      "linear-gradient(180deg, rgba(47, 142, 69, 0.16), transparent 42%), linear-gradient(135deg, rgba(29, 37, 50, 0.08), transparent 45%)",
-  },
-});
 
 async function submitAuthRequest(
   isRegister: boolean,

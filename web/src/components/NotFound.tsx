@@ -1,45 +1,40 @@
-import { Link } from "@tanstack/react-router";
-import * as stylex from "@stylexjs/stylex";
-import { Button, Frame, Heading, Inline, Page, Section, Stack, Text } from "#/ui/primitives.tsx";
-import { recoveryLinkStyle } from "#/ui/links.tsx";
-import { sxClassName } from "#/ui/stylex.ts";
-
-const styles = stylex.create({
-  frame: {
-    maxWidth: 720,
-  },
-});
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import { Center } from "@astryxdesign/core/Center";
+import { EmptyState } from "@astryxdesign/core/EmptyState";
+import { HStack } from "@astryxdesign/core/Stack";
+import { Section } from "@astryxdesign/core/Section";
+import { useRouter } from "@tanstack/react-router";
+import { RouterButton } from "#/ui/astryx-links.tsx";
 
 export function NotFound() {
+  const router = useRouter();
+
+  function handleGoBack() {
+    if (router.history.canGoBack()) {
+      router.history.back();
+    } else {
+      void router.navigate({ to: "/" });
+    }
+  }
+
   return (
-    <Page width="content">
-      <Section>
-        <Frame xstyle={styles.frame}>
-          <Stack gap="lg">
-            <Stack gap="sm">
-              <Text tone="muted" size="sm">
-                Route
-              </Text>
-              <Heading size="display">Not Found</Heading>
-              <Text size="lg">The page you are looking for does not exist.</Text>
-            </Stack>
-            <Inline gap="sm">
-              <Button
-                tone="brand"
-                type="button"
-                onClick={() => {
-                  window.history.back();
-                }}
-              >
-                Go Back
-              </Button>
-              <Link className={sxClassName(recoveryLinkStyle)} to="/">
-                Start Over
-              </Link>
-            </Inline>
-          </Stack>
-        </Frame>
-      </Section>
-    </Page>
+    <Section padding={6} variant="transparent">
+      <Center axis="horizontal" width="100%">
+        <Card maxWidth={720} padding={8} width="100%">
+          <EmptyState
+            actions={
+              <HStack gap={2} justify="center" wrap="wrap">
+                <Button label="Go back" onClick={handleGoBack} variant="primary" />
+                <RouterButton label="Start over" to="/" variant="secondary" />
+              </HStack>
+            }
+            description="The page you are looking for does not exist."
+            headingLevel={1}
+            title="Not found"
+          />
+        </Card>
+      </Center>
+    </Section>
   );
 }
