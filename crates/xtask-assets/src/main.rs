@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use awbrn_types::{PlayerFaction, Unit, UnitExt};
+use awbrn_types::{AwbwTerrain, Faction, PlayerFaction, Unit, UnitExt};
 use image::{ImageReader, RgbaImage};
 use indexmap::IndexMap;
 use oxipng::{InFile, Options, OutFile};
@@ -268,8 +268,14 @@ struct FactionCatalogEntry {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct FactionCatalogData {
     factions: Vec<FactionCatalogEntry>,
+    /// AWBW terrain id -> AWBW id of the faction which owns that property.
+    ///
+    /// Neutral properties have no owner and are not in the map. The web client
+    /// reads this to tell which factions a map was drawn for.
+    property_owners: BTreeMap<u8, u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -1271,6 +1277,7 @@ fn write_faction_catalog_json(metadata: &[FactionMetadataEntry], output_path: &P
                 faces_right: entry.faces_right,
             })
             .collect(),
+        property_owners: property_owners(),
     })
     .context("Serializing faction catalog data")?;
 
@@ -1280,6 +1287,23 @@ fn write_faction_catalog_json(metadata: &[FactionMetadataEntry], output_path: &P
 
     fs::write(output_path, content).context("Writing faction catalog data")?;
     Ok(())
+}
+
+/// Collect every owned-property terrain id from [`AwbwTerrain`].
+///
+/// `AwbwTerrain` is the source of truth for the AWBW terrain ids, so walking it
+/// keeps the client in step when AWBW adds a country or a property kind.
+fn property_owners() -> BTreeMap<u8, u8> {
+    let mut owners = BTreeMap::new();
+    for id in u8::MIN..=u8::MAX {
+        let Ok(AwbwTerrain::Property(property)) = AwbwTerrain::try_from(id) else {
+            continue;
+        };
+        if let Faction::Player(faction) = property.faction() {
+            owners.insert(id, faction.awbw_id().as_u8());
+        }
+    }
+    owners
 }
 
 fn write_generated_faction_lookup(

@@ -27,7 +27,7 @@ import {
 } from "#/components/co_portraits.ts";
 import { PlayerHeader } from "#/components/PlayerHeader.tsx";
 import { usePreviewRunner } from "#/engine/runtime_context.tsx";
-import { defaultFactionIdForSlot, getFactionById } from "#/factions.ts";
+import { defaultFactionIdForSlot, getFactionById, mapSlotFactionIds } from "#/factions.ts";
 import { MatchMapPreview } from "#/matches/components/MatchMapPreview.tsx";
 import {
   lobbyPollInterval,
@@ -94,6 +94,13 @@ export function MatchLobbyPage({
   });
   const mapQuery = useQuery(awbwMapDataQueryOptions(match.mapId));
   const mapData = mapQuery.data ?? null;
+  // The map decides which faction each seat holds, so a seat cannot be claimed
+  // before the map arrives. Until then the rows show catalog defaults and the
+  // claim buttons stay disabled, which keeps the crest and the join in step.
+  const slotFactionIds = useMemo(
+    () => (mapData ? mapSlotFactionIds(mapData, match.maxPlayers) : null),
+    [mapData, match.maxPlayers],
+  );
   // The origin is unknown while rendering on the server. Resolving it after
   // mount keeps the row itself present in the first paint, so the link the host
   // came for does not appear late and push the panel down.
@@ -308,8 +315,9 @@ export function MatchLobbyPage({
                 {Array.from({ length: match.maxPlayers }, (_, slotIndex) => {
                   const participant = participantsBySlot.get(slotIndex) ?? null;
                   const isMine = participant?.userId === currentUserId;
+                  const slotFactionId = slotFactionIds?.[slotIndex] ?? null;
                   const fallbackFactionId =
-                    participant?.factionId ?? defaultFactionIdForSlot(slotIndex);
+                    participant?.factionId ?? slotFactionId ?? defaultFactionIdForSlot(slotIndex);
                   const faction = getFactionById(fallbackFactionId);
                   const isInteractive = isMine && match.phase === "lobby";
                   const isLocked = pendingAction !== null || match.phase !== "lobby";
@@ -341,21 +349,24 @@ export function MatchLobbyPage({
                           <Section padding={3} variant="transparent">
                             <Button
                               clickAction={() =>
-                                submitAction(
-                                  {
-                                    action: "join",
-                                    slotIndex,
-                                    factionId: defaultFactionIdForSlot(slotIndex),
-                                    joinSlug,
-                                  },
-                                  `join-${slotIndex}`,
-                                )
+                                slotFactionId === null
+                                  ? undefined
+                                  : void submitAction(
+                                      {
+                                        action: "join",
+                                        slotIndex,
+                                        factionId: slotFactionId,
+                                        joinSlug,
+                                      },
+                                      `join-${slotIndex}`,
+                                    )
                               }
                               icon={<PlusIcon aria-hidden height={14} width={14} />}
                               isDisabled={
                                 isLocked ||
                                 !session ||
-                                (!match.settings.hotseatEnabled && hasOwnedSeat)
+                                (!match.settings.hotseatEnabled && hasOwnedSeat) ||
+                                slotFactionId === null
                               }
                               label="Claim seat"
                               size="sm"
