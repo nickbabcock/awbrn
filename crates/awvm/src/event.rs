@@ -485,6 +485,7 @@ impl std::fmt::Display for EventKind {
 /// (`spec/model/observation.md:329`). Distinct from [`EventKind`] because the
 /// schema licenses only these eleven under that key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(rename_all = "kebab-case")]
 pub enum PublicEventKind {
     PhaseChanged,

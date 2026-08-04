@@ -12,6 +12,7 @@ use crate::view::{VisibleTerrain, VisibleUnit};
 use crate::{CaptureEvent, PlayerUpdate, PlayerView, SpectatorView};
 use crate::{CombatOutcome, GameServer, GameSetup, PlayerSetup, StoredActionEvent};
 use awbrn_types::{AwbwCoId, Co, CoExt};
+use awvm::semantic::ObservedTransition;
 
 #[wasm_bindgen]
 pub struct WasmMatch {
@@ -79,7 +80,7 @@ impl WasmMatch {
         let typed_transitions = result
             .observed_transitions
             .into_iter()
-            .map(|(player, transition)| (player.0.to_string(), serialized_value(&transition)))
+            .map(|(player, transition)| (player.0.to_string(), transition))
             .collect::<BTreeMap<_, _>>();
 
         let spectator_view = if self.fog_enabled {
@@ -107,7 +108,8 @@ impl WasmMatch {
                     .server
                     .spectator_player()
                     .and_then(|player| typed_transitions.get(&player.0.to_string()))
-                    .cloned(),
+                    .cloned()
+                    .map(Box::new),
             }
         };
 
@@ -211,7 +213,7 @@ where
 }
 
 #[derive(Tsify, Serialize)]
-#[tsify(into_wasm_abi)]
+#[tsify(into_wasm_abi, hashmap_as_object)]
 #[serde(rename_all = "camelCase")]
 pub struct WasmActionResponse {
     pub player_messages_by_slot: BTreeMap<String, PlayerUpdateMessage>,
@@ -240,7 +242,7 @@ pub struct SpectatorGameStateResponse {
 }
 
 #[derive(Tsify, Serialize)]
-#[tsify(into_wasm_abi)]
+#[tsify(into_wasm_abi, hashmap_as_object)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchGameState {
     #[tsify(type = "number | null")]
@@ -254,7 +256,7 @@ pub struct MatchGameState {
     pub players: Vec<PublicPlayerState>,
     pub units: Vec<WireVisibleUnit>,
     pub terrain: Vec<WireVisibleTerrain>,
-    #[tsify(type = "unknown")]
+    #[tsify(type = "Observation")]
     pub observation: awvm::semantic::Observation,
 }
 
@@ -318,8 +320,7 @@ pub enum SpectatorMessage {
     },
     SpectatorState {
         game_state: Box<MatchGameState>,
-        #[tsify(type = "unknown")]
-        transition: Option<Value>,
+        transition: Option<Box<ObservedTransition>>,
     },
 }
 
@@ -346,8 +347,7 @@ pub struct PlayerUpdateMessage {
     pub turn_change: Option<TurnChangeMessage>,
     #[tsify(type = "number | null")]
     pub funds_changed: Option<u32>,
-    #[tsify(type = "unknown")]
-    pub transition: Value,
+    pub transition: ObservedTransition,
 }
 
 #[derive(Tsify, Serialize)]
@@ -456,7 +456,7 @@ fn public_player_states(view: &SpectatorView) -> Vec<PublicPlayerState> {
 fn player_update_message(
     update: &PlayerUpdate,
     players: Vec<PublicPlayerState>,
-    transition: Value,
+    transition: ObservedTransition,
 ) -> PlayerUpdateMessage {
     PlayerUpdateMessage {
         message_type: "playerUpdate",

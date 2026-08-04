@@ -114,6 +114,7 @@ macro_rules! string_id {
     ($($name:ident),+ $(,)?) => {
         $(
             #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+            #[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
             #[serde(transparent)]
             pub struct $name(String);
 
@@ -224,6 +225,7 @@ impl From<ReasonId> for Reason {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(transparent)]
 pub struct UnitId(u32);
 
@@ -255,12 +257,14 @@ impl From<u32> for UnitId {
 /// directory carries, and typing it keeps `"2026-07-10"` from being compared
 /// against a `String` in one place and a `&str` in another.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 pub struct RulesetRef {
     pub id: RulesetId,
     pub revision: RulesetRevision,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 pub struct Settings {
     pub fog: bool,
     pub income_per_property: u64,
@@ -269,8 +273,8 @@ pub struct Settings {
     pub tags: bool,
     pub weather: WeatherSetting,
     #[serde(deserialize_with = "deserialize_unit_kind_set")]
-    pub lab_units: Vec<UnitKindId>,
-    pub unit_bans: Vec<UnitKindId>,
+    pub lab_units: Vec<crate::ruleset::UnitKind>,
+    pub unit_bans: Vec<crate::ruleset::UnitKind>,
     pub commander_bans: CommanderBans,
     pub capture_limit: Option<u64>,
     pub day_limit: Option<u64>,
@@ -295,12 +299,14 @@ where
     Ok(kinds)
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(rename_all = "kebab-case")]
 pub enum Toggle {
     Enabled,
     Disabled,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(rename_all = "kebab-case")]
 pub enum WeatherSetting {
     Clear,
@@ -309,9 +315,10 @@ pub enum WeatherSetting {
     Random,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 pub struct CommanderBans {
-    pub lead: Vec<CommanderId>,
-    pub backup: Vec<CommanderId>,
+    pub lead: Vec<crate::ruleset::CommanderKind>,
+    pub backup: Vec<crate::ruleset::CommanderKind>,
 }
 
 /// A player's index into [`State::players`].
@@ -1305,17 +1312,20 @@ impl<'de> Deserialize<'de> for TileOwner {
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(rename_all = "kebab-case")]
 pub enum Silo {
     Ready,
     Spent,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 pub struct Team {
     pub id: TeamId,
     pub status: TeamStatus,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(rename_all = "kebab-case")]
 pub enum TeamStatus {
     Active,
@@ -1331,6 +1341,7 @@ pub struct Player {
     pub power_state: PowerState,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(rename_all = "kebab-case")]
 pub enum PlayerStatus {
     Active,
@@ -1339,13 +1350,15 @@ pub enum PlayerStatus {
     Eliminated,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 pub struct Commander {
-    pub id: CommanderId,
+    pub id: crate::ruleset::CommanderKind,
     pub active: bool,
     pub power_charge: u64,
     pub power_uses: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum PowerState {
     None,
@@ -1353,6 +1366,7 @@ pub enum PowerState {
     Scop { commander_slot: u8 },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 pub struct Turn {
     pub day: u64,
     pub active_player: PlayerId,
@@ -1361,6 +1375,7 @@ pub struct Turn {
     pub position: usize,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(rename_all = "kebab-case")]
 pub enum Phase {
     TurnStart,
@@ -1369,6 +1384,7 @@ pub enum Phase {
     Finished,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 pub struct Weather {
     pub kind: WeatherKind,
     pub remaining_turns: u64,
@@ -1386,6 +1402,7 @@ pub struct Unit {
     pub location: Location,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(rename_all = "kebab-case")]
 pub enum UnitAction {
     Ready,
@@ -1394,16 +1411,24 @@ pub enum UnitAction {
     Immobilized,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(rename_all = "kebab-case")]
 pub enum Concealment {
     Exposed,
     Hidden,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Location {
-    Board { position: Pos },
-    Cargo { transport: UnitId, slot: usize },
+    Board {
+        #[cfg_attr(feature = "typescript", tsify(type = "[number, number]"))]
+        position: Pos,
+    },
+    Cargo {
+        transport: UnitId,
+        slot: usize,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "kebab-case")]
@@ -1412,6 +1437,7 @@ pub enum Match {
     Finished { outcome: Outcome },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Outcome {
     Victory {

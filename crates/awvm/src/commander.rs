@@ -357,6 +357,7 @@ pub(crate) enum SpawnUnitLimit {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(rename_all = "kebab-case")]
 pub enum AreaStrikePolicy {
     InfantryHp,

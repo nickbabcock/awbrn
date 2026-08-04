@@ -6,6 +6,7 @@ import {
   type CanvasSize,
 } from "#/canvas_courier/index.ts";
 import type { AwbwMapData } from "#/awbw/schemas.ts";
+import type { ObservedTransition } from "#/wasm/awbrn_server.js";
 import type { GameEvent } from "#/wasm/awbrn_wasm.js";
 import type { LiveMatchPlayer } from "./worker_module";
 import { gameAssetConfig } from "./asset_manifest";
@@ -20,7 +21,7 @@ export class GameRunner implements CanvasCourierController {
   private activeSurface: GameSurface | undefined;
   private createGamePromise: Promise<GameInstance> | undefined;
   private game: GameInstance | undefined;
-  private pendingLiveTransitions: unknown[] = [];
+  private pendingLiveTransitions: ObservedTransition[] = [];
   private rawWorker: Worker | undefined;
   private surfaceVersion = 0;
   private readonly transport = new CanvasCourierTransport();
@@ -71,7 +72,7 @@ export class GameRunner implements CanvasCourierController {
     await game.loadLiveMatch(map, players, observation);
   }
 
-  async applyLiveTransition(transition: unknown): Promise<void> {
+  async applyLiveTransition(transition: ObservedTransition): Promise<void> {
     if (!this.game && !this.createGamePromise) {
       this.pendingLiveTransitions.push(transition);
       return;

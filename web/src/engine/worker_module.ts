@@ -1,4 +1,5 @@
 import init, { type CanvasDisplay, BevyApp } from "#/wasm/awbrn_wasm.js";
+import type { ObservedTransition } from "#/wasm/awbrn_server.js";
 import wasmPath from "#/wasm/awbrn_wasm_bg.wasm?url";
 import { proxy } from "comlink";
 import type { AwbwMapData } from "#/awbw/schemas.ts";
@@ -29,7 +30,7 @@ export interface GameInstance {
     players: LiveMatchPlayer[],
     observation: unknown,
   ) => Promise<void>;
-  applyLiveTransition: (transition: unknown) => Promise<void>;
+  applyLiveTransition: (transition: ObservedTransition) => Promise<void>;
   setPlayerDisplayFaction: (playerId: number, factionId: number | null) => Promise<void>;
 }
 
@@ -162,7 +163,7 @@ export const createGame = async (
     loadLiveMatch: async (map: AwbwMapData, players: LiveMatchPlayer[], observation: unknown) => {
       app.load_live_match(map, players, observation);
     },
-    applyLiveTransition: async (transition: unknown) => {
+    applyLiveTransition: async (transition: ObservedTransition) => {
       app.apply_live_transition(transition);
     },
     setPlayerDisplayFaction: async (playerId: number, factionId: number | null) => {
