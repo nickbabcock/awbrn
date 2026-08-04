@@ -12,7 +12,7 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
   const registryRef = useRef<GameRuntimeRegistry | null>(null);
 
   registryRef.current ??= new GameRuntimeRegistry(undefined, {
-    onDisposeReplay: () => {
+    onDisposeGameState: () => {
       useGameStore.getState().actions.reset();
     },
   });

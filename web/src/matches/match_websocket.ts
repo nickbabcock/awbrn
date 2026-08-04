@@ -6,6 +6,12 @@ export type MatchWebSocketStatus = "connecting" | "connected" | "disconnected" |
 export interface MatchWebSocket {
   status: MatchWebSocketStatus;
   sendMessage: (message: unknown) => void;
+  /**
+   * Retry immediately instead of waiting out the backoff, which reaches 30
+   * seconds. A player who can see the connection is down should not have to
+   * wait for a timer they cannot see.
+   */
+  reconnect: () => void;
 }
 
 const BASE_RECONNECT_DELAY_MS = 1_000;
@@ -90,5 +96,19 @@ export function useMatchWebSocket(
     }
   }, []);
 
-  return { status, sendMessage };
+  const reconnect = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    // A hand-made attempt restarts the backoff, so a later drop retries
+    // quickly again rather than inheriting the previous delay.
+    reconnectAttemptRef.current = 0;
+    const ws = wsRef.current;
+    wsRef.current = null;
+    ws?.close();
+    connect();
+  }, [connect]);
+
+  return { status, sendMessage, reconnect };
 }

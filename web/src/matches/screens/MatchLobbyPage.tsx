@@ -8,7 +8,8 @@ import { Section } from "@astryxdesign/core/Section";
 import { Selector } from "@astryxdesign/core/Selector";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { useEffect, useMemo, useState } from "react";
+import * as stylex from "@stylexjs/stylex";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Cancel as CancelIcon } from "pixelarticons/react/Cancel";
 import { Check as CheckIcon } from "pixelarticons/react/Check";
 import { Logout as LogoutIcon } from "pixelarticons/react/Logout";
@@ -27,10 +28,18 @@ import { PlayerHeader } from "#/components/PlayerHeader.tsx";
 import { usePreviewRunner } from "#/engine/runtime_context.tsx";
 import { defaultFactionIdForSlot, getFactionById } from "#/factions.ts";
 import { MatchMapPreview } from "#/matches/components/MatchMapPreview.tsx";
+import {
+  lobbyPollInterval,
+  lobbySignature,
+  STARTING_POLL_INTERVAL_MS,
+} from "#/matches/lobby_poll.ts";
 import { mutateMatchFn } from "#/matches/matches.functions.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
 import type { MatchMutationRequest, MatchSnapshot } from "#/matches/schemas.ts";
+
+/** How long an armed "Confirm leave" stays armed before it disarms itself. */
+const LEAVE_CONFIRM_TIMEOUT_MS = 5_000;
 
 const selectableCoOptions = listCoPortraits().filter(
   (option) => option.key !== DEFAULT_CO_PORTRAIT_KEY,
@@ -54,17 +63,71 @@ export function MatchLobbyPage({
   const session = useAppSession();
   const previewRunner = usePreviewRunner("match-lobby");
   const portraitCatalog = useMemo(() => loadCoPortraitCatalog(), []);
-  const detailQueryOptions = matchDetailQueryOptions(matchId, joinSlug);
-  const { data: match } = useSuspenseQuery(detailQueryOptions);
-  const mapQuery = useQuery(awbwMapDataQueryOptions(match.mapId));
-  const mapData = mapQuery.data ?? null;
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [isLeaveConfirming, setIsLeaveConfirming] = useState(false);
+  const [lastChangeAt, setLastChangeAt] = useState(() => Date.now());
+  const detailQueryOptions = matchDetailQueryOptions(matchId, joinSlug);
+  // The lobby is a wait, and everything worth waiting for happens on someone
+  // else's request: a seat claimed, a player readying, the match starting. The
+  // match record is the only place those land, because no lobby channel exists
+  // until the durable object is created at start. React Query pauses this while
+  // the tab is in the background, and the poll stands down while this player's
+  // own change is in flight so it cannot land stale data over the optimistic
+  // update.
+  const { data: match } = useSuspenseQuery({
+    ...detailQueryOptions,
+    // The app turns focus refetching off, which is right for a page you read
+    // once. A lobby is the opposite: coming back to the tab after hours is the
+    // most common way a play-by-web wait ends, and it must not show yesterday.
+    refetchOnWindowFocus: true,
+    refetchInterval: (query) => {
+      if (pendingAction !== null) return false;
+
+      const phase = query.state.data?.phase ?? null;
+      if (phase === "starting") return STARTING_POLL_INTERVAL_MS;
+      if (phase !== "lobby") return false;
+
+      return lobbyPollInterval(Date.now() - lastChangeAt);
+    },
+  });
+  const mapQuery = useQuery(awbwMapDataQueryOptions(match.mapId));
+  const mapData = mapQuery.data ?? null;
+  // The origin is unknown while rendering on the server. Resolving it after
+  // mount keeps the row itself present in the first paint, so the link the host
+  // came for does not appear late and push the panel down.
+  const [origin, setOrigin] = useState("");
 
   useEffect(() => {
     setActionError(null);
     setPendingAction(null);
+    setIsLeaveConfirming(false);
+    setLastChangeAt(Date.now());
   }, [matchId, joinSlug]);
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+
+  // Any real movement in the lobby restarts the poll at its quickest step, so a
+  // page that has been quiet for hours becomes attentive again the moment
+  // someone arrives.
+  const signature = lobbySignature(match);
+  const signatureRef = useRef(signature);
+  useEffect(() => {
+    if (signatureRef.current === signature) return;
+
+    signatureRef.current = signature;
+    setLastChangeAt(Date.now());
+  }, [signature]);
+
+  // A confirmation the player walks away from should not stay armed.
+  useEffect(() => {
+    if (!isLeaveConfirming) return;
+
+    const timer = setTimeout(() => setIsLeaveConfirming(false), LEAVE_CONFIRM_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [isLeaveConfirming]);
 
   const currentUserId = session?.user.id ?? null;
   const participantsBySlot = useMemo(
@@ -127,10 +190,9 @@ export function MatchLobbyPage({
     }
   }
 
-  const shareUrl =
-    match.isPrivate && match.joinSlug && typeof window !== "undefined"
-      ? `${window.location.origin}/matches/${match.matchId}?join=${match.joinSlug}`
-      : null;
+  const sharePath =
+    match.isPrivate && match.joinSlug ? `/matches/${match.matchId}?join=${match.joinSlug}` : null;
+  const shareUrl = sharePath === null ? null : `${origin}${sharePath}`;
 
   return (
     <Section padding={6} variant="transparent">
@@ -140,7 +202,8 @@ export function MatchLobbyPage({
             <Text color="accent" type="supporting" weight="bold">
               {formatPhaseLabel(match.phase)}
             </Text>
-            <Heading level={1} type="display-2">
+            {/* A match name is free text, so it may arrive as one unbroken run. */}
+            <Heading level={1} type="display-2" xstyle={styles.breakAnywhere}>
               {match.name}
             </Heading>
             <Text color="secondary" type="large">
@@ -155,7 +218,12 @@ export function MatchLobbyPage({
               {match.settings.startingFunds.toLocaleString()} funds
             </MetadataListItem>
             {shareUrl ? (
-              <MetadataListItem label="Private join link">{shareUrl}</MetadataListItem>
+              <MetadataListItem label="Private join link">
+                {/* A slug has no spaces, so the URL is one unbreakable run. */}
+                <Text type="supporting" xstyle={styles.breakAnywhere}>
+                  {shareUrl}
+                </Text>
+              </MetadataListItem>
             ) : null}
           </MetadataList>
         </Grid>
@@ -189,7 +257,19 @@ export function MatchLobbyPage({
                 </MetadataListItem>
               </MetadataList>
               {mapQuery.isError ? (
-                <Banner status="warning" title="Map metadata could not be loaded" />
+                <Banner
+                  endContent={
+                    <Button
+                      clickAction={() => void mapQuery.refetch()}
+                      isLoading={mapQuery.isFetching}
+                      label="Retry"
+                      size="sm"
+                      variant="secondary"
+                    />
+                  }
+                  status="warning"
+                  title="Map metadata could not be loaded"
+                />
               ) : null}
             </VStack>
           </Section>
@@ -203,18 +283,23 @@ export function MatchLobbyPage({
                 <Heading level={2}>Choose CO and army look</Heading>
               </VStack>
 
-              {actionError ? (
-                <Banner description={actionError} status="error" title="Lobby update failed" />
-              ) : null}
-              {!session ? (
-                <Banner status="info" title="Sign in to claim a seat in the lobby" />
-              ) : null}
-              {match.phase === "starting" ? (
-                <Banner status="info" title="All players are ready. Starting the match…" />
-              ) : null}
-              {match.phase === "active" ? (
-                <Banner status="info" title="The match is active. Lobby controls are locked." />
-              ) : null}
+              {/* These messages arrive without the viewer acting, now that the
+                  record is polled, so they are announced rather than only
+                  drawn. */}
+              <VStack as="output" gap={3}>
+                {actionError ? (
+                  <Banner description={actionError} status="error" title="Lobby update failed" />
+                ) : null}
+                {!session ? (
+                  <Banner status="info" title="Sign in to claim a seat in the lobby" />
+                ) : null}
+                {match.phase === "starting" ? (
+                  <Banner status="info" title="All players are ready. Starting the match…" />
+                ) : null}
+                {match.phase === "active" ? (
+                  <Banner status="info" title="The match is active. Lobby controls are locked." />
+                ) : null}
+              </VStack>
 
               <VStack gap={3}>
                 {Array.from({ length: match.maxPlayers }, (_, slotIndex) => {
@@ -321,13 +406,25 @@ export function MatchLobbyPage({
                                     size="sm"
                                     variant="primary"
                                   />
+                                  {/* Leaving forfeits the seat and cannot be
+                                      undone if someone else claims it, and this
+                                      button sits 8px from Ready on a phone. It
+                                      takes two presses, and the second one says
+                                      what it does. */}
                                   <Button
-                                    clickAction={() => submitAction({ action: "leave" }, "leave")}
-                                    icon={<LogoutIcon aria-hidden height={14} width={14} />}
+                                    clickAction={() => {
+                                      if (!isLeaveConfirming) {
+                                        setIsLeaveConfirming(true);
+                                        return;
+                                      }
+                                      setIsLeaveConfirming(false);
+                                      void submitAction({ action: "leave" }, "leave");
+                                    }}
+                                    icon={<LogoutIcon aria-hidden />}
                                     isDisabled={isLocked}
-                                    label="Leave"
+                                    label={isLeaveConfirming ? "Confirm leave" : "Leave"}
                                     size="sm"
-                                    variant="secondary"
+                                    variant={isLeaveConfirming ? "destructive" : "secondary"}
                                   />
                                 </HStack>
                               ) : null}
@@ -386,6 +483,12 @@ function CoSelectionControl({
     </HStack>
   );
 }
+
+const styles = stylex.create({
+  breakAnywhere: {
+    overflowWrap: "anywhere",
+  },
+});
 
 function formatPhaseLabel(phase: MatchSnapshot["phase"] | null): string {
   switch (phase) {

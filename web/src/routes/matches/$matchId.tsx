@@ -30,7 +30,9 @@ function MatchRouteComponent() {
   const { data: match } = useSuspenseQuery(matchDetailQueryOptions(matchId, joinSlug));
 
   if (match.phase === "active") {
-    return <MatchActivePage matchId={matchId} />;
+    // The slug travels with the viewer: a private match stays unreadable to a
+    // non-participant without it, and the invite link is the only way in.
+    return <MatchActivePage joinSlug={joinSlug} matchId={matchId} />;
   }
   return <MatchLobbyPage matchId={matchId} joinSlug={joinSlug} />;
 }

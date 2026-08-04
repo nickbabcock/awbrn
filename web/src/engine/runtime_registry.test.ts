@@ -18,8 +18,8 @@ describe("GameRuntimeRegistry", () => {
   });
 
   it("disposes only the replay runner when leaving the home route", () => {
-    const onDisposeReplay = vi.fn();
-    const registry = new GameRuntimeRegistry(() => new TestRunner(), { onDisposeReplay });
+    const onDisposeGameState = vi.fn();
+    const registry = new GameRuntimeRegistry(() => new TestRunner(), { onDisposeGameState });
     const replayRunner = registry.getReplayRunner();
     const previewRunner = registry.getPreviewRunner("matches-new");
 
@@ -27,7 +27,7 @@ describe("GameRuntimeRegistry", () => {
     registry.syncPathname("/matches/new");
 
     expect(replayRunner.dispose).toHaveBeenCalledTimes(1);
-    expect(onDisposeReplay).toHaveBeenCalledTimes(1);
+    expect(onDisposeGameState).toHaveBeenCalledTimes(1);
     expect(previewRunner.dispose).not.toHaveBeenCalled();
   });
 
@@ -65,12 +65,16 @@ describe("GameRuntimeRegistry", () => {
   });
 
   it("disposes the active match runner when leaving a match route", () => {
-    const registry = new GameRuntimeRegistry(() => new TestRunner());
+    const onDisposeGameState = vi.fn();
+    const registry = new GameRuntimeRegistry(() => new TestRunner(), { onDisposeGameState });
     const activeRunner = registry.getActiveMatchRunner();
 
     registry.syncPathname("/matches/abc123");
     registry.syncPathname("/matches");
 
     expect(activeRunner.dispose).toHaveBeenCalledTimes(1);
+    // The roster outlives the runner unless it is cleared with it, so the next
+    // match would open showing the previous match's armies.
+    expect(onDisposeGameState).toHaveBeenCalledTimes(1);
   });
 });
