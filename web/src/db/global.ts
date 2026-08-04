@@ -122,8 +122,8 @@ export const matchParticipants = sqliteTable(
     updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
   },
   (t) => [
-    primaryKey({ columns: [t.matchId, t.userId] }),
-    uniqueIndex("match_participants_match_slot_unique").on(t.matchId, t.slotIndex),
+    primaryKey({ columns: [t.matchId, t.slotIndex] }),
     index("match_participants_match_idx").on(t.matchId),
+    index("match_participants_match_user_idx").on(t.matchId, t.userId),
   ],
 );

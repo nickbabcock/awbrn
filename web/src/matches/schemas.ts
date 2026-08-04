@@ -4,6 +4,7 @@ import { awbwMapDataSchema } from "#/awbw/schemas.ts";
 export const matchSettingsSchema = z.object({
   fogEnabled: z.boolean(),
   startingFunds: z.number().int().nonnegative(),
+  hotseatEnabled: z.boolean().default(false),
 });
 
 export const matchCreateRequestSchema = z.object({
@@ -27,9 +28,10 @@ export const matchMutationRequestSchema = z.discriminatedUnion("action", [
     factionId: z.number().int(),
     joinSlug: z.string().nullable().optional(),
   }),
-  z.object({ action: z.literal("leave") }),
+  z.object({ action: z.literal("leave"), slotIndex: z.number().int().nonnegative() }),
   z.object({
     action: z.literal("updateParticipant"),
+    slotIndex: z.number().int().nonnegative(),
     factionId: z.number().int().optional(),
     coId: z.number().int().positive().nullable().optional(),
     ready: z.boolean().optional(),
@@ -91,7 +93,7 @@ export interface MyMatchSummary {
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
-  viewerParticipant: MyMatchParticipantSummary;
+  viewerParticipants: MyMatchParticipantSummary[];
 }
 
 export interface MyMatchesResponse {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   formatMyMatchPhaseLabel,
+  groupMyMatchRows,
   myMatchActionLabel,
   myMatchPhaseRank,
   ONGOING_MATCH_PHASES,
@@ -27,5 +28,23 @@ describe("my matches phases", () => {
     expect(myMatchActionLabel("active")).toBe("Open Match");
     expect(myMatchActionLabel("starting")).toBe("View Starting Match");
     expect(myMatchActionLabel("lobby")).toBe("Open Lobby");
+  });
+});
+
+describe("my matches hotseat grouping", () => {
+  it("keeps one match row with every owned seat", () => {
+    expect(
+      groupMyMatchRows([
+        { matchId: "a", slotIndex: 0 },
+        { matchId: "b", slotIndex: 1 },
+        { matchId: "a", slotIndex: 2 },
+      ]),
+    ).toEqual([
+      [
+        { matchId: "a", slotIndex: 0 },
+        { matchId: "a", slotIndex: 2 },
+      ],
+      [{ matchId: "b", slotIndex: 1 }],
+    ]);
   });
 });

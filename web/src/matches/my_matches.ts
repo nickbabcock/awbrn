@@ -52,3 +52,13 @@ export function myMatchActionLabel(phase: MatchPhase): string {
       return "View Match";
   }
 }
+
+export function groupMyMatchRows<T extends { matchId: string }>(rows: T[]): T[][] {
+  const grouped = new Map<string, T[]>();
+  for (const row of rows) {
+    const current = grouped.get(row.matchId);
+    if (current) current.push(row);
+    else grouped.set(row.matchId, [row]);
+  }
+  return [...grouped.values()];
+}

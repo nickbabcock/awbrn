@@ -182,14 +182,14 @@
         }
       },
       "indexes": {
-        "match_participants_match_slot_unique": {
-          "name": "match_participants_match_slot_unique",
-          "columns": ["matchId", "slotIndex"],
-          "isUnique": true
-        },
         "match_participants_match_idx": {
           "name": "match_participants_match_idx",
           "columns": ["matchId"],
+          "isUnique": false
+        },
+        "match_participants_match_user_idx": {
+          "name": "match_participants_match_user_idx",
+          "columns": ["matchId", "userId"],
           "isUnique": false
         }
       },
@@ -214,9 +214,9 @@
         }
       },
       "compositePrimaryKeys": {
-        "match_participants_matchId_userId_pk": {
-          "columns": ["matchId", "userId"],
-          "name": "match_participants_matchId_userId_pk"
+        "match_participants_matchId_slotIndex_pk": {
+          "columns": ["matchId", "slotIndex"],
+          "name": "match_participants_matchId_slotIndex_pk"
         }
       },
       "uniqueConstraints": {},
