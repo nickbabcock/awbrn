@@ -1,7 +1,7 @@
 use crate::web_asset_plugin::WebMapAssetPathResolver;
 use awbrn_client::{
-    AwbrnPlugin, EventSink, MapDimensions, NewDay, PlayerRosterSnapshot, ReplayLoaded,
-    TileSelected, UnitBuilt, UnitMoved,
+    AwbrnPlugin, EventSink, MapDimensions, NewDay, PlayerRosterSnapshot, ProductionOptionsChanged,
+    ReplayLoaded, TileSelected, UnitBuilt, UnitMoved,
 };
 use bevy::{asset::AssetMetaCheck, prelude::*};
 use std::{fs, sync::Arc};
@@ -40,6 +40,9 @@ impl Plugin for AwbrnDesktopPlugin {
                 "Tile selected at ({}, {}) - terrain: {}",
                 e.x, e.y, e.terrain_type
             );
+        }))
+        .insert_resource(EventSink::<ProductionOptionsChanged>::new(|e| {
+            info!("Production options changed: {e:?}");
         }))
         .insert_resource(EventSink::<MapDimensions>::new(|e| {
             info!("Map dimensions: {}x{}", e.width, e.height);

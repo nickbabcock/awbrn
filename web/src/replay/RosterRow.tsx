@@ -13,7 +13,7 @@ import { ROSTER_MEDIA_SIZE, ROSTER_STAT_COLUMN_MIN_WIDTH } from "#/ui/layout.ts"
 import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
 import type { PlayerRosterEntry } from "#/wasm/awbrn_wasm.js";
 import { PowerMeter } from "./PowerMeter.tsx";
-import { infantrySpriteStyle, uiAtlasSpriteStyle } from "./roster_icons";
+import { infantrySpriteStyle, uiAtlasSpriteStyle } from "#/components/game_sprites.ts";
 
 const formatMoney = (value: number | null | undefined) =>
   value == null ? "--" : value.toLocaleString();

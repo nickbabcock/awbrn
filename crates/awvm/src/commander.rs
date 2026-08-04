@@ -1042,6 +1042,24 @@ fn effective_profile(
     Some((profile_table().commanders.get(commander)?, power))
 }
 
+fn observed_effective_profile(
+    commanders: &[crate::semantic::Commander],
+    power_state: &PowerState,
+) -> Option<(&'static EffectiveProfile, Power)> {
+    let (slot, power) = match power_state {
+        PowerState::None => (
+            commanders.iter().position(|commander| commander.active)?,
+            Power::None,
+        ),
+        PowerState::Cop { commander_slot } => (usize::from(*commander_slot), Power::Cop),
+        PowerState::Scop { commander_slot } => (usize::from(*commander_slot), Power::Scop),
+    };
+    let commander = commanders.get(slot)?;
+    commander
+        .active
+        .then_some((profile_table().commanders.get(commander.id)?, power))
+}
+
 pub fn effective_move(state: &State, unit: &Unit, base: u64, domain: UnitDomain) -> u64 {
     let Some((profile, power)) = effective_profile(state, &unit.owner) else {
         return base;
@@ -1146,6 +1164,21 @@ pub fn effective_build_cost(state: &State, player: &PlayerId, base: u64) -> Opti
         .checked_div(ratio.denominator)
 }
 
+pub(crate) fn observed_effective_build_cost(
+    commanders: &[crate::semantic::Commander],
+    power_state: &PowerState,
+    base: u64,
+) -> Option<u64> {
+    let Some((profile, power)) = observed_effective_profile(commanders, power_state) else {
+        return Some(base);
+    };
+    let Some(ratio) = selected_rational(&profile.build_cost, power) else {
+        return Some(base);
+    };
+    base.checked_mul(ratio.numerator)?
+        .checked_div(ratio.denominator)
+}
+
 fn production_rules(
     states: &ProductionStates,
     power: Power,
@@ -1168,6 +1201,49 @@ pub fn commander_production_site(
     };
     production_rules(&profile.production, power)
         .any(|rule| rule.terrain_kinds.contains(&terrain) && rule.domains.contains(&domain))
+}
+
+fn is_production_site(terrain: Terrain, domain: UnitDomain, commander_site: bool) -> bool {
+    crate::ruleset::terrain(terrain).has(domain.produces()) || commander_site
+}
+
+pub fn production_site(
+    state: &State,
+    player: &PlayerId,
+    terrain: Terrain,
+    domain: UnitDomain,
+) -> bool {
+    is_production_site(
+        terrain,
+        domain,
+        commander_production_site(state, player, terrain, domain),
+    )
+}
+
+pub(crate) fn observed_commander_production_site(
+    commanders: &[crate::semantic::Commander],
+    power_state: &PowerState,
+    terrain: Terrain,
+    domain: UnitDomain,
+) -> bool {
+    let Some((profile, power)) = observed_effective_profile(commanders, power_state) else {
+        return false;
+    };
+    production_rules(&profile.production, power)
+        .any(|rule| rule.terrain_kinds.contains(&terrain) && rule.domains.contains(&domain))
+}
+
+pub(crate) fn observed_production_site(
+    commanders: &[crate::semantic::Commander],
+    power_state: &PowerState,
+    terrain: Terrain,
+    domain: UnitDomain,
+) -> bool {
+    is_production_site(
+        terrain,
+        domain,
+        observed_commander_production_site(commanders, power_state, terrain, domain),
+    )
 }
 
 pub fn effective_capture_points(state: &State, unit: &Unit, visual_hp: u64) -> u64 {

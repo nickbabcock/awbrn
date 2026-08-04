@@ -295,6 +295,49 @@ fn every_accepted_fixture_command_was_offered() {
     }
 }
 
+#[test]
+fn observed_production_options_include_hachi_scop_city_metadata() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../spec/fixtures/commander/hachi-scop.json");
+    let case: Value =
+        serde_json::from_str(&std::fs::read_to_string(root).expect("read fixture")).unwrap();
+    let state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
+    let player = state.turn.active_player.clone();
+    let observation = observe(&AwbwVisibility, &state, &player).unwrap();
+
+    let options = query::observed_production_options(&observation, Pos::new(0, 0));
+    assert!(
+        options
+            .iter()
+            .any(|option| option.kind == UnitKind::Infantry),
+        "Hachi's SCOP city should offer infantry"
+    );
+    assert_eq!(
+        options
+            .iter()
+            .take(6)
+            .map(|option| (option.kind, option.cost, option.affordable))
+            .collect::<Vec<_>>(),
+        vec![
+            (UnitKind::Infantry, 500, true),
+            (UnitKind::Mech, 1_500, true),
+            (UnitKind::Recon, 2_000, true),
+            (UnitKind::Apc, 2_500, true),
+            (UnitKind::Artillery, 3_000, true),
+            (UnitKind::Tank, 3_500, true),
+        ],
+        "options should retain base-cost order while exposing Hachi's effective prices"
+    );
+    assert_eq!(
+        options
+            .iter()
+            .find(|option| option.kind == UnitKind::MdTank)
+            .map(|option| (option.cost, option.affordable)),
+        Some((8_000, false)),
+        "menu metadata should mark unaffordable commander-adjusted options"
+    );
+}
+
 /// Assert that `command`, which the reducer accepted, is one `query` offers.
 ///
 /// Returns the family checked, or `None` for the commands that are not tied to
@@ -389,6 +432,13 @@ fn offered(state: &State, command: &Command, relative: &str) -> Option<&'static 
             assert!(
                 kinds.contains(kind),
                 "{relative}: producing {kind} at {position} not offered, saw {kinds:?}"
+            );
+            let observation = observe(&AwbwVisibility, state, player)
+                .unwrap_or_else(|error| panic!("{relative}: could not observe state: {error}"));
+            let observed = query::observed_production_options(&observation, *position);
+            assert!(
+                observed.iter().any(|option| option.kind == *kind),
+                "{relative}: observed production omitted {kind} at {position}, saw {observed:?}"
             );
             Some("produce-unit")
         }

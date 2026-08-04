@@ -153,6 +153,12 @@ export class GameRunner implements CanvasCourierController {
         useGameStore.getState().actions.setCurrentDay(event.day);
         break;
       }
+      case "ProductionOptionsChanged": {
+        useGameStore
+          .getState()
+          .actions.setProductionOptions(event.site === undefined ? null : event);
+        break;
+      }
       default: {
         break;
       }
