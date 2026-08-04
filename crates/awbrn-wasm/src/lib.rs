@@ -1,8 +1,8 @@
 use awbrn_client::{
     AwbrnPlugin, EventSink, LiveMatchPlayer, MapAssetPathResolver, MapDimensions, NewDay,
     PendingGameStart, PendingLiveMatch, PendingLiveTransitions, PendingMatchMap,
-    PlayerRosterSnapshot, ReplayLoaded, ReplayToLoad, StaticAssetPathResolver, TileSelected,
-    UnitBuilt, UnitMoved, core::coords::LogicalPx,
+    PlayerRosterSnapshot, ProductionOptionsChanged, ReplayLoaded, ReplayToLoad,
+    StaticAssetPathResolver, TileSelected, UnitBuilt, UnitMoved, core::coords::LogicalPx,
 };
 use awbrn_map::AwbwMapData;
 use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
@@ -43,6 +43,7 @@ pub enum GameEvent {
     UnitMoved(UnitMoved),
     UnitBuilt(UnitBuilt),
     TileSelected(TileSelected),
+    ProductionOptionsChanged(ProductionOptionsChanged),
     MapDimensions(MapDimensions),
     ReplayLoaded(ReplayLoaded),
     PlayerRosterUpdated(PlayerRosterSnapshot),
@@ -210,6 +211,7 @@ impl BevyApp {
             wasm_sink!(UnitMoved, UnitMoved);
             wasm_sink!(UnitBuilt, UnitBuilt);
             wasm_sink!(TileSelected, TileSelected);
+            wasm_sink!(ProductionOptionsChanged, ProductionOptionsChanged);
             wasm_sink!(MapDimensions, MapDimensions);
             wasm_sink!(ReplayLoaded, ReplayLoaded);
             wasm_sink!(PlayerRosterUpdated, PlayerRosterSnapshot);

@@ -7,7 +7,7 @@ import * as stylex from "@stylexjs/stylex";
 import type { SVGProps } from "react";
 import type { PlayerRosterEntry } from "#/wasm/awbrn_wasm.js";
 import { readPowerMeter, type PowerMeterReading } from "./power_meter.ts";
-import { uiAtlasSpriteStyle } from "./roster_icons";
+import { uiAtlasSpriteStyle } from "#/components/game_sprites.ts";
 
 const STAR = uiAtlasSpriteStyle("TerrainStar.png");
 

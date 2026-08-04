@@ -100,8 +100,7 @@ pub enum GameCommand {
     Build {
         #[tsify(type = "{ x: number; y: number }")]
         position: Position,
-        #[tsify(type = "string")]
-        unit_type: awbrn_types::Unit,
+        unit_type: awvm::ruleset::UnitKind,
     },
     /// End the current player's turn.
     EndTurn,

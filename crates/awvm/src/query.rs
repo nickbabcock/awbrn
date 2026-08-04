@@ -30,8 +30,8 @@ use crate::event::AttackTarget;
 use crate::random::{Entropy, Luck, RandomError};
 use crate::ruleset::{self, FireMode, TerrainTrait};
 use crate::semantic::{
-    AwbwVisibility, Location, PlayerId, Pos, State, TeamId, Unit, UnitId, UnitKindId, Viewpoint,
-    Visibility, WeatherKind,
+    AwbwVisibility, Location, Observation, ObservedMatch, ObservedPlayer, PlayerId, PlayerStatus,
+    Pos, State, TeamId, Unit, UnitId, UnitKindId, Viewpoint, Visibility, WeatherKind,
 };
 use crate::transition::{Command, ExecuteOutcome, execute_with};
 use crate::violation::Violation;
@@ -586,6 +586,122 @@ pub fn production_options(state: &State, player: &PlayerId, position: Pos) -> Ve
             )
         })
         .collect()
+}
+
+/// A unit this facility produces for the recipient, and its effective cost.
+///
+/// `affordable` is false when the recipient's funds do not reach `cost`. The
+/// option is still reported, because a menu that hides what a base could build
+/// hides the information a player is deciding with; an interface shows the
+/// price it cannot pay rather than a shorter list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ObservedProductionOption {
+    pub kind: UnitKindId,
+    pub cost: u64,
+    pub affordable: bool,
+}
+
+/// Which units the recipient-safe observation says this facility produces.
+///
+/// The list is ordered by base cost, which is the order the units are presented
+/// in, and it is stable under commander cost effects because those change the
+/// effective price rather than the ordering.
+///
+/// This deliberately cannot account for facts hidden by fog. The returned list
+/// is advisory; executing the selected command against authoritative state is
+/// still the final validation step.
+pub fn observed_production_options(
+    observation: &Observation,
+    position: Pos,
+) -> Vec<ObservedProductionOption> {
+    if !ruleset::supports(&observation.ruleset)
+        || observation.turn.active_player != observation.recipient
+        || observation.turn.phase != crate::semantic::Phase::UnitAction
+        || !matches!(observation.match_state, ObservedMatch::Active { .. })
+    {
+        return Vec::new();
+    }
+
+    let Some(ObservedPlayer::Private {
+        funds,
+        status,
+        commanders,
+        power_state,
+        ..
+    }) = observation.players.iter().find(|player| match player {
+        ObservedPlayer::Private { id, .. } | ObservedPlayer::Public { id, .. } => {
+            id == &observation.recipient
+        }
+    })
+    else {
+        return Vec::new();
+    };
+    if *status != PlayerStatus::Active {
+        return Vec::new();
+    }
+
+    let Some(tile) = observation.board.get(position) else {
+        return Vec::new();
+    };
+    if !tile.owner.is_owned_by(&observation.recipient)
+        || observation.units.iter().any(
+            |unit| matches!(unit.location, Location::Board { position: occupied } if occupied == position),
+        )
+    {
+        return Vec::new();
+    }
+
+    let owned_units = observation
+        .units
+        .iter()
+        .filter(|unit| unit.owner == observation.recipient)
+        .count() as u64;
+    if observation
+        .settings
+        .unit_limit
+        .is_some_and(|limit| owned_units >= limit)
+    {
+        return Vec::new();
+    }
+    let owns_lab = observation.board.tiles().any(|tile| {
+        tile.terrain == crate::semantic::TerrainId::Lab
+            && tile.owner.is_owned_by(&observation.recipient)
+    });
+    let mut options: Vec<(u64, ObservedProductionOption)> = UnitKindId::ALL
+        .iter()
+        .copied()
+        .filter_map(|kind| {
+            let profile = ruleset::profile(kind);
+            let is_site = commander::observed_production_site(
+                commanders,
+                power_state,
+                tile.terrain,
+                profile.domain,
+            );
+            if !is_site
+                || observation.settings.unit_bans.contains(&kind)
+                || (observation.settings.lab_units.contains(&kind) && !owns_lab)
+            {
+                return None;
+            }
+            let cost =
+                commander::observed_effective_build_cost(commanders, power_state, profile.cost)?;
+            Some((
+                profile.cost,
+                ObservedProductionOption {
+                    kind,
+                    cost,
+                    affordable: cost <= *funds,
+                },
+            ))
+        })
+        .collect();
+
+    // Base cost, then the identifier, so two units priced the same always come
+    // back in the same order. `UnitKindId::ALL` is alphabetical, which is not an
+    // order any player reads a build menu in.
+    options.sort_by(|(left, a), (right, b)| left.cmp(right).then(a.kind.cmp(&b.kind)));
+    options.into_iter().map(|(_, option)| option).collect()
 }
 
 /// Which tiles have disclosed occupants that block stopping or traversal.

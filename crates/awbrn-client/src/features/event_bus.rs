@@ -65,6 +65,40 @@ pub struct TileSelected {
     pub terrain_type: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct ProductionSite {
+    pub x: usize,
+    pub y: usize,
+    pub facility: awvm::ruleset::Terrain,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct ProductionOption {
+    pub unit: awvm::ruleset::UnitKind,
+    pub name: String,
+    pub cost: u32,
+    /// Whether the player's funds reach `cost`. An unaffordable unit is still
+    /// listed, priced, and struck through, the way the source game lists it.
+    pub affordable: bool,
+}
+
+/// The production menu implied by the current board selection.
+/// `site: None` tells presentation clients to close any open menu.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct ProductionOptionsChanged {
+    pub site: Option<ProductionSite>,
+    pub options: Vec<ProductionOption>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
 #[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]

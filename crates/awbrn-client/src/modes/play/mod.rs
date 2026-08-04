@@ -2,6 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use crate::core::coords::{TILE_SIZE, position_to_world_translation};
 use crate::core::{AppState, GameMode, RenderLayer, SpriteSize};
+use crate::features::event_bus::{
+    EventSink, ProductionOption, ProductionOptionsChanged, ProductionSite,
+};
 use crate::features::input::TileClicked;
 use awbrn_game::MapPosition;
 use awbrn_game::world::{
@@ -132,6 +135,22 @@ type SelectionValidityQueryItem<'a> = (
     Has<UnitActive>,
     Has<CarriedBy>,
 );
+
+#[derive(SystemParam)]
+pub(crate) struct PlayUnitSelectionParams<'w, 's> {
+    board_index: Res<'w, BoardIndex>,
+    game_map: Res<'w, GameMap>,
+    friendly_factions: Res<'w, FriendlyFactions>,
+    units: Query<'w, 's, UnitSelectionQueryItem<'static>, With<Unit>>,
+    occupancy: Query<'w, 's, OccupancyQueryItem<'static>, With<Unit>>,
+}
+
+#[derive(SystemParam)]
+pub(crate) struct ProductionOptionsParams<'w> {
+    observations: Option<Res<'w, awbrn_game::replay::RecipientObservations>>,
+    viewpoint: Option<Res<'w, awbrn_game::replay::ReplayViewpoint>>,
+    sink: Option<Res<'w, EventSink<ProductionOptionsChanged>>>,
+}
 
 fn unit_is_selectable(
     faction: Faction,
@@ -283,12 +302,9 @@ fn confirm_selected_destination(
 }
 
 pub(crate) fn handle_play_tile_clicks(
-    board_index: Res<BoardIndex>,
-    game_map: Res<GameMap>,
-    friendly_factions: Res<FriendlyFactions>,
     mut click_reader: MessageReader<TileClicked>,
-    units: Query<UnitSelectionQueryItem<'_>, With<Unit>>,
-    occupancy: Query<OccupancyQueryItem<'_>, With<Unit>>,
+    unit_selection: PlayUnitSelectionParams<'_, '_>,
+    production_options: ProductionOptionsParams<'_>,
     mut selection: PlaySelectionState<'_>,
 ) {
     let Some(TileClicked { position }) = click_reader.read().last().copied() else {
@@ -296,13 +312,14 @@ pub(crate) fn handle_play_tile_clicks(
     };
 
     if selection.selected.0.is_some() {
+        close_production_options(production_options.sink.as_deref());
         if selection.move_range.tiles.contains_key(&position) {
             confirm_selected_destination(
                 position,
-                &game_map,
-                &friendly_factions,
-                &units,
-                &occupancy,
+                &unit_selection.game_map,
+                &unit_selection.friendly_factions,
+                &unit_selection.units,
+                &unit_selection.occupancy,
                 &mut selection,
             );
             return;
@@ -312,33 +329,121 @@ pub(crate) fn handle_play_tile_clicks(
         return;
     }
 
-    let Ok(Some(unit_entity)) = board_index.unit_entity(position) else {
+    let Ok(unit_entity) = unit_selection.board_index.unit_entity(position) else {
+        close_production_options(production_options.sink.as_deref());
         return;
     };
-    let Ok((unit, faction, map_position, fuel, is_active, is_carried)) = units.get(unit_entity)
+    let Some(unit_entity) = unit_entity else {
+        emit_production_options(
+            position,
+            production_options.observations.as_deref(),
+            production_options.viewpoint.as_deref(),
+            production_options.sink.as_deref(),
+        );
+        return;
+    };
+    close_production_options(production_options.sink.as_deref());
+    let Ok((unit, faction, map_position, fuel, is_active, is_carried)) =
+        unit_selection.units.get(unit_entity)
     else {
         return;
     };
 
-    if !unit_is_selectable(*faction, is_active, is_carried, &friendly_factions) {
+    if !unit_is_selectable(
+        *faction,
+        is_active,
+        is_carried,
+        &unit_selection.friendly_factions,
+    ) {
         return;
     }
 
     let origin = map_position.position();
     let range = compute_move_range(
-        &game_map,
+        &unit_selection.game_map,
         unit_entity,
         origin,
         unit.0,
         fuel,
-        &friendly_factions,
-        &occupancy,
+        &unit_selection.friendly_factions,
+        &unit_selection.occupancy,
     );
     select_unit(unit_entity, origin, range, &mut selection);
 }
 
+fn close_production_options(sink: Option<&EventSink<ProductionOptionsChanged>>) {
+    if let Some(sink) = sink {
+        sink.emit(ProductionOptionsChanged {
+            site: None,
+            options: Vec::new(),
+        });
+    }
+}
+
+fn emit_production_options(
+    position: Position,
+    observations: Option<&awbrn_game::replay::RecipientObservations>,
+    viewpoint: Option<&awbrn_game::replay::ReplayViewpoint>,
+    sink: Option<&EventSink<ProductionOptionsChanged>>,
+) {
+    let Some(sink) = sink else {
+        return;
+    };
+    let (Some(observations), Some(viewpoint)) = (observations, viewpoint) else {
+        close_production_options(Some(sink));
+        return;
+    };
+    let awbrn_game::replay::ReplayViewpoint::Player(player) = viewpoint else {
+        close_production_options(Some(sink));
+        return;
+    };
+    let Some(observation) = observations.for_player(*player) else {
+        close_production_options(Some(sink));
+        return;
+    };
+    let (Ok(x), Ok(y)) = (u8::try_from(position.x), u8::try_from(position.y)) else {
+        close_production_options(Some(sink));
+        return;
+    };
+    let semantic_position = awvm::semantic::Pos::new(x, y);
+    let Some(tile) = observation.board.get(semantic_position) else {
+        close_production_options(Some(sink));
+        return;
+    };
+    let is_selectable_site = observation.turn.active_player == observation.recipient
+        && observation.turn.phase == awvm::semantic::Phase::UnitAction
+        && tile.owner.is_owned_by(&observation.recipient);
+    if !is_selectable_site {
+        close_production_options(Some(sink));
+        return;
+    }
+
+    let options: Vec<_> = awvm::query::observed_production_options(observation, semantic_position)
+        .into_iter()
+        .map(|option| ProductionOption {
+            unit: option.kind,
+            name: option.kind.name().to_string(),
+            cost: option.cost as u32,
+            affordable: option.affordable,
+        })
+        .collect();
+    if options.is_empty() {
+        close_production_options(Some(sink));
+        return;
+    }
+    sink.emit(ProductionOptionsChanged {
+        site: Some(ProductionSite {
+            x: position.x,
+            y: position.y,
+            facility: tile.terrain,
+        }),
+        options,
+    });
+}
+
 pub(crate) fn clear_selection_on_escape(
     keys: Res<ButtonInput<KeyCode>>,
+    production_sink: Option<Res<EventSink<ProductionOptionsChanged>>>,
     mut selection: PlaySelectionState<'_>,
 ) {
     if !keys.just_pressed(KeyCode::Escape) {
@@ -346,6 +451,7 @@ pub(crate) fn clear_selection_on_escape(
     }
 
     clear_selection_state(&mut selection);
+    close_production_options(production_sink.as_deref());
 }
 
 pub(crate) fn clear_invalid_selection(
@@ -531,9 +637,10 @@ mod tests {
     use awbrn_map::{AwbwMap, AwbwMapData};
     use awbrn_types::PlayerFaction;
     use awbw_replay::ReplayParser;
-    use awvm::semantic::{AwbwVisibility, observe};
+    use awvm::semantic::{AwbwVisibility, State, observe};
     use awvm_awbw::RecordedAdapter;
     use std::path::Path;
+    use std::sync::{Arc, Mutex};
 
     fn play_test_app() -> App {
         let mut app = App::new();
@@ -585,6 +692,54 @@ mod tests {
             .resource_mut::<Messages<TileClicked>>()
             .write(TileClicked { position });
         app.update();
+    }
+
+    #[test]
+    fn clicking_hachi_scop_city_emits_observed_options() {
+        let fixture = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../spec/fixtures/commander/hachi-scop.json"),
+        )
+        .unwrap();
+        let mut fixture: serde_json::Value = serde_json::from_str(&fixture).unwrap();
+        let state = &mut fixture["initial_state"];
+        state["board"]["tiles"][0][0]["owner"] = serde_json::json!("0");
+        state["players"][0]["id"] = serde_json::json!("0");
+        state["turn"]["active_player"] = serde_json::json!("0");
+        state["turn"]["order"][0] = serde_json::json!("0");
+        let state: State = serde_json::from_value(state.clone()).unwrap();
+        let recipient = state.players[0].id.clone();
+        let observation = observe(&AwbwVisibility, &state, &recipient).unwrap();
+
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 1, 1);
+        let mut observations = awbrn_game::replay::RecipientObservations::default();
+        observations.set(vec![observation]);
+        app.world_mut().insert_resource(observations);
+        app.world_mut()
+            .insert_resource(awbrn_game::replay::ReplayViewpoint::Player(
+                awbrn_types::AwbwGamePlayerId::new(0),
+            ));
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let received_by_sink = received.clone();
+        app.world_mut()
+            .insert_resource(EventSink::<ProductionOptionsChanged>::new(move |event| {
+                received_by_sink.lock().unwrap().push(event);
+            }));
+
+        click_tile(&mut app, Position::new(0, 0));
+
+        let received = received.lock().unwrap();
+        let event = received.last().expect("production event");
+        assert_eq!(
+            event.site.as_ref().unwrap().facility,
+            awvm::ruleset::Terrain::City
+        );
+        assert!(
+            event.options.iter().any(
+                |option| option.unit == awvm::ruleset::UnitKind::Infantry && option.cost == 500
+            )
+        );
     }
 
     #[test]

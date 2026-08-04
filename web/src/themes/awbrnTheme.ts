@@ -107,6 +107,18 @@ const extraTokens: Record<string, string> = {
   "--size-roster-rail": "340px",
   "--size-roster-stat-icon": "18px",
   "--size-roster-stat-icon-overlay": "10px",
+  // -- Build menu ---------------------------------------------------------
+  // The menu opened by a production building. Wide enough for the longest unit
+  // name and a six-figure price on one line, and no wider, because it is drawn
+  // on the board and every extra pixel covers terrain the player is reading.
+  "--size-build-menu": "232px",
+  // The sprite is cropped to the unit, so a row is as tall as the art plus one
+  // step of breathing room. A full base menu is thirteen units, and all of them
+  // have to fit a board frame without scrolling.
+  "--size-build-row": "30px",
+  // A thumb needs a target no smaller than this; a mouse does not.
+  "--size-build-row-spacious": "56px",
+  "--size-build-funds-line": "20px",
   // -- Power meter --------------------------------------------------------
   "--size-power-star-cop": "13px",
   "--size-power-star-scop": "19px",
@@ -401,6 +413,15 @@ export const awbrnTheme = defineTheme({
       base: {
         ...panel,
         boxShadow: "var(--shadow-low)",
+      },
+    },
+    // A dialog is a menu the game opened over the map, so it takes the panel
+    // outline and the highest cast shadow rather than a floating white card.
+    dialog: {
+      base: {
+        ...panel,
+        backgroundColor: "var(--color-background-surface)",
+        boxShadow: "var(--shadow-high)",
       },
     },
     // The system is daylight only, so a tooltip is the game's own help window:

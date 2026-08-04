@@ -7,6 +7,7 @@ import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Section } from "@astryxdesign/core/Section";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Text } from "@astryxdesign/core/Text";
 import * as stylex from "@stylexjs/stylex";
@@ -15,7 +16,7 @@ import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
 import { getCoPortraitByAwbwId, loadCoPortraitCatalog } from "#/components/co_portraits.ts";
 import { useActiveMatchRunner } from "#/engine/runtime_context.tsx";
 import type { GameRunner } from "#/engine/game_runner.ts";
-import { useGameStore } from "#/engine/store.ts";
+import { useGameActions, useGameStore } from "#/engine/store.ts";
 import type { LiveMatchPlayer } from "#/engine/worker_module.ts";
 import { getFactionByCode, getFactionById } from "#/factions.ts";
 import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
@@ -23,8 +24,14 @@ import { useMatchWebSocket, type MatchWebSocketStatus } from "#/matches/match_we
 import type { InitialBoardMessage, MatchWebSocketMessage } from "#/matches/match_protocol.ts";
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
 import type { MatchParticipantSnapshot } from "#/matches/schemas.ts";
+import { BuildMenu } from "#/matches/components/BuildMenu.tsx";
 import { RosterList, RosterRow } from "#/replay/RosterRow.tsx";
-import type { PlayerRosterEntry, PlayerRosterSnapshot } from "#/wasm/awbrn_wasm.js";
+import type {
+  PlayerRosterEntry,
+  PlayerRosterSnapshot,
+  ProductionOptionsChanged,
+  UnitKind,
+} from "#/wasm/awbrn_wasm.js";
 
 /**
  * A seat, and whatever the engine currently knows about it.
@@ -40,6 +47,27 @@ interface MatchArmy {
   name: string;
 }
 
+/** The press that opened a menu: where it landed, and what pressed. */
+interface BoardPress {
+  at: number;
+  isCoarse: boolean;
+  x: number;
+  y: number;
+}
+
+/**
+ * Below this width the board has no room beside it for a menu, so the build
+ * order becomes a sheet on the bottom edge whatever pressed the board.
+ */
+const BUILD_SHEET_MEDIA = "(max-width: 767px)";
+
+/**
+ * How long a press can still be the one that opened a menu. A selection made
+ * from the keyboard has no press behind it, and a menu placed at a pointer that
+ * has not moved since the last turn would be placed nowhere in particular.
+ */
+const BOARD_PRESS_MAX_AGE_MS = 2000;
+
 export function MatchActivePage({
   joinSlug = null,
   matchId,
@@ -51,6 +79,8 @@ export function MatchActivePage({
   const portraitCatalog = useMemo(() => loadCoPortraitCatalog(), []);
   const runner = useActiveMatchRunner();
   const playerRoster = useGameStore((state) => state.playerRoster);
+  const productionOptions = useGameStore((state) => state.productionOptions);
+  const setProductionOptions = useGameStore((state) => state.actions.setProductionOptions);
   const livePlayers = useMemo<LiveMatchPlayer[]>(
     () =>
       match.participants.map((participant) => ({
@@ -128,6 +158,10 @@ export function MatchActivePage({
     [finishEndingTurn, runner],
   );
   const { reconnect, sendMessage, status } = useMatchWebSocket(matchId, handleMatchMessage);
+  // The army the build menu speaks for. Its treasury pays for the order, and
+  // its sprites are the ones the menu shows, in whatever depiction the viewer
+  // has chosen for it.
+  const viewerArmy = armies.find((army) => army.entry.playerId === viewerSlotIndex);
 
   useEffect(() => {
     if (status !== "connected") {
@@ -152,8 +186,37 @@ export function MatchActivePage({
     if (!sendMessage({ type: "endTurn" })) {
       finishEndingTurn();
       setMatchError("The command could not be sent because the match connection is not open.");
+      return;
     }
-  }, [activePlayerSlot, finishEndingTurn, sendMessage, status, viewerSlotIndex]);
+    setProductionOptions(null);
+  }, [
+    activePlayerSlot,
+    finishEndingTurn,
+    sendMessage,
+    setProductionOptions,
+    status,
+    viewerSlotIndex,
+  ]);
+
+  const handleBuildUnit = useCallback(
+    (unit: UnitKind, x: number, y: number) => {
+      setMatchError(null);
+      if (
+        !sendMessage({
+          type: "build",
+          position: { x, y },
+          unit_type: unit,
+        })
+      ) {
+        setMatchError("The unit could not be built because the match connection is not open.");
+        return;
+      }
+      // The server remains authoritative. Close the advisory menu immediately;
+      // a rejection arrives through the normal websocket error message.
+      setProductionOptions(null);
+    },
+    [sendMessage, setProductionOptions],
+  );
 
   const handleDisplayFactionChange = useCallback(
     (playerId: number, factionId: number | null) => {
@@ -198,13 +261,17 @@ export function MatchActivePage({
             initialBoard={initialBoard}
             match={match}
             onBoardError={setBoardError}
+            onBuildUnit={handleBuildUnit}
             onEndTurn={handleEndTurn}
             players={livePlayers}
+            productionOptions={productionOptions}
             reconnect={reconnect}
             runner={runner}
             status={status}
             activePlayerSlot={activePlayerSlot}
             isEndingTurn={isEndingTurn}
+            viewerFactionCode={viewerArmy?.entry.displayFactionCode ?? null}
+            viewerFunds={viewerArmy?.entry.stats.funds ?? null}
             viewerSlotIndex={viewerSlotIndex}
           />
 
@@ -260,11 +327,15 @@ function ActiveMatchBoard({
   isEndingTurn,
   match,
   onBoardError,
+  onBuildUnit,
   onEndTurn,
   players,
+  productionOptions,
   reconnect,
   runner,
   status,
+  viewerFactionCode,
+  viewerFunds,
   viewerSlotIndex,
 }: {
   activePlayerSlot: number | null;
@@ -273,18 +344,64 @@ function ActiveMatchBoard({
   isEndingTurn: boolean;
   match: { mapId: number; maxPlayers: number; settings: { fogEnabled: boolean } };
   onBoardError: (message: string | null) => void;
+  onBuildUnit: (unit: UnitKind, x: number, y: number) => void;
   onEndTurn: () => void;
   players: LiveMatchPlayer[];
+  productionOptions: ProductionOptionsChanged | null;
   reconnect: () => void;
   runner: GameRunner;
   status: MatchWebSocketStatus;
+  viewerFactionCode: string | null;
+  viewerFunds: number | null;
   viewerSlotIndex: number | null | undefined;
 }) {
-  const { canvasRef, surfaceRef } = useCanvasCourierSurface({ controller: runner });
+  const { canvasRef, focus, surfaceRef } = useCanvasCourierSurface({ controller: runner });
   const playersRef = useRef(players);
   playersRef.current = players;
   const onBoardErrorRef = useRef(onBoardError);
   onBoardErrorRef.current = onBoardError;
+  const setProductionOptions = useGameActions().setProductionOptions;
+  const isCompactViewport = useMediaQuery(BUILD_SHEET_MEDIA);
+  const pressRef = useRef<BoardPress | null>(null);
+  const [press, setPress] = useState<BoardPress | null>(null);
+  const productionSite = productionOptions?.site;
+
+  // The last press on the board, so the menu can open where the player pointed
+  // and in the shape the input they used expects. A press is only kept for as
+  // long as it can still plausibly be the one that opened a menu.
+  useEffect(() => {
+    const surface = surfaceRef.current;
+    if (!surface) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const bounds = surface.getBoundingClientRect();
+      pressRef.current = {
+        at: event.timeStamp,
+        isCoarse: event.pointerType !== "mouse",
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+      };
+    };
+
+    surface.addEventListener("pointerdown", onPointerDown, { passive: true });
+    return () => surface.removeEventListener("pointerdown", onPointerDown);
+  }, [surfaceRef]);
+
+  // A menu belongs to the selection that opened it, so the press is read once,
+  // when the engine reports the site, and then held still while the menu is up.
+  useEffect(() => {
+    if (productionOptions === null) {
+      setPress(null);
+      return;
+    }
+
+    const recent = pressRef.current;
+    setPress(recent && performance.now() - recent.at < BOARD_PRESS_MAX_AGE_MS ? recent : null);
+  }, [productionOptions]);
+
+  const dismissBuildMenu = useCallback(() => {
+    setProductionOptions(null);
+  }, [setProductionOptions]);
 
   useEffect(() => {
     if (!initialBoard) return;
@@ -333,6 +450,8 @@ function ActiveMatchBoard({
       : !isViewerTurn
         ? "You can end the turn when your army is active."
         : undefined;
+  const buildBlockedReason =
+    status !== "connected" ? "Reconnect to the match to send this order." : undefined;
 
   return (
     <Card padding={0} variant="muted" xstyle={styles.boardPanel}>
@@ -346,6 +465,24 @@ function ActiveMatchBoard({
           tabIndex={0}
           {...stylex.props(styles.gameCanvas)}
         />
+
+        {/* The order sits on the battlefield with the base it belongs to, not
+            in a strip under the board that a phone would have to scroll to. */}
+        {productionOptions === null || productionSite === undefined ? null : (
+          <BuildMenu
+            anchor={press}
+            disabledReason={buildBlockedReason}
+            factionCode={viewerFactionCode ?? "os"}
+            funds={viewerFunds ?? null}
+            isEnabled={buildBlockedReason === undefined}
+            onBuild={(unit) => onBuildUnit(unit, productionSite.x, productionSite.y)}
+            onDismiss={dismissBuildMenu}
+            onRestoreFocus={focus}
+            options={productionOptions.options}
+            presentation={press?.isCoarse || isCompactViewport ? "sheet" : "board"}
+            site={productionSite}
+          />
+        )}
       </VStack>
 
       <HStack

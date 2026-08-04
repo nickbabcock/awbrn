@@ -31,11 +31,8 @@ pub(crate) fn execute_produce_unit(
     // owns a facility here does not depend on what they asked it to build.
     let tile = state.board.get(position);
     let site_valid = tile.is_some_and(|tile| {
-        let terrain = ruleset::terrain(tile.terrain);
-        let commander_facility =
-            commander::commander_production_site(state, player, tile.terrain, profile.domain);
         tile.owner.is_owned_by(player)
-            && (terrain.has(profile.domain.produces()) || commander_facility)
+            && commander::production_site(state, player, tile.terrain, profile.domain)
     });
     if !site_valid {
         return Err(violation(Violation::InvalidTarget {
