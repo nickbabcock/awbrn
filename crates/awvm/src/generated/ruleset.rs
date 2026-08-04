@@ -10,6 +10,7 @@ pub const RULESET_REVISION: &str = "2026-07-10";
 
 /// Unit kinds defined by `units.json`, ordered as the damage matrices are keyed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[repr(u8)]
 pub enum UnitKind {
     #[serde(rename = "anti-air")]
@@ -174,6 +175,7 @@ impl fmt::Display for UnitKind {
 
 /// Terrain kinds defined by `terrain.json`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[repr(u8)]
 pub enum Terrain {
     #[serde(rename = "airport")]
@@ -392,6 +394,7 @@ impl fmt::Display for MovementClass {
 
 /// Weather conditions that select a movement-cost column.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[repr(u8)]
 pub enum WeatherKind {
     #[serde(rename = "clear")]
@@ -662,6 +665,7 @@ impl fmt::Display for WeaponSlot {
 
 /// Commanders defined by `commander-profiles.json`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[repr(u8)]
 pub enum CommanderKind {
     #[serde(rename = "adder")]
@@ -1547,6 +1551,7 @@ impl fmt::Display for KnownReason {
 
 /// Reasons a victory outcome may carry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[repr(u8)]
 pub enum VictoryReason {
     #[serde(rename = "rout")]
@@ -1621,6 +1626,7 @@ impl fmt::Display for VictoryReason {
 
 /// Reasons a draw outcome may carry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[repr(u8)]
 pub enum DrawReason {
     #[serde(rename = "day-limit")]

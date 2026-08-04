@@ -10,7 +10,13 @@ edition = "2024"
 # `spec/README.md`, not part of the game client. Adapters from replay or ECS
 # identifiers belong on the far side of this boundary.
 
+[features]
+default = []
+typescript = ["dep:tsify", "dep:wasm-bindgen"]
+
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 thiserror.workspace = true
+tsify = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }

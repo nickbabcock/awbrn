@@ -1,7 +1,9 @@
 import type { AwbwMapData } from "#/awbw/schemas.ts";
 import type {
   CombatEventMessage,
+  GameCommand as WasmGameCommand,
   MatchGameState as WasmMatchGameState,
+  ObservedTransition,
   PlayerUpdateMessage as WasmPlayerUpdateMessage,
   PublicPlayerState as WasmPublicPlayerState,
   SpectatorMessage,
@@ -36,6 +38,7 @@ export type PublicPlayerState = WasmPublicPlayerState;
 export type VisibleUnit = WireVisibleUnit;
 export type VisibleTerrain = WireVisibleTerrain;
 export type MatchGameState = WasmMatchGameState;
+export type LiveTransition = ObservedTransition;
 
 export interface InitialBoardMessage {
   type: "initialBoard";
@@ -57,6 +60,10 @@ export interface ErrorMessage {
   type: "error";
   message: string;
 }
+
+/** A player command sent over the live-match websocket. */
+export type MatchCommand = WasmGameCommand;
+export type EndTurnCommand = Extract<MatchCommand, { type: "endTurn" }>;
 
 export type UnitMoved = UnitMovedMessage;
 export type TurnChange = TurnChangeMessage;

@@ -229,7 +229,7 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
           continue;
         }
 
-        const message = response.playerMessagesBySlot.get(String(slotIndex));
+        const message = response.playerMessagesBySlot[String(slotIndex)];
         if (message) {
           sendJson(target, message);
         }

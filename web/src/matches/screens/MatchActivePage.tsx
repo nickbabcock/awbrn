@@ -68,12 +68,20 @@ export function MatchActivePage({
   // `undefined` until the server says which seat, if any, this viewer holds.
   const [viewerSlotIndex, setViewerSlotIndex] = useState<number | null | undefined>(undefined);
   const [spectatorFogActive, setSpectatorFogActive] = useState<boolean | null>(null);
+  const [activePlayerSlot, setActivePlayerSlot] = useState<number | null>(null);
+  const [isEndingTurn, setIsEndingTurn] = useState(false);
+  const isEndingTurnRef = useRef(false);
+  const finishEndingTurn = useCallback(() => {
+    isEndingTurnRef.current = false;
+    setIsEndingTurn(false);
+  }, []);
   const handleMatchMessage = useCallback(
     (message: MatchWebSocketMessage) => {
       switch (message.type) {
         case "initialBoard": {
           setBoardError(null);
           setInitialBoard(message);
+          setActivePlayerSlot(message.gameState?.activePlayerSlot ?? null);
           return;
         }
         case "connected": {
@@ -88,6 +96,7 @@ export function MatchActivePage({
           return;
         }
         case "error": {
+          finishEndingTurn();
           setMatchError(message.message);
           return;
         }
@@ -96,6 +105,8 @@ export function MatchActivePage({
           return;
         }
         case "playerUpdate": {
+          setActivePlayerSlot(message.activePlayerSlot);
+          finishEndingTurn();
           void runner.applyLiveTransition(message.transition).catch((error) => {
             console.error("Error applying live player transition:", error);
           });
@@ -113,9 +124,35 @@ export function MatchActivePage({
         }
       }
     },
-    [runner],
+    [finishEndingTurn, runner],
   );
-  const { reconnect, status } = useMatchWebSocket(matchId, handleMatchMessage);
+  const { reconnect, sendMessage, status } = useMatchWebSocket(matchId, handleMatchMessage);
+
+  useEffect(() => {
+    if (status !== "connected") {
+      finishEndingTurn();
+    }
+  }, [finishEndingTurn, status]);
+
+  const handleEndTurn = useCallback(() => {
+    if (
+      isEndingTurnRef.current ||
+      status !== "connected" ||
+      viewerSlotIndex === null ||
+      viewerSlotIndex === undefined ||
+      viewerSlotIndex !== activePlayerSlot
+    ) {
+      return;
+    }
+
+    isEndingTurnRef.current = true;
+    setIsEndingTurn(true);
+    setMatchError(null);
+    if (!sendMessage({ type: "endTurn" })) {
+      finishEndingTurn();
+      setMatchError("The command could not be sent because the match connection is not open.");
+    }
+  }, [activePlayerSlot, finishEndingTurn, sendMessage, status, viewerSlotIndex]);
 
   const handleDisplayFactionChange = useCallback(
     (playerId: number, factionId: number | null) => {
@@ -155,10 +192,14 @@ export function MatchActivePage({
             initialBoard={initialBoard}
             match={match}
             onBoardError={setBoardError}
+            onEndTurn={handleEndTurn}
             players={livePlayers}
             reconnect={reconnect}
             runner={runner}
             status={status}
+            activePlayerSlot={activePlayerSlot}
+            isEndingTurn={isEndingTurn}
+            viewerSlotIndex={viewerSlotIndex}
           />
 
           {/* Each row names its own army through its crest, so the panel needs
@@ -205,23 +246,31 @@ export function MatchActivePage({
  * stay in the same viewport as the thing they describe at every width.
  */
 function ActiveMatchBoard({
+  activePlayerSlot,
   day,
   initialBoard,
+  isEndingTurn,
   match,
   onBoardError,
+  onEndTurn,
   players,
   reconnect,
   runner,
   status,
+  viewerSlotIndex,
 }: {
+  activePlayerSlot: number | null;
   day: number | null;
   initialBoard: InitialBoardMessage | null;
+  isEndingTurn: boolean;
   match: { mapId: number; maxPlayers: number; settings: { fogEnabled: boolean } };
   onBoardError: (message: string | null) => void;
+  onEndTurn: () => void;
   players: LiveMatchPlayer[];
   reconnect: () => void;
   runner: GameRunner;
   status: MatchWebSocketStatus;
+  viewerSlotIndex: number | null | undefined;
 }) {
   const { canvasRef, surfaceRef } = useCanvasCourierSurface({ controller: runner });
   const playersRef = useRef(players);
@@ -268,6 +317,14 @@ function ActiveMatchBoard({
         : status === "error"
           ? "Connection error — retrying."
           : "Disconnected — reconnecting.";
+  const isPlayer = viewerSlotIndex !== null && viewerSlotIndex !== undefined;
+  const isViewerTurn = isPlayer && viewerSlotIndex === activePlayerSlot;
+  const endTurnTooltip =
+    status !== "connected"
+      ? "Reconnect to the match before ending your turn."
+      : !isViewerTurn
+        ? "You can end the turn when your army is active."
+        : undefined;
 
   return (
     <Card maxWidth={1120} padding={0} variant="muted" xstyle={styles.boardPanel}>
@@ -303,19 +360,32 @@ function ActiveMatchBoard({
         {/* An <output> is a live region by default, so a drop is announced
             rather than only recolored. The dot repeats what the text beside it
             already says, so it is hidden from assistive technology. */}
-        <HStack align="center" as="output" gap={2}>
-          <StatusDot
-            aria-hidden="true"
-            isPulsing={status === "connecting"}
-            label={statusText}
-            variant={statusVariant(status)}
-          />
-          <Text color={status === "connected" ? "primary" : "secondary"} type="supporting">
-            {statusText}
-          </Text>
-          {status === "disconnected" || status === "error" ? (
-            <Button clickAction={reconnect} label="Reconnect" size="sm" variant="secondary" />
+        <HStack align="center" gap={3} wrap="wrap">
+          {isPlayer ? (
+            <Button
+              clickAction={onEndTurn}
+              isDisabled={status !== "connected" || !isViewerTurn}
+              isLoading={isEndingTurn}
+              label="End turn"
+              size="sm"
+              tooltip={endTurnTooltip}
+              variant="primary"
+            />
           ) : null}
+          <HStack align="center" as="output" gap={2}>
+            <StatusDot
+              aria-hidden="true"
+              isPulsing={status === "connecting"}
+              label={statusText}
+              variant={statusVariant(status)}
+            />
+            <Text color={status === "connected" ? "primary" : "secondary"} type="supporting">
+              {statusText}
+            </Text>
+            {status === "disconnected" || status === "error" ? (
+              <Button clickAction={reconnect} label="Reconnect" size="sm" variant="secondary" />
+            ) : null}
+          </HStack>
         </HStack>
       </HStack>
     </Card>

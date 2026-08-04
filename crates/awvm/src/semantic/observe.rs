@@ -14,17 +14,18 @@ use crate::commander::AreaStrikePolicy;
 use crate::event::{Event, ObservedReason, PublicEventKind};
 
 use super::{
-    BoardShapeError, Commander, CommanderId, Concealment, Location, Match, Outcome, PlayerId,
-    PlayerStatus, Pos, PowerState, RareTileState, RulesetRef, Settings, Silo, State, Team, TeamId,
-    TeleporterId, TerrainId, TileOwner, TraitId, Turn, Unit, UnitAction, UnitId, UnitKindId,
-    Viewpoint, Visibility, Weather, owner_is_absent,
+    BoardShapeError, Commander, Concealment, Location, Match, Outcome, PlayerId, PlayerStatus, Pos,
+    PowerState, RareTileState, RulesetRef, Settings, Silo, State, Team, TeamId, TeleporterId,
+    TerrainId, TileOwner, TraitId, Turn, Unit, UnitAction, UnitId, Viewpoint, Visibility, Weather,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 pub struct Observation {
     pub ruleset: RulesetRef,
     pub recipient: PlayerId,
     pub settings: Settings,
+    #[cfg_attr(feature = "typescript", tsify(type = "ObservedBoardWire"))]
     pub board: ObservedBoard,
     pub teams: Vec<Team>,
     pub players: Vec<ObservedPlayer>,
@@ -35,16 +36,23 @@ pub struct Observation {
     pub match_state: ObservedMatch,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ObservedUnitRef {
-    Friendly { unit: UnitId },
-    Enemy { position: Pos },
+    Friendly {
+        unit: UnitId,
+    },
+    Enemy {
+        #[cfg_attr(feature = "typescript", tsify(type = "[number, number]"))]
+        position: Pos,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 pub struct ObservedUnit {
     #[serde(rename = "ref")]
     pub reference: ObservedUnitRef,
-    pub kind: UnitKindId,
+    pub kind: crate::ruleset::UnitKind,
     pub owner: PlayerId,
     pub hp: u8,
     pub fuel: u64,
@@ -131,21 +139,22 @@ impl ObservedBoard {
 
 /// The wire shape: nested rows, one per `y`.
 #[derive(Serialize, Deserialize)]
-struct ObservedBoardRows {
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
+pub struct ObservedBoardWire {
     width: u8,
     height: u8,
-    tiles: Vec<Vec<ObservedTile>>,
+    tiles: Vec<Vec<ObservedTileWire>>,
 }
 
 impl Serialize for ObservedBoard {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        ObservedBoardRows {
+        ObservedBoardWire {
             width: self.width,
             height: self.height,
             tiles: self
                 .tiles
                 .chunks(usize::from(self.width))
-                .map(<[ObservedTile]>::to_vec)
+                .map(|row| row.iter().map(ObservedTileWire::from).collect())
                 .collect(),
         }
         .serialize(serializer)
@@ -154,7 +163,7 @@ impl Serialize for ObservedBoard {
 
 impl<'de> Deserialize<'de> for ObservedBoard {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let rows = ObservedBoardRows::deserialize(deserializer)?;
+        let rows = ObservedBoardWire::deserialize(deserializer)?;
         if rows.tiles.len() != usize::from(rows.height)
             || rows
                 .tiles
@@ -170,7 +179,11 @@ impl<'de> Deserialize<'de> for ObservedBoard {
         Self::new(
             rows.width,
             rows.height,
-            rows.tiles.into_iter().flatten().collect(),
+            rows.tiles
+                .into_iter()
+                .flatten()
+                .map(ObservedTile::from)
+                .collect(),
         )
         .map_err(serde::de::Error::custom)
     }
@@ -208,12 +221,15 @@ impl ObservedTile {
     }
 }
 
-#[derive(Serialize)]
-struct ObservedTileFields<'a> {
-    terrain: TerrainId,
+#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
+#[cfg_attr(feature = "typescript", tsify(hashmap_as_object))]
+pub struct ObservedTileWire {
+    terrain: crate::ruleset::Terrain,
     visibility: TileVisibility,
-    #[serde(skip_serializing_if = "owner_is_absent")]
-    owner: &'a TileOwner,
+    #[serde(default, deserialize_with = "deserialize_observed_tile_owner")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    owner: Option<ObservedTileOwnerWire>,
     #[serde(skip_serializing_if = "Option::is_none")]
     capture_points: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -221,66 +237,92 @@ struct ObservedTileFields<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     destructible_hp: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    teleporter: Option<&'a TeleporterId>,
+    teleporter: Option<TeleporterId>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    trait_state: Option<&'a BTreeMap<TraitId, serde_json::Value>>,
+    #[cfg_attr(feature = "typescript", tsify(type = "Record<string, unknown>"))]
+    trait_state: Option<BTreeMap<TraitId, serde_json::Value>>,
 }
 
-/// The same object, owned, for reading.
-#[derive(Deserialize)]
-struct ObservedTileWire {
-    terrain: TerrainId,
-    visibility: TileVisibility,
-    #[serde(default)]
-    owner: TileOwner,
-    capture_points: Option<u8>,
-    silo: Option<Silo>,
-    destructible_hp: Option<u64>,
-    teleporter: Option<TeleporterId>,
-    trait_state: Option<BTreeMap<TraitId, serde_json::Value>>,
+#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
+#[cfg_attr(feature = "typescript", tsify(missing_as_null))]
+#[serde(untagged)]
+pub enum ObservedTileOwnerWire {
+    Neutral(()),
+    Owned(PlayerId),
+}
+
+fn deserialize_observed_tile_owner<'de, D>(
+    deserializer: D,
+) -> Result<Option<ObservedTileOwnerWire>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    ObservedTileOwnerWire::deserialize(deserializer).map(Some)
+}
+
+impl From<&ObservedTile> for ObservedTileWire {
+    fn from(tile: &ObservedTile) -> Self {
+        Self {
+            terrain: tile.terrain,
+            visibility: tile.visibility,
+            owner: match &tile.owner {
+                TileOwner::NotOwnable => None,
+                TileOwner::Neutral => Some(ObservedTileOwnerWire::Neutral(())),
+                TileOwner::Owned(player) => Some(ObservedTileOwnerWire::Owned(player.clone())),
+            },
+            capture_points: tile.capture_points,
+            silo: tile.silo,
+            destructible_hp: tile.destructible_hp(),
+            teleporter: tile.teleporter().cloned(),
+            trait_state: tile.trait_state().cloned(),
+        }
+    }
+}
+
+impl From<ObservedTileWire> for ObservedTile {
+    fn from(wire: ObservedTileWire) -> Self {
+        let rare = RareTileState {
+            destructible_hp: wire.destructible_hp,
+            teleporter: wire.teleporter,
+            trait_state: wire.trait_state,
+        };
+        Self {
+            terrain: wire.terrain,
+            visibility: wire.visibility,
+            owner: match wire.owner {
+                None => TileOwner::NotOwnable,
+                Some(ObservedTileOwnerWire::Neutral(())) => TileOwner::Neutral,
+                Some(ObservedTileOwnerWire::Owned(player)) => TileOwner::Owned(player),
+            },
+            capture_points: wire.capture_points,
+            silo: wire.silo,
+            rare: (!rare.is_empty()).then(|| Box::new(rare)),
+        }
+    }
 }
 
 impl Serialize for ObservedTile {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        ObservedTileFields {
-            terrain: self.terrain,
-            visibility: self.visibility,
-            owner: &self.owner,
-            capture_points: self.capture_points,
-            silo: self.silo,
-            destructible_hp: self.destructible_hp(),
-            teleporter: self.teleporter(),
-            trait_state: self.trait_state(),
-        }
-        .serialize(serializer)
+        ObservedTileWire::from(self).serialize(serializer)
     }
 }
 
 impl<'de> Deserialize<'de> for ObservedTile {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let wire = ObservedTileWire::deserialize(deserializer)?;
-        let rare = RareTileState {
-            destructible_hp: wire.destructible_hp,
-            teleporter: wire.teleporter,
-            trait_state: wire.trait_state,
-        };
-        Ok(Self {
-            terrain: wire.terrain,
-            visibility: wire.visibility,
-            owner: wire.owner,
-            capture_points: wire.capture_points,
-            silo: wire.silo,
-            rare: (!rare.is_empty()).then(|| Box::new(rare)),
-        })
+        Ok(wire.into())
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(rename_all = "kebab-case")]
 pub enum TileVisibility {
     Visible,
     Fogged,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(untagged)]
 pub enum ObservedPlayer {
     Private {
@@ -302,6 +344,7 @@ pub enum ObservedPlayer {
     },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(rename_all = "kebab-case")]
 pub enum Relation {
     #[serde(rename = "self")]
@@ -310,13 +353,15 @@ pub enum Relation {
     Opponent,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 pub struct PublicCommander {
-    pub id: CommanderId,
+    pub id: crate::ruleset::CommanderKind,
     pub active: bool,
     pub power_charge: u64,
     pub power_uses: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(tag = "status", rename_all = "kebab-case")]
 pub enum ObservedMatch {
     Active { own_team_offers: Vec<PlayerId> },
@@ -337,22 +382,31 @@ pub enum ObservedMatch {
 /// disappearances that no authoritative event names, and receives the payload-free
 /// [`PublicEventKind`] envelope in place of ten different public facts.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ObservedEvent {
     /// `path` holds only the positions along the route the recipient could see
     /// the mover occupy, so a move through fog is reported with gaps.
     UnitMoved {
         unit: ObservedUnitRef,
+        #[cfg_attr(feature = "typescript", tsify(type = "[number, number]"))]
         from: Pos,
+        #[cfg_attr(feature = "typescript", tsify(type = "[number, number]"))]
         to: Pos,
+        #[cfg_attr(feature = "typescript", tsify(type = "[number, number][]"))]
         path: Vec<Pos>,
     },
     /// A unit the recipient could not see before is now visible.
-    UnitAppeared { unit: ObservedUnit, position: Pos },
+    UnitAppeared {
+        unit: ObservedUnit,
+        #[cfg_attr(feature = "typescript", tsify(type = "[number, number]"))]
+        position: Pos,
+    },
     /// A unit the recipient could see is no longer visible, without the
     /// recipient learning why.
     UnitDisappeared {
         unit: ObservedUnitRef,
+        #[cfg_attr(feature = "typescript", tsify(type = "[number, number]"))]
         position: Pos,
     },
     /// The mover was interrupted. Reported without naming the blocker, which the
@@ -361,20 +415,26 @@ pub enum ObservedEvent {
     UnitChanged {
         unit: ObservedUnitRef,
         state: ObservedUnit,
+        #[cfg_attr(feature = "typescript", tsify(type = "string"))]
         reason: ObservedReason,
     },
     UnitRemoved {
         unit: ObservedUnitRef,
+        #[cfg_attr(feature = "typescript", tsify(type = "string"))]
         reason: ObservedReason,
     },
     TileChanged {
+        #[cfg_attr(feature = "typescript", tsify(type = "[number, number]"))]
         position: Pos,
+        #[cfg_attr(feature = "typescript", tsify(type = "ObservedTileWire"))]
         tile: ObservedTile,
+        #[cfg_attr(feature = "typescript", tsify(type = "string"))]
         reason: ObservedReason,
     },
     PlayerChanged {
         player: PlayerId,
         state: ObservedPlayer,
+        #[cfg_attr(feature = "typescript", tsify(type = "string"))]
         reason: ObservedReason,
     },
     /// Public in full even when fog hides the units it hits
@@ -382,6 +442,7 @@ pub enum ObservedEvent {
     AreaStrikeResolved {
         strike: usize,
         policy: AreaStrikePolicy,
+        #[cfg_attr(feature = "typescript", tsify(type = "[number, number]"))]
         center: Pos,
         radius: usize,
         damage: u8,
@@ -401,6 +462,7 @@ pub enum ObservedEvent {
 /// payloads should use [`observe_events`], which avoids constructing the full
 /// post-observation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 pub struct ObservedTransition {
     pub post: Observation,
     pub events: Vec<ObservedEvent>,
@@ -1051,7 +1113,7 @@ fn board_position(unit: &Unit) -> Option<Pos> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::semantic::{KnownReason, TileVisibility};
+    use crate::semantic::{KnownReason, TileVisibility, UnitKindId};
     use serde_json::json;
 
     /// Every branch of `spec/schema/observed-event.schema.json`, in the shape

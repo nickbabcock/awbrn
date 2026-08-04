@@ -323,6 +323,15 @@ fn render_vocabulary(vocabulary: &Vocabulary, out: &mut String) {
         out,
         "#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]"
     );
+    if matches!(
+        name,
+        "UnitKind" | "Terrain" | "WeatherKind" | "CommanderKind" | "VictoryReason" | "DrawReason"
+    ) {
+        let _ = writeln!(
+            out,
+            "#[cfg_attr(feature = \"typescript\", derive(tsify::Tsify))]"
+        );
+    }
     let _ = writeln!(out, "#[repr(u8)]");
     let _ = writeln!(out, "pub enum {name} {{");
     for (value, variant) in vocabulary.values.iter().zip(&variants) {
