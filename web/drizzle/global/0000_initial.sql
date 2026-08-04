@@ -25,13 +25,13 @@ CREATE TABLE `match_participants` (
 	`ready` integer NOT NULL,
 	`joinedAt` integer NOT NULL,
 	`updatedAt` integer NOT NULL,
-	PRIMARY KEY(`matchId`, `userId`),
+	PRIMARY KEY(`matchId`, `slotIndex`),
 	FOREIGN KEY (`matchId`) REFERENCES `matches`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`userId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `match_participants_match_slot_unique` ON `match_participants` (`matchId`,`slotIndex`);--> statement-breakpoint
 CREATE INDEX `match_participants_match_idx` ON `match_participants` (`matchId`);--> statement-breakpoint
+CREATE INDEX `match_participants_match_user_idx` ON `match_participants` (`matchId`,`userId`);--> statement-breakpoint
 CREATE TABLE `matches` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,

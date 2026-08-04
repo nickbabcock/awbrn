@@ -1,5 +1,6 @@
 import { useSuspenseInfiniteQuery } from "@tanstack/react-query";
 import { Banner } from "@astryxdesign/core/Banner";
+import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Heading } from "@astryxdesign/core/Heading";
@@ -131,14 +132,19 @@ function LobbyRow({
       endContent={
         <VStack align="end" gap={1}>
           <Text type="supporting" weight="bold">
-            {lobby.participantCount} / {lobby.maxPlayers} players
+            {lobby.participantCount} / {lobby.maxPlayers} seats
           </Text>
           <Text color="secondary" type="supporting">
             {lobby.openSlotCount} open · {formatRelativeTime(lobby.createdAt, relativeTimeBaseMs)}
           </Text>
         </VStack>
       }
-      label={<Heading level={2}>{lobby.name}</Heading>}
+      label={
+        <HStack align="center" gap={2} wrap="wrap">
+          <Heading level={2}>{lobby.name}</Heading>
+          {lobby.settings.hotseatEnabled ? <Badge label="Hotseat" variant="blue" /> : null}
+        </HStack>
+      }
       params={{ matchId: lobby.matchId }}
       startContent={
         <Thumbnail

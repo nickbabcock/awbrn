@@ -17,6 +17,7 @@ import type { MatchCreateResponse, MatchSetup } from "./schemas";
 import migrations from "../../drizzle/match/migrations";
 import { matchEventsTable } from "#/db/match.ts";
 import { getRequestSession } from "#/auth/auth.server.ts";
+import { ownedSlotIndices, selectOwnedPerspectiveSlot } from "./hotseat.ts";
 
 interface WebSocketAttachment {
   userId: string;
@@ -108,7 +109,11 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
         this.restoreGameFromPersistedEvents();
         throw error;
       }
-      this.broadcastActionResponse(response);
+      const setup = this.readSetupEvent();
+      if (!setup) {
+        throw new Error("match setup disappeared after processing an action");
+      }
+      this.broadcastActionResponse(response, setup, game);
     } catch (error) {
       const failure = normalizeCaughtError(error);
       sendJson(ws, { type: "error", message: failure.error.message });
@@ -149,8 +154,8 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
-    const slotIndex = setup.players.findIndex((p) => p.userId === userId);
-    const playerSlotIndex = slotIndex >= 0 ? slotIndex : null;
+    const ownedSlots = ownedSlotIndices(setup, userId);
+    const playerSlotIndex = this.resolveConnectionSlot(game, ownedSlots);
     let gameState: MatchGameState | null = null;
     let spectatorNotice: Parameters<typeof initialMatchConnectionMessages>[3] = null;
 
@@ -180,6 +185,13 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       sendJson(server, message);
     }
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  private resolveConnectionSlot(game: WasmMatch, ownedSlots: number[]): number | null {
+    const lowestOwnedSlot = ownedSlots[0] ?? null;
+    if (lowestOwnedSlot === null) return null;
+    const activePlayerSlot = game.playerGameState(lowestOwnedSlot).activePlayerSlot;
+    return selectOwnedPerspectiveSlot(ownedSlots, activePlayerSlot, this.readActionEvents());
   }
 
   private readSetupEvent(): MatchSetup | null {
@@ -218,13 +230,36 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     }
   }
 
-  private broadcastActionResponse(response: WasmActionResponse): void {
+  private broadcastActionResponse(
+    response: WasmActionResponse,
+    setup: MatchSetup,
+    game: WasmMatch,
+  ): void {
+    const activePlayerSlot = Object.values(response.playerMessagesBySlot)[0]?.activePlayerSlot;
+
     for (const target of this.ctx.getWebSockets()) {
       try {
-        const { slotIndex } = deserializeAttachment(target);
+        const { userId, slotIndex } = deserializeAttachment(target);
         if (slotIndex === null) {
           if (response.spectatorMessage) {
             sendJson(target, response.spectatorMessage);
+          }
+          continue;
+        }
+
+        const ownedSlots = ownedSlotIndices(setup, userId);
+        if (
+          activePlayerSlot !== undefined &&
+          ownedSlots.includes(activePlayerSlot) &&
+          activePlayerSlot !== slotIndex
+        ) {
+          target.serializeAttachment({ userId, slotIndex: activePlayerSlot });
+          for (const message of initialMatchConnectionMessages(
+            setup,
+            activePlayerSlot,
+            game.playerGameState(activePlayerSlot),
+          )) {
+            sendJson(target, message);
           }
           continue;
         }

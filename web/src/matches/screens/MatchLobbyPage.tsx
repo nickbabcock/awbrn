@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Banner } from "@astryxdesign/core/Banner";
+import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
@@ -65,7 +66,7 @@ export function MatchLobbyPage({
   const portraitCatalog = useMemo(() => loadCoPortraitCatalog(), []);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const [isLeaveConfirming, setIsLeaveConfirming] = useState(false);
+  const [leaveConfirmingSlot, setLeaveConfirmingSlot] = useState<number | null>(null);
   const [lastChangeAt, setLastChangeAt] = useState(() => Date.now());
   const detailQueryOptions = matchDetailQueryOptions(matchId, joinSlug);
   // The lobby is a wait, and everything worth waiting for happens on someone
@@ -101,7 +102,7 @@ export function MatchLobbyPage({
   useEffect(() => {
     setActionError(null);
     setPendingAction(null);
-    setIsLeaveConfirming(false);
+    setLeaveConfirmingSlot(null);
     setLastChangeAt(Date.now());
   }, [matchId, joinSlug]);
 
@@ -123,21 +124,20 @@ export function MatchLobbyPage({
 
   // A confirmation the player walks away from should not stay armed.
   useEffect(() => {
-    if (!isLeaveConfirming) return;
+    if (leaveConfirmingSlot === null) return;
 
-    const timer = setTimeout(() => setIsLeaveConfirming(false), LEAVE_CONFIRM_TIMEOUT_MS);
+    const timer = setTimeout(() => setLeaveConfirmingSlot(null), LEAVE_CONFIRM_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [isLeaveConfirming]);
+  }, [leaveConfirmingSlot]);
 
   const currentUserId = session?.user.id ?? null;
   const participantsBySlot = useMemo(
     () => new Map(match.participants.map((participant) => [participant.slotIndex, participant])),
     [match],
   );
-  const myParticipant =
-    currentUserId === null
-      ? null
-      : (match.participants.find((participant) => participant.userId === currentUserId) ?? null);
+  const hasOwnedSeat =
+    currentUserId !== null &&
+    match.participants.some((participant) => participant.userId === currentUserId);
 
   const matchMutation = useMutation({
     mutationFn: (action: MatchMutationRequest) => mutateMatchFn({ data: { matchId, action } }),
@@ -149,7 +149,7 @@ export function MatchLobbyPage({
         queryClient.setQueryData<MatchSnapshot>(detailQueryOptions.queryKey, {
           ...previousMatch,
           participants: previousMatch.participants.map((participant) =>
-            participant.userId !== currentUserId
+            participant.userId !== currentUserId || participant.slotIndex !== action.slotIndex
               ? participant
               : {
                   ...participant,
@@ -203,9 +203,12 @@ export function MatchLobbyPage({
               {formatPhaseLabel(match.phase)}
             </Text>
             {/* A match name is free text, so it may arrive as one unbroken run. */}
-            <Heading level={1} type="display-2" xstyle={styles.breakAnywhere}>
-              {match.name}
-            </Heading>
+            <HStack align="center" gap={2} wrap="wrap">
+              <Heading level={1} type="display-2" xstyle={styles.breakAnywhere}>
+                {match.name}
+              </Heading>
+              {match.settings.hotseatEnabled ? <Badge label="Hotseat" variant="blue" /> : null}
+            </HStack>
             <Text color="secondary" type="large">
               Map {match.mapId} · {match.maxPlayers} players ·{" "}
               {match.isPrivate ? "Private invite" : "Open lobby"}
@@ -325,6 +328,7 @@ export function MatchLobbyPage({
                                   submitAction(
                                     {
                                       action: "updateParticipant",
+                                      slotIndex,
                                       factionId: nextValue,
                                       joinSlug,
                                     },
@@ -348,7 +352,11 @@ export function MatchLobbyPage({
                                 )
                               }
                               icon={<PlusIcon aria-hidden height={14} width={14} />}
-                              isDisabled={isLocked || !session || myParticipant !== null}
+                              isDisabled={
+                                isLocked ||
+                                !session ||
+                                (!match.settings.hotseatEnabled && hasOwnedSeat)
+                              }
                               label="Claim seat"
                               size="sm"
                               variant="primary"
@@ -365,7 +373,12 @@ export function MatchLobbyPage({
                                 interactive={isInteractive}
                                 onChange={(nextValue) =>
                                   void submitAction(
-                                    { action: "updateParticipant", coId: nextValue, joinSlug },
+                                    {
+                                      action: "updateParticipant",
+                                      slotIndex,
+                                      coId: nextValue,
+                                      joinSlug,
+                                    },
                                     "co",
                                   )
                                 }
@@ -388,6 +401,7 @@ export function MatchLobbyPage({
                                       submitAction(
                                         {
                                           action: "updateParticipant",
+                                          slotIndex,
                                           ready: !participant.ready,
                                           joinSlug,
                                         },
@@ -413,18 +427,24 @@ export function MatchLobbyPage({
                                       what it does. */}
                                   <Button
                                     clickAction={() => {
-                                      if (!isLeaveConfirming) {
-                                        setIsLeaveConfirming(true);
+                                      if (leaveConfirmingSlot !== slotIndex) {
+                                        setLeaveConfirmingSlot(slotIndex);
                                         return;
                                       }
-                                      setIsLeaveConfirming(false);
-                                      void submitAction({ action: "leave" }, "leave");
+                                      setLeaveConfirmingSlot(null);
+                                      void submitAction({ action: "leave", slotIndex }, "leave");
                                     }}
                                     icon={<LogoutIcon aria-hidden />}
                                     isDisabled={isLocked}
-                                    label={isLeaveConfirming ? "Confirm leave" : "Leave"}
+                                    label={
+                                      leaveConfirmingSlot === slotIndex ? "Confirm leave" : "Leave"
+                                    }
                                     size="sm"
-                                    variant={isLeaveConfirming ? "destructive" : "secondary"}
+                                    variant={
+                                      leaveConfirmingSlot === slotIndex
+                                        ? "destructive"
+                                        : "secondary"
+                                    }
                                   />
                                 </HStack>
                               ) : null}

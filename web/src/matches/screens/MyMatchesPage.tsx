@@ -80,8 +80,6 @@ export function MyMatchesPage() {
 }
 
 function MyMatchRow({ loadedAt, match }: { loadedAt: string; match: MyMatchSummary }) {
-  const faction = getFactionById(match.viewerParticipant.factionId);
-  const coName = getCoPortraitByAwbwId(match.viewerParticipant.coId)?.displayName ?? "No CO";
   const details = [
     `Host ${match.creatorName}`,
     `Map ${match.mapId}`,
@@ -97,16 +95,24 @@ function MyMatchRow({ loadedAt, match }: { loadedAt: string; match: MyMatchSumma
           <Text color="secondary" type="supporting">
             {details}
           </Text>
-          <Text color="secondary" type="supporting">
-            Slot {match.viewerParticipant.slotIndex + 1}: {faction?.displayName ?? "Unknown army"} ·{" "}
-            {coName} · {match.viewerParticipant.ready ? "Ready" : "Not ready"}
-          </Text>
+          {match.viewerParticipants.map((participant) => {
+            const faction = getFactionById(participant.factionId);
+            const coName = getCoPortraitByAwbwId(participant.coId)?.displayName ?? "No CO";
+            return (
+              <Text color="secondary" key={participant.slotIndex} type="supporting">
+                Slot {participant.slotIndex + 1}: {faction?.displayName ?? "Unknown army"} ·{" "}
+                {coName}
+                {" · "}
+                {participant.ready ? "Ready" : "Not ready"}
+              </Text>
+            );
+          })}
         </VStack>
       }
       endContent={
         <VStack align="end" gap={1}>
           <Text type="supporting" weight="bold">
-            {match.participantCount} / {match.maxPlayers} players
+            {match.participantCount} / {match.maxPlayers} seats
           </Text>
           <Text color="secondary" type="supporting">
             {formatRelativeTime(match.updatedAt, Date.parse(loadedAt))} ·{" "}
@@ -121,6 +127,7 @@ function MyMatchRow({ loadedAt, match }: { loadedAt: string; match: MyMatchSumma
             label={formatMyMatchPhaseLabel(match.phase)}
             variant={phaseBadgeVariant(match.phase)}
           />
+          {match.settings.hotseatEnabled ? <Badge label="Hotseat" variant="blue" /> : null}
         </HStack>
       }
       params={{ matchId: match.matchId }}

@@ -34,6 +34,7 @@ export function NewMatchPage() {
   const [fogEnabled, setFogEnabled] = useState(false);
   const [startingFunds, setStartingFunds] = useState("1000");
   const [isPrivate, setIsPrivate] = useState(false);
+  const [hotseatEnabled, setHotseatEnabled] = useState(false);
   const [loadingMapId, setLoadingMapId] = useState<number | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -148,7 +149,7 @@ export function NewMatchPage() {
           name: matchName.trim(),
           mapId: parsedMapId,
           isPrivate,
-          settings: { fogEnabled, startingFunds: parsedStartingFunds },
+          settings: { fogEnabled, startingFunds: parsedStartingFunds, hotseatEnabled },
         },
       });
       await navigate({ to: "/matches/$matchId", params: { matchId: match.matchId } });
@@ -220,6 +221,12 @@ export function NewMatchPage() {
                 <VStack gap={2}>
                   <CheckboxInput label="Fog enabled" onChange={setFogEnabled} value={fogEnabled} />
                   <CheckboxInput label="Private match" onChange={setIsPrivate} value={isPrivate} />
+                  <CheckboxInput
+                    description="Allow each signed-in user to claim more than one army."
+                    label="Hotseat"
+                    onChange={setHotseatEnabled}
+                    value={hotseatEnabled}
+                  />
                 </VStack>
               </Grid>
 

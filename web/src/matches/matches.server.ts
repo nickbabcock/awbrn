@@ -16,7 +16,7 @@ import type {
   MyMatchesResponse,
   MyMatchSummary,
 } from "./schemas";
-import { ONGOING_MATCH_PHASES } from "./my_matches";
+import { groupMyMatchRows, ONGOING_MATCH_PHASES } from "./my_matches";
 import {
   MATCH_BROWSE_PAGE_SIZE,
   decodeMatchBrowseCursor,
@@ -48,7 +48,7 @@ type MatchActionDiagnostics =
   | "invalidSlot"
   | "privateJoinRequired"
   | "slotTaken"
-  | "alreadyJoined";
+  | "hotseatDisabled";
 
 type MatchRow = Awaited<ReturnType<typeof queryMatchRow>>;
 type MatchParticipantRow = Awaited<ReturnType<typeof queryParticipantRows>>[number];
@@ -176,12 +176,12 @@ export async function listMyMatches(viewerUserId: string): Promise<MatchResult<M
   const rows = await queryMyMatchRows(viewerUserId);
   const myMatches: MyMatchSummary[] = [];
 
-  for (const row of rows) {
-    const settings = parseMatchSettingsValue(row.settings);
+  for (const groupedRows of groupMyMatchRows(rows)) {
+    const settings = parseMatchSettingsValue(groupedRows[0]!.settings);
     if (!settings.ok) {
       return settings;
     }
-    myMatches.push(toMyMatchSummary(row, settings.value));
+    myMatches.push(toMyMatchSummary(groupedRows, settings.value));
   }
 
   return ok({ matches: myMatches });
@@ -212,14 +212,14 @@ export async function mutateMatch(
       break;
     }
     case "leave": {
-      const leaveResult = await removeParticipant(matchId, viewer.id);
+      const leaveResult = await removeParticipant(matchId, viewer.id, action.slotIndex);
       if (!leaveResult.ok) {
         return leaveResult;
       }
       break;
     }
     case "updateParticipant": {
-      const updateResult = await updateParticipant(matchId, viewer.id, action);
+      const updateResult = await updateParticipant(matchId, viewer.id, action.slotIndex, action);
       if (!updateResult.ok) {
         return updateResult;
       }
@@ -270,6 +270,14 @@ async function insertParticipant(
             sql`${slotIndex} >= 0`,
             sql`${slotIndex} < ${matches.maxPlayers}`,
             or(eq(matches.isPrivate, false), sql`${matches.joinSlug} = ${joinSlug}`),
+            sql`(
+              COALESCE(json_extract(${matches.settings}, '$.hotseatEnabled'), 0) = 1
+              OR NOT EXISTS (
+                SELECT 1 FROM match_participants owned
+                WHERE owned.matchId = ${matches.id}
+                  AND owned.userId = ${viewer.id}
+              )
+            )`,
           ),
         ),
     )
@@ -284,11 +292,16 @@ async function insertParticipant(
   return joinFailureFromDiagnostics(diagnostics);
 }
 
-async function removeParticipant(matchId: string, userId: string): Promise<MatchResult<void>> {
+async function removeParticipant(
+  matchId: string,
+  userId: string,
+  slotIndex: number,
+): Promise<MatchResult<void>> {
   const result = await db.run(sql`
     DELETE FROM match_participants
     WHERE matchId = ${matchId}
       AND userId = ${userId}
+      AND slotIndex = ${slotIndex}
       AND EXISTS (
         SELECT 1
         FROM matches
@@ -307,6 +320,7 @@ async function removeParticipant(matchId: string, userId: string): Promise<Match
 async function updateParticipant(
   matchId: string,
   userId: string,
+  slotIndex: number,
   action: Extract<MatchMutationRequest, { action: "updateParticipant" }>,
 ): Promise<MatchResult<void>> {
   const snapshot = await loadMatchSnapshot(matchId);
@@ -319,7 +333,9 @@ async function updateParticipant(
     return err("matchNotLobby", "match is no longer in lobby", 409);
   }
 
-  const participant = match.participants.find((entry) => entry.userId === userId);
+  const participant = match.participants.find(
+    (entry) => entry.userId === userId && entry.slotIndex === slotIndex,
+  );
   if (!participant) {
     return err("notParticipant", "you are not currently in this match lobby", 409);
   }
@@ -351,6 +367,7 @@ async function updateParticipant(
       and(
         eq(matchParticipants.matchId, matchId),
         eq(matchParticipants.userId, userId),
+        eq(matchParticipants.slotIndex, slotIndex),
         exists(
           db
             .select({ _: sql`1` })
@@ -388,14 +405,17 @@ async function diagnoseJoinFailure(
     return "privateJoinRequired";
   }
 
-  const existingUser = await db
-    .select({ value: sql<number>`1` })
-    .from(matchParticipants)
-    .where(and(eq(matchParticipants.matchId, matchId), eq(matchParticipants.userId, userId)))
-    .get();
+  const settings = parseMatchSettingsValue(row.settings);
+  if (!settings.ok || !settings.value.hotseatEnabled) {
+    const existingUser = await db
+      .select({ value: sql<number>`1` })
+      .from(matchParticipants)
+      .where(and(eq(matchParticipants.matchId, matchId), eq(matchParticipants.userId, userId)))
+      .get();
 
-  if (existingUser) {
-    return "alreadyJoined";
+    if (existingUser) {
+      return "hotseatDisabled";
+    }
   }
 
   return "slotTaken";
@@ -411,7 +431,7 @@ function joinFailureFromDiagnostics(diagnostics: MatchActionDiagnostics): MatchR
       return err("invalidSlot", "selected slot is outside the map's player count", 409);
     case "privateJoinRequired":
       return err("privateJoinRequired", "private match access was denied", 403);
-    case "alreadyJoined":
+    case "hotseatDisabled":
       return err("alreadyJoined", "you have already claimed a slot in this lobby", 409);
     case "slotTaken":
       return err("slotTaken", "that lobby slot has already been claimed", 409);
@@ -758,7 +778,8 @@ function toMatchBrowseSummary(
   };
 }
 
-function toMyMatchSummary(row: MyMatchRow, settings: MatchSettings): MyMatchSummary {
+function toMyMatchSummary(rows: MyMatchRow[], settings: MatchSettings): MyMatchSummary {
+  const row = rows[0]!;
   const participantCount = Number(row.participantCount);
 
   return {
@@ -775,14 +796,16 @@ function toMyMatchSummary(row: MyMatchRow, settings: MatchSettings): MyMatchSumm
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     startedAt: row.startedAt === null ? null : row.startedAt.toISOString(),
-    viewerParticipant: {
-      slotIndex: row.viewerSlotIndex,
-      factionId: row.viewerFactionId,
-      coId: row.viewerCoId,
-      ready: row.viewerReady,
-      joinedAt: row.viewerJoinedAt.toISOString(),
-      updatedAt: row.viewerUpdatedAt.toISOString(),
-    },
+    viewerParticipants: rows
+      .map((viewerRow) => ({
+        slotIndex: viewerRow.viewerSlotIndex,
+        factionId: viewerRow.viewerFactionId,
+        coId: viewerRow.viewerCoId,
+        ready: viewerRow.viewerReady,
+        joinedAt: viewerRow.viewerJoinedAt.toISOString(),
+        updatedAt: viewerRow.viewerUpdatedAt.toISOString(),
+      }))
+      .sort((a, b) => a.slotIndex - b.slotIndex),
   };
 }
 

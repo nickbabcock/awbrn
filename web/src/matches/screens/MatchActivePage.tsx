@@ -88,6 +88,10 @@ export function MatchActivePage({
         case "connected": {
           // A fresh connection supersedes whatever went wrong on the last one.
           setMatchError(null);
+          // A hotseat handoff to another seat of the same viewer closes the
+          // turn with this frame and not with a player update, so the end turn
+          // command must stop here too.
+          finishEndingTurn();
           setViewerSlotIndex(message.slotIndex);
           // The notice arrives before this frame and only ever for a spectator,
           // so holding a seat here means an earlier notice has gone stale.
