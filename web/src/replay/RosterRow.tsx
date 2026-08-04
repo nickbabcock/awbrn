@@ -76,12 +76,15 @@ function Readout({ icon, label, value }: { icon: ReactNode; label: string; value
  */
 export function RosterRow({
   isActive,
+  isViewer = false,
   name,
   onFactionChange,
   player,
   portraitCatalog,
 }: {
   isActive: boolean;
+  /** Marks the army the viewer is playing. A reviewer plays none of them. */
+  isViewer?: boolean;
   name: string;
   onFactionChange?: (factionId: number) => void | Promise<void>;
   player: PlayerRosterEntry;
@@ -124,6 +127,10 @@ export function RosterRow({
             <Text maxLines={1} weight="bold">
               {name}
             </Text>
+            {/* Neutral, not the accent: command orange is reserved for the one
+                action in the system, and this marks identity rather than a
+                thing to press. */}
+            {isViewer ? <Badge label="You" variant="neutral" /> : null}
             {player.eliminated ? <Badge label="Out" variant="error" /> : null}
           </HStack>
           {meta ? (

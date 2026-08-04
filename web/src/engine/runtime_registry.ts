@@ -7,7 +7,12 @@ interface RunnerLike {
 }
 
 interface RuntimeRegistryOptions {
-  onDisposeReplay?: () => void;
+  /**
+   * Called when a runner that reports game state goes away. The roster and day
+   * live outside the runner, so they have to be cleared with it; otherwise the
+   * next board shows the previous one's armies until the engine reports.
+   */
+  onDisposeGameState?: () => void;
 }
 
 const MATCH_LOBBY_PATH_PATTERN = /^\/matches\/[^/]+$/;
@@ -104,7 +109,7 @@ export class GameRuntimeRegistry<TRunner extends RunnerLike = GameRunner> {
 
     this.replayRunner.dispose();
     this.replayRunner = undefined;
-    this.options.onDisposeReplay?.();
+    this.options.onDisposeGameState?.();
   }
 
   private disposeActiveMatchRunner(): void {
@@ -114,5 +119,6 @@ export class GameRuntimeRegistry<TRunner extends RunnerLike = GameRunner> {
 
     this.activeMatchRunner.dispose();
     this.activeMatchRunner = undefined;
+    this.options.onDisposeGameState?.();
   }
 }
