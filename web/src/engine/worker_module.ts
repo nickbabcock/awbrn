@@ -32,6 +32,9 @@ export interface GameInstance {
   ) => Promise<void>;
   applyLiveTransition: (transition: ObservedTransition) => Promise<void>;
   setPlayerDisplayFaction: (playerId: number, factionId: number | null) => Promise<void>;
+  chooseUnitAction: (index: number) => Promise<void>;
+  dismissUnitAction: () => Promise<void>;
+  rejectPendingCommand: () => Promise<void>;
 }
 
 class WorkerInputBridge {
@@ -168,6 +171,18 @@ export const createGame = async (
     },
     setPlayerDisplayFaction: async (playerId: number, factionId: number | null) => {
       app.set_player_display_faction(playerId, factionId);
+    },
+    chooseUnitAction: async (index: number) => {
+      app.choose_unit_action(index);
+      app.update();
+    },
+    dismissUnitAction: async () => {
+      app.dismiss_unit_action();
+      app.update();
+    },
+    rejectPendingCommand: async () => {
+      app.reject_pending_command();
+      app.update();
     },
   });
 };

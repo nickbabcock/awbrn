@@ -1,5 +1,7 @@
 use crate::features::camera::{CameraScale, compute_map_dimensions};
 use awbrn_game::world::GameMap;
+use awbrn_map::Position;
+pub use awbrn_protocol::PostMoveAction;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -97,6 +99,52 @@ pub struct ProductionOption {
 pub struct ProductionOptionsChanged {
     pub site: Option<ProductionSite>,
     pub options: Vec<ProductionOption>,
+}
+
+/// One order on the destination menu.
+///
+/// Every entry here was accepted by the AWVM reducer against the recipient's
+/// own observation. The interface never decides what a unit may do.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct UnitActionOption {
+    /// The label the source game uses for this order.
+    pub name: String,
+    pub action: PostMoveAction,
+}
+
+/// The destination menu implied by the current proposal.
+/// `destination: None` tells presentation clients to close any open menu.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct UnitActionsChanged {
+    #[cfg_attr(
+        target_family = "wasm",
+        tsify(optional, type = "{ x: number; y: number }")
+    )]
+    pub destination: Option<Position>,
+    pub options: Vec<UnitActionOption>,
+    /// Which order to highlight first. A drag released on an enemy is explicit
+    /// attack intent, and the menu opens saying so.
+    pub preselected: Option<usize>,
+}
+
+/// An atomic move-and-act intent chosen on the live board. The browser forwards
+/// this as the server's `moveUnit` command; the outcome remains entirely
+/// authoritative on the server.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct MoveCommandRequested {
+    pub unit_id: u32,
+    #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }[]"))]
+    pub path: Vec<Position>,
+    pub action: PostMoveAction,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

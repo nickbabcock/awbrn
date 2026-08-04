@@ -491,3 +491,124 @@ fn can_act_reports_the_violation_the_reducer_would() {
         Err(query::QueryError::UnitNotFound(UnitId::new(4_242)))
     );
 }
+
+/// With fog off, a recipient sees everything, so the projection is lossless and
+/// `observed_actions_at` must answer exactly what `actions_at` answers.
+///
+/// This is what keeps the reification honest. It rebuilds a state from a
+/// projection, and the only way to know the rebuild lost nothing that bears on
+/// legality is to ask the reducer both ways and require the same verdict. Fog
+/// is excluded because there the projection is *meant* to lose facts; what the
+/// client gets then is advisory by contract.
+#[test]
+fn observed_actions_agree_with_authoritative_actions_without_fog() {
+    let mut checked = 0;
+    for (relative, case) in corpus() {
+        for state in states(&case) {
+            if state.settings.fog {
+                continue;
+            }
+            let recipient = state.turn.active_player.clone();
+            let Ok(observation) = observe(&AwbwVisibility, &state, &recipient) else {
+                continue;
+            };
+            let reified = query::reify(&observation).expect("fog-free observation must reify");
+
+            for subject in state.units.iter() {
+                if subject.owner != recipient || can_act(&state, subject.id) != Ok(Ok(())) {
+                    continue;
+                }
+                let Ok(field) = query::reachable(&state, subject.id) else {
+                    continue;
+                };
+
+                for (destination, _) in field.destinations() {
+                    let authoritative = query::actions_at(&state, subject.id, destination)
+                        .map(|actions| query::by_position(&state, actions));
+                    let observed = query::actions_at(&reified, subject.id, destination)
+                        .map(|actions| query::by_position(&reified, actions));
+                    assert_eq!(
+                        observed, authoritative,
+                        "{relative}: unit {} at {destination:?} disagrees between the \
+                         projection and the state it came from",
+                        subject.id
+                    );
+                    checked += 1;
+                }
+            }
+        }
+    }
+
+    assert!(
+        checked > 100,
+        "expected the fog-free corpus to exercise the projection, saw {checked} destinations"
+    );
+}
+
+/// With fog off, reifying an observation preserves the complete movement
+/// field, including route costs, stopping rules, and chosen paths.
+#[test]
+fn observed_reachable_agrees_with_authoritative_reachable_without_fog() {
+    let mut checked = 0;
+    for (relative, case) in corpus() {
+        for state in states(&case) {
+            if state.settings.fog {
+                continue;
+            }
+            let recipient = state.turn.active_player.clone();
+            let Ok(observation) = observe(&AwbwVisibility, &state, &recipient) else {
+                continue;
+            };
+
+            for subject in state.units.iter().filter(|unit| unit.owner == recipient) {
+                let authoritative = query::reachable(&state, subject.id);
+                let observed = query::observed_reachable(&observation, subject.id);
+                match (authoritative, observed) {
+                    (Ok(authoritative), Ok(observed)) => {
+                        let authoritative_steps: Vec<_> = authoritative
+                            .reach()
+                            .map(|(position, cost)| {
+                                (
+                                    position,
+                                    cost,
+                                    authoritative.can_stop_at(position),
+                                    authoritative.path_to(position),
+                                )
+                            })
+                            .collect();
+                        let observed_steps: Vec<_> = observed
+                            .reach()
+                            .map(|(position, cost)| {
+                                (
+                                    position,
+                                    cost,
+                                    observed.can_stop_at(position),
+                                    observed.path_to(position),
+                                )
+                            })
+                            .collect();
+                        assert_eq!(
+                            observed_steps, authoritative_steps,
+                            "{relative}: unit {} has a different observed movement field",
+                            subject.id
+                        );
+                        checked += 1;
+                    }
+                    (Err(authoritative), Err(observed)) => {
+                        assert_eq!(observed, authoritative, "{relative}")
+                    }
+                    (authoritative, observed) => panic!(
+                        "{relative}: unit {} disagrees while building its movement field: \
+                         authoritative={authoritative:?}, observed={observed:?}",
+                        subject.id
+                    ),
+                }
+            }
+        }
+    }
+
+    assert!(
+        checked > 20,
+        "expected the fog-free corpus to exercise movement"
+    );
+}

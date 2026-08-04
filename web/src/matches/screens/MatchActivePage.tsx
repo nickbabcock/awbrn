@@ -25,11 +25,13 @@ import type { InitialBoardMessage, MatchWebSocketMessage } from "#/matches/match
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
 import type { MatchParticipantSnapshot } from "#/matches/schemas.ts";
 import { BuildMenu } from "#/matches/components/BuildMenu.tsx";
+import { UnitActionMenu } from "#/matches/components/UnitActionMenu.tsx";
 import { RosterList, RosterRow } from "#/replay/RosterRow.tsx";
 import type {
   PlayerRosterEntry,
   PlayerRosterSnapshot,
   ProductionOptionsChanged,
+  UnitActionsChanged,
   UnitKind,
 } from "#/wasm/awbrn_wasm.js";
 
@@ -61,6 +63,9 @@ interface BoardPress {
  */
 const BUILD_SHEET_MEDIA = "(max-width: 767px)";
 
+/** Whether the primary pointer is a finger rather than a mouse. */
+const COARSE_POINTER_MEDIA = "(pointer: coarse)";
+
 /**
  * How long a press can still be the one that opened a menu. A selection made
  * from the keyboard has no press behind it, and a menu placed at a pointer that
@@ -80,6 +85,7 @@ export function MatchActivePage({
   const runner = useActiveMatchRunner();
   const playerRoster = useGameStore((state) => state.playerRoster);
   const productionOptions = useGameStore((state) => state.productionOptions);
+  const unitActions = useGameStore((state) => state.unitActions);
   const setProductionOptions = useGameStore((state) => state.actions.setProductionOptions);
   const livePlayers = useMemo<LiveMatchPlayer[]>(
     () =>
@@ -106,6 +112,15 @@ export function MatchActivePage({
     isEndingTurnRef.current = false;
     setIsEndingTurn(false);
   }, []);
+  // A command the server refuses, or one that never leaves, puts the board back
+  // the way it was: the unit selected at its origin with its route intact, so a
+  // retry is one press rather than the whole move again.
+  const restoreAfterRefusal = useCallback(() => {
+    void runner.rejectPendingCommand().catch((error) => {
+      console.error("Error restoring the board after a refused command:", error);
+    });
+  }, [runner]);
+
   const handleMatchMessage = useCallback(
     (message: MatchWebSocketMessage) => {
       switch (message.type) {
@@ -133,6 +148,7 @@ export function MatchActivePage({
         case "error": {
           finishEndingTurn();
           setMatchError(message.message);
+          restoreAfterRefusal();
           return;
         }
         case "spectatorNotice": {
@@ -159,9 +175,20 @@ export function MatchActivePage({
         }
       }
     },
-    [finishEndingTurn, runner],
+    [finishEndingTurn, restoreAfterRefusal, runner],
   );
   const { reconnect, sendMessage, status } = useMatchWebSocket(matchId, handleMatchMessage);
+
+  useEffect(() => {
+    runner.setLiveCommandHandler((command) => {
+      setMatchError(null);
+      if (!sendMessage(command)) {
+        setMatchError("The order could not be sent because the match connection is not open.");
+        restoreAfterRefusal();
+      }
+    });
+    return () => runner.setLiveCommandHandler(undefined);
+  }, [restoreAfterRefusal, runner, sendMessage]);
   // The army the build menu speaks for. Its treasury pays for the order, and
   // its sprites are the ones the menu shows, in whatever depiction the viewer
   // has chosen for it.
@@ -269,6 +296,7 @@ export function MatchActivePage({
             onEndTurn={handleEndTurn}
             players={livePlayers}
             productionOptions={productionOptions}
+            unitActions={unitActions}
             reconnect={reconnect}
             runner={runner}
             status={status}
@@ -335,6 +363,7 @@ function ActiveMatchBoard({
   onEndTurn,
   players,
   productionOptions,
+  unitActions,
   reconnect,
   runner,
   status,
@@ -352,6 +381,7 @@ function ActiveMatchBoard({
   onEndTurn: () => void;
   players: LiveMatchPlayer[];
   productionOptions: ProductionOptionsChanged | null;
+  unitActions: UnitActionsChanged | null;
   reconnect: () => void;
   runner: GameRunner;
   status: MatchWebSocketStatus;
@@ -366,6 +396,10 @@ function ActiveMatchBoard({
   onBoardErrorRef.current = onBoardError;
   const setProductionOptions = useGameActions().setProductionOptions;
   const isCompactViewport = useMediaQuery(BUILD_SHEET_MEDIA);
+  // What the last press was made with. The instructions below the board must
+  // describe the input the player actually has: telling a phone to hover, trace
+  // with Shift, and press Backspace describes a machine they are not holding.
+  const isCoarsePointer = useMediaQuery(COARSE_POINTER_MEDIA);
   const pressRef = useRef<BoardPress | null>(null);
   const [press, setPress] = useState<BoardPress | null>(null);
   const productionSite = productionOptions?.site;
@@ -393,19 +427,36 @@ function ActiveMatchBoard({
 
   // A menu belongs to the selection that opened it, so the press is read once,
   // when the engine reports the site, and then held still while the menu is up.
+  const openMenu = productionOptions ?? unitActions;
   useEffect(() => {
-    if (productionOptions === null) {
+    if (openMenu === null) {
       setPress(null);
       return;
     }
 
     const recent = pressRef.current;
     setPress(recent && performance.now() - recent.at < BOARD_PRESS_MAX_AGE_MS ? recent : null);
-  }, [productionOptions]);
+  }, [openMenu]);
 
   const dismissBuildMenu = useCallback(() => {
     setProductionOptions(null);
   }, [setProductionOptions]);
+
+  // The engine owns the selection, so a dismissal is reported to it rather than
+  // acted on here; it answers by closing the menu and stepping back to the unit.
+  const chooseUnitAction = useCallback(
+    (index: number) => {
+      void runner.chooseUnitAction(index).catch((error) => {
+        console.error("Error sending the chosen order:", error);
+      });
+    },
+    [runner],
+  );
+  const dismissUnitActions = useCallback(() => {
+    void runner.dismissUnitAction().catch((error) => {
+      console.error("Error dismissing the destination menu:", error);
+    });
+  }, [runner]);
 
   useEffect(() => {
     if (!initialBoard) return;
@@ -487,6 +538,24 @@ function ActiveMatchBoard({
             site={productionSite}
           />
         )}
+
+        {/* What the unit does where it is going. This is the only thing on the
+            board that commits an order, so it is the one place a move can be
+            reconsidered before it becomes real. */}
+        {unitActions === null || unitActions.destination === undefined ? null : (
+          <UnitActionMenu
+            anchor={press}
+            destination={unitActions.destination}
+            disabledReason={buildBlockedReason}
+            isEnabled={buildBlockedReason === undefined}
+            onChoose={chooseUnitAction}
+            onDismiss={dismissUnitActions}
+            onRestoreFocus={focus}
+            options={unitActions.options}
+            preselected={unitActions.preselected ?? undefined}
+            presentation={press?.isCoarse || isCompactViewport ? "sheet" : "board"}
+          />
+        )}
       </VStack>
 
       <HStack
@@ -498,14 +567,23 @@ function ActiveMatchBoard({
         wrap="wrap"
         xstyle={styles.boardHud}
       >
-        <HStack align="center" gap={2} wrap="wrap">
-          {/* Before the engine reports, there is no day to report. */}
-          {day === null ? null : <Badge label={`Day ${day}`} variant="info" />}
-          <Text type="supporting">
-            Map {match.mapId} · {match.maxPlayers} players ·{" "}
-            {match.settings.fogEnabled ? "Fog on" : "Fog off"}
-          </Text>
-        </HStack>
+        <VStack gap={1}>
+          <HStack align="center" gap={2} wrap="wrap">
+            {/* Before the engine reports, there is no day to report. */}
+            {day === null ? null : <Badge label={`Day ${day}`} variant="info" />}
+            <Text type="supporting">
+              Map {match.mapId} · {match.maxPlayers} players ·{" "}
+              {match.settings.fogEnabled ? "Fog on" : "Fog off"}
+            </Text>
+          </HStack>
+          {isViewerTurn ? (
+            <Text color="secondary" type="supporting">
+              {isCoarsePointer
+                ? "Move: drag a unit to where it goes, or tap it and tap a tile. Release on an enemy to attack. Choose the order from the menu."
+                : "Move: drag a unit, or click it and click a tile. Shift traces a custom route and Backspace undoes a step. Choose the order from the menu."}
+            </Text>
+          ) : null}
+        </VStack>
         {/* An <output> is a live region by default, so a drop is announced
             rather than only recolored. The dot repeats what the text beside it
             already says, so it is hidden from assistive technology. */}

@@ -345,7 +345,7 @@ fn commands(
                     player,
                     unit,
                     path,
-                    transport: unit_id(*transport_id),
+                    transport: command_unit_id(*transport_id)?,
                 }),
                 Some(PostMoveAction::Unload { cargo_id, position }) => Ok(vec![
                     Command::MoveWait {
@@ -356,7 +356,7 @@ fn commands(
                     Command::Unload {
                         player,
                         transport: unit,
-                        cargo: unit_id(*cargo_id),
+                        cargo: command_unit_id(*cargo_id)?,
                         destination: pos(*position),
                     },
                 ]),
@@ -367,7 +367,7 @@ fn commands(
                     player,
                     unit,
                     path,
-                    target: unit_id(*target_id),
+                    target: command_unit_id(*target_id)?,
                 }),
                 Some(PostMoveAction::Wait) | None => one(Command::MoveWait { player, unit, path }),
             }
@@ -567,6 +567,14 @@ fn faction_players(setup: &GameSetup) -> HashMap<PlayerFaction, PlayerId> {
 
 fn unit_id(id: ServerUnitId) -> UnitId {
     UnitId::new(u32::try_from(id.0).expect("server unit id exceeds AWVM's identifier domain"))
+}
+
+fn command_unit_id(id: u64) -> Result<UnitId, CommandError> {
+    u32::try_from(id)
+        .map(UnitId::new)
+        .map_err(|_| CommandError::InvalidAction {
+            reason: format!("unit id {id} exceeds AWVM's identifier domain"),
+        })
 }
 
 fn pos(position: Position) -> Pos {

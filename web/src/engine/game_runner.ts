@@ -7,7 +7,8 @@ import {
 } from "#/canvas_courier/index.ts";
 import type { AwbwMapData } from "#/awbw/schemas.ts";
 import type { ObservedTransition } from "#/wasm/awbrn_server.js";
-import type { GameEvent } from "#/wasm/awbrn_wasm.js";
+import type { GameEvent, MoveCommandRequested } from "#/wasm/awbrn_wasm.js";
+import type { MatchCommand } from "#/matches/match_protocol.ts";
 import type { LiveMatchPlayer } from "./worker_module";
 import { gameAssetConfig } from "./asset_manifest";
 import { useGameStore } from "./store";
@@ -22,6 +23,7 @@ export class GameRunner implements CanvasCourierController {
   private createGamePromise: Promise<GameInstance> | undefined;
   private game: GameInstance | undefined;
   private pendingLiveTransitions: ObservedTransition[] = [];
+  private liveCommandHandler: ((command: MatchCommand) => void) | undefined;
   private rawWorker: Worker | undefined;
   private surfaceVersion = 0;
   private readonly transport = new CanvasCourierTransport();
@@ -86,9 +88,14 @@ export class GameRunner implements CanvasCourierController {
     await game.setPlayerDisplayFaction(playerId, factionId);
   }
 
+  setLiveCommandHandler(handler: ((command: MatchCommand) => void) | undefined): void {
+    this.liveCommandHandler = handler;
+  }
+
   dispose(): void {
     this.surfaceVersion += 1;
     this.activeSurface = undefined;
+    this.liveCommandHandler = undefined;
     this.transport.dispose();
     this.game = undefined;
     this.pendingLiveTransitions = [];
@@ -159,10 +166,58 @@ export class GameRunner implements CanvasCourierController {
           .actions.setProductionOptions(event.site === undefined ? null : event);
         break;
       }
+      case "MoveCommandRequested": {
+        this.handleMoveCommandRequest(event);
+        break;
+      }
+      case "UnitActionsChanged": {
+        useGameStore
+          .getState()
+          .actions.setUnitActions(event.destination === undefined ? null : event);
+        break;
+      }
       default: {
         break;
       }
     }
+  }
+
+  /**
+   * The engine decided; the browser only carries it. The action arrives in the
+   * server's own `PostMoveAction` shape, so nothing is reinterpreted here.
+   */
+  private handleMoveCommandRequest(request: MoveCommandRequested): void {
+    if (!this.liveCommandHandler) {
+      console.error("GameRunner received a move command without a live command handler");
+      return;
+    }
+    this.liveCommandHandler({
+      type: "moveUnit",
+      unit_id: request.unitId,
+      path: request.path,
+      action: request.action,
+    });
+  }
+
+  /** Send the order at this index on the menu the engine last offered. */
+  async chooseUnitAction(index: number): Promise<void> {
+    const game = await this.requireGame();
+    await game.chooseUnitAction(index);
+  }
+
+  /** Dismiss the destination menu, stepping back to the selected unit. */
+  async dismissUnitAction(): Promise<void> {
+    const game = await this.requireGame();
+    await game.dismissUnitAction();
+  }
+
+  /**
+   * Put the board back after the server refused the command that was sent, so
+   * the player adjusts and retries rather than starting the move again.
+   */
+  async rejectPendingCommand(): Promise<void> {
+    const game = await this.requireGame();
+    await game.rejectPendingCommand();
   }
 
   private prepareCanvasForAttachment(surface: GameSurface, size: CanvasSize): void {

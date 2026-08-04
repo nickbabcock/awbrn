@@ -680,7 +680,7 @@ fn entity_for_observed_unit(
     }
 }
 
-fn position_from_pos(position: Pos) -> awbrn_map::Position {
+pub(crate) fn position_from_pos(position: Pos) -> awbrn_map::Position {
     awbrn_map::Position::new(usize::from(position.x), usize::from(position.y))
 }
 

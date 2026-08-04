@@ -460,6 +460,7 @@ dependencies = [
  "awbrn-content",
  "awbrn-game",
  "awbrn-map",
+ "awbrn-protocol",
  "awbrn-types",
  "awbw-replay",
  "awvm",
@@ -538,11 +539,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "awbrn-protocol"
+version = "0.1.0"
+dependencies = [
+ "awbrn-map",
+ "serde",
+ "tsify",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "awbrn-server"
 version = "0.1.0"
 dependencies = [
  "awbrn-game",
  "awbrn-map",
+ "awbrn-protocol",
  "awbrn-types",
  "awvm",
  "bevy",

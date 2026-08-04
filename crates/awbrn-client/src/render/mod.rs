@@ -1,4 +1,5 @@
 pub mod animation;
+pub(crate) mod course_arrow;
 pub mod fog_overlay;
 pub mod map;
 pub mod units;

@@ -23,7 +23,7 @@
 //! None of this is authoritative. A server still executes the command it
 //! receives; this exists so a client can offer commands the server will take.
 
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashSet};
 
 use crate::commander::{self, Domain};
 use crate::event::AttackTarget;
@@ -49,6 +49,8 @@ pub enum QueryError {
     UnitNotOnBoard(UnitId),
     #[error("unit {unit} is owned by unknown player {owner}")]
     UnknownOwner { unit: UnitId, owner: PlayerId },
+    #[error("this observation does not describe a whole board: {0}")]
+    Unprojectable(&'static str),
 }
 
 /// An entropy source for probing, which answers every draw with the lowest
@@ -145,6 +147,8 @@ pub struct MoveField {
     height: u8,
     /// Row-major, one entry per tile, `None` where the unit cannot reach.
     steps: Vec<Option<Step>>,
+    entry_costs: Vec<Option<u64>>,
+    route_blocked: Vec<bool>,
     budget: u64,
 }
 
@@ -226,6 +230,34 @@ impl MoveField {
         path.reverse();
         Some(path)
     }
+
+    /// Validate and price a caller-chosen route through this field.
+    ///
+    /// This preserves deliberate routes drawn by an interface without making
+    /// that interface restate weather, movement, occupancy, or teleporter
+    /// rules. The route must begin at this field's origin; a blocking tile may
+    /// be named only as its final destination (for attack, join, or load).
+    pub fn route_cost(&self, path: &[Pos]) -> Option<u64> {
+        if path.first() != Some(&self.origin) {
+            return None;
+        }
+        let mut total = 0_u64;
+        for (edge_index, edge) in path.windows(2).enumerate() {
+            if !edge[0].orthogonal().any(|position| position == edge[1]) {
+                return None;
+            }
+            let index = self.index(edge[1])?;
+            let is_last = edge_index + 2 == path.len();
+            if self.route_blocked[index] && !is_last {
+                return None;
+            }
+            total = total.checked_add(self.entry_costs[index]?)?;
+            if total > self.budget {
+                return None;
+            }
+        }
+        Some(total)
+    }
 }
 
 /// Everywhere `unit` can move, under the rules the reducer would apply.
@@ -258,6 +290,16 @@ pub fn reachable(state: &State, unit: UnitId) -> Result<MoveField, QueryError> {
     let weather = commander::effective_weather(state, subject);
     let (width, height) = (state.board.width(), state.board.height());
     let occupancy = Occupancy::new(state, subject, &team);
+
+    let mut entry_costs = Vec::with_capacity(usize::from(width) * usize::from(height));
+    let mut route_blocked = Vec::with_capacity(entry_costs.capacity());
+    for y in 0..height {
+        for x in 0..width {
+            let position = Pos::new(x, y);
+            entry_costs.push(entry_cost(state, subject, position, weather));
+            route_blocked.push(occupancy.blocks_route(position));
+        }
+    }
 
     let mut steps: Vec<Option<Step>> = vec![None; usize::from(width) * usize::from(height)];
     let index_of =
@@ -319,8 +361,32 @@ pub fn reachable(state: &State, unit: UnitId) -> Result<MoveField, QueryError> {
         width,
         height,
         steps,
+        entry_costs,
+        route_blocked,
         budget,
     })
+}
+
+/// Everywhere the recipient-safe observation says `unit` can go.
+///
+/// This is [`reachable`] for a client that holds an [`Observation`] rather
+/// than a [`State`], and the movement counterpart of [`observed_actions_at`]:
+/// the observation is reified into a provisional state and the same search
+/// runs against it, so no movement rule is restated on the client.
+///
+/// This deliberately cannot account for facts hidden by fog. A hidden blocker
+/// can make an offered destination unreachable, and the field is advisory in
+/// the same way [`observed_actions_at`] is; executing the command against
+/// authoritative state remains the final validation step.
+///
+/// Only friendly units are nameable here. Enemy identities are deliberately
+/// absent from an observation, so this is not a threat-range query.
+pub fn observed_reachable(
+    observation: &Observation,
+    unit: UnitId,
+) -> Result<MoveField, QueryError> {
+    let state = reify(observation)?;
+    reachable(&state, unit)
 }
 
 /// What `unit` may do if it moves to `destination`.
@@ -365,6 +431,302 @@ impl ActionSet {
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
     }
+}
+
+/// What a recipient may do at a destination, named the way a recipient can name
+/// it.
+///
+/// This is [`ActionSet`] with every target given as a position instead of a
+/// unit id. A projection carries no id for an enemy — `ObservedUnitRef::Enemy`
+/// holds only a position — so an id derived from one is an invention of the
+/// reification and means nothing to the server that would receive it. Reporting
+/// positions keeps that invention inside this module.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ObservedActionSet {
+    /// Move there and end the unit's turn.
+    pub wait: bool,
+    /// Begin or continue capturing the property underfoot.
+    pub capture: bool,
+    /// Merge into the unit already standing there.
+    pub join: bool,
+    /// Board the transport already standing there.
+    pub load: bool,
+    /// Resupply adjacent friendly units from there.
+    pub supply: bool,
+    /// Enter hidden state.
+    pub hide: bool,
+    /// Leave hidden state.
+    pub reveal: bool,
+    /// Self-destruct, damaging the surrounding area.
+    pub explode: bool,
+    /// Where this unit may fire from that destination.
+    pub attack: Vec<Pos>,
+    /// Where the friendly units it may repair are standing.
+    pub repair: Vec<Pos>,
+    /// Tiles a missile silo underfoot may be fired at.
+    pub launch: Vec<Pos>,
+}
+
+impl ObservedActionSet {
+    /// Whether any command at all is available at this destination.
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Whether the recipient is the one on turn, in the phase where units take
+/// orders, in a match that is still running under a ruleset this crate models.
+///
+/// Every observed-side query answers with nothing when this is false: an
+/// observation the recipient cannot act on offers no commands at all.
+fn recipient_may_command(observation: &Observation) -> bool {
+    ruleset::supports(&observation.ruleset)
+        && observation.turn.active_player == observation.recipient
+        && observation.turn.phase == crate::semantic::Phase::UnitAction
+        && matches!(observation.match_state, ObservedMatch::Active { .. })
+}
+
+/// Which commands the recipient-safe observation says `unit` has at
+/// `destination`.
+///
+/// This is [`actions_at`] for a client that holds an [`Observation`] rather
+/// than a [`State`]. It does not restate a single rule: the observation is
+/// reified into a provisional state and the reducer answers, exactly as it does
+/// for the authoritative caller. What the recipient cannot see is filled with
+/// the most conservative reading, so the reducer is never told a fact the
+/// projection withheld.
+///
+/// This deliberately cannot account for facts hidden by fog. A hidden blocker
+/// can make an offered command illegal, and a hidden target can make a legal
+/// one missing. The returned set is advisory; executing the selected command
+/// against authoritative state is still the final validation step.
+pub fn observed_actions_at(
+    observation: &Observation,
+    unit: UnitId,
+    destination: Pos,
+) -> Result<ObservedActionSet, QueryError> {
+    if !recipient_may_command(observation) {
+        return Ok(ObservedActionSet::default());
+    }
+
+    let state = reify(observation)?;
+    Ok(by_position(&state, actions_at(&state, unit, destination)?))
+}
+
+/// Restate an [`ActionSet`]'s targets as the positions its units occupy.
+///
+/// A unit named by an action is on the board by construction — the reducer
+/// accepted a command against it — so an id that resolves to nothing is
+/// dropped rather than guessed at.
+///
+/// Targets come back in map order. The reducer reports them in unit order,
+/// which a projection is free to permute, and a menu whose entries move between
+/// two readings of the same board is a menu that cannot be trusted.
+pub fn by_position(state: &State, actions: ActionSet) -> ObservedActionSet {
+    let ActionSet {
+        wait,
+        capture,
+        join,
+        load,
+        supply,
+        hide,
+        reveal,
+        explode,
+        attack,
+        repair,
+        launch,
+    } = actions;
+    let position_of = |unit: UnitId| match state.units.get(unit).map(|unit| &unit.location) {
+        Some(Location::Board { position }) => Some(*position),
+        _ => None,
+    };
+
+    let in_map_order = |mut positions: Vec<Pos>| {
+        positions.sort();
+        positions.dedup();
+        positions
+    };
+
+    ObservedActionSet {
+        wait,
+        capture,
+        join,
+        load,
+        supply,
+        hide,
+        reveal,
+        explode,
+        attack: in_map_order(
+            attack
+                .into_iter()
+                .filter_map(|target| match target {
+                    AttackTarget::Unit { unit } => position_of(unit),
+                    AttackTarget::Tile { position } => Some(position),
+                })
+                .collect(),
+        ),
+        repair: in_map_order(repair.into_iter().filter_map(position_of).collect()),
+        launch: in_map_order(launch),
+    }
+}
+
+/// Rebuild a provisional [`State`] from one recipient's [`Observation`].
+///
+/// Every censored fact is replaced by the reading that cannot invent a
+/// capability: an opponent's treasury becomes zero, because funds only ever
+/// unlock commands, and an enemy the projection did not report simply is not
+/// there. Enemy units carry no identity in a projection, so they are given
+/// synthetic ids above every real one, which keeps them distinguishable to the
+/// reducer without colliding with a friendly unit's id.
+pub fn reify(observation: &Observation) -> Result<State, QueryError> {
+    let board = crate::semantic::Board::new(
+        observation.board.width(),
+        observation.board.height(),
+        board_tiles(observation),
+    )
+    .map_err(|_| QueryError::Unprojectable("its board is not a whole rectangle"))?;
+
+    let units = crate::semantic::UnitStore::new(reified_units(observation))
+        .map_err(|_| QueryError::Unprojectable("it names one unit twice"))?;
+
+    Ok(State {
+        ruleset: observation.ruleset.clone(),
+        settings: observation.settings.clone(),
+        board,
+        teams: observation.teams.clone(),
+        players: observation.players.iter().map(reified_player).collect(),
+        turn: observation.turn.clone(),
+        weather: observation.weather.clone(),
+        units,
+        next_unit_id: None,
+        match_state: match &observation.match_state {
+            ObservedMatch::Active { own_team_offers } => crate::semantic::Match::Active {
+                draw_offers: own_team_offers.clone(),
+            },
+            ObservedMatch::Finished { outcome } => crate::semantic::Match::Finished {
+                outcome: outcome.clone(),
+            },
+        },
+    })
+}
+
+fn board_tiles(observation: &Observation) -> Vec<crate::semantic::Tile> {
+    let mut tiles = Vec::with_capacity(
+        usize::from(observation.board.width()) * usize::from(observation.board.height()),
+    );
+    for y in 0..observation.board.height() {
+        for x in 0..observation.board.width() {
+            let observed = observation.board.tile(Pos::new(x, y));
+            let mut tile = crate::semantic::Tile::new(observed.terrain);
+            tile.owner = observed.owner.clone();
+            tile.capture_points = observed.capture_points;
+            tile.silo = observed.silo;
+            tile.set_destructible_hp(observed.destructible_hp());
+            tile.set_teleporter(observed.teleporter().cloned());
+            tiles.push(tile);
+        }
+    }
+    tiles
+}
+
+/// An opponent's private state is unknown, so it is filled with the reading
+/// that grants nothing: no funds, and their powers described only as far as the
+/// projection describes them.
+fn reified_player(player: &ObservedPlayer) -> crate::semantic::Player {
+    match player {
+        ObservedPlayer::Private {
+            id,
+            team,
+            funds,
+            status,
+            commanders,
+            power_state,
+            ..
+        } => crate::semantic::Player {
+            id: id.clone(),
+            team: team.clone(),
+            funds: *funds,
+            status: *status,
+            commanders: commanders.clone(),
+            power_state: power_state.clone(),
+        },
+        ObservedPlayer::Public {
+            id,
+            team,
+            status,
+            commanders,
+            power_state,
+            ..
+        } => crate::semantic::Player {
+            id: id.clone(),
+            team: team.clone(),
+            funds: 0,
+            status: *status,
+            commanders: commanders
+                .iter()
+                .map(|commander| crate::semantic::Commander {
+                    id: commander.id,
+                    active: commander.active,
+                    power_charge: commander.power_charge,
+                    power_uses: commander.power_uses,
+                })
+                .collect(),
+            power_state: power_state.clone(),
+        },
+    }
+}
+
+fn reified_units(observation: &Observation) -> Vec<Unit> {
+    let mut next_synthetic = observation
+        .units
+        .iter()
+        .filter_map(|unit| match unit.reference {
+            crate::semantic::ObservedUnitRef::Friendly { unit } => Some(unit.get()),
+            crate::semantic::ObservedUnitRef::Enemy { .. } => None,
+        })
+        .max()
+        .map_or(1, |highest| highest.saturating_add(1));
+
+    let mut ids = Vec::with_capacity(observation.units.len());
+    let mut known_ids = HashSet::with_capacity(observation.units.len());
+    for observed in &observation.units {
+        let id = match observed.reference {
+            crate::semantic::ObservedUnitRef::Friendly { unit } => unit,
+            crate::semantic::ObservedUnitRef::Enemy { .. } => {
+                let synthetic = UnitId::new(next_synthetic);
+                next_synthetic = next_synthetic.saturating_add(1);
+                synthetic
+            }
+        };
+        ids.push(id);
+        known_ids.insert(id);
+    }
+
+    observation
+        .units
+        .iter()
+        .zip(&ids)
+        .filter(|(observed, _)| {
+            // A projection never names an enemy transport, so an enemy's cargo
+            // has no id to be held by. Dropping it is the conservative reading:
+            // cargo influences no command issued from outside its transport.
+            match observed.location {
+                Location::Cargo { transport, .. } => known_ids.contains(&transport),
+                Location::Board { .. } => true,
+            }
+        })
+        .map(|(observed, id)| Unit {
+            id: *id,
+            kind: observed.kind,
+            owner: observed.owner.clone(),
+            hp: observed.hp,
+            fuel: observed.fuel,
+            ammo: observed.ammo,
+            action: observed.action,
+            concealment: observed.concealment,
+            location: observed.location.clone(),
+        })
+        .collect()
 }
 
 /// Enumerate every command `unit` could issue ending at `destination`.
@@ -614,11 +976,7 @@ pub fn observed_production_options(
     observation: &Observation,
     position: Pos,
 ) -> Vec<ObservedProductionOption> {
-    if !ruleset::supports(&observation.ruleset)
-        || observation.turn.active_player != observation.recipient
-        || observation.turn.phase != crate::semantic::Phase::UnitAction
-        || !matches!(observation.match_state, ObservedMatch::Active { .. })
-    {
+    if !recipient_may_command(observation) {
         return Vec::new();
     }
 
