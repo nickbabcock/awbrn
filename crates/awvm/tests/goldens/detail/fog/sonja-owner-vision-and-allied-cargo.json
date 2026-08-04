@@ -122,7 +122,8 @@
             {
               "active": true,
               "id": "neutral",
-              "power_charge": 0
+              "power_charge": 0,
+              "power_uses": 0
             }
           ],
           "id": "enemy",
@@ -370,7 +371,8 @@
             {
               "active": true,
               "id": "sonja",
-              "power_charge": 0
+              "power_charge": 0,
+              "power_uses": 1
             }
           ],
           "id": "sonja",
@@ -387,7 +389,8 @@
             {
               "active": true,
               "id": "neutral",
-              "power_charge": 0
+              "power_charge": 0,
+              "power_uses": 0
             }
           ],
           "id": "ally",
@@ -695,7 +698,8 @@
             {
               "active": true,
               "id": "neutral",
-              "power_charge": 0
+              "power_charge": 0,
+              "power_uses": 0
             }
           ],
           "id": "enemy",
@@ -985,7 +989,8 @@
                 {
                   "active": true,
                   "id": "neutral",
-                  "power_charge": 0
+                  "power_charge": 0,
+                  "power_uses": 0
                 }
               ],
               "id": "enemy",
@@ -1233,7 +1238,8 @@
                 {
                   "active": true,
                   "id": "sonja",
-                  "power_charge": 0
+                  "power_charge": 0,
+                  "power_uses": 1
                 }
               ],
               "id": "sonja",
@@ -1250,7 +1256,8 @@
                 {
                   "active": true,
                   "id": "neutral",
-                  "power_charge": 0
+                  "power_charge": 0,
+                  "power_uses": 0
                 }
               ],
               "id": "ally",
@@ -1558,7 +1565,8 @@
                 {
                   "active": true,
                   "id": "neutral",
-                  "power_charge": 0
+                  "power_charge": 0,
+                  "power_uses": 0
                 }
               ],
               "id": "enemy",

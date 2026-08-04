@@ -34,8 +34,10 @@ The observation contains:
   current. Terrain and teleporter topology are map data and are always present
   when applicable;
 - players sorted by authoritative player order. `relation` is `self`, `ally`,
-  or `opponent`. Funds and power-use counts are team-private. Exact power
-  charge, commander identity, active slot, active power and status are public;
+  or `opponent`. Funds are team-private. Exact power charge, power-use count,
+  commander identity, active slot, active power and status are public. A client
+  can derive the current COP and SCOP costs from the public commander state and
+  the referenced ruleset;
 - own and allied units, including cargo, plus enemy on-board units satisfying
   `visible-unit`. Each unit carries a tagged `ref`, never an untyped `id`.
   Friendly references sort first by ascending numeric unit ID, followed by
@@ -52,8 +54,7 @@ The observation contains:
 Settings remain public, but secrets are recipient-specific even when fog is
 disabled. With fog disabled every mutable tile and every exposed on-board enemy
 unit is visible; a submerged Sub or hidden Stealth still requires concealment
-detection. Opponent funds, power-use counts, cargo and draw offers remain
-private.
+detection. Opponent funds, cargo and draw offers remain private.
 
 ### Unit references
 
@@ -296,7 +297,7 @@ the observation, so there is no payload that could be emitted.
 `power-charge-changed{player, commander_slot, from, to, reason}` is global. It
 emits one `player-changed` containing the post-state player entry to every
 recipient. Opponent commander entries expose exact charge but continue to omit
-funds and power-use counters.
+funds only.
 
 `draw-offer-changed{player, offered}` emits
 `public-event{kind: "draw-offer-changed"}` when `player` is a team member, and

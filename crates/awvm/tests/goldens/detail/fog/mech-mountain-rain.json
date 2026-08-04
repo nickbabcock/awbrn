@@ -57,7 +57,8 @@
             {
               "active": true,
               "id": "andy",
-              "power_charge": 0
+              "power_charge": 0,
+              "power_uses": 0
             }
           ],
           "id": "p2",
@@ -200,7 +201,8 @@
             {
               "active": true,
               "id": "andy",
-              "power_charge": 0
+              "power_charge": 0,
+              "power_uses": 0
             }
           ],
           "id": "p1",
@@ -361,7 +363,8 @@
                 {
                   "active": true,
                   "id": "andy",
-                  "power_charge": 0
+                  "power_charge": 0,
+                  "power_uses": 0
                 }
               ],
               "id": "p2",
@@ -504,7 +507,8 @@
                 {
                   "active": true,
                   "id": "andy",
-                  "power_charge": 0
+                  "power_charge": 0,
+                  "power_uses": 0
                 }
               ],
               "id": "p1",

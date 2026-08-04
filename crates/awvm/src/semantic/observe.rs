@@ -314,6 +314,7 @@ pub struct PublicCommander {
     pub id: CommanderId,
     pub active: bool,
     pub power_charge: u64,
+    pub power_uses: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "kebab-case")]
@@ -646,6 +647,7 @@ fn projected_player(player: &super::Player, recipient: &PlayerId, team: &TeamId)
                     id: commander.id,
                     active: commander.active,
                     power_charge: commander.power_charge,
+                    power_uses: commander.power_uses,
                 })
                 .collect(),
             power_state: player.power_state.clone(),

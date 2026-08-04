@@ -195,7 +195,7 @@
           "team": "t2",
           "relation": "opponent",
           "status": "active",
-          "commanders": [{ "id": "andy", "active": true, "power_charge": 0 }],
+          "commanders": [{ "id": "andy", "active": true, "power_charge": 0, "power_uses": 0 }],
           "power_state": { "type": "none" }
         }
       ],

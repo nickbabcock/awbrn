@@ -114,7 +114,7 @@
       "match": { "own_team_offers": [], "status": "active" },
       "players": [
         {
-          "commanders": [{ "active": true, "id": "neutral", "power_charge": 0 }],
+          "commanders": [{ "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }],
           "id": "red",
           "power_state": { "type": "none" },
           "relation": "opponent",
@@ -324,7 +324,9 @@
             "match": { "own_team_offers": [], "status": "active" },
             "players": [
               {
-                "commanders": [{ "active": true, "id": "neutral", "power_charge": 0 }],
+                "commanders": [
+                  { "active": true, "id": "neutral", "power_charge": 0, "power_uses": 0 }
+                ],
                 "id": "red",
                 "power_state": { "type": "none" },
                 "relation": "opponent",

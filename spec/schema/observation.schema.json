@@ -98,11 +98,12 @@
     "public-commander": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "active", "power_charge"],
+      "required": ["id", "active", "power_charge", "power_uses"],
       "properties": {
         "id": { "$ref": "common.schema.json#/$defs/commander-id" },
         "active": { "type": "boolean" },
-        "power_charge": { "type": "integer", "minimum": 0 }
+        "power_charge": { "type": "integer", "minimum": 0 },
+        "power_uses": { "type": "integer", "minimum": 0 }
       }
     },
     "private-commander": {

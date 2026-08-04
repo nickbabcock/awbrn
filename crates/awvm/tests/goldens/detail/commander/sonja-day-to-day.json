@@ -33,7 +33,8 @@
             {
               "active": true,
               "id": "sonja",
-              "power_charge": 0
+              "power_charge": 0,
+              "power_uses": 0
             }
           ],
           "id": "red",
@@ -206,7 +207,8 @@
             {
               "active": true,
               "id": "neutral",
-              "power_charge": 0
+              "power_charge": 0,
+              "power_uses": 0
             }
           ],
           "id": "blue",
@@ -348,7 +350,8 @@
                 {
                   "active": true,
                   "id": "sonja",
-                  "power_charge": 1750
+                  "power_charge": 1750,
+                  "power_uses": 0
                 }
               ],
               "id": "red",
@@ -521,7 +524,8 @@
                 {
                   "active": true,
                   "id": "neutral",
-                  "power_charge": 0
+                  "power_charge": 0,
+                  "power_uses": 0
                 }
               ],
               "id": "blue",
@@ -698,7 +702,8 @@
                 {
                   "active": true,
                   "id": "sonja",
-                  "power_charge": 1750
+                  "power_charge": 1750,
+                  "power_uses": 0
                 }
               ],
               "id": "red",
