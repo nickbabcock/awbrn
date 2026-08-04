@@ -58,13 +58,16 @@ impl PlayerFunds {
 /// Public CO power meter values for the active commander of each player.
 ///
 /// The current charge and use count are public AWVM facts. COP and SCOP costs
-/// are calculated through AWVM's revisioned commander query, keeping the UI
-/// payload self-contained without duplicating the scaling formula.
+/// and the value of one star are calculated through AWVM's revisioned commander
+/// query, keeping the UI payload self-contained without duplicating the scaling
+/// formula.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlayerPowerMeter {
     pub charge: u32,
     pub cop_cost: Option<u32>,
     pub scop_cost: Option<u32>,
+    /// Charge that one star is worth at this player's current use count.
+    pub star_charge: Option<u32>,
 }
 
 #[derive(Resource, Clone, Default)]
@@ -272,6 +275,9 @@ pub fn active_power_meter(player: &ObservedPlayer) -> Option<PlayerPowerMeter> {
         charge: u32::try_from(charge).ok()?,
         cop_cost: cost(awvm::commander::PowerLevel::Cop),
         scop_cost: cost(awvm::commander::PowerLevel::Scop),
+        star_charge: awvm::commander::power_star_charge(power_uses)
+            .ok()
+            .and_then(|charge| u32::try_from(charge).ok()),
     })
 }
 
@@ -466,6 +472,7 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
                     power_charge: power_meter.map(|meter| meter.charge),
                     cop_cost: power_meter.and_then(|meter| meter.cop_cost),
                     scop_cost: power_meter.and_then(|meter| meter.scop_cost),
+                    power_star_charge: power_meter.and_then(|meter| meter.star_charge),
                     stats,
                 }
             })

@@ -662,6 +662,16 @@ pub fn power_activation_cost(
         .map(|activation| activation.map(|activation| activation.cost))
 }
 
+/// Return the charge that one power star is worth at the given use count.
+///
+/// A power meter is drawn in stars, so a renderer needs the value of one
+/// segment as well as the level costs. This is the same revisioned scaling that
+/// [`power_activation_cost`] applies, so a cost divided by this value always
+/// gives that level's whole star count.
+pub fn power_star_charge(power_uses: u64) -> Result<u64, PowerActivationError> {
+    scaled_power_charge(power_table(), 1, power_uses)
+}
+
 fn scaled_power_charge(
     table: &PowerTable,
     stars: u64,
@@ -1218,7 +1228,7 @@ pub fn effective_weather(state: &State, unit: &Unit) -> WeatherKind {
 mod tests {
     use super::{
         CommanderKind, InstantEffect, PowerLevel, UnitTarget, maximum_power_charge,
-        power_activation,
+        power_activation, power_activation_cost, power_star_charge,
     };
 
     #[test]
@@ -1287,5 +1297,26 @@ mod tests {
             maximum_power_charge(CommanderKind::Adder, 1).unwrap(),
             Some(54_000)
         );
+    }
+
+    #[test]
+    fn a_star_is_worth_a_whole_division_of_every_power_cost() {
+        for uses in 0..=12 {
+            let star = power_star_charge(uses).unwrap();
+            for level in [PowerLevel::Cop, PowerLevel::Scop] {
+                let Some(cost) = power_activation_cost(CommanderKind::Hawke, level, uses).unwrap()
+                else {
+                    continue;
+                };
+                assert_eq!(cost % star, 0, "level {level:?} at {uses} uses");
+            }
+        }
+
+        // The price rises 20% of the base for every power used, and stops
+        // rising after ten.
+        assert_eq!(power_star_charge(0).unwrap(), 9_000);
+        assert_eq!(power_star_charge(1).unwrap(), 10_800);
+        assert_eq!(power_star_charge(10).unwrap(), 27_000);
+        assert_eq!(power_star_charge(50).unwrap(), 27_000);
     }
 }
