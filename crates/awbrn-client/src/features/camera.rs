@@ -1,4 +1,4 @@
-use crate::core::coords::{map_visual_top_world_y, map_visual_world_size};
+use crate::core::coords::map_visual_world_size;
 use crate::features::event_bus::{EventSink, MapDimensions};
 use crate::loading::ClientAssetLoader;
 use crate::render::UnitAtlasResource;
@@ -215,44 +215,6 @@ fn apply_camera_scale_to_projection(camera_scale: CameraScale, projection: &mut 
     }
 }
 
-fn clamp_camera_translation(
-    transform: &mut Transform,
-    window: &Window,
-    game_map: &GameMap,
-    world_units_per_viewport_pixel: f32,
-) {
-    let map_size = map_world_size(game_map);
-    if map_size.x <= 0.0 || map_size.y <= 0.0 {
-        return;
-    }
-
-    let visible_size = Vec2::new(window.width(), window.height()) * world_units_per_viewport_pixel;
-    let half_visible = visible_size * 0.5;
-    let left = -map_size.x * 0.5;
-    let right = map_size.x * 0.5;
-    let top = map_visual_top_world_y(game_map);
-    let bottom = top - map_size.y;
-    let center = Vec2::new((left + right) * 0.5, (top + bottom) * 0.5);
-
-    transform.translation.x = if visible_size.x >= map_size.x {
-        center.x
-    } else {
-        transform
-            .translation
-            .x
-            .clamp(left + half_visible.x, right - half_visible.x)
-    };
-
-    transform.translation.y = if visible_size.y >= map_size.y {
-        center.y
-    } else {
-        transform
-            .translation
-            .y
-            .clamp(bottom + half_visible.y, top - half_visible.y)
-    };
-}
-
 fn zoom_camera_at_viewport_position(
     transform: &mut Transform,
     projection: &mut Projection,
@@ -284,7 +246,6 @@ fn zoom_camera_at_viewport_position(
         viewport_position,
     );
     transform.translation += (before - after).extend(0.0);
-    clamp_camera_translation(transform, window, game_map, after_projection_scale);
 }
 
 fn handle_camera_scaling(
@@ -414,7 +375,6 @@ fn handle_touch_camera(
             };
             let world_delta = viewport_delta_to_world_delta(viewport_delta, projection_scale);
             transform.translation -= world_delta.extend(0.0);
-            clamp_camera_translation(&mut transform, window, game_map.as_ref(), projection_scale);
         }
         2 => {
             let contacts = touch_state.contacts.values().copied().collect::<Vec<_>>();
@@ -456,12 +416,6 @@ fn handle_touch_camera(
                     current_centroid,
                 );
                 transform.translation += (before - after).extend(0.0);
-                clamp_camera_translation(
-                    &mut transform,
-                    window,
-                    game_map.as_ref(),
-                    after_projection_scale,
-                );
             }
         }
         _ => {}
@@ -473,8 +427,6 @@ fn handle_touch_camera(
 }
 
 fn handle_mouse_pan(
-    windows: Query<&Window>,
-    game_map: Res<GameMap>,
     mut pan_state: ResMut<MousePanState>,
     mut button_reader: MessageReader<MouseButtonInput>,
     mut cursor_reader: MessageReader<CursorMoved>,
@@ -492,9 +444,6 @@ fn handle_mouse_pan(
         return;
     }
 
-    let Ok(window) = windows.single() else {
-        return;
-    };
     let Ok((projection, mut transform)) = query.single_mut() else {
         return;
     };
@@ -506,7 +455,6 @@ fn handle_mouse_pan(
         if let Some(delta) = cursor.delta {
             let world_delta = viewport_delta_to_world_delta(delta, projection_scale);
             transform.translation -= world_delta.extend(0.0);
-            clamp_camera_translation(&mut transform, window, game_map.as_ref(), projection_scale);
         }
     }
 }
@@ -657,15 +605,34 @@ mod tests {
     }
 
     #[test]
-    fn camera_translation_is_clamped_to_map_bounds() {
-        let game_map = test_map(20, 20);
-        let window = test_window(320, 240);
+    fn zoom_does_not_restrict_an_offscreen_camera_position() {
+        let game_map = test_map(10, 10);
+        let window = test_window(400, 300);
         let mut transform = Transform::from_xyz(10_000.0, -10_000.0, 999.0);
+        let mut projection = Projection::Orthographic(OrthographicProjection {
+            scaling_mode: bevy::camera::ScalingMode::WindowSize,
+            scale: 0.5,
+            ..OrthographicProjection::default_2d()
+        });
+        let mut camera_scale = CameraScale(2.0);
+        let viewport_center = Vec2::new(window.width() * 0.5, window.height() * 0.5);
 
-        clamp_camera_translation(&mut transform, &window, &game_map, 0.5);
+        zoom_camera_at_viewport_position(
+            &mut transform,
+            &mut projection,
+            &mut camera_scale,
+            &window,
+            &game_map,
+            viewport_center,
+            3.0,
+        );
 
-        assert!(transform.translation.x <= 80.0);
-        assert!(transform.translation.y >= -208.0);
+        assert!(
+            transform
+                .translation
+                .truncate()
+                .abs_diff_eq(Vec2::new(10_000.0, -10_000.0), 0.001)
+        );
     }
 
     #[test]
