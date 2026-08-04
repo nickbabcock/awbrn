@@ -101,6 +101,18 @@ const extraTokens: Record<string, string> = {
   // The rule between rows of one readout. Lighter than the panel outline,
   // because it separates lines of the same block rather than two panels.
   "--color-border-soft": "rgba(22, 24, 29, 0.18)",
+  // -- Replay and live-match frame ---------------------------------------
+  "--size-board-min": "28rem",
+  "--size-board-viewport-offset": "15rem",
+  "--size-roster-rail": "340px",
+  "--size-roster-stat-icon": "18px",
+  "--size-roster-stat-icon-overlay": "10px",
+  // -- Power meter --------------------------------------------------------
+  "--size-power-star-cop": "13px",
+  "--size-power-star-scop": "19px",
+  "--size-power-meter-pending": "112px",
+  "--size-power-breakdown": "132px",
+  "--border-width-power-zone-joined": "2px",
 };
 
 const factionTokenVariants = Object.fromEntries(
@@ -389,6 +401,18 @@ export const awbrnTheme = defineTheme({
       base: {
         ...panel,
         boxShadow: "var(--shadow-low)",
+      },
+    },
+    // The system is daylight only, so a tooltip is the game's own help window:
+    // a cream menu panel cast over what it explains. The stock dark chip is the
+    // one surface in the app that would have had no daylight in it, and text
+    // colored for cream is unreadable on it.
+    tooltip: {
+      base: {
+        ...panel,
+        backgroundColor: "var(--color-background-popover)",
+        color: "var(--color-text-primary)",
+        boxShadow: "var(--shadow-high)",
       },
     },
     // An empty state always sits inside a panel already. It gets a recessed

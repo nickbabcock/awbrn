@@ -18,11 +18,12 @@ import type { GameRunner } from "#/engine/game_runner.ts";
 import { useGameStore } from "#/engine/store.ts";
 import type { LiveMatchPlayer } from "#/engine/worker_module.ts";
 import { getFactionByCode, getFactionById } from "#/factions.ts";
+import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
 import { useMatchWebSocket, type MatchWebSocketStatus } from "#/matches/match_websocket.ts";
 import type { InitialBoardMessage, MatchWebSocketMessage } from "#/matches/match_protocol.ts";
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
 import type { MatchParticipantSnapshot } from "#/matches/schemas.ts";
-import { RosterRow } from "#/replay/RosterRow.tsx";
+import { RosterList, RosterRow } from "#/replay/RosterRow.tsx";
 import type { PlayerRosterEntry, PlayerRosterSnapshot } from "#/wasm/awbrn_wasm.js";
 
 /**
@@ -149,7 +150,12 @@ export function MatchActivePage({
           />
         )}
 
-        <Grid align="start" columns={{ minWidth: 360, max: 2, repeat: "fit" }} gap={6}>
+        {/* The board leads. It takes whatever width the viewport has and the
+            roster keeps a fixed rail beside it, so the map is the largest thing
+            on the page at every size instead of splitting the page with a
+            readout. Below the breakpoint the rail drops under the board rather
+            than beside it, and the board still comes first. */}
+        <Grid align="start" gap={4} xstyle={styles.matchLayout}>
           <ActiveMatchBoard
             day={playerRoster?.day ?? null}
             initialBoard={initialBoard}
@@ -166,31 +172,33 @@ export function MatchActivePage({
               if the record says otherwise, an empty outlined box would be the
               wrong thing to draw. */}
           {armies.length === 0 ? null : (
-            <section aria-label="Armies">
+            <VStack as="section" aria-label="Armies" gap={0} xstyle={styles.rosterSection}>
               <Card padding={0} xstyle={styles.rosterPanel}>
-                {armies.map((army) => (
-                  <RosterRow
-                    isActive={army.isActive}
-                    isViewer={viewerSlotIndex === army.entry.playerId}
-                    key={army.entry.playerId}
-                    name={army.name}
-                    onFactionChange={
-                      army.hasLiveStats
-                        ? (factionId) =>
-                            handleDisplayFactionChange(
-                              army.entry.playerId,
-                              factionId === getFactionByCode(army.entry.actualFactionCode)?.id
-                                ? null
-                                : factionId,
-                            )
-                        : undefined
-                    }
-                    player={army.entry}
-                    portraitCatalog={portraitCatalog}
-                  />
-                ))}
+                <RosterList>
+                  {armies.map((army) => (
+                    <RosterRow
+                      isActive={army.isActive}
+                      isViewer={viewerSlotIndex === army.entry.playerId}
+                      key={army.entry.playerId}
+                      name={army.name}
+                      onFactionChange={
+                        army.hasLiveStats
+                          ? (factionId) =>
+                              handleDisplayFactionChange(
+                                army.entry.playerId,
+                                factionId === getFactionByCode(army.entry.actualFactionCode)?.id
+                                  ? null
+                                  : factionId,
+                              )
+                          : undefined
+                      }
+                      player={army.entry}
+                      portraitCatalog={portraitCatalog}
+                    />
+                  ))}
+                </RosterList>
               </Card>
-            </section>
+            </VStack>
           )}
         </Grid>
       </VStack>
@@ -270,7 +278,7 @@ function ActiveMatchBoard({
           : "Disconnected — reconnecting.";
 
   return (
-    <Card maxWidth={1120} padding={0} variant="muted" xstyle={styles.boardPanel}>
+    <Card padding={0} variant="muted" xstyle={styles.boardPanel}>
       {/* The engine draws 960x640; the frame keeps that ratio at every width so
           the map is never stretched or dropped into a tall slot on a phone. */}
       <VStack gap={0} ref={surfaceRef} xstyle={styles.gameSurface}>
@@ -371,6 +379,7 @@ function seatEntry(participant: MatchParticipantSnapshot, index: number): Player
     powerCharge: undefined,
     copCost: undefined,
     scopCost: undefined,
+    powerStarCharge: undefined,
     stats: {
       funds: undefined,
       income: undefined,
@@ -401,10 +410,28 @@ function statusVariant(status: MatchWebSocketStatus): "success" | "warning" | "e
 const styles = stylex.create({
   matchName: {
     overflowWrap: "anywhere",
+    // The title names the battle once; it must not take the viewport the board
+    // needs. The signage face is still the largest thing on the page in weight,
+    // not in height.
+    fontSize: "clamp(var(--font-size-3xl), 4vw, var(--font-size-5xl))",
   },
+  // One column until the rail and a board wide enough to read both fit; two
+  // from there, with every extra pixel going to the board.
+  matchLayout: {
+    gridTemplateColumns: {
+      default: "minmax(0, 1fr)",
+      [rosterLayout.desktopMedia]: rosterLayout.railColumns,
+    },
+  },
+  // A 3:2 board that grows without limit runs off a laptop screen, and a map
+  // you have to scroll to see is not the focal point. The width is capped at
+  // whatever keeps the whole board in the viewport, with a floor so a short
+  // window shrinks the board rather than making it unreadable.
   boardPanel: {
     overflow: "hidden",
-    justifySelf: "stretch",
+    justifySelf: "start",
+    inlineSize: "100%",
+    maxInlineSize: rosterLayout.boardMaxInlineSize,
   },
   gameSurface: {
     position: "relative",
@@ -427,5 +454,14 @@ const styles = stylex.create({
   rosterPanel: {
     overflow: "hidden",
     alignSelf: "start",
+  },
+  // The armies stay with the board on a tall screen rather than scrolling away
+  // from the thing they describe.
+  rosterSection: {
+    position: {
+      default: "static",
+      [rosterLayout.desktopMedia]: "sticky",
+    },
+    top: "var(--spacing-4)",
   },
 });

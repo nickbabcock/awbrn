@@ -16,7 +16,8 @@ import { loadCoPortraitCatalog, type CoPortraitCatalog } from "#/components/co_p
 import { useReplayRunner } from "#/engine/runtime_context.tsx";
 import { useGameActions, useGameStore } from "#/engine/store.ts";
 import { getFactionByCode } from "#/factions.ts";
-import { RosterRow } from "./RosterRow";
+import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
+import { RosterList, RosterRow } from "./RosterRow";
 
 export function ReplayPage() {
   const currentDay = useGameStore((state) => state.currentDay);
@@ -121,7 +122,10 @@ export function ReplayPage() {
         <Banner description={replayError} status="error" title="Replay failed to load" />
       ) : null}
 
-      <Grid align="start" columns={{ minWidth: 360, max: 2, repeat: "fit" }} gap={4}>
+      {/* The board leads: it takes the width the viewport has and the armies
+          keep a fixed rail beside it, so the map is the largest thing on the
+          page rather than one half of a split. */}
+      <Grid align="start" gap={4} xstyle={styles.reviewLayout}>
         {/* The board is the artifact; everything else frames it. */}
         <Card padding={0} variant="muted" xstyle={styles.boardPanel}>
           <VStack
@@ -171,26 +175,28 @@ export function ReplayPage() {
 
         {/* The armies need no visible title: the board names the battle, and
             each row names its own army. */}
-        <section aria-label="Armies">
+        <VStack as="section" aria-label="Armies" gap={0} xstyle={styles.rosterSection}>
           <Card padding={0} xstyle={styles.rosterPanel}>
             {playerRoster ? (
-              playerRoster.players.map((player) => (
-                <RosterRow
-                  isActive={playerRoster.activePlayerId === player.playerId}
-                  key={player.playerId}
-                  name={playerNames[player.userId] ?? `Player ${player.turnOrder}`}
-                  onFactionChange={(factionId) =>
-                    handlePlayerDisplayFactionChange(
-                      player.playerId,
-                      factionId === getFactionByCode(player.actualFactionCode)?.id
-                        ? null
-                        : factionId,
-                    )
-                  }
-                  player={player}
-                  portraitCatalog={portraitCatalog}
-                />
-              ))
+              <RosterList>
+                {playerRoster.players.map((player) => (
+                  <RosterRow
+                    isActive={playerRoster.activePlayerId === player.playerId}
+                    key={player.playerId}
+                    name={playerNames[player.userId] ?? `Player ${player.turnOrder}`}
+                    onFactionChange={(factionId) =>
+                      handlePlayerDisplayFactionChange(
+                        player.playerId,
+                        factionId === getFactionByCode(player.actualFactionCode)?.id
+                          ? null
+                          : factionId,
+                      )
+                    }
+                    player={player}
+                    portraitCatalog={portraitCatalog}
+                  />
+                ))}
+              </RosterList>
             ) : (
               <VStack gap={0} padding={3}>
                 <EmptyState
@@ -202,17 +208,30 @@ export function ReplayPage() {
               </VStack>
             )}
           </Card>
-        </section>
+        </VStack>
       </Grid>
     </VStack>
   );
 }
 
 const styles = stylex.create({
+  // One column until the rail and a board wide enough to read both fit; two
+  // from there, with every extra pixel going to the board.
+  reviewLayout: {
+    gridTemplateColumns: {
+      default: "minmax(0, 1fr)",
+      [rosterLayout.desktopMedia]: rosterLayout.railColumns,
+    },
+  },
+  // A 3:2 board that grows without limit runs off a laptop screen, and a map
+  // you have to scroll to see is not the focal point. The width is capped at
+  // whatever keeps the whole board in the viewport, with a floor so a short
+  // window shrinks the board rather than making it unreadable.
   boardPanel: {
     overflow: "hidden",
-    maxWidth: 1120,
-    justifySelf: "stretch",
+    justifySelf: "start",
+    inlineSize: "100%",
+    maxInlineSize: rosterLayout.boardMaxInlineSize,
   },
   gameSurface: {
     position: "relative",
@@ -252,5 +271,14 @@ const styles = stylex.create({
   rosterPanel: {
     overflow: "hidden",
     alignSelf: "start",
+  },
+  // The armies stay with the board on a tall screen rather than scrolling away
+  // from the thing they describe.
+  rosterSection: {
+    position: {
+      default: "static",
+      [rosterLayout.desktopMedia]: "sticky",
+    },
+    top: "var(--spacing-4)",
   },
 });

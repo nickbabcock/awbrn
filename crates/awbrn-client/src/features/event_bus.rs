@@ -142,6 +142,8 @@ pub struct PlayerRosterEntry {
     pub cop_cost: Option<u32>,
     /// Current charge required to activate this CO's super power.
     pub scop_cost: Option<u32>,
+    /// Charge one power star is worth, so a meter can be drawn in segments.
+    pub power_star_charge: Option<u32>,
     pub stats: PlayerRosterStats,
 }
 
