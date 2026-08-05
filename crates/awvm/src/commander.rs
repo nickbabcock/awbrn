@@ -422,6 +422,7 @@ pub(crate) enum PlayerTarget {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(rename_all = "kebab-case")]
 pub enum PowerLevel {
     Cop,

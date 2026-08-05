@@ -13,6 +13,7 @@ import { ROSTER_MEDIA_SIZE, ROSTER_STAT_COLUMN_MIN_WIDTH } from "#/ui/layout.ts"
 import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
 import type { PlayerRosterEntry } from "#/wasm/awbrn_wasm.js";
 import { PowerMeter } from "./PowerMeter.tsx";
+import type { ActivatablePowerLevel } from "./power_meter.ts";
 import { infantrySpriteStyle, uiAtlasSpriteStyle } from "#/components/game_sprites.ts";
 
 const formatMoney = (value: number | null | undefined) =>
@@ -98,17 +99,21 @@ function Readout({ icon, label, value }: { icon: ReactNode; label: string; value
  * what they can do next, and what they hold.
  */
 export function RosterRow({
+  activatingPower,
   isActive,
   isViewer = false,
   name,
+  onActivatePower,
   onFactionChange,
   player,
   portraitCatalog,
 }: {
+  activatingPower?: ActivatablePowerLevel;
   isActive: boolean;
   /** Marks the army the viewer is playing. A reviewer plays none of them. */
   isViewer?: boolean;
   name: string;
+  onActivatePower?: (level: ActivatablePowerLevel) => void;
   onFactionChange?: (factionId: number) => void | Promise<void>;
   player: PlayerRosterEntry;
   portraitCatalog: CoPortraitCatalog;
@@ -172,7 +177,11 @@ export function RosterRow({
         ) : null}
       </HStack>
 
-      <PowerMeter player={player} />
+      <PowerMeter
+        activatingPower={activatingPower}
+        onActivatePower={onActivatePower}
+        player={player}
+      />
 
       {/* A grid rather than a row: the four numbers land on the same columns in
           every army, which is what makes two armies comparable at a glance. */}

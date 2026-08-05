@@ -68,6 +68,8 @@ pub struct PlayerPowerMeter {
     pub scop_cost: Option<u32>,
     /// Charge that one star is worth at this player's current use count.
     pub star_charge: Option<u32>,
+    /// The power that this player has active.
+    pub active_power: Option<awvm::commander::PowerLevel>,
 }
 
 #[derive(Resource, Clone, Default)]
@@ -253,17 +255,39 @@ fn observed_player_commanders(player: &ObservedPlayer) -> Vec<awvm::semantic::Co
 
 /// Meter values for the commander currently leading, falling back to the first.
 pub fn active_power_meter(player: &ObservedPlayer) -> Option<PlayerPowerMeter> {
-    let (commander, charge, power_uses) = match player {
-        ObservedPlayer::Private { commanders, .. } => commanders
+    let (commander, charge, power_uses, power_state) = match player {
+        ObservedPlayer::Private {
+            commanders,
+            power_state,
+            ..
+        } => commanders
             .iter()
             .find(|commander| commander.active)
             .or_else(|| commanders.first())
-            .map(|commander| (commander.id, commander.power_charge, commander.power_uses)),
-        ObservedPlayer::Public { commanders, .. } => commanders
+            .map(|commander| {
+                (
+                    commander.id,
+                    commander.power_charge,
+                    commander.power_uses,
+                    power_state,
+                )
+            }),
+        ObservedPlayer::Public {
+            commanders,
+            power_state,
+            ..
+        } => commanders
             .iter()
             .find(|commander| commander.active)
             .or_else(|| commanders.first())
-            .map(|commander| (commander.id, commander.power_charge, commander.power_uses)),
+            .map(|commander| {
+                (
+                    commander.id,
+                    commander.power_charge,
+                    commander.power_uses,
+                    power_state,
+                )
+            }),
     }?;
     let cost = |level| {
         awvm::commander::power_activation_cost(commander, level, power_uses)
@@ -278,6 +302,11 @@ pub fn active_power_meter(player: &ObservedPlayer) -> Option<PlayerPowerMeter> {
         star_charge: awvm::commander::power_star_charge(power_uses)
             .ok()
             .and_then(|charge| u32::try_from(charge).ok()),
+        active_power: match power_state {
+            awvm::semantic::PowerState::None => None,
+            awvm::semantic::PowerState::Cop { .. } => Some(awvm::commander::PowerLevel::Cop),
+            awvm::semantic::PowerState::Scop { .. } => Some(awvm::commander::PowerLevel::Scop),
+        },
     })
 }
 
@@ -473,6 +502,7 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
                     cop_cost: power_meter.and_then(|meter| meter.cop_cost),
                     scop_cost: power_meter.and_then(|meter| meter.scop_cost),
                     power_star_charge: power_meter.and_then(|meter| meter.star_charge),
+                    active_power: power_meter.and_then(|meter| meter.active_power),
                     stats,
                 }
             })
@@ -525,6 +555,30 @@ mod tests {
     use awbrn_types::{AwbwGamePlayerId, AwbwPlayerId};
     use bevy::app::App;
     use std::collections::HashMap;
+
+    #[test]
+    fn active_power_meter_reports_active_power() {
+        let player: ObservedPlayer = serde_json::from_value(serde_json::json!({
+            "id": "0",
+            "team": "red-team",
+            "relation": "self",
+            "funds": 0,
+            "status": "active",
+            "commanders": [{
+                "id": "andy",
+                "active": true,
+                "power_charge": 0,
+                "power_uses": 1
+            }],
+            "power_state": { "type": "cop", "commander_slot": 0 }
+        }))
+        .unwrap();
+
+        assert_eq!(
+            active_power_meter(&player).unwrap().active_power,
+            Some(awvm::commander::PowerLevel::Cop)
+        );
+    }
 
     #[test]
     fn fog_hides_opponent_roster_stats() {

@@ -32,6 +32,9 @@ export interface PowerLevelCost {
 /** Which power the current charge pays for. */
 export type PowerLevel = "charging" | "cop" | "scop";
 
+/** A power level that a player can activate. */
+export type ActivatablePowerLevel = Exclude<PowerLevel, "charging">;
+
 /**
  * A meter is worth drawing only when the CO has a power and the star value is
  * known; a CO without either has nothing to charge toward.
@@ -57,6 +60,12 @@ export function readPowerMeter(player: PlayerRosterEntry): PowerMeterReading | n
     totalStars,
     level: powerLevel(charge, player.copCost, player.scopCost),
   };
+}
+
+/** Whether the player can activate one power shown by this meter. */
+export function canActivatePower(player: PlayerRosterEntry, level: ActivatablePowerLevel): boolean {
+  const meter = readPowerMeter(player);
+  return player.activePower === undefined && meter?.[level]?.remaining === 0;
 }
 
 /**

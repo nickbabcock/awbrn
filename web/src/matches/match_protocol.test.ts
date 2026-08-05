@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import type { MatchSetup } from "./schemas.ts";
 import {
   initialMatchConnectionMessages,
+  type ActivatePowerCommand,
   type EndTurnCommand,
   type LiveTransition,
   type MatchGameState,
@@ -9,6 +10,13 @@ import {
 } from "./match_protocol.ts";
 
 describe("live match commands", () => {
+  it("uses the server's tagged power command", () => {
+    expectTypeOf<ActivatePowerCommand>().toEqualTypeOf<{
+      type: "activatePower";
+      level: "cop" | "scop";
+    }>();
+  });
+
   it("uses the server's tagged end-turn command", () => {
     expectTypeOf<EndTurnCommand>().toEqualTypeOf<{ type: "endTurn" }>();
   });

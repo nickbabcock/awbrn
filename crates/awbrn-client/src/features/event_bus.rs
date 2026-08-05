@@ -254,6 +254,8 @@ pub struct PlayerRosterEntry {
     pub scop_cost: Option<u32>,
     /// Charge one power star is worth, so a meter can be drawn in segments.
     pub power_star_charge: Option<u32>,
+    /// The power that this player has active.
+    pub active_power: Option<awvm::commander::PowerLevel>,
     pub stats: PlayerRosterStats,
 }
 

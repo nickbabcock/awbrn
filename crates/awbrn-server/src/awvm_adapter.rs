@@ -261,6 +261,13 @@ fn command_error(command: &Command, violation: awvm::violation::Violation) -> Co
             cost: u32::try_from(required).unwrap_or(u32::MAX),
             available: u32::try_from(available).unwrap_or(u32::MAX),
         },
+        Violation::InsufficientPower {
+            required,
+            available,
+        } => CommandError::InsufficientPower {
+            cost: u32::try_from(required).unwrap_or(u32::MAX),
+            available: u32::try_from(available).unwrap_or(u32::MAX),
+        },
         Violation::InvalidTarget { .. } if matches!(command, Command::ProduceUnit { .. }) => {
             CommandError::InvalidBuildLocation
         }
@@ -306,6 +313,10 @@ fn commands(
             player,
             position: pos(*position),
             kind: *unit_type,
+        }),
+        GameCommand::ActivatePower { level } => one(Command::ActivatePower {
+            player,
+            level: *level,
         }),
         GameCommand::EndTurn => one(Command::EndTurn { player }),
         GameCommand::Unload {

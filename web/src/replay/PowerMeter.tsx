@@ -1,15 +1,23 @@
+import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Tooltip } from "@astryxdesign/core/Tooltip";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import * as stylex from "@stylexjs/stylex";
-import type { SVGProps } from "react";
+import type { ComponentType, SVGProps } from "react";
 import type { PlayerRosterEntry } from "#/wasm/awbrn_wasm.js";
-import { readPowerMeter, type PowerMeterReading } from "./power_meter.ts";
+import {
+  canActivatePower,
+  readPowerMeter,
+  type ActivatablePowerLevel,
+  type PowerMeterReading,
+} from "./power_meter.ts";
 import { uiAtlasSpriteStyle } from "#/components/game_sprites.ts";
 
 const STAR = uiAtlasSpriteStyle("TerrainStar.png");
+const NORMAL_POWER = uiAtlasSpriteStyle("NormalPower.png");
+const SUPER_POWER = uiAtlasSpriteStyle("SuperPower.png");
 
 /**
  * A CO power meter drawn in stars, at the length that CO's powers actually run.
@@ -21,7 +29,15 @@ const STAR = uiAtlasSpriteStyle("TerrainStar.png");
  * ones, parted by an ink rule. The step in height is the boundary — a player
  * sees where the normal power ends without reading anything.
  */
-export function PowerMeter({ player }: { player: PlayerRosterEntry }) {
+export function PowerMeter({
+  activatingPower,
+  onActivatePower,
+  player,
+}: {
+  activatingPower?: ActivatablePowerLevel;
+  onActivatePower?: (level: ActivatablePowerLevel) => void;
+  player: PlayerRosterEntry;
+}) {
   const meter = readPowerMeter(player);
   // A seat taken from the match record knows its CO but not yet its charge. The
   // row keeps the meter's height so it does not jump when the engine reports.
@@ -31,56 +47,78 @@ export function PowerMeter({ player }: { player: PlayerRosterEntry }) {
   const superStars = scop === null ? 0 : scop.stars - (cop?.stars ?? 0);
 
   return (
-    <Tooltip content={<PowerBreakdown meter={meter} />} focusTrigger="always" placement="above">
-      <HStack align="end" gap={2} tabIndex={0} xstyle={styles.meter}>
-        <HStack
-          align="end"
-          aria-label="CO power"
-          aria-valuemax={totalStars}
-          aria-valuemin={0}
-          aria-valuenow={charged}
-          aria-valuetext={describe(meter)}
-          gap={0}
-          role="meter"
-        >
-          {cop === null ? null : (
-            <Zone
-              charged={charged}
-              isJoined={superStars > 0}
-              isReady={level !== "charging"}
-              offset={0}
-              size="cop"
-              stars={cop.stars}
-            />
-          )}
-          {superStars === 0 ? null : (
-            <Zone
-              charged={charged}
-              isJoined={cop !== null}
-              isReady={level === "scop"}
-              offset={cop?.stars ?? 0}
-              size="scop"
-              stars={superStars}
-            />
-          )}
-        </HStack>
+    <HStack align="end" gap={2} justify="between">
+      <Tooltip content={<PowerBreakdown meter={meter} />} focusTrigger="always" placement="above">
+        <HStack align="end" gap={2} tabIndex={0} xstyle={styles.meter}>
+          <HStack
+            align="end"
+            aria-label="CO power"
+            aria-valuemax={totalStars}
+            aria-valuemin={0}
+            aria-valuenow={charged}
+            aria-valuetext={describe(meter)}
+            gap={0}
+            role="meter"
+          >
+            {cop === null ? null : (
+              <Zone
+                charged={charged}
+                isJoined={superStars > 0}
+                isReady={level !== "charging"}
+                offset={0}
+                size="cop"
+                stars={cop.stars}
+              />
+            )}
+            {superStars === 0 ? null : (
+              <Zone
+                charged={charged}
+                isJoined={cop !== null}
+                isReady={level === "scop"}
+                offset={cop?.stars ?? 0}
+                size="scop"
+                stars={superStars}
+              />
+            )}
+          </HStack>
 
-        <Text
-          color={level === "charging" ? "secondary" : "accent"}
-          hasTabularNumbers
-          type="label"
-          xstyle={styles.readout}
-        >
-          <Icon
-            aria-hidden="true"
-            icon={SpriteImage}
-            style={STAR ?? undefined}
-            xstyle={styles.sprite}
-          />
-          {formatStars(charged)}/{totalStars}
-        </Text>
-      </HStack>
-    </Tooltip>
+          <Text
+            color={level === "charging" ? "secondary" : "accent"}
+            hasTabularNumbers
+            type="label"
+            xstyle={styles.readout}
+          >
+            <Icon
+              aria-hidden="true"
+              icon={SpriteImage}
+              style={STAR ?? undefined}
+              xstyle={styles.sprite}
+            />
+            {formatStars(charged)}/{totalStars}
+          </Text>
+        </HStack>
+      </Tooltip>
+      {onActivatePower ? (
+        <HStack align="end" gap={1}>
+          {canActivatePower(player, "cop") ? (
+            <PowerButton
+              art={NormalPowerSprite}
+              isLoading={activatingPower === "cop"}
+              label="Activate CO power"
+              onActivate={() => onActivatePower("cop")}
+            />
+          ) : null}
+          {canActivatePower(player, "scop") ? (
+            <PowerButton
+              art={SuperPowerSprite}
+              isLoading={activatingPower === "scop"}
+              label="Activate super CO power"
+              onActivate={() => onActivatePower("scop")}
+            />
+          ) : null}
+        </HStack>
+      ) : null}
+    </HStack>
   );
 }
 
@@ -171,6 +209,41 @@ function BreakdownRow({ label, value }: { label: string; value: number }) {
 /** Lets Astryx Icon host a CSS-atlas sprite while retaining its image semantics. */
 function SpriteImage(props: SVGProps<SVGSVGElement>) {
   return <svg {...props} />;
+}
+
+/** Lets the action button show the source game's dedicated normal-power art. */
+function NormalPowerSprite(props: SVGProps<SVGSVGElement>) {
+  return <svg {...props} style={{ ...props.style, ...NORMAL_POWER }} />;
+}
+
+/** Lets the action button show the source game's dedicated super-power art. */
+function SuperPowerSprite(props: SVGProps<SVGSVGElement>) {
+  return <svg {...props} style={{ ...props.style, ...SUPER_POWER }} />;
+}
+
+function PowerButton({
+  art,
+  isLoading,
+  label,
+  onActivate,
+}: {
+  art: ComponentType<SVGProps<SVGSVGElement>>;
+  isLoading: boolean;
+  label: string;
+  onActivate: () => void;
+}) {
+  return (
+    <Button
+      clickAction={onActivate}
+      isLoading={isLoading}
+      label={label}
+      size="sm"
+      tooltip={label}
+      variant="ghost"
+    >
+      <Icon icon={art} />
+    </Button>
+  );
 }
 
 /** A partial star is worth reporting; a whole one should not read as "3.0". */

@@ -1,8 +1,45 @@
 use awbrn_map::Position;
 pub use awbrn_protocol::PostMoveAction;
+pub use awvm::commander::PowerLevel;
 use tsify::Tsify;
 
 use crate::unit_id::ServerUnitId;
+
+/// A command submitted by a player during their turn.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Tsify)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum GameCommand {
+    /// Move a unit along a path, optionally performing an action at the destination.
+    MoveUnit {
+        #[tsify(type = "number")]
+        unit_id: ServerUnitId,
+        /// Full path from current position to destination (inclusive of both endpoints).
+        /// Used for fuel consumption and client animation.
+        #[tsify(type = "{ x: number; y: number }[]")]
+        path: Vec<Position>,
+        /// Action to perform after arriving at the destination.
+        action: Option<PostMoveAction>,
+    },
+    /// Build a new unit at a production facility.
+    Build {
+        #[tsify(type = "{ x: number; y: number }")]
+        position: Position,
+        unit_type: awvm::ruleset::UnitKind,
+    },
+    /// Unload one carried unit without moving or spending its transport.
+    Unload {
+        #[tsify(type = "number")]
+        transport_id: ServerUnitId,
+        #[tsify(type = "number")]
+        cargo_id: ServerUnitId,
+        #[tsify(type = "{ x: number; y: number }")]
+        position: Position,
+    },
+    /// Activate the current commander's normal or super power.
+    ActivatePower { level: PowerLevel },
+    /// End the current player's turn.
+    EndTurn,
+}
 
 #[cfg(test)]
 mod tests {
@@ -62,6 +99,18 @@ mod tests {
                 transport_id: ServerUnitId(4),
                 cargo_id: ServerUnitId(7),
                 position: Position::new(2, 3),
+            }
+        );
+    }
+
+    #[test]
+    fn deserialize_activate_power() {
+        let json = r#"{"type":"activatePower","level":"scop"}"#;
+        let cmd: GameCommand = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            cmd,
+            GameCommand::ActivatePower {
+                level: PowerLevel::Scop
             }
         );
     }
@@ -130,38 +179,4 @@ mod tests {
         let json = r#"{"type":"MoveUnit","unitId":1,"path":[],"action":null}"#;
         assert!(serde_json::from_str::<GameCommand>(json).is_err());
     }
-}
-
-/// A command submitted by a player during their turn.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Tsify)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum GameCommand {
-    /// Move a unit along a path, optionally performing an action at the destination.
-    MoveUnit {
-        #[tsify(type = "number")]
-        unit_id: ServerUnitId,
-        /// Full path from current position to destination (inclusive of both endpoints).
-        /// Used for fuel consumption and client animation.
-        #[tsify(type = "{ x: number; y: number }[]")]
-        path: Vec<Position>,
-        /// Action to perform after arriving at the destination.
-        action: Option<PostMoveAction>,
-    },
-    /// Build a new unit at a production facility.
-    Build {
-        #[tsify(type = "{ x: number; y: number }")]
-        position: Position,
-        unit_type: awvm::ruleset::UnitKind,
-    },
-    /// Unload one carried unit without moving or spending its transport.
-    Unload {
-        #[tsify(type = "number")]
-        transport_id: ServerUnitId,
-        #[tsify(type = "number")]
-        cargo_id: ServerUnitId,
-        #[tsify(type = "{ x: number; y: number }")]
-        position: Position,
-    },
-    /// End the current player's turn.
-    EndTurn,
 }
