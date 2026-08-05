@@ -119,6 +119,19 @@ const extraTokens: Record<string, string> = {
   // A thumb needs a target no smaller than this; a mouse does not.
   "--size-build-row-spacious": "56px",
   "--size-build-funds-line": "20px",
+  // -- Destination menu ---------------------------------------------------
+  // The menu opened at the end of a move. It lists orders, not units: short
+  // words in the HUD face with at most a coordinate beside them, so it is much
+  // narrower and much tighter than the build menu. It also opens over the tile
+  // the player is deciding about, which is the one part of the board they most
+  // need to keep seeing.
+  "--size-action-menu": "148px",
+  // A line of the HUD face plus one step either side, and nothing more; there
+  // is no art in the row to make room for.
+  "--size-action-row": "22px",
+  // A thumb still needs a real target, so the sheet keeps its height even
+  // though the board menu gives its own back.
+  "--size-action-row-spacious": "48px",
   // -- Power meter --------------------------------------------------------
   "--size-power-star-cop": "13px",
   "--size-power-star-scop": "19px",

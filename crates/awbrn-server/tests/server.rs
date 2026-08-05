@@ -1498,7 +1498,9 @@ fn load_removes_cargo_from_map_and_unload_restores_it() {
             action_command(
                 cargo,
                 vec![Position::new(0, 0), Position::new(1, 0)],
-                PostMoveAction::Load { transport_id: apc },
+                PostMoveAction::Load {
+                    transport_id: apc.0,
+                },
             ),
         )
         .unwrap();
@@ -1520,7 +1522,7 @@ fn load_removes_cargo_from_map_and_unload_restores_it() {
                 apc,
                 vec![Position::new(1, 0)],
                 PostMoveAction::Unload {
-                    cargo_id: cargo,
+                    cargo_id: cargo.0,
                     position: Position::new(2, 0),
                 },
             ),
@@ -1567,7 +1569,9 @@ fn load_rejects_full_transport() {
             action_command(
                 first,
                 vec![Position::new(0, 0), Position::new(1, 0)],
-                PostMoveAction::Load { transport_id: apc },
+                PostMoveAction::Load {
+                    transport_id: apc.0,
+                },
             ),
         )
         .unwrap();
@@ -1578,12 +1582,47 @@ fn load_rejects_full_transport() {
             action_command(
                 second,
                 vec![Position::new(2, 0), Position::new(1, 0)],
-                PostMoveAction::Load { transport_id: apc },
+                PostMoveAction::Load {
+                    transport_id: apc.0,
+                },
             ),
         )
         .unwrap_err();
 
     assert!(matches!(err, CommandError::InvalidAction { .. }));
+}
+
+#[test]
+fn post_move_unit_ids_outside_awvm_domain_are_invalid_actions() {
+    let actions = [
+        PostMoveAction::Load {
+            transport_id: u64::from(u32::MAX) + 1,
+        },
+        PostMoveAction::Unload {
+            cargo_id: u64::from(u32::MAX) + 1,
+            position: Position::new(1, 0),
+        },
+        PostMoveAction::Join {
+            target_id: u64::from(u32::MAX) + 1,
+        },
+    ];
+
+    for action in actions {
+        let mut server = GameServer::new(two_player_setup(2, 1)).unwrap();
+        let unit = server.spawn_unit(
+            Position::new(0, 0),
+            Unit::Infantry,
+            PlayerFaction::OrangeStar,
+        );
+        let error = server
+            .submit_command(
+                p1(),
+                action_command(unit, vec![Position::new(0, 0)], action),
+            )
+            .unwrap_err();
+
+        assert!(matches!(error, CommandError::InvalidAction { .. }));
+    }
 }
 
 #[test]
@@ -1606,7 +1645,7 @@ fn load_does_not_leak_fogged_destination_coordinates() {
                 cargo,
                 vec![Position::new(1, 0), Position::new(2, 0)],
                 PostMoveAction::Load {
-                    transport_id: transport,
+                    transport_id: transport.0,
                 },
             ),
         )
@@ -1649,7 +1688,9 @@ fn unload_rejects_occupied_or_impassable_target() {
             action_command(
                 cargo,
                 vec![Position::new(0, 1), Position::new(1, 1)],
-                PostMoveAction::Load { transport_id: apc },
+                PostMoveAction::Load {
+                    transport_id: apc.0,
+                },
             ),
         )
         .unwrap();
@@ -1661,7 +1702,7 @@ fn unload_rejects_occupied_or_impassable_target() {
                 apc,
                 vec![Position::new(1, 1), Position::new(1, 2)],
                 PostMoveAction::Unload {
-                    cargo_id: cargo,
+                    cargo_id: cargo.0,
                     position: Position::new(2, 1),
                 },
             ),
@@ -1688,7 +1729,7 @@ fn unload_rejects_occupied_or_impassable_target() {
                 apc,
                 vec![Position::new(1, 1)],
                 PostMoveAction::Unload {
-                    cargo_id: cargo,
+                    cargo_id: cargo.0,
                     position: Position::new(1, 0),
                 },
             ),
@@ -1889,7 +1930,9 @@ fn join_rejects_a_target_already_at_full_visual_hp() {
             action_command(
                 source,
                 vec![Position::new(0, 0), Position::new(1, 0)],
-                PostMoveAction::Join { target_id: target },
+                PostMoveAction::Join {
+                    target_id: target.0,
+                },
             ),
         )
         .unwrap_err();
@@ -1918,7 +1961,7 @@ fn join_rejects_different_type_or_owner() {
             action_command(
                 source,
                 vec![Position::new(0, 0), Position::new(1, 0)],
-                PostMoveAction::Join { target_id: tank },
+                PostMoveAction::Join { target_id: tank.0 },
             ),
         )
         .unwrap_err();
@@ -1938,7 +1981,7 @@ fn join_rejects_different_type_or_owner() {
                     Position::new(2, 0),
                 ],
                 PostMoveAction::Join {
-                    target_id: enemy_infantry,
+                    target_id: enemy_infantry.0,
                 },
             ),
         )

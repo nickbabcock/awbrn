@@ -1,15 +1,16 @@
-use crate::core::coords::map_visual_world_size;
+use crate::core::coords::{TILE_SIZE, map_visual_world_size};
 use crate::features::event_bus::{EventSink, MapDimensions};
+use crate::features::input::{
+    DragOwner, PointerGesture, PointerGestureKind, PointerIsCoarse, PointerSet, ReturnToTouchFloor,
+};
 use crate::loading::ClientAssetLoader;
 use crate::render::UnitAtlasResource;
 use awbrn_game::world::GameMap;
 use bevy::input::{
-    ButtonState,
-    mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel},
+    mouse::{MouseScrollUnit, MouseWheel},
     touch::{TouchInput, TouchPhase},
 };
 use bevy::prelude::*;
-use bevy::window::CursorMoved;
 use std::collections::BTreeMap;
 
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
@@ -31,6 +32,20 @@ impl CameraScale {
     pub fn zoom_out(&self) -> Self {
         CameraScale(self.0 / KEYBOARD_ZOOM_FACTOR)
     }
+
+    /// Whether a tile is currently drawn too small to be committed to by touch.
+    ///
+    /// Zooming out past this stays allowed, because orienting on a large map
+    /// needs it. What changes below the floor is what a tap may do, not whether
+    /// the player may look.
+    pub fn is_below_touch_floor(&self) -> bool {
+        self.0 < touch_floor_scale()
+    }
+}
+
+/// The scale at which a tile reaches [`TOUCH_FLOOR_TILE_PX`].
+pub fn touch_floor_scale() -> f32 {
+    TOUCH_FLOOR_TILE_PX / TILE_SIZE
 }
 
 impl Default for CameraScale {
@@ -38,6 +53,19 @@ impl Default for CameraScale {
         CameraScale(DEFAULT_CAMERA_SCALE)
     }
 }
+
+/// The smallest a tile may be drawn and still be reliably tapped, in logical
+/// pixels.
+///
+/// Below Apple's 44pt and Material's 48dp, and deliberately so. Those minimums
+/// describe a blind tap on a control the finger cannot adjust. Neither gesture
+/// here is that: a drag lands anywhere and is corrected before release while
+/// the route redraws, and a tap is pulled to the nearest reachable tile. The
+/// floor therefore only has to protect the bare tap that selects a unit, which
+/// is the cheapest and most recoverable thing a player can do. Holding a strict
+/// 44 would cost about three tiles of view on a 390px phone and buy nothing the
+/// interaction model does not already provide.
+pub const TOUCH_FLOOR_TILE_PX: f32 = 40.0;
 
 const DEFAULT_CAMERA_SCALE: f32 = 2.0;
 const KEYBOARD_ZOOM_FACTOR: f32 = 1.25;
@@ -57,10 +85,30 @@ struct TouchCameraState {
     contacts: BTreeMap<u64, TouchCameraContact>,
 }
 
-#[derive(Resource, Debug, Default)]
-struct MousePanState {
-    dragging: bool,
+/// Bring this part of the board into view.
+///
+/// Selecting a unit on a phone is worth nothing if the tiles it can reach are
+/// off screen, and a player should not have to pan to see the consequence of
+/// the tap they just made.
+#[derive(Message, Debug, Clone, Copy, PartialEq)]
+pub struct FocusBoardOn {
+    /// The middle of what must be visible, in world units.
+    pub world: Vec2,
 }
+
+/// Where the camera is travelling to, if anywhere.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
+struct CameraGoal(Option<Vec2>);
+
+/// How much of the remaining distance the camera closes each second.
+///
+/// The board is a place, not a document: it slides to what the player asked for
+/// rather than cutting, which is what keeps a phone player oriented when the
+/// view moves without them having moved it.
+const CAMERA_EASE_PER_SECOND: f32 = 12.0;
+
+/// Close enough to stop; below this the movement is invisible anyway.
+const CAMERA_EASE_EPSILON: f32 = 0.25;
 
 fn setup_camera(mut commands: Commands, camera_scale: Res<CameraScale>) {
     commands.spawn((
@@ -253,6 +301,7 @@ fn handle_camera_scaling(
     windows: Query<&Window>,
     game_map: Res<GameMap>,
     mut camera_scale: ResMut<CameraScale>,
+    mut goal: ResMut<CameraGoal>,
     mut query: Query<(&mut Projection, &mut Transform), With<Camera>>,
     mut wheel_reader: MessageReader<MouseWheel>,
 ) {
@@ -265,6 +314,7 @@ fn handle_camera_scaling(
     };
 
     if keyboard_input.just_pressed(KeyCode::Equal) {
+        goal.0 = None;
         let target = camera_scale.zoom_in().scale();
         let viewport_center = Vec2::new(window.width() * 0.5, window.height() * 0.5);
         zoom_camera_at_viewport_position(
@@ -277,6 +327,7 @@ fn handle_camera_scaling(
             target,
         );
     } else if keyboard_input.just_pressed(KeyCode::Minus) {
+        goal.0 = None;
         let target = camera_scale.zoom_out().scale();
         let viewport_center = Vec2::new(window.width() * 0.5, window.height() * 0.5);
         zoom_camera_at_viewport_position(
@@ -291,6 +342,7 @@ fn handle_camera_scaling(
     }
 
     for wheel in wheel_reader.read() {
+        goal.0 = None;
         let rate = match wheel.unit {
             MouseScrollUnit::Line => TOUCH_WHEEL_LINE_ZOOM_RATE,
             MouseScrollUnit::Pixel => TOUCH_WHEEL_PIXEL_ZOOM_RATE,
@@ -316,6 +368,7 @@ fn handle_touch_camera(
     windows: Query<&Window>,
     game_map: Res<GameMap>,
     mut camera_scale: ResMut<CameraScale>,
+    mut goal: ResMut<CameraGoal>,
     mut touch_reader: MessageReader<TouchInput>,
     mut touch_state: ResMut<TouchCameraState>,
     mut query: Query<(&mut Projection, &mut Transform), With<Camera>>,
@@ -365,60 +418,52 @@ fn handle_touch_camera(
         return;
     }
 
-    match touch_state.contacts.len() {
-        1 => {
-            let contact = touch_state.contacts.values().next().copied().unwrap();
-            let viewport_delta = contact.position - contact.previous_position;
-            let Some(projection_scale) = projection_world_units_per_viewport_pixel(&projection)
+    // A single contact is a gesture, not a camera movement. It may turn out to
+    // be a unit being dragged, and only the play machine knows that, so
+    // one-finger panning happens in `pan_camera_on_unclaimed_drag` after the
+    // claim has been made. Two contacts are always a pinch.
+    if touch_state.contacts.len() == 2 {
+        let contacts = touch_state.contacts.values().copied().collect::<Vec<_>>();
+        let previous_centroid =
+            (contacts[0].previous_position + contacts[1].previous_position) * 0.5;
+        let current_centroid = (contacts[0].position + contacts[1].position) * 0.5;
+        let previous_distance = contacts[0]
+            .previous_position
+            .distance(contacts[1].previous_position);
+        let current_distance = contacts[0].position.distance(contacts[1].position);
+
+        if previous_distance > 0.0 && current_distance > 0.0 {
+            goal.0 = None;
+            let Some(before_projection_scale) =
+                projection_world_units_per_viewport_pixel(&projection)
             else {
                 return;
             };
-            let world_delta = viewport_delta_to_world_delta(viewport_delta, projection_scale);
-            transform.translation -= world_delta.extend(0.0);
+            let target = camera_scale.scale() * current_distance / previous_distance;
+            let before = viewport_to_world(
+                transform.translation.truncate(),
+                before_projection_scale,
+                window,
+                previous_centroid,
+            );
+
+            let min_scale = minimum_camera_scale(game_map.as_ref(), window);
+            camera_scale.set_clamped(target, min_scale);
+            apply_camera_scale_to_projection(*camera_scale, &mut projection);
+
+            let Some(after_projection_scale) =
+                projection_world_units_per_viewport_pixel(&projection)
+            else {
+                return;
+            };
+            let after = viewport_to_world(
+                transform.translation.truncate(),
+                after_projection_scale,
+                window,
+                current_centroid,
+            );
+            transform.translation += (before - after).extend(0.0);
         }
-        2 => {
-            let contacts = touch_state.contacts.values().copied().collect::<Vec<_>>();
-            let previous_centroid =
-                (contacts[0].previous_position + contacts[1].previous_position) * 0.5;
-            let current_centroid = (contacts[0].position + contacts[1].position) * 0.5;
-            let previous_distance = contacts[0]
-                .previous_position
-                .distance(contacts[1].previous_position);
-            let current_distance = contacts[0].position.distance(contacts[1].position);
-
-            if previous_distance > 0.0 && current_distance > 0.0 {
-                let Some(before_projection_scale) =
-                    projection_world_units_per_viewport_pixel(&projection)
-                else {
-                    return;
-                };
-                let target = camera_scale.scale() * current_distance / previous_distance;
-                let before = viewport_to_world(
-                    transform.translation.truncate(),
-                    before_projection_scale,
-                    window,
-                    previous_centroid,
-                );
-
-                let min_scale = minimum_camera_scale(game_map.as_ref(), window);
-                camera_scale.set_clamped(target, min_scale);
-                apply_camera_scale_to_projection(*camera_scale, &mut projection);
-
-                let Some(after_projection_scale) =
-                    projection_world_units_per_viewport_pixel(&projection)
-                else {
-                    return;
-                };
-                let after = viewport_to_world(
-                    transform.translation.truncate(),
-                    after_projection_scale,
-                    window,
-                    current_centroid,
-                );
-                transform.translation += (before - after).extend(0.0);
-            }
-        }
-        _ => {}
     }
 
     for contact in touch_state.contacts.values_mut() {
@@ -426,37 +471,111 @@ fn handle_touch_camera(
     }
 }
 
-fn handle_mouse_pan(
-    mut pan_state: ResMut<MousePanState>,
-    mut button_reader: MessageReader<MouseButtonInput>,
-    mut cursor_reader: MessageReader<CursorMoved>,
-    mut query: Query<(&mut Projection, &mut Transform), With<Camera>>,
+/// Pan on any drag the play machine did not claim for a unit.
+///
+/// This is the whole of pointer panning, for mouse and finger alike. The left
+/// button used to pan and commit a tile at the same time, because the click
+/// fired on press while the pan ran on the same button; a drag now commits
+/// nothing, and a tap is the only thing that does.
+fn pan_camera_on_unclaimed_drag(
+    owner: Res<DragOwner>,
+    mut goal: ResMut<CameraGoal>,
+    mut gestures: MessageReader<PointerGesture>,
+    mut query: Query<(&Projection, &mut Transform), With<Camera>>,
 ) {
-    for event in button_reader.read() {
-        if event.button == MouseButton::Left {
-            pan_state.dragging = event.state == ButtonState::Pressed;
-        }
-    }
-
-    if !pan_state.dragging {
-        // Consume pending cursor events so they don't accumulate while not dragging
-        for _ in cursor_reader.read() {}
+    if *owner != DragOwner::Camera {
+        gestures.clear();
         return;
     }
 
     let Ok((projection, mut transform)) = query.single_mut() else {
         return;
     };
-    let Some(projection_scale) = projection_world_units_per_viewport_pixel(&projection) else {
+    let Some(projection_scale) = projection_world_units_per_viewport_pixel(projection) else {
         return;
     };
 
-    for cursor in cursor_reader.read() {
-        if let Some(delta) = cursor.delta {
-            let world_delta = viewport_delta_to_world_delta(delta, projection_scale);
-            transform.translation -= world_delta.extend(0.0);
+    for gesture in gestures.read() {
+        if gesture.kind != PointerGestureKind::DragMove {
+            continue;
         }
+        // A player who pans has taken the wheel. Continuing to steer toward an
+        // earlier goal would drag the view back out from under them.
+        goal.0 = None;
+        let world_delta = viewport_delta_to_world_delta(gesture.delta, projection_scale);
+        transform.translation -= world_delta.extend(0.0);
     }
+}
+
+/// Bring the board up to the touch floor the first time a finger arrives.
+///
+/// The default zoom is chosen for a mouse, and on a phone it is the trap this
+/// whole pass exists to remove: the zoom that lets a player see the battlefield
+/// is the zoom at which they cannot reliably touch it. Nothing knows the
+/// pointer is coarse until one is used, so the correction happens on the first
+/// touch rather than at load.
+fn apply_touch_floor_on_first_board(
+    coarse: Res<PointerIsCoarse>,
+    mut requests: MessageReader<ReturnToTouchFloor>,
+    windows: Query<&Window>,
+    game_map: Res<GameMap>,
+    mut camera_scale: ResMut<CameraScale>,
+    mut query: Query<(&mut Projection, &mut Transform), With<Camera>>,
+) {
+    let asked = requests.read().last().is_some();
+    if (!asked && !(coarse.is_changed() && coarse.0)) || !camera_scale.is_below_touch_floor() {
+        return;
+    }
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let Ok((mut projection, mut transform)) = query.single_mut() else {
+        return;
+    };
+
+    let viewport_center = Vec2::new(window.width() * 0.5, window.height() * 0.5);
+    zoom_camera_at_viewport_position(
+        &mut transform,
+        &mut projection,
+        &mut camera_scale,
+        window,
+        game_map.as_ref(),
+        viewport_center,
+        touch_floor_scale(),
+    );
+}
+
+fn accept_focus_requests(mut requests: MessageReader<FocusBoardOn>, mut goal: ResMut<CameraGoal>) {
+    if let Some(request) = requests.read().last() {
+        goal.0 = Some(request.world);
+    }
+}
+
+/// Slide toward whatever was last asked for, frame by frame.
+fn ease_camera_toward_goal(
+    time: Res<Time>,
+    mut goal: ResMut<CameraGoal>,
+    mut query: Query<&mut Transform, With<Camera>>,
+) {
+    let Some(target) = goal.0 else {
+        return;
+    };
+    let Ok(mut transform) = query.single_mut() else {
+        return;
+    };
+
+    let current = transform.translation.truncate();
+    if current.distance(target) <= CAMERA_EASE_EPSILON {
+        transform.translation.x = target.x;
+        transform.translation.y = target.y;
+        goal.0 = None;
+        return;
+    }
+
+    let step = 1.0 - (-CAMERA_EASE_PER_SECOND * time.delta_secs()).exp();
+    let next = current.lerp(target, step.clamp(0.0, 1.0));
+    transform.translation.x = next.x;
+    transform.translation.y = next.y;
 }
 
 fn snap_camera_to_device_pixels(
@@ -490,20 +609,31 @@ impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CameraScale>()
             .init_resource::<TouchCameraState>()
-            .init_resource::<MousePanState>()
+            .init_resource::<CameraGoal>()
+            .add_message::<FocusBoardOn>()
             .add_systems(Startup, (setup_camera, setup_unit_atlas))
             .add_systems(
                 Update,
                 (
-                    handle_touch_camera,
-                    handle_camera_scaling,
-                    handle_mouse_pan,
+                    handle_touch_camera.before(accept_focus_requests),
+                    handle_camera_scaling.before(accept_focus_requests),
+                    pan_camera_on_unclaimed_drag
+                        .before(crate::modes::play::handle_play_pointer_gestures),
+                    accept_focus_requests.after(pan_camera_on_unclaimed_drag),
+                    ease_camera_toward_goal.after(accept_focus_requests),
                     snap_camera_to_device_pixels
                         .after(handle_touch_camera)
                         .after(handle_camera_scaling)
-                        .after(handle_mouse_pan),
+                        .after(ease_camera_toward_goal),
                 )
-                    .run_if(in_state(crate::core::AppState::InGame)),
+                    .in_set(PointerSet::Consume),
+            )
+            .add_systems(
+                Update,
+                apply_touch_floor_on_first_board
+                    .run_if(in_state(crate::core::AppState::InGame))
+                    .after(PointerSet::Recognize)
+                    .before(PointerSet::Consume),
             )
             .add_systems(
                 Update,
@@ -513,9 +643,7 @@ impl Plugin for CameraPlugin {
                             .and_then(resource_changed::<CameraScale>)
                             .and_then(resource_exists::<EventSink<MapDimensions>>),
                     )
-                    .after(handle_touch_camera)
-                    .after(handle_camera_scaling)
-                    .after(handle_mouse_pan),
+                    .after(PointerSet::Consume),
             );
     }
 }
@@ -633,6 +761,35 @@ mod tests {
                 .truncate()
                 .abs_diff_eq(Vec2::new(10_000.0, -10_000.0), 0.001)
         );
+    }
+
+    #[test]
+    fn user_zoom_cancels_an_in_flight_camera_goal() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<GameMap>()
+            .init_resource::<CameraScale>()
+            .init_resource::<CameraGoal>()
+            .add_message::<MouseWheel>()
+            .add_systems(Update, handle_camera_scaling);
+        app.world_mut().spawn(test_window(400, 300));
+        app.world_mut().spawn((
+            Camera::default(),
+            Projection::Orthographic(OrthographicProjection {
+                scaling_mode: bevy::camera::ScalingMode::WindowSize,
+                scale: 0.5,
+                ..OrthographicProjection::default_2d()
+            }),
+            Transform::default(),
+        ));
+        app.world_mut().resource_mut::<CameraGoal>().0 = Some(Vec2::new(100.0, 100.0));
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Equal);
+
+        app.update();
+
+        assert_eq!(app.world().resource::<CameraGoal>().0, None);
     }
 
     #[test]

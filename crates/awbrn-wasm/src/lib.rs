@@ -1,8 +1,9 @@
 use awbrn_client::{
-    AwbrnPlugin, EventSink, LiveMatchPlayer, MapAssetPathResolver, MapDimensions, NewDay,
-    PendingGameStart, PendingLiveMatch, PendingLiveTransitions, PendingMatchMap,
-    PlayerRosterSnapshot, ProductionOptionsChanged, ReplayLoaded, ReplayToLoad,
-    StaticAssetPathResolver, TileSelected, UnitBuilt, UnitMoved, core::coords::LogicalPx,
+    AwbrnPlugin, EventSink, LiveMatchPlayer, MapAssetPathResolver, MapDimensions,
+    MoveCommandRequested, NewDay, PendingGameStart, PendingLiveMatch, PendingLiveTransitions,
+    PendingMatchMap, PlayerRosterSnapshot, ProductionOptionsChanged, ReplayLoaded, ReplayToLoad,
+    StaticAssetPathResolver, TileSelected, UnitActionsChanged, UnitBuilt, UnitMoved,
+    core::coords::LogicalPx,
 };
 use awbrn_map::AwbwMapData;
 use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
@@ -44,6 +45,8 @@ pub enum GameEvent {
     UnitBuilt(UnitBuilt),
     TileSelected(TileSelected),
     ProductionOptionsChanged(ProductionOptionsChanged),
+    MoveCommandRequested(MoveCommandRequested),
+    UnitActionsChanged(UnitActionsChanged),
     MapDimensions(MapDimensions),
     ReplayLoaded(ReplayLoaded),
     PlayerRosterUpdated(PlayerRosterSnapshot),
@@ -212,6 +215,8 @@ impl BevyApp {
             wasm_sink!(UnitBuilt, UnitBuilt);
             wasm_sink!(TileSelected, TileSelected);
             wasm_sink!(ProductionOptionsChanged, ProductionOptionsChanged);
+            wasm_sink!(MoveCommandRequested, MoveCommandRequested);
+            wasm_sink!(UnitActionsChanged, UnitActionsChanged);
             wasm_sink!(MapDimensions, MapDimensions);
             wasm_sink!(ReplayLoaded, ReplayLoaded);
             wasm_sink!(PlayerRosterUpdated, PlayerRosterSnapshot);
@@ -520,6 +525,30 @@ impl BevyApp {
         );
 
         Ok(())
+    }
+
+    /// Send the order at this index on the menu the engine last offered.
+    #[wasm_bindgen]
+    pub fn choose_unit_action(&mut self, index: usize) {
+        self.app
+            .world_mut()
+            .write_message(awbrn_client::modes::play::UnitActionChosen { index });
+    }
+
+    /// Dismiss the destination menu, stepping back to the selected unit.
+    #[wasm_bindgen]
+    pub fn dismiss_unit_action(&mut self) {
+        self.app
+            .world_mut()
+            .write_message(awbrn_client::modes::play::UnitActionDismissed);
+    }
+
+    /// Put the board back after the server refused the command that was sent.
+    #[wasm_bindgen]
+    pub fn reject_pending_command(&mut self) {
+        self.app
+            .world_mut()
+            .write_message(awbrn_client::modes::play::PendingCommandRejected);
     }
 }
 

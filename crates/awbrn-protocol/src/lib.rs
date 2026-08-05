@@ -1,0 +1,40 @@
+//! Types shared by both ends of the browser/server wire contract.
+
+use awbrn_map::Position;
+use serde::{Deserialize, Serialize};
+
+/// An action to perform after a unit moves.
+///
+/// Unit identifiers use the server's wire width even when an AWBW-backed
+/// client currently sources them from a 32-bit identifier space.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum PostMoveAction {
+    /// Attack a target at the given position.
+    Attack {
+        #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }"))]
+        target: Position,
+    },
+    /// Begin or continue capturing the building at the destination.
+    Capture,
+    /// Load into a transport at the destination.
+    Load { transport_id: u64 },
+    /// Unload a carried unit to the given position.
+    Unload {
+        cargo_id: u64,
+        #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }"))]
+        position: Position,
+    },
+    /// Supply adjacent friendly units.
+    Supply,
+    /// Dive or activate stealth.
+    Hide,
+    /// Surface or deactivate stealth.
+    Unhide,
+    /// Join with a friendly unit of the same type at the destination.
+    Join { target_id: u64 },
+    /// End the unit's turn without a further action.
+    Wait,
+}

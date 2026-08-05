@@ -1,0 +1,12 @@
+[package]
+name = "awbrn-protocol"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+awbrn-map = { path = "../awbrn-map" }
+serde.workspace = true
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+tsify.workspace = true
+wasm-bindgen.workspace = true

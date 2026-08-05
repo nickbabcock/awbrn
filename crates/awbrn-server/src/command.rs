@@ -1,4 +1,5 @@
 use awbrn_map::Position;
+pub use awbrn_protocol::PostMoveAction;
 use tsify::Tsify;
 
 use crate::unit_id::ServerUnitId;
@@ -104,42 +105,4 @@ pub enum GameCommand {
     },
     /// End the current player's turn.
     EndTurn,
-}
-
-/// An action to perform after a unit moves.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Tsify)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum PostMoveAction {
-    /// Attack a target at the given position.
-    Attack {
-        #[tsify(type = "{ x: number; y: number }")]
-        target: Position,
-    },
-    /// Begin or continue capturing the building at the unit's destination.
-    Capture,
-    /// Load into a transport at the unit's destination.
-    Load {
-        #[tsify(type = "number")]
-        transport_id: ServerUnitId,
-    },
-    /// Unload a carried unit to the given position.
-    Unload {
-        #[tsify(type = "number")]
-        cargo_id: ServerUnitId,
-        #[tsify(type = "{ x: number; y: number }")]
-        position: Position,
-    },
-    /// Supply adjacent friendly units (APC ability).
-    Supply,
-    /// Dive / activate stealth.
-    Hide,
-    /// Surface / deactivate stealth.
-    Unhide,
-    /// Join with a friendly unit of the same type at the destination.
-    Join {
-        #[tsify(type = "number")]
-        target_id: ServerUnitId,
-    },
-    /// Wait at the destination (do nothing).
-    Wait,
 }

@@ -7,6 +7,7 @@ edition = "2024"
 awbrn-content = { path = "../awbrn-content", features = ["bevy"] }
 awbrn-game = { path = "../awbrn-game" }
 awbrn-map = { path = "../awbrn-map", features = ["bevy"] }
+awbrn-protocol = { path = "../awbrn-protocol" }
 awbrn-types = { path = "../awbrn-types", features = ["bevy"] }
 awbw-replay = { path = "../awbw-replay" }
 awvm = { path = "../awvm" }

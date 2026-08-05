@@ -1,9 +1,12 @@
+use crate::core::SpriteSize;
 use crate::core::coords::position_to_world_translation;
-use crate::core::{RenderLayer, SpriteSize};
 use crate::render::UiAtlas;
 use crate::render::animation::{
     Animation, UnitPathAnimation, UnitVisualState, ease_out_quint, flip_x_for_lateral_direction,
     flip_x_for_movement, restore_unit_visual_state, set_unit_animation_state,
+};
+use crate::render::course_arrow::{
+    COURSE_ARROW_SPRITE_SIZE, CourseArrowSpriteKind, course_arrow_tip,
 };
 use awbrn_game::replay::AwbwUnitId;
 use awbrn_game::world::{Faction, GameMap, Unit, UnitActive};
@@ -26,11 +29,6 @@ pub(crate) const COURSE_ARROW_BASE_SCALE: f32 = 0.8;
 pub(crate) const COURSE_ARROW_REVEAL_MS: u64 = 75;
 pub(crate) const COURSE_ARROW_LIFETIME_MS: u64 = 250;
 pub(crate) const COURSE_ARROW_STAGGER_MS: u64 = 25;
-pub(crate) const COURSE_ARROW_SPRITE_SIZE: SpriteSize = SpriteSize {
-    width: 16.0,
-    height: 16.0,
-    z_index: RenderLayer::COURSE_ARROW,
-};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReplayPathTile {
@@ -130,29 +128,12 @@ pub(crate) fn replay_path_tiles(
         })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CourseArrowSpriteKind {
-    Body,
-    Curved,
-    Tip,
-}
-
-impl CourseArrowSpriteKind {
-    fn sprite_name(self) -> &'static str {
-        match self {
-            Self::Body => "Arrow_Body.png",
-            Self::Curved => "Arrow_Curved.png",
-            Self::Tip => "Arrow_Tip.png",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct CourseArrowSpawn {
-    kind: CourseArrowSpriteKind,
-    position: Position,
-    rotation_degrees: f32,
-    start_delay: Duration,
+struct ReplayCourseArrowSpawn {
+    pub(crate) kind: CourseArrowSpriteKind,
+    pub(crate) position: Position,
+    pub(crate) rotation_degrees: f32,
+    pub(crate) start_delay: Duration,
 }
 
 #[allow(dead_code)]
@@ -167,114 +148,32 @@ pub(crate) struct CourseArrowPiece {
     pub(crate) elapsed: Duration,
 }
 
-pub(crate) fn build_course_arrow_spawns(path: &[ReplayPathTile]) -> Vec<CourseArrowSpawn> {
-    if path.len() < 2 {
-        return Vec::new();
-    }
-
-    let mut spawns = Vec::with_capacity(path.len().saturating_sub(1));
-
-    for i in 1..path.len() - 1 {
-        let current = path[i];
-        if !current.unit_visible {
-            continue;
-        }
-
-        let prev = path[i - 1];
-        let next = path[i + 1];
-        let start_delay = scaled_animation_duration((i as u64 - 1) * COURSE_ARROW_STAGGER_MS);
-
-        let (kind, rotation_degrees) = if !next.unit_visible {
-            let head_diff_x = current.position.x as isize - prev.position.x as isize;
-            let head_diff_y = current.position.y as isize - prev.position.y as isize;
-            let rotation_degrees = if head_diff_x > 0 {
-                90.0
-            } else if head_diff_x < 0 {
-                -90.0
-            } else if head_diff_y > 0 {
-                0.0
-            } else {
-                180.0
-            };
-
-            (CourseArrowSpriteKind::Tip, rotation_degrees)
-        } else {
-            let diff_x = next.position.x as isize - prev.position.x as isize;
-            let diff_y = next.position.y as isize - prev.position.y as isize;
-
-            if diff_x.abs() >= 2 {
-                (
-                    CourseArrowSpriteKind::Body,
-                    if diff_x > 0 { 90.0 } else { -90.0 },
-                )
-            } else if diff_y.abs() >= 2 {
-                (
-                    CourseArrowSpriteKind::Body,
-                    if diff_y > 0 { 180.0 } else { 0.0 },
-                )
-            } else {
-                let prev_to_current_x = current.position.x as isize - prev.position.x as isize;
-                let prev_to_current_y = current.position.y as isize - prev.position.y as isize;
-
-                let connects_north = prev_to_current_y > 0
-                    || current.position.y as isize - next.position.y as isize > 0;
-                let connects_east = prev_to_current_x < 0
-                    || next.position.x as isize - current.position.x as isize > 0;
-                let connects_south = prev_to_current_y < 0
-                    || next.position.y as isize - current.position.y as isize > 0;
-                let connects_west = prev_to_current_x > 0
-                    || current.position.x as isize - next.position.x as isize > 0;
-
-                let rotation_degrees = if connects_west && connects_north {
-                    0.0
-                } else if connects_north && connects_east {
-                    -90.0
-                } else if connects_east && connects_south {
-                    180.0
-                } else if connects_south && connects_west {
-                    90.0
-                } else {
-                    unreachable!("turn piece must connect exactly two orthogonal directions");
-                };
-
-                (CourseArrowSpriteKind::Curved, rotation_degrees)
+fn build_course_arrow_spawns(path: &[ReplayPathTile]) -> Vec<ReplayCourseArrowSpawn> {
+    let positions: Vec<_> = path.iter().map(|tile| tile.position).collect();
+    crate::render::course_arrow::build_course_arrow_spawns(&positions)
+        .into_iter()
+        .filter(|spawn| path[spawn.path_index].unit_visible)
+        .map(|mut spawn| {
+            if path
+                .get(spawn.path_index + 1)
+                .is_some_and(|tile| !tile.unit_visible)
+            {
+                spawn = course_arrow_tip(
+                    path[spawn.path_index - 1].position,
+                    spawn.position,
+                    spawn.path_index,
+                );
             }
-        };
-
-        spawns.push(CourseArrowSpawn {
-            kind,
-            position: current.position,
-            rotation_degrees,
-            start_delay,
-        });
-    }
-
-    let before_head = path[path.len() - 2];
-    let head = path[path.len() - 1];
-    if head.unit_visible {
-        let head_diff_x = head.position.x as isize - before_head.position.x as isize;
-        let head_diff_y = head.position.y as isize - before_head.position.y as isize;
-        let rotation_degrees = if head_diff_x > 0 {
-            90.0
-        } else if head_diff_x < 0 {
-            -90.0
-        } else if head_diff_y > 0 {
-            0.0
-        } else {
-            180.0
-        };
-
-        spawns.push(CourseArrowSpawn {
-            kind: CourseArrowSpriteKind::Tip,
-            position: head.position,
-            rotation_degrees,
-            start_delay: scaled_animation_duration(
-                (path.len() as u64 - 2) * COURSE_ARROW_STAGGER_MS,
-            ),
-        });
-    }
-
-    spawns
+            spawn
+        })
+        .enumerate()
+        .map(|(visible_index, spawn)| ReplayCourseArrowSpawn {
+            kind: spawn.kind,
+            position: spawn.position,
+            rotation_degrees: spawn.rotation_degrees,
+            start_delay: scaled_animation_duration(visible_index as u64 * COURSE_ARROW_STAGGER_MS),
+        })
+        .collect()
 }
 
 fn current_segment_and_progress(path_animation: &UnitPathAnimation) -> (usize, f32) {
@@ -615,6 +514,35 @@ mod tests {
         assert_eq!(spawns.len(), 1);
         assert_eq!(spawns[0].kind, CourseArrowSpriteKind::Tip);
         assert_eq!(spawns[0].position, Position::new(3, 1));
+    }
+
+    #[test]
+    fn hidden_tiles_do_not_leave_stagger_gaps() {
+        let spawns = build_course_arrow_spawns(&[
+            ReplayPathTile {
+                position: Position::new(0, 0),
+                unit_visible: true,
+            },
+            ReplayPathTile {
+                position: Position::new(1, 0),
+                unit_visible: false,
+            },
+            ReplayPathTile {
+                position: Position::new(2, 0),
+                unit_visible: true,
+            },
+            ReplayPathTile {
+                position: Position::new(3, 0),
+                unit_visible: true,
+            },
+        ]);
+
+        assert_eq!(spawns.len(), 2);
+        assert_eq!(spawns[0].start_delay, scaled_animation_duration(0));
+        assert_eq!(
+            spawns[1].start_delay,
+            scaled_animation_duration(COURSE_ARROW_STAGGER_MS)
+        );
     }
 
     #[test]
