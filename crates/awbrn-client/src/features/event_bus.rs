@@ -67,6 +67,104 @@ pub struct TileSelected {
     pub terrain_type: String,
 }
 
+/// A unit carried by the unit on the hovered tile.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct HoveredCargoUnit {
+    pub unit: awvm::ruleset::UnitKind,
+    pub name: String,
+    pub faction_code: String,
+    pub health: u8,
+    pub ammo: Option<u32>,
+    pub max_ammo: u32,
+    pub fuel: Option<u32>,
+    pub max_fuel: u32,
+}
+
+/// How the ammunition of a unit reads on the tile readout.
+///
+/// The three cases say different things and must not collapse into one number:
+/// a transport carries no weapon, an infantry rifle never runs out, and every
+/// other weapon spends rounds that can run out.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub enum AmmoDisplay {
+    /// The unit has no weapon, so the readout shows no ammunition at all.
+    None,
+    /// Every weapon of this unit fires without ammunition.
+    Unlimited,
+    /// The unit spends ammunition: `ammo` and `max_ammo` apply.
+    Counted,
+}
+
+impl AmmoDisplay {
+    /// What the ruleset says about the weapons of one unit kind.
+    pub fn for_unit(unit: awvm::ruleset::UnitKind) -> Self {
+        match awvm::ruleset::profile(unit).weapon_policy {
+            awvm::ruleset::WeaponPolicy::None => Self::None,
+            awvm::ruleset::WeaponPolicy::Unlimited => Self::Unlimited,
+            awvm::ruleset::WeaponPolicy::Ammo | awvm::ruleset::WeaponPolicy::AmmoWithUnlimited => {
+                Self::Counted
+            }
+        }
+    }
+}
+
+/// The visible unit on the hovered tile.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct HoveredUnit {
+    pub unit: awvm::ruleset::UnitKind,
+    pub name: String,
+    pub faction_code: String,
+    pub health: u8,
+    /// `None` when the unit carries the resource but its amount is unknown.
+    pub ammo: Option<u32>,
+    pub max_ammo: u32,
+    pub ammo_display: AmmoDisplay,
+    pub fuel: Option<u32>,
+    pub max_fuel: u32,
+    pub loaded_units: Vec<HoveredCargoUnit>,
+}
+
+/// Information the presentation can show for one hovered board tile.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct HoveredTile {
+    pub x: usize,
+    pub y: usize,
+    /// The kind of terrain alone: `Shoal`, `HQ`. The tile art carries the shape
+    /// it is drawn in and the colour of the army that holds it.
+    pub terrain_name: String,
+    /// The army holding this tile, for tiles an army can hold. The readout
+    /// shows the owner in the sprite rather than in the name, so this is what
+    /// its accessible description says instead.
+    pub terrain_owner: Option<String>,
+    /// Capture points this property still owes before it changes hands, when a
+    /// visible unit is taking it. `None` when nothing is being captured here.
+    pub capture_remaining: Option<u8>,
+    pub terrain_sprite_index: u16,
+    pub defense_stars: u8,
+    pub unit: Option<HoveredUnit>,
+}
+
+/// The current hovered tile. `tile: None` clears the presentation readout.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct TileHoverChanged {
+    pub tile: Option<HoveredTile>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
 #[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]

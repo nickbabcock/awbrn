@@ -9,10 +9,11 @@ pub mod weather;
 pub use awbrn_game::world::{CurrentWeather, FriendlyFactions, ViewerVisibility};
 pub use camera::CameraScale;
 pub use event_bus::{
-    EventSink, MapDimensions, MoveCommandRequested, NewDay, PlayerRosterEntry,
-    PlayerRosterSnapshot, PlayerRosterStats, PostMoveAction, ProductionOption,
-    ProductionOptionsChanged, ProductionSite, ReplayLoaded, ReplayLoadedPlayer, TileSelected,
-    UnitActionOption, UnitActionsChanged, UnitBuilt, UnitMoved, UnitOrder, UnloadCommandRequested,
+    EventSink, HoveredCargoUnit, HoveredTile, HoveredUnit, MapDimensions, MoveCommandRequested,
+    NewDay, PlayerRosterEntry, PlayerRosterSnapshot, PlayerRosterStats, PostMoveAction,
+    ProductionOption, ProductionOptionsChanged, ProductionSite, ReplayLoaded, ReplayLoadedPlayer,
+    TileHoverChanged, TileSelected, UnitActionOption, UnitActionsChanged, UnitBuilt, UnitMoved,
+    UnitOrder, UnloadCommandRequested,
 };
 pub use input::{SelectedTile, TileCursor};
 

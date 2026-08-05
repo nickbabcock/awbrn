@@ -1,7 +1,9 @@
 import type { CSSProperties } from "react";
+import terrainAtlasManifest from "../../../assets/data/terrain_atlas_manifest.json";
 import unitAtlasManifest from "../../../assets/data/unit_atlas_manifest.json";
 import uiAtlasData from "../../../assets/data/ui_atlas.json";
 import uiTextureUrl from "../../../assets/textures/ui.png?url";
+import tilesTextureUrl from "../../../assets/textures/tiles.png?url";
 import unitsTextureUrl from "../../../assets/textures/units.png?url";
 import { factions } from "#/factions.ts";
 import type { UnitKind } from "#/wasm/awbrn_wasm.js";
@@ -25,6 +27,7 @@ const UNIT_VISIBLE_X = 7;
 const UNIT_VISIBLE_Y = 5;
 const UNIT_VISIBLE_WIDTH = 16;
 const UNIT_VISIBLE_HEIGHT = 19;
+const TERRAIN_SHEET = terrainAtlasManifest.sheet;
 
 type AtlasSprite = {
   name: string;
@@ -63,6 +66,22 @@ const UNIT_SHEET_HEIGHT =
 /** The width and height a unit sprite occupies once drawn at `scale`. */
 export function unitSpriteSize(scale = 1): { width: number; height: number } {
   return { width: UNIT_VISIBLE_WIDTH * scale, height: UNIT_VISIBLE_HEIGHT * scale };
+}
+
+/** One terrain atlas cell, including the part that rises above its map tile. */
+export function terrainSpriteStyle(index: number, scale = 1): CSSProperties {
+  const column = index % TERRAIN_SHEET.columns;
+  const row = Math.floor(index / TERRAIN_SHEET.columns);
+
+  return {
+    width: `${TERRAIN_SHEET.cellWidth * scale}px`,
+    height: `${TERRAIN_SHEET.cellHeight * scale}px`,
+    backgroundImage: `url(${tilesTextureUrl})`,
+    backgroundSize: `${TERRAIN_SHEET.cellWidth * TERRAIN_SHEET.columns * scale}px ${TERRAIN_SHEET.cellHeight * TERRAIN_SHEET.rows * scale}px`,
+    backgroundPosition: `-${column * TERRAIN_SHEET.cellWidth * scale}px -${row * TERRAIN_SHEET.cellHeight * scale}px`,
+    backgroundRepeat: "no-repeat",
+    imageRendering: "pixelated",
+  };
 }
 
 export function getUiAtlasSprite(name: string): AtlasSprite | null {

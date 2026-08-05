@@ -107,6 +107,12 @@ const extraTokens: Record<string, string> = {
   "--size-roster-rail": "340px",
   "--size-roster-stat-icon": "18px",
   "--size-roster-stat-icon-overlay": "10px",
+  // -- Tile readout -------------------------------------------------------
+  // The terrain window docked on the board. Its readings stack in a column
+  // beside the art, so it only has to be as wide as one terrain name, and it is
+  // held to that: it stands on the battlefield, and every extra pixel is
+  // terrain the player cannot see.
+  "--size-tile-readout": "96px",
   // -- Build menu ---------------------------------------------------------
   // The menu opened by a production building. Wide enough for the longest unit
   // name and a six-figure price on one line, and no wider, because it is drawn

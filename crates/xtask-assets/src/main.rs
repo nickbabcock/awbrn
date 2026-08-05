@@ -401,6 +401,20 @@ struct CoPortraitAtlasData {
 }
 
 #[derive(Debug, Serialize)]
+struct TerrainAtlasManifest {
+    sheet: TerrainAtlasSheet,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TerrainAtlasSheet {
+    columns: u32,
+    rows: u32,
+    cell_width: u32,
+    cell_height: u32,
+}
+
+#[derive(Debug, Serialize)]
 struct UnitAtlasManifest {
     sheet: UnitAtlasSheet,
     #[serde(rename = "framesPerFaction")]
@@ -547,6 +561,7 @@ fn run_tiles() -> Result<()> {
     let stubby_path = repo_root.join("assets/textures/stubby.png");
     let stubby_snow_path = repo_root.join("assets/textures/stubby-snow.png");
     let tilesheet_path = repo_root.join("assets/textures/tiles.png");
+    let terrain_manifest_path = repo_root.join("assets/data/terrain_atlas_manifest.json");
     let generated_dir = repo_root.join("crates/awbrn-content/src/generated");
 
     let tiles_map: BTreeMap<String, TileEntry> = load_json_map(&tiles_path)?;
@@ -722,7 +737,7 @@ fn run_tiles() -> Result<()> {
     all_frames.extend(rain_frames);
 
     // Terrain fills its own frame, so an opaque border is correct here.
-    let _tilesheet = build_spritesheet(
+    let tilesheet = build_spritesheet(
         &all_frames,
         &tilesheet_path,
         TILESHEET_COLUMNS,
@@ -731,7 +746,8 @@ fn run_tiles() -> Result<()> {
     )?;
     optimize_png(&tilesheet_path)?;
 
-    let tilesheet_rows = (all_frames.len() as u32).div_ceil(TILESHEET_COLUMNS);
+    let tilesheet_rows = tilesheet.rows;
+    write_terrain_atlas_manifest(tilesheet, &terrain_manifest_path)?;
 
     fs::create_dir_all(&generated_dir).context("Creating generated output directory")?;
     let spritesheet_rs = generated_dir.join("spritesheet_index.rs");
@@ -1527,6 +1543,31 @@ fn render_unit_animation_data(units: &[UnitDefinition], spritesheet: Spritesheet
     ));
     output.push_str("}\n");
     output
+}
+
+/// Publish the terrain sheet geometry for the browser to read.
+///
+/// The sheet grows every time a terrain frame is added, so a copy of these
+/// numbers kept by hand in the web code would misalign every terrain sprite
+/// with nothing to catch it.
+fn write_terrain_atlas_manifest(spritesheet: SpritesheetBuild, output_path: &Path) -> Result<()> {
+    let manifest = TerrainAtlasManifest {
+        sheet: TerrainAtlasSheet {
+            columns: spritesheet.columns,
+            rows: spritesheet.rows,
+            cell_width: spritesheet.cell_width,
+            cell_height: spritesheet.cell_height,
+        },
+    };
+
+    let content =
+        serde_json::to_string_pretty(&manifest).context("Serializing terrain atlas manifest")?;
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).context("Creating terrain atlas manifest directory")?;
+    }
+    fs::write(output_path, content).context("Writing terrain atlas manifest")?;
+
+    Ok(())
 }
 
 fn write_unit_atlas_manifest(

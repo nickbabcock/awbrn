@@ -10,10 +10,11 @@ mod ui_atlas;
 
 pub use awbrn_plugin::AwbrnPlugin;
 pub use features::event_bus::{
-    EventSink, MapDimensions, MoveCommandRequested, NewDay, PlayerRosterEntry,
-    PlayerRosterSnapshot, PlayerRosterStats, PostMoveAction, ProductionOption,
-    ProductionOptionsChanged, ProductionSite, ReplayLoaded, ReplayLoadedPlayer, TileSelected,
-    UnitActionOption, UnitActionsChanged, UnitBuilt, UnitMoved, UnitOrder, UnloadCommandRequested,
+    EventSink, HoveredCargoUnit, HoveredTile, HoveredUnit, MapDimensions, MoveCommandRequested,
+    NewDay, PlayerRosterEntry, PlayerRosterSnapshot, PlayerRosterStats, PostMoveAction,
+    ProductionOption, ProductionOptionsChanged, ProductionSite, ReplayLoaded, ReplayLoadedPlayer,
+    TileHoverChanged, TileSelected, UnitActionOption, UnitActionsChanged, UnitBuilt, UnitMoved,
+    UnitOrder, UnloadCommandRequested,
 };
 pub use json_plugin::*;
 pub use loading::{

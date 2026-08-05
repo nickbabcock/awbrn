@@ -1,10 +1,21 @@
 use crate::core::coords::{LogicalPx, TILE_SIZE, map_position_to_world_translation};
 use crate::core::{RenderLayer, SpriteSize};
-use crate::features::event_bus::{EventSink, TileSelected};
+use crate::features::event_bus::{
+    AmmoDisplay, EventSink, HoveredCargoUnit, HoveredTile, HoveredUnit, TileHoverChanged,
+    TileSelected,
+};
+use crate::features::weather::CurrentWeather;
+use crate::projection::{
+    ClientProjectionSet, ProjectedTerrainRenderState, ProjectedUnitRenderState,
+};
 use crate::render::UiAtlas;
 use awbrn_game::MapPosition;
-use awbrn_game::world::{BoardIndex, GameMap, TerrainTile};
+use awbrn_game::world::{
+    Ammo, BoardIndex, CaptureProgress, Faction, FriendlyFactions, Fuel, GameMap, GraphicalHp,
+    HasCargo, TerrainTile, Unit, ViewerVisibility,
+};
 use awbrn_map::Position;
+use awbrn_types::{GraphicalTerrain, UnitExt};
 use bevy::ecs::system::SystemParam;
 use bevy::input::{
     ButtonState,
@@ -113,9 +124,16 @@ pub(crate) struct PointerState {
     primary: Option<ActivePointer>,
 }
 
-fn reset_pointer_state(mut state: ResMut<PointerState>, mut owner: ResMut<DragOwner>) {
+fn reset_pointer_state(
+    mut state: ResMut<PointerState>,
+    mut owner: ResMut<DragOwner>,
+    mut inspected: ResMut<InspectedTile>,
+    mut hovered: ResMut<HoveredTileState>,
+) {
     state.primary = None;
     *owner = DragOwner::Camera;
+    inspected.0 = None;
+    *hovered = HoveredTileState::default();
 }
 
 /// Who owns the drag currently in flight.
@@ -198,6 +216,260 @@ pub(crate) fn update_tile_cursor(
     transform.translation.y = center.y;
     transform.translation.z = TILE_CORE_SPRITE_SIZE.z_index as f32;
     *visibility = Visibility::Visible;
+}
+
+type HoveredUnitQueryItem<'a> = (
+    &'a ProjectedUnitRenderState,
+    &'a Faction,
+    Option<&'a GraphicalHp>,
+    Option<&'a Ammo>,
+    Option<&'a Fuel>,
+    Option<&'a CaptureProgress>,
+);
+
+#[derive(SystemParam)]
+struct HoverInfo<'w, 's> {
+    board_index: Res<'w, BoardIndex>,
+    weather: Res<'w, CurrentWeather>,
+    visibility: Res<'w, ViewerVisibility>,
+    friendly_factions: Res<'w, FriendlyFactions>,
+    terrain: Query<'w, 's, &'static ProjectedTerrainRenderState>,
+    units: Query<'w, 's, HoveredUnitQueryItem<'static>>,
+    transports: Query<'w, 's, &'static HasCargo>,
+}
+
+/// One unit as the readout compares it.
+///
+/// Every field is `Copy`, so a frame that changes nothing costs a comparison
+/// instead of the strings and vector the payload needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HoveredUnitKey {
+    unit: Unit,
+    faction: Faction,
+    health: u8,
+    /// `None` where the unit has no such component to read.
+    ammo: Option<u32>,
+    fuel: Option<u32>,
+    /// Points already put into taking the property under it, when it is taking
+    /// one.
+    capture: Option<u8>,
+}
+
+/// The tile under the mouse, as the readout compares it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HoveredTileKey {
+    position: Position,
+    terrain: GraphicalTerrain,
+    terrain_sprite_index: u16,
+    unit: Option<HoveredUnitKey>,
+}
+
+/// What the presentation was last told, in comparable form.
+///
+/// The cargo of the hovered unit lives beside the tile rather than inside it so
+/// that its buffer survives from one frame to the next, which is what keeps the
+/// per-frame read free of allocation.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct HoverKey {
+    /// `None` when the pointer is not over the board.
+    tile: Option<HoveredTileKey>,
+    cargo: Vec<HoveredUnitKey>,
+}
+
+/// The tile a finger is reading.
+///
+/// A finger cannot hover, so the readout follows what the player last pointed
+/// at: a tap holds a tile until the next tap, and a drag reads the tile under
+/// the finger the whole way, which is how the destination of a move can be read
+/// before the finger lifts. A mouse needs none of this and keeps its cursor.
+#[derive(Resource, Debug, Default)]
+struct InspectedTile(Option<Position>);
+
+/// Follow the finger, for the readout only. This commits nothing.
+fn track_inspected_tile(
+    mut gestures: MessageReader<PointerGesture>,
+    mut inspected: ResMut<InspectedTile>,
+) {
+    for gesture in gestures.read() {
+        if !gesture.coarse {
+            continue;
+        }
+        match gesture.kind {
+            PointerGestureKind::Tap
+            | PointerGestureKind::DragStart
+            | PointerGestureKind::DragMove
+            | PointerGestureKind::DragEnd => {
+                // A pointer off the board reports no tile. The tile it last
+                // stood on is still the last thing the player asked about, so
+                // the readout holds there rather than emptying.
+                if let Some(tile) = gesture.tile {
+                    inspected.0 = Some(tile);
+                }
+            }
+            PointerGestureKind::DragCancel => {}
+        }
+    }
+}
+
+#[derive(Resource, Debug, Default)]
+struct HoveredTileState {
+    /// What the presentation was last told.
+    current: HoverKey,
+    /// This frame's read, swapped in when it differs from `current`.
+    scratch: HoverKey,
+}
+
+fn unit_key(
+    state: &ProjectedUnitRenderState,
+    health: Option<&GraphicalHp>,
+    ammo: Option<&Ammo>,
+    fuel: Option<&Fuel>,
+    capture: Option<&CaptureProgress>,
+) -> HoveredUnitKey {
+    HoveredUnitKey {
+        capture: capture.map(|progress| progress.value()),
+        unit: state.unit,
+        faction: state.faction,
+        health: health.map_or(10, GraphicalHp::value),
+        ammo: ammo.map(Ammo::value),
+        fuel: fuel.map(Fuel::value),
+    }
+}
+
+fn cargo_details(key: HoveredUnitKey) -> HoveredCargoUnit {
+    HoveredCargoUnit {
+        unit: key.unit.0,
+        name: key.unit.0.name().to_string(),
+        faction_code: key.faction.0.country_code().to_string(),
+        health: key.health,
+        ammo: key.ammo,
+        max_ammo: key.unit.0.max_ammo(),
+        fuel: key.fuel,
+        max_fuel: key.unit.0.max_fuel(),
+    }
+}
+
+/// Read one tile into `key`, reusing its cargo buffer.
+fn read_hovered_tile(info: &HoverInfo<'_, '_>, position: Option<Position>, key: &mut HoverKey) {
+    key.tile = None;
+    key.cargo.clear();
+
+    let Some(position) = position else {
+        return;
+    };
+    let Ok(terrain_entity) = info.board_index.terrain_entity(position) else {
+        return;
+    };
+    let Ok(terrain) = info.terrain.get(terrain_entity) else {
+        return;
+    };
+    let terrain = terrain.0;
+
+    let unit = info
+        .board_index
+        .unit_entity(position)
+        .ok()
+        .flatten()
+        .and_then(|unit_entity| {
+            let (state, actual_faction, health, ammo, fuel, capture) =
+                info.units.get(unit_entity).ok()?;
+            if !state.visible {
+                return None;
+            }
+
+            // Ammunition, fuel and health of a unit the viewer can see are all
+            // part of their observation, whoever owns it. Cargo is the one part
+            // fog withholds from an enemy transport, per `spec/semantics/fog.md`.
+            let disclose_cargo = !info.visibility.fog_active()
+                || info.friendly_factions.0.contains(&actual_faction.0);
+            if disclose_cargo {
+                let carried = info
+                    .transports
+                    .get(unit_entity)
+                    .into_iter()
+                    .flat_map(HasCargo::iter);
+                for cargo_entity in carried {
+                    // A carried unit captures nothing; it is not on the ground.
+                    if let Ok((state, _, health, ammo, fuel, _)) = info.units.get(cargo_entity) {
+                        key.cargo.push(unit_key(state, health, ammo, fuel, None));
+                    }
+                }
+            }
+
+            Some(unit_key(state, health, ammo, fuel, capture))
+        });
+
+    key.tile = Some(HoveredTileKey {
+        position,
+        terrain,
+        terrain_sprite_index: awbrn_content::spritesheet_index(info.weather.weather(), terrain)
+            .index(),
+        unit,
+    });
+}
+
+fn hover_payload(key: &HoverKey) -> Option<HoveredTile> {
+    let tile = key.tile?;
+    let terrain = tile.terrain.as_terrain();
+
+    Some(HoveredTile {
+        x: tile.position.x,
+        y: tile.position.y,
+        terrain_name: terrain.type_name().to_string(),
+        terrain_owner: terrain.owner().map(|faction| faction.name().to_string()),
+        terrain_sprite_index: tile.terrain_sprite_index,
+        defense_stars: tile.terrain.defense_stars(),
+        // What the property still owes, rather than what has been paid into it.
+        // A capture is finished by the number that reaches zero.
+        capture_remaining: tile
+            .unit
+            .and_then(|unit| unit.capture)
+            .map(|progress| CaptureProgress::REQUIRED.saturating_sub(progress)),
+        unit: tile.unit.map(|unit| HoveredUnit {
+            unit: unit.unit.0,
+            name: unit.unit.0.name().to_string(),
+            faction_code: unit.faction.0.country_code().to_string(),
+            health: unit.health,
+            ammo: unit.ammo,
+            max_ammo: unit.unit.0.max_ammo(),
+            ammo_display: AmmoDisplay::for_unit(unit.unit.0),
+            fuel: unit.fuel,
+            max_fuel: unit.unit.0.max_fuel(),
+            loaded_units: key.cargo.iter().copied().map(cargo_details).collect(),
+        }),
+    })
+}
+
+/// Report the tile under the mouse when its visible information changes.
+fn emit_tile_hover_changed(
+    projection: BoardProjection<'_, '_>,
+    info: HoverInfo<'_, '_>,
+    coarse: Res<PointerIsCoarse>,
+    inspected: Res<InspectedTile>,
+    mut hovered: ResMut<HoveredTileState>,
+    sink: If<Res<EventSink<TileHoverChanged>>>,
+) {
+    // A touch session has no cursor to read, and the one it reports is wherever
+    // the last finger happened to leave it.
+    let position = if coarse.0 {
+        inspected.0
+    } else {
+        projection.cursor_tile()
+    };
+
+    // The scratch buffer is written every frame and nothing observes this
+    // resource, so its change flag would report a change that is not one.
+    let hovered = hovered.bypass_change_detection();
+    read_hovered_tile(&info, position, &mut hovered.scratch);
+
+    if hovered.scratch == hovered.current {
+        return;
+    }
+
+    std::mem::swap(&mut hovered.current, &mut hovered.scratch);
+    sink.emit(TileHoverChanged {
+        tile: hover_payload(&hovered.current),
+    });
 }
 
 /// Turning a point on the screen into a point on the board.
@@ -504,6 +776,8 @@ impl Plugin for InputPlugin {
         app.init_resource::<PointerState>();
         app.init_resource::<PointerIsCoarse>();
         app.init_resource::<DragOwner>();
+        app.init_resource::<HoveredTileState>();
+        app.init_resource::<InspectedTile>();
         app.add_message::<TileClicked>();
         app.add_message::<PointerGesture>();
         app.add_message::<ReturnToTouchFloor>();
@@ -520,11 +794,20 @@ impl Plugin for InputPlugin {
         );
         app.add_systems(
             Update,
-            recognize_pointer_gestures.in_set(PointerSet::Recognize),
+            (recognize_pointer_gestures, track_inspected_tile)
+                .chain()
+                .in_set(PointerSet::Recognize),
         );
         app.add_systems(
             Update,
             update_tile_cursor.run_if(in_state(crate::core::AppState::InGame)),
+        );
+        app.add_systems(
+            Update,
+            emit_tile_hover_changed
+                .after(ClientProjectionSet::DerivePresentation)
+                .after(PointerSet::Recognize)
+                .run_if(in_state(crate::core::AppState::InGame)),
         );
         app.add_systems(
             Update,
@@ -542,7 +825,214 @@ impl Plugin for InputPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::projection::ProjectedUnitOverlayFlags;
+    use awbrn_game::world::{CarriedBy, Hiding};
+    use awbrn_types::{GraphicalTerrain, PlayerFaction};
+    use bevy::ecs::system::RunSystemOnce;
     use bevy::window::WindowResolution;
+
+    fn hover_app() -> App {
+        let mut app = App::new();
+        app.insert_resource(BoardIndex::new(2, 1));
+        app.init_resource::<GameMap>();
+        app.init_resource::<CurrentWeather>();
+        app.init_resource::<ViewerVisibility>();
+        app.init_resource::<FriendlyFactions>();
+
+        for x in 0..2 {
+            let position = Position::new(x, 0);
+            let terrain = app
+                .world_mut()
+                .spawn(ProjectedTerrainRenderState(GraphicalTerrain::Plain))
+                .id();
+            app.world_mut()
+                .resource_mut::<BoardIndex>()
+                .set_terrain(position, terrain)
+                .unwrap();
+        }
+
+        app
+    }
+
+    /// A unit the viewer can see, placed on the board at `position`.
+    fn spawn_unit(
+        app: &mut App,
+        position: Position,
+        unit: awbrn_types::Unit,
+        faction: PlayerFaction,
+    ) -> Entity {
+        let entity = spawn_carried_unit(app, unit, faction);
+        app.world_mut()
+            .resource_mut::<BoardIndex>()
+            .set_unit(position, entity)
+            .unwrap();
+        entity
+    }
+
+    /// A unit off the board, which is what a carried unit is.
+    fn spawn_carried_unit(
+        app: &mut App,
+        unit: awbrn_types::Unit,
+        faction: PlayerFaction,
+    ) -> Entity {
+        app.world_mut()
+            .spawn((
+                ProjectedUnitRenderState {
+                    unit: Unit(unit),
+                    faction: Faction(faction),
+                    visible: true,
+                    active: true,
+                    overlays: ProjectedUnitOverlayFlags::default(),
+                },
+                Faction(faction),
+                GraphicalHp(7),
+                Ammo(4),
+                Fuel(50),
+            ))
+            .id()
+    }
+
+    /// What the readout would report for `position`, without a camera.
+    fn hover_at(app: &mut App, position: Position) -> Option<HoveredTile> {
+        app.world_mut()
+            .run_system_once_with(
+                |In(position): In<Position>, info: HoverInfo| {
+                    let mut key = HoverKey::default();
+                    read_hovered_tile(&info, Some(position), &mut key);
+                    hover_payload(&key)
+                },
+                position,
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn unchanged_coarse_hover_emits_only_once() {
+        let mut app = hover_app();
+        app.init_resource::<PointerIsCoarse>()
+            .init_resource::<InspectedTile>()
+            .init_resource::<HoveredTileState>()
+            .add_systems(Update, emit_tile_hover_changed);
+        app.world_mut().resource_mut::<PointerIsCoarse>().0 = true;
+        app.world_mut().resource_mut::<InspectedTile>().0 = Some(Position::new(0, 0));
+
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = events.clone();
+        app.insert_resource(EventSink::<TileHoverChanged>::new(move |event| {
+            recorded.lock().unwrap().push(event);
+        }));
+
+        app.update();
+        let first = {
+            let mut events = events.lock().unwrap();
+            assert_eq!(events.len(), 1);
+            events.pop().unwrap()
+        };
+        assert_eq!(first.tile.unwrap().x, 0);
+
+        app.update();
+        assert!(events.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_visible_enemy_discloses_its_ammunition_and_fuel_but_not_its_cargo() {
+        let mut app = hover_app();
+        app.world_mut()
+            .resource_mut::<ViewerVisibility>()
+            .reset(true, 2, 1);
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+
+        let transport = spawn_unit(
+            &mut app,
+            Position::new(0, 0),
+            awbrn_types::Unit::Apc,
+            PlayerFaction::BlueMoon,
+        );
+        let cargo = spawn_carried_unit(
+            &mut app,
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::BlueMoon,
+        );
+        app.world_mut()
+            .entity_mut(cargo)
+            .insert(CarriedBy(transport));
+
+        let unit = hover_at(&mut app, Position::new(0, 0))
+            .unwrap()
+            .unit
+            .unwrap();
+
+        assert_eq!(unit.ammo, Some(4));
+        assert_eq!(unit.fuel, Some(50));
+        assert_eq!(unit.health, 7);
+        assert!(unit.loaded_units.is_empty(), "fog withholds enemy cargo");
+    }
+
+    #[test]
+    fn cargo_is_reported_in_the_order_it_was_loaded() {
+        let mut app = hover_app();
+
+        let transport = spawn_unit(
+            &mut app,
+            Position::new(0, 0),
+            awbrn_types::Unit::Lander,
+            PlayerFaction::OrangeStar,
+        );
+        let mut loaded = Vec::new();
+        for carried in [awbrn_types::Unit::Mech, awbrn_types::Unit::Infantry] {
+            let entity = spawn_carried_unit(&mut app, carried, PlayerFaction::OrangeStar);
+            app.world_mut()
+                .entity_mut(entity)
+                .insert(CarriedBy(transport));
+            loaded.push(entity);
+        }
+        // Put the two carried units in separate archetypes, so a readout that
+        // scans the world instead of asking the transport reports them in the
+        // order the archetypes happen to sit in rather than the order they
+        // were loaded in.
+        app.world_mut().entity_mut(loaded[0]).insert(Hiding);
+
+        let unit = hover_at(&mut app, Position::new(0, 0))
+            .unwrap()
+            .unit
+            .unwrap();
+
+        let names: Vec<_> = unit
+            .loaded_units
+            .iter()
+            .map(|cargo| cargo.name.as_str())
+            .collect();
+        assert_eq!(names, ["Mech", "Infantry"]);
+    }
+
+    #[test]
+    fn a_weapon_that_never_runs_out_is_not_reported_as_a_count() {
+        let mut app = hover_app();
+        spawn_unit(
+            &mut app,
+            Position::new(0, 0),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+        );
+
+        let unit = hover_at(&mut app, Position::new(0, 0))
+            .unwrap()
+            .unit
+            .unwrap();
+
+        assert_eq!(unit.ammo_display, AmmoDisplay::Unlimited);
+        assert_eq!(
+            AmmoDisplay::for_unit(awbrn_types::Unit::Apc),
+            AmmoDisplay::None
+        );
+        assert_eq!(
+            AmmoDisplay::for_unit(awbrn_types::Unit::Tank),
+            AmmoDisplay::Counted
+        );
+    }
 
     #[test]
     fn mouse_release_outside_the_window_clears_the_active_pointer() {
