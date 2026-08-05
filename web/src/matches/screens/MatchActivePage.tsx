@@ -27,6 +27,7 @@ import type { MatchParticipantSnapshot } from "#/matches/schemas.ts";
 import { BuildMenu } from "#/matches/components/BuildMenu.tsx";
 import { UnitActionMenu } from "#/matches/components/UnitActionMenu.tsx";
 import { RosterList, RosterRow } from "#/replay/RosterRow.tsx";
+import type { ActivatablePowerLevel } from "#/replay/power_meter.ts";
 import type {
   PlayerRosterEntry,
   PlayerRosterSnapshot,
@@ -107,10 +108,16 @@ export function MatchActivePage({
   const [spectatorFogActive, setSpectatorFogActive] = useState<boolean | null>(null);
   const [activePlayerSlot, setActivePlayerSlot] = useState<number | null>(null);
   const [isEndingTurn, setIsEndingTurn] = useState(false);
+  const [activatingPower, setActivatingPower] = useState<ActivatablePowerLevel>();
   const isEndingTurnRef = useRef(false);
+  const isActivatingPowerRef = useRef(false);
   const finishEndingTurn = useCallback(() => {
     isEndingTurnRef.current = false;
     setIsEndingTurn(false);
+  }, []);
+  const finishActivatingPower = useCallback(() => {
+    isActivatingPowerRef.current = false;
+    setActivatingPower(undefined);
   }, []);
   // A command the server refuses, or one that never leaves, puts the board back
   // the way it was: the unit selected at its origin with its route intact, so a
@@ -137,6 +144,7 @@ export function MatchActivePage({
           // turn with this frame and not with a player update, so the end turn
           // command must stop here too.
           finishEndingTurn();
+          finishActivatingPower();
           setViewerSlotIndex(message.slotIndex);
           // The notice arrives before this frame and only ever for a spectator,
           // so holding a seat here means an earlier notice has gone stale.
@@ -147,6 +155,7 @@ export function MatchActivePage({
         }
         case "error": {
           finishEndingTurn();
+          finishActivatingPower();
           setMatchError(message.message);
           restoreAfterRefusal();
           return;
@@ -175,7 +184,7 @@ export function MatchActivePage({
         }
       }
     },
-    [finishEndingTurn, restoreAfterRefusal, runner],
+    [finishActivatingPower, finishEndingTurn, restoreAfterRefusal, runner],
   );
   const { reconnect, sendMessage, status } = useMatchWebSocket(matchId, handleMatchMessage);
 
@@ -195,10 +204,49 @@ export function MatchActivePage({
   const viewerArmy = armies.find((army) => army.entry.playerId === viewerSlotIndex);
 
   useEffect(() => {
+    if (activatingPower !== undefined && viewerArmy?.entry.activePower !== undefined) {
+      finishActivatingPower();
+    }
+  }, [activatingPower, finishActivatingPower, viewerArmy?.entry.activePower]);
+
+  useEffect(() => {
     if (status !== "connected") {
       finishEndingTurn();
+      finishActivatingPower();
     }
-  }, [finishEndingTurn, status]);
+  }, [finishActivatingPower, finishEndingTurn, status]);
+
+  const handleActivatePower = useCallback(
+    (level: ActivatablePowerLevel) => {
+      if (
+        isActivatingPowerRef.current ||
+        status !== "connected" ||
+        viewerSlotIndex === null ||
+        viewerSlotIndex === undefined ||
+        viewerSlotIndex !== activePlayerSlot
+      ) {
+        return;
+      }
+
+      isActivatingPowerRef.current = true;
+      setActivatingPower(level);
+      setMatchError(null);
+      if (!sendMessage({ type: "activatePower", level })) {
+        finishActivatingPower();
+        setMatchError("The CO power could not be activated because the connection is not open.");
+        return;
+      }
+      setProductionOptions(null);
+    },
+    [
+      activePlayerSlot,
+      finishActivatingPower,
+      sendMessage,
+      setProductionOptions,
+      status,
+      viewerSlotIndex,
+    ],
+  );
 
   const handleEndTurn = useCallback(() => {
     if (
@@ -318,9 +366,17 @@ export function MatchActivePage({
                   {armies.map((army) => (
                     <RosterRow
                       isActive={army.isActive}
+                      activatingPower={activatingPower}
                       isViewer={viewerSlotIndex === army.entry.playerId}
                       key={army.entry.playerId}
                       name={army.name}
+                      onActivatePower={
+                        status === "connected" &&
+                        army.isActive &&
+                        viewerSlotIndex === army.entry.playerId
+                          ? handleActivatePower
+                          : undefined
+                      }
                       onFactionChange={
                         army.hasLiveStats
                           ? (factionId) =>
@@ -669,6 +725,7 @@ function seatEntry(participant: MatchParticipantSnapshot, index: number): Player
     copCost: undefined,
     scopCost: undefined,
     powerStarCharge: undefined,
+    activePower: undefined,
     stats: {
       funds: undefined,
       income: undefined,

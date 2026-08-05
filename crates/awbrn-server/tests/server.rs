@@ -8,8 +8,8 @@ use awbrn_types::{
 
 use awbrn_server::{
     CaptureEvent, Co, CommandError, GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup,
-    PostMoveAction, ReplayError, ReplayEventError, ServerUnitId, SetupError, StoredActionEvent,
-    reconstruct_from_events,
+    PostMoveAction, PowerLevel, ReplayError, ReplayEventError, ServerUnitId, SetupError,
+    StoredActionEvent, reconstruct_from_events,
 };
 use awvm::semantic::{ObservedEvent, ObservedUnitRef};
 
@@ -427,6 +427,28 @@ fn build_rejects_insufficient_funds() {
             available: 1000
         }
     ));
+}
+
+#[test]
+fn activate_power_rejects_insufficient_charge() {
+    let mut server = GameServer::new(two_player_setup(3, 3)).unwrap();
+
+    let err = server
+        .submit_command(
+            p1(),
+            GameCommand::ActivatePower {
+                level: PowerLevel::Cop,
+            },
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        err,
+        CommandError::InsufficientPower {
+            cost: 27_000,
+            available: 0
+        }
+    );
 }
 
 #[test]

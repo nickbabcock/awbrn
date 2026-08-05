@@ -17,6 +17,8 @@ pub enum CommandError {
     InvalidAction { reason: String },
     /// Insufficient funds to build the requested unit.
     InsufficientFunds { cost: u32, available: u32 },
+    /// Insufficient charge to activate the requested power.
+    InsufficientPower { cost: u32, available: u32 },
     /// The position cannot produce the requested unit type.
     InvalidBuildLocation,
     /// The game is already over.
@@ -33,6 +35,9 @@ impl fmt::Display for CommandError {
             Self::InvalidAction { reason } => write!(f, "invalid action: {reason}"),
             Self::InsufficientFunds { cost, available } => {
                 write!(f, "insufficient funds: need {cost}, have {available}")
+            }
+            Self::InsufficientPower { cost, available } => {
+                write!(f, "insufficient power: need {cost}, have {available}")
             }
             Self::InvalidBuildLocation => write!(f, "invalid build location"),
             Self::GameOver => write!(f, "game is over"),

@@ -657,6 +657,7 @@ fn command_error(error: crate::error::CommandError) -> JsError {
         | crate::error::CommandError::InvalidPath { .. }
         | crate::error::CommandError::InvalidAction { .. }
         | crate::error::CommandError::InsufficientFunds { .. }
+        | crate::error::CommandError::InsufficientPower { .. }
         | crate::error::CommandError::InvalidBuildLocation => ("invalidCommand", 400),
     };
     js_error(code, error.to_string(), http_status, json!(null))

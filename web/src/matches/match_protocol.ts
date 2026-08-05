@@ -63,6 +63,7 @@ export interface ErrorMessage {
 
 /** A player command sent over the live-match websocket. */
 export type MatchCommand = WasmGameCommand;
+export type ActivatePowerCommand = Extract<MatchCommand, { type: "activatePower" }>;
 export type EndTurnCommand = Extract<MatchCommand, { type: "endTurn" }>;
 
 export type UnitMoved = UnitMovedMessage;

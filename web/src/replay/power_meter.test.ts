@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readPowerMeter } from "./power_meter.ts";
+import { canActivatePower, readPowerMeter } from "./power_meter.ts";
 import type { PlayerRosterEntry } from "#/wasm/awbrn_wasm.js";
 
 /** A roster entry with only the fields the meter reads. */
@@ -24,6 +24,7 @@ function entry(power: Partial<PlayerRosterEntry>): PlayerRosterEntry {
     copCost: undefined,
     scopCost: undefined,
     powerStarCharge: undefined,
+    activePower: undefined,
     stats: { funds: undefined, income: undefined, unitCount: undefined, unitValue: undefined },
     ...power,
   };
@@ -88,5 +89,25 @@ describe("readPowerMeter", () => {
   it("draws nothing when the CO has no power to charge toward", () => {
     expect(readPowerMeter(entry({ powerCharge: 0, powerStarCharge: 9_000 }))).toBeNull();
     expect(readPowerMeter(entry({ powerCharge: 0, copCost: 27_000 }))).toBeNull();
+  });
+});
+
+describe("canActivatePower", () => {
+  const costs = { copCost: 27_000, scopCost: 54_000, powerStarCharge: 9_000 };
+
+  it("becomes available at the normal-power threshold", () => {
+    expect(canActivatePower(entry({ powerCharge: 26_999, ...costs }), "cop")).toBe(false);
+    expect(canActivatePower(entry({ powerCharge: 27_000, ...costs }), "cop")).toBe(true);
+  });
+
+  it("becomes available at the super-power threshold", () => {
+    expect(canActivatePower(entry({ powerCharge: 53_999, ...costs }), "scop")).toBe(false);
+    expect(canActivatePower(entry({ powerCharge: 54_000, ...costs }), "scop")).toBe(true);
+  });
+
+  it("is unavailable while a power is active", () => {
+    const player = entry({ powerCharge: 54_000, activePower: "scop", ...costs });
+    expect(canActivatePower(player, "cop")).toBe(false);
+    expect(canActivatePower(player, "scop")).toBe(false);
   });
 });

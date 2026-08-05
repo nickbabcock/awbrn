@@ -11,7 +11,7 @@ mod view;
 mod wasm;
 
 pub use awbrn_types::Co;
-pub use command::{GameCommand, PostMoveAction};
+pub use command::{GameCommand, PostMoveAction, PowerLevel};
 pub use error::CommandError;
 pub use player::{PlayerId, PlayerRegistry};
 pub use replay::{ReplayError, ReplayEventError, StoredActionEvent, reconstruct_from_events};
