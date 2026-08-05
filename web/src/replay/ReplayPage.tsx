@@ -14,6 +14,7 @@ import { resolveAwbwUsername } from "#/awbw/api.ts";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
 import { loadCoPortraitCatalog, type CoPortraitCatalog } from "#/components/co_portraits.ts";
 import { BoardFullscreenExit, GameFullscreenButton } from "#/components/GameFullscreen.tsx";
+import { TileInfoBar } from "#/components/TileInfoBar.tsx";
 import { useReplayRunner } from "#/engine/runtime_context.tsx";
 import { useGameActions, useGameStore } from "#/engine/store.ts";
 import { getFactionByCode } from "#/factions.ts";
@@ -164,6 +165,10 @@ export function ReplayPage() {
                 </VStack>
               </Center>
             ) : null}
+
+            {/* The terrain window stands on the battlefield itself, so reading
+                a tile costs the review no height. */}
+            {playerRoster ? <TileInfoBar /> : null}
           </VStack>
 
           {/* The game's own status line, kept on the board it describes. */}

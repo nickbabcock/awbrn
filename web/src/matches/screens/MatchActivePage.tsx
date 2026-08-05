@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
 import { getCoPortraitByAwbwId, loadCoPortraitCatalog } from "#/components/co_portraits.ts";
 import { BoardFullscreenExit, GameFullscreenButton } from "#/components/GameFullscreen.tsx";
+import { TileInfoBar } from "#/components/TileInfoBar.tsx";
 import { useActiveMatchRunner } from "#/engine/runtime_context.tsx";
 import type { GameRunner } from "#/engine/game_runner.ts";
 import { useGameActions, useGameStore } from "#/engine/store.ts";
@@ -644,6 +645,10 @@ function ActiveMatchBoard({
             presentation={press?.isCoarse || isCompactViewport ? "sheet" : "board"}
           />
         )}
+
+        {/* The terrain window stands on the battlefield, the way the game's own
+            does, so reading a tile costs the page no height. */}
+        <TileInfoBar />
       </VStack>
 
       {/* The readout carries no chrome of its own: inside a panel that already

@@ -496,6 +496,19 @@ impl PropertyKind {
             PropertyKind::Port => PropertyKind::Lab,
         }
     }
+
+    /// The name of the building, without an owner in front of it.
+    pub const fn name(&self) -> &'static str {
+        match self {
+            PropertyKind::Airport => "Airport",
+            PropertyKind::Base => "Base",
+            PropertyKind::City => "City",
+            PropertyKind::ComTower => "Com Tower",
+            PropertyKind::HQ => "HQ",
+            PropertyKind::Lab => "Lab",
+            PropertyKind::Port => "Port",
+        }
+    }
 }
 
 /// GameplayTerrain represents the terrain's gameplay characteristics,
@@ -517,6 +530,36 @@ pub enum GameplayTerrain {
     PipeRubble,
     MissileSilo(MissileSiloStatus),
     Teleporter,
+}
+
+impl GameplayTerrain {
+    /// The kind of terrain, with no drawing detail and no owner.
+    ///
+    /// This is the name a player thinks in. The map format writes the tile it
+    /// draws, so it calls one shoal `HShoal` and one headquarters
+    /// `Orange Star HQ`; a readout that names the tile says `Shoal` and `HQ`,
+    /// and lets the sprite carry the shape and the army colour.
+    pub const fn type_name(&self) -> &'static str {
+        match self {
+            GameplayTerrain::Plain => "Plain",
+            GameplayTerrain::Mountain => "Mountain",
+            GameplayTerrain::Wood => "Wood",
+            GameplayTerrain::River => "River",
+            GameplayTerrain::Road => "Road",
+            GameplayTerrain::Bridge => "Bridge",
+            GameplayTerrain::Sea => "Sea",
+            GameplayTerrain::Shoal => "Shoal",
+            GameplayTerrain::Reef => "Reef",
+            GameplayTerrain::Property(property) => property.kind().name(),
+            GameplayTerrain::Pipe => "Pipe",
+            GameplayTerrain::PipeSeam => "Pipe Seam",
+            GameplayTerrain::PipeRubble => "Pipe Rubble",
+            // A silo that has fired keeps its name. The empty silo is drawn as
+            // its own tile, so the art says which one this is.
+            GameplayTerrain::MissileSilo(_) => "Silo",
+            GameplayTerrain::Teleporter => "Teleporter",
+        }
+    }
 }
 
 /// Terrain that represents the graphical representation. One can have tall

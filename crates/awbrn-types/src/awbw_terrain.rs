@@ -372,6 +372,15 @@ impl AwbwTerrain {
         matches!(self, AwbwTerrain::Property(_))
     }
 
+    /// The kind of terrain, with no drawing detail and no owner.
+    ///
+    /// [`AwbwTerrain::name`] names the tile the map format writes, down to the
+    /// direction a shoal faces and the army that holds a headquarters. This
+    /// names the terrain itself: `Shoal`, `HQ`.
+    pub fn type_name(&self) -> &'static str {
+        self.gameplay_type().type_name()
+    }
+
     /// Get the gameplay-relevant terrain type
     pub fn gameplay_type(&self) -> GameplayTerrain {
         match self {
@@ -1334,6 +1343,34 @@ impl TryFrom<u8> for AwbwTerrain {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_type_name_drops_the_drawing_and_the_owner() {
+        assert_eq!(
+            AwbwTerrain::Shoal(ShoalType::HorizontalNorth).name(),
+            "HShoalN"
+        );
+        assert_eq!(
+            AwbwTerrain::Shoal(ShoalType::HorizontalNorth).type_name(),
+            "Shoal"
+        );
+
+        let hq = AwbwTerrain::Property(Property::HQ(PlayerFaction::OrangeStar));
+        assert_eq!(hq.name(), "Orange Star HQ");
+        assert_eq!(hq.type_name(), "HQ");
+
+        assert_eq!(
+            AwbwTerrain::Property(Property::City(Faction::Neutral)).type_name(),
+            "City"
+        );
+        assert_eq!(AwbwTerrain::Road(RoadType::ESW).type_name(), "Road");
+        // A silo that has fired is still a silo. The tile it is drawn as is
+        // what says it has been used.
+        assert_eq!(
+            AwbwTerrain::MissileSilo(MissileSiloStatus::Unloaded).type_name(),
+            "Silo"
+        );
+    }
 
     #[test]
     fn test_missile_silo_status() {
