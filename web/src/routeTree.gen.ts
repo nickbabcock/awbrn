@@ -9,21 +9,21 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as AuthRouteImport } from './routes/auth'
-import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AboutRouteImport } from './routes/about'
+import { Route as AuthRouteImport } from './routes/auth'
 import { Route as MatchesIndexRouteImport } from './routes/matches/index'
-import { Route as MyMatchesRouteImport } from './routes/my/matches'
-import { Route as MatchesNewRouteImport } from './routes/matches/new'
 import { Route as MatchesMatchIdRouteImport } from './routes/matches/$matchId'
+import { Route as MatchesNewRouteImport } from './routes/matches/new'
+import { Route as MyMatchesRouteImport } from './routes/my/matches'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
-import { Route as ApiAwbwUserUserIdRouteImport } from './routes/api/awbw/user.$userId'
-import { Route as ApiAwbwSmallmapMapIdRouteImport } from './routes/api/awbw/smallmap.$mapId'
 import { Route as ApiAwbwMapMapIdRouteImport } from './routes/api/awbw/map.$mapId'
+import { Route as ApiAwbwSmallmapMapIdRouteImport } from './routes/api/awbw/smallmap.$mapId'
+import { Route as ApiAwbwUserUserIdRouteImport } from './routes/api/awbw/user.$userId'
 
-const AuthRoute = AuthRouteImport.update({
-  id: '/auth',
-  path: '/auth',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AboutRoute = AboutRouteImport.update({
@@ -31,9 +31,9 @@ const AboutRoute = AboutRouteImport.update({
   path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MatchesIndexRoute = MatchesIndexRouteImport.update({
@@ -41,9 +41,9 @@ const MatchesIndexRoute = MatchesIndexRouteImport.update({
   path: '/matches/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const MyMatchesRoute = MyMatchesRouteImport.update({
-  id: '/my/matches',
-  path: '/my/matches',
+const MatchesMatchIdRoute = MatchesMatchIdRouteImport.update({
+  id: '/matches/$matchId',
+  path: '/matches/$matchId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MatchesNewRoute = MatchesNewRouteImport.update({
@@ -51,9 +51,9 @@ const MatchesNewRoute = MatchesNewRouteImport.update({
   path: '/matches/new',
   getParentRoute: () => rootRouteImport,
 } as any)
-const MatchesMatchIdRoute = MatchesMatchIdRouteImport.update({
-  id: '/matches/$matchId',
-  path: '/matches/$matchId',
+const MyMatchesRoute = MyMatchesRouteImport.update({
+  id: '/my/matches',
+  path: '/my/matches',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
@@ -61,9 +61,9 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiAwbwUserUserIdRoute = ApiAwbwUserUserIdRouteImport.update({
-  id: '/api/awbw/user/$userId',
-  path: '/api/awbw/user/$userId',
+const ApiAwbwMapMapIdRoute = ApiAwbwMapMapIdRouteImport.update({
+  id: '/api/awbw/map/$mapId',
+  path: '/api/awbw/map/$mapId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAwbwSmallmapMapIdRoute = ApiAwbwSmallmapMapIdRouteImport.update({
@@ -71,9 +71,9 @@ const ApiAwbwSmallmapMapIdRoute = ApiAwbwSmallmapMapIdRouteImport.update({
   path: '/api/awbw/smallmap/$mapId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiAwbwMapMapIdRoute = ApiAwbwMapMapIdRouteImport.update({
-  id: '/api/awbw/map/$mapId',
-  path: '/api/awbw/map/$mapId',
+const ApiAwbwUserUserIdRoute = ApiAwbwUserUserIdRouteImport.update({
+  id: '/api/awbw/user/$userId',
+  path: '/api/awbw/user/$userId',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -175,11 +175,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/auth': {
-      id: '/auth'
-      path: '/auth'
-      fullPath: '/auth'
-      preLoaderRoute: typeof AuthRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/about': {
@@ -189,11 +189,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/matches/': {
@@ -203,11 +203,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MatchesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/my/matches': {
-      id: '/my/matches'
-      path: '/my/matches'
-      fullPath: '/my/matches'
-      preLoaderRoute: typeof MyMatchesRouteImport
+    '/matches/$matchId': {
+      id: '/matches/$matchId'
+      path: '/matches/$matchId'
+      fullPath: '/matches/$matchId'
+      preLoaderRoute: typeof MatchesMatchIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/matches/new': {
@@ -217,11 +217,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MatchesNewRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/matches/$matchId': {
-      id: '/matches/$matchId'
-      path: '/matches/$matchId'
-      fullPath: '/matches/$matchId'
-      preLoaderRoute: typeof MatchesMatchIdRouteImport
+    '/my/matches': {
+      id: '/my/matches'
+      path: '/my/matches'
+      fullPath: '/my/matches'
+      preLoaderRoute: typeof MyMatchesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -231,11 +231,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/awbw/user/$userId': {
-      id: '/api/awbw/user/$userId'
-      path: '/api/awbw/user/$userId'
-      fullPath: '/api/awbw/user/$userId'
-      preLoaderRoute: typeof ApiAwbwUserUserIdRouteImport
+    '/api/awbw/map/$mapId': {
+      id: '/api/awbw/map/$mapId'
+      path: '/api/awbw/map/$mapId'
+      fullPath: '/api/awbw/map/$mapId'
+      preLoaderRoute: typeof ApiAwbwMapMapIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/awbw/smallmap/$mapId': {
@@ -245,11 +245,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAwbwSmallmapMapIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/awbw/map/$mapId': {
-      id: '/api/awbw/map/$mapId'
-      path: '/api/awbw/map/$mapId'
-      fullPath: '/api/awbw/map/$mapId'
-      preLoaderRoute: typeof ApiAwbwMapMapIdRouteImport
+    '/api/awbw/user/$userId': {
+      id: '/api/awbw/user/$userId'
+      path: '/api/awbw/user/$userId'
+      fullPath: '/api/awbw/user/$userId'
+      preLoaderRoute: typeof ApiAwbwUserUserIdRouteImport
       parentRoute: typeof rootRouteImport
     }
   }

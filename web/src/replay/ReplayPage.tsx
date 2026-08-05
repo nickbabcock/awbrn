@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { resolveAwbwUsername } from "#/awbw/api.ts";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
 import { loadCoPortraitCatalog, type CoPortraitCatalog } from "#/components/co_portraits.ts";
+import { BoardFullscreenExit, GameFullscreenButton } from "#/components/GameFullscreen.tsx";
 import { useReplayRunner } from "#/engine/runtime_context.tsx";
 import { useGameActions, useGameStore } from "#/engine/store.ts";
 import { getFactionByCode } from "#/factions.ts";
@@ -28,7 +29,15 @@ export function ReplayPage() {
   const [replayFile, setReplayFile] = useState<File | null>(null);
   const [replayError, setReplayError] = useState<string | null>(null);
   const runner = useReplayRunner();
-  const { canvasRef, focus, surfaceRef } = useCanvasCourierSurface({ controller: runner });
+  const {
+    canvasRef,
+    enterFullscreen,
+    exitFullscreen,
+    focus,
+    fullscreenMode,
+    isFullscreen,
+    surfaceRef,
+  } = useCanvasCourierSurface({ controller: runner });
 
   async function handleReplayFileChange(files: File | File[] | null) {
     const file = Array.isArray(files) ? files[0] : files;
@@ -131,7 +140,12 @@ export function ReplayPage() {
           <VStack
             gap={0}
             ref={surfaceRef}
-            xstyle={[styles.gameSurface, !playerRoster && styles.gameSurfaceEmpty]}
+            xstyle={[
+              styles.gameSurface,
+              !playerRoster && styles.gameSurfaceEmpty,
+              isFullscreen && styles.gameSurfaceFullscreen,
+              fullscreenMode === "immersive" && styles.gameSurfaceImmersive,
+            ]}
           >
             <canvas
               ref={canvasRef}
@@ -140,6 +154,9 @@ export function ReplayPage() {
               tabIndex={0}
               {...stylex.props(styles.gameCanvas, !playerRoster && styles.gameCanvasHidden)}
             />
+            {isFullscreen ? (
+              <BoardFullscreenExit mode={fullscreenMode} onExit={exitFullscreen} />
+            ) : null}
             {!playerRoster ? (
               <Center height="100%" width="100%" xstyle={styles.loaderOverlay}>
                 <VStack gap={3} maxWidth={420} width="100%">
@@ -169,7 +186,15 @@ export function ReplayPage() {
                 <Text type="supporting">No replay loaded</Text>
               )}
             </HStack>
-            {playerRoster ? replayLoader : null}
+            {/* Full screen is only an offer once there is a battle to watch,
+                and while the board holds the screen the way back out is the key
+                on the board itself. */}
+            {playerRoster ? (
+              <HStack align="center" gap={2} wrap="wrap">
+                {isFullscreen ? null : <GameFullscreenButton onEnter={enterFullscreen} />}
+                {replayLoader}
+              </HStack>
+            ) : null}
           </HStack>
         </Card>
 
@@ -216,11 +241,17 @@ export function ReplayPage() {
 
 const styles = stylex.create({
   // One column until the rail and a board wide enough to read both fit; two
-  // from there, with every extra pixel going to the board.
+  // from there. The board takes the width its height allows and the rail stays
+  // against it, so a wide window puts the spare space around the pair instead
+  // of between the map and the armies that describe it.
   reviewLayout: {
     gridTemplateColumns: {
       default: "minmax(0, 1fr)",
       [rosterLayout.desktopMedia]: rosterLayout.railColumns,
+    },
+    justifyContent: {
+      default: "stretch",
+      [rosterLayout.desktopMedia]: "center",
     },
   },
   // A 3:2 board that grows without limit runs off a laptop screen, and a map
@@ -239,6 +270,29 @@ const styles = stylex.create({
     // the map is never stretched on a phone.
     aspectRatio: "3 / 2",
     backgroundColor: "var(--color-background-inverted)",
+  },
+  // The board gives up its 3:2 frame and takes the screen's own shape. The
+  // engine is told the new canvas size and redraws to it, so the extra room is
+  // more map rather than a stretched one.
+  gameSurfaceFullscreen: {
+    alignItems: "center",
+    aspectRatio: "auto",
+    blockSize: "100%",
+    inlineSize: "100%",
+    justifyContent: "center",
+  },
+  // The fallback for browsers that will not hand an element the screen, iOS
+  // Safari above all. It has to reach the same result the browser would: over
+  // everything, including the app shell's own bar, and out to the edges the
+  // notch leaves usable.
+  gameSurfaceImmersive: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 100,
+    blockSize: "100dvh",
+    inlineSize: "100dvw",
+    paddingBlock: "env(safe-area-inset-top) env(safe-area-inset-bottom)",
+    paddingInline: "env(safe-area-inset-left) env(safe-area-inset-right)",
   },
   // With no replay the frame only has to say where the board goes, so it stops
   // reserving a board's worth of empty ground.

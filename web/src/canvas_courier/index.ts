@@ -42,4 +42,5 @@ export {
   type SharedCanvasDecodedEvent,
 } from "./ring_buffer";
 export { useCanvasCourierSurface } from "./useCanvasCourierSurface";
+export type { GameFullscreenMode } from "./useGameFullscreen";
 export type { CanvasCourierController, CanvasCourierSurface } from "./types";
