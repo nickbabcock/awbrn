@@ -252,10 +252,29 @@ fn field_route_cost(field: &awvm::query::MoveField, path: &[Position]) -> Option
     field.route_cost(&semantic?)
 }
 
-fn move_range(field: &awvm::query::MoveField) -> HashMap<Position, u8> {
+fn friendly_unit_at(position: Position, unit_selection: &PlayUnitSelectionParams<'_, '_>) -> bool {
+    let Ok(Some(entity)) = unit_selection.board_index.unit_entity(position) else {
+        return false;
+    };
+    unit_selection
+        .units
+        .get(entity)
+        .is_ok_and(|(_, faction, _, _, _, is_carried)| {
+            !is_carried && unit_selection.friendly_factions.0.contains(&faction.0)
+        })
+}
+
+fn move_range(
+    field: &awvm::query::MoveField,
+    unit_selection: &PlayUnitSelectionParams<'_, '_>,
+) -> HashMap<Position, u8> {
     field
-        .destinations()
+        .reach()
         .filter(|(position, _)| *position != field.origin())
+        .filter(|(position, _)| {
+            field.can_stop_at(*position)
+                || friendly_unit_at(position_from_pos(*position), unit_selection)
+        })
         .filter_map(|(position, cost)| {
             Some((position_from_pos(position), u8::try_from(cost).ok()?))
         })
@@ -293,9 +312,10 @@ fn select_unit(
     entity: Entity,
     origin: Position,
     field: awvm::query::MoveField,
+    unit_selection: &PlayUnitSelectionParams<'_, '_>,
     selection: &mut PlaySelectionState<'_>,
 ) {
-    let range = move_range(&field);
+    let range = move_range(&field, unit_selection);
     selection.selected.0 = Some(SelectedUnitSelection { entity, origin });
     selection.move_range.tiles = range;
     selection.move_field.0 = Some(field);
@@ -367,6 +387,8 @@ fn confirm_selected_destination(
         return;
     };
 
+    selection.proposed_path.path = path.clone();
+    selection.proposed_path.hovered = Some(destination);
     selection.pending_destination.0 = Some(PendingMoveDestinationSelection {
         unit: selected_unit.entity,
         origin: selected_unit.origin,
@@ -444,7 +466,7 @@ pub(crate) fn claim_unit_drag(
                         // The drag begins by selecting what it grabbed, so the
                         // range is on screen from the first pixel of travel
                         // rather than only after the release.
-                        select_unit(entity, origin, field, &mut selection);
+                        select_unit(entity, origin, field, &unit_selection, &mut selection);
                         true
                     });
 
@@ -576,12 +598,12 @@ fn handle_tap(
             if gesture.coarse {
                 frame_selection(
                     origin,
-                    &move_range(&field),
+                    &move_range(&field, unit_selection),
                     &unit_selection.game_map,
                     &mut policy.focus,
                 );
             }
-            select_unit(entity, origin, field, selection);
+            select_unit(entity, origin, field, unit_selection, selection);
             return;
         }
 
@@ -601,12 +623,12 @@ fn handle_tap(
         if gesture.coarse {
             frame_selection(
                 origin,
-                &move_range(&field),
+                &move_range(&field, unit_selection),
                 &unit_selection.game_map,
                 &mut policy.focus,
             );
         }
-        select_unit(entity, origin, field, selection);
+        select_unit(entity, origin, field, unit_selection, selection);
         return;
     }
 
@@ -692,6 +714,14 @@ fn attack_approach(
 
     orthogonal_neighbors(hovered)
         .filter_map(|approach| {
+            let can_stop = selection
+                .move_field
+                .0
+                .as_ref()?
+                .can_stop_at(semantic_position(approach)?);
+            if !can_stop {
+                return None;
+            }
             selection
                 .move_range
                 .tiles
@@ -2136,9 +2166,9 @@ mod tests {
     }
 
     #[test]
-    fn occupied_tiles_are_reachable_for_attack_join_and_load_but_block_routes() {
+    fn friendly_units_are_in_the_preview_but_enemies_block_routes() {
         let mut app = play_test_app();
-        set_plain_map(&mut app, 6, 3);
+        set_plain_map(&mut app, 6, 1);
         app.world_mut()
             .resource_mut::<FriendlyFactions>()
             .0
@@ -2146,46 +2176,51 @@ mod tests {
 
         spawn_unit(
             &mut app,
-            Position::new(0, 1),
-            awbrn_types::Unit::Infantry,
+            Position::new(0, 0),
+            awbrn_types::Unit::Recon,
             PlayerFaction::OrangeStar,
             true,
             Some(99),
         );
         spawn_unit(
             &mut app,
-            Position::new(1, 1),
-            awbrn_types::Unit::Infantry,
+            Position::new(1, 0),
+            awbrn_types::Unit::Recon,
             PlayerFaction::OrangeStar,
             true,
             Some(99),
         );
         spawn_unit(
             &mut app,
-            Position::new(3, 1),
+            Position::new(3, 0),
             awbrn_types::Unit::Infantry,
             PlayerFaction::BlueMoon,
             true,
             Some(99),
         );
 
-        click_tile(&mut app, Position::new(0, 1));
+        click_tile(&mut app, Position::new(0, 0));
 
         let range = &app.world().resource::<MoveRange>().tiles;
-        assert!(!range.contains_key(&Position::new(1, 1)));
-        assert!(range.contains_key(&Position::new(2, 1)));
-        assert!(!range.contains_key(&Position::new(3, 1)));
-        assert!(!range.contains_key(&Position::new(4, 1)));
+        assert!(range.contains_key(&Position::new(1, 0)));
+        assert!(range.contains_key(&Position::new(2, 0)));
+        assert!(!range.contains_key(&Position::new(3, 0)));
+        assert!(!range.contains_key(&Position::new(4, 0)));
 
-        click_tile(&mut app, Position::new(1, 1));
+        click_tile(&mut app, Position::new(1, 0));
         assert_eq!(
             app.world()
                 .resource::<PendingMoveDestination>()
                 .0
                 .as_ref()
                 .map(|pending| pending.destination),
-            Some(Position::new(1, 1)),
+            Some(Position::new(1, 0)),
             "an occupied friendly tile must reach the action query"
+        );
+        assert_eq!(
+            app.world().resource::<ProposedMovePath>().path,
+            vec![Position::new(0, 0), Position::new(1, 0)],
+            "the arrow must follow the route to an occupied friendly tile"
         );
     }
 
