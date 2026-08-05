@@ -3,4 +3,4 @@ packages:
 
 catalog:
   '@types/node': 24.12.2
-  typescript: 6.0.2
+  typescript: 7.0.2

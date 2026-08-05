@@ -16,7 +16,7 @@ import {
 } from "./schemas";
 
 export const listMatchesFn = createServerFn({ method: "GET" })
-  .inputValidator(matchBrowseRequestSchema)
+  .validator(matchBrowseRequestSchema)
   .handler(async ({ data }) => {
     const result = await listMatches(data);
     if (!result.ok) throw new Error(result.error.message);
@@ -34,7 +34,7 @@ export const listMyMatchesFn = createServerFn({ method: "GET" })
 
 export const getMatchFn = createServerFn({ method: "GET" })
   .middleware([sessionMiddleware])
-  .inputValidator(z.object({ matchId: z.string(), joinSlug: z.string().nullish() }))
+  .validator(z.object({ matchId: z.string(), joinSlug: z.string().nullish() }))
   .handler(async ({ data, context }) => {
     const result = await getMatchSnapshot(
       data.matchId,
@@ -47,7 +47,7 @@ export const getMatchFn = createServerFn({ method: "GET" })
 
 export const createMatchFn = createServerFn({ method: "POST" })
   .middleware([sessionMiddleware])
-  .inputValidator(matchCreateRequestSchema)
+  .validator(matchCreateRequestSchema)
   .handler(async ({ data, context }) => {
     if (!context.session) throw new Error("you must be signed in to create a match");
     const result = await createMatch(data, {
@@ -60,7 +60,7 @@ export const createMatchFn = createServerFn({ method: "POST" })
 
 export const mutateMatchFn = createServerFn({ method: "POST" })
   .middleware([sessionMiddleware])
-  .inputValidator(z.object({ matchId: z.string(), action: matchMutationRequestSchema }))
+  .validator(z.object({ matchId: z.string(), action: matchMutationRequestSchema }))
   .handler(async ({ data, context }) => {
     if (!context.session) throw new Error("you must be signed in to update a lobby");
 
