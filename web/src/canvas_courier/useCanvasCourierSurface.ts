@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useRef } from "react";
 import type { CanvasCourierController } from "./types";
+import { useGameFullscreen } from "./useGameFullscreen";
 
 export function useCanvasCourierSurface({ controller }: { controller: CanvasCourierController }) {
   const surfaceRef = useRef<HTMLElement>(null);
@@ -17,6 +18,11 @@ export function useCanvasCourierSurface({ controller }: { controller: CanvasCour
   const blur = useCallback(() => {
     canvasRef.current?.blur();
   }, []);
+
+  const { enterFullscreen, exitFullscreen, isFullscreen, mode } = useGameFullscreen({
+    focusSurface: focus,
+    surfaceRef,
+  });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -38,5 +44,9 @@ export function useCanvasCourierSurface({ controller }: { controller: CanvasCour
     canvasRef,
     focus,
     blur,
+    enterFullscreen,
+    exitFullscreen,
+    fullscreenMode: mode,
+    isFullscreen,
   };
 }

@@ -6,6 +6,7 @@ import { Card } from "@astryxdesign/core/Card";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Section } from "@astryxdesign/core/Section";
+import { Link } from "@astryxdesign/core/Link";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
@@ -14,6 +15,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
 import { getCoPortraitByAwbwId, loadCoPortraitCatalog } from "#/components/co_portraits.ts";
+import { BoardFullscreenExit, GameFullscreenButton } from "#/components/GameFullscreen.tsx";
 import { useActiveMatchRunner } from "#/engine/runtime_context.tsx";
 import type { GameRunner } from "#/engine/game_runner.ts";
 import { useGameActions, useGameStore } from "#/engine/store.ts";
@@ -64,8 +66,19 @@ interface BoardPress {
  */
 const BUILD_SHEET_MEDIA = "(max-width: 767px)";
 
-/** Whether the primary pointer is a finger rather than a mouse. */
-const COARSE_POINTER_MEDIA = "(pointer: coarse)";
+/**
+ * Below this width the board gives up the page inset and runs to both edges.
+ * This is the same breakpoint the build order uses to become a sheet: the width
+ * at which the phone, not the desk, is the machine being designed for.
+ */
+const BOARD_BLEED_MEDIA = "@media (max-width: 767px)";
+
+/**
+ * The AWBW page for a map, so a player can read the map the match is played on
+ * where it is published. AWBRN is independent of AWBW; this is a reference to
+ * the map, not a claim of any relationship.
+ */
+const AWBW_MAP_URL = "https://awbw.amarriner.com/prevmaps.php?maps_id=";
 
 /**
  * How long a press can still be the one that opened a menu. A selection made
@@ -309,11 +322,6 @@ export function MatchActivePage({
   return (
     <Section padding={6} variant="transparent">
       <VStack gap={6}>
-        {/* A match name is free text, so it may arrive as one unbroken run. */}
-        <Heading level={1} type="display-2" xstyle={styles.matchName}>
-          {match.name}
-        </Heading>
-
         {matchError ? <Banner description={matchError} status="error" title="Match error" /> : null}
         {boardError ? (
           <Banner description={boardError} status="error" title="The board could not be loaded." />
@@ -431,7 +439,7 @@ function ActiveMatchBoard({
   day: number | null;
   initialBoard: InitialBoardMessage | null;
   isEndingTurn: boolean;
-  match: { mapId: number; maxPlayers: number; settings: { fogEnabled: boolean } };
+  match: { mapId: number; maxPlayers: number; name: string; settings: { fogEnabled: boolean } };
   onBoardError: (message: string | null) => void;
   onBuildUnit: (unit: UnitKind, x: number, y: number) => void;
   onEndTurn: () => void;
@@ -445,17 +453,21 @@ function ActiveMatchBoard({
   viewerFunds: number | null;
   viewerSlotIndex: number | null | undefined;
 }) {
-  const { canvasRef, focus, surfaceRef } = useCanvasCourierSurface({ controller: runner });
+  const {
+    canvasRef,
+    enterFullscreen,
+    exitFullscreen,
+    focus,
+    fullscreenMode,
+    isFullscreen,
+    surfaceRef,
+  } = useCanvasCourierSurface({ controller: runner });
   const playersRef = useRef(players);
   playersRef.current = players;
   const onBoardErrorRef = useRef(onBoardError);
   onBoardErrorRef.current = onBoardError;
   const setProductionOptions = useGameActions().setProductionOptions;
   const isCompactViewport = useMediaQuery(BUILD_SHEET_MEDIA);
-  // What the last press was made with. The instructions below the board must
-  // describe the input the player actually has: telling a phone to hover, trace
-  // with Shift, and press Backspace describes a machine they are not holding.
-  const isCoarsePointer = useMediaQuery(COARSE_POINTER_MEDIA);
   const pressRef = useRef<BoardPress | null>(null);
   const [press, setPress] = useState<BoardPress | null>(null);
   const productionSite = productionOptions?.site;
@@ -544,10 +556,15 @@ function ActiveMatchBoard({
     };
   }, [initialBoard, runner]);
 
-  const statusText = initialBoard
-    ? `${initialBoard.map.Name} loaded from match state`
-    : status === "connected"
-      ? "Waiting for board state…"
+  // The map names itself in the readout, so the status line reports the
+  // connection and nothing else. Naming the map here as well made a socket
+  // state and a match identity share one sentence, and neither one read.
+  const mapName = initialBoard?.map.Name ?? null;
+  const statusText =
+    status === "connected"
+      ? initialBoard
+        ? "Live"
+        : "Waiting for board state…"
       : status === "connecting"
         ? "Connecting to match…"
         : status === "error"
@@ -567,8 +584,19 @@ function ActiveMatchBoard({
   return (
     <Card padding={0} variant="muted" xstyle={styles.boardPanel}>
       {/* The engine draws 960x640; the frame keeps that ratio at every width so
-          the map is never stretched or dropped into a tall slot on a phone. */}
-      <VStack gap={0} ref={surfaceRef} xstyle={styles.gameSurface}>
+          the map is never stretched or dropped into a tall slot on a phone.
+          Full screen is the one place that ratio is dropped: the engine redraws
+          at whatever size the canvas is given, so filling the screen buys the
+          player board rather than stretching what was already there. */}
+      <VStack
+        gap={0}
+        ref={surfaceRef}
+        xstyle={[
+          styles.gameSurface,
+          isFullscreen && styles.gameSurfaceFullscreen,
+          fullscreenMode === "immersive" && styles.gameSurfaceImmersive,
+        ]}
+      >
         <canvas
           ref={canvasRef}
           width={960}
@@ -576,6 +604,10 @@ function ActiveMatchBoard({
           tabIndex={0}
           {...stylex.props(styles.gameCanvas)}
         />
+
+        {isFullscreen ? (
+          <BoardFullscreenExit mode={fullscreenMode} onExit={exitFullscreen} />
+        ) : null}
 
         {/* The order sits on the battlefield with the base it belongs to, not
             in a strip under the board that a phone would have to scroll to. */}
@@ -614,36 +646,65 @@ function ActiveMatchBoard({
         )}
       </VStack>
 
+      {/* The readout carries no chrome of its own: inside a panel that already
+          has an outline, a second frame would only add noise. The End turn key
+          is the one object in the strip and the one place command orange
+          appears, so a glance separates what the match is from what the player
+          can do about it. */}
       <HStack
         align="center"
-        gap={3}
+        gap={4}
         justify="between"
-        paddingBlock={2}
+        paddingBlock={3}
         paddingInline={3}
         wrap="wrap"
         xstyle={styles.boardHud}
       >
-        <VStack gap={1}>
-          <HStack align="center" gap={2} wrap="wrap">
-            {/* Before the engine reports, there is no day to report. */}
-            {day === null ? null : <Badge label={`Day ${day}`} variant="info" />}
-            <Text type="supporting">
-              Map {match.mapId} · {match.maxPlayers} players ·{" "}
-              {match.settings.fogEnabled ? "Fog on" : "Fog off"}
-            </Text>
-          </HStack>
-          {isViewerTurn ? (
-            <Text color="secondary" type="supporting">
-              {isCoarsePointer
-                ? "Move: drag a unit to where it goes, or tap it and tap a tile. Release on an enemy to attack. Choose the order from the menu."
-                : "Move: drag a unit, or click it and click a tile. Shift traces a custom route and Backspace undoes a step. Choose the order from the menu."}
-            </Text>
-          ) : null}
-        </VStack>
         {/* An <output> is a live region by default, so a drop is announced
             rather than only recolored. The dot repeats what the text beside it
             already says, so it is hidden from assistive technology. */}
-        <HStack align="center" gap={3} wrap="wrap">
+        <HStack align="center" as="output" gap={3} wrap="wrap" xstyle={styles.hudReadout}>
+          {/* Before the engine reports, there is no day to report. */}
+          {day === null ? null : <Badge label={`Day ${day}`} variant="info" />}
+          {/* The match names itself here rather than in a display heading above
+              the board. A player inside a match already knows which match they
+              are in, and on a phone that heading cost more board than the name
+              was worth. It stays the page's heading; it just stops shouting.
+              A match name is free text, so it may arrive as one unbroken run. */}
+          <Heading level={1} xstyle={styles.hudMatchName}>
+            {match.name}
+          </Heading>
+          {/* The map is the one thing here a player may want to leave the match
+              for, so it names itself and links out. The id is the fallback for
+              the window before the engine reports the board, not the label. */}
+          <Link
+            href={`${AWBW_MAP_URL}${match.mapId}`}
+            isExternalLink
+            type="supporting"
+            xstyle={styles.hudMap}
+          >
+            {mapName ?? `Map ${match.mapId}`}
+          </Link>
+          <HStack align="center" gap={2} xstyle={styles.hudState}>
+            <StatusDot
+              aria-hidden="true"
+              isPulsing={status === "connecting"}
+              label={statusText}
+              variant={statusVariant(status)}
+            />
+            <Text color={status === "connected" ? "primary" : "secondary"} type="supporting">
+              {statusText}
+            </Text>
+          </HStack>
+        </HStack>
+        {/* Every control the strip offers, and nothing that only reports. */}
+        <HStack align="center" gap={2} wrap="wrap">
+          {/* While the board holds the screen this strip is behind it, and the
+              way back out is the key on the board itself. */}
+          {isFullscreen ? null : <GameFullscreenButton onEnter={enterFullscreen} />}
+          {status === "disconnected" || status === "error" ? (
+            <Button clickAction={reconnect} label="Reconnect" size="sm" variant="secondary" />
+          ) : null}
           {isPlayer ? (
             <Button
               clickAction={onEndTurn}
@@ -655,20 +716,6 @@ function ActiveMatchBoard({
               variant="primary"
             />
           ) : null}
-          <HStack align="center" as="output" gap={2}>
-            <StatusDot
-              aria-hidden="true"
-              isPulsing={status === "connecting"}
-              label={statusText}
-              variant={statusVariant(status)}
-            />
-            <Text color={status === "connected" ? "primary" : "secondary"} type="supporting">
-              {statusText}
-            </Text>
-            {status === "disconnected" || status === "error" ? (
-              <Button clickAction={reconnect} label="Reconnect" size="sm" variant="secondary" />
-            ) : null}
-          </HStack>
         </HStack>
       </HStack>
     </Card>
@@ -754,35 +801,81 @@ function statusVariant(status: MatchWebSocketStatus): "success" | "warning" | "e
 }
 
 const styles = stylex.create({
-  matchName: {
-    overflowWrap: "anywhere",
-    // The title names the battle once; it must not take the viewport the board
-    // needs. The signage face is still the largest thing on the page in weight,
-    // not in height.
-    fontSize: "clamp(var(--font-size-3xl), 4vw, var(--font-size-5xl))",
-  },
   // One column until the rail and a board wide enough to read both fit; two
-  // from there, with every extra pixel going to the board.
+  // from there. The board takes the width its height allows and the rail stays
+  // against it, so a wide window puts the spare space around the pair instead
+  // of between the map and the armies that describe it.
   matchLayout: {
     gridTemplateColumns: {
       default: "minmax(0, 1fr)",
       [rosterLayout.desktopMedia]: rosterLayout.railColumns,
+    },
+    justifyContent: {
+      default: "stretch",
+      [rosterLayout.desktopMedia]: "center",
     },
   },
   // A 3:2 board that grows without limit runs off a laptop screen, and a map
   // you have to scroll to see is not the focal point. The width is capped at
   // whatever keeps the whole board in the viewport, with a floor so a short
   // window shrinks the board rather than making it unreadable.
+  // On a phone the board takes the whole viewport width, pulling out through
+  // the page inset. The inset is worth 12% of a 390px screen, and the board is
+  // 3:2, so that width buys height as well. Everything else on the page keeps
+  // its inset; only the board bleeds.
+  //
+  // A negative margin alone only moves the panel: `inlineSize` and
+  // `maxInlineSize` both resolve against the inset column, so the panel keeps
+  // the column's width and slides left, leaving the gap on one side. The width
+  // has to grow by the same amount the margins pull out.
+  //
+  // The amount is the page inset, which is this screen's `Section padding={6}`
+  // and nothing else, because the app shell is mounted with `contentPadding={0}`.
+  // Measuring against the viewport with `vw` instead would ignore the scrollbar
+  // and scroll the body sideways on a narrow desktop window.
   boardPanel: {
     overflow: "hidden",
     justifySelf: "start",
-    inlineSize: "100%",
-    maxInlineSize: rosterLayout.boardMaxInlineSize,
+    inlineSize: {
+      default: "100%",
+      [BOARD_BLEED_MEDIA]: "calc(100% + var(--spacing-6) * 2)",
+    },
+    maxInlineSize: {
+      default: rosterLayout.boardMaxInlineSize,
+      [BOARD_BLEED_MEDIA]: "none",
+    },
+    marginInline: {
+      default: 0,
+      [BOARD_BLEED_MEDIA]: "calc(var(--spacing-6) * -1)",
+    },
   },
   gameSurface: {
     position: "relative",
     aspectRatio: "3 / 2",
     backgroundColor: "var(--color-background-inverted)",
+  },
+  // The board gives up its 3:2 frame and takes the screen's own shape. The
+  // engine is told the new canvas size and redraws to it, so the extra room is
+  // more map rather than a stretched one.
+  gameSurfaceFullscreen: {
+    alignItems: "center",
+    aspectRatio: "auto",
+    blockSize: "100%",
+    inlineSize: "100%",
+    justifyContent: "center",
+  },
+  // The fallback for browsers that will not hand an element the screen, iOS
+  // Safari above all. It has to reach the same result the browser would: over
+  // everything, including the app shell's own bar, and out to the edges the
+  // notch leaves usable.
+  gameSurfaceImmersive: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 100,
+    blockSize: "100dvh",
+    inlineSize: "100dvw",
+    paddingBlock: "env(safe-area-inset-top) env(safe-area-inset-bottom)",
+    paddingInline: "env(safe-area-inset-left) env(safe-area-inset-right)",
   },
   gameCanvas: {
     display: "block",
@@ -796,6 +889,35 @@ const styles = stylex.create({
     borderTopStyle: "solid",
     borderTopColor: "var(--color-border-emphasized)",
     backgroundColor: "var(--color-background-surface)",
+  },
+  // The readout takes whatever the commands leave, and gives it back to the map
+  // name, which is the only part of it that can be long.
+  hudReadout: {
+    flex: "1 1 auto",
+    minInlineSize: 0,
+  },
+  // The heading keeps its rank in the document and gives up its display voice:
+  // it reads as one more fact on the readout line, at the size of the text
+  // beside it.
+  hudMatchName: {
+    fontSize: "var(--text-body-size)",
+    fontWeight: "var(--font-weight-bold)",
+    lineHeight: "var(--text-body-leading)",
+    minInlineSize: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  // A map name runs to about forty characters. It shortens rather than pushing
+  // the End turn key onto a line of its own.
+  hudMap: {
+    minInlineSize: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  hudState: {
+    flex: "none",
   },
   rosterPanel: {
     overflow: "hidden",
