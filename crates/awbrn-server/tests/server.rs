@@ -2,8 +2,8 @@ use std::num::NonZeroU8;
 
 use awbrn_map::{AwbrnMap, Position};
 use awbrn_types::{
-    Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, Property, SeaDirection, Unit,
-    UnitExt,
+    Faction as TerrainFaction, GraphicalTerrain, MissileSiloStatus, PlayerFaction, Property,
+    SeaDirection, Unit, UnitExt,
 };
 
 use awbrn_server::{
@@ -1335,6 +1335,116 @@ fn primary_weapon_attack_consumes_ammo() {
 }
 
 // ── Non-combat post-move action integration tests ────────────────────────────
+
+#[test]
+fn special_post_move_actions_reach_awvm() {
+    // Manual repair is accepted and routed to move-repair.
+    let mut repair_setup = two_player_setup(3, 2);
+    repair_setup.map.set_terrain(
+        Position::new(0, 0),
+        GraphicalTerrain::Sea(SeaDirection::Sea),
+    );
+    let mut repair_server = GameServer::new(repair_setup).unwrap();
+    let boat = repair_server.spawn_unit(
+        Position::new(0, 0),
+        Unit::BlackBoat,
+        PlayerFaction::OrangeStar,
+    );
+    let repair_target = repair_server.spawn_unit(
+        Position::new(1, 0),
+        Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    repair_server
+        .submit_command(
+            p1(),
+            action_command(
+                boat,
+                vec![Position::new(0, 0)],
+                PostMoveAction::Repair {
+                    target_id: repair_target.0,
+                },
+            ),
+        )
+        .unwrap();
+
+    // Launch consumes the silo and applies its area strike.
+    let mut launch_setup = two_player_setup(5, 5);
+    launch_setup.map.set_terrain(
+        Position::new(0, 0),
+        GraphicalTerrain::MissileSilo(MissileSiloStatus::Loaded),
+    );
+    let mut launch_server = GameServer::new(launch_setup).unwrap();
+    let infantry = launch_server.spawn_unit(
+        Position::new(0, 0),
+        Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    let victim = launch_server.spawn_unit(Position::new(3, 3), Unit::Tank, PlayerFaction::BlueMoon);
+    launch_server
+        .submit_command(
+            p1(),
+            action_command(
+                infantry,
+                vec![Position::new(0, 0)],
+                PostMoveAction::Launch {
+                    target: Position::new(3, 3),
+                },
+            ),
+        )
+        .unwrap();
+    let launch_view = launch_server.player_view(p1()).unwrap();
+    assert_eq!(
+        launch_view
+            .units
+            .iter()
+            .find(|unit| unit.id == victim)
+            .unwrap()
+            .hp,
+        7
+    );
+    assert_eq!(
+        launch_view
+            .terrain
+            .iter()
+            .find(|tile| tile.position == Position::new(0, 0))
+            .unwrap()
+            .terrain,
+        GraphicalTerrain::MissileSilo(MissileSiloStatus::Unloaded)
+    );
+
+    // Explode removes the bomb after applying damage.
+    let mut explode_server = GameServer::new(two_player_setup(5, 5)).unwrap();
+    let bomb = explode_server.spawn_unit(
+        Position::new(2, 2),
+        Unit::BlackBomb,
+        PlayerFaction::OrangeStar,
+    );
+    explode_server.spawn_unit(
+        Position::new(0, 0),
+        Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    let blast_victim =
+        explode_server.spawn_unit(Position::new(3, 2), Unit::Tank, PlayerFaction::BlueMoon);
+    explode_server
+        .submit_command(
+            p1(),
+            action_command(bomb, vec![Position::new(2, 2)], PostMoveAction::Explode),
+        )
+        .unwrap();
+    let explode_view = explode_server.player_view(p1()).unwrap();
+    assert!(!explode_view.units.iter().any(|unit| unit.id == bomb));
+    assert_eq!(
+        explode_view
+            .units
+            .iter()
+            .find(|unit| unit.id == blast_victim)
+            .unwrap()
+            .hp,
+        5
+    );
+}
 
 #[test]
 fn supply_restores_self_owned_adjacent_fuel_and_ammo() {

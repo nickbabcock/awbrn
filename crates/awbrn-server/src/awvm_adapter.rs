@@ -361,6 +361,12 @@ fn commands(
                     },
                 ]),
                 Some(PostMoveAction::Supply) => one(Command::MoveSupply { player, unit, path }),
+                Some(PostMoveAction::Repair { target_id }) => one(Command::MoveRepair {
+                    player,
+                    unit,
+                    path,
+                    target: command_unit_id(*target_id)?,
+                }),
                 Some(PostMoveAction::Hide) => one(Command::MoveHide { player, unit, path }),
                 Some(PostMoveAction::Unhide) => one(Command::MoveReveal { player, unit, path }),
                 Some(PostMoveAction::Join { target_id }) => one(Command::MoveJoin {
@@ -369,6 +375,13 @@ fn commands(
                     path,
                     target: command_unit_id(*target_id)?,
                 }),
+                Some(PostMoveAction::Launch { target }) => one(Command::MoveLaunch {
+                    player,
+                    unit,
+                    path,
+                    target: pos(*target),
+                }),
+                Some(PostMoveAction::Explode) => one(Command::MoveExplode { player, unit, path }),
                 Some(PostMoveAction::Wait) | None => one(Command::MoveWait { player, unit, path }),
             }
         }
