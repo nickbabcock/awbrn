@@ -18,7 +18,6 @@ import { Layout } from "#/layouts/Layout.tsx";
 import { DevStyleXInject } from "#/styles/DevStyleXInject.tsx";
 import resetCss from "#/styles/reset.css?url";
 import { awbrnTheme } from "#/themes/awbrn.js";
-import ImpeccableLiveRoot from "../impeccable/ImpeccableLiveRoot";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -97,9 +96,6 @@ review, the verdict, and DESIGN.md
           }}
         />
         <main id="app-root">{children}</main>
-        {/* impeccable-live-tanstack-start */}
-        <ImpeccableLiveRoot />
-        {/* impeccable-live-tanstack-end */}
         <Scripts />
       </body>
     </html>
