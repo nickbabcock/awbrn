@@ -1,6 +1,9 @@
-import { createStart } from "@tanstack/react-start";
-import { createMiddleware } from "@tanstack/react-start";
+import { createCsrfMiddleware, createMiddleware, createStart } from "@tanstack/react-start";
 import { getResponseHeaders, setResponseHeader } from "@tanstack/react-start/server";
+
+const csrfMiddleware = createCsrfMiddleware({
+  filter: (ctx) => ctx.handlerType === "serverFn",
+});
 
 const crossOriginIsolationMiddleware = createMiddleware().server(async ({ next }) => {
   const responseHeaders = getResponseHeaders();
@@ -17,5 +20,5 @@ const crossOriginIsolationMiddleware = createMiddleware().server(async ({ next }
 });
 
 export const startInstance = createStart(() => ({
-  requestMiddleware: [crossOriginIsolationMiddleware],
+  requestMiddleware: [csrfMiddleware, crossOriginIsolationMiddleware],
 }));
