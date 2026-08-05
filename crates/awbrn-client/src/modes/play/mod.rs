@@ -1354,9 +1354,20 @@ fn build_options(
             action: PostMoveAction::Supply,
         });
     }
+    for target in &available.repair {
+        let target = position_from_pos(*target);
+        if let Some(target_id) = unit_id_at_position(target, unit_selection) {
+            options.push(UnitActionOption {
+                name: "Repair".to_string(),
+                action: PostMoveAction::Repair {
+                    target_id: u64::from(target_id),
+                },
+            });
+        }
+    }
     // Join and Load name the unit already standing there, which is friendly by
     // definition and therefore has a real id in the projection.
-    if let Some(occupant) = occupant_unit_id(pending.destination, unit_selection) {
+    if let Some(occupant) = unit_id_at_position(pending.destination, unit_selection) {
         if available.join {
             options.push(UnitActionOption {
                 name: "Join".to_string(),
@@ -1386,6 +1397,20 @@ fn build_options(
             action: PostMoveAction::Unhide,
         });
     }
+    for target in &available.launch {
+        options.push(UnitActionOption {
+            name: "Launch".to_string(),
+            action: PostMoveAction::Launch {
+                target: position_from_pos(*target),
+            },
+        });
+    }
+    if available.explode {
+        options.push(UnitActionOption {
+            name: "Explode".to_string(),
+            action: PostMoveAction::Explode,
+        });
+    }
     if available.wait {
         options.push(UnitActionOption {
             name: "Wait".to_string(),
@@ -1396,7 +1421,7 @@ fn build_options(
     options
 }
 
-fn occupant_unit_id(
+fn unit_id_at_position(
     position: Position,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
 ) -> Option<u32> {

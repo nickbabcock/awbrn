@@ -611,12 +611,21 @@ fn graphical_terrain(
     let mut graphical = template
         .filter(|candidate| semantic_terrain(candidate.as_terrain()) == terrain)
         .unwrap_or_else(|| fallback_terrain(terrain, silo));
-    if let GraphicalTerrain::Property(property) = graphical {
-        let faction = owner
-            .player()
-            .and_then(|owner| authority.player_faction(owner))
-            .map_or(Faction::Neutral, Faction::Player);
-        graphical = GraphicalTerrain::Property(property.with_owner(faction));
+    match graphical {
+        GraphicalTerrain::Property(property) => {
+            let faction = owner
+                .player()
+                .and_then(|owner| authority.player_faction(owner))
+                .map_or(Faction::Neutral, Faction::Player);
+            graphical = GraphicalTerrain::Property(property.with_owner(faction));
+        }
+        GraphicalTerrain::MissileSilo(_) => {
+            graphical = GraphicalTerrain::MissileSilo(match silo {
+                Some(awvm::semantic::Silo::Spent) => MissileSiloStatus::Unloaded,
+                _ => MissileSiloStatus::Loaded,
+            });
+        }
+        _ => {}
     }
     graphical
 }

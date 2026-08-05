@@ -29,12 +29,21 @@ pub enum PostMoveAction {
     },
     /// Supply adjacent friendly units.
     Supply,
+    /// Repair and resupply one adjacent friendly unit.
+    Repair { target_id: u64 },
     /// Dive or activate stealth.
     Hide,
     /// Surface or deactivate stealth.
     Unhide,
     /// Join with a friendly unit of the same type at the destination.
     Join { target_id: u64 },
+    /// Launch the missile silo at the destination at a target tile.
+    Launch {
+        #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }"))]
+        target: Position,
+    },
+    /// Self-destruct after moving.
+    Explode,
     /// End the unit's turn without a further action.
     Wait,
 }

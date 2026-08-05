@@ -76,6 +76,25 @@ mod tests {
     }
 
     #[test]
+    fn deserialize_special_post_move_actions() {
+        let repair: PostMoveAction =
+            serde_json::from_str(r#"{"type":"repair","target_id":17}"#).unwrap();
+        assert_eq!(repair, PostMoveAction::Repair { target_id: 17 });
+
+        let launch: PostMoveAction =
+            serde_json::from_str(r#"{"type":"launch","target":{"x":3,"y":4}}"#).unwrap();
+        assert_eq!(
+            launch,
+            PostMoveAction::Launch {
+                target: Position::new(3, 4)
+            }
+        );
+
+        let explode: PostMoveAction = serde_json::from_str(r#"{"type":"explode"}"#).unwrap();
+        assert_eq!(explode, PostMoveAction::Explode);
+    }
+
+    #[test]
     fn wrong_tag_is_rejected() {
         let json = r#"{"type":"MoveUnit","unitId":1,"path":[],"action":null}"#;
         assert!(serde_json::from_str::<GameCommand>(json).is_err());
