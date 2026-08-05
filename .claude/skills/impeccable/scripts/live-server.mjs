@@ -704,6 +704,12 @@ function createRequestHandler({ detectScript, liveScriptParts }) {
     }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    // A page that sets `Cross-Origin-Embedder-Policy: require-corp` (necessary
+    // for SharedArrayBuffer) rejects every cross-origin subresource that has no
+    // CORP header, which blocks the `<script src>` load of /live.js. The
+    // token-gated routes stay protected by the token itself, which a remote
+    // page cannot guess, so the resource policy is not the access control here.
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
     const p = url.pathname;
