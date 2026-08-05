@@ -3,7 +3,7 @@ use std::num::NonZeroU8;
 use awbrn_map::{AwbrnMap, Position};
 use awbrn_types::{
     Faction as TerrainFaction, GraphicalTerrain, MissileSiloStatus, PlayerFaction, Property,
-    SeaDirection, Unit, UnitExt,
+    SeaDirection, ShoalDirection, Unit, UnitExt,
 };
 
 use awbrn_server::{
@@ -38,6 +38,18 @@ fn action_command(
         unit_id,
         path,
         action: Some(action),
+    }
+}
+
+fn unload_command(
+    transport_id: ServerUnitId,
+    cargo_id: ServerUnitId,
+    position: Position,
+) -> GameCommand {
+    GameCommand::Unload {
+        transport_id,
+        cargo_id,
+        position,
     }
 }
 
@@ -1626,17 +1638,7 @@ fn load_removes_cargo_from_map_and_unload_restores_it() {
     );
 
     server
-        .submit_command(
-            p1(),
-            action_command(
-                apc,
-                vec![Position::new(1, 0)],
-                PostMoveAction::Unload {
-                    cargo_id: cargo.0,
-                    position: Position::new(2, 0),
-                },
-            ),
-        )
+        .submit_command(p1(), unload_command(apc, cargo, Position::new(2, 0)))
         .unwrap();
 
     let view = server.player_view(p1()).unwrap();
@@ -1660,6 +1662,81 @@ fn load_removes_cargo_from_map_and_unload_restores_it() {
             ),
         )
         .expect("unloaded cargo id should remain registered");
+}
+
+#[test]
+fn spent_transport_can_unload_successive_cargo_units() {
+    let mut setup = two_player_setup(5, 3);
+    setup.map.set_terrain(
+        Position::new(2, 1),
+        GraphicalTerrain::Shoal(ShoalDirection::S),
+    );
+    let mut server = GameServer::new(setup).unwrap();
+    let first = server.spawn_unit(
+        Position::new(1, 1),
+        Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    let transport = server.spawn_unit(
+        Position::new(2, 1),
+        Unit::BlackBoat,
+        PlayerFaction::OrangeStar,
+    );
+    let second = server.spawn_unit(Position::new(3, 1), Unit::Mech, PlayerFaction::OrangeStar);
+
+    for cargo in [first, second] {
+        let origin = server
+            .player_view(p1())
+            .unwrap()
+            .units
+            .iter()
+            .find(|unit| unit.id == cargo)
+            .unwrap()
+            .position;
+        server
+            .submit_command(
+                p1(),
+                action_command(
+                    cargo,
+                    vec![origin, Position::new(2, 1)],
+                    PostMoveAction::Load {
+                        transport_id: transport.0,
+                    },
+                ),
+            )
+            .unwrap();
+    }
+    server
+        .submit_command(
+            p1(),
+            action_command(transport, vec![Position::new(2, 1)], PostMoveAction::Wait),
+        )
+        .unwrap();
+
+    server
+        .submit_command(p1(), unload_command(transport, first, Position::new(2, 0)))
+        .unwrap();
+    server
+        .submit_command(p1(), unload_command(transport, second, Position::new(2, 2)))
+        .unwrap();
+
+    let view = server.player_view(p1()).unwrap();
+    assert_eq!(
+        view.units
+            .iter()
+            .find(|unit| unit.id == first)
+            .unwrap()
+            .position,
+        Position::new(2, 0)
+    );
+    assert_eq!(
+        view.units
+            .iter()
+            .find(|unit| unit.id == second)
+            .unwrap()
+            .position,
+        Position::new(2, 2)
+    );
 }
 
 #[test]
@@ -1708,10 +1785,6 @@ fn post_move_unit_ids_outside_awvm_domain_are_invalid_actions() {
         PostMoveAction::Load {
             transport_id: u64::from(u32::MAX) + 1,
         },
-        PostMoveAction::Unload {
-            cargo_id: u64::from(u32::MAX) + 1,
-            position: Position::new(1, 0),
-        },
         PostMoveAction::Join {
             target_id: u64::from(u32::MAX) + 1,
         },
@@ -1733,6 +1806,19 @@ fn post_move_unit_ids_outside_awvm_domain_are_invalid_actions() {
 
         assert!(matches!(error, CommandError::InvalidAction { .. }));
     }
+
+    let mut server = GameServer::new(two_player_setup(2, 1)).unwrap();
+    let error = server
+        .submit_command(
+            p1(),
+            GameCommand::Unload {
+                transport_id: ServerUnitId(0),
+                cargo_id: ServerUnitId(u64::from(u32::MAX) + 1),
+                position: Position::new(1, 0),
+            },
+        )
+        .unwrap_err();
+    assert!(matches!(error, CommandError::InvalidAction { .. }));
 }
 
 #[test]
@@ -1806,17 +1892,7 @@ fn unload_rejects_occupied_or_impassable_target() {
         .unwrap();
 
     let occupied_err = server
-        .submit_command(
-            p1(),
-            action_command(
-                apc,
-                vec![Position::new(1, 1), Position::new(1, 2)],
-                PostMoveAction::Unload {
-                    cargo_id: cargo.0,
-                    position: Position::new(2, 1),
-                },
-            ),
-        )
+        .submit_command(p1(), unload_command(apc, cargo, Position::new(2, 1)))
         .unwrap_err();
     assert!(matches!(occupied_err, CommandError::InvalidAction { .. }));
     assert_eq!(
@@ -1833,17 +1909,7 @@ fn unload_rejects_occupied_or_impassable_target() {
     );
 
     let impassable_err = server
-        .submit_command(
-            p1(),
-            action_command(
-                apc,
-                vec![Position::new(1, 1)],
-                PostMoveAction::Unload {
-                    cargo_id: cargo.0,
-                    position: Position::new(1, 0),
-                },
-            ),
-        )
+        .submit_command(p1(), unload_command(apc, cargo, Position::new(1, 0)))
         .unwrap_err();
     assert!(matches!(impassable_err, CommandError::InvalidPath { .. }));
 }

@@ -53,6 +53,37 @@ mod tests {
     }
 
     #[test]
+    fn deserialize_standalone_unload() {
+        let json = r#"{"type":"unload","transport_id":4,"cargo_id":7,"position":{"x":2,"y":3}}"#;
+        let command: GameCommand = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            command,
+            GameCommand::Unload {
+                transport_id: ServerUnitId(4),
+                cargo_id: ServerUnitId(7),
+                position: Position::new(2, 3),
+            }
+        );
+    }
+
+    #[test]
+    fn deserialize_legacy_move_with_unload() {
+        let json = r#"{"type":"moveUnit","unit_id":4,"path":[{"x":1,"y":2}],"action":{"type":"unload","cargo_id":7,"position":{"x":2,"y":2}}}"#;
+        let command: GameCommand = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            command,
+            GameCommand::MoveUnit {
+                unit_id: ServerUnitId(4),
+                path: vec![Position::new(1, 2)],
+                action: Some(PostMoveAction::Unload {
+                    cargo_id: 7,
+                    position: Position::new(2, 2),
+                }),
+            }
+        );
+    }
+
+    #[test]
     fn deserialize_build() {
         let json = r#"{"type":"build","position":{"x":0,"y":0},"unit_type":"infantry"}"#;
         let cmd: GameCommand = serde_json::from_str(json).unwrap();
@@ -121,6 +152,15 @@ pub enum GameCommand {
         #[tsify(type = "{ x: number; y: number }")]
         position: Position,
         unit_type: awvm::ruleset::UnitKind,
+    },
+    /// Unload one carried unit without moving or spending its transport.
+    Unload {
+        #[tsify(type = "number")]
+        transport_id: ServerUnitId,
+        #[tsify(type = "number")]
+        cargo_id: ServerUnitId,
+        #[tsify(type = "{ x: number; y: number }")]
+        position: Position,
     },
     /// End the current player's turn.
     EndTurn,

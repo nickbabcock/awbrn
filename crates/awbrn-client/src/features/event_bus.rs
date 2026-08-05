@@ -112,7 +112,23 @@ pub struct ProductionOptionsChanged {
 pub struct UnitActionOption {
     /// The label the source game uses for this order.
     pub name: String,
-    pub action: PostMoveAction,
+    pub action: UnitOrder,
+}
+
+/// The command represented by one entry in the unit order menu.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum UnitOrder {
+    Move {
+        action: PostMoveAction,
+    },
+    Unload {
+        cargo_id: u32,
+        #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }"))]
+        position: Position,
+    },
 }
 
 /// The destination menu implied by the current proposal.
@@ -145,6 +161,18 @@ pub struct MoveCommandRequested {
     #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }[]"))]
     pub path: Vec<Position>,
     pub action: PostMoveAction,
+}
+
+/// A standalone free-unload intent chosen on the live board.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct UnloadCommandRequested {
+    pub transport_id: u32,
+    pub cargo_id: u32,
+    #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }"))]
+    pub position: Position,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

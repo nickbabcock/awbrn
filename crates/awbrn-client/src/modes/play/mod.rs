@@ -5,7 +5,7 @@ use crate::core::{AppState, GameMode, RenderLayer, SpriteSize};
 use crate::features::camera::{CameraScale, FocusBoardOn};
 use crate::features::event_bus::{
     EventSink, MoveCommandRequested, PostMoveAction, ProductionOption, ProductionOptionsChanged,
-    ProductionSite, UnitActionOption, UnitActionsChanged,
+    ProductionSite, UnitActionOption, UnitActionsChanged, UnitOrder, UnloadCommandRequested,
 };
 use crate::features::input::{
     BoardProjection, DragOwner, PointerGesture, PointerGestureKind, PointerSet, ReturnToTouchFloor,
@@ -15,7 +15,7 @@ use crate::render::course_arrow::{COURSE_ARROW_SPRITE_SIZE, build_course_arrow_s
 use awbrn_game::MapPosition;
 use awbrn_game::replay::AwbwUnitId;
 use awbrn_game::world::{
-    BoardIndex, CarriedBy, Faction, FriendlyFactions, Fuel, GameMap, Unit, UnitActive,
+    BoardIndex, CarriedBy, Faction, FriendlyFactions, Fuel, GameMap, HasCargo, Unit, UnitActive,
 };
 use awbrn_map::Position;
 use awbrn_types::UnitExt;
@@ -127,6 +127,7 @@ type UnitSelectionQueryItem<'a> = (
     Option<&'a Fuel>,
     Has<UnitActive>,
     Has<CarriedBy>,
+    Has<HasCargo>,
 );
 
 type SelectionValidityQueryItem<'a> = (
@@ -134,6 +135,7 @@ type SelectionValidityQueryItem<'a> = (
     &'a MapPosition,
     Has<UnitActive>,
     Has<CarriedBy>,
+    Has<HasCargo>,
 );
 
 #[derive(SystemParam)]
@@ -205,13 +207,20 @@ pub(crate) struct UnitActionParams<'w> {
     sink: Option<Res<'w, EventSink<UnitActionsChanged>>>,
 }
 
+#[derive(SystemParam)]
+pub(crate) struct UnitCommandSinks<'w> {
+    move_command: Option<Res<'w, EventSink<MoveCommandRequested>>>,
+    unload_command: Option<Res<'w, EventSink<UnloadCommandRequested>>>,
+}
+
 fn unit_is_selectable(
     faction: Faction,
     is_active: bool,
     is_carried: bool,
+    has_cargo: bool,
     friendly_factions: &FriendlyFactions,
 ) -> bool {
-    is_active && !is_carried && friendly_factions.0.contains(&faction.0)
+    (is_active || has_cargo) && !is_carried && friendly_factions.0.contains(&faction.0)
 }
 
 /// The tiles sharing an edge with this one, in map order.
@@ -259,7 +268,7 @@ fn friendly_unit_at(position: Position, unit_selection: &PlayUnitSelectionParams
     unit_selection
         .units
         .get(entity)
-        .is_ok_and(|(_, faction, _, _, _, is_carried)| {
+        .is_ok_and(|(_, faction, _, _, _, is_carried, _)| {
             !is_carried && unit_selection.friendly_factions.0.contains(&faction.0)
         })
 }
@@ -299,6 +308,27 @@ fn observed_move_field(
     awvm::query::observed_reachable(observation, awvm::semantic::UnitId::new(id.0.as_u32())).ok()
 }
 
+fn observed_unloads_for(
+    entity: Entity,
+    unit_selection: &PlayUnitSelectionParams<'_, '_>,
+) -> Vec<awvm::query::ObservedUnload> {
+    let (Some(observations), Some(viewpoint), Ok(id)) = (
+        unit_selection.observations.as_deref(),
+        unit_selection.viewpoint.as_deref(),
+        unit_selection.unit_ids.get(entity),
+    ) else {
+        return Vec::new();
+    };
+    let awbrn_game::replay::ReplayViewpoint::Player(player) = viewpoint else {
+        return Vec::new();
+    };
+    let Some(observation) = observations.for_player(*player) else {
+        return Vec::new();
+    };
+    awvm::query::observed_unloads(observation, awvm::semantic::UnitId::new(id.0.as_u32()))
+        .unwrap_or_default()
+}
+
 fn clear_selection_state(selection: &mut PlaySelectionState<'_>) {
     selection.selected.0 = None;
     selection.move_range.tiles.clear();
@@ -311,14 +341,17 @@ fn clear_selection_state(selection: &mut PlaySelectionState<'_>) {
 fn select_unit(
     entity: Entity,
     origin: Position,
-    field: awvm::query::MoveField,
+    field: Option<awvm::query::MoveField>,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
     selection: &mut PlaySelectionState<'_>,
 ) {
-    let range = move_range(&field, unit_selection);
+    let range = field
+        .as_ref()
+        .map(|field| move_range(field, unit_selection))
+        .unwrap_or_default();
     selection.selected.0 = Some(SelectedUnitSelection { entity, origin });
     selection.move_range.tiles = range;
-    selection.move_field.0 = Some(field);
+    selection.move_field.0 = field;
     selection.pending_destination.0 = None;
     *selection.proposed_path = ProposedMovePath::default();
     *selection.phase = PlayUiPhase::UnitSelected;
@@ -333,7 +366,7 @@ fn confirm_selected_destination(
     let Some(selected_unit) = selection.selected.0 else {
         return;
     };
-    let Ok((_, faction, map_position, _, is_active, is_carried)) =
+    let Ok((_, faction, map_position, _, is_active, is_carried, has_cargo)) =
         unit_selection.units.get(selected_unit.entity)
     else {
         clear_selection_state(selection);
@@ -344,6 +377,7 @@ fn confirm_selected_destination(
         *faction,
         is_active,
         is_carried,
+        has_cargo,
         &unit_selection.friendly_factions,
     ) || map_position.position() != selected_unit.origin
     {
@@ -352,7 +386,20 @@ fn confirm_selected_destination(
     }
 
     let Some(field) = selection.move_field.0.as_ref() else {
-        clear_selection_state(selection);
+        let unload_in_place = destination == selected_unit.origin
+            && !observed_unloads_for(selected_unit.entity, unit_selection).is_empty();
+        if unload_in_place {
+            selection.pending_destination.0 = Some(PendingMoveDestinationSelection {
+                unit: selected_unit.entity,
+                origin: selected_unit.origin,
+                destination,
+                path: vec![selected_unit.origin],
+                attack_intent: None,
+            });
+            *selection.phase = PlayUiPhase::DestinationSelected;
+        } else {
+            clear_selection_state(selection);
+        }
         return;
     };
     let destination_pos = semantic_position(destination);
@@ -463,10 +510,13 @@ pub(crate) fn claim_unit_drag(
                     .tile
                     .and_then(|tile| selectable_unit_at(tile, &unit_selection))
                     .is_some_and(|(entity, origin, field)| {
+                        let Some(field) = field else {
+                            return false;
+                        };
                         // The drag begins by selecting what it grabbed, so the
                         // range is on screen from the first pixel of travel
                         // rather than only after the release.
-                        select_unit(entity, origin, field, &unit_selection, &mut selection);
+                        select_unit(entity, origin, Some(field), &unit_selection, &mut selection);
                         true
                     });
 
@@ -483,11 +533,12 @@ pub(crate) fn claim_unit_drag(
 fn selectable_unit_at(
     position: Position,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
-) -> Option<(Entity, Position, awvm::query::MoveField)> {
+) -> Option<(Entity, Position, Option<awvm::query::MoveField>)> {
     let Ok(Some(entity)) = unit_selection.board_index.unit_entity(position) else {
         return None;
     };
-    let Ok((_, faction, map_position, _, is_active, is_carried)) = unit_selection.units.get(entity)
+    let Ok((_, faction, map_position, _, is_active, is_carried, has_cargo)) =
+        unit_selection.units.get(entity)
     else {
         return None;
     };
@@ -495,13 +546,18 @@ fn selectable_unit_at(
         *faction,
         is_active,
         is_carried,
+        has_cargo,
         &unit_selection.friendly_factions,
     ) {
         return None;
     }
 
     let origin = map_position.position();
-    Some((entity, origin, observed_move_field(entity, unit_selection)?))
+    let field = is_active
+        .then(|| observed_move_field(entity, unit_selection))
+        .flatten();
+    let can_unload = !observed_unloads_for(entity, unit_selection).is_empty();
+    (field.is_some() || can_unload).then_some((entity, origin, field))
 }
 
 pub(crate) fn handle_play_pointer_gestures(
@@ -578,6 +634,9 @@ fn handle_tap(
                 .as_ref()
                 .and_then(|field| field.step(position))
                 .is_some()
+        }) || selection.selected.0.is_some_and(|selected| {
+            destination == selected.origin
+                && !observed_unloads_for(selected.entity, unit_selection).is_empty()
         });
         if destination_is_reachable {
             // A tile too small to hit is a tile too small to commit to. The
@@ -598,7 +657,10 @@ fn handle_tap(
             if gesture.coarse {
                 frame_selection(
                     origin,
-                    &move_range(&field, unit_selection),
+                    &field
+                        .as_ref()
+                        .map(|field| move_range(field, unit_selection))
+                        .unwrap_or_default(),
                     &unit_selection.game_map,
                     &mut policy.focus,
                 );
@@ -623,7 +685,10 @@ fn handle_tap(
         if gesture.coarse {
             frame_selection(
                 origin,
-                &move_range(&field, unit_selection),
+                &field
+                    .as_ref()
+                    .map(|field| move_range(field, unit_selection))
+                    .unwrap_or_default(),
                 &unit_selection.game_map,
                 &mut policy.focus,
             );
@@ -707,7 +772,7 @@ fn attack_approach(
     let Ok(Some(entity)) = unit_selection.board_index.unit_entity(hovered) else {
         return None;
     };
-    let (_, faction, _, _, _, is_carried) = unit_selection.units.get(entity).ok()?;
+    let (_, faction, _, _, _, is_carried, _) = unit_selection.units.get(entity).ok()?;
     if is_carried || unit_selection.friendly_factions.0.contains(&faction.0) {
         return None;
     }
@@ -1011,7 +1076,9 @@ pub(crate) fn clear_invalid_selection(
     let Some(selected_unit) = selection.selected.0 else {
         return;
     };
-    let Ok((faction, map_position, is_active, is_carried)) = units.get(selected_unit.entity) else {
+    let Ok((faction, map_position, is_active, is_carried, has_cargo)) =
+        units.get(selected_unit.entity)
+    else {
         if *selection.phase == PlayUiPhase::AwaitingServer {
             committed.0 = None;
         }
@@ -1019,8 +1086,13 @@ pub(crate) fn clear_invalid_selection(
         return;
     };
 
-    if !unit_is_selectable(*faction, is_active, is_carried, &friendly_factions)
-        || map_position.position() != selected_unit.origin
+    if !unit_is_selectable(
+        *faction,
+        is_active,
+        is_carried,
+        has_cargo,
+        &friendly_factions,
+    ) || map_position.position() != selected_unit.origin
     {
         if *selection.phase == PlayUiPhase::AwaitingServer {
             committed.0 = None;
@@ -1212,6 +1284,8 @@ pub(crate) fn apply_pending_live_transition(
     mut commands: Commands,
     mut pending: Option<ResMut<PendingLiveTransitions>>,
     lock: Res<ReplayAdvanceLock>,
+    mut committed: ResMut<CommittedCommand>,
+    mut selection: PlaySelectionState<'_>,
 ) {
     if lock.is_active() {
         return;
@@ -1222,6 +1296,17 @@ pub(crate) fn apply_pending_live_transition(
     else {
         return;
     };
+    if committed
+        .0
+        .as_ref()
+        .is_some_and(|snapshot| snapshot.kind == CommittedKind::Unload)
+    {
+        committed.0.take();
+        // The unloaded unit is a new blocker beside the transport, so its
+        // cached movement field is stale. Drop the selection; a transport with
+        // more cargo remains selectable even when it is spent.
+        clear_selection_state(&mut selection);
+    }
     commands.queue(LiveTransitionCommand { transition });
 }
 
@@ -1257,6 +1342,13 @@ pub struct CommittedSnapshot {
     pub path: Vec<Position>,
     pub destination: Position,
     pub attack_intent: Option<Position>,
+    pub kind: CommittedKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommittedKind {
+    Move,
+    Unload,
 }
 
 #[derive(Resource, Debug, Clone, Default, PartialEq, Eq)]
@@ -1336,7 +1428,13 @@ pub(crate) fn emit_unit_actions(
         }
     };
 
-    let options = build_options(&available, pending, &unit_selection);
+    let unloads = if pending.destination == pending.origin {
+        awvm::query::observed_unloads(observation, awvm::semantic::UnitId::new(unit_id.0.as_u32()))
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let options = build_options(&available, &unloads, pending, &unit_selection);
     if options.is_empty() {
         offered.0.clear();
         close_unit_actions(Some(sink));
@@ -1344,9 +1442,14 @@ pub(crate) fn emit_unit_actions(
     }
 
     let preselected = pending.attack_intent.and_then(|target| {
-        options.iter().position(
-            |option| matches!(option.action, PostMoveAction::Attack { target: at } if at == target),
-        )
+        options.iter().position(|option| {
+            matches!(
+                option.action,
+                UnitOrder::Move {
+                    action: PostMoveAction::Attack { target: at }
+                } if at == target
+            )
+        })
     });
 
     offered.0 = options.clone();
@@ -1360,6 +1463,7 @@ pub(crate) fn emit_unit_actions(
 /// Name the available orders, in the order the source game lists them.
 fn build_options(
     available: &awvm::query::ObservedActionSet,
+    unloads: &[awvm::query::ObservedUnload],
     pending: &PendingMoveDestinationSelection,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
 ) -> Vec<UnitActionOption> {
@@ -1369,19 +1473,25 @@ fn build_options(
         let target = position_from_pos(*target);
         options.push(UnitActionOption {
             name: "Fire".to_string(),
-            action: PostMoveAction::Attack { target },
+            action: UnitOrder::Move {
+                action: PostMoveAction::Attack { target },
+            },
         });
     }
     if available.capture {
         options.push(UnitActionOption {
             name: "Capture".to_string(),
-            action: PostMoveAction::Capture,
+            action: UnitOrder::Move {
+                action: PostMoveAction::Capture,
+            },
         });
     }
     if available.supply {
         options.push(UnitActionOption {
             name: "Supply".to_string(),
-            action: PostMoveAction::Supply,
+            action: UnitOrder::Move {
+                action: PostMoveAction::Supply,
+            },
         });
     }
     for target in &available.repair {
@@ -1389,8 +1499,10 @@ fn build_options(
         if let Some(target_id) = unit_id_at_position(target, unit_selection) {
             options.push(UnitActionOption {
                 name: "Repair".to_string(),
-                action: PostMoveAction::Repair {
-                    target_id: u64::from(target_id),
+                action: UnitOrder::Move {
+                    action: PostMoveAction::Repair {
+                        target_id: u64::from(target_id),
+                    },
                 },
             });
         }
@@ -1401,16 +1513,20 @@ fn build_options(
         if available.join {
             options.push(UnitActionOption {
                 name: "Join".to_string(),
-                action: PostMoveAction::Join {
-                    target_id: u64::from(occupant),
+                action: UnitOrder::Move {
+                    action: PostMoveAction::Join {
+                        target_id: u64::from(occupant),
+                    },
                 },
             });
         }
         if available.load {
             options.push(UnitActionOption {
                 name: "Load".to_string(),
-                action: PostMoveAction::Load {
-                    transport_id: u64::from(occupant),
+                action: UnitOrder::Move {
+                    action: PostMoveAction::Load {
+                        transport_id: u64::from(occupant),
+                    },
                 },
             });
         }
@@ -1418,33 +1534,53 @@ fn build_options(
     if available.hide {
         options.push(UnitActionOption {
             name: "Dive".to_string(),
-            action: PostMoveAction::Hide,
+            action: UnitOrder::Move {
+                action: PostMoveAction::Hide,
+            },
         });
     }
     if available.reveal {
         options.push(UnitActionOption {
             name: "Surface".to_string(),
-            action: PostMoveAction::Unhide,
+            action: UnitOrder::Move {
+                action: PostMoveAction::Unhide,
+            },
+        });
+    }
+    for unload in unloads {
+        let position = position_from_pos(unload.destination);
+        options.push(UnitActionOption {
+            name: format!("Unload {}", unload.cargo_kind.name()),
+            action: UnitOrder::Unload {
+                cargo_id: unload.cargo.get(),
+                position,
+            },
         });
     }
     for target in &available.launch {
         options.push(UnitActionOption {
             name: "Launch".to_string(),
-            action: PostMoveAction::Launch {
-                target: position_from_pos(*target),
+            action: UnitOrder::Move {
+                action: PostMoveAction::Launch {
+                    target: position_from_pos(*target),
+                },
             },
         });
     }
     if available.explode {
         options.push(UnitActionOption {
             name: "Explode".to_string(),
-            action: PostMoveAction::Explode,
+            action: UnitOrder::Move {
+                action: PostMoveAction::Explode,
+            },
         });
     }
     if available.wait {
         options.push(UnitActionOption {
             name: "Wait".to_string(),
-            action: PostMoveAction::Wait,
+            action: UnitOrder::Move {
+                action: PostMoveAction::Wait,
+            },
         });
     }
 
@@ -1471,17 +1607,16 @@ pub(crate) fn handle_unit_action_chosen(
     offered: Res<OfferedActions>,
     unit_selection: PlayUnitSelectionParams<'_, '_>,
     actions: UnitActionParams<'_>,
-    command_sink: Option<Res<EventSink<MoveCommandRequested>>>,
+    command_sinks: UnitCommandSinks<'_>,
     mut committed: ResMut<CommittedCommand>,
     mut selection: PlaySelectionState<'_>,
 ) {
     let Some(UnitActionChosen { index }) = chosen.read().last().copied() else {
         return;
     };
-    let (Some(option), Some(pending), Some(sink)) = (
+    let (Some(option), Some(pending)) = (
         offered.0.get(index),
         selection.pending_destination.0.clone(),
-        command_sink.as_deref(),
     ) else {
         return;
     };
@@ -1496,13 +1631,36 @@ pub(crate) fn handle_unit_action_chosen(
         path: pending.path.clone(),
         destination: pending.destination,
         attack_intent: pending.attack_intent,
+        kind: match &option.action {
+            UnitOrder::Move { .. } => CommittedKind::Move,
+            UnitOrder::Unload { .. } => CommittedKind::Unload,
+        },
     });
 
-    sink.emit(MoveCommandRequested {
-        unit_id: unit_id.0.as_u32(),
-        path: pending.path.clone(),
-        action: option.action.clone(),
-    });
+    match &option.action {
+        UnitOrder::Move { action } => {
+            let Some(sink) = command_sinks.move_command.as_deref() else {
+                committed.0 = None;
+                return;
+            };
+            sink.emit(MoveCommandRequested {
+                unit_id: unit_id.0.as_u32(),
+                path: pending.path.clone(),
+                action: action.clone(),
+            });
+        }
+        UnitOrder::Unload { cargo_id, position } => {
+            let Some(sink) = command_sinks.unload_command.as_deref() else {
+                committed.0 = None;
+                return;
+            };
+            sink.emit(UnloadCommandRequested {
+                transport_id: unit_id.0.as_u32(),
+                cargo_id: *cargo_id,
+                position: *position,
+            });
+        }
+    }
 
     // The order is on its way. The board stops offering anything until the
     // server has spoken, but the unit stays selected so the ordinary
@@ -2304,7 +2462,9 @@ mod tests {
             .0
             .push(UnitActionOption {
                 name: "Wait".to_string(),
-                action: PostMoveAction::Wait,
+                action: UnitOrder::Move {
+                    action: PostMoveAction::Wait,
+                },
             });
         app.world_mut()
             .resource_mut::<Messages<UnitActionChosen>>()
@@ -2325,6 +2485,149 @@ mod tests {
         );
         assert!(app.world().resource::<MoveRange>().tiles.is_empty());
         assert!(app.world().resource::<CommittedCommand>().0.is_some());
+    }
+
+    #[test]
+    fn choosing_unload_sends_a_standalone_command() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 3, 3);
+        let transport = spawn_unit(
+            &mut app,
+            Position::new(1, 1),
+            awbrn_types::Unit::Apc,
+            PlayerFaction::OrangeStar,
+            false,
+            Some(99),
+        );
+        app.world_mut()
+            .entity_mut(transport)
+            .insert(AwbwUnitId(awbrn_types::AwbwUnitId::new(42)));
+
+        app.world_mut().resource_mut::<SelectedUnit>().0 = Some(SelectedUnitSelection {
+            entity: transport,
+            origin: Position::new(1, 1),
+        });
+        app.world_mut().resource_mut::<PendingMoveDestination>().0 =
+            Some(PendingMoveDestinationSelection {
+                unit: transport,
+                origin: Position::new(1, 1),
+                destination: Position::new(1, 1),
+                path: vec![Position::new(1, 1)],
+                attack_intent: None,
+            });
+        app.world_mut()
+            .resource_mut::<OfferedActions>()
+            .0
+            .push(UnitActionOption {
+                name: "Unload #7".to_string(),
+                action: UnitOrder::Unload {
+                    cargo_id: 7,
+                    position: Position::new(1, 0),
+                },
+            });
+
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let received_by_sink = received.clone();
+        app.world_mut()
+            .insert_resource(EventSink::<UnloadCommandRequested>::new(move |event| {
+                received_by_sink.lock().unwrap().push(event);
+            }));
+        app.world_mut()
+            .resource_mut::<Messages<UnitActionChosen>>()
+            .write(UnitActionChosen { index: 0 });
+        app.update();
+
+        assert_eq!(
+            received.lock().unwrap().as_slice(),
+            &[UnloadCommandRequested {
+                transport_id: 42,
+                cargo_id: 7,
+                position: Position::new(1, 0),
+            }]
+        );
+    }
+
+    #[test]
+    fn spent_loaded_transport_offers_standalone_unload() {
+        let fixture = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../spec/fixtures/transport/unload-infantry-from-apc.json"),
+        )
+        .unwrap();
+        let fixture: serde_json::Value = serde_json::from_str(&fixture).unwrap();
+        let mut state: State = serde_json::from_value(fixture["initial_state"].clone()).unwrap();
+        state.players[0].id = "0".into();
+        state.players[0].commanders[0].id = awvm::semantic::CommanderId::Neutral;
+        state.turn.active_player = "0".into();
+        state.turn.order = vec!["0".into()];
+        state.units[0].owner = "0".into();
+        state.units[0].action = awvm::semantic::UnitAction::Spent;
+        state.units[1].owner = "0".into();
+        let observation = observe(&AwbwVisibility, &state, &state.players[0].id).unwrap();
+
+        let mut app = play_test_app();
+        app.world_mut().remove_resource::<TestObservationSync>();
+        set_plain_map(&mut app, 2, 1);
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+        let transport = spawn_unit(
+            &mut app,
+            Position::new(1, 0),
+            awbrn_types::Unit::Apc,
+            PlayerFaction::OrangeStar,
+            false,
+            Some(70),
+        );
+        app.world_mut().spawn((
+            Unit(awbrn_types::Unit::Infantry),
+            Faction(PlayerFaction::OrangeStar),
+            AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
+            CarriedBy(transport),
+        ));
+        let mut observations = awbrn_game::replay::RecipientObservations::default();
+        observations.set(vec![observation]);
+        app.world_mut().insert_resource(observations);
+        app.world_mut()
+            .insert_resource(awbrn_game::replay::ReplayViewpoint::Player(
+                awbrn_types::AwbwGamePlayerId::new(0),
+            ));
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let received_by_sink = received.clone();
+        app.world_mut()
+            .insert_resource(EventSink::<UnitActionsChanged>::new(move |event| {
+                received_by_sink.lock().unwrap().push(event);
+            }));
+
+        send(
+            &mut app,
+            PointerGestureKind::DragStart,
+            Some(Position::new(1, 0)),
+        );
+        assert_eq!(*app.world().resource::<DragOwner>(), DragOwner::Camera);
+        assert_eq!(app.world().resource::<SelectedUnit>().0, None);
+
+        click_tile(&mut app, Position::new(1, 0));
+        assert_eq!(
+            *app.world().resource::<PlayUiPhase>(),
+            PlayUiPhase::UnitSelected
+        );
+        click_tile(&mut app, Position::new(1, 0));
+
+        let received = received.lock().unwrap();
+        let menu = received.last().expect("unload menu");
+        assert_eq!(menu.destination, Some(Position::new(1, 0)));
+        assert_eq!(
+            menu.options,
+            vec![UnitActionOption {
+                name: "Unload Infantry".to_string(),
+                action: UnitOrder::Unload {
+                    cargo_id: 1,
+                    position: Position::new(0, 0),
+                },
+            }]
+        );
     }
 
     /// A refusal used to cost the player the unit, the range, and the route.
@@ -2368,7 +2671,9 @@ mod tests {
             .0
             .push(UnitActionOption {
                 name: "Wait".to_string(),
-                action: PostMoveAction::Wait,
+                action: UnitOrder::Move {
+                    action: PostMoveAction::Wait,
+                },
             });
         app.world_mut()
             .resource_mut::<Messages<UnitActionChosen>>()
@@ -2908,6 +3213,7 @@ mod tests {
             path: vec![Position::new(2, 2), Position::new(2, 1)],
             destination: Position::new(2, 1),
             attack_intent: None,
+            kind: CommittedKind::Move,
         });
 
         app.world_mut()
@@ -2917,6 +3223,55 @@ mod tests {
 
         assert!(app.world().resource::<CommittedCommand>().0.is_none());
         assert_eq!(app.world().resource::<SelectedUnit>().0, None);
+    }
+
+    #[test]
+    fn unrelated_transition_preserves_move_rejection_snapshot() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 5, 5);
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+
+        let unit = spawn_unit(
+            &mut app,
+            Position::new(2, 2),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+        click_tile(&mut app, Position::new(2, 2));
+        *app.world_mut().resource_mut::<PlayUiPhase>() = PlayUiPhase::AwaitingServer;
+        let range = app.world().resource::<MoveRange>().tiles.clone();
+        let snapshot = CommittedSnapshot {
+            unit,
+            origin: Position::new(2, 2),
+            range,
+            path: vec![Position::new(2, 2), Position::new(2, 1)],
+            destination: Position::new(2, 1),
+            attack_intent: None,
+            kind: CommittedKind::Move,
+        };
+        app.world_mut().resource_mut::<CommittedCommand>().0 = Some(snapshot.clone());
+
+        let observation = app
+            .world()
+            .resource::<awbrn_game::replay::RecipientObservations>()
+            .for_player(awbrn_types::AwbwGamePlayerId::new(0))
+            .unwrap()
+            .clone();
+        app.world_mut()
+            .insert_resource(PendingLiveTransitions(std::collections::VecDeque::from([
+                awvm::semantic::ObservedTransition {
+                    post: observation,
+                    events: Vec::new(),
+                },
+            ])));
+        app.update();
+
+        assert_eq!(app.world().resource::<CommittedCommand>().0, Some(snapshot));
     }
 
     #[test]

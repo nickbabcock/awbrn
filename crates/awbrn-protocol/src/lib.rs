@@ -21,7 +21,10 @@ pub enum PostMoveAction {
     Capture,
     /// Load into a transport at the destination.
     Load { transport_id: u64 },
-    /// Unload a carried unit to the given position.
+    /// Unload a carried unit after moving.
+    ///
+    /// New clients use the standalone unload command. This variant remains so
+    /// the server can replay stored matches from before that command existed.
     Unload {
         cargo_id: u64,
         #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }"))]

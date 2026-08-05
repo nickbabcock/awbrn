@@ -7,7 +7,7 @@ import {
 } from "#/canvas_courier/index.ts";
 import type { AwbwMapData } from "#/awbw/schemas.ts";
 import type { ObservedTransition } from "#/wasm/awbrn_server.js";
-import type { GameEvent, MoveCommandRequested } from "#/wasm/awbrn_wasm.js";
+import type { GameEvent, MoveCommandRequested, UnloadCommandRequested } from "#/wasm/awbrn_wasm.js";
 import type { MatchCommand } from "#/matches/match_protocol.ts";
 import type { LiveMatchPlayer } from "./worker_module";
 import { gameAssetConfig } from "./asset_manifest";
@@ -170,6 +170,10 @@ export class GameRunner implements CanvasCourierController {
         this.handleMoveCommandRequest(event);
         break;
       }
+      case "UnloadCommandRequested": {
+        this.handleUnloadCommandRequest(event);
+        break;
+      }
       case "UnitActionsChanged": {
         useGameStore
           .getState()
@@ -196,6 +200,19 @@ export class GameRunner implements CanvasCourierController {
       unit_id: request.unitId,
       path: request.path,
       action: request.action,
+    });
+  }
+
+  private handleUnloadCommandRequest(request: UnloadCommandRequested): void {
+    if (!this.liveCommandHandler) {
+      console.error("GameRunner received an unload command without a live command handler");
+      return;
+    }
+    this.liveCommandHandler({
+      type: "unload",
+      transport_id: request.transportId,
+      cargo_id: request.cargoId,
+      position: request.position,
     });
   }
 
