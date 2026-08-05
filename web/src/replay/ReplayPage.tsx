@@ -216,11 +216,17 @@ export function ReplayPage() {
 
 const styles = stylex.create({
   // One column until the rail and a board wide enough to read both fit; two
-  // from there, with every extra pixel going to the board.
+  // from there. The board takes the width its height allows and the rail stays
+  // against it, so a wide window puts the spare space around the pair instead
+  // of between the map and the armies that describe it.
   reviewLayout: {
     gridTemplateColumns: {
       default: "minmax(0, 1fr)",
       [rosterLayout.desktopMedia]: rosterLayout.railColumns,
+    },
+    justifyContent: {
+      default: "stretch",
+      [rosterLayout.desktopMedia]: "center",
     },
   },
   // A 3:2 board that grows without limit runs off a laptop screen, and a map
