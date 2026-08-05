@@ -308,6 +308,16 @@ fn commands(
             kind: *unit_type,
         }),
         GameCommand::EndTurn => one(Command::EndTurn { player }),
+        GameCommand::Unload {
+            transport_id,
+            cargo_id,
+            position,
+        } => one(Command::Unload {
+            player,
+            transport: command_unit_id(transport_id.0)?,
+            cargo: command_unit_id(cargo_id.0)?,
+            destination: pos(*position),
+        }),
         GameCommand::MoveUnit {
             unit_id: server_unit_id,
             path,

@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use awvm::conformance::collect_json;
 use awvm::prelude::*;
 use awvm::query::{self, can_act};
-use awvm::semantic::Location;
+use awvm::semantic::{Location, UnitAction};
 use serde_json::Value;
 
 fn corpus() -> Vec<(String, Value)> {
@@ -610,5 +610,27 @@ fn observed_reachable_agrees_with_authoritative_reachable_without_fog() {
     assert!(
         checked > 20,
         "expected the fog-free corpus to exercise movement"
+    );
+}
+
+#[test]
+fn observed_unloads_are_offered_after_the_transport_is_spent() {
+    let case: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../spec/fixtures/transport/unload-infantry-from-apc.json"
+    )))
+    .unwrap();
+    let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
+    state.units[0].action = UnitAction::Spent;
+    let recipient = state.turn.active_player.clone();
+    let observation = observe(&AwbwVisibility, &state, &recipient).unwrap();
+
+    assert_eq!(
+        query::observed_unloads(&observation, UnitId::new(0)).unwrap(),
+        vec![query::ObservedUnload {
+            cargo: UnitId::new(1),
+            cargo_kind: UnitKindId::Infantry,
+            destination: Pos::new(0, 0),
+        }]
     );
 }

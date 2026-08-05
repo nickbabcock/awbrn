@@ -467,6 +467,14 @@ pub struct ObservedActionSet {
     pub launch: Vec<Pos>,
 }
 
+/// One standalone AWBW unload order available to the recipient.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ObservedUnload {
+    pub cargo: UnitId,
+    pub cargo_kind: UnitKindId,
+    pub destination: Pos,
+}
+
 impl ObservedActionSet {
     /// Whether any command at all is available at this destination.
     pub fn is_empty(&self) -> bool {
@@ -511,6 +519,63 @@ pub fn observed_actions_at(
 
     let state = reify(observation)?;
     Ok(by_position(&state, actions_at(&state, unit, destination)?))
+}
+
+/// Which free unload commands the recipient may issue from `transport` now.
+///
+/// Unlike a move follow-up, unloading neither moves nor spends the transport,
+/// so this remains available when the transport has already acted. Results are
+/// ordered by cargo id and then map position.
+pub fn observed_unloads(
+    observation: &Observation,
+    transport: UnitId,
+) -> Result<Vec<ObservedUnload>, QueryError> {
+    if !recipient_may_command(observation) {
+        return Ok(Vec::new());
+    }
+
+    let state = reify(observation)?;
+    let subject = lookup(&state, transport)?;
+    let Location::Board { position } = subject.location else {
+        return Err(QueryError::UnitNotOnBoard(transport));
+    };
+    let player = subject.owner.clone();
+    let mut orders = state
+        .units
+        .iter()
+        .filter_map(|candidate| {
+            matches!(
+                candidate.location,
+                Location::Cargo {
+                    transport: carried_by,
+                    ..
+                } if carried_by == transport
+            )
+            .then_some((candidate.id, candidate.kind))
+        })
+        .flat_map(|(cargo, cargo_kind)| {
+            let player = player.clone();
+            let state = &state;
+            position.orthogonal().filter_map(move |destination| {
+                is_accepted(
+                    state,
+                    Command::Unload {
+                        player: player.clone(),
+                        transport,
+                        cargo,
+                        destination,
+                    },
+                )
+                .then_some(ObservedUnload {
+                    cargo,
+                    cargo_kind,
+                    destination,
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+    orders.sort_by_key(|order| (order.cargo, order.destination));
+    Ok(orders)
 }
 
 /// Restate an [`ActionSet`]'s targets as the positions its units occupy.

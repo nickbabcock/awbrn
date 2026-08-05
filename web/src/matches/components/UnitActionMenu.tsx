@@ -106,8 +106,9 @@ export function UnitActionMenu({
 /**
  * One order, named the way the game names it.
  *
- * Fire carries the tile it would fire on, because a unit may have more than one
- * target from the same square and "Fire" alone would not say which.
+ * Targeted orders carry their tile because a unit may have more than one
+ * destination or target from the same square and the order name alone would
+ * not say which.
  */
 function OrderRow({
   index,
@@ -126,7 +127,12 @@ function OrderRow({
   spriteScale: 1 | 2;
   title?: string;
 }) {
-  const target = option.action.type === "attack" ? option.action.target : null;
+  const target =
+    option.action.type === "unload"
+      ? option.action.position
+      : option.action.action.type === "attack" || option.action.action.type === "launch"
+        ? option.action.action.target
+        : null;
 
   return (
     <button
@@ -160,13 +166,21 @@ function OrderRow({
 /**
  * A stable key for an order.
  *
- * Two Fire entries differ only by target, so the name alone would collide and
- * React would reuse the wrong row when the targets change.
+ * Targeted entries can share a name, so their identity includes the target (and
+ * cargo where applicable) to prevent React reusing the wrong row.
  */
 function orderKey(option: UnitActionOption): string {
-  return option.action.type === "attack"
-    ? `${option.action.target.x},${option.action.target.y}`
-    : option.action.type;
+  if (option.action.type === "unload") {
+    return `unload-${option.action.cargo_id}-${option.action.position.x},${option.action.position.y}`;
+  }
+  const action = option.action.action;
+  if (action.type === "attack" || action.type === "launch") {
+    return `${action.type}-${action.target.x},${action.target.y}`;
+  }
+  if (action.type === "repair") {
+    return `repair-${action.target_id}`;
+  }
+  return action.type;
 }
 
 const styles = stylex.create({
