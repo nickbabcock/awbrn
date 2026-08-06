@@ -3,6 +3,13 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
+import {
+  borderVars,
+  colorVars,
+  radiusVars,
+  shadowVars,
+  spacingVars,
+} from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useRef, useState, type RefObject, type SVGProps } from "react";
 import type { HoveredCargoUnit, HoveredTile, HoveredUnit } from "#/wasm/awbrn_wasm.js";
@@ -12,6 +19,7 @@ import {
   unitSpriteStyle,
 } from "#/components/game_sprites.ts";
 import { useGameStore } from "#/engine/store.ts";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 
 const TERRAIN_STAR = uiAtlasSpriteStyle("TerrainStar.png");
 const HP = uiAtlasSpriteStyle("HP.png");
@@ -376,21 +384,21 @@ const styles = stylex.create({
   // docked to a bottom corner of the board and never in the way of a pointer.
   window: {
     position: "absolute",
-    insetBlockEnd: "var(--spacing-2)",
-    insetInlineStart: "var(--spacing-2)",
-    minInlineSize: "var(--size-tile-readout)",
+    insetBlockEnd: spacingVars["--spacing-2"],
+    insetInlineStart: spacingVars["--spacing-2"],
+    minInlineSize: "96px",
     // A long terrain name shortens rather than widening the window. The board
     // underneath is what the player is reading; a readout that grows to hold
     // "Missile Silo" would take three quarters of a phone's battlefield to do
     // it.
-    maxInlineSize: "min(15rem, calc(100% - var(--spacing-4)))",
-    borderWidth: "var(--border-width)",
+    maxInlineSize: `min(15rem, calc(100% - ${spacingVars["--spacing-4"]}))`,
+    borderWidth: borderVars["--border-width"],
     borderStyle: "solid",
-    borderColor: "var(--color-border-emphasized)",
-    borderRadius: "var(--radius-container)",
-    backgroundColor: "var(--color-background-surface)",
-    boxShadow: "var(--shadow-med)",
-    color: "var(--color-text-primary)",
+    borderColor: colorVars["--color-border-emphasized"],
+    borderRadius: radiusVars["--radius-container"],
+    backgroundColor: colorVars["--color-background-surface"],
+    boxShadow: shadowVars["--shadow-med"],
+    color: colorVars["--color-text-primary"],
     pointerEvents: "none",
     userSelect: "none",
     overflow: "hidden",
@@ -400,31 +408,31 @@ const styles = stylex.create({
   // needed, not an object sliding across the board.
   windowEnd: {
     insetInlineStart: "auto",
-    insetInlineEnd: "var(--spacing-2)",
+    insetInlineEnd: spacingVars["--spacing-2"],
   },
   // With nothing to report the window shrinks to the one instruction a finger
   // is owed, and a mouse is shown nothing at all.
   hint: {
     minInlineSize: 0,
-    paddingBlock: "var(--spacing-1)",
-    paddingInline: "var(--spacing-2)",
+    paddingBlock: spacingVars["--spacing-1"],
+    paddingInline: spacingVars["--spacing-2"],
   },
   absent: {
     display: "none",
   },
   hintText: {
-    color: "var(--color-text-secondary)",
+    color: colorVars["--color-text-secondary"],
   },
   line: {
-    paddingBlock: "var(--spacing-1)",
-    paddingInline: "var(--spacing-2)",
+    paddingBlock: spacingVars["--spacing-1"],
+    paddingInline: spacingVars["--spacing-2"],
   },
   // The second line of the same readout, so it divides with the soft rule
   // rather than with the panel outline.
   unitLine: {
-    borderBlockStartWidth: "var(--border-width)",
+    borderBlockStartWidth: borderVars["--border-width"],
     borderBlockStartStyle: "solid",
-    borderBlockStartColor: "var(--color-border-soft)",
+    borderBlockStartColor: awbrnVars.colorBorderSoft,
   },
   // The readings beside the art, in both blocks.
   details: {
@@ -458,14 +466,14 @@ const styles = stylex.create({
   // Health that a single shot can end is the one number in the readout that
   // changes a decision, so it is the one number that changes colour.
   critical: {
-    color: "var(--color-text-red)",
+    color: colorVars["--color-text-red"],
   },
   stars: {
     flex: "0 0 auto",
   },
   coordinates: {
     flex: "0 0 auto",
-    color: "var(--color-text-secondary)",
+    color: colorVars["--color-text-secondary"],
   },
   sprite: {
     display: "block",

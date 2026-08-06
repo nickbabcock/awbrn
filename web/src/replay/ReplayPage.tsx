@@ -8,6 +8,7 @@ import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { borderVars, colorVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useState } from "react";
 import { resolveAwbwUsername } from "#/awbw/api.ts";
@@ -274,7 +275,7 @@ const styles = stylex.create({
     // The engine draws 960x640; the frame keeps that ratio at every width so
     // the map is never stretched on a phone.
     aspectRatio: "3 / 2",
-    backgroundColor: "var(--color-background-inverted)",
+    backgroundColor: colorVars["--color-background-inverted"],
   },
   // The board gives up its 3:2 frame and takes the screen's own shape. The
   // engine is told the new canvas size and redraws to it, so the extra room is
@@ -318,14 +319,14 @@ const styles = stylex.create({
   loaderOverlay: {
     position: "absolute",
     inset: 0,
-    padding: "var(--spacing-4)",
-    backgroundColor: "var(--color-background-muted)",
+    padding: spacingVars["--spacing-4"],
+    backgroundColor: colorVars["--color-background-muted"],
   },
   boardHud: {
-    borderTopWidth: "var(--border-width)",
+    borderTopWidth: borderVars["--border-width"],
     borderTopStyle: "solid",
-    borderTopColor: "var(--color-border-emphasized)",
-    backgroundColor: "var(--color-background-surface)",
+    borderTopColor: colorVars["--color-border-emphasized"],
+    backgroundColor: colorVars["--color-background-surface"],
   },
   rosterPanel: {
     overflow: "hidden",
@@ -338,6 +339,6 @@ const styles = stylex.create({
       default: "static",
       [rosterLayout.desktopMedia]: "sticky",
     },
-    top: "var(--spacing-4)",
+    top: spacingVars["--spacing-4"],
   },
 });

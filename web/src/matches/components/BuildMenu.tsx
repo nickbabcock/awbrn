@@ -1,6 +1,14 @@
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
+import {
+  borderVars,
+  colorVars,
+  radiusVars,
+  spacingVars,
+  textSizeVars,
+  typographyVars,
+} from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import { uiAtlasSpriteStyle, unitSpriteStyle } from "#/components/game_sprites.ts";
@@ -9,6 +17,8 @@ import {
   boardMenuStyles,
   type BoardMenuPresentation,
 } from "#/matches/components/BoardMenu.tsx";
+import { boardMenuLayout } from "#/matches/components/boardMenuLayout.stylex.ts";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import type { ProductionOption, ProductionSite, UnitKind } from "#/wasm/awbrn_wasm.js";
 
 interface BuildMenuProps {
@@ -251,25 +261,25 @@ function facilityLabel(site: ProductionSite): string {
 
 const styles = stylex.create({
   facility: {
-    color: "var(--color-text-secondary)",
+    color: colorVars["--color-text-secondary"],
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
   fundsLine: {
     flex: "0 0 auto",
-    minBlockSize: "var(--size-build-funds-line)",
+    minBlockSize: boardMenuLayout.buildFundsLineMinBlockSize,
   },
   coin: {
     display: "block",
     flex: "0 0 auto",
   },
   funds: {
-    color: "var(--color-text-primary)",
+    color: colorVars["--color-text-primary"],
     fontVariantNumeric: "tabular-nums",
   },
   fundsAfter: {
-    color: "var(--color-text-accent)",
+    color: colorVars["--color-text-accent"],
     fontVariantNumeric: "tabular-nums",
   },
   // A price beyond the treasury is struck through rather than hidden, which is
@@ -278,32 +288,32 @@ const styles = stylex.create({
   // being identified, and only the order is unavailable.
   rowUnaffordable: {
     cursor: "not-allowed",
-    color: "var(--color-text-secondary)",
+    color: colorVars["--color-text-secondary"],
   },
   rowStruck: {
     textDecorationLine: "line-through",
-    textDecorationThickness: "var(--border-width)",
+    textDecorationThickness: borderVars["--border-width"],
   },
   rowCost: {
     flex: "0 0 auto",
-    fontFamily: "var(--font-family-code)",
-    fontSize: "var(--font-size-sm)",
+    fontFamily: typographyVars["--font-family-code"],
+    fontSize: textSizeVars["--font-size-sm"],
     letterSpacing: "0.06em",
     fontVariantNumeric: "tabular-nums",
   },
   empty: {
     // An empty state inside a panel is a recessed well, never a second outline.
-    padding: "var(--spacing-3)",
-    borderWidth: "var(--border-width)",
+    padding: spacingVars["--spacing-3"],
+    borderWidth: borderVars["--border-width"],
     borderStyle: "dashed",
-    borderColor: "var(--color-border-disabled)",
-    borderRadius: "var(--radius-element)",
-    backgroundColor: "var(--color-background-muted)",
+    borderColor: awbrnVars.colorBorderDisabled,
+    borderRadius: radiusVars["--radius-element"],
+    backgroundColor: colorVars["--color-background-muted"],
   },
   notice: {
-    borderBlockStartWidth: "var(--border-width)",
+    borderBlockStartWidth: borderVars["--border-width"],
     borderBlockStartStyle: "solid",
-    borderBlockStartColor: "var(--color-border-soft)",
-    backgroundColor: "var(--color-background-muted)",
+    borderBlockStartColor: awbrnVars.colorBorderSoft,
+    backgroundColor: colorVars["--color-background-muted"],
   },
 });

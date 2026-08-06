@@ -103,49 +103,6 @@ const extraTokens: Record<string, string> = {
   // The rule between rows of one readout. Lighter than the panel outline,
   // because it separates lines of the same block rather than two panels.
   "--color-border-soft": "rgba(22, 24, 29, 0.18)",
-  // -- Replay and live-match frame ---------------------------------------
-  "--size-board-min": "28rem",
-  "--size-board-viewport-offset": "15rem",
-  "--size-roster-rail": "340px",
-  "--size-roster-stat-icon": "18px",
-  "--size-roster-stat-icon-overlay": "10px",
-  // -- Tile readout -------------------------------------------------------
-  // The terrain window docked on the board. Its readings stack in a column
-  // beside the art, so it only has to be as wide as one terrain name, and it is
-  // held to that: it stands on the battlefield, and every extra pixel is
-  // terrain the player cannot see.
-  "--size-tile-readout": "96px",
-  // -- Build menu ---------------------------------------------------------
-  // The menu opened by a production building. Wide enough for the longest unit
-  // name and a six-figure price on one line, and no wider, because it is drawn
-  // on the board and every extra pixel covers terrain the player is reading.
-  "--size-build-menu": "232px",
-  // The sprite is cropped to the unit, so a row is as tall as the art plus one
-  // step of breathing room. A full base menu is thirteen units, and all of them
-  // have to fit a board frame without scrolling.
-  "--size-build-row": "30px",
-  // A thumb needs a target no smaller than this; a mouse does not.
-  "--size-build-row-spacious": "56px",
-  "--size-build-funds-line": "20px",
-  // -- Destination menu ---------------------------------------------------
-  // The menu opened at the end of a move. It lists orders, not units: short
-  // words in the HUD face with at most a coordinate beside them, so it is much
-  // narrower and much tighter than the build menu. It also opens over the tile
-  // the player is deciding about, which is the one part of the board they most
-  // need to keep seeing.
-  "--size-action-menu": "148px",
-  // A line of the HUD face plus one step either side, and nothing more; there
-  // is no art in the row to make room for.
-  "--size-action-row": "22px",
-  // A thumb still needs a real target, so the sheet keeps its height even
-  // though the board menu gives its own back.
-  "--size-action-row-spacious": "48px",
-  // -- Power meter --------------------------------------------------------
-  "--size-power-star-cop": "13px",
-  "--size-power-star-scop": "19px",
-  "--size-power-meter-pending": "112px",
-  "--size-power-breakdown": "132px",
-  "--border-width-power-zone-joined": "2px",
 };
 
 const factionTokenVariants = Object.fromEntries(

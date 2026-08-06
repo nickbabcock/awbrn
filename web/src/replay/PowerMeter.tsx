@@ -4,6 +4,12 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Tooltip } from "@astryxdesign/core/Tooltip";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
+import {
+  borderVars,
+  colorVars,
+  radiusVars,
+  spacingVars,
+} from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import type { ComponentType, SVGProps } from "react";
 import type { PlayerRosterEntry } from "#/wasm/awbrn_wasm.js";
@@ -14,6 +20,8 @@ import {
   type PowerMeterReading,
 } from "./power_meter.ts";
 import { uiAtlasSpriteStyle } from "#/components/game_sprites.ts";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
+import { powerMeterLayout } from "./powerMeterLayout.stylex.ts";
 
 const STAR = uiAtlasSpriteStyle("TerrainStar.png");
 const NORMAL_POWER = uiAtlasSpriteStyle("NormalPower.png");
@@ -279,7 +287,7 @@ const styles = stylex.create({
     display: "inline-flex",
     alignItems: "center",
     flex: "0 0 auto",
-    gap: "var(--spacing-1)",
+    gap: spacingVars["--spacing-1"],
   },
   sprite: {
     display: "block",
@@ -288,28 +296,28 @@ const styles = stylex.create({
     backgroundRepeat: "no-repeat",
   },
   zone: {
-    backgroundColor: "var(--color-track)",
-    borderColor: "var(--color-border-emphasized)",
+    backgroundColor: colorVars["--color-track"],
+    borderColor: colorVars["--color-border-emphasized"],
     borderStyle: "solid",
-    borderWidth: "var(--border-width)",
-    borderRadius: "var(--radius-inner)",
+    borderWidth: borderVars["--border-width"],
+    borderRadius: radiusVars["--radius-inner"],
     overflow: "hidden",
   },
   zoneCop: {
-    blockSize: "var(--size-power-star-cop)",
-    "--star-size": "var(--size-power-star-cop)",
+    blockSize: powerMeterLayout.copStarSize,
+    "--star-size": powerMeterLayout.copStarSize,
   },
   zoneScop: {
-    blockSize: "var(--size-power-star-scop)",
-    "--star-size": "var(--size-power-star-scop)",
+    blockSize: powerMeterLayout.scopStarSize,
+    "--star-size": powerMeterLayout.scopStarSize,
   },
   // A dashed outline is how the system says a value is not there yet, rather
   // than drawing a full bar the engine has not confirmed.
   zonePending: {
-    inlineSize: "var(--size-power-meter-pending)",
+    inlineSize: powerMeterLayout.pendingInlineSize,
     backgroundColor: "transparent",
     borderStyle: "dashed",
-    borderColor: "var(--color-border-disabled)",
+    borderColor: awbrnVars.colorBorderDisabled,
   },
   // The two zones meet on one rule instead of two touching outlines. The super
   // zone owns it, so the line runs the full height of the taller bar: it parts
@@ -318,30 +326,30 @@ const styles = stylex.create({
     borderInlineEndWidth: 0,
   },
   zoneJoinedEnd: {
-    borderInlineStartWidth: "var(--border-width-power-zone-joined)",
+    borderInlineStartWidth: borderVars["--border-width"],
   },
   cell: {
     position: "relative",
     inlineSize: "var(--star-size)",
     flex: "0 0 auto",
     blockSize: "100%",
-    borderInlineEndWidth: "var(--border-width)",
+    borderInlineEndWidth: borderVars["--border-width"],
     borderInlineEndStyle: "solid",
-    borderInlineEndColor: "var(--color-border-soft)",
+    borderInlineEndColor: awbrnVars.colorBorderSoft,
     ":last-child": {
       borderInlineEndWidth: 0,
     },
   },
   fill: {
     blockSize: "100%",
-    backgroundColor: "var(--color-border)",
+    backgroundColor: colorVars["--color-border"],
   },
   // A charged power is the one thing on this row worth looking up for, so its
   // stars take the accent the system reserves for what matters.
   fillReady: {
-    backgroundColor: "var(--color-text-accent)",
+    backgroundColor: colorVars["--color-text-accent"],
   },
   breakdown: {
-    minInlineSize: "var(--size-power-breakdown)",
+    minInlineSize: powerMeterLayout.breakdownMinInlineSize,
   },
 });

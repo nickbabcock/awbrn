@@ -1,4 +1,5 @@
 import { Avatar } from "@astryxdesign/core/Avatar";
+import { borderVars, colorVars, radiusVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import type { CSSProperties } from "react";
 import type { CoPortraitCatalog } from "./co_portraits";
@@ -49,9 +50,9 @@ const styles = stylex.create({
     boxSizing: "content-box",
     backgroundRepeat: "no-repeat",
     imageRendering: "pixelated",
-    borderWidth: "var(--border-width)",
+    borderWidth: borderVars["--border-width"],
     borderStyle: "solid",
-    borderColor: "var(--color-border-emphasized)",
-    borderRadius: "var(--radius-element)",
+    borderColor: colorVars["--color-border-emphasized"],
+    borderRadius: radiusVars["--radius-element"],
   },
 });

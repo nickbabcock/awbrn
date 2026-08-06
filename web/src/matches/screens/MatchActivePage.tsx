@@ -11,6 +11,13 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Text } from "@astryxdesign/core/Text";
+import {
+  borderVars,
+  colorVars,
+  fontWeightVars,
+  spacingVars,
+  typeScaleVars,
+} from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
@@ -843,7 +850,7 @@ const styles = stylex.create({
     justifySelf: "start",
     inlineSize: {
       default: "100%",
-      [BOARD_BLEED_MEDIA]: "calc(100% + var(--spacing-6) * 2)",
+      [BOARD_BLEED_MEDIA]: `calc(100% + ${spacingVars["--spacing-6"]} * 2)`,
     },
     maxInlineSize: {
       default: rosterLayout.boardMaxInlineSize,
@@ -851,13 +858,13 @@ const styles = stylex.create({
     },
     marginInline: {
       default: 0,
-      [BOARD_BLEED_MEDIA]: "calc(var(--spacing-6) * -1)",
+      [BOARD_BLEED_MEDIA]: `calc(${spacingVars["--spacing-6"]} * -1)`,
     },
   },
   gameSurface: {
     position: "relative",
     aspectRatio: "3 / 2",
-    backgroundColor: "var(--color-background-inverted)",
+    backgroundColor: colorVars["--color-background-inverted"],
   },
   // The board gives up its 3:2 frame and takes the screen's own shape. The
   // engine is told the new canvas size and redraws to it, so the extra room is
@@ -890,10 +897,10 @@ const styles = stylex.create({
     outline: "none",
   },
   boardHud: {
-    borderTopWidth: "var(--border-width)",
+    borderTopWidth: borderVars["--border-width"],
     borderTopStyle: "solid",
-    borderTopColor: "var(--color-border-emphasized)",
-    backgroundColor: "var(--color-background-surface)",
+    borderTopColor: colorVars["--color-border-emphasized"],
+    backgroundColor: colorVars["--color-background-surface"],
   },
   // The readout takes whatever the commands leave, and gives it back to the map
   // name, which is the only part of it that can be long.
@@ -905,9 +912,9 @@ const styles = stylex.create({
   // it reads as one more fact on the readout line, at the size of the text
   // beside it.
   hudMatchName: {
-    fontSize: "var(--text-body-size)",
-    fontWeight: "var(--font-weight-bold)",
-    lineHeight: "var(--text-body-leading)",
+    fontSize: typeScaleVars["--text-body-size"],
+    fontWeight: fontWeightVars["--font-weight-bold"],
+    lineHeight: typeScaleVars["--text-body-leading"],
     minInlineSize: 0,
     overflow: "hidden",
     textOverflow: "ellipsis",
@@ -935,6 +942,6 @@ const styles = stylex.create({
       default: "static",
       [rosterLayout.desktopMedia]: "sticky",
     },
-    top: "var(--spacing-4)",
+    top: spacingVars["--spacing-4"],
   },
 });

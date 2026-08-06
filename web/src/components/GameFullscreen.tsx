@@ -2,6 +2,13 @@ import { Button } from "#/ui/Button.tsx";
 import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { HStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import {
+  borderVars,
+  colorVars,
+  radiusVars,
+  shadowVars,
+  spacingVars,
+} from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { Close as CloseIcon } from "pixelarticons/react/Close";
 // The corner-to-corner arrows, not the window frame. The frame glyph is a grid
@@ -118,7 +125,7 @@ function ImmersiveNotice({ hasKeyboard }: { hasKeyboard: boolean }) {
 const withdraw = stylex.keyframes({
   "0%": { opacity: 1, transform: "translateY(0)" },
   "84%": { opacity: 1, transform: "translateY(0)" },
-  "100%": { opacity: 0, transform: "translateY(var(--spacing-2))" },
+  "100%": { opacity: 0, transform: `translateY(${spacingVars["--spacing-2"]})` },
 });
 
 /** The same timing without the movement, for a player who asked for less of it. */
@@ -134,15 +141,15 @@ const styles = stylex.create({
   // point that was pressed.
   exitKey: {
     position: "absolute",
-    insetBlockStart: "var(--spacing-3)",
-    insetInlineEnd: "var(--spacing-3)",
+    insetBlockStart: spacingVars["--spacing-3"],
+    insetInlineEnd: spacingVars["--spacing-3"],
     zIndex: 1,
   },
   // The far edge from the key, so the notice and the thing it names are never
   // reaching for the same corner.
   notice: {
     position: "absolute",
-    insetBlockEnd: "var(--spacing-4)",
+    insetBlockEnd: spacingVars["--spacing-4"],
     // Centered with auto margins rather than a translate, because the
     // withdrawal animates `transform` and would otherwise take the centering
     // with it.
@@ -150,13 +157,13 @@ const styles = stylex.create({
     marginInline: "auto",
     inlineSize: "fit-content",
     zIndex: 1,
-    maxInlineSize: "calc(100% - var(--spacing-6))",
-    backgroundColor: "var(--color-background-surface)",
-    borderWidth: "var(--border-width)",
+    maxInlineSize: `calc(100% - ${spacingVars["--spacing-6"]})`,
+    backgroundColor: colorVars["--color-background-surface"],
+    borderWidth: borderVars["--border-width"],
     borderStyle: "solid",
-    borderColor: "var(--color-border-emphasized)",
-    borderRadius: "var(--radius-element)",
-    boxShadow: "var(--shadow-low)",
+    borderColor: colorVars["--color-border-emphasized"],
+    borderRadius: radiusVars["--radius-element"],
+    boxShadow: shadowVars["--shadow-low"],
     // It reports; it never stands between the player and the board under it.
     pointerEvents: "none",
     animationName: {
