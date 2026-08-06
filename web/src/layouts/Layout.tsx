@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
 import { AppShell } from "@astryxdesign/core/AppShell";
-import { Button } from "@astryxdesign/core/Button";
+import { Button } from "#/ui/Button.tsx";
 import { HStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TopNav } from "@astryxdesign/core/TopNav";

@@ -96,6 +96,8 @@ const factionTokens = Object.fromEntries(
 
 /** Values the base token set has no name for. */
 const extraTokens: Record<string, string> = {
+  "--border-width": "2px",
+  "--offset-control-pressed": "2px",
   // A disabled menu key keeps a visible outline, softened from the active rule.
   "--color-border-disabled": "rgba(22, 24, 29, 0.4)",
   // The rule between rows of one readout. Lighter than the panel outline,

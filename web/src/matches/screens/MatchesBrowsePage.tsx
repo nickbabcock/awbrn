@@ -1,14 +1,14 @@
 import { useSuspenseInfiniteQuery } from "@tanstack/react-query";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Badge } from "@astryxdesign/core/Badge";
-import { Button } from "@astryxdesign/core/Button";
+import { Button } from "#/ui/Button.tsx";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Heading } from "@astryxdesign/core/Heading";
 import { List } from "@astryxdesign/core/List";
 import { Section } from "@astryxdesign/core/Section";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { Thumbnail } from "@astryxdesign/core/Thumbnail";
+import { Thumbnail } from "#/ui/Thumbnail.tsx";
 import { useState } from "react";
 import { awbwSmallMapAssetPath } from "#/awbw/paths.ts";
 import { RouterButton, RouterListItem } from "#/ui/astryx-links.tsx";

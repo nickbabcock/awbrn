@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Badge } from "@astryxdesign/core/Badge";
-import { Button } from "@astryxdesign/core/Button";
+import { Button } from "#/ui/Button.tsx";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";

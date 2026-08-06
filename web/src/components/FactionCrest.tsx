@@ -1,4 +1,4 @@
-import { Button } from "@astryxdesign/core/Button";
+import { Button } from "#/ui/Button.tsx";
 import { Popover } from "@astryxdesign/core/Popover";
 import { ToggleButton, ToggleButtonGroup } from "@astryxdesign/core/ToggleButton";
 import * as stylex from "@stylexjs/stylex";

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Banner } from "@astryxdesign/core/Banner";
-import { Button } from "@astryxdesign/core/Button";
+import { Button } from "#/ui/Button.tsx";
 import { Card } from "@astryxdesign/core/Card";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { EmptyState } from "@astryxdesign/core/EmptyState";

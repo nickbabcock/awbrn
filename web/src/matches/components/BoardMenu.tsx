@@ -1,5 +1,5 @@
 import { spacingDefaults } from "@astryxdesign/core";
-import { Button } from "@astryxdesign/core/Button";
+import { Button } from "#/ui/Button.tsx";
 import { Dialog } from "@astryxdesign/core/Dialog";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";

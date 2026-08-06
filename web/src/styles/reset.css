@@ -1,4 +1,4 @@
-@layer reset, astryx-base, astryx-theme, awbrn-motion;
+@layer reset, astryx-base, astryx-theme;
 
 @import "@astryxdesign/core/reset.css";
 @import "@astryxdesign/core/astryx.css";
@@ -105,56 +105,5 @@
   /* Anything that has been anchored to should have extra scroll margin */
   :target {
     scroll-margin-block: 5ex;
-  }
-}
-
-@layer awbrn-motion {
-  /*
-   * Every outline in this system is two pixels. defineTheme's token map does
-   * not accept --border-width, so it is set here instead of in the theme.
-   */
-  :root {
-    --border-width: 2px;
-  }
-
-  /*
-   * The one authored gesture in the system: the menu key press.
-   *
-   * Every raised piece of chrome sits above the page on a hard offset shadow.
-   * Pressing it moves the element into its own shadow and takes the shadow
-   * away, so the key physically goes down instead of fading or scaling. One
-   * gesture, reused everywhere a command is issued.
-   */
-  .astryx-button:active:not(:disabled),
-  .astryx-top-nav-item:active {
-    box-shadow: none;
-    transform: translate(2px, 2px);
-    transition-duration: var(--duration-fast-min);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .astryx-button:active:not(:disabled),
-    .astryx-top-nav-item:active {
-      transform: none;
-    }
-  }
-
-  /*
-   * A greyed-out command in game is still a key on the menu: it keeps its
-   * outline and lies flat. Astryx has no `disabled` theming key for Button,
-   * so the state is authored here against the component class.
-   */
-  .astryx-button:disabled,
-  .astryx-button[aria-disabled="true"] {
-    background-color: var(--color-background-muted);
-    border-color: var(--color-border-disabled);
-    box-shadow: none;
-    color: var(--color-text-disabled);
-  }
-
-  /* Sprite art is the product's material. Never let a browser smooth it. */
-  .astryx-avatar img,
-  .astryx-thumbnail img {
-    image-rendering: pixelated;
   }
 }

@@ -1,4 +1,4 @@
-import { Button, type ButtonProps } from "@astryxdesign/core/Button";
+import * as stylex from "@stylexjs/stylex";
 import { Link as AstryxLink, type LinkProps as AstryxLinkProps } from "@astryxdesign/core/Link";
 import { ListItem, type ListItemProps } from "@astryxdesign/core/List";
 import {
@@ -9,6 +9,7 @@ import {
 } from "@astryxdesign/core/TopNav";
 import { createLink } from "@tanstack/react-router";
 import { forwardRef, type Ref } from "react";
+import { Button, type ButtonProps } from "#/ui/Button.tsx";
 
 type AstryxButtonLinkHostProps = Omit<ButtonProps, "as" | "href" | "ref"> & {
   href?: string;
@@ -56,8 +57,15 @@ type AstryxTopNavItemLinkHostProps = Omit<TopNavItemProps, "as" | "href" | "ref"
 };
 
 const AstryxTopNavItemLinkHost = forwardRef<HTMLAnchorElement, AstryxTopNavItemLinkHostProps>(
-  function AstryxTopNavItemLinkHost(props, ref) {
-    return <TopNavItem {...props} as="a" ref={ref} />;
+  function AstryxTopNavItemLinkHost({ xstyle, ...props }, ref) {
+    return (
+      <TopNavItem
+        {...props}
+        as="a"
+        ref={ref}
+        xstyle={[styles.topNavItem, styles.reducedMotion, xstyle]}
+      />
+    );
   },
 );
 
@@ -77,3 +85,26 @@ const AstryxTopNavHeadingLinkHost = forwardRef<HTMLAnchorElement, AstryxTopNavHe
 );
 
 export const RouterTopNavHeading = createLink(AstryxTopNavHeadingLinkHost);
+
+const styles = stylex.create({
+  topNavItem: {
+    boxShadow: {
+      default: null,
+      ":active": "none",
+    },
+    transform: {
+      default: null,
+      ":active": "translate(var(--offset-control-pressed), var(--offset-control-pressed))",
+    },
+    transitionDuration: {
+      default: null,
+      ":active": "var(--duration-fast-min)",
+    },
+  },
+  reducedMotion: {
+    transform: {
+      default: null,
+      "@media (prefers-reduced-motion: reduce)": "none",
+    },
+  },
+});
