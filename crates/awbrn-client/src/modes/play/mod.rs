@@ -4,8 +4,9 @@ use crate::core::coords::{TILE_SIZE, position_to_world_translation};
 use crate::core::{AppState, GameMode, RenderLayer, SpriteSize};
 use crate::features::camera::{CameraScale, FocusBoardOn};
 use crate::features::event_bus::{
-    EventSink, MoveCommandRequested, PostMoveAction, ProductionOption, ProductionOptionsChanged,
-    ProductionSite, UnitActionOption, UnitActionsChanged, UnitOrder, UnloadCommandRequested,
+    DeleteUnitCommandRequested, EventSink, MoveCommandRequested, PostMoveAction, ProductionOption,
+    ProductionOptionsChanged, ProductionSite, UnitActionOption, UnitActionsChanged, UnitOrder,
+    UnloadCommandRequested,
 };
 use crate::features::input::{
     BoardProjection, DragOwner, PointerGesture, PointerGestureKind, PointerSet, ReturnToTouchFloor,
@@ -209,6 +210,7 @@ pub(crate) struct UnitActionParams<'w> {
 
 #[derive(SystemParam)]
 pub(crate) struct UnitCommandSinks<'w> {
+    delete_unit_command: Option<Res<'w, EventSink<DeleteUnitCommandRequested>>>,
     move_command: Option<Res<'w, EventSink<MoveCommandRequested>>>,
     unload_command: Option<Res<'w, EventSink<UnloadCommandRequested>>>,
 }
@@ -333,7 +335,7 @@ fn observed_unloads_for(
 ///
 /// Most units can stay where they stand, but a teleporter moves whatever enters
 /// it, so a unit that starts on one has no order that keeps it there. Such a
-/// unit can still unload, because the transport does not move to do it.
+/// unit can still unload or delete, because these actions do not move the unit.
 fn can_act_in_place(
     entity: Entity,
     origin: Position,
@@ -343,7 +345,27 @@ fn can_act_in_place(
     let can_stop = field.is_some_and(|field| {
         semantic_position(origin).is_some_and(|position| field.can_stop_at(position))
     });
-    can_stop || !observed_unloads_for(entity, unit_selection).is_empty()
+    can_stop
+        || !observed_unloads_for(entity, unit_selection).is_empty()
+        || observed_can_delete(entity, unit_selection)
+}
+
+fn observed_can_delete(entity: Entity, unit_selection: &PlayUnitSelectionParams<'_, '_>) -> bool {
+    let (Some(observations), Some(viewpoint), Ok(id)) = (
+        unit_selection.observations.as_deref(),
+        unit_selection.viewpoint.as_deref(),
+        unit_selection.unit_ids.get(entity),
+    ) else {
+        return false;
+    };
+    let awbrn_game::replay::ReplayViewpoint::Player(player) = viewpoint else {
+        return false;
+    };
+    let Some(observation) = observations.for_player(*player) else {
+        return false;
+    };
+    awvm::query::observed_can_delete(observation, awvm::semantic::UnitId::new(id.0.as_u32()))
+        .unwrap_or(false)
 }
 
 fn clear_selection_state(selection: &mut PlaySelectionState<'_>) {
@@ -589,7 +611,8 @@ fn selectable_unit_at(
         .then(|| observed_move_field(entity, unit_selection))
         .flatten();
     let can_unload = !observed_unloads_for(entity, unit_selection).is_empty();
-    (field.is_some() || can_unload).then_some((entity, origin, field))
+    let can_delete = observed_can_delete(entity, unit_selection);
+    (field.is_some() || can_unload || can_delete).then_some((entity, origin, field))
 }
 
 pub(crate) fn handle_play_pointer_gestures(
@@ -1126,13 +1149,21 @@ pub(crate) fn clear_invalid_selection(
         return;
     };
 
-    if !unit_is_selectable(
-        *faction,
-        is_active,
-        is_carried,
-        has_cargo,
-        &friendly_factions,
-    ) || map_position.position() != selected_unit.origin
+    let accepted_move_finished = *selection.phase == PlayUiPhase::AwaitingServer
+        && !is_active
+        && committed
+            .0
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.kind == CommittedKind::Move);
+    if accepted_move_finished
+        || !unit_is_selectable(
+            *faction,
+            is_active,
+            is_carried,
+            has_cargo,
+            &friendly_factions,
+        )
+        || map_position.position() != selected_unit.origin
     {
         if *selection.phase == PlayUiPhase::AwaitingServer {
             committed.0 = None;
@@ -1387,6 +1418,7 @@ pub struct CommittedSnapshot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommittedKind {
+    Delete,
     Move,
     Unload,
 }
@@ -1452,12 +1484,21 @@ pub(crate) fn emit_unit_actions(
 
     // The AWBW unit id and the AWVM unit id are the same number by
     // construction; see `awvm_awbw::command::unit_id`.
+    let semantic_unit_id = awvm::semantic::UnitId::new(unit_id.0.as_u32());
+    let is_in_place = pending.destination == pending.origin;
+    let unloads = if is_in_place {
+        awvm::query::observed_unloads(observation, semantic_unit_id).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let can_delete = is_in_place && observed_can_delete(pending.unit, &unit_selection);
     let available = match awvm::query::observed_actions_at(
         observation,
-        awvm::semantic::UnitId::new(unit_id.0.as_u32()),
+        semantic_unit_id,
         awvm::semantic::Pos::new(x, y),
     ) {
         Ok(available) => available,
+        Err(_) if !unloads.is_empty() || can_delete => awvm::query::ObservedActionSet::default(),
         Err(error) => {
             warn!(
                 "Could not read the orders for unit {}: {error}",
@@ -1467,14 +1508,7 @@ pub(crate) fn emit_unit_actions(
             return;
         }
     };
-
-    let unloads = if pending.destination == pending.origin {
-        awvm::query::observed_unloads(observation, awvm::semantic::UnitId::new(unit_id.0.as_u32()))
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
-    let options = build_options(&available, &unloads, pending, &unit_selection);
+    let options = build_options(&available, &unloads, can_delete, pending, &unit_selection);
     if options.is_empty() {
         offered.0.clear();
         close_unit_actions(Some(sink));
@@ -1504,6 +1538,7 @@ pub(crate) fn emit_unit_actions(
 fn build_options(
     available: &awvm::query::ObservedActionSet,
     unloads: &[awvm::query::ObservedUnload],
+    can_delete: bool,
     pending: &PendingMoveDestinationSelection,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
 ) -> Vec<UnitActionOption> {
@@ -1623,6 +1658,12 @@ fn build_options(
             },
         });
     }
+    if can_delete {
+        options.push(UnitActionOption {
+            name: "Delete".to_string(),
+            action: UnitOrder::Delete,
+        });
+    }
 
     options
 }
@@ -1672,12 +1713,22 @@ pub(crate) fn handle_unit_action_chosen(
         destination: pending.destination,
         attack_intent: pending.attack_intent,
         kind: match &option.action {
+            UnitOrder::Delete => CommittedKind::Delete,
             UnitOrder::Move { .. } => CommittedKind::Move,
             UnitOrder::Unload { .. } => CommittedKind::Unload,
         },
     });
 
     match &option.action {
+        UnitOrder::Delete => {
+            let Some(sink) = command_sinks.delete_unit_command.as_deref() else {
+                committed.0 = None;
+                return;
+            };
+            sink.emit(DeleteUnitCommandRequested {
+                unit_id: unit_id.0.as_u32(),
+            });
+        }
         UnitOrder::Move { action } => {
             let Some(sink) = command_sinks.move_command.as_deref() else {
                 committed.0 = None;
@@ -2309,7 +2360,7 @@ mod tests {
     }
 
     #[test]
-    fn inactive_and_enemy_units_are_not_selectable() {
+    fn spent_and_enemy_units_are_not_selectable() {
         let mut app = play_test_app();
         set_plain_map(&mut app, 5, 5);
         app.world_mut()
@@ -2511,7 +2562,7 @@ mod tests {
     }
 
     #[test]
-    fn clicking_the_tile_of_a_unit_that_cannot_stay_keeps_it_selected() {
+    fn clicking_a_teleporter_unit_offers_delete_when_it_cannot_stay() {
         let mut app = play_test_app();
         set_plain_map(&mut app, 5, 5);
         app.world_mut()
@@ -2534,7 +2585,7 @@ mod tests {
             .resource_mut::<GameMap>()
             .set_terrain(origin, GraphicalTerrain::Teleporter);
 
-        spawn_unit(
+        let unit = spawn_unit(
             &mut app,
             origin,
             awbrn_types::Unit::Infantry,
@@ -2542,14 +2593,32 @@ mod tests {
             true,
             Some(99),
         );
+        app.world_mut()
+            .insert_resource(EventSink::<UnitActionsChanged>::new(|_| {}));
 
         click_tile(&mut app, origin);
         click_tile(&mut app, origin);
 
-        assert_eq!(app.world().resource::<PendingMoveDestination>().0, None);
+        assert_eq!(
+            app.world().resource::<PendingMoveDestination>().0,
+            Some(PendingMoveDestinationSelection {
+                unit,
+                origin,
+                destination: origin,
+                path: vec![origin],
+                attack_intent: None,
+            })
+        );
         assert_eq!(
             *app.world().resource::<PlayUiPhase>(),
-            PlayUiPhase::UnitSelected
+            PlayUiPhase::DestinationSelected
+        );
+        assert!(
+            app.world()
+                .resource::<OfferedActions>()
+                .0
+                .iter()
+                .any(|option| option.action == UnitOrder::Delete)
         );
     }
 
@@ -2736,6 +2805,72 @@ mod tests {
                 cargo_id: 7,
                 position: Position::new(1, 0),
             }]
+        );
+    }
+
+    #[test]
+    fn ready_unit_offers_delete_and_sends_a_standalone_command() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 3, 3);
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+        let unit = spawn_unit(
+            &mut app,
+            Position::new(1, 1),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+        app.world_mut()
+            .entity_mut(unit)
+            .insert(AwbwUnitId(awbrn_types::AwbwUnitId::new(42)));
+
+        let menus = Arc::new(Mutex::new(Vec::new()));
+        let menus_by_sink = menus.clone();
+        app.world_mut()
+            .insert_resource(EventSink::<UnitActionsChanged>::new(move |event| {
+                menus_by_sink.lock().unwrap().push(event);
+            }));
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let commands_by_sink = commands.clone();
+        app.world_mut()
+            .insert_resource(EventSink::<DeleteUnitCommandRequested>::new(move |event| {
+                commands_by_sink.lock().unwrap().push(event);
+            }));
+
+        click_tile(&mut app, Position::new(1, 1));
+        click_tile(&mut app, Position::new(1, 1));
+
+        let delete_index = app
+            .world()
+            .resource::<OfferedActions>()
+            .0
+            .iter()
+            .position(|option| option.action == UnitOrder::Delete)
+            .expect("the current-tile menu must offer deletion");
+        assert!(menus.lock().unwrap().iter().any(|menu| {
+            menu.options
+                .iter()
+                .any(|option| option.action == UnitOrder::Delete)
+        }));
+
+        app.world_mut()
+            .resource_mut::<Messages<UnitActionChosen>>()
+            .write(UnitActionChosen {
+                index: delete_index,
+            });
+        app.update();
+
+        assert_eq!(
+            commands.lock().unwrap().as_slice(),
+            &[DeleteUnitCommandRequested { unit_id: 42 }]
+        );
+        assert_eq!(
+            *app.world().resource::<PlayUiPhase>(),
+            PlayUiPhase::AwaitingServer
         );
     }
 

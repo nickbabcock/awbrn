@@ -319,6 +319,10 @@ fn commands(
             level: *level,
         }),
         GameCommand::EndTurn => one(Command::EndTurn { player }),
+        GameCommand::DeleteUnit { unit_id } => one(Command::DeleteUnit {
+            player,
+            unit: command_unit_id(unit_id.0)?,
+        }),
         GameCommand::Unload {
             transport_id,
             cargo_id,

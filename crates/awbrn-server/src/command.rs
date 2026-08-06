@@ -35,6 +35,11 @@ pub enum GameCommand {
         #[tsify(type = "{ x: number; y: number }")]
         position: Position,
     },
+    /// Remove one owned unit from the board without compensation.
+    DeleteUnit {
+        #[tsify(type = "number")]
+        unit_id: ServerUnitId,
+    },
     /// Activate the current commander's normal or super power.
     ActivatePower { level: PowerLevel },
     /// End the current player's turn.
@@ -111,6 +116,18 @@ mod tests {
             cmd,
             GameCommand::ActivatePower {
                 level: PowerLevel::Scop
+            }
+        );
+    }
+
+    #[test]
+    fn deserialize_delete_unit() {
+        let json = r#"{"type":"deleteUnit","unit_id":9}"#;
+        let command: GameCommand = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            command,
+            GameCommand::DeleteUnit {
+                unit_id: ServerUnitId(9)
             }
         );
     }

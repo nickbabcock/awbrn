@@ -227,6 +227,7 @@ pub enum UnitOrder {
         #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }"))]
         position: Position,
     },
+    Delete,
 }
 
 /// The destination menu implied by the current proposal.
@@ -271,6 +272,15 @@ pub struct UnloadCommandRequested {
     pub cargo_id: u32,
     #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }"))]
     pub position: Position,
+}
+
+/// A voluntary unit-removal intent chosen on the live board.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteUnitCommandRequested {
+    pub unit_id: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

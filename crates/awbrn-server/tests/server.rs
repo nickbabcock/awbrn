@@ -293,6 +293,59 @@ fn create_server_and_spawn_unit() {
 }
 
 #[test]
+fn delete_unit_rejects_an_owned_unit_after_it_acts() {
+    let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
+    let deleted = server.spawn_unit(
+        Position::new(1, 1),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    server.spawn_unit(
+        Position::new(2, 1),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+
+    server
+        .submit_command(
+            p1(),
+            action_command(deleted, vec![Position::new(1, 1)], PostMoveAction::Wait),
+        )
+        .unwrap();
+    let error = server
+        .submit_command(p1(), GameCommand::DeleteUnit { unit_id: deleted })
+        .unwrap_err();
+
+    let view = server.player_view(p1()).unwrap();
+    assert_eq!(error, CommandError::UnitAlreadyActed(deleted));
+    assert!(view.units.iter().any(|unit| unit.id == deleted));
+}
+
+#[test]
+fn delete_unit_removes_a_ready_owned_unit() {
+    let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
+    let deleted = server.spawn_unit(
+        Position::new(1, 1),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    server.spawn_unit(
+        Position::new(2, 1),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+
+    let result = server
+        .submit_command(p1(), GameCommand::DeleteUnit { unit_id: deleted })
+        .unwrap();
+
+    let view = server.player_view(p1()).unwrap();
+    assert!(!view.units.iter().any(|unit| unit.id == deleted));
+    let (_, update) = result.updates.iter().find(|(id, _)| *id == p1()).unwrap();
+    assert!(update.units_removed.contains(&deleted));
+}
+
+#[test]
 fn player_view_returns_none_for_unknown_player() {
     let server = GameServer::new(two_player_setup(2, 2)).unwrap();
 
