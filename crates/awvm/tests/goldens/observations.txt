@@ -231,8 +231,9 @@ a3e8364c34a96b44  obs=2 ev=0  concealment/reveal-already-exposed-rejected.json
 858a61c9c7165815  obs=2 ev=2  concealment/stealth-hides-in-place.json
 daf97ae6453d44a0  obs=2 ev=2  concealment/sub-dives.json
 98a74d44f546ce2e  obs=2 ev=2  concealment/sub-surfaces.json
+675a219075bd0d08  obs=4 ev=3  delete/delete-loaded-transport.json
 02d79c6f03bb1b08  obs=4 ev=4  delete/delete-unit-capture-reset.json
-0277d369e97a4fbc  obs=6 ev=0  delete/delete-unit-validation.json
+92938d9c47a6932a  obs=8 ev=0  delete/delete-unit-validation.json
 b91180873b3079aa  obs=6 ev=27  elimination/hq-capture-cascade-transfers.json
 d0d9210a97b96394  obs=6 ev=44  elimination/resign-cascade-continues.json
 13da93802601e072  obs=4 ev=8  elimination/resign-ends-match.json
@@ -285,7 +286,7 @@ a667b0972784b891  obs=2 ev=2  production/lab-unit-owned-lab.json
 744463c9bfc742fc  obs=2 ev=0  production/produce-occupied-facility.json
 cfcb3acc62abb3d9  obs=2 ev=0  production/produce-wrong-domain.json
 d5db25691c977b55  obs=2 ev=0  production/unit-limit-counts-cargo.json
-d7b58f025f91fe6f  obs=15 ev=13  production/unit-limit-owner-scope.json
+ab592403b54dd65b  obs=15 ev=13  production/unit-limit-owner-scope.json
 1338c4f1a4fb6914  obs=2 ev=4  repair/black-boat-repairs-black-boat.json
 b126dd2b2592acd3  obs=2 ev=2  repair/repair-full-hp-resupply-only.json
 f7e64ddcbee4466b  obs=2 ev=0  repair/repair-non-black-boat-rejected.json

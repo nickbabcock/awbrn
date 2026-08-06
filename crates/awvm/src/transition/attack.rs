@@ -860,7 +860,7 @@ fn resolve_exchange(
                 unreachable!("an attacking unit is on the board");
             };
             movement::reset_capture_on_removal(&mut next, position, &mut events);
-            remove_combatant_and_cargo(
+            remove_unit_and_cargo(
                 &mut next,
                 attacker.id,
                 KnownReason::CombatCounter,
@@ -876,7 +876,7 @@ fn resolve_exchange(
             unreachable!("a defending unit is on the board");
         };
         movement::reset_capture_on_removal(&mut next, position, &mut events);
-        remove_combatant_and_cargo(&mut next, defender.id, KnownReason::Combat, &mut events);
+        remove_unit_and_cargo(&mut next, defender.id, KnownReason::Combat, &mut events);
     }
     if !attacker_removed {
         spend_attacker(&mut next, &mut events, attacker.id);
@@ -946,7 +946,7 @@ fn resolve_counter_first(
             unreachable!("an attacking unit is on the board");
         };
         movement::reset_capture_on_removal(&mut next, position, &mut events);
-        remove_combatant_and_cargo(
+        remove_unit_and_cargo(
             &mut next,
             attacker.id,
             KnownReason::CombatCounter,
@@ -978,7 +978,7 @@ fn resolve_counter_first(
             unreachable!("a defending unit is on the board");
         };
         movement::reset_capture_on_removal(&mut next, position, &mut events);
-        remove_combatant_and_cargo(&mut next, defender.id, KnownReason::Combat, &mut events);
+        remove_unit_and_cargo(&mut next, defender.id, KnownReason::Combat, &mut events);
     } else {
         let defender_index = next
             .units
@@ -995,44 +995,6 @@ fn resolve_counter_first(
         events,
         random_consumed: draws.drawn(),
     })
-}
-
-/// Remove a destroyed board unit and any units it carried.
-///
-/// Cargo loss is a consequence of losing the carrier, not another combat
-/// strike, so it emits removal facts but earns no combat power charge.
-fn remove_combatant_and_cargo(
-    next: &mut State,
-    unit: UnitId,
-    reason: KnownReason,
-    events: &mut Vec<Event>,
-) {
-    let mut cargo: Vec<_> = next
-        .units
-        .iter()
-        .filter_map(|candidate| match candidate.location {
-            Location::Cargo { transport, slot } if transport == unit => Some((slot, candidate.id)),
-            _ => None,
-        })
-        .collect();
-    cargo.sort();
-    next.units.retain(|candidate| {
-        candidate.id != unit
-            && !matches!(
-                candidate.location,
-                Location::Cargo { transport, .. } if transport == unit
-            )
-    });
-    events.push(Event::UnitRemoved {
-        unit,
-        reason: reason.into(),
-    });
-    for (_, cargo) in cargo {
-        events.push(Event::UnitRemoved {
-            unit: cargo,
-            reason: KnownReason::CarrierLost.into(),
-        });
-    }
 }
 
 /// Mark the acting unit spent. Both exchange orders end here, and both reach it

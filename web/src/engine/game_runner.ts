@@ -7,7 +7,12 @@ import {
 } from "#/canvas_courier/index.ts";
 import type { AwbwMapData } from "#/awbw/schemas.ts";
 import type { ObservedTransition } from "#/wasm/awbrn_server.js";
-import type { GameEvent, MoveCommandRequested, UnloadCommandRequested } from "#/wasm/awbrn_wasm.js";
+import type {
+  DeleteUnitCommandRequested,
+  GameEvent,
+  MoveCommandRequested,
+  UnloadCommandRequested,
+} from "#/wasm/awbrn_wasm.js";
 import type { MatchCommand } from "#/matches/match_protocol.ts";
 import type { LiveMatchPlayer } from "./worker_module";
 import { gameAssetConfig } from "./asset_manifest";
@@ -178,6 +183,10 @@ export class GameRunner implements CanvasCourierController {
         this.handleUnloadCommandRequest(event);
         break;
       }
+      case "DeleteUnitCommandRequested": {
+        this.handleDeleteUnitCommandRequest(event);
+        break;
+      }
       case "UnitActionsChanged": {
         useGameStore
           .getState()
@@ -217,6 +226,17 @@ export class GameRunner implements CanvasCourierController {
       transport_id: request.transportId,
       cargo_id: request.cargoId,
       position: request.position,
+    });
+  }
+
+  private handleDeleteUnitCommandRequest(request: DeleteUnitCommandRequested): void {
+    if (!this.liveCommandHandler) {
+      console.error("GameRunner received a delete-unit command without a live command handler");
+      return;
+    }
+    this.liveCommandHandler({
+      type: "deleteUnit",
+      unit_id: request.unitId,
     });
   }
 

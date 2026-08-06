@@ -578,6 +578,20 @@ pub fn observed_unloads(
     Ok(orders)
 }
 
+/// Whether the recipient may remove `unit` from the board now.
+///
+/// The reducer remains the authority for readiness, ownership, phase, and
+/// board-position checks.
+pub fn observed_can_delete(observation: &Observation, unit: UnitId) -> Result<bool, QueryError> {
+    if !recipient_may_command(observation) {
+        return Ok(false);
+    }
+
+    let state = reify(observation)?;
+    let player = lookup(&state, unit)?.owner.clone();
+    Ok(is_accepted(&state, Command::DeleteUnit { player, unit }))
+}
+
 /// Restate an [`ActionSet`]'s targets as the positions its units occupy.
 ///
 /// A unit named by an action is on the board by construction — the reducer

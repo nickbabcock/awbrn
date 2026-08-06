@@ -63,7 +63,7 @@
         "hp": 100,
         "fuel": 70,
         "ammo": 0,
-        "action": "ready",
+        "action": "spent",
         "concealment": "exposed",
         "location": { "type": "board", "position": [0, 0] }
       },
@@ -110,6 +110,16 @@
       "expect": {
         "status": "rejected",
         "violation": { "code": "UNIT_NOT_ON_BOARD", "unit": 1 },
+        "random_consumed": 0
+      }
+    },
+    {
+      "id": "reject-spent-unit",
+      "command": { "type": "delete-unit", "player": "red", "unit": 0 },
+      "random": [],
+      "expect": {
+        "status": "rejected",
+        "violation": { "code": "UNIT_ALREADY_ACTED", "unit": 0 },
         "random_consumed": 0
       }
     }

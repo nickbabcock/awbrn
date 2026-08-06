@@ -1,7 +1,7 @@
 import { spacingDefaults } from "@astryxdesign/core";
 import { Button } from "#/ui/Button.tsx";
 import { Dialog } from "@astryxdesign/core/Dialog";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 import {
   useCallback,
@@ -37,6 +37,14 @@ export interface BoardMenuShellProps {
   /** Hands the keyboard back to the board once the menu has closed. */
   onRestoreFocus: () => void;
   presentation: BoardMenuPresentation;
+  /**
+   * What the sheet offers at the bottom edge, when the default way out is not
+   * the only command that belongs in thumb reach. A menu that asks a question
+   * answers it here, because a second Cancel below the answers is the sheet
+   * disagreeing with itself. The node carries its own padding and rules: a
+   * footer that follows an empty body needs no divider of its own.
+   */
+  footer?: ReactNode;
   /**
    * How wide the board-anchored menu is drawn. It sits over the tile the player
    * is deciding about, so each menu asks for the width its own content needs
@@ -166,7 +174,7 @@ function BoardAnchoredMenu({
  * than leaving two live surfaces, and the sheet keeps the phone's own dismissal
  * habits: press outside, press Cancel, or send Escape from a keyboard.
  */
-function MenuSheet({ children, label, onDismiss, onRestoreFocus }: BoardMenuShellProps) {
+function MenuSheet({ children, footer, label, onDismiss, onRestoreFocus }: BoardMenuShellProps) {
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
       if (!isOpen) onDismiss();
@@ -190,15 +198,17 @@ function MenuSheet({ children, label, onDismiss, onRestoreFocus }: BoardMenuShel
           focus ring nobody asked for the moment the sheet opens. */}
       <MenuKeyboardScope
         footer={
-          <HStack gap={0} paddingBlock={3} paddingInline={3} xstyle={styles.sheetFooter}>
-            <Button
-              clickAction={onDismiss}
-              label="Cancel"
-              size="lg"
-              variant="secondary"
-              width="100%"
-            />
-          </HStack>
+          footer ?? (
+            <VStack gap={0} paddingBlock={3} paddingInline={3} xstyle={styles.sheetFooter}>
+              <Button
+                clickAction={onDismiss}
+                label="Cancel"
+                size="lg"
+                variant="secondary"
+                width="100%"
+              />
+            </VStack>
+          )
         }
         onDismiss={onDismiss}
         onRestoreFocus={onRestoreFocus}

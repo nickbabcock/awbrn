@@ -108,11 +108,11 @@ match-completion events follow.
 
 ## `delete-unit`
 
-`delete-unit` removes an owned on-board unit without compensation. If it is
-standing on an incomplete capture, `capture-changed` restores that property to
-20 before `unit-removed`. If the owner has no units remaining, the normal rout
-and match-completion events follow. Deletion grants no power charge and its
-removal is projected through the ordinary fog visibility rules.
+`delete-unit` removes a ready, owned, on-board unit without compensation. If it
+is standing on an incomplete capture, `capture-changed` restores that property
+to 20 before `unit-removed`. If the owner has no units remaining, the normal
+rout and match-completion events follow. Deletion grants no power charge and
+its removal is projected through the ordinary fog visibility rules.
 
 ## Phase boundaries
 

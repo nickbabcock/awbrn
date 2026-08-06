@@ -7,8 +7,8 @@ use crate::event::{AttackTarget, Event};
 use crate::random::{Entropy, Luck, RandomError, RandomTape, RandomToken, RandomTokenKind};
 use crate::ruleset::{self, Domain, UnitKind};
 use crate::semantic::{
-    Location, Match, Outcome, Phase, PlayerId, Pos, State, TerrainId, Unit, UnitId, UnitKindId,
-    Viewpoint, WeatherKind,
+    KnownReason, Location, Match, Outcome, Phase, PlayerId, Pos, State, TerrainId, Unit, UnitId,
+    UnitKindId, Viewpoint, WeatherKind,
 };
 use crate::violation::Violation;
 
@@ -340,6 +340,46 @@ pub(crate) fn board_position(unit: &Unit) -> Option<Pos> {
     match unit.location {
         Location::Board { position } => Some(position),
         Location::Cargo { .. } => None,
+    }
+}
+
+/// Remove a board unit and any units it carried.
+///
+/// Cargo has no board position of its own, so it cannot outlive its carrier.
+/// The loss is a consequence of losing the carrier, not a separate strike, so
+/// the cargo removals carry `carrier-lost` whatever took the carrier out.
+/// Cargo is reported in slot order to keep the event sequence deterministic.
+pub(crate) fn remove_unit_and_cargo(
+    state: &mut State,
+    unit: UnitId,
+    reason: KnownReason,
+    events: &mut Vec<Event>,
+) {
+    let mut cargo: Vec<_> = state
+        .units
+        .iter()
+        .filter_map(|candidate| match candidate.location {
+            Location::Cargo { transport, slot } if transport == unit => Some((slot, candidate.id)),
+            _ => None,
+        })
+        .collect();
+    cargo.sort();
+    state.units.retain(|candidate| {
+        candidate.id != unit
+            && !matches!(
+                candidate.location,
+                Location::Cargo { transport, .. } if transport == unit
+            )
+    });
+    events.push(Event::UnitRemoved {
+        unit,
+        reason: reason.into(),
+    });
+    for (_, cargo) in cargo {
+        events.push(Event::UnitRemoved {
+            unit: cargo,
+            reason: KnownReason::CarrierLost.into(),
+        });
     }
 }
 

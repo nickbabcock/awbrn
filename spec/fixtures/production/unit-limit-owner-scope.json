@@ -275,8 +275,8 @@
       }
     },
     {
-      "id": "delete-created-unit",
-      "command": { "type": "delete-unit", "player": "red", "unit": 10 },
+      "id": "delete-ready-unit",
+      "command": { "type": "delete-unit", "player": "red", "unit": 0 },
       "random": [],
       "expect": {
         "status": "accepted",
@@ -349,17 +349,6 @@
           "weather": { "kind": "clear", "remaining_turns": 0 },
           "units": [
             {
-              "id": 0,
-              "kind": "tank",
-              "owner": "red",
-              "hp": 100,
-              "fuel": 70,
-              "ammo": 9,
-              "action": "ready",
-              "concealment": "exposed",
-              "location": { "type": "board", "position": [1, 0] }
-            },
-            {
               "id": 1,
               "kind": "tank",
               "owner": "ally",
@@ -380,12 +369,23 @@
               "action": "ready",
               "concealment": "exposed",
               "location": { "type": "board", "position": [4, 0] }
+            },
+            {
+              "id": 10,
+              "kind": "infantry",
+              "owner": "red",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "spent",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [0, 0] }
             }
           ],
           "next_unit_id": 11,
           "match": { "status": "active", "draw_offers": [] }
         },
-        "events": [{ "type": "unit-removed", "unit": 10, "reason": "delete" }],
+        "events": [{ "type": "unit-removed", "unit": 0, "reason": "delete" }],
         "random_consumed": 0
       }
     },
@@ -469,17 +469,6 @@
           "weather": { "kind": "clear", "remaining_turns": 0 },
           "units": [
             {
-              "id": 0,
-              "kind": "tank",
-              "owner": "red",
-              "hp": 100,
-              "fuel": 70,
-              "ammo": 9,
-              "action": "ready",
-              "concealment": "exposed",
-              "location": { "type": "board", "position": [1, 0] }
-            },
-            {
               "id": 1,
               "kind": "tank",
               "owner": "ally",
@@ -500,6 +489,17 @@
               "action": "ready",
               "concealment": "exposed",
               "location": { "type": "board", "position": [4, 0] }
+            },
+            {
+              "id": 10,
+              "kind": "infantry",
+              "owner": "red",
+              "hp": 100,
+              "fuel": 99,
+              "ammo": 0,
+              "action": "spent",
+              "concealment": "exposed",
+              "location": { "type": "board", "position": [0, 0] }
             },
             {
               "id": 11,

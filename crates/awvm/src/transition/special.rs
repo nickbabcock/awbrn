@@ -10,7 +10,9 @@ use super::*;
 use crate::commander::AreaStrikePolicy;
 use crate::event::Event;
 use crate::ruleset::{MISSILE_SILO_STRIKE, UNIT_EXPLOSION, UnitKind};
-use crate::semantic::{AwbwVisibility, KnownReason, Pos, Silo, UnitId, VictoryReason, Visibility};
+use crate::semantic::{
+    AwbwVisibility, KnownReason, Pos, Silo, UnitAction, UnitId, VictoryReason, Visibility,
+};
 use crate::violation::{Action, Violation};
 
 pub(crate) fn execute_move_launch(
@@ -230,6 +232,9 @@ pub(crate) fn execute_delete_unit(
     }
     let position = board_position(unit)
         .ok_or_else(|| violation(Violation::UnitNotOnBoard { unit: unit_id }))?;
+    if unit.action != UnitAction::Ready {
+        return Err(violation(Violation::UnitAlreadyActed { unit: unit_id }));
+    }
 
     let mut next = state.clone();
     let mut events = Vec::new();
@@ -246,11 +251,7 @@ pub(crate) fn execute_delete_unit(
             to: 20,
         });
     }
-    next.units.remove(unit_index);
-    events.push(Event::UnitRemoved {
-        unit: unit_id,
-        reason: KnownReason::Delete.into(),
-    });
+    remove_unit_and_cargo(&mut next, unit_id, KnownReason::Delete, &mut events);
     if !next.units.iter().any(|unit| unit.owner == player) {
         eliminate_player(
             &mut next,

@@ -731,34 +731,7 @@ fn crash_out_of_fuel(next: &mut State, incoming: &Incoming, events: &mut Vec<Eve
         if !next.units.contains(unit_id) {
             continue;
         }
-        let mut cargo: Vec<_> = next
-            .units
-            .iter()
-            .filter_map(|unit| match &unit.location {
-                Location::Cargo { transport, slot } if transport == &unit_id => {
-                    Some((*slot, unit.id))
-                }
-                _ => None,
-            })
-            .collect();
-        cargo.sort();
-        next.units.retain(|unit| {
-            unit.id != unit_id
-                && !matches!(
-                    &unit.location,
-                    Location::Cargo { transport, .. } if transport == &unit_id
-                )
-        });
-        events.push(Event::UnitRemoved {
-            unit: unit_id,
-            reason: KnownReason::FuelDepleted.into(),
-        });
-        for (_, cargo_id) in cargo {
-            events.push(Event::UnitRemoved {
-                unit: cargo_id,
-                reason: KnownReason::CarrierLost.into(),
-            });
-        }
+        remove_unit_and_cargo(next, unit_id, KnownReason::FuelDepleted, events);
     }
     removed_units
 }
