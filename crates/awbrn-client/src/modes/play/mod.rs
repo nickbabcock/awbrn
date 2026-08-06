@@ -329,6 +329,23 @@ fn observed_unloads_for(
         .unwrap_or_default()
 }
 
+/// Whether the unit can act on the tile it already holds.
+///
+/// Most units can stay where they stand, but a teleporter moves whatever enters
+/// it, so a unit that starts on one has no order that keeps it there. Such a
+/// unit can still unload, because the transport does not move to do it.
+fn can_act_in_place(
+    entity: Entity,
+    origin: Position,
+    field: Option<&awvm::query::MoveField>,
+    unit_selection: &PlayUnitSelectionParams<'_, '_>,
+) -> bool {
+    let can_stop = field.is_some_and(|field| {
+        semantic_position(origin).is_some_and(|position| field.can_stop_at(position))
+    });
+    can_stop || !observed_unloads_for(entity, unit_selection).is_empty()
+}
+
 fn clear_selection_state(selection: &mut PlaySelectionState<'_>) {
     selection.selected.0 = None;
     selection.move_range.tiles.clear();
@@ -385,21 +402,35 @@ fn confirm_selected_destination(
         return;
     }
 
-    let Some(field) = selection.move_field.0.as_ref() else {
-        let unload_in_place = destination == selected_unit.origin
-            && !observed_unloads_for(selected_unit.entity, unit_selection).is_empty();
-        if unload_in_place {
-            selection.pending_destination.0 = Some(PendingMoveDestinationSelection {
-                unit: selected_unit.entity,
-                origin: selected_unit.origin,
-                destination,
-                path: vec![selected_unit.origin],
-                attack_intent: None,
-            });
-            *selection.phase = PlayUiPhase::DestinationSelected;
-        } else {
-            clear_selection_state(selection);
+    if destination == selected_unit.origin {
+        // A unit that cannot stay here has no orders to offer. Keep it in hand
+        // instead of moving to a menu that would come up empty.
+        if !can_act_in_place(
+            selected_unit.entity,
+            selected_unit.origin,
+            selection.move_field.0.as_ref(),
+            unit_selection,
+        ) {
+            return_to_unit_selected(selection);
+            return;
         }
+
+        let path = vec![selected_unit.origin];
+        selection.proposed_path.path = path.clone();
+        selection.proposed_path.hovered = Some(destination);
+        selection.pending_destination.0 = Some(PendingMoveDestinationSelection {
+            unit: selected_unit.entity,
+            origin: selected_unit.origin,
+            destination,
+            path,
+            attack_intent: None,
+        });
+        *selection.phase = PlayUiPhase::DestinationSelected;
+        return;
+    }
+
+    let Some(field) = selection.move_field.0.as_ref() else {
+        clear_selection_state(selection);
         return;
     };
     let destination_pos = semantic_position(destination);
@@ -455,16 +486,17 @@ const TAP_SLOP_WORLD: f32 = TILE_SIZE * 0.4;
 
 /// The tile a tap should be read as, given where it actually landed.
 ///
-/// A tap inside the move range is taken at face value. One just outside it is
-/// pulled to the nearest reachable neighbour, but only when the pointer is
-/// genuinely near that tile rather than merely adjacent to it.
+/// A tap on the selected unit or inside the move range is taken at face value.
+/// One just outside the range is pulled to the nearest reachable neighbour,
+/// but only when the pointer is genuinely near that tile.
 fn resolve_tap_target(
     tapped: Position,
     world: Option<Vec2>,
     move_range: &MoveRange,
     game_map: &GameMap,
+    selected_origin: Option<Position>,
 ) -> Position {
-    if move_range.tiles.contains_key(&tapped) {
+    if selected_origin == Some(tapped) || move_range.tiles.contains_key(&tapped) {
         return tapped;
     }
     let Some(world) = world else {
@@ -620,24 +652,32 @@ fn handle_tap(
 
     if selection.selected.0.is_some() {
         close_production_options(production_options.sink.as_deref());
+        let selected = selection.selected.0.expect("selection was checked above");
         let destination = resolve_tap_target(
             tapped,
             world,
             &selection.move_range,
             &unit_selection.game_map,
+            Some(selected.origin),
         );
 
-        let destination_is_reachable = semantic_position(destination).is_some_and(|position| {
-            selection
-                .move_field
-                .0
-                .as_ref()
-                .and_then(|field| field.step(position))
-                .is_some()
-        }) || selection.selected.0.is_some_and(|selected| {
-            destination == selected.origin
-                && !observed_unloads_for(selected.entity, unit_selection).is_empty()
-        });
+        let destination_is_reachable = if destination == selected.origin {
+            can_act_in_place(
+                selected.entity,
+                selected.origin,
+                selection.move_field.0.as_ref(),
+                unit_selection,
+            )
+        } else {
+            semantic_position(destination).is_some_and(|position| {
+                selection
+                    .move_field
+                    .0
+                    .as_ref()
+                    .and_then(|field| field.step(position))
+                    .is_some()
+            })
+        };
         if destination_is_reachable {
             // A tile too small to hit is a tile too small to commit to. The
             // selection survives and the board comes back up to a size the
@@ -1733,6 +1773,9 @@ pub(crate) fn sync_destination_ghost(
     let Some(pending) = pending.0.as_ref() else {
         return;
     };
+    if pending.destination == pending.origin {
+        return;
+    }
     let Ok((sprite, sprite_size)) = sprites.get(pending.unit) else {
         return;
     };
@@ -2420,6 +2463,155 @@ mod tests {
     }
 
     #[test]
+    fn clicking_selected_units_tile_offers_in_place_actions_without_a_ghost() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 5, 5);
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+
+        let origin = Position::new(2, 2);
+        let unit = spawn_unit(
+            &mut app,
+            origin,
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+        app.world_mut()
+            .entity_mut(unit)
+            .insert((Sprite::default(), MOVE_RANGE_SPRITE_SIZE));
+
+        click_tile(&mut app, origin);
+        click_tile(&mut app, origin);
+
+        assert_eq!(
+            app.world().resource::<PendingMoveDestination>().0,
+            Some(PendingMoveDestinationSelection {
+                unit,
+                origin,
+                destination: origin,
+                path: vec![origin],
+                attack_intent: None,
+            })
+        );
+        assert_eq!(
+            *app.world().resource::<PlayUiPhase>(),
+            PlayUiPhase::DestinationSelected
+        );
+        assert_eq!(
+            app.world_mut()
+                .query_filtered::<Entity, With<DestinationGhost>>()
+                .iter(app.world())
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn clicking_the_tile_of_a_unit_that_cannot_stay_keeps_it_selected() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 5, 5);
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+
+        let origin = Position::new(2, 2);
+        let teleporter = app
+            .world()
+            .resource::<BoardIndex>()
+            .terrain_entity(origin)
+            .unwrap();
+        app.world_mut()
+            .entity_mut(teleporter)
+            .insert(awbrn_game::world::TerrainTile {
+                terrain: GraphicalTerrain::Teleporter,
+            });
+        app.world_mut()
+            .resource_mut::<GameMap>()
+            .set_terrain(origin, GraphicalTerrain::Teleporter);
+
+        spawn_unit(
+            &mut app,
+            origin,
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+
+        click_tile(&mut app, origin);
+        click_tile(&mut app, origin);
+
+        assert_eq!(app.world().resource::<PendingMoveDestination>().0, None);
+        assert_eq!(
+            *app.world().resource::<PlayUiPhase>(),
+            PlayUiPhase::UnitSelected
+        );
+    }
+
+    #[test]
+    fn clicking_capturing_units_tile_offers_capture_again() {
+        let fixture = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../spec/fixtures/capture/capture-city-partial.json"),
+        )
+        .unwrap();
+        let mut fixture: serde_json::Value = serde_json::from_str(&fixture).unwrap();
+        let state = &mut fixture["initial_state"];
+        state["board"]["tiles"][0][0]["capture_points"] = serde_json::json!(10);
+        state["players"][0]["id"] = serde_json::json!("0");
+        state["units"][0]["owner"] = serde_json::json!("0");
+        state["turn"]["active_player"] = serde_json::json!("0");
+        state["turn"]["order"][0] = serde_json::json!("0");
+        let state: State = serde_json::from_value(state.clone()).unwrap();
+        let observation = observe(&AwbwVisibility, &state, &state.players[0].id).unwrap();
+
+        let mut app = play_test_app();
+        app.world_mut().remove_resource::<TestObservationSync>();
+        set_plain_map(&mut app, 1, 1);
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+        spawn_unit(
+            &mut app,
+            Position::new(0, 0),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+        let mut observations = awbrn_game::replay::RecipientObservations::default();
+        observations.set(vec![observation]);
+        app.world_mut().insert_resource(observations);
+        app.world_mut()
+            .insert_resource(awbrn_game::replay::ReplayViewpoint::Player(
+                awbrn_types::AwbwGamePlayerId::new(0),
+            ));
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let received_by_sink = received.clone();
+        app.world_mut()
+            .insert_resource(EventSink::<UnitActionsChanged>::new(move |event| {
+                received_by_sink.lock().unwrap().push(event);
+            }));
+
+        click_tile(&mut app, Position::new(0, 0));
+        click_tile(&mut app, Position::new(0, 0));
+
+        let received = received.lock().unwrap();
+        let menu = received.last().expect("unit action menu");
+        assert_eq!(menu.destination, Some(Position::new(0, 0)));
+        assert!(menu.options.iter().any(|option| option.action
+            == UnitOrder::Move {
+                action: PostMoveAction::Capture,
+            }));
+    }
+
+    #[test]
     fn choosing_an_order_sends_it_and_keeps_a_way_back() {
         let mut app = play_test_app();
         set_plain_map(&mut app, 5, 5);
@@ -3013,7 +3205,13 @@ mod tests {
         // of the reachable tile below it.
         let just_outside = center + Vec2::new(0.0, TILE_SIZE * 0.6);
         assert_eq!(
-            resolve_tap_target(Position::new(2, 0), Some(just_outside), &range, &game_map),
+            resolve_tap_target(
+                Position::new(2, 0),
+                Some(just_outside),
+                &range,
+                &game_map,
+                None,
+            ),
             Position::new(2, 1),
         );
 
@@ -3024,9 +3222,22 @@ mod tests {
                 Position::new(2, 0),
                 Some(clearly_elsewhere),
                 &range,
-                &game_map
+                &game_map,
+                None,
             ),
             Position::new(2, 0),
+        );
+
+        assert_eq!(
+            resolve_tap_target(
+                Position::new(2, 0),
+                Some(just_outside),
+                &range,
+                &game_map,
+                Some(Position::new(2, 0)),
+            ),
+            Position::new(2, 0),
+            "the selected unit's tile must not be pulled onto a neighbour"
         );
     }
 
