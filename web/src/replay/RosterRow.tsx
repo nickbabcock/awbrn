@@ -4,6 +4,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Text } from "@astryxdesign/core/Text";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
+import { borderVars, colorVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 import { CoPortrait } from "#/components/CoPortrait.tsx";
@@ -11,6 +12,7 @@ import type { CoPortraitCatalog } from "#/components/co_portraits.ts";
 import { FactionCrest } from "#/components/FactionCrest.tsx";
 import { ROSTER_MEDIA_SIZE, ROSTER_STAT_COLUMN_MIN_WIDTH } from "#/ui/layout.ts";
 import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import type { PlayerRosterEntry } from "#/wasm/awbrn_wasm.js";
 import { PowerMeter } from "./PowerMeter.tsx";
 import type { ActivatablePowerLevel } from "./power_meter.ts";
@@ -220,22 +222,22 @@ const styles = stylex.create({
       // column wide by design.
       [rosterLayout.pairedRowsMedia]: "repeat(2, minmax(0, 1fr))",
     },
-    marginBlockStart: "calc(-1 * var(--border-width))",
-    marginInlineStart: "calc(-1 * var(--border-width))",
+    marginBlockStart: `calc(-1 * ${borderVars["--border-width"]})`,
+    marginInlineStart: `calc(-1 * ${borderVars["--border-width"]})`,
   },
   row: {
-    borderBlockStartWidth: "var(--border-width)",
-    borderInlineStartWidth: "var(--border-width)",
+    borderBlockStartWidth: borderVars["--border-width"],
+    borderInlineStartWidth: borderVars["--border-width"],
     borderStyle: "solid",
-    borderColor: "var(--color-border-soft)",
+    borderColor: awbrnVars.colorBorderSoft,
   },
   // The army is only known at runtime, so its color arrives as a token name.
   // The army whose turn it is wears its own color at full strength rather than
   // as a wash; the dot beside its name says the same thing in a second way.
   rowWash: (factionCode: string, isActive: boolean) => ({
     backgroundColor: isActive
-      ? `var(--color-faction-${factionCode}-soft, var(--color-background-muted))`
-      : `var(--color-faction-${factionCode}-wash, var(--color-background-muted))`,
+      ? `var(--color-faction-${factionCode}-soft, ${colorVars["--color-background-muted"]})`
+      : `var(--color-faction-${factionCode}-wash, ${colorVars["--color-background-muted"]})`,
   }),
   // A defeated army stays on the roster, because who is left is the fact a
   // player is checking, but it stops competing with the armies still playing.
@@ -260,8 +262,8 @@ const styles = stylex.create({
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    width: "var(--size-roster-stat-icon)",
-    height: "var(--size-roster-stat-icon)",
+    width: rosterLayout.rosterStatIconSize,
+    height: rosterLayout.rosterStatIconSize,
     overflow: "hidden",
     flex: "0 0 auto",
   },
@@ -274,7 +276,7 @@ const styles = stylex.create({
     position: "absolute",
     right: 0,
     bottom: 0,
-    width: "var(--size-roster-stat-icon-overlay)",
-    height: "var(--size-roster-stat-icon-overlay)",
+    width: rosterLayout.rosterStatIconOverlaySize,
+    height: rosterLayout.rosterStatIconOverlaySize,
   },
 });

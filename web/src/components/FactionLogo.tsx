@@ -1,4 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
+import { borderVars, colorVars, radiusVars } from "@astryxdesign/core/theme/tokens.stylex";
 import type { CSSProperties } from "react";
 import logosTextureUrl from "../../../assets/textures/logos.png?url";
 import { factions, getFactionByCode } from "#/factions.ts";
@@ -81,9 +82,9 @@ const styles = stylex.create({
     boxSizing: "content-box",
   },
   logoFrame: {
-    borderWidth: "var(--border-width)",
+    borderWidth: borderVars["--border-width"],
     borderStyle: "solid",
-    borderColor: "var(--color-border-emphasized)",
-    borderRadius: "var(--radius-element)",
+    borderColor: colorVars["--color-border-emphasized"],
+    borderRadius: radiusVars["--radius-element"],
   },
 });

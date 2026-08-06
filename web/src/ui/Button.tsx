@@ -1,5 +1,7 @@
 import { Button as AstryxButton, type ButtonProps } from "@astryxdesign/core/Button";
+import { colorVars, durationVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 
 export type { ButtonProps } from "@astryxdesign/core/Button";
 
@@ -33,11 +35,11 @@ const styles = stylex.create({
   root: {
     backgroundColor: {
       default: null,
-      ":disabled": "var(--color-background-muted)",
+      ":disabled": colorVars["--color-background-muted"],
     },
     borderColor: {
       default: null,
-      ":disabled": "var(--color-border-disabled)",
+      ":disabled": awbrnVars.colorBorderDisabled,
     },
     boxShadow: {
       default: null,
@@ -46,15 +48,15 @@ const styles = stylex.create({
     },
     color: {
       default: null,
-      ":disabled": "var(--color-text-disabled)",
+      ":disabled": colorVars["--color-text-disabled"],
     },
     transform: {
       default: null,
-      ":active": "translate(var(--offset-control-pressed), var(--offset-control-pressed))",
+      ":active": `translate(${awbrnVars.offsetControlPressed}, ${awbrnVars.offsetControlPressed})`,
     },
     transitionDuration: {
       default: null,
-      ":active": "var(--duration-fast-min)",
+      ":active": durationVars["--duration-fast-min"],
     },
   },
   // The key itself: the outline the system gives every control, and the shadow
@@ -79,9 +81,9 @@ const styles = stylex.create({
     },
   },
   disabled: {
-    backgroundColor: "var(--color-background-muted)",
-    borderColor: "var(--color-border-disabled)",
+    backgroundColor: colorVars["--color-background-muted"],
+    borderColor: awbrnVars.colorBorderDisabled,
     boxShadow: "none",
-    color: "var(--color-text-disabled)",
+    color: colorVars["--color-text-disabled"],
   },
 });

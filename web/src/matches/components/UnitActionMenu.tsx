@@ -1,5 +1,12 @@
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import {
+  borderVars,
+  colorVars,
+  spacingVars,
+  textSizeVars,
+  typographyVars,
+} from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useState } from "react";
 import {
@@ -8,6 +15,7 @@ import {
   type BoardMenuPresentation,
 } from "#/matches/components/BoardMenu.tsx";
 import { Button } from "#/ui/Button.tsx";
+import { boardMenuLayout } from "#/matches/components/boardMenuLayout.stylex.ts";
 import type { UnitActionOption } from "#/wasm/awbrn_wasm.js";
 
 interface UnitActionMenuProps {
@@ -110,7 +118,7 @@ export function UnitActionMenu({
       }
       label={`Orders at ${destination.x}, ${destination.y}`}
       onDismiss={onDismiss}
-      inlineSize="var(--size-action-menu)"
+      inlineSize={boardMenuLayout.actionInlineSize}
       onRestoreFocus={onRestoreFocus}
       presentation={presentation}
     >
@@ -345,56 +353,62 @@ const styles = stylex.create({
   // An order is a word, not a unit: there is no art in the row to make room
   // for, so the row is a line of the HUD face and one step either side.
   row: {
-    gap: "var(--spacing-2)",
-    minBlockSize: "var(--size-action-row)",
+    gap: spacingVars["--spacing-2"],
+    minBlockSize: boardMenuLayout.actionRowMinBlockSize,
     paddingBlock: 0,
-    paddingInline: "var(--spacing-2)",
+    paddingInline: spacingVars["--spacing-2"],
   },
   // A thumb still needs a real target, so the sheet keeps its height.
   rowSpacious: {
-    minBlockSize: "var(--size-action-row-spacious)",
-    paddingInline: "var(--spacing-3)",
+    minBlockSize: boardMenuLayout.actionRowSpaciousMinBlockSize,
+    paddingInline: spacingVars["--spacing-3"],
   },
   // An order that destroys something reads in the error color, so it is not
   // one more word in a list of words. Under the cursor it keeps the orange
   // fill every other row wears, and the name inverts to stay legible on it.
   rowDestructive: {
-    color: { default: "var(--color-error)", ":focus": "var(--color-on-accent)" },
+    color: {
+      default: colorVars["--color-error"],
+      ":focus": colorVars["--color-on-accent"],
+    },
   },
   // The commit on the confirmation is the one key in the system whose cursor is
   // not orange. It is the last press before a unit is gone, the screen exists
   // only to say so, and a key that looks like every other key does not say it.
   rowCommit: {
-    backgroundColor: { default: "transparent", ":focus": "var(--color-error)" },
-    color: { default: "var(--color-error)", ":focus": "var(--color-on-error)" },
+    backgroundColor: { default: "transparent", ":focus": colorVars["--color-error"] },
+    color: {
+      default: colorVars["--color-error"],
+      ":focus": colorVars["--color-on-error"],
+    },
   },
   // The stock large button is shorter than a thumb needs, and these two are the
   // only commands on the sheet.
   key: {
-    minBlockSize: "var(--size-action-row-spacious)",
+    minBlockSize: boardMenuLayout.actionRowSpaciousMinBlockSize,
   },
   // The rule the list draws between rows is soft enough to walk past. This one
   // is the frame's own rule, so the last order is visibly apart from Wait
   // rather than the next line under it.
   rowSeparated: {
-    borderBlockStartWidth: "var(--border-width)",
+    borderBlockStartWidth: borderVars["--border-width"],
     borderBlockStartStyle: "solid",
-    borderBlockStartColor: "var(--color-border-emphasized)",
+    borderBlockStartColor: colorVars["--color-border-emphasized"],
   },
   heading: {
-    color: "var(--color-text-secondary)",
+    color: colorVars["--color-text-secondary"],
   },
   coordinate: {
-    color: "var(--color-text-secondary)",
+    color: colorVars["--color-text-secondary"],
     fontVariantNumeric: "tabular-nums",
   },
   // Which tile this order acts on, when the order alone does not say.
   target: {
     flex: "0 0 auto",
-    fontFamily: "var(--font-family-code)",
-    fontSize: "var(--font-size-sm)",
+    fontFamily: typographyVars["--font-family-code"],
+    fontSize: textSizeVars["--font-size-sm"],
     letterSpacing: "0.06em",
     fontVariantNumeric: "tabular-nums",
-    color: "var(--color-text-secondary)",
+    color: colorVars["--color-text-secondary"],
   },
 });

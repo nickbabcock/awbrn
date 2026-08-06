@@ -1,6 +1,7 @@
 import { Button } from "#/ui/Button.tsx";
 import { Popover } from "@astryxdesign/core/Popover";
 import { ToggleButton, ToggleButtonGroup } from "@astryxdesign/core/ToggleButton";
+import { textSizeVars, typographyVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import { FactionLogo } from "#/components/FactionLogo.tsx";
@@ -116,8 +117,8 @@ const styles = stylex.create({
   item: {
     width: PICKER_ITEM_WIDTH,
     justifyContent: "start",
-    fontFamily: "var(--font-family-body)",
-    fontSize: "var(--font-size-sm)",
+    fontFamily: typographyVars["--font-family-body"],
+    fontSize: textSizeVars["--font-size-sm"],
     fontWeight: "700",
     letterSpacing: "normal",
     textTransform: "none",

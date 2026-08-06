@@ -2,6 +2,15 @@ import { spacingDefaults } from "@astryxdesign/core";
 import { Button } from "#/ui/Button.tsx";
 import { Dialog } from "@astryxdesign/core/Dialog";
 import { VStack } from "@astryxdesign/core/Stack";
+import {
+  borderVars,
+  colorVars,
+  radiusVars,
+  shadowVars,
+  spacingVars,
+  textSizeVars,
+  typographyVars,
+} from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import {
   useCallback,
@@ -13,6 +22,8 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
+import { boardMenuLayout } from "./boardMenuLayout.stylex.ts";
 
 /**
  * How a menu the board opened is drawn, which follows the input that opened it
@@ -371,10 +382,10 @@ export const boardMenuStyles = stylex.create({
   },
   // The readout strip at the head of a menu.
   header: {
-    borderBlockEndWidth: "var(--border-width)",
+    borderBlockEndWidth: borderVars["--border-width"],
     borderBlockEndStyle: "solid",
-    borderBlockEndColor: "var(--color-border-emphasized)",
-    backgroundColor: "var(--color-background-muted)",
+    borderBlockEndColor: colorVars["--color-border-emphasized"],
+    backgroundColor: colorVars["--color-background-muted"],
   },
   list: {
     minBlockSize: 0,
@@ -386,27 +397,27 @@ export const boardMenuStyles = stylex.create({
   row: {
     display: "flex",
     alignItems: "center",
-    gap: "var(--spacing-2)",
+    gap: spacingVars["--spacing-2"],
     inlineSize: "100%",
-    minBlockSize: "var(--size-build-row)",
-    paddingBlock: "var(--spacing-1)",
-    paddingInline: "var(--spacing-3)",
+    minBlockSize: boardMenuLayout.buildRowMinBlockSize,
+    paddingBlock: spacingVars["--spacing-1"],
+    paddingInline: spacingVars["--spacing-3"],
     margin: 0,
     borderWidth: 0,
     borderBlockEndStyle: "solid",
-    borderBlockEndColor: "var(--color-border-soft)",
-    borderBlockEndWidth: { default: "var(--border-width)", ":last-child": 0 },
+    borderBlockEndColor: awbrnVars.colorBorderSoft,
+    borderBlockEndWidth: { default: borderVars["--border-width"], ":last-child": 0 },
     // The cursor: the same orange fill a chosen tab wears, flush on the panel
     // rather than raised above it.
-    backgroundColor: { default: "transparent", ":focus": "var(--color-accent)" },
-    color: "var(--color-text-primary)",
+    backgroundColor: { default: "transparent", ":focus": colorVars["--color-accent"] },
+    color: colorVars["--color-text-primary"],
     cursor: "pointer",
     outline: "none",
     textAlign: "start",
   },
   rowSpacious: {
-    minBlockSize: "var(--size-build-row-spacious)",
-    paddingBlock: "var(--spacing-1-5)",
+    minBlockSize: boardMenuLayout.buildRowSpaciousMinBlockSize,
+    paddingBlock: spacingVars["--spacing-1-5"],
   },
   // A command that cannot be sent stays legible and stays a key on the menu; it
   // simply refuses the cursor.
@@ -422,8 +433,8 @@ export const boardMenuStyles = stylex.create({
   rowName: {
     flex: "1 1 auto",
     minInlineSize: 0,
-    fontFamily: "var(--font-family-code)",
-    fontSize: "var(--font-size-sm)",
+    fontFamily: typographyVars["--font-family-code"],
+    fontSize: textSizeVars["--font-size-sm"],
     letterSpacing: "0.06em",
     textTransform: "uppercase",
     overflow: "hidden",
@@ -431,10 +442,10 @@ export const boardMenuStyles = stylex.create({
     whiteSpace: "nowrap",
   },
   notice: {
-    borderBlockStartWidth: "var(--border-width)",
+    borderBlockStartWidth: borderVars["--border-width"],
     borderBlockStartStyle: "solid",
-    borderBlockStartColor: "var(--color-border-soft)",
-    backgroundColor: "var(--color-background-muted)",
+    borderBlockStartColor: awbrnVars.colorBorderSoft,
+    backgroundColor: colorVars["--color-background-muted"],
   },
 });
 
@@ -449,15 +460,15 @@ const styles = stylex.create({
     display: "flex",
     margin: 0,
     padding: 0,
-    inlineSize: "var(--size-build-menu)",
-    maxInlineSize: "calc(100% - var(--spacing-4))",
-    borderWidth: "var(--border-width)",
+    inlineSize: boardMenuLayout.buildInlineSize,
+    maxInlineSize: boardMenuLayout.buildMaxInlineSize,
+    borderWidth: borderVars["--border-width"],
     borderStyle: "solid",
-    borderColor: "var(--color-border-emphasized)",
-    borderRadius: "var(--radius-container)",
-    backgroundColor: "var(--color-background-surface)",
-    boxShadow: "var(--shadow-high)",
-    color: "var(--color-text-primary)",
+    borderColor: colorVars["--color-border-emphasized"],
+    borderRadius: radiusVars["--radius-container"],
+    backgroundColor: colorVars["--color-background-surface"],
+    boxShadow: shadowVars["--shadow-high"],
+    color: colorVars["--color-text-primary"],
     zIndex: 2,
     overflow: "hidden",
   },
@@ -465,7 +476,7 @@ const styles = stylex.create({
     // A sheet takes the whole bottom edge; the stock dialog width cap would
     // leave it floating in the middle of the screen instead.
     maxWidth: "100%",
-    borderRadius: "var(--radius-container) var(--radius-container) 0 0",
+    borderRadius: boardMenuLayout.sheetBorderRadius,
     borderBlockEndWidth: 0,
     // The board behind a sheet is dimmed, not defocused. A blurred backdrop is
     // the one soft edge this system does not have anywhere else.
@@ -479,8 +490,8 @@ const styles = stylex.create({
     paddingBlockEnd: "env(safe-area-inset-bottom)",
   },
   sheetFooter: {
-    borderBlockStartWidth: "var(--border-width)",
+    borderBlockStartWidth: borderVars["--border-width"],
     borderBlockStartStyle: "solid",
-    borderBlockStartColor: "var(--color-border-soft)",
+    borderBlockStartColor: awbrnVars.colorBorderSoft,
   },
 });

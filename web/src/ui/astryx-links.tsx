@@ -1,4 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
+import { durationVars } from "@astryxdesign/core/theme/tokens.stylex";
 import { Link as AstryxLink, type LinkProps as AstryxLinkProps } from "@astryxdesign/core/Link";
 import { ListItem, type ListItemProps } from "@astryxdesign/core/List";
 import {
@@ -10,6 +11,7 @@ import {
 import { createLink } from "@tanstack/react-router";
 import { forwardRef, type Ref } from "react";
 import { Button, type ButtonProps } from "#/ui/Button.tsx";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 
 type AstryxButtonLinkHostProps = Omit<ButtonProps, "as" | "href" | "ref"> & {
   href?: string;
@@ -94,11 +96,11 @@ const styles = stylex.create({
     },
     transform: {
       default: null,
-      ":active": "translate(var(--offset-control-pressed), var(--offset-control-pressed))",
+      ":active": `translate(${awbrnVars.offsetControlPressed}, ${awbrnVars.offsetControlPressed})`,
     },
     transitionDuration: {
       default: null,
-      ":active": "var(--duration-fast-min)",
+      ":active": durationVars["--duration-fast-min"],
     },
   },
   reducedMotion: {
