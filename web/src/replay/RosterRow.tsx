@@ -1,5 +1,4 @@
 import { Badge } from "@astryxdesign/core/Badge";
-import { Grid } from "@astryxdesign/core/Grid";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Text } from "@astryxdesign/core/Text";
@@ -10,7 +9,7 @@ import type { ReactNode } from "react";
 import { CoPortrait } from "#/components/CoPortrait.tsx";
 import type { CoPortraitCatalog } from "#/components/co_portraits.ts";
 import { FactionCrest } from "#/components/FactionCrest.tsx";
-import { ROSTER_MEDIA_SIZE, ROSTER_STAT_COLUMN_MIN_WIDTH } from "#/ui/layout.ts";
+import { ROSTER_MEDIA_SIZE } from "#/ui/layout.ts";
 import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import type { PlayerRosterEntry } from "#/wasm/awbrn_wasm.js";
@@ -72,7 +71,10 @@ export function StatIcon({
 }
 
 /**
- * A number behind its own sprite, the way the game's own HUD reports it.
+ * A number and the sprite it is counted in, the way the game's own HUD reports
+ * it. The sprite trails the number, so the digits close on their unit the way
+ * an amount closes on its currency, and the room a short number leaves opens
+ * ahead of it rather than between the two.
  *
  * The word is carried in the accessible name rather than set beside the value:
  * these four sprites are the icons the audience already reads funds and unit
@@ -82,11 +84,11 @@ export function StatIcon({
 function Readout({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
     <HStack align="center" gap={1} xstyle={styles.readout}>
-      {icon}
-      <Text hasTabularNumbers maxLines={1} type="label">
+      <Text hasTabularNumbers maxLines={1} type="label" xstyle={styles.readoutValue}>
         <VisuallyHidden>{label}: </VisuallyHidden>
         {value}
       </Text>
+      {icon}
     </HStack>
   );
 }
@@ -185,9 +187,7 @@ export function RosterRow({
         player={player}
       />
 
-      {/* A grid rather than a row: the four numbers land on the same columns in
-          every army, which is what makes two armies comparable at a glance. */}
-      <Grid columns={{ minWidth: ROSTER_STAT_COLUMN_MIN_WIDTH, max: 4, repeat: "fill" }} gap={2}>
+      <div {...stylex.props(styles.statGrid)}>
         <Readout
           icon={<StatIcon spriteName="Coin.png" />}
           label="Funds"
@@ -208,7 +208,7 @@ export function RosterRow({
           label="Unit value"
           value={formatMoney(player.stats.unitValue)}
         />
-      </Grid>
+      </div>
     </VStack>
   );
 }
@@ -230,6 +230,10 @@ const styles = stylex.create({
     borderInlineStartWidth: borderVars["--border-width"],
     borderStyle: "solid",
     borderColor: awbrnVars.colorBorderSoft,
+    // The same row sits in the rail, in a pair under the board, and alone on a
+    // phone, so how much width it has is its own fact rather than the window's.
+    containerType: "inline-size",
+    containerName: "roster-row",
   },
   // The army is only known at runtime, so its color arrives as a token name.
   // The army whose turn it is wears its own color at full strength rather than
@@ -252,8 +256,43 @@ const styles = stylex.create({
   keep: {
     flex: "0 0 auto",
   },
+  // The four numbers hold their block tightly, one step inside the spacing
+  // that separates the block from the name and the power meter above it.
+  statGrid: {
+    display: "grid",
+    // The three widths are written so that no two of them can apply at once,
+    // because which of two matching at-rules wins is not worth depending on.
+    gridTemplateColumns: {
+      default: "repeat(2, minmax(0, 1fr))",
+      // Too narrow to hold two of the longest readouts, which is a squeezed
+      // rail or a deep zoom. One number to a line is the last arrangement that
+      // still reads; below it the numbers shorten rather than push each other.
+      "@container roster-row (max-width: 215px)": "minmax(0, 1fr)",
+      // Under the board a row can be wide enough to give four readouts their
+      // full width, and on that line the four are read left to right.
+      "@container roster-row (min-width: 440px)": "repeat(4, minmax(0, 1fr))",
+    },
+    columnGap: "var(--spacing-2)",
+    rowGap: "var(--spacing-1)",
+  },
   readout: {
     minWidth: 0,
+  },
+  // The number is set in a box seven glyphs wide, which is what the largest
+  // figure the roster reports needs: `999,999`, grouped. The box holds that
+  // width for a short value too, so the digits of two armies land on the same
+  // places, and a longer figure widens the box rather than being cut off.
+  // `ch` measures the glyph alone, so the HUD face's tracking is added back.
+  //
+  // The seven glyphs are what the number asks for, not what it takes: the box
+  // never claims more than the line leaves beside the sprite. A row too narrow
+  // to grant the request shortens the number, which is the same failure the
+  // roster has always had at that width, rather than running it into the
+  // reading beside it.
+  readoutValue: {
+    minWidth:
+      "min(calc(7ch + 0.42em), calc(100% - var(--size-roster-stat-icon) - var(--spacing-1)))",
+    textAlign: "right",
   },
   // The sprites differ in natural size, so each one is centered in a fixed box
   // and the numbers beside them stay on one line.

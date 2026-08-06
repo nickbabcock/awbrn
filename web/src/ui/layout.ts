@@ -5,5 +5,3 @@ export const ROSTER_MEDIA_SIZE = {
   crest: 24,
   portrait: 36,
 } as const;
-
-export const ROSTER_STAT_COLUMN_MIN_WIDTH = 70;
