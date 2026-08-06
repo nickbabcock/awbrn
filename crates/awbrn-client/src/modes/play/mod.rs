@@ -4,8 +4,9 @@ use crate::core::coords::{TILE_SIZE, position_to_world_translation};
 use crate::core::{AppState, GameMode, RenderLayer, SpriteSize};
 use crate::features::camera::{CameraScale, FocusBoardOn};
 use crate::features::event_bus::{
-    DeleteUnitCommandRequested, EventSink, MoveCommandRequested, PostMoveAction, ProductionOption,
-    ProductionOptionsChanged, ProductionSite, UnitActionOption, UnitActionsChanged, UnitOrder,
+    AttackForecast, DamageBracket, DeleteUnitCommandRequested, EventSink, ForecastTarget,
+    MoveCommandRequested, PostMoveAction, ProductionOption, ProductionOptionsChanged,
+    ProductionSite, UnitActionOption, UnitActionsChanged, UnitBadge, UnitOrder,
     UnloadCommandRequested,
 };
 use crate::features::input::{
@@ -16,7 +17,8 @@ use crate::render::course_arrow::{COURSE_ARROW_SPRITE_SIZE, build_course_arrow_s
 use awbrn_game::MapPosition;
 use awbrn_game::replay::AwbwUnitId;
 use awbrn_game::world::{
-    BoardIndex, CarriedBy, Faction, FriendlyFactions, Fuel, GameMap, HasCargo, Unit, UnitActive,
+    BoardIndex, CarriedBy, Faction, FriendlyFactions, Fuel, GameMap, GraphicalHp, HasCargo, Unit,
+    UnitActive,
 };
 use awbrn_map::Position;
 use awbrn_types::UnitExt;
@@ -33,11 +35,29 @@ const MOVE_RANGE_GLASS_LIGHT_EDGE: Color = Color::srgba(0.82, 1.0, 1.0, 0.82);
 const MOVE_RANGE_GLASS_DARK_EDGE: Color = Color::srgba(0.02, 0.34, 0.42, 0.72);
 const MOVE_RANGE_EDGE_WIDTH: f32 = 1.0;
 const PROPOSED_PATH_COLOR: Color = Color::srgba(0.88, 1.0, 0.96, 0.96);
+const ATTACK_TARGET_GLASS_COLOR: Color = Color::srgba(0.92, 0.08, 0.12, 0.38);
+const ATTACK_TARGET_GLASS_LIGHT_EDGE: Color = Color::srgba(1.0, 0.64, 0.66, 0.88);
+const ATTACK_TARGET_GLASS_DARK_EDGE: Color = Color::srgba(0.42, 0.01, 0.03, 0.82);
+const TARGET_RETICLE_ROTATIONS_PER_SECOND: f32 = 0.5;
+const TARGET_RETICLE_PULSES_PER_SECOND: f32 = 0.8;
+const TARGET_RETICLE_PULSE_SCALE: f32 = 0.1;
 
 const MOVE_RANGE_SPRITE_SIZE: SpriteSize = SpriteSize {
     width: TILE_SIZE,
     height: TILE_SIZE,
     z_index: RenderLayer::MOVE_RANGE_OVERLAY,
+};
+
+const ATTACK_TARGET_SPRITE_SIZE: SpriteSize = SpriteSize {
+    width: TILE_SIZE,
+    height: TILE_SIZE,
+    z_index: RenderLayer::UNIT + 1,
+};
+
+const TARGET_RETICLE_SPRITE_SIZE: SpriteSize = SpriteSize {
+    width: TILE_SIZE,
+    height: TILE_SIZE,
+    z_index: RenderLayer::COURSE_ARROW + 1,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +76,12 @@ pub struct MoveRange {
 
 #[derive(Resource, Debug, Clone, Default)]
 struct SelectedMoveField(Option<awvm::query::MoveField>);
+
+/// Legal firing tiles, grouped by the unit or destructible tile they target.
+#[derive(Resource, Debug, Clone, PartialEq, Eq, Default)]
+pub struct AttackTargets {
+    pub approaches: HashMap<Position, Vec<Position>>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingMoveDestinationSelection {
@@ -99,6 +125,12 @@ pub enum PlayUiPhase {
 pub struct MoveRangeHighlight;
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AttackTargetHighlight;
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AttackTargetReticle;
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProposedPathArrow;
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,6 +148,7 @@ pub(crate) struct PlaySelectionState<'w> {
     selected: ResMut<'w, SelectedUnit>,
     move_range: ResMut<'w, MoveRange>,
     move_field: ResMut<'w, SelectedMoveField>,
+    attack_targets: ResMut<'w, AttackTargets>,
     pending_destination: ResMut<'w, PendingMoveDestination>,
     proposed_path: ResMut<'w, ProposedMovePath>,
     phase: ResMut<'w, PlayUiPhase>,
@@ -146,6 +179,7 @@ pub(crate) struct PlayUnitSelectionParams<'w, 's> {
     friendly_factions: Res<'w, FriendlyFactions>,
     units: Query<'w, 's, UnitSelectionQueryItem<'static>, With<Unit>>,
     unit_ids: Query<'w, 's, &'static AwbwUnitId, With<Unit>>,
+    graphical_hp: Query<'w, 's, &'static GraphicalHp, With<Unit>>,
     observations: Option<Res<'w, awbrn_game::replay::RecipientObservations>>,
     viewpoint: Option<Res<'w, awbrn_game::replay::ReplayViewpoint>>,
 }
@@ -197,6 +231,7 @@ pub(crate) struct HoverState<'w> {
     selected: Res<'w, SelectedUnit>,
     move_range: Res<'w, MoveRange>,
     move_field: Res<'w, SelectedMoveField>,
+    attack_targets: Res<'w, AttackTargets>,
     phase: Res<'w, PlayUiPhase>,
     owner: Res<'w, DragOwner>,
 }
@@ -310,6 +345,57 @@ fn observed_move_field(
     awvm::query::observed_reachable(observation, awvm::semantic::UnitId::new(id.0.as_u32())).ok()
 }
 
+fn observed_attack_targets(
+    entity: Entity,
+    field: Option<&awvm::query::MoveField>,
+    unit_selection: &PlayUnitSelectionParams<'_, '_>,
+) -> HashMap<Position, Vec<Position>> {
+    let (Some(field), Some(observations), Some(viewpoint), Ok(id)) = (
+        field,
+        unit_selection.observations.as_deref(),
+        unit_selection.viewpoint.as_deref(),
+        unit_selection.unit_ids.get(entity),
+    ) else {
+        return HashMap::new();
+    };
+    let awbrn_game::replay::ReplayViewpoint::Player(player) = viewpoint else {
+        return HashMap::new();
+    };
+    let Some(observation) = observations.for_player(*player) else {
+        return HashMap::new();
+    };
+    let destinations: Vec<_> = field.destinations().map(|(position, _)| position).collect();
+    let Ok(attacks) = awvm::query::observed_attacks_from(
+        observation,
+        awvm::semantic::UnitId::new(id.0.as_u32()),
+        &destinations,
+    ) else {
+        return HashMap::new();
+    };
+
+    let mut targets = HashMap::<Position, Vec<Position>>::new();
+    for attack in attacks {
+        for target in attack.targets {
+            targets
+                .entry(position_from_pos(target))
+                .or_default()
+                .push(position_from_pos(attack.from));
+        }
+    }
+    for approaches in targets.values_mut() {
+        approaches.sort_by_key(|approach| {
+            (
+                field
+                    .step(semantic_position(*approach).expect("an AWVM position fits AWVM"))
+                    .map_or(u64::MAX, |step| step.cost),
+                *approach,
+            )
+        });
+        approaches.dedup();
+    }
+    targets
+}
+
 fn observed_unloads_for(
     entity: Entity,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
@@ -372,6 +458,7 @@ fn clear_selection_state(selection: &mut PlaySelectionState<'_>) {
     selection.selected.0 = None;
     selection.move_range.tiles.clear();
     selection.move_field.0 = None;
+    selection.attack_targets.approaches.clear();
     selection.pending_destination.0 = None;
     *selection.proposed_path = ProposedMovePath::default();
     *selection.phase = PlayUiPhase::Idle;
@@ -388,9 +475,11 @@ fn select_unit(
         .as_ref()
         .map(|field| move_range(field, unit_selection))
         .unwrap_or_default();
+    let attack_targets = observed_attack_targets(entity, field.as_ref(), unit_selection);
     selection.selected.0 = Some(SelectedUnitSelection { entity, origin });
     selection.move_range.tiles = range;
     selection.move_field.0 = field;
+    selection.attack_targets.approaches = attack_targets;
     selection.pending_destination.0 = None;
     *selection.proposed_path = ProposedMovePath::default();
     *selection.phase = PlayUiPhase::UnitSelected;
@@ -445,7 +534,7 @@ fn confirm_selected_destination(
             origin: selected_unit.origin,
             destination,
             path,
-            attack_intent: None,
+            attack_intent: selection.proposed_path.attack_intent,
         });
         *selection.phase = PlayUiPhase::DestinationSelected;
         return;
@@ -636,7 +725,7 @@ pub(crate) fn handle_play_pointer_gestures(
                 );
             }
             PointerGestureKind::DragMove if *policy.owner == DragOwner::Unit => {
-                extend_drag_route(gesture.tile, &unit_selection, &mut selection);
+                extend_drag_route(gesture.tile, &mut selection);
             }
             PointerGestureKind::DragEnd => {
                 if *policy.owner == DragOwner::Unit {
@@ -676,6 +765,31 @@ fn handle_tap(
     if selection.selected.0.is_some() {
         close_production_options(production_options.sink.as_deref());
         let selected = selection.selected.0.expect("selection was checked above");
+
+        if let Some(approach) = attack_approach(
+            tapped,
+            &selection.proposed_path.path,
+            &selection.attack_targets,
+            selection.move_field.0.as_ref(),
+        ) {
+            if gesture.coarse && policy.camera_scale.is_below_touch_floor() {
+                policy.floor.write(ReturnToTouchFloor);
+                return;
+            }
+            selection.proposed_path.attack_intent = Some(tapped);
+            if selection.proposed_path.path.last() != Some(&approach) {
+                selection.proposed_path.path = selection
+                    .move_field
+                    .0
+                    .as_ref()
+                    .and_then(|field| field_path(field, approach))
+                    .unwrap_or_default();
+            }
+            let proposed_path = selection.proposed_path.path.clone();
+            confirm_selected_destination(approach, &proposed_path, unit_selection, selection);
+            return;
+        }
+
         let destination = resolve_tap_target(
             tapped,
             world,
@@ -783,14 +897,10 @@ fn handle_tap(
 /// The route stops following rather than disappearing, so the preview never
 /// shows an illegal state. Overshoot is the most common drag error and
 /// cancelling on it punishes the error hardest.
-fn extend_drag_route(
-    hovered: Option<Position>,
-    unit_selection: &PlayUnitSelectionParams<'_, '_>,
-    selection: &mut PlaySelectionState<'_>,
-) {
-    let Some(selected_unit) = selection.selected.0 else {
+fn extend_drag_route(hovered: Option<Position>, selection: &mut PlaySelectionState<'_>) {
+    if selection.selected.0.is_none() {
         return;
-    };
+    }
     let Some(hovered) = hovered else {
         return;
     };
@@ -801,7 +911,12 @@ fn extend_drag_route(
     // A finger over an enemy is aiming at it. The route is held at the best
     // tile to fire from, so the preview already shows the attack it is going to
     // offer on release.
-    let approach = attack_approach(hovered, selected_unit.origin, unit_selection, selection);
+    let approach = attack_approach(
+        hovered,
+        &selection.proposed_path.path,
+        &selection.attack_targets,
+        selection.move_field.0.as_ref(),
+    );
     selection.proposed_path.attack_intent = approach.map(|_| hovered);
     let target = approach.unwrap_or(hovered);
 
@@ -827,49 +942,19 @@ fn extend_drag_route(
 /// miss, which is why it may resolve onto a tile the pointer never touched.
 /// Slop correction never does this.
 fn attack_approach(
-    hovered: Position,
-    origin: Position,
-    unit_selection: &PlayUnitSelectionParams<'_, '_>,
-    selection: &PlaySelectionState<'_>,
+    target: Position,
+    preferred_path: &[Position],
+    attack_targets: &AttackTargets,
+    field: Option<&awvm::query::MoveField>,
 ) -> Option<Position> {
-    let Ok(Some(entity)) = unit_selection.board_index.unit_entity(hovered) else {
-        return None;
-    };
-    let (_, faction, _, _, _, is_carried, _) = unit_selection.units.get(entity).ok()?;
-    if is_carried || unit_selection.friendly_factions.0.contains(&faction.0) {
-        return None;
-    }
-
-    orthogonal_neighbors(hovered)
-        .filter_map(|approach| {
-            let can_stop = selection
-                .move_field
-                .0
-                .as_ref()?
-                .can_stop_at(semantic_position(approach)?);
-            if !can_stop {
-                return None;
-            }
-            selection
-                .move_range
-                .tiles
-                .get(&approach)
-                .map(|cost| (approach, *cost))
-        })
-        // The cheapest way in, and map order when two cost the same, so the
-        // same board always produces the same approach.
-        .min_by_key(|(approach, cost)| (*cost, *approach))
-        .map(|(approach, _)| approach)
-        .or_else(|| {
-            selection
-                .move_field
-                .0
-                .as_ref()
-                .is_some_and(|field| {
-                    semantic_position(origin).is_some_and(|origin| field.step(origin).is_some())
-                })
-                .then_some(origin)
-        })
+    let approaches = attack_targets.approaches.get(&target)?;
+    let field = field?;
+    preferred_path
+        .last()
+        .copied()
+        .filter(|approach| approaches.contains(approach))
+        .filter(|_| field_route_cost(field, preferred_path).is_some())
+        .or_else(|| approaches.first().copied())
 }
 
 fn finish_drag(
@@ -883,7 +968,7 @@ fn finish_drag(
 
     // A release off the board keeps whatever the clamped route last showed.
     if let Some(released) = released {
-        extend_drag_route(Some(released), unit_selection, selection);
+        extend_drag_route(Some(released), selection);
     }
 
     let destination = selection
@@ -1053,9 +1138,12 @@ pub(crate) fn update_proposed_move_path(
     }
     proposed.hovered = hovered;
     let Some(hovered) = hovered else {
-        proposed.path.clear();
+        proposed.attack_intent = None;
         return;
     };
+    let approach = attack_approach(hovered, &proposed.path, &hover.attack_targets, Some(field));
+    proposed.attack_intent = approach.map(|_| hovered);
+    let destination = approach.unwrap_or(hovered);
 
     let mut prefix = Vec::with_capacity(proposed.drawn_path.len() + 1);
     prefix.push(selected_unit.origin);
@@ -1067,7 +1155,7 @@ pub(crate) fn update_proposed_move_path(
     }
 
     if shift_down {
-        if hovered == selected_unit.origin {
+        if destination == selected_unit.origin {
             proposed.drawn_path.clear();
             proposed.path = vec![selected_unit.origin];
             return;
@@ -1075,7 +1163,7 @@ pub(crate) fn update_proposed_move_path(
 
         // Moving back across the last edge erases it, which makes tracing feel
         // like drawing rather than placing a series of abstract waypoints.
-        if prefix.len() >= 2 && prefix[prefix.len() - 2] == hovered {
+        if prefix.len() >= 2 && prefix[prefix.len() - 2] == destination {
             proposed.drawn_path.pop();
             prefix.pop();
             proposed.path = prefix;
@@ -1084,9 +1172,9 @@ pub(crate) fn update_proposed_move_path(
 
         let endpoint = *prefix.last().unwrap_or(&selected_unit.origin);
         let mut candidate = prefix.clone();
-        if endpoint.manhattan(&hovered) == 1 {
-            candidate.push(hovered);
-        } else if let Some(route) = field_path(field, hovered)
+        if endpoint.manhattan(&destination) == 1 {
+            candidate.push(destination);
+        } else if let Some(route) = field_path(field, destination)
             && let Some(endpoint_index) = route.iter().position(|position| *position == endpoint)
         {
             let suffix = &route[endpoint_index + 1..];
@@ -1096,7 +1184,7 @@ pub(crate) fn update_proposed_move_path(
             }
         }
 
-        if candidate.last() == Some(&hovered) && field_route_cost(field, &candidate).is_some() {
+        if candidate.last() == Some(&destination) && field_route_cost(field, &candidate).is_some() {
             proposed.drawn_path = candidate.iter().copied().skip(1).collect();
             proposed.path = candidate;
             return;
@@ -1104,20 +1192,52 @@ pub(crate) fn update_proposed_move_path(
 
         // The hand-drawn edge cannot fit (typically because of terrain cost),
         // so fall back to a valid cheapest route to the tile instead.
-        if let Some(recalculated) = field_path(field, hovered) {
+        if let Some(recalculated) = field_path(field, destination) {
             proposed.drawn_path = recalculated.iter().copied().skip(1).collect();
             proposed.path = recalculated;
         }
         return;
     }
 
-    if !hover.move_range.tiles.contains_key(&hovered) {
-        proposed.path.clear();
+    update_automatic_move_path(
+        selected_unit.origin,
+        destination,
+        approach.is_some(),
+        hover.move_range.tiles.contains_key(&destination),
+        field,
+        &mut proposed,
+    );
+}
+
+fn update_automatic_move_path(
+    origin: Position,
+    destination: Position,
+    is_attack: bool,
+    is_in_move_range: bool,
+    field: &awvm::query::MoveField,
+    proposed: &mut ProposedMovePath,
+) {
+    if is_attack
+        && proposed.path.last() == Some(&destination)
+        && field_route_cost(field, &proposed.path).is_some()
+    {
+        // The current endpoint can fire on the new target. Keep the complete
+        // route, including a shortest path that was not copied to drawn_path.
         return;
     }
-    proposed.path = field_path(field, hovered)
+    if destination != origin && !is_in_move_range {
+        // An invalid tile between two targets is only a gap in hover input.
+        // Keep the last legal route so the next target can reuse its firing
+        // position when possible.
+        return;
+    }
+
+    let mut prefix = Vec::with_capacity(proposed.drawn_path.len() + 1);
+    prefix.push(origin);
+    prefix.extend(proposed.drawn_path.iter().copied());
+    proposed.path = field_path(field, destination)
         .and_then(|route| {
-            let endpoint = *prefix.last().unwrap_or(&selected_unit.origin);
+            let endpoint = *prefix.last().unwrap_or(&origin);
             let endpoint_index = route.iter().position(|position| *position == endpoint)?;
             let candidate: Vec<_> = prefix
                 .iter()
@@ -1126,7 +1246,7 @@ pub(crate) fn update_proposed_move_path(
                 .collect();
             field_route_cost(field, &candidate).map(|_| candidate)
         })
-        .or_else(|| field_path(field, hovered))
+        .or_else(|| field_path(field, destination))
         .unwrap_or_default();
 }
 
@@ -1245,6 +1365,63 @@ pub(crate) fn sync_move_range_highlights(
     }
 }
 
+pub(crate) fn sync_attack_target_highlights(
+    mut commands: Commands,
+    game_map: Res<GameMap>,
+    targets: Res<AttackTargets>,
+    highlights: Query<Entity, With<AttackTargetHighlight>>,
+) {
+    if !targets.is_changed() {
+        return;
+    }
+    for entity in &highlights {
+        commands.entity(entity).try_despawn();
+    }
+
+    let mut positions: Vec<_> = targets.approaches.keys().copied().collect();
+    positions.sort();
+    for position in positions {
+        let center = position_to_world_translation(&ATTACK_TARGET_SPRITE_SIZE, position, &game_map);
+        commands.spawn((
+            AttackTargetHighlight,
+            Sprite::from_color(ATTACK_TARGET_GLASS_COLOR, Vec2::splat(TILE_SIZE)),
+            ATTACK_TARGET_SPRITE_SIZE,
+            Transform::from_translation(center),
+        ));
+
+        let half = (TILE_SIZE - MOVE_RANGE_EDGE_WIDTH) * 0.5;
+        let edges = [
+            (
+                Vec2::new(TILE_SIZE, MOVE_RANGE_EDGE_WIDTH),
+                Vec3::new(0.0, half, 0.01),
+                ATTACK_TARGET_GLASS_LIGHT_EDGE,
+            ),
+            (
+                Vec2::new(MOVE_RANGE_EDGE_WIDTH, TILE_SIZE),
+                Vec3::new(-half, 0.0, 0.01),
+                ATTACK_TARGET_GLASS_LIGHT_EDGE,
+            ),
+            (
+                Vec2::new(TILE_SIZE, MOVE_RANGE_EDGE_WIDTH),
+                Vec3::new(0.0, -half, 0.01),
+                ATTACK_TARGET_GLASS_DARK_EDGE,
+            ),
+            (
+                Vec2::new(MOVE_RANGE_EDGE_WIDTH, TILE_SIZE),
+                Vec3::new(half, 0.0, 0.01),
+                ATTACK_TARGET_GLASS_DARK_EDGE,
+            ),
+        ];
+        for (size, offset, color) in edges {
+            commands.spawn((
+                AttackTargetHighlight,
+                Sprite::from_color(color, size),
+                Transform::from_translation(center + offset),
+            ));
+        }
+    }
+}
+
 pub(crate) fn sync_proposed_path_arrows(
     mut commands: Commands,
     game_map: Res<GameMap>,
@@ -1271,16 +1448,69 @@ pub(crate) fn sync_proposed_path_arrows(
     }
 }
 
+pub(crate) fn sync_attack_target_reticle(
+    mut commands: Commands,
+    game_map: Res<GameMap>,
+    proposed: Res<ProposedMovePath>,
+    ui_atlas: UiAtlas,
+    reticles: Query<Entity, With<AttackTargetReticle>>,
+) {
+    if !proposed.is_changed() {
+        return;
+    }
+    for entity in &reticles {
+        commands.entity(entity).try_despawn();
+    }
+    let Some(target) = proposed.attack_intent else {
+        return;
+    };
+
+    commands.spawn((
+        AttackTargetReticle,
+        ui_atlas.sprite_for("Effects/Target.png"),
+        Transform::from_translation(position_to_world_translation(
+            &TARGET_RETICLE_SPRITE_SIZE,
+            target,
+            &game_map,
+        )),
+    ));
+}
+
+fn apply_attack_target_reticle_pose(elapsed_seconds: f32, transform: &mut Transform) {
+    let rotation = elapsed_seconds * std::f32::consts::TAU * TARGET_RETICLE_ROTATIONS_PER_SECOND;
+    let pulse = (elapsed_seconds * std::f32::consts::TAU * TARGET_RETICLE_PULSES_PER_SECOND).sin();
+    transform.rotation = Quat::from_rotation_z(rotation);
+    transform.scale = Vec3::splat(1.0 + pulse * TARGET_RETICLE_PULSE_SCALE);
+}
+
+pub(crate) fn animate_attack_target_reticle(
+    time: Res<Time>,
+    mut reticles: Query<&mut Transform, With<AttackTargetReticle>>,
+) {
+    let elapsed = time.elapsed_secs();
+    for mut transform in &mut reticles {
+        apply_attack_target_reticle_pose(elapsed, &mut transform);
+    }
+}
+
 pub(crate) fn cleanup_play_selection(
     mut commands: Commands,
     mut selection: PlaySelectionState<'_>,
     highlights: Query<Entity, With<MoveRangeHighlight>>,
+    attack_highlights: Query<Entity, With<AttackTargetHighlight>>,
+    reticles: Query<Entity, With<AttackTargetReticle>>,
     arrows: Query<Entity, With<ProposedPathArrow>>,
     ghosts: Query<Entity, With<DestinationGhost>>,
 ) {
     clear_selection_state(&mut selection);
 
     for entity in &highlights {
+        commands.entity(entity).try_despawn();
+    }
+    for entity in &attack_highlights {
+        commands.entity(entity).try_despawn();
+    }
+    for entity in &reticles {
         commands.entity(entity).try_despawn();
     }
     for entity in &arrows {
@@ -1410,6 +1640,7 @@ pub struct CommittedSnapshot {
     pub unit: Entity,
     pub origin: Position,
     pub range: HashMap<Position, u8>,
+    pub attack_targets: HashMap<Position, Vec<Position>>,
     pub path: Vec<Position>,
     pub destination: Position,
     pub attack_intent: Option<Position>,
@@ -1432,6 +1663,7 @@ fn close_unit_actions(sink: Option<&EventSink<UnitActionsChanged>>) {
             destination: None,
             options: Vec::new(),
             preselected: None,
+            attacker: None,
         });
     }
 }
@@ -1508,14 +1740,60 @@ pub(crate) fn emit_unit_actions(
             return;
         }
     };
-    let options = build_options(&available, &unloads, can_delete, pending, &unit_selection);
+    // One call for every target on the menu. A forecast that could not be
+    // computed is left empty rather than guessed at, and the row falls back to
+    // naming its target alone.
+    let forecasts = awvm::query::observed_forecasts(
+        observation,
+        semantic_unit_id,
+        awvm::semantic::Pos::new(x, y),
+        &available.attack,
+    )
+    .unwrap_or_else(|error| {
+        warn!(
+            "Could not forecast the attacks for unit {}: {error}",
+            unit_id.0.as_u32()
+        );
+        vec![None; available.attack.len()]
+    });
+    let mut options = build_options(
+        &available,
+        &unloads,
+        can_delete,
+        pending,
+        &unit_selection,
+        &forecasts,
+    );
+    let attack_intent = pending.attack_intent.filter(|target| {
+        options.iter().any(|option| {
+            matches!(
+                option.action,
+                UnitOrder::Move {
+                    action: PostMoveAction::Attack { target: at }
+                } if at == *target
+            )
+        })
+    });
+    if let Some(target) = attack_intent {
+        // Selecting a unit on the board is a complete target choice. Other
+        // attacks from the same firing tile must not ask the player to choose
+        // the target a second time.
+        options.retain(|option| {
+            matches!(
+                option.action,
+                UnitOrder::Move {
+                    action: PostMoveAction::Attack { target: at }
+                } if at == target
+            )
+        });
+    }
     if options.is_empty() {
         offered.0.clear();
         close_unit_actions(Some(sink));
         return;
     }
 
-    let preselected = pending.attack_intent.and_then(|target| {
+    let preselected = attack_intent.and_then(|target| {
         options.iter().position(|option| {
             matches!(
                 option.action,
@@ -1531,141 +1809,220 @@ pub(crate) fn emit_unit_actions(
         destination: Some(pending.destination),
         options,
         preselected,
+        attacker: unit_badge(pending.unit, &unit_selection),
     });
 }
 
 /// Name the available orders, in the order the source game lists them.
+///
+/// An attack carries what it would cost, so a player choosing between two of
+/// them is choosing between two brackets rather than two coordinates. The
+/// numbers come from AWVM in one call for the whole menu: reifying the
+/// observation is the expensive half of the question and asking per row would
+/// pay it once a row.
 fn build_options(
     available: &awvm::query::ObservedActionSet,
     unloads: &[awvm::query::ObservedUnload],
     can_delete: bool,
     pending: &PendingMoveDestinationSelection,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
+    forecasts: &[Option<awvm::combat::Forecast>],
 ) -> Vec<UnitActionOption> {
     let mut options = Vec::new();
 
-    for target in &available.attack {
-        let target = position_from_pos(*target);
+    for (index, target) in available.attack.iter().enumerate() {
+        let position = position_from_pos(*target);
         options.push(UnitActionOption {
             name: "Fire".to_string(),
             action: UnitOrder::Move {
-                action: PostMoveAction::Attack { target },
+                action: PostMoveAction::Attack { target: position },
             },
+            forecast: forecasts
+                .get(index)
+                .copied()
+                .flatten()
+                .and_then(|forecast| describe_forecast(forecast, position, unit_selection)),
         });
     }
     if available.capture {
-        options.push(UnitActionOption {
-            name: "Capture".to_string(),
-            action: UnitOrder::Move {
+        options.push(UnitActionOption::plain(
+            "Capture",
+            UnitOrder::Move {
                 action: PostMoveAction::Capture,
             },
-        });
+        ));
     }
     if available.supply {
-        options.push(UnitActionOption {
-            name: "Supply".to_string(),
-            action: UnitOrder::Move {
+        options.push(UnitActionOption::plain(
+            "Supply",
+            UnitOrder::Move {
                 action: PostMoveAction::Supply,
             },
-        });
+        ));
     }
     for target in &available.repair {
         let target = position_from_pos(*target);
         if let Some(target_id) = unit_id_at_position(target, unit_selection) {
-            options.push(UnitActionOption {
-                name: "Repair".to_string(),
-                action: UnitOrder::Move {
+            options.push(UnitActionOption::plain(
+                "Repair",
+                UnitOrder::Move {
                     action: PostMoveAction::Repair {
                         target_id: u64::from(target_id),
                     },
                 },
-            });
+            ));
         }
     }
     // Join and Load name the unit already standing there, which is friendly by
     // definition and therefore has a real id in the projection.
     if let Some(occupant) = unit_id_at_position(pending.destination, unit_selection) {
         if available.join {
-            options.push(UnitActionOption {
-                name: "Join".to_string(),
-                action: UnitOrder::Move {
+            options.push(UnitActionOption::plain(
+                "Join",
+                UnitOrder::Move {
                     action: PostMoveAction::Join {
                         target_id: u64::from(occupant),
                     },
                 },
-            });
+            ));
         }
         if available.load {
-            options.push(UnitActionOption {
-                name: "Load".to_string(),
-                action: UnitOrder::Move {
+            options.push(UnitActionOption::plain(
+                "Load",
+                UnitOrder::Move {
                     action: PostMoveAction::Load {
                         transport_id: u64::from(occupant),
                     },
                 },
-            });
+            ));
         }
     }
     if available.hide {
-        options.push(UnitActionOption {
-            name: "Dive".to_string(),
-            action: UnitOrder::Move {
+        options.push(UnitActionOption::plain(
+            "Dive",
+            UnitOrder::Move {
                 action: PostMoveAction::Hide,
             },
-        });
+        ));
     }
     if available.reveal {
-        options.push(UnitActionOption {
-            name: "Surface".to_string(),
-            action: UnitOrder::Move {
+        options.push(UnitActionOption::plain(
+            "Surface",
+            UnitOrder::Move {
                 action: PostMoveAction::Unhide,
             },
-        });
+        ));
     }
     for unload in unloads {
         let position = position_from_pos(unload.destination);
-        options.push(UnitActionOption {
-            name: format!("Unload {}", unload.cargo_kind.name()),
-            action: UnitOrder::Unload {
+        options.push(UnitActionOption::plain(
+            format!("Unload {}", unload.cargo_kind.name()),
+            UnitOrder::Unload {
                 cargo_id: unload.cargo.get(),
                 position,
             },
-        });
+        ));
     }
     for target in &available.launch {
-        options.push(UnitActionOption {
-            name: "Launch".to_string(),
-            action: UnitOrder::Move {
+        options.push(UnitActionOption::plain(
+            "Launch",
+            UnitOrder::Move {
                 action: PostMoveAction::Launch {
                     target: position_from_pos(*target),
                 },
             },
-        });
+        ));
     }
     if available.explode {
-        options.push(UnitActionOption {
-            name: "Explode".to_string(),
-            action: UnitOrder::Move {
+        options.push(UnitActionOption::plain(
+            "Explode",
+            UnitOrder::Move {
                 action: PostMoveAction::Explode,
             },
-        });
+        ));
     }
     if available.wait {
-        options.push(UnitActionOption {
-            name: "Wait".to_string(),
-            action: UnitOrder::Move {
+        options.push(UnitActionOption::plain(
+            "Wait",
+            UnitOrder::Move {
                 action: PostMoveAction::Wait,
             },
-        });
+        ));
     }
     if can_delete {
-        options.push(UnitActionOption {
-            name: "Delete".to_string(),
-            action: UnitOrder::Delete,
-        });
+        options.push(UnitActionOption::plain("Delete", UnitOrder::Delete));
     }
 
     options
+}
+
+/// Put a name and a sprite on what the numbers are about.
+///
+/// The bracket itself is AWVM's; everything added here is identity, read off
+/// the board the player is looking at. A target with neither a unit nor a
+/// destructible tile standing on it is a target this client cannot name, and an
+/// unnamed forecast is worse than none.
+fn describe_forecast(
+    forecast: awvm::combat::Forecast,
+    position: Position,
+    unit_selection: &PlayUnitSelectionParams<'_, '_>,
+) -> Option<AttackForecast> {
+    let target = forecast_target(position, unit_selection)?;
+    Some(AttackForecast {
+        target,
+        damage: DamageBracket {
+            low: forecast.attack.low,
+            high: forecast.attack.high,
+        },
+        counter: forecast.counter.map(|range| DamageBracket {
+            low: range.low,
+            high: range.high,
+        }),
+        counter_first: forecast.counter_first,
+        // Raw damage is compared against the health it would land on, which is
+        // the one place the uncapped figure has to be read as a capped one.
+        destroys: forecast.attack.low >= u16::from(forecast.target_hp),
+        may_destroy: forecast.attack.low < u16::from(forecast.target_hp)
+            && forecast.attack.high >= u16::from(forecast.target_hp),
+    })
+}
+
+/// How one unit is drawn and named beside a number.
+fn unit_badge(
+    entity: Entity,
+    unit_selection: &PlayUnitSelectionParams<'_, '_>,
+) -> Option<UnitBadge> {
+    let (unit, faction, _, _, _, _, _) = unit_selection.units.get(entity).ok()?;
+    Some(UnitBadge {
+        unit: unit.0,
+        name: unit.0.name().to_string(),
+        faction_code: faction.0.country_code().to_string(),
+        health: unit_selection
+            .graphical_hp
+            .get(entity)
+            .map_or(10, |hp| hp.value()),
+    })
+}
+
+/// Who or what is standing on the targeted tile.
+fn forecast_target(
+    position: Position,
+    unit_selection: &PlayUnitSelectionParams<'_, '_>,
+) -> Option<ForecastTarget> {
+    if let Ok(Some(entity)) = unit_selection.board_index.unit_entity(position)
+        && let Some(badge) = unit_badge(entity, unit_selection)
+    {
+        return Some(ForecastTarget::Unit {
+            unit: badge.unit,
+            name: badge.name,
+            faction_code: badge.faction_code,
+            health: badge.health,
+        });
+    }
+    let terrain = unit_selection.game_map.terrain_at(position)?;
+    Some(ForecastTarget::Tile {
+        name: terrain.as_terrain().type_name().to_string(),
+    })
 }
 
 fn unit_id_at_position(
@@ -1709,6 +2066,7 @@ pub(crate) fn handle_unit_action_chosen(
         unit: pending.unit,
         origin: pending.origin,
         range: selection.move_range.tiles.clone(),
+        attack_targets: selection.attack_targets.approaches.clone(),
         path: pending.path.clone(),
         destination: pending.destination,
         attack_intent: pending.attack_intent,
@@ -1759,6 +2117,7 @@ pub(crate) fn handle_unit_action_chosen(
     close_unit_actions(actions.sink.as_deref());
     selection.pending_destination.0 = None;
     selection.move_range.tiles.clear();
+    selection.attack_targets.approaches.clear();
     selection.proposed_path.path.clear();
     selection.proposed_path.drawn_path.clear();
     selection.proposed_path.hovered = None;
@@ -1784,6 +2143,7 @@ pub(crate) fn handle_pending_command_rejected(
         origin: snapshot.origin,
     });
     selection.move_range.tiles = snapshot.range;
+    selection.attack_targets.approaches = snapshot.attack_targets;
     selection.proposed_path.path = snapshot.path;
     selection.proposed_path.drawn_path.clear();
     selection.proposed_path.hovered = None;
@@ -1859,6 +2219,7 @@ impl Plugin for PlayPlugin {
         app.init_resource::<SelectedUnit>()
             .init_resource::<MoveRange>()
             .init_resource::<SelectedMoveField>()
+            .init_resource::<AttackTargets>()
             .init_resource::<PendingMoveDestination>()
             .init_resource::<ProposedMovePath>()
             .init_resource::<PlayUiPhase>()
@@ -1888,9 +2249,13 @@ impl Plugin for PlayPlugin {
                     clear_invalid_selection,
                     emit_unit_actions,
                     sync_move_range_highlights,
+                    sync_attack_target_highlights,
                     sync_destination_ghost,
                     sync_proposed_path_arrows
                         .run_if(resource_exists::<crate::render::UiAtlasResource>),
+                    sync_attack_target_reticle
+                        .run_if(resource_exists::<crate::render::UiAtlasResource>),
+                    animate_attack_target_reticle.run_if(resource_exists::<Time>),
                     apply_pending_live_transition,
                 )
                     .chain()
@@ -2418,6 +2783,178 @@ mod tests {
     }
 
     #[test]
+    fn targetable_units_get_red_glass_and_keep_a_traced_attack_path() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 5, 3);
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+
+        let attacker = spawn_unit(
+            &mut app,
+            Position::new(0, 1),
+            awbrn_types::Unit::Tank,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+        let target = Position::new(3, 1);
+        spawn_unit(
+            &mut app,
+            target,
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::BlueMoon,
+            true,
+            Some(99),
+        );
+
+        click_tile(&mut app, Position::new(0, 1));
+
+        assert!(
+            app.world()
+                .resource::<AttackTargets>()
+                .approaches
+                .contains_key(&target)
+        );
+        assert_eq!(
+            app.world_mut()
+                .query_filtered::<Entity, With<AttackTargetHighlight>>()
+                .iter(app.world())
+                .count(),
+            5,
+            "one target has a red fill and four glass edges"
+        );
+
+        let unit_targets = app.world().resource::<AttackTargets>().clone();
+        let tile_target = Position::new(4, 2);
+        app.world_mut().resource_mut::<AttackTargets>().approaches =
+            HashMap::from([(tile_target, vec![Position::new(3, 2)])]);
+        app.update();
+        assert_eq!(
+            app.world_mut()
+                .query_filtered::<Entity, With<AttackTargetHighlight>>()
+                .iter(app.world())
+                .count(),
+            5,
+            "a legal tile target has the same red glass as a unit target"
+        );
+        *app.world_mut().resource_mut::<AttackTargets>() = unit_targets;
+
+        let traced = vec![
+            Position::new(0, 1),
+            Position::new(0, 0),
+            Position::new(1, 0),
+            Position::new(2, 0),
+            Position::new(2, 1),
+        ];
+        {
+            let mut proposed = app.world_mut().resource_mut::<ProposedMovePath>();
+            proposed.path = traced.clone();
+            proposed.drawn_path = traced.iter().copied().skip(1).collect();
+        }
+
+        click_tile(&mut app, target);
+
+        assert_eq!(
+            app.world().resource::<PendingMoveDestination>().0,
+            Some(PendingMoveDestinationSelection {
+                unit: attacker,
+                origin: Position::new(0, 1),
+                destination: Position::new(2, 1),
+                path: traced.clone(),
+                attack_intent: Some(target),
+            })
+        );
+        assert_eq!(app.world().resource::<ProposedMovePath>().path, traced);
+    }
+
+    #[test]
+    fn shared_attack_position_survives_invalid_hover_between_targets() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 5, 3);
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+
+        let origin = Position::new(0, 1);
+        let first_target = Position::new(3, 1);
+        let second_target = Position::new(2, 0);
+        let firing_position = Position::new(2, 1);
+        spawn_unit(
+            &mut app,
+            origin,
+            awbrn_types::Unit::Tank,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+        for target in [first_target, second_target] {
+            spawn_unit(
+                &mut app,
+                target,
+                awbrn_types::Unit::Infantry,
+                PlayerFaction::BlueMoon,
+                true,
+                Some(99),
+            );
+        }
+        click_tile(&mut app, origin);
+
+        let path = vec![origin, Position::new(1, 1), firing_position];
+        let field = app
+            .world()
+            .resource::<SelectedMoveField>()
+            .0
+            .clone()
+            .expect("the tank has a movement field");
+        let targets = app.world().resource::<AttackTargets>().clone();
+        app.world_mut().resource_mut::<ProposedMovePath>().path = path.clone();
+
+        update_automatic_move_path(
+            origin,
+            Position::new(4, 2),
+            false,
+            false,
+            &field,
+            &mut app.world_mut().resource_mut::<ProposedMovePath>(),
+        );
+        assert_eq!(app.world().resource::<ProposedMovePath>().path, path);
+
+        let approach = attack_approach(second_target, &path, &targets, Some(&field))
+            .expect("the existing firing position can target the second unit");
+        update_automatic_move_path(
+            origin,
+            approach,
+            true,
+            true,
+            &field,
+            &mut app.world_mut().resource_mut::<ProposedMovePath>(),
+        );
+        assert_eq!(app.world().resource::<ProposedMovePath>().path, path);
+    }
+
+    #[test]
+    fn attack_target_reticle_rotates_and_pulses() {
+        let mut expanded = Transform::default();
+        apply_attack_target_reticle_pose(
+            1.0 / (4.0 * TARGET_RETICLE_PULSES_PER_SECOND),
+            &mut expanded,
+        );
+        assert!(expanded.scale.x > 1.0);
+        assert_ne!(expanded.rotation, Quat::IDENTITY);
+
+        let mut contracted = Transform::default();
+        apply_attack_target_reticle_pose(
+            3.0 / (4.0 * TARGET_RETICLE_PULSES_PER_SECOND),
+            &mut contracted,
+        );
+        assert!(contracted.scale.x < 1.0);
+        assert_ne!(contracted.rotation, expanded.rotation);
+    }
+
+    #[test]
     fn friendly_units_are_in_the_preview_but_enemies_block_routes() {
         let mut app = play_test_app();
         set_plain_map(&mut app, 6, 1);
@@ -2721,12 +3258,12 @@ mod tests {
         app.world_mut()
             .resource_mut::<OfferedActions>()
             .0
-            .push(UnitActionOption {
-                name: "Wait".to_string(),
-                action: UnitOrder::Move {
+            .push(UnitActionOption::plain(
+                "Wait",
+                UnitOrder::Move {
                     action: PostMoveAction::Wait,
                 },
-            });
+            ));
         app.world_mut()
             .resource_mut::<Messages<UnitActionChosen>>()
             .write(UnitActionChosen { index: 0 });
@@ -2779,13 +3316,13 @@ mod tests {
         app.world_mut()
             .resource_mut::<OfferedActions>()
             .0
-            .push(UnitActionOption {
-                name: "Unload #7".to_string(),
-                action: UnitOrder::Unload {
+            .push(UnitActionOption::plain(
+                "Unload #7",
+                UnitOrder::Unload {
                     cargo_id: 7,
                     position: Position::new(1, 0),
                 },
-            });
+            ));
 
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_sink = received.clone();
@@ -2947,13 +3484,13 @@ mod tests {
         assert_eq!(menu.destination, Some(Position::new(1, 0)));
         assert_eq!(
             menu.options,
-            vec![UnitActionOption {
-                name: "Unload Infantry".to_string(),
-                action: UnitOrder::Unload {
+            vec![UnitActionOption::plain(
+                "Unload Infantry",
+                UnitOrder::Unload {
                     cargo_id: 1,
                     position: Position::new(0, 0),
                 },
-            }]
+            )]
         );
     }
 
@@ -2996,12 +3533,12 @@ mod tests {
         app.world_mut()
             .resource_mut::<OfferedActions>()
             .0
-            .push(UnitActionOption {
-                name: "Wait".to_string(),
-                action: UnitOrder::Move {
+            .push(UnitActionOption::plain(
+                "Wait",
+                UnitOrder::Move {
                     action: PostMoveAction::Wait,
                 },
-            });
+            ));
         app.world_mut()
             .resource_mut::<Messages<UnitActionChosen>>()
             .write(UnitActionChosen { index: 0 });
@@ -3251,6 +3788,20 @@ mod tests {
             true,
             Some(99),
         );
+        spawn_unit(
+            &mut app,
+            Position::new(2, 0),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::BlueMoon,
+            true,
+            Some(99),
+        );
+        let menus = Arc::new(Mutex::new(Vec::new()));
+        let menus_by_sink = menus.clone();
+        app.world_mut()
+            .insert_resource(EventSink::<UnitActionsChanged>::new(move |event| {
+                menus_by_sink.lock().unwrap().push(event);
+            }));
 
         drag_unit(
             &mut app,
@@ -3275,6 +3826,36 @@ mod tests {
             Some(Position::new(3, 1)),
             "and remembers which enemy, so the menu can open on Fire"
         );
+        let initial_menus = menus.lock().unwrap();
+        let menu = initial_menus.last().expect("the attack menu opens");
+        assert_eq!(menu.options.len(), 1);
+        assert_eq!(menu.preselected, Some(0));
+        assert_eq!(
+            menu.options[0].action,
+            UnitOrder::Move {
+                action: PostMoveAction::Attack {
+                    target: Position::new(3, 1),
+                },
+            }
+        );
+        drop(initial_menus);
+
+        app.world_mut()
+            .resource_mut::<PendingMoveDestination>()
+            .0
+            .as_mut()
+            .expect("the destination remains pending")
+            .attack_intent = Some(Position::new(5, 2));
+        app.update();
+
+        assert_eq!(
+            *app.world().resource::<PlayUiPhase>(),
+            PlayUiPhase::DestinationSelected
+        );
+        let menus = menus.lock().unwrap();
+        let menu = menus.last().expect("the full action menu stays open");
+        assert_eq!(menu.options.len(), 3);
+        assert_eq!(menu.preselected, None);
     }
 
     /// A press that lands on nothing in particular belongs to the camera, and a
@@ -3556,6 +4137,7 @@ mod tests {
             unit,
             origin: Position::new(2, 2),
             range,
+            attack_targets: HashMap::new(),
             path: vec![Position::new(2, 2), Position::new(2, 1)],
             destination: Position::new(2, 1),
             attack_intent: None,
@@ -3595,6 +4177,7 @@ mod tests {
             unit,
             origin: Position::new(2, 2),
             range,
+            attack_targets: HashMap::new(),
             path: vec![Position::new(2, 2), Position::new(2, 1)],
             destination: Position::new(2, 1),
             attack_intent: None,
