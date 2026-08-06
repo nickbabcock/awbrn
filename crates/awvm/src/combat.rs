@@ -26,6 +26,14 @@ pub struct Side {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Hit {
     pub damage: u8,
+    /// The same strike before it is limited by what the target still has.
+    ///
+    /// Nothing in the reducer uses this: a unit cannot lose more health than it
+    /// has, so [`Hit::damage`] is what lands. It is reported because the margin
+    /// is real information to a player choosing an attacker — 101 and 160
+    /// against the same target are a bare kill and an overkill worth spending
+    /// something cheaper on, and clamping both to 100 hides the difference.
+    pub raw_damage: u16,
     pub weapon: SelectedWeapon,
 }
 
@@ -33,6 +41,42 @@ pub struct Hit {
 pub struct Combat {
     pub attack: Hit,
     pub counter: Option<Hit>,
+}
+
+/// The damage one strike lands, from its unluckiest roll to its luckiest.
+///
+/// Values are percentage points of a unit at full health, reported the way
+/// [`Hit::raw_damage`] is: not limited by what the target still has, so the
+/// overkill margin survives and a bare kill is distinguishable from a rout.
+/// `low` equals `high` whenever no commander in the exchange grants luck.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DamageRange {
+    pub low: u16,
+    pub high: u16,
+}
+
+/// What an exchange can cost both sides, before a single roll is drawn.
+///
+/// The two ranges are not independent. A counter is scored from what the
+/// initiating strike left standing, so the attacker's best roll bounds the
+/// reply's worst and its worst roll bounds the reply's best. Read together,
+/// `attack.high` with `counter.low` is the good outcome for the attacker and
+/// `attack.low` with `counter.high` is the bad one. Pairing them any other way
+/// describes an exchange that cannot happen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Forecast {
+    pub attack: DamageRange,
+    /// `None` when nothing can answer: an indirect strike, a target with no
+    /// weapon that bites back, a destructible tile, or a target that does not
+    /// survive the attacker's weakest roll.
+    pub counter: Option<DamageRange>,
+    /// Whether the defender's commander fires before the strike that provoked
+    /// it, which is what makes the attacker's own damage depend on the reply.
+    pub counter_first: bool,
+    /// Both sides' health before the exchange, on the same 0-100 scale, so a
+    /// caller can say whether a strike destroys without holding the board.
+    pub attacker_hp: u8,
+    pub target_hp: u8,
 }
 
 /// The weapon this attacker would fire at this defender, in the order
@@ -68,11 +112,11 @@ pub fn damage(attacker: Side, defender: Side, luck: i64) -> Option<Hit> {
     let attack_hp_factor = attack_factor * i64::from(attacker.hp);
     let defense_numerator =
         200 - (defender.defense + i64::from(defender.terrain_stars) * visual_defender as i64);
-    let points = (attack_hp_factor * defense_numerator / 100 / 100)
-        .max(0)
-        .min(i64::from(defender.hp));
+    let raw = (attack_hp_factor * defense_numerator / 100 / 100).max(0);
+    let points = raw.min(i64::from(defender.hp));
     Some(Hit {
         damage: points as u8,
+        raw_damage: u16::try_from(raw).unwrap_or(u16::MAX),
         weapon,
     })
 }

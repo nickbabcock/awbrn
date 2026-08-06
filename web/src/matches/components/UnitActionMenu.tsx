@@ -16,11 +16,15 @@ import {
 } from "#/matches/components/BoardMenu.tsx";
 import { Button } from "#/ui/Button.tsx";
 import { boardMenuLayout } from "#/matches/components/boardMenuLayout.stylex.ts";
-import type { UnitActionOption } from "#/wasm/awbrn_wasm.js";
+import { uiAtlasSpriteStyle, unitSpriteSize, unitSpriteStyle } from "#/components/game_sprites.ts";
+import { engagementLabel, formatBracket } from "#/matches/components/attack_forecast.ts";
+import type { AttackForecast, UnitActionOption, UnitBadge } from "#/wasm/awbrn_wasm.js";
 
 interface UnitActionMenuProps {
   /** Where the board was pressed, in surface pixels. Null when no pointer opened it. */
   anchor: { x: number; y: number } | null;
+  /** The unit being commanded, named at the head of a menu that forecasts. */
+  attacker?: UnitBadge;
   destination: { x: number; y: number };
   /** Why the orders are inert, when they are. */
   disabledReason?: string;
@@ -48,6 +52,7 @@ interface UnitActionMenuProps {
  */
 export function UnitActionMenu({
   anchor,
+  attacker,
   destination,
   disabledReason,
   isEnabled,
@@ -118,7 +123,13 @@ export function UnitActionMenu({
       }
       label={`Orders at ${destination.x}, ${destination.y}`}
       onDismiss={onDismiss}
-      inlineSize={boardMenuLayout.actionInlineSize}
+      // A menu with an engagement on it needs the width to hold one. Orders
+      // that are only words keep the narrow menu they have always had.
+      inlineSize={
+        options.some((option) => option.forecast)
+          ? boardMenuLayout.actionForecastInlineSize
+          : boardMenuLayout.actionInlineSize
+      }
       onRestoreFocus={onRestoreFocus}
       presentation={presentation}
     >
@@ -132,9 +143,17 @@ export function UnitActionMenu({
             paddingInline={2}
             xstyle={boardMenuStyles.header}
           >
-            <Text type="label" xstyle={styles.heading}>
-              {pending ? pending.name : "Orders"}
-            </Text>
+            {/* Who is firing. It is the same unit for every order below, so it
+                is said once here rather than repeated down the list, and the
+                header stops being the word "Orders" only when there is an
+                engagement for it to be one half of. */}
+            {attacker && !pending && options.some((option) => option.forecast) ? (
+              <Attacker badge={attacker} spriteScale={spriteScale} />
+            ) : (
+              <Text type="label" xstyle={styles.heading}>
+                {pending ? pending.name : "Orders"}
+              </Text>
+            )}
             <Text type="label" xstyle={styles.coordinate}>
               {destination.x}, {destination.y}
             </Text>
@@ -261,7 +280,9 @@ function ConfirmOrder({
  *
  * Targeted orders carry their tile because a unit may have more than one
  * destination or target from the same square and the order name alone would
- * not say which.
+ * not say which. An attack that AWVM could forecast carries the engagement
+ * instead: a coordinate says which enemy only to a player willing to go and
+ * look, and the tile is the least of what they need to know about it.
  */
 function OrderRow({
   index,
@@ -287,9 +308,11 @@ function OrderRow({
           (option.action.action.type === "attack" || option.action.action.type === "launch")
         ? option.action.action.target
         : null;
+  const forecast = option.forecast;
 
   return (
     <button
+      aria-label={forecast ? engagementLabel(option.name, forecast) : undefined}
       // The shell moves the cursor here when the menu opens, so the order the
       // player has already indicated is the one under their thumb.
       data-preselected={isPreselected ? "" : undefined}
@@ -304,20 +327,139 @@ function OrderRow({
         boardMenuStyles.row,
         styles.row,
         spriteScale === 2 && styles.rowSpacious,
+        forecast && styles.rowEngagement,
         needsConfirmation(option) && styles.rowDestructive,
         needsConfirmation(option) && styles.rowSeparated,
         !isEnabled && boardMenuStyles.rowInert,
       )}
     >
-      <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
-        {option.name}
-      </Text>
-      {target ? (
-        <span {...stylex.props(styles.target)}>
-          {target.x}, {target.y}
+      {forecast ? (
+        <Engagement forecast={forecast} spriteScale={spriteScale} />
+      ) : (
+        <>
+          <Text color="inherit" type="inherit" xstyle={boardMenuStyles.rowName}>
+            {option.name}
+          </Text>
+          {target ? (
+            <span {...stylex.props(styles.target)}>
+              {target.x}, {target.y}
+            </span>
+          ) : null}
+        </>
+      )}
+    </button>
+  );
+}
+
+/**
+ * A unit as the board draws it: its sprite, wearing its health.
+ *
+ * The digit is the game's own `Healthv2` art sitting in the sprite's corner,
+ * exactly where the board puts it, and it follows the board's rule of appearing
+ * only when the unit is not at full strength. That rule is what makes it worth
+ * having here: a menu where most units are whole shows almost no digits, and
+ * the ones it does show are the units whose health is about to matter.
+ */
+function UnitSprite({ badge, scale }: { badge: UnitBadge; scale: 1 | 2 }) {
+  const sprite = unitSpriteStyle(badge.unit, badge.factionCode, scale);
+  const health = badge.health < FULL_HEALTH ? badge.health : null;
+  const digit = health === null ? null : uiAtlasSpriteStyle(`Healthv2/${health}.png`, scale);
+
+  if (!sprite) return null;
+
+  return (
+    <span {...stylex.props(styles.unitSprite)} style={unitSpriteSize(scale)}>
+      <span aria-hidden="true" style={sprite} {...stylex.props(boardMenuStyles.sprite)} />
+      {digit ? (
+        <span aria-hidden="true" style={digit} {...stylex.props(styles.healthDigit)} />
+      ) : null}
+    </span>
+  );
+}
+
+/** The health at which the board stops drawing a number on a unit. */
+const FULL_HEALTH = 10;
+
+/**
+ * The unit whose orders these are.
+ *
+ * It stands where the word "Orders" stands, because on a menu of engagements
+ * the useful thing to say at the head is not that these are orders — the panel
+ * is plainly a menu — but which unit is about to spend itself, and with how
+ * much health left to spend.
+ */
+function Attacker({ badge, spriteScale }: { badge: UnitBadge; spriteScale: 1 | 2 }) {
+  return (
+    <HStack align="center" gap={2} xstyle={styles.attacker}>
+      <UnitSprite badge={badge} scale={spriteScale} />
+      <span {...stylex.props(styles.attackerName)}>{badge.name}</span>
+    </HStack>
+  );
+}
+
+/**
+ * The engagement one attack would open: what this order deals, and what comes
+ * back.
+ *
+ * The two figures are named. Two passes tried to avoid naming them — first with
+ * arrows, then with the sprite of whoever took the damage — and both failed the
+ * same way, which is worth recording so it is not tried a third time. An arrow
+ * needs two things to point between, and this row has one. A sprite beside a
+ * number reads as *that unit's* number, and a unit's number means what it deals
+ * long before it means what it suffers; putting the target's art next to the
+ * damage done to it had readers concluding the target was the attacker.
+ *
+ * Direction is not a thing a picture can say here. `DEAL` and `TAKE` say it in
+ * eight characters, from the seat the player is sitting in, and nothing about
+ * them has to be learned. The width they cost was paid for by dropping the
+ * army, the unit name and the standalone health column.
+ *
+ * The two figures are read together, not separately. A counter is scored from
+ * whatever the strike left standing, so the good outcome is the top of `DEAL`
+ * with the bottom of `TAKE`, and the bad one is the other pair.
+ *
+ * Nothing is written where nothing comes back: a row with no reply is one line
+ * high. An indirect gets no answer from anything it can reach, so a menu that
+ * spelled that out would say it on every row and mean it once.
+ *
+ * Damage is in percentage points, uncapped, the way AWBW's own calculator
+ * reports it: 160 against a whole unit is an overkill worth sending something
+ * cheaper at, and clamping it to 100 would hide that.
+ */
+function Engagement({ forecast, spriteScale }: { forecast: AttackForecast; spriteScale: 1 | 2 }) {
+  const target = forecast.target;
+
+  return (
+    <span {...stylex.props(styles.engagement)}>
+      <span {...stylex.props(styles.exchangeLine)}>
+        {target.type === "unit" ? (
+          <UnitSprite badge={target} scale={spriteScale} />
+        ) : (
+          // A destructible tile has no sprite to stand for it, so it says its
+          // own name. It is the one target on the board that is not a unit.
+          <span {...stylex.props(styles.tileName)}>{target.name}</span>
+        )}
+        <span {...stylex.props(styles.exchangeLabel)}>Deal</span>
+        <span {...stylex.props(styles.exchangeValue)}>{formatBracket(forecast.damage)}</span>
+      </span>
+
+      {forecast.counter ? (
+        <span {...stylex.props(styles.exchangeLine)}>
+          <span
+            {...stylex.props(styles.exchangeIndent)}
+            style={{ inlineSize: `${unitSpriteSize(spriteScale).width}px` }}
+          />
+          {/* A commander who answers first inverts the exchange: this unit
+              takes the hit before it fires, and what it deals then depends on
+              surviving. The label is the only place that can be said, because
+              the order of two lines is not something a reader is owed. */}
+          <span {...stylex.props(styles.exchangeLabel)}>
+            {forecast.counterFirst ? "Take 1st" : "Take"}
+          </span>
+          <span {...stylex.props(styles.exchangeValue)}>{formatBracket(forecast.counter)}</span>
         </span>
       ) : null}
-    </button>
+    </span>
   );
 }
 
@@ -394,6 +536,106 @@ const styles = stylex.create({
     borderBlockStartWidth: borderVars["--border-width"],
     borderBlockStartStyle: "solid",
     borderBlockStartColor: colorVars["--color-border-emphasized"],
+  },
+  // An engagement is two lines, so the key stops being a line of text and
+  // becomes a block. It sets its own height from its content rather than from
+  // the row floor, and it breathes above and below because two of these stacked
+  // with no air read as one four-line list.
+  rowEngagement: {
+    alignItems: "center",
+    minBlockSize: 0,
+    paddingBlock: spacingVars["--spacing-2"],
+  },
+  // Two lines of "this much happens to this unit", stacked. They are one
+  // prediction rather than two readings, which is why they share a key.
+  engagement: {
+    display: "flex",
+    flexDirection: "column",
+    gap: spacingVars["--spacing-1"],
+    inlineSize: "100%",
+    minInlineSize: 0,
+  },
+  // The target, then what happens, then how much. The label and the figure sit
+  // in fixed columns so the numbers stack exactly down the whole menu, which is
+  // what makes two engagements comparable without reading either of them.
+  exchangeLine: {
+    display: "flex",
+    alignItems: "center",
+    gap: spacingVars["--spacing-2"],
+    minInlineSize: 0,
+  },
+  // The reply line has no art of its own: the target was named once, above it.
+  // This holds the art's place so the two labels line up, and takes its width
+  // from the sprite rather than from a constant, because a thumb reads the
+  // menu at twice the scale a cursor does.
+  exchangeIndent: {
+    flex: "0 0 auto",
+  },
+  // What happens, in the game's own voice and from the player's own seat. It
+  // recedes by opacity rather than by a second colour, which is this system's
+  // rule for receding and is also what lets the key invert under the orange
+  // cursor without a value going illegible. The step stops at 0.8, where it
+  // still clears 4.5:1 on that orange, the harder of its two grounds.
+  exchangeLabel: {
+    flex: "0 0 auto",
+    inlineSize: boardMenuLayout.forecastLabelInlineSize,
+    fontFamily: typographyVars["--font-family-code"],
+    fontSize: textSizeVars["--font-size-sm"],
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    opacity: 0.8,
+  },
+  // The figures are the only thing on the key at full strength.
+  exchangeValue: {
+    flex: "0 0 auto",
+    marginInlineStart: "auto",
+    fontFamily: typographyVars["--font-family-code"],
+    fontSize: textSizeVars["--font-size-sm"],
+    letterSpacing: "0.06em",
+    fontVariantNumeric: "tabular-nums",
+  },
+  // The one target with no sprite to stand for it.
+  tileName: {
+    flex: "0 1 auto",
+    minInlineSize: 0,
+    fontFamily: typographyVars["--font-family-code"],
+    fontSize: textSizeVars["--font-size-sm"],
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  // The sprite and the number it wears. Sized by the caller to the art itself,
+  // so the digit has a corner to sit in.
+  unitSprite: {
+    position: "relative",
+    display: "block",
+    flex: "0 0 auto",
+  },
+  // The board hangs the health off the unit's lower right, half over the art
+  // and half over the tile. Doing anything else here would make the same unit
+  // read as two different objects in the same turn.
+  healthDigit: {
+    position: "absolute",
+    insetInlineEnd: 0,
+    insetBlockEnd: 0,
+    display: "block",
+  },
+  // The unit whose orders these are, standing at the head of the menu.
+  attacker: {
+    minInlineSize: 0,
+  },
+  attackerName: {
+    flex: "0 1 auto",
+    minInlineSize: 0,
+    fontFamily: typographyVars["--font-family-code"],
+    fontSize: textSizeVars["--font-size-sm"],
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
   heading: {
     color: colorVars["--color-text-secondary"],

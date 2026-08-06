@@ -641,6 +641,7 @@ function ActiveMatchBoard({
         {unitActions === null || unitActions.destination === undefined ? null : (
           <UnitActionMenu
             anchor={press}
+            attacker={unitActions.attacker ?? undefined}
             destination={unitActions.destination}
             disabledReason={buildBlockedReason}
             isEnabled={buildBlockedReason === undefined}

@@ -14,10 +14,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
+use awvm::combat::DamageRange;
 use awvm::conformance::collect_json;
 use awvm::prelude::*;
 use awvm::query::{self, can_act};
-use awvm::semantic::{Location, UnitAction};
+use awvm::semantic::{KnownReason, Location, Reason, UnitAction};
 use serde_json::Value;
 
 fn corpus() -> Vec<(String, Value)> {
@@ -633,4 +634,150 @@ fn observed_unloads_are_offered_after_the_transport_is_spent() {
             destination: Pos::new(0, 0),
         }]
     );
+}
+
+/// Every attack the corpus resolves must land inside the bracket the forecast
+/// showed before it was ordered.
+///
+/// This is the only property that makes a forecast worth showing. It is checked
+/// against the resolved outcome rather than against a second implementation of
+/// the formula, so a forecast that agreed with a wrong model would still fail
+/// here. Fog states are skipped for the reason `observed_forecasts` documents:
+/// a projection can be honestly wrong, and the corpus cannot tell that apart
+/// from a broken bracket.
+#[test]
+fn the_forecast_brackets_every_attack_the_corpus_resolves() {
+    let mut checked = 0;
+    let mut countered = 0;
+    for (relative, case) in corpus() {
+        let Some(mut state) = states(&case).into_iter().next() else {
+            continue;
+        };
+        for step in case["steps"].as_array().into_iter().flatten() {
+            let Ok(command) = serde_json::from_value::<Command>(step["command"].clone()) else {
+                continue;
+            };
+            let random: Vec<RandomToken> =
+                serde_json::from_value(step["random"].clone()).unwrap_or_default();
+            let Ok(ExecuteOutcome::Accepted(execution)) = execute(&state, command.clone(), &random)
+            else {
+                continue;
+            };
+
+            if let Command::MoveAttack {
+                player,
+                unit,
+                path,
+                target,
+            } = &command
+                && !state.settings.fog
+                && let Ok(observation) = observe(&AwbwVisibility, &state, player)
+            {
+                let from = *path.last().expect("a path holds at least its origin");
+                let (target_position, target_unit) = match target {
+                    AttackTarget::Tile { position } => (*position, None),
+                    AttackTarget::Unit { unit } => {
+                        match state.units.get(*unit).map(|found| &found.location) {
+                            Some(Location::Board { position }) => (*position, Some(*unit)),
+                            _ => continue,
+                        }
+                    }
+                };
+                let forecast =
+                    query::observed_forecasts(&observation, *unit, from, &[target_position])
+                        .expect("a fog-free observation forecasts")
+                        .remove(0)
+                        .unwrap_or_else(|| {
+                            panic!("{relative}: no forecast for an attack the reducer accepted")
+                        });
+
+                let dealt = match target_unit {
+                    Some(id) => damage_dealt(&execution.events, id, KnownReason::Combat),
+                    None => destructible_damage(&execution.events, target_position),
+                };
+                // The forecast reports raw damage, so the bracket is limited by
+                // what the target had before it is compared with what landed.
+                assert!(
+                    landed(forecast.attack, forecast.target_hp).contains(&dealt),
+                    "{relative}: unit {unit} dealt {dealt} against a forecast of {}-{} \
+                     against {} health",
+                    forecast.attack.low,
+                    forecast.attack.high,
+                    forecast.target_hp
+                );
+
+                let taken = damage_dealt(&execution.events, *unit, KnownReason::CombatCounter);
+                match forecast.counter {
+                    Some(range) => {
+                        assert!(
+                            landed(range, forecast.attacker_hp).contains(&taken),
+                            "{relative}: unit {unit} took {taken} against a counter forecast of \
+                             {}-{} against {} health",
+                            range.low,
+                            range.high,
+                            forecast.attacker_hp
+                        );
+                        countered += 1;
+                    }
+                    None => assert_eq!(
+                        taken, 0,
+                        "{relative}: unit {unit} took {taken} from a counter the forecast ruled out"
+                    ),
+                }
+                checked += 1;
+            }
+            state = execution.state;
+        }
+    }
+
+    assert!(
+        checked > 20,
+        "expected the corpus to resolve attacks, saw {checked}"
+    );
+    assert!(
+        countered > 0,
+        "expected the corpus to resolve counters, saw {countered}"
+    );
+}
+
+/// The damage a raw bracket can actually land on a target with this health.
+///
+/// A strike cannot take more than the target has, so the reported overkill
+/// collapses onto its health the moment it resolves.
+fn landed(range: DamageRange, hp: u8) -> std::ops::RangeInclusive<u8> {
+    let cap = |value: u16| u8::try_from(value.min(u16::from(hp))).expect("hp bounds this");
+    cap(range.low)..=cap(range.high)
+}
+
+/// What one strike took off a unit, or zero when that strike never landed.
+fn damage_dealt(events: &[Event], unit: UnitId, reason: KnownReason) -> u8 {
+    events
+        .iter()
+        .find_map(|event| match event {
+            Event::UnitDamaged {
+                unit: damaged,
+                from_hp,
+                to_hp,
+                reason: cause,
+            } if *damaged == unit && *cause == Reason::Known(reason) => {
+                Some(from_hp.saturating_sub(*to_hp))
+            }
+            _ => None,
+        })
+        .unwrap_or(0)
+}
+
+/// What one strike took off a destructible tile.
+fn destructible_damage(events: &[Event], position: Pos) -> u8 {
+    events
+        .iter()
+        .find_map(|event| match event {
+            Event::DestructibleDamaged {
+                position: hit,
+                from_hp,
+                to_hp,
+            } if *hit == position => Some(from_hp.saturating_sub(*to_hp)),
+            _ => None,
+        })
+        .unwrap_or(0)
 }

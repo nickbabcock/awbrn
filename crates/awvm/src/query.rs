@@ -25,6 +25,7 @@
 
 use std::collections::{BinaryHeap, HashSet};
 
+use crate::combat::Forecast;
 use crate::commander::{self, Domain};
 use crate::event::AttackTarget;
 use crate::random::{Entropy, Luck, RandomError};
@@ -33,7 +34,10 @@ use crate::semantic::{
     AwbwVisibility, Location, Observation, ObservedMatch, ObservedPlayer, PlayerId, PlayerStatus,
     Pos, State, TeamId, Unit, UnitId, UnitKindId, Viewpoint, Visibility, WeatherKind,
 };
-use crate::transition::{Command, ExecuteOutcome, execute_with};
+use crate::transition::{
+    Command, ExecuteOutcome, board_position, execute_with, forecast_tile_attack,
+    forecast_unit_attack,
+};
 use crate::violation::Violation;
 
 /// Why a question could not be answered at all.
@@ -467,6 +471,13 @@ pub struct ObservedActionSet {
     pub launch: Vec<Pos>,
 }
 
+/// The legal attacks from one candidate movement destination.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObservedAttacksFrom {
+    pub from: Pos,
+    pub targets: Vec<Pos>,
+}
+
 /// One standalone AWBW unload order available to the recipient.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ObservedUnload {
@@ -519,6 +530,97 @@ pub fn observed_actions_at(
 
     let state = reify(observation)?;
     Ok(by_position(&state, actions_at(&state, unit, destination)?))
+}
+
+/// What `unit` may attack from each candidate movement destination.
+///
+/// This is the batch form of reading [`ObservedActionSet::attack`] from
+/// [`observed_actions_at`]. Reification is the expensive part of an observed
+/// query, so a board that highlights all targets must pay that cost once per
+/// selection, not once per destination.
+pub fn observed_attacks_from(
+    observation: &Observation,
+    unit: UnitId,
+    destinations: &[Pos],
+) -> Result<Vec<ObservedAttacksFrom>, QueryError> {
+    if !recipient_may_command(observation) {
+        return Ok(Vec::new());
+    }
+
+    let state = reify(observation)?;
+    destinations
+        .iter()
+        .copied()
+        .map(|from| {
+            Ok(ObservedAttacksFrom {
+                from,
+                targets: by_position(&state, actions_at(&state, unit, from)?).attack,
+            })
+        })
+        .collect()
+}
+
+/// What each of these attacks would cost both sides, before any dice.
+///
+/// A player choosing between two attacks is choosing between two brackets, and
+/// until they can see both they are guessing at the one number the game
+/// actually turns on. This answers for a whole menu at once because that is how
+/// the question is asked: reifying the observation is the expensive half, and a
+/// caller asking per target would pay it once per row.
+///
+/// `targets` are positions rather than ids for the reason
+/// [`ObservedActionSet`] gives — a projection carries no id for an enemy — so a
+/// target is read as whatever stands there: a unit if one does, otherwise a
+/// destructible tile. Results are positional, one entry per requested target.
+/// An entry is `None` when the attack is not one this unit could make from
+/// `from`, which is the same answer the interface should give when it has
+/// nothing trustworthy to show: no number at all rather than a wrong one.
+///
+/// Like every observed-side query this is computed against the recipient's own
+/// projection, so fog can make it wrong in both directions. It is advisory,
+/// exactly as the order list it annotates already is.
+pub fn observed_forecasts(
+    observation: &Observation,
+    unit: UnitId,
+    from: Pos,
+    targets: &[Pos],
+) -> Result<Vec<Option<Forecast>>, QueryError> {
+    if !recipient_may_command(observation) {
+        return Ok(vec![None; targets.len()]);
+    }
+
+    let state = reify(observation)?;
+    let index = state
+        .units
+        .index_of(unit)
+        .ok_or(QueryError::UnitNotFound(unit))?;
+    let player = state.units[index].owner.clone();
+
+    Ok(targets
+        .iter()
+        .map(|target| forecast_at(&state, &player, index, unit, from, *target))
+        .collect())
+}
+
+/// One target's forecast, dispatched on what is standing there.
+fn forecast_at(
+    state: &State,
+    player: &PlayerId,
+    index: usize,
+    unit: UnitId,
+    from: Pos,
+    target: Pos,
+) -> Option<Forecast> {
+    let occupant = state
+        .units
+        .iter()
+        .find(|candidate| candidate.id != unit && board_position(candidate) == Some(target));
+    match occupant {
+        Some(defender) => forecast_unit_attack(state, player, index, from, defender.id).ok(),
+        None => forecast_tile_attack(state, player, &state.units[index], from, target)
+            .ok()
+            .flatten(),
+    }
 }
 
 /// Which free unload commands the recipient may issue from `transport` now.

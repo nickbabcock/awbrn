@@ -953,7 +953,7 @@ fn collect_ui_sprites(ui_root: &Path) -> Result<Vec<UiSprite>> {
 }
 
 fn collect_ui_effect_sprites(effects_root: &Path) -> Result<Vec<UiSprite>> {
-    let effect_files = ["Select.png", "Supplied.png", "TileCursor.png"];
+    let effect_files = ["Select.png", "Supplied.png", "Target.png", "TileCursor.png"];
     let mut sprites = Vec::new();
 
     for file_name in effect_files {

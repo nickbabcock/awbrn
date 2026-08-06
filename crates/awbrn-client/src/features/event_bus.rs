@@ -211,6 +211,104 @@ pub struct UnitActionOption {
     /// The label the source game uses for this order.
     pub name: String,
     pub action: UnitOrder,
+    /// What firing this order would cost both sides. Present only on attacks,
+    /// and absent even there when AWVM could not answer — a row with no number
+    /// is the honest fallback, and a wrong number is not.
+    #[cfg_attr(target_family = "wasm", tsify(optional))]
+    pub forecast: Option<AttackForecast>,
+}
+
+impl UnitActionOption {
+    /// An order with nothing to forecast, which is every order but an attack.
+    pub fn plain(name: impl Into<String>, action: UnitOrder) -> Self {
+        Self {
+            name: name.into(),
+            action,
+            forecast: None,
+        }
+    }
+}
+
+/// The damage one strike lands, from its unluckiest roll to its luckiest, in
+/// percentage points of a unit at full health.
+///
+/// Percentages rather than HP because that is the number AWVM's combat
+/// arithmetic works in and the vocabulary AWBW's own calculator uses. The
+/// figure is not limited by what the target still has, for the same reason
+/// AWBW does not limit it: 101 and 160 against the same unit are a bare kill
+/// and an overkill, and a player picks a different attacker for each. `low`
+/// equals `high` whenever no commander in the exchange grants luck.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct DamageBracket {
+    pub low: u16,
+    pub high: u16,
+}
+
+/// What one attack would cost both sides, before any dice.
+///
+/// The two brackets are not independent: a counter is scored from what the
+/// strike left standing, so `damage.high` pairs with `counter.low` and
+/// `damage.low` pairs with `counter.high`. Presentation must read them that
+/// way rather than as two separate rolls.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct AttackForecast {
+    pub target: ForecastTarget,
+    pub damage: DamageBracket,
+    /// What comes back, when anything can. `None` is not a counter of zero:
+    /// no reply and a reply that happens to do nothing are different facts and
+    /// a player acts differently on each.
+    #[cfg_attr(target_family = "wasm", tsify(optional))]
+    pub counter: Option<DamageBracket>,
+    /// Whether the defender's commander answers before the shot that provoked
+    /// it, which is what makes this attacker's own damage depend on the reply.
+    pub counter_first: bool,
+    /// Whether even the weakest roll finishes the target.
+    pub destroys: bool,
+    /// Whether the strongest roll finishes it, when the weakest does not.
+    pub may_destroy: bool,
+}
+
+/// A unit as the menu draws and names it.
+///
+/// Enough to put a sprite, an army and a health beside a number, and no more:
+/// this is identity for a readout, not the tile inspector.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(rename_all = "camelCase")]
+pub struct UnitBadge {
+    pub unit: awvm::ruleset::UnitKind,
+    pub name: String,
+    pub faction_code: String,
+    /// Health as the game shows it, 1 to 10.
+    pub health: u8,
+}
+
+/// What an attack is aimed at, as the order names it.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum ForecastTarget {
+    Unit {
+        unit: awvm::ruleset::UnitKind,
+        name: String,
+        faction_code: String,
+        /// Health as the game shows it, 1 to 10.
+        health: u8,
+    },
+    /// A destructible tile: a pipe seam. It has no army and does not answer.
+    Tile { name: String },
 }
 
 /// The command represented by one entry in the unit order menu.
@@ -246,6 +344,10 @@ pub struct UnitActionsChanged {
     /// Which order to highlight first. A drag released on an enemy is explicit
     /// attack intent, and the menu opens saying so.
     pub preselected: Option<usize>,
+    /// The unit being commanded. It is the same for every order, so a menu that
+    /// forecasts names it once at the head rather than on each row.
+    #[cfg_attr(target_family = "wasm", tsify(optional))]
+    pub attacker: Option<UnitBadge>,
 }
 
 /// An atomic move-and-act intent chosen on the live board. The browser forwards

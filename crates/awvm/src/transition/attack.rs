@@ -5,7 +5,7 @@
 
 use super::ReducerError as ExecuteError;
 use super::*;
-use crate::combat::{self, Hit, Side};
+use crate::combat::{self, DamageRange, Forecast, Hit, Side};
 use crate::commander::{self, CombatContext, Combatant, Strike};
 use crate::event::{AttackTarget, Event};
 use crate::random::Luck;
@@ -133,6 +133,43 @@ impl StrikeValues {
     /// Draw this strike's signed luck modifier off the tape, good roll first.
     fn luck(&self, draws: &mut Draws<'_>) -> Result<i64, ExecuteError> {
         Ok(draw(draws, Luck::Good, self.good_luck)? - draw(draws, Luck::Bad, self.bad_luck)?)
+    }
+
+    /// The worst and best signed luck modifiers this strike can draw.
+    ///
+    /// The two domains are drawn independently and subtracted, so the extremes
+    /// are the extremes of the difference rather than of either domain.
+    fn luck_bounds(&self) -> (i64, i64) {
+        (
+            self.good_luck.minimum - self.bad_luck.maximum,
+            self.good_luck.maximum - self.bad_luck.minimum,
+        )
+    }
+
+    /// The damage this strike lands at one end of its luck, as the pair
+    /// `(landed, raw)`, or zeroes when the striker is not standing to fire it.
+    ///
+    /// Both halves are needed and they are not interchangeable. The exchange
+    /// runs on what lands, because a counter is scored from the health the
+    /// strike actually left; the forecast reports the raw figure, because the
+    /// overkill it hides is what a player is choosing between.
+    fn scored(
+        &self,
+        striker: &Unit,
+        striker_hp: u8,
+        target: &Unit,
+        target_hp: u8,
+        luck: i64,
+    ) -> (u8, u16) {
+        if striker_hp == 0 {
+            return (0, 0);
+        }
+        combat::damage(
+            self.striker_side(striker, striker_hp),
+            self.target_side(target, target_hp),
+            luck,
+        )
+        .map_or((0, 0), |hit| (hit.damage, hit.raw_damage))
     }
 }
 
@@ -380,15 +417,64 @@ pub(crate) fn apply_strike_power_charge(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn execute_tile_attack(
+/// Score one strike against a destructible tile.
+///
+/// A tile answers nothing and no commander grants luck against one, so the
+/// number is exact. `None` means the attacker holds no weapon that bites this
+/// tile, which the reducer treats as an invalid target and a forecast treats as
+/// nothing to report.
+fn score_tile_strike(
     state: &State,
     player: &PlayerId,
-    unit_id: UnitId,
-    attacker_index: usize,
+    attacker: &Unit,
+    origin: Pos,
+    target_kind: UnitKindId,
+    target_hp: u8,
+) -> Result<Option<Hit>, ExecuteError> {
+    let fire_mode = ruleset::profile(attacker.kind).fire_mode;
+    let striking = commander::effective_combat(
+        state,
+        player,
+        combatant(state, attacker.kind, origin, fire_mode),
+        Strike::Initial,
+        combat_context(state, player, origin),
+    )
+    .ok_or_else(|| ExecuteError::InvalidState("commander combat overflow".into()))?;
+    Ok(combat::damage(
+        Side {
+            kind: attacker.kind,
+            hp: attacker.hp,
+            ammo: attacker.ammo,
+            attack: striking.attack,
+            defense: 100,
+            // The formula reads defense and terrain stars only from the target.
+            terrain_stars: 0,
+        },
+        Side {
+            kind: target_kind,
+            hp: target_hp,
+            ammo: 0,
+            attack: 100,
+            defense: 100,
+            terrain_stars: 0,
+        },
+        0,
+    ))
+}
+
+struct ValidatedTileAttack {
+    hp: u8,
+    kind: UnitKindId,
+    destruction_replacement: TerrainId,
+}
+
+fn validate_tile_attack(
+    state: &State,
+    player: &PlayerId,
     attacker: &Unit,
     origin: Pos,
     position: Pos,
-) -> Result<Execution, ExecuteError> {
+) -> Result<ValidatedTileAttack, ExecuteError> {
     let tile = state.board.get(position).ok_or_else(|| {
         violation(Violation::InvalidTarget {
             target: Some(position.into()),
@@ -417,10 +503,9 @@ pub(crate) fn execute_tile_attack(
             "destructible tile HP exceeds its maximum".into(),
         ));
     }
-    let from_hp = u8::try_from(from_hp)
+    let hp = u8::try_from(from_hp)
         .map_err(|_| ExecuteError::InvalidState("destructible tile HP overflow".into()))?;
-    let target_kind = destructible.target_kind;
-    let destruction_replacement = destructible.destruction_replacement;
+    let kind = destructible.target_kind;
 
     let actor_team = state
         .find_player(player)
@@ -459,41 +544,34 @@ pub(crate) fn execute_tile_attack(
             target: Some(position.into()),
         }));
     }
-    if combat::select_weapon(attacker.kind, target_kind, attacker.ammo).is_none() {
+    if combat::select_weapon(attacker.kind, kind, attacker.ammo).is_none() {
         return Err(violation(Violation::InvalidTarget {
             target: Some(position.into()),
         }));
     }
+    Ok(ValidatedTileAttack {
+        hp,
+        kind,
+        destruction_replacement: destructible.destruction_replacement,
+    })
+}
 
-    let striking = commander::effective_combat(
-        state,
-        player,
-        combatant(state, attacker.kind, origin, fire_mode),
-        Strike::Initial,
-        combat_context(state, player, origin),
-    )
-    .ok_or_else(|| ExecuteError::InvalidState("commander combat overflow".into()))?;
-    let hit = combat::damage(
-        Side {
-            kind: attacker.kind,
-            hp: attacker.hp,
-            ammo: attacker.ammo,
-            attack: striking.attack,
-            defense: 100,
-            // The formula reads defense and terrain stars only from the target.
-            terrain_stars: 0,
-        },
-        Side {
-            kind: target_kind,
-            hp: from_hp,
-            ammo: 0,
-            attack: 100,
-            defense: 100,
-            terrain_stars: 0,
-        },
-        0,
-    )
-    .expect("tile weapon was validated");
+pub(crate) fn execute_tile_attack(
+    state: &State,
+    player: &PlayerId,
+    unit_id: UnitId,
+    attacker_index: usize,
+    attacker: &Unit,
+    origin: Pos,
+    position: Pos,
+) -> Result<Execution, ExecuteError> {
+    let target = validate_tile_attack(state, player, attacker, origin, position)?;
+    let from_hp = target.hp;
+    let target_kind = target.kind;
+    let destruction_replacement = target.destruction_replacement;
+
+    let hit = score_tile_strike(state, player, attacker, origin, target_kind, from_hp)?
+        .expect("tile weapon was validated");
     let to_hp = from_hp.saturating_sub(hit.damage);
     let mut next = state.clone();
     let mut events = Vec::new();
@@ -524,7 +602,7 @@ pub(crate) fn execute_tile_attack(
         next.board.tile_mut(position).set_destructible_hp(None);
         events.push(Event::TileTerrainChanged {
             position,
-            from: tile.terrain,
+            from: state.board.tile(position).terrain,
             to: destruction_replacement,
             reason: KnownReason::Combat.into(),
         });
@@ -791,6 +869,150 @@ impl<'a> Engagement<'a> {
     }
 }
 
+/// What an exchange would cost both sides, without drawing a single roll.
+///
+/// This is [`resolve_exchange`] and [`resolve_counter_first`] scored twice —
+/// once with the luck of every commander involved at its worst for the striker
+/// and once at its best — and it opens the same [`Engagement`] they do. That is
+/// the point rather than a convenience: counter eligibility, effective attack
+/// range, concealment compatibility, both commanders' attack and defense
+/// modifiers, effective enemy terrain stars and the `counter-first` inversion
+/// all live in the engagement, and a forecast that recomputed any of them would
+/// be a second combat model free to drift from the one that resolves the shot.
+///
+/// The error cases are the reducer's own: an out-of-range, invisible, or
+/// unarmed engagement reports the violation it would report at execution time,
+/// so a caller cannot forecast an attack that could not be made.
+pub(crate) fn forecast_unit_attack(
+    state: &State,
+    player: &PlayerId,
+    attacker_index: usize,
+    origin: Pos,
+    target_id: UnitId,
+) -> Result<Forecast, ExecuteError> {
+    let engagement = Engagement::open(state, player, attacker_index, origin, target_id)?;
+    let attacker = engagement.attacker.unit;
+    let defender = engagement.defender.unit;
+    let initial = &engagement.initial;
+    let (attack_worst, attack_best) = initial.luck_bounds();
+
+    if engagement.counter_comes_first() {
+        // The pre-emptive strike lands at the defender's full health, and what
+        // it leaves is what the attacker fires from. So the attacker's weakest
+        // roll is the one paired with the reply that hurt most.
+        let values = engagement.counter_values()?;
+        let (counter_worst, counter_best) = values.luck_bounds();
+        let (counter_low, counter_low_raw) =
+            values.scored(defender, defender.hp, attacker, attacker.hp, counter_worst);
+        let (counter_high, counter_high_raw) =
+            values.scored(defender, defender.hp, attacker, attacker.hp, counter_best);
+        let (_, attack_low_raw) = initial.scored(
+            attacker,
+            attacker.hp.saturating_sub(counter_high),
+            defender,
+            defender.hp,
+            attack_worst,
+        );
+        let (_, attack_high_raw) = initial.scored(
+            attacker,
+            attacker.hp.saturating_sub(counter_low),
+            defender,
+            defender.hp,
+            attack_best,
+        );
+        return Ok(Forecast {
+            attack: DamageRange {
+                low: attack_low_raw,
+                high: attack_high_raw,
+            },
+            counter: Some(DamageRange {
+                low: counter_low_raw,
+                high: counter_high_raw,
+            }),
+            counter_first: true,
+            attacker_hp: attacker.hp,
+            target_hp: defender.hp,
+        });
+    }
+
+    let (attack_low, attack_low_raw) =
+        initial.scored(attacker, attacker.hp, defender, defender.hp, attack_worst);
+    let (attack_high, attack_high_raw) =
+        initial.scored(attacker, attacker.hp, defender, defender.hp, attack_best);
+    // Nothing answers when nothing is armed to, and nothing survives to answer
+    // when even the weakest roll finishes the defender.
+    let counter = if !engagement.counter_armed || defender.hp.saturating_sub(attack_low) == 0 {
+        None
+    } else {
+        let values = engagement.counter_values()?;
+        let (worst, best) = values.luck_bounds();
+        Some(DamageRange {
+            low: values
+                .scored(
+                    defender,
+                    defender.hp.saturating_sub(attack_high),
+                    attacker,
+                    attacker.hp,
+                    worst,
+                )
+                .1,
+            high: values
+                .scored(
+                    defender,
+                    defender.hp.saturating_sub(attack_low),
+                    attacker,
+                    attacker.hp,
+                    best,
+                )
+                .1,
+        })
+    };
+
+    Ok(Forecast {
+        attack: DamageRange {
+            low: attack_low_raw,
+            high: attack_high_raw,
+        },
+        counter,
+        counter_first: false,
+        attacker_hp: attacker.hp,
+        target_hp: defender.hp,
+    })
+}
+
+/// What one strike against a destructible tile would take off it.
+///
+/// A pipe seam has no commander, no luck and no reply, so both ends of the
+/// range are the same number and the counter is always absent. `None` means the
+/// tile is not destructible or the attacker holds nothing that bites it.
+pub(crate) fn forecast_tile_attack(
+    state: &State,
+    player: &PlayerId,
+    attacker: &Unit,
+    origin: Pos,
+    position: Pos,
+) -> Result<Option<Forecast>, ExecuteError> {
+    let target = match validate_tile_attack(state, player, attacker, origin, position) {
+        Ok(target) => target,
+        Err(ExecuteError::Violation(_)) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let Some(hit) = score_tile_strike(state, player, attacker, origin, target.kind, target.hp)?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(Forecast {
+        attack: DamageRange {
+            low: hit.raw_damage,
+            high: hit.raw_damage,
+        },
+        counter: None,
+        counter_first: false,
+        attacker_hp: attacker.hp,
+        target_hp: target.hp,
+    }))
+}
+
 /// The ordinary exchange: the initiating strike lands, then the defender
 /// answers if it survived and can.
 fn resolve_exchange(
@@ -1031,4 +1253,46 @@ fn rout_if_last_unit(
         events,
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tile_forecasts_reject_targets_that_execution_rejects() {
+        for fixture in ["tile-invalid-targets.json", "tile-occupied-seam.json"] {
+            let text = std::fs::read_to_string(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../spec/fixtures/combat")
+                    .join(fixture),
+            )
+            .expect("read combat fixture");
+            let case: serde_json::Value = serde_json::from_str(&text).expect("parse fixture");
+            let state: State =
+                serde_json::from_value(case["initial_state"].clone()).expect("parse state");
+
+            for step in case["steps"].as_array().expect("fixture steps") {
+                let command: Command =
+                    serde_json::from_value(step["command"].clone()).expect("parse command");
+                let Command::MoveAttack {
+                    player,
+                    unit,
+                    path,
+                    target: AttackTarget::Tile { position },
+                } = command
+                else {
+                    continue;
+                };
+                let attacker = state.units.get(unit).expect("attacker exists");
+                let origin = *path.last().expect("attack path has an origin");
+
+                assert_eq!(
+                    forecast_tile_attack(&state, &player, attacker, origin, position).unwrap(),
+                    None,
+                    "{fixture} forecasted a reducer-invalid tile"
+                );
+            }
+        }
+    }
 }
