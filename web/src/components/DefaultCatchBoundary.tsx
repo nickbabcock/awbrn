@@ -6,7 +6,7 @@ import {
   type ErrorComponentProps,
 } from "@tanstack/react-router";
 import { Banner } from "@astryxdesign/core/Banner";
-import { Button } from "@astryxdesign/core/Button";
+import { Button } from "#/ui/Button.tsx";
 import { Card } from "@astryxdesign/core/Card";
 import { Center } from "@astryxdesign/core/Center";
 import { Section } from "@astryxdesign/core/Section";

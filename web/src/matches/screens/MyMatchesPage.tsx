@@ -7,7 +7,7 @@ import { List } from "@astryxdesign/core/List";
 import { Section } from "@astryxdesign/core/Section";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { Thumbnail } from "@astryxdesign/core/Thumbnail";
+import { Thumbnail } from "#/ui/Thumbnail.tsx";
 import { awbwSmallMapAssetPath } from "#/awbw/paths.ts";
 import { getCoPortraitByAwbwId } from "#/components/co_portraits.ts";
 import { getFactionById } from "#/factions.ts";
