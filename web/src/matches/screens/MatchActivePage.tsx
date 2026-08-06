@@ -931,9 +931,12 @@ const styles = stylex.create({
   hudState: {
     flex: "none",
   },
+  // The panel keeps the whole rail. Its section is a column, where `align-self`
+  // is the width rather than the height, so asking it to sit at the start once
+  // shrank the armies to the width of their own sprites. The board's height is
+  // not imposed on it either way: the grid places both columns at the start.
   rosterPanel: {
     overflow: "hidden",
-    alignSelf: "start",
   },
   // The armies stay with the board on a tall screen rather than scrolling away
   // from the thing they describe.
