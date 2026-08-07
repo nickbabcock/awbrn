@@ -9,6 +9,7 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { borderVars, colorVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
+import { Calculator as CalculatorIcon } from "pixelarticons/react/Calculator";
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useState } from "react";
 import { resolveAwbwUsername } from "#/awbw/api.ts";
@@ -20,6 +21,10 @@ import { useReplayRunner } from "#/engine/runtime_context.tsx";
 import { useGameActions, useGameStore } from "#/engine/store.ts";
 import { getFactionByCode } from "#/factions.ts";
 import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
+import { Button } from "#/ui/Button.tsx";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
+import { BattleCalculator } from "#/matches/components/BattleCalculator.tsx";
+import { battleCalculatorLayout } from "#/matches/components/battleCalculatorLayout.stylex.ts";
 import { RosterList, RosterRow } from "./RosterRow";
 
 export function ReplayPage() {
@@ -30,6 +35,8 @@ export function ReplayPage() {
   const [playerNames, setPlayerNames] = useState<Record<number, string>>({});
   const [replayFile, setReplayFile] = useState<File | null>(null);
   const [replayError, setReplayError] = useState<string | null>(null);
+  const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
+  const isCalculatorCompact = useMediaQuery(battleCalculatorLayout.sheetMedia);
   const runner = useReplayRunner();
   const {
     canvasRef,
@@ -144,7 +151,10 @@ export function ReplayPage() {
             ref={surfaceRef}
             xstyle={[
               styles.gameSurface,
-              !playerRoster && styles.gameSurfaceEmpty,
+              // With no replay the frame only has to say where the board goes,
+              // unless the calculator is standing on it: a panel is not a
+              // placeholder, and it needs the room a board would have had.
+              !playerRoster && !isCalculatorOpen && styles.gameSurfaceEmpty,
               isFullscreen && styles.gameSurfaceFullscreen,
               fullscreenMode === "immersive" && styles.gameSurfaceImmersive,
             ]}
@@ -165,6 +175,18 @@ export function ReplayPage() {
                   {replayLoader}
                 </VStack>
               </Center>
+            ) : null}
+
+            {/* The engagement a reviewer is imagining, over the battle they
+                are imagining it in. It changes nothing about the replay. */}
+            {isCalculatorOpen ? (
+              <BattleCalculator
+                onDismiss={() => setIsCalculatorOpen(false)}
+                onRestoreFocus={focus}
+                presentation={isCalculatorCompact ? "sheet" : "board"}
+                roster={playerRoster}
+                runner={runner}
+              />
             ) : null}
 
             {/* The terrain window stands on the battlefield itself, so reading
@@ -194,13 +216,25 @@ export function ReplayPage() {
             </HStack>
             {/* Full screen is only an offer once there is a battle to watch,
                 and while the board holds the screen the way back out is the key
-                on the board itself. */}
-            {playerRoster ? (
-              <HStack align="center" gap={2} wrap="wrap">
-                {isFullscreen ? null : <GameFullscreenButton onEnter={enterFullscreen} />}
-                {replayLoader}
-              </HStack>
-            ) : null}
+                on the board itself. The calculator does not wait on a replay:
+                it asks about an engagement no board holds, and a player who
+                came to check a matchup has nothing to load first. */}
+            <HStack align="center" gap={2} wrap="wrap">
+              <Button
+                clickAction={() => setIsCalculatorOpen(true)}
+                icon={<CalculatorIcon aria-hidden height={16} width={16} />}
+                isDisabled={isCalculatorOpen}
+                label="Calculator"
+                size="sm"
+                variant="secondary"
+              />
+              {playerRoster ? (
+                <>
+                  {isFullscreen ? null : <GameFullscreenButton onEnter={enterFullscreen} />}
+                  {replayLoader}
+                </>
+              ) : null}
+            </HStack>
           </HStack>
         </Card>
 
