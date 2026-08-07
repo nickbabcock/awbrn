@@ -25,7 +25,14 @@ function entry(power: Partial<PlayerRosterEntry>): PlayerRosterEntry {
     scopCost: undefined,
     powerStarCharge: undefined,
     activePower: undefined,
-    stats: { funds: undefined, income: undefined, unitCount: undefined, unitValue: undefined },
+    stats: {
+      funds: undefined,
+      income: undefined,
+      unitCount: undefined,
+      unitValue: undefined,
+      properties: undefined,
+      comTowers: undefined,
+    },
     ...power,
   };
 }

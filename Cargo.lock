@@ -582,6 +582,7 @@ name = "awbrn-wasm"
 version = "0.1.0"
 dependencies = [
  "awbrn-client",
+ "awbrn-content",
  "awbrn-map",
  "awbrn-types",
  "awbw-replay",

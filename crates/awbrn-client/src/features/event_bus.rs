@@ -434,6 +434,13 @@ pub struct PlayerRosterStats {
     pub unit_count: Option<u32>,
     pub unit_value: Option<u32>,
     pub income: Option<u32>,
+    /// Every capturable tile the army holds, com towers included. It is the
+    /// figure `income` is derived from, reported alongside it because a
+    /// commander who reads the property count reads this and not the money.
+    pub properties: Option<u32>,
+    /// How many of those properties are com towers, which is the one property
+    /// kind that changes what a unit deals and takes.
+    pub com_towers: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -478,6 +485,10 @@ pub struct PlayerRosterSnapshot {
     pub map_id: u32,
     pub day: u32,
     pub active_player_id: Option<u32>,
+    /// The weather the board is under. It scales nothing on its own, but it is
+    /// a commander predicate — several read it — so anything reasoning about
+    /// combat off this snapshot needs it.
+    pub weather: awvm::ruleset::WeatherKind,
     pub players: Vec<PlayerRosterEntry>,
 }
 

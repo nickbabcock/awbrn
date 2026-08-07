@@ -8,6 +8,9 @@ import {
 import type { AwbwMapData } from "#/awbw/schemas.ts";
 import type { ObservedTransition } from "#/wasm/awbrn_server.js";
 import type {
+  BattleCatalog,
+  BattleReportWire,
+  BattleRequestWire,
   DeleteUnitCommandRequested,
   GameEvent,
   MoveCommandRequested,
@@ -25,6 +28,7 @@ export interface GameSurface extends CanvasCourierSurface {}
 
 export class GameRunner implements CanvasCourierController {
   private activeSurface: GameSurface | undefined;
+  private battleCatalogPromise: Promise<BattleCatalog> | undefined;
   private createGamePromise: Promise<GameInstance> | undefined;
   private game: GameInstance | undefined;
   private pendingLiveTransitions: ObservedTransition[] = [];
@@ -93,6 +97,24 @@ export class GameRunner implements CanvasCourierController {
     await game.setPlayerDisplayFaction(playerId, factionId);
   }
 
+  /**
+   * Score a hypothetical engagement.
+   *
+   * It goes to the worker rather than to the game, so it answers whether or not
+   * a board has loaded and never waits on one. The worker is the only place the
+   * engine lives, and asking the rules from anywhere else would mean a second
+   * copy of them in the browser.
+   */
+  async forecastBattle(request: BattleRequestWire): Promise<BattleReportWire> {
+    return this.getWorker().forecastBattle(request);
+  }
+
+  /** The units, terrain and commanders the rules define. Fetched once. */
+  loadBattleCatalog(): Promise<BattleCatalog> {
+    this.battleCatalogPromise ??= this.getWorker().loadBattleCatalog();
+    return this.battleCatalogPromise;
+  }
+
   setLiveCommandHandler(handler: ((command: MatchCommand) => void) | undefined): void {
     this.liveCommandHandler = handler;
   }
@@ -100,6 +122,7 @@ export class GameRunner implements CanvasCourierController {
   dispose(): void {
     this.surfaceVersion += 1;
     this.activeSurface = undefined;
+    this.battleCatalogPromise = undefined;
     this.liveCommandHandler = undefined;
     this.transport.dispose();
     this.game = undefined;
