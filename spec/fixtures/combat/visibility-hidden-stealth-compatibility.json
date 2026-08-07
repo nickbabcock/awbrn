@@ -201,7 +201,7 @@
               "ammo": 5,
               "concealment": "hidden",
               "fuel": 60,
-              "hp": 24,
+              "hp": 15,
               "id": 1,
               "kind": "stealth",
               "location": { "position": [1, 0], "type": "board" },
@@ -212,7 +212,7 @@
               "ammo": 8,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 91,
+              "hp": 94,
               "id": 2,
               "kind": "fighter",
               "location": { "position": [2, 0], "type": "board" },
@@ -240,7 +240,7 @@
           {
             "from_hp": 100,
             "reason": "combat",
-            "to_hp": 24,
+            "to_hp": 15,
             "type": "unit-damaged",
             "unit": 1
           },
@@ -262,7 +262,7 @@
           {
             "from_hp": 100,
             "reason": "combat-counter",
-            "to_hp": 91,
+            "to_hp": 94,
             "type": "unit-damaged",
             "unit": 2
           },

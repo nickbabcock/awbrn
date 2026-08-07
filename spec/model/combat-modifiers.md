@@ -52,8 +52,9 @@ responsible for reducing the completed value.
 
 Rules are evaluated in array order. The effective operators use this order:
 
-1. Start attack and defense at 100, terrain stars at the terrain table value,
-   good luck at `[0,9]`, and bad luck at `[0,0]`.
+1. Start attack and defense at 100. Start terrain stars at zero for an air unit
+   and at the terrain table value for a ground or sea unit. Start good luck at
+   `[0,9]` and bad luck at `[0,0]`.
 2. Apply matching day-to-day effects in listed order.
 3. If COP or SCOP is active, add the generic power attack and defense bonus,
    then apply that power state's matching rules in listed order.
