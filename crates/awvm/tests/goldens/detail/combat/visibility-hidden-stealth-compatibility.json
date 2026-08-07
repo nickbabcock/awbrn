@@ -827,7 +827,7 @@
               "ammo": 5,
               "concealment": "hidden",
               "fuel": 60,
-              "hp": 24,
+              "hp": 15,
               "kind": "stealth",
               "location": {
                 "position": [
@@ -870,7 +870,7 @@
               "ammo": 8,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 91,
+              "hp": 94,
               "kind": "fighter",
               "location": {
                 "position": [
@@ -1024,7 +1024,7 @@
               "ammo": 8,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 91,
+              "hp": 94,
               "kind": "fighter",
               "location": {
                 "position": [
@@ -1044,7 +1044,7 @@
               "ammo": 5,
               "concealment": "hidden",
               "fuel": 60,
-              "hp": 24,
+              "hp": 15,
               "kind": "stealth",
               "location": {
                 "position": [
@@ -1078,7 +1078,7 @@
               "ammo": 8,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 91,
+              "hp": 94,
               "kind": "fighter",
               "location": {
                 "position": [
@@ -1112,7 +1112,7 @@
               "ammo": 5,
               "concealment": "hidden",
               "fuel": 60,
-              "hp": 24,
+              "hp": 15,
               "kind": "stealth",
               "location": {
                 "position": [
@@ -1140,7 +1140,7 @@
               "ammo": 5,
               "concealment": "hidden",
               "fuel": 60,
-              "hp": 24,
+              "hp": 15,
               "kind": "stealth",
               "location": {
                 "position": [
@@ -1168,7 +1168,7 @@
               "ammo": 8,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 91,
+              "hp": 94,
               "kind": "fighter",
               "location": {
                 "position": [
@@ -1202,7 +1202,7 @@
               "ammo": 8,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 91,
+              "hp": 94,
               "kind": "fighter",
               "location": {
                 "position": [
@@ -1238,7 +1238,7 @@
               "ammo": 8,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 91,
+              "hp": 94,
               "kind": "fighter",
               "location": {
                 "position": [
@@ -1266,7 +1266,7 @@
               "ammo": 5,
               "concealment": "hidden",
               "fuel": 60,
-              "hp": 24,
+              "hp": 15,
               "kind": "stealth",
               "location": {
                 "position": [
@@ -1300,7 +1300,7 @@
               "ammo": 5,
               "concealment": "hidden",
               "fuel": 60,
-              "hp": 24,
+              "hp": 15,
               "kind": "stealth",
               "location": {
                 "position": [
@@ -1334,7 +1334,7 @@
               "ammo": 8,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 91,
+              "hp": 94,
               "kind": "fighter",
               "location": {
                 "position": [
@@ -1362,7 +1362,7 @@
               "ammo": 8,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 91,
+              "hp": 94,
               "kind": "fighter",
               "location": {
                 "position": [

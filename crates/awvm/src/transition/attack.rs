@@ -9,7 +9,7 @@ use crate::combat::{self, DamageRange, Forecast, Hit, Side};
 use crate::commander::{self, CombatContext, Combatant, Strike};
 use crate::event::{AttackTarget, Event};
 use crate::random::Luck;
-use crate::ruleset::{self, FireMode, TerrainTrait};
+use crate::ruleset::{self, Domain, FireMode, TerrainTrait};
 use crate::semantic::{
     AwbwVisibility, Concealment, KnownReason, Location, PlayerId, Pos, PowerState, State,
     TerrainId, Unit, UnitAction, UnitId, UnitKindId, Visibility,
@@ -39,8 +39,13 @@ fn is_property(terrain: TerrainId) -> bool {
 }
 
 /// The board- and treasury-wide values a commander's combat rules read, for
-/// `owner` firing from or standing on `position`.
-fn combat_context(state: &State, owner: &PlayerId, position: Pos) -> CombatContext {
+/// `unit` firing from or standing on `position`.
+fn combat_context(
+    state: &State,
+    owner: &PlayerId,
+    unit: UnitKindId,
+    position: Pos,
+) -> CombatContext {
     let mut tower_count = 0_i64;
     let mut owned_properties = 0_u64;
     for tile in state.board.tiles() {
@@ -54,11 +59,17 @@ fn combat_context(state: &State, owner: &PlayerId, position: Pos) -> CombatConte
             owned_properties += 1;
         }
     }
+    let base_terrain_stars = match ruleset::profile(unit).domain {
+        Domain::Air => 0,
+        Domain::Ground | Domain::Sea => {
+            i64::from(ruleset::defense_stars(state.board.tile(position).terrain))
+        }
+    };
     CombatContext {
         tower_count,
         funds: state.find_player(owner).map_or(0, |player| player.funds),
         owned_properties,
-        base_terrain_stars: i64::from(ruleset::defense_stars(state.board.tile(position).terrain)),
+        base_terrain_stars,
     }
 }
 
@@ -189,7 +200,12 @@ fn resolve_strike(
         &striker.unit.owner,
         striker_context,
         strike,
-        combat_context(state, &striker.unit.owner, striker.position),
+        combat_context(
+            state,
+            &striker.unit.owner,
+            striker.unit.kind,
+            striker.position,
+        ),
     )
     .ok_or_else(overflow)?;
     let defending = commander::effective_combat(
@@ -197,7 +213,7 @@ fn resolve_strike(
         &target.unit.owner,
         target_context,
         strike,
-        combat_context(state, &target.unit.owner, target.position),
+        combat_context(state, &target.unit.owner, target.unit.kind, target.position),
     )
     .ok_or_else(overflow)?;
     let stars = commander::effective_enemy_terrain_stars(
@@ -437,7 +453,7 @@ fn score_tile_strike(
         player,
         combatant(state, attacker.kind, origin, fire_mode),
         Strike::Initial,
-        combat_context(state, player, origin),
+        combat_context(state, player, attacker.kind, origin),
     )
     .ok_or_else(|| ExecuteError::InvalidState("commander combat overflow".into()))?;
     Ok(combat::damage(
