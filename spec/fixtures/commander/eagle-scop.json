@@ -192,13 +192,7 @@
             "weapon": "ammo",
             "target": { "type": "unit", "unit": 1 }
           },
-          {
-            "type": "unit-damaged",
-            "unit": 1,
-            "from_hp": 100,
-            "to_hp": 25,
-            "reason": "combat"
-          },
+          { "type": "unit-damaged", "unit": 1, "from_hp": 100, "to_hp": 25, "reason": "combat" },
           {
             "type": "unit-action-changed",
             "unit": 0,

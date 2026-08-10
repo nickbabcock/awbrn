@@ -182,7 +182,7 @@
               "id": 1,
               "kind": "neo-tank",
               "owner": "blue",
-              "hp": 15,
+              "hp": 11,
               "fuel": 99,
               "ammo": 9,
               "action": "ready",
@@ -208,13 +208,7 @@
             "weapon": "ammo",
             "target": { "type": "unit", "unit": 1 }
           },
-          {
-            "type": "unit-damaged",
-            "unit": 1,
-            "from_hp": 100,
-            "to_hp": 15,
-            "reason": "combat"
-          },
+          { "type": "unit-damaged", "unit": 1, "from_hp": 100, "to_hp": 11, "reason": "combat" },
           {
             "type": "unit-action-changed",
             "unit": 0,

@@ -44,33 +44,65 @@
     "eagle": {
       "day_to_day": {
         "rules": [
-          { "when": { "domains": ["air"] }, "effect": { "operator": "attack-add", "value": 20 } },
           {
             "when": {
-              "domains": ["naval", "transport"],
-              "unit_kinds": ["battleship", "black-boat", "carrier", "cruiser", "lander", "sub"]
+              "domains": ["air", "transport"],
+              "unit_kinds": ["b-copter", "black-bomb", "bomber", "fighter", "stealth", "t-copter"]
             },
-            "effect": { "operator": "attack-add", "value": -10 }
-          }
-        ]
-      },
-      "cop": {
-        "rules": [
-          { "when": { "domains": ["air"] }, "effect": { "operator": "attack-add", "value": -60 } },
+            "effect": { "operator": "attack-add", "value": 15 }
+          },
           {
-            "when": { "domains": ["ground-vehicle"] },
-            "effect": { "operator": "attack-add", "value": -50 }
+            "when": {
+              "domains": ["air", "transport"],
+              "unit_kinds": ["b-copter", "black-bomb", "bomber", "fighter", "stealth", "t-copter"]
+            },
+            "effect": { "operator": "defense-add", "value": 10 }
           },
           {
             "when": {
               "domains": ["naval", "transport"],
               "unit_kinds": ["battleship", "black-boat", "carrier", "cruiser", "lander", "sub"]
             },
-            "effect": { "operator": "attack-add", "value": -45 }
+            "effect": { "operator": "attack-add", "value": -30 }
           }
         ]
       },
-      "scop": { "rules": [] }
+      "cop": {
+        "rules": [
+          {
+            "when": {
+              "domains": ["air", "transport"],
+              "unit_kinds": ["b-copter", "black-bomb", "bomber", "fighter", "stealth", "t-copter"]
+            },
+            "effect": { "operator": "attack-add", "value": 5 }
+          },
+          {
+            "when": {
+              "domains": ["air", "transport"],
+              "unit_kinds": ["b-copter", "black-bomb", "bomber", "fighter", "stealth", "t-copter"]
+            },
+            "effect": { "operator": "defense-add", "value": 10 }
+          }
+        ]
+      },
+      "scop": {
+        "rules": [
+          {
+            "when": {
+              "domains": ["air", "transport"],
+              "unit_kinds": ["b-copter", "black-bomb", "bomber", "fighter", "stealth", "t-copter"]
+            },
+            "effect": { "operator": "attack-add", "value": 5 }
+          },
+          {
+            "when": {
+              "domains": ["air", "transport"],
+              "unit_kinds": ["b-copter", "black-bomb", "bomber", "fighter", "stealth", "t-copter"]
+            },
+            "effect": { "operator": "defense-add", "value": 10 }
+          }
+        ]
+      }
     },
     "flak": {
       "day_to_day": {
@@ -117,8 +149,8 @@
           { "when": {}, "effect": { "operator": "defense-add", "value": -20 } }
         ]
       },
-      "cop": { "rules": [{ "when": {}, "effect": { "operator": "attack-add", "value": 10 } }] },
-      "scop": { "rules": [{ "when": {}, "effect": { "operator": "attack-add", "value": 40 } }] }
+      "cop": { "rules": [{ "when": {}, "effect": { "operator": "attack-add", "value": 20 } }] },
+      "scop": { "rules": [{ "when": {}, "effect": { "operator": "attack-add", "value": 50 } }] }
     },
     "grit": {
       "day_to_day": {
@@ -318,7 +350,7 @@
         "rules": [
           {
             "when": { "fire_modes": ["indirect"] },
-            "effect": { "operator": "defense-add", "value": 40 }
+            "effect": { "operator": "defense-add", "value": 60 }
           },
           { "when": {}, "effect": { "operator": "tower-attack-multiply", "value": 3 } },
           { "when": {}, "effect": { "operator": "tower-defense-multiply", "value": 3 } }
@@ -328,18 +360,18 @@
     "kanbei": {
       "day_to_day": {
         "rules": [
-          { "when": {}, "effect": { "operator": "attack-add", "value": 20 } },
-          { "when": {}, "effect": { "operator": "defense-add", "value": 20 } }
+          { "when": {}, "effect": { "operator": "attack-add", "value": 30 } },
+          { "when": {}, "effect": { "operator": "defense-add", "value": 30 } }
         ]
       },
-      "cop": { "rules": [{ "when": {}, "effect": { "operator": "attack-add", "value": 20 } }] },
+      "cop": { "rules": [{ "when": {}, "effect": { "operator": "attack-add", "value": 10 } }] },
       "scop": {
         "rules": [
-          { "when": {}, "effect": { "operator": "attack-add", "value": 20 } },
+          { "when": {}, "effect": { "operator": "attack-add", "value": 10 } },
           { "when": {}, "effect": { "operator": "defense-add", "value": 20 } },
           {
             "when": { "counterattack": true },
-            "effect": { "operator": "counter-attack-multiply", "numerator": 2, "denominator": 1 }
+            "effect": { "operator": "counter-attack-multiply", "numerator": 3, "denominator": 2 }
           }
         ]
       }
@@ -357,7 +389,7 @@
       },
       "scop": {
         "rules": [
-          { "when": { "property": true }, "effect": { "operator": "attack-add", "value": 80 } },
+          { "when": { "property": true }, "effect": { "operator": "attack-add", "value": 90 } },
           {
             "when": {},
             "effect": { "operator": "attack-add-owned-properties-multiply", "value": 3 }
@@ -449,7 +481,7 @@
               "fire_modes": ["direct"],
               "domains": ["ground-vehicle", "air", "naval", "transport"]
             },
-            "effect": { "operator": "attack-add", "value": 20 }
+            "effect": { "operator": "attack-add", "value": 10 }
           }
         ]
       },
@@ -460,7 +492,7 @@
               "fire_modes": ["direct"],
               "domains": ["ground-vehicle", "air", "naval", "transport"]
             },
-            "effect": { "operator": "attack-add", "value": 40 }
+            "effect": { "operator": "attack-add", "value": 30 }
           }
         ]
       }
@@ -491,18 +523,7 @@
         ]
       }
     },
-    "olaf": {
-      "day_to_day": {
-        "rules": [
-          {
-            "when": { "weather_kinds": ["snow"] },
-            "effect": { "operator": "attack-add", "value": 20 }
-          }
-        ]
-      },
-      "cop": { "rules": [] },
-      "scop": { "rules": [] }
-    },
+    "olaf": { "day_to_day": { "rules": [] }, "cop": { "rules": [] }, "scop": { "rules": [] } },
     "rachel": {
       "day_to_day": { "rules": [] },
       "cop": {
@@ -518,7 +539,7 @@
     "sami": {
       "day_to_day": {
         "rules": [
-          { "when": { "domains": ["foot"] }, "effect": { "operator": "attack-add", "value": 20 } },
+          { "when": { "domains": ["foot"] }, "effect": { "operator": "attack-add", "value": 30 } },
           {
             "when": {
               "fire_modes": ["direct"],
@@ -535,7 +556,7 @@
       },
       "scop": {
         "rules": [
-          { "when": { "domains": ["foot"] }, "effect": { "operator": "attack-add", "value": 50 } }
+          { "when": { "domains": ["foot"] }, "effect": { "operator": "attack-add", "value": 40 } }
         ]
       }
     },
@@ -586,20 +607,16 @@
         "rules": [
           {
             "when": {},
-            "effect": { "operator": "bad-luck-set", "domain": { "minimum": 0, "maximum": 4 } }
+            "effect": { "operator": "bad-luck-set", "domain": { "minimum": 0, "maximum": 9 } }
           },
-          { "when": {}, "effect": { "operator": "enemy-terrain-stars-add", "value": -1 } }
+          {
+            "when": { "counterattack": true },
+            "effect": { "operator": "counter-attack-multiply", "numerator": 3, "denominator": 2 }
+          }
         ]
       },
-      "cop": {
-        "rules": [{ "when": {}, "effect": { "operator": "enemy-terrain-stars-add", "value": -1 } }]
-      },
-      "scop": {
-        "rules": [
-          { "when": {}, "effect": { "operator": "enemy-terrain-stars-add", "value": -2 } },
-          { "when": {}, "effect": { "operator": "counter-first" } }
-        ]
-      }
+      "cop": { "rules": [] },
+      "scop": { "rules": [{ "when": {}, "effect": { "operator": "counter-first" } }] }
     },
     "von-bolt": {
       "day_to_day": {
