@@ -9,6 +9,7 @@ cbb7dcc2f8b4bf3c  obs=2 ev=2  capture/capture-city-partial.json
 4e0f6734e99fa404  obs=2 ev=0  capture/capture-noncapturer-rejected.json
 d17abb0f2b37014d  obs=4 ev=8  capture/lab-ignored-with-hq.json
 f19ea69f3ed887da  obs=6 ev=22  capture/lab-last-owned-lab.json
+36a3ea4ad2f78915  obs=4 ev=6  combat/air-units-ignore-terrain-stars.json
 238d611a00d05528  obs=4 ev=11  combat/carrier-loss-no-cargo-charge.json
 ee625cbbc8db465a  obs=4 ev=6  combat/lethal-capture-reset.json
 04ade533f9d8ab80  obs=4 ev=10  combat/movement-direct-fog-capture.json
@@ -28,7 +29,7 @@ bd4b8a0e72a23b66  obs=4 ev=0  combat/tile-occupied-seam.json
 682ec9bc28d988a6  obs=4 ev=4  combat/tile-unlimited-fallback.json
 68894b7675f13869  obs=4 ev=10  combat/visibility-adjacent-terrain-detection.json
 f722cf5e5df317b1  obs=4 ev=0  combat/visibility-concealing-terrain.json
-a034c7b2ad40de38  obs=6 ev=10  combat/visibility-hidden-stealth-compatibility.json
+8d716853d783d0b6  obs=6 ev=10  combat/visibility-hidden-stealth-compatibility.json
 f3896c44743e5d1f  obs=6 ev=10  combat/visibility-hidden-sub-compatibility.json
 157c74e53588eede  obs=4 ev=0  combat/visibility-unseen-target.json
 ca9e4bda1c758ff9  obs=4 ev=6  commander/adder-cop-combat.json
@@ -197,11 +198,11 @@ a86fd7d715c32e6d  obs=4 ev=8  commander/sasha-day-to-day-combat.json
 81b60a149e40ec8d  obs=4 ev=11  commander/sasha-income.json
 2c4b07c956ca3dd5  obs=4 ev=7  commander/sasha-scop-combat.json
 a8b006d00fb2fb02  obs=10 ev=24  commander/sasha-scop.json
-e6cf86aa84b1b481  obs=4 ev=8  commander/sensei-cop-combat.json
+87cf869bca35b049  obs=4 ev=8  commander/sensei-cop-combat.json
 ddeef4f4fec12341  obs=4 ev=6  commander/sensei-cop.json
 c2d4e59b99234a6d  obs=4 ev=10  commander/sensei-day-to-day-combat.json
 e204d79be8456c94  obs=4 ev=2  commander/sensei-day-to-day-movement.json
-2d56cb3e93eb3f92  obs=4 ev=8  commander/sensei-scop-combat.json
+bfc6afa4fe7a6b32  obs=4 ev=8  commander/sensei-scop-combat.json
 b1c7044ae5c61038  obs=4 ev=6  commander/sensei-scop.json
 eb1cca3ad23bab4d  obs=4 ev=2  commander/sonja-cop-activation.json
 2c8d267ea7506f9f  obs=4 ev=6  commander/sonja-cop-combat.json

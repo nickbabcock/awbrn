@@ -1,16 +1,19 @@
 {
-  "id": "sensei-cop-combat",
+  "id": "air-units-ignore-terrain-stars",
   "spec_version": "0.1.0",
   "ruleset": { "id": "awbw", "revision": "2026-07-10" },
-  "feature": "commander-combat-v1.sensei.cop",
-  "evidence": { "confidence": "corroborated-implementation" },
+  "feature": "combat-neutral-v1",
+  "evidence": {
+    "confidence": "documentation-only",
+    "note": "Air units do not receive defensive terrain stars in AWBW."
+  },
   "initial_state": {
     "ruleset": { "id": "awbw", "revision": "2026-07-10" },
     "settings": {
       "fog": false,
       "income_per_property": 1000,
       "starting_funds": 0,
-      "powers": "enabled",
+      "powers": "disabled",
       "tags": false,
       "weather": "clear",
       "lab_units": [],
@@ -21,9 +24,17 @@
       "unit_limit": null
     },
     "board": {
-      "width": 2,
+      "width": 5,
       "height": 1,
-      "tiles": [[{ "terrain": "plain" }, { "terrain": "plain" }]]
+      "tiles": [
+        [
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "plain" },
+          { "terrain": "mountain" },
+          { "terrain": "plain" }
+        ]
+      ]
     },
     "teams": [
       { "id": "red-team", "status": "active" },
@@ -35,8 +46,8 @@
         "team": "red-team",
         "funds": 0,
         "status": "active",
-        "commanders": [{ "id": "sensei", "active": true, "power_charge": 0, "power_uses": 1 }],
-        "power_state": { "type": "cop", "commander_slot": 0 }
+        "commanders": [{ "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
       },
       {
         "id": "blue",
@@ -58,10 +69,10 @@
     "units": [
       {
         "id": 0,
-        "kind": "b-copter",
+        "kind": "missile",
         "owner": "red",
         "hp": 100,
-        "fuel": 99,
+        "fuel": 50,
         "ammo": 6,
         "action": "ready",
         "concealment": "exposed",
@@ -69,21 +80,32 @@
       },
       {
         "id": 1,
-        "kind": "cruiser",
+        "kind": "fighter",
         "owner": "blue",
         "hp": 100,
         "fuel": 99,
         "ammo": 9,
         "action": "ready",
         "concealment": "exposed",
-        "location": { "type": "board", "position": [1, 0] }
+        "location": { "type": "board", "position": [3, 0] }
+      },
+      {
+        "id": 2,
+        "kind": "infantry",
+        "owner": "blue",
+        "hp": 100,
+        "fuel": 99,
+        "ammo": 0,
+        "action": "ready",
+        "concealment": "exposed",
+        "location": { "type": "board", "position": [4, 0] }
       }
     ],
     "match": { "status": "active", "draw_offers": [] }
   },
   "steps": [
     {
-      "id": "copter-command-b-copter-attack",
+      "id": "mountain-stars-do-not-protect-fighter",
       "command": {
         "type": "move-attack",
         "player": "red",
@@ -92,8 +114,6 @@
         "target": { "type": "unit", "unit": 1 }
       },
       "random": [
-        { "type": "combat-good-luck", "value": 0 },
-        { "type": "combat-bad-luck", "value": 0 },
         { "type": "combat-good-luck", "value": 0 },
         { "type": "combat-bad-luck", "value": 0 }
       ],
@@ -105,7 +125,7 @@
             "fog": false,
             "income_per_property": 1000,
             "starting_funds": 0,
-            "powers": "enabled",
+            "powers": "disabled",
             "tags": false,
             "weather": "clear",
             "lab_units": [],
@@ -116,9 +136,17 @@
             "unit_limit": null
           },
           "board": {
-            "width": 2,
+            "width": 5,
             "height": 1,
-            "tiles": [[{ "terrain": "plain" }, { "terrain": "plain" }]]
+            "tiles": [
+              [
+                { "terrain": "plain" },
+                { "terrain": "plain" },
+                { "terrain": "plain" },
+                { "terrain": "mountain" },
+                { "terrain": "plain" }
+              ]
+            ]
           },
           "teams": [
             { "id": "red-team", "status": "active" },
@@ -131,9 +159,9 @@
               "funds": 0,
               "status": "active",
               "commanders": [
-                { "id": "sensei", "active": true, "power_charge": 0, "power_uses": 1 }
+                { "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }
               ],
-              "power_state": { "type": "cop", "commander_slot": 0 }
+              "power_state": { "type": "none" }
             },
             {
               "id": "blue",
@@ -157,25 +185,25 @@
           "units": [
             {
               "id": 0,
-              "kind": "b-copter",
+              "kind": "missile",
               "owner": "red",
-              "hp": 86,
-              "fuel": 99,
+              "hp": 100,
+              "fuel": 50,
               "ammo": 5,
               "action": "spent",
               "concealment": "exposed",
               "location": { "type": "board", "position": [0, 0] }
             },
             {
-              "id": 1,
-              "kind": "cruiser",
+              "id": 2,
+              "kind": "infantry",
               "owner": "blue",
-              "hp": 14,
+              "hp": 100,
               "fuel": 99,
-              "ammo": 9,
+              "ammo": 0,
               "action": "ready",
               "concealment": "exposed",
-              "location": { "type": "board", "position": [1, 0] }
+              "location": { "type": "board", "position": [4, 0] }
             }
           ],
           "match": { "status": "active", "draw_offers": [] }
@@ -184,8 +212,8 @@
           {
             "type": "unit-resourced",
             "unit": 0,
-            "fuel_before": 99,
-            "fuel_after": 99,
+            "fuel_before": 50,
+            "fuel_after": 50,
             "ammo_before": 6,
             "ammo_after": 5,
             "reason": "combat"
@@ -200,22 +228,10 @@
             "type": "unit-damaged",
             "unit": 1,
             "from_hp": 100,
-            "to_hp": 14,
+            "to_hp": 0,
             "reason": "combat"
           },
-          {
-            "type": "attack-resolved",
-            "attacker": 1,
-            "weapon": "unlimited",
-            "target": { "type": "unit", "unit": 0 }
-          },
-          {
-            "type": "unit-damaged",
-            "unit": 0,
-            "from_hp": 100,
-            "to_hp": 86,
-            "reason": "combat-counter"
-          },
+          { "type": "unit-removed", "unit": 1, "reason": "combat" },
           {
             "type": "unit-action-changed",
             "unit": 0,
@@ -224,7 +240,7 @@
             "reason": "attack"
           }
         ],
-        "random_consumed": 4
+        "random_consumed": 2
       }
     }
   ]

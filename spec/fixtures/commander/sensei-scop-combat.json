@@ -159,7 +159,7 @@
               "id": 0,
               "kind": "b-copter",
               "owner": "red",
-              "hp": 88,
+              "hp": 86,
               "fuel": 99,
               "ammo": 5,
               "action": "spent",
@@ -213,7 +213,7 @@
             "type": "unit-damaged",
             "unit": 0,
             "from_hp": 100,
-            "to_hp": 88,
+            "to_hp": 86,
             "reason": "combat-counter"
           },
           {
