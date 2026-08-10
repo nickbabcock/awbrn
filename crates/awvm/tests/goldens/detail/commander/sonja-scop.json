@@ -368,7 +368,7 @@
   },
   "steps": [
     {
-      "id": "counter-break-reveals-reef-and-removes-three-stars",
+      "id": "counter-break-reveals-reef",
       "observations": {
         "blue": {
           "board": {
@@ -487,7 +487,7 @@
               "ammo": 9,
               "concealment": "exposed",
               "fuel": 70,
-              "hp": 23,
+              "hp": 47,
               "kind": "tank",
               "location": {
                 "position": [
@@ -688,7 +688,7 @@
               "ammo": 9,
               "concealment": "exposed",
               "fuel": 70,
-              "hp": 23,
+              "hp": 47,
               "kind": "tank",
               "location": {
                 "position": [
@@ -779,7 +779,7 @@
               "ammo": 9,
               "concealment": "exposed",
               "fuel": 70,
-              "hp": 23,
+              "hp": 47,
               "kind": "tank",
               "location": {
                 "position": [
@@ -871,7 +871,7 @@
               "ammo": 9,
               "concealment": "exposed",
               "fuel": 70,
-              "hp": 23,
+              "hp": 47,
               "kind": "tank",
               "location": {
                 "position": [

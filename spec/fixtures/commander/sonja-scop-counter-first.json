@@ -157,7 +157,7 @@
               "id": 0,
               "kind": "infantry",
               "owner": "red",
-              "hp": 44,
+              "hp": 23,
               "fuel": 99,
               "ammo": 0,
               "action": "spent",
@@ -168,7 +168,7 @@
               "id": 1,
               "kind": "infantry",
               "owner": "blue",
-              "hp": 78,
+              "hp": 89,
               "fuel": 99,
               "ammo": 0,
               "action": "ready",
@@ -189,7 +189,7 @@
             "type": "unit-damaged",
             "unit": 0,
             "from_hp": 100,
-            "to_hp": 44,
+            "to_hp": 23,
             "reason": "combat-counter"
           },
           {
@@ -198,13 +198,7 @@
             "weapon": "unlimited",
             "target": { "type": "unit", "unit": 1 }
           },
-          {
-            "type": "unit-damaged",
-            "unit": 1,
-            "from_hp": 100,
-            "to_hp": 78,
-            "reason": "combat"
-          },
+          { "type": "unit-damaged", "unit": 1, "from_hp": 100, "to_hp": 89, "reason": "combat" },
           {
             "type": "unit-action-changed",
             "unit": 0,

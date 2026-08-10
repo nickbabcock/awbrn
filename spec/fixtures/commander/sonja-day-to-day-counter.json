@@ -1,8 +1,8 @@
 {
-  "id": "grimm-scop-combat",
+  "id": "sonja-day-to-day-counter",
   "spec_version": "0.1.0",
   "ruleset": { "id": "awbw", "revision": "2026-07-10" },
-  "feature": "commander-combat-v1.grimm.scop",
+  "feature": "commander-combat-v1.sonja.day-to-day",
   "evidence": { "confidence": "corroborated-implementation" },
   "initial_state": {
     "ruleset": { "id": "awbw", "revision": "2026-07-10" },
@@ -35,15 +35,15 @@
         "team": "red-team",
         "funds": 0,
         "status": "active",
-        "commanders": [{ "id": "grimm", "active": true, "power_charge": 0, "power_uses": 1 }],
-        "power_state": { "type": "scop", "commander_slot": 0 }
+        "commanders": [{ "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "power_state": { "type": "none" }
       },
       {
         "id": "blue",
         "team": "blue-team",
         "funds": 0,
         "status": "active",
-        "commanders": [{ "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }],
+        "commanders": [{ "id": "sonja", "active": true, "power_charge": 0, "power_uses": 0 }],
         "power_state": { "type": "none" }
       }
     ],
@@ -83,7 +83,7 @@
   },
   "steps": [
     {
-      "id": "haymaker-attack-and-counter",
+      "id": "day-to-day-counter-multiplier",
       "command": {
         "type": "move-attack",
         "player": "red",
@@ -130,8 +130,10 @@
               "team": "red-team",
               "funds": 0,
               "status": "active",
-              "commanders": [{ "id": "grimm", "active": true, "power_charge": 0, "power_uses": 1 }],
-              "power_state": { "type": "scop", "commander_slot": 0 }
+              "commanders": [
+                { "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }
+              ],
+              "power_state": { "type": "none" }
             },
             {
               "id": "blue",
@@ -139,7 +141,7 @@
               "funds": 0,
               "status": "active",
               "commanders": [
-                { "id": "neutral", "active": true, "power_charge": 0, "power_uses": 0 }
+                { "id": "sonja", "active": true, "power_charge": 550, "power_uses": 0 }
               ],
               "power_state": { "type": "none" }
             }
@@ -157,7 +159,7 @@
               "id": 0,
               "kind": "infantry",
               "owner": "red",
-              "hp": 97,
+              "hp": 63,
               "fuel": 99,
               "ammo": 0,
               "action": "spent",
@@ -168,7 +170,7 @@
               "id": 1,
               "kind": "infantry",
               "owner": "blue",
-              "hp": 7,
+              "hp": 51,
               "fuel": 99,
               "ammo": 0,
               "action": "ready",
@@ -185,7 +187,15 @@
             "weapon": "unlimited",
             "target": { "type": "unit", "unit": 1 }
           },
-          { "type": "unit-damaged", "unit": 1, "from_hp": 100, "to_hp": 7, "reason": "combat" },
+          { "type": "unit-damaged", "unit": 1, "from_hp": 100, "to_hp": 51, "reason": "combat" },
+          {
+            "type": "power-charge-changed",
+            "player": "blue",
+            "commander_slot": 0,
+            "from": 0,
+            "to": 400,
+            "reason": "combat"
+          },
           {
             "type": "attack-resolved",
             "attacker": 1,
@@ -196,7 +206,15 @@
             "type": "unit-damaged",
             "unit": 0,
             "from_hp": 100,
-            "to_hp": 97,
+            "to_hp": 63,
+            "reason": "combat-counter"
+          },
+          {
+            "type": "power-charge-changed",
+            "player": "blue",
+            "commander_slot": 0,
+            "from": 400,
+            "to": 550,
             "reason": "combat-counter"
           },
           {

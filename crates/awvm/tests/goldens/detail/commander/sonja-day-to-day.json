@@ -315,7 +315,7 @@
   },
   "steps": [
     {
-      "id": "vision-plus-one-and-enemy-terrain-minus-one",
+      "id": "vision-plus-one-and-bad-luck-range",
       "observations": {
         "blue": {
           "board": {
@@ -350,7 +350,7 @@
                 {
                   "active": true,
                   "id": "sonja",
-                  "power_charge": 1750,
+                  "power_charge": 1400,
                   "power_uses": 0
                 }
               ],
@@ -429,7 +429,7 @@
               "ammo": 9,
               "concealment": "exposed",
               "fuel": 70,
-              "hp": 44,
+              "hp": 58,
               "kind": "tank",
               "location": {
                 "position": [
@@ -506,7 +506,7 @@
                 {
                   "active": true,
                   "id": "sonja",
-                  "power_charge": 1750,
+                  "power_charge": 1400,
                   "power_uses": 0
                 }
               ],
@@ -605,7 +605,7 @@
               "ammo": 9,
               "concealment": "exposed",
               "fuel": 70,
-              "hp": 44,
+              "hp": 58,
               "kind": "tank",
               "location": {
                 "position": [
@@ -673,7 +673,7 @@
               "ammo": 9,
               "concealment": "exposed",
               "fuel": 70,
-              "hp": 44,
+              "hp": 58,
               "kind": "tank",
               "location": {
                 "position": [
@@ -702,7 +702,7 @@
                 {
                   "active": true,
                   "id": "sonja",
-                  "power_charge": 1750,
+                  "power_charge": 1400,
                   "power_uses": 0
                 }
               ],
@@ -787,7 +787,7 @@
               "ammo": 9,
               "concealment": "exposed",
               "fuel": 70,
-              "hp": 44,
+              "hp": 58,
               "kind": "tank",
               "location": {
                 "position": [
@@ -822,7 +822,7 @@
                 {
                   "active": true,
                   "id": "sonja",
-                  "power_charge": 1750,
+                  "power_charge": 1400,
                   "power_uses": 0
                 }
               ],

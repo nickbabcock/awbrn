@@ -83,7 +83,7 @@
   },
   "steps": [
     {
-      "id": "lightning-drive-reduced-air-firepower",
+      "id": "lightning-drive-air-firepower",
       "command": {
         "type": "move-attack",
         "player": "red",
@@ -166,7 +166,7 @@
               "id": 1,
               "kind": "missile",
               "owner": "blue",
-              "hp": 60,
+              "hp": 25,
               "fuel": 50,
               "ammo": 6,
               "action": "ready",
@@ -192,13 +192,7 @@
             "weapon": "ammo",
             "target": { "type": "unit", "unit": 1 }
           },
-          {
-            "type": "unit-damaged",
-            "unit": 1,
-            "from_hp": 100,
-            "to_hp": 60,
-            "reason": "combat"
-          },
+          { "type": "unit-damaged", "unit": 1, "from_hp": 100, "to_hp": 25, "reason": "combat" },
           {
             "type": "unit-action-changed",
             "unit": 0,

@@ -157,7 +157,7 @@
               "id": 0,
               "kind": "tank",
               "owner": "red",
-              "hp": 89,
+              "hp": 87,
               "fuel": 70,
               "ammo": 8,
               "action": "spent",
@@ -168,7 +168,7 @@
               "id": 1,
               "kind": "tank",
               "owner": "blue",
-              "hp": 27,
+              "hp": 31,
               "fuel": 70,
               "ammo": 8,
               "action": "ready",
@@ -194,13 +194,7 @@
             "weapon": "ammo",
             "target": { "type": "unit", "unit": 1 }
           },
-          {
-            "type": "unit-damaged",
-            "unit": 1,
-            "from_hp": 100,
-            "to_hp": 27,
-            "reason": "combat"
-          },
+          { "type": "unit-damaged", "unit": 1, "from_hp": 100, "to_hp": 31, "reason": "combat" },
           {
             "type": "unit-resourced",
             "unit": 1,
@@ -220,7 +214,7 @@
             "type": "unit-damaged",
             "unit": 0,
             "from_hp": 100,
-            "to_hp": 89,
+            "to_hp": 87,
             "reason": "combat-counter"
           },
           {

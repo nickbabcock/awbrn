@@ -313,7 +313,7 @@
   },
   "steps": [
     {
-      "id": "enhanced-vision-reveals-woods-and-reduces-stars",
+      "id": "enhanced-vision-reveals-woods",
       "observations": {
         "blue": {
           "board": {
@@ -426,7 +426,7 @@
               "ammo": 0,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 1,
+              "hp": 21,
               "kind": "infantry",
               "location": {
                 "position": [
@@ -601,7 +601,7 @@
               "ammo": 0,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 1,
+              "hp": 21,
               "kind": "infantry",
               "location": {
                 "position": [
@@ -669,7 +669,7 @@
               "ammo": 0,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 1,
+              "hp": 21,
               "kind": "infantry",
               "location": {
                 "position": [
@@ -761,7 +761,7 @@
               "ammo": 0,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 1,
+              "hp": 21,
               "kind": "infantry",
               "location": {
                 "position": [
