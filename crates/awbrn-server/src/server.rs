@@ -13,13 +13,17 @@ use awvm::semantic::{AwbwVisibility, Observation, observe};
 /// Authoritative game server driven by AWVM.
 pub struct GameServer {
     authority: crate::awvm_adapter::Authority,
+    unit_ids: view::RecipientUnitIds,
 }
 
 impl GameServer {
     /// Create a new game server with the given configuration.
     pub fn new(setup: GameSetup) -> Result<Self, SetupError> {
         let authority = crate::awvm_adapter::Authority::new(&setup)?;
-        Ok(Self { authority })
+        Ok(Self {
+            authority,
+            unit_ids: view::RecipientUnitIds::default(),
+        })
     }
 
     /// Submit a command from a player. Returns per-player updates on success.
@@ -29,21 +33,29 @@ impl GameServer {
         command: GameCommand,
     ) -> Result<CommandResult, CommandError> {
         let transition = self.authority.execute(player, &command)?;
-        Ok(view::build_command_result(&self.authority, &transition))
+        Ok(view::build_command_result(
+            &self.authority,
+            &transition,
+            &mut self.unit_ids,
+        ))
     }
 
     pub(crate) fn replay_stored_action_event(
         &mut self,
         event: &StoredActionEvent,
     ) -> Result<(), ReplayEventError> {
-        self.authority
-            .execute_recorded(event.player, &event.command, &event.random)?;
+        let transition =
+            self.authority
+                .execute_recorded(event.player, &event.command, &event.random)?;
+        // Discard the result, but advance recipient ID allocators. This keeps
+        // opaque IDs equal between replay and live servers.
+        view::build_command_result(&self.authority, &transition, &mut self.unit_ids);
         Ok(())
     }
 
     /// Get the full visible state for a player (for initial load or reconnection).
-    pub fn player_view(&self, player: PlayerId) -> Option<PlayerView> {
-        view::build_player_view(&self.authority, player)
+    pub fn player_view(&mut self, player: PlayerId) -> Option<PlayerView> {
+        view::build_player_view(&self.authority, &mut self.unit_ids, player)
     }
 
     /// Get the typed recipient-safe state used by presentation clients.

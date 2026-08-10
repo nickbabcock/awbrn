@@ -279,7 +279,7 @@ fn apply_observation_visibility(world: &mut World, observation: &Observation) {
         else {
             continue;
         };
-        world.entity_mut(entity).insert(graphical_hp(*hp));
+        world.entity_mut(entity).insert(GraphicalHp::from(*hp));
     }
 
     let mut visibility = world.resource_mut::<ViewerVisibility>();
@@ -331,14 +331,7 @@ fn restore_spectator_hp(world: &mut World) {
         };
         world
             .entity_mut(entity)
-            .insert(GraphicalHp::Visible(hp.div_ceil(10)));
-    }
-}
-
-const fn graphical_hp(hp: ObservedUnitHp) -> GraphicalHp {
-    match hp {
-        ObservedUnitHp::Exact(hp) => GraphicalHp::Visible(hp.div_ceil(10)),
-        ObservedUnitHp::Hidden(_) => GraphicalHp::Hidden,
+            .insert(GraphicalHp::from(ObservedUnitHp::Exact(hp)));
     }
 }
 

@@ -4,30 +4,26 @@
 //! sole rules engine. Visibility and event disclosure come from
 //! `observe`/`observe_events`; this module only translates vocabulary.
 
+use std::cell::OnceCell;
+use std::collections::{BTreeMap, HashMap, HashSet};
+
 use awbrn_map::Position;
 use awbrn_types::{
     BridgeType, Faction, GraphicalTerrain, MissileSiloStatus, PipeSeamType, PipeType,
     PlayerFaction, Property, RiverType, RoadType, SeaDirection, ShoalDirection, Unit as ServerUnit,
 };
-use awvm::event::{AttackTarget, Event};
-use awvm::ruleset::{KnownReason, Terrain};
+use awvm::event::Event;
+use awvm::ruleset::Terrain;
 use awvm::semantic::{
-    AwbwVisibility, Concealment, Location, Match, ObservedEvent, ObservedTransition, ObservedUnit,
-    ObservedUnitRef, Outcome, Phase, PlayerId as VmPlayerId, Pos, Reason, State, TileOwner, UnitId,
-    Viewpoint, Visibility, observe_events, observe_transition,
+    AwbwVisibility, Concealment, Location, Match, Observation, ObservedEvent, ObservedTransition,
+    ObservedUnit, ObservedUnitHp, ObservedUnitRef, Outcome, Phase, PlayerId as VmPlayerId, Pos,
+    State, TileOwner, TileVisibility, UnitId, Viewpoint, Visibility, observe, observe_transition,
 };
 
 use crate::awvm_adapter::{AcceptedTransition, Authority, semantic_terrain};
 use crate::player::PlayerId;
 use crate::state::TurnPhase;
 use crate::unit_id::ServerUnitId;
-
-/// Exact HP-point deltas from a combat engagement on the 0-100 HP scale.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct CombatOutcome {
-    pub attacker_damage_pts: u8,
-    pub defender_damage_pts: Option<u8>,
-}
 
 /// Header with the current game state, included in every response.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -138,36 +134,146 @@ pub struct PlayerUpdate {
 pub struct CommandResult {
     pub updates: Vec<(PlayerId, PlayerUpdate)>,
     pub observed_transitions: Vec<(PlayerId, ObservedTransition)>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub combat_outcome: Option<CombatOutcome>,
 }
 
-pub(crate) fn build_player_view(authority: &Authority, player: PlayerId) -> Option<PlayerView> {
+#[derive(Default)]
+pub(crate) struct RecipientUnitIds {
+    recipients: HashMap<PlayerId, EnemyUnitIds>,
+}
+
+struct EnemyUnitIds {
+    next: u64,
+    positions: HashMap<Pos, ServerUnitId>,
+}
+
+impl Default for EnemyUnitIds {
+    fn default() -> Self {
+        Self {
+            next: u64::MAX,
+            positions: HashMap::new(),
+        }
+    }
+}
+
+impl RecipientUnitIds {
+    fn for_player(&mut self, player: PlayerId) -> &mut EnemyUnitIds {
+        self.recipients.entry(player).or_default()
+    }
+}
+
+impl EnemyUnitIds {
+    fn resolve(&mut self, reference: &ObservedUnitRef) -> ServerUnitId {
+        match reference {
+            ObservedUnitRef::Friendly { unit } => server_unit_id(*unit),
+            ObservedUnitRef::Enemy { position } => self.enemy_at(*position),
+        }
+    }
+
+    fn tracked(&self, reference: &ObservedUnitRef) -> Option<ServerUnitId> {
+        match reference {
+            ObservedUnitRef::Friendly { unit } => Some(server_unit_id(*unit)),
+            ObservedUnitRef::Enemy { position } => self.positions.get(position).copied(),
+        }
+    }
+
+    fn move_unit(&mut self, reference: &ObservedUnitRef, from: Pos, to: Pos) -> ServerUnitId {
+        match reference {
+            ObservedUnitRef::Friendly { unit } => server_unit_id(*unit),
+            ObservedUnitRef::Enemy { .. } => {
+                let id = self
+                    .positions
+                    .remove(&from)
+                    .or_else(|| self.positions.remove(&to))
+                    .unwrap_or_else(|| self.allocate());
+                self.positions.insert(to, id);
+                id
+            }
+        }
+    }
+
+    fn drop_reference(&mut self, reference: &ObservedUnitRef) {
+        if let ObservedUnitRef::Enemy { position } = reference {
+            self.positions.remove(position);
+        }
+    }
+
+    fn unobserved_enemies(
+        &self,
+        observation: &Observation,
+    ) -> Vec<(ObservedUnitRef, ServerUnitId)> {
+        let observed = observation
+            .units
+            .iter()
+            .filter_map(|unit| match unit.reference {
+                ObservedUnitRef::Friendly { .. } => None,
+                ObservedUnitRef::Enemy { position } => Some(position),
+            })
+            .collect::<HashSet<_>>();
+        self.positions
+            .iter()
+            .filter(|(position, _)| !observed.contains(position))
+            .map(|(position, id)| {
+                (
+                    ObservedUnitRef::Enemy {
+                        position: *position,
+                    },
+                    *id,
+                )
+            })
+            .collect()
+    }
+
+    fn enemy_at(&mut self, position: Pos) -> ServerUnitId {
+        if let Some(id) = self.positions.get(&position) {
+            return *id;
+        }
+        let id = self.allocate();
+        self.positions.insert(position, id);
+        id
+    }
+
+    fn allocate(&mut self) -> ServerUnitId {
+        let id = ServerUnitId(self.next);
+        self.next = self
+            .next
+            .checked_sub(1)
+            .expect("recipient-local unit identifiers are exhausted");
+        id
+    }
+}
+
+pub(crate) fn build_player_view(
+    authority: &Authority,
+    ids: &mut RecipientUnitIds,
+    player: PlayerId,
+) -> Option<PlayerView> {
     let state = authority.state();
     let recipient = authority.player(player);
     let recipient_state = state.find_player(&recipient)?;
-    let visibility = AwbwVisibility.view(state, &recipient_state.team);
+    let observation = match observe(&AwbwVisibility, state, &recipient) {
+        Ok(observation) => observation,
+        Err(error) => {
+            bevy::log::error!("failed to project player {player:?} view: {error}");
+            return None;
+        }
+    };
+    let ids = ids.for_player(player);
     Some(PlayerView {
         state: game_state_header(state),
         my_funds: narrow_u32(recipient_state.funds),
         players: public_player_states(state),
-        units: state
+        units: observation
             .units
             .iter()
-            .filter(|unit| visibility.unit(unit))
             .filter_map(|unit| {
-                visible_unit(
-                    authority,
-                    state,
-                    unit,
-                    Some(same_team(state, &unit.owner, &recipient)),
-                )
+                let unit = BoardObservedUnit::try_from(unit).ok()?;
+                Some(visible_observed_unit(authority, &observation, unit, ids))
             })
             .collect(),
-        terrain: state
+        terrain: observation
             .board
             .iter()
-            .filter(|(position, _)| visibility.position(*position))
+            .filter(|(_, tile)| tile.visibility == TileVisibility::Visible)
             .map(|(position, tile)| VisibleTerrain {
                 position: server_pos(position),
                 terrain: graphical_terrain(
@@ -212,14 +318,14 @@ pub(crate) fn build_spectator_view(authority: &Authority) -> SpectatorView {
 pub(crate) fn build_command_result(
     authority: &Authority,
     transition: &AcceptedTransition,
+    ids: &mut RecipientUnitIds,
 ) -> CommandResult {
-    let combat_outcome = combat_outcome(&transition.prior, authority.state(), &transition.events);
     let players = authority.players().collect::<Vec<_>>();
-    let observed_transitions = players
+    let projections = players
         .iter()
         .map(|player| {
             let recipient = authority.player(*player);
-            let transition = observe_transition(
+            let observed_transition = observe_transition(
                 &AwbwVisibility,
                 &transition.prior,
                 authority.state(),
@@ -227,9 +333,16 @@ pub(crate) fn build_command_result(
                 &recipient,
             )
             .expect("an authoritative transition projects for every server player");
-            (*player, transition)
+            (
+                *player,
+                RecipientProjection {
+                    observed_transition,
+                    prior: &transition.prior,
+                    recipient,
+                },
+            )
         })
-        .collect();
+        .collect::<HashMap<_, _>>();
     let mut projected_teams = Vec::new();
     let mut updates = Vec::with_capacity(players.len());
     for player in &players {
@@ -247,14 +360,6 @@ pub(crate) fn build_command_result(
         // Visibility and observed unit events are team-scoped. Player-change
         // snapshots can distinguish self from ally, but this compatibility
         // projection reads funds directly and ignores those snapshots.
-        let observed = observe_events(
-            &AwbwVisibility,
-            &transition.prior,
-            authority.state(),
-            &transition.events,
-            &recipient,
-        )
-        .expect("an authoritative transition projects for every server team");
         let pre_visibility = AwbwVisibility.view(&transition.prior, team);
         let post_visibility = AwbwVisibility.view(authority.state(), team);
         let (terrain_revealed, terrain_changed) = team_terrain_updates(
@@ -271,6 +376,7 @@ pub(crate) fn build_command_result(
                 .find_player(&candidate)
                 .is_some_and(|player| player.team == *team)
         }) {
+            let projection = &projections[&teammate];
             updates.push((
                 teammate,
                 player_update(
@@ -278,8 +384,9 @@ pub(crate) fn build_command_result(
                     &transition.prior,
                     &transition.events,
                     teammate,
+                    ids,
+                    projection,
                     TeamUpdate {
-                        observed: &observed,
                         pre_visibility: &pre_visibility,
                         post_visibility: &post_visibility,
                         terrain_revealed: &terrain_revealed,
@@ -290,15 +397,24 @@ pub(crate) fn build_command_result(
         }
     }
     updates.sort_by_key(|(player, _)| player.0);
+    let mut observed_transitions = projections
+        .into_iter()
+        .map(|(player, projection)| (player, projection.observed_transition))
+        .collect::<Vec<_>>();
+    observed_transitions.sort_by_key(|(player, _)| player.0);
     CommandResult {
         updates,
         observed_transitions,
-        combat_outcome,
     }
 }
 
+struct RecipientProjection<'a> {
+    observed_transition: ObservedTransition,
+    prior: &'a State,
+    recipient: VmPlayerId,
+}
+
 struct TeamUpdate<'a, V> {
-    observed: &'a [ObservedEvent],
     pre_visibility: &'a V,
     post_visibility: &'a V,
     terrain_revealed: &'a [VisibleTerrain],
@@ -310,76 +426,72 @@ fn player_update<V: Viewpoint>(
     prior: &State,
     events: &[Event],
     player: PlayerId,
+    recipient_ids: &mut RecipientUnitIds,
+    projection: &RecipientProjection<'_>,
     team: TeamUpdate<'_, V>,
 ) -> PlayerUpdate {
     let recipient = authority.player(player);
+    let ids = recipient_ids.for_player(player);
     let mut units_revealed = Vec::new();
     let mut units_removed = Vec::new();
     let mut units_moved = Vec::new();
 
-    for event in team.observed {
+    for event in &projection.observed_transition.events {
+        let ObservedEvent::UnitMoved {
+            unit,
+            from,
+            to,
+            path,
+        } = event
+        else {
+            continue;
+        };
+        units_moved.push(UnitMoved {
+            id: ids.move_unit(unit, *from, *to),
+            path: path.iter().copied().map(server_pos).collect(),
+            from: server_pos(*from),
+            to: server_pos(*to),
+        });
+    }
+
+    let mut dropped_ids = BTreeMap::new();
+    for (reference, id) in ids.unobserved_enemies(&projection.observed_transition.post) {
+        push_unique_id(&mut units_removed, id);
+        ids.drop_reference(&reference);
+        dropped_ids.insert(reference, id);
+    }
+
+    for event in &projection.observed_transition.events {
         match event {
-            ObservedEvent::UnitMoved {
-                unit,
-                from,
-                to,
-                path,
-            } => {
-                if let Some(id) = observed_ref_id(unit, prior, authority.state()) {
-                    units_moved.push(UnitMoved {
-                        id: server_unit_id(id),
-                        path: path.iter().copied().map(server_pos).collect(),
-                        from: server_pos(*from),
-                        to: server_pos(*to),
-                    });
-                }
-            }
+            ObservedEvent::UnitMoved { .. } => {}
             ObservedEvent::UnitAppeared { unit, .. }
             | ObservedEvent::UnitChanged { state: unit, .. } => {
-                if let Some(visible) =
-                    visible_observed_unit(authority, authority.state(), unit, &recipient)
-                {
-                    push_unique_unit(&mut units_revealed, visible);
+                if let Ok(unit) = BoardObservedUnit::try_from(unit) {
+                    push_unique_unit(
+                        &mut units_revealed,
+                        visible_observed_unit(
+                            authority,
+                            &projection.observed_transition.post,
+                            unit,
+                            ids,
+                        ),
+                    );
                 }
             }
             ObservedEvent::UnitDisappeared { unit, .. }
             | ObservedEvent::UnitRemoved { unit, .. } => {
-                if let Some(id) = observed_ref_id(unit, prior, authority.state()) {
-                    push_unique_id(&mut units_removed, server_unit_id(id));
+                if let Some(id) = dropped_ids.get(unit).copied().or_else(|| ids.tracked(unit)) {
+                    push_unique_id(&mut units_removed, id);
+                    ids.drop_reference(unit);
+                    dropped_ids.insert(*unit, id);
                 }
             }
-            _ => {}
-        }
-    }
-
-    // Transport and join events change presentation state even when the
-    // observation projects them through a generic unit-change event.
-    for event in events {
-        let changed = match event {
-            Event::UnitUnloaded {
-                unit, transport, ..
-            } => [Some(*unit), Some(*transport)],
-            Event::UnitsJoined { target, .. } => [Some(*target), None],
-            Event::ConcealmentChanged { unit, .. } => [Some(*unit), None],
-            Event::UnitResourced {
-                unit,
-                reason: Reason::Known(KnownReason::UnitSupply | KnownReason::UnitProduction),
-                ..
-            } => [Some(*unit), None],
-            _ => [None, None],
-        };
-        for id in changed.into_iter().flatten() {
-            if let Some(unit) = authority.state().units.get(id)
-                && team.post_visibility.unit(unit)
-                && let Some(unit) = visible_unit(
-                    authority,
-                    authority.state(),
-                    unit,
-                    Some(same_team(authority.state(), &unit.owner, &recipient)),
-                )
-            {
-                push_unique_unit(&mut units_revealed, unit);
-            }
+            ObservedEvent::MovementStopped { .. }
+            | ObservedEvent::CombatEngaged { .. }
+            | ObservedEvent::TileChanged { .. }
+            | ObservedEvent::PlayerChanged { .. }
+            | ObservedEvent::AreaStrikeResolved { .. }
+            | ObservedEvent::PublicEvent { .. } => {}
         }
     }
 
@@ -392,7 +504,15 @@ fn player_update<V: Viewpoint>(
         });
     let my_funds = funds(authority.state(), &recipient)
         .filter(|after| funds(prior, &recipient) != Some(*after));
-
+    let combat_event = combat_event(projection, ids, &dropped_ids);
+    let capture_event = capture_event(
+        authority,
+        events,
+        team.pre_visibility,
+        team.post_visibility,
+        &projection.observed_transition.post,
+        ids,
+    );
     PlayerUpdate {
         units_revealed,
         units_moved,
@@ -400,14 +520,8 @@ fn player_update<V: Viewpoint>(
         terrain_revealed: team.terrain_revealed.to_vec(),
         terrain_changed: team.terrain_changed.to_vec(),
         turn_change,
-        combat_event: combat_event(
-            authority.state(),
-            events,
-            prior,
-            team.post_visibility,
-            &recipient,
-        ),
-        capture_event: capture_event(authority, events, team.pre_visibility, team.post_visibility),
+        combat_event,
+        capture_event,
         my_funds,
         state: game_state_header(authority.state()),
     }
@@ -460,88 +574,95 @@ fn visible_authoritative_terrain(authority: &Authority, position: Pos) -> Visibl
 }
 
 fn combat_event(
-    post: &State,
-    events: &[Event],
-    prior: &State,
-    visibility: &impl Viewpoint,
-    recipient: &VmPlayerId,
+    projection: &RecipientProjection<'_>,
+    ids: &mut EnemyUnitIds,
+    dropped_ids: &BTreeMap<ObservedUnitRef, ServerUnitId>,
 ) -> Option<UnitCombatEvent> {
-    let (attacker, defender) = events.iter().find_map(|event| match event {
-        Event::AttackResolved {
-            attacker,
-            target: AttackTarget::Unit { unit },
-            ..
-        } => Some((*attacker, *unit)),
+    let observed = &projection.observed_transition;
+    let (attacker, defender) = observed.events.iter().find_map(|event| match event {
+        ObservedEvent::CombatEngaged { attacker, defender } => Some((*attacker, *defender)),
         _ => None,
     })?;
-    let visible = |id: UnitId| {
-        if let Some(unit) = post.units.get(id) {
-            return visibility.unit(unit);
-        }
-        prior.units.get(id).is_some_and(|unit| {
-            let Location::Board { position } = unit.location else {
-                return false;
-            };
-            visibility.unit_at(unit, position)
-        })
-    };
-    if !visible(attacker) || !visible(defender) {
-        return None;
-    }
+    let prior_observation = OnceCell::new();
+    let attacker_hp_after =
+        combat_graphical_hp(&attacker, observed, projection, &prior_observation)?;
+    let defender_hp_after =
+        combat_graphical_hp(&defender, observed, projection, &prior_observation)?;
     Some(UnitCombatEvent {
-        attacker_id: server_unit_id(attacker),
-        defender_id: server_unit_id(defender),
-        attacker_hp_after: combat_graphical_hp(post, prior, attacker, recipient)?,
-        defender_hp_after: combat_graphical_hp(post, prior, defender, recipient)?,
+        attacker_id: dropped_ids
+            .get(&attacker)
+            .copied()
+            .unwrap_or_else(|| ids.resolve(&attacker)),
+        defender_id: dropped_ids
+            .get(&defender)
+            .copied()
+            .unwrap_or_else(|| ids.resolve(&defender)),
+        attacker_hp_after,
+        defender_hp_after,
     })
 }
 
 fn combat_graphical_hp(
-    post: &State,
-    prior: &State,
-    unit: UnitId,
-    recipient: &VmPlayerId,
+    reference: &ObservedUnitRef,
+    observed: &ObservedTransition,
+    projection: &RecipientProjection<'_>,
+    prior_observation: &OnceCell<Observation>,
 ) -> Option<awbrn_game::world::GraphicalHp> {
-    let owner = post
-        .units
-        .get(unit)
-        .or_else(|| prior.units.get(unit))?
-        .owner
-        .clone();
-    Some(graphical_hp_for_recipient(
-        post,
-        &owner,
-        visual_hp(post, unit),
-        Some(same_team(post, &owner, recipient)),
-    ))
-}
-
-fn combat_outcome(prior: &State, post: &State, events: &[Event]) -> Option<CombatOutcome> {
-    let (attacker, defender) = events.iter().find_map(|event| match event {
-        Event::AttackResolved {
-            attacker,
-            target: AttackTarget::Unit { unit },
-            ..
-        } => Some((*attacker, *unit)),
-        _ => None,
-    })?;
-    let defender_before = prior.units.get(defender)?.hp;
-    let defender_after = post.units.get(defender).map_or(0, |unit| unit.hp);
-    let attacker_before = prior.units.get(attacker)?.hp;
-    let attacker_after = post.units.get(attacker).map_or(0, |unit| unit.hp);
-    let countered = events.iter().any(|event| {
-        matches!(
-            event,
-            Event::AttackResolved {
-                attacker: counter,
-                target: AttackTarget::Unit { unit },
-                ..
-            } if *counter == defender && *unit == attacker
-        )
+    if let Some(unit) = observed
+        .events
+        .iter()
+        .find_map(|event| match event {
+            ObservedEvent::UnitChanged { state, .. }
+            | ObservedEvent::UnitAppeared { unit: state, .. }
+                if state.reference == *reference =>
+            {
+                Some(state)
+            }
+            _ => None,
+        })
+        .or_else(|| {
+            observed
+                .post
+                .units
+                .iter()
+                .find(|unit| unit.reference == *reference)
+        })
+    {
+        return Some(unit.hp.into());
+    }
+    let removed = observed
+        .events
+        .iter()
+        .any(|event| matches!(event, ObservedEvent::UnitRemoved { unit, .. } if unit == reference));
+    if !removed {
+        return None;
+    }
+    let prior = prior_observation.get_or_init(|| {
+        observe(&AwbwVisibility, projection.prior, &projection.recipient)
+            .expect("the prior state projects for every server player")
     });
-    Some(CombatOutcome {
-        attacker_damage_pts: defender_before.saturating_sub(defender_after),
-        defender_damage_pts: countered.then(|| attacker_before.saturating_sub(attacker_after)),
+    let prior_reference = match reference {
+        ObservedUnitRef::Friendly { .. } => *reference,
+        ObservedUnitRef::Enemy { position } => {
+            observed.events.iter().find_map(|event| match event {
+                ObservedEvent::UnitMoved {
+                    unit: ObservedUnitRef::Enemy { .. },
+                    from,
+                    to,
+                    ..
+                } if to == position => Some(ObservedUnitRef::Enemy { position: *from }),
+                _ => None,
+            })?
+        }
+    };
+    let hp = prior
+        .units
+        .iter()
+        .find(|unit| unit.reference == prior_reference)?
+        .hp;
+    Some(match hp {
+        ObservedUnitHp::Exact(_) => ObservedUnitHp::Exact(0).into(),
+        ObservedUnitHp::Hidden(hidden) => ObservedUnitHp::Hidden(hidden).into(),
     })
 }
 
@@ -550,6 +671,8 @@ fn capture_event(
     events: &[Event],
     pre: &impl Viewpoint,
     post: &impl Viewpoint,
+    observation: &Observation,
+    ids: &mut EnemyUnitIds,
 ) -> Option<CaptureEvent> {
     if let Some((position, owner)) = events.iter().find_map(|event| match event {
         Event::TileOwnerChanged {
@@ -571,12 +694,12 @@ fn capture_event(
     }
     events.iter().find_map(|event| match event {
         Event::CaptureChanged { position, to, .. } if *to < 20 && post.position(*position) => {
-            let unit = authority.state().units.iter().find(
+            let unit = observation.units.iter().find(
                 |unit| matches!(unit.location, Location::Board { position: p } if p == *position),
             )?;
             Some(CaptureEvent::CaptureContinued {
                 tile: server_pos(*position),
-                unit_id: server_unit_id(unit.id),
+                unit_id: ids.resolve(&unit.reference),
                 progress: 20 - *to,
             })
         }
@@ -584,17 +707,52 @@ fn capture_event(
     })
 }
 
+struct BoardObservedUnit<'a> {
+    unit: &'a ObservedUnit,
+    position: Pos,
+}
+
+impl<'a> TryFrom<&'a ObservedUnit> for BoardObservedUnit<'a> {
+    type Error = ();
+
+    fn try_from(unit: &'a ObservedUnit) -> Result<Self, Self::Error> {
+        let Location::Board { position } = unit.location else {
+            return Err(());
+        };
+        Ok(Self { unit, position })
+    }
+}
+
 fn visible_observed_unit(
     authority: &Authority,
-    state: &State,
-    observed: &ObservedUnit,
-    recipient: &VmPlayerId,
-) -> Option<VisibleUnit> {
-    let id = observed_unit_id(observed, state)?;
-    let unit = state.units.get(id)?;
-    let recipient_team = &state.find_player(recipient)?.team;
-    let owner_team = &state.find_player(&unit.owner)?.team;
-    visible_unit(authority, state, unit, Some(owner_team == recipient_team))
+    observation: &Observation,
+    observed: BoardObservedUnit<'_>,
+    ids: &mut EnemyUnitIds,
+) -> VisibleUnit {
+    let BoardObservedUnit { unit, position } = observed;
+    let capture_progress = observation
+        .board
+        .tile(position)
+        .capture_points
+        .filter(|points| *points < 20)
+        .map(|remaining| 20 - remaining);
+    let friendly = matches!(unit.reference, ObservedUnitRef::Friendly { .. });
+    VisibleUnit {
+        id: ids.resolve(&unit.reference),
+        unit_type: unit.kind,
+        faction: authority
+            .player_faction(&unit.owner)
+            .expect("every unit owner has a faction"),
+        position: server_pos(position),
+        hp: awbrn_game::world::GraphicalHp::from(unit.hp)
+            .visible()
+            .map(awbrn_types::VisualHp::get),
+        fuel: friendly.then(|| narrow_u32(unit.fuel)),
+        ammo: friendly.then(|| narrow_u32(unit.ammo)),
+        capturing: capture_progress.is_some(),
+        capture_progress,
+        hiding: unit.concealment == Concealment::Hidden,
+    }
 }
 
 fn visible_unit(
@@ -618,8 +776,9 @@ fn visible_unit(
             .player_faction(&unit.owner)
             .expect("every unit owner has a faction"),
         position: server_pos(position),
-        hp: graphical_hp_for_recipient(state, &unit.owner, unit.hp.div_ceil(10), friendly)
-            .visible(),
+        hp: awbrn_game::world::GraphicalHp::from(awbrn_types::ExactHp::new(unit.hp))
+            .visible()
+            .map(awbrn_types::VisualHp::get),
         fuel: friendly.unwrap_or(true).then(|| narrow_u32(unit.fuel)),
         ammo: friendly.unwrap_or(true).then(|| narrow_u32(unit.ammo)),
         capturing: capture_progress.is_some(),
@@ -723,56 +882,6 @@ fn public_player_states(state: &State) -> Vec<PublicPlayerState> {
             funds: narrow_u32(player.funds),
         })
         .collect()
-}
-
-fn observed_unit_id(unit: &ObservedUnit, state: &State) -> Option<UnitId> {
-    match unit.reference {
-        ObservedUnitRef::Friendly { unit } => Some(unit),
-        ObservedUnitRef::Enemy { position } => state
-            .units
-            .iter()
-            .find(|candidate| {
-                candidate.kind == unit.kind
-                    && candidate.owner == unit.owner
-                    && matches!(candidate.location, Location::Board { position: p } if p == position)
-            })
-            .map(|unit| unit.id),
-    }
-}
-
-fn observed_ref_id(reference: &ObservedUnitRef, prior: &State, post: &State) -> Option<UnitId> {
-    match reference {
-        ObservedUnitRef::Friendly { unit } => Some(*unit),
-        ObservedUnitRef::Enemy { position } => [post, prior]
-            .into_iter()
-            .flat_map(|state| state.units.iter())
-            .find(|unit| matches!(unit.location, Location::Board { position: p } if p == *position))
-            .map(|unit| unit.id),
-    }
-}
-
-fn visual_hp(state: &State, unit: UnitId) -> u8 {
-    state.units.get(unit).map_or(0, |unit| unit.hp.div_ceil(10))
-}
-
-fn graphical_hp_for_recipient(
-    state: &State,
-    owner: &VmPlayerId,
-    visual_hp: u8,
-    friendly: Option<bool>,
-) -> awbrn_game::world::GraphicalHp {
-    if friendly.unwrap_or(true) || !awvm::commander::hides_hp(state, owner) {
-        awbrn_game::world::GraphicalHp::Visible(visual_hp)
-    } else {
-        awbrn_game::world::GraphicalHp::Hidden
-    }
-}
-
-fn same_team(state: &State, left: &VmPlayerId, right: &VmPlayerId) -> bool {
-    state
-        .find_player(left)
-        .zip(state.find_player(right))
-        .is_some_and(|(left, right)| left.team == right.team)
 }
 
 fn funds(state: &State, player: &VmPlayerId) -> Option<u32> {

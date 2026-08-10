@@ -8,6 +8,7 @@ use awbrn_game::replay::{
 use awbrn_game::snapshot::{canonicalize_replay_semantic_snapshot, capture_game_snapshot};
 use awbrn_game::world::{GameMap, GraphicalHp, ViewerVisibility};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
+use awbrn_types::VisualHp;
 use awbw_replay::ReplayParser;
 use awvm::semantic::{
     AwbwVisibility, ObservedTransition, PlayerId, State, observe, observe_transition,
@@ -222,8 +223,11 @@ fn viewpoint_selects_visible_or_hidden_graphical_hp() {
         .get(&AwbwUnitId(awbrn_types::AwbwUnitId::new(0)))
         .unwrap();
     assert_eq!(
-        app.world().get::<GraphicalHp>(unit),
-        Some(&GraphicalHp::Visible(8))
+        app.world()
+            .get::<GraphicalHp>(unit)
+            .and_then(|hp| hp.visible())
+            .map(VisualHp::get),
+        Some(8)
     );
 
     app.world_mut()
@@ -239,8 +243,11 @@ fn viewpoint_selects_visible_or_hidden_graphical_hp() {
     app.world_mut().insert_resource(ReplayViewpoint::Spectator);
     refresh_viewer_visibility(app.world_mut());
     assert_eq!(
-        app.world().get::<GraphicalHp>(unit),
-        Some(&GraphicalHp::Visible(8))
+        app.world()
+            .get::<GraphicalHp>(unit)
+            .and_then(|hp| hp.visible())
+            .map(VisualHp::get),
+        Some(8)
     );
 
     app.world_mut()
@@ -249,8 +256,11 @@ fn viewpoint_selects_visible_or_hidden_graphical_hp() {
         )));
     refresh_viewer_visibility(app.world_mut());
     assert_eq!(
-        app.world().get::<GraphicalHp>(unit),
-        Some(&GraphicalHp::Visible(8))
+        app.world()
+            .get::<GraphicalHp>(unit)
+            .and_then(|hp| hp.visible())
+            .map(VisualHp::get),
+        Some(8)
     );
 }
 

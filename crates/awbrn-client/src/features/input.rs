@@ -330,7 +330,9 @@ fn unit_key(
         capture: capture.map(|progress| progress.value()),
         unit: state.unit,
         faction: state.faction,
-        health: health.and_then(|hp| hp.visible()),
+        health: health
+            .and_then(|hp| hp.visible())
+            .map(awbrn_types::VisualHp::get),
         ammo: ammo.map(Ammo::value),
         fuel: fuel.map(Fuel::value),
     }
@@ -885,7 +887,7 @@ mod tests {
                     overlays: ProjectedUnitOverlayFlags::default(),
                 },
                 Faction(faction),
-                GraphicalHp::Visible(7),
+                GraphicalHp::from(awvm::semantic::ObservedUnitHp::Exact(70)),
                 Ammo(4),
                 Fuel(50),
             ))

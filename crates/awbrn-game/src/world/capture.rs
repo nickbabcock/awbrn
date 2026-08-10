@@ -113,7 +113,8 @@ impl CaptureActorSnapshot {
         let visual_hp = actor
             .hp
             .visible()
-            .ok_or(CaptureActionError::HiddenHp(entity))?;
+            .ok_or(CaptureActionError::HiddenHp(entity))?
+            .get();
         Ok(Self {
             tile: actor.position.position(),
             faction: actor.faction.0,
@@ -273,7 +274,7 @@ mod tests {
                 MapPosition::from(tile),
                 Unit(unit),
                 Faction(PlayerFaction::OrangeStar),
-                GraphicalHp::Visible(10),
+                GraphicalHp::from(awbrn_types::ExactHp::new(100)),
                 UnitActive,
             ))
             .id();

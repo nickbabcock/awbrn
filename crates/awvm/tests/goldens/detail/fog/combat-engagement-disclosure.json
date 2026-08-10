@@ -7,20 +7,18 @@
           [
             {
               "terrain": "plain",
+              "visibility": "fogged"
+            },
+            {
+              "terrain": "plain",
               "visibility": "visible"
             },
             {
-              "terrain": "road",
+              "terrain": "plain",
               "visibility": "visible"
             },
             {
-              "capture_points": 20,
-              "owner": "blue",
-              "terrain": "city",
-              "visibility": "visible"
-            },
-            {
-              "terrain": "reef",
+              "terrain": "plain",
               "visibility": "visible"
             }
           ]
@@ -36,15 +34,14 @@
           "commanders": [
             {
               "active": true,
-              "id": "sonja",
+              "id": "neutral",
               "power_charge": 0,
-              "power_uses": 1
+              "power_uses": 0
             }
           ],
           "id": "red",
           "power_state": {
-            "commander_slot": 0,
-            "type": "scop"
+            "type": "none"
           },
           "relation": "opponent",
           "status": "active",
@@ -84,7 +81,7 @@
         "fog": true,
         "income_per_property": 1000,
         "lab_units": [],
-        "powers": "enabled",
+        "powers": "disabled",
         "starting_funds": 0,
         "tags": false,
         "unit_bans": [],
@@ -114,14 +111,14 @@
       "units": [
         {
           "action": "ready",
-          "ammo": 9,
+          "ammo": 0,
           "concealment": "exposed",
-          "fuel": 70,
+          "fuel": 99,
           "hp": 100,
-          "kind": "tank",
+          "kind": "infantry",
           "location": {
             "position": [
-              2,
+              3,
               0
             ],
             "type": "board"
@@ -134,34 +131,14 @@
         },
         {
           "action": "ready",
-          "ammo": 6,
+          "ammo": 0,
           "concealment": "exposed",
-          "fuel": 60,
+          "fuel": 80,
           "hp": 100,
-          "kind": "sub",
+          "kind": "recon",
           "location": {
             "position": [
-              3,
-              0
-            ],
-            "type": "board"
-          },
-          "owner": "blue",
-          "ref": {
-            "type": "friendly",
-            "unit": 2
-          }
-        },
-        {
-          "action": "ready",
-          "ammo": 6,
-          "concealment": "exposed",
-          "fuel": 50,
-          "hp": "hidden",
-          "kind": "artillery",
-          "location": {
-            "position": [
-              0,
+              1,
               0
             ],
             "type": "board"
@@ -169,7 +146,7 @@
           "owner": "red",
           "ref": {
             "position": [
-              0,
+              1,
               0
             ],
             "type": "enemy"
@@ -191,17 +168,15 @@
               "visibility": "visible"
             },
             {
-              "terrain": "road",
+              "terrain": "plain",
               "visibility": "visible"
             },
             {
-              "capture_points": 20,
-              "owner": "blue",
-              "terrain": "city",
+              "terrain": "plain",
               "visibility": "visible"
             },
             {
-              "terrain": "reef",
+              "terrain": "plain",
               "visibility": "visible"
             }
           ]
@@ -217,16 +192,15 @@
           "commanders": [
             {
               "active": true,
-              "id": "sonja",
+              "id": "neutral",
               "power_charge": 0,
-              "power_uses": 1
+              "power_uses": 0
             }
           ],
           "funds": 0,
           "id": "red",
           "power_state": {
-            "commander_slot": 0,
-            "type": "scop"
+            "type": "none"
           },
           "relation": "self",
           "status": "active",
@@ -265,7 +239,7 @@
         "fog": true,
         "income_per_property": 1000,
         "lab_units": [],
-        "powers": "enabled",
+        "powers": "disabled",
         "starting_funds": 0,
         "tags": false,
         "unit_bans": [],
@@ -295,7 +269,7 @@
       "units": [
         {
           "action": "ready",
-          "ammo": 6,
+          "ammo": 9,
           "concealment": "exposed",
           "fuel": 50,
           "hp": 100,
@@ -315,34 +289,31 @@
         },
         {
           "action": "ready",
-          "ammo": 9,
+          "ammo": 0,
           "concealment": "exposed",
-          "fuel": 70,
+          "fuel": 80,
           "hp": 100,
-          "kind": "tank",
+          "kind": "recon",
           "location": {
             "position": [
-              2,
+              1,
               0
             ],
             "type": "board"
           },
-          "owner": "blue",
+          "owner": "red",
           "ref": {
-            "position": [
-              2,
-              0
-            ],
-            "type": "enemy"
+            "type": "friendly",
+            "unit": 2
           }
         },
         {
           "action": "ready",
-          "ammo": 6,
+          "ammo": 0,
           "concealment": "exposed",
-          "fuel": 60,
+          "fuel": 99,
           "hp": 100,
-          "kind": "sub",
+          "kind": "infantry",
           "location": {
             "position": [
               3,
@@ -368,7 +339,7 @@
   },
   "steps": [
     {
-      "id": "counter-break-reveals-reef",
+      "id": "hide-pairing-from-one-endpoint-viewer",
       "observations": {
         "blue": {
           "board": {
@@ -377,20 +348,18 @@
               [
                 {
                   "terrain": "plain",
+                  "visibility": "fogged"
+                },
+                {
+                  "terrain": "plain",
                   "visibility": "visible"
                 },
                 {
-                  "terrain": "road",
+                  "terrain": "plain",
                   "visibility": "visible"
                 },
                 {
-                  "capture_points": 20,
-                  "owner": "blue",
-                  "terrain": "city",
-                  "visibility": "visible"
-                },
-                {
-                  "terrain": "reef",
+                  "terrain": "plain",
                   "visibility": "visible"
                 }
               ]
@@ -406,15 +375,14 @@
               "commanders": [
                 {
                   "active": true,
-                  "id": "sonja",
+                  "id": "neutral",
                   "power_charge": 0,
-                  "power_uses": 1
+                  "power_uses": 0
                 }
               ],
               "id": "red",
               "power_state": {
-                "commander_slot": 0,
-                "type": "scop"
+                "type": "none"
               },
               "relation": "opponent",
               "status": "active",
@@ -454,7 +422,7 @@
             "fog": true,
             "income_per_property": 1000,
             "lab_units": [],
-            "powers": "enabled",
+            "powers": "disabled",
             "starting_funds": 0,
             "tags": false,
             "unit_bans": [],
@@ -484,14 +452,14 @@
           "units": [
             {
               "action": "ready",
-              "ammo": 9,
+              "ammo": 0,
               "concealment": "exposed",
-              "fuel": 70,
-              "hp": 47,
-              "kind": "tank",
+              "fuel": 99,
+              "hp": 19,
+              "kind": "infantry",
               "location": {
                 "position": [
-                  2,
+                  3,
                   0
                 ],
                 "type": "board"
@@ -504,34 +472,14 @@
             },
             {
               "action": "ready",
-              "ammo": 6,
+              "ammo": 0,
               "concealment": "exposed",
-              "fuel": 60,
+              "fuel": 80,
               "hp": 100,
-              "kind": "sub",
+              "kind": "recon",
               "location": {
                 "position": [
-                  3,
-                  0
-                ],
-                "type": "board"
-              },
-              "owner": "blue",
-              "ref": {
-                "type": "friendly",
-                "unit": 2
-              }
-            },
-            {
-              "action": "spent",
-              "ammo": 5,
-              "concealment": "exposed",
-              "fuel": 50,
-              "hp": "hidden",
-              "kind": "artillery",
-              "location": {
-                "position": [
-                  0,
+                  1,
                   0
                 ],
                 "type": "board"
@@ -539,7 +487,7 @@
               "owner": "red",
               "ref": {
                 "position": [
-                  0,
+                  1,
                   0
                 ],
                 "type": "enemy"
@@ -561,17 +509,15 @@
                   "visibility": "visible"
                 },
                 {
-                  "terrain": "road",
+                  "terrain": "plain",
                   "visibility": "visible"
                 },
                 {
-                  "capture_points": 20,
-                  "owner": "blue",
-                  "terrain": "city",
+                  "terrain": "plain",
                   "visibility": "visible"
                 },
                 {
-                  "terrain": "reef",
+                  "terrain": "plain",
                   "visibility": "visible"
                 }
               ]
@@ -587,16 +533,15 @@
               "commanders": [
                 {
                   "active": true,
-                  "id": "sonja",
+                  "id": "neutral",
                   "power_charge": 0,
-                  "power_uses": 1
+                  "power_uses": 0
                 }
               ],
               "funds": 0,
               "id": "red",
               "power_state": {
-                "commander_slot": 0,
-                "type": "scop"
+                "type": "none"
               },
               "relation": "self",
               "status": "active",
@@ -635,7 +580,7 @@
             "fog": true,
             "income_per_property": 1000,
             "lab_units": [],
-            "powers": "enabled",
+            "powers": "disabled",
             "starting_funds": 0,
             "tags": false,
             "unit_bans": [],
@@ -665,7 +610,7 @@
           "units": [
             {
               "action": "spent",
-              "ammo": 5,
+              "ammo": 8,
               "concealment": "exposed",
               "fuel": 50,
               "hp": 100,
@@ -685,34 +630,31 @@
             },
             {
               "action": "ready",
-              "ammo": 9,
+              "ammo": 0,
               "concealment": "exposed",
-              "fuel": 70,
-              "hp": 47,
-              "kind": "tank",
+              "fuel": 80,
+              "hp": 100,
+              "kind": "recon",
               "location": {
                 "position": [
-                  2,
+                  1,
                   0
                 ],
                 "type": "board"
               },
-              "owner": "blue",
+              "owner": "red",
               "ref": {
-                "position": [
-                  2,
-                  0
-                ],
-                "type": "enemy"
+                "type": "friendly",
+                "unit": 2
               }
             },
             {
               "action": "ready",
-              "ammo": 6,
+              "ammo": 0,
               "concealment": "exposed",
-              "fuel": 60,
-              "hp": 100,
-              "kind": "sub",
+              "fuel": 99,
+              "hp": 19,
+              "kind": "infantry",
               "location": {
                 "position": [
                   3,
@@ -741,63 +683,15 @@
           {
             "reason": "combat",
             "state": {
-              "action": "spent",
-              "ammo": 5,
-              "concealment": "exposed",
-              "fuel": 50,
-              "hp": "hidden",
-              "kind": "artillery",
-              "location": {
-                "position": [
-                  0,
-                  0
-                ],
-                "type": "board"
-              },
-              "owner": "red",
-              "ref": {
-                "position": [
-                  0,
-                  0
-                ],
-                "type": "enemy"
-              }
-            },
-            "type": "unit-changed",
-            "unit": {
-              "position": [
-                0,
-                0
-              ],
-              "type": "enemy"
-            }
-          },
-          {
-            "attacker": {
-              "position": [
-                0,
-                0
-              ],
-              "type": "enemy"
-            },
-            "defender": {
-              "type": "friendly",
-              "unit": 1
-            },
-            "type": "combat-engaged"
-          },
-          {
-            "reason": "combat",
-            "state": {
               "action": "ready",
-              "ammo": 9,
+              "ammo": 0,
               "concealment": "exposed",
-              "fuel": 70,
-              "hp": 47,
-              "kind": "tank",
+              "fuel": 99,
+              "hp": 19,
+              "kind": "infantry",
               "location": {
                 "position": [
-                  2,
+                  3,
                   0
                 ],
                 "type": "board"
@@ -813,40 +707,6 @@
               "type": "friendly",
               "unit": 1
             }
-          },
-          {
-            "reason": "attack",
-            "state": {
-              "action": "spent",
-              "ammo": 5,
-              "concealment": "exposed",
-              "fuel": 50,
-              "hp": "hidden",
-              "kind": "artillery",
-              "location": {
-                "position": [
-                  0,
-                  0
-                ],
-                "type": "board"
-              },
-              "owner": "red",
-              "ref": {
-                "position": [
-                  0,
-                  0
-                ],
-                "type": "enemy"
-              }
-            },
-            "type": "unit-changed",
-            "unit": {
-              "position": [
-                0,
-                0
-              ],
-              "type": "enemy"
-            }
           }
         ],
         "red": [
@@ -854,7 +714,7 @@
             "reason": "combat",
             "state": {
               "action": "spent",
-              "ammo": 5,
+              "ammo": 8,
               "concealment": "exposed",
               "fuel": 50,
               "hp": 100,
@@ -885,7 +745,7 @@
             },
             "defender": {
               "position": [
-                2,
+                3,
                 0
               ],
               "type": "enemy"
@@ -896,14 +756,14 @@
             "reason": "combat",
             "state": {
               "action": "ready",
-              "ammo": 9,
+              "ammo": 0,
               "concealment": "exposed",
-              "fuel": 70,
-              "hp": 47,
-              "kind": "tank",
+              "fuel": 99,
+              "hp": 19,
+              "kind": "infantry",
               "location": {
                 "position": [
-                  2,
+                  3,
                   0
                 ],
                 "type": "board"
@@ -911,7 +771,7 @@
               "owner": "blue",
               "ref": {
                 "position": [
-                  2,
+                  3,
                   0
                 ],
                 "type": "enemy"
@@ -920,7 +780,7 @@
             "type": "unit-changed",
             "unit": {
               "position": [
-                2,
+                3,
                 0
               ],
               "type": "enemy"
@@ -930,7 +790,7 @@
             "reason": "attack",
             "state": {
               "action": "spent",
-              "ammo": 5,
+              "ammo": 8,
               "concealment": "exposed",
               "fuel": 50,
               "hp": 100,

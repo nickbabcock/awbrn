@@ -299,7 +299,10 @@ mod tests {
             .submit_command(submission.player, command)
             .expect("attack is accepted");
         assert!(
-            result.combat_outcome.is_some(),
+            result
+                .updates
+                .iter()
+                .any(|(_, update)| update.combat_event.is_some()),
             "the attack case did not resolve combat"
         );
     }
