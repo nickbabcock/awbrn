@@ -165,7 +165,8 @@
         "air_upkeep_add": { "type": "integer", "minimum": -99, "maximum": 99 },
         "ignores_snow_movement": { "type": "boolean" },
         "ignores_rain_movement": { "type": "boolean" },
-        "rain_movement_as_snow": { "type": "boolean" }
+        "rain_movement_as_snow": { "type": "boolean" },
+        "hides_hp": { "type": "boolean" }
       }
     }
   }

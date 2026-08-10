@@ -444,6 +444,8 @@ pub(crate) struct PowerActivation {
 #[derive(Clone, Debug, Default, Deserialize)]
 struct EffectiveProfile {
     #[serde(default)]
+    hides_hp: bool,
+    #[serde(default)]
     movement: UnitStateValues,
     #[serde(default)]
     movement_cost: MovementCostStates,
@@ -471,6 +473,11 @@ struct EffectiveProfile {
     ignores_rain_movement: bool,
     #[serde(default)]
     rain_movement_as_snow: bool,
+}
+
+/// Return whether the owner's units hide their HP from opponents.
+pub fn hides_hp(state: &State, owner: &PlayerId) -> bool {
+    effective_profile(state, owner).is_some_and(|(profile, _)| profile.hides_hp)
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

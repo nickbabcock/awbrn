@@ -505,7 +505,6 @@ fn sync_unit_components(
         u32::try_from(unit.fuel).map_err(|_| TransitionApplyError::OutOfRange("unit.fuel"))?;
     let ammo =
         u32::try_from(unit.ammo).map_err(|_| TransitionApplyError::OutOfRange("unit.ammo"))?;
-    let hp = unit.hp.div_ceil(10);
     let vision = awvm::ruleset::profile(unit.kind).vision;
     let vision =
         u32::try_from(vision).map_err(|_| TransitionApplyError::OutOfRange("unit.vision"))?;
@@ -514,11 +513,15 @@ fn sync_unit_components(
     entity.insert((
         Unit(unit.kind),
         Faction(faction),
-        GraphicalHp(hp),
         Fuel(fuel),
         Ammo(ammo),
         VisionRange(vision),
     ));
+    if let Some(hp) = unit.hp.exact() {
+        entity.insert(GraphicalHp::Visible(hp.div_ceil(10)));
+    } else {
+        entity.insert(GraphicalHp::Hidden);
+    }
     if unit.action == UnitAction::Ready {
         entity.insert(UnitActive);
     } else {

@@ -16,6 +16,7 @@ effective-movement-cost(context, unit, base-or-impassable) ->
   nonnegative integer or impassable
 effective-vision(context, unit, base) -> nonnegative integer
 reveals-concealing-terrain(context, unit) -> boolean
+hides-hp(context, player) -> boolean
 effective-income-per-property(context, player, base) -> nonnegative integer
 effective-repair-bars(context, player, base) -> nonnegative integer
 effective-upkeep(context, unit, base) -> nonnegative integer
@@ -58,6 +59,10 @@ back to the day-to-day value and then `false`. When true for a vision source,
 terrain `vision_limit` does not restrict that source. The flag affects only
 units owned by that source's player; it does not spread to allied players'
 vision sources.
+
+`hides_hp` is a day-to-day player flag. When true, recipient observations hide
+the HP of that player's units from opponents. The player and the player's
+allies still receive exact HP. The flag remains active during COP and SCOP.
 
 Build-cost states select one rational multiplier: the active COP/SCOP value
 replaces the day-to-day value when present, otherwise day-to-day is inherited.

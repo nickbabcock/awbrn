@@ -285,11 +285,75 @@ fn create_server_and_spawn_unit() {
     assert_eq!(view.units.len(), 1);
     assert_eq!(view.units[0].unit_type, awbrn_types::Unit::Infantry);
     assert_eq!(view.units[0].position, Position::new(2, 2));
-    assert_eq!(view.units[0].hp, 10);
+    assert_eq!(view.units[0].hp, Some(10));
     assert_eq!(view.units[0].fuel, Some(99)); // Infantry max fuel
     assert_eq!(view.my_funds, 1000);
     assert_eq!(view.state.day, 1);
     assert_eq!(view.state.active_player, p1());
+}
+
+#[test]
+fn sonja_unit_hp_is_hidden_only_from_opponents() {
+    let mut setup = two_player_setup(3, 1);
+    setup.players[0].co = Co::Sonja;
+    let mut server = GameServer::new(setup).unwrap();
+    let unit = server.spawn_unit(
+        Position::new(1, 0),
+        Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    let opponent = server.spawn_unit(Position::new(2, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+
+    let own_hp = server
+        .player_view(p1())
+        .unwrap()
+        .units
+        .into_iter()
+        .find(|candidate| candidate.id == unit)
+        .unwrap()
+        .hp;
+    let opponent_hp = server
+        .player_view(p2())
+        .unwrap()
+        .units
+        .into_iter()
+        .find(|candidate| candidate.id == unit)
+        .unwrap()
+        .hp;
+
+    assert_eq!(own_hp, Some(10));
+    assert_eq!(opponent_hp, None);
+
+    let result = server
+        .submit_command(
+            p1(),
+            attack_command(unit, vec![Position::new(1, 0)], Position::new(2, 0)),
+        )
+        .unwrap();
+    let event = result
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p2())
+        .and_then(|(_, update)| update.combat_event.as_ref())
+        .expect("the opponent sees the adjacent combat");
+    assert_eq!(
+        event.attacker_hp_after,
+        awbrn_game::world::GraphicalHp::Hidden
+    );
+    assert_eq!(
+        event.defender_hp_after,
+        awbrn_game::world::GraphicalHp::Visible(
+            server
+                .player_view(p2())
+                .unwrap()
+                .units
+                .into_iter()
+                .find(|candidate| candidate.id == opponent)
+                .unwrap()
+                .hp
+                .unwrap()
+        )
+    );
 }
 
 #[test]
@@ -380,7 +444,7 @@ fn build_infantry_from_owned_base_deducts_funds_and_spawns_unit() {
         .iter()
         .find(|unit| unit.position == base && unit.unit_type == Unit::Infantry)
         .expect("owner should see the built unit");
-    assert_eq!(built.hp, 10);
+    assert_eq!(built.hp, Some(10));
     assert_eq!(built.fuel, Some(Unit::Infantry.max_fuel()));
     assert_eq!(built.ammo, Some(Unit::Infantry.max_ammo()));
 
@@ -391,7 +455,7 @@ fn build_infantry_from_owned_base_deducts_funds_and_spawns_unit() {
         .iter()
         .find(|unit| unit.position == base && unit.unit_type == Unit::Infantry)
         .expect("built unit should appear in player_view");
-    assert_eq!(built.hp, 10);
+    assert_eq!(built.hp, Some(10));
     assert_eq!(built.fuel, Some(Unit::Infantry.max_fuel()));
     assert_eq!(built.ammo, Some(Unit::Infantry.max_ammo()));
 
@@ -1112,7 +1176,11 @@ fn attack_kills_defender() {
     assert!(p2_update.units_removed.contains(&defender));
     assert!(p2_update.combat_event.is_some());
     let event = p2_update.combat_event.as_ref().unwrap();
-    assert_eq!(event.defender_hp_after.0, 0, "defender should have 0 HP");
+    assert_eq!(
+        event.defender_hp_after.visible(),
+        Some(0),
+        "defender should have 0 HP"
+    );
 }
 
 #[test]
@@ -1145,18 +1213,21 @@ fn attack_reduces_hp_without_killing() {
 
     // Defender should have less than full HP.
     let defender_unit = p1_view.units.iter().find(|u| u.id == defender).unwrap();
-    assert!(defender_unit.hp < 10, "defender should have taken damage");
+    assert!(
+        defender_unit.hp.is_some_and(|hp| hp < 10),
+        "defender should have taken damage"
+    );
 
     // combat_event should be present for both players.
     let (_, p1_update) = result.updates.iter().find(|(id, _)| *id == p1()).unwrap();
     assert!(p1_update.combat_event.is_some());
     let event = p1_update.combat_event.as_ref().unwrap();
     assert!(
-        event.defender_hp_after.0 > 0,
+        event.defender_hp_after.visible().is_some_and(|hp| hp > 0),
         "defender should still have HP"
     );
     assert!(
-        event.attacker_hp_after.0 > 0,
+        event.attacker_hp_after.visible().is_some_and(|hp| hp > 0),
         "attacker should still have HP after counterattack"
     );
     assert!(matches!(
@@ -1488,7 +1559,7 @@ fn special_post_move_actions_reach_awvm() {
             .find(|unit| unit.id == victim)
             .unwrap()
             .hp,
-        7
+        Some(7)
     );
     assert_eq!(
         launch_view
@@ -1529,7 +1600,7 @@ fn special_post_move_actions_reach_awvm() {
             .find(|unit| unit.id == blast_victim)
             .unwrap()
             .hp,
-        5
+        Some(5)
     );
 }
 
@@ -2448,7 +2519,8 @@ fn damaged_infantry_takes_more_than_two_capture_actions() {
         .iter()
         .find(|unit| unit.id == infantry)
         .unwrap()
-        .hp;
+        .hp
+        .expect("a player sees the exact HP of its own unit");
     assert!(damaged_hp < 10, "test setup should damage the infantry");
 
     server.submit_command(p2(), GameCommand::EndTurn).unwrap();

@@ -362,8 +362,12 @@ function OrderRow({
  */
 function UnitSprite({ badge, scale }: { badge: UnitBadge; scale: 1 | 2 }) {
   const sprite = unitSpriteStyle(badge.unit, badge.factionCode, scale);
-  const health = badge.health < FULL_HEALTH ? badge.health : null;
-  const digit = health === null ? null : uiAtlasSpriteStyle(`Healthv2/${health}.png`, scale);
+  const digit =
+    badge.health === undefined
+      ? uiAtlasSpriteStyle("Healthv2/Question.png", scale)
+      : badge.health < FULL_HEALTH
+        ? uiAtlasSpriteStyle(`Healthv2/${badge.health}.png`, scale)
+        : null;
 
   if (!sprite) return null;
 

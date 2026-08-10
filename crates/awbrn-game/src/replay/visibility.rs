@@ -13,11 +13,13 @@ use std::collections::{HashMap, HashSet};
 
 use awbrn_map::Position;
 use awbrn_types::{AwbwGamePlayerId, AwbwUnitId as RawAwbwUnitId, PlayerFaction};
-use awvm::semantic::{Observation, ObservedPlayer, ObservedUnitRef, TileVisibility};
+use awvm::semantic::{
+    Observation, ObservedPlayer, ObservedUnitHp, ObservedUnitRef, TileVisibility,
+};
 use bevy::prelude::*;
 
 use crate::replay::{AwbwUnitId, ReplayState};
-use crate::world::{BoardIndex, FriendlyFactions, GameMap, ViewerVisibility};
+use crate::world::{BoardIndex, FriendlyFactions, GameMap, GraphicalHp, ViewerVisibility};
 
 /// Selects whose perspective the presentation is drawn from.
 #[derive(Resource, Default, Debug, Clone, PartialEq, Eq)]
@@ -236,6 +238,7 @@ pub fn refresh_viewer_visibility(world: &mut World) {
 
     let Some(observation) = observation else {
         world.resource_mut::<ViewerVisibility>().clear();
+        restore_spectator_hp(world);
         return;
     };
 
@@ -262,10 +265,22 @@ fn apply_observation_visibility(world: &mut World, observation: &Observation) {
         .units
         .iter()
         .filter_map(|unit| match unit.reference {
-            ObservedUnitRef::Friendly { unit } => Some(RawAwbwUnitId::new(unit.get())),
-            ObservedUnitRef::Enemy { position } => unit_at(world, map_position(position)),
+            ObservedUnitRef::Friendly { unit: id } => Some((RawAwbwUnitId::new(id.get()), unit.hp)),
+            ObservedUnitRef::Enemy { position } => {
+                unit_at(world, map_position(position)).map(|id| (id, unit.hp))
+            }
         })
         .collect::<Vec<_>>();
+
+    for (unit, hp) in &visible_units {
+        let Some(entity) = world
+            .resource::<crate::world::StrongIdMap<AwbwUnitId>>()
+            .get(&AwbwUnitId(*unit))
+        else {
+            continue;
+        };
+        world.entity_mut(entity).insert(graphical_hp(*hp));
+    }
 
     let mut visibility = world.resource_mut::<ViewerVisibility>();
     visibility.reset(observation.settings.fog, width, height);
@@ -274,7 +289,7 @@ fn apply_observation_visibility(world: &mut World, observation: &Observation) {
             visibility.set_tile_visible(map_position(position));
         }
     }
-    for unit in visible_units {
+    for (unit, _) in visible_units {
         visibility.set_unit_visible(unit);
     }
     for player in &observation.players {
@@ -285,6 +300,45 @@ fn apply_observation_visibility(world: &mut World, observation: &Observation) {
         {
             visibility.set_player_disclosed(player);
         }
+    }
+}
+
+fn restore_spectator_hp(world: &mut World) {
+    let exact = world
+        .resource::<RecipientObservations>()
+        .0
+        .iter()
+        .flat_map(|observation| {
+            observation
+                .units
+                .iter()
+                .filter_map(|unit| match (unit.reference, unit.hp) {
+                    (ObservedUnitRef::Friendly { unit: id }, ObservedUnitHp::Exact(hp))
+                        if unit.owner == observation.recipient =>
+                    {
+                        Some((RawAwbwUnitId::new(id.get()), hp))
+                    }
+                    _ => None,
+                })
+        })
+        .collect::<Vec<_>>();
+    for (unit, hp) in exact {
+        let Some(entity) = world
+            .resource::<crate::world::StrongIdMap<AwbwUnitId>>()
+            .get(&AwbwUnitId(unit))
+        else {
+            continue;
+        };
+        world
+            .entity_mut(entity)
+            .insert(GraphicalHp::Visible(hp.div_ceil(10)));
+    }
+}
+
+const fn graphical_hp(hp: ObservedUnitHp) -> GraphicalHp {
+    match hp {
+        ObservedUnitHp::Exact(hp) => GraphicalHp::Visible(hp.div_ceil(10)),
+        ObservedUnitHp::Hidden(_) => GraphicalHp::Hidden,
     }
 }
 

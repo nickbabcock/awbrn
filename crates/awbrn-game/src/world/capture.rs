@@ -49,6 +49,7 @@ pub enum CaptureActionError {
         tile: Position,
         faction: PlayerFaction,
     },
+    HiddenHp(Entity),
 }
 
 impl std::fmt::Display for CaptureActionError {
@@ -65,6 +66,7 @@ impl std::fmt::Display for CaptureActionError {
             Self::OwnProperty { tile, faction } => {
                 write!(f, "property at {tile:?} is already owned by {faction:?}")
             }
+            Self::HiddenHp(entity) => write!(f, "unit {entity:?} has hidden HP"),
         }
     }
 }
@@ -108,10 +110,14 @@ impl CaptureActorSnapshot {
             });
         }
 
+        let visual_hp = actor
+            .hp
+            .visible()
+            .ok_or(CaptureActionError::HiddenHp(entity))?;
         Ok(Self {
             tile: actor.position.position(),
             faction: actor.faction.0,
-            visual_hp: actor.hp.0,
+            visual_hp,
             progress: actor
                 .progress
                 .copied()
@@ -267,7 +273,7 @@ mod tests {
                 MapPosition::from(tile),
                 Unit(unit),
                 Faction(PlayerFaction::OrangeStar),
-                GraphicalHp(10),
+                GraphicalHp::Visible(10),
                 UnitActive,
             ))
             .id();

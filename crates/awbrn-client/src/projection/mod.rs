@@ -27,7 +27,7 @@ pub enum ClientProjectionSet {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ProjectedUnitOverlayFlags {
-    pub health: Option<u8>,
+    pub health: Option<GraphicalHp>,
     pub capturing: bool,
     pub cargo: bool,
     pub dive: bool,
@@ -138,9 +138,9 @@ fn unit_is_active(
     }
 }
 
-fn projected_health(hp: Option<&GraphicalHp>) -> Option<u8> {
-    hp.filter(|hp| !hp.is_full_health() && !hp.is_destroyed())
-        .map(GraphicalHp::value)
+fn projected_health(hp: Option<&GraphicalHp>) -> Option<GraphicalHp> {
+    hp.copied()
+        .filter(|hp| !hp.is_full_health() && !hp.is_destroyed())
 }
 
 /// Whether the viewer may see this unit.

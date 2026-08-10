@@ -45,9 +45,11 @@ The observation contains:
   unit. Own and allied units use `{type:"friendly",unit:n}`, where `n` is their
   authoritative unit ID. An enemy unit instead uses
   `{type:"enemy",position:[x,y]}`, where `(x,y)` is its visible board position.
-  Every other included unit field is exact. Enemy cargo is omitted, even when
-  its transport is visible. Own/allied cargo uses its authoritative transport
-  and slot;
+  Every other included unit field is exact, except that `hp` is `hidden` when
+  the unit owner's active commander hides HP and the recipient is an opponent.
+  A unit's owner and allies always receive its exact HP. Enemy cargo is omitted,
+  even when its transport is visible. Own/allied cargo uses its authoritative
+  transport and slot;
 - active match draw offers only from the recipient's team, sorted by player ID.
   A finished outcome is public.
 
@@ -149,7 +151,7 @@ Two derived values are used throughout:
   and otherwise the event's `type`. Observed `unit-changed`, `unit-removed`, and
   `tile-changed` all carry a `reason`, while several authoritative events do
   not; this rule fixes the substitute without inventing vocabulary.
-- `snapshot(u)` is `u`'s member of `post`, which is exactly the object
+- `snapshot(u)` is `u`'s member of `post`, which is the recipient-safe object
   `schema/observation.schema.json#/$defs/unit` describes.
 - `observed-ref(u,q)` is `{type:"friendly",unit:u.id}` for an own or allied
   unit and `{type:"enemy",position:q}` for an enemy at visible position `q`.

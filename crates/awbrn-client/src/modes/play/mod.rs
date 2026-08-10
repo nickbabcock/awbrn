@@ -2000,7 +2000,8 @@ fn unit_badge(
         health: unit_selection
             .graphical_hp
             .get(entity)
-            .map_or(10, |hp| hp.value()),
+            .ok()
+            .and_then(|hp| hp.visible()),
     })
 }
 

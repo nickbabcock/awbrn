@@ -209,6 +209,7 @@
       }
     },
     "sonja": {
+      "hides_hp": true,
       "vision": { "day_to_day": [{ "add": 1 }], "cop": [{ "add": 1 }], "scop": [{ "add": 1 }] },
       "reveals_concealing_terrain": { "cop": true, "scop": true }
     }

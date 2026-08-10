@@ -76,7 +76,7 @@ pub struct HoveredCargoUnit {
     pub unit: awvm::ruleset::UnitKind,
     pub name: String,
     pub faction_code: String,
-    pub health: u8,
+    pub health: Option<u8>,
     pub ammo: Option<u32>,
     pub max_ammo: u32,
     pub fuel: Option<u32>,
@@ -123,7 +123,7 @@ pub struct HoveredUnit {
     pub unit: awvm::ruleset::UnitKind,
     pub name: String,
     pub faction_code: String,
-    pub health: u8,
+    pub health: Option<u8>,
     /// `None` when the unit carries the resource but its amount is unknown.
     pub ammo: Option<u32>,
     pub max_ammo: u32,
@@ -286,8 +286,8 @@ pub struct UnitBadge {
     pub unit: awvm::ruleset::UnitKind,
     pub name: String,
     pub faction_code: String,
-    /// Health as the game shows it, 1 to 10.
-    pub health: u8,
+    /// Health as the game shows it, or `None` when it is hidden.
+    pub health: Option<u8>,
 }
 
 /// What an attack is aimed at, as the order names it.
@@ -304,8 +304,8 @@ pub enum ForecastTarget {
         unit: awvm::ruleset::UnitKind,
         name: String,
         faction_code: String,
-        /// Health as the game shows it, 1 to 10.
-        health: u8,
+        /// Health as the game shows it, or `None` when it is hidden.
+        health: Option<u8>,
     },
     /// A destructible tile: a pipe seam. It has no army and does not answer.
     Tile { name: String },

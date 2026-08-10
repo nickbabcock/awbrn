@@ -44,7 +44,7 @@ pub struct VisibleUnit {
     pub unit_type: ServerUnit,
     pub faction: PlayerFaction,
     pub position: Position,
-    pub hp: u8,
+    pub hp: Option<u8>,
     pub fuel: Option<u32>,
     pub ammo: Option<u32>,
     pub capturing: bool,
@@ -400,7 +400,13 @@ fn player_update<V: Viewpoint>(
         terrain_revealed: team.terrain_revealed.to_vec(),
         terrain_changed: team.terrain_changed.to_vec(),
         turn_change,
-        combat_event: combat_event(authority.state(), events, prior, team.post_visibility),
+        combat_event: combat_event(
+            authority.state(),
+            events,
+            prior,
+            team.post_visibility,
+            &recipient,
+        ),
         capture_event: capture_event(authority, events, team.pre_visibility, team.post_visibility),
         my_funds,
         state: game_state_header(authority.state()),
@@ -458,6 +464,7 @@ fn combat_event(
     events: &[Event],
     prior: &State,
     visibility: &impl Viewpoint,
+    recipient: &VmPlayerId,
 ) -> Option<UnitCombatEvent> {
     let (attacker, defender) = events.iter().find_map(|event| match event {
         Event::AttackResolved {
@@ -484,9 +491,29 @@ fn combat_event(
     Some(UnitCombatEvent {
         attacker_id: server_unit_id(attacker),
         defender_id: server_unit_id(defender),
-        attacker_hp_after: awbrn_game::world::GraphicalHp(visual_hp(post, attacker)),
-        defender_hp_after: awbrn_game::world::GraphicalHp(visual_hp(post, defender)),
+        attacker_hp_after: combat_graphical_hp(post, prior, attacker, recipient)?,
+        defender_hp_after: combat_graphical_hp(post, prior, defender, recipient)?,
     })
+}
+
+fn combat_graphical_hp(
+    post: &State,
+    prior: &State,
+    unit: UnitId,
+    recipient: &VmPlayerId,
+) -> Option<awbrn_game::world::GraphicalHp> {
+    let owner = post
+        .units
+        .get(unit)
+        .or_else(|| prior.units.get(unit))?
+        .owner
+        .clone();
+    Some(graphical_hp_for_recipient(
+        post,
+        &owner,
+        visual_hp(post, unit),
+        Some(same_team(post, &owner, recipient)),
+    ))
 }
 
 fn combat_outcome(prior: &State, post: &State, events: &[Event]) -> Option<CombatOutcome> {
@@ -591,7 +618,8 @@ fn visible_unit(
             .player_faction(&unit.owner)
             .expect("every unit owner has a faction"),
         position: server_pos(position),
-        hp: unit.hp.div_ceil(10),
+        hp: graphical_hp_for_recipient(state, &unit.owner, unit.hp.div_ceil(10), friendly)
+            .visible(),
         fuel: friendly.unwrap_or(true).then(|| narrow_u32(unit.fuel)),
         ammo: friendly.unwrap_or(true).then(|| narrow_u32(unit.ammo)),
         capturing: capture_progress.is_some(),
@@ -725,6 +753,19 @@ fn observed_ref_id(reference: &ObservedUnitRef, prior: &State, post: &State) -> 
 
 fn visual_hp(state: &State, unit: UnitId) -> u8 {
     state.units.get(unit).map_or(0, |unit| unit.hp.div_ceil(10))
+}
+
+fn graphical_hp_for_recipient(
+    state: &State,
+    owner: &VmPlayerId,
+    visual_hp: u8,
+    friendly: Option<bool>,
+) -> awbrn_game::world::GraphicalHp {
+    if friendly.unwrap_or(true) || !awvm::commander::hides_hp(state, owner) {
+        awbrn_game::world::GraphicalHp::Visible(visual_hp)
+    } else {
+        awbrn_game::world::GraphicalHp::Hidden
+    }
 }
 
 fn same_team(state: &State, left: &VmPlayerId, right: &VmPlayerId) -> bool {

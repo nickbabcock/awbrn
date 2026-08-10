@@ -170,7 +170,7 @@ function UnitLines({ unit }: { unit: HoveredUnit }) {
       <UnitSprite unit={unit} />
       <VStack gap={0} xstyle={styles.details}>
         <Resource
-          critical={unit.health <= 3}
+          critical={unit.health !== undefined && unit.health <= 3}
           icon={HP}
           label="Health"
           maximum={10}
