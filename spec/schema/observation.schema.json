@@ -192,7 +192,9 @@
         "ref": { "$ref": "#/$defs/unit-ref" },
         "kind": { "$ref": "common.schema.json#/$defs/unit-kind-id" },
         "owner": { "$ref": "common.schema.json#/$defs/player-id" },
-        "hp": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "hp": {
+          "oneOf": [{ "type": "integer", "minimum": 1, "maximum": 100 }, { "const": "hidden" }]
+        },
         "fuel": { "type": "integer", "minimum": 0 },
         "ammo": { "type": "integer", "minimum": 0 },
         "action": { "enum": ["ready", "moved", "spent", "immobilized"] },

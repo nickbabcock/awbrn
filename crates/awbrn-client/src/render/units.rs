@@ -113,8 +113,12 @@ type ProjectedUnitRenderFilter = (
     Without<OverlayVisual>,
 );
 
-fn health_overlay(value: u8) -> OverlaySpec {
-    OverlaySpec::new(format!("Healthv2/{}.png", value), Vec3::new(7.5, -8.0, 1.0))
+fn health_overlay(health: awbrn_game::world::GraphicalHp) -> OverlaySpec {
+    let sprite = match health {
+        awbrn_game::world::GraphicalHp::Visible(value) => format!("Healthv2/{value}.png"),
+        awbrn_game::world::GraphicalHp::Hidden => "Healthv2/Question.png".to_owned(),
+    };
+    OverlaySpec::new(sprite, Vec3::new(7.5, -8.0, 1.0))
 }
 
 fn capturing_overlay() -> OverlaySpec {
@@ -447,8 +451,15 @@ mod tests {
                     height: 8,
                 },
                 crate::UiAtlasSprite {
-                    name: "Dive.png".to_string(),
+                    name: "Healthv2/Question.png".to_string(),
                     x: 40,
+                    y: 0,
+                    width: 8,
+                    height: 8,
+                },
+                crate::UiAtlasSprite {
+                    name: "Dive.png".to_string(),
+                    x: 48,
                     y: 0,
                     width: 8,
                     height: 8,
@@ -683,7 +694,9 @@ mod tests {
         let unit = spawn_test_unit(&mut app, PlayerFaction::GreenEarth, true);
         app.update();
 
-        app.world_mut().entity_mut(unit).insert(GraphicalHp(9));
+        app.world_mut()
+            .entity_mut(unit)
+            .insert(GraphicalHp::Visible(9));
         app.update();
         let initial_overlay = app
             .world()
@@ -697,7 +710,9 @@ mod tests {
             atlas_index(&app, "Healthv2/9.png")
         );
 
-        app.world_mut().entity_mut(unit).insert(GraphicalHp(1));
+        app.world_mut()
+            .entity_mut(unit)
+            .insert(GraphicalHp::Visible(1));
         app.update();
         let updated_overlay = app
             .world()
@@ -720,7 +735,9 @@ mod tests {
         let unit = spawn_test_unit(&mut app, PlayerFaction::GreenEarth, true);
         app.update();
 
-        app.world_mut().entity_mut(unit).insert(GraphicalHp(9));
+        app.world_mut()
+            .entity_mut(unit)
+            .insert(GraphicalHp::Visible(9));
         app.update();
         assert!(
             app.world()
@@ -731,7 +748,9 @@ mod tests {
                 .is_some()
         );
 
-        app.world_mut().entity_mut(unit).insert(GraphicalHp(10));
+        app.world_mut()
+            .entity_mut(unit)
+            .insert(GraphicalHp::Visible(10));
         app.update();
         assert!(
             app.world()
@@ -744,12 +763,34 @@ mod tests {
     }
 
     #[test]
+    fn hidden_hp_uses_the_question_mark_overlay() {
+        let mut app = unit_render_test_app();
+        let unit = spawn_test_unit(&mut app, PlayerFaction::GreenEarth, true);
+        app.world_mut().entity_mut(unit).insert(GraphicalHp::Hidden);
+        app.update();
+
+        let overlay = app
+            .world()
+            .entity(unit)
+            .get::<UnitOverlayRegistry>()
+            .unwrap()
+            .overlay(OverlayKind::Health)
+            .unwrap();
+        assert_eq!(
+            overlay_sprite_index(&app, overlay),
+            atlas_index(&app, "Healthv2/Question.png")
+        );
+    }
+
+    #[test]
     fn health_and_capturing_overlays_can_coexist() {
         let mut app = unit_render_test_app();
         let unit = spawn_test_unit(&mut app, PlayerFaction::GreenEarth, true);
         app.update();
 
-        app.world_mut().entity_mut(unit).insert(GraphicalHp(5));
+        app.world_mut()
+            .entity_mut(unit)
+            .insert(GraphicalHp::Visible(5));
         app.world_mut()
             .entity_mut(unit)
             .insert(CaptureProgress::new(10).unwrap());
@@ -783,7 +824,7 @@ mod tests {
                 Unit(awbrn_types::Unit::Infantry),
                 Faction(PlayerFaction::GreenEarth),
                 UnitActive,
-                GraphicalHp(5),
+                GraphicalHp::Visible(5),
                 CaptureProgress::new(10).unwrap(),
             ))
             .id();

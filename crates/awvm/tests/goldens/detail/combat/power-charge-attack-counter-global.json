@@ -183,7 +183,7 @@
           "ammo": 0,
           "concealment": "exposed",
           "fuel": 99,
-          "hp": 100,
+          "hp": "hidden",
           "kind": "infantry",
           "location": {
             "position": [
@@ -597,7 +597,7 @@
           "ammo": 0,
           "concealment": "exposed",
           "fuel": 99,
-          "hp": 100,
+          "hp": "hidden",
           "kind": "infantry",
           "location": {
             "position": [
@@ -809,7 +809,7 @@
               "ammo": 0,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 100,
+              "hp": "hidden",
               "kind": "infantry",
               "location": {
                 "position": [
@@ -1223,7 +1223,7 @@
               "ammo": 0,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 100,
+              "hp": "hidden",
               "kind": "infantry",
               "location": {
                 "position": [

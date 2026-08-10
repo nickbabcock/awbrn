@@ -246,7 +246,7 @@ struct HoverInfo<'w, 's> {
 struct HoveredUnitKey {
     unit: Unit,
     faction: Faction,
-    health: u8,
+    health: Option<u8>,
     /// `None` where the unit has no such component to read.
     ammo: Option<u32>,
     fuel: Option<u32>,
@@ -330,7 +330,7 @@ fn unit_key(
         capture: capture.map(|progress| progress.value()),
         unit: state.unit,
         faction: state.faction,
-        health: health.map_or(10, GraphicalHp::value),
+        health: health.and_then(|hp| hp.visible()),
         ammo: ammo.map(Ammo::value),
         fuel: fuel.map(Fuel::value),
     }
@@ -885,7 +885,7 @@ mod tests {
                     overlays: ProjectedUnitOverlayFlags::default(),
                 },
                 Faction(faction),
-                GraphicalHp(7),
+                GraphicalHp::Visible(7),
                 Ammo(4),
                 Fuel(50),
             ))
@@ -967,7 +967,7 @@ mod tests {
 
         assert_eq!(unit.ammo, Some(4));
         assert_eq!(unit.fuel, Some(50));
-        assert_eq!(unit.health, 7);
+        assert_eq!(unit.health, Some(7));
         assert!(unit.loaded_units.is_empty(), "fog withholds enemy cargo");
     }
 

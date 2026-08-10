@@ -184,22 +184,27 @@ impl MapEntities for Cargo {
 pub struct HasCargo(Cargo);
 
 #[derive(Debug, Component, Reflect, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
-#[serde(transparent)]
 #[component(immutable)]
 #[reflect(Component)]
-pub struct GraphicalHp(pub u8);
+pub enum GraphicalHp {
+    Visible(u8),
+    Hidden,
+}
 
 impl GraphicalHp {
-    pub fn value(&self) -> u8 {
-        self.0
+    pub const fn visible(self) -> Option<u8> {
+        match self {
+            Self::Visible(hp) => Some(hp),
+            Self::Hidden => None,
+        }
     }
 
-    pub fn is_full_health(&self) -> bool {
-        self.0 >= 10
+    pub const fn is_full_health(self) -> bool {
+        matches!(self, Self::Visible(hp) if hp >= 10)
     }
 
-    pub fn is_destroyed(&self) -> bool {
-        self.0 == 0
+    pub const fn is_destroyed(self) -> bool {
+        matches!(self, Self::Visible(0))
     }
 }
 
@@ -211,7 +216,7 @@ fn sync_graphical_hp(mut world: DeferredWorld, HookContext { entity, .. }: HookC
     world
         .commands()
         .entity(entity)
-        .insert(GraphicalHp(exact.0.visual().get()));
+        .insert(GraphicalHp::Visible(exact.0.visual().get()));
 }
 
 #[derive(Debug, Component, Reflect, Clone, Copy, PartialEq, Eq, Hash)]

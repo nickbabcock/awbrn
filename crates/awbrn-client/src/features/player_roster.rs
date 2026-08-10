@@ -407,7 +407,7 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
                 continue;
             };
             *unit_counts.entry(player_id).or_default() += 1;
-            let hp_value = u32::from(hp.map(|value| value.value()).unwrap_or(10));
+            let hp_value = u32::from(hp.and_then(|value| value.visible()).unwrap_or(10));
             let unit_cost = unit_costs
                 .get(*unit_id)
                 .unwrap_or_else(|| unit.0.base_cost());
@@ -645,13 +645,13 @@ mod tests {
             Faction(PlayerFaction::OrangeStar),
             Unit(awbrn_types::Unit::Tank),
             AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
-            GraphicalHp(10),
+            GraphicalHp::Visible(10),
         ));
         app.world_mut().spawn((
             Faction(PlayerFaction::BlueMoon),
             Unit(awbrn_types::Unit::Tank),
             AwbwUnitId(awbrn_types::AwbwUnitId::new(2)),
-            GraphicalHp(10),
+            GraphicalHp::Visible(10),
         ));
 
         let snapshot = player_roster_snapshot(app.world_mut()).unwrap();

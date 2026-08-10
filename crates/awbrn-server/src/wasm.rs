@@ -515,7 +515,7 @@ fn visible_units(units: &[VisibleUnit]) -> Vec<WireVisibleUnit> {
             unit_type: serialized_value(&unit.unit_type),
             faction: serialized_value(&unit.faction),
             position: wire_position(&unit.position),
-            hp: Some(unit.hp),
+            hp: unit.hp,
             fuel: unit.fuel,
             ammo: unit.ammo,
             capturing: unit.capturing,
@@ -539,7 +539,7 @@ fn graphical_hp_value(hp: awbrn_game::world::GraphicalHp) -> Option<u8> {
     if hp.is_destroyed() {
         None
     } else {
-        Some(hp.value())
+        hp.visible()
     }
 }
 

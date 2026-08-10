@@ -644,7 +644,7 @@ fn observed_unloads_are_offered_after_the_transport_is_spent() {
 /// the formula, so a forecast that agreed with a wrong model would still fail
 /// here. Fog states are skipped for the reason `observed_forecasts` documents:
 /// a projection can be honestly wrong, and the corpus cannot tell that apart
-/// from a broken bracket.
+/// from a broken bracket. An attack on hidden HP must not have a forecast.
 #[test]
 fn the_forecast_brackets_every_attack_the_corpus_resolves() {
     let mut checked = 0;
@@ -686,10 +686,21 @@ fn the_forecast_brackets_every_attack_the_corpus_resolves() {
                 let forecast =
                     query::observed_forecasts(&observation, *unit, from, &[target_position])
                         .expect("a fog-free observation forecasts")
-                        .remove(0)
-                        .unwrap_or_else(|| {
-                            panic!("{relative}: no forecast for an attack the reducer accepted")
-                        });
+                        .remove(0);
+                let Some(forecast) = forecast else {
+                    assert!(
+                        observation.units.iter().any(|unit| {
+                            unit.location
+                                == (Location::Board {
+                                    position: target_position,
+                                })
+                                && unit.hp.exact().is_none()
+                        }),
+                        "{relative}: no forecast for a target with disclosed HP"
+                    );
+                    state = execution.state;
+                    continue;
+                };
 
                 let dealt = match target_unit {
                     Some(id) => damage_dealt(&execution.events, id, KnownReason::Combat),

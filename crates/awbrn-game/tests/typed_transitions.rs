@@ -6,10 +6,12 @@ use awbrn_game::replay::{
     apply_observed_transitions, initialize_replay_semantic_world, refresh_viewer_visibility,
 };
 use awbrn_game::snapshot::{canonicalize_replay_semantic_snapshot, capture_game_snapshot};
-use awbrn_game::world::{GameMap, ViewerVisibility};
+use awbrn_game::world::{GameMap, GraphicalHp, ViewerVisibility};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
 use awbw_replay::ReplayParser;
-use awvm::semantic::{AwbwVisibility, observe_transition};
+use awvm::semantic::{
+    AwbwVisibility, ObservedTransition, PlayerId, State, observe, observe_transition,
+};
 use awvm::transition::{ExecuteOutcome, execute};
 use awvm_awbw::{RecordedAdapter, diagnostic_command};
 use bevy::ecs::reflect::AppTypeRegistry;
@@ -164,6 +166,92 @@ fn a_viewpoint_sees_what_its_own_projection_listed() {
             "a player sees at least its own units (player {index})"
         );
     }
+}
+
+#[test]
+fn viewpoint_selects_visible_or_hidden_graphical_hp() {
+    let case: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../spec/fixtures/fog/sonja-hidden-hp-noninterference.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut state: State = serde_json::from_value(case["left"]["initial_state"].clone()).unwrap();
+    let sonja = PlayerId::from("1");
+    let opponent = PlayerId::from("2");
+    state.players[0].id = sonja.clone();
+    state.players[1].id = opponent.clone();
+    state.units[0].owner = sonja.clone();
+    state.units[1].owner = opponent.clone();
+    state.turn.active_player = sonja.clone();
+    state.turn.order = vec![sonja.clone(), opponent.clone()];
+
+    let transitions = [&sonja, &opponent]
+        .into_iter()
+        .map(|recipient| ObservedTransition {
+            post: observe(&AwbwVisibility, &state, recipient).unwrap(),
+            events: Vec::new(),
+        })
+        .collect::<Vec<_>>();
+
+    let replay = ReplayParser::new()
+        .parse(&std::fs::read(asset("replays/1391406.zip")).unwrap())
+        .unwrap();
+    let map_data: AwbwMapData =
+        serde_json::from_slice(&std::fs::read(asset("maps/146471.json")).unwrap()).unwrap();
+    let mut app = presentation_app(&replay, &map_data);
+    let mut registry = ReplayPlayerRegistry::default();
+    registry.add_player(
+        awbrn_types::AwbwGamePlayerId::new(1),
+        awbrn_types::PlayerFaction::OrangeStar,
+        0,
+    );
+    registry.add_player(
+        awbrn_types::AwbwGamePlayerId::new(2),
+        awbrn_types::PlayerFaction::BlueMoon,
+        0,
+    );
+    app.world_mut().insert_resource(registry);
+    apply_observed_transitions(app.world_mut(), &transitions).unwrap();
+
+    let unit = app
+        .world()
+        .resource::<awbrn_game::world::StrongIdMap<AwbwUnitId>>()
+        .get(&AwbwUnitId(awbrn_types::AwbwUnitId::new(0)))
+        .unwrap();
+    assert_eq!(
+        app.world().get::<GraphicalHp>(unit),
+        Some(&GraphicalHp::Visible(8))
+    );
+
+    app.world_mut()
+        .insert_resource(ReplayViewpoint::Player(awbrn_types::AwbwGamePlayerId::new(
+            2,
+        )));
+    refresh_viewer_visibility(app.world_mut());
+    assert_eq!(
+        app.world().get::<GraphicalHp>(unit),
+        Some(&GraphicalHp::Hidden)
+    );
+
+    app.world_mut().insert_resource(ReplayViewpoint::Spectator);
+    refresh_viewer_visibility(app.world_mut());
+    assert_eq!(
+        app.world().get::<GraphicalHp>(unit),
+        Some(&GraphicalHp::Visible(8))
+    );
+
+    app.world_mut()
+        .insert_resource(ReplayViewpoint::Player(awbrn_types::AwbwGamePlayerId::new(
+            1,
+        )));
+    refresh_viewer_visibility(app.world_mut());
+    assert_eq!(
+        app.world().get::<GraphicalHp>(unit),
+        Some(&GraphicalHp::Visible(8))
+    );
 }
 
 fn visible_units(world: &World) -> Vec<u32> {

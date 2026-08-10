@@ -589,6 +589,15 @@ pub fn observed_forecasts(
         return Ok(vec![None; targets.len()]);
     }
 
+    let hidden_hp: HashSet<_> = observation
+        .units
+        .iter()
+        .filter(|unit| unit.hp.exact().is_none())
+        .filter_map(|unit| match unit.location {
+            Location::Board { position } => Some(position),
+            Location::Cargo { .. } => None,
+        })
+        .collect();
     let state = reify(observation)?;
     let index = state
         .units
@@ -598,7 +607,11 @@ pub fn observed_forecasts(
 
     Ok(targets
         .iter()
-        .map(|target| forecast_at(&state, &player, index, unit, from, *target))
+        .map(|target| {
+            (!hidden_hp.contains(target))
+                .then(|| forecast_at(&state, &player, index, unit, from, *target))
+                .flatten()
+        })
         .collect())
 }
 
@@ -900,7 +913,9 @@ fn reified_units(observation: &Observation) -> Vec<Unit> {
             id: *id,
             kind: observed.kind,
             owner: observed.owner.clone(),
-            hp: observed.hp,
+            // Hidden enemy HP does not affect movement or whether it can be
+            // targeted. Forecasts for these synthetic values are suppressed.
+            hp: observed.hp.exact().unwrap_or(100),
             fuel: observed.fuel,
             ammo: observed.ammo,
             action: observed.action,

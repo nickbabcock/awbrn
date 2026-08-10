@@ -132,7 +132,7 @@
           "ammo": 6,
           "concealment": "exposed",
           "fuel": 50,
-          "hp": 100,
+          "hp": "hidden",
           "kind": "artillery",
           "location": {
             "position": [
@@ -449,7 +449,7 @@
               "ammo": 5,
               "concealment": "exposed",
               "fuel": 50,
-              "hp": 100,
+              "hp": "hidden",
               "kind": "artillery",
               "location": {
                 "position": [
@@ -639,7 +639,7 @@
               "ammo": 5,
               "concealment": "exposed",
               "fuel": 50,
-              "hp": 100,
+              "hp": "hidden",
               "kind": "artillery",
               "location": {
                 "position": [
@@ -723,7 +723,7 @@
               "ammo": 5,
               "concealment": "exposed",
               "fuel": 50,
-              "hp": 100,
+              "hp": "hidden",
               "kind": "artillery",
               "location": {
                 "position": [

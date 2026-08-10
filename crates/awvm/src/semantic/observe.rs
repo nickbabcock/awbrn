@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::commander;
 use crate::commander::AreaStrikePolicy;
 use crate::event::{Event, ObservedReason, PublicEventKind};
 
@@ -54,12 +55,37 @@ pub struct ObservedUnit {
     pub reference: ObservedUnitRef,
     pub kind: crate::ruleset::UnitKind,
     pub owner: PlayerId,
-    pub hp: u8,
+    pub hp: ObservedUnitHp,
     pub fuel: u64,
     pub ammo: u64,
     pub action: UnitAction,
     pub concealment: Concealment,
     pub location: Location,
+}
+
+/// HP as disclosed to an observation recipient.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
+#[serde(untagged)]
+pub enum ObservedUnitHp {
+    Exact(u8),
+    Hidden(HiddenUnitHp),
+}
+
+impl ObservedUnitHp {
+    pub const fn exact(self) -> Option<u8> {
+        match self {
+            Self::Exact(hp) => Some(hp),
+            Self::Hidden(_) => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
+#[serde(rename_all = "kebab-case")]
+pub enum HiddenUnitHp {
+    Hidden,
 }
 /// The board as one recipient sees it — flat and row-major, like [`super::Board`].
 ///
@@ -619,7 +645,12 @@ fn project_state(
         // A viewpoint already reports a teammate's unit as visible wherever it
         // is, including inside a transport, and an opponent's cargo as hidden.
         if view.unit(u) {
-            units.push(observed_unit_snapshot(u, owner_team == team));
+            let friendly = owner_team == team;
+            units.push(observed_unit_snapshot(
+                u,
+                friendly,
+                friendly || !commander::hides_hp(state, &u.owner),
+            ));
         }
     }
     units.sort_by_key(|unit| unit.reference);
@@ -949,7 +980,12 @@ impl<V: Viewpoint> Projection<'_, V> {
         };
         match (self.visible_pre(id), self.visible_post(id)) {
             (true, true) => {
-                let snapshot = observed_unit_snapshot(unit, self.owns(&unit.owner));
+                let friendly = self.owns(&unit.owner);
+                let snapshot = observed_unit_snapshot(
+                    unit,
+                    friendly,
+                    friendly || !commander::hides_hp(self.next_state, &unit.owner),
+                );
                 self.output.push(ObservedEvent::UnitChanged {
                     unit: snapshot.reference,
                     state: snapshot,
@@ -1060,7 +1096,11 @@ impl<V: Viewpoint> Projection<'_, V> {
     fn push_appeared(&mut self, unit: &Unit, position: Pos, friendly: bool) {
         if self.appeared.insert(unit.id) {
             self.output.push(ObservedEvent::UnitAppeared {
-                unit: observed_unit_snapshot(unit, friendly),
+                unit: observed_unit_snapshot(
+                    unit,
+                    friendly,
+                    friendly || !commander::hides_hp(self.next_state, &unit.owner),
+                ),
                 position,
             });
         }
@@ -1076,7 +1116,7 @@ impl<V: Viewpoint> Projection<'_, V> {
     }
 }
 
-fn observed_unit_snapshot(unit: &Unit, friendly: bool) -> ObservedUnit {
+fn observed_unit_snapshot(unit: &Unit, friendly: bool, disclose_hp: bool) -> ObservedUnit {
     ObservedUnit {
         reference: if friendly {
             ObservedUnitRef::Friendly { unit: unit.id }
@@ -1087,7 +1127,11 @@ fn observed_unit_snapshot(unit: &Unit, friendly: bool) -> ObservedUnit {
         },
         kind: unit.kind,
         owner: unit.owner.clone(),
-        hp: unit.hp,
+        hp: if disclose_hp {
+            ObservedUnitHp::Exact(unit.hp)
+        } else {
+            ObservedUnitHp::Hidden(HiddenUnitHp::Hidden)
+        },
         fuel: unit.fuel,
         ammo: unit.ammo,
         action: unit.action,
@@ -1131,7 +1175,7 @@ mod tests {
             reference: friendly,
             kind: UnitKindId::Infantry,
             owner: PlayerId::from("p1"),
-            hp: 100,
+            hp: ObservedUnitHp::Exact(100),
             fuel: 99,
             ammo: 0,
             action: UnitAction::Ready,
@@ -1247,6 +1291,18 @@ mod tests {
             .unwrap(),
             json!({"type":"player-changed","player":"p2",
                    "state":serde_json::to_value(&player).unwrap(),"reason":"combat"})
+        );
+    }
+
+    #[test]
+    fn hidden_hp_has_an_explicit_wire_value() {
+        assert_eq!(
+            serde_json::to_value(ObservedUnitHp::Hidden(HiddenUnitHp::Hidden)).unwrap(),
+            json!("hidden")
+        );
+        assert_eq!(
+            serde_json::from_value::<ObservedUnitHp>(json!("hidden")).unwrap(),
+            ObservedUnitHp::Hidden(HiddenUnitHp::Hidden)
         );
     }
 

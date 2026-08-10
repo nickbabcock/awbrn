@@ -28,9 +28,10 @@ use serde::{Deserialize, Serialize};
 use crate::ruleset::{self, TerrainTrait};
 
 pub use observe::{
-    Observation, ObserveError, ObservedBoard, ObservedEvent, ObservedMatch, ObservedPlayer,
-    ObservedTile, ObservedTransition, ObservedUnit, ObservedUnitRef, PublicCommander, Relation,
-    TileVisibility, observe, observe_events, observe_transition,
+    HiddenUnitHp, Observation, ObserveError, ObservedBoard, ObservedEvent, ObservedMatch,
+    ObservedPlayer, ObservedTile, ObservedTransition, ObservedUnit, ObservedUnitHp,
+    ObservedUnitRef, PublicCommander, Relation, TileVisibility, observe, observe_events,
+    observe_transition,
 };
 pub use visibility::{AwbwView, AwbwVisibility, Viewpoint, Visibility};
 
