@@ -2,7 +2,13 @@
 version: 1
 slug: "web-src-matches-components-battlecalculator-tsx"
 primary_target: "web/src/matches/components/BattleCalculator.tsx"
-related_targets: ["crates/awvm/src/calculator.rs","crates/awbrn-wasm/src/calculator.rs","web/src/matches/components/battle_calculator.ts","web/src/engine/worker_module.ts"]
+related_targets:
+  [
+    "crates/awvm/src/calculator.rs",
+    "crates/awbrn-wasm/src/calculator.rs",
+    "web/src/matches/components/battle_calculator.ts",
+    "web/src/engine/worker_module.ts",
+  ]
 ---
 
 # Surface Brief: The Engagement That Is Not On The Board
