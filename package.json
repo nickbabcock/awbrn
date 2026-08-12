@@ -7,7 +7,7 @@
     "generate:web-key-codes": "node scripts/generate-web-key-codes.ts",
     "format": "oxfmt web spec/fixtures spec/schema spec/rulesets",
     "format:check": "oxfmt --check web spec/fixtures spec/schema spec/rulesets",
-    "lint": "oxlint",
+    "lint": "oxlint --ignore-pattern=.claude",
     "typecheck": "tsc --build"
   },
   "devDependencies": {
