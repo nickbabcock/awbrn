@@ -635,6 +635,7 @@ fn movement_for_current_view<'a>(
         ObservedEvent::UnitAppeared { .. }
         | ObservedEvent::UnitDisappeared { .. }
         | ObservedEvent::MovementStopped { .. }
+        | ObservedEvent::CombatEngaged { .. }
         | ObservedEvent::UnitChanged { .. }
         | ObservedEvent::UnitRemoved { .. }
         | ObservedEvent::TileChanged { .. }

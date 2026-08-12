@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::commander;
 use crate::commander::AreaStrikePolicy;
-use crate::event::{Event, ObservedReason, PublicEventKind};
+use crate::event::{AttackTarget, Event, ObservedReason, PublicEventKind};
 
 use super::{
     BoardShapeError, Commander, Concealment, Location, Match, Outcome, PlayerId, PlayerStatus, Pos,
@@ -438,6 +438,12 @@ pub enum ObservedEvent {
     /// The mover was interrupted. Reported without naming the blocker, which the
     /// recipient may not see.
     MovementStopped { unit: ObservedUnitRef },
+    /// Two visible units entered one combat engagement. Damage and all other
+    /// state changes remain on their ordinary projected events.
+    CombatEngaged {
+        attacker: ObservedUnitRef,
+        defender: ObservedUnitRef,
+    },
     UnitChanged {
         unit: ObservedUnitRef,
         state: ObservedUnit,
@@ -607,6 +613,7 @@ fn transition_projection<'a, R: Visibility>(
         teammates,
         appeared: HashSet::new(),
         disappeared: HashSet::new(),
+        engagements: HashSet::new(),
         output: Vec::new(),
     })
 }
@@ -771,6 +778,9 @@ struct Projection<'a, V: Viewpoint> {
     /// about one unit produce at most one of each.
     appeared: HashSet<UnitId>,
     disappeared: HashSet<UnitId>,
+    /// Unit pairs already reported for this transition. A counterattack is
+    /// part of the first attack's engagement, not a second engagement.
+    engagements: HashSet<(UnitId, UnitId)>,
     output: Vec<ObservedEvent>,
 }
 
@@ -794,6 +804,13 @@ impl<V: Viewpoint> Projection<'_, V> {
     }
 
     fn project(&mut self, events: &[Event]) -> Result<(), ObserveError> {
+        let moved_positions = events
+            .iter()
+            .filter_map(|event| match event {
+                Event::UnitMoved { unit, to, .. } => Some((*unit, *to)),
+                _ => None,
+            })
+            .collect::<HashMap<_, _>>();
         for event in events {
             let reason = event.reason();
             match event {
@@ -945,15 +962,71 @@ impl<V: Viewpoint> Projection<'_, V> {
                     radius: *radius,
                     damage: *damage,
                 }),
-                // Deliberately unprojected. `spec/model/observation.md:337` withholds
-                // both: `attack-resolved` would disclose the weapon and target of an
-                // attack a recipient may not see, and `random-outcome` would leak the
-                // tape a recipient is not entitled to read. The damage and state
-                // changes they cause reach recipients through their own events.
-                Event::AttackResolved { .. } | Event::RandomOutcome { .. } => {}
+                Event::AttackResolved {
+                    attacker,
+                    target: AttackTarget::Unit { unit: defender },
+                    ..
+                } => self.combat_engaged(*attacker, *defender, &moved_positions)?,
+                Event::AttackResolved {
+                    target: AttackTarget::Tile { .. },
+                    ..
+                }
+                | Event::RandomOutcome { .. } => {}
             }
         }
         Ok(())
+    }
+
+    fn combat_engaged(
+        &mut self,
+        attacker: UnitId,
+        defender: UnitId,
+        moved_positions: &HashMap<UnitId, Pos>,
+    ) -> Result<(), ObserveError> {
+        let pair = if attacker < defender {
+            (attacker, defender)
+        } else {
+            (defender, attacker)
+        };
+        if !self.engagements.insert(pair) {
+            return Ok(());
+        }
+        let Some(attacker) = self.combat_reference(attacker, moved_positions)? else {
+            return Ok(());
+        };
+        let Some(defender) = self.combat_reference(defender, moved_positions)? else {
+            return Ok(());
+        };
+        self.output
+            .push(ObservedEvent::CombatEngaged { attacker, defender });
+        Ok(())
+    }
+
+    fn combat_reference(
+        &self,
+        id: UnitId,
+        moved_positions: &HashMap<UnitId, Pos>,
+    ) -> Result<Option<ObservedUnitRef>, ObserveError> {
+        let unit = self
+            .next_state
+            .units
+            .get(id)
+            .or_else(|| self.state.units.get(id))
+            .ok_or(ObserveError::UnknownUnit(id))?;
+        if self.owns(&unit.owner) {
+            return Ok(Some(ObservedUnitRef::Friendly { unit: id }));
+        }
+        let position = self
+            .next_state
+            .units
+            .get(id)
+            .and_then(board_position)
+            .or_else(|| moved_positions.get(&id).copied())
+            .or_else(|| self.state.units.get(id).and_then(board_position))
+            .ok_or(ObserveError::UnknownUnit(id))?;
+        let visible =
+            self.pre_view.unit_at(unit, position) || self.post_view.unit_at(unit, position);
+        Ok(visible.then(|| enemy_unit_ref(position)))
     }
 
     /// Emit the payload-free envelope for a public fact.
@@ -1162,7 +1235,7 @@ mod tests {
 
     /// Every branch of `spec/schema/observed-event.schema.json`, in the shape
     /// the schema names it. The goldens cover whichever branches the corpus
-    /// happens to produce; this covers all ten.
+    /// happens to produce; this covers all eleven.
     #[test]
     fn observed_events_serialize_as_their_schema_branches() {
         let enemy = ObservedUnitRef::Enemy {
@@ -1214,6 +1287,15 @@ mod tests {
             (
                 ObservedEvent::MovementStopped { unit: friendly },
                 json!({"type":"movement-stopped","unit":{"type":"friendly","unit":7}}),
+            ),
+            (
+                ObservedEvent::CombatEngaged {
+                    attacker: friendly,
+                    defender: enemy,
+                },
+                json!({"type":"combat-engaged",
+                       "attacker":{"type":"friendly","unit":7},
+                       "defender":{"type":"enemy","position":[1,2]}}),
             ),
             (
                 ObservedEvent::UnitChanged {

@@ -643,6 +643,20 @@
             }
           },
           {
+            "attacker": {
+              "position": [
+                0,
+                0
+              ],
+              "type": "enemy"
+            },
+            "defender": {
+              "type": "friendly",
+              "unit": 1
+            },
+            "type": "combat-engaged"
+          },
+          {
             "reason": "combat",
             "state": {
               "action": "ready",
@@ -795,6 +809,20 @@
               "type": "friendly",
               "unit": 0
             }
+          },
+          {
+            "attacker": {
+              "type": "friendly",
+              "unit": 0
+            },
+            "defender": {
+              "position": [
+                1,
+                0
+              ],
+              "type": "enemy"
+            },
+            "type": "combat-engaged"
           },
           {
             "reason": "combat",

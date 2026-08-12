@@ -140,6 +140,7 @@ fn consume_events(events: &[ObservedEvent]) {
             | ObservedEvent::UnitAppeared { .. }
             | ObservedEvent::UnitDisappeared { .. }
             | ObservedEvent::MovementStopped { .. }
+            | ObservedEvent::CombatEngaged { .. }
             | ObservedEvent::UnitChanged { .. }
             | ObservedEvent::UnitRemoved { .. }
             | ObservedEvent::TileChanged { .. }
@@ -192,6 +193,7 @@ fn collect_recipient_units(
             | ObservedEvent::UnitAppeared { .. }
             | ObservedEvent::UnitDisappeared { .. }
             | ObservedEvent::MovementStopped { .. }
+            | ObservedEvent::CombatEngaged { .. }
             | ObservedEvent::UnitChanged { .. }
             | ObservedEvent::UnitRemoved { .. }
             | ObservedEvent::TileChanged { .. }
@@ -517,11 +519,7 @@ fn sync_unit_components(
         Ammo(ammo),
         VisionRange(vision),
     ));
-    if let Some(hp) = unit.hp.exact() {
-        entity.insert(GraphicalHp::Visible(hp.div_ceil(10)));
-    } else {
-        entity.insert(GraphicalHp::Hidden);
-    }
+    entity.insert(GraphicalHp::from(unit.hp));
     if unit.action == UnitAction::Ready {
         entity.insert(UnitActive);
     } else {

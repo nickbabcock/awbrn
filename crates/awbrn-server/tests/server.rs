@@ -309,7 +309,7 @@ fn sonja_unit_hp_is_hidden_only_from_opponents() {
         .unwrap()
         .units
         .into_iter()
-        .find(|candidate| candidate.id == unit)
+        .find(|candidate| candidate.position == Position::new(1, 0))
         .unwrap()
         .hp;
     let opponent_hp = server
@@ -317,7 +317,7 @@ fn sonja_unit_hp_is_hidden_only_from_opponents() {
         .unwrap()
         .units
         .into_iter()
-        .find(|candidate| candidate.id == unit)
+        .find(|candidate| candidate.position == Position::new(1, 0))
         .unwrap()
         .hp;
 
@@ -341,18 +341,18 @@ fn sonja_unit_hp_is_hidden_only_from_opponents() {
         awbrn_game::world::GraphicalHp::Hidden
     );
     assert_eq!(
-        event.defender_hp_after,
-        awbrn_game::world::GraphicalHp::Visible(
-            server
-                .player_view(p2())
-                .unwrap()
-                .units
-                .into_iter()
-                .find(|candidate| candidate.id == opponent)
-                .unwrap()
-                .hp
-                .unwrap()
-        )
+        event
+            .defender_hp_after
+            .visible()
+            .map(awbrn_types::VisualHp::get),
+        server
+            .player_view(p2())
+            .unwrap()
+            .units
+            .into_iter()
+            .find(|candidate| candidate.id == opponent)
+            .unwrap()
+            .hp
     );
 }
 
@@ -411,7 +411,7 @@ fn delete_unit_removes_a_ready_owned_unit() {
 
 #[test]
 fn player_view_returns_none_for_unknown_player() {
-    let server = GameServer::new(two_player_setup(2, 2)).unwrap();
+    let mut server = GameServer::new(two_player_setup(2, 2)).unwrap();
 
     assert!(server.player_view(PlayerId(99)).is_none());
 }
@@ -728,6 +728,186 @@ fn build_fog_update_reveals_unit_only_when_opponent_has_vision() {
         .clone();
     assert!(p2_hidden_update.units_revealed.is_empty());
     assert_eq!(p2_hidden_update.my_funds, None);
+}
+
+#[test]
+fn fogged_enemy_gets_new_id_after_leaving_and_returning_to_vision() {
+    let mut setup = two_player_setup(5, 1);
+    setup.fog_enabled = true;
+    let mut server = GameServer::new(setup).unwrap();
+    let enemy = server.spawn_unit(
+        Position::new(2, 0),
+        Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    server.spawn_unit(Position::new(4, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+
+    let first_id = server
+        .player_view(p2())
+        .unwrap()
+        .units
+        .into_iter()
+        .find(|unit| unit.position == Position::new(2, 0))
+        .expect("the enemy starts in vision")
+        .id;
+    assert_ne!(first_id, enemy);
+
+    let repeated_id = server
+        .player_view(p2())
+        .unwrap()
+        .units
+        .into_iter()
+        .find(|unit| unit.position == Position::new(2, 0))
+        .expect("the enemy remains in vision")
+        .id;
+    assert_eq!(repeated_id, first_id);
+
+    let disappeared = server
+        .submit_command(
+            p1(),
+            action_command(
+                enemy,
+                vec![
+                    Position::new(2, 0),
+                    Position::new(1, 0),
+                    Position::new(0, 0),
+                ],
+                PostMoveAction::Wait,
+            ),
+        )
+        .unwrap();
+    let p2_update = &disappeared
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p2())
+        .unwrap()
+        .1;
+    assert!(p2_update.units_removed.contains(&first_id));
+
+    server.submit_command(p1(), GameCommand::EndTurn).unwrap();
+    server.submit_command(p2(), GameCommand::EndTurn).unwrap();
+    let appeared = server
+        .submit_command(
+            p1(),
+            action_command(
+                enemy,
+                vec![
+                    Position::new(0, 0),
+                    Position::new(1, 0),
+                    Position::new(2, 0),
+                ],
+                PostMoveAction::Wait,
+            ),
+        )
+        .unwrap();
+    let second_id = appeared
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p2())
+        .unwrap()
+        .1
+        .units_revealed
+        .iter()
+        .find(|unit| unit.position == Position::new(2, 0))
+        .expect("the enemy reappears in vision")
+        .id;
+    assert_ne!(second_id, first_id);
+    assert_ne!(second_id, enemy);
+}
+
+#[test]
+fn friendly_movement_reconciles_stationary_enemy_ids() {
+    let mut setup = two_player_setup(5, 1);
+    setup.fog_enabled = true;
+    let mut server = GameServer::new(setup).unwrap();
+    let mover = server.spawn_unit(
+        Position::new(2, 0),
+        Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    let lost_enemy =
+        server.spawn_unit(Position::new(0, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+    server.spawn_unit(Position::new(4, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+
+    let initial = server.player_view(p1()).unwrap();
+    let lost_id = initial
+        .units
+        .iter()
+        .find(|unit| unit.position == Position::new(0, 0))
+        .expect("the first enemy starts in vision")
+        .id;
+    let retained_id = initial
+        .units
+        .iter()
+        .find(|unit| unit.position == Position::new(4, 0))
+        .expect("the second enemy starts in vision")
+        .id;
+
+    let result = server
+        .submit_command(
+            p1(),
+            action_command(
+                mover,
+                vec![Position::new(2, 0), Position::new(3, 0)],
+                PostMoveAction::Wait,
+            ),
+        )
+        .unwrap();
+    let update = &result
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p1())
+        .unwrap()
+        .1;
+    assert!(update.units_removed.contains(&lost_id));
+    assert!(!update.units_removed.contains(&retained_id));
+
+    let post = server.player_view(p1()).unwrap();
+    assert!(
+        !post
+            .units
+            .iter()
+            .any(|unit| unit.position == Position::new(0, 0))
+    );
+    assert_eq!(
+        post.units
+            .iter()
+            .find(|unit| unit.position == Position::new(4, 0))
+            .expect("the second enemy remains in vision")
+            .id,
+        retained_id
+    );
+
+    server.submit_command(p1(), GameCommand::EndTurn).unwrap();
+    server
+        .submit_command(
+            p2(),
+            GameCommand::DeleteUnit {
+                unit_id: lost_enemy,
+            },
+        )
+        .unwrap();
+    server.spawn_unit(Position::new(0, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+    server.submit_command(p2(), GameCommand::EndTurn).unwrap();
+    server
+        .submit_command(
+            p1(),
+            action_command(
+                mover,
+                vec![Position::new(3, 0), Position::new(2, 0)],
+                PostMoveAction::Wait,
+            ),
+        )
+        .unwrap();
+    let replacement_id = server
+        .player_view(p1())
+        .unwrap()
+        .units
+        .iter()
+        .find(|unit| unit.position == Position::new(0, 0))
+        .expect("the replacement enemy enters vision")
+        .id;
+    assert_ne!(replacement_id, lost_id);
 }
 
 #[test]
@@ -1177,7 +1357,10 @@ fn attack_kills_defender() {
     assert!(p2_update.combat_event.is_some());
     let event = p2_update.combat_event.as_ref().unwrap();
     assert_eq!(
-        event.defender_hp_after.visible(),
+        event
+            .defender_hp_after
+            .visible()
+            .map(awbrn_types::VisualHp::get),
         Some(0),
         "defender should have 0 HP"
     );
@@ -1193,7 +1376,7 @@ fn attack_reduces_hp_without_killing() {
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
-    let defender = server.spawn_unit(
+    let _defender = server.spawn_unit(
         Position::new(1, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::BlueMoon,
@@ -1212,7 +1395,11 @@ fn attack_reduces_hp_without_killing() {
     assert_eq!(p1_view.units.len(), 2);
 
     // Defender should have less than full HP.
-    let defender_unit = p1_view.units.iter().find(|u| u.id == defender).unwrap();
+    let defender_unit = p1_view
+        .units
+        .iter()
+        .find(|unit| unit.position == Position::new(1, 0))
+        .unwrap();
     assert!(
         defender_unit.hp.is_some_and(|hp| hp < 10),
         "defender should have taken damage"
@@ -1223,11 +1410,17 @@ fn attack_reduces_hp_without_killing() {
     assert!(p1_update.combat_event.is_some());
     let event = p1_update.combat_event.as_ref().unwrap();
     assert!(
-        event.defender_hp_after.visible().is_some_and(|hp| hp > 0),
+        event
+            .defender_hp_after
+            .visible()
+            .is_some_and(|hp| hp.get() > 0),
         "defender should still have HP"
     );
     assert!(
-        event.attacker_hp_after.visible().is_some_and(|hp| hp > 0),
+        event
+            .attacker_hp_after
+            .visible()
+            .is_some_and(|hp| hp.get() > 0),
         "attacker should still have HP after counterattack"
     );
     assert!(matches!(
@@ -1538,7 +1731,8 @@ fn special_post_move_actions_reach_awvm() {
         Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
-    let victim = launch_server.spawn_unit(Position::new(3, 3), Unit::Tank, PlayerFaction::BlueMoon);
+    let _victim =
+        launch_server.spawn_unit(Position::new(3, 3), Unit::Tank, PlayerFaction::BlueMoon);
     launch_server
         .submit_command(
             p1(),
@@ -1556,7 +1750,7 @@ fn special_post_move_actions_reach_awvm() {
         launch_view
             .units
             .iter()
-            .find(|unit| unit.id == victim)
+            .find(|unit| unit.position == Position::new(3, 3))
             .unwrap()
             .hp,
         Some(7)
@@ -1583,7 +1777,7 @@ fn special_post_move_actions_reach_awvm() {
         Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
-    let blast_victim =
+    let _blast_victim =
         explode_server.spawn_unit(Position::new(3, 2), Unit::Tank, PlayerFaction::BlueMoon);
     explode_server
         .submit_command(
@@ -1597,7 +1791,7 @@ fn special_post_move_actions_reach_awvm() {
         explode_view
             .units
             .iter()
-            .find(|unit| unit.id == blast_victim)
+            .find(|unit| unit.position == Position::new(3, 2))
             .unwrap()
             .hp,
         Some(5)
@@ -1979,6 +2173,14 @@ fn load_does_not_leak_fogged_destination_coordinates() {
     );
     let transport = server.spawn_unit(Position::new(2, 0), Unit::Apc, PlayerFaction::OrangeStar);
     server.spawn_unit(Position::new(0, 0), Unit::Apc, PlayerFaction::BlueMoon);
+    let observed_cargo = server
+        .player_view(p2())
+        .unwrap()
+        .units
+        .into_iter()
+        .find(|unit| unit.position == Position::new(1, 0))
+        .unwrap()
+        .id;
 
     let result = server
         .submit_command(
@@ -2001,7 +2203,7 @@ fn load_does_not_leak_fogged_destination_coordinates() {
         .1
         .clone();
 
-    assert!(p2_update.units_removed.contains(&cargo));
+    assert!(p2_update.units_removed.contains(&observed_cargo));
     assert!(
         p2_update.units_moved.is_empty(),
         "load should not serialize a hidden destination coordinate"
@@ -2066,14 +2268,15 @@ fn hide_and_unhide_change_enemy_player_view() {
     let sub = server.spawn_unit(Position::new(0, 0), Unit::Sub, PlayerFaction::OrangeStar);
     server.spawn_unit(Position::new(4, 0), Unit::Infantry, PlayerFaction::BlueMoon);
 
-    assert!(
-        server
-            .player_view(p2())
-            .unwrap()
-            .units
-            .iter()
-            .any(|unit| unit.id == sub)
-    );
+    let first_enemy_id = server
+        .player_view(p2())
+        .unwrap()
+        .units
+        .into_iter()
+        .find(|unit| unit.position == Position::new(0, 0))
+        .unwrap()
+        .id;
+    assert_ne!(first_enemy_id, sub);
 
     let hide_result = server
         .submit_command(
@@ -2110,7 +2313,7 @@ fn hide_and_unhide_change_enemy_player_view() {
             .unwrap()
             .units
             .iter()
-            .any(|unit| unit.id == sub),
+            .any(|unit| unit.position == Position::new(0, 0)),
         "hidden sub should disappear from enemy view when not detected"
     );
 
@@ -2146,15 +2349,54 @@ fn hide_and_unhide_change_enemy_player_view() {
         "owner view should keep unit visible with hiding=false"
     );
 
-    assert!(
-        server
-            .player_view(p2())
-            .unwrap()
-            .units
-            .iter()
-            .any(|unit| unit.id == sub),
-        "unhidden sub should reappear"
-    );
+    let second_enemy_id = server
+        .player_view(p2())
+        .unwrap()
+        .units
+        .into_iter()
+        .find(|unit| unit.position == Position::new(0, 0))
+        .expect("unhidden sub should reappear")
+        .id;
+    assert_ne!(second_enemy_id, first_enemy_id);
+    assert_ne!(second_enemy_id, sub);
+}
+
+#[test]
+fn untracked_disappearance_does_not_allocate_enemy_id() {
+    let mut server = GameServer::new(two_player_setup(5, 1)).unwrap();
+    let sub = server.spawn_unit(Position::new(0, 0), Unit::Sub, PlayerFaction::OrangeStar);
+
+    let hidden = server
+        .submit_command(
+            p1(),
+            action_command(sub, vec![Position::new(0, 0)], PostMoveAction::Hide),
+        )
+        .unwrap();
+    let p2_update = &hidden
+        .updates
+        .iter()
+        .find(|(player, _)| *player == p2())
+        .unwrap()
+        .1;
+    assert!(p2_update.units_removed.is_empty());
+
+    server.submit_command(p1(), GameCommand::EndTurn).unwrap();
+    server.submit_command(p2(), GameCommand::EndTurn).unwrap();
+    server
+        .submit_command(
+            p1(),
+            action_command(sub, vec![Position::new(0, 0)], PostMoveAction::Unhide),
+        )
+        .unwrap();
+    let id = server
+        .player_view(p2())
+        .unwrap()
+        .units
+        .iter()
+        .find(|unit| unit.position == Position::new(0, 0))
+        .expect("the unhidden enemy is visible")
+        .id;
+    assert_eq!(id, ServerUnitId(u64::MAX));
 }
 
 #[test]
@@ -2162,6 +2404,14 @@ fn hide_and_unhide_refresh_detecting_enemy_visible_unit() {
     let mut server = GameServer::new(two_player_setup(3, 1)).unwrap();
     let sub = server.spawn_unit(Position::new(0, 0), Unit::Sub, PlayerFaction::OrangeStar);
     server.spawn_unit(Position::new(1, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+    let observed_sub = server
+        .player_view(p2())
+        .unwrap()
+        .units
+        .into_iter()
+        .find(|unit| unit.position == Position::new(0, 0))
+        .unwrap()
+        .id;
 
     let hide_result = server
         .submit_command(
@@ -2180,7 +2430,7 @@ fn hide_and_unhide_refresh_detecting_enemy_visible_unit() {
         p2_hide_update
             .units_revealed
             .iter()
-            .any(|unit| unit.id == sub && unit.hiding),
+            .any(|unit| unit.id == observed_sub && unit.hiding),
         "detected hidden unit should refresh hiding=true for enemy viewer"
     );
     assert!(
@@ -2189,7 +2439,7 @@ fn hide_and_unhide_refresh_detecting_enemy_visible_unit() {
             .unwrap()
             .units
             .iter()
-            .any(|unit| unit.id == sub && unit.hiding)
+            .any(|unit| unit.id == observed_sub && unit.hiding)
     );
 
     server.submit_command(p1(), GameCommand::EndTurn).unwrap();
@@ -2212,7 +2462,7 @@ fn hide_and_unhide_refresh_detecting_enemy_visible_unit() {
         p2_unhide_update
             .units_revealed
             .iter()
-            .any(|unit| unit.id == sub && !unit.hiding),
+            .any(|unit| unit.id == observed_sub && !unit.hiding),
         "detected unhidden unit should refresh hiding=false for enemy viewer"
     );
 }
@@ -2700,7 +2950,12 @@ fn reconstruct_replays_action_log_to_matching_player_views() {
             Position::new(3, 0),
         ),
     );
-    assert!(attack_result.combat_outcome.is_some());
+    assert!(
+        attack_result
+            .updates
+            .iter()
+            .any(|(_, update)| update.combat_event.is_some())
+    );
 
     submit_and_store(&mut original, &mut events, p1(), GameCommand::EndTurn);
     submit_and_store(&mut original, &mut events, p2(), GameCommand::EndTurn);
@@ -2719,7 +2974,7 @@ fn reconstruct_replays_action_log_to_matching_player_views() {
 
     let encoded = serde_json::to_string(&events).unwrap();
     let decoded: Vec<StoredActionEvent> = serde_json::from_str(&encoded).unwrap();
-    let reconstructed = reconstruct_from_events(setup, &decoded).unwrap();
+    let mut reconstructed = reconstruct_from_events(setup, &decoded).unwrap();
 
     for player in [p1(), p2()] {
         assert_eq!(

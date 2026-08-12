@@ -10,7 +10,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::view::{VisibleTerrain, VisibleUnit};
 use crate::{CaptureEvent, PlayerUpdate, PlayerView, SpectatorView};
-use crate::{CombatOutcome, GameServer, GameSetup, PlayerSetup, StoredActionEvent};
+use crate::{GameServer, GameSetup, PlayerSetup, StoredActionEvent};
 use awbrn_types::{AwbwCoId, Co, CoExt};
 use awvm::semantic::ObservedTransition;
 
@@ -76,7 +76,6 @@ impl WasmMatch {
             .server
             .submit_command(player, command)
             .map_err(command_error)?;
-        let combat_outcome = result.combat_outcome;
         let typed_transitions = result
             .observed_transitions
             .into_iter()
@@ -139,7 +138,6 @@ impl WasmMatch {
                 random: self.server.last_random().to_vec(),
             },
             spectator_message,
-            combat_outcome,
         })
     }
 
@@ -220,9 +218,6 @@ pub struct WasmActionResponse {
     #[tsify(type = "unknown")]
     pub stored_action_event: StoredActionEvent,
     pub spectator_message: SpectatorMessage,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[tsify(optional, type = "unknown")]
-    pub combat_outcome: Option<CombatOutcome>,
 }
 
 fn parse_action(action: JsValue) -> Result<crate::command::GameCommand, JsError> {
@@ -539,7 +534,7 @@ fn graphical_hp_value(hp: awbrn_game::world::GraphicalHp) -> Option<u8> {
     if hp.is_destroyed() {
         None
     } else {
-        hp.visible()
+        hp.visible().map(awbrn_types::VisualHp::get)
     }
 }
 

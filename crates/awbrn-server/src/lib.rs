@@ -19,7 +19,5 @@ pub use server::GameServer;
 pub use setup::{GameSetup, PlayerSetup, SetupError};
 pub use state::ServerGameState;
 pub use unit_id::ServerUnitId;
-pub use view::{
-    CaptureEvent, CombatOutcome, CommandResult, PlayerUpdate, PlayerView, SpectatorView,
-};
+pub use view::{CaptureEvent, CommandResult, PlayerUpdate, PlayerView, SpectatorView};
 pub use wasm::WasmMatch;

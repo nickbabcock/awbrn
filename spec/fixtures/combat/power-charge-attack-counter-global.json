@@ -696,6 +696,17 @@
               }
             },
             {
+              "type": "combat-engaged",
+              "attacker": {
+                "type": "enemy",
+                "position": [0, 0]
+              },
+              "defender": {
+                "type": "enemy",
+                "position": [1, 0]
+              }
+            },
+            {
               "reason": "combat",
               "state": {
                 "action": "ready",

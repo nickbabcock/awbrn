@@ -81,7 +81,9 @@ pub fn initialize_replay_semantic_world(replay: &AwbwReplay, world: &mut World) 
                         Unit(unit.name),
                         Fuel(unit.fuel),
                         Ammo(unit.ammo),
-                        GraphicalHp::Visible(initial_graphical_hp(unit.hit_points)),
+                        GraphicalHp::Visible(awbrn_types::VisualHp::new(initial_graphical_hp(
+                            unit.hit_points,
+                        ))),
                         VisionRange(unit.vision),
                         UnitActive,
                     )

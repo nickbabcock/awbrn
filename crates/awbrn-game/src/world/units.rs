@@ -1,3 +1,5 @@
+use awbrn_types::{ExactHp, VisualHp};
+use awvm::semantic::ObservedUnitHp;
 use bevy::ecs::entity::MapEntities;
 use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::reflect::ReflectMapEntities;
@@ -187,12 +189,13 @@ pub struct HasCargo(Cargo);
 #[component(immutable)]
 #[reflect(Component)]
 pub enum GraphicalHp {
-    Visible(u8),
+    #[non_exhaustive]
+    Visible(VisualHp),
     Hidden,
 }
 
 impl GraphicalHp {
-    pub const fn visible(self) -> Option<u8> {
+    pub const fn visible(self) -> Option<VisualHp> {
         match self {
             Self::Visible(hp) => Some(hp),
             Self::Hidden => None,
@@ -200,11 +203,26 @@ impl GraphicalHp {
     }
 
     pub const fn is_full_health(self) -> bool {
-        matches!(self, Self::Visible(hp) if hp >= 10)
+        matches!(self, Self::Visible(hp) if hp.get() >= 10)
     }
 
     pub const fn is_destroyed(self) -> bool {
-        matches!(self, Self::Visible(0))
+        matches!(self, Self::Visible(hp) if hp.get() == 0)
+    }
+}
+
+impl From<ObservedUnitHp> for GraphicalHp {
+    fn from(hp: ObservedUnitHp) -> Self {
+        match hp {
+            ObservedUnitHp::Exact(hp) => Self::from(ExactHp::new(hp)),
+            ObservedUnitHp::Hidden(_) => Self::Hidden,
+        }
+    }
+}
+
+impl From<ExactHp> for GraphicalHp {
+    fn from(hp: ExactHp) -> Self {
+        Self::Visible(hp.visual())
     }
 }
 
@@ -216,7 +234,7 @@ fn sync_graphical_hp(mut world: DeferredWorld, HookContext { entity, .. }: HookC
     world
         .commands()
         .entity(entity)
-        .insert(GraphicalHp::Visible(exact.0.visual().get()));
+        .insert(GraphicalHp::from(exact.0));
 }
 
 #[derive(Debug, Component, Reflect, Clone, Copy, PartialEq, Eq, Hash)]

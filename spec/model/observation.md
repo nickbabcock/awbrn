@@ -323,6 +323,14 @@ even when fog hides one or more affected units. Each subsequent
 `unit-damaged` still takes the ordinary unit-fact projection, so the public
 impact coordinate does not reveal a hidden unit.
 
+For the first `attack-resolved` between two units in one engagement, emit
+`combat-engaged{attacker, defender}` only when both endpoints are visible to the
+recipient in the pre-view or the post-view. Use a friendly reference for a
+team-owned endpoint. Use the endpoint's applicable board position for an enemy
+reference. A counterattack between the same pair does not emit a second
+`combat-engaged`. This event discloses only the pairing. It does not disclose
+the weapon, damage, HP, or an authoritative enemy identifier.
+
 `phase-changed`, `turn-selected`, `day-advanced`, `weather-changed`,
 `power-activated`, `power-ended`, `commander-swapped`,
 `player-status-changed`, `team-eliminated`, and `match-completed` each emit
@@ -337,11 +345,14 @@ count and order without naming the subjects.
 
 ### Facts with no public envelope
 
-`attack-resolved` and `random-outcome` are omitted for every recipient. An
-attack's visible consequences reach the recipient through the damage, resource,
-removal, and tile events that accompany it, each carrying the authoritative
-`reason`. A random outcome that produced no visible consequence produces no
-observed element, which is exactly the noninterference the luck model requires.
+The weapon and target payload of `attack-resolved` is omitted for every
+recipient. When both unit endpoints are visible, only the payload-minimal
+`combat-engaged` envelope described above is emitted. An attack's visible
+consequences reach the recipient through the damage, resource, removal, and tile
+events that accompany it, each carrying the authoritative `reason`.
+`random-outcome` is omitted for every recipient. A random outcome that produced
+no visible consequence produces no observed element, which is exactly the
+noninterference the luck model requires.
 
 ## Appearance is not creation
 

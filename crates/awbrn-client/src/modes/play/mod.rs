@@ -2001,7 +2001,8 @@ fn unit_badge(
             .graphical_hp
             .get(entity)
             .ok()
-            .and_then(|hp| hp.visible()),
+            .and_then(|hp| hp.visible())
+            .map(awbrn_types::VisualHp::get),
     })
 }
 

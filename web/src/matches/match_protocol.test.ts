@@ -171,7 +171,6 @@ describe("wasm action responses", () => {
     const response: WasmActionResponse = {
       storedActionEvent: {
         command: { type: "endTurn" },
-        combatOutcome: null,
       },
       playerMessagesBySlot: {
         "0": {

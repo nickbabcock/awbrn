@@ -114,10 +114,10 @@ type ProjectedUnitRenderFilter = (
 );
 
 fn health_overlay(health: awbrn_game::world::GraphicalHp) -> OverlaySpec {
-    let sprite = match health {
-        awbrn_game::world::GraphicalHp::Visible(value) => format!("Healthv2/{value}.png"),
-        awbrn_game::world::GraphicalHp::Hidden => "Healthv2/Question.png".to_owned(),
-    };
+    let sprite = health.visible().map_or_else(
+        || "Healthv2/Question.png".to_owned(),
+        |value| format!("Healthv2/{}.png", value.get()),
+    );
     OverlaySpec::new(sprite, Vec3::new(7.5, -8.0, 1.0))
 }
 
@@ -696,7 +696,7 @@ mod tests {
 
         app.world_mut()
             .entity_mut(unit)
-            .insert(GraphicalHp::Visible(9));
+            .insert(GraphicalHp::from(awvm::semantic::ObservedUnitHp::Exact(90)));
         app.update();
         let initial_overlay = app
             .world()
@@ -712,7 +712,7 @@ mod tests {
 
         app.world_mut()
             .entity_mut(unit)
-            .insert(GraphicalHp::Visible(1));
+            .insert(GraphicalHp::from(awvm::semantic::ObservedUnitHp::Exact(10)));
         app.update();
         let updated_overlay = app
             .world()
@@ -737,7 +737,7 @@ mod tests {
 
         app.world_mut()
             .entity_mut(unit)
-            .insert(GraphicalHp::Visible(9));
+            .insert(GraphicalHp::from(awvm::semantic::ObservedUnitHp::Exact(90)));
         app.update();
         assert!(
             app.world()
@@ -748,9 +748,9 @@ mod tests {
                 .is_some()
         );
 
-        app.world_mut()
-            .entity_mut(unit)
-            .insert(GraphicalHp::Visible(10));
+        app.world_mut().entity_mut(unit).insert(GraphicalHp::from(
+            awvm::semantic::ObservedUnitHp::Exact(100),
+        ));
         app.update();
         assert!(
             app.world()
@@ -790,7 +790,7 @@ mod tests {
 
         app.world_mut()
             .entity_mut(unit)
-            .insert(GraphicalHp::Visible(5));
+            .insert(GraphicalHp::from(awvm::semantic::ObservedUnitHp::Exact(50)));
         app.world_mut()
             .entity_mut(unit)
             .insert(CaptureProgress::new(10).unwrap());
@@ -824,7 +824,7 @@ mod tests {
                 Unit(awbrn_types::Unit::Infantry),
                 Faction(PlayerFaction::GreenEarth),
                 UnitActive,
-                GraphicalHp::Visible(5),
+                GraphicalHp::from(awvm::semantic::ObservedUnitHp::Exact(50)),
                 CaptureProgress::new(10).unwrap(),
             ))
             .id();
