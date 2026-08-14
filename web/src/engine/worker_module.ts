@@ -1,4 +1,12 @@
-import init, { type CanvasDisplay, BevyApp } from "#/wasm/awbrn_wasm.js";
+import init, {
+  battle_catalog,
+  battle_forecast,
+  type BattleCatalog,
+  type BattleForecastResponse,
+  type BattleRequestWire,
+  type CanvasDisplay,
+  BevyApp,
+} from "#/wasm/awbrn_wasm.js";
 import type { ObservedTransition } from "#/wasm/awbrn_server.js";
 import wasmPath from "#/wasm/awbrn_wasm_bg.wasm?url";
 import { proxy } from "comlink";
@@ -129,6 +137,34 @@ class WorkerInputBridge {
     return !this.paused;
   }
 }
+
+/**
+ * Score one hypothetical engagement, or a column of them.
+ *
+ * A top-level export rather than a method on the game, because the calculator
+ * asks about an engagement no board holds: it needs no canvas, no replay and no
+ * match, and it answers while a game is paused or before one exists. The
+ * numbers are AWVM's, reached through the same reducer a real order goes
+ * through.
+ */
+export const forecastBattle = async (
+  request: BattleRequestWire,
+): Promise<BattleForecastResponse> => {
+  await initialized;
+  return battle_forecast(request);
+};
+
+/**
+ * Everything the calculator's pickers may offer, read off the ruleset.
+ *
+ * Fetched once and held by the caller. Units, terrain and commanders come from
+ * the same tables that resolve a shot, so a picker cannot offer a unit the
+ * rules lack or disagree with them about what it costs.
+ */
+export const loadBattleCatalog = async (): Promise<BattleCatalog> => {
+  await initialized;
+  return battle_catalog();
+};
 
 export const createGame = async (
   canvas: OffscreenCanvas,
