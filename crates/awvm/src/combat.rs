@@ -66,6 +66,7 @@ pub struct DamageRange {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Forecast {
     pub attack: DamageRange,
+    // (see `CounterStep` for the health-by-health breakdown of `counter`)
     /// `None` when nothing can answer: an indirect strike, a target with no
     /// weapon that bites back, a destructible tile, or a target that does not
     /// survive the attacker's weakest roll.
@@ -78,6 +79,26 @@ pub struct Forecast {
     pub attacker_hp: u8,
     pub target_hp: u8,
 }
+
+/// What a defender answers with, from one of the healths it may be left at.
+///
+/// A single counter range carries two different kinds of spread at once: how
+/// much of the defender survives the strike, and the luck its reply is scored
+/// with. A player reading `27 - 36%` cannot tell which part is which, and the
+/// two are not equally useful — the surviving health is the part they can
+/// reason about, because it follows from a roll they are about to watch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CounterStep {
+    /// The health in points the defender is left standing at: the top of the
+    /// bar the board would draw, so a caller converts it to bars exactly the
+    /// way it converts every other health it holds.
+    pub target_hp: u8,
+    /// What it answers with from there, across the luck alone.
+    pub counter: DamageRange,
+}
+
+/// A whole bar, in the points the reducer counts.
+pub(crate) const HEALTH_STEP: u8 = 10;
 
 /// The weapon this attacker would fire at this defender, in the order
 /// `weapons.json` mandates.

@@ -5,7 +5,7 @@
 
 use super::ReducerError as ExecuteError;
 use super::*;
-use crate::combat::{self, DamageRange, Forecast, Hit, Side};
+use crate::combat::{self, CounterStep, DamageRange, Forecast, HEALTH_STEP, Hit, Side};
 use crate::commander::{self, CombatContext, Combatant, Strike};
 use crate::event::{AttackTarget, Event};
 use crate::random::Luck;
@@ -899,6 +899,83 @@ impl<'a> Engagement<'a> {
 /// The error cases are the reducer's own: an out-of-range, invisible, or
 /// unarmed engagement reports the violation it would report at execution time,
 /// so a caller cannot forecast an attack that could not be made.
+/// The reply, broken out at each health the defender may be left standing at.
+///
+/// [`forecast_unit_attack`] reports the counter as one range, and that range
+/// carries the health spread and the luck spread folded together. This takes
+/// them apart: one rung per bar the defender may be left standing in, each
+/// carrying only the luck. It is how the reference calculator every player
+/// already keeps open in a second tab reports the same fact.
+///
+/// It opens the same [`Engagement`] the forecast does and scores through the
+/// same [`StrikeValues`], so it is a second reading of the one combat model
+/// rather than a second model. Nothing about weapon selection, the commander
+/// algebra or terrain is restated here.
+///
+/// Empty is not "no counter". A reply that lands before the strike it answers
+/// is scored at the defender's full health and has no spread to break out, and
+/// a defender that never survives the weakest roll has nothing to report.
+pub(crate) fn forecast_counter_steps(
+    state: &State,
+    player: &PlayerId,
+    attacker_index: usize,
+    origin: Pos,
+    target_id: UnitId,
+) -> Result<Vec<CounterStep>, ExecuteError> {
+    let engagement = Engagement::open(state, player, attacker_index, origin, target_id)?;
+    if !engagement.counter_armed || engagement.counter_comes_first() {
+        return Ok(Vec::new());
+    }
+
+    let attacker = engagement.attacker.unit;
+    let defender = engagement.defender.unit;
+    let initial = &engagement.initial;
+    let (attack_worst, attack_best) = initial.luck_bounds();
+    let (attack_low, _) =
+        initial.scored(attacker, attacker.hp, defender, defender.hp, attack_worst);
+    let (attack_high, _) =
+        initial.scored(attacker, attacker.hp, defender, defender.hp, attack_best);
+
+    // The weakest roll decides whether anything survives to answer at all.
+    let most = defender.hp.saturating_sub(attack_low);
+    if most == 0 {
+        return Ok(Vec::new());
+    }
+    // The strongest roll may finish it, in which case the lowest bar a
+    // survivor can stand in is the first one rather than none.
+    let least = defender.hp.saturating_sub(attack_high).max(1);
+
+    let values = engagement.counter_values()?;
+    let (worst, best) = values.luck_bounds();
+
+    let mut steps = Vec::new();
+    for bar in bars_of(least)..=bars_of(most) {
+        // The healths inside this bar that the exchange can actually leave.
+        let top = (bar * HEALTH_STEP).min(most);
+        let bottom = ((bar - 1) * HEALTH_STEP + 1).max(least);
+        if bottom > top {
+            continue;
+        }
+        steps.push(CounterStep {
+            target_hp: top,
+            counter: DamageRange {
+                // Least of it standing, worst of its luck; most of it
+                // standing, best of its luck.
+                low: values
+                    .scored(defender, bottom, attacker, attacker.hp, worst)
+                    .1,
+                high: values.scored(defender, top, attacker, attacker.hp, best).1,
+            },
+        });
+    }
+    Ok(steps)
+}
+
+/// The bar the board draws a health in, which is the one a player reads it by.
+fn bars_of(points: u8) -> u8 {
+    points.div_ceil(HEALTH_STEP).clamp(1, 10)
+}
+
 pub(crate) fn forecast_unit_attack(
     state: &State,
     player: &PlayerId,

@@ -18,6 +18,7 @@ import {
   spacingVars,
   typeScaleVars,
 } from "@astryxdesign/core/theme/tokens.stylex";
+import { Calculator as CalculatorIcon } from "pixelarticons/react/Calculator";
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
@@ -34,6 +35,8 @@ import { useMatchWebSocket, type MatchWebSocketStatus } from "#/matches/match_we
 import type { InitialBoardMessage, MatchWebSocketMessage } from "#/matches/match_protocol.ts";
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
 import type { MatchParticipantSnapshot } from "#/matches/schemas.ts";
+import { BattleCalculator } from "#/matches/components/BattleCalculator.tsx";
+import { battleCalculatorLayout } from "#/matches/components/battleCalculatorLayout.stylex.ts";
 import { BuildMenu } from "#/matches/components/BuildMenu.tsx";
 import { UnitActionMenu } from "#/matches/components/UnitActionMenu.tsx";
 import { RosterList, RosterRow } from "#/replay/RosterRow.tsx";
@@ -361,6 +364,7 @@ export function MatchActivePage({
             players={livePlayers}
             productionOptions={productionOptions}
             unitActions={unitActions}
+            playerRoster={playerRoster}
             reconnect={reconnect}
             runner={runner}
             status={status}
@@ -434,6 +438,7 @@ function ActiveMatchBoard({
   onBuildUnit,
   onEndTurn,
   players,
+  playerRoster,
   productionOptions,
   unitActions,
   reconnect,
@@ -452,6 +457,7 @@ function ActiveMatchBoard({
   onBuildUnit: (unit: UnitKind, x: number, y: number) => void;
   onEndTurn: () => void;
   players: LiveMatchPlayer[];
+  playerRoster: PlayerRosterSnapshot | null;
   productionOptions: ProductionOptionsChanged | null;
   unitActions: UnitActionsChanged | null;
   reconnect: () => void;
@@ -478,7 +484,19 @@ function ActiveMatchBoard({
   const isCompactViewport = useMediaQuery(BUILD_SHEET_MEDIA);
   const pressRef = useRef<BoardPress | null>(null);
   const [press, setPress] = useState<BoardPress | null>(null);
+  const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
+  // The calculator's own breakpoint. It is not the build menu's: a sheet under
+  // a thumb is one question, and a panel that outgrows the board frame is
+  // another.
+  const isCalculatorCompact = useMediaQuery(battleCalculatorLayout.sheetMedia);
   const productionSite = productionOptions?.site;
+
+  useEffect(() => {
+    if (!isCalculatorOpen || isCalculatorCompact) return;
+    surfaceRef.current
+      ?.querySelector<HTMLElement>('[aria-label="Battle calculator"] [data-autofocus]')
+      ?.focus();
+  }, [isCalculatorCompact, isCalculatorOpen, surfaceRef]);
 
   // The last press on the board, so the menu can open where the player pointed
   // and in the shape the input they used expects. A press is only kept for as
@@ -654,6 +672,20 @@ function ActiveMatchBoard({
           />
         )}
 
+        {/* The engagement a player is imagining, over the board they are
+            imagining it on. It commits nothing: the action menu stays the only
+            thing that can spend a unit. */}
+        {isCalculatorOpen ? (
+          <BattleCalculator
+            onDismiss={() => setIsCalculatorOpen(false)}
+            onRestoreFocus={focus}
+            presentation={isCalculatorCompact ? "sheet" : "board"}
+            roster={playerRoster}
+            runner={runner}
+            viewerSlotIndex={viewerSlotIndex ?? null}
+          />
+        ) : null}
+
         {/* The terrain window stands on the battlefield, the way the game's own
             does, so reading a tile costs the page no height. */}
         <TileInfoBar />
@@ -714,6 +746,14 @@ function ActiveMatchBoard({
         <HStack align="center" gap={2} wrap="wrap">
           {/* While the board holds the screen this strip is behind it, and the
               way back out is the key on the board itself. */}
+          <Button
+            clickAction={() => setIsCalculatorOpen(true)}
+            icon={<CalculatorIcon aria-hidden height={16} width={16} />}
+            isDisabled={isCalculatorOpen}
+            label="Calculator"
+            size="sm"
+            variant="secondary"
+          />
           {isFullscreen ? null : <GameFullscreenButton onEnter={enterFullscreen} />}
           {status === "disconnected" || status === "error" ? (
             <Button clickAction={reconnect} label="Reconnect" size="sm" variant="secondary" />
@@ -791,6 +831,8 @@ function seatEntry(participant: MatchParticipantSnapshot, index: number): Player
       income: undefined,
       unitCount: undefined,
       unitValue: undefined,
+      properties: undefined,
+      comTowers: undefined,
     },
   };
 }

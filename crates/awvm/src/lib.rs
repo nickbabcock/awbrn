@@ -13,7 +13,10 @@
 //!
 //! [`semantic`] holds the state and observation values, [`transition`] the
 //! validation and reduction, [`combat`] the damage arithmetic, and
-//! [`commander`] the revisioned effective-value operators.
+//! [`commander`] the revisioned effective-value operators. [`calculator`]
+//! answers the same combat question about an engagement no board holds, by
+//! lowering it into a state and asking the reducer rather than by restating the
+//! formula.
 //!
 //! Those three operations answer questions a caller already knows how to ask.
 //! A user interface has the opposite problem — it has to offer the questions —
@@ -37,6 +40,7 @@
 //! schema, replay format, or presentation system. Adapters from replay or ECS
 //! identifiers belong in the crates that consume this one.
 
+pub mod calculator;
 pub mod combat;
 pub mod commander;
 pub mod conformance;
