@@ -58,18 +58,25 @@ pub struct DamageRange {
 /// What an exchange can cost both sides, before a single roll is drawn.
 ///
 /// The two ranges are not independent. A counter is scored from what the
-/// initiating strike left standing, so the attacker's best roll bounds the
-/// reply's worst and its worst roll bounds the reply's best. Read together,
-/// `attack.high` with `counter.low` is the good outcome for the attacker and
-/// `attack.low` with `counter.high` is the bad one. Pairing them any other way
-/// describes an exchange that cannot happen.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// initiating strike left standing. The attacker's best surviving roll bounds
+/// the reply's worst, and its worst roll bounds the reply's best. If the best
+/// roll destroys the defender, the reply is not made at all and `counter.low`
+/// is zero. Read that case from `attack.high` against `target_hp` rather than
+/// from the zero itself, because a live defender too weak to scratch the
+/// attacker also answers with nothing.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Forecast {
     pub attack: DamageRange,
     /// `None` when nothing can answer: an indirect strike, a target with no
     /// weapon that bites back, a destructible tile, or a target that does not
     /// survive the attacker's weakest roll.
     pub counter: Option<DamageRange>,
+    /// The counter range split by each possible visible health bar.
+    ///
+    /// These are the healths the defender answers from, so they cover survival
+    /// alone: a strike that destroys it is the absent rung, not a rung of zero.
+    /// This is empty when no counter occurs or when the counter occurs first.
+    pub counter_steps: Vec<CounterStep>,
     /// Whether the defender's commander fires before the strike that provoked
     /// it, which is what makes the attacker's own damage depend on the reply.
     pub counter_first: bool,
@@ -78,6 +85,26 @@ pub struct Forecast {
     pub attacker_hp: u8,
     pub target_hp: u8,
 }
+
+/// What a defender answers with, from one of the healths it may be left at.
+///
+/// A single counter range carries two different kinds of spread at once: how
+/// much of the defender survives the strike, and the luck its reply is scored
+/// with. A player reading `27 - 36%` cannot tell which part is which, and the
+/// two are not equally useful — the surviving health is the part they can
+/// reason about, because it follows from a roll they are about to watch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CounterStep {
+    /// The health in points the defender is left standing at: the top of the
+    /// bar the board would draw, so a caller converts it to bars exactly the
+    /// way it converts every other health it holds.
+    pub target_hp: u8,
+    /// What it answers with from there, across the luck alone.
+    pub counter: DamageRange,
+}
+
+/// A whole bar, in the points the reducer counts.
+pub(crate) const HEALTH_STEP: u8 = 10;
 
 /// The weapon this attacker would fire at this defender, in the order
 /// `weapons.json` mandates.
