@@ -5,7 +5,7 @@
 
 use super::ReducerError as ExecuteError;
 use super::*;
-use crate::combat::{self, DamageRange, Forecast, Hit, Side};
+use crate::combat::{self, CounterStep, DamageRange, Forecast, HEALTH_STEP, Hit, Side};
 use crate::commander::{self, CombatContext, Combatant, Strike};
 use crate::event::{AttackTarget, Event};
 use crate::random::Luck;
@@ -885,6 +885,48 @@ impl<'a> Engagement<'a> {
     }
 }
 
+/// Break out a counter at each health the defender may be left standing at.
+///
+/// The aggregate range and the steps use the same counter values. If the
+/// strongest roll destroys the defender, both readings use one health point
+/// as the least survivor.
+fn counter_steps(
+    values: &StrikeValues,
+    attacker: &Unit,
+    defender: &Unit,
+    least: u8,
+    most: u8,
+    worst: i64,
+    best: i64,
+) -> Vec<CounterStep> {
+    let mut steps = Vec::new();
+    for bar in bars_of(least)..=bars_of(most) {
+        // The healths inside this bar that the exchange can actually leave.
+        let top = (bar * HEALTH_STEP).min(most);
+        let bottom = ((bar - 1) * HEALTH_STEP + 1).max(least);
+        if bottom > top {
+            continue;
+        }
+        steps.push(CounterStep {
+            target_hp: top,
+            counter: DamageRange {
+                // Least of it standing, worst of its luck; most of it
+                // standing, best of its luck.
+                low: values
+                    .scored(defender, bottom, attacker, attacker.hp, worst)
+                    .1,
+                high: values.scored(defender, top, attacker, attacker.hp, best).1,
+            },
+        });
+    }
+    steps
+}
+
+/// The bar the board draws a health in, which is the one a player reads it by.
+fn bars_of(points: u8) -> u8 {
+    points.div_ceil(HEALTH_STEP).clamp(1, 10)
+}
+
 /// What an exchange would cost both sides, without drawing a single roll.
 ///
 /// This is [`resolve_exchange`] and [`resolve_counter_first`] scored twice —
@@ -945,6 +987,7 @@ pub(crate) fn forecast_unit_attack(
                 low: counter_low_raw,
                 high: counter_high_raw,
             }),
+            counter_steps: Vec::new(),
             counter_first: true,
             attacker_hp: attacker.hp,
             target_hp: defender.hp,
@@ -957,32 +1000,32 @@ pub(crate) fn forecast_unit_attack(
         initial.scored(attacker, attacker.hp, defender, defender.hp, attack_best);
     // Nothing answers when nothing is armed to, and nothing survives to answer
     // when even the weakest roll finishes the defender.
-    let counter = if !engagement.counter_armed || defender.hp.saturating_sub(attack_low) == 0 {
-        None
-    } else {
-        let values = engagement.counter_values()?;
-        let (worst, best) = values.luck_bounds();
-        Some(DamageRange {
-            low: values
-                .scored(
-                    defender,
-                    defender.hp.saturating_sub(attack_high),
-                    attacker,
-                    attacker.hp,
-                    worst,
-                )
-                .1,
-            high: values
-                .scored(
-                    defender,
-                    defender.hp.saturating_sub(attack_low),
-                    attacker,
-                    attacker.hp,
-                    best,
-                )
-                .1,
-        })
-    };
+    let (counter, counter_steps) =
+        if !engagement.counter_armed || defender.hp.saturating_sub(attack_low) == 0 {
+            (None, Vec::new())
+        } else {
+            let values = engagement.counter_values()?;
+            let (worst, best) = values.luck_bounds();
+            let least = defender.hp.saturating_sub(attack_high);
+            let most = defender.hp.saturating_sub(attack_low);
+            // The luckiest strike can still destroy a defender the weakest one
+            // leaves standing. Then the reply may not be made at all, and the
+            // floor of what the attacker can take is nothing. The rungs speak
+            // only for the healths the defender is alive at, so they start one
+            // point up.
+            let counter = DamageRange {
+                low: if least == 0 {
+                    0
+                } else {
+                    values
+                        .scored(defender, least, attacker, attacker.hp, worst)
+                        .1
+                },
+                high: values.scored(defender, most, attacker, attacker.hp, best).1,
+            };
+            let steps = counter_steps(&values, attacker, defender, least.max(1), most, worst, best);
+            (Some(counter), steps)
+        };
 
     Ok(Forecast {
         attack: DamageRange {
@@ -990,6 +1033,7 @@ pub(crate) fn forecast_unit_attack(
             high: attack_high_raw,
         },
         counter,
+        counter_steps,
         counter_first: false,
         attacker_hp: attacker.hp,
         target_hp: defender.hp,
@@ -1023,6 +1067,7 @@ pub(crate) fn forecast_tile_attack(
             high: hit.raw_damage,
         },
         counter: None,
+        counter_steps: Vec::new(),
         counter_first: false,
         attacker_hp: attacker.hp,
         target_hp: target.hp,

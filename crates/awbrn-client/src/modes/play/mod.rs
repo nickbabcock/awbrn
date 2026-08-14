@@ -1839,7 +1839,7 @@ fn build_options(
             },
             forecast: forecasts
                 .get(index)
-                .copied()
+                .cloned()
                 .flatten()
                 .and_then(|forecast| describe_forecast(forecast, position, unit_selection)),
         });
