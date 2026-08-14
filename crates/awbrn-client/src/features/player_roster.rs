@@ -6,7 +6,9 @@ use crate::loading::LiveMatchPlayer;
 use awbrn_content::{CoPortraitMetadata, co_portrait_by_awbw_id, co_portraits};
 use awbrn_game::replay::{AwbwUnitId, ReplayState};
 use awbrn_game::world::{Faction, GraphicalHp, TerrainTile, Unit, ViewerVisibility};
-use awbrn_types::{Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, UnitExt};
+use awbrn_types::{
+    Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, PropertyKind, UnitExt,
+};
 use awbw_replay::AwbwReplay;
 use awbw_replay::game_models::AwbwPlayer;
 use awvm::semantic::{Observation, ObservedPlayer};
@@ -399,6 +401,13 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
         .iter()
         .map(|player| (player.player_id, 0_u32))
         .collect::<HashMap<_, _>>();
+    // Counted on the same pass as the income, because a com tower is a property
+    // that also happens to change what every unit in the army deals.
+    let mut tower_counts = config
+        .players
+        .iter()
+        .map(|player| (player.player_id, 0_u32))
+        .collect::<HashMap<_, _>>();
 
     {
         let mut unit_query = world.query::<(&AwbwUnitId, &Faction, Option<&GraphicalHp>, &Unit)>();
@@ -429,6 +438,9 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
             };
             if let Some(player_id) = player_id_for_faction(&config, faction) {
                 *income_counts.entry(player_id).or_default() += 1;
+                if property.kind() == PropertyKind::ComTower {
+                    *tower_counts.entry(player_id).or_default() += 1;
+                }
             }
         }
     }
@@ -448,6 +460,8 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
                         unit_count: None,
                         unit_value: None,
                         income: None,
+                        properties: None,
+                        com_towers: None,
                     }
                 } else {
                     PlayerRosterStats {
@@ -470,6 +484,18 @@ pub fn player_roster_snapshot(world: &mut World) -> Option<PlayerRosterSnapshot>
                                 .copied()
                                 .unwrap_or_default()
                                 .saturating_mul(config.funds_per_property),
+                        ),
+                        properties: Some(
+                            income_counts
+                                .get(&player.player_id)
+                                .copied()
+                                .unwrap_or_default(),
+                        ),
+                        com_towers: Some(
+                            tower_counts
+                                .get(&player.player_id)
+                                .copied()
+                                .unwrap_or_default(),
                         ),
                     }
                 };

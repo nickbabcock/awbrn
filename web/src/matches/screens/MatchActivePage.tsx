@@ -791,6 +791,8 @@ function seatEntry(participant: MatchParticipantSnapshot, index: number): Player
       income: undefined,
       unitCount: undefined,
       unitValue: undefined,
+      properties: undefined,
+      comTowers: undefined,
     },
   };
 }

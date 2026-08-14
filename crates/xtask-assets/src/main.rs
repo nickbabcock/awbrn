@@ -812,6 +812,8 @@ fn run_ui() -> Result<()> {
     let mut sprites = collect_ui_sprites(&ui_root)?;
     let effect_sprites = collect_ui_effect_sprites(&effects_root)?;
     sprites.extend(effect_sprites);
+    let power_sprites = collect_co_power_sprites(&assets_root.join("Textures/CO"))?;
+    sprites.extend(power_sprites);
     sprites.sort_by(|a, b| a.name.cmp(&b.name));
     let (atlas_width, atlas_height, placements) = pack_ui_sprites(&sprites)?;
 
@@ -963,6 +965,34 @@ fn collect_ui_effect_sprites(effects_root: &Path) -> Result<Vec<UiSprite>> {
 
         sprites.push(UiSprite {
             name: format!("Effects/{file_name}"),
+            image: rgba,
+            width,
+            height,
+        });
+    }
+
+    Ok(sprites)
+}
+
+/// The two power stars the CO meter fills with.
+///
+/// They live under `Textures/CO` rather than `Textures/UI`, but they are
+/// interface marks rather than portraits: the source tool draws them beside a
+/// commander to say which power is charged. The atlas is where every other
+/// interface mark already is, so they join it under their own prefix.
+fn collect_co_power_sprites(co_root: &Path) -> Result<Vec<UiSprite>> {
+    // Red is the CO power, blue the super. That is the source tool's own
+    // pairing and not a choice made here.
+    let star_files = [("redstar.gif", "Power"), ("bluestar.gif", "SuperPower")];
+    let mut sprites = Vec::new();
+
+    for (file_name, sprite_name) in star_files {
+        let path = co_root.join(file_name);
+        let rgba = load_rgba_image(&path)?;
+        let (width, height) = rgba.dimensions();
+
+        sprites.push(UiSprite {
+            name: format!("CO/{sprite_name}.png"),
             image: rgba,
             width,
             height,

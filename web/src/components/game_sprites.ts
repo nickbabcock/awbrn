@@ -84,6 +84,31 @@ export function terrainSpriteStyle(index: number, scale = 1): CSSProperties {
   };
 }
 
+/**
+ * The tile square of one terrain cell, without what rises above it.
+ *
+ * A terrain cell is 16 wide and 32 tall because the upper half holds the peak,
+ * the roof or the tower that overhangs the tile behind it. Somewhere the whole
+ * cell has to be drawn, or a mountain is a picture of grass. Somewhere else —
+ * a control on a row beside other controls — only the square is wanted, and
+ * the square alone still tells a city from a sea from a wood.
+ */
+export function terrainTileStyle(index: number, scale = 1): CSSProperties {
+  const column = index % TERRAIN_SHEET.columns;
+  const row = Math.floor(index / TERRAIN_SHEET.columns);
+  const tile = TERRAIN_SHEET.cellHeight / 2;
+
+  return {
+    width: `${TERRAIN_SHEET.cellWidth * scale}px`,
+    height: `${tile * scale}px`,
+    backgroundImage: `url(${tilesTextureUrl})`,
+    backgroundSize: `${TERRAIN_SHEET.cellWidth * TERRAIN_SHEET.columns * scale}px ${TERRAIN_SHEET.cellHeight * TERRAIN_SHEET.rows * scale}px`,
+    backgroundPosition: `-${column * TERRAIN_SHEET.cellWidth * scale}px -${(row * TERRAIN_SHEET.cellHeight + tile) * scale}px`,
+    backgroundRepeat: "no-repeat",
+    imageRendering: "pixelated",
+  };
+}
+
 export function getUiAtlasSprite(name: string): AtlasSprite | null {
   return UI_SPRITES.get(name) ?? null;
 }
