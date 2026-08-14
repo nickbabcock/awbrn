@@ -1,13 +1,13 @@
 {
   "size": {
-    "width": 159,
-    "height": 159
+    "width": 160,
+    "height": 160
   },
   "sprites": [
     {
       "name": "Ammo.png",
-      "x": 121,
-      "y": 150,
+      "x": 140,
+      "y": 31,
       "width": 7,
       "height": 5
     },
@@ -34,15 +34,29 @@
     },
     {
       "name": "BuildingsCaptured.png",
-      "x": 144,
-      "y": 104,
+      "x": 148,
+      "y": 140,
       "width": 11,
       "height": 11
     },
     {
+      "name": "CO/Power.png",
+      "x": 128,
+      "y": 104,
+      "width": 14,
+      "height": 14
+    },
+    {
+      "name": "CO/SuperPower.png",
+      "x": 144,
+      "y": 104,
+      "width": 14,
+      "height": 14
+    },
+    {
       "name": "Capturing.png",
-      "x": 136,
-      "y": 78,
+      "x": 151,
+      "y": 20,
       "width": 8,
       "height": 8
     },
@@ -56,14 +70,14 @@
     {
       "name": "Coin.png",
       "x": 148,
-      "y": 140,
+      "y": 122,
       "width": 10,
       "height": 10
     },
     {
       "name": "Dive.png",
-      "x": 147,
-      "y": 67,
+      "x": 102,
+      "y": 150,
       "width": 8,
       "height": 8
     },
@@ -97,113 +111,113 @@
     },
     {
       "name": "Fuel.png",
-      "x": 112,
+      "x": 84,
       "y": 150,
       "width": 7,
       "height": 8
     },
     {
       "name": "HP.png",
-      "x": 149,
-      "y": 20,
+      "x": 152,
+      "y": 77,
       "width": 7,
       "height": 6
     },
     {
       "name": "HasCargo.png",
-      "x": 147,
-      "y": 77,
+      "x": 112,
+      "y": 150,
       "width": 8,
       "height": 8
     },
     {
       "name": "Healthv2/0.png",
-      "x": 74,
-      "y": 150,
+      "x": 151,
+      "y": 30,
       "width": 8,
       "height": 7
     },
     {
       "name": "Healthv2/1.png",
-      "x": 84,
-      "y": 150,
-      "width": 8,
-      "height": 7
-    },
-    {
-      "name": "Healthv2/2.png",
       "x": 46,
       "y": 150,
       "width": 8,
       "height": 7
     },
     {
-      "name": "Healthv2/3.png",
+      "name": "Healthv2/2.png",
       "x": 56,
       "y": 150,
       "width": 8,
       "height": 7
     },
     {
-      "name": "Healthv2/4.png",
+      "name": "Healthv2/3.png",
       "x": 1,
       "y": 151,
       "width": 8,
       "height": 7
     },
     {
-      "name": "Healthv2/5.png",
+      "name": "Healthv2/4.png",
       "x": 11,
       "y": 151,
       "width": 8,
       "height": 7
     },
     {
-      "name": "Healthv2/6.png",
+      "name": "Healthv2/5.png",
       "x": 21,
       "y": 151,
       "width": 8,
       "height": 7
     },
     {
-      "name": "Healthv2/7.png",
+      "name": "Healthv2/6.png",
       "x": 31,
       "y": 151,
       "width": 8,
       "height": 7
     },
     {
+      "name": "Healthv2/7.png",
+      "x": 135,
+      "y": 1,
+      "width": 8,
+      "height": 7
+    },
+    {
       "name": "Healthv2/8.png",
-      "x": 129,
-      "y": 20,
+      "x": 135,
+      "y": 10,
       "width": 8,
       "height": 7
     },
     {
       "name": "Healthv2/9.png",
-      "x": 129,
-      "y": 29,
+      "x": 145,
+      "y": 1,
       "width": 8,
       "height": 7
     },
     {
       "name": "Healthv2/Question.png",
-      "x": 139,
-      "y": 20,
+      "x": 145,
+      "y": 10,
       "width": 8,
       "height": 7
     },
     {
       "name": "LowAmmo.png",
-      "x": 139,
-      "y": 29,
+      "x": 93,
+      "y": 150,
       "width": 7,
       "height": 8
     },
     {
       "name": "LowFuel.png",
-      "x": 148,
-      "y": 29,
+      "x": 152,
+      "y": 67,
       "width": 7,
       "height": 8
     },
@@ -223,7 +237,7 @@
     },
     {
       "name": "Stun.png",
-      "x": 102,
+      "x": 74,
       "y": 150,
       "width": 8,
       "height": 8
@@ -293,22 +307,22 @@
     },
     {
       "name": "TerrainStar.png",
-      "x": 136,
-      "y": 67,
+      "x": 140,
+      "y": 20,
       "width": 9,
       "height": 9
     },
     {
       "name": "commtowericon.png",
-      "x": 148,
-      "y": 122,
+      "x": 129,
+      "y": 20,
       "width": 9,
       "height": 11
     },
     {
       "name": "fire.png",
-      "x": 128,
-      "y": 104,
+      "x": 136,
+      "y": 67,
       "width": 14,
       "height": 13
     },

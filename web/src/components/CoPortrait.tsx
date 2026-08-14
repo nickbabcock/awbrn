@@ -9,11 +9,25 @@ interface CoPortraitProps {
   catalog: CoPortraitCatalog | null;
   coKey: string | null | undefined;
   fallbackLabel: string;
+  /**
+   * Whether the portrait draws its own frame.
+   *
+   * Off where the portrait already sits inside something outlined — a picker
+   * cell, a field — because two borders in a row is the tell of a component
+   * that stopped asking where it lives.
+   */
+  hasFrame?: boolean;
   /** Rendered height in px. The portrait keeps its own aspect ratio. */
   size?: number;
 }
 
-export function CoPortrait({ catalog, coKey, fallbackLabel, size }: CoPortraitProps) {
+export function CoPortrait({
+  catalog,
+  coKey,
+  fallbackLabel,
+  hasFrame = true,
+  size,
+}: CoPortraitProps) {
   const portrait = resolveCoPortrait(catalog ?? loadCoPortraitCatalog(), coKey);
 
   if (!portrait) {
@@ -37,7 +51,7 @@ export function CoPortrait({ catalog, coKey, fallbackLabel, size }: CoPortraitPr
       role="img"
       style={style}
       title={portrait.displayName}
-      {...stylex.props(styles.portrait)}
+      {...stylex.props(styles.portrait, hasFrame && styles.framed)}
     />
   );
 }
@@ -50,6 +64,8 @@ const styles = stylex.create({
     boxSizing: "content-box",
     backgroundRepeat: "no-repeat",
     imageRendering: "pixelated",
+  },
+  framed: {
     borderWidth: borderVars["--border-width"],
     borderStyle: "solid",
     borderColor: colorVars["--color-border-emphasized"],
