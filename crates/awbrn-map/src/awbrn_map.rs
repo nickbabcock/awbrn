@@ -1,9 +1,5 @@
-use crate::{
-    Position,
-    awbw_map::AwbwMap,
-    pathfinding::{MovementMap, PathFinder},
-};
-use awbrn_types::{AwbwTerrain, GraphicalTerrain, MovementTerrain, SeaDirection, ShoalDirection};
+use crate::{Position, awbw_map::AwbwMap};
+use awbrn_types::{AwbwTerrain, GraphicalTerrain, SeaDirection, ShoalDirection};
 
 /// Represents a game map with graphical terrain data
 #[derive(Debug, Clone, PartialEq)]
@@ -507,32 +503,6 @@ impl AwbrnMap {
             let x = idx % self.width;
             (Position::new(x, y), *terrain)
         })
-    }
-
-    pub fn pathfinder(&self) -> PathFinder<&Self> {
-        PathFinder::new(self)
-    }
-}
-
-impl MovementMap for AwbrnMap {
-    #[inline(always)]
-    fn terrain_at(&self, pos: Position) -> Option<MovementTerrain> {
-        self.terrain_at(pos)
-            .map(|x| x.as_terrain())
-            .map(MovementTerrain::from)
-    }
-
-    #[inline(always)]
-    fn terrain_at_flat(&self, flat_idx: usize) -> MovementTerrain {
-        MovementTerrain::from(self.terrain[flat_idx].as_terrain())
-    }
-
-    fn width(&self) -> usize {
-        self.width
-    }
-
-    fn height(&self) -> usize {
-        self.height()
     }
 }
 
