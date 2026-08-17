@@ -144,12 +144,9 @@ fn deployment(players: usize) -> impl Iterator<Item = (Position, Unit, PlayerFac
     })
 }
 
-/// A fresh server at game scale.
-///
-/// Rebuilt per iteration for the command cases, so it is setup rather than
-/// measured work — see the module comment.
-pub fn server(players: usize, fog: bool) -> GameServer {
-    let setup = GameSetup {
+/// A game setup with the map and player roster that every case uses.
+pub fn setup(players: usize, fog: bool) -> GameSetup {
+    GameSetup {
         map: map(players),
         players: FACTIONS
             .iter()
@@ -163,9 +160,15 @@ pub fn server(players: usize, fog: bool) -> GameServer {
             .collect(),
         fog_enabled: fog,
         rng_seed: 0x5eed,
-    };
+    }
+}
 
-    let mut server = GameServer::new(setup).expect("game setup is valid");
+/// A fresh server at game scale.
+///
+/// Rebuilt per iteration for the command cases, so it is setup rather than
+/// measured work — see the module comment.
+pub fn server(players: usize, fog: bool) -> GameServer {
+    let mut server = GameServer::new(setup(players, fog)).expect("game setup is valid");
     // The mover goes first so it is always unit 1, whatever the roster does.
     server.spawn_unit(
         Position::new(MOVER_START.0, MOVER_START.1),
