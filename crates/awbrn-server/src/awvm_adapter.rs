@@ -41,20 +41,6 @@ pub(crate) struct AcceptedTransition {
 
 impl Authority {
     pub(crate) fn new(setup: &GameSetup) -> Result<Self, SetupError> {
-        if setup.players.is_empty() {
-            return Err(SetupError::InvalidPlayers {
-                reason: "game must contain at least one player".into(),
-            });
-        }
-        if setup.players.len() > u8::MAX as usize {
-            return Err(SetupError::InvalidPlayers {
-                reason: format!(
-                    "game supports at most {} players, got {}",
-                    u8::MAX,
-                    setup.players.len()
-                ),
-            });
-        }
         let faction_players = faction_players(setup);
         Ok(Self {
             state: state_from_setup(setup)?,
@@ -413,14 +399,27 @@ fn commands(
     }
 }
 
-fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
-    let starting_funds = u64::from(
-        setup
-            .players
-            .first()
-            .expect("the server validates a non-empty roster")
-            .starting_funds,
-    );
+/// Converts a game setup to an AWVM state.
+///
+/// This function does not perform server work. It does not compute fog or
+/// record entropy.
+pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
+    if setup.players.is_empty() {
+        return Err(SetupError::InvalidPlayers {
+            reason: "game must contain at least one player".into(),
+        });
+    }
+    if setup.players.len() > u8::MAX as usize {
+        return Err(SetupError::InvalidPlayers {
+            reason: format!(
+                "game supports at most {} players, got {}",
+                u8::MAX,
+                setup.players.len()
+            ),
+        });
+    }
+
+    let starting_funds = u64::from(setup.players[0].starting_funds);
     let players = setup
         .players
         .iter()
@@ -454,11 +453,7 @@ fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
             teams
         });
     let faction_players = faction_players(setup);
-    let active_player = players
-        .first()
-        .expect("the server validates a non-empty roster")
-        .id
-        .clone();
+    let active_player = players[0].id.clone();
 
     Ok(State {
         ruleset: RulesetRef {

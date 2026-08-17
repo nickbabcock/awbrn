@@ -9,7 +9,7 @@ use awbrn_types::{
 use awbrn_server::{
     CaptureEvent, Co, CommandError, GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup,
     PostMoveAction, PowerLevel, ReplayError, ReplayEventError, ServerUnitId, SetupError,
-    StoredActionEvent, reconstruct_from_events,
+    StoredActionEvent, reconstruct_from_events, state_from_setup,
 };
 use awvm::semantic::{ObservedEvent, ObservedUnitRef};
 
@@ -204,15 +204,14 @@ fn p2() -> PlayerId {
 }
 
 #[test]
-fn server_rejects_empty_player_setup() {
-    let err = GameServer::new(GameSetup {
+fn state_conversion_rejects_empty_player_setup() {
+    let setup = GameSetup {
         map: AwbrnMap::new(5, 5, GraphicalTerrain::Plain),
         players: Vec::new(),
         fog_enabled: false,
         rng_seed: 0,
-    })
-    .err()
-    .unwrap();
+    };
+    let err = state_from_setup(&setup).unwrap_err();
 
     assert_eq!(
         err,
@@ -223,8 +222,8 @@ fn server_rejects_empty_player_setup() {
 }
 
 #[test]
-fn server_rejects_more_than_255_players() {
-    let err = GameServer::new(GameSetup {
+fn state_conversion_rejects_more_than_255_players() {
+    let setup = GameSetup {
         map: AwbrnMap::new(5, 5, GraphicalTerrain::Plain),
         players: vec![
             PlayerSetup {
@@ -237,9 +236,8 @@ fn server_rejects_more_than_255_players() {
         ],
         fog_enabled: false,
         rng_seed: 0,
-    })
-    .err()
-    .unwrap();
+    };
+    let err = state_from_setup(&setup).unwrap_err();
 
     assert_eq!(
         err,

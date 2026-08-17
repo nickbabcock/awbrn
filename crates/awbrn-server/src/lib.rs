@@ -11,6 +11,7 @@ mod view;
 mod wasm;
 
 pub use awbrn_types::Co;
+pub use awvm_adapter::state_from_setup;
 pub use command::{GameCommand, PostMoveAction, PowerLevel};
 pub use error::CommandError;
 pub use player::{PlayerId, PlayerRegistry};
