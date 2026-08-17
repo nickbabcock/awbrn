@@ -23,6 +23,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use wasm_bindgen::prelude::*;
 use web_sys::OffscreenCanvas;
 
+pub mod calculator;
 mod keyboard;
 mod offscreen_window_handle;
 mod web_key_code_generated;
