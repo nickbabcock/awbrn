@@ -1,9 +1,10 @@
 //! `query` against `execute`, over the whole corpus.
 //!
-//! `actions_at` and `attack_targets` run the reducer, so they cannot disagree
-//! with it by construction. `reachable` does not — it is a search written
-//! beside the rules, which is exactly the arrangement this module exists to
-//! spare consumers — so it is the one thing that needs holding to account.
+//! `actions_at` uses reducer preparation or execution, and `attack_targets`
+//! runs the reducer. They cannot disagree with it by construction. `reachable`
+//! does not. It is a search written beside the rules, which is exactly the
+//! arrangement this module exists to spare consumers. It therefore needs
+//! separate equivalence coverage.
 //!
 //! The ground truth here is `execute` itself. Fixture boards are at most 21
 //! tiles, so every simple path a unit could submit can be enumerated and put to
@@ -18,7 +19,7 @@ use awvm::combat::DamageRange;
 use awvm::conformance::collect_json;
 use awvm::prelude::*;
 use awvm::query::{self, can_act};
-use awvm::semantic::{KnownReason, Location, Reason, UnitAction};
+use awvm::semantic::{KnownReason, Location, Reason, RulesetRevision, UnitAction};
 use serde_json::Value;
 
 fn corpus() -> Vec<(String, Value)> {
@@ -296,6 +297,189 @@ fn every_accepted_fixture_command_was_offered() {
     }
 }
 
+/// Prepared movement gives the same action verdicts as execution.
+#[test]
+fn prepared_action_queries_agree_with_execution() {
+    let mut checked = 0;
+    for (relative, case) in corpus() {
+        for state in states(&case) {
+            for subject in state.units.iter() {
+                if subject.owner != state.turn.active_player
+                    || can_act(&state, subject.id) != Ok(Ok(()))
+                {
+                    continue;
+                }
+                let field = query::reachable(&state, subject.id).expect("an on-board unit");
+                for (destination, _) in field.reach() {
+                    let path = field
+                        .path_to(destination)
+                        .expect("a reachable tile has a path");
+                    let actions = query::actions_at(&state, subject.id, destination)
+                        .unwrap_or_else(|error| panic!("{relative}: {error}"));
+                    let from_path = query::actions_for_path(&state, subject.id, path.clone())
+                        .unwrap_or_else(|error| panic!("{relative}: {error}"));
+                    assert_eq!(
+                        from_path, actions,
+                        "{relative}: unit {} path query disagreed at {destination}",
+                        subject.id
+                    );
+                    let accepts = |command| {
+                        matches!(
+                            execute(&state, command, &[]),
+                            Ok(ExecuteOutcome::Accepted(_))
+                        )
+                    };
+                    let occupant = state.units.iter().find_map(|unit| match unit.location {
+                        Location::Board { position } if position == destination => Some(unit.id),
+                        _ => None,
+                    });
+
+                    assert_eq!(
+                        actions.wait,
+                        accepts(Command::MoveWait {
+                            player: subject.owner.clone(),
+                            unit: subject.id,
+                            path: path.clone(),
+                        }),
+                        "{relative}: unit {} Wait disagreed at {destination}",
+                        subject.id
+                    );
+                    assert_eq!(
+                        actions.capture,
+                        accepts(Command::MoveCapture {
+                            player: subject.owner.clone(),
+                            unit: subject.id,
+                            path: path.clone(),
+                        }),
+                        "{relative}: unit {} Capture disagreed at {destination}",
+                        subject.id
+                    );
+                    assert_eq!(
+                        actions.supply,
+                        accepts(Command::MoveSupply {
+                            player: subject.owner.clone(),
+                            unit: subject.id,
+                            path: path.clone(),
+                        }),
+                        "{relative}: unit {} Supply disagreed at {destination}",
+                        subject.id
+                    );
+                    assert_eq!(
+                        actions.hide,
+                        accepts(Command::MoveHide {
+                            player: subject.owner.clone(),
+                            unit: subject.id,
+                            path: path.clone(),
+                        }),
+                        "{relative}: unit {} Hide disagreed at {destination}",
+                        subject.id
+                    );
+                    assert_eq!(
+                        actions.reveal,
+                        accepts(Command::MoveReveal {
+                            player: subject.owner.clone(),
+                            unit: subject.id,
+                            path: path.clone(),
+                        }),
+                        "{relative}: unit {} Reveal disagreed at {destination}",
+                        subject.id
+                    );
+                    assert_eq!(
+                        actions.join,
+                        occupant.is_some_and(|target| accepts(Command::MoveJoin {
+                            player: subject.owner.clone(),
+                            unit: subject.id,
+                            path: path.clone(),
+                            target,
+                        })),
+                        "{relative}: unit {} Join disagreed at {destination}",
+                        subject.id
+                    );
+                    assert_eq!(
+                        actions.load,
+                        occupant.is_some_and(|transport| accepts(Command::MoveLoad {
+                            player: subject.owner.clone(),
+                            unit: subject.id,
+                            path: path.clone(),
+                            transport,
+                        })),
+                        "{relative}: unit {} Load disagreed at {destination}",
+                        subject.id
+                    );
+                    assert_eq!(
+                        actions.explode,
+                        accepts(Command::MoveExplode {
+                            player: subject.owner.clone(),
+                            unit: subject.id,
+                            path,
+                        }),
+                        "{relative}: unit {} Explode disagreed at {destination}",
+                        subject.id
+                    );
+                    checked += 1;
+                }
+            }
+        }
+    }
+
+    assert!(
+        checked >= 704,
+        "expected the full movement corpus, saw {checked} destinations"
+    );
+}
+
+#[test]
+fn a_path_from_a_stale_field_is_validated_again() {
+    let source = include_str!("../../../spec/fixtures/movement/infantry-plain-move.json");
+    let case: Value = serde_json::from_str(source).expect("parse fixture");
+    let mut state: State =
+        serde_json::from_value(case["initial_state"].clone()).expect("decode state");
+    let unit = state.units[0].id;
+    let field = query::reachable(&state, unit).expect("compute field");
+    let path = field.path_to(Pos::new(1, 0)).expect("destination has path");
+    state.units.get_mut(unit).expect("unit exists").action = UnitAction::Spent;
+
+    assert_eq!(
+        query::actions_for_path(&state, unit, path),
+        Ok(query::ActionSet::default())
+    );
+}
+
+#[test]
+fn prepared_action_queries_propagate_movement_faults() {
+    let source = include_str!("../../../spec/fixtures/movement/infantry-plain-move.json");
+    let case: Value = serde_json::from_str(source).expect("parse fixture");
+    let state: State = serde_json::from_value(case["initial_state"].clone()).expect("decode state");
+    let unit = state.units[0].id;
+    let Location::Board { position } = state.units[0].location else {
+        panic!("fixture unit is on the board");
+    };
+    let path = vec![position];
+
+    let mut unsupported = state.clone();
+    unsupported.ruleset.revision = RulesetRevision::from("unsupported");
+    assert_eq!(
+        query::actions_for_path(&unsupported, unit, path.clone()),
+        Err(QueryError::Transition(ExecuteError::UnsupportedRuleset))
+    );
+    assert_eq!(
+        query::attack_targets(&unsupported, unit, position),
+        Err(QueryError::Transition(ExecuteError::UnsupportedRuleset))
+    );
+
+    let mut invalid = state;
+    invalid.turn.active_player = PlayerId::from("unknown");
+    invalid.units[0].owner = PlayerId::from("unknown");
+    assert!(matches!(
+        query::actions_for_path(&invalid, unit, path.clone()),
+        Err(QueryError::Transition(ExecuteError::InvalidState(_)))
+    ));
+    assert!(matches!(
+        query::attack_targets(&invalid, unit, position),
+        Err(QueryError::Transition(ExecuteError::InvalidState(_)))
+    ));
+}
+
 #[test]
 fn observed_production_options_include_hachi_scop_city_metadata() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -551,6 +735,8 @@ fn observed_actions_agree_with_authoritative_actions_without_fog() {
                 continue;
             };
             let reified = query::reify(&observation).expect("fog-free observation must reify");
+            let observed_query =
+                query::ObservedQuery::new(&observation).expect("build observed query");
 
             for subject in state.units.iter() {
                 if subject.owner != recipient || can_act(&state, subject.id) != Ok(Ok(())) {
@@ -561,14 +747,21 @@ fn observed_actions_agree_with_authoritative_actions_without_fog() {
                 };
 
                 for (destination, _) in field.destinations() {
+                    let path = field.path_to(destination).expect("destination has path");
                     let authoritative = query::actions_at(&state, subject.id, destination)
                         .map(|actions| query::by_position(&state, actions));
                     let observed = query::actions_at(&reified, subject.id, destination)
                         .map(|actions| query::by_position(&reified, actions));
+                    let observed_from_path = observed_query.actions_for_path(subject.id, path);
                     assert_eq!(
                         observed, authoritative,
                         "{relative}: unit {} at {destination:?} disagrees between the \
                          projection and the state it came from",
+                        subject.id
+                    );
+                    assert_eq!(
+                        observed_from_path, authoritative,
+                        "{relative}: unit {} path query disagrees at {destination:?}",
                         subject.id
                     );
                     checked += 1;

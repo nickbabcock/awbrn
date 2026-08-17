@@ -10,10 +10,10 @@
 //!
 //! Everything here is derived from the reducer, not restated alongside it:
 //!
-//! * [`actions_at`] and [`attack_targets`] *run* the reducer against a probe
-//!   entropy source and report what it accepted. They cannot drift, because
-//!   there is no second copy of the rule to drift from — a command this module
-//!   offers is one `execute` has already accepted against this state.
+//! * [`actions_at`] and [`attack_targets`] use the reducer's preparation
+//!   checks for every movement action. These queries do not clone or change
+//!   the state, and they cannot drift because they do not contain a second
+//!   copy of the action rules.
 //! * [`reachable`] is the one exception. A probe per tile would answer whether
 //!   a path is legal but not produce one, and a caller needs the path to build
 //!   the command, so the search is written out here. `tests/query.rs` holds it
@@ -23,7 +23,7 @@
 //! None of this is authoritative. A server still executes the command it
 //! receives; this exists so a client can offer commands the server will take.
 
-use std::collections::{BinaryHeap, HashSet};
+use std::collections::HashSet;
 
 use crate::combat::Forecast;
 use crate::commander::{self, Domain};
@@ -35,8 +35,8 @@ use crate::semantic::{
     Pos, State, TeamId, Unit, UnitId, UnitKindId, Viewpoint, Visibility, WeatherKind,
 };
 use crate::transition::{
-    Command, ExecuteOutcome, board_position, execute_with, forecast_tile_attack,
-    forecast_unit_attack,
+    Command, ExecuteError, ExecuteOutcome, PrepareMovementOutcome, PrepareOutcome, board_position,
+    execute_with, forecast_tile_attack, forecast_unit_attack, prepare_movement,
 };
 use crate::violation::Violation;
 
@@ -55,17 +55,17 @@ pub enum QueryError {
     UnknownOwner { unit: UnitId, owner: PlayerId },
     #[error("this observation does not describe a whole board: {0}")]
     Unprojectable(&'static str),
+    #[error(transparent)]
+    Transition(#[from] ExecuteError),
 }
 
 /// An entropy source for probing, which answers every draw with the lowest
 /// value the reducer said was legal.
 ///
-/// A probe must never fail for want of a token: an attack asked about with an
-/// empty tape reports [`crate::transition::ExecuteError::UnsupportedCommand`],
-/// which would read as "illegal" and hide a legal attack. Taking the domain's
-/// minimum is always in range by construction, and the resulting state is
-/// discarded — only the accept-or-reject verdict is kept, and no rule in the
-/// specification makes legality depend on the roll.
+/// A probe must never fail for want of a token. Taking the domain's minimum is
+/// always in range, and the resulting state is discarded. Only the
+/// accept-or-reject verdict is kept, and no rule makes legality depend on the
+/// roll.
 struct Probe;
 
 impl Entropy for Probe {
@@ -317,45 +317,49 @@ pub fn reachable(state: &State, unit: UnitId) -> Result<MoveField, QueryError> {
         previous: None,
     });
 
-    // Ordinary Dijkstra. Entry costs are non-negative — zero only on
-    // teleporters — so the first time a tile leaves the frontier its cost is
-    // final.
-    let mut frontier = BinaryHeap::new();
-    frontier.push(Frontier {
-        cost: 0,
-        position: origin,
-    });
-    while let Some(Frontier { cost, position }) = frontier.pop() {
-        if steps[index_of(position)].is_some_and(|step| step.cost < cost) {
-            continue;
-        }
-        // A disclosed enemy blocks the route through its tile. Allied units
-        // may be crossed but remain invalid destinations.
-        if position != origin && occupancy.blocks_route(position) {
-            continue;
-        }
-        for next in position.orthogonal() {
-            if next.x >= width || next.y >= height {
+    // Dial's algorithm uses the small integer movement allowance as its bucket
+    // range. Zero-cost teleporter edges return to the current bucket and are
+    // exhausted before the search advances.
+    let bucket_count = usize::try_from(budget)
+        .ok()
+        .and_then(|budget| budget.checked_add(1))
+        .expect("the ruleset movement allowance and zero bucket fit usize");
+    let mut buckets = vec![Vec::new(); bucket_count];
+    buckets[0].push(origin);
+    for current_cost in 0..bucket_count {
+        while let Some(position) = buckets[current_cost].pop() {
+            if steps[index_of(position)].is_some_and(|step| step.cost != current_cost as u64) {
                 continue;
             }
-            let Some(entry) = entry_cost(state, subject, next, weather) else {
-                continue;
-            };
-            let Some(total) = cost.checked_add(entry).filter(|total| *total <= budget) else {
-                continue;
-            };
-            if steps[index_of(next)].is_some_and(|step| step.cost <= total) {
+            // A disclosed enemy blocks the route through its tile. Allied
+            // units may be crossed but remain invalid destinations.
+            if position != origin && occupancy.blocks_route(position) {
                 continue;
             }
-            steps[index_of(next)] = Some(Step {
-                cost: total,
-                can_stop: !is_teleporter(state, next) && !occupancy.blocks_stop(next),
-                previous: Some(position),
-            });
-            frontier.push(Frontier {
-                cost: total,
-                position: next,
-            });
+            for next in position.orthogonal() {
+                if next.x >= width || next.y >= height {
+                    continue;
+                }
+                let next_index = index_of(next);
+                let Some(entry) = entry_costs[next_index] else {
+                    continue;
+                };
+                let Some(total) = (current_cost as u64)
+                    .checked_add(entry)
+                    .filter(|total| *total <= budget)
+                else {
+                    continue;
+                };
+                if steps[next_index].is_some_and(|step| step.cost <= total) {
+                    continue;
+                }
+                steps[next_index] = Some(Step {
+                    cost: total,
+                    can_stop: !is_teleporter(state, next) && !occupancy.blocks_stop(next),
+                    previous: Some(position),
+                });
+                buckets[usize::try_from(total).expect("a movement cost fits usize")].push(next);
+            }
         }
     }
 
@@ -389,8 +393,7 @@ pub fn observed_reachable(
     observation: &Observation,
     unit: UnitId,
 ) -> Result<MoveField, QueryError> {
-    let state = reify(observation)?;
-    reachable(&state, unit)
+    ObservedQuery::new(observation)?.reachable(unit)
 }
 
 /// What `unit` may do if it moves to `destination`.
@@ -400,9 +403,7 @@ pub fn observed_reachable(
 /// normally one of [`MoveField::reach`]; an unreachable one yields an empty
 /// set, because the shared movement prefix rejects it first.
 ///
-/// This runs one reduction per candidate command — a dozen or so state clones.
-/// That is a per-selection cost in an interface, not a per-frame one, and
-/// caching belongs to the caller, which knows when its state changed.
+/// Every field uses preparation. The query does not clone or change the state.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ActionSet {
     /// Move there and end the unit's turn.
@@ -471,6 +472,62 @@ pub struct ObservedActionSet {
     pub launch: Vec<Pos>,
 }
 
+/// Recipient-safe queries over one reified observation.
+///
+/// Construct this once and reuse it for a movement field and its action
+/// destinations. This prevents each action query from rebuilding the same
+/// provisional state.
+#[derive(Debug)]
+pub struct ObservedQuery {
+    state: State,
+    may_command: bool,
+}
+
+impl ObservedQuery {
+    /// Reify one observation for subsequent queries.
+    pub fn new(observation: &Observation) -> Result<Self, QueryError> {
+        Ok(Self {
+            state: reify(observation)?,
+            may_command: recipient_may_command(observation),
+        })
+    }
+
+    /// Compute the recipient-safe movement field for `unit`.
+    pub fn reachable(&self, unit: UnitId) -> Result<MoveField, QueryError> {
+        reachable(&self.state, unit)
+    }
+
+    /// Query one destination and compute its path when necessary.
+    pub fn actions_at(
+        &self,
+        unit: UnitId,
+        destination: Pos,
+    ) -> Result<ObservedActionSet, QueryError> {
+        if !self.may_command {
+            return Ok(ObservedActionSet::default());
+        }
+        Ok(by_position(
+            &self.state,
+            actions_at(&self.state, unit, destination)?,
+        ))
+    }
+
+    /// Query a path obtained from a movement field without rebuilding it.
+    pub fn actions_for_path(
+        &self,
+        unit: UnitId,
+        path: Vec<Pos>,
+    ) -> Result<ObservedActionSet, QueryError> {
+        if !self.may_command {
+            return Ok(ObservedActionSet::default());
+        }
+        Ok(by_position(
+            &self.state,
+            actions_for_path(&self.state, unit, path)?,
+        ))
+    }
+}
+
 /// The legal attacks from one candidate movement destination.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObservedAttacksFrom {
@@ -528,8 +585,7 @@ pub fn observed_actions_at(
         return Ok(ObservedActionSet::default());
     }
 
-    let state = reify(observation)?;
-    Ok(by_position(&state, actions_at(&state, unit, destination)?))
+    ObservedQuery::new(observation)?.actions_at(unit, destination)
 }
 
 /// What `unit` may attack from each candidate movement destination.
@@ -926,62 +982,102 @@ fn reified_units(observation: &Observation) -> Vec<Unit> {
 }
 
 /// Enumerate every command `unit` could issue ending at `destination`.
+///
+/// Call [`actions_for_path`] when the caller already has a [`MoveField`]. This
+/// convenience form computes a field to obtain the path.
 pub fn actions_at(state: &State, unit: UnitId, destination: Pos) -> Result<ActionSet, QueryError> {
-    let subject = lookup(state, unit)?;
-    let player = subject.owner.clone();
-    if !matches!(subject.location, Location::Board { .. }) {
-        return Err(QueryError::UnitNotOnBoard(unit));
-    }
-
     let Some(path) = reachable(state, unit)?.path_to(destination) else {
         return Ok(ActionSet::default());
     };
-    let simple = |make: fn(PlayerId, UnitId, Vec<Pos>) -> Command| {
-        is_accepted(state, make(player.clone(), unit, path.clone()))
+    actions_for_path(state, unit, path)
+}
+
+/// Enumerate actions for a path without computing a movement field.
+///
+/// The path is validated against `state` before any action is offered. This
+/// makes a path from an older movement field safe to submit: a state change
+/// produces an empty set instead of bypassing current movement rules.
+pub fn actions_for_path(
+    state: &State,
+    unit: UnitId,
+    path: Vec<Pos>,
+) -> Result<ActionSet, QueryError> {
+    let subject = lookup(state, unit)?;
+    if !matches!(subject.location, Location::Board { .. }) {
+        return Err(QueryError::UnitNotOnBoard(unit));
+    }
+    let player = subject.owner.clone();
+    let movement = match prepare_movement(state, &player, unit, path) {
+        Ok(PrepareMovementOutcome::Prepared(movement)) => movement,
+        Ok(PrepareMovementOutcome::Rejected(_)) => return Ok(ActionSet::default()),
+        Err(error) => return Err(error.into()),
     };
+    actions_for_movement(movement)
+}
+
+fn actions_for_movement(
+    movement: crate::transition::PreparedMovement<'_>,
+) -> Result<ActionSet, QueryError> {
+    let state = movement.state();
+    let destination = movement.plan().destination();
     let occupant = occupant(state, destination);
+    let join = occupant.is_some_and(|target| {
+        matches!(
+            movement.clone().prepare_join(target),
+            Ok(PrepareOutcome::Prepared(_))
+        )
+    });
+    let load = occupant.is_some_and(|transport| {
+        matches!(
+            movement.clone().prepare_load(transport),
+            Ok(PrepareOutcome::Prepared(_))
+        )
+    });
+    let attack = attack_targets_for_movement(&movement)?;
+    let repair = repair_targets(&movement);
+    let launch = launch_targets(&movement);
+    let wait = matches!(
+        movement.clone().prepare_wait(),
+        Ok(PrepareOutcome::Prepared(_))
+    );
+    let capture = matches!(
+        movement.clone().prepare_capture(),
+        Ok(PrepareOutcome::Prepared(_))
+    );
+    let supply = matches!(
+        movement.clone().prepare_supply(),
+        Ok(PrepareOutcome::Prepared(_))
+    );
+    let hide = matches!(
+        movement.clone().prepare_hide(),
+        Ok(PrepareOutcome::Prepared(_))
+    );
+    let reveal = matches!(
+        movement.clone().prepare_reveal(),
+        Ok(PrepareOutcome::Prepared(_))
+    );
+    let explode = matches!(movement.prepare_explode(), Ok(PrepareOutcome::Prepared(_)));
 
     Ok(ActionSet {
-        wait: simple(|player, unit, path| Command::MoveWait { player, unit, path }),
-        capture: simple(|player, unit, path| Command::MoveCapture { player, unit, path }),
-        supply: simple(|player, unit, path| Command::MoveSupply { player, unit, path }),
-        hide: simple(|player, unit, path| Command::MoveHide { player, unit, path }),
-        reveal: simple(|player, unit, path| Command::MoveReveal { player, unit, path }),
-        explode: simple(|player, unit, path| Command::MoveExplode { player, unit, path }),
-        join: occupant.is_some_and(|target| {
-            is_accepted(
-                state,
-                Command::MoveJoin {
-                    player: player.clone(),
-                    unit,
-                    path: path.clone(),
-                    target,
-                },
-            )
-        }),
-        load: occupant.is_some_and(|transport| {
-            is_accepted(
-                state,
-                Command::MoveLoad {
-                    player: player.clone(),
-                    unit,
-                    path: path.clone(),
-                    transport,
-                },
-            )
-        }),
-        attack: attack_targets_along(state, unit, &path)?,
-        repair: repair_targets(state, &player, unit, &path),
-        launch: launch_targets(state, &player, unit, &path),
+        wait,
+        capture,
+        supply,
+        hide,
+        reveal,
+        explode,
+        join,
+        load,
+        attack,
+        repair,
+        launch,
     })
 }
 
 /// Everything `unit` may attack from `from`, having moved there if it must.
 ///
-/// Candidates are narrowed by range first — the geometry is cheap and the
-/// reduction is not — and each survivor is then put to the reducer, so fire
-/// mode, ammunition, visibility, target legality and every commander effect on
-/// all of them are answered by the code that answers at execution time.
+/// Candidates are narrowed by range first. Preparation then checks fire mode,
+/// ammunition, visibility, target legality, and commander effects without
+/// resolving combat.
 pub fn attack_targets(
     state: &State,
     unit: UnitId,
@@ -999,21 +1095,25 @@ pub fn attack_targets(
             None => return Ok(Vec::new()),
         }
     };
-    attack_targets_along(state, unit, &path)
+    let movement = match prepare_movement(state, &subject.owner, unit, path) {
+        Ok(PrepareMovementOutcome::Prepared(movement)) => movement,
+        Ok(PrepareMovementOutcome::Rejected(_)) => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    attack_targets_for_movement(&movement)
 }
 
-fn attack_targets_along(
-    state: &State,
-    unit: UnitId,
-    path: &[Pos],
+fn attack_targets_for_movement(
+    movement: &crate::transition::PreparedMovement<'_>,
 ) -> Result<Vec<AttackTarget>, QueryError> {
+    let state = movement.state();
+    let unit = movement.unit();
     let subject = lookup(state, unit)?;
-    let player = subject.owner.clone();
     let profile = ruleset::profile(subject.kind);
     if profile.fire_mode == FireMode::None {
         return Ok(Vec::new());
     }
-    let from = *path.last().expect("a path holds at least its origin");
+    let from = movement.plan().destination();
 
     // Range bounds the search; everything else is the reducer's to decide.
     let (minimum, maximum) = match profile.indirect_range {
@@ -1033,15 +1133,10 @@ fn attack_targets_along(
         let distance = from.distance(position);
         distance >= minimum && distance <= maximum
     };
-    let probe = |target: AttackTarget| {
-        is_accepted(
-            state,
-            Command::MoveAttack {
-                player: player.clone(),
-                unit,
-                path: path.to_vec(),
-                target,
-            },
+    let accepts = |target: AttackTarget| {
+        matches!(
+            movement.clone().prepare_attack(target),
+            Ok(PrepareOutcome::Prepared(_))
         )
     };
 
@@ -1054,7 +1149,7 @@ fn attack_targets_along(
             continue;
         }
         let target = AttackTarget::Unit { unit: candidate.id };
-        if probe(target) {
+        if accepts(target) {
             targets.push(target);
         }
     }
@@ -1063,7 +1158,7 @@ fn attack_targets_along(
             continue;
         }
         let target = AttackTarget::Tile { position };
-        if probe(target) {
+        if accepts(target) {
             targets.push(target);
         }
     }
@@ -1071,8 +1166,10 @@ fn attack_targets_along(
 }
 
 /// Friendly units `unit` may repair after moving along `path`.
-fn repair_targets(state: &State, player: &PlayerId, unit: UnitId, path: &[Pos]) -> Vec<UnitId> {
-    let from = *path.last().expect("a path holds at least its origin");
+fn repair_targets(movement: &crate::transition::PreparedMovement<'_>) -> Vec<UnitId> {
+    let state = movement.state();
+    let unit = movement.unit();
+    let from = movement.plan().destination();
     state
         .units
         .iter()
@@ -1083,22 +1180,18 @@ fn repair_targets(state: &State, player: &PlayerId, unit: UnitId, path: &[Pos]) 
         })
         .map(|candidate| candidate.id)
         .filter(|target| {
-            is_accepted(
-                state,
-                Command::MoveRepair {
-                    player: player.clone(),
-                    unit,
-                    path: path.to_vec(),
-                    target: *target,
-                },
+            matches!(
+                movement.clone().prepare_repair(*target),
+                Ok(PrepareOutcome::Prepared(_))
             )
         })
         .collect()
 }
 
 /// Every tile a silo under the end of `path` may be fired at.
-fn launch_targets(state: &State, player: &PlayerId, unit: UnitId, path: &[Pos]) -> Vec<Pos> {
-    let destination = *path.last().expect("a path holds at least its origin");
+fn launch_targets(movement: &crate::transition::PreparedMovement<'_>) -> Vec<Pos> {
+    let state = movement.state();
+    let destination = movement.plan().destination();
     // Launching is rare and the scan is over the whole board, so refuse early
     // unless the tile underfoot actually carries a silo.
     if state
@@ -1112,14 +1205,9 @@ fn launch_targets(state: &State, player: &PlayerId, unit: UnitId, path: &[Pos]) 
         .board
         .positions()
         .filter(|target| {
-            is_accepted(
-                state,
-                Command::MoveLaunch {
-                    player: player.clone(),
-                    unit,
-                    path: path.to_vec(),
-                    target: *target,
-                },
+            matches!(
+                movement.clone().prepare_launch(*target),
+                Ok(PrepareOutcome::Prepared(_))
             )
         })
         .collect()
@@ -1332,26 +1420,4 @@ fn occupant(state: &State, position: Pos) -> Option<UnitId> {
 
 fn lookup(state: &State, unit: UnitId) -> Result<&Unit, QueryError> {
     state.units.get(unit).ok_or(QueryError::UnitNotFound(unit))
-}
-
-/// A frontier entry ordered so [`BinaryHeap`] pops the cheapest first.
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct Frontier {
-    cost: u64,
-    position: Pos,
-}
-
-impl Ord for Frontier {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other
-            .cost
-            .cmp(&self.cost)
-            .then_with(|| self.position.cmp(&other.position))
-    }
-}
-
-impl PartialOrd for Frontier {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
 }

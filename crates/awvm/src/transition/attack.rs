@@ -18,6 +18,12 @@ use crate::violation::{Action, Violation};
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
+#[derive(Debug)]
+pub(super) struct Attack {
+    target: PreparedAttackTarget,
+    destination: Option<AvailableDestination>,
+}
+
 /// Commander combat predicates take a capability set per combatant. No path
 /// through this module supplies one, so every combatant shares this empty set
 /// instead of allocating one per strike.
@@ -496,11 +502,10 @@ fn validate_tile_attack(
             target: Some(position.into()),
         })
     })?;
-    if state
-        .units
-        .iter()
-        .any(|unit| board_position(unit) == Some(position))
-    {
+    if state.units.iter().any(|unit| {
+        board_position(unit) == Some(position)
+            && !(unit.id == attacker.id && board_position(attacker) != Some(origin))
+    }) {
         return Err(violation(Violation::InvalidTarget {
             target: Some(position.into()),
         }));
@@ -648,14 +653,23 @@ pub(crate) fn execute_move_attack(
     target: AttackTarget,
     draws: &mut Draws<'_>,
 ) -> Result<Execution, ExecuteError> {
-    let state = turn.state();
-    let player = turn.player();
-    let plan = turn.plan_move(unit_id, path)?;
+    let movement = turn.prepare_move(unit_id, path)?;
+    let prepared = prepare_attack(movement, target)?;
+    execute_prepared_attack(prepared, draws)
+}
+
+pub(super) fn prepare_attack(
+    movement: PreparedMovement<'_>,
+    target: AttackTarget,
+) -> Result<Prepared<'_, Attack>, ExecuteError> {
+    let state = movement.state();
+    let player = &state.turn.active_player;
+    let unit_id = movement.unit();
+    let plan = movement.plan();
     let ai = plan.unit_index();
     let attacker = &state.units[ai];
-    let origin = plan.origin();
 
-    if plan.path().len() > 1 {
+    let (prepared_target, available_destination) = if plan.path().len() > 1 {
         match ruleset::profile(attacker.kind).fire_mode {
             FireMode::Indirect => {
                 return Err(violation(Violation::ActionNotSupported {
@@ -670,30 +684,75 @@ pub(crate) fn execute_move_attack(
             FireMode::Direct => {}
         }
 
-        let prepared_target = match target {
-            AttackTarget::Unit { unit } => {
-                PreparedAttackTarget::Unit(disclose_unit_target(state, plan.actor_team(), unit)?)
-            }
-            AttackTarget::Tile { position } => PreparedAttackTarget::Tile(position),
-        };
-
+        let prepared_target = prepare_attack_target(state, plan.actor_team(), target)?;
         let destination = plan.destination();
-        let view = AwbwVisibility.view(state, plan.actor_team());
-        if state.units.iter().any(|other| {
-            other.id != unit_id
-                && board_position(other) == Some(destination)
-                && occupancy_is_disclosed(&view, other)
-        }) {
-            return Err(violation(Violation::DestinationOccupied {
-                position: destination,
-            }));
-        }
+        let available_destination = movement.available_destination()?;
 
-        let mut movement = execute_planned_movement(state, unit_id, &plan);
-        if movement.trapped {
+        if planned_movement_trap(state, unit_id, plan).is_none() {
+            validate_attack_target(state, player, ai, destination, prepared_target)?;
+        }
+        (prepared_target, Some(available_destination))
+    } else {
+        let prepared_target = prepare_attack_target(state, plan.actor_team(), target)?;
+        validate_attack_target(state, player, ai, plan.origin(), prepared_target)?;
+        (prepared_target, None)
+    };
+
+    Ok(Prepared {
+        movement,
+        action: Attack {
+            target: prepared_target,
+            destination: available_destination,
+        },
+    })
+}
+
+fn validate_attack_target(
+    state: &State,
+    player: &PlayerId,
+    attacker_index: usize,
+    origin: Pos,
+    target: PreparedAttackTarget,
+) -> Result<(), ExecuteError> {
+    let attacker = &state.units[attacker_index];
+    match target {
+        PreparedAttackTarget::Unit(disclosed) => {
+            Engagement::open(state, attacker_index, origin, disclosed)?;
+        }
+        PreparedAttackTarget::Tile(position) => {
+            validate_tile_attack(state, player, attacker, origin, position)?;
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn execute_prepared_attack(
+    prepared: Prepared<'_, Attack>,
+    draws: &mut Draws<'_>,
+) -> Result<Execution, ExecuteError> {
+    let Prepared {
+        movement,
+        action:
+            Attack {
+                target: prepared_target,
+                destination: _destination,
+            },
+    } = prepared;
+    let state = movement.state();
+    let player = &state.turn.active_player;
+    let unit_id = movement.unit();
+    let plan = movement.plan();
+    let ai = plan.unit_index();
+    let origin = plan.origin();
+
+    if plan.path().len() > 1 {
+        let destination = plan.destination();
+
+        let mut outcome = execute_planned_movement(state, unit_id, plan);
+        if outcome.trapped {
             return Ok(Execution {
-                state: movement.state,
-                events: movement.events,
+                state: outcome.state,
+                events: outcome.events,
                 random_consumed: 0,
             });
         }
@@ -701,9 +760,9 @@ pub(crate) fn execute_move_attack(
         // Movement spends the unit for movement-only actions. Restore readiness
         // internally so the atomic follow-up can resolve and emit the single
         // attack action transition.
-        movement.state.units[plan.unit_index()].action = UnitAction::Ready;
+        outcome.state.units[plan.unit_index()].action = UnitAction::Ready;
         let mut combat = execute_stationary_attack(
-            &movement.state,
+            &outcome.state,
             player,
             unit_id,
             plan.unit_index(),
@@ -711,20 +770,10 @@ pub(crate) fn execute_move_attack(
             prepared_target,
             draws,
         )?;
-        movement.events.append(&mut combat.events);
-        combat.events = movement.events;
+        outcome.events.append(&mut combat.events);
+        combat.events = outcome.events;
         return Ok(combat);
     }
-    let actor_team = state
-        .find_player(player)
-        .map(|candidate| &candidate.team)
-        .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
-    let prepared_target = match target {
-        AttackTarget::Unit { unit } => {
-            PreparedAttackTarget::Unit(disclose_unit_target(state, actor_team, unit)?)
-        }
-        AttackTarget::Tile { position } => PreparedAttackTarget::Tile(position),
-    };
     execute_stationary_attack(state, player, unit_id, ai, origin, prepared_target, draws)
 }
 
@@ -733,12 +782,26 @@ pub(crate) fn execute_move_attack(
 /// Movement can change visibility. It cannot change which enemy identifier the
 /// player can submit. Carry this result into the movement state. Combat can
 /// then use the resolved destination without a second visibility decision.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct DisclosedUnitTarget(UnitId);
 
+#[derive(Clone, Copy, Debug)]
 enum PreparedAttackTarget {
     Unit(DisclosedUnitTarget),
     Tile(Pos),
+}
+
+fn prepare_attack_target(
+    state: &State,
+    actor_team: &crate::semantic::TeamId,
+    target: AttackTarget,
+) -> Result<PreparedAttackTarget, ExecuteError> {
+    match target {
+        AttackTarget::Unit { unit } => Ok(PreparedAttackTarget::Unit(disclose_unit_target(
+            state, actor_team, unit,
+        )?)),
+        AttackTarget::Tile { position } => Ok(PreparedAttackTarget::Tile(position)),
+    }
 }
 
 fn disclose_unit_target(

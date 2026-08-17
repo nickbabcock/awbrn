@@ -10,10 +10,17 @@ use super::*;
 use crate::commander::AreaStrikePolicy;
 use crate::event::Event;
 use crate::ruleset::{MISSILE_SILO_STRIKE, UNIT_EXPLOSION, UnitKind};
-use crate::semantic::{
-    AwbwVisibility, KnownReason, Pos, Silo, UnitAction, UnitId, VictoryReason, Visibility,
-};
+use crate::semantic::{KnownReason, Pos, Silo, UnitAction, UnitId, VictoryReason};
 use crate::violation::{Action, Violation};
+
+#[derive(Debug)]
+pub(super) struct Launch {
+    target: Pos,
+    destination: AvailableDestination,
+}
+
+#[derive(Debug)]
+pub(super) struct Explode(AvailableDestination);
 
 pub(crate) fn execute_move_launch(
     turn: &ActiveTurn<'_>,
@@ -21,8 +28,17 @@ pub(crate) fn execute_move_launch(
     path: Vec<Pos>,
     target: Pos,
 ) -> Result<Execution, ExecuteError> {
-    let state = turn.state();
-    let plan = turn.plan_move(unit_id, path)?;
+    let movement = turn.prepare_move(unit_id, path)?;
+    let prepared = prepare_launch(movement, target)?;
+    execute_prepared_launch(prepared)
+}
+
+pub(super) fn prepare_launch(
+    movement: PreparedMovement<'_>,
+    target: Pos,
+) -> Result<Prepared<'_, Launch>, ExecuteError> {
+    let state = movement.state();
+    let plan = movement.plan();
     if target.x >= state.board.width() || target.y >= state.board.height() {
         return Err(violation(Violation::InvalidTarget {
             target: Some(target.into()),
@@ -42,18 +58,32 @@ pub(crate) fn execute_move_launch(
             target: Some(silo_position.into()),
         }));
     }
-    let view = AwbwVisibility.view(state, plan.actor_team());
-    if state.units.iter().any(|other| {
-        other.id != unit_id
-            && board_position(other) == Some(silo_position)
-            && occupancy_is_disclosed(&view, other)
-    }) {
-        return Err(violation(Violation::DestinationOccupied {
-            position: silo_position,
-        }));
-    }
+    let destination = movement.available_destination()?;
 
-    let mut outcome = execute_planned_movement(state, unit_id, &plan);
+    Ok(Prepared {
+        movement,
+        action: Launch {
+            target,
+            destination,
+        },
+    })
+}
+
+pub(super) fn execute_prepared_launch(
+    prepared: Prepared<'_, Launch>,
+) -> Result<Execution, ExecuteError> {
+    let Prepared {
+        movement,
+        action: Launch {
+            target,
+            destination: _destination,
+        },
+    } = prepared;
+    let state = movement.state();
+    let unit_id = movement.unit();
+    let plan = movement.plan();
+    let silo_position = plan.destination();
+    let mut outcome = execute_planned_movement(state, unit_id, plan);
     if outcome.trapped {
         return Ok(Execution {
             state: outcome.state,
@@ -117,27 +147,42 @@ pub(crate) fn execute_move_explode(
     unit_id: UnitId,
     path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
-    let state = turn.state();
-    let plan = turn.plan_move(unit_id, path)?;
+    let movement = turn.prepare_move(unit_id, path)?;
+    let prepared = prepare_explode(movement)?;
+    execute_prepared_explode(prepared)
+}
+
+pub(super) fn prepare_explode(
+    movement: PreparedMovement<'_>,
+) -> Result<Prepared<'_, Explode>, ExecuteError> {
+    let state = movement.state();
+    let plan = movement.plan();
     let unit = &state.units[plan.unit_index()];
     if unit.kind != UnitKind::BlackBomb {
         return Err(violation(Violation::ActionNotSupported {
             action: Action::MoveExplode,
         }));
     }
-    let destination = plan.destination();
-    let view = AwbwVisibility.view(state, plan.actor_team());
-    if state.units.iter().any(|other| {
-        other.id != unit_id
-            && board_position(other) == Some(destination)
-            && occupancy_is_disclosed(&view, other)
-    }) {
-        return Err(violation(Violation::DestinationOccupied {
-            position: destination,
-        }));
-    }
+    let destination = movement.available_destination()?;
 
-    let mut outcome = execute_planned_movement(state, unit_id, &plan);
+    Ok(Prepared {
+        movement,
+        action: Explode(destination),
+    })
+}
+
+pub(super) fn execute_prepared_explode(
+    prepared: Prepared<'_, Explode>,
+) -> Result<Execution, ExecuteError> {
+    let Prepared {
+        movement,
+        action: Explode(_destination),
+    } = prepared;
+    let state = movement.state();
+    let unit_id = movement.unit();
+    let plan = movement.plan();
+    let destination = plan.destination();
+    let mut outcome = execute_planned_movement(state, unit_id, plan);
     if outcome.trapped {
         return Ok(Execution {
             state: outcome.state,

@@ -15,6 +15,37 @@ use crate::semantic::{
 };
 use crate::violation::{Action, Violation};
 
+#[derive(Debug)]
+pub(super) struct Wait(AvailableDestination);
+
+#[derive(Debug)]
+pub(super) struct ConcealmentAction {
+    target: crate::semantic::Concealment,
+    destination: AvailableDestination,
+}
+
+/// Proof that no disclosed unit occupies a movement's destination.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct AvailableDestination;
+
+impl PreparedMovement<'_> {
+    /// Validate that no disclosed unit occupies the destination.
+    pub(super) fn available_destination(&self) -> Result<AvailableDestination, ExecuteError> {
+        let destination = self.plan().destination();
+        let view = AwbwVisibility.view(self.state(), self.plan().actor_team());
+        if self.state().units.iter().any(|other| {
+            other.id != self.unit()
+                && board_position(other) == Some(destination)
+                && occupancy_is_disclosed(&view, other)
+        }) {
+            return Err(violation(Violation::DestinationOccupied {
+                position: destination,
+            }));
+        }
+        Ok(AvailableDestination)
+    }
+}
+
 /// A movement that has been validated, and the numbers that validating it
 /// produced.
 ///
@@ -22,6 +53,7 @@ use crate::violation::{Action, Violation};
 /// so holding one is proof the path was checked. `execute_move_capture` and
 /// `execute_move_join` each carried a verbatim copy of that check; nothing
 /// stopped a tenth reducer from carrying a subtly different one.
+#[derive(Clone, Debug)]
 pub(crate) struct MovedUnit {
     unit_index: usize,
     origin: Pos,
@@ -217,24 +249,7 @@ pub(crate) fn execute_planned_movement(
     unit_id: UnitId,
     plan: &MovedUnit,
 ) -> MovementOutcome {
-    let view = AwbwVisibility.view(state, plan.actor_team());
-    let trap = plan
-        .path
-        .iter()
-        .copied()
-        .enumerate()
-        .skip(1)
-        .find_map(|(index, position)| {
-            state
-                .units
-                .iter()
-                .find(|other| {
-                    other.id != unit_id
-                        && board_position(other) == Some(position)
-                        && !occupancy_is_disclosed(&view, other)
-                })
-                .map(|blocker| (index, position, blocker.id))
-        });
+    let trap = planned_movement_trap(state, unit_id, plan);
     let mut actual_length = trap
         .as_ref()
         .map_or(plan.path().len(), |(index, _, _)| *index);
@@ -285,6 +300,31 @@ pub(crate) fn execute_planned_movement(
     }
 }
 
+/// Return the first hidden unit that will stop this movement.
+pub(crate) fn planned_movement_trap(
+    state: &State,
+    unit_id: UnitId,
+    plan: &MovedUnit,
+) -> Option<(usize, Pos, UnitId)> {
+    let view = AwbwVisibility.view(state, plan.actor_team());
+    plan.path
+        .iter()
+        .copied()
+        .enumerate()
+        .skip(1)
+        .find_map(|(index, position)| {
+            state
+                .units
+                .iter()
+                .find(|other| {
+                    other.id != unit_id
+                        && board_position(other) == Some(position)
+                        && !occupancy_is_disclosed(&view, other)
+                })
+                .map(|blocker| (index, position, blocker.id))
+        })
+}
+
 pub(crate) fn reset_capture_on_departure(
     state: &mut State,
     unit_id: UnitId,
@@ -316,8 +356,17 @@ pub(crate) fn execute_move_concealment(
     path: Vec<Pos>,
     hide: bool,
 ) -> Result<Execution, ExecuteError> {
-    let state = turn.state();
-    let plan = turn.plan_move(unit_id, path)?;
+    let movement = turn.prepare_move(unit_id, path)?;
+    let prepared = prepare_concealment(movement, hide)?;
+    Ok(execute_prepared_concealment(prepared))
+}
+
+pub(super) fn prepare_concealment(
+    movement: PreparedMovement<'_>,
+    hide: bool,
+) -> Result<Prepared<'_, ConcealmentAction>, ExecuteError> {
+    let state = movement.state();
+    let plan = movement.plan();
     let original = &state.units[plan.unit_index()];
     let supported = ruleset::profile(original.kind).concealment.is_some();
     let target = if hide {
@@ -334,26 +383,35 @@ pub(crate) fn execute_move_concealment(
             },
         }));
     }
+    let destination = movement.available_destination()?;
 
-    let destination = plan.destination();
-    let view = AwbwVisibility.view(state, plan.actor_team());
-    if state.units.iter().any(|other| {
-        other.id != unit_id
-            && board_position(other) == Some(destination)
-            && occupancy_is_disclosed(&view, other)
-    }) {
-        return Err(violation(Violation::DestinationOccupied {
-            position: destination,
-        }));
-    }
+    Ok(Prepared {
+        movement,
+        action: ConcealmentAction {
+            target,
+            destination,
+        },
+    })
+}
 
-    let mut outcome = execute_planned_movement(state, unit_id, &plan);
+pub(super) fn execute_prepared_concealment(prepared: Prepared<'_, ConcealmentAction>) -> Execution {
+    let Prepared {
+        movement,
+        action:
+            ConcealmentAction {
+                target,
+                destination: _destination,
+            },
+    } = prepared;
+    let unit_id = movement.unit();
+    let plan = movement.plan();
+    let mut outcome = execute_planned_movement(movement.state(), unit_id, plan);
     if outcome.trapped {
-        return Ok(Execution {
+        return Execution {
             state: outcome.state,
             events: outcome.events,
             random_consumed: 0,
-        });
+        };
     }
     let unit = &mut outcome.state.units[plan.unit_index()];
     let from = unit.concealment;
@@ -363,11 +421,11 @@ pub(crate) fn execute_move_concealment(
         from,
         to: target,
     });
-    Ok(Execution {
+    Execution {
         state: outcome.state,
         events: outcome.events,
         random_consumed: 0,
-    })
+    }
 }
 
 pub(crate) fn execute_move_wait(
@@ -375,23 +433,30 @@ pub(crate) fn execute_move_wait(
     unit_id: UnitId,
     path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
-    let state = turn.state();
-    let plan = turn.plan_move(unit_id, path)?;
-    let destination = plan.destination();
-    let view = AwbwVisibility.view(state, plan.actor_team());
-    if state.units.iter().any(|other| {
-        other.id != unit_id
-            && board_position(other) == Some(destination)
-            && occupancy_is_disclosed(&view, other)
-    }) {
-        return Err(violation(Violation::DestinationOccupied {
-            position: destination,
-        }));
-    }
-    let outcome = execute_planned_movement(state, unit_id, &plan);
-    Ok(Execution {
+    let movement = turn.prepare_move(unit_id, path)?;
+    let prepared = prepare_wait(movement)?;
+    Ok(execute_prepared_wait(prepared))
+}
+
+pub(super) fn prepare_wait(
+    movement: PreparedMovement<'_>,
+) -> Result<Prepared<'_, Wait>, ExecuteError> {
+    let destination = movement.available_destination()?;
+    Ok(Prepared {
+        movement,
+        action: Wait(destination),
+    })
+}
+
+pub(super) fn execute_prepared_wait(prepared: Prepared<'_, Wait>) -> Execution {
+    let Prepared {
+        movement,
+        action: Wait(_destination),
+    } = prepared;
+    let outcome = execute_planned_movement(movement.state(), movement.unit(), movement.plan());
+    Execution {
         state: outcome.state,
         events: outcome.events,
         random_consumed: 0,
-    })
+    }
 }
