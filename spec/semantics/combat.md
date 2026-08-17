@@ -97,12 +97,17 @@ nothing, and the existing fixtures leave fog disabled.
 ## Fog-sensitive unit targeting
 
 Feature `combat-visibility-v1` validates a unit target against the acting
-player's team and the authoritative state before combat randomness is consumed.
-The target MUST satisfy `visible-unit(R,S,team(player),target)` from
-`semantics/fog.md`. With map fog disabled this admits every exposed on-board
-unit, while a submerged Sub or hidden Stealth still requires concealment
-detection. An unseen target is rejected as `INVALID_TARGET`, using the same
-violation class as an absent or otherwise invalid unit target.
+player's team and the command's authoritative input state `S` before combat
+randomness is consumed. The target MUST satisfy
+`visible-unit(R,S,team(player),target)` from `semantics/fog.md`. This is a
+pre-command knowledge check. Movement in the same `move-attack` command MUST
+NOT make an undisclosed enemy unit eligible as that command's target. An unseen
+target is rejected as `INVALID_TARGET`, using the same violation class as an
+absent or otherwise invalid unit target.
+
+With map fog disabled, the rule admits every exposed on-board unit. A submerged
+Sub or hidden Stealth still requires concealment detection. A one-position
+attack uses the same rule; its input state and attack state are identical.
 
 Visibility and attack compatibility are distinct. Any adjacent friendly unit
 can detect a voluntarily concealed unit, but a detected submerged Sub can be
@@ -110,10 +115,18 @@ attacked only by a Sub or Cruiser, and a detected hidden Stealth can be attacked
 only by a Fighter or Stealth. These compatibility restrictions continue to
 apply to a unit whose `concealment` is `hidden` when fog is disabled.
 
-The current reducer supports only the stationary path `[origin]`, so
-pre-command and post-movement visibility are identical. A future combat-movement
-increment MUST evaluate the target after resolving the movement path and hidden
-occupancy, without allowing a target identifier to reveal an unseen unit.
+For a moving direct attack, preparation records that the target passed this
+check in `S`. Execution then resolves the shared movement prefix. A hidden
+blocker can truncate movement and suppress the attack. If movement reaches its
+intended destination, attack range, weapon selection, commander effects,
+terrain defense, and counter geometry use the resolved destination and the
+resulting movement state. Execution MUST carry the preparation result into
+that state and MUST NOT repeat target visibility there.
+
+Attack-target queries and forecasts MUST apply the same pre-command disclosure
+rule. They MUST NOT offer or forecast a unit that the proposed movement would
+reveal. This rule applies to unit identifiers only. Tile-target visibility is
+the separate rule in the next section.
 
 ## Destructible tile targets
 

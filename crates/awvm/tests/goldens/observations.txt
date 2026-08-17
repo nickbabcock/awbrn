@@ -12,8 +12,9 @@ f19ea69f3ed887da  obs=6 ev=22  capture/lab-last-owned-lab.json
 1bbb626dcd8e533d  obs=4 ev=8  combat/air-units-ignore-terrain-stars.json
 89a799f793990228  obs=4 ev=13  combat/carrier-loss-no-cargo-charge.json
 e2cc132dd92412a6  obs=4 ev=8  combat/lethal-capture-reset.json
-26fd763d8e637bec  obs=4 ev=12  combat/movement-direct-fog-capture.json
-5435e277f6bbe2c9  obs=4 ev=3  combat/movement-hidden-blocker.json
+1696656096f514ab  obs=4 ev=12  combat/movement-direct-visible-capture.json
+f48f42c9a1decade  obs=4 ev=3  combat/movement-hidden-blocker.json
+0564d5d05f3738ce  obs=4 ev=0  combat/movement-target-revealed-by-movement.json
 54b1692f890447d7  obs=4 ev=8  combat/movement-tile-target.json
 11300ff82b325cbf  obs=10 ev=0  combat/movement-validation.json
 5a06192cc516df2e  obs=8 ev=8  combat/neutral-infantry-counter.json
