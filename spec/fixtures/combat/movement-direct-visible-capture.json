@@ -1,9 +1,12 @@
 {
-  "id": "combat-movement-direct-fog-capture",
+  "id": "combat-movement-direct-visible-capture",
   "spec_version": "0.1.0",
   "ruleset": { "id": "awbw", "revision": "2026-07-10" },
   "feature": "combat-movement-v1",
-  "evidence": { "confidence": "documentation-only" },
+  "evidence": {
+    "confidence": "documentation-only",
+    "note": "The target on plain is present in the acting player's pre-command observation."
+  },
   "initial_state": {
     "ruleset": { "id": "awbw", "revision": "2026-07-10" },
     "settings": {
@@ -27,7 +30,7 @@
         [
           { "terrain": "city", "owner": "blue", "capture_points": 10 },
           { "terrain": "plain" },
-          { "terrain": "wood" }
+          { "terrain": "plain" }
         ]
       ]
     },
@@ -89,7 +92,7 @@
   },
   "steps": [
     {
-      "id": "move-reveal-and-attack",
+      "id": "attack-from-resolved-destination",
       "command": {
         "type": "move-attack",
         "player": "red",
@@ -115,7 +118,7 @@
               [
                 { "capture_points": 20, "owner": "blue", "terrain": "city" },
                 { "terrain": "plain" },
-                { "terrain": "wood" }
+                { "terrain": "plain" }
               ]
             ],
             "width": 3
@@ -175,7 +178,7 @@
               "ammo": 0,
               "concealment": "exposed",
               "fuel": 98,
-              "hp": 73,
+              "hp": 75,
               "id": 0,
               "kind": "infantry",
               "location": { "position": [1, 0], "type": "board" },
@@ -186,7 +189,7 @@
               "ammo": 0,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 56,
+              "hp": 51,
               "id": 1,
               "kind": "infantry",
               "location": { "position": [2, 0], "type": "board" },
@@ -214,13 +217,7 @@
             "type": "attack-resolved",
             "weapon": "unlimited"
           },
-          {
-            "from_hp": 100,
-            "reason": "combat",
-            "to_hp": 56,
-            "type": "unit-damaged",
-            "unit": 1
-          },
+          { "from_hp": 100, "reason": "combat", "to_hp": 51, "type": "unit-damaged", "unit": 1 },
           {
             "attacker": 1,
             "target": { "type": "unit", "unit": 0 },
@@ -230,7 +227,7 @@
           {
             "from_hp": 100,
             "reason": "combat-counter",
-            "to_hp": 73,
+            "to_hp": 75,
             "type": "unit-damaged",
             "unit": 0
           },

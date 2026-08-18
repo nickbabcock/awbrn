@@ -42,6 +42,12 @@ destructible tile state such as an AWBW pipe seam. The attack specification must
 also require any positional relationship needed at validation/execution time.
 Cargo units cannot be targeted merely because their IDs exist.
 
+The numeric enemy `UnitId` is an internal canonical reference. Recipient
+observations do not expose it. A client-facing adapter resolves a visible
+position-scoped enemy reference before it constructs the command. For an atomic
+`move-attack`, that resolution uses the pre-command observation. Movement in the
+command cannot supply a new enemy reference for the same command.
+
 `move-load.transport` and `move-join.target` are stable numeric `UnitId`s. Their final
 path position is validated against the referenced unit's board position.
 

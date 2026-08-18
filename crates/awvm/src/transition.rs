@@ -1417,6 +1417,7 @@ mod tests {
     #[test]
     fn direct_unit_moves_then_attacks_from_resolved_destination() {
         let mut state = direct_combat_state(3);
+        state.settings.fog = true;
         state.board.tile_mut(Pos::new(0, 0)).capture_points = Some(10);
         let mut defender = state.units[0].clone();
         defender.id = UnitId::new(1);
@@ -1476,7 +1477,7 @@ mod tests {
     }
 
     #[test]
-    fn movement_can_reveal_attack_target_under_fog() {
+    fn movement_cannot_make_an_undisclosed_unit_an_attack_target() {
         let mut state = direct_combat_state(3);
         state.settings.fog = true;
         state.board.tile_mut(Pos::new(2, 0)).terrain = TerrainId::Wood;
@@ -1498,23 +1499,71 @@ mod tests {
             "target":{"type":"unit","unit":1}
         }))
         .unwrap();
-        let random = vec![
-            RandomToken::CombatGoodLuck(0),
-            RandomToken::CombatBadLuck(0),
-            RandomToken::CombatGoodLuck(0),
-            RandomToken::CombatBadLuck(0),
-        ];
+        assert!(
+            !crate::query::attack_targets(&state, UnitId::new(0), Pos::new(1, 0))
+                .unwrap()
+                .contains(&AttackTarget::Unit {
+                    unit: UnitId::new(1)
+                })
+        );
+        let observation = crate::semantic::observe(&AwbwVisibility, &state, &"red".into()).unwrap();
+        assert_eq!(
+            crate::query::observed_forecasts(
+                &observation,
+                UnitId::new(0),
+                Pos::new(1, 0),
+                &[Pos::new(2, 0)]
+            )
+            .unwrap(),
+            vec![None]
+        );
+        assert_eq!(
+            execute(&state, command, &[]),
+            Err(violation(Violation::InvalidTarget {
+                target: Some(UnitId::new(1).into())
+            }))
+        );
+    }
 
-        let result = execute(&state, command, &random).unwrap();
+    #[test]
+    fn capture_does_not_require_precommand_property_visibility() {
+        let mut state = direct_combat_state(4);
+        state.settings.fog = true;
+        let destination = Pos::new(3, 0);
+        let property = state.board.tile_mut(destination);
+        property.terrain = TerrainId::City;
+        property.owner = TileOwner::Neutral;
+        property.capture_points = Some(20);
+        assert!(
+            !AwbwVisibility
+                .view(&state, &crate::semantic::TeamId::from("red-team"))
+                .position(destination)
+        );
+        let command: Command = serde_json::from_value(json!({
+            "type":"move-capture", "player":"red", "unit":0,
+            "path":[
+                Pos::new(0, 0), Pos::new(1, 0), Pos::new(2, 0), destination
+            ]
+        }))
+        .unwrap();
 
-        assert_eq!(result.events[0].kind(), EventKind::UnitMoved);
-        assert_eq!(result.events[1].kind(), EventKind::AttackResolved);
+        let result = execute(&state, command, &[]).unwrap();
+
+        assert_eq!(board_position(&result.state.units[0]), Some(destination));
+        assert_eq!(
+            result.state.board.tile(destination).capture_points,
+            Some(10)
+        );
     }
 
     #[test]
     fn hidden_blocker_truncates_combat_movement_and_suppresses_attack() {
         let mut state = direct_combat_state(5);
         state.settings.fog = true;
+        let target_tile = state.board.tile_mut(Pos::new(4, 0));
+        target_tile.terrain = TerrainId::City;
+        target_tile.owner = TileOwner::Owned("red".into());
+        target_tile.capture_points = Some(20);
         let mut blocker = state.units[0].clone();
         blocker.id = UnitId::new(1);
         blocker.kind = UnitKindId::Tank;

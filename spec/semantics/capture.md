@@ -90,6 +90,9 @@ DESTINATION_OCCUPIED
   `capturable` property, or when its `owner` is the acting player or any player
   on the acting player's team. A friendly or already-owned property cannot be
   captured.
+- Capture eligibility does not require `visible-position` at the destination.
+  Terrain is map data, and `move-capture` names no enemy unit identifier. A unit
+  can move onto and capture a property that was fogged before the command.
 - `DESTINATION_OCCUPIED` is still evaluated last, because a capturable
   destination may be blocked by another unit; capture does not license an
   occupied destination.

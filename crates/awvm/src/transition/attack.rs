@@ -670,6 +670,16 @@ pub(crate) fn execute_move_attack(
             FireMode::Direct => {}
         }
 
+        let prepared_target = match target {
+            AttackTarget::Unit { unit } => PreparedAttackTarget::Unit(disclose_unit_target(
+                state,
+                player,
+                plan.actor_team(),
+                unit,
+            )?),
+            AttackTarget::Tile { position } => PreparedAttackTarget::Tile(position),
+        };
+
         let destination = plan.destination();
         let view = AwbwVisibility.view(state, plan.actor_team());
         if state.units.iter().any(|other| {
@@ -701,14 +711,58 @@ pub(crate) fn execute_move_attack(
             unit_id,
             plan.unit_index(),
             destination,
-            target,
+            prepared_target,
             draws,
         )?;
         movement.events.append(&mut combat.events);
         combat.events = movement.events;
         return Ok(combat);
     }
-    execute_stationary_attack(state, player, unit_id, ai, origin, target, draws)
+    let actor_team = state
+        .find_player(player)
+        .map(|candidate| &candidate.team)
+        .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
+    let prepared_target = match target {
+        AttackTarget::Unit { unit } => {
+            PreparedAttackTarget::Unit(disclose_unit_target(state, player, actor_team, unit)?)
+        }
+        AttackTarget::Tile { position } => PreparedAttackTarget::Tile(position),
+    };
+    execute_stationary_attack(state, player, unit_id, ai, origin, prepared_target, draws)
+}
+
+/// A unit target that is visible to the acting team in the command input state.
+///
+/// Movement can change visibility. It cannot change which enemy identifier the
+/// player can submit. Carry this result into the movement state. Combat can
+/// then use the resolved destination without a second visibility decision.
+#[derive(Clone, Copy)]
+struct DisclosedUnitTarget(UnitId);
+
+enum PreparedAttackTarget {
+    Unit(DisclosedUnitTarget),
+    Tile(Pos),
+}
+
+fn disclose_unit_target(
+    state: &State,
+    player: &PlayerId,
+    actor_team: &crate::semantic::TeamId,
+    target_id: UnitId,
+) -> Result<DisclosedUnitTarget, ExecuteError> {
+    let invalid = || {
+        violation(Violation::InvalidTarget {
+            target: Some(target_id.into()),
+        })
+    };
+    let defender = state.units.get(target_id).ok_or_else(invalid)?;
+    if defender.owner == *player
+        || !matches!(defender.location, Location::Board { .. })
+        || !AwbwVisibility.view(state, actor_team).unit(defender)
+    {
+        return Err(invalid());
+    }
+    Ok(DisclosedUnitTarget(target_id))
 }
 
 /// Resolve an attack after movement validation has established the attacker.
@@ -722,17 +776,17 @@ fn execute_stationary_attack(
     unit_id: UnitId,
     ai: usize,
     origin: Pos,
-    target: AttackTarget,
+    target: PreparedAttackTarget,
     draws: &mut Draws<'_>,
 ) -> Result<Execution, ExecuteError> {
     let attacker = &state.units[ai];
-    let target_id = match target {
-        AttackTarget::Unit { unit } => unit,
-        AttackTarget::Tile { position } => {
+    let disclosed = match target {
+        PreparedAttackTarget::Unit(disclosed) => disclosed,
+        PreparedAttackTarget::Tile(position) => {
             return execute_tile_attack(state, player, unit_id, ai, attacker, origin, position);
         }
     };
-    let engagement = Engagement::open(state, player, ai, origin, target_id)?;
+    let engagement = Engagement::open(state, ai, origin, disclosed)?;
     if engagement.counter_comes_first() {
         resolve_counter_first(&engagement, draws)
     } else {
@@ -763,11 +817,11 @@ impl<'a> Engagement<'a> {
     /// Check the target and score the initiating strike.
     fn open(
         state: &'a State,
-        player: &PlayerId,
         attacker_index: usize,
         origin: Pos,
-        target_id: UnitId,
+        disclosed: DisclosedUnitTarget,
     ) -> Result<Self, ExecuteError> {
+        let target_id = disclosed.0;
         let invalid = || {
             violation(Violation::InvalidTarget {
                 target: Some(target_id.into()),
@@ -782,16 +836,6 @@ impl<'a> Engagement<'a> {
         else {
             return Err(invalid());
         };
-        if defender.owner == player {
-            return Err(invalid());
-        }
-        let actor_team = state
-            .find_player(player)
-            .map(|candidate| &candidate.team)
-            .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
-        if !AwbwVisibility.view(state, actor_team).unit(defender) {
-            return Err(invalid());
-        }
         let concealed_target_compatible = match (defender.concealment, defender.kind, attacker.kind)
         {
             (Concealment::Hidden, UnitKindId::Sub, UnitKindId::Sub | UnitKindId::Cruiser)
@@ -948,7 +992,12 @@ pub(crate) fn forecast_unit_attack(
     origin: Pos,
     target_id: UnitId,
 ) -> Result<Forecast, ExecuteError> {
-    let engagement = Engagement::open(state, player, attacker_index, origin, target_id)?;
+    let actor_team = state
+        .find_player(player)
+        .map(|candidate| &candidate.team)
+        .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
+    let disclosed = disclose_unit_target(state, player, actor_team, target_id)?;
+    let engagement = Engagement::open(state, attacker_index, origin, disclosed)?;
     let attacker = engagement.attacker.unit;
     let defender = engagement.defender.unit;
     let initial = &engagement.initial;

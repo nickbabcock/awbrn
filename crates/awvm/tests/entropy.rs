@@ -165,30 +165,26 @@ fn an_out_of_domain_roll_is_rejected_like_a_malformed_tape() {
     }
 
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../spec/fixtures/combat/movement-direct-fog-capture.json");
+        .join("../../spec/fixtures/combat/neutral-infantry-counter.json");
     let case: Value =
         serde_json::from_str(&std::fs::read_to_string(root).expect("read fixture")).unwrap();
     let state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
 
-    let attack = case["steps"]
+    let (attack, honest) = case["steps"]
         .as_array()
         .unwrap()
         .iter()
         .find_map(|step| {
             let command: Command = serde_json::from_value(step["command"].clone()).ok()?;
-            matches!(command, Command::MoveAttack { .. }).then_some(command)
+            let random: Vec<RandomToken> = serde_json::from_value(step["random"].clone()).ok()?;
+            (matches!(command, Command::MoveAttack { .. }) && !random.is_empty())
+                .then_some((command, random))
         })
-        .expect("the fixture attacks");
+        .expect("the fixture has a random attack");
 
     // The same command against the fixture's own tape is accepted, so the only
     // difference is where the number came from. The fixture draws four luck
     // values, so `Cheat` is reached.
-    let honest: Vec<RandomToken> = case["steps"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find_map(|step| serde_json::from_value(step["random"].clone()).ok())
-        .unwrap_or_default();
     assert!(matches!(
         execute(&state, attack.clone(), &honest),
         Ok(ExecuteOutcome::Accepted(_))
