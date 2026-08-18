@@ -10,6 +10,7 @@ cbb7dcc2f8b4bf3c  obs=2 ev=2  capture/capture-city-partial.json
 d17abb0f2b37014d  obs=4 ev=8  capture/lab-ignored-with-hq.json
 f19ea69f3ed887da  obs=6 ev=22  capture/lab-last-owned-lab.json
 1bbb626dcd8e533d  obs=4 ev=8  combat/air-units-ignore-terrain-stars.json
+cdc2af0355b95356  obs=9 ev=0  combat/allied-unit-targets-rejected.json
 89a799f793990228  obs=4 ev=13  combat/carrier-loss-no-cargo-charge.json
 e2cc132dd92412a6  obs=4 ev=8  combat/lethal-capture-reset.json
 1696656096f514ab  obs=4 ev=12  combat/movement-direct-visible-capture.json

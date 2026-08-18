@@ -671,12 +671,9 @@ pub(crate) fn execute_move_attack(
         }
 
         let prepared_target = match target {
-            AttackTarget::Unit { unit } => PreparedAttackTarget::Unit(disclose_unit_target(
-                state,
-                player,
-                plan.actor_team(),
-                unit,
-            )?),
+            AttackTarget::Unit { unit } => {
+                PreparedAttackTarget::Unit(disclose_unit_target(state, plan.actor_team(), unit)?)
+            }
             AttackTarget::Tile { position } => PreparedAttackTarget::Tile(position),
         };
 
@@ -724,7 +721,7 @@ pub(crate) fn execute_move_attack(
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
     let prepared_target = match target {
         AttackTarget::Unit { unit } => {
-            PreparedAttackTarget::Unit(disclose_unit_target(state, player, actor_team, unit)?)
+            PreparedAttackTarget::Unit(disclose_unit_target(state, actor_team, unit)?)
         }
         AttackTarget::Tile { position } => PreparedAttackTarget::Tile(position),
     };
@@ -746,7 +743,6 @@ enum PreparedAttackTarget {
 
 fn disclose_unit_target(
     state: &State,
-    player: &PlayerId,
     actor_team: &crate::semantic::TeamId,
     target_id: UnitId,
 ) -> Result<DisclosedUnitTarget, ExecuteError> {
@@ -756,7 +752,11 @@ fn disclose_unit_target(
         })
     };
     let defender = state.units.get(target_id).ok_or_else(invalid)?;
-    if defender.owner == *player
+    let defender_team = state
+        .find_player(&defender.owner)
+        .map(|candidate| &candidate.team)
+        .ok_or_else(|| ExecuteError::InvalidState("target owner is absent".into()))?;
+    if defender_team == actor_team
         || !matches!(defender.location, Location::Board { .. })
         || !AwbwVisibility.view(state, actor_team).unit(defender)
     {
@@ -996,7 +996,7 @@ pub(crate) fn forecast_unit_attack(
         .find_player(player)
         .map(|candidate| &candidate.team)
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
-    let disclosed = disclose_unit_target(state, player, actor_team, target_id)?;
+    let disclosed = disclose_unit_target(state, actor_team, target_id)?;
     let engagement = Engagement::open(state, attacker_index, origin, disclosed)?;
     let attacker = engagement.attacker.unit;
     let defender = engagement.defender.unit;
