@@ -1,5 +1,8 @@
 //! Small authoritative reducer surface used by the conformance protocol.
 
+use std::borrow::Borrow;
+use std::cell::OnceCell;
+
 use serde::{Deserialize, Serialize};
 
 use crate::commander::{self, PowerLevel};
@@ -7,8 +10,8 @@ use crate::event::{AttackTarget, Event};
 use crate::random::{Entropy, Luck, RandomError, RandomTape, RandomToken, RandomTokenKind};
 use crate::ruleset::{self, Domain, UnitKind};
 use crate::semantic::{
-    KnownReason, Location, Match, Outcome, Phase, PlayerId, PlayerIdx, Pos, State, TerrainId, Unit,
-    UnitId, UnitKindId, Viewpoint, WeatherKind,
+    AwbwView, KnownReason, Location, Match, Outcome, Phase, PlayerId, PlayerIdx, Pos, State,
+    TerrainId, Unit, UnitId, UnitKindId, Viewpoint, WeatherKind,
 };
 use crate::violation::Violation;
 
@@ -477,63 +480,77 @@ pub fn prepare_unload_transport<'a>(
 }
 
 impl<'a> PreparedMovement<'a> {
+    /// Bind the movement to facts shared by all actions at its destination.
+    pub fn prepare_destination(self) -> PreparedDestination<'a> {
+        let view = AwbwView::new(self.state, self.movement.actor_team());
+        self.prepare_destination_with(view)
+    }
+
+    pub(crate) fn prepare_destination_with<V>(self, view: V) -> PreparedDestination<'a, V>
+    where
+        V: Borrow<AwbwView<'a>>,
+    {
+        PreparedDestination {
+            movement: self,
+            view,
+            available: OnceCell::new(),
+            trap: OnceCell::new(),
+        }
+    }
+
     /// Resolve waiting at this movement's destination.
     pub fn prepare_wait(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
-        prepare_outcome(movement::prepare_wait(self).map(PreparedCommandKind::Wait))
+        self.prepare_destination().prepare_wait()
     }
 
     /// Resolve capture at this movement's destination.
     pub fn prepare_capture(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
-        prepare_outcome(property::prepare_capture(self).map(PreparedCommandKind::Capture))
+        self.prepare_destination().prepare_capture()
     }
 
     /// Resolve supplying from this movement's destination.
     pub fn prepare_supply(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
-        prepare_outcome(transport::prepare_supply(self).map(PreparedCommandKind::Supply))
+        self.prepare_destination().prepare_supply()
     }
 
     /// Resolve entering hidden state at this movement's destination.
     pub fn prepare_hide(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
-        prepare_outcome(
-            movement::prepare_concealment(self, true).map(PreparedCommandKind::Concealment),
-        )
+        self.prepare_destination().prepare_hide()
     }
 
     /// Resolve entering exposed state at this movement's destination.
     pub fn prepare_reveal(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
-        prepare_outcome(
-            movement::prepare_concealment(self, false).map(PreparedCommandKind::Concealment),
-        )
+        self.prepare_destination().prepare_reveal()
     }
 
     /// Resolve joining another unit at this movement's destination.
     pub fn prepare_join(self, target: UnitId) -> Result<PrepareOutcome<'a>, ExecuteError> {
-        prepare_outcome(transport::prepare_join(self, target).map(PreparedCommandKind::Join))
+        self.prepare_destination().prepare_join(target)
     }
 
     /// Resolve loading into a transport at this movement's destination.
     pub fn prepare_load(self, transport: UnitId) -> Result<PrepareOutcome<'a>, ExecuteError> {
-        prepare_outcome(transport::prepare_load(self, transport).map(PreparedCommandKind::Load))
+        self.prepare_destination().prepare_load(transport)
     }
 
     /// Resolve attacking a unit or tile from this movement's destination.
     pub fn prepare_attack(self, target: AttackTarget) -> Result<PrepareOutcome<'a>, ExecuteError> {
-        prepare_outcome(attack::prepare_attack(self, target).map(PreparedCommandKind::Attack))
+        self.prepare_destination().prepare_attack(target)
     }
 
     /// Resolve repairing another unit from this movement's destination.
     pub fn prepare_repair(self, target: UnitId) -> Result<PrepareOutcome<'a>, ExecuteError> {
-        prepare_outcome(transport::prepare_repair(self, target).map(PreparedCommandKind::Repair))
+        self.prepare_destination().prepare_repair(target)
     }
 
     /// Resolve launching a silo at a target tile.
     pub fn prepare_launch(self, target: Pos) -> Result<PrepareOutcome<'a>, ExecuteError> {
-        prepare_outcome(special::prepare_launch(self, target).map(PreparedCommandKind::Launch))
+        self.prepare_destination().prepare_launch(target)
     }
 
     /// Resolve exploding at this movement's destination.
     pub fn prepare_explode(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
-        prepare_outcome(special::prepare_explode(self).map(PreparedCommandKind::Explode))
+        self.prepare_destination().prepare_explode()
     }
 
     pub(crate) const fn state(&self) -> &State {
@@ -546,6 +563,166 @@ impl<'a> PreparedMovement<'a> {
 
     pub(crate) const fn plan(&self) -> &MovedUnit {
         &self.movement
+    }
+}
+
+/// A validated movement with facts shared by its destination actions.
+///
+/// The borrowed state prevents this proof from being applied to a different
+/// state. Destination occupancy, visibility, and hidden movement traps are
+/// resolved once when an action needs them. The default form owns its view.
+/// A move field supplies a form that borrows its shared view.
+#[derive(Debug)]
+pub struct PreparedDestination<'a, V = AwbwView<'a>> {
+    movement: PreparedMovement<'a>,
+    view: V,
+    available: OnceCell<Result<AvailableDestination, Violation>>,
+    trap: OnceCell<Option<(usize, Pos, UnitId)>>,
+}
+
+impl<'a, V> PreparedDestination<'a, V>
+where
+    V: Borrow<AwbwView<'a>>,
+{
+    /// Resolve waiting at this destination.
+    pub fn prepare_wait(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(movement::prepare_wait(self).map(PreparedCommandKind::Wait))
+    }
+
+    /// Resolve capture at this destination.
+    pub fn prepare_capture(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(property::prepare_capture(self).map(PreparedCommandKind::Capture))
+    }
+
+    /// Resolve supplying from this destination.
+    pub fn prepare_supply(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(transport::prepare_supply(self).map(PreparedCommandKind::Supply))
+    }
+
+    /// Resolve entering hidden state at this destination.
+    pub fn prepare_hide(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(
+            movement::prepare_concealment(self, true).map(PreparedCommandKind::Concealment),
+        )
+    }
+
+    /// Resolve entering exposed state at this destination.
+    pub fn prepare_reveal(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(
+            movement::prepare_concealment(self, false).map(PreparedCommandKind::Concealment),
+        )
+    }
+
+    /// Resolve joining another unit at this destination.
+    pub fn prepare_join(self, target: UnitId) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(transport::prepare_join(self, target).map(PreparedCommandKind::Join))
+    }
+
+    /// Resolve loading into a transport at this destination.
+    pub fn prepare_load(self, transport: UnitId) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(transport::prepare_load(self, transport).map(PreparedCommandKind::Load))
+    }
+
+    /// Resolve attacking a unit or tile from this destination.
+    pub fn prepare_attack(self, target: AttackTarget) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(attack::prepare_attack(self, target).map(PreparedCommandKind::Attack))
+    }
+
+    /// Resolve repairing another unit from this destination.
+    pub fn prepare_repair(self, target: UnitId) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(transport::prepare_repair(self, target).map(PreparedCommandKind::Repair))
+    }
+
+    /// Resolve launching a silo at a target tile.
+    pub fn prepare_launch(self, target: Pos) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(special::prepare_launch(self, target).map(PreparedCommandKind::Launch))
+    }
+
+    /// Resolve exploding at this destination.
+    pub fn prepare_explode(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(special::prepare_explode(self).map(PreparedCommandKind::Explode))
+    }
+
+    pub(crate) const fn movement(&self) -> &PreparedMovement<'a> {
+        &self.movement
+    }
+
+    fn into_movement(self) -> PreparedMovement<'a> {
+        self.movement
+    }
+
+    fn view(&self) -> &AwbwView<'a> {
+        self.view.borrow()
+    }
+
+    fn available_destination(&self) -> Result<AvailableDestination, ReducerError> {
+        self.available
+            .get_or_init(|| movement::available_destination(&self.movement, self.view()))
+            .clone()
+            .map_err(Into::into)
+    }
+
+    fn trap(&self) -> Option<(usize, Pos, UnitId)> {
+        *self.trap.get_or_init(|| {
+            movement::planned_movement_trap_with_view(
+                self.movement.state(),
+                self.movement.unit(),
+                self.movement.plan(),
+                self.view(),
+            )
+        })
+    }
+
+    pub(crate) fn can_wait(&self) -> Result<bool, ExecuteError> {
+        preparation_is_valid(movement::validate_wait(self))
+    }
+
+    pub(crate) fn can_capture(&self) -> Result<bool, ExecuteError> {
+        preparation_is_valid(property::validate_capture(self))
+    }
+
+    pub(crate) fn can_supply(&self) -> Result<bool, ExecuteError> {
+        preparation_is_valid(transport::validate_supply(self))
+    }
+
+    pub(crate) fn can_hide(&self) -> Result<bool, ExecuteError> {
+        preparation_is_valid(movement::validate_concealment(self, true))
+    }
+
+    pub(crate) fn can_reveal(&self) -> Result<bool, ExecuteError> {
+        preparation_is_valid(movement::validate_concealment(self, false))
+    }
+
+    pub(crate) fn can_join(&self, target: UnitId) -> Result<bool, ExecuteError> {
+        preparation_is_valid(transport::validate_join(self, target))
+    }
+
+    pub(crate) fn can_load(&self, transport: UnitId) -> Result<bool, ExecuteError> {
+        preparation_is_valid(transport::validate_load(self, transport))
+    }
+
+    pub(crate) fn can_attack(&self, target: AttackTarget) -> Result<bool, ExecuteError> {
+        preparation_is_valid(attack::validate_attack(self, target))
+    }
+
+    pub(crate) fn can_repair(&self, target: UnitId) -> Result<bool, ExecuteError> {
+        preparation_is_valid(transport::validate_repair(self, target))
+    }
+
+    pub(crate) fn can_launch(&self, target: Pos) -> Result<bool, ExecuteError> {
+        preparation_is_valid(special::validate_launch(self, target))
+    }
+
+    pub(crate) fn can_explode(&self) -> Result<bool, ExecuteError> {
+        preparation_is_valid(special::validate_explode(self))
+    }
+}
+
+fn preparation_is_valid<T>(result: Result<T, ReducerError>) -> Result<bool, ExecuteError> {
+    match result {
+        Ok(_) => Ok(true),
+        Err(ReducerError::Violation(_)) => Ok(false),
+        Err(error) => Err(execute_error(error)),
     }
 }
 
@@ -565,6 +742,18 @@ impl<'a> PreparedActiveUnit<'a> {
                 Ok(PrepareMovementOutcome::Rejected(violation))
             }
             Err(error) => Err(execute_error(error)),
+        }
+    }
+
+    pub(crate) fn movement_from_field(
+        &self,
+        path: Vec<Pos>,
+        entry_costs: Vec<u64>,
+    ) -> PreparedMovement<'a> {
+        PreparedMovement {
+            state: self.state,
+            unit: self.unit,
+            movement: movement::from_field(self, path, entry_costs),
         }
     }
 
@@ -634,45 +823,49 @@ fn prepare_outcome(
 
 fn prepare(state: &State, command: Command) -> Result<PreparedCommandKind<'_>, ReducerError> {
     match command {
-        Command::MoveWait { player, unit, path } => {
-            movement::prepare_wait(prepare_movement_inner(state, &player, unit, path)?)
-                .map(PreparedCommandKind::Wait)
-        }
-        Command::MoveCapture { player, unit, path } => {
-            property::prepare_capture(prepare_movement_inner(state, &player, unit, path)?)
-                .map(PreparedCommandKind::Capture)
-        }
-        Command::MoveSupply { player, unit, path } => {
-            transport::prepare_supply(prepare_movement_inner(state, &player, unit, path)?)
-                .map(PreparedCommandKind::Supply)
-        }
-        Command::MoveHide { player, unit, path } => {
-            movement::prepare_concealment(prepare_movement_inner(state, &player, unit, path)?, true)
-                .map(PreparedCommandKind::Concealment)
-        }
+        Command::MoveWait { player, unit, path } => movement::prepare_wait(
+            prepare_movement_inner(state, &player, unit, path)?.prepare_destination(),
+        )
+        .map(PreparedCommandKind::Wait),
+        Command::MoveCapture { player, unit, path } => property::prepare_capture(
+            prepare_movement_inner(state, &player, unit, path)?.prepare_destination(),
+        )
+        .map(PreparedCommandKind::Capture),
+        Command::MoveSupply { player, unit, path } => transport::prepare_supply(
+            prepare_movement_inner(state, &player, unit, path)?.prepare_destination(),
+        )
+        .map(PreparedCommandKind::Supply),
+        Command::MoveHide { player, unit, path } => movement::prepare_concealment(
+            prepare_movement_inner(state, &player, unit, path)?.prepare_destination(),
+            true,
+        )
+        .map(PreparedCommandKind::Concealment),
         Command::MoveReveal { player, unit, path } => movement::prepare_concealment(
-            prepare_movement_inner(state, &player, unit, path)?,
+            prepare_movement_inner(state, &player, unit, path)?.prepare_destination(),
             false,
         )
         .map(PreparedCommandKind::Concealment),
-        Command::MoveExplode { player, unit, path } => {
-            special::prepare_explode(prepare_movement_inner(state, &player, unit, path)?)
-                .map(PreparedCommandKind::Explode)
-        }
+        Command::MoveExplode { player, unit, path } => special::prepare_explode(
+            prepare_movement_inner(state, &player, unit, path)?.prepare_destination(),
+        )
+        .map(PreparedCommandKind::Explode),
         Command::MoveJoin {
             player,
             unit,
             path,
             target,
-        } => transport::prepare_join(prepare_movement_inner(state, &player, unit, path)?, target)
-            .map(PreparedCommandKind::Join),
+        } => transport::prepare_join(
+            prepare_movement_inner(state, &player, unit, path)?.prepare_destination(),
+            target,
+        )
+        .map(PreparedCommandKind::Join),
         Command::MoveLoad {
             player,
             unit,
             path,
             transport,
         } => transport::prepare_load(
-            prepare_movement_inner(state, &player, unit, path)?,
+            prepare_movement_inner(state, &player, unit, path)?.prepare_destination(),
             transport,
         )
         .map(PreparedCommandKind::Load),
@@ -681,22 +874,31 @@ fn prepare(state: &State, command: Command) -> Result<PreparedCommandKind<'_>, R
             unit,
             path,
             target,
-        } => attack::prepare_attack(prepare_movement_inner(state, &player, unit, path)?, target)
-            .map(PreparedCommandKind::Attack),
+        } => attack::prepare_attack(
+            prepare_movement_inner(state, &player, unit, path)?.prepare_destination(),
+            target,
+        )
+        .map(PreparedCommandKind::Attack),
         Command::MoveRepair {
             player,
             unit,
             path,
             target,
-        } => transport::prepare_repair(prepare_movement_inner(state, &player, unit, path)?, target)
-            .map(PreparedCommandKind::Repair),
+        } => transport::prepare_repair(
+            prepare_movement_inner(state, &player, unit, path)?.prepare_destination(),
+            target,
+        )
+        .map(PreparedCommandKind::Repair),
         Command::MoveLaunch {
             player,
             unit,
             path,
             target,
-        } => special::prepare_launch(prepare_movement_inner(state, &player, unit, path)?, target)
-            .map(PreparedCommandKind::Launch),
+        } => special::prepare_launch(
+            prepare_movement_inner(state, &player, unit, path)?.prepare_destination(),
+            target,
+        )
+        .map(PreparedCommandKind::Launch),
         Command::ProduceUnit {
             player,
             position,
@@ -2060,8 +2262,9 @@ mod tests {
         }))
         .unwrap();
         assert!(
-            !crate::query::attack_targets(&state, UnitId::new(0), Pos::new(1, 0))
+            !crate::query::actions_at(&state, UnitId::new(0), Pos::new(1, 0))
                 .unwrap()
+                .attack
                 .contains(&AttackTarget::Unit {
                     unit: UnitId::new(1)
                 })

@@ -28,31 +28,31 @@ pub(super) struct ConcealmentAction {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct AvailableDestination;
 
-impl PreparedMovement<'_> {
-    /// Validate that no disclosed unit occupies the destination.
-    pub(super) fn available_destination(&self) -> Result<AvailableDestination, ExecuteError> {
-        let destination = self.plan().destination();
-        let view = AwbwVisibility.view(self.state(), self.plan().actor_team());
-        if self.state().units.iter().any(|other| {
-            other.id != self.unit()
-                && board_position(other) == Some(destination)
-                && occupancy_is_disclosed(&view, other)
-        }) {
-            return Err(violation(Violation::DestinationOccupied {
-                position: destination,
-            }));
-        }
-        Ok(AvailableDestination)
+pub(super) fn available_destination(
+    movement: &PreparedMovement<'_>,
+    view: &impl Viewpoint,
+) -> Result<AvailableDestination, Violation> {
+    let destination = movement.plan().destination();
+    if movement.state().units.iter().any(|other| {
+        other.id != movement.unit()
+            && board_position(other) == Some(destination)
+            && occupancy_is_disclosed(view, other)
+    }) {
+        return Err(Violation::DestinationOccupied {
+            position: destination,
+        });
     }
+    Ok(AvailableDestination)
 }
 
 /// A movement that has been validated, and the numbers that validating it
 /// produced.
 ///
-/// The fields are private to this module and [`plan`] is the only constructor,
-/// so holding one is proof the path was checked. `execute_move_capture` and
-/// `execute_move_join` each carried a verbatim copy of that check; nothing
-/// stopped a tenth reducer from carrying a subtly different one.
+/// The fields are private to this module. [`plan`] checks an arbitrary path,
+/// and `from_field` accepts a path from a state-bound field. Holding this value
+/// is proof that one of those checks produced the path. `execute_move_capture`
+/// and `execute_move_join` each carried a copy of the arbitrary-path check;
+/// nothing stopped another reducer from carrying a different one.
 #[derive(Clone, Debug)]
 pub(crate) struct MovedUnit {
     unit_index: usize,
@@ -229,6 +229,31 @@ pub(crate) fn plan(
     })
 }
 
+/// Build a movement from a field that is bound to the same active-unit proof.
+///
+/// `PreparedMoveField` owns the field and the proof. It supplies a path and
+/// costs that the field search produced for that proof.
+pub(super) fn from_field(
+    active: &PreparedActiveUnit<'_>,
+    path: Vec<Pos>,
+    entry_costs: Vec<u64>,
+) -> MovedUnit {
+    let state = active.state();
+    let unit = &state.units[active.unit_index()];
+    let actor_team = state
+        .find_player(&unit.owner)
+        .expect("an active unit has a player")
+        .team
+        .clone();
+    MovedUnit {
+        unit_index: active.unit_index(),
+        origin: active.origin(),
+        path,
+        entry_costs,
+        actor_team,
+    }
+}
+
 pub(crate) fn execute_planned_movement(
     state: &State,
     unit_id: UnitId,
@@ -292,6 +317,15 @@ pub(crate) fn planned_movement_trap(
     plan: &MovedUnit,
 ) -> Option<(usize, Pos, UnitId)> {
     let view = AwbwVisibility.view(state, plan.actor_team());
+    planned_movement_trap_with_view(state, unit_id, plan, &view)
+}
+
+pub(crate) fn planned_movement_trap_with_view(
+    state: &State,
+    unit_id: UnitId,
+    plan: &MovedUnit,
+    view: &impl Viewpoint,
+) -> Option<(usize, Pos, UnitId)> {
     plan.path
         .iter()
         .copied()
@@ -304,7 +338,7 @@ pub(crate) fn planned_movement_trap(
                 .find(|other| {
                     other.id != unit_id
                         && board_position(other) == Some(position)
-                        && !occupancy_is_disclosed(&view, other)
+                        && !occupancy_is_disclosed(view, other)
                 })
                 .map(|blocker| (index, position, blocker.id))
         })
@@ -342,14 +376,32 @@ pub(crate) fn execute_move_concealment(
     hide: bool,
 ) -> Result<Execution, ExecuteError> {
     let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_concealment(movement, hide)?;
+    let prepared = prepare_concealment(movement.prepare_destination(), hide)?;
     Ok(execute_prepared_concealment(prepared))
 }
 
-pub(super) fn prepare_concealment(
-    movement: PreparedMovement<'_>,
+pub(super) fn prepare_concealment<'a, V>(
+    destination: PreparedDestination<'a, V>,
     hide: bool,
-) -> Result<Prepared<'_, ConcealmentAction>, ExecuteError> {
+) -> Result<Prepared<'a, ConcealmentAction>, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let action = validate_concealment(&destination, hide)?;
+    Ok(Prepared {
+        movement: destination.into_movement(),
+        action,
+    })
+}
+
+pub(super) fn validate_concealment<'a, V>(
+    destination: &PreparedDestination<'a, V>,
+    hide: bool,
+) -> Result<ConcealmentAction, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let movement = destination.movement();
     let state = movement.state();
     let plan = movement.plan();
     let original = &state.units[plan.unit_index()];
@@ -368,14 +420,10 @@ pub(super) fn prepare_concealment(
             },
         }));
     }
-    let destination = movement.available_destination()?;
-
-    Ok(Prepared {
-        movement,
-        action: ConcealmentAction {
-            target,
-            destination,
-        },
+    let available = destination.available_destination()?;
+    Ok(ConcealmentAction {
+        target,
+        destination: available,
     })
 }
 
@@ -419,18 +467,30 @@ pub(crate) fn execute_move_wait(
     path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
     let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_wait(movement)?;
+    let prepared = prepare_wait(movement.prepare_destination())?;
     Ok(execute_prepared_wait(prepared))
 }
 
-pub(super) fn prepare_wait(
-    movement: PreparedMovement<'_>,
-) -> Result<Prepared<'_, Wait>, ExecuteError> {
-    let destination = movement.available_destination()?;
+pub(super) fn prepare_wait<'a, V>(
+    destination: PreparedDestination<'a, V>,
+) -> Result<Prepared<'a, Wait>, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let action = validate_wait(&destination)?;
     Ok(Prepared {
-        movement,
-        action: Wait(destination),
+        movement: destination.into_movement(),
+        action,
     })
+}
+
+pub(super) fn validate_wait<'a, V>(
+    destination: &PreparedDestination<'a, V>,
+) -> Result<Wait, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    Ok(Wait(destination.available_destination()?))
 }
 
 pub(super) fn execute_prepared_wait(prepared: Prepared<'_, Wait>) -> Execution {

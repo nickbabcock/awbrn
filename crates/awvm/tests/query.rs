@@ -1,10 +1,9 @@
 //! `query` against `execute`, over the whole corpus.
 //!
-//! `actions_at` uses reducer preparation or execution, and `attack_targets`
-//! runs the reducer. They cannot disagree with it by construction. `reachable`
-//! does not. It is a search written beside the rules, which is exactly the
-//! arrangement this module exists to spare consumers. It therefore needs
-//! separate equivalence coverage.
+//! `actions_at` uses reducer preparation. It cannot disagree with execution by
+//! construction. `reachable` does not. It is a search written beside the
+//! rules, which is exactly the arrangement this module exists to spare
+//! consumers. It therefore needs separate equivalence coverage.
 //!
 //! The ground truth here is `execute` itself. Fixture boards are at most 21
 //! tiles, so every simple path a unit could submit can be enumerated and put to
@@ -310,6 +309,16 @@ fn prepared_action_queries_agree_with_execution() {
                     continue;
                 }
                 let field = query::reachable(&state, subject.id).expect("an on-board unit");
+                let active = match prepare_active_unit(&state, &subject.owner, subject.id)
+                    .expect("an active unit can be prepared")
+                {
+                    PrepareActiveUnitOutcome::Prepared(active) => active,
+                    PrepareActiveUnitOutcome::Rejected(violation) => {
+                        panic!("{relative}: active unit was rejected: {violation:?}")
+                    }
+                };
+                let prepared_field = PreparedMoveField::new(active)
+                    .unwrap_or_else(|error| panic!("{relative}: {error}"));
                 for (destination, _) in field.reach() {
                     let path = field
                         .path_to(destination)
@@ -321,6 +330,14 @@ fn prepared_action_queries_agree_with_execution() {
                     assert_eq!(
                         from_path, actions,
                         "{relative}: unit {} path query disagreed at {destination}",
+                        subject.id
+                    );
+                    assert_eq!(
+                        prepared_field
+                            .actions_at(destination)
+                            .unwrap_or_else(|error| panic!("{relative}: {error}")),
+                        actions,
+                        "{relative}: unit {} prepared field disagreed at {destination}",
                         subject.id
                     );
                     let accepts = |command| {
@@ -463,7 +480,7 @@ fn prepared_action_queries_propagate_movement_faults() {
         Err(QueryError::Transition(ExecuteError::UnsupportedRuleset))
     );
     assert_eq!(
-        query::attack_targets(&unsupported, unit, position),
+        query::actions_at(&unsupported, unit, position).map(|actions| actions.attack),
         Err(QueryError::Transition(ExecuteError::UnsupportedRuleset))
     );
 
@@ -472,10 +489,6 @@ fn prepared_action_queries_propagate_movement_faults() {
     invalid.units[0].owner = PlayerId::from("unknown");
     assert!(matches!(
         query::actions_for_path(&invalid, unit, path.clone()),
-        Err(QueryError::Transition(ExecuteError::InvalidState(_)))
-    ));
-    assert!(matches!(
-        query::attack_targets(&invalid, unit, position),
         Err(QueryError::Transition(ExecuteError::InvalidState(_)))
     ));
 }
@@ -547,8 +560,9 @@ fn allied_units_are_not_attack_targets_or_forecasts() {
         ),
     ] {
         assert!(
-            !query::attack_targets(&state, attacker, from)
+            !query::actions_at(&state, attacker, from)
                 .unwrap()
+                .attack
                 .contains(&AttackTarget::Unit { unit: ally })
         );
 
@@ -628,7 +642,8 @@ fn offered(state: &State, command: &Command, relative: &str) -> Option<&'static 
         Command::MoveAttack {
             unit, path, target, ..
         } => {
-            let targets = query::attack_targets(state, *unit, destination(path))
+            let targets = query::actions_at(state, *unit, destination(path))
+                .map(|actions| actions.attack)
                 .unwrap_or_else(|error| panic!("{relative}: {error}"));
             assert!(
                 targets.contains(target),
@@ -745,8 +760,15 @@ fn observed_actions_agree_with_authoritative_actions_without_fog() {
                 let Ok(field) = query::reachable(&state, subject.id) else {
                     continue;
                 };
+                let destinations: Vec<_> = field
+                    .destinations()
+                    .map(|(destination, _)| destination)
+                    .collect();
+                let observed_attacks =
+                    query::observed_attacks_from(&observation, subject.id, &destinations)
+                        .unwrap_or_else(|error| panic!("{relative}: {error}"));
 
-                for (destination, _) in field.destinations() {
+                for (destination, attacks) in destinations.into_iter().zip(observed_attacks) {
                     let path = field.path_to(destination).expect("destination has path");
                     let authoritative = query::actions_at(&state, subject.id, destination)
                         .map(|actions| query::by_position(&state, actions));
@@ -762,6 +784,16 @@ fn observed_actions_agree_with_authoritative_actions_without_fog() {
                     assert_eq!(
                         observed_from_path, authoritative,
                         "{relative}: unit {} path query disagrees at {destination:?}",
+                        subject.id
+                    );
+                    assert_eq!(attacks.from, destination);
+                    assert_eq!(
+                        attacks.targets,
+                        observed
+                            .as_ref()
+                            .expect("observed actions are available")
+                            .attack,
+                        "{relative}: unit {} batch attacks disagreed at {destination:?}",
                         subject.id
                     );
                     checked += 1;

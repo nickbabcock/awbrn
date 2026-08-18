@@ -172,7 +172,7 @@ fn every_supported_fixture_matches_prepared_execution() {
 }
 
 #[test]
-fn one_movement_can_prepare_wait_and_capture() {
+fn one_movement_can_prepare_wait_and_capture_destinations() {
     let source = include_str!("../../../spec/fixtures/capture/capture-city-partial.json");
     let case: Value = serde_json::from_str(source).expect("parse fixture");
     let state: State = serde_json::from_value(case["initial_state"].clone()).expect("decode state");
@@ -185,11 +185,20 @@ fn one_movement_can_prepare_wait_and_capture() {
         PrepareMovementOutcome::Prepared(movement) => movement,
         PrepareMovementOutcome::Rejected(violation) => panic!("movement rejected: {violation:?}"),
     };
-    let wait = match movement.clone().prepare_wait().expect("prepare wait") {
+    let wait = match movement
+        .clone()
+        .prepare_destination()
+        .prepare_wait()
+        .expect("prepare wait")
+    {
         PrepareOutcome::Prepared(wait) => wait,
         PrepareOutcome::Rejected(violation) => panic!("wait rejected: {violation:?}"),
     };
-    let capture = match movement.prepare_capture().expect("prepare capture") {
+    let capture = match movement
+        .prepare_destination()
+        .prepare_capture()
+        .expect("prepare capture")
+    {
         PrepareOutcome::Prepared(capture) => capture,
         PrepareOutcome::Rejected(violation) => panic!("capture rejected: {violation:?}"),
     };
