@@ -34,14 +34,32 @@ pub(crate) fn execute_move_launch(
     target: Pos,
 ) -> Result<Execution, ExecuteError> {
     let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_launch(movement, target)?;
+    let prepared = prepare_launch(movement.prepare_destination(), target)?;
     execute_prepared_launch(prepared)
 }
 
-pub(super) fn prepare_launch(
-    movement: PreparedMovement<'_>,
+pub(super) fn prepare_launch<'a, V>(
+    destination: PreparedDestination<'a, V>,
     target: Pos,
-) -> Result<Prepared<'_, Launch>, ExecuteError> {
+) -> Result<Prepared<'a, Launch>, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let action = validate_launch(&destination, target)?;
+    Ok(Prepared {
+        movement: destination.into_movement(),
+        action,
+    })
+}
+
+pub(super) fn validate_launch<'a, V>(
+    destination: &PreparedDestination<'a, V>,
+    target: Pos,
+) -> Result<Launch, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let movement = destination.movement();
     let state = movement.state();
     let plan = movement.plan();
     if target.x >= state.board.width() || target.y >= state.board.height() {
@@ -63,14 +81,10 @@ pub(super) fn prepare_launch(
             target: Some(silo_position.into()),
         }));
     }
-    let destination = movement.available_destination()?;
-
-    Ok(Prepared {
-        movement,
-        action: Launch {
-            target,
-            destination,
-        },
+    let available = destination.available_destination()?;
+    Ok(Launch {
+        target,
+        destination: available,
     })
 }
 
@@ -153,13 +167,30 @@ pub(crate) fn execute_move_explode(
     path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
     let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_explode(movement)?;
+    let prepared = prepare_explode(movement.prepare_destination())?;
     execute_prepared_explode(prepared)
 }
 
-pub(super) fn prepare_explode(
-    movement: PreparedMovement<'_>,
-) -> Result<Prepared<'_, Explode>, ExecuteError> {
+pub(super) fn prepare_explode<'a, V>(
+    destination: PreparedDestination<'a, V>,
+) -> Result<Prepared<'a, Explode>, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let action = validate_explode(&destination)?;
+    Ok(Prepared {
+        movement: destination.into_movement(),
+        action,
+    })
+}
+
+pub(super) fn validate_explode<'a, V>(
+    destination: &PreparedDestination<'a, V>,
+) -> Result<Explode, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let movement = destination.movement();
     let state = movement.state();
     let plan = movement.plan();
     let unit = &state.units[plan.unit_index()];
@@ -168,12 +199,7 @@ pub(super) fn prepare_explode(
             action: Action::MoveExplode,
         }));
     }
-    let destination = movement.available_destination()?;
-
-    Ok(Prepared {
-        movement,
-        action: Explode(destination),
-    })
+    Ok(Explode(destination.available_destination()?))
 }
 
 pub(super) fn execute_prepared_explode(

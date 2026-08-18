@@ -23,6 +23,7 @@
 //! None of this is authoritative. A server still executes the command it
 //! receives; this exists so a client can offer commands the server will take.
 
+use std::borrow::Borrow;
 use std::collections::HashSet;
 
 use crate::combat::Forecast;
@@ -30,14 +31,15 @@ use crate::commander;
 use crate::event::AttackTarget;
 use crate::ruleset::{self, FireMode, TerrainTrait};
 use crate::semantic::{
-    AwbwVisibility, Location, Observation, ObservedMatch, ObservedPlayer, PlayerId, PlayerStatus,
-    Pos, State, TeamId, Unit, UnitId, UnitKindId, Viewpoint, Visibility, WeatherKind,
+    AwbwView, AwbwVisibility, Location, Observation, ObservedMatch, ObservedPlayer, PlayerId,
+    PlayerStatus, Pos, State, TeamId, Unit, UnitId, UnitKindId, Viewpoint, Visibility, WeatherKind,
 };
 use crate::transition::{
     ExecuteError, PrepareActiveUnitOutcome, PrepareMovementOutcome, PrepareOutcome,
     PrepareProductionSiteOutcome, PrepareUnloadCargoOutcome, PrepareUnloadTransportOutcome,
-    board_position, forecast_tile_attack, forecast_unit_attack, prepare_active_unit,
-    prepare_movement, prepare_production_site, prepare_unload_transport,
+    PreparedActiveUnit, PreparedDestination, board_position, forecast_tile_attack,
+    forecast_unit_attack, prepare_active_unit, prepare_movement, prepare_production_site,
+    prepare_unload_transport,
 };
 use crate::violation::Violation;
 
@@ -219,6 +221,134 @@ impl MoveField {
             }
         }
         Some(total)
+    }
+}
+
+/// A movement field bound to the active-unit proof that produced it.
+///
+/// The state borrow makes paths from this field current for as long as the
+/// field exists. This lets the field prepare destinations without repeating
+/// movement validation. All destinations borrow one view from the field.
+#[derive(Debug)]
+pub struct PreparedMoveField<'a> {
+    active: PreparedActiveUnit<'a>,
+    field: MoveField,
+    view: AwbwView<'a>,
+}
+
+impl<'a> PreparedMoveField<'a> {
+    /// Compute a movement field for one prepared active unit.
+    pub fn new(active: PreparedActiveUnit<'a>) -> Result<Self, QueryError> {
+        let field = reachable(active.state(), active.unit())?;
+        let subject = lookup(active.state(), active.unit())?;
+        let team = active
+            .state()
+            .find_player(&subject.owner)
+            .map(|player| &player.team)
+            .ok_or_else(|| QueryError::UnknownOwner {
+                unit: active.unit(),
+                owner: subject.owner.clone(),
+            })?;
+        let view = AwbwView::new(active.state(), team);
+        Ok(Self {
+            active,
+            field,
+            view,
+        })
+    }
+
+    /// The movement geometry bound to this proof.
+    pub const fn field(&self) -> &MoveField {
+        &self.field
+    }
+
+    /// The unit this field was computed for.
+    pub const fn unit(&self) -> UnitId {
+        self.field.unit()
+    }
+
+    /// Where the unit started.
+    pub const fn origin(&self) -> Pos {
+        self.field.origin()
+    }
+
+    /// Movement points available to the unit.
+    pub const fn budget(&self) -> u64 {
+        self.field.budget()
+    }
+
+    /// What it costs to arrive at `position`.
+    pub fn step(&self, position: Pos) -> Option<Step> {
+        self.field.step(position)
+    }
+
+    /// Whether a movement command may end at `position`.
+    pub fn can_stop_at(&self, position: Pos) -> bool {
+        self.field.can_stop_at(position)
+    }
+
+    /// Every tile where the unit can stop, with its movement cost.
+    pub fn destinations(&self) -> impl Iterator<Item = (Pos, u64)> + '_ {
+        self.field.destinations()
+    }
+
+    /// Every tile the unit can reach, with its movement cost.
+    pub fn reach(&self) -> impl Iterator<Item = (Pos, u64)> + '_ {
+        self.field.reach()
+    }
+
+    /// Return the field's route to `position`.
+    pub fn path_to(&self, position: Pos) -> Option<Vec<Pos>> {
+        self.field.path_to(position)
+    }
+
+    /// Validate and price a caller-chosen route through this field.
+    pub fn route_cost(&self, path: &[Pos]) -> Option<u64> {
+        self.field.route_cost(path)
+    }
+
+    /// Bind one reachable destination to its prepared movement.
+    ///
+    /// Transit-only teleporter tiles do not produce destinations. Occupied
+    /// destinations remain available for join, load, and attack queries.
+    pub fn prepare_destination<'field>(
+        &'field self,
+        position: Pos,
+    ) -> Option<PreparedDestination<'a, &'field AwbwView<'a>>> {
+        if is_teleporter(self.active.state(), position) {
+            return None;
+        }
+        let path = self.field.path_to(position)?;
+        let entry_costs = path
+            .iter()
+            .enumerate()
+            .map(|(path_index, position)| {
+                if path_index == 0 {
+                    Some(0)
+                } else {
+                    self.field
+                        .index(*position)
+                        .and_then(|index| self.field.entry_costs[index])
+                }
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(
+            self.active
+                .movement_from_field(path, entry_costs)
+                .prepare_destination_with(&self.view),
+        )
+    }
+
+    /// Enumerate actions at one destination without validating its path again.
+    pub fn actions_at(&self, position: Pos) -> Result<ActionSet, QueryError> {
+        self.prepare_destination(position)
+            .map_or_else(|| Ok(ActionSet::default()), actions_for_destination)
+    }
+
+    /// Enumerate actions and name their targets by board position.
+    pub fn observed_actions_at(&self, position: Pos) -> Result<ObservedActionSet, QueryError> {
+        self.actions_at(position)
+            .map(|actions| by_position(self.active.state(), actions))
     }
 }
 
@@ -455,6 +585,17 @@ impl ObservedQuery {
         reachable(&self.state, unit)
     }
 
+    /// Bind a movement field to a commandable unit in this observation.
+    pub fn prepared_reachable(
+        &self,
+        unit: UnitId,
+    ) -> Result<Option<PreparedMoveField<'_>>, QueryError> {
+        if !self.may_command {
+            return Ok(None);
+        }
+        prepared_move_field(&self.state, unit)
+    }
+
     /// Query one destination and compute its path when necessary.
     pub fn actions_at(
         &self,
@@ -464,10 +605,10 @@ impl ObservedQuery {
         if !self.may_command {
             return Ok(ObservedActionSet::default());
         }
-        Ok(by_position(
-            &self.state,
-            actions_at(&self.state, unit, destination)?,
-        ))
+        self.prepared_reachable(unit)?.map_or_else(
+            || Ok(ObservedActionSet::default()),
+            |field| field.observed_actions_at(destination),
+        )
     }
 
     /// Query a path obtained from a movement field without rebuilding it.
@@ -562,13 +703,37 @@ pub fn observed_attacks_from(
     }
 
     let state = reify(observation)?;
+    if destinations.is_empty() {
+        return Ok(Vec::new());
+    }
+    let Some(field) = prepared_move_field(&state, unit)? else {
+        return Ok(destinations
+            .iter()
+            .copied()
+            .map(|from| ObservedAttacksFrom {
+                from,
+                targets: Vec::new(),
+            })
+            .collect());
+    };
     destinations
         .iter()
         .copied()
         .map(|from| {
+            let attack = match field.prepare_destination(from) {
+                Some(destination) => attack_targets_for_destination(&destination)?,
+                None => Vec::new(),
+            };
             Ok(ObservedAttacksFrom {
                 from,
-                targets: by_position(&state, actions_at(&state, unit, from)?).attack,
+                targets: by_position(
+                    &state,
+                    ActionSet {
+                        attack,
+                        ..ActionSet::default()
+                    },
+                )
+                .attack,
             })
         })
         .collect()
@@ -948,10 +1113,31 @@ fn reified_units(observation: &Observation) -> Vec<Unit> {
 /// Call [`actions_for_path`] when the caller already has a [`MoveField`]. This
 /// convenience form computes a field to obtain the path.
 pub fn actions_at(state: &State, unit: UnitId, destination: Pos) -> Result<ActionSet, QueryError> {
-    let Some(path) = reachable(state, unit)?.path_to(destination) else {
-        return Ok(ActionSet::default());
+    prepared_move_field(state, unit)?.map_or_else(
+        || Ok(ActionSet::default()),
+        |field| field.actions_at(destination),
+    )
+}
+
+fn prepared_move_field(
+    state: &State,
+    unit: UnitId,
+) -> Result<Option<PreparedMoveField<'_>>, QueryError> {
+    let subject = lookup(state, unit)?;
+    if !matches!(subject.location, Location::Board { .. }) {
+        return Err(QueryError::UnitNotOnBoard(unit));
+    }
+    if state.find_player(&subject.owner).is_none() {
+        return Err(QueryError::UnknownOwner {
+            unit,
+            owner: subject.owner.clone(),
+        });
+    }
+    let active = match prepare_active_unit(state, &subject.owner, unit)? {
+        PrepareActiveUnitOutcome::Prepared(active) => active,
+        PrepareActiveUnitOutcome::Rejected(_) => return Ok(None),
     };
-    actions_for_path(state, unit, path)
+    PreparedMoveField::new(active).map(Some)
 }
 
 /// Enumerate actions for a path without computing a movement field.
@@ -980,45 +1166,30 @@ pub fn actions_for_path(
 fn actions_for_movement(
     movement: crate::transition::PreparedMovement<'_>,
 ) -> Result<ActionSet, QueryError> {
+    actions_for_destination(movement.prepare_destination())
+}
+
+fn actions_for_destination<'a, V>(
+    destination: PreparedDestination<'a, V>,
+) -> Result<ActionSet, QueryError>
+where
+    V: Borrow<AwbwView<'a>>,
+{
+    let movement = destination.movement();
     let state = movement.state();
-    let destination = movement.plan().destination();
-    let occupant = occupant(state, destination);
-    let join = occupant.is_some_and(|target| {
-        matches!(
-            movement.clone().prepare_join(target),
-            Ok(PrepareOutcome::Prepared(_))
-        )
-    });
-    let load = occupant.is_some_and(|transport| {
-        matches!(
-            movement.clone().prepare_load(transport),
-            Ok(PrepareOutcome::Prepared(_))
-        )
-    });
-    let attack = attack_targets_for_movement(&movement)?;
-    let repair = repair_targets(&movement);
-    let launch = launch_targets(&movement);
-    let wait = matches!(
-        movement.clone().prepare_wait(),
-        Ok(PrepareOutcome::Prepared(_))
-    );
-    let capture = matches!(
-        movement.clone().prepare_capture(),
-        Ok(PrepareOutcome::Prepared(_))
-    );
-    let supply = matches!(
-        movement.clone().prepare_supply(),
-        Ok(PrepareOutcome::Prepared(_))
-    );
-    let hide = matches!(
-        movement.clone().prepare_hide(),
-        Ok(PrepareOutcome::Prepared(_))
-    );
-    let reveal = matches!(
-        movement.clone().prepare_reveal(),
-        Ok(PrepareOutcome::Prepared(_))
-    );
-    let explode = matches!(movement.prepare_explode(), Ok(PrepareOutcome::Prepared(_)));
+    let position = movement.plan().destination();
+    let occupant = occupant(state, position);
+    let join = occupant.is_some_and(|target| destination.can_join(target).unwrap_or(false));
+    let load = occupant.is_some_and(|transport| destination.can_load(transport).unwrap_or(false));
+    let attack = attack_targets_for_destination(&destination)?;
+    let repair = repair_targets(&destination);
+    let launch = launch_targets(&destination);
+    let wait = destination.can_wait().unwrap_or(false);
+    let capture = destination.can_capture().unwrap_or(false);
+    let supply = destination.can_supply().unwrap_or(false);
+    let hide = destination.can_hide().unwrap_or(false);
+    let reveal = destination.can_reveal().unwrap_or(false);
+    let explode = destination.can_explode().unwrap_or(false);
 
     Ok(ActionSet {
         wait,
@@ -1035,39 +1206,13 @@ fn actions_for_movement(
     })
 }
 
-/// Everything `unit` may attack from `from`, having moved there if it must.
-///
-/// Candidates are narrowed by range first. Preparation then checks fire mode,
-/// ammunition, visibility, target legality, and commander effects without
-/// resolving combat.
-pub fn attack_targets(
-    state: &State,
-    unit: UnitId,
-    from: Pos,
-) -> Result<Vec<AttackTarget>, QueryError> {
-    let subject = lookup(state, unit)?;
-    let Location::Board { position: origin } = subject.location else {
-        return Err(QueryError::UnitNotOnBoard(unit));
-    };
-    let path = if from == origin {
-        vec![origin]
-    } else {
-        match reachable(state, unit)?.path_to(from) {
-            Some(path) => path,
-            None => return Ok(Vec::new()),
-        }
-    };
-    let movement = match prepare_movement(state, &subject.owner, unit, path) {
-        Ok(PrepareMovementOutcome::Prepared(movement)) => movement,
-        Ok(PrepareMovementOutcome::Rejected(_)) => return Ok(Vec::new()),
-        Err(error) => return Err(error.into()),
-    };
-    attack_targets_for_movement(&movement)
-}
-
-fn attack_targets_for_movement(
-    movement: &crate::transition::PreparedMovement<'_>,
-) -> Result<Vec<AttackTarget>, QueryError> {
+fn attack_targets_for_destination<'a, V>(
+    destination: &PreparedDestination<'a, V>,
+) -> Result<Vec<AttackTarget>, QueryError>
+where
+    V: Borrow<AwbwView<'a>>,
+{
+    let movement = destination.movement();
     let state = movement.state();
     let unit = movement.unit();
     let subject = lookup(state, unit)?;
@@ -1095,12 +1240,7 @@ fn attack_targets_for_movement(
         let distance = from.distance(position);
         distance >= minimum && distance <= maximum
     };
-    let accepts = |target: AttackTarget| {
-        matches!(
-            movement.clone().prepare_attack(target),
-            Ok(PrepareOutcome::Prepared(_))
-        )
-    };
+    let accepts = |target: AttackTarget| destination.can_attack(target).unwrap_or(false);
 
     let mut targets = Vec::new();
     for candidate in state.units.iter() {
@@ -1115,22 +1255,48 @@ fn attack_targets_for_movement(
             targets.push(target);
         }
     }
-    for (position, tile) in state.board.rows().flatten() {
-        if !in_range(position) || ruleset::terrain(tile.terrain).destructible.is_none() {
-            continue;
-        }
-        let target = AttackTarget::Tile { position };
-        if accepts(target) {
-            targets.push(target);
+    let radius = u8::try_from(maximum).unwrap_or(u8::MAX);
+    let minimum_x = from.x.saturating_sub(radius);
+    let maximum_x = from.x.saturating_add(radius).min(state.board.width() - 1);
+    let minimum_y = from.y.saturating_sub(radius);
+    let maximum_y = from.y.saturating_add(radius).min(state.board.height() - 1);
+    for y in minimum_y..=maximum_y {
+        for x in minimum_x..=maximum_x {
+            let position = Pos::new(x, y);
+            if !in_range(position)
+                || ruleset::terrain(state.board.tile(position).terrain)
+                    .destructible
+                    .is_none()
+            {
+                continue;
+            }
+            let target = AttackTarget::Tile { position };
+            if accepts(target) {
+                targets.push(target);
+            }
         }
     }
     Ok(targets)
 }
 
 /// Friendly units `unit` may repair after moving along `path`.
-fn repair_targets(movement: &crate::transition::PreparedMovement<'_>) -> Vec<UnitId> {
+fn repair_targets<'a, V>(destination: &PreparedDestination<'a, V>) -> Vec<UnitId>
+where
+    V: Borrow<AwbwView<'a>>,
+{
+    let movement = destination.movement();
     let state = movement.state();
     let unit = movement.unit();
+    let Some(repair) = state
+        .units
+        .get(unit)
+        .and_then(|unit| ruleset::profile(unit.kind).repair)
+    else {
+        return Vec::new();
+    };
+    if repair.relation != ruleset::Relation::Adjacent {
+        return Vec::new();
+    }
     let from = movement.plan().destination();
     state
         .units
@@ -1141,24 +1307,23 @@ fn repair_targets(movement: &crate::transition::PreparedMovement<'_>) -> Vec<Uni
                 if from.distance(position) == 1)
         })
         .map(|candidate| candidate.id)
-        .filter(|target| {
-            matches!(
-                movement.clone().prepare_repair(*target),
-                Ok(PrepareOutcome::Prepared(_))
-            )
-        })
+        .filter(|target| destination.can_repair(*target).unwrap_or(false))
         .collect()
 }
 
 /// Every tile a silo under the end of `path` may be fired at.
-fn launch_targets(movement: &crate::transition::PreparedMovement<'_>) -> Vec<Pos> {
+fn launch_targets<'a, V>(destination: &PreparedDestination<'a, V>) -> Vec<Pos>
+where
+    V: Borrow<AwbwView<'a>>,
+{
+    let movement = destination.movement();
     let state = movement.state();
-    let destination = movement.plan().destination();
+    let position = movement.plan().destination();
     // Launching is rare and the scan is over the whole board, so refuse early
     // unless the tile underfoot actually carries a silo.
     if state
         .board
-        .get(destination)
+        .get(position)
         .is_none_or(|tile| tile.silo.is_none())
     {
         return Vec::new();
@@ -1166,12 +1331,7 @@ fn launch_targets(movement: &crate::transition::PreparedMovement<'_>) -> Vec<Pos
     state
         .board
         .positions()
-        .filter(|target| {
-            matches!(
-                movement.clone().prepare_launch(*target),
-                Ok(PrepareOutcome::Prepared(_))
-            )
-        })
+        .filter(|target| destination.can_launch(*target).unwrap_or(false))
         .collect()
 }
 

@@ -206,13 +206,30 @@ pub(crate) fn execute_move_capture(
     path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
     let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_capture(movement)?;
+    let prepared = prepare_capture(movement.prepare_destination())?;
     execute_prepared_capture(prepared)
 }
 
-pub(super) fn prepare_capture(
-    movement: PreparedMovement<'_>,
-) -> Result<Prepared<'_, Capture>, ExecuteError> {
+pub(super) fn prepare_capture<'a, V>(
+    destination: PreparedDestination<'a, V>,
+) -> Result<Prepared<'a, Capture>, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let action = validate_capture(&destination)?;
+    Ok(Prepared {
+        movement: destination.into_movement(),
+        action,
+    })
+}
+
+pub(super) fn validate_capture<'a, V>(
+    destination: &PreparedDestination<'a, V>,
+) -> Result<Capture, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let movement = destination.movement();
     let state = movement.state();
     let plan = movement.plan();
     let unit = &state.units[plan.unit_index()];
@@ -223,8 +240,8 @@ pub(super) fn prepare_capture(
             action: Action::Capture,
         }));
     }
-    let destination = plan.destination();
-    let destination_tile = &state.board.tile(destination);
+    let position = plan.destination();
+    let destination_tile = &state.board.tile(position);
     let capturable = ruleset::terrain_has(destination_tile.terrain, TerrainTrait::Capturable);
     let owner = destination_tile.owner.player();
     let owner_is_hostile = owner.is_none_or(|owner| {
@@ -234,19 +251,16 @@ pub(super) fn prepare_capture(
     });
     if !capturable || !owner_is_hostile {
         return Err(violation(Violation::InvalidTarget {
-            target: Some(destination.into()),
+            target: Some(position.into()),
         }));
     }
-    let available_destination = movement.available_destination()?;
+    let available_destination = destination.available_destination()?;
 
     let strength =
         commander::effective_capture_points(state, unit, u64::from(unit.hp.div_ceil(10)));
-    Ok(Prepared {
-        movement,
-        action: Capture {
-            strength,
-            destination: available_destination,
-        },
+    Ok(Capture {
+        strength,
+        destination: available_destination,
     })
 }
 

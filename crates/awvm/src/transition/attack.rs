@@ -11,8 +11,8 @@ use crate::event::{AttackTarget, Event};
 use crate::random::Luck;
 use crate::ruleset::{self, Domain, FireMode, TerrainTrait};
 use crate::semantic::{
-    AwbwVisibility, Concealment, KnownReason, Location, PlayerId, Pos, PowerState, State,
-    TerrainId, Unit, UnitAction, UnitId, UnitKindId, Visibility,
+    AwbwView, Concealment, KnownReason, Location, PlayerId, Pos, PowerState, State, TerrainId,
+    Unit, UnitAction, UnitId, UnitKindId, Viewpoint,
 };
 use crate::violation::{Action, Violation};
 use std::collections::HashSet;
@@ -492,10 +492,10 @@ struct ValidatedTileAttack {
 
 fn validate_tile_attack(
     state: &State,
-    player: &PlayerId,
     attacker: &Unit,
     origin: Pos,
     position: Pos,
+    view: &AwbwView<'_>,
 ) -> Result<ValidatedTileAttack, ExecuteError> {
     let tile = state.board.get(position).ok_or_else(|| {
         violation(Violation::InvalidTarget {
@@ -528,11 +528,7 @@ fn validate_tile_attack(
         .map_err(|_| ExecuteError::InvalidState("destructible tile HP overflow".into()))?;
     let kind = destructible.target_kind;
 
-    let actor_team = state
-        .find_player(player)
-        .map(|candidate| &candidate.team)
-        .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
-    if state.settings.fog && !AwbwVisibility.view(state, actor_team).position(position) {
+    if state.settings.fog && !view.position(position) {
         return Err(violation(Violation::InvalidTarget {
             target: Some(position.into()),
         }));
@@ -577,6 +573,14 @@ fn validate_tile_attack(
     })
 }
 
+fn attack_view<'a>(state: &'a State, player: &PlayerId) -> Result<AwbwView<'a>, ExecuteError> {
+    let team = state
+        .find_player(player)
+        .map(|candidate| &candidate.team)
+        .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
+    Ok(AwbwView::new(state, team))
+}
+
 pub(crate) fn execute_tile_attack(
     state: &State,
     player: &PlayerId,
@@ -586,7 +590,8 @@ pub(crate) fn execute_tile_attack(
     origin: Pos,
     position: Pos,
 ) -> Result<Execution, ExecuteError> {
-    let target = validate_tile_attack(state, player, attacker, origin, position)?;
+    let view = attack_view(state, player)?;
+    let target = validate_tile_attack(state, attacker, origin, position, &view)?;
     let from_hp = target.hp;
     let target_kind = target.kind;
     let destruction_replacement = target.destruction_replacement;
@@ -654,17 +659,33 @@ pub(crate) fn execute_move_attack(
     draws: &mut Draws<'_>,
 ) -> Result<Execution, ExecuteError> {
     let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_attack(movement, target)?;
+    let prepared = prepare_attack(movement.prepare_destination(), target)?;
     execute_prepared_attack(prepared, draws)
 }
 
-pub(super) fn prepare_attack(
-    movement: PreparedMovement<'_>,
+pub(super) fn prepare_attack<'a, V>(
+    destination: PreparedDestination<'a, V>,
     target: AttackTarget,
-) -> Result<Prepared<'_, Attack>, ExecuteError> {
+) -> Result<Prepared<'a, Attack>, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let action = validate_attack(&destination, target)?;
+    Ok(Prepared {
+        movement: destination.into_movement(),
+        action,
+    })
+}
+
+pub(super) fn validate_attack<'a, V>(
+    destination: &PreparedDestination<'a, V>,
+    target: AttackTarget,
+) -> Result<Attack, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let movement = destination.movement();
     let state = movement.state();
-    let player = &state.turn.active_player;
-    let unit_id = movement.unit();
     let plan = movement.plan();
     let ai = plan.unit_index();
     let attacker = &state.units[ai];
@@ -684,35 +705,46 @@ pub(super) fn prepare_attack(
             FireMode::Direct => {}
         }
 
-        let prepared_target = prepare_attack_target(state, plan.actor_team(), target)?;
-        let destination = plan.destination();
-        let available_destination = movement.available_destination()?;
+        let prepared_target =
+            prepare_attack_target(state, plan.actor_team(), destination.view(), target)?;
+        let attack_origin = plan.destination();
+        let available_destination = destination.available_destination()?;
 
-        if planned_movement_trap(state, unit_id, plan).is_none() {
-            validate_attack_target(state, player, ai, destination, prepared_target)?;
+        if destination.trap().is_none() {
+            validate_attack_target(
+                state,
+                ai,
+                attack_origin,
+                prepared_target,
+                destination.view(),
+            )?;
         }
         (prepared_target, Some(available_destination))
     } else {
-        let prepared_target = prepare_attack_target(state, plan.actor_team(), target)?;
-        validate_attack_target(state, player, ai, plan.origin(), prepared_target)?;
+        let prepared_target =
+            prepare_attack_target(state, plan.actor_team(), destination.view(), target)?;
+        validate_attack_target(
+            state,
+            ai,
+            plan.origin(),
+            prepared_target,
+            destination.view(),
+        )?;
         (prepared_target, None)
     };
 
-    Ok(Prepared {
-        movement,
-        action: Attack {
-            target: prepared_target,
-            destination: available_destination,
-        },
+    Ok(Attack {
+        target: prepared_target,
+        destination: available_destination,
     })
 }
 
 fn validate_attack_target(
     state: &State,
-    player: &PlayerId,
     attacker_index: usize,
     origin: Pos,
     target: PreparedAttackTarget,
+    view: &AwbwView<'_>,
 ) -> Result<(), ExecuteError> {
     let attacker = &state.units[attacker_index];
     match target {
@@ -720,7 +752,7 @@ fn validate_attack_target(
             Engagement::open(state, attacker_index, origin, disclosed)?;
         }
         PreparedAttackTarget::Tile(position) => {
-            validate_tile_attack(state, player, attacker, origin, position)?;
+            validate_tile_attack(state, attacker, origin, position, view)?;
         }
     }
     Ok(())
@@ -794,11 +826,12 @@ enum PreparedAttackTarget {
 fn prepare_attack_target(
     state: &State,
     actor_team: &crate::semantic::TeamId,
+    view: &AwbwView<'_>,
     target: AttackTarget,
 ) -> Result<PreparedAttackTarget, ExecuteError> {
     match target {
         AttackTarget::Unit { unit } => Ok(PreparedAttackTarget::Unit(disclose_unit_target(
-            state, actor_team, unit,
+            state, actor_team, view, unit,
         )?)),
         AttackTarget::Tile { position } => Ok(PreparedAttackTarget::Tile(position)),
     }
@@ -807,6 +840,7 @@ fn prepare_attack_target(
 fn disclose_unit_target(
     state: &State,
     actor_team: &crate::semantic::TeamId,
+    view: &AwbwView<'_>,
     target_id: UnitId,
 ) -> Result<DisclosedUnitTarget, ExecuteError> {
     let invalid = || {
@@ -821,7 +855,7 @@ fn disclose_unit_target(
         .ok_or_else(|| ExecuteError::InvalidState("target owner is absent".into()))?;
     if defender_team == actor_team
         || !matches!(defender.location, Location::Board { .. })
-        || !AwbwVisibility.view(state, actor_team).unit(defender)
+        || !view.unit(defender)
     {
         return Err(invalid());
     }
@@ -1059,7 +1093,8 @@ pub(crate) fn forecast_unit_attack(
         .find_player(player)
         .map(|candidate| &candidate.team)
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
-    let disclosed = disclose_unit_target(state, actor_team, target_id)?;
+    let view = AwbwView::new(state, actor_team);
+    let disclosed = disclose_unit_target(state, actor_team, &view, target_id)?;
     let engagement = Engagement::open(state, attacker_index, origin, disclosed)?;
     let attacker = engagement.attacker.unit;
     let defender = engagement.defender.unit;
@@ -1164,7 +1199,8 @@ pub(crate) fn forecast_tile_attack(
     origin: Pos,
     position: Pos,
 ) -> Result<Option<Forecast>, ExecuteError> {
-    let target = match validate_tile_attack(state, player, attacker, origin, position) {
+    let view = attack_view(state, player)?;
+    let target = match validate_tile_attack(state, attacker, origin, position, &view) {
         Ok(target) => target,
         Err(ExecuteError::Violation(_)) => return Ok(None),
         Err(error) => return Err(error),

@@ -102,7 +102,7 @@ struct Sighting {
 }
 
 impl<'a> AwbwView<'a> {
-    fn new(state: &'a State, team: &TeamId) -> Self {
+    pub(crate) fn new(state: &'a State, team: &TeamId) -> Self {
         let teammates: Vec<&'a PlayerId> = state
             .players
             .iter()

@@ -62,13 +62,30 @@ pub(crate) fn execute_move_supply(
     path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
     let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_supply(movement)?;
+    let prepared = prepare_supply(movement.prepare_destination())?;
     Ok(execute_prepared_supply(prepared))
 }
 
-pub(super) fn prepare_supply(
-    movement: PreparedMovement<'_>,
-) -> Result<Prepared<'_, Supply>, ExecuteError> {
+pub(super) fn prepare_supply<'a, V>(
+    destination: PreparedDestination<'a, V>,
+) -> Result<Prepared<'a, Supply>, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let action = validate_supply(&destination)?;
+    Ok(Prepared {
+        movement: destination.into_movement(),
+        action,
+    })
+}
+
+pub(super) fn validate_supply<'a, V>(
+    destination: &PreparedDestination<'a, V>,
+) -> Result<Supply, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let movement = destination.movement();
     let state = movement.state();
     let plan = movement.plan();
     let unit = &state.units[plan.unit_index()];
@@ -78,14 +95,10 @@ pub(super) fn prepare_supply(
             action: Action::MoveSupply,
         }));
     };
-    let destination = movement.available_destination()?;
-
-    Ok(Prepared {
-        movement,
-        action: Supply {
-            targets: supply.targets,
-            destination,
-        },
+    let available = destination.available_destination()?;
+    Ok(Supply {
+        targets: supply.targets,
+        destination: available,
     })
 }
 
@@ -185,14 +198,32 @@ pub(crate) fn execute_move_repair(
     target_id: UnitId,
 ) -> Result<Execution, ExecuteError> {
     let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_repair(movement, target_id)?;
+    let prepared = prepare_repair(movement.prepare_destination(), target_id)?;
     execute_prepared_repair(prepared)
 }
 
-pub(super) fn prepare_repair(
-    movement: PreparedMovement<'_>,
+pub(super) fn prepare_repair<'a, V>(
+    destination: PreparedDestination<'a, V>,
     target_id: UnitId,
-) -> Result<Prepared<'_, Repair>, ExecuteError> {
+) -> Result<Prepared<'a, Repair>, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let action = validate_repair(&destination, target_id)?;
+    Ok(Prepared {
+        movement: destination.into_movement(),
+        action,
+    })
+}
+
+pub(super) fn validate_repair<'a, V>(
+    destination: &PreparedDestination<'a, V>,
+    target_id: UnitId,
+) -> Result<Repair, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let movement = destination.movement();
     let state = movement.state();
     let unit_id = movement.unit();
     let plan = movement.plan();
@@ -220,13 +251,13 @@ pub(super) fn prepare_repair(
             target: Some(target_id.into()),
         }));
     }
-    let destination = plan.destination();
-    if target_position.x.abs_diff(destination.x) + target_position.y.abs_diff(destination.y) != 1 {
+    let position = plan.destination();
+    if target_position.x.abs_diff(position.x) + target_position.y.abs_diff(position.y) != 1 {
         return Err(violation(Violation::TargetOutOfRange {
             target: Some(target_id.into()),
         }));
     }
-    let destination = movement.available_destination()?;
+    let available = destination.available_destination()?;
 
     let target_profile = ruleset::profile(target.kind);
     let heal_cost = target_profile
@@ -235,17 +266,14 @@ pub(super) fn prepare_repair(
         .and_then(|cost| cost.checked_div(100))
         .ok_or(ExecuteError::UnsupportedRuleset)?;
 
-    Ok(Prepared {
-        movement,
-        action: Repair {
-            target: target_id,
-            capability: repair,
-            target_index,
-            heal_cost,
-            max_fuel: target_profile.max_fuel,
-            max_ammo: target_profile.max_ammo,
-            destination,
-        },
+    Ok(Repair {
+        target: target_id,
+        capability: repair,
+        target_index,
+        heal_cost,
+        max_fuel: target_profile.max_fuel,
+        max_ammo: target_profile.max_ammo,
+        destination: available,
     })
 }
 
@@ -333,14 +361,32 @@ pub(crate) fn execute_move_load(
     transport_id: UnitId,
 ) -> Result<Execution, ExecuteError> {
     let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_load(movement, transport_id)?;
+    let prepared = prepare_load(movement.prepare_destination(), transport_id)?;
     Ok(execute_prepared_load(prepared))
 }
 
-pub(super) fn prepare_load(
-    movement: PreparedMovement<'_>,
+pub(super) fn prepare_load<'a, V>(
+    destination: PreparedDestination<'a, V>,
     transport_id: UnitId,
-) -> Result<Prepared<'_, Load>, ExecuteError> {
+) -> Result<Prepared<'a, Load>, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let action = validate_load(&destination, transport_id)?;
+    Ok(Prepared {
+        movement: destination.into_movement(),
+        action,
+    })
+}
+
+pub(super) fn validate_load<'a, V>(
+    destination: &PreparedDestination<'a, V>,
+    transport_id: UnitId,
+) -> Result<Load, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let movement = destination.movement();
     let state = movement.state();
     let unit_id = movement.unit();
     let plan = movement.plan();
@@ -389,12 +435,9 @@ pub(super) fn prepare_load(
             ExecuteError::InvalidState(format!("transport {transport_id} is full").into())
         })?;
 
-    Ok(Prepared {
-        movement,
-        action: Load {
-            transport: transport_id,
-            slot,
-        },
+    Ok(Load {
+        transport: transport_id,
+        slot,
     })
 }
 
@@ -578,14 +621,32 @@ pub(crate) fn execute_move_join(
     target_id: UnitId,
 ) -> Result<Execution, ExecuteError> {
     let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_join(movement, target_id)?;
+    let prepared = prepare_join(movement.prepare_destination(), target_id)?;
     execute_prepared_join(prepared)
 }
 
-pub(super) fn prepare_join(
-    movement: PreparedMovement<'_>,
+pub(super) fn prepare_join<'a, V>(
+    destination: PreparedDestination<'a, V>,
     target_id: UnitId,
-) -> Result<Prepared<'_, Join>, ExecuteError> {
+) -> Result<Prepared<'a, Join>, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let action = validate_join(&destination, target_id)?;
+    Ok(Prepared {
+        movement: destination.into_movement(),
+        action,
+    })
+}
+
+pub(super) fn validate_join<'a, V>(
+    destination: &PreparedDestination<'a, V>,
+    target_id: UnitId,
+) -> Result<Join, ExecuteError>
+where
+    V: std::borrow::Borrow<AwbwView<'a>>,
+{
+    let movement = destination.movement();
     let state = movement.state();
     let unit_id = movement.unit();
     let plan = movement.plan();
@@ -637,13 +698,10 @@ pub(super) fn prepare_join(
         }));
     }
 
-    Ok(Prepared {
-        movement,
-        action: Join {
-            target: PreparedJoinTarget {
-                id: target_id,
-                index: target_index,
-            },
+    Ok(Join {
+        target: PreparedJoinTarget {
+            id: target_id,
+            index: target_index,
         },
     })
 }

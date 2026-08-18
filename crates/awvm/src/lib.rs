@@ -60,7 +60,9 @@ pub mod violation;
 /// server, or a replay viewer to the reducer.
 pub mod prelude {
     pub use crate::event::{AttackTarget, Event};
-    pub use crate::query::{ActionSet, MoveField, ObservedQuery, QueryError, Step};
+    pub use crate::query::{
+        ActionSet, MoveField, ObservedQuery, PreparedMoveField, QueryError, Step,
+    };
     pub use crate::random::{Entropy, Luck, RandomError, RandomTape, RandomToken, Recording};
     pub use crate::ruleset::{CommanderKind, Terrain, UnitKind, WeatherKind};
     pub use crate::semantic::{
@@ -72,10 +74,10 @@ pub mod prelude {
         Command, ExecuteError, ExecuteOutcome, Execution, PrepareActiveUnitOutcome,
         PrepareMovementOutcome, PrepareOutcome, PrepareProductionSiteOutcome,
         PrepareUnloadCargoOutcome, PrepareUnloadTransportOutcome, PreparedActiveUnit,
-        PreparedCommand, PreparedMovement, PreparedProductionSite, PreparedUnloadCargo,
-        PreparedUnloadTransport, execute, execute_prepared, execute_prepared_with, execute_with,
-        prepare_active_unit, prepare_command, prepare_movement, prepare_production_site,
-        prepare_unload_transport,
+        PreparedCommand, PreparedDestination, PreparedMovement, PreparedProductionSite,
+        PreparedUnloadCargo, PreparedUnloadTransport, execute, execute_prepared,
+        execute_prepared_with, execute_with, prepare_active_unit, prepare_command,
+        prepare_movement, prepare_production_site, prepare_unload_transport,
     };
     pub use crate::violation::Violation;
 }
