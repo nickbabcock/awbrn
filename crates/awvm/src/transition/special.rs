@@ -10,7 +10,7 @@ use super::*;
 use crate::commander::AreaStrikePolicy;
 use crate::event::Event;
 use crate::ruleset::{MISSILE_SILO_STRIKE, UNIT_EXPLOSION, UnitKind};
-use crate::semantic::{KnownReason, Pos, Silo, UnitAction, UnitId, VictoryReason};
+use crate::semantic::{KnownReason, Pos, Silo, UnitId, VictoryReason};
 use crate::violation::{Action, Violation};
 
 #[derive(Debug)]
@@ -21,6 +21,11 @@ pub(super) struct Launch {
 
 #[derive(Debug)]
 pub(super) struct Explode(AvailableDestination);
+
+#[derive(Debug)]
+pub(super) struct PreparedDelete<'a> {
+    unit: PreparedActiveUnit<'a>,
+}
 
 pub(crate) fn execute_move_launch(
     turn: &ActiveTurn<'_>,
@@ -262,24 +267,24 @@ pub(crate) fn execute_delete_unit(
     turn: &ActiveTurn<'_>,
     unit_id: UnitId,
 ) -> Result<Execution, ExecuteError> {
-    let state = turn.state();
-    let player = turn.player();
-    let unit_index = state
-        .units
-        .index_of(unit_id)
-        .ok_or_else(|| violation(Violation::UnitNotFound { unit: unit_id }))?;
-    let unit = &state.units[unit_index];
-    if unit.owner != player {
-        return Err(violation(Violation::UnitNotOwned {
-            unit: unit_id,
-            player: player.clone(),
-        }));
-    }
-    let position = board_position(unit)
-        .ok_or_else(|| violation(Violation::UnitNotOnBoard { unit: unit_id }))?;
-    if unit.action != UnitAction::Ready {
-        return Err(violation(Violation::UnitAlreadyActed { unit: unit_id }));
-    }
+    let unit = turn.prepare_unit(unit_id)?;
+    execute_prepared_delete(prepare_delete(unit)?)
+}
+
+pub(super) fn prepare_delete(
+    unit: PreparedActiveUnit<'_>,
+) -> Result<PreparedDelete<'_>, ExecuteError> {
+    Ok(PreparedDelete { unit })
+}
+
+pub(super) fn execute_prepared_delete(
+    prepared: PreparedDelete<'_>,
+) -> Result<Execution, ExecuteError> {
+    let PreparedDelete { unit } = prepared;
+    let state = unit.state();
+    let player = &state.turn.active_player;
+    let unit_id = unit.unit();
+    let position = unit.origin();
 
     let mut next = state.clone();
     let mut events = Vec::new();

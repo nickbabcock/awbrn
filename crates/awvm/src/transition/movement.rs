@@ -107,29 +107,14 @@ pub(crate) struct MovementOutcome {
 /// The shared prologue is [`ActiveTurn::open`]'s job and has already run; what
 /// is left is everything specific to moving a unit along a path.
 pub(crate) fn plan(
-    turn: &ActiveTurn<'_>,
-    unit_id: UnitId,
+    active: &PreparedActiveUnit<'_>,
     path: Vec<Pos>,
 ) -> Result<MovedUnit, ExecuteError> {
-    let state = turn.state();
-    let player = turn.player();
-    let unit_index = state
-        .units
-        .index_of(unit_id)
-        .ok_or_else(|| violation(Violation::UnitNotFound { unit: unit_id }))?;
+    let state = active.state();
+    let unit_id = active.unit();
+    let unit_index = active.unit_index();
     let unit = &state.units[unit_index];
-    if unit.owner != player {
-        return Err(violation(Violation::UnitNotOwned {
-            unit: unit_id,
-            player: player.clone(),
-        }));
-    }
-    let Location::Board { position: origin } = unit.location else {
-        return Err(violation(Violation::UnitNotOnBoard { unit: unit_id }));
-    };
-    if unit.action != UnitAction::Ready {
-        return Err(violation(Violation::UnitAlreadyActed { unit: unit_id }));
-    }
+    let origin = active.origin();
     let actual_origin = path.first().copied().unwrap_or(origin);
     if path.first() != Some(&origin) {
         return Err(violation(Violation::PathOriginMismatch {
@@ -198,10 +183,10 @@ pub(crate) fn plan(
         entry_costs.push(cost);
     }
     let actor_team = state
-        .find_player(player)
+        .find_player(&unit.owner)
         .map(|candidate| candidate.team.clone())
         .ok_or_else(|| {
-            ExecuteError::InvalidState(format!("unknown active player {player}").into())
+            ExecuteError::InvalidState(format!("unknown active player {}", unit.owner).into())
         })?;
     let view = AwbwVisibility.view(state, &actor_team);
     for (index, position) in path

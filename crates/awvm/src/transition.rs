@@ -7,8 +7,8 @@ use crate::event::{AttackTarget, Event};
 use crate::random::{Entropy, Luck, RandomError, RandomTape, RandomToken, RandomTokenKind};
 use crate::ruleset::{self, Domain, UnitKind};
 use crate::semantic::{
-    KnownReason, Location, Match, Outcome, Phase, PlayerId, Pos, State, TerrainId, Unit, UnitId,
-    UnitKindId, Viewpoint, WeatherKind,
+    KnownReason, Location, Match, Outcome, Phase, PlayerId, PlayerIdx, Pos, State, TerrainId, Unit,
+    UnitId, UnitKindId, Viewpoint, WeatherKind,
 };
 use crate::violation::Violation;
 
@@ -193,6 +193,50 @@ pub struct PreparedMovement<'a> {
     movement: MovedUnit,
 }
 
+/// A ready unit that belongs to the active player and is on the board.
+///
+/// The borrowed state binds later movement and delete preparation to the
+/// checks that produced this value.
+#[derive(Clone, Debug)]
+pub struct PreparedActiveUnit<'a> {
+    state: &'a State,
+    unit: UnitId,
+    unit_index: usize,
+    origin: Pos,
+}
+
+/// A production position bound to one active turn.
+///
+/// Construct this once and use it to inspect every unit kind. Shared board and
+/// roster facts are computed once, while each kind keeps the violation order
+/// required by the reducer.
+#[derive(Clone, Debug)]
+pub struct PreparedProductionSite<'a> {
+    state: &'a State,
+    position: Pos,
+    player_index: PlayerIdx,
+    occupied: bool,
+    owned_units: u64,
+    owns_lab: bool,
+}
+
+/// A valid transport bound to one active turn.
+#[derive(Clone, Debug)]
+pub struct PreparedUnloadTransport<'a> {
+    state: &'a State,
+    transport: UnitId,
+    position: Pos,
+}
+
+/// Cargo that is carried by a prepared transport.
+#[derive(Clone, Debug)]
+pub struct PreparedUnloadCargo<'a> {
+    transport: PreparedUnloadTransport<'a>,
+    cargo: UnitId,
+    cargo_index: usize,
+    cargo_slot: usize,
+}
+
 /// A command that was resolved against one state but was not applied.
 #[derive(Debug)]
 pub struct PreparedCommand<'a> {
@@ -217,6 +261,9 @@ enum PreparedCommandKind<'a> {
     Repair(Prepared<'a, transport::Repair>),
     Launch(Prepared<'a, special::Launch>),
     Explode(Prepared<'a, special::Explode>),
+    Produce(property::PreparedProduction<'a>),
+    Delete(special::PreparedDelete<'a>),
+    Unload(transport::PreparedUnload<'a>),
 }
 
 /// The semantic result of preparing a supported command.
@@ -230,6 +277,34 @@ pub enum PrepareOutcome<'a> {
 #[derive(Debug)]
 pub enum PrepareMovementOutcome<'a> {
     Prepared(PreparedMovement<'a>),
+    Rejected(Violation),
+}
+
+/// The semantic result of preparing an active unit.
+#[derive(Debug)]
+pub enum PrepareActiveUnitOutcome<'a> {
+    Prepared(PreparedActiveUnit<'a>),
+    Rejected(Violation),
+}
+
+/// The semantic result of preparing a production position.
+#[derive(Debug)]
+pub enum PrepareProductionSiteOutcome<'a> {
+    Prepared(PreparedProductionSite<'a>),
+    Rejected(Violation),
+}
+
+/// The semantic result of preparing a transport for unload commands.
+#[derive(Debug)]
+pub enum PrepareUnloadTransportOutcome<'a> {
+    Prepared(PreparedUnloadTransport<'a>),
+    Rejected(Violation),
+}
+
+/// The semantic result of selecting cargo from a prepared transport.
+#[derive(Debug)]
+pub enum PrepareUnloadCargoOutcome<'a> {
+    Prepared(PreparedUnloadCargo<'a>),
     Rejected(Violation),
 }
 
@@ -326,10 +401,11 @@ pub fn execute_with(
 
 /// Resolve a command without cloning or changing its input state.
 ///
-/// Preparation supports all movement commands. Other commands return
-/// [`ExecuteError::UnsupportedCommand`]. Preparation performs the same
-/// deterministic checks as [`execute`], but it delays the state clone,
-/// mutation, and random draws until [`execute_prepared`] is called.
+/// Preparation supports movement, production, delete, and unload commands.
+/// Other commands return [`ExecuteError::UnsupportedCommand`]. Preparation
+/// performs the same deterministic checks as [`execute`], but it delays the
+/// state clone, mutation, and random draws until [`execute_prepared`] is
+/// called.
 pub fn prepare_command(
     state: &State,
     command: Command,
@@ -347,6 +423,55 @@ pub fn prepare_movement<'a>(
     match prepare_movement_inner(state, player, unit, path) {
         Ok(prepared) => Ok(PrepareMovementOutcome::Prepared(prepared)),
         Err(ReducerError::Violation(violation)) => Ok(PrepareMovementOutcome::Rejected(violation)),
+        Err(error) => Err(execute_error(error)),
+    }
+}
+
+/// Resolve the checks shared by movement and deletion.
+pub fn prepare_active_unit<'a>(
+    state: &'a State,
+    player: &PlayerId,
+    unit: UnitId,
+) -> Result<PrepareActiveUnitOutcome<'a>, ExecuteError> {
+    match ActiveTurn::open(state, player).and_then(|turn| turn.prepare_unit(unit)) {
+        Ok(prepared) => Ok(PrepareActiveUnitOutcome::Prepared(prepared)),
+        Err(ReducerError::Violation(violation)) => {
+            Ok(PrepareActiveUnitOutcome::Rejected(violation))
+        }
+        Err(error) => Err(execute_error(error)),
+    }
+}
+
+/// Bind a production position to the active turn.
+pub fn prepare_production_site<'a>(
+    state: &'a State,
+    player: &PlayerId,
+    position: Pos,
+) -> Result<PrepareProductionSiteOutcome<'a>, ExecuteError> {
+    match ActiveTurn::open(state, player)
+        .and_then(|turn| property::prepare_production_site(&turn, position))
+    {
+        Ok(prepared) => Ok(PrepareProductionSiteOutcome::Prepared(prepared)),
+        Err(ReducerError::Violation(violation)) => {
+            Ok(PrepareProductionSiteOutcome::Rejected(violation))
+        }
+        Err(error) => Err(execute_error(error)),
+    }
+}
+
+/// Bind an unload-capable transport to the active turn.
+pub fn prepare_unload_transport<'a>(
+    state: &'a State,
+    player: &PlayerId,
+    transport: UnitId,
+) -> Result<PrepareUnloadTransportOutcome<'a>, ExecuteError> {
+    match ActiveTurn::open(state, player)
+        .and_then(|turn| transport::prepare_unload_transport(&turn, transport))
+    {
+        Ok(prepared) => Ok(PrepareUnloadTransportOutcome::Prepared(prepared)),
+        Err(ReducerError::Violation(violation)) => {
+            Ok(PrepareUnloadTransportOutcome::Rejected(violation))
+        }
         Err(error) => Err(execute_error(error)),
     }
 }
@@ -421,6 +546,79 @@ impl<'a> PreparedMovement<'a> {
 
     pub(crate) const fn plan(&self) -> &MovedUnit {
         &self.movement
+    }
+}
+
+impl<'a> PreparedActiveUnit<'a> {
+    /// Resolve movement for this unit without repeating active-unit checks.
+    pub fn prepare_movement(
+        self,
+        path: Vec<Pos>,
+    ) -> Result<PrepareMovementOutcome<'a>, ExecuteError> {
+        match movement::plan(&self, path) {
+            Ok(movement) => Ok(PrepareMovementOutcome::Prepared(PreparedMovement {
+                state: self.state,
+                unit: self.unit,
+                movement,
+            })),
+            Err(ReducerError::Violation(violation)) => {
+                Ok(PrepareMovementOutcome::Rejected(violation))
+            }
+            Err(error) => Err(execute_error(error)),
+        }
+    }
+
+    /// Resolve deletion for this unit.
+    pub fn prepare_delete(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(special::prepare_delete(self).map(PreparedCommandKind::Delete))
+    }
+
+    pub(crate) const fn state(&self) -> &'a State {
+        self.state
+    }
+
+    pub(crate) const fn unit(&self) -> UnitId {
+        self.unit
+    }
+
+    pub(crate) const fn unit_index(&self) -> usize {
+        self.unit_index
+    }
+
+    pub(crate) const fn origin(&self) -> Pos {
+        self.origin
+    }
+}
+
+impl<'a> PreparedProductionSite<'a> {
+    /// Resolve one unit kind at this position.
+    pub fn prepare_kind(self, kind: UnitKindId) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(property::prepare_production(self, kind).map(PreparedCommandKind::Produce))
+    }
+}
+
+impl<'a> PreparedUnloadTransport<'a> {
+    /// Resolve cargo carried by this transport.
+    pub fn prepare_cargo(
+        self,
+        cargo: UnitId,
+    ) -> Result<PrepareUnloadCargoOutcome<'a>, ExecuteError> {
+        match transport::prepare_unload_cargo(self, cargo) {
+            Ok(prepared) => Ok(PrepareUnloadCargoOutcome::Prepared(prepared)),
+            Err(ReducerError::Violation(violation)) => {
+                Ok(PrepareUnloadCargoOutcome::Rejected(violation))
+            }
+            Err(error) => Err(execute_error(error)),
+        }
+    }
+}
+
+impl<'a> PreparedUnloadCargo<'a> {
+    /// Resolve one destination for this cargo.
+    pub fn prepare_destination(self, destination: Pos) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(
+            transport::prepare_unload(self, destination).map(PreparedCommandKind::Unload),
+        )
     }
 }
 
@@ -499,6 +697,26 @@ fn prepare(state: &State, command: Command) -> Result<PreparedCommandKind<'_>, R
             target,
         } => special::prepare_launch(prepare_movement_inner(state, &player, unit, path)?, target)
             .map(PreparedCommandKind::Launch),
+        Command::ProduceUnit {
+            player,
+            position,
+            kind,
+        } => property::prepare_production_site(&ActiveTurn::open(state, &player)?, position)
+            .and_then(|site| property::prepare_production(site, kind))
+            .map(PreparedCommandKind::Produce),
+        Command::DeleteUnit { player, unit } => ActiveTurn::open(state, &player)?
+            .prepare_unit(unit)
+            .and_then(special::prepare_delete)
+            .map(PreparedCommandKind::Delete),
+        Command::Unload {
+            player,
+            transport,
+            cargo,
+            destination,
+        } => transport::prepare_unload_transport(&ActiveTurn::open(state, &player)?, transport)
+            .and_then(|transport| transport::prepare_unload_cargo(transport, cargo))
+            .and_then(|cargo| transport::prepare_unload(cargo, destination))
+            .map(PreparedCommandKind::Unload),
         _ => Err(ReducerError::UnsupportedCommand),
     }
 }
@@ -571,6 +789,13 @@ pub fn execute_prepared_with(
         PreparedCommandKind::Explode(prepared) => {
             special::execute_prepared_explode(prepared).map_err(execute_error)
         }
+        PreparedCommandKind::Produce(prepared) => {
+            Ok(property::execute_prepared_production(prepared))
+        }
+        PreparedCommandKind::Delete(prepared) => {
+            special::execute_prepared_delete(prepared).map_err(execute_error)
+        }
+        PreparedCommandKind::Unload(prepared) => Ok(transport::execute_prepared_unload(prepared)),
     }
 }
 
@@ -836,12 +1061,35 @@ impl<'a> ActiveTurn<'a> {
         &self.state.turn.active_player
     }
 
-    /// Validate a movement and yield the proof that it was validated.
-    ///
-    /// Forwards to [`movement::plan`], which is the only constructor of a
-    /// [`MovedUnit`], so no reducer can act on an unvalidated path.
-    fn plan_move(&self, unit: UnitId, path: Vec<Pos>) -> Result<MovedUnit, ReducerError> {
-        movement::plan(self, unit, path)
+    /// Validate the checks shared by movement and deletion.
+    pub(crate) fn prepare_unit(
+        &self,
+        unit: UnitId,
+    ) -> Result<PreparedActiveUnit<'a>, ReducerError> {
+        let unit_index = self
+            .state
+            .units
+            .index_of(unit)
+            .ok_or_else(|| violation(Violation::UnitNotFound { unit }))?;
+        let subject = &self.state.units[unit_index];
+        if subject.owner != self.player() {
+            return Err(violation(Violation::UnitNotOwned {
+                unit,
+                player: self.player().clone(),
+            }));
+        }
+        let Location::Board { position: origin } = subject.location else {
+            return Err(violation(Violation::UnitNotOnBoard { unit }));
+        };
+        if subject.action != crate::semantic::UnitAction::Ready {
+            return Err(violation(Violation::UnitAlreadyActed { unit }));
+        }
+        Ok(PreparedActiveUnit {
+            state: self.state,
+            unit,
+            unit_index,
+            origin,
+        })
     }
 
     /// Validate movement and bind it to this turn's state.
@@ -850,10 +1098,12 @@ impl<'a> ActiveTurn<'a> {
         unit: UnitId,
         path: Vec<Pos>,
     ) -> Result<PreparedMovement<'a>, ReducerError> {
+        let active = self.prepare_unit(unit)?;
+        let movement = movement::plan(&active, path)?;
         Ok(PreparedMovement {
             state: self.state,
             unit,
-            movement: self.plan_move(unit, path)?,
+            movement,
         })
     }
 }
@@ -1003,7 +1253,7 @@ mod tests {
     }
 
     fn plan_for(state: &State, path: Vec<Pos>) -> Result<(), ReducerError> {
-        ActiveTurn::open(state, &PlayerId::from("red"))?.plan_move(UnitId::new(0), path)?;
+        ActiveTurn::open(state, &PlayerId::from("red"))?.prepare_move(UnitId::new(0), path)?;
         Ok(())
     }
 
