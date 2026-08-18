@@ -7,6 +7,11 @@ projection, and elimination remain outside this feature.
 
 ## Weapon and command eligibility
 
+The target of a unit attack MUST be an enemy unit: its owner's team MUST differ
+from the acting player's team. An own or allied unit target is rejected as
+`INVALID_TARGET`. This check applies before weapon selection or combat
+randomness and is shared by stationary and moving attacks.
+
 Resolve Manhattan distance after movement. A direct weapon has range 1. An
 indirect weapon uses the unit's minimum and maximum range and the attacker MUST
 not have moved in the command. Selection tries the ammo matrix when ammo is
@@ -201,6 +206,14 @@ These authoritative facts and exact charge are global information under
 `model/observation.md`.
 
 ## Evidence
+
+Enemy-only unit targeting is `corroborated-implementation` from WarsWorld. Its
+target-list path includes a unit only when the target and attacker teams differ,
+and its authoritative attack handler independently rejects a defender on the
+acting player's team. AWBW Replay Player consumes completed replay actions and
+does not expose command eligibility, so it supplies no independent evidence for
+this rule. A controlled AWBW experiment is still required for a higher evidence
+rank.
 
 The weapon selection and base damage are backed by `weapons.json`. The formula,
 visual HP use, counter post-damage HP, and demand-driven counter are

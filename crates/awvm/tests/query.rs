@@ -339,6 +339,43 @@ fn observed_production_options_include_hachi_scop_city_metadata() {
     );
 }
 
+#[test]
+fn allied_units_are_not_attack_targets_or_forecasts() {
+    let case: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../spec/fixtures/combat/allied-unit-targets-rejected.json"
+    )))
+    .unwrap();
+    let state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
+
+    for (attacker, from, ally, ally_position) in [
+        (
+            UnitId::new(0),
+            Pos::new(0, 0),
+            UnitId::new(1),
+            Pos::new(1, 0),
+        ),
+        (
+            UnitId::new(2),
+            Pos::new(1, 1),
+            UnitId::new(3),
+            Pos::new(2, 1),
+        ),
+    ] {
+        assert!(
+            !query::attack_targets(&state, attacker, from)
+                .unwrap()
+                .contains(&AttackTarget::Unit { unit: ally })
+        );
+
+        let observation = observe(&AwbwVisibility, &state, &PlayerId::from("red")).unwrap();
+        assert_eq!(
+            query::observed_forecasts(&observation, attacker, from, &[ally_position]).unwrap(),
+            vec![None]
+        );
+    }
+}
+
 /// Assert that `command`, which the reducer accepted, is one `query` offers.
 ///
 /// Returns the family checked, or `None` for the commands that are not tied to
