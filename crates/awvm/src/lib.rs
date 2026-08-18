@@ -60,7 +60,7 @@ pub mod violation;
 /// server, or a replay viewer to the reducer.
 pub mod prelude {
     pub use crate::event::{AttackTarget, Event};
-    pub use crate::query::{ActionSet, MoveField, QueryError, Step};
+    pub use crate::query::{ActionSet, MoveField, ObservedQuery, QueryError, Step};
     pub use crate::random::{Entropy, Luck, RandomError, RandomTape, RandomToken, Recording};
     pub use crate::ruleset::{CommanderKind, Terrain, UnitKind, WeatherKind};
     pub use crate::semantic::{
@@ -69,7 +69,9 @@ pub mod prelude {
         Visibility, observe, observe_events, observe_transition,
     };
     pub use crate::transition::{
-        Command, ExecuteError, ExecuteOutcome, Execution, execute, execute_with,
+        Command, ExecuteError, ExecuteOutcome, Execution, PrepareMovementOutcome, PrepareOutcome,
+        PreparedCommand, PreparedMovement, execute, execute_prepared, execute_prepared_with,
+        execute_with, prepare_command, prepare_movement,
     };
     pub use crate::violation::Violation;
 }

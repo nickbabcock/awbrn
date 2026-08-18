@@ -182,6 +182,57 @@ pub enum ExecuteOutcome {
     Rejected(Violation),
 }
 
+/// A movement that was resolved against one state but has no selected action.
+///
+/// The borrowed state binds the plan to the state that produced it. A caller
+/// can inspect several actions without validating the path again.
+#[derive(Clone, Debug)]
+pub struct PreparedMovement<'a> {
+    state: &'a State,
+    unit: UnitId,
+    movement: MovedUnit,
+}
+
+/// A command that was resolved against one state but was not applied.
+#[derive(Debug)]
+pub struct PreparedCommand<'a> {
+    command: PreparedCommandKind<'a>,
+}
+
+#[derive(Debug)]
+struct Prepared<'a, A> {
+    movement: PreparedMovement<'a>,
+    action: A,
+}
+
+#[derive(Debug)]
+enum PreparedCommandKind<'a> {
+    Wait(Prepared<'a, movement::Wait>),
+    Capture(Prepared<'a, property::Capture>),
+    Supply(Prepared<'a, transport::Supply>),
+    Concealment(Prepared<'a, movement::ConcealmentAction>),
+    Join(Prepared<'a, transport::Join>),
+    Load(Prepared<'a, transport::Load>),
+    Attack(Prepared<'a, attack::Attack>),
+    Repair(Prepared<'a, transport::Repair>),
+    Launch(Prepared<'a, special::Launch>),
+    Explode(Prepared<'a, special::Explode>),
+}
+
+/// The semantic result of preparing a supported command.
+#[derive(Debug)]
+pub enum PrepareOutcome<'a> {
+    Prepared(PreparedCommand<'a>),
+    Rejected(Violation),
+}
+
+/// The semantic result of preparing the movement shared by several commands.
+#[derive(Debug)]
+pub enum PrepareMovementOutcome<'a> {
+    Prepared(PreparedMovement<'a>),
+    Rejected(Violation),
+}
+
 /// Adapter-owned diagnostic detail for an invalid authoritative state.
 ///
 /// The stable category is [`ExecuteError::InvalidState`]; this prose is not a
@@ -270,6 +321,256 @@ pub fn execute_with(
         Err(ReducerError::UnsupportedRuleset) => Err(ExecuteError::UnsupportedRuleset),
         Err(ReducerError::InvalidState(error)) => Err(ExecuteError::InvalidState(error)),
         Err(ReducerError::InvalidRandom(error)) => Err(ExecuteError::InvalidRandom(error)),
+    }
+}
+
+/// Resolve a command without cloning or changing its input state.
+///
+/// Preparation supports all movement commands. Other commands return
+/// [`ExecuteError::UnsupportedCommand`]. Preparation performs the same
+/// deterministic checks as [`execute`], but it delays the state clone,
+/// mutation, and random draws until [`execute_prepared`] is called.
+pub fn prepare_command(
+    state: &State,
+    command: Command,
+) -> Result<PrepareOutcome<'_>, ExecuteError> {
+    prepare_outcome(prepare(state, command))
+}
+
+/// Resolve movement without choosing the action at its destination.
+pub fn prepare_movement<'a>(
+    state: &'a State,
+    player: &PlayerId,
+    unit: UnitId,
+    path: Vec<Pos>,
+) -> Result<PrepareMovementOutcome<'a>, ExecuteError> {
+    match prepare_movement_inner(state, player, unit, path) {
+        Ok(prepared) => Ok(PrepareMovementOutcome::Prepared(prepared)),
+        Err(ReducerError::Violation(violation)) => Ok(PrepareMovementOutcome::Rejected(violation)),
+        Err(error) => Err(execute_error(error)),
+    }
+}
+
+impl<'a> PreparedMovement<'a> {
+    /// Resolve waiting at this movement's destination.
+    pub fn prepare_wait(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(movement::prepare_wait(self).map(PreparedCommandKind::Wait))
+    }
+
+    /// Resolve capture at this movement's destination.
+    pub fn prepare_capture(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(property::prepare_capture(self).map(PreparedCommandKind::Capture))
+    }
+
+    /// Resolve supplying from this movement's destination.
+    pub fn prepare_supply(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(transport::prepare_supply(self).map(PreparedCommandKind::Supply))
+    }
+
+    /// Resolve entering hidden state at this movement's destination.
+    pub fn prepare_hide(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(
+            movement::prepare_concealment(self, true).map(PreparedCommandKind::Concealment),
+        )
+    }
+
+    /// Resolve entering exposed state at this movement's destination.
+    pub fn prepare_reveal(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(
+            movement::prepare_concealment(self, false).map(PreparedCommandKind::Concealment),
+        )
+    }
+
+    /// Resolve joining another unit at this movement's destination.
+    pub fn prepare_join(self, target: UnitId) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(transport::prepare_join(self, target).map(PreparedCommandKind::Join))
+    }
+
+    /// Resolve loading into a transport at this movement's destination.
+    pub fn prepare_load(self, transport: UnitId) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(transport::prepare_load(self, transport).map(PreparedCommandKind::Load))
+    }
+
+    /// Resolve attacking a unit or tile from this movement's destination.
+    pub fn prepare_attack(self, target: AttackTarget) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(attack::prepare_attack(self, target).map(PreparedCommandKind::Attack))
+    }
+
+    /// Resolve repairing another unit from this movement's destination.
+    pub fn prepare_repair(self, target: UnitId) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(transport::prepare_repair(self, target).map(PreparedCommandKind::Repair))
+    }
+
+    /// Resolve launching a silo at a target tile.
+    pub fn prepare_launch(self, target: Pos) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(special::prepare_launch(self, target).map(PreparedCommandKind::Launch))
+    }
+
+    /// Resolve exploding at this movement's destination.
+    pub fn prepare_explode(self) -> Result<PrepareOutcome<'a>, ExecuteError> {
+        prepare_outcome(special::prepare_explode(self).map(PreparedCommandKind::Explode))
+    }
+
+    pub(crate) const fn state(&self) -> &State {
+        self.state
+    }
+
+    pub(crate) const fn unit(&self) -> UnitId {
+        self.unit
+    }
+
+    pub(crate) const fn plan(&self) -> &MovedUnit {
+        &self.movement
+    }
+}
+
+fn prepare_outcome(
+    result: Result<PreparedCommandKind<'_>, ReducerError>,
+) -> Result<PrepareOutcome<'_>, ExecuteError> {
+    match result {
+        Ok(command) => Ok(PrepareOutcome::Prepared(PreparedCommand { command })),
+        Err(ReducerError::Violation(violation)) => Ok(PrepareOutcome::Rejected(violation)),
+        Err(error) => Err(execute_error(error)),
+    }
+}
+
+fn prepare(state: &State, command: Command) -> Result<PreparedCommandKind<'_>, ReducerError> {
+    match command {
+        Command::MoveWait { player, unit, path } => {
+            movement::prepare_wait(prepare_movement_inner(state, &player, unit, path)?)
+                .map(PreparedCommandKind::Wait)
+        }
+        Command::MoveCapture { player, unit, path } => {
+            property::prepare_capture(prepare_movement_inner(state, &player, unit, path)?)
+                .map(PreparedCommandKind::Capture)
+        }
+        Command::MoveSupply { player, unit, path } => {
+            transport::prepare_supply(prepare_movement_inner(state, &player, unit, path)?)
+                .map(PreparedCommandKind::Supply)
+        }
+        Command::MoveHide { player, unit, path } => {
+            movement::prepare_concealment(prepare_movement_inner(state, &player, unit, path)?, true)
+                .map(PreparedCommandKind::Concealment)
+        }
+        Command::MoveReveal { player, unit, path } => movement::prepare_concealment(
+            prepare_movement_inner(state, &player, unit, path)?,
+            false,
+        )
+        .map(PreparedCommandKind::Concealment),
+        Command::MoveExplode { player, unit, path } => {
+            special::prepare_explode(prepare_movement_inner(state, &player, unit, path)?)
+                .map(PreparedCommandKind::Explode)
+        }
+        Command::MoveJoin {
+            player,
+            unit,
+            path,
+            target,
+        } => transport::prepare_join(prepare_movement_inner(state, &player, unit, path)?, target)
+            .map(PreparedCommandKind::Join),
+        Command::MoveLoad {
+            player,
+            unit,
+            path,
+            transport,
+        } => transport::prepare_load(
+            prepare_movement_inner(state, &player, unit, path)?,
+            transport,
+        )
+        .map(PreparedCommandKind::Load),
+        Command::MoveAttack {
+            player,
+            unit,
+            path,
+            target,
+        } => attack::prepare_attack(prepare_movement_inner(state, &player, unit, path)?, target)
+            .map(PreparedCommandKind::Attack),
+        Command::MoveRepair {
+            player,
+            unit,
+            path,
+            target,
+        } => transport::prepare_repair(prepare_movement_inner(state, &player, unit, path)?, target)
+            .map(PreparedCommandKind::Repair),
+        Command::MoveLaunch {
+            player,
+            unit,
+            path,
+            target,
+        } => special::prepare_launch(prepare_movement_inner(state, &player, unit, path)?, target)
+            .map(PreparedCommandKind::Launch),
+        _ => Err(ReducerError::UnsupportedCommand),
+    }
+}
+
+fn prepare_movement_inner<'a>(
+    state: &'a State,
+    player: &PlayerId,
+    unit: UnitId,
+    path: Vec<Pos>,
+) -> Result<PreparedMovement<'a>, ReducerError> {
+    let turn = ActiveTurn::open(state, player)?;
+    turn.prepare_move(unit, path)
+}
+
+fn execute_error(error: ReducerError) -> ExecuteError {
+    match error {
+        ReducerError::UnsupportedCommand => ExecuteError::UnsupportedCommand,
+        ReducerError::UnsupportedRuleset => ExecuteError::UnsupportedRuleset,
+        ReducerError::InvalidState(error) => ExecuteError::InvalidState(error),
+        ReducerError::InvalidRandom(error) => ExecuteError::InvalidRandom(error),
+        ReducerError::Violation(_) => {
+            unreachable!("violations are converted to preparation outcomes")
+        }
+    }
+}
+
+/// Apply a prepared command to the state that produced it.
+///
+/// Only combat consumes tokens from `random`. Deterministic actions report
+/// zero `random_consumed`. Do not reconcile these actions against tape offsets.
+pub fn execute_prepared(
+    prepared: PreparedCommand<'_>,
+    random: &[RandomToken],
+) -> Result<Execution, ExecuteError> {
+    execute_prepared_with(prepared, &mut RandomTape::new(random))
+}
+
+/// Apply a prepared command and ask `entropy` for values when it needs them.
+///
+/// Only combat asks `entropy` for values. Deterministic actions report zero
+/// `random_consumed`. Do not reconcile these actions against tape offsets. Attack
+/// preparation delays its combat draws until this application step.
+pub fn execute_prepared_with(
+    prepared: PreparedCommand<'_>,
+    entropy: &mut impl Entropy,
+) -> Result<Execution, ExecuteError> {
+    match prepared.command {
+        PreparedCommandKind::Wait(prepared) => Ok(movement::execute_prepared_wait(prepared)),
+        PreparedCommandKind::Capture(prepared) => {
+            property::execute_prepared_capture(prepared).map_err(execute_error)
+        }
+        PreparedCommandKind::Supply(prepared) => Ok(transport::execute_prepared_supply(prepared)),
+        PreparedCommandKind::Concealment(prepared) => {
+            Ok(movement::execute_prepared_concealment(prepared))
+        }
+        PreparedCommandKind::Join(prepared) => {
+            transport::execute_prepared_join(prepared).map_err(execute_error)
+        }
+        PreparedCommandKind::Load(prepared) => Ok(transport::execute_prepared_load(prepared)),
+        PreparedCommandKind::Attack(prepared) => {
+            let mut draws = Draws::new(entropy);
+            attack::execute_prepared_attack(prepared, &mut draws).map_err(execute_error)
+        }
+        PreparedCommandKind::Repair(prepared) => {
+            transport::execute_prepared_repair(prepared).map_err(execute_error)
+        }
+        PreparedCommandKind::Launch(prepared) => {
+            special::execute_prepared_launch(prepared).map_err(execute_error)
+        }
+        PreparedCommandKind::Explode(prepared) => {
+            special::execute_prepared_explode(prepared).map_err(execute_error)
+        }
     }
 }
 
@@ -539,12 +840,21 @@ impl<'a> ActiveTurn<'a> {
     ///
     /// Forwards to [`movement::plan`], which is the only constructor of a
     /// [`MovedUnit`], so no reducer can act on an unvalidated path.
-    pub(crate) fn plan_move(
+    fn plan_move(&self, unit: UnitId, path: Vec<Pos>) -> Result<MovedUnit, ReducerError> {
+        movement::plan(self, unit, path)
+    }
+
+    /// Validate movement and bind it to this turn's state.
+    pub(crate) fn prepare_move(
         &self,
         unit: UnitId,
         path: Vec<Pos>,
-    ) -> Result<MovedUnit, ReducerError> {
-        movement::plan(self, unit, path)
+    ) -> Result<PreparedMovement<'a>, ReducerError> {
+        Ok(PreparedMovement {
+            state: self.state,
+            unit,
+            movement: self.plan_move(unit, path)?,
+        })
     }
 }
 

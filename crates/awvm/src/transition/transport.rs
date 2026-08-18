@@ -16,13 +16,55 @@ use crate::semantic::{
 };
 use crate::violation::{Action, Violation};
 
+#[derive(Debug)]
+pub(super) struct Supply {
+    targets: TargetSet,
+    destination: AvailableDestination,
+}
+
+#[derive(Debug)]
+pub(super) struct Repair {
+    target: UnitId,
+    capability: ruleset::RepairProfile,
+    target_index: usize,
+    heal_cost: u64,
+    max_fuel: u64,
+    max_ammo: u64,
+    destination: AvailableDestination,
+}
+
+#[derive(Debug)]
+pub(super) struct Load {
+    transport: UnitId,
+    slot: usize,
+}
+
+#[derive(Debug)]
+pub(super) struct Join {
+    target: PreparedJoinTarget,
+}
+
+#[derive(Debug)]
+struct PreparedJoinTarget {
+    id: UnitId,
+    index: usize,
+}
+
 pub(crate) fn execute_move_supply(
     turn: &ActiveTurn<'_>,
     unit_id: UnitId,
     path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
-    let state = turn.state();
-    let plan = turn.plan_move(unit_id, path)?;
+    let movement = turn.prepare_move(unit_id, path)?;
+    let prepared = prepare_supply(movement)?;
+    Ok(execute_prepared_supply(prepared))
+}
+
+pub(super) fn prepare_supply(
+    movement: PreparedMovement<'_>,
+) -> Result<Prepared<'_, Supply>, ExecuteError> {
+    let state = movement.state();
+    let plan = movement.plan();
     let unit = &state.units[plan.unit_index()];
     let supply = ruleset::profile(unit.kind).supply;
     let Some(supply) = supply.filter(|supply| supply.relation == Relation::Adjacent) else {
@@ -30,25 +72,36 @@ pub(crate) fn execute_move_supply(
             action: Action::MoveSupply,
         }));
     };
-    let destination = plan.destination();
-    let view = AwbwVisibility.view(state, plan.actor_team());
-    if state.units.iter().any(|other| {
-        other.id != unit_id
-            && board_position(other) == Some(destination)
-            && occupancy_is_disclosed(&view, other)
-    }) {
-        return Err(violation(Violation::DestinationOccupied {
-            position: destination,
-        }));
-    }
+    let destination = movement.available_destination()?;
 
-    let mut outcome = execute_planned_movement(state, unit_id, &plan);
+    Ok(Prepared {
+        movement,
+        action: Supply {
+            targets: supply.targets,
+            destination,
+        },
+    })
+}
+
+pub(super) fn execute_prepared_supply(prepared: Prepared<'_, Supply>) -> Execution {
+    let Prepared {
+        movement,
+        action: Supply {
+            targets,
+            destination: _destination,
+        },
+    } = prepared;
+    let state = movement.state();
+    let unit_id = movement.unit();
+    let plan = movement.plan();
+    let unit = &state.units[plan.unit_index()];
+    let mut outcome = execute_planned_movement(state, unit_id, plan);
     if outcome.trapped {
-        return Ok(Execution {
+        return Execution {
             state: outcome.state,
             events: outcome.events,
             random_consumed: 0,
-        });
+        };
     }
     let actual_destination =
         board_position(&outcome.state.units[plan.unit_index()]).expect("mover remains on board");
@@ -62,7 +115,7 @@ pub(crate) fn execute_move_supply(
                     &unit.owner,
                     plan.actor_team(),
                     &target.owner,
-                    supply.targets,
+                    targets,
                 )
                 && board_position(target).is_some_and(|position| {
                     position.x.abs_diff(actual_destination.x)
@@ -97,11 +150,11 @@ pub(crate) fn execute_move_supply(
             });
         }
     }
-    Ok(Execution {
+    Execution {
         state: outcome.state,
         events: outcome.events,
         random_consumed: 0,
-    })
+    }
 }
 
 pub(crate) fn supply_target_eligible(
@@ -125,9 +178,18 @@ pub(crate) fn execute_move_repair(
     path: Vec<Pos>,
     target_id: UnitId,
 ) -> Result<Execution, ExecuteError> {
-    let state = turn.state();
-    let player = turn.player();
-    let plan = turn.plan_move(unit_id, path)?;
+    let movement = turn.prepare_move(unit_id, path)?;
+    let prepared = prepare_repair(movement, target_id)?;
+    execute_prepared_repair(prepared)
+}
+
+pub(super) fn prepare_repair(
+    movement: PreparedMovement<'_>,
+    target_id: UnitId,
+) -> Result<Prepared<'_, Repair>, ExecuteError> {
+    let state = movement.state();
+    let unit_id = movement.unit();
+    let plan = movement.plan();
     let unit = &state.units[plan.unit_index()];
     let repair = ruleset::profile(unit.kind).repair;
     let Some(repair) = repair.filter(|repair| repair.relation == Relation::Adjacent) else {
@@ -135,48 +197,75 @@ pub(crate) fn execute_move_repair(
             action: Action::MoveRepair,
         }));
     };
-    let target_index = state.units.index_of(target_id);
-    let target = target_index.and_then(|index| state.units.at(index));
-    let target_team =
-        target.and_then(|target| state.find_player(&target.owner).map(|owner| &owner.team));
-    let target_position = target.and_then(board_position);
-    if !target.is_some_and(|target| {
-        target.id != unit_id && target_team == Some(plan.actor_team()) && target_position.is_some()
-    }) {
+    let Some(target_index) = state.units.index_of(target_id) else {
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(target_id.into()),
+        }));
+    };
+    let target = &state.units[target_index];
+    let target_team = state.find_player(&target.owner).map(|owner| &owner.team);
+    let Some(target_position) = board_position(target) else {
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(target_id.into()),
+        }));
+    };
+    if target.id == unit_id || target_team != Some(plan.actor_team()) {
         return Err(violation(Violation::InvalidTarget {
             target: Some(target_id.into()),
         }));
     }
     let destination = plan.destination();
-    let target_position = target_position.expect("target validity established its position");
     if target_position.x.abs_diff(destination.x) + target_position.y.abs_diff(destination.y) != 1 {
         return Err(violation(Violation::TargetOutOfRange {
             target: Some(target_id.into()),
         }));
     }
-    let view = AwbwVisibility.view(state, plan.actor_team());
-    if state.units.iter().any(|other| {
-        other.id != unit_id
-            && board_position(other) == Some(destination)
-            && occupancy_is_disclosed(&view, other)
-    }) {
-        return Err(violation(Violation::DestinationOccupied {
-            position: destination,
-        }));
-    }
+    let destination = movement.available_destination()?;
 
-    let target_index = target_index.expect("target validity established its index");
-    let exact_hp = repair.exact_hp;
-    let target_profile = ruleset::profile(target.expect("target exists").kind);
-    let max_fuel = target_profile.max_fuel;
-    let max_ammo = target_profile.max_ammo;
+    let target_profile = ruleset::profile(target.kind);
     let heal_cost = target_profile
         .cost
         .checked_mul(repair.cost_percent)
         .and_then(|cost| cost.checked_div(100))
         .ok_or(ExecuteError::UnsupportedRuleset)?;
 
-    let mut outcome = execute_planned_movement(state, unit_id, &plan);
+    Ok(Prepared {
+        movement,
+        action: Repair {
+            target: target_id,
+            capability: repair,
+            target_index,
+            heal_cost,
+            max_fuel: target_profile.max_fuel,
+            max_ammo: target_profile.max_ammo,
+            destination,
+        },
+    })
+}
+
+pub(super) fn execute_prepared_repair(
+    prepared: Prepared<'_, Repair>,
+) -> Result<Execution, ExecuteError> {
+    let Prepared {
+        movement,
+        action:
+            Repair {
+                target: target_id,
+                capability,
+                target_index,
+                heal_cost,
+                max_fuel,
+                max_ammo,
+                destination: _destination,
+            },
+    } = prepared;
+    let state = movement.state();
+    let player = &state.turn.active_player;
+    let unit_id = movement.unit();
+    let plan = movement.plan();
+    let exact_hp = capability.exact_hp;
+
+    let mut outcome = execute_planned_movement(state, unit_id, plan);
     if outcome.trapped {
         return Ok(Execution {
             state: outcome.state,
@@ -237,9 +326,19 @@ pub(crate) fn execute_move_load(
     path: Vec<Pos>,
     transport_id: UnitId,
 ) -> Result<Execution, ExecuteError> {
-    let state = turn.state();
-    let player = turn.player();
-    let plan = turn.plan_move(unit_id, path)?;
+    let movement = turn.prepare_move(unit_id, path)?;
+    let prepared = prepare_load(movement, transport_id)?;
+    Ok(execute_prepared_load(prepared))
+}
+
+pub(super) fn prepare_load(
+    movement: PreparedMovement<'_>,
+    transport_id: UnitId,
+) -> Result<Prepared<'_, Load>, ExecuteError> {
+    let state = movement.state();
+    let unit_id = movement.unit();
+    let plan = movement.plan();
+    let player = &state.turn.active_player;
     let mover = &state.units[plan.unit_index()];
     let transport_index = state.units.index_of(transport_id);
     let transport = transport_index.and_then(|index| state.units.at(index));
@@ -284,13 +383,33 @@ pub(crate) fn execute_move_load(
             ExecuteError::InvalidState(format!("transport {transport_id} is full").into())
         })?;
 
-    let mut outcome = execute_planned_movement(state, unit_id, &plan);
+    Ok(Prepared {
+        movement,
+        action: Load {
+            transport: transport_id,
+            slot,
+        },
+    })
+}
+
+pub(super) fn execute_prepared_load(prepared: Prepared<'_, Load>) -> Execution {
+    let Prepared {
+        movement,
+        action: Load {
+            transport: transport_id,
+            slot,
+        },
+    } = prepared;
+    let state = movement.state();
+    let unit_id = movement.unit();
+    let plan = movement.plan();
+    let mut outcome = execute_planned_movement(state, unit_id, plan);
     if outcome.trapped {
-        return Ok(Execution {
+        return Execution {
             state: outcome.state,
             events: outcome.events,
             random_consumed: 0,
-        });
+        };
     }
     outcome.state.units[plan.unit_index()].location = Location::Cargo {
         transport: transport_id,
@@ -301,11 +420,11 @@ pub(crate) fn execute_move_load(
         transport: transport_id,
         slot,
     });
-    Ok(Execution {
+    Execution {
         state: outcome.state,
         events: outcome.events,
         random_consumed: 0,
-    })
+    }
 }
 
 pub(crate) fn execute_unload(
@@ -408,38 +527,40 @@ pub(crate) fn execute_move_join(
     path: Vec<Pos>,
     target_id: UnitId,
 ) -> Result<Execution, ExecuteError> {
-    let state = turn.state();
-    let player = turn.player();
-    let plan = turn.plan_move(unit_id, path)?;
-    let unit = &state.units[plan.unit_index()];
-    let origin = plan.origin();
-    let path = plan.path();
-    let profile = ruleset::profile(unit.kind);
-    let actor_team = plan.actor_team();
-    let unit_index = plan.unit_index();
-    let entry_costs = plan.entry_costs();
-    let view = AwbwVisibility.view(state, actor_team);
+    let movement = turn.prepare_move(unit_id, path)?;
+    let prepared = prepare_join(movement, target_id)?;
+    execute_prepared_join(prepared)
+}
 
-    let target_index = state.units.index_of(target_id);
-    let target = target_index.and_then(|index| state.units.at(index));
-    let target_owner_team =
-        target.and_then(|target| state.find_player(&target.owner).map(|owner| &owner.team));
-    let target_position = target.and_then(board_position);
-    let target_valid = target.is_some_and(|target| {
-        target.id != unit.id
-            && target.kind == unit.kind
-            && target_owner_team == Some(actor_team)
-            && target_position.is_some()
-    });
-    if !target_valid {
+pub(super) fn prepare_join(
+    movement: PreparedMovement<'_>,
+    target_id: UnitId,
+) -> Result<Prepared<'_, Join>, ExecuteError> {
+    let state = movement.state();
+    let unit_id = movement.unit();
+    let plan = movement.plan();
+    let unit = &state.units[plan.unit_index()];
+    let actor_team = plan.actor_team();
+
+    let Some(target_index) = state.units.index_of(target_id) else {
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(target_id.into()),
+        }));
+    };
+    let target = &state.units[target_index];
+    let target_owner_team = state.find_player(&target.owner).map(|owner| &owner.team);
+    let Some(target_position) = board_position(target) else {
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(target_id.into()),
+        }));
+    };
+    if target.id == unit.id || target.kind != unit.kind || target_owner_team != Some(actor_team) {
         return Err(violation(Violation::InvalidTarget {
             target: Some(target_id.into()),
         }));
     }
-    let target = target.expect("target validity established the unit");
-    let target_index = target_index.expect("target validity established the index");
-    let destination = *path.last().expect("origin was checked");
-    if target_position != Some(destination) {
+    let destination = plan.destination();
+    if target_position != destination {
         return Err(violation(Violation::InvalidTarget {
             target: Some(destination.into()),
         }));
@@ -465,6 +586,45 @@ pub(crate) fn execute_move_join(
             target: Some(unit_id.into()),
         }));
     }
+
+    Ok(Prepared {
+        movement,
+        action: Join {
+            target: PreparedJoinTarget {
+                id: target_id,
+                index: target_index,
+            },
+        },
+    })
+}
+
+pub(super) fn execute_prepared_join(
+    prepared: Prepared<'_, Join>,
+) -> Result<Execution, ExecuteError> {
+    let Prepared {
+        movement,
+        action:
+            Join {
+                target:
+                    PreparedJoinTarget {
+                        id: target_id,
+                        index: target_index,
+                    },
+            },
+    } = prepared;
+    let state = movement.state();
+    let player = &state.turn.active_player;
+    let unit_id = movement.unit();
+    let plan = movement.plan();
+    let unit = &state.units[plan.unit_index()];
+    let origin = plan.origin();
+    let path = plan.path();
+    let profile = ruleset::profile(unit.kind);
+    let actor_team = plan.actor_team();
+    let unit_index = plan.unit_index();
+    let entry_costs = plan.entry_costs();
+    let view = AwbwVisibility.view(state, actor_team);
+    let target = &state.units[target_index];
 
     // Only an undisclosed intermediate enemy can trap a well-formed join: the
     // allied destination target is always disclosed and explicitly licensed.

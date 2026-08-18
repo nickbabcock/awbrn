@@ -10,10 +10,16 @@ use crate::commander::{self};
 use crate::event::Event;
 use crate::ruleset::{self, TerrainTrait, UnitKind};
 use crate::semantic::{
-    AwbwVisibility, Concealment, KnownReason, Location, Outcome, PlayerId, Pos, State, TerrainId,
-    TileOwner, Unit, UnitAction, UnitId, VictoryReason, Visibility,
+    Concealment, KnownReason, Location, Outcome, PlayerId, Pos, State, TerrainId, TileOwner, Unit,
+    UnitAction, UnitId, VictoryReason,
 };
 use crate::violation::{Action, Violation};
+
+#[derive(Debug)]
+pub(super) struct Capture {
+    strength: u64,
+    destination: AvailableDestination,
+}
 
 pub(crate) fn execute_produce_unit(
     turn: &ActiveTurn<'_>,
@@ -132,24 +138,25 @@ pub(crate) fn execute_move_capture(
     unit_id: UnitId,
     path: Vec<Pos>,
 ) -> Result<Execution, ExecuteError> {
-    let state = turn.state();
-    let player = turn.player();
-    let plan = turn.plan_move(unit_id, path)?;
+    let movement = turn.prepare_move(unit_id, path)?;
+    let prepared = prepare_capture(movement)?;
+    execute_prepared_capture(prepared)
+}
+
+pub(super) fn prepare_capture(
+    movement: PreparedMovement<'_>,
+) -> Result<Prepared<'_, Capture>, ExecuteError> {
+    let state = movement.state();
+    let plan = movement.plan();
     let unit = &state.units[plan.unit_index()];
-    let origin = plan.origin();
-    let path = plan.path();
     let profile = ruleset::profile(unit.kind);
     let actor_team = plan.actor_team();
-    let unit_index = plan.unit_index();
-    let entry_costs = plan.entry_costs();
-    let view = AwbwVisibility.view(state, actor_team);
-
     if !profile.can_capture {
         return Err(violation(Violation::ActionNotSupported {
             action: Action::Capture,
         }));
     }
-    let destination = *path.last().expect("origin was checked");
+    let destination = plan.destination();
     let destination_tile = &state.board.tile(destination);
     let capturable = ruleset::terrain_has(destination_tile.terrain, TerrainTrait::Capturable);
     let owner = destination_tile.owner.player();
@@ -163,72 +170,48 @@ pub(crate) fn execute_move_capture(
             target: Some(destination.into()),
         }));
     }
-    if state.units.iter().any(|other| {
-        other.id != unit_id
-            && board_position(other) == Some(destination)
-            && occupancy_is_disclosed(&view, other)
-    }) {
-        return Err(violation(Violation::DestinationOccupied {
-            position: destination,
-        }));
-    }
+    let available_destination = movement.available_destination()?;
 
-    // An undisclosed enemy is not a validation fact. It truncates execution
-    // before the occupied tile and suppresses capture.
-    let trap = path
-        .iter()
-        .copied()
-        .enumerate()
-        .skip(1)
-        .find_map(|(index, position)| {
-            state
-                .units
-                .iter()
-                .find(|other| {
-                    other.id != unit_id
-                        && board_position(other) == Some(position)
-                        && !occupancy_is_disclosed(&view, other)
-                })
-                .map(|blocker| (index, position, blocker.id))
-        });
-    let actual_length = trap.as_ref().map_or(path.len(), |(index, _, _)| *index);
-    let actual_path = path[..actual_length].to_vec();
-    let actual_destination = *actual_path.last().expect("actual path includes origin");
-    let fuel_spent: u64 = entry_costs[..actual_length].iter().sum();
-    let mut next = state.clone();
-    let mut events = Vec::new();
-    reset_capture_on_departure(&mut next, unit_id, origin, &actual_path, &mut events);
-    next.units[unit_index].fuel -= fuel_spent;
-    next.units[unit_index].action = UnitAction::Spent;
-    next.units[unit_index].location = Location::Board {
-        position: actual_destination,
-    };
-    events.push(Event::UnitMoved {
-        unit: unit_id,
-        from: origin,
-        to: actual_destination,
-        path: actual_path,
-        fuel_spent,
-    });
-    if let Some((_, position, blocker)) = trap {
-        events.push(Event::MovementTrapped {
-            unit: unit_id,
-            blocker,
-            position,
-        });
+    let strength =
+        commander::effective_capture_points(state, unit, u64::from(unit.hp.div_ceil(10)));
+    Ok(Prepared {
+        movement,
+        action: Capture {
+            strength,
+            destination: available_destination,
+        },
+    })
+}
+
+pub(super) fn execute_prepared_capture(
+    prepared: Prepared<'_, Capture>,
+) -> Result<Execution, ExecuteError> {
+    let Prepared {
+        movement,
+        action:
+            Capture {
+                strength: capture_strength,
+                destination: _destination,
+            },
+    } = prepared;
+    let state = movement.state();
+    let player = &state.turn.active_player;
+    let destination = movement.plan().destination();
+    let mut outcome = execute_planned_movement(state, movement.unit(), movement.plan());
+    if outcome.trapped {
         return Ok(Execution {
-            state: next,
-            events,
+            state: outcome.state,
+            events: outcome.events,
             random_consumed: 0,
         });
     }
 
+    let next = &mut outcome.state;
+    let events = &mut outcome.events;
     let tile = &mut next.board.tile_mut(destination);
     let before = tile
         .capture_points
         .ok_or(ExecuteError::UnsupportedRuleset)?;
-    let capture_strength =
-        commander::effective_capture_points(state, unit, u64::from(unit.hp.div_ceil(10)));
     if u64::from(before) > capture_strength {
         let after = u8::try_from(u64::from(before) - capture_strength)
             .map_err(|_| ExecuteError::InvalidState("capture result overflow".into()))?;
@@ -265,23 +248,23 @@ pub(crate) fn execute_move_capture(
             && next
                 .settings
                 .capture_limit
-                .is_some_and(|limit| capture_limit_count(&next, player) >= limit)
+                .is_some_and(|limit| capture_limit_count(next, player) >= limit)
         {
             let winning_team = next
                 .find_player(player)
                 .map(|candidate| candidate.team.clone())
                 .ok_or_else(|| ExecuteError::InvalidState("capturing player is absent".into()))?;
             complete_match(
-                &mut next,
+                next,
                 Outcome::Victory {
                     winners: vec![winning_team],
                     reason: VictoryReason::CaptureLimit,
                 },
-                &mut events,
+                events,
             );
             return Ok(Execution {
-                state: next,
-                events,
+                state: outcome.state,
+                events: outcome.events,
                 random_consumed: 0,
             });
         }
@@ -309,18 +292,18 @@ pub(crate) fn execute_move_capture(
                 VictoryReason::LabCapture
             };
             eliminate_player(
-                &mut next,
+                next,
                 &previous_owner,
                 cause,
                 Some(player),
                 Some(destination),
-                &mut events,
+                events,
             )?;
         }
     }
     Ok(Execution {
-        state: next,
-        events,
+        state: outcome.state,
+        events: outcome.events,
         random_consumed: 0,
     })
 }
