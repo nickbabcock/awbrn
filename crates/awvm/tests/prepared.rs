@@ -33,6 +33,9 @@ fn every_supported_fixture_matches_prepared_execution() {
     let mut attacks = 0;
     let mut repairs = 0;
     let mut launches = 0;
+    let mut productions = 0;
+    let mut deletes = 0;
+    let mut unloads = 0;
     for path in files {
         let source = std::fs::read_to_string(&path).expect("read fixture");
         let case: Value = serde_json::from_str(&source).expect("parse fixture");
@@ -60,6 +63,9 @@ fn every_supported_fixture_matches_prepared_execution() {
                 Command::MoveAttack { .. } => Some(&mut attacks),
                 Command::MoveRepair { .. } => Some(&mut repairs),
                 Command::MoveLaunch { .. } => Some(&mut launches),
+                Command::ProduceUnit { .. } => Some(&mut productions),
+                Command::DeleteUnit { .. } => Some(&mut deletes),
+                Command::Unload { .. } => Some(&mut unloads),
                 _ => None,
             };
             if let Some(counter) = counter {
@@ -151,6 +157,18 @@ fn every_supported_fixture_matches_prepared_execution() {
         launches >= 4,
         "expected the full move-launch corpus, saw {launches}"
     );
+    assert!(
+        productions >= 25,
+        "expected the full production corpus, saw {productions}"
+    );
+    assert!(
+        deletes >= 6,
+        "expected the full delete corpus, saw {deletes}"
+    );
+    assert!(
+        unloads >= 10,
+        "expected the full unload corpus, saw {unloads}"
+    );
 }
 
 #[test]
@@ -194,6 +212,108 @@ fn one_movement_can_prepare_wait_and_capture() {
     assert_eq!(
         execute_prepared(capture, &[]).map(ExecuteOutcome::Accepted),
         ordinary_capture
+    );
+}
+
+#[test]
+fn one_production_site_can_prepare_a_kind() {
+    let source = include_str!("../../../spec/fixtures/production/produce-infantry-on-base.json");
+    let case: Value = serde_json::from_str(source).expect("parse fixture");
+    let state: State = serde_json::from_value(case["initial_state"].clone()).expect("decode state");
+    let command: Command =
+        serde_json::from_value(case["steps"][0]["command"].clone()).expect("decode command");
+    let Command::ProduceUnit {
+        player,
+        position,
+        kind,
+    } = command.clone()
+    else {
+        panic!("fixture starts with production")
+    };
+    let site = match prepare_production_site(&state, &player, position).expect("prepare site") {
+        PrepareProductionSiteOutcome::Prepared(site) => site,
+        PrepareProductionSiteOutcome::Rejected(violation) => {
+            panic!("production site rejected: {violation:?}")
+        }
+    };
+    let prepared = match site.prepare_kind(kind).expect("prepare kind") {
+        PrepareOutcome::Prepared(prepared) => prepared,
+        PrepareOutcome::Rejected(violation) => panic!("production rejected: {violation:?}"),
+    };
+
+    assert_eq!(
+        execute_prepared(prepared, &[]).map(ExecuteOutcome::Accepted),
+        execute(&state, command, &[])
+    );
+}
+
+#[test]
+fn one_active_unit_can_prepare_delete() {
+    let source = include_str!("../../../spec/fixtures/delete/delete-unit-capture-reset.json");
+    let case: Value = serde_json::from_str(source).expect("parse fixture");
+    let state: State = serde_json::from_value(case["initial_state"].clone()).expect("decode state");
+    let command: Command =
+        serde_json::from_value(case["steps"][0]["command"].clone()).expect("decode command");
+    let Command::DeleteUnit { player, unit } = command.clone() else {
+        panic!("fixture starts with delete")
+    };
+    let active = match prepare_active_unit(&state, &player, unit).expect("prepare unit") {
+        PrepareActiveUnitOutcome::Prepared(active) => active,
+        PrepareActiveUnitOutcome::Rejected(violation) => {
+            panic!("active unit rejected: {violation:?}")
+        }
+    };
+    let prepared = match active.prepare_delete().expect("prepare delete") {
+        PrepareOutcome::Prepared(prepared) => prepared,
+        PrepareOutcome::Rejected(violation) => panic!("delete rejected: {violation:?}"),
+    };
+
+    assert_eq!(
+        execute_prepared(prepared, &[]).map(ExecuteOutcome::Accepted),
+        execute(&state, command, &[])
+    );
+}
+
+#[test]
+fn one_transport_and_cargo_can_prepare_an_unload() {
+    let source = include_str!("../../../spec/fixtures/transport/unload-infantry-from-apc.json");
+    let case: Value = serde_json::from_str(source).expect("parse fixture");
+    let state: State = serde_json::from_value(case["initial_state"].clone()).expect("decode state");
+    let command: Command =
+        serde_json::from_value(case["steps"][0]["command"].clone()).expect("decode command");
+    let Command::Unload {
+        player,
+        transport,
+        cargo,
+        destination,
+    } = command.clone()
+    else {
+        panic!("fixture starts with unload")
+    };
+    let transport =
+        match prepare_unload_transport(&state, &player, transport).expect("prepare transport") {
+            PrepareUnloadTransportOutcome::Prepared(transport) => transport,
+            PrepareUnloadTransportOutcome::Rejected(violation) => {
+                panic!("transport rejected: {violation:?}")
+            }
+        };
+    let cargo = match transport.prepare_cargo(cargo).expect("prepare cargo") {
+        PrepareUnloadCargoOutcome::Prepared(cargo) => cargo,
+        PrepareUnloadCargoOutcome::Rejected(violation) => {
+            panic!("cargo rejected: {violation:?}")
+        }
+    };
+    let prepared = match cargo
+        .prepare_destination(destination)
+        .expect("prepare destination")
+    {
+        PrepareOutcome::Prepared(prepared) => prepared,
+        PrepareOutcome::Rejected(violation) => panic!("unload rejected: {violation:?}"),
+    };
+
+    assert_eq!(
+        execute_prepared(prepared, &[]).map(ExecuteOutcome::Accepted),
+        execute(&state, command, &[])
     );
 }
 
@@ -242,7 +362,7 @@ fn a_hidden_trap_suppresses_prepared_capture() {
 }
 
 #[test]
-fn preparation_refuses_commands_outside_the_movement_surface() {
+fn preparation_refuses_unsupported_commands() {
     let source = include_str!("../../../spec/fixtures/movement/infantry-plain-move.json");
     let case: Value = serde_json::from_str(source).expect("parse fixture");
     let state: State = serde_json::from_value(case["initial_state"].clone()).expect("decode state");

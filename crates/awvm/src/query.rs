@@ -10,10 +10,10 @@
 //!
 //! Everything here is derived from the reducer, not restated alongside it:
 //!
-//! * [`actions_at`] and [`attack_targets`] use the reducer's preparation
-//!   checks for every movement action. These queries do not clone or change
-//!   the state, and they cannot drift because they do not contain a second
-//!   copy of the action rules.
+//! * Action, production, delete, and unload queries use the reducer's
+//!   preparation checks. These queries do not clone or change the state, and
+//!   they cannot drift because they do not contain a second copy of the action
+//!   rules.
 //! * [`reachable`] is the one exception. A probe per tile would answer whether
 //!   a path is legal but not produce one, and a caller needs the path to build
 //!   the command, so the search is written out here. `tests/query.rs` holds it
@@ -26,17 +26,18 @@
 use std::collections::HashSet;
 
 use crate::combat::Forecast;
-use crate::commander::{self, Domain};
+use crate::commander;
 use crate::event::AttackTarget;
-use crate::random::{Entropy, Luck, RandomError};
 use crate::ruleset::{self, FireMode, TerrainTrait};
 use crate::semantic::{
     AwbwVisibility, Location, Observation, ObservedMatch, ObservedPlayer, PlayerId, PlayerStatus,
     Pos, State, TeamId, Unit, UnitId, UnitKindId, Viewpoint, Visibility, WeatherKind,
 };
 use crate::transition::{
-    Command, ExecuteError, ExecuteOutcome, PrepareMovementOutcome, PrepareOutcome, board_position,
-    execute_with, forecast_tile_attack, forecast_unit_attack, prepare_movement,
+    ExecuteError, PrepareActiveUnitOutcome, PrepareMovementOutcome, PrepareOutcome,
+    PrepareProductionSiteOutcome, PrepareUnloadCargoOutcome, PrepareUnloadTransportOutcome,
+    board_position, forecast_tile_attack, forecast_unit_attack, prepare_active_unit,
+    prepare_movement, prepare_production_site, prepare_unload_transport,
 };
 use crate::violation::Violation;
 
@@ -59,37 +60,6 @@ pub enum QueryError {
     Transition(#[from] ExecuteError),
 }
 
-/// An entropy source for probing, which answers every draw with the lowest
-/// value the reducer said was legal.
-///
-/// A probe must never fail for want of a token. Taking the domain's minimum is
-/// always in range, and the resulting state is discarded. Only the
-/// accept-or-reject verdict is kept, and no rule makes legality depend on the
-/// roll.
-struct Probe;
-
-impl Entropy for Probe {
-    fn luck(&mut self, _: Luck, domain: Domain) -> Result<i64, RandomError> {
-        Ok(domain.minimum)
-    }
-
-    fn weather(&mut self) -> Result<WeatherKind, RandomError> {
-        Ok(WeatherKind::Clear)
-    }
-}
-
-/// Whether the reducer accepts `command` against `state`.
-///
-/// The execution is thrown away. That it is computed at all is what makes this
-/// exact: the answer comes from the same code that will run when the command is
-/// really issued.
-fn is_accepted(state: &State, command: Command) -> bool {
-    matches!(
-        execute_with(state, command, &mut Probe),
-        Ok(ExecuteOutcome::Accepted(_))
-    )
-}
-
 /// Why the reducer would refuse to act with this unit at all, if it would.
 ///
 /// A greyed-out unit in an interface is a question — *why* — and this answers
@@ -98,24 +68,12 @@ fn is_accepted(state: &State, command: Command) -> bool {
 /// this unit is worth offering.
 pub fn can_act(state: &State, unit: UnitId) -> Result<Result<(), Violation>, QueryError> {
     let subject = lookup(state, unit)?;
-    let Location::Board { position: origin } = subject.location else {
+    let Location::Board { .. } = subject.location else {
         return Err(QueryError::UnitNotOnBoard(unit));
     };
-    // Waiting in place is the cheapest command that runs the whole shared
-    // prologue — ruleset, match, phase, actor, ownership, board, readiness —
-    // and nothing beyond it that a unit standing still can fail, except a
-    // teleporter, which is a fact about the tile rather than the unit.
-    match execute_with(
-        state,
-        Command::MoveWait {
-            player: subject.owner.clone(),
-            unit,
-            path: vec![origin],
-        },
-        &mut Probe,
-    ) {
-        Ok(ExecuteOutcome::Accepted(_)) => Ok(Ok(())),
-        Ok(ExecuteOutcome::Rejected(violation)) => Ok(Err(violation)),
+    match prepare_active_unit(state, &subject.owner, unit) {
+        Ok(PrepareActiveUnitOutcome::Prepared(_)) => Ok(Ok(())),
+        Ok(PrepareActiveUnitOutcome::Rejected(violation)) => Ok(Err(violation)),
         Err(_) => Err(QueryError::UnknownOwner {
             unit,
             owner: subject.owner.clone(),
@@ -711,40 +669,37 @@ pub fn observed_unloads(
         return Err(QueryError::UnitNotOnBoard(transport));
     };
     let player = subject.owner.clone();
-    let mut orders = state
-        .units
-        .iter()
-        .filter_map(|candidate| {
-            matches!(
-                candidate.location,
-                Location::Cargo {
-                    transport: carried_by,
-                    ..
-                } if carried_by == transport
-            )
-            .then_some((candidate.id, candidate.kind))
-        })
-        .flat_map(|(cargo, cargo_kind)| {
-            let player = player.clone();
-            let state = &state;
-            position.orthogonal().filter_map(move |destination| {
-                is_accepted(
-                    state,
-                    Command::Unload {
-                        player: player.clone(),
-                        transport,
-                        cargo,
-                        destination,
-                    },
-                )
-                .then_some(ObservedUnload {
-                    cargo,
-                    cargo_kind,
+    let prepared_transport = match prepare_unload_transport(&state, &player, transport) {
+        Ok(PrepareUnloadTransportOutcome::Prepared(transport)) => transport,
+        Ok(PrepareUnloadTransportOutcome::Rejected(_)) | Err(_) => return Ok(Vec::new()),
+    };
+    let mut orders = Vec::new();
+    for candidate in state.units.iter().filter(|candidate| {
+        matches!(
+            candidate.location,
+            Location::Cargo {
+                transport: carried_by,
+                ..
+            } if carried_by == transport
+        )
+    }) {
+        let prepared_cargo = match prepared_transport.clone().prepare_cargo(candidate.id) {
+            Ok(PrepareUnloadCargoOutcome::Prepared(cargo)) => cargo,
+            Ok(PrepareUnloadCargoOutcome::Rejected(_)) | Err(_) => continue,
+        };
+        for destination in position.orthogonal() {
+            if matches!(
+                prepared_cargo.clone().prepare_destination(destination),
+                Ok(PrepareOutcome::Prepared(_))
+            ) {
+                orders.push(ObservedUnload {
+                    cargo: candidate.id,
+                    cargo_kind: candidate.kind,
                     destination,
-                })
-            })
-        })
-        .collect::<Vec<_>>();
+                });
+            }
+        }
+    }
     orders.sort_by_key(|order| (order.cargo, order.destination));
     Ok(orders)
 }
@@ -760,7 +715,14 @@ pub fn observed_can_delete(observation: &Observation, unit: UnitId) -> Result<bo
 
     let state = reify(observation)?;
     let player = lookup(&state, unit)?.owner.clone();
-    Ok(is_accepted(&state, Command::DeleteUnit { player, unit }))
+    let active = match prepare_active_unit(&state, &player, unit) {
+        Ok(PrepareActiveUnitOutcome::Prepared(active)) => active,
+        Ok(PrepareActiveUnitOutcome::Rejected(_)) | Err(_) => return Ok(false),
+    };
+    Ok(matches!(
+        active.prepare_delete(),
+        Ok(PrepareOutcome::Prepared(_))
+    ))
 }
 
 /// Restate an [`ActionSet`]'s targets as the positions its units occupy.
@@ -1218,17 +1180,17 @@ fn launch_targets(movement: &crate::transition::PreparedMovement<'_>) -> Vec<Pos
 /// A production site is a tile rather than a unit, so it has no reachable set
 /// and no [`ActionSet`]; this is the same question asked of one.
 pub fn production_options(state: &State, player: &PlayerId, position: Pos) -> Vec<UnitKindId> {
+    let site = match prepare_production_site(state, player, position) {
+        Ok(PrepareProductionSiteOutcome::Prepared(site)) => site,
+        Ok(PrepareProductionSiteOutcome::Rejected(_)) | Err(_) => return Vec::new(),
+    };
     UnitKindId::ALL
         .iter()
         .copied()
         .filter(|kind| {
-            is_accepted(
-                state,
-                Command::ProduceUnit {
-                    player: player.clone(),
-                    position,
-                    kind: *kind,
-                },
+            matches!(
+                site.clone().prepare_kind(*kind),
+                Ok(PrepareOutcome::Prepared(_))
             )
         })
         .collect()

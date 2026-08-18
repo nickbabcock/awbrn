@@ -21,20 +21,64 @@ pub(super) struct Capture {
     destination: AvailableDestination,
 }
 
+#[derive(Debug)]
+pub(super) struct PreparedProduction<'a> {
+    site: PreparedProductionSite<'a>,
+    kind: UnitKind,
+    cost: u64,
+    funds: u64,
+    allocated_id: UnitId,
+    incremented_id: u32,
+    max_fuel: u64,
+    max_ammo: u64,
+}
+
 pub(crate) fn execute_produce_unit(
     turn: &ActiveTurn<'_>,
     position: Pos,
     kind: UnitKind,
 ) -> Result<Execution, ExecuteError> {
+    let site = prepare_production_site(turn, position)?;
+    let prepared = prepare_production(site, kind)?;
+    Ok(execute_prepared_production(prepared))
+}
+
+pub(super) fn prepare_production_site<'a>(
+    turn: &ActiveTurn<'a>,
+    position: Pos,
+) -> Result<PreparedProductionSite<'a>, ExecuteError> {
     let state = turn.state();
     let player = turn.player();
     let player_index = state.player_index(player).ok_or_else(|| {
         ExecuteError::InvalidState(format!("unknown active player {player}").into())
     })?;
+    let occupied = state
+        .units
+        .iter()
+        .any(|unit| board_position(unit) == Some(position));
+    let owned_units = owned_unit_count(state, player)?;
+    let owns_lab = player_owns_lab(state, player);
+    Ok(PreparedProductionSite {
+        state,
+        position,
+        player_index,
+        occupied,
+        owned_units,
+        owns_lab,
+    })
+}
+
+pub(super) fn prepare_production(
+    site: PreparedProductionSite<'_>,
+    kind: UnitKind,
+) -> Result<PreparedProduction<'_>, ExecuteError> {
+    let state = site.state;
+    let player = &state.turn.active_player;
     let profile = ruleset::profile(kind);
 
     // Site validation precedes requested-kind validation: whether the player
     // owns a facility here does not depend on what they asked it to build.
+    let position = site.position;
     let tile = state.board.get(position);
     let site_valid = tile.is_some_and(|tile| {
         tile.owner.is_owned_by(player)
@@ -50,19 +94,15 @@ pub(crate) fn execute_produce_unit(
             target: Some(kind.into()),
         }));
     }
-    if state.settings.lab_units.contains(&kind) && !player_owns_lab(state, player) {
+    if state.settings.lab_units.contains(&kind) && !site.owns_lab {
         return Err(violation(Violation::InvalidTarget {
             target: Some(kind.into()),
         }));
     }
-    if state
-        .units
-        .iter()
-        .any(|unit| board_position(unit) == Some(position))
-    {
+    if site.occupied {
         return Err(violation(Violation::DestinationOccupied { position }));
     }
-    let current = owned_unit_count(state, player)?;
+    let current = site.owned_units;
     if let Some(limit) = state.settings.unit_limit
         && current >= limit
     {
@@ -70,7 +110,7 @@ pub(crate) fn execute_produce_unit(
     }
     let cost = commander::effective_build_cost(state, player, profile.cost)
         .ok_or_else(|| ExecuteError::InvalidState("commander build cost overflow".into()))?;
-    let funds = state.player(player_index).funds;
+    let funds = state.player(site.player_index).funds;
     if cost > funds {
         return Err(violation(Violation::InsufficientFunds {
             required: cost,
@@ -92,8 +132,33 @@ pub(crate) fn execute_produce_unit(
         .checked_add(1)
         .ok_or_else(|| ExecuteError::InvalidState("next_unit_id overflow".into()))?;
 
+    Ok(PreparedProduction {
+        site,
+        kind,
+        cost,
+        funds,
+        allocated_id,
+        incremented_id,
+        max_fuel,
+        max_ammo,
+    })
+}
+
+pub(super) fn execute_prepared_production(prepared: PreparedProduction<'_>) -> Execution {
+    let PreparedProduction {
+        site,
+        kind,
+        cost,
+        funds,
+        allocated_id,
+        incremented_id,
+        max_fuel,
+        max_ammo,
+    } = prepared;
+    let state = site.state;
+    let player = &state.turn.active_player;
     let mut next = state.clone();
-    next.player_mut(player_index).funds -= cost;
+    next.player_mut(site.player_index).funds -= cost;
     next.next_unit_id = Some(incremented_id);
     next.units.push(Unit {
         id: allocated_id,
@@ -104,9 +169,11 @@ pub(crate) fn execute_produce_unit(
         ammo: max_ammo,
         action: UnitAction::Spent,
         concealment: Concealment::Exposed,
-        location: Location::Board { position },
+        location: Location::Board {
+            position: site.position,
+        },
     });
-    Ok(Execution {
+    Execution {
         state: next,
         events: vec![
             Event::FundsChanged {
@@ -119,11 +186,11 @@ pub(crate) fn execute_produce_unit(
                 unit: allocated_id,
                 kind,
                 owner: player.clone(),
-                position,
+                position: site.position,
             },
         ],
         random_consumed: 0,
-    })
+    }
 }
 
 pub(crate) fn player_owns_lab(state: &State, player: &PlayerId) -> bool {

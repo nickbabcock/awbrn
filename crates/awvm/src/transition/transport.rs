@@ -50,6 +50,12 @@ struct PreparedJoinTarget {
     index: usize,
 }
 
+#[derive(Debug)]
+pub(super) struct PreparedUnload<'a> {
+    cargo: PreparedUnloadCargo<'a>,
+    destination: Pos,
+}
+
 pub(crate) fn execute_move_supply(
     turn: &ActiveTurn<'_>,
     unit_id: UnitId,
@@ -433,6 +439,16 @@ pub(crate) fn execute_unload(
     cargo_id: UnitId,
     destination: Pos,
 ) -> Result<Execution, ExecuteError> {
+    let transport = prepare_unload_transport(turn, transport_id)?;
+    let cargo = prepare_unload_cargo(transport, cargo_id)?;
+    let prepared = prepare_unload(cargo, destination)?;
+    Ok(execute_prepared_unload(prepared))
+}
+
+pub(super) fn prepare_unload_transport<'a>(
+    turn: &ActiveTurn<'a>,
+    transport_id: UnitId,
+) -> Result<PreparedUnloadTransport<'a>, ExecuteError> {
     let state = turn.state();
     let player = turn.player();
     let transport_index = state.units.index_of(transport_id);
@@ -447,10 +463,25 @@ pub(crate) fn execute_unload(
             target: Some(transport_id.into()),
         }));
     }
+    Ok(PreparedUnloadTransport {
+        state,
+        transport: transport_id,
+        position: transport_position.expect("transport validity established position"),
+    })
+}
+
+pub(super) fn prepare_unload_cargo(
+    transport: PreparedUnloadTransport<'_>,
+    cargo_id: UnitId,
+) -> Result<PreparedUnloadCargo<'_>, ExecuteError> {
+    let state = transport.state;
     let cargo_index = state.units.index_of(cargo_id);
     let cargo = cargo_index.and_then(|index| state.units.at(index));
     let cargo_slot = cargo.and_then(|cargo| match &cargo.location {
-        Location::Cargo { transport, slot } if *transport == transport_id => Some(*slot),
+        Location::Cargo {
+            transport: carried_by,
+            slot,
+        } if *carried_by == transport.transport => Some(*slot),
         _ => None,
     });
     if cargo_slot.is_none() {
@@ -458,7 +489,20 @@ pub(crate) fn execute_unload(
             target: Some(cargo_id.into()),
         }));
     }
-    let transport_position = transport_position.expect("transport validity established position");
+    Ok(PreparedUnloadCargo {
+        transport,
+        cargo: cargo_id,
+        cargo_index: cargo_index.expect("cargo validity established index"),
+        cargo_slot: cargo_slot.expect("cargo validity established slot"),
+    })
+}
+
+pub(super) fn prepare_unload(
+    cargo: PreparedUnloadCargo<'_>,
+    destination: Pos,
+) -> Result<PreparedUnload<'_>, ExecuteError> {
+    let state = cargo.transport.state;
+    let transport_position = cargo.transport.position;
     if transport_position.x.abs_diff(destination.x) + transport_position.y.abs_diff(destination.y)
         != 1
     {
@@ -466,15 +510,15 @@ pub(crate) fn execute_unload(
             target: Some(destination.into()),
         }));
     }
-    let cargo = cargo.expect("cargo validity established unit");
-    let movement_class = ruleset::profile(cargo.kind).movement_class;
-    let weather = commander::effective_weather(state, cargo);
+    let unit = &state.units[cargo.cargo_index];
+    let movement_class = ruleset::profile(unit.kind).movement_class;
+    let weather = commander::effective_weather(state, unit);
     let destination_tile = state.board.get(destination);
     let passable = destination_tile.is_some_and(|tile| {
         !ruleset::terrain_has(tile.terrain, TerrainTrait::Teleporter)
             && commander::effective_movement_cost(
                 state,
-                cargo,
+                unit,
                 ruleset::movement_cost(tile.terrain, weather, movement_class),
             )
             .is_some()
@@ -495,22 +539,28 @@ pub(crate) fn execute_unload(
         }));
     }
 
-    let cargo_index = cargo_index.expect("cargo validity established index");
-    let vacated_slot = cargo_slot.expect("cargo validity established slot");
+    Ok(PreparedUnload { cargo, destination })
+}
+
+pub(super) fn execute_prepared_unload(prepared: PreparedUnload<'_>) -> Execution {
+    let PreparedUnload { cargo, destination } = prepared;
+    let state = cargo.transport.state;
+    let transport_id = cargo.transport.transport;
+    let cargo_id = cargo.cargo;
     let mut next = state.clone();
-    next.units[cargo_index].location = Location::Board {
+    next.units[cargo.cargo_index].location = Location::Board {
         position: destination,
     };
-    next.units[cargo_index].action = UnitAction::Spent;
+    next.units[cargo.cargo_index].action = UnitAction::Spent;
     for unit in &mut next.units {
         if let Location::Cargo { transport, slot } = &mut unit.location
             && *transport == transport_id
-            && *slot > vacated_slot
+            && *slot > cargo.cargo_slot
         {
             *slot -= 1;
         }
     }
-    Ok(Execution {
+    Execution {
         state: next,
         events: vec![Event::UnitUnloaded {
             unit: cargo_id,
@@ -518,7 +568,7 @@ pub(crate) fn execute_unload(
             position: destination,
         }],
         random_consumed: 0,
-    })
+    }
 }
 
 pub(crate) fn execute_move_join(
