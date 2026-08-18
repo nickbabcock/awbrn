@@ -1,8 +1,5 @@
-use crate::{
-    MapError, Position,
-    pathfinding::{MovementMap, PathFinder},
-};
-use awbrn_types::{AwbwTerrain, Faction, MovementTerrain, PLAYER_FACTION_METADATA, PlayerFaction};
+use crate::{MapError, Position};
+use awbrn_types::{AwbwTerrain, Faction, PLAYER_FACTION_METADATA, PlayerFaction};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
@@ -182,30 +179,6 @@ impl AwbwMap {
             let x = idx % self.width;
             (Position::new(x, y), *terrain)
         })
-    }
-
-    pub fn pathfinder(&self) -> PathFinder<&Self> {
-        PathFinder::new(self)
-    }
-}
-
-impl MovementMap for AwbwMap {
-    #[inline(always)]
-    fn terrain_at(&self, pos: Position) -> Option<MovementTerrain> {
-        self.terrain_at(pos).map(MovementTerrain::from)
-    }
-
-    #[inline(always)]
-    fn terrain_at_flat(&self, flat_idx: usize) -> MovementTerrain {
-        MovementTerrain::from(self.terrain[flat_idx])
-    }
-
-    fn width(&self) -> usize {
-        self.width
-    }
-
-    fn height(&self) -> usize {
-        self.height()
     }
 }
 

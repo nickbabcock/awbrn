@@ -1,13 +1,13 @@
 use bench::benchmarks::{
-    awvm::gungraun_benches::awvm_benches, map::gungraun_benches::map_benches,
-    replay::gungraun_benches::replay_benches, server::gungraun_benches::server_benches,
+    awvm::gungraun_benches::awvm_benches, replay::gungraun_benches::replay_benches,
+    server::gungraun_benches::server_benches,
 };
 
 mod instrumented {
-    use super::{awvm_benches, map_benches, replay_benches, server_benches};
+    use super::{awvm_benches, replay_benches, server_benches};
     use gungraun::main;
 
-    main!(library_benchmark_groups = [awvm_benches, map_benches, replay_benches, server_benches]);
+    main!(library_benchmark_groups = [awvm_benches, replay_benches, server_benches]);
 
     pub fn run() {
         main();
@@ -38,7 +38,7 @@ fn run_once() {
         };
     }
 
-    run_once!(awvm_benches, map_benches, replay_benches, server_benches,);
+    run_once!(awvm_benches, replay_benches, server_benches,);
 }
 
 fn main() {

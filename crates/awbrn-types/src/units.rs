@@ -1,4 +1,3 @@
-use crate::UnitMovement;
 use awvm::ruleset::profile;
 
 /// Canonical unit vocabulary generated from the AWBW ruleset.
@@ -25,7 +24,6 @@ pub trait UnitExt: Sized + Copy {
     fn max_fuel(&self) -> u32;
     fn max_ammo(&self) -> u32;
     fn movement_range(&self) -> u8;
-    fn movement_type(&self) -> UnitMovement;
     fn base_cost(&self) -> u32;
     fn base_vision(&self) -> u32;
     fn attack_range_min(self) -> u32;
@@ -118,10 +116,6 @@ impl UnitExt for Unit {
 
     fn movement_range(&self) -> u8 {
         u8::try_from(profile(*self).movement).expect("ruleset movement fits the legacy view")
-    }
-
-    fn movement_type(&self) -> UnitMovement {
-        profile(*self).movement_class
     }
 
     fn base_cost(&self) -> u32 {
