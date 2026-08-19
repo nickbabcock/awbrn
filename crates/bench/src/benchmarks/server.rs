@@ -26,8 +26,12 @@
 //! from the measurement.
 
 use awbrn_map::{AwbrnMap, AwbwMap, Position};
-use awbrn_server::{GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup, PostMoveAction};
-use awbrn_types::{AwbwTerrain, Co, Faction, PlayerFaction, Property, Unit};
+use awbrn_server::{
+    GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup, PostMoveAction, state_from_setup,
+};
+use awbrn_types::{AwbwTerrain, Co, Faction, PlayerFaction, Property, Unit as ServerUnit};
+use awvm::ruleset::{UnitKind, profile};
+use awvm::semantic::{Concealment, Location, Pos, State, Unit as AwvmUnit, UnitAction, UnitId};
 
 /// The board every case runs on. AWBW's own maps cluster around this size.
 const WIDTH: usize = 20;
@@ -116,12 +120,12 @@ fn map(players: usize) -> AwbrnMap {
 
 /// A mix wide enough that the damage tables are actually consulted rather than
 /// one row of them being reused.
-const ROSTER: [Unit; 5] = [
-    Unit::Infantry,
-    Unit::Mech,
-    Unit::Tank,
-    Unit::Artillery,
-    Unit::Apc,
+const ROSTER: [ServerUnit; 5] = [
+    ServerUnit::Infantry,
+    ServerUnit::Mech,
+    ServerUnit::Tank,
+    ServerUnit::Artillery,
+    ServerUnit::Apc,
 ];
 
 /// The tile the mover starts on, and the two it walks to. Kept clear of every
@@ -134,7 +138,7 @@ const ATTACK_TARGET: (usize, usize) = (1, 5);
 
 /// Where the rest of the roster stands: rows 6 upward, clear of both edges'
 /// properties and of the mover's lane.
-fn deployment(players: usize) -> impl Iterator<Item = (Position, Unit, PlayerFaction)> {
+fn deployment(players: usize) -> impl Iterator<Item = (Position, ServerUnit, PlayerFaction)> {
     (0..UNITS - 1).map(move |i| {
         let position = Position::new(i % WIDTH, 6 + i / WIDTH);
         // Round-robin so every seat owns units — a seat with none sees nothing
@@ -172,13 +176,73 @@ pub fn server(players: usize, fog: bool) -> GameServer {
     // The mover goes first so it is always unit 1, whatever the roster does.
     server.spawn_unit(
         Position::new(MOVER_START.0, MOVER_START.1),
-        Unit::Tank,
+        ServerUnit::Tank,
         FACTIONS[0],
     );
     for (position, unit, faction) in deployment(players) {
         server.spawn_unit(position, unit, faction);
     }
     server
+}
+
+/// An AWVM state with the same deployment as [`server`].
+///
+/// `state_from_setup` converts the terrain and roster only. Applying the
+/// deployment here prevents AI benchmarks from measuring an empty unit store.
+pub fn state(players: usize, fog: bool) -> State {
+    let mut state = state_from_setup(&setup(players, fog)).expect("game setup is valid");
+    let units = std::iter::once((
+        Position::new(MOVER_START.0, MOVER_START.1),
+        ServerUnit::Tank,
+        FACTIONS[0],
+    ))
+    .chain(deployment(players));
+
+    for (index, (position, kind, faction)) in units.enumerate() {
+        let kind = awvm_kind(kind);
+        let unit_profile = profile(kind);
+        let owner_index = FACTIONS
+            .iter()
+            .position(|candidate| *candidate == faction)
+            .expect("a deployment faction is in the roster");
+        // The roster keeps the seating order of `setup`, which is the order of
+        // `FACTIONS`, so the faction's position in it is the seat to read.
+        let owner = state
+            .players
+            .seats()
+            .map(|(seat, _)| seat)
+            .nth(owner_index)
+            .expect("a deployment faction has a seat");
+        state.units.push(AwvmUnit {
+            id: UnitId::new(u32::try_from(index + 1).expect("unit identifier fits in u32")),
+            kind,
+            owner,
+            hp: 100,
+            fuel: unit_profile.max_fuel,
+            ammo: unit_profile.max_ammo,
+            action: UnitAction::Ready,
+            concealment: Concealment::Exposed,
+            location: Location::Board {
+                position: Pos::new(
+                    u8::try_from(position.x).expect("map position fits in u8"),
+                    u8::try_from(position.y).expect("map position fits in u8"),
+                ),
+            },
+        });
+    }
+    state.next_unit_id = Some(u32::try_from(UNITS + 1).expect("unit identifier fits in u32"));
+    state
+}
+
+fn awvm_kind(kind: ServerUnit) -> UnitKind {
+    match kind {
+        ServerUnit::Infantry => UnitKind::Infantry,
+        ServerUnit::Mech => UnitKind::Mech,
+        ServerUnit::Tank => UnitKind::Tank,
+        ServerUnit::Artillery => UnitKind::Artillery,
+        ServerUnit::Apc => UnitKind::Apc,
+        _ => panic!("the benchmark roster contains an unsupported unit"),
+    }
 }
 
 /// A server and the command to submit against it.
@@ -216,7 +280,7 @@ pub fn submission(kind: Kind, players: usize, fog: bool) -> Submission {
         },
         Kind::Attack => {
             let target = Position::new(ATTACK_TARGET.0, ATTACK_TARGET.1);
-            server.spawn_unit(target, Unit::Infantry, FACTIONS[1]);
+            server.spawn_unit(target, ServerUnit::Infantry, FACTIONS[1]);
             GameCommand::MoveUnit {
                 unit_id: awbrn_server::ServerUnitId(1),
                 path,
@@ -286,6 +350,11 @@ mod tests {
                 run_spectator_view(&mut server),
                 UNITS,
                 "roster is not {UNITS} units at {players} players"
+            );
+            assert_eq!(
+                state(players, false).units.len(),
+                UNITS,
+                "AWVM roster is not {UNITS} units at {players} players"
             );
         }
     }
