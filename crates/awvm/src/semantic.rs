@@ -380,7 +380,8 @@ fn seat_of(players: &[Player], id: &PlayerId) -> Option<PlayerIdx> {
 ///
 /// The roster is fixed for a match. It derefs to its players, so reading one is
 /// what it always was, and a player's own mutable state — funds, status, the
-/// power charge — is still reachable; only adding and removing seats is not.
+/// power charge — is still reachable; adding and removing seats is not, and
+/// neither is renaming one, because [`Player::id`] is read-only.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct Roster {
@@ -417,6 +418,56 @@ impl Roster {
             .enumerate()
             .filter_map(|(seat, player)| Some((PlayerIdx(u8::try_from(seat).ok()?), player)))
     }
+
+    /// Every seat on `team`, with the player sitting in it, in seat order.
+    pub fn on_team<'a>(
+        &'a self,
+        team: &'a TeamId,
+    ) -> impl Iterator<Item = (PlayerIdx, &'a Player)> {
+        self.seats().filter(move |(_, player)| player.team == *team)
+    }
+
+    /// Every seat on `team`, in seat order.
+    ///
+    /// A team is how the rules name a side — a projection's recipients, a
+    /// power's targets — and a unit names its owner by seat, so the roster is
+    /// turned into seats once and each unit is a lookup afterwards.
+    pub fn seats_on_team<'a>(&'a self, team: &'a TeamId) -> impl Iterator<Item = PlayerIdx> + 'a {
+        self.on_team(team).map(|(seat, _)| seat)
+    }
+
+    /// Every seat that is not on `team`, with the player sitting in it, in
+    /// seat order.
+    pub fn off_team<'a>(
+        &'a self,
+        team: &'a TeamId,
+    ) -> impl Iterator<Item = (PlayerIdx, &'a Player)> {
+        self.seats().filter(move |(_, player)| player.team != *team)
+    }
+
+    /// Every seat that is not on `team`, in seat order.
+    pub fn seats_off_team<'a>(&'a self, team: &'a TeamId) -> impl Iterator<Item = PlayerIdx> + 'a {
+        self.off_team(team).map(|(seat, _)| seat)
+    }
+
+    /// The player in `seat`, to be changed.
+    ///
+    /// One player at a time, never the slice: a roster hands out no way to add,
+    /// remove or reorder a seat, and [`Player`] hands out no way to rename one,
+    /// so a seat a tile or a unit already names keeps meaning what it meant.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `seat` is not on this roster, which only a seat minted
+    /// against a different roster can be.
+    pub fn player_mut(&mut self, seat: PlayerIdx) -> &mut Player {
+        &mut self.players[seat.get()]
+    }
+
+    /// The player `id` names, to be changed.
+    pub fn find_mut(&mut self, id: &PlayerId) -> Option<&mut Player> {
+        self.players.iter_mut().find(|candidate| candidate.id == id)
+    }
 }
 
 impl std::ops::Deref for Roster {
@@ -424,14 +475,6 @@ impl std::ops::Deref for Roster {
 
     fn deref(&self) -> &Self::Target {
         &self.players
-    }
-}
-
-/// A player's own state changes all match — funds are spent, a power charges.
-/// Only the seats themselves are fixed, which `[Player]` cannot change.
-impl std::ops::DerefMut for Roster {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.players
     }
 }
 
@@ -856,7 +899,7 @@ impl State {
     }
 
     pub fn player_mut(&mut self, seat: PlayerIdx) -> &mut Player {
-        &mut self.players[seat.get()]
+        self.players.player_mut(seat)
     }
 
     pub fn find_player(&self, id: &PlayerId) -> Option<&Player> {
@@ -864,7 +907,7 @@ impl State {
     }
 
     pub fn find_player_mut(&mut self, id: &PlayerId) -> Option<&mut Player> {
-        self.players.iter_mut().find(|candidate| candidate.id == id)
+        self.players.find_mut(id)
     }
 
     /// Check the relational invariants of `spec/model/invariants.md`.
@@ -1689,21 +1732,29 @@ impl TileWire {
 /// two layers could only be told apart by reading the deserializer, and which
 /// every reader unwrapped twice by hand.
 ///
-/// The holder is a seat, not a name — see [`PlayerIdx`] for why. That is what
-/// makes this `Copy`, and a [`Tile`] with it. Ask [`State::tile_owner_id`] for
-/// the name; the projection carries names of its own, in
-/// [`ObservedTileOwner`].
+/// A state and a projection name a holder differently — see [`TileOwner`] and
+/// [`ObservedTileOwner`] — so the holder is what this is generic over. The
+/// three-state logic is written once; which vocabulary a tile speaks stays a
+/// different type.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum TileOwner {
+pub enum TileOwnerOf<Holder> {
     /// The terrain is not a property. Serializes by being absent.
     #[default]
     NotOwnable,
     /// A property nobody holds.
     Neutral,
-    Owned(PlayerIdx),
+    Owned(Holder),
 }
 
-impl TileOwner {
+/// Who holds a tile of a [`State`].
+///
+/// The holder is a seat, not a name — see [`PlayerIdx`] for why. That is what
+/// makes this `Copy`, and a [`Tile`] with it. Ask [`State::tile_owner_id`] for
+/// the name; the projection carries names of its own, in
+/// [`ObservedTileOwner`].
+pub type TileOwner = TileOwnerOf<PlayerIdx>;
+
+impl<Holder> TileOwnerOf<Holder> {
     pub const fn is_not_ownable(&self) -> bool {
         matches!(self, Self::NotOwnable)
     }
@@ -1714,6 +1765,29 @@ impl TileOwner {
     }
 
     /// The holder, if there is one.
+    pub const fn holder(&self) -> Option<&Holder> {
+        match self {
+            Self::Owned(holder) => Some(holder),
+            Self::NotOwnable | Self::Neutral => None,
+        }
+    }
+
+    /// An ownable tile's holder, from the `null`-or-holder the wire resolved to.
+    pub fn ownable(holder: Option<Holder>) -> Self {
+        holder.map_or(Self::Neutral, Self::Owned)
+    }
+
+    /// The holder as the wire spells it for an ownable tile: `null` or a holder.
+    pub fn to_optional(&self) -> Option<Holder>
+    where
+        Holder: Clone,
+    {
+        self.holder().cloned()
+    }
+}
+
+impl TileOwner {
+    /// The seat holding this tile, if it is held.
     pub const fn player(&self) -> Option<PlayerIdx> {
         match *self {
             Self::Owned(seat) => Some(seat),
@@ -1723,11 +1797,6 @@ impl TileOwner {
 
     pub fn is_owned_by(&self, seat: PlayerIdx) -> bool {
         self.player() == Some(seat)
-    }
-
-    /// An ownable tile's holder, from the `null`-or-seat the wire resolved to.
-    pub fn ownable(player: Option<PlayerIdx>) -> Self {
-        player.map_or(Self::Neutral, Self::Owned)
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1750,14 +1819,70 @@ pub enum TeamStatus {
     Active,
     Eliminated,
 }
+/// One player of a match.
+///
+/// The name is read-only: a tile and a unit both name their owner by the seat
+/// the player sits in, so renaming a seat would silently hand every one of them
+/// to somebody else. Everything a match changes — funds, status, the power
+/// charge — stays writable, which is the split [`Roster`] exists to keep.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Player {
-    pub id: PlayerId,
+    id: PlayerId,
     pub team: TeamId,
     pub funds: u64,
     pub status: PlayerStatus,
     pub commanders: Vec<Commander>,
     pub power_state: PowerState,
+}
+
+impl Player {
+    /// A player of `team` who holds nothing yet: no funds, no commander, and
+    /// no power running.
+    pub fn new(id: PlayerId, team: TeamId) -> Self {
+        Self {
+            id,
+            team,
+            funds: 0,
+            status: PlayerStatus::Active,
+            commanders: Vec::new(),
+            power_state: PowerState::None,
+        }
+    }
+
+    /// The player's name, which only a [`Roster`] turns into a seat.
+    pub fn id(&self) -> &PlayerId {
+        &self.id
+    }
+
+    pub fn with_funds(mut self, funds: u64) -> Self {
+        self.funds = funds;
+        self
+    }
+
+    pub fn with_status(mut self, status: PlayerStatus) -> Self {
+        self.status = status;
+        self
+    }
+
+    pub fn with_commanders(mut self, commanders: Vec<Commander>) -> Self {
+        self.commanders = commanders;
+        self
+    }
+
+    pub fn with_power_state(mut self, power_state: PowerState) -> Self {
+        self.power_state = power_state;
+        self
+    }
+
+    /// A copy of this player under another name.
+    ///
+    /// A seat cannot be renamed where it sits — that is the whole point of a
+    /// private name — so whoever needs a differently named player builds one
+    /// and seats it in a [`Roster`] of its own. Fixtures do this to turn a
+    /// one-player state into a two-player one.
+    pub fn renamed(&self, id: PlayerId) -> Self {
+        Self { id, ..self.clone() }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(tsify::Tsify))]

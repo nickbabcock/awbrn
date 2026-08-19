@@ -13,9 +13,9 @@ use awvm::random::{RandomToken, Recording};
 use awvm::ruleset::{RULESET_ID, RULESET_REVISION, Terrain, WeatherKind, profile};
 use awvm::semantic::{
     Board, Commander, CommanderBans, Concealment, Location, Match, Phase, Player, PlayerId,
-    PlayerIdx, PlayerStatus, Pos, PowerState, Roster, RulesetId, RulesetRef, RulesetRevision,
-    Settings, Silo, State, Team, TeamId, TeamStatus, Tile, TileOwner, Toggle, Turn, Unit,
-    UnitAction, UnitId, UnitStore, Weather, WeatherSetting,
+    PlayerIdx, Pos, Roster, RulesetId, RulesetRef, RulesetRevision, Settings, Silo, State, Team,
+    TeamId, TeamStatus, Tile, TileOwner, Toggle, Turn, Unit, UnitAction, UnitId, UnitStore,
+    Weather, WeatherSetting,
 };
 use awvm::transition::{Command, ExecuteError, ExecuteOutcome, execute, execute_with};
 
@@ -426,19 +426,14 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
         .enumerate()
         .map(|(index, player)| {
             let id = player_id(ServerPlayerId(index as u8));
-            Player {
-                id,
-                team: team_id(index, player.team.map(|team| team.get())),
-                funds: u64::from(player.starting_funds),
-                status: PlayerStatus::Active,
-                commanders: vec![Commander {
+            Player::new(id, team_id(index, player.team.map(|team| team.get())))
+                .with_funds(u64::from(player.starting_funds))
+                .with_commanders(vec![Commander {
                     id: player.co,
                     active: true,
                     power_charge: 0,
                     power_uses: 0,
-                }],
-                power_state: PowerState::None,
-            }
+                }])
         })
         .collect::<Vec<_>>();
     let players = Roster::new(players).map_err(|error| SetupError::InvalidPlayers {
@@ -462,7 +457,7 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
         .iter()
         .filter_map(|(faction, id)| Some((*faction, players.seat(id)?)))
         .collect();
-    let active_player = players[0].id.clone();
+    let active_player = players[0].id().clone();
 
     Ok(State {
         ruleset: RulesetRef {
@@ -493,7 +488,7 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
             day: 1,
             active_player,
             phase: Phase::UnitAction,
-            order: players.iter().map(|player| player.id.clone()).collect(),
+            order: players.iter().map(|player| player.id().clone()).collect(),
             position: 0,
         },
         weather: Weather {

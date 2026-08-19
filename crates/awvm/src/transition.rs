@@ -1409,6 +1409,9 @@ mod tests {
     use crate::violation::Action;
     use serde_json::{Value, json};
 
+    /// The seat every single-player fixture below seats its player in.
+    const SEAT_ZERO: crate::semantic::PlayerIdx = crate::semantic::PlayerIdx::from_seat(0);
+
     fn execute(
         state: &State,
         command: Command,
@@ -1627,7 +1630,7 @@ mod tests {
     #[test]
     fn teleporters_cross_at_zero_cost_but_cannot_be_destinations() {
         let mut state = movement_state(6);
-        state.players[0].commanders[0].id = crate::semantic::CommanderId::Sturm;
+        state.player_mut(SEAT_ZERO).commanders[0].id = crate::semantic::CommanderId::Sturm;
         let plain = *state.board.tile(Pos::new(0, 0));
         let mut teleporter = plain;
         teleporter.terrain = TerrainId::Teleporter;
@@ -1757,11 +1760,10 @@ mod tests {
             id: "blue-team".into(),
             status: crate::semantic::TeamStatus::Active,
         });
-        let mut blue = state.players[0].clone();
-        blue.id = "blue".into();
+        let mut blue = state.players[0].renamed("blue".into());
         blue.team = "blue-team".into();
         blue.commanders[0].id = crate::semantic::CommanderId::Neutral;
-        state.players[0].commanders[0].id = crate::semantic::CommanderId::Neutral;
+        state.player_mut(SEAT_ZERO).commanders[0].id = crate::semantic::CommanderId::Neutral;
         state.players =
             crate::semantic::Roster::new(state.players.iter().cloned().chain([blue]).collect())
                 .expect("two players fit a roster");
@@ -1776,8 +1778,8 @@ mod tests {
         ))
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
-        state.players[0].commanders[0].power_uses = 1;
-        state.players[0].commanders[0].power_charge = 21_599;
+        state.player_mut(SEAT_ZERO).commanders[0].power_uses = 1;
+        state.player_mut(SEAT_ZERO).commanders[0].power_charge = 21_599;
         let activate = || {
             serde_json::from_value(json!({
                 "type":"activate-power", "player":"red", "level":"cop"
@@ -2500,11 +2502,10 @@ mod tests {
             id: "blue-team".into(),
             status: crate::semantic::TeamStatus::Active,
         });
-        let mut blue = state.players[0].clone();
-        blue.id = "blue".into();
+        let mut blue = state.players[0].renamed("blue".into());
         blue.team = "blue-team".into();
         blue.commanders[0].id = crate::semantic::CommanderId::Neutral;
-        state.players[0].commanders[0].id = crate::semantic::CommanderId::Neutral;
+        state.player_mut(SEAT_ZERO).commanders[0].id = crate::semantic::CommanderId::Neutral;
         state.players =
             crate::semantic::Roster::new(state.players.iter().cloned().chain([blue]).collect())
                 .expect("two players fit a roster");

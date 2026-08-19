@@ -44,7 +44,7 @@ fn native_and_recorded_sources_drive_the_same_headless_boundary() {
                 &initial,
                 &execution.state,
                 &execution.events,
-                &player.id,
+                player.id(),
             )
         })
         .collect::<Result<Vec<_>, _>>()
@@ -55,7 +55,7 @@ fn native_and_recorded_sources_drive_the_same_headless_boundary() {
         .post_state()
         .players
         .iter()
-        .map(|player| recorded.observe(&player.id))
+        .map(|player| recorded.observe(player.id()))
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
 
@@ -109,7 +109,7 @@ fn a_viewpoint_sees_what_its_own_projection_listed() {
         .state()
         .players
         .iter()
-        .map(|player| player.id.clone())
+        .map(|player| player.id().clone())
         .collect::<Vec<_>>();
     let transition = recorded.advance(&replay.turns[0]).unwrap();
     let projections = players
@@ -182,8 +182,11 @@ fn viewpoint_selects_visible_or_hidden_graphical_hp() {
     let mut state: State = serde_json::from_value(case["left"]["initial_state"].clone()).unwrap();
     let sonja = PlayerId::from("1");
     let opponent = PlayerId::from("2");
-    state.players[0].id = sonja.clone();
-    state.players[1].id = opponent.clone();
+    state.players = awvm::semantic::Roster::new(vec![
+        state.players[0].renamed(sonja.clone()),
+        state.players[1].renamed(opponent.clone()),
+    ])
+    .unwrap();
     state.units[0].owner = state.player_index(&sonja).unwrap();
     state.units[1].owner = state.player_index(&opponent).unwrap();
     state.turn.active_player = sonja.clone();
@@ -298,7 +301,7 @@ fn terrain_memory_follows_the_projections_visibility() {
         .state()
         .players
         .iter()
-        .map(|player| player.id.clone())
+        .map(|player| player.id().clone())
         .collect::<Vec<_>>();
     let transition = recorded.advance(&replay.turns[0]).unwrap();
     let projections = players

@@ -36,10 +36,10 @@ fn every_archived_replay_produces_a_valid_round_tripping_observable_state() {
         let mut observation_hasher = highway::HighwayHasher::new(highway::Key::default());
         for player in &state.players {
             let observation =
-                observe(&AwbwVisibility, &state, &player.id).unwrap_or_else(|error| {
+                observe(&AwbwVisibility, &state, player.id()).unwrap_or_else(|error| {
                     panic!(
                         "{replay_file} could not be observed by player {}: {error}",
-                        player.id
+                        player.id()
                     )
                 });
             let observation_wire = serde_json::to_vec(&observation).unwrap();
@@ -47,9 +47,9 @@ fn every_archived_replay_produces_a_valid_round_tripping_observable_state() {
                 serde_json::from_slice::<Observation>(&observation_wire).unwrap(),
                 observation,
                 "{replay_file} observation for {} did not round trip",
-                player.id
+                player.id()
             );
-            append_framed(&mut observation_hasher, player.id.to_string().as_bytes());
+            append_framed(&mut observation_hasher, player.id().to_string().as_bytes());
             append_framed(&mut observation_hasher, &observation_wire);
         }
 

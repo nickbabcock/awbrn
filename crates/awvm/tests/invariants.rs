@@ -140,8 +140,7 @@ fn a_unit_owned_by_nobody_is_caught() {
     // up naming nobody is a roster swapped for a shorter one afterwards. That
     // is what this reproduces, and what `validate` is here to catch.
     let mut seated = state.players.iter().cloned().collect::<Vec<_>>();
-    let mut stranger = seated[0].clone();
-    stranger.id = PlayerId::from("nobody");
+    let stranger = seated[0].renamed(PlayerId::from("nobody"));
     seated.push(stranger);
     let roster = Roster::new(seated).expect("two players fit a roster");
     let nobody = roster

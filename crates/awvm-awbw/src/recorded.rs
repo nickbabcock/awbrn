@@ -339,11 +339,7 @@ fn apply_recorded(state: &mut State, action: &Action) -> Result<(), RecordedAdap
                     .get(UnitId::new(repairing))
                     .ok_or(RecordedAdapterError::UnknownUnit(repairing))?
                     .owner;
-                let player = state
-                    .players
-                    .get_mut(owner.get())
-                    .ok_or(RecordedAdapterError::Missing("repairing player"))?;
-                player.funds = u64::from(funds);
+                state.player_mut(owner).funds = u64::from(funds);
             }
         }
         Action::Resign {
@@ -1169,12 +1165,12 @@ fn diff_events(prior: &State, post: &State, action: &Action) -> Vec<Event> {
         }
     }
     for before in &prior.players {
-        let Some(after) = post.find_player(&before.id) else {
+        let Some(after) = post.find_player(before.id()) else {
             continue;
         };
         if before.funds != after.funds {
             events.push(Event::FundsChanged {
-                player: before.id.clone(),
+                player: before.id().clone(),
                 from: before.funds,
                 to: after.funds,
                 reason: reason(),
@@ -1182,7 +1178,7 @@ fn diff_events(prior: &State, post: &State, action: &Action) -> Vec<Event> {
         }
         if before.status != after.status {
             events.push(Event::PlayerStatusChanged {
-                player: before.id.clone(),
+                player: before.id().clone(),
                 from: before.status,
                 to: after.status,
             });
@@ -1190,7 +1186,7 @@ fn diff_events(prior: &State, post: &State, action: &Action) -> Vec<Event> {
         for (slot, (old, new)) in before.commanders.iter().zip(&after.commanders).enumerate() {
             if old.power_charge != new.power_charge {
                 events.push(Event::PowerChargeChanged {
-                    player: before.id.clone(),
+                    player: before.id().clone(),
                     commander_slot: slot,
                     from: old.power_charge,
                     to: new.power_charge,
@@ -1204,7 +1200,7 @@ fn diff_events(prior: &State, post: &State, action: &Action) -> Vec<Event> {
             && from_slot != to_slot
         {
             events.push(Event::CommanderSwapped {
-                player: before.id.clone(),
+                player: before.id().clone(),
                 from_slot,
                 to_slot,
             });
@@ -1218,7 +1214,7 @@ fn diff_events(prior: &State, post: &State, action: &Action) -> Vec<Event> {
             (PowerState::None, PowerState::Cop { commander_slot }) => {
                 if let Some(commander) = commander_at(&after.commanders, *commander_slot) {
                     events.push(Event::PowerActivated {
-                        player: before.id.clone(),
+                        player: before.id().clone(),
                         commander,
                         power: PowerLevel::Cop,
                     });
@@ -1227,7 +1223,7 @@ fn diff_events(prior: &State, post: &State, action: &Action) -> Vec<Event> {
             (PowerState::None, PowerState::Scop { commander_slot }) => {
                 if let Some(commander) = commander_at(&after.commanders, *commander_slot) {
                     events.push(Event::PowerActivated {
-                        player: before.id.clone(),
+                        player: before.id().clone(),
                         commander,
                         power: PowerLevel::Scop,
                     });
@@ -1236,7 +1232,7 @@ fn diff_events(prior: &State, post: &State, action: &Action) -> Vec<Event> {
             (PowerState::Cop { commander_slot }, PowerState::None) => {
                 if let Some(commander) = commander_at(&before.commanders, *commander_slot) {
                     events.push(Event::PowerEnded {
-                        player: before.id.clone(),
+                        player: before.id().clone(),
                         commander,
                         power: PowerLevel::Cop,
                     });
@@ -1245,7 +1241,7 @@ fn diff_events(prior: &State, post: &State, action: &Action) -> Vec<Event> {
             (PowerState::Scop { commander_slot }, PowerState::None) => {
                 if let Some(commander) = commander_at(&before.commanders, *commander_slot) {
                     events.push(Event::PowerEnded {
-                        player: before.id.clone(),
+                        player: before.id().clone(),
                         commander,
                         power: PowerLevel::Scop,
                     });

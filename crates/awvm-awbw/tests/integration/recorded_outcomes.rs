@@ -135,11 +135,11 @@ fn replay_outcome(replay_path: &Path) -> ReplayOutcome {
         let mut observed_hasher = highway::HighwayHasher::new(highway::Key::default());
         if is_checkpoint || decode {
             for player in &transition.post_state().players {
-                let observed = transition.observe(&player.id).unwrap_or_else(|error| {
+                let observed = transition.observe(player.id()).unwrap_or_else(|error| {
                     panic!(
                         "{replay_file} action {index} ({}) for {}: {error}",
                         action.kind_name(),
-                        player.id
+                        player.id()
                     )
                 });
                 if decode {
@@ -149,11 +149,11 @@ fn replay_outcome(replay_path: &Path) -> ReplayOutcome {
                         observed,
                         "{replay_file} action {index} ({}) for {} did not round trip",
                         action.kind_name(),
-                        player.id
+                        player.id()
                     );
                 }
                 if is_checkpoint {
-                    append_framed(&mut observed_hasher, player.id.to_string().as_bytes());
+                    append_framed(&mut observed_hasher, player.id().to_string().as_bytes());
                     append_framed_json(&mut observed_hasher, &observed);
                 }
             }
@@ -249,15 +249,15 @@ fn assert_recorded_turn_start(
     }
 
     for before in &prior.players {
-        let after = post.find_player(&before.id).unwrap();
-        let expires = before.id == next || (tagged && before.id == prior.turn.active_player);
+        let after = post.find_player(before.id()).unwrap();
+        let expires = *before.id() == next || (tagged && *before.id() == prior.turn.active_player);
         let expected = if expires {
             &PowerState::None
         } else {
             &before.power_state
         };
         if before.power_state != PowerState::None {
-            if before.id == next {
+            if *before.id() == next {
                 expired_returning_powers += 1;
             } else if !expires {
                 retained_intervening_powers += 1;

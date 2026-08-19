@@ -1303,7 +1303,7 @@ pub fn reify(observation: &Observation) -> Result<State, QueryError> {
 
 fn board_tiles(
     observation: &Observation,
-    players: &[crate::semantic::Player],
+    players: &crate::semantic::Roster,
 ) -> Result<Vec<crate::semantic::Tile>, QueryError> {
     let mut tiles = Vec::with_capacity(
         usize::from(observation.board.width()) * usize::from(observation.board.height()),
@@ -1316,14 +1316,9 @@ fn board_tiles(
             // stores the seat that name sits in.
             tile.owner = match observed.owner.player() {
                 Some(name) => {
-                    let seat = players
-                        .iter()
-                        .position(|player| player.id == *name)
-                        .and_then(|seat| u8::try_from(seat).ok())
-                        .map(crate::semantic::PlayerIdx::from_seat)
-                        .ok_or(QueryError::Unprojectable(
-                            "a tile names a holder its roster does not hold",
-                        ))?;
+                    let seat = players.seat(name).ok_or(QueryError::Unprojectable(
+                        "a tile names a holder its roster does not hold",
+                    ))?;
                     crate::semantic::TileOwner::Owned(seat)
                 }
                 None if observed.owner.is_ownable() => crate::semantic::TileOwner::Neutral,
@@ -1350,14 +1345,11 @@ fn reified_player(player: &ObservedPlayer) -> crate::semantic::Player {
             commanders,
             power_state,
             ..
-        } => crate::semantic::Player {
-            id: id.clone(),
-            team: team.clone(),
-            funds: *funds,
-            status: *status,
-            commanders: commanders.clone(),
-            power_state: power_state.clone(),
-        },
+        } => crate::semantic::Player::new(id.clone(), team.clone())
+            .with_funds(*funds)
+            .with_status(*status)
+            .with_commanders(commanders.clone())
+            .with_power_state(power_state.clone()),
         ObservedPlayer::Public {
             id,
             team,
@@ -1365,28 +1357,26 @@ fn reified_player(player: &ObservedPlayer) -> crate::semantic::Player {
             commanders,
             power_state,
             ..
-        } => crate::semantic::Player {
-            id: id.clone(),
-            team: team.clone(),
-            funds: 0,
-            status: *status,
-            commanders: commanders
-                .iter()
-                .map(|commander| crate::semantic::Commander {
-                    id: commander.id,
-                    active: commander.active,
-                    power_charge: commander.power_charge,
-                    power_uses: commander.power_uses,
-                })
-                .collect(),
-            power_state: power_state.clone(),
-        },
+        } => crate::semantic::Player::new(id.clone(), team.clone())
+            .with_status(*status)
+            .with_commanders(
+                commanders
+                    .iter()
+                    .map(|commander| crate::semantic::Commander {
+                        id: commander.id,
+                        active: commander.active,
+                        power_charge: commander.power_charge,
+                        power_uses: commander.power_uses,
+                    })
+                    .collect(),
+            )
+            .with_power_state(power_state.clone()),
     }
 }
 
 fn reified_units(
     observation: &Observation,
-    players: &[crate::semantic::Player],
+    players: &crate::semantic::Roster,
 ) -> Result<Vec<Unit>, QueryError> {
     let mut next_synthetic = observation
         .units
@@ -1428,10 +1418,7 @@ fn reified_units(
         })
         .map(|(observed, id)| {
             let owner = players
-                .iter()
-                .position(|player| player.id == observed.owner)
-                .and_then(|seat| u8::try_from(seat).ok())
-                .map(PlayerIdx::from_seat)
+                .seat(&observed.owner)
                 .ok_or(QueryError::Unprojectable(
                     "a unit names an owner its roster does not hold",
                 ))?;

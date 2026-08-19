@@ -17,8 +17,8 @@ use crate::event::{AttackTarget, Event, ObservedReason, PublicEventKind};
 use super::{
     BoardShapeError, Commander, Concealment, Location, Match, Outcome, PlayerId, PlayerIdx,
     PlayerStatus, Pos, PowerState, RareTileState, RulesetRef, Settings, Silo, State, Team, TeamId,
-    TeleporterId, TerrainId, TileOwner, TraitId, Turn, Unit, UnitAction, UnitId, Viewpoint,
-    Visibility, Weather,
+    TeleporterId, TerrainId, TileOwner, TileOwnerOf, TraitId, Turn, Unit, UnitAction, UnitId,
+    Viewpoint, Visibility, Weather,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -238,46 +238,16 @@ pub struct ObservedTile {
 /// is copied once per command and a name is an allocation. A projection is a
 /// message: it is built once per recipient, it travels, and the recipient has
 /// no roster to resolve a seat against. So this one carries the name.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub enum ObservedTileOwner {
-    /// The terrain is not a property. Serializes by being absent.
-    #[default]
-    NotOwnable,
-    /// A property nobody holds.
-    Neutral,
-    Owned(PlayerId),
-}
+pub type ObservedTileOwner = TileOwnerOf<PlayerId>;
 
 impl ObservedTileOwner {
-    pub const fn is_not_ownable(&self) -> bool {
-        matches!(self, Self::NotOwnable)
-    }
-
-    /// Whether this is a property, held or not.
-    pub const fn is_ownable(&self) -> bool {
-        !self.is_not_ownable()
-    }
-
-    /// The holder, if there is one.
+    /// The player holding this tile, if it is held.
     pub const fn player(&self) -> Option<&PlayerId> {
-        match self {
-            Self::Owned(player) => Some(player),
-            Self::NotOwnable | Self::Neutral => None,
-        }
+        self.holder()
     }
 
     pub fn is_owned_by(&self, player: &PlayerId) -> bool {
         self.player().is_some_and(|held| held == player)
-    }
-
-    /// The holder as the wire spells it for an ownable tile: `null` or an id.
-    pub fn to_optional(&self) -> Option<PlayerId> {
-        self.player().cloned()
-    }
-
-    /// An ownable tile's holder, from the `null`-or-id the wire carries.
-    pub fn ownable(player: Option<PlayerId>) -> Self {
-        player.map_or(Self::Neutral, Self::Owned)
     }
 }
 
@@ -654,17 +624,10 @@ fn transition_projection<'a, R: Visibility>(
         .transpose()?;
     let teammates: Vec<&PlayerId> = state
         .players
-        .iter()
-        .filter(|player| player.team == team)
-        .map(|player| &player.id)
+        .on_team(team)
+        .map(|(_, player)| &player.id)
         .collect();
-    let teammate_seats: Vec<PlayerIdx> = state
-        .players
-        .iter()
-        .enumerate()
-        .filter(|(_, player)| player.team == team)
-        .filter_map(|(seat, _)| u8::try_from(seat).ok().map(PlayerIdx::from_seat))
-        .collect();
+    let teammate_seats: Vec<PlayerIdx> = state.players.seats_on_team(team).collect();
     Ok(Projection {
         pre_view,
         post_view,

@@ -111,7 +111,7 @@ pub(crate) fn eliminate_player(
     let roster: Vec<PlayerId> = state
         .players
         .iter()
-        .map(|player| player.id.clone())
+        .map(|player| player.id().clone())
         .collect();
     let name = |seat: Option<PlayerIdx>| seat.map(|seat| roster[seat.get()].clone());
     for (position, tile) in state.board.iter() {

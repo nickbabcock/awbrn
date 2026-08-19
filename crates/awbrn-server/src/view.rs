@@ -876,7 +876,7 @@ fn winner(state: &State) -> Option<PlayerId> {
         .players
         .iter()
         .find(|player| winners.contains(&player.team))
-        .map(|player| server_player_id(&player.id))
+        .map(|player| server_player_id(player.id()))
 }
 
 fn public_player_states(state: &State) -> Vec<PublicPlayerState> {
@@ -884,7 +884,7 @@ fn public_player_states(state: &State) -> Vec<PublicPlayerState> {
         .players
         .iter()
         .map(|player| PublicPlayerState {
-            slot_index: server_player_id(&player.id).0,
+            slot_index: server_player_id(player.id()).0,
             funds: narrow_u32(player.funds),
         })
         .collect()

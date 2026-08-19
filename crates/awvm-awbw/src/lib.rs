@@ -81,7 +81,7 @@ pub fn initial_state_from_map(game: &AwbwGame, map: &AwbwMap) -> Result<State, A
     let teams = lower_teams(&players);
     let order = players
         .iter()
-        .map(|player| player.id.clone())
+        .map(|player| player.id().clone())
         .collect::<Vec<_>>();
     let active_player = order[0].clone();
 
@@ -237,22 +237,19 @@ fn lower_player(game: &AwbwGame, player: &AwbwPlayer) -> Result<Player, AdapterE
         });
     }
 
-    Ok(Player {
-        id: player_id(player),
-        team: team_id(game, player),
-        funds: u64::from(player.funds),
-        status: if player.eliminated {
+    Ok(Player::new(player_id(player), team_id(game, player))
+        .with_funds(u64::from(player.funds))
+        .with_status(if player.eliminated {
             PlayerStatus::Eliminated
         } else {
             PlayerStatus::Active
-        },
-        commanders,
-        power_state: match player.co_power_on {
+        })
+        .with_commanders(commanders)
+        .with_power_state(match player.co_power_on {
             CoPower::None => PowerState::None,
             CoPower::Power => PowerState::Cop { commander_slot: 0 },
             CoPower::SuperPower => PowerState::Scop { commander_slot: 0 },
-        },
-    })
+        }))
 }
 
 pub(crate) fn awbw_power_charge(value: u32) -> u64 {
