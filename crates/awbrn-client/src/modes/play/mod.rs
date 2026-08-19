@@ -3426,9 +3426,10 @@ mod tests {
         state.players[0].commanders[0].id = awvm::semantic::CommanderId::Neutral;
         state.turn.active_player = "0".into();
         state.turn.order = vec!["0".into()];
-        state.units[0].owner = "0".into();
+        let seat = state.player_index(&"0".into()).unwrap();
+        state.units[0].owner = seat;
         state.units[0].action = awvm::semantic::UnitAction::Spent;
-        state.units[1].owner = "0".into();
+        state.units[1].owner = seat;
         let observation = observe(&AwbwVisibility, &state, &state.players[0].id).unwrap();
 
         let mut app = play_test_app();

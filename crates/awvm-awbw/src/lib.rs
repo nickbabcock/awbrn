@@ -15,9 +15,9 @@ use awbw_replay::game_models::{AwbwGame, AwbwPlayer, AwbwUnit, CoPower, MatchTyp
 use awvm::ruleset::{RULESET_ID, RULESET_REVISION, Terrain, WeatherKind};
 use awvm::semantic::{
     Board, Commander, CommanderBans, Concealment, Location, Match, Phase, Player, PlayerId,
-    PlayerStatus, Pos, PowerState, RulesetId, RulesetRef, RulesetRevision, Settings, Silo, State,
-    StateInvariant, Team, TeamId, TeamStatus, Tile, TileOwner, Toggle, Turn, Unit, UnitAction,
-    UnitId, UnitStore, Weather, WeatherSetting,
+    PlayerIdx, PlayerStatus, Pos, PowerState, Roster, RulesetId, RulesetRef, RulesetRevision,
+    Settings, Silo, State, StateInvariant, Team, TeamId, TeamStatus, Tile, TileOwner, Toggle, Turn,
+    Unit, UnitAction, UnitId, UnitStore, Weather, WeatherSetting,
 };
 
 mod command;
@@ -58,19 +58,26 @@ pub fn initial_state_from_map(game: &AwbwGame, map: &AwbwMap) -> Result<State, A
     ordered_players.sort_by_key(|player| player.order);
     ensure_unique_players(&ordered_players)?;
 
-    let player_ids = ordered_players
+    // A held tile and a unit both name a seat on this roster, which is built in
+    // this order, so a player maps straight to the seat they sit in.
+    let players = Roster::new(
+        ordered_players
+            .iter()
+            .map(|player| lower_player(game, player))
+            .collect::<Result<Vec<_>, _>>()?,
+    )
+    .map_err(|error| AdapterError::RosterTooLarge(error.found))?;
+    let player_seats = ordered_players
         .iter()
-        .map(|player| (player.id, player_id(player)))
+        .zip(players.seats())
+        .map(|(source, (seat, _))| (source.id, seat))
         .collect::<HashMap<_, _>>();
-    let faction_players = ordered_players
+    let faction_seats = ordered_players
         .iter()
-        .map(|player| (player.faction, player_id(player)))
+        .zip(players.seats())
+        .map(|(source, (seat, _))| (source.faction, seat))
         .collect::<HashMap<_, _>>();
 
-    let players = ordered_players
-        .iter()
-        .map(|player| lower_player(game, player))
-        .collect::<Result<Vec<_>, _>>()?;
     let teams = lower_teams(&players);
     let order = players
         .iter()
@@ -78,8 +85,8 @@ pub fn initial_state_from_map(game: &AwbwGame, map: &AwbwMap) -> Result<State, A
         .collect::<Vec<_>>();
     let active_player = order[0].clone();
 
-    let board = lower_board(game, map, &faction_players)?;
-    let units = lower_units(game, &player_ids)?;
+    let board = lower_board(game, map, &faction_seats)?;
+    let units = lower_units(game, &player_seats)?;
     let next_unit_id = units
         .iter()
         .map(|unit| unit.id.get())
@@ -143,6 +150,8 @@ pub enum AdapterError {
     MissingGame,
     #[error("the replay roster is empty")]
     EmptyRoster,
+    #[error("the replay roster holds {0} players, more than AWVM seats")]
+    RosterTooLarge(usize),
     #[error("player {0} appears more than once in the replay roster")]
     DuplicatePlayer(u32),
     #[error("faction {0:?} belongs to more than one replay player")]
@@ -274,7 +283,7 @@ fn lower_teams(players: &[Player]) -> Vec<Team> {
 fn lower_board(
     game: &AwbwGame,
     map: &AwbwMap,
-    faction_players: &HashMap<PlayerFaction, PlayerId>,
+    faction_seats: &HashMap<PlayerFaction, PlayerIdx>,
 ) -> Result<Board, AdapterError> {
     let width = u8::try_from(map.width()).map_err(|_| AdapterError::MapDimension {
         axis: "width",
@@ -306,6 +315,9 @@ fn lower_board(
     }
 
     let mut tiles = Vec::with_capacity(map.width() * map.height());
+    // Seam HP belongs to the board, not to the tile, so it is collected here
+    // and applied once the rectangle is built.
+    let mut seams = Vec::new();
     for y in 0..map.height() {
         for x in 0..map.width() {
             let position = Position::new(x, y);
@@ -316,16 +328,25 @@ fn lower_board(
             if let Some(building) = building {
                 terrain = building.terrain_id;
             }
-            tiles.push(lower_tile(
+            let (tile, seam_hp) = lower_tile(
                 terrain,
                 building.map(|building| building.capture),
                 x,
                 y,
-                faction_players,
-            )?);
+                faction_seats,
+            )?;
+            if let Some(hp) = seam_hp {
+                seams.push((Pos::new(x as u8, y as u8), hp));
+            }
+            tiles.push(tile);
         }
     }
-    Board::new(width, height, tiles).map_err(|error| AdapterError::Board(error.to_string()))
+    let mut board =
+        Board::new(width, height, tiles).map_err(|error| AdapterError::Board(error.to_string()))?;
+    for (position, hp) in seams {
+        board.set_destructible_hp(position, Some(hp));
+    }
+    Ok(board)
 }
 
 fn lower_tile(
@@ -333,16 +354,16 @@ fn lower_tile(
     building_capture: Option<u32>,
     x: usize,
     y: usize,
-    faction_players: &HashMap<PlayerFaction, PlayerId>,
-) -> Result<Tile, AdapterError> {
+    faction_seats: &HashMap<PlayerFaction, PlayerIdx>,
+) -> Result<(Tile, Option<u64>), AdapterError> {
     let mut tile = Tile::new(semantic_terrain(terrain));
     if let AwbwTerrain::Property(property) = terrain {
         tile.owner = match property.faction() {
             Faction::Neutral => TileOwner::Neutral,
             Faction::Player(faction) => TileOwner::Owned(
-                faction_players
+                faction_seats
                     .get(&faction)
-                    .cloned()
+                    .copied()
                     .ok_or(AdapterError::UnknownPropertyOwner { x, y, faction })?,
             ),
         };
@@ -358,15 +379,14 @@ fn lower_tile(
             MissileSiloStatus::Unloaded => Silo::Spent,
         });
     }
-    if matches!(terrain, AwbwTerrain::PipeSeam(_)) {
-        tile.set_destructible_hp(Some(u64::from(building_capture.unwrap_or(99))));
-    }
-    Ok(tile)
+    let seam_hp = matches!(terrain, AwbwTerrain::PipeSeam(_))
+        .then(|| u64::from(building_capture.unwrap_or(99)));
+    Ok((tile, seam_hp))
 }
 
 fn lower_units(
     game: &AwbwGame,
-    player_ids: &HashMap<awbrn_types::AwbwGamePlayerId, PlayerId>,
+    player_seats: &HashMap<awbrn_types::AwbwGamePlayerId, PlayerIdx>,
 ) -> Result<UnitStore, AdapterError> {
     let mut cargo = HashMap::<awbrn_types::AwbwUnitId, (awbrn_types::AwbwUnitId, usize)>::new();
     for transport in &game.units {
@@ -386,20 +406,20 @@ fn lower_units(
     let units = game
         .units
         .iter()
-        .map(|unit| lower_unit(unit, player_ids, &cargo))
+        .map(|unit| lower_unit(unit, player_seats, &cargo))
         .collect::<Result<Vec<_>, _>>()?;
     UnitStore::new(units).map_err(|error| AdapterError::DuplicateUnit(error.0.get()))
 }
 
 fn lower_unit(
     unit: &AwbwUnit,
-    player_ids: &HashMap<awbrn_types::AwbwGamePlayerId, PlayerId>,
+    player_seats: &HashMap<awbrn_types::AwbwGamePlayerId, PlayerIdx>,
     cargo: &HashMap<awbrn_types::AwbwUnitId, (awbrn_types::AwbwUnitId, usize)>,
 ) -> Result<Unit, AdapterError> {
     let owner =
-        player_ids
+        player_seats
             .get(&unit.players_id)
-            .cloned()
+            .copied()
             .ok_or(AdapterError::UnknownUnitOwner {
                 unit: unit.id.as_u32(),
                 player: unit.players_id.as_u32(),

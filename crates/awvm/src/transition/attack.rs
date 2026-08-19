@@ -6,20 +6,23 @@
 use super::ReducerError as ExecuteError;
 use super::*;
 use crate::combat::{self, CounterStep, DamageRange, Forecast, HEALTH_STEP, Hit, Side};
-use crate::commander::{self, CombatContext, Combatant, Strike};
+use crate::commander::{self, CombatContext, Combatant, Holdings, Strike};
 use crate::event::{AttackTarget, Event};
 use crate::random::Luck;
 use crate::ruleset::{self, Domain, FireMode, TerrainTrait};
 use crate::semantic::{
-    AwbwView, Concealment, KnownReason, Location, PlayerId, Pos, PowerState, State, TerrainId,
-    Unit, UnitAction, UnitId, UnitKindId, Viewpoint,
+    AwbwView, Concealment, KnownReason, Location, PlayerId, PlayerIdx, Pos, PowerState, State,
+    TerrainId, Unit, UnitAction, UnitId, UnitKindId, Viewpoint,
 };
 use crate::violation::{Action, Violation};
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
 #[derive(Debug)]
-pub(super) struct Attack {
+pub(super) struct Attack(pub(super) AttackTarget);
+
+#[derive(Debug)]
+pub(super) struct AttackProof {
     target: PreparedAttackTarget,
     destination: Option<AvailableDestination>,
 }
@@ -29,15 +32,30 @@ pub(super) struct Attack {
 /// instead of allocating one per strike.
 static NO_CAPABILITIES: LazyLock<HashSet<String>> = LazyLock::new(HashSet::new);
 
-/// One side of an engagement: a unit and the tile the strike is scored from.
+/// One side of an engagement: a unit, the seat its owner holds, and the tile
+/// the strike is scored from.
 ///
 /// The position is carried rather than read back off the unit because
 /// move-and-attack scores the initiating strike from the destination it just
-/// resolved.
+/// resolved. The seat is carried because every commander question the exchange
+/// asks names the same two players, and resolving a name walked the roster
+/// comparing strings each time. `None` is an owner off the roster, whom no
+/// commander answers for.
 #[derive(Clone, Copy)]
 struct Fighter<'a> {
     unit: &'a Unit,
+    seat: Option<PlayerIdx>,
     position: Pos,
+}
+
+impl<'a> Fighter<'a> {
+    fn new(state: &State, unit: &'a Unit, position: Pos) -> Self {
+        Self {
+            unit,
+            seat: state.players.get(unit.owner.get()).map(|_| unit.owner),
+            position,
+        }
+    }
 }
 
 fn is_property(terrain: TerrainId) -> bool {
@@ -48,23 +66,13 @@ fn is_property(terrain: TerrainId) -> bool {
 /// `unit` firing from or standing on `position`.
 fn combat_context(
     state: &State,
-    owner: &PlayerId,
+    holdings: &Holdings<'_>,
+    owner: Option<PlayerIdx>,
     unit: UnitKindId,
     position: Pos,
 ) -> CombatContext {
-    let mut tower_count = 0_i64;
-    let mut owned_properties = 0_u64;
-    for tile in state.board.tiles() {
-        if !tile.owner.player().is_some_and(|value| value == owner) {
-            continue;
-        }
-        if ruleset::terrain_has(tile.terrain, TerrainTrait::CommunicationBonus) {
-            tower_count += 1;
-        }
-        if is_property(tile.terrain) {
-            owned_properties += 1;
-        }
-    }
+    debug_assert!(holdings.counted(state), "holdings tallied another state");
+    let (held, funds) = holdings.of(owner);
     let base_terrain_stars = match ruleset::profile(unit).domain {
         Domain::Air => 0,
         Domain::Ground | Domain::Sea => {
@@ -72,9 +80,9 @@ fn combat_context(
         }
     };
     CombatContext {
-        tower_count,
-        funds: state.find_player(owner).map_or(0, |player| player.funds),
-        owned_properties,
+        tower_count: held.tower_count,
+        funds,
+        owned_properties: held.owned_properties,
         base_terrain_stars,
     }
 }
@@ -193,22 +201,25 @@ impl StrikeValues {
 /// Score `striker` hitting `target` through both commanders' combat rules.
 fn resolve_strike(
     state: &State,
+    holdings: &Holdings<'_>,
     striker: Fighter<'_>,
     target: Fighter<'_>,
     strike: Strike,
 ) -> Result<StrikeValues, ExecuteError> {
+    debug_assert!(holdings.counted(state), "holdings tallied another state");
     let overflow = || ExecuteError::InvalidState("commander combat overflow".into());
     let fire_mode = ruleset::profile(striker.unit.kind).fire_mode;
     let striker_context = combatant(state, striker.unit.kind, striker.position, fire_mode);
     let target_context = combatant(state, target.unit.kind, target.position, fire_mode);
     let striking = commander::effective_combat(
         state,
-        &striker.unit.owner,
+        striker.seat,
         striker_context,
         strike,
         combat_context(
             state,
-            &striker.unit.owner,
+            holdings,
+            striker.seat,
             striker.unit.kind,
             striker.position,
         ),
@@ -216,15 +227,21 @@ fn resolve_strike(
     .ok_or_else(overflow)?;
     let defending = commander::effective_combat(
         state,
-        &target.unit.owner,
+        target.seat,
         target_context,
         strike,
-        combat_context(state, &target.unit.owner, target.unit.kind, target.position),
+        combat_context(
+            state,
+            holdings,
+            target.seat,
+            target.unit.kind,
+            target.position,
+        ),
     )
     .ok_or_else(overflow)?;
     let stars = commander::effective_enemy_terrain_stars(
         state,
-        &striker.unit.owner,
+        striker.seat,
         striker_context,
         strike,
         defending.terrain_stars,
@@ -288,8 +305,8 @@ fn apply_hit(
         state,
         next,
         events,
-        &striker.owner,
-        &target.owner,
+        striker.owner,
+        target.owner,
         target.kind,
         target.hp,
         target_hp_after,
@@ -298,8 +315,8 @@ fn apply_hit(
         state,
         next,
         events,
-        &striker.owner,
-        &target.owner,
+        striker.owner,
+        target.owner,
         target.kind,
         target.hp,
         target_hp_after,
@@ -312,33 +329,41 @@ pub(crate) fn apply_strike_funds(
     state: &State,
     next: &mut State,
     events: &mut Vec<Event>,
-    striker: &PlayerId,
-    target_owner: &PlayerId,
+    striker: PlayerIdx,
+    target_owner: PlayerIdx,
     target_kind: UnitKindId,
     from_hp: u8,
     to_hp: u8,
 ) -> Result<(), ExecuteError> {
     let base_value = ruleset::profile(target_kind).cost;
-    let target_value = commander::effective_build_cost(state, target_owner, base_value)
+    let target_value = commander::effective_build_cost(state, Some(target_owner), base_value)
         .ok_or_else(|| ExecuteError::InvalidState("strike target value overflow".into()))?;
-    let gain =
-        commander::strike_funds_gain(state, striker, target_owner, from_hp, to_hp, target_value)
-            .ok_or_else(|| {
-                ExecuteError::InvalidState("strike funds profile or arithmetic is invalid".into())
-            })?;
+    let gain = commander::strike_funds_gain(
+        state,
+        Some(striker),
+        Some(target_owner),
+        from_hp,
+        to_hp,
+        target_value,
+    )
+    .ok_or_else(|| {
+        ExecuteError::InvalidState("strike funds profile or arithmetic is invalid".into())
+    })?;
     if gain == 0 {
         return Ok(());
     }
-    let player = next
-        .find_player_mut(striker)
-        .ok_or_else(|| ExecuteError::InvalidState("strike owner is absent".into()))?;
+    let striker_id = next
+        .try_player_id(striker)
+        .ok_or_else(|| ExecuteError::InvalidState("strike owner is absent".into()))?
+        .clone();
+    let player = next.player_mut(striker);
     let from = player.funds;
     let to = from
         .checked_add(gain)
         .ok_or_else(|| ExecuteError::InvalidState("strike funds overflow".into()))?;
     player.funds = to;
     events.push(Event::FundsChanged {
-        player: striker.clone(),
+        player: striker_id,
         from,
         to,
         reason: KnownReason::CommanderPower.into(),
@@ -351,8 +376,8 @@ pub(crate) fn apply_strike_power_charge(
     state: &State,
     next: &mut State,
     events: &mut Vec<Event>,
-    striker: &PlayerId,
-    target_owner: &PlayerId,
+    striker: PlayerIdx,
+    target_owner: PlayerIdx,
     target_kind: UnitKindId,
     from_hp: u8,
     to_hp: u8,
@@ -363,7 +388,7 @@ pub(crate) fn apply_strike_power_charge(
         return Ok(());
     }
     let base_value = ruleset::profile(target_kind).cost;
-    let target_value = commander::effective_build_cost(state, target_owner, base_value)
+    let target_value = commander::effective_build_cost(state, Some(target_owner), base_value)
         .ok_or_else(|| ExecuteError::InvalidState("power charge unit value overflow".into()))?;
     let dealt_gain = target_value
         .checked_mul(visual_damage)
@@ -373,13 +398,13 @@ pub(crate) fn apply_strike_power_charge(
         .checked_mul(visual_damage)
         .and_then(|value| value.checked_div(10))
         .ok_or_else(|| ExecuteError::InvalidState("received power charge overflow".into()))?;
-    for (player_id, gain) in [(striker, dealt_gain), (target_owner, received_gain)] {
+    for (player_index, gain) in [(striker, dealt_gain), (target_owner, received_gain)] {
         if gain == 0 {
             continue;
         }
-        let player_index = next
-            .player_index(player_id)
-            .ok_or_else(|| ExecuteError::InvalidState("combat owner is absent".into()))?;
+        if next.players.get(player_index.get()).is_none() {
+            return Err(ExecuteError::InvalidState("combat owner is absent".into()));
+        }
         if !matches!(next.player_mut(player_index).power_state, PowerState::None) {
             continue;
         }
@@ -427,7 +452,7 @@ pub(crate) fn apply_strike_power_charge(
             }
             next.player_mut(player_index).commanders[commander_slot].power_charge = to;
             events.push(Event::PowerChargeChanged {
-                player: player_id.clone(),
+                player: next.player_id(player_index).clone(),
                 commander_slot,
                 from,
                 to,
@@ -447,6 +472,7 @@ pub(crate) fn apply_strike_power_charge(
 /// nothing to report.
 fn score_tile_strike(
     state: &State,
+    holdings: &Holdings<'_>,
     player: &PlayerId,
     attacker: &Unit,
     origin: Pos,
@@ -454,12 +480,13 @@ fn score_tile_strike(
     target_hp: u8,
 ) -> Result<Option<Hit>, ExecuteError> {
     let fire_mode = ruleset::profile(attacker.kind).fire_mode;
+    let seat = state.player_index(player);
     let striking = commander::effective_combat(
         state,
-        player,
+        seat,
         combatant(state, attacker.kind, origin, fire_mode),
         Strike::Initial,
-        combat_context(state, player, attacker.kind, origin),
+        combat_context(state, holdings, seat, attacker.kind, origin),
     )
     .ok_or_else(|| ExecuteError::InvalidState("commander combat overflow".into()))?;
     Ok(combat::damage(
@@ -516,8 +543,9 @@ fn validate_tile_attack(
             target: Some(position.into()),
         }));
     };
-    let from_hp = tile
-        .destructible_hp()
+    let from_hp = state
+        .board
+        .destructible_hp(position)
         .ok_or_else(|| ExecuteError::InvalidState("destructible tile has no HP".into()))?;
     if from_hp > destructible.maximum_hp {
         return Err(ExecuteError::InvalidState(
@@ -581,23 +609,32 @@ fn attack_view<'a>(state: &'a State, player: &PlayerId) -> Result<AwbwView<'a>, 
     Ok(AwbwView::new(state, team))
 }
 
-pub(crate) fn execute_tile_attack(
+fn execute_tile_attack(
     state: &State,
+    holdings: &Holdings<'_>,
     player: &PlayerId,
     unit_id: UnitId,
     attacker_index: usize,
-    attacker: &Unit,
     origin: Pos,
     position: Pos,
 ) -> Result<Execution, ExecuteError> {
+    let attacker = &state.units[attacker_index];
     let view = attack_view(state, player)?;
     let target = validate_tile_attack(state, attacker, origin, position, &view)?;
     let from_hp = target.hp;
     let target_kind = target.kind;
     let destruction_replacement = target.destruction_replacement;
 
-    let hit = score_tile_strike(state, player, attacker, origin, target_kind, from_hp)?
-        .expect("tile weapon was validated");
+    let hit = score_tile_strike(
+        state,
+        holdings,
+        player,
+        attacker,
+        origin,
+        target_kind,
+        from_hp,
+    )?
+    .expect("tile weapon was validated");
     let to_hp = from_hp.saturating_sub(hit.damage);
     let mut next = state.clone();
     let mut events = Vec::new();
@@ -625,7 +662,7 @@ pub(crate) fn execute_tile_attack(
     });
     if to_hp == 0 {
         next.board.tile_mut(position).terrain = destruction_replacement;
-        next.board.tile_mut(position).set_destructible_hp(None);
+        next.board.set_destructible_hp(position, None);
         events.push(Event::TileTerrainChanged {
             position,
             from: state.board.tile(position).terrain,
@@ -634,8 +671,7 @@ pub(crate) fn execute_tile_attack(
         });
     } else {
         next.board
-            .tile_mut(position)
-            .set_destructible_hp(Some(u64::from(to_hp)));
+            .set_destructible_hp(position, Some(u64::from(to_hp)));
     }
     next.units[attacker_index].action = UnitAction::Spent;
     events.push(Event::UnitActionChanged {
@@ -651,96 +687,82 @@ pub(crate) fn execute_tile_attack(
     })
 }
 
-pub(crate) fn execute_move_attack(
-    turn: &ActiveTurn<'_>,
-    unit_id: UnitId,
-    path: Vec<Pos>,
-    target: AttackTarget,
-    draws: &mut Draws<'_>,
-) -> Result<Execution, ExecuteError> {
-    let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_attack(movement.prepare_destination(), target)?;
-    execute_prepared_attack(prepared, draws)
-}
+impl<'a> DestinationAction<'a> for Attack {
+    type Proof = AttackProof;
 
-pub(super) fn prepare_attack<'a, V>(
-    destination: PreparedDestination<'a, V>,
-    target: AttackTarget,
-) -> Result<Prepared<'a, Attack>, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let action = validate_attack(&destination, target)?;
-    Ok(Prepared {
-        movement: destination.into_movement(),
-        action,
-    })
-}
+    fn validate<M>(
+        &self,
+        destination: &PreparedDestination<'a, M>,
+    ) -> Result<Self::Proof, ExecuteError>
+    where
+        M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
+    {
+        let target = self.0;
+        let movement = destination.movement();
+        let state = movement.state();
+        let plan = movement.plan();
+        let ai = plan.unit_index();
+        let attacker = &state.units[ai];
 
-pub(super) fn validate_attack<'a, V>(
-    destination: &PreparedDestination<'a, V>,
-    target: AttackTarget,
-) -> Result<Attack, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let movement = destination.movement();
-    let state = movement.state();
-    let plan = movement.plan();
-    let ai = plan.unit_index();
-    let attacker = &state.units[ai];
-
-    let (prepared_target, available_destination) = if plan.path().len() > 1 {
-        match ruleset::profile(attacker.kind).fire_mode {
-            FireMode::Indirect => {
-                return Err(violation(Violation::ActionNotSupported {
-                    action: Action::MoveAndFire,
-                }));
+        let (prepared_target, available_destination) = if plan.path().len() > 1 {
+            match ruleset::profile(attacker.kind).fire_mode {
+                FireMode::Indirect => {
+                    return Err(violation(Violation::ActionNotSupported {
+                        action: Action::MoveAndFire,
+                    }));
+                }
+                FireMode::None => {
+                    return Err(violation(Violation::ActionNotSupported {
+                        action: Action::Attack,
+                    }));
+                }
+                FireMode::Direct => {}
             }
-            FireMode::None => {
-                return Err(violation(Violation::ActionNotSupported {
-                    action: Action::Attack,
-                }));
+
+            let prepared_target =
+                prepare_attack_target(state, plan.actor_team(), destination.view(), target)?;
+            let attack_origin = plan.destination();
+            let available_destination = destination.available_destination()?;
+
+            if destination.trap().is_none() {
+                validate_attack_target(
+                    state,
+                    destination.holdings(),
+                    ai,
+                    attack_origin,
+                    prepared_target,
+                    destination.view(),
+                )?;
             }
-            FireMode::Direct => {}
-        }
-
-        let prepared_target =
-            prepare_attack_target(state, plan.actor_team(), destination.view(), target)?;
-        let attack_origin = plan.destination();
-        let available_destination = destination.available_destination()?;
-
-        if destination.trap().is_none() {
+            (prepared_target, Some(available_destination))
+        } else {
+            let prepared_target =
+                prepare_attack_target(state, plan.actor_team(), destination.view(), target)?;
             validate_attack_target(
                 state,
+                destination.holdings(),
                 ai,
-                attack_origin,
+                plan.origin(),
                 prepared_target,
                 destination.view(),
             )?;
-        }
-        (prepared_target, Some(available_destination))
-    } else {
-        let prepared_target =
-            prepare_attack_target(state, plan.actor_team(), destination.view(), target)?;
-        validate_attack_target(
-            state,
-            ai,
-            plan.origin(),
-            prepared_target,
-            destination.view(),
-        )?;
-        (prepared_target, None)
-    };
+            (prepared_target, None)
+        };
 
-    Ok(Attack {
-        target: prepared_target,
-        destination: available_destination,
-    })
+        Ok(AttackProof {
+            target: prepared_target,
+            destination: available_destination,
+        })
+    }
+
+    fn into_kind(bound: MovementAction<'a, Self::Proof>) -> PreparedCommandKind<'a> {
+        PreparedCommandKind::Attack(bound)
+    }
 }
 
 fn validate_attack_target(
     state: &State,
+    holdings: &Holdings<'_>,
     attacker_index: usize,
     origin: Pos,
     target: PreparedAttackTarget,
@@ -749,7 +771,7 @@ fn validate_attack_target(
     let attacker = &state.units[attacker_index];
     match target {
         PreparedAttackTarget::Unit(disclosed) => {
-            Engagement::open(state, attacker_index, origin, disclosed)?;
+            Engagement::open(state, holdings, attacker_index, origin, disclosed)?;
         }
         PreparedAttackTarget::Tile(position) => {
             validate_tile_attack(state, attacker, origin, position, view)?;
@@ -759,13 +781,14 @@ fn validate_attack_target(
 }
 
 pub(super) fn execute_prepared_attack(
-    prepared: Prepared<'_, Attack>,
+    prepared: MovementAction<'_, AttackProof>,
     draws: &mut Draws<'_>,
 ) -> Result<Execution, ExecuteError> {
-    let Prepared {
+    let MovementAction {
         movement,
+        trap,
         action:
-            Attack {
+            AttackProof {
                 target: prepared_target,
                 destination: _destination,
             },
@@ -780,7 +803,7 @@ pub(super) fn execute_prepared_attack(
     if plan.path().len() > 1 {
         let destination = plan.destination();
 
-        let mut outcome = execute_planned_movement(state, unit_id, plan);
+        let mut outcome = execute_planned_movement(state, unit_id, plan, trap);
         if outcome.trapped {
             return Ok(Execution {
                 state: outcome.state,
@@ -850,7 +873,8 @@ fn disclose_unit_target(
     };
     let defender = state.units.get(target_id).ok_or_else(invalid)?;
     let defender_team = state
-        .find_player(&defender.owner)
+        .players
+        .get(defender.owner.get())
         .map(|candidate| &candidate.team)
         .ok_or_else(|| ExecuteError::InvalidState("target owner is absent".into()))?;
     if defender_team == actor_team
@@ -865,7 +889,7 @@ fn disclose_unit_target(
 /// Resolve an attack after movement validation has established the attacker.
 ///
 /// Move-and-attack reaches this with a derived state, so it cannot reuse the
-/// [`ActiveTurn`] tied to the command's input state. The movement reducer is
+/// [`Turn`] tied to the command's input state. The movement reducer is
 /// the only caller on that path and preserves the active-turn invariants.
 fn execute_stationary_attack(
     state: &State,
@@ -876,18 +900,20 @@ fn execute_stationary_attack(
     target: PreparedAttackTarget,
     draws: &mut Draws<'_>,
 ) -> Result<Execution, ExecuteError> {
-    let attacker = &state.units[ai];
+    let holdings = Holdings::tally(state);
     let disclosed = match target {
         PreparedAttackTarget::Unit(disclosed) => disclosed,
         PreparedAttackTarget::Tile(position) => {
-            return execute_tile_attack(state, player, unit_id, ai, attacker, origin, position);
+            return execute_tile_attack(state, &holdings, player, unit_id, ai, origin, position);
         }
     };
-    let engagement = Engagement::open(state, ai, origin, disclosed)?;
-    if engagement.counter_comes_first() {
-        resolve_counter_first(&engagement, draws)
+    let engagement = Engagement::open(state, &holdings, ai, origin, disclosed)?;
+    let counter_first = engagement.counter_comes_first();
+    let scored = engagement.scored()?;
+    if counter_first {
+        resolve_counter_first(&scored, draws)
     } else {
-        resolve_exchange(&engagement, draws)
+        resolve_exchange(&scored, draws)
     }
 }
 
@@ -895,25 +921,41 @@ fn execute_stationary_attack(
 ///
 /// Opening one establishes everything the exchange needs and nothing about the
 /// order it happens in: both fighters, their indices in the authoritative
-/// state, whether the defender can answer at all, and the numbers the
-/// initiating strike is scored with. Which side fires first is then a question
-/// the commander layer answers, not a branch that re-derives the engagement.
+/// state, and whether the defender can answer at all. Which side fires first is
+/// then a question the commander layer answers, not a branch that re-derives
+/// the engagement.
+///
+/// This is a proof of legality and holds no numbers. Enumeration opens one per
+/// candidate target only to ask whether the attack is allowed, and scoring the
+/// strike is the expensive half: two commander combat resolutions and a board
+/// lookup per side. Ask [`Engagement::scored`] for the numbers, which is also
+/// the only place the commander algebra can overflow.
 struct Engagement<'a> {
     state: &'a State,
+    holdings: &'a Holdings<'a>,
     attacker: Fighter<'a>,
     defender: Fighter<'a>,
     attacker_index: usize,
     defender_index: usize,
-    initial: StrikeValues,
     /// Adjacent, direct-fire, and holding a weapon that bites — the three
     /// conditions a counter needs before a commander is consulted.
     counter_armed: bool,
+}
+
+/// An [`Engagement`] with the initiating strike scored.
+///
+/// Everything that resolves or forecasts a shot needs these numbers; nothing
+/// that only validates one does.
+struct ScoredEngagement<'a> {
+    engagement: Engagement<'a>,
+    initial: StrikeValues,
 }
 
 impl<'a> Engagement<'a> {
     /// Check the target and score the initiating strike.
     fn open(
         state: &'a State,
+        holdings: &'a Holdings<'a>,
         attacker_index: usize,
         origin: Pos,
         disclosed: DisclosedUnitTarget,
@@ -976,21 +1018,15 @@ impl<'a> Engagement<'a> {
             return Err(invalid());
         }
 
-        let attacker = Fighter {
-            unit: attacker,
-            position: origin,
-        };
-        let defender = Fighter {
-            unit: defender,
-            position: defender_position,
-        };
+        let attacker = Fighter::new(state, attacker, origin);
+        let defender = Fighter::new(state, defender, defender_position);
         Ok(Self {
             state,
+            holdings,
             attacker,
             defender,
             attacker_index,
             defender_index,
-            initial: resolve_strike(state, attacker, defender, Strike::Initial)?,
             counter_armed: distance == 1
                 && ruleset::profile(defender.unit.kind).fire_mode == FireMode::Direct
                 && combat::select_weapon(
@@ -1002,9 +1038,30 @@ impl<'a> Engagement<'a> {
         })
     }
 
+    /// Score the initiating strike.
+    fn scored(self) -> Result<ScoredEngagement<'a>, ExecuteError> {
+        let initial = resolve_strike(
+            self.state,
+            self.holdings,
+            self.attacker,
+            self.defender,
+            Strike::Initial,
+        )?;
+        Ok(ScoredEngagement {
+            engagement: self,
+            initial,
+        })
+    }
+
     /// The numbers the defender's counter is scored with.
     fn counter_values(&self) -> Result<StrikeValues, ExecuteError> {
-        resolve_strike(self.state, self.defender, self.attacker, Strike::Counter)
+        resolve_strike(
+            self.state,
+            self.holdings,
+            self.defender,
+            self.attacker,
+            Strike::Counter,
+        )
     }
 
     /// Whether the defender's commander turns the exchange around and fires
@@ -1014,7 +1071,7 @@ impl<'a> Engagement<'a> {
         self.counter_armed
             && commander::counter_first(
                 self.state,
-                &defender.owner,
+                self.defender.seat,
                 combatant(
                     self.state,
                     defender.kind,
@@ -1084,6 +1141,7 @@ fn bars_of(points: u8) -> u8 {
 /// so a caller cannot forecast an attack that could not be made.
 pub(crate) fn forecast_unit_attack(
     state: &State,
+    holdings: &Holdings<'_>,
     player: &PlayerId,
     attacker_index: usize,
     origin: Pos,
@@ -1095,10 +1153,11 @@ pub(crate) fn forecast_unit_attack(
         .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
     let view = AwbwView::new(state, actor_team);
     let disclosed = disclose_unit_target(state, actor_team, &view, target_id)?;
-    let engagement = Engagement::open(state, attacker_index, origin, disclosed)?;
+    let scored = Engagement::open(state, holdings, attacker_index, origin, disclosed)?.scored()?;
+    let engagement = &scored.engagement;
     let attacker = engagement.attacker.unit;
     let defender = engagement.defender.unit;
-    let initial = &engagement.initial;
+    let initial = &scored.initial;
     let (attack_worst, attack_best) = initial.luck_bounds();
 
     if engagement.counter_comes_first() {
@@ -1194,6 +1253,7 @@ pub(crate) fn forecast_unit_attack(
 /// tile is not destructible or the attacker holds nothing that bites it.
 pub(crate) fn forecast_tile_attack(
     state: &State,
+    holdings: &Holdings<'_>,
     player: &PlayerId,
     attacker: &Unit,
     origin: Pos,
@@ -1205,7 +1265,15 @@ pub(crate) fn forecast_tile_attack(
         Err(ExecuteError::Violation(_)) => return Ok(None),
         Err(error) => return Err(error),
     };
-    let Some(hit) = score_tile_strike(state, player, attacker, origin, target.kind, target.hp)?
+    let Some(hit) = score_tile_strike(
+        state,
+        holdings,
+        player,
+        attacker,
+        origin,
+        target.kind,
+        target.hp,
+    )?
     else {
         return Ok(None);
     };
@@ -1225,19 +1293,20 @@ pub(crate) fn forecast_tile_attack(
 /// The ordinary exchange: the initiating strike lands, then the defender
 /// answers if it survived and can.
 fn resolve_exchange(
-    engagement: &Engagement<'_>,
+    scored: &ScoredEngagement<'_>,
     draws: &mut Draws<'_>,
 ) -> Result<Execution, ExecuteError> {
+    let engagement = &scored.engagement;
     let state = engagement.state;
     let attacker = engagement.attacker.unit;
     let defender = engagement.defender.unit;
     let attacker_index = engagement.attacker_index;
     let defender_index = engagement.defender_index;
 
-    let attack_luck = engagement.initial.luck(draws)?;
+    let attack_luck = scored.initial.luck(draws)?;
     let first = combat::damage(
-        engagement.initial.striker_side(attacker, attacker.hp),
-        engagement.initial.target_side(defender, defender.hp),
+        scored.initial.striker_side(attacker, attacker.hp),
+        scored.initial.target_side(defender, defender.hp),
         attack_luck,
     )
     .ok_or_else(|| {
@@ -1312,10 +1381,10 @@ fn resolve_exchange(
     if !attacker_removed {
         spend_attacker(&mut next, &mut events, attacker.id);
     } else {
-        rout_if_last_unit(&mut next, &attacker.owner, &mut events)?;
+        rout_if_last_unit(&mut next, attacker.owner, &mut events)?;
     }
     if defender_remaining == 0 {
-        rout_if_last_unit(&mut next, &defender.owner, &mut events)?;
+        rout_if_last_unit(&mut next, defender.owner, &mut events)?;
     }
     Ok(Execution {
         state: next,
@@ -1328,9 +1397,10 @@ fn resolve_exchange(
 /// the strike that provoked it, and an attacker that does not survive never
 /// fires at all.
 fn resolve_counter_first(
-    engagement: &Engagement<'_>,
+    scored: &ScoredEngagement<'_>,
     draws: &mut Draws<'_>,
 ) -> Result<Execution, ExecuteError> {
+    let engagement = &scored.engagement;
     let state = engagement.state;
     let attacker = engagement.attacker.unit;
     let defender = engagement.defender.unit;
@@ -1345,13 +1415,11 @@ fn resolve_counter_first(
     .expect("counter-first eligibility selected a weapon");
     let attacker_remaining = attacker.hp.saturating_sub(preemptive.damage);
     let initiating = if attacker_remaining > 0 {
-        let attack_luck = engagement.initial.luck(draws)?;
+        let attack_luck = scored.initial.luck(draws)?;
         Some(
             combat::damage(
-                engagement
-                    .initial
-                    .striker_side(attacker, attacker_remaining),
-                engagement.initial.target_side(defender, defender.hp),
+                scored.initial.striker_side(attacker, attacker_remaining),
+                scored.initial.target_side(defender, defender.hp),
                 attack_luck,
             )
             .expect("initiating weapon was validated"),
@@ -1383,7 +1451,7 @@ fn resolve_counter_first(
             KnownReason::CombatCounter,
             &mut events,
         );
-        rout_if_last_unit(&mut next, &attacker.owner, &mut events)?;
+        rout_if_last_unit(&mut next, attacker.owner, &mut events)?;
         return Ok(Execution {
             state: next,
             events,
@@ -1419,7 +1487,7 @@ fn resolve_counter_first(
     }
     spend_attacker(&mut next, &mut events, attacker.id);
     if defender_remaining == 0 {
-        rout_if_last_unit(&mut next, &defender.owner, &mut events)?;
+        rout_if_last_unit(&mut next, defender.owner, &mut events)?;
     }
     Ok(Execution {
         state: next,
@@ -1447,15 +1515,19 @@ fn spend_attacker(next: &mut State, events: &mut Vec<Event>, attacker: UnitId) {
 /// Eliminate `owner` if the strike just removed the last unit they had.
 fn rout_if_last_unit(
     next: &mut State,
-    owner: &PlayerId,
+    owner: PlayerIdx,
     events: &mut Vec<Event>,
 ) -> Result<(), ExecuteError> {
-    if next.units.iter().any(|unit| unit.owner == *owner) {
+    if next.units.iter().any(|unit| unit.owner == owner) {
         return Ok(());
     }
+    let owner = next
+        .try_player_id(owner)
+        .ok_or_else(|| ExecuteError::InvalidState("routed owner is absent".into()))?
+        .clone();
     eliminate_player(
         next,
-        owner,
+        &owner,
         ruleset::VictoryReason::Rout,
         None,
         None,
@@ -1497,7 +1569,15 @@ mod tests {
                 let origin = *path.last().expect("attack path has an origin");
 
                 assert_eq!(
-                    forecast_tile_attack(&state, &player, attacker, origin, position).unwrap(),
+                    forecast_tile_attack(
+                        &state,
+                        &Holdings::tally(&state),
+                        &player,
+                        attacker,
+                        origin,
+                        position
+                    )
+                    .unwrap(),
                     None,
                     "{fixture} forecasted a reducer-invalid tile"
                 );

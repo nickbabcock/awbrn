@@ -13,12 +13,14 @@
 //! A stub viewpoint in Rust would assert against a second implementation of
 //! the same table.
 
-use std::cell::OnceCell;
+use std::cell::{Cell, OnceCell};
 
 use crate::commander;
 use crate::ruleset::{self, Domain, TerrainTrait};
 
-use super::{Concealment, Location, PlayerId, Pos, State, TeamId, Unit, WeatherKind};
+use super::{
+    Concealment, Grid, Location, PlayerIdx, Pos, State, TeamId, Unit, UnitId, WeatherKind,
+};
 
 /// Ruleset-owned visibility, as a factory for per-recipient viewpoints.
 ///
@@ -81,13 +83,41 @@ impl Visibility for AwbwVisibility {
 pub struct AwbwView<'a> {
     state: &'a State,
     fog: bool,
-    /// The viewing team's players. Short enough that a scan beats hashing.
-    teammates: Vec<&'a PlayerId>,
+    /// The viewing team's seats. Short enough that a scan beats hashing.
+    teammates: Vec<PlayerIdx>,
     /// Resolved on first use rather than up front. A reducer builds a view to
     /// ask whether one tile is occupied by something it can see, and in a match
     /// without fog or hidden units that answer never consults a sighting.
     sightings: OnceCell<Vec<Sighting>>,
+    /// What this team perceives standing on each tile. Resolved on first use
+    /// for the same reason as `sightings`.
+    occupancy: OnceCell<Grid<Occupant>>,
 }
+
+/// Which unit is standing on each tile.
+///
+/// "Is my destination blocked", "may my route pass here", "who would I join",
+/// and "does a hidden unit stop me short" are four readings of one table, and
+/// each used to scan every unit again for every candidate destination.
+#[derive(Clone, Debug)]
+struct Occupant {
+    /// Index into `State::units`, absent where the tile is empty.
+    unit: Option<u32>,
+    /// What has been worked out about this occupant so far.
+    ///
+    /// Whether the viewing team sees a unit is the costly half of every
+    /// question here, and under fog it walks the sightings. Resolving it for
+    /// the whole board up front loses to the scan this table replaced on the
+    /// single-command path; resolving it per question loses to it during
+    /// enumeration, which asks about the same tile for every candidate
+    /// destination. Remembering each answer the first time is what wins both.
+    resolved: Cell<u8>,
+}
+
+/// Bits of [`Occupant::resolved`].
+const RESOLVED: u8 = 1;
+const DISCLOSED: u8 = 2;
+const HOSTILE: u8 = 4;
 
 /// A friendly unit on the board, with its vision already resolved.
 #[derive(Clone, Copy, Debug)]
@@ -103,18 +133,156 @@ struct Sighting {
 
 impl<'a> AwbwView<'a> {
     pub(crate) fn new(state: &'a State, team: &TeamId) -> Self {
-        let teammates: Vec<&'a PlayerId> = state
+        let teammates: Vec<PlayerIdx> = state
             .players
             .iter()
-            .filter(|player| player.team == team)
-            .map(|player| &player.id)
+            .enumerate()
+            .filter(|(_, player)| player.team == team)
+            .filter_map(|(seat, _)| u8::try_from(seat).ok().map(PlayerIdx::from_seat))
             .collect();
         Self {
             state,
             fog: state.settings.fog,
             teammates,
             sightings: OnceCell::new(),
+            occupancy: OnceCell::new(),
         }
+    }
+
+    /// Index where every unit stands, so later occupancy questions are lookups.
+    ///
+    /// Building the table costs a pass over the board; answering one question
+    /// from it costs nothing. A caller that will ask about many tiles — a
+    /// movement search, or a turn's whole action space — calls this once and
+    /// wins. A caller asking about a single destination must not: the table
+    /// costs more to build than the scan it would replace, which is why the
+    /// questions below fall back to that scan until this is called.
+    pub(crate) fn index_occupancy(&self) {
+        self.occupancy();
+    }
+
+    fn occupancy(&self) -> &Grid<Occupant> {
+        self.occupancy.get_or_init(|| {
+            let state = self.state;
+            let mut tiles = Grid::filled(
+                state.board.dimensions(),
+                Occupant {
+                    unit: None,
+                    resolved: Cell::new(0),
+                },
+            );
+            for (index, unit) in state.units.iter().enumerate() {
+                let Location::Board { position } = unit.location else {
+                    continue;
+                };
+                let Some(tile) = tiles.get_mut(position) else {
+                    continue;
+                };
+                tile.unit = Some(u32::try_from(index).expect("a unit index fits u32"));
+            }
+            tiles
+        })
+    }
+
+    /// The occupant of `position` and what this team makes of it.
+    fn resolved_occupant(&self, position: Pos) -> Option<(&'a Unit, u8)> {
+        let Some(occupancy) = self.occupancy.get() else {
+            if !self.state.board.contains(position) {
+                return None;
+            }
+            let unit = self.scan_occupant(position)?;
+            return Some((unit, self.resolve(unit, position)));
+        };
+        let tile = occupancy.get(position)?;
+        let unit = &self.state.units[tile.unit? as usize];
+        let cached = tile.resolved.get();
+        if cached & RESOLVED != 0 {
+            return Some((unit, cached));
+        }
+        let flags = self.resolve(unit, position);
+        tile.resolved.set(flags);
+        Some((unit, flags))
+    }
+
+    /// Whoever is standing at `position`, found by walking the units.
+    ///
+    /// This is what [`Self::index_occupancy`] replaces. One question is
+    /// cheaper answered this way than by building the table first. Should two
+    /// units claim one tile, the last of them answers, because that is the one
+    /// the table keeps.
+    fn scan_occupant(&self, position: Pos) -> Option<&'a Unit> {
+        self.state
+            .units
+            .iter()
+            .rfind(|unit| unit.location == Location::Board { position })
+    }
+
+    fn resolve(&self, unit: &Unit, position: Pos) -> u8 {
+        let mut flags = RESOLVED;
+        if self.unit_at(unit, position) {
+            flags |= DISCLOSED;
+        }
+        if !self.teammates.contains(&unit.owner) {
+            flags |= HOSTILE;
+        }
+        flags
+    }
+
+    /// Whoever is standing at `position`, whether or not this team sees them.
+    ///
+    /// Occupancy is a fact about the board, and a caller that only needs to
+    /// know which unit a join or load would name asks this. A caller deciding
+    /// whether the tile *blocks* must ask [`Self::blocking_occupant`] instead,
+    /// or it leaks a hidden unit.
+    pub(crate) fn occupant(&self, position: Pos) -> Option<UnitId> {
+        match self.state.board.dimensions().cell(position) {
+            Some(cell) => self.occupant_at(cell),
+            None => None,
+        }
+    }
+
+    /// [`Self::occupant`] for a caller that already holds the cell.
+    ///
+    /// A walk over a weapon's range box asks the board and the occupancy index
+    /// about the same tile, so it resolves the coordinate once and reads both
+    /// with the answer.
+    pub(crate) fn occupant_at(&self, cell: super::Cell) -> Option<UnitId> {
+        let Some(occupancy) = self.occupancy.get() else {
+            return self.scan_occupant(cell.position()).map(|unit| unit.id);
+        };
+        let unit = occupancy.at(cell).unit?;
+        Some(self.state.units[unit as usize].id)
+    }
+
+    /// Whether this team sees a unit standing at `position`, whoever it is.
+    ///
+    /// A movement search asks this of every tile, and the answer changes only
+    /// where the asking unit itself stands, so a caller building one table for
+    /// a whole turn asks this rather than [`Self::blocking_occupant`] and
+    /// handles the mover's own tile itself.
+    pub(crate) fn occupant_disclosed(&self, position: Pos) -> bool {
+        self.resolved_occupant(position)
+            .is_some_and(|(_, flags)| flags & DISCLOSED != 0)
+    }
+
+    /// Whether a disclosed enemy stands at `position`, whoever it is.
+    pub(crate) fn occupant_obstructs(&self, position: Pos) -> bool {
+        self.resolved_occupant(position)
+            .is_some_and(|(_, flags)| flags & (DISCLOSED | HOSTILE) == DISCLOSED | HOSTILE)
+    }
+
+    /// The unit at `position` that stops `mover` from ending its move there.
+    pub(crate) fn blocking_occupant(&self, position: Pos, mover: UnitId) -> Option<UnitId> {
+        self.resolved_occupant(position)
+            .filter(|(unit, flags)| unit.id != mover && flags & DISCLOSED != 0)
+            .map(|(unit, _)| unit.id)
+    }
+
+    /// The unit at `position` that would trap `mover` there, unseen.
+    pub(crate) fn hidden_occupant(&self, position: Pos, mover: UnitId) -> Option<UnitId> {
+        self.resolved_occupant(position)
+            .filter(|(unit, flags)| unit.id != mover && flags & DISCLOSED == 0)
+            .map(|(unit, _)| unit.id)
     }
 
     /// Every friendly unit that can see, with its effective vision already
@@ -131,7 +299,7 @@ impl<'a> AwbwView<'a> {
             state
                 .units
                 .iter()
-                .filter(|unit| self.teammates.contains(&&unit.owner))
+                .filter(|unit| self.teammates.contains(&unit.owner))
                 .filter_map(|unit| {
                     let Location::Board { position } = unit.location else {
                         return None;
@@ -156,8 +324,9 @@ impl<'a> AwbwView<'a> {
         })
     }
 
-    fn holds(&self, owner: Option<&PlayerId>) -> bool {
-        owner.is_some_and(|owner| self.teammates.contains(&owner))
+    /// Whether the viewing team holds a seat.
+    fn holds_seat(&self, seat: Option<PlayerIdx>) -> bool {
+        seat.is_some_and(|seat| self.teammates.contains(&seat))
     }
 
     fn vision_level(&self, position: Pos) -> VisionLevel {
@@ -172,7 +341,7 @@ impl<'a> AwbwView<'a> {
         if target_terrain.has(TerrainTrait::Teleporter) {
             return VisionLevel::None;
         }
-        if self.holds(tile.owner.player()) {
+        if self.holds_seat(tile.owner.player()) {
             return VisionLevel::Full;
         }
         if target_terrain.has(TerrainTrait::AlwaysVisible) {
@@ -216,15 +385,15 @@ impl Viewpoint for AwbwView<'_> {
             Location::Board { position } => self.unit_at(unit, position),
             // Cargo is only ever visible to its own team, which `unit_at`
             // establishes before it looks at a position.
-            Location::Cargo { .. } => self.holds(Some(&unit.owner)),
+            Location::Cargo { .. } => self.holds_seat(Some(unit.owner)),
         }
     }
 
     fn unit_at(&self, unit: &Unit, position: Pos) -> bool {
-        if self.holds(Some(&unit.owner)) {
+        if self.holds_seat(Some(unit.owner)) {
             return true;
         }
-        if self.holds(
+        if self.holds_seat(
             self.state
                 .board
                 .get(position)

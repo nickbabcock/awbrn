@@ -11,8 +11,8 @@ use std::collections::{BTreeMap, HashMap};
 use awbrn_map::Position;
 use awbrn_types::{AwbwGamePlayerId, AwbwUnitId as RawAwbwUnitId, Faction as MapFaction};
 use awvm::semantic::{
-    Location, Observation, ObservedEvent, ObservedTransition, ObservedUnit, ObservedUnitRef,
-    PlayerId, TileOwner, UnitAction,
+    Location, Observation, ObservedEvent, ObservedTileOwner, ObservedTransition, ObservedUnit,
+    ObservedUnitRef, PlayerId, UnitAction,
 };
 use bevy::prelude::*;
 
@@ -326,9 +326,9 @@ fn sync_tiles(
                 .ok_or(TransitionApplyError::MissingTerrain(position.x, position.y))?
                 .terrain;
             let owner = match &tile.owner {
-                TileOwner::NotOwnable => None,
-                TileOwner::Neutral => Some(MapFaction::Neutral),
-                TileOwner::Owned(player) => {
+                ObservedTileOwner::NotOwnable => None,
+                ObservedTileOwner::Neutral => Some(MapFaction::Neutral),
+                ObservedTileOwner::Owned(player) => {
                     let player = parse_player_id(player)?;
                     let faction = world
                         .resource::<ReplayPlayerRegistry>()

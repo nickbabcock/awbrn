@@ -15,12 +15,18 @@ use crate::semantic::{
 };
 use crate::violation::{Action, Violation};
 
-#[derive(Debug)]
-pub(super) struct Wait(AvailableDestination);
+/// Move there and end the unit's turn.
+pub(super) struct Wait;
+
+/// Move there and change concealment to the named state.
+pub(super) struct Conceal(pub(super) Concealment);
 
 #[derive(Debug)]
-pub(super) struct ConcealmentAction {
-    target: crate::semantic::Concealment,
+pub(super) struct WaitProof(AvailableDestination);
+
+#[derive(Debug)]
+pub(super) struct ConcealProof {
+    target: Concealment,
     destination: AvailableDestination,
 }
 
@@ -30,14 +36,13 @@ pub(super) struct AvailableDestination;
 
 pub(super) fn available_destination(
     movement: &PreparedMovement<'_>,
-    view: &impl Viewpoint,
+    view: &AwbwView<'_>,
 ) -> Result<AvailableDestination, Violation> {
     let destination = movement.plan().destination();
-    if movement.state().units.iter().any(|other| {
-        other.id != movement.unit()
-            && board_position(other) == Some(destination)
-            && occupancy_is_disclosed(view, other)
-    }) {
+    if view
+        .blocking_occupant(destination, movement.unit())
+        .is_some()
+    {
         return Err(Violation::DestinationOccupied {
             position: destination,
         });
@@ -54,15 +59,18 @@ pub(super) fn available_destination(
 /// and `execute_move_join` each carried a copy of the arbitrary-path check;
 /// nothing stopped another reducer from carrying a different one.
 #[derive(Clone, Debug)]
-pub(crate) struct MovedUnit {
+pub(crate) struct MovedUnit<'a> {
     unit_index: usize,
     origin: Pos,
     path: Vec<Pos>,
     entry_costs: Vec<u64>,
-    actor_team: crate::semantic::TeamId,
+    /// Borrowed from the state this movement was validated against. Cloning it
+    /// here allocated a team name for every candidate destination an
+    /// enumeration considered.
+    actor_team: &'a crate::semantic::TeamId,
 }
 
-impl MovedUnit {
+impl<'a> MovedUnit<'a> {
     /// The mover's position in [`State::units`].
     pub(crate) const fn unit_index(&self) -> usize {
         self.unit_index
@@ -85,8 +93,8 @@ impl MovedUnit {
     }
 
     /// The team the mover belongs to, which decides what it can see.
-    pub(crate) const fn actor_team(&self) -> &crate::semantic::TeamId {
-        &self.actor_team
+    pub(crate) const fn actor_team(&self) -> &'a crate::semantic::TeamId {
+        self.actor_team
     }
 
     /// The destination the mover asked for, which is not where it ends up if a
@@ -106,10 +114,10 @@ pub(crate) struct MovementOutcome {
 ///
 /// The shared prologue is [`ActiveTurn::open`]'s job and has already run; what
 /// is left is everything specific to moving a unit along a path.
-pub(crate) fn plan(
-    active: &PreparedActiveUnit<'_>,
+pub(crate) fn plan<'a>(
+    active: &PreparedActiveUnit<'a>,
     path: Vec<Pos>,
-) -> Result<MovedUnit, ExecuteError> {
+) -> Result<MovedUnit<'a>, ExecuteError> {
     let state = active.state();
     let unit_id = active.unit();
     let unit_index = active.unit_index();
@@ -183,12 +191,17 @@ pub(crate) fn plan(
         entry_costs.push(cost);
     }
     let actor_team = state
-        .find_player(&unit.owner)
-        .map(|candidate| candidate.team.clone())
+        .players
+        .get(unit.owner.get())
+        .map(|candidate| &candidate.team)
         .ok_or_else(|| {
-            ExecuteError::InvalidState(format!("unknown active player {}", unit.owner).into())
+            ExecuteError::InvalidState(
+                format!("unknown active player at seat {}", unit.owner.get()).into(),
+            )
         })?;
-    let view = AwbwVisibility.view(state, &actor_team);
+    // A scan, not the view's occupancy index: an arbitrary path names two or
+    // three tiles, and indexing the whole board to answer that loses.
+    let view = AwbwVisibility.view(state, actor_team);
     for (index, position) in path
         .iter()
         .copied()
@@ -200,8 +213,9 @@ pub(crate) fn plan(
             other.id != unit_id
                 && board_position(other) == Some(position)
                 && state
-                    .find_player(&other.owner)
-                    .is_some_and(|owner| owner.team != actor_team)
+                    .players
+                    .get(other.owner.get())
+                    .is_some_and(|owner| owner.team != *actor_team)
                 && occupancy_is_disclosed(&view, other)
         }) {
             return Err(violation(Violation::PathOccupied { index, position }));
@@ -233,18 +247,18 @@ pub(crate) fn plan(
 ///
 /// `PreparedMoveField` owns the field and the proof. It supplies a path and
 /// costs that the field search produced for that proof.
-pub(super) fn from_field(
-    active: &PreparedActiveUnit<'_>,
+pub(super) fn from_field<'a>(
+    active: &PreparedActiveUnit<'a>,
     path: Vec<Pos>,
     entry_costs: Vec<u64>,
-) -> MovedUnit {
+) -> MovedUnit<'a> {
     let state = active.state();
     let unit = &state.units[active.unit_index()];
-    let actor_team = state
-        .find_player(&unit.owner)
+    let actor_team = &state
+        .players
+        .get(unit.owner.get())
         .expect("an active unit has a player")
-        .team
-        .clone();
+        .team;
     MovedUnit {
         unit_index: active.unit_index(),
         origin: active.origin(),
@@ -257,9 +271,9 @@ pub(super) fn from_field(
 pub(crate) fn execute_planned_movement(
     state: &State,
     unit_id: UnitId,
-    plan: &MovedUnit,
+    plan: &MovedUnit<'_>,
+    trap: Option<(usize, Pos, UnitId)>,
 ) -> MovementOutcome {
-    let trap = planned_movement_trap(state, unit_id, plan);
     let mut actual_length = trap
         .as_ref()
         .map_or(plan.path().len(), |(index, _, _)| *index);
@@ -310,21 +324,10 @@ pub(crate) fn execute_planned_movement(
     }
 }
 
-/// Return the first hidden unit that will stop this movement.
-pub(crate) fn planned_movement_trap(
-    state: &State,
-    unit_id: UnitId,
-    plan: &MovedUnit,
-) -> Option<(usize, Pos, UnitId)> {
-    let view = AwbwVisibility.view(state, plan.actor_team());
-    planned_movement_trap_with_view(state, unit_id, plan, &view)
-}
-
 pub(crate) fn planned_movement_trap_with_view(
-    state: &State,
+    plan: &MovedUnit<'_>,
     unit_id: UnitId,
-    plan: &MovedUnit,
-    view: &impl Viewpoint,
+    view: &AwbwView<'_>,
 ) -> Option<(usize, Pos, UnitId)> {
     plan.path
         .iter()
@@ -332,15 +335,8 @@ pub(crate) fn planned_movement_trap_with_view(
         .enumerate()
         .skip(1)
         .find_map(|(index, position)| {
-            state
-                .units
-                .iter()
-                .find(|other| {
-                    other.id != unit_id
-                        && board_position(other) == Some(position)
-                        && !occupancy_is_disclosed(view, other)
-                })
-                .map(|blocker| (index, position, blocker.id))
+            view.hidden_occupant(position, unit_id)
+                .map(|blocker| (index, position, blocker))
         })
 }
 
@@ -369,76 +365,58 @@ pub(crate) fn reset_capture_on_removal(state: &mut State, position: Pos, events:
     }
 }
 
-pub(crate) fn execute_move_concealment(
-    turn: &ActiveTurn<'_>,
-    unit_id: UnitId,
-    path: Vec<Pos>,
-    hide: bool,
-) -> Result<Execution, ExecuteError> {
-    let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_concealment(movement.prepare_destination(), hide)?;
-    Ok(execute_prepared_concealment(prepared))
-}
+impl<'a> DestinationAction<'a> for Conceal {
+    type Proof = ConcealProof;
 
-pub(super) fn prepare_concealment<'a, V>(
-    destination: PreparedDestination<'a, V>,
-    hide: bool,
-) -> Result<Prepared<'a, ConcealmentAction>, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let action = validate_concealment(&destination, hide)?;
-    Ok(Prepared {
-        movement: destination.into_movement(),
-        action,
-    })
-}
-
-pub(super) fn validate_concealment<'a, V>(
-    destination: &PreparedDestination<'a, V>,
-    hide: bool,
-) -> Result<ConcealmentAction, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let movement = destination.movement();
-    let state = movement.state();
-    let plan = movement.plan();
-    let original = &state.units[plan.unit_index()];
-    let supported = ruleset::profile(original.kind).concealment.is_some();
-    let target = if hide {
-        Concealment::Hidden
-    } else {
-        Concealment::Exposed
-    };
-    if !supported || original.concealment == target {
-        return Err(violation(Violation::ActionNotSupported {
-            action: if hide {
-                Action::MoveHide
-            } else {
-                Action::MoveReveal
-            },
-        }));
+    fn validate<M>(
+        &self,
+        destination: &PreparedDestination<'a, M>,
+    ) -> Result<Self::Proof, ExecuteError>
+    where
+        M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
+    {
+        let target = self.0;
+        let hide = target == Concealment::Hidden;
+        let movement = destination.movement();
+        let state = movement.state();
+        let plan = movement.plan();
+        let original = &state.units[plan.unit_index()];
+        let supported = ruleset::profile(original.kind).concealment.is_some();
+        if !supported || original.concealment == target {
+            return Err(violation(Violation::ActionNotSupported {
+                action: if hide {
+                    Action::MoveHide
+                } else {
+                    Action::MoveReveal
+                },
+            }));
+        }
+        let available = destination.available_destination()?;
+        Ok(ConcealProof {
+            target,
+            destination: available,
+        })
     }
-    let available = destination.available_destination()?;
-    Ok(ConcealmentAction {
-        target,
-        destination: available,
-    })
+
+    fn into_kind(bound: MovementAction<'a, Self::Proof>) -> PreparedCommandKind<'a> {
+        PreparedCommandKind::Concealment(bound)
+    }
 }
 
-pub(super) fn execute_prepared_concealment(prepared: Prepared<'_, ConcealmentAction>) -> Execution {
-    let Prepared {
+pub(super) fn execute_prepared_concealment(
+    prepared: MovementAction<'_, ConcealProof>,
+) -> Execution {
+    let MovementAction {
         movement,
-        action:
-            ConcealmentAction {
-                target,
-                destination: _destination,
-            },
+        trap,
+        action: ConcealProof {
+            target,
+            destination: _destination,
+        },
     } = prepared;
     let unit_id = movement.unit();
     let plan = movement.plan();
-    let mut outcome = execute_planned_movement(movement.state(), unit_id, plan);
+    let mut outcome = execute_planned_movement(movement.state(), unit_id, plan, trap);
     if outcome.trapped {
         return Execution {
             state: outcome.state,
@@ -461,44 +439,32 @@ pub(super) fn execute_prepared_concealment(prepared: Prepared<'_, ConcealmentAct
     }
 }
 
-pub(crate) fn execute_move_wait(
-    turn: &ActiveTurn<'_>,
-    unit_id: UnitId,
-    path: Vec<Pos>,
-) -> Result<Execution, ExecuteError> {
-    let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_wait(movement.prepare_destination())?;
-    Ok(execute_prepared_wait(prepared))
+impl<'a> DestinationAction<'a> for Wait {
+    type Proof = WaitProof;
+
+    fn validate<M>(
+        &self,
+        destination: &PreparedDestination<'a, M>,
+    ) -> Result<Self::Proof, ExecuteError>
+    where
+        M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
+    {
+        Ok(WaitProof(destination.available_destination()?))
+    }
+
+    fn into_kind(bound: MovementAction<'a, Self::Proof>) -> PreparedCommandKind<'a> {
+        PreparedCommandKind::Wait(bound)
+    }
 }
 
-pub(super) fn prepare_wait<'a, V>(
-    destination: PreparedDestination<'a, V>,
-) -> Result<Prepared<'a, Wait>, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let action = validate_wait(&destination)?;
-    Ok(Prepared {
-        movement: destination.into_movement(),
-        action,
-    })
-}
-
-pub(super) fn validate_wait<'a, V>(
-    destination: &PreparedDestination<'a, V>,
-) -> Result<Wait, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    Ok(Wait(destination.available_destination()?))
-}
-
-pub(super) fn execute_prepared_wait(prepared: Prepared<'_, Wait>) -> Execution {
-    let Prepared {
+pub(super) fn execute_prepared_wait(prepared: MovementAction<'_, WaitProof>) -> Execution {
+    let MovementAction {
         movement,
-        action: Wait(_destination),
+        trap,
+        action: WaitProof(_destination),
     } = prepared;
-    let outcome = execute_planned_movement(movement.state(), movement.unit(), movement.plan());
+    let outcome =
+        execute_planned_movement(movement.state(), movement.unit(), movement.plan(), trap);
     Execution {
         state: outcome.state,
         events: outcome.events,

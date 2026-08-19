@@ -17,7 +17,7 @@ use awvm::ruleset::Terrain;
 use awvm::semantic::{
     AwbwVisibility, Concealment, Location, Match, Observation, ObservedEvent, ObservedTransition,
     ObservedUnit, ObservedUnitHp, ObservedUnitRef, Outcome, Phase, PlayerId as VmPlayerId, Pos,
-    State, TileOwner, TileVisibility, UnitId, Viewpoint, Visibility, observe, observe_transition,
+    State, TileVisibility, UnitId, Viewpoint, Visibility, observe, observe_transition,
 };
 
 use crate::awvm_adapter::{AcceptedTransition, Authority, semantic_terrain};
@@ -280,7 +280,7 @@ pub(crate) fn build_player_view(
                     authority,
                     position,
                     tile.terrain,
-                    &tile.owner,
+                    tile.owner.player(),
                     tile.silo,
                 ),
             })
@@ -307,7 +307,7 @@ pub(crate) fn build_spectator_view(authority: &Authority) -> SpectatorView {
                     authority,
                     position,
                     tile.terrain,
-                    &tile.owner,
+                    state.tile_owner_id(&tile.owner),
                     tile.silo,
                 ),
             })
@@ -566,10 +566,17 @@ fn team_terrain_updates(
 }
 
 fn visible_authoritative_terrain(authority: &Authority, position: Pos) -> VisibleTerrain {
-    let tile = authority.state().board.tile(position);
+    let state = authority.state();
+    let tile = state.board.tile(position);
     VisibleTerrain {
         position: server_pos(position),
-        terrain: graphical_terrain(authority, position, tile.terrain, &tile.owner, tile.silo),
+        terrain: graphical_terrain(
+            authority,
+            position,
+            tile.terrain,
+            state.tile_owner_id(&tile.owner),
+            tile.silo,
+        ),
     }
 }
 
@@ -773,7 +780,7 @@ fn visible_unit(
         id: server_unit_id(unit.id),
         unit_type: unit.kind,
         faction: authority
-            .player_faction(&unit.owner)
+            .player_faction(state.player_id(unit.owner))
             .expect("every unit owner has a faction"),
         position: server_pos(position),
         hp: awbrn_game::world::GraphicalHp::from(awbrn_types::ExactHp::new(unit.hp))
@@ -791,7 +798,7 @@ fn graphical_terrain(
     authority: &Authority,
     position: Pos,
     terrain: Terrain,
-    owner: &TileOwner,
+    owner: Option<&awvm::semantic::PlayerId>,
     silo: Option<awvm::semantic::Silo>,
 ) -> GraphicalTerrain {
     let template = authority.map().terrain_at(server_pos(position));
@@ -801,7 +808,6 @@ fn graphical_terrain(
     match graphical {
         GraphicalTerrain::Property(property) => {
             let faction = owner
-                .player()
                 .and_then(|owner| authority.player_faction(owner))
                 .map_or(Faction::Neutral, Faction::Player);
             graphical = GraphicalTerrain::Property(property.with_owner(faction));

@@ -14,86 +14,77 @@ use crate::semantic::{KnownReason, Pos, Silo, UnitId, VictoryReason};
 use crate::violation::{Action, Violation};
 
 #[derive(Debug)]
-pub(super) struct Launch {
+pub(super) struct Launch(pub(super) Pos);
+
+#[derive(Debug)]
+pub(super) struct LaunchProof {
     target: Pos,
     destination: AvailableDestination,
 }
 
 #[derive(Debug)]
-pub(super) struct Explode(AvailableDestination);
+pub(super) struct Explode;
+
+#[derive(Debug)]
+pub(super) struct ExplodeProof(AvailableDestination);
 
 #[derive(Debug)]
 pub(super) struct PreparedDelete<'a> {
     unit: PreparedActiveUnit<'a>,
 }
 
-pub(crate) fn execute_move_launch(
-    turn: &ActiveTurn<'_>,
-    unit_id: UnitId,
-    path: Vec<Pos>,
-    target: Pos,
-) -> Result<Execution, ExecuteError> {
-    let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_launch(movement.prepare_destination(), target)?;
-    execute_prepared_launch(prepared)
-}
+impl<'a> DestinationAction<'a> for Launch {
+    type Proof = LaunchProof;
 
-pub(super) fn prepare_launch<'a, V>(
-    destination: PreparedDestination<'a, V>,
-    target: Pos,
-) -> Result<Prepared<'a, Launch>, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let action = validate_launch(&destination, target)?;
-    Ok(Prepared {
-        movement: destination.into_movement(),
-        action,
-    })
-}
+    fn validate<M>(
+        &self,
+        destination: &PreparedDestination<'a, M>,
+    ) -> Result<Self::Proof, ExecuteError>
+    where
+        M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
+    {
+        let target = self.0;
+        let movement = destination.movement();
+        let state = movement.state();
+        let plan = movement.plan();
+        if target.x >= state.board.width() || target.y >= state.board.height() {
+            return Err(violation(Violation::InvalidTarget {
+                target: Some(target.into()),
+            }));
+        }
 
-pub(super) fn validate_launch<'a, V>(
-    destination: &PreparedDestination<'a, V>,
-    target: Pos,
-) -> Result<Launch, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let movement = destination.movement();
-    let state = movement.state();
-    let plan = movement.plan();
-    if target.x >= state.board.width() || target.y >= state.board.height() {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(target.into()),
-        }));
+        let unit = &state.units[plan.unit_index()];
+        if !matches!(unit.kind, UnitKind::Infantry | UnitKind::Mech) {
+            return Err(violation(Violation::ActionNotSupported {
+                action: Action::MoveLaunch,
+            }));
+        }
+        let silo_position = plan.destination();
+        let silo = &state.board.tile(silo_position).silo;
+        if silo != &Some(Silo::Ready) {
+            return Err(violation(Violation::InvalidTarget {
+                target: Some(silo_position.into()),
+            }));
+        }
+        let available = destination.available_destination()?;
+        Ok(LaunchProof {
+            target,
+            destination: available,
+        })
     }
 
-    let unit = &state.units[plan.unit_index()];
-    if !matches!(unit.kind, UnitKind::Infantry | UnitKind::Mech) {
-        return Err(violation(Violation::ActionNotSupported {
-            action: Action::MoveLaunch,
-        }));
+    fn into_kind(bound: MovementAction<'a, Self::Proof>) -> PreparedCommandKind<'a> {
+        PreparedCommandKind::Launch(bound)
     }
-    let silo_position = plan.destination();
-    let silo = &state.board.tile(silo_position).silo;
-    if silo != &Some(Silo::Ready) {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(silo_position.into()),
-        }));
-    }
-    let available = destination.available_destination()?;
-    Ok(Launch {
-        target,
-        destination: available,
-    })
 }
 
 pub(super) fn execute_prepared_launch(
-    prepared: Prepared<'_, Launch>,
+    prepared: MovementAction<'_, LaunchProof>,
 ) -> Result<Execution, ExecuteError> {
-    let Prepared {
+    let MovementAction {
         movement,
-        action: Launch {
+        trap,
+        action: LaunchProof {
             target,
             destination: _destination,
         },
@@ -102,7 +93,7 @@ pub(super) fn execute_prepared_launch(
     let unit_id = movement.unit();
     let plan = movement.plan();
     let silo_position = plan.destination();
-    let mut outcome = execute_planned_movement(state, unit_id, plan);
+    let mut outcome = execute_planned_movement(state, unit_id, plan, trap);
     if outcome.trapped {
         return Ok(Execution {
             state: outcome.state,
@@ -161,59 +152,46 @@ pub(super) fn execute_prepared_launch(
     })
 }
 
-pub(crate) fn execute_move_explode(
-    turn: &ActiveTurn<'_>,
-    unit_id: UnitId,
-    path: Vec<Pos>,
-) -> Result<Execution, ExecuteError> {
-    let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_explode(movement.prepare_destination())?;
-    execute_prepared_explode(prepared)
-}
+impl<'a> DestinationAction<'a> for Explode {
+    type Proof = ExplodeProof;
 
-pub(super) fn prepare_explode<'a, V>(
-    destination: PreparedDestination<'a, V>,
-) -> Result<Prepared<'a, Explode>, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let action = validate_explode(&destination)?;
-    Ok(Prepared {
-        movement: destination.into_movement(),
-        action,
-    })
-}
-
-pub(super) fn validate_explode<'a, V>(
-    destination: &PreparedDestination<'a, V>,
-) -> Result<Explode, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let movement = destination.movement();
-    let state = movement.state();
-    let plan = movement.plan();
-    let unit = &state.units[plan.unit_index()];
-    if unit.kind != UnitKind::BlackBomb {
-        return Err(violation(Violation::ActionNotSupported {
-            action: Action::MoveExplode,
-        }));
+    fn validate<M>(
+        &self,
+        destination: &PreparedDestination<'a, M>,
+    ) -> Result<Self::Proof, ExecuteError>
+    where
+        M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
+    {
+        let movement = destination.movement();
+        let state = movement.state();
+        let plan = movement.plan();
+        let unit = &state.units[plan.unit_index()];
+        if unit.kind != UnitKind::BlackBomb {
+            return Err(violation(Violation::ActionNotSupported {
+                action: Action::MoveExplode,
+            }));
+        }
+        Ok(ExplodeProof(destination.available_destination()?))
     }
-    Ok(Explode(destination.available_destination()?))
+
+    fn into_kind(bound: MovementAction<'a, Self::Proof>) -> PreparedCommandKind<'a> {
+        PreparedCommandKind::Explode(bound)
+    }
 }
 
 pub(super) fn execute_prepared_explode(
-    prepared: Prepared<'_, Explode>,
+    prepared: MovementAction<'_, ExplodeProof>,
 ) -> Result<Execution, ExecuteError> {
-    let Prepared {
+    let MovementAction {
         movement,
-        action: Explode(_destination),
+        trap,
+        action: ExplodeProof(_destination),
     } = prepared;
     let state = movement.state();
     let unit_id = movement.unit();
     let plan = movement.plan();
     let destination = plan.destination();
-    let mut outcome = execute_planned_movement(state, unit_id, plan);
+    let mut outcome = execute_planned_movement(state, unit_id, plan, trap);
     if outcome.trapped {
         return Ok(Execution {
             state: outcome.state,
@@ -261,7 +239,8 @@ pub(super) fn execute_prepared_explode(
         });
     }
 
-    let exploding_owner = outcome.state.units[plan.unit_index()].owner.clone();
+    let exploding_seat = outcome.state.units[plan.unit_index()].owner;
+    let exploding_owner = outcome.state.player_id(exploding_seat).clone();
     outcome.state.units.remove(plan.unit_index());
     outcome.events.push(Event::UnitRemoved {
         unit: unit_id,
@@ -271,7 +250,7 @@ pub(super) fn execute_prepared_explode(
         .state
         .units
         .iter()
-        .any(|unit| unit.owner == exploding_owner)
+        .any(|unit| unit.owner == exploding_seat)
     {
         eliminate_player(
             &mut outcome.state,
@@ -289,14 +268,6 @@ pub(super) fn execute_prepared_explode(
     })
 }
 
-pub(crate) fn execute_delete_unit(
-    turn: &ActiveTurn<'_>,
-    unit_id: UnitId,
-) -> Result<Execution, ExecuteError> {
-    let unit = turn.prepare_unit(unit_id)?;
-    execute_prepared_delete(prepare_delete(unit)?)
-}
-
 pub(super) fn prepare_delete(
     unit: PreparedActiveUnit<'_>,
 ) -> Result<PreparedDelete<'_>, ExecuteError> {
@@ -309,6 +280,7 @@ pub(super) fn execute_prepared_delete(
     let PreparedDelete { unit } = prepared;
     let state = unit.state();
     let player = &state.turn.active_player;
+    let player_seat = state.player_index(player);
     let unit_id = unit.unit();
     let position = unit.origin();
 
@@ -328,7 +300,11 @@ pub(super) fn execute_prepared_delete(
         });
     }
     remove_unit_and_cargo(&mut next, unit_id, KnownReason::Delete, &mut events);
-    if !next.units.iter().any(|unit| unit.owner == player) {
+    if !next
+        .units
+        .iter()
+        .any(|unit| Some(unit.owner) == player_seat)
+    {
         eliminate_player(
             &mut next,
             player,

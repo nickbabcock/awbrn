@@ -16,22 +16,25 @@
 //! - `observe` — the recipient projection of `spec/model/observation.md`, and
 //!   with it two of the crate's three entry points.
 
+mod grid;
 mod observe;
 mod visibility;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::ops::Deref;
 
 use serde::{Deserialize, Serialize};
 
 use crate::ruleset::{self, TerrainTrait};
 
+pub use grid::{Cell, Dimensions, Grid};
 pub use observe::{
     HiddenUnitHp, Observation, ObserveError, ObservedBoard, ObservedEvent, ObservedMatch,
-    ObservedPlayer, ObservedTile, ObservedTransition, ObservedUnit, ObservedUnitHp,
-    ObservedUnitRef, PublicCommander, Relation, TileVisibility, observe, observe_events,
-    observe_transition,
+    ObservedPlayer, ObservedTile, ObservedTileOwner, ObservedTransition, ObservedUnit,
+    ObservedUnitHp, ObservedUnitRef, PublicCommander, Relation, TileVisibility, observe,
+    observe_events, observe_transition,
 };
 pub use visibility::{AwbwView, AwbwVisibility, Viewpoint, Visibility};
 
@@ -322,17 +325,157 @@ pub struct CommanderBans {
     pub backup: Vec<crate::ruleset::CommanderKind>,
 }
 
-/// A player's index into [`State::players`].
+/// A player's seat in [`State::players`].
 ///
 /// Resolving a player id to a seat once, at the edge of a command, and then
 /// indexing is what keeps the reducer from re-scanning the roster for every
 /// question it asks about the same player.
+///
+/// It is also how the state stores ownership. A held tile names a seat rather
+/// than a [`PlayerId`], because a name is a `String`: held inline it made every
+/// owned tile an allocation to clone and a pointer to free, on a board that is
+/// copied once per command. A seat is one byte and makes the tile `Copy`. The
+/// roster is the only place a player's name is spelled, and
+/// [`State::player_id`] is how anything gets back to it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PlayerIdx(usize);
+pub struct PlayerIdx(u8);
 
 impl PlayerIdx {
+    /// The seat at `index`. Building one out of thin air is only correct
+    /// against the roster it will be read against, which is why this is not
+    /// public: a seat comes from [`Roster::seat`] or [`State::player_index`],
+    /// both of which read a name off the roster the seat will be used with.
+    pub(crate) const fn from_seat(index: u8) -> Self {
+        Self(index)
+    }
+
     pub const fn get(self) -> usize {
+        self.0 as usize
+    }
+}
+
+/// A roster with more seats than a [`PlayerIdx`] can name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("a roster holds at most 255 players, found {found}")]
+pub struct RosterTooLarge {
+    pub found: usize,
+}
+
+/// The seat `id` holds on `players`.
+///
+/// Decoding resolves every stored owner through this, so a roster longer than
+/// a [`PlayerIdx`] can name has already been refused by then.
+fn seat_of(players: &[Player], id: &PlayerId) -> Option<PlayerIdx> {
+    let seat = players.iter().position(|candidate| candidate.id == id)?;
+    u8::try_from(seat).ok().map(PlayerIdx)
+}
+
+/// The players of one match, in seat order.
+///
+/// A unit and a held tile both name their owner by seat, so a seat only means
+/// something against the roster it indexes. That is the whole reason this is a
+/// type and not a `Vec<Player>`: a seat is minted here, from a name this roster
+/// holds, so a seat naming nobody cannot be built. Its length is checked once,
+/// on the way in, which is what makes every seat it mints representable.
+///
+/// The roster is fixed for a match. It derefs to its players, so reading one is
+/// what it always was, and a player's own mutable state — funds, status, the
+/// power charge — is still reachable; only adding and removing seats is not.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct Roster {
+    players: Vec<Player>,
+}
+
+impl Roster {
+    /// The roster these players sit on, or [`RosterTooLarge`] when there are
+    /// more of them than a [`PlayerIdx`] can name.
+    pub fn new(players: Vec<Player>) -> Result<Self, RosterTooLarge> {
+        if u8::try_from(players.len()).is_err() {
+            return Err(RosterTooLarge {
+                found: players.len(),
+            });
+        }
+        Ok(Self { players })
+    }
+
+    /// The seat `id` holds, which is the only way to name one.
+    pub fn seat(&self, id: &PlayerId) -> Option<PlayerIdx> {
+        seat_of(&self.players, id)
+    }
+
+    /// Every seat with the player sitting in it, in seat order.
+    ///
+    /// This is for whoever builds a state and must key their own vocabulary —
+    /// a faction, a replay's player number — to seats. Reading a roster it
+    /// just built by name would make a duplicate name ambiguous; this cannot.
+    pub fn seats(&self) -> impl Iterator<Item = (PlayerIdx, &Player)> {
+        // `new` refused a roster longer than a seat can name, so every index
+        // here is one a `PlayerIdx` holds.
+        self.players
+            .iter()
+            .enumerate()
+            .filter_map(|(seat, player)| Some((PlayerIdx(u8::try_from(seat).ok()?), player)))
+    }
+}
+
+impl std::ops::Deref for Roster {
+    type Target = [Player];
+
+    fn deref(&self) -> &Self::Target {
+        &self.players
+    }
+}
+
+/// A player's own state changes all match — funds are spent, a power charges.
+/// Only the seats themselves are fixed, which `[Player]` cannot change.
+impl std::ops::DerefMut for Roster {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.players
+    }
+}
+
+impl<'a> IntoIterator for &'a Roster {
+    type Item = &'a Player;
+    type IntoIter = std::slice::Iter<'a, Player>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.players.iter()
+    }
+}
+
+impl<'de> Deserialize<'de> for Roster {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::new(Vec::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
+/// A hasher for the dense integer ids that key [`UnitStore`].
+///
+/// The default hasher protects a map from keys an attacker chooses. Unit ids
+/// come from a decoded state, and one turn of action enumeration looks them up
+/// thousands of times, so the map pays for a protection it cannot use. One
+/// multiply by an odd constant spreads the id across the bits the table reads.
+#[derive(Debug, Default)]
+pub struct IdHasher(u64);
+
+/// Knuth's multiplicative constant, scaled to 64 bits.
+const ID_SPREAD: u64 = 0x9E37_79B9_7F4A_7C15;
+
+impl Hasher for IdHasher {
+    fn finish(&self) -> u64 {
         self.0
+    }
+
+    /// Never used by a `u32` key, and correct if some other key arrives.
+    fn write(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.0 = (self.0 ^ u64::from(*byte)).wrapping_mul(ID_SPREAD);
+        }
+    }
+
+    fn write_u32(&mut self, value: u32) {
+        self.0 = u64::from(value).wrapping_mul(ID_SPREAD);
     }
 }
 
@@ -346,7 +489,7 @@ impl PlayerIdx {
 #[derive(Clone, Debug, Default)]
 pub struct UnitStore {
     units: Vec<Unit>,
-    by_id: HashMap<UnitId, usize>,
+    by_id: HashMap<UnitId, usize, BuildHasherDefault<IdHasher>>,
 }
 
 impl PartialEq for UnitStore {
@@ -361,7 +504,8 @@ impl Eq for UnitStore {}
 impl UnitStore {
     /// Build a store, failing on a duplicate id.
     pub fn new(units: Vec<Unit>) -> Result<Self, DuplicateUnitId> {
-        let mut by_id = HashMap::with_capacity(units.len());
+        let mut by_id =
+            HashMap::with_capacity_and_hasher(units.len(), BuildHasherDefault::default());
         for (index, unit) in units.iter().enumerate() {
             if by_id.insert(unit.id, index).is_some() {
                 return Err(DuplicateUnitId(unit.id));
@@ -499,44 +643,212 @@ impl<'a> IntoIterator for &'a UnitStore {
 #[error("unit {0} appears more than once")]
 pub struct DuplicateUnitId(pub UnitId);
 
-impl Serialize for UnitStore {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.units.serialize(serializer)
+impl UnitStore {
+    /// The army as the wire spells it, with each owner named.
+    ///
+    /// A unit names its owner by seat, so only something holding the roster can
+    /// spell one. That is why neither this nor [`Unit`] has serde of its own.
+    fn to_fields<'a>(
+        &'a self,
+        players: &'a [Player],
+    ) -> Result<Vec<UnitFields<'a>>, StateInvariant> {
+        self.units
+            .iter()
+            .map(|unit| {
+                let owner =
+                    players
+                        .get(unit.owner.get())
+                        .ok_or(StateInvariant::UnitOwnerOffTheRoster {
+                            unit: unit.id,
+                            seat: unit.owner,
+                        })?;
+                Ok(UnitFields {
+                    id: unit.id,
+                    kind: &unit.kind,
+                    owner: &owner.id,
+                    hp: unit.hp,
+                    fuel: unit.fuel,
+                    ammo: unit.ammo,
+                    action: unit.action,
+                    concealment: unit.concealment,
+                    location: &unit.location,
+                })
+            })
+            .collect()
+    }
+
+    /// Rebuild an army from the wire, resolving each named owner to a seat.
+    ///
+    /// The roster is indexed once. Resolving each unit against the roster
+    /// directly made decoding compare every name against every player, which an
+    /// army of any size pays for on every state that arrives.
+    fn from_wire(units: Vec<UnitWire>, players: &[Player]) -> Result<Self, UnitDecodeError> {
+        let seats: HashMap<&PlayerId, PlayerIdx> = players
+            .iter()
+            .enumerate()
+            .filter_map(|(seat, player)| {
+                u8::try_from(seat)
+                    .ok()
+                    .map(|seat| (&player.id, PlayerIdx(seat)))
+            })
+            .collect();
+        let units = units
+            .into_iter()
+            .map(|unit| {
+                let owner = *seats.get(&unit.owner).ok_or(UnitDecodeError::UnknownOwner(
+                    UnknownDecodedUnitOwner {
+                        unit: unit.id,
+                        owner: unit.owner.clone(),
+                    },
+                ))?;
+                Ok(Unit {
+                    id: unit.id,
+                    kind: unit.kind,
+                    owner,
+                    hp: unit.hp,
+                    fuel: unit.fuel,
+                    ammo: unit.ammo,
+                    action: unit.action,
+                    concealment: unit.concealment,
+                    location: unit.location,
+                })
+            })
+            .collect::<Result<Vec<_>, UnitDecodeError>>()?;
+        Self::new(units).map_err(UnitDecodeError::DuplicateId)
     }
 }
 
-impl<'de> Deserialize<'de> for UnitStore {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::new(Vec::<Unit>::deserialize(deserializer)?).map_err(serde::de::Error::custom)
-    }
+/// A reason an army on the wire is not an army.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum UnitDecodeError {
+    #[error(transparent)]
+    UnknownOwner(UnknownDecodedUnitOwner),
+    #[error(transparent)]
+    DuplicateId(DuplicateUnitId),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
     pub ruleset: RulesetRef,
     pub settings: Settings,
     pub board: Board,
     pub teams: Vec<Team>,
-    pub players: Vec<Player>,
+    pub players: Roster,
     pub turn: Turn,
     pub weather: Weather,
     pub units: UnitStore,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub next_unit_id: Option<u32>,
-    #[serde(rename = "match")]
     pub match_state: Match,
 }
+
+/// The state as the wire spells it, borrowed for writing.
+///
+/// The board's tiles name their holder by seat, and only the roster turns a
+/// seat back into a name, so the state is what serializes its own board. The
+/// field order here is the wire's, and must stay so.
+#[derive(Serialize)]
+struct StateFields<'a> {
+    ruleset: &'a RulesetRef,
+    settings: &'a Settings,
+    board: BoardRows<'a>,
+    teams: &'a [Team],
+    players: &'a [Player],
+    turn: &'a Turn,
+    weather: &'a Weather,
+    units: Vec<UnitFields<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_unit_id: Option<u32>,
+    #[serde(rename = "match")]
+    match_state: &'a Match,
+}
+
+/// The same shape, owned, for reading.
+#[derive(Deserialize)]
+struct StateWire {
+    ruleset: RulesetRef,
+    settings: Settings,
+    board: BoardRowsWire,
+    teams: Vec<Team>,
+    players: Roster,
+    turn: Turn,
+    weather: Weather,
+    units: Vec<UnitWire>,
+    #[serde(default)]
+    next_unit_id: Option<u32>,
+    #[serde(rename = "match")]
+    match_state: Match,
+}
+
+impl Serialize for State {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        StateFields {
+            ruleset: &self.ruleset,
+            settings: &self.settings,
+            board: self
+                .board
+                .to_rows(&self.players)
+                .map_err(serde::ser::Error::custom)?,
+            teams: &self.teams,
+            players: &self.players,
+            turn: &self.turn,
+            weather: &self.weather,
+            units: self
+                .units
+                .to_fields(&self.players)
+                .map_err(serde::ser::Error::custom)?,
+            next_unit_id: self.next_unit_id,
+            match_state: &self.match_state,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for State {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // `Roster` refuses a roster longer than a seat can name as it decodes,
+        // so every seat resolved below is one a `PlayerIdx` can hold.
+        let wire = StateWire::deserialize(deserializer)?;
+        let board =
+            Board::from_rows(wire.board, &wire.players).map_err(serde::de::Error::custom)?;
+        let units =
+            UnitStore::from_wire(wire.units, &wire.players).map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            ruleset: wire.ruleset,
+            settings: wire.settings,
+            board,
+            teams: wire.teams,
+            players: wire.players,
+            turn: wire.turn,
+            weather: wire.weather,
+            units,
+            next_unit_id: wire.next_unit_id,
+            match_state: wire.match_state,
+        })
+    }
+}
 impl State {
+    /// The name of the player in `seat`, which is the only place names live.
+    pub fn player_id(&self, seat: PlayerIdx) -> &PlayerId {
+        &self.players[seat.get()].id
+    }
+
+    /// The name of the player in `seat`, or `None` when the roster is shorter.
+    pub fn try_player_id(&self, seat: PlayerIdx) -> Option<&PlayerId> {
+        self.players.get(seat.get()).map(|player| &player.id)
+    }
+
+    /// The seat a tile's owner names, if it is held.
+    pub fn tile_owner_id(&self, owner: &TileOwner) -> Option<&PlayerId> {
+        owner.player().map(|seat| self.player_id(seat))
+    }
+
     /// The seat a player id names.
     ///
     /// Resolve once at the edge of a command and index afterwards. The roster
     /// is short, so this is about saying which player a later index means, not
     /// about speed.
     pub fn player_index(&self, id: &PlayerId) -> Option<PlayerIdx> {
-        self.players
-            .iter()
-            .position(|candidate| candidate.id == id)
-            .map(PlayerIdx)
+        seat_of(&self.players, id)
     }
 
     pub fn player(&self, seat: PlayerIdx) -> &Player {
@@ -637,13 +949,16 @@ impl State {
         let mut slots: HashSet<(UnitId, usize)> = HashSet::new();
         let mut moved: Option<UnitId> = None;
         let mut highest: Option<u32> = None;
+        // Resolved once: the roster is scanned here so the loop can compare
+        // seats instead of names.
+        let active_seat = self.player_index(&self.turn.active_player);
 
         for unit in &self.units {
             highest = Some(highest.map_or(unit.id.get(), |seen| seen.max(unit.id.get())));
-            if self.find_player(&unit.owner).is_none() {
-                return Err(StateInvariant::UnknownUnitOwner {
+            if self.players.get(unit.owner.get()).is_none() {
+                return Err(StateInvariant::UnitOwnerOffTheRoster {
                     unit: unit.id,
-                    owner: unit.owner.clone(),
+                    seat: unit.owner,
                 });
             }
             if unit.hp == 0 || unit.hp > 100 {
@@ -671,7 +986,7 @@ impl State {
                 if self.turn.phase != Phase::UnitAction {
                     return Err(StateInvariant::MovedOutsideUnitAction { unit: unit.id });
                 }
-                if unit.owner != self.turn.active_player {
+                if Some(unit.owner) != active_seat {
                     return Err(StateInvariant::MovedUnitIsNotActive { unit: unit.id });
                 }
                 if let Some(first) = moved.replace(unit.id) {
@@ -766,13 +1081,10 @@ impl State {
     /// Tiles: an owner that exists, and mutable fields the terrain admits.
     fn validate_board(&self) -> Result<(), StateInvariant> {
         for (position, tile) in self.board.rows().flatten() {
-            if let Some(owner) = tile.owner.player()
-                && self.find_player(owner).is_none()
+            if let Some(seat) = tile.owner.player()
+                && self.players.get(seat.get()).is_none()
             {
-                return Err(StateInvariant::UnknownTileOwner {
-                    position,
-                    owner: owner.clone(),
-                });
+                return Err(StateInvariant::TileOwnerOffTheRoster { position, seat });
             }
             if tile.owner.is_ownable()
                 != ruleset::terrain_has(tile.terrain, TerrainTrait::Capturable)
@@ -786,7 +1098,7 @@ impl State {
                 return Err(StateInvariant::CapturePointsOnUnownableTile { position });
             }
             match (
-                tile.destructible_hp(),
+                self.board.destructible_hp(position),
                 ruleset::terrain(tile.terrain).destructible,
             ) {
                 (Some(hp), Some(profile)) if hp > profile.maximum_hp => {
@@ -835,8 +1147,8 @@ pub enum StateInvariant {
         seated: PlayerId,
         active: PlayerId,
     },
-    #[error("unit {unit} is owned by unknown player {owner}")]
-    UnknownUnitOwner { unit: UnitId, owner: PlayerId },
+    #[error("unit {unit} is held by seat {}, which the roster does not have", seat.get())]
+    UnitOwnerOffTheRoster { unit: UnitId, seat: PlayerIdx },
     #[error("unit {unit} has {hp} HP, which is outside 1..=100")]
     UnitHpOutOfRange { unit: UnitId, hp: u8 },
     #[error("unit {unit} holds {fuel} fuel above its maximum of {maximum}")]
@@ -873,8 +1185,8 @@ pub enum StateInvariant {
     },
     #[error("next_unit_id {next_unit_id} does not exceed live unit {highest}")]
     NextUnitIdIsNotFresh { next_unit_id: u32, highest: UnitId },
-    #[error("tile {position} is owned by unknown player {owner}")]
-    UnknownTileOwner { position: Pos, owner: PlayerId },
+    #[error("tile {position} is held by seat {}, which the roster does not have", seat.get())]
+    TileOwnerOffTheRoster { position: Pos, seat: PlayerIdx },
     #[error("tile {position} carries ownership its terrain {terrain} does not admit")]
     TileOwnershipDisagreesWithTerrain { position: Pos, terrain: TerrainId },
     #[error("tile {position} records capture progress but cannot be owned")]
@@ -919,9 +1231,21 @@ pub enum CargoFault {
 /// a ragged board and no accessor can index past a short row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Board {
-    width: u8,
-    height: u8,
-    tiles: Vec<Tile>,
+    /// The tiles, as the same row-major map every side table over the board
+    /// uses. Holding a [`Grid`] rather than a width, a height and a `Vec`
+    /// is what keeps one implementation of the index arithmetic and the
+    /// bounds check, instead of the board restating what its own side tables
+    /// already say.
+    tiles: Grid<Tile>,
+    /// State that belongs to a position rather than to every tile.
+    ///
+    /// Destructible HP, teleporter pairing and ruleset trait state are carried
+    /// by a handful of tiles on any board and by none at all on most. Held
+    /// inline they cost every tile a pointer and cost the clone one allocation
+    /// per tile that has them; held here they cost the tiles that have them and
+    /// nothing else. A tile with nothing to say has no entry, which is what
+    /// lets equality stay derived.
+    rare: BTreeMap<Pos, RareTileState>,
 }
 
 impl Board {
@@ -930,46 +1254,47 @@ impl Board {
     /// Fails unless `tiles` holds exactly `width * height` entries, which is
     /// what makes every accessor below total.
     pub fn new(width: u8, height: u8, tiles: Vec<Tile>) -> Result<Self, BoardShapeError> {
-        let expected = usize::from(width) * usize::from(height);
-        if width == 0 || height == 0 || tiles.len() != expected {
-            return Err(BoardShapeError {
-                width,
-                height,
-                found: tiles.len(),
-            });
-        }
-        Ok(Self {
+        let found = tiles.len();
+        let shape = || BoardShapeError {
             width,
             height,
+            found,
+        };
+        if width == 0 || height == 0 {
+            return Err(shape());
+        }
+        let tiles = Grid::from_cells(Dimensions::new(width, height), tiles).ok_or_else(shape)?;
+        Ok(Self {
             tiles,
+            rare: BTreeMap::new(),
         })
     }
 
     pub const fn width(&self) -> u8 {
-        self.width
+        self.tiles.width()
     }
 
     pub const fn height(&self) -> u8 {
-        self.height
+        self.tiles.height()
+    }
+
+    /// The shape every map over this board shares.
+    pub const fn dimensions(&self) -> Dimensions {
+        self.tiles.dimensions()
     }
 
     /// Whether a coordinate is on the board.
     pub const fn contains(&self, position: Pos) -> bool {
-        position.x < self.width && position.y < self.height
-    }
-
-    fn index(&self, position: Pos) -> Option<usize> {
-        self.contains(position)
-            .then(|| usize::from(position.y) * usize::from(self.width) + usize::from(position.x))
+        self.dimensions().contains(position)
     }
 
     /// The tile at a coordinate, or `None` when it is off the board.
     pub fn get(&self, position: Pos) -> Option<&Tile> {
-        self.index(position).map(|index| &self.tiles[index])
+        self.tiles.get(position)
     }
 
     pub fn get_mut(&mut self, position: Pos) -> Option<&mut Tile> {
-        self.index(position).map(|index| &mut self.tiles[index])
+        self.tiles.get_mut(position)
     }
 
     /// The tile at a coordinate that has already been bounds-checked.
@@ -977,45 +1302,124 @@ impl Board {
     /// Panics off the board. Use it only where a validator has established the
     /// coordinate is on it; [`Board::get`] is the accessor for everywhere else.
     pub fn tile(&self, position: Pos) -> &Tile {
-        self.get(position)
-            .unwrap_or_else(|| panic!("{position} is off a {}x{} board", self.width, self.height))
+        &self.tiles[position]
     }
 
     pub fn tile_mut(&mut self, position: Pos) -> &mut Tile {
-        let (width, height) = (self.width, self.height);
-        self.get_mut(position)
-            .unwrap_or_else(|| panic!("{position} is off a {width}x{height} board"))
+        &mut self.tiles[position]
+    }
+
+    /// The tile at a cell this board's own [`Dimensions`] minted.
+    pub fn at(&self, cell: Cell) -> &Tile {
+        self.tiles.at(cell)
     }
 
     /// Every coordinate on the board, row by row.
     pub fn positions(&self) -> impl Iterator<Item = Pos> + use<> {
-        let (width, height) = (self.width, self.height);
-        (0..height).flat_map(move |y| (0..width).map(move |x| Pos { x, y }))
+        self.dimensions().positions()
     }
 
     /// Every tile with its coordinate, row by row.
     pub fn iter(&self) -> impl Iterator<Item = (Pos, &Tile)> {
-        self.positions().zip(self.tiles.iter())
+        self.tiles.iter()
     }
 
     /// The board as rows, for the projections whose wire shape is nested.
     pub fn rows(&self) -> impl Iterator<Item = impl Iterator<Item = (Pos, &Tile)>> {
-        let width = self.width;
-        (0..self.height).map(move |y| {
-            let start = usize::from(y) * usize::from(width);
-            self.tiles[start..start + usize::from(width)]
-                .iter()
-                .enumerate()
-                .map(move |(x, tile)| (Pos { x: x as u8, y }, tile))
-        })
+        self.tiles.rows()
+    }
+
+    /// Remaining HP of a destructible terrain at `position`, such as a pipe
+    /// seam.
+    pub fn destructible_hp(&self, position: Pos) -> Option<u64> {
+        self.rare.get(&position)?.destructible_hp
+    }
+
+    /// Which teleporter pair the tile at `position` belongs to.
+    pub fn teleporter(&self, position: Pos) -> Option<&TeleporterId> {
+        self.rare.get(&position)?.teleporter.as_ref()
+    }
+
+    /// State at `position` owned by a ruleset terrain trait.
+    pub fn trait_state(&self, position: Pos) -> Option<&BTreeMap<TraitId, serde_json::Value>> {
+        self.rare.get(&position)?.trait_state.as_ref()
+    }
+
+    pub fn set_destructible_hp(&mut self, position: Pos, hp: Option<u64>) {
+        self.update_rare(position, |rare| rare.destructible_hp = hp);
+    }
+
+    pub fn set_teleporter(&mut self, position: Pos, teleporter: Option<TeleporterId>) {
+        self.update_rare(position, |rare| rare.teleporter = teleporter);
+    }
+
+    pub fn set_trait_state(
+        &mut self,
+        position: Pos,
+        trait_state: Option<BTreeMap<TraitId, serde_json::Value>>,
+    ) {
+        self.update_rare(position, |rare| rare.trait_state = trait_state);
+    }
+
+    /// Replace every rare tile state at once.
+    ///
+    /// A caller that already knows the whole board — decoding a wire form, and
+    /// reifying a projection — builds the map itself. Setting the three fields
+    /// tile by tile costs an occupancy test, a map search and a dropped
+    /// default for every tile that has nothing rare to say, which is nearly
+    /// all of them.
+    pub(crate) fn set_rare_states(&mut self, rare: BTreeMap<Pos, RareTileState>) {
+        debug_assert!(
+            rare.iter()
+                .all(|(position, state)| self.contains(*position) && !state.is_empty()),
+            "a rare entry must name a tile of this board and say something"
+        );
+        self.rare = rare;
+    }
+
+    /// Everything rare about `position`, in one lookup.
+    ///
+    /// A reader that wants all three — the projection and the wire form both do
+    /// — asks this rather than paying for three searches of the same map.
+    pub(crate) fn rare_state(&self, position: Pos) -> Option<&RareTileState> {
+        self.rare.get(&position)
+    }
+
+    /// Change the rare state at `position`, and hold no entry for a tile with
+    /// nothing to say.
+    ///
+    /// Dropping an emptied entry is what keeps one spelling per state: to a
+    /// derived `PartialEq`, a missing entry and a present-but-empty one are
+    /// different boards, though they serialize to the same bytes. A tile that
+    /// never had rare state and is being given none must not gain an entry
+    /// either, which is why the vacant case never inserts.
+    fn update_rare(&mut self, position: Pos, change: impl FnOnce(&mut RareTileState)) {
+        if !self.contains(position) {
+            return;
+        }
+        match self.rare.entry(position) {
+            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                change(entry.get_mut());
+                if entry.get().is_empty() {
+                    entry.remove();
+                }
+            }
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                let mut state = RareTileState::default();
+                change(&mut state);
+                if !state.is_empty() {
+                    entry.insert(state);
+                }
+            }
+        }
     }
 
     pub fn tiles(&self) -> impl Iterator<Item = &Tile> {
-        self.tiles.iter()
+        self.tiles.cells()
     }
 
     pub fn tiles_mut(&mut self) -> impl Iterator<Item = &mut Tile> {
-        self.tiles.iter_mut()
+        self.tiles.cells_mut()
     }
 }
 
@@ -1032,66 +1436,139 @@ pub struct BoardShapeError {
 }
 
 /// The wire shape: nested rows, one per `y`.
-#[derive(Serialize, Deserialize)]
-struct BoardRows {
+///
+/// A tile names its owner, and the state's tiles hold a seat rather than a
+/// name, so only something holding the roster can spell one. That is why
+/// neither [`Board`] nor [`Tile`] has serde of its own: [`State`] drives both,
+/// and these are the shapes it drives them through.
+#[derive(Serialize)]
+struct BoardRows<'a> {
     width: u8,
     height: u8,
-    tiles: Vec<Vec<Tile>>,
+    tiles: Vec<Vec<TileFields<'a>>>,
 }
 
-impl Serialize for Board {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        BoardRows {
-            width: self.width,
-            height: self.height,
-            tiles: self
-                .tiles
-                .chunks(usize::from(self.width))
-                .map(<[Tile]>::to_vec)
-                .collect(),
-        }
-        .serialize(serializer)
+/// The same shape, owned, for reading.
+#[derive(Deserialize)]
+struct BoardRowsWire {
+    width: u8,
+    height: u8,
+    tiles: Vec<Vec<TileWire>>,
+}
+
+/// An owner a decoded board names that the roster does not hold.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("tile {position} is held by {owner}, who is not on the roster")]
+pub struct UnknownTileOwner {
+    pub position: Pos,
+    pub owner: PlayerId,
+}
+
+impl Board {
+    /// The board as the wire spells it, with each holder named.
+    fn to_rows<'a>(&'a self, players: &'a [Player]) -> Result<BoardRows<'a>, StateInvariant> {
+        let tiles = self
+            .rows()
+            .map(|row| {
+                row.map(|(position, tile)| {
+                    let rare = self.rare_state(position);
+                    let owner = match tile.owner.player() {
+                        Some(seat) => Some(Some(
+                            &players
+                                .get(seat.get())
+                                .ok_or(StateInvariant::TileOwnerOffTheRoster { position, seat })?
+                                .id,
+                        )),
+                        None => tile.owner.is_ownable().then_some(None),
+                    };
+                    Ok(TileFields {
+                        terrain: tile.terrain,
+                        owner,
+                        capture_points: tile.capture_points,
+                        silo: tile.silo,
+                        destructible_hp: rare.and_then(|rare| rare.destructible_hp),
+                        teleporter: rare.and_then(|rare| rare.teleporter.as_ref()),
+                        trait_state: rare.and_then(|rare| rare.trait_state.as_ref()),
+                    })
+                })
+                .collect::<Result<Vec<_>, StateInvariant>>()
+            })
+            .collect::<Result<Vec<_>, StateInvariant>>()?;
+        Ok(BoardRows {
+            width: self.width(),
+            height: self.height(),
+            tiles,
+        })
     }
-}
 
-impl<'de> Deserialize<'de> for Board {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let rows = BoardRows::deserialize(deserializer)?;
+    /// Rebuild a board from the wire, resolving each named holder to a seat.
+    fn from_rows(rows: BoardRowsWire, players: &[Player]) -> Result<Self, BoardDecodeError> {
         if rows.tiles.len() != usize::from(rows.height)
             || rows
                 .tiles
                 .iter()
                 .any(|row| row.len() != usize::from(rows.width))
         {
-            return Err(serde::de::Error::custom(BoardShapeError {
+            return Err(BoardDecodeError::Shape(BoardShapeError {
                 width: rows.width,
                 height: rows.height,
                 found: rows.tiles.iter().map(Vec::len).sum(),
             }));
         }
-        Self::new(
-            rows.width,
-            rows.height,
-            rows.tiles.into_iter().flatten().collect(),
-        )
-        .map_err(serde::de::Error::custom)
+        let mut tiles = Vec::with_capacity(usize::from(rows.width) * usize::from(rows.height));
+        let mut rare = BTreeMap::new();
+        for (y, row) in rows.tiles.into_iter().enumerate() {
+            for (x, wire) in row.into_iter().enumerate() {
+                let position = Pos {
+                    x: x as u8,
+                    y: y as u8,
+                };
+                let (tile, state) = wire.split(players, position)?;
+                tiles.push(tile);
+                if !state.is_empty() {
+                    rare.insert(position, state);
+                }
+            }
+        }
+        let mut board =
+            Self::new(rows.width, rows.height, tiles).map_err(BoardDecodeError::Shape)?;
+        board.rare = rare;
+        Ok(board)
     }
 }
+
+/// Why a board on the wire is not one this crate can hold.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+enum BoardDecodeError {
+    #[error(transparent)]
+    Shape(BoardShapeError),
+    #[error(transparent)]
+    Owner(#[from] UnknownTileOwner),
+}
+
 /// One square of the board.
 ///
 /// The whole board is cloned once per `execute` and projected once per
-/// `observe`, so what a tile costs is multiplied by the board's area. The four
-/// fields every tile has stay inline; the three only a handful of terrains ever
-/// carry live behind one pointer, which takes a tile from 104 bytes to 40. The
-/// wire form is unchanged — all seven keys stay flat, and each is still absent
-/// when it has no value.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// `observe`, so what a tile costs is multiplied by the board's area. Only the
+/// four fields every tile has are here; the three that a handful of terrains
+/// ever carry live in [`Board`], keyed by position, which took a tile from 104
+/// bytes to 40 and then to 32 and left it with no pointer to follow. The wire
+/// form is unchanged — all seven keys stay flat on each tile, and each is
+/// still absent when it has no value.
+///
+/// Cloning a tile therefore does not carry its rare state. Code that copies
+/// tiles from one board to another must copy that state by position too, with
+/// [`Board::destructible_hp`] and its neighbours.
+///
+/// `Copy` is the point of all of it: a tile holds no pointer and owns nothing,
+/// so copying a board is one `memcpy` of six bytes a tile and dropping one is
+/// a single deallocation, where it used to be per-tile clone and drop glue.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Tile {
     pub terrain: TerrainId,
     pub owner: TileOwner,
     pub capture_points: Option<u8>,
     pub silo: Option<Silo>,
-    rare: Option<Box<RareTileState>>,
 }
 
 /// Tile state that most terrains never have.
@@ -1101,14 +1578,14 @@ pub struct Tile {
 /// keep per-tile state. Together they were 64 of a tile's 104 bytes, present on
 /// every plain.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct RareTileState {
-    destructible_hp: Option<u64>,
-    teleporter: Option<TeleporterId>,
-    trait_state: Option<BTreeMap<TraitId, serde_json::Value>>,
+pub(crate) struct RareTileState {
+    pub(crate) destructible_hp: Option<u64>,
+    pub(crate) teleporter: Option<TeleporterId>,
+    pub(crate) trait_state: Option<BTreeMap<TraitId, serde_json::Value>>,
 }
 
 impl RareTileState {
-    fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self == &Self::default()
     }
 }
@@ -1121,55 +1598,6 @@ impl Tile {
             owner: TileOwner::NotOwnable,
             capture_points: None,
             silo: None,
-            rare: None,
-        }
-    }
-
-    /// Remaining HP of a destructible terrain, such as a pipe seam.
-    pub fn destructible_hp(&self) -> Option<u64> {
-        self.rare.as_ref().and_then(|rare| rare.destructible_hp)
-    }
-
-    /// Which teleporter pair this tile belongs to.
-    pub fn teleporter(&self) -> Option<&TeleporterId> {
-        self.rare.as_ref().and_then(|rare| rare.teleporter.as_ref())
-    }
-
-    /// Per-tile state owned by a ruleset terrain trait.
-    pub fn trait_state(&self) -> Option<&BTreeMap<TraitId, serde_json::Value>> {
-        self.rare
-            .as_ref()
-            .and_then(|rare| rare.trait_state.as_ref())
-    }
-
-    pub fn set_destructible_hp(&mut self, hp: Option<u64>) {
-        self.rare_mut().destructible_hp = hp;
-        self.shrink();
-    }
-
-    pub fn set_teleporter(&mut self, teleporter: Option<TeleporterId>) {
-        self.rare_mut().teleporter = teleporter;
-        self.shrink();
-    }
-
-    fn rare_mut(&mut self) -> &mut RareTileState {
-        self.rare.get_or_insert_with(Box::default)
-    }
-
-    /// Give the pointer back once nothing is behind it.
-    ///
-    /// Two things depend on this. A tile that stopped being destructible costs
-    /// what a plain costs, which is the point of boxing at all. And `rare` then
-    /// has one spelling per state, which is what lets equality be derived: to a
-    /// derive, `None` and an allocated-but-empty block are different tiles, even
-    /// though they serialize to the same bytes. Every path that can set `rare` —
-    /// [`Tile::new`], `Deserialize`, and the setters — leaves it `None` when
-    /// there is nothing to hold, and
-    /// `a_tile_that_loses_its_rare_state_equals_one_that_never_had_any` is what
-    /// pins that.
-    fn shrink(&mut self) {
-        if self.rare.as_ref().is_some_and(|rare| rare.is_empty()) {
-            self.rare = None;
         }
     }
 }
@@ -1179,8 +1607,11 @@ impl Tile {
 #[derive(Serialize)]
 struct TileFields<'a> {
     terrain: TerrainId,
-    #[serde(skip_serializing_if = "owner_is_absent")]
-    owner: &'a TileOwner,
+    /// The holder's name. The outer layer is whether the tile is ownable at
+    /// all, which is the difference between an absent `owner` key and a `null`
+    /// one; the inner layer is whether anyone holds it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    owner: Option<Option<&'a PlayerId>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     capture_points: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1193,16 +1624,12 @@ struct TileFields<'a> {
     trait_state: Option<&'a BTreeMap<TraitId, serde_json::Value>>,
 }
 
-fn owner_is_absent(owner: &&TileOwner) -> bool {
-    owner.is_not_ownable()
-}
-
 /// The same object, owned, for reading.
 #[derive(Deserialize)]
 struct TileWire {
     terrain: TerrainId,
-    #[serde(default)]
-    owner: TileOwner,
+    #[serde(default, deserialize_with = "deserialize_present_owner")]
+    owner: Option<Option<PlayerId>>,
     capture_points: Option<u8>,
     silo: Option<Silo>,
     destructible_hp: Option<u64>,
@@ -1210,36 +1637,47 @@ struct TileWire {
     trait_state: Option<BTreeMap<TraitId, serde_json::Value>>,
 }
 
-impl Serialize for Tile {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        TileFields {
-            terrain: self.terrain,
-            owner: &self.owner,
-            capture_points: self.capture_points,
-            silo: self.silo,
-            destructible_hp: self.destructible_hp(),
-            teleporter: self.teleporter(),
-            trait_state: self.trait_state(),
-        }
-        .serialize(serializer)
-    }
+/// An absent `owner` key and a `null` one mean different things, and only the
+/// deserializer can tell them apart, so the present case is wrapped again.
+fn deserialize_present_owner<'de, D>(deserializer: D) -> Result<Option<Option<PlayerId>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<PlayerId>::deserialize(deserializer).map(Some)
 }
 
-impl<'de> Deserialize<'de> for Tile {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let wire = TileWire::deserialize(deserializer)?;
-        let rare = RareTileState {
-            destructible_hp: wire.destructible_hp,
-            teleporter: wire.teleporter,
-            trait_state: wire.trait_state,
+impl TileWire {
+    /// Split one wire tile into the part every tile has and the part few do,
+    /// resolving the holder's name to a seat on `players`.
+    fn split(
+        self,
+        players: &[Player],
+        position: Pos,
+    ) -> Result<(Tile, RareTileState), UnknownTileOwner> {
+        let owner = match self.owner {
+            None => TileOwner::NotOwnable,
+            Some(None) => TileOwner::Neutral,
+            Some(Some(name)) => {
+                let seat = seat_of(players, &name).ok_or(UnknownTileOwner {
+                    position,
+                    owner: name,
+                })?;
+                TileOwner::Owned(seat)
+            }
         };
-        Ok(Self {
-            terrain: wire.terrain,
-            owner: wire.owner,
-            capture_points: wire.capture_points,
-            silo: wire.silo,
-            rare: (!rare.is_empty()).then(|| Box::new(rare)),
-        })
+        Ok((
+            Tile {
+                terrain: self.terrain,
+                owner,
+                capture_points: self.capture_points,
+                silo: self.silo,
+            },
+            RareTileState {
+                destructible_hp: self.destructible_hp,
+                teleporter: self.teleporter,
+                trait_state: self.trait_state,
+            },
+        ))
     }
 }
 
@@ -1250,14 +1688,19 @@ impl<'de> Deserialize<'de> for Tile {
 /// a player id means it is held. That was an `Option<Option<PlayerId>>` whose
 /// two layers could only be told apart by reading the deserializer, and which
 /// every reader unwrapped twice by hand.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+///
+/// The holder is a seat, not a name — see [`PlayerIdx`] for why. That is what
+/// makes this `Copy`, and a [`Tile`] with it. Ask [`State::tile_owner_id`] for
+/// the name; the projection carries names of its own, in
+/// [`ObservedTileOwner`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TileOwner {
     /// The terrain is not a property. Serializes by being absent.
     #[default]
     NotOwnable,
     /// A property nobody holds.
     Neutral,
-    Owned(PlayerId),
+    Owned(PlayerIdx),
 }
 
 impl TileOwner {
@@ -1271,45 +1714,20 @@ impl TileOwner {
     }
 
     /// The holder, if there is one.
-    pub const fn player(&self) -> Option<&PlayerId> {
-        match self {
-            Self::Owned(player) => Some(player),
+    pub const fn player(&self) -> Option<PlayerIdx> {
+        match *self {
+            Self::Owned(seat) => Some(seat),
             Self::NotOwnable | Self::Neutral => None,
         }
     }
 
-    pub fn is_owned_by(&self, player: &PlayerId) -> bool {
-        self.player().is_some_and(|held| held == player)
+    pub fn is_owned_by(&self, seat: PlayerIdx) -> bool {
+        self.player() == Some(seat)
     }
 
-    /// The holder as the wire spells it for an ownable tile: `null` or an id.
-    ///
-    /// Only meaningful for a property; a non-ownable tile also yields `None`.
-    pub fn to_optional(&self) -> Option<PlayerId> {
-        self.player().cloned()
-    }
-
-    /// An ownable tile's holder, from the `null`-or-id the wire carries.
-    pub fn ownable(player: Option<PlayerId>) -> Self {
+    /// An ownable tile's holder, from the `null`-or-seat the wire resolved to.
+    pub fn ownable(player: Option<PlayerIdx>) -> Self {
         player.map_or(Self::Neutral, Self::Owned)
-    }
-}
-
-impl Serialize for TileOwner {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        // `NotOwnable` is `skip_serializing_if`'d away by the field, so reaching
-        // here at all means the key is present and `null` is the right value.
-        self.player().serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for TileOwner {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        // Only called when the key is present, so the terrain is ownable and
-        // `null` distinguishes neutral from held.
-        Ok(Self::ownable(Option::<PlayerId>::deserialize(
-            deserializer,
-        )?))
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1390,11 +1808,20 @@ pub struct Weather {
     pub kind: WeatherKind,
     pub remaining_turns: u64,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// A unit in play.
+///
+/// The owner is a seat, not a name, for the reason [`PlayerIdx`] gives: a name
+/// is a `String`, and an army is cloned once per command, so a named owner made
+/// every unit an allocation to copy and a pointer to free. Ask
+/// [`State::player_id`] for the name.
+///
+/// Only the roster can spell a seat, so [`Unit`] has no serde of its own —
+/// [`State`] drives it through [`UnitFields`] and [`UnitWire`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Unit {
     pub id: UnitId,
     pub kind: UnitKindId,
-    pub owner: PlayerId,
+    pub owner: PlayerIdx,
     pub hp: u8,
     pub fuel: u64,
     pub ammo: u64,
@@ -1402,6 +1829,43 @@ pub struct Unit {
     pub concealment: Concealment,
     pub location: Location,
 }
+
+/// A unit as the wire spells it, borrowed for writing.
+#[derive(Serialize)]
+struct UnitFields<'a> {
+    id: UnitId,
+    kind: &'a UnitKindId,
+    owner: &'a PlayerId,
+    hp: u8,
+    fuel: u64,
+    ammo: u64,
+    action: UnitAction,
+    concealment: Concealment,
+    location: &'a Location,
+}
+
+/// The same shape, owned, for reading.
+#[derive(Deserialize)]
+struct UnitWire {
+    id: UnitId,
+    kind: UnitKindId,
+    owner: PlayerId,
+    hp: u8,
+    fuel: u64,
+    ammo: u64,
+    action: UnitAction,
+    concealment: Concealment,
+    location: Location,
+}
+
+/// An owner a decoded unit names that the roster does not hold.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("unit {unit} is held by {owner}, who is not on the roster")]
+pub struct UnknownDecodedUnitOwner {
+    pub unit: UnitId,
+    pub owner: PlayerId,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(rename_all = "kebab-case")]
@@ -1418,7 +1882,7 @@ pub enum Concealment {
     Exposed,
     Hidden,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Location {
@@ -1508,27 +1972,26 @@ mod tests {
                 serde_json::json!({"terrain":"plain","owner":null}),
             ),
             (
-                TileOwner::Owned(PlayerId::from("red")),
+                TileOwner::Owned(PlayerIdx::from_seat(0)),
                 serde_json::json!({"terrain":"plain","owner":"red"}),
             ),
         ] {
-            let tile = Tile {
-                owner: owner.clone(),
-                ..plain()
-            };
-            let wire = serde_json::to_value(&tile).unwrap();
+            let tile = Tile { owner, ..plain() };
+            let wire = tile_wire(&one_tile(tile));
             assert_eq!(wire, expected, "{owner:?} serialized wrong");
-            assert_eq!(serde_json::from_value::<Tile>(wire).unwrap().owner, owner);
+            assert_eq!(decode_one_tile(wire).tile(Pos::new(0, 0)).owner, owner);
         }
     }
 
     #[test]
     fn only_a_held_property_names_a_player() {
+        let red = PlayerIdx::from_seat(0);
+        let blue = PlayerIdx::from_seat(1);
         assert_eq!(TileOwner::NotOwnable.player(), None);
         assert_eq!(TileOwner::Neutral.player(), None);
-        assert!(!TileOwner::Neutral.is_owned_by(&PlayerId::from("red")));
-        assert!(TileOwner::Owned(PlayerId::from("red")).is_owned_by(&PlayerId::from("red")));
-        assert!(!TileOwner::Owned(PlayerId::from("red")).is_owned_by(&PlayerId::from("blue")));
+        assert!(!TileOwner::Neutral.is_owned_by(red));
+        assert!(TileOwner::Owned(red).is_owned_by(red));
+        assert!(!TileOwner::Owned(red).is_owned_by(blue));
         // A neutral property is still a property; a mountain is not.
         assert!(TileOwner::Neutral.is_ownable());
         assert!(!TileOwner::NotOwnable.is_ownable());
@@ -1539,9 +2002,9 @@ mod tests {
     #[test]
     fn the_unit_index_survives_removal_and_growth() {
         let mut units = UnitStore::new(vec![
-            unit(0, PlayerId::from("p1")),
-            unit(1, PlayerId::from("p2")),
-            unit(2, PlayerId::from("p1")),
+            unit(0, PlayerIdx::from_seat(0)),
+            unit(1, PlayerIdx::from_seat(1)),
+            unit(2, PlayerIdx::from_seat(0)),
         ])
         .expect("distinct ids");
 
@@ -1551,7 +2014,7 @@ mod tests {
         assert_eq!(units.index_of(UnitId::new(1)), Some(0));
         assert_eq!(units.index_of(UnitId::new(2)), Some(1));
 
-        units.push(unit(7, PlayerId::from("p1")));
+        units.push(unit(7, PlayerIdx::from_seat(0)));
         assert_eq!(units.index_of(UnitId::new(7)), Some(2));
         assert_eq!(units.get(UnitId::new(7)).unwrap().id, UnitId::new(7));
 
@@ -1566,46 +2029,123 @@ mod tests {
     fn duplicate_unit_ids_do_not_decode() {
         assert_eq!(
             UnitStore::new(vec![
-                unit(0, PlayerId::from("p1")),
-                unit(0, PlayerId::from("p2")),
+                unit(0, PlayerIdx::from_seat(0)),
+                unit(0, PlayerIdx::from_seat(1)),
             ]),
             Err(DuplicateUnitId(UnitId::new(0)))
         );
     }
 
-    /// The store is an array on the wire, exactly as it was as a `Vec`.
+    /// The store is an array on the wire, and each owner is spelled by name.
     #[test]
     fn the_store_travels_as_a_plain_array() {
+        let players = roster();
         let units = UnitStore::new(vec![
-            unit(0, PlayerId::from("p1")),
-            unit(1, PlayerId::from("p2")),
+            unit(0, PlayerIdx::from_seat(0)),
+            unit(1, PlayerIdx::from_seat(1)),
         ])
         .unwrap();
-        let wire = serde_json::to_value(&units).unwrap();
+        let wire = serde_json::to_value(units.to_fields(&players).unwrap()).unwrap();
         assert!(wire.is_array());
         assert_eq!(wire.as_array().unwrap().len(), 2);
-        assert_eq!(serde_json::from_value::<UnitStore>(wire).unwrap(), units);
+        assert_eq!(wire[0]["owner"], serde_json::json!("p1"));
+        assert_eq!(wire[1]["owner"], serde_json::json!("p2"));
+        let read: Vec<UnitWire> = serde_json::from_value(wire).unwrap();
+        assert_eq!(UnitStore::from_wire(read, &players).unwrap(), units);
     }
 
     fn plain() -> Tile {
         Tile::new(TerrainId::Plain)
     }
 
-    /// Boxing the rare three is a representation change, not a wire change: the
-    /// object stays flat and seven-keyed, and each key is still absent when it
-    /// has no value. The hand-written serde impls are the only thing keeping
-    /// that true, so both directions are pinned here.
+    /// A one-tile board. Rare state belongs to the board, so the wire shape of
+    /// a tile can only be exercised through one.
+    fn one_tile(tile: Tile) -> Board {
+        Board::new(1, 1, vec![tile]).expect("a 1x1 rectangle")
+    }
+
+    /// A state whose board is `board` and whose roster seats `red` first.
+    ///
+    /// A tile names its owner by seat, so a board only has a wire form inside
+    /// a state — this is the smallest one that gives a seat a name.
+    fn state_around(board: Board) -> State {
+        State {
+            ruleset: RulesetRef {
+                id: RulesetId::from("awbw"),
+                revision: RulesetRevision::from("2026-07-10"),
+            },
+            settings: serde_json::from_value(json!({
+                "fog": false,
+                "income_per_property": 1000,
+                "starting_funds": 0,
+                "powers": "enabled",
+                "tags": false,
+                "weather": "clear",
+                "lab_units": [],
+                "unit_bans": [],
+                "commander_bans": {"lead": [], "backup": []},
+                "capture_limit": null,
+                "day_limit": null,
+                "unit_limit": null,
+            }))
+            .expect("settings"),
+            board,
+            teams: vec![Team {
+                id: TeamId::from("red-team"),
+                status: TeamStatus::Active,
+            }],
+            players: Roster::new(vec![
+                serde_json::from_value(json!({
+                    "id": "red",
+                    "team": "red-team",
+                    "funds": 0,
+                    "status": "active",
+                    "commanders": [],
+                    "power_state": {"type": "none"},
+                }))
+                .expect("player"),
+            ])
+            .expect("one player fits a roster"),
+            turn: serde_json::from_value(json!({
+                "day": 1,
+                "active_player": "red",
+                "phase": "unit-action",
+                "order": ["red"],
+                "position": 0,
+            }))
+            .expect("turn"),
+            weather: serde_json::from_value(json!({"kind": "clear", "remaining_turns": 0}))
+                .expect("weather"),
+            units: UnitStore::default(),
+            next_unit_id: None,
+            match_state: Match::Active {
+                draw_offers: Vec::new(),
+            },
+        }
+    }
+
+    /// The single tile object out of a serialized board.
+    fn tile_wire(board: &Board) -> serde_json::Value {
+        serde_json::to_value(state_around(board.clone())).unwrap()["board"]["tiles"][0][0].clone()
+    }
+
+    /// A board holding just the tile this object describes.
+    fn decode_one_tile(wire: serde_json::Value) -> Board {
+        let mut state = serde_json::to_value(state_around(one_tile(plain()))).unwrap();
+        state["board"] = json!({"width": 1, "height": 1, "tiles": [[wire]]});
+        serde_json::from_value::<State>(state).unwrap().board
+    }
+
+    /// Moving the rare three onto the board is a representation change, not a
+    /// wire change: the object stays flat and seven-keyed, and each key is
+    /// still absent when it has no value. The hand-written serde impls on
+    /// [`Board`] are the only thing keeping that true, so both directions are
+    /// pinned here.
     #[test]
     fn tiles_keep_their_flat_wire_shape_around_the_rare_block() {
-        let bare = plain();
-        assert_eq!(
-            serde_json::to_value(&bare).unwrap(),
-            json!({"terrain": "plain"})
-        );
-        assert_eq!(
-            serde_json::from_value::<Tile>(json!({"terrain":"plain"})).unwrap(),
-            bare
-        );
+        let bare = one_tile(plain());
+        assert_eq!(tile_wire(&bare), json!({"terrain": "plain"}));
+        assert_eq!(decode_one_tile(json!({"terrain":"plain"})), bare);
 
         let wire = json!({
             "terrain": "pipe-seam",
@@ -1616,33 +2156,45 @@ mod tests {
             "teleporter": "north",
             "trait_state": {"warp": 1},
         });
-        let loaded: Tile = serde_json::from_value(wire.clone()).unwrap();
-        assert_eq!(loaded.destructible_hp(), Some(99));
-        assert_eq!(loaded.teleporter(), Some(&TeleporterId::from("north")));
+        let loaded = decode_one_tile(wire.clone());
+        let origin = Pos::new(0, 0);
+        assert_eq!(loaded.destructible_hp(origin), Some(99));
+        assert_eq!(
+            loaded.teleporter(origin),
+            Some(&TeleporterId::from("north"))
+        );
         assert_eq!(
             loaded
-                .trait_state()
+                .trait_state(origin)
                 .and_then(|state| state.get(&TraitId::from("warp"))),
             Some(&json!(1))
         );
-        assert_eq!(serde_json::to_value(&loaded).unwrap(), wire);
+        assert_eq!(tile_wire(&loaded), wire);
     }
 
-    /// The pointer is handed back when the last rare value goes, so a destroyed
-    /// pipe seam costs what the plain it becomes costs — and compares equal to
-    /// one that never carried anything.
+    /// The entry is dropped when the last rare value goes, so a destroyed pipe
+    /// seam costs what the plain it becomes costs — and compares equal to a
+    /// board whose tile never carried anything.
     #[test]
     fn a_tile_that_loses_its_rare_state_equals_one_that_never_had_any() {
-        let mut seam = plain();
-        seam.set_destructible_hp(Some(99));
-        assert_ne!(seam, plain());
+        let origin = Pos::new(0, 0);
+        let mut seam = one_tile(plain());
+        seam.set_destructible_hp(origin, Some(99));
+        assert_ne!(seam, one_tile(plain()));
 
-        seam.set_destructible_hp(None);
-        assert_eq!(seam, plain());
-        assert_eq!(
-            serde_json::to_value(&seam).unwrap(),
-            json!({"terrain":"plain"})
-        );
+        seam.set_destructible_hp(origin, None);
+        assert_eq!(seam, one_tile(plain()));
+        assert_eq!(tile_wire(&seam), json!({"terrain":"plain"}));
+    }
+
+    /// Rare state is keyed by position, so a coordinate off the board must not
+    /// create an entry that no tile can ever answer for.
+    #[test]
+    fn rare_state_off_the_board_is_not_recorded() {
+        let mut board = one_tile(plain());
+        board.set_destructible_hp(Pos::new(1, 0), Some(99));
+        assert_eq!(board, one_tile(plain()));
+        assert_eq!(board.destructible_hp(Pos::new(1, 0)), None);
     }
 
     /// The rectangle is checked once, while decoding, so nothing downstream can
@@ -1650,11 +2202,12 @@ mod tests {
     /// which only `observe` checked — `execute` would have panicked.
     #[test]
     fn a_ragged_board_does_not_decode() {
-        let ragged = serde_json::json!({
+        let mut ragged = serde_json::to_value(state_around(one_tile(plain()))).unwrap();
+        ragged["board"] = json!({
             "width": 2, "height": 2,
             "tiles": [[{"terrain":"plain"}, {"terrain":"plain"}], [{"terrain":"plain"}]]
         });
-        let error = serde_json::from_value::<Board>(ragged).unwrap_err();
+        let error = serde_json::from_value::<State>(ragged).unwrap_err();
         assert!(
             error.to_string().contains("needs 4 tiles, found 3"),
             "unexpected error: {error}"
@@ -1693,10 +2246,75 @@ mod tests {
     #[test]
     fn boards_round_trip_through_their_nested_wire_shape() {
         let board = Board::new(2, 2, vec![plain(), plain(), plain(), plain()]).unwrap();
-        let wire = serde_json::to_value(&board).unwrap();
-        assert_eq!(wire["tiles"].as_array().unwrap().len(), 2);
-        assert_eq!(wire["tiles"][0].as_array().unwrap().len(), 2);
-        assert_eq!(serde_json::from_value::<Board>(wire).unwrap(), board);
+        let state = state_around(board.clone());
+        let wire = serde_json::to_value(&state).unwrap();
+        assert_eq!(wire["board"]["tiles"].as_array().unwrap().len(), 2);
+        assert_eq!(wire["board"]["tiles"][0].as_array().unwrap().len(), 2);
+        assert_eq!(serde_json::from_value::<State>(wire).unwrap().board, board);
+    }
+
+    /// A tile naming a holder the roster does not seat is a decoding failure,
+    /// not a seat resolved to something arbitrary.
+    #[test]
+    fn a_tile_held_by_a_stranger_does_not_decode() {
+        let mut wire = serde_json::to_value(state_around(one_tile(plain()))).unwrap();
+        wire["board"] = json!({
+            "width": 1, "height": 1,
+            "tiles": [[{"terrain": "city", "owner": "green", "capture_points": 20}]]
+        });
+        let error = serde_json::from_value::<State>(wire).unwrap_err();
+        assert!(
+            error.to_string().contains("not on the roster"),
+            "unexpected error: {error}"
+        );
+    }
+
+    /// A unit naming an owner the roster does not seat fails the same way a
+    /// tile does.
+    #[test]
+    fn a_unit_owned_by_a_stranger_does_not_decode() {
+        let mut wire = serde_json::to_value(state_around(one_tile(plain()))).unwrap();
+        wire["units"] = json!([{
+            "id": 1,
+            "kind": "infantry",
+            "owner": "green",
+            "hp": 100,
+            "fuel": 99,
+            "ammo": 0,
+            "action": "ready",
+            "concealment": "exposed",
+            "location": {"type": "board", "position": [0, 0]},
+        }]);
+        let error = serde_json::from_value::<State>(wire).unwrap_err();
+        assert!(
+            error.to_string().contains("not on the roster"),
+            "unexpected error: {error}"
+        );
+    }
+
+    /// A roster longer than a seat can name is refused before anything reads
+    /// it, because every stored owner resolves through a seat.
+    #[test]
+    fn a_roster_longer_than_a_seat_can_name_does_not_decode() {
+        let mut wire = serde_json::to_value(state_around(one_tile(plain()))).unwrap();
+        let players: Vec<_> = (0..256)
+            .map(|seat| {
+                json!({
+                    "id": format!("p{seat}"),
+                    "team": "red-team",
+                    "funds": 0,
+                    "status": "active",
+                    "commanders": [],
+                    "power_state": {"type": "none"},
+                })
+            })
+            .collect();
+        wire["players"] = json!(players);
+        let error = serde_json::from_value::<State>(wire).unwrap_err();
+        assert!(
+            error.to_string().contains("a roster holds at most 255"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]
@@ -1735,7 +2353,21 @@ mod tests {
         );
     }
 
-    fn unit(id: u32, owner: PlayerId) -> Unit {
+    fn roster() -> Vec<Player> {
+        ["p1", "p2"]
+            .into_iter()
+            .map(|id| Player {
+                id: PlayerId::from(id),
+                team: TeamId::from(id),
+                funds: 0,
+                status: PlayerStatus::Active,
+                commanders: Vec::new(),
+                power_state: PowerState::None,
+            })
+            .collect()
+    }
+
+    fn unit(id: u32, owner: PlayerIdx) -> Unit {
         Unit {
             id: id.into(),
             kind: UnitKindId::Infantry,

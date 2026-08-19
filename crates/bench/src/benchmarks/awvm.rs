@@ -9,10 +9,7 @@
 
 use awvm::event::Event;
 use awvm::random::RandomToken;
-use awvm::semantic::{
-    AwbwVisibility, Board, Location, PlayerId, Pos, State, Tile, UnitId, observe,
-    observe_transition,
-};
+use awvm::semantic::{AwbwVisibility, PlayerId, State, observe, observe_transition};
 use awvm::transition::{Command, ExecuteOutcome, execute};
 use serde_json::Value;
 
@@ -81,48 +78,71 @@ pub struct Projected {
 /// what tells whether it is cheap. AWBW maps run to roughly 20x20 with 20-50
 /// units.
 pub fn project(source: &str, width: u8, height: u8, units: usize) -> Projected {
-    let case = load(source);
-    let mut state = case.state.clone();
-    let (origin_width, origin_height) = (state.board.width(), state.board.height());
+    let case: Value = serde_json::from_str(source).expect("parse fixture");
+    let mut wire = case["initial_state"].clone();
+    let rows = wire["board"]["tiles"]
+        .as_array()
+        .expect("board rows")
+        .clone();
+    let origin_height = u8::try_from(rows.len()).expect("a fixture board fits a byte");
+    let origin_width =
+        u8::try_from(rows[0].as_array().expect("a board row").len()).expect("a fixture row fits");
     assert!(
         width >= origin_width && height >= origin_height,
         "boards only grow"
     );
-    // The fixture's own tiles keep their coordinates, so the command it comes
-    // with still names what it named. Everything beyond them is filler.
-    let filler = state.board.tile(Pos::new(0, 0)).clone();
-    let tiles: Vec<Tile> = (0..u16::from(height))
-        .flat_map(|y| (0..u16::from(width)).map(move |x| (x as u8, y as u8)))
-        .map(|(x, y)| {
-            if x < origin_width && y < origin_height {
-                state.board.tile(Pos::new(x, y)).clone()
+    // The board is grown on the wire rather than through `Board`, so a tile's
+    // rare state — a pipe seam's HP, a teleporter's pairing — survives the
+    // growth. The fixture's own tiles keep their coordinates, so the command it
+    // comes with still names what it named; everything beyond them is filler.
+    let filler = rows[0].as_array().expect("a board row")[0].clone();
+    let grown: Vec<Value> = (0..height)
+        .map(|y| {
+            let mut row: Vec<Value> = if y < origin_height {
+                rows[usize::from(y)]
+                    .as_array()
+                    .expect("a board row")
+                    .clone()
             } else {
-                filler.clone()
-            }
+                Vec::new()
+            };
+            row.resize(usize::from(width), filler.clone());
+            Value::Array(row)
         })
         .collect();
-    state.board = Board::new(width, height, tiles).expect("a rectangle");
+    wire["board"] = serde_json::json!({
+        "width": width,
+        "height": height,
+        "tiles": grown,
+    });
 
     // Filler units go on the rows the fixture never had, for the same reason.
-    let template = state.units.at(0).expect("a fixture unit").clone();
+    let mut army = wire["units"].as_array().expect("fixture units").clone();
+    let template = army[0].clone();
     let mut candidate = 0u32;
-    while state.units.len() < units {
+    while army.len() < units {
         let free = u32::from(width) * u32::from(height - origin_height);
         assert!(candidate < free, "not enough room for {units} units");
-        let position = Pos::new(
+        let position = [
             (candidate % u32::from(width)) as u8,
             origin_height + (candidate / u32::from(width)) as u8,
-        );
+        ];
         candidate += 1;
         let mut unit = template.clone();
-        unit.id = UnitId::new(1_000 + candidate);
-        unit.location = Location::Board { position };
-        state.units.push(unit);
+        unit["id"] = serde_json::json!(1_000 + candidate);
+        unit["location"] = serde_json::json!({"type": "board", "position": position});
+        army.push(unit);
     }
+    wire["units"] = Value::Array(army);
+
+    let mut state: State = serde_json::from_value(wire).expect("decode grown state");
     state.settings.fog = true;
 
-    let command: Command = serde_json::from_value(case.command.clone()).expect("decode command");
-    let (next_state, events) = match execute(&state, command, &case.random) {
+    let command: Command =
+        serde_json::from_value(case["steps"][0]["command"].clone()).expect("decode command");
+    let random: Vec<RandomToken> =
+        serde_json::from_value(case["steps"][0]["random"].clone()).expect("decode random tokens");
+    let (next_state, events) = match execute(&state, command, &random) {
         Ok(ExecuteOutcome::Accepted(execution)) => (execution.state, execution.events),
         other => panic!("grown fixture did not execute: {other:?}"),
     };

@@ -8,9 +8,11 @@ use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ruleset::{Domain as UnitDomain, FireMode, PropertyKind, Terrain, UnitKind};
+use crate::ruleset::{
+    self, Domain as UnitDomain, FireMode, PropertyKind, Terrain, TerrainTrait, UnitKind,
+};
 use crate::semantic::{
-    CommanderId as CommanderKind, Player, PlayerId, PowerState, State, Unit, WeatherKind,
+    CommanderId as CommanderKind, Player, PlayerIdx, PowerState, State, Unit, WeatherKind,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,6 +51,74 @@ pub struct CombatContext {
     pub funds: u64,
     pub owned_properties: u64,
     pub base_terrain_stars: i64,
+}
+
+/// What each player holds on the board, counted in one pass.
+///
+/// Commander combat rules read the tower count and the property count of both
+/// sides, so scoring one exchange asked the board for them twice, and each
+/// answer walked every tile comparing its owner. Both counts are facts about
+/// the state rather than about the strike that asked, and one pass answers for
+/// every player at once.
+///
+/// The tally borrows the state it counted, so it cannot outlive it. It also
+/// cannot follow it: a capture changes what a player holds, and any state the
+/// reducer produces needs its own tally.
+#[derive(Clone, Debug)]
+pub struct Holdings<'a> {
+    state: &'a State,
+    /// One entry per seat, in roster order.
+    seats: Vec<SeatHoldings>,
+}
+
+/// The board-wide counts one player's commander rules read.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SeatHoldings {
+    pub tower_count: i64,
+    pub owned_properties: u64,
+}
+
+impl<'a> Holdings<'a> {
+    /// Count what every player holds, in one pass over the board.
+    pub fn tally(state: &'a State) -> Self {
+        let mut seats = vec![SeatHoldings::default(); state.players.len()];
+        for tile in state.board.tiles() {
+            // The tile names a seat, so counting what a player holds no longer
+            // resolves a name against the roster for every property.
+            let Some(seat) = tile.owner.player() else {
+                continue;
+            };
+            let Some(seat) = seats.get_mut(seat.get()) else {
+                continue;
+            };
+            if ruleset::terrain_has(tile.terrain, TerrainTrait::CommunicationBonus) {
+                seat.tower_count += 1;
+            }
+            if ruleset::terrain_has(tile.terrain, TerrainTrait::Capturable) {
+                seat.owned_properties += 1;
+            }
+        }
+        Self { state, seats }
+    }
+
+    /// Whether this tally was taken from `state`.
+    ///
+    /// The seats are read by index against the state a caller passes
+    /// separately, so the two must be the same state. Callers assert this in
+    /// debug builds.
+    pub fn counted(&self, state: &State) -> bool {
+        std::ptr::eq(self.state, state)
+    }
+
+    /// What the player in `seat` holds, and the funds they hold it with. An
+    /// owner off the roster holds nothing, which is what a board scan would
+    /// have said.
+    pub fn of(&self, seat: Option<PlayerIdx>) -> (SeatHoldings, u64) {
+        match seat.and_then(|seat| Some((self.seats.get(seat.get())?, seat))) {
+            Some((held, seat)) => (*held, self.state.player(seat).funds),
+            None => (SeatHoldings::default(), 0),
+        }
+    }
 }
 
 /// A table the commander documents key by identifier, indexed by the ruleset's
@@ -476,8 +546,9 @@ struct EffectiveProfile {
 }
 
 /// Return whether the owner's units hide their HP from opponents.
-pub fn hides_hp(state: &State, owner: &PlayerId) -> bool {
-    effective_profile(state, owner).is_some_and(|(profile, _)| profile.hides_hp)
+pub fn hides_hp(state: &State, seat: Option<PlayerIdx>) -> bool {
+    seat.and_then(|seat| effective_profile(state, seat))
+        .is_some_and(|(profile, _)| profile.hides_hp)
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -726,17 +797,14 @@ pub(crate) fn maximum_power_charge(
 
 pub(crate) fn strike_funds_gain(
     state: &State,
-    player: &PlayerId,
-    target_owner: &PlayerId,
+    striker: Option<PlayerIdx>,
+    target_owner: Option<PlayerIdx>,
     from_hp: u8,
     to_hp: u8,
     target_value: u64,
 ) -> Option<u64> {
-    let (actor, commander, power) = active(state, player)?;
-    let target = state
-        .players
-        .iter()
-        .find(|candidate| candidate.id == target_owner)?;
+    let (actor, commander, power) = active(state, striker?)?;
+    let target = state.players.get(target_owner?.get())?;
     if actor.team == target.team {
         return Some(0);
     }
@@ -779,11 +847,13 @@ pub(crate) fn strike_funds_gain(
         })
 }
 
-fn active<'a>(
-    state: &'a State,
-    player_id: &PlayerId,
-) -> Option<(&'a Player, CommanderKind, Power)> {
-    let player = state.players.iter().find(|player| player.id == player_id)?;
+/// The commander `seat` fights with, and the power it is under.
+///
+/// A seat is an index, so this reads the roster once. Answering for a name
+/// meant scanning the roster and comparing strings, which every strike did
+/// three times for the same two players.
+fn active(state: &State, seat: PlayerIdx) -> Option<(&Player, CommanderKind, Power)> {
+    let player = state.players.get(seat.get())?;
     let (slot, power) = match player.power_state {
         PowerState::None => (
             player
@@ -869,13 +939,13 @@ impl EffectiveCombat {
 
 pub fn effective_combat(
     state: &State,
-    owner: &PlayerId,
+    seat: Option<PlayerIdx>,
     unit: Combatant<'_>,
     strike: Strike,
     context: CombatContext,
 ) -> Option<EffectiveCombat> {
     let table = combat_table();
-    let Some((_, commander, power)) = active(state, owner) else {
+    let Some((_, commander, power)) = seat.and_then(|seat| active(state, seat)) else {
         return Some(EffectiveCombat::unmodified(context.base_terrain_stars));
     };
     let Some(profile) = table.commanders.get(commander) else {
@@ -960,13 +1030,13 @@ pub fn effective_combat(
 
 pub fn effective_enemy_terrain_stars(
     state: &State,
-    owner: &PlayerId,
+    seat: Option<PlayerIdx>,
     unit: Combatant<'_>,
     strike: Strike,
     base: i64,
 ) -> Option<i64> {
     let table = combat_table();
-    let Some((_, commander, power)) = active(state, owner) else {
+    let Some((_, commander, power)) = seat.and_then(|seat| active(state, seat)) else {
         return Some(base.max(0));
     };
     let Some(profile) = table.commanders.get(commander) else {
@@ -983,9 +1053,14 @@ pub fn effective_enemy_terrain_stars(
     Some(stars.max(0))
 }
 
-pub fn counter_first(state: &State, owner: &PlayerId, unit: Combatant<'_>, strike: Strike) -> bool {
+pub fn counter_first(
+    state: &State,
+    seat: Option<PlayerIdx>,
+    unit: Combatant<'_>,
+    strike: Strike,
+) -> bool {
     let table = combat_table();
-    let Some((_, commander, power)) = active(state, owner) else {
+    let Some((_, commander, power)) = seat.and_then(|seat| active(state, seat)) else {
         return false;
     };
     table.commanders.get(commander).is_some_and(|profile| {
@@ -1042,11 +1117,8 @@ fn sum_attack_range_additions(
         .sum()
 }
 
-fn effective_profile(
-    state: &State,
-    owner: &PlayerId,
-) -> Option<(&'static EffectiveProfile, Power)> {
-    let (_, commander, power) = active(state, owner)?;
+fn effective_profile(state: &State, seat: PlayerIdx) -> Option<(&'static EffectiveProfile, Power)> {
+    let (_, commander, power) = active(state, seat)?;
     Some((profile_table().commanders.get(commander)?, power))
 }
 
@@ -1068,8 +1140,15 @@ fn observed_effective_profile(
         .then_some((profile_table().commanders.get(commander.id)?, power))
 }
 
+/// The seat a unit's owner holds, or `None` when the owner left the roster.
+fn unit_seat(state: &State, unit: &Unit) -> Option<PlayerIdx> {
+    state.players.get(unit.owner.get()).map(|_| unit.owner)
+}
+
 pub fn effective_move(state: &State, unit: &Unit, base: u64, domain: UnitDomain) -> u64 {
-    let Some((profile, power)) = effective_profile(state, &unit.owner) else {
+    let Some((profile, power)) =
+        unit_seat(state, unit).and_then(|seat| effective_profile(state, seat))
+    else {
         return base;
     };
     base.saturating_add_signed(sum_unit_additions(
@@ -1081,8 +1160,19 @@ pub fn effective_move(state: &State, unit: &Unit, base: u64, domain: UnitDomain)
 }
 
 pub fn effective_movement_cost(state: &State, unit: &Unit, base: Option<u64>) -> Option<u64> {
+    let Some(seat) = unit_seat(state, unit) else {
+        return base;
+    };
+    player_movement_cost(state, seat, base)
+}
+
+/// [`effective_movement_cost`] for every unit a player owns.
+///
+/// Terrain costs answer to the owner's commander and the weather, never to
+/// which unit is asking, so a caller pricing a whole board asks this once.
+pub fn player_movement_cost(state: &State, seat: PlayerIdx, base: Option<u64>) -> Option<u64> {
     let mut cost = base?;
-    let Some((profile, power)) = effective_profile(state, &unit.owner) else {
+    let Some((profile, power)) = effective_profile(state, seat) else {
         return Some(cost);
     };
     let rules = profile.movement_cost.day_to_day.iter().chain(match power {
@@ -1106,14 +1196,18 @@ pub fn effective_movement_cost(state: &State, unit: &Unit, base: Option<u64>) ->
 }
 
 pub fn effective_vision(state: &State, unit: &Unit, base: i64, domain: UnitDomain) -> i64 {
-    let Some((profile, power)) = effective_profile(state, &unit.owner) else {
+    let Some((profile, power)) =
+        unit_seat(state, unit).and_then(|seat| effective_profile(state, seat))
+    else {
         return base;
     };
     (base + sum_unit_additions(&profile.vision, power, unit.kind, domain)).max(0)
 }
 
 pub fn reveals_concealing_terrain(state: &State, unit: &Unit) -> bool {
-    let Some((profile, power)) = effective_profile(state, &unit.owner) else {
+    let Some((profile, power)) =
+        unit_seat(state, unit).and_then(|seat| effective_profile(state, seat))
+    else {
         return false;
     };
     match power {
@@ -1141,7 +1235,9 @@ pub fn effective_attack_range(
     domain: UnitDomain,
     fire_mode: FireMode,
 ) -> u64 {
-    let Some((profile, power)) = effective_profile(state, &unit.owner) else {
+    let Some((profile, power)) =
+        unit_seat(state, unit).and_then(|seat| effective_profile(state, seat))
+    else {
         return base;
     };
     base.saturating_add_signed(sum_attack_range_additions(
@@ -1161,8 +1257,8 @@ fn selected_rational(states: &RationalStates, power: Power) -> Option<Rational> 
     }
 }
 
-pub fn effective_build_cost(state: &State, player: &PlayerId, base: u64) -> Option<u64> {
-    let Some((profile, power)) = effective_profile(state, player) else {
+pub fn effective_build_cost(state: &State, seat: Option<PlayerIdx>, base: u64) -> Option<u64> {
+    let Some((profile, power)) = seat.and_then(|seat| effective_profile(state, seat)) else {
         return Some(base);
     };
     let Some(ratio) = selected_rational(&profile.build_cost, power) else {
@@ -1200,11 +1296,11 @@ fn production_rules(
 
 pub fn commander_production_site(
     state: &State,
-    player: &PlayerId,
+    seat: PlayerIdx,
     terrain: Terrain,
     domain: UnitDomain,
 ) -> bool {
-    let Some((profile, power)) = effective_profile(state, player) else {
+    let Some((profile, power)) = effective_profile(state, seat) else {
         return false;
     };
     production_rules(&profile.production, power)
@@ -1217,14 +1313,14 @@ fn is_production_site(terrain: Terrain, domain: UnitDomain, commander_site: bool
 
 pub fn production_site(
     state: &State,
-    player: &PlayerId,
+    seat: PlayerIdx,
     terrain: Terrain,
     domain: UnitDomain,
 ) -> bool {
     is_production_site(
         terrain,
         domain,
-        commander_production_site(state, player, terrain, domain),
+        commander_production_site(state, seat, terrain, domain),
     )
 }
 
@@ -1255,7 +1351,9 @@ pub(crate) fn observed_production_site(
 }
 
 pub fn effective_capture_points(state: &State, unit: &Unit, visual_hp: u64) -> u64 {
-    let Some((profile, power)) = effective_profile(state, &unit.owner) else {
+    let Some((profile, power)) =
+        unit_seat(state, unit).and_then(|seat| effective_profile(state, seat))
+    else {
         return visual_hp;
     };
     let effect = match power {
@@ -1276,21 +1374,22 @@ pub fn effective_capture_points(state: &State, unit: &Unit, visual_hp: u64) -> u
     }
 }
 
-pub fn effective_income_per_property(state: &State, player: &PlayerId) -> u64 {
+pub fn effective_income_per_property(state: &State, seat: PlayerIdx) -> u64 {
     let add =
-        effective_profile(state, player).map_or(0, |(profile, _)| profile.income_per_property_add);
+        effective_profile(state, seat).map_or(0, |(profile, _)| profile.income_per_property_add);
     state
         .settings
         .income_per_property
         .saturating_add_signed(add)
 }
 
-pub fn effective_repair_bars(state: &State, player: &PlayerId) -> u64 {
-    2 + effective_profile(state, player).map_or(0, |(profile, _)| profile.repair_bars_add)
+pub fn effective_repair_bars(state: &State, seat: PlayerIdx) -> u64 {
+    2 + effective_profile(state, seat).map_or(0, |(profile, _)| profile.repair_bars_add)
 }
 
 pub fn effective_upkeep(state: &State, unit: &Unit, base: u64, domain: UnitDomain) -> u64 {
-    let add = effective_profile(state, &unit.owner)
+    let add = unit_seat(state, unit)
+        .and_then(|seat| effective_profile(state, seat))
         .filter(|_| domain == UnitDomain::Air)
         .map_or(0, |(profile, _)| profile.air_upkeep_add);
     base.saturating_add_signed(add)
@@ -1299,7 +1398,15 @@ pub fn effective_upkeep(state: &State, unit: &Unit, base: u64, domain: UnitDomai
 /// The weather column this unit's movement costs are read from, after the
 /// commander effects that let a unit ignore or reinterpret the real weather.
 pub fn effective_weather(state: &State, unit: &Unit) -> WeatherKind {
-    let profile = effective_profile(state, &unit.owner).map(|(profile, _)| profile);
+    match unit_seat(state, unit) {
+        Some(seat) => player_weather(state, seat),
+        None => state.weather.kind,
+    }
+}
+
+/// [`effective_weather`] for every unit a player owns.
+pub fn player_weather(state: &State, seat: PlayerIdx) -> WeatherKind {
+    let profile = effective_profile(state, seat).map(|(profile, _)| profile);
     match state.weather.kind {
         WeatherKind::Snow if profile.is_some_and(|p| p.ignores_snow_movement) => WeatherKind::Clear,
         WeatherKind::Rain if profile.is_some_and(|p| p.ignores_rain_movement) => WeatherKind::Clear,

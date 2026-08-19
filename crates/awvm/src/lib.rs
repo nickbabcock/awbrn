@@ -71,9 +71,7 @@ pub mod prelude {
         Visibility, observe, observe_events, observe_transition,
     };
     pub use crate::transition::{
-        Command, ExecuteError, ExecuteOutcome, Execution, PrepareActiveUnitOutcome,
-        PrepareMovementOutcome, PrepareOutcome, PrepareProductionSiteOutcome,
-        PrepareUnloadCargoOutcome, PrepareUnloadTransportOutcome, PreparedActiveUnit,
+        ActiveTurn, Command, ExecuteError, ExecuteOutcome, Execution, Prepared, PreparedActiveUnit,
         PreparedCommand, PreparedDestination, PreparedMovement, PreparedProductionSite,
         PreparedUnloadCargo, PreparedUnloadTransport, execute, execute_prepared,
         execute_prepared_with, execute_with, prepare_active_unit, prepare_command,

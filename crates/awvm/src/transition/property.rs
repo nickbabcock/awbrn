@@ -10,13 +10,16 @@ use crate::commander::{self};
 use crate::event::Event;
 use crate::ruleset::{self, TerrainTrait, UnitKind};
 use crate::semantic::{
-    Concealment, KnownReason, Location, Outcome, PlayerId, Pos, State, TerrainId, TileOwner, Unit,
+    Concealment, KnownReason, Location, Outcome, PlayerIdx, Pos, State, TerrainId, TileOwner, Unit,
     UnitAction, UnitId, VictoryReason,
 };
 use crate::violation::{Action, Violation};
 
 #[derive(Debug)]
-pub(super) struct Capture {
+pub(super) struct Capture;
+
+#[derive(Debug)]
+pub(super) struct CaptureProof {
     strength: u64,
     destination: AvailableDestination,
 }
@@ -33,16 +36,6 @@ pub(super) struct PreparedProduction<'a> {
     max_ammo: u64,
 }
 
-pub(crate) fn execute_produce_unit(
-    turn: &ActiveTurn<'_>,
-    position: Pos,
-    kind: UnitKind,
-) -> Result<Execution, ExecuteError> {
-    let site = prepare_production_site(turn, position)?;
-    let prepared = prepare_production(site, kind)?;
-    Ok(execute_prepared_production(prepared))
-}
-
 pub(super) fn prepare_production_site<'a>(
     turn: &ActiveTurn<'a>,
     position: Pos,
@@ -56,8 +49,8 @@ pub(super) fn prepare_production_site<'a>(
         .units
         .iter()
         .any(|unit| board_position(unit) == Some(position));
-    let owned_units = owned_unit_count(state, player)?;
-    let owns_lab = player_owns_lab(state, player);
+    let owned_units = owned_unit_count(state, player_index)?;
+    let owns_lab = player_owns_lab(state, player_index);
     Ok(PreparedProductionSite {
         state,
         position,
@@ -73,16 +66,16 @@ pub(super) fn prepare_production(
     kind: UnitKind,
 ) -> Result<PreparedProduction<'_>, ExecuteError> {
     let state = site.state;
-    let player = &state.turn.active_player;
     let profile = ruleset::profile(kind);
 
     // Site validation precedes requested-kind validation: whether the player
     // owns a facility here does not depend on what they asked it to build.
     let position = site.position;
     let tile = state.board.get(position);
+    let seat = site.player_index;
     let site_valid = tile.is_some_and(|tile| {
-        tile.owner.is_owned_by(player)
-            && commander::production_site(state, player, tile.terrain, profile.domain)
+        tile.owner.is_owned_by(seat)
+            && commander::production_site(state, seat, tile.terrain, profile.domain)
     });
     if !site_valid {
         return Err(violation(Violation::InvalidTarget {
@@ -108,7 +101,7 @@ pub(super) fn prepare_production(
     {
         return Err(violation(Violation::UnitLimitReached { current, limit }));
     }
-    let cost = commander::effective_build_cost(state, player, profile.cost)
+    let cost = commander::effective_build_cost(state, Some(seat), profile.cost)
         .ok_or_else(|| ExecuteError::InvalidState("commander build cost overflow".into()))?;
     let funds = state.player(site.player_index).funds;
     if cost > funds {
@@ -163,7 +156,7 @@ pub(super) fn execute_prepared_production(prepared: PreparedProduction<'_>) -> E
     next.units.push(Unit {
         id: allocated_id,
         kind,
-        owner: player.clone(),
+        owner: site.player_index,
         hp: 100,
         fuel: max_fuel,
         ammo: max_ammo,
@@ -193,84 +186,72 @@ pub(super) fn execute_prepared_production(prepared: PreparedProduction<'_>) -> E
     }
 }
 
-pub(crate) fn player_owns_lab(state: &State, player: &PlayerId) -> bool {
+pub(crate) fn player_owns_lab(state: &State, seat: PlayerIdx) -> bool {
     state
         .board
         .tiles()
-        .any(|tile| tile.terrain == TerrainId::Lab && tile.owner.is_owned_by(player))
+        .any(|tile| tile.terrain == TerrainId::Lab && tile.owner.is_owned_by(seat))
 }
 
-pub(crate) fn execute_move_capture(
-    turn: &ActiveTurn<'_>,
-    unit_id: UnitId,
-    path: Vec<Pos>,
-) -> Result<Execution, ExecuteError> {
-    let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_capture(movement.prepare_destination())?;
-    execute_prepared_capture(prepared)
-}
+impl<'a> DestinationAction<'a> for Capture {
+    type Proof = CaptureProof;
 
-pub(super) fn prepare_capture<'a, V>(
-    destination: PreparedDestination<'a, V>,
-) -> Result<Prepared<'a, Capture>, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let action = validate_capture(&destination)?;
-    Ok(Prepared {
-        movement: destination.into_movement(),
-        action,
-    })
-}
+    fn validate<M>(
+        &self,
+        destination: &PreparedDestination<'a, M>,
+    ) -> Result<Self::Proof, ExecuteError>
+    where
+        M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
+    {
+        let movement = destination.movement();
+        let state = movement.state();
+        let plan = movement.plan();
+        let unit = &state.units[plan.unit_index()];
+        let profile = ruleset::profile(unit.kind);
+        let actor_team = plan.actor_team();
+        if !profile.can_capture {
+            return Err(violation(Violation::ActionNotSupported {
+                action: Action::Capture,
+            }));
+        }
+        let position = plan.destination();
+        let destination_tile = &state.board.tile(position);
+        let capturable = ruleset::terrain_has(destination_tile.terrain, TerrainTrait::Capturable);
+        let owner = destination_tile.owner.player();
+        let owner_is_hostile = owner.is_none_or(|seat| {
+            state
+                .players
+                .get(seat.get())
+                .is_some_and(|candidate| candidate.team != actor_team)
+        });
+        if !capturable || !owner_is_hostile {
+            return Err(violation(Violation::InvalidTarget {
+                target: Some(position.into()),
+            }));
+        }
+        let available_destination = destination.available_destination()?;
 
-pub(super) fn validate_capture<'a, V>(
-    destination: &PreparedDestination<'a, V>,
-) -> Result<Capture, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let movement = destination.movement();
-    let state = movement.state();
-    let plan = movement.plan();
-    let unit = &state.units[plan.unit_index()];
-    let profile = ruleset::profile(unit.kind);
-    let actor_team = plan.actor_team();
-    if !profile.can_capture {
-        return Err(violation(Violation::ActionNotSupported {
-            action: Action::Capture,
-        }));
+        let strength =
+            commander::effective_capture_points(state, unit, u64::from(unit.hp.div_ceil(10)));
+        Ok(CaptureProof {
+            strength,
+            destination: available_destination,
+        })
     }
-    let position = plan.destination();
-    let destination_tile = &state.board.tile(position);
-    let capturable = ruleset::terrain_has(destination_tile.terrain, TerrainTrait::Capturable);
-    let owner = destination_tile.owner.player();
-    let owner_is_hostile = owner.is_none_or(|owner| {
-        state
-            .find_player(owner)
-            .is_some_and(|candidate| candidate.team != actor_team)
-    });
-    if !capturable || !owner_is_hostile {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(position.into()),
-        }));
-    }
-    let available_destination = destination.available_destination()?;
 
-    let strength =
-        commander::effective_capture_points(state, unit, u64::from(unit.hp.div_ceil(10)));
-    Ok(Capture {
-        strength,
-        destination: available_destination,
-    })
+    fn into_kind(bound: MovementAction<'a, Self::Proof>) -> PreparedCommandKind<'a> {
+        PreparedCommandKind::Capture(bound)
+    }
 }
 
 pub(super) fn execute_prepared_capture(
-    prepared: Prepared<'_, Capture>,
+    prepared: MovementAction<'_, CaptureProof>,
 ) -> Result<Execution, ExecuteError> {
-    let Prepared {
+    let MovementAction {
         movement,
+        trap,
         action:
-            Capture {
+            CaptureProof {
                 strength: capture_strength,
                 destination: _destination,
             },
@@ -278,7 +259,7 @@ pub(super) fn execute_prepared_capture(
     let state = movement.state();
     let player = &state.turn.active_player;
     let destination = movement.plan().destination();
-    let mut outcome = execute_planned_movement(state, movement.unit(), movement.plan());
+    let mut outcome = execute_planned_movement(state, movement.unit(), movement.plan(), trap);
     if outcome.trapped {
         return Ok(Execution {
             state: outcome.state,
@@ -289,6 +270,20 @@ pub(super) fn execute_prepared_capture(
 
     let next = &mut outcome.state;
     let events = &mut outcome.events;
+    // The tile names a seat and the event names a player, so both are resolved
+    // before the board is borrowed mutably.
+    let capturing_player = player.clone();
+    let capturing_seat = next
+        .player_index(&capturing_player)
+        .ok_or_else(|| ExecuteError::InvalidState("capturing player is absent".into()))?;
+    // The seat is kept beside the name: the elimination checks below ask what
+    // else that seat still holds, and the tile has been overwritten by then.
+    let previous_owner = next
+        .board
+        .tile(destination)
+        .owner
+        .player()
+        .map(|seat| (seat, next.player_id(seat).clone()));
     let tile = &mut next.board.tile_mut(destination);
     let before = tile
         .capture_points
@@ -303,17 +298,16 @@ pub(super) fn execute_prepared_capture(
             to: after,
         });
     } else {
-        let previous_owner = tile.owner.to_optional();
         events.push(Event::CaptureChanged {
             position: destination,
             from: before,
             to: 0,
         });
-        tile.owner = TileOwner::Owned(player.clone());
+        tile.owner = TileOwner::Owned(capturing_seat);
         events.push(Event::TileOwnerChanged {
             position: destination,
-            from: previous_owner.clone(),
-            to: Some(player.clone()),
+            from: previous_owner.as_ref().map(|(_, owner)| owner.clone()),
+            to: Some(capturing_player.clone()),
         });
         tile.capture_points = Some(20);
         events.push(Event::CaptureChanged {
@@ -329,7 +323,7 @@ pub(super) fn execute_prepared_capture(
             && next
                 .settings
                 .capture_limit
-                .is_some_and(|limit| capture_limit_count(next, player) >= limit)
+                .is_some_and(|limit| capture_limit_count(next, capturing_seat) >= limit)
         {
             let winning_team = next
                 .find_player(player)
@@ -355,17 +349,14 @@ pub(super) fn execute_prepared_capture(
             .tiles()
             .any(|candidate| candidate.terrain == TerrainId::Hq);
         let is_lab = captured_profile.has(TerrainTrait::LabVictory);
-        let last_owned_lab_lost = previous_owner.as_deref().is_some_and(|owner| {
+        let owner_seat = previous_owner.as_ref().map(|(seat, _)| *seat);
+        let last_owned_lab_lost = owner_seat.is_some_and(|seat| {
             !next.board.tiles().any(|candidate| {
-                candidate.terrain == TerrainId::Lab
-                    && candidate
-                        .owner
-                        .player()
-                        .is_some_and(|candidate_owner| candidate_owner == owner)
+                candidate.terrain == TerrainId::Lab && candidate.owner.is_owned_by(seat)
             })
         });
         if (defeats_owner || (no_hq_on_map && is_lab && last_owned_lab_lost))
-            && let Some(previous_owner) = previous_owner
+            && let Some((_, previous_owner)) = previous_owner
         {
             let cause = if defeats_owner {
                 VictoryReason::HqCapture
@@ -389,23 +380,17 @@ pub(super) fn execute_prepared_capture(
     })
 }
 
-pub(crate) fn owned_unit_count(state: &State, player: &PlayerId) -> Result<u64, ExecuteError> {
-    u64::try_from(
-        state
-            .units
-            .iter()
-            .filter(|unit| unit.owner == player)
-            .count(),
-    )
-    .map_err(|_| ExecuteError::InvalidState("owned unit count exceeds u64".into()))
+pub(crate) fn owned_unit_count(state: &State, seat: PlayerIdx) -> Result<u64, ExecuteError> {
+    u64::try_from(state.units.iter().filter(|unit| unit.owner == seat).count())
+        .map_err(|_| ExecuteError::InvalidState("owned unit count exceeds u64".into()))
 }
 
-pub(crate) fn capture_limit_count(state: &State, player: &PlayerId) -> u64 {
+pub(crate) fn capture_limit_count(state: &State, seat: PlayerIdx) -> u64 {
     state
         .board
         .tiles()
         .filter(|tile| {
-            tile.owner.player().is_some_and(|owner| owner == player)
+            tile.owner.is_owned_by(seat)
                 && ruleset::terrain_has(tile.terrain, TerrainTrait::CountsTowardCaptureLimit)
         })
         .count() as u64

@@ -212,8 +212,8 @@ fn assert_recorded_turn_start(
     for before in &prior.units {
         let Some(after) = post.units.get(before.id) else {
             assert_eq!(
-                before.owner,
-                next,
+                Some(before.owner),
+                prior.player_index(&next),
                 "{replay_file} action {index} ({}) removed another player's unit at turn start",
                 action.kind_name()
             );
@@ -235,7 +235,7 @@ fn assert_recorded_turn_start(
             );
             continue;
         };
-        let expected = if before.owner == next {
+        let expected = if Some(before.owner) == prior.player_index(&next) {
             UnitAction::Ready
         } else {
             before.action

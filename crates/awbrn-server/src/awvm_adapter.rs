@@ -13,9 +13,9 @@ use awvm::random::{RandomToken, Recording};
 use awvm::ruleset::{RULESET_ID, RULESET_REVISION, Terrain, WeatherKind, profile};
 use awvm::semantic::{
     Board, Commander, CommanderBans, Concealment, Location, Match, Phase, Player, PlayerId,
-    PlayerStatus, Pos, PowerState, RulesetId, RulesetRef, RulesetRevision, Settings, Silo, State,
-    Team, TeamId, TeamStatus, Tile, TileOwner, Toggle, Turn, Unit, UnitAction, UnitId, UnitStore,
-    Weather, WeatherSetting,
+    PlayerIdx, PlayerStatus, Pos, PowerState, Roster, RulesetId, RulesetRef, RulesetRevision,
+    Settings, Silo, State, Team, TeamId, TeamStatus, Tile, TileOwner, Toggle, Turn, Unit,
+    UnitAction, UnitId, UnitStore, Weather, WeatherSetting,
 };
 use awvm::transition::{Command, ExecuteError, ExecuteOutcome, execute, execute_with};
 
@@ -156,7 +156,7 @@ impl Authority {
         let owner = self
             .faction_players
             .get(&faction)
-            .cloned()
+            .and_then(|player| self.state.player_index(player))
             .unwrap_or_else(|| panic!("spawned unit faction {faction:?} has no player"));
         let id = unit_id(id);
         let profile = profile(kind);
@@ -441,6 +441,9 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
             }
         })
         .collect::<Vec<_>>();
+    let players = Roster::new(players).map_err(|error| SetupError::InvalidPlayers {
+        reason: error.to_string(),
+    })?;
     let teams = players
         .iter()
         .fold(Vec::<Team>::new(), |mut teams, player| {
@@ -453,6 +456,12 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
             teams
         });
     let faction_players = faction_players(setup);
+    // A held tile names a seat, and `players` below is the roster those seats
+    // index, so a faction maps straight to the seat its player sits in.
+    let faction_seats: HashMap<PlayerFaction, PlayerIdx> = faction_players
+        .iter()
+        .filter_map(|(faction, id)| Some((*faction, players.seat(id)?)))
+        .collect();
     let active_player = players[0].id.clone();
 
     Ok(State {
@@ -477,14 +486,14 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
             day_limit: None,
             unit_limit: None,
         },
-        board: board(&setup.map, &faction_players)?,
+        board: board(&setup.map, &faction_seats)?,
         teams,
         players: players.clone(),
         turn: Turn {
             day: 1,
             active_player,
             phase: Phase::UnitAction,
-            order: players.into_iter().map(|player| player.id).collect(),
+            order: players.iter().map(|player| player.id.clone()).collect(),
             position: 0,
         },
         weather: Weather {
@@ -501,7 +510,7 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
 
 fn board(
     map: &AwbrnMap,
-    faction_players: &HashMap<PlayerFaction, PlayerId>,
+    faction_seats: &HashMap<PlayerFaction, PlayerIdx>,
 ) -> Result<Board, SetupError> {
     let width = u8::try_from(map.width()).map_err(|_| SetupError::InvalidMap {
         reason: format!("map width {} exceeds AWVM's 255-tile limit", map.width()),
@@ -510,28 +519,42 @@ fn board(
         reason: format!("map height {} exceeds AWVM's 255-tile limit", map.height()),
     })?;
     let mut tiles = Vec::with_capacity(map.width() * map.height());
+    // Seam HP belongs to the board, not to the tile, so it is collected here
+    // and applied once the rectangle is built.
+    let mut seams = Vec::new();
     for y in 0..map.height() {
         for x in 0..map.width() {
             let terrain = map
                 .terrain_at(Position::new(x, y))
                 .expect("map coordinates inside its rectangle have terrain");
-            tiles.push(tile(terrain, faction_players));
+            let (built, seam_hp) = tile(terrain, faction_seats);
+            if let Some(hp) = seam_hp {
+                seams.push((Pos::new(x as u8, y as u8), hp));
+            }
+            tiles.push(built);
         }
     }
-    Board::new(width, height, tiles).map_err(|error| SetupError::InvalidMap {
+    let mut board = Board::new(width, height, tiles).map_err(|error| SetupError::InvalidMap {
         reason: error.to_string(),
-    })
+    })?;
+    for (position, hp) in seams {
+        board.set_destructible_hp(position, Some(hp));
+    }
+    Ok(board)
 }
 
-fn tile(graphical: GraphicalTerrain, faction_players: &HashMap<PlayerFaction, PlayerId>) -> Tile {
+fn tile(
+    graphical: GraphicalTerrain,
+    faction_seats: &HashMap<PlayerFaction, PlayerIdx>,
+) -> (Tile, Option<u64>) {
     let terrain = graphical.as_terrain();
     let mut tile = Tile::new(semantic_terrain(terrain));
     if let AwbwTerrain::Property(property) = terrain {
         tile.owner = match property.faction() {
             Faction::Neutral => TileOwner::Neutral,
-            Faction::Player(faction) => faction_players
+            Faction::Player(faction) => faction_seats
                 .get(&faction)
-                .cloned()
+                .copied()
                 .map_or(TileOwner::Neutral, TileOwner::Owned),
         };
         tile.capture_points = Some(20);
@@ -542,10 +565,8 @@ fn tile(graphical: GraphicalTerrain, faction_players: &HashMap<PlayerFaction, Pl
             MissileSiloStatus::Unloaded => Silo::Spent,
         });
     }
-    if matches!(terrain, AwbwTerrain::PipeSeam(_)) {
-        tile.set_destructible_hp(Some(99));
-    }
-    tile
+    let seam_hp = matches!(terrain, AwbwTerrain::PipeSeam(_)).then_some(99);
+    (tile, seam_hp)
 }
 
 pub(crate) fn semantic_terrain(terrain: AwbwTerrain) -> Terrain {

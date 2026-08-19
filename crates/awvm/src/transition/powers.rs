@@ -15,7 +15,8 @@ use crate::commander::{
 use crate::event::Event;
 use crate::ruleset::{self, PropertyKind, TerrainTrait, UnitKind};
 use crate::semantic::{
-    Concealment, KnownReason, Location, PlayerId, Pos, State, Unit, UnitAction, UnitId, WeatherKind,
+    Concealment, KnownReason, Location, PlayerId, Pos, State, TeamId, Unit, UnitAction, UnitId,
+    WeatherKind,
 };
 use crate::violation::{Action, Violation};
 use std::collections::HashSet;
@@ -36,10 +37,11 @@ pub(crate) fn area_strike_centers(
             continue;
         };
         let base_cost = ruleset::profile(unit.kind).cost;
-        let cost = commander::effective_build_cost(state, &unit.owner, base_cost)
+        let cost = commander::effective_build_cost(state, Some(unit.owner), base_cost)
             .ok_or_else(|| ExecuteError::InvalidState("area-strike cost overflow".into()))?;
         let friendly = state
-            .find_player(&unit.owner)
+            .players
+            .get(unit.owner.get())
             .is_some_and(|owner| owner.team == actor_team);
         let capturing = matches!(unit.kind, UnitKind::Infantry | UnitKind::Mech)
             && state
@@ -134,10 +136,24 @@ pub(crate) fn area_strike_centers(
     Ok(centers)
 }
 
-pub(crate) fn execute_activate_power(
-    turn: &ActiveTurn<'_>,
+/// A power activation that passed every check but has changed nothing.
+#[derive(Debug)]
+pub(super) struct PreparedPower<'a> {
+    turn: ActiveTurn<'a>,
     level: PowerLevel,
-) -> Result<Execution, ExecuteError> {
+    player_index: PlayerIdx,
+    active_slot: u8,
+    activation: commander::PowerActivation,
+}
+
+/// Decide whether `level` may be activated, without activating it.
+///
+/// Everything up to the state clone is a check; splitting it out is what lets
+/// a caller ask whether a power is available and pay for the answer once.
+pub(super) fn prepare_power(
+    turn: ActiveTurn<'_>,
+    level: PowerLevel,
+) -> Result<PreparedPower<'_>, ExecuteError> {
     let state = turn.state();
     let player = turn.player();
     let player_index = state
@@ -178,6 +194,30 @@ pub(crate) fn execute_activate_power(
             available: active_commander.power_charge,
         }));
     }
+
+    Ok(PreparedPower {
+        turn,
+        level,
+        player_index,
+        active_slot,
+        activation,
+    })
+}
+
+pub(super) fn execute_prepared_power(
+    prepared: PreparedPower<'_>,
+) -> Result<Execution, ExecuteError> {
+    let PreparedPower {
+        turn,
+        level,
+        player_index,
+        active_slot,
+        activation,
+    } = prepared;
+    let state = turn.state();
+    let player = turn.player();
+    let active_commander = &state.player(player_index).commanders[usize::from(active_slot)];
+    let cost = activation.cost;
 
     let mut next = state.clone();
     let commander = &mut next.player_mut(player_index).commanders[usize::from(active_slot)];
@@ -322,7 +362,7 @@ fn heal_visual_hp(cx: &mut Activation<'_>, amount: u8) -> Result<(), ExecuteErro
         .next
         .units
         .iter()
-        .filter(|unit| unit.owner == cx.player)
+        .filter(|unit| unit.owner == cx.seat)
         .map(|unit| unit.id)
         .collect();
     targets.sort();
@@ -355,7 +395,7 @@ fn heal_exact_hp(cx: &mut Activation<'_>, amount: u8) -> Result<(), ExecuteError
         .next
         .units
         .iter()
-        .filter(|unit| unit.owner == cx.player && matches!(unit.location, Location::Board { .. }))
+        .filter(|unit| unit.owner == cx.seat && matches!(unit.location, Location::Board { .. }))
         .map(|unit| unit.id)
         .collect();
     targets.sort();
@@ -388,21 +428,15 @@ fn damage_exact_hp(
     amount: u8,
     minimum_hp: u8,
 ) -> Result<(), ExecuteError> {
-    let actor_team = cx.next.player_mut(cx.seat).team.clone();
+    let actor_team = cx.next.player(cx.seat).team.clone();
     let properties_only = target == UnitTarget::EnemyOnProperties;
-    let enemy_owners: HashSet<_> = cx
-        .next
-        .players
-        .iter()
-        .filter(|candidate| candidate.team != actor_team)
-        .map(|candidate| candidate.id.as_str())
-        .collect();
+    let enemy_owners = enemy_seats(cx.next, &actor_team);
     let mut targets: Vec<_> = cx
         .next
         .units
         .iter()
         .filter(|unit| {
-            enemy_owners.contains(unit.owner.as_str())
+            enemy_owners.contains(&unit.owner)
                 && match unit.location {
                     Location::Board { position } => {
                         !properties_only
@@ -462,27 +496,34 @@ fn set_weather(cx: &mut Activation<'_>, kind: WeatherEffectKind) -> Result<(), E
     Ok(())
 }
 
+/// Every seat on a team other than `actor_team`.
+///
+/// A power names its targets by team, and the units name their owner by seat,
+/// so the roster is turned into seats once and each unit is a lookup.
+fn enemy_seats(state: &State, actor_team: &TeamId) -> HashSet<PlayerIdx> {
+    state
+        .players
+        .iter()
+        .enumerate()
+        .filter(|(_, candidate)| candidate.team != *actor_team)
+        .filter_map(|(seat, _)| u8::try_from(seat).ok().map(PlayerIdx::from_seat))
+        .collect()
+}
+
 /// Take a fraction of what each target still holds.
 fn drain_current_fuel_ratio(
     cx: &mut Activation<'_>,
     numerator: u64,
     denominator: u64,
 ) -> Result<(), ExecuteError> {
-    let actor_team = cx.next.player_mut(cx.seat).team.clone();
-    let enemy_owners: HashSet<_> = cx
-        .next
-        .players
-        .iter()
-        .filter(|candidate| candidate.team != actor_team)
-        .map(|candidate| candidate.id.as_str())
-        .collect();
+    let actor_team = cx.next.player(cx.seat).team.clone();
+    let enemy_owners = enemy_seats(cx.next, &actor_team);
     let mut targets: Vec<_> = cx
         .next
         .units
         .iter()
         .filter(|unit| {
-            enemy_owners.contains(unit.owner.as_str())
-                && matches!(unit.location, Location::Board { .. })
+            enemy_owners.contains(&unit.owner) && matches!(unit.location, Location::Board { .. })
         })
         .map(|unit| unit.id)
         .collect();
@@ -574,8 +615,8 @@ fn reduce_power_charge_by_funds_ratio(
     cx: &mut Activation<'_>,
     funds_per_full_bar: u64,
 ) -> Result<(), ExecuteError> {
-    let actor_team = cx.next.player_mut(cx.seat).team.clone();
-    let actor_funds = cx.next.player_mut(cx.seat).funds;
+    let actor_team = cx.next.player(cx.seat).team.clone();
+    let actor_funds = cx.next.player(cx.seat).funds;
     let mut target_players: Vec<_> = cx
         .next
         .players
@@ -640,7 +681,7 @@ fn refresh_unit_action(
         .units
         .iter()
         .filter(|unit| {
-            unit.owner == cx.player
+            unit.owner == cx.seat
                 && matches!(unit.location, Location::Board { .. })
                 && !exclude_unit_kinds.contains(&unit.kind)
         })
@@ -674,7 +715,7 @@ fn resupply_units(cx: &mut Activation<'_>) -> Result<(), ExecuteError> {
         .next
         .units
         .iter()
-        .filter(|unit| unit.owner == cx.player)
+        .filter(|unit| unit.owner == cx.seat)
         .map(|unit| unit.id)
         .collect();
     targets.sort();
@@ -712,7 +753,7 @@ fn spawn_units_on_owned_properties(
     let max_fuel = profile.max_fuel;
     let max_ammo = profile.max_ammo;
     let mut positions = Vec::new();
-    let mut owned_unit_count = owned_unit_count(cx.next, cx.player)?;
+    let mut owned_unit_count = owned_unit_count(cx.next, cx.seat)?;
     'rows: for (position, tile) in cx.next.board.iter() {
         {
             if cx
@@ -723,7 +764,7 @@ fn spawn_units_on_owned_properties(
             {
                 break 'rows;
             }
-            if !tile.owner.is_owned_by(cx.player) {
+            if !tile.owner.is_owned_by(cx.seat) {
                 continue;
             }
             let property_kind = ruleset::terrain(tile.terrain).property_kind;
@@ -770,7 +811,7 @@ fn spawn_units_on_owned_properties(
         cx.next.units.push(Unit {
             id: allocated_id,
             kind: unit_kind,
-            owner: cx.player.clone(),
+            owner: cx.seat,
             hp,
             fuel: max_fuel,
             ammo: max_ammo,
@@ -795,22 +836,14 @@ fn fire_targeted_area_strike(
     damage: u8,
     minimum_hp: u8,
 ) -> Result<(), ExecuteError> {
-    let actor_team = cx.next.player_mut(cx.seat).team.clone();
-    let enemy_owners: HashSet<_> = cx
-        .next
-        .players
-        .iter()
-        .filter(|candidate| candidate.team != actor_team)
-        .map(|candidate| candidate.id.as_str())
-        .collect();
+    let actor_team = cx.next.player(cx.seat).team.clone();
+    let enemy_owners = enemy_seats(cx.next, &actor_team);
     let mut candidates: Vec<_> = cx
         .next
         .units
         .iter()
         .filter_map(|unit| match unit.location {
-            Location::Board { position } if enemy_owners.contains(unit.owner.as_str()) => {
-                Some(position)
-            }
+            Location::Board { position } if enemy_owners.contains(&unit.owner) => Some(position),
             _ => None,
         })
         .collect();
@@ -833,7 +866,8 @@ fn fire_targeted_area_strike(
                 })?;
             let friendly = cx
                 .next
-                .find_player(&unit.owner)
+                .players
+                .get(unit.owner.get())
                 .is_some_and(|owner| owner.team == actor_team);
             score = if friendly {
                 score.checked_sub(value)
@@ -902,14 +936,8 @@ fn fire_immobilizing_area_strike(
     damage: u8,
     minimum_hp: u8,
 ) -> Result<(), ExecuteError> {
-    let actor_team = cx.next.player_mut(cx.seat).team.clone();
-    let enemy_owners: HashSet<_> = cx
-        .next
-        .players
-        .iter()
-        .filter(|candidate| candidate.team != actor_team)
-        .map(|candidate| candidate.id.as_str())
-        .collect();
+    let actor_team = cx.next.player(cx.seat).team.clone();
+    let enemy_owners = enemy_seats(cx.next, &actor_team);
     let mut priced_units = Vec::new();
     for unit in &cx.state.units {
         let Location::Board { position } = unit.location else {
@@ -918,7 +946,8 @@ fn fire_immobilizing_area_strike(
         let cost = ruleset::profile(unit.kind).cost;
         let friendly = cx
             .state
-            .find_player(&unit.owner)
+            .players
+            .get(unit.owner.get())
             .is_some_and(|owner| owner.team == actor_team);
         priced_units.push((unit, position, cost, friendly));
     }
@@ -985,7 +1014,7 @@ fn fire_immobilizing_area_strike(
         .iter()
         .filter_map(|unit| match unit.location {
             Location::Board { position }
-                if enemy_owners.contains(unit.owner.as_str())
+                if enemy_owners.contains(&unit.owner)
                     && center.distance(position) <= radius as u64 =>
             {
                 Some(unit.id)
@@ -1049,11 +1078,4 @@ fn multiply_funds_ratio(
         reason: KnownReason::CommanderPower.into(),
     });
     Ok(())
-}
-
-pub(crate) fn execute_tag(
-    turn: &ActiveTurn<'_>,
-    draws: &mut Draws<'_>,
-) -> Result<Execution, ExecuteError> {
-    execute_turn_boundary(turn, BoundaryCommand::Tag, draws)
 }
