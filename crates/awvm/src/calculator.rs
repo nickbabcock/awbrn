@@ -20,18 +20,21 @@
 //! 60% of a Mega Tank is worth 90% of a Recon.
 
 use crate::combat::{CounterStep, DamageRange, Weapon};
-use crate::commander::PowerLevel;
+use crate::commander::{Holdings, PowerLevel};
 use crate::ruleset::{self, CommanderKind, Terrain, UnitKind};
 use crate::semantic::{
-    Board, Commander, Concealment, Location, Match, Phase, Player, PlayerId, PlayerStatus, Pos,
-    PowerState, RulesetRef, Settings, State, Team, TeamStatus, Tile, TileOwner, Turn, Unit,
-    UnitAction, UnitId, UnitStore, Weather, WeatherKind,
+    Board, Commander, Concealment, Location, Match, Phase, Player, PlayerId, PlayerIdx,
+    PlayerStatus, Pos, PowerState, Roster, RulesetRef, Settings, State, Team, TeamStatus, Tile,
+    TileOwner, Turn, Unit, UnitAction, UnitId, UnitStore, Weather, WeatherKind,
 };
 use crate::transition;
 
 /// The two seats, named. A calculator has no user accounts to borrow ids from.
 const ATTACKING_PLAYER: &str = "attacker";
 const DEFENDING_PLAYER: &str = "defender";
+/// Where each side sits on the roster this module builds.
+const ATTACKER_SEAT: PlayerIdx = PlayerIdx::from_seat(0);
+const DEFENDER_SEAT: PlayerIdx = PlayerIdx::from_seat(1);
 
 /// How many owned tiles one side may claim.
 ///
@@ -292,6 +295,7 @@ fn score(
     let origin = attacker_position(request);
     let forecast = transition::forecast_unit_attack(
         &state,
+        &Holdings::tally(&state),
         &PlayerId::from(ATTACKING_PLAYER),
         attacker_index,
         origin,
@@ -378,8 +382,10 @@ fn lay_out(
     tiles[at(0, 0)] = Tile::new(request.attacking_unit.terrain);
     tiles[at(distance, 0)] = Tile::new(target.terrain);
 
-    place_holdings(&mut tiles, &at, 1, &request.attacker, ATTACKING_PLAYER);
-    place_holdings(&mut tiles, &at, 2, &request.defender, DEFENDING_PLAYER);
+    // The roster below seats the attacker first and the defender second, and a
+    // held tile names a seat.
+    place_holdings(&mut tiles, &at, 1, &request.attacker, ATTACKER_SEAT);
+    place_holdings(&mut tiles, &at, 2, &request.defender, DEFENDER_SEAT);
 
     let board = Board::new(width, height, tiles)
         .map_err(|error| CalculatorError::Layout(format!("{error:?}")))?;
@@ -390,10 +396,10 @@ fn lay_out(
         combatant(
             attacker_id,
             request.attacking_unit,
-            ATTACKING_PLAYER,
+            ATTACKER_SEAT,
             Pos::new(0, 0),
         ),
-        combatant(defender_id, target, DEFENDING_PLAYER, Pos::new(distance, 0)),
+        combatant(defender_id, target, DEFENDER_SEAT, Pos::new(distance, 0)),
     ])
     .map_err(|error| CalculatorError::Layout(format!("{error:?}")))?;
 
@@ -414,10 +420,11 @@ fn lay_out(
                 status: TeamStatus::Active,
             },
         ],
-        players: vec![
+        players: Roster::new(vec![
             player(ATTACKING_PLAYER, &request.attacker),
             player(DEFENDING_PLAYER, &request.defender),
-        ],
+        ])
+        .expect("two players fit a roster"),
         turn: Turn {
             day: 1,
             active_player: ATTACKING_PLAYER.into(),
@@ -448,7 +455,7 @@ fn place_holdings(
     at: &impl Fn(u8, u8) -> usize,
     row: u8,
     side: &SideContext,
-    owner: &str,
+    owner: PlayerIdx,
 ) {
     for index in 0..side.properties {
         let Ok(x) = u8::try_from(index) else { break };
@@ -458,17 +465,17 @@ fn place_holdings(
             Terrain::City
         };
         let mut tile = Tile::new(terrain);
-        tile.owner = TileOwner::Owned(owner.into());
+        tile.owner = TileOwner::Owned(owner);
         tiles[at(x, row)] = tile;
     }
 }
 
-fn combatant(id: UnitId, fighter: Fighter, owner: &str, position: Pos) -> Unit {
+fn combatant(id: UnitId, fighter: Fighter, owner: PlayerIdx, position: Pos) -> Unit {
     let profile = ruleset::profile(fighter.unit);
     Unit {
         id,
         kind: fighter.unit,
-        owner: owner.into(),
+        owner,
         hp: fighter.hp,
         fuel: profile.max_fuel,
         ammo: fighter.ammo.unwrap_or(profile.max_ammo),

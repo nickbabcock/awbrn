@@ -36,6 +36,10 @@ fn every_supported_fixture_matches_prepared_execution() {
     let mut productions = 0;
     let mut deletes = 0;
     let mut unloads = 0;
+    let mut end_turns = 0;
+    let mut tags = 0;
+    let mut resigns = 0;
+    let mut powers = 0;
     for path in files {
         let source = std::fs::read_to_string(&path).expect("read fixture");
         let case: Value = serde_json::from_str(&source).expect("parse fixture");
@@ -66,26 +70,24 @@ fn every_supported_fixture_matches_prepared_execution() {
                 Command::ProduceUnit { .. } => Some(&mut productions),
                 Command::DeleteUnit { .. } => Some(&mut deletes),
                 Command::Unload { .. } => Some(&mut unloads),
-                _ => None,
+                Command::EndTurn { .. } => Some(&mut end_turns),
+                Command::Tag { .. } => Some(&mut tags),
+                Command::Resign { .. } => Some(&mut resigns),
+                Command::ActivatePower { .. } => Some(&mut powers),
+                Command::Unsupported => None,
             };
             if let Some(counter) = counter {
                 *counter += 1;
                 let prepared = prepare_command(&state, command);
                 match (&ordinary, prepared) {
-                    (
-                        Ok(ExecuteOutcome::Accepted(expected)),
-                        Ok(PrepareOutcome::Prepared(prepared)),
-                    ) => assert_eq!(
+                    (Ok(ExecuteOutcome::Accepted(expected)), Ok(Ok(prepared))) => assert_eq!(
                         execute_prepared(prepared, &random),
                         Ok(expected.clone()),
                         "{} disagreed at {}",
                         path.display(),
                         step["id"]
                     ),
-                    (
-                        Ok(ExecuteOutcome::Rejected(expected)),
-                        Ok(PrepareOutcome::Rejected(actual)),
-                    ) => assert_eq!(
+                    (Ok(ExecuteOutcome::Rejected(expected)), Ok(Err(actual))) => assert_eq!(
                         actual,
                         *expected,
                         "{} disagreed at {}",
@@ -169,6 +171,16 @@ fn every_supported_fixture_matches_prepared_execution() {
         unloads >= 10,
         "expected the full unload corpus, saw {unloads}"
     );
+    assert!(
+        end_turns >= 24,
+        "expected the full end-turn corpus, saw {end_turns}"
+    );
+    assert!(tags >= 3, "expected the full tag corpus, saw {tags}");
+    assert!(
+        resigns >= 3,
+        "expected the full resign corpus, saw {resigns}"
+    );
+    assert!(powers >= 58, "expected the full power corpus, saw {powers}");
 }
 
 #[test]
@@ -181,27 +193,20 @@ fn one_movement_can_prepare_wait_and_capture_destinations() {
     let Command::MoveCapture { player, unit, path } = command else {
         panic!("fixture starts with capture")
     };
-    let movement = match prepare_movement(&state, &player, unit, path.clone()).expect("prepare") {
-        PrepareMovementOutcome::Prepared(movement) => movement,
-        PrepareMovementOutcome::Rejected(violation) => panic!("movement rejected: {violation:?}"),
-    };
-    let wait = match movement
+    let movement = prepare_movement(&state, &player, unit, path.clone())
+        .expect("prepare")
+        .unwrap_or_else(|violation| panic!("movement rejected: {violation:?}"));
+    let wait = movement
         .clone()
         .prepare_destination()
         .prepare_wait()
         .expect("prepare wait")
-    {
-        PrepareOutcome::Prepared(wait) => wait,
-        PrepareOutcome::Rejected(violation) => panic!("wait rejected: {violation:?}"),
-    };
-    let capture = match movement
+        .unwrap_or_else(|violation| panic!("wait rejected: {violation:?}"));
+    let capture = movement
         .prepare_destination()
         .prepare_capture()
         .expect("prepare capture")
-    {
-        PrepareOutcome::Prepared(capture) => capture,
-        PrepareOutcome::Rejected(violation) => panic!("capture rejected: {violation:?}"),
-    };
+        .unwrap_or_else(|violation| panic!("capture rejected: {violation:?}"));
 
     let ordinary_wait = execute(
         &state,
@@ -239,16 +244,13 @@ fn one_production_site_can_prepare_a_kind() {
     else {
         panic!("fixture starts with production")
     };
-    let site = match prepare_production_site(&state, &player, position).expect("prepare site") {
-        PrepareProductionSiteOutcome::Prepared(site) => site,
-        PrepareProductionSiteOutcome::Rejected(violation) => {
-            panic!("production site rejected: {violation:?}")
-        }
-    };
-    let prepared = match site.prepare_kind(kind).expect("prepare kind") {
-        PrepareOutcome::Prepared(prepared) => prepared,
-        PrepareOutcome::Rejected(violation) => panic!("production rejected: {violation:?}"),
-    };
+    let site = prepare_production_site(&state, &player, position)
+        .expect("prepare site")
+        .unwrap_or_else(|violation| panic!("production site rejected: {violation:?}"));
+    let prepared = site
+        .prepare_kind(kind)
+        .expect("prepare kind")
+        .unwrap_or_else(|violation| panic!("production rejected: {violation:?}"));
 
     assert_eq!(
         execute_prepared(prepared, &[]).map(ExecuteOutcome::Accepted),
@@ -266,16 +268,13 @@ fn one_active_unit_can_prepare_delete() {
     let Command::DeleteUnit { player, unit } = command.clone() else {
         panic!("fixture starts with delete")
     };
-    let active = match prepare_active_unit(&state, &player, unit).expect("prepare unit") {
-        PrepareActiveUnitOutcome::Prepared(active) => active,
-        PrepareActiveUnitOutcome::Rejected(violation) => {
-            panic!("active unit rejected: {violation:?}")
-        }
-    };
-    let prepared = match active.prepare_delete().expect("prepare delete") {
-        PrepareOutcome::Prepared(prepared) => prepared,
-        PrepareOutcome::Rejected(violation) => panic!("delete rejected: {violation:?}"),
-    };
+    let active = prepare_active_unit(&state, &player, unit)
+        .expect("prepare unit")
+        .unwrap_or_else(|violation| panic!("active unit rejected: {violation:?}"));
+    let prepared = active
+        .prepare_delete()
+        .expect("prepare delete")
+        .unwrap_or_else(|violation| panic!("delete rejected: {violation:?}"));
 
     assert_eq!(
         execute_prepared(prepared, &[]).map(ExecuteOutcome::Accepted),
@@ -299,26 +298,17 @@ fn one_transport_and_cargo_can_prepare_an_unload() {
     else {
         panic!("fixture starts with unload")
     };
-    let transport =
-        match prepare_unload_transport(&state, &player, transport).expect("prepare transport") {
-            PrepareUnloadTransportOutcome::Prepared(transport) => transport,
-            PrepareUnloadTransportOutcome::Rejected(violation) => {
-                panic!("transport rejected: {violation:?}")
-            }
-        };
-    let cargo = match transport.prepare_cargo(cargo).expect("prepare cargo") {
-        PrepareUnloadCargoOutcome::Prepared(cargo) => cargo,
-        PrepareUnloadCargoOutcome::Rejected(violation) => {
-            panic!("cargo rejected: {violation:?}")
-        }
-    };
-    let prepared = match cargo
+    let transport = prepare_unload_transport(&state, &player, transport)
+        .expect("prepare transport")
+        .unwrap_or_else(|violation| panic!("transport rejected: {violation:?}"));
+    let cargo = transport
+        .prepare_cargo(cargo)
+        .expect("prepare cargo")
+        .unwrap_or_else(|violation| panic!("cargo rejected: {violation:?}"));
+    let prepared = cargo
         .prepare_destination(destination)
         .expect("prepare destination")
-    {
-        PrepareOutcome::Prepared(prepared) => prepared,
-        PrepareOutcome::Rejected(violation) => panic!("unload rejected: {violation:?}"),
-    };
+        .unwrap_or_else(|violation| panic!("unload rejected: {violation:?}"));
 
     assert_eq!(
         execute_prepared(prepared, &[]).map(ExecuteOutcome::Accepted),
@@ -344,10 +334,9 @@ fn a_hidden_trap_suppresses_prepared_capture() {
     };
     let command = Command::MoveCapture { player, unit, path };
 
-    let prepared = match prepare_command(&state, command).expect("prepare capture") {
-        PrepareOutcome::Prepared(prepared) => prepared,
-        PrepareOutcome::Rejected(violation) => panic!("capture rejected: {violation:?}"),
-    };
+    let prepared = prepare_command(&state, command)
+        .expect("prepare capture")
+        .unwrap_or_else(|violation| panic!("capture rejected: {violation:?}"));
     let execution = execute_prepared(prepared, &[]).expect("execute capture");
 
     assert!(
@@ -371,16 +360,20 @@ fn a_hidden_trap_suppresses_prepared_capture() {
 }
 
 #[test]
-fn preparation_refuses_unsupported_commands() {
+fn preparation_covers_every_command_this_adapter_implements() {
     let source = include_str!("../../../spec/fixtures/movement/infantry-plain-move.json");
     let case: Value = serde_json::from_str(source).expect("parse fixture");
     let state: State = serde_json::from_value(case["initial_state"].clone()).expect("decode state");
-    let command = Command::EndTurn {
+
+    // Turn boundaries used to be the one family a caller could not resolve
+    // ahead of applying it, which is the command a search issues most.
+    let end_turn = Command::EndTurn {
         player: state.turn.active_player.clone(),
     };
+    assert!(matches!(prepare_command(&state, end_turn), Ok(Ok(_))));
 
     assert_eq!(
-        prepare_command(&state, command).unwrap_err(),
+        prepare_command(&state, Command::Unsupported).unwrap_err(),
         ExecuteError::UnsupportedCommand
     );
 }

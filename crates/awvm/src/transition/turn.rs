@@ -19,15 +19,15 @@ use std::collections::HashSet;
 
 pub(crate) fn day_limit_outcome(state: &State) -> Result<Outcome, ExecuteError> {
     let mut scores = Vec::new();
-    for player in state
+    for (seat, player) in state
         .players
-        .iter()
-        .filter(|player| player.status == PlayerStatus::Active)
+        .seats()
+        .filter(|(_, player)| player.status == PlayerStatus::Active)
     {
         let properties = state
             .board
             .tiles()
-            .filter(|tile| tile.owner.player().is_some_and(|owner| player.id == owner))
+            .filter(|tile| tile.owner.is_owned_by(seat))
             .count();
         scores.push((player.team.clone(), properties));
     }
@@ -90,13 +90,6 @@ pub(crate) fn turns_until_player_selection(
     ))
 }
 
-pub(crate) fn execute_end_turn(
-    turn: &ActiveTurn<'_>,
-    draws: &mut Draws<'_>,
-) -> Result<Execution, ExecuteError> {
-    execute_turn_boundary(turn, BoundaryCommand::EndTurn, draws)
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BoundaryCommand {
     EndTurn,
@@ -123,16 +116,20 @@ struct Incoming {
 /// the one case `spec/semantics/elimination.md` describes — an incoming player
 /// routed by their own turn-start hooks, after which a successor is selected
 /// again.
-pub(crate) fn execute_turn_boundary(
-    turn: &ActiveTurn<'_>,
+#[derive(Debug)]
+pub(super) struct PreparedBoundary<'a> {
+    turn: ActiveTurn<'a>,
     command: BoundaryCommand,
-    draws: &mut Draws<'_>,
-) -> Result<Execution, ExecuteError> {
+    seat: PlayerIdx,
+}
+
+/// Decide whether a turn boundary may be crossed, without crossing it.
+pub(super) fn prepare_boundary(
+    turn: ActiveTurn<'_>,
+    command: BoundaryCommand,
+) -> Result<PreparedBoundary<'_>, ExecuteError> {
     let state = turn.state();
-    let player = turn.player();
-    let seat = state
-        .player_index(player)
-        .ok_or_else(|| ExecuteError::InvalidState("active player is absent".into()))?;
+    let seat = turn.seat();
     if command == BoundaryCommand::Tag {
         if !state.settings.tags {
             return Err(violation(Violation::ActionNotSupported {
@@ -154,6 +151,24 @@ pub(crate) fn execute_turn_boundary(
         }
     }
 
+    Ok(PreparedBoundary {
+        turn,
+        command,
+        seat,
+    })
+}
+
+pub(super) fn execute_prepared_boundary(
+    prepared: PreparedBoundary<'_>,
+    draws: &mut Draws<'_>,
+) -> Result<Execution, ExecuteError> {
+    let PreparedBoundary {
+        turn,
+        command,
+        seat,
+    } = prepared;
+    let state = turn.state();
+    let player = turn.player();
     let mut next = state.clone();
     let mut events = vec![Event::PhaseChanged {
         player: player.clone(),
@@ -245,7 +260,7 @@ pub(crate) fn execute_turn_boundary(
         let removed_units = crash_out_of_fuel(&mut next, &incoming, &mut events);
         repair_on_properties(&mut next, &incoming, &sites, &mut events)?;
 
-        if removed_units && !next.units.iter().any(|unit| unit.owner == incoming.id) {
+        if removed_units && !next.units.iter().any(|unit| unit.owner == incoming.seat) {
             if eliminate_player(
                 &mut next,
                 &incoming.id,
@@ -442,13 +457,11 @@ fn collect_income(
         .board
         .tiles()
         .filter(|tile| {
-            tile.owner
-                .player()
-                .is_some_and(|owner| owner == &incoming.id)
+            tile.owner.is_owned_by(incoming.seat)
                 && ruleset::terrain_has(tile.terrain, TerrainTrait::Income)
         })
         .count();
-    let income_per_property = commander::effective_income_per_property(next, &incoming.id);
+    let income_per_property = commander::effective_income_per_property(next, incoming.seat);
     let income = u64::try_from(income_tiles)
         .ok()
         .and_then(|count| count.checked_mul(income_per_property))
@@ -481,16 +494,11 @@ fn repair_sites(next: &State, incoming: &Incoming) -> Vec<(Pos, UnitId)> {
         let Some(unit) = next
             .units
             .iter()
-            .find(|unit| unit.owner == incoming.id && board_position(unit) == Some(position))
+            .find(|unit| unit.owner == incoming.seat && board_position(unit) == Some(position))
         else {
             continue;
         };
-        if tile
-            .owner
-            .player()
-            .is_some_and(|owner| owner == &incoming.id)
-            && terrain_repairs_unit(tile.terrain, unit.kind)
-        {
+        if tile.owner.is_owned_by(incoming.seat) && terrain_repairs_unit(tile.terrain, unit.kind) {
             sites.push((position, unit.id));
         }
     }
@@ -530,7 +538,7 @@ fn supply_from_adjacent_transports(
         .units
         .iter()
         .filter(|unit| {
-            unit.owner == incoming.id
+            unit.owner == incoming.seat
                 && ruleset::profile(unit.kind)
                     .supply
                     .is_some_and(|supply| supply.relation == Relation::Adjacent)
@@ -545,7 +553,7 @@ fn supply_from_adjacent_transports(
             .get(source_id)
             .expect("supply source remains on board");
         let source_position = board_position(source).expect("supply source remains on board");
-        let source_owner = source.owner.clone();
+        let source_owner = source.owner;
         let source_team = next.player(incoming.seat).team.clone();
         let supply_targets = ruleset::profile(source.kind)
             .supply
@@ -558,9 +566,9 @@ fn supply_from_adjacent_transports(
                 unit.id != source_id
                     && supply_target_eligible(
                         next,
-                        &source_owner,
+                        source_owner,
                         &source_team,
-                        &unit.owner,
+                        unit.owner,
                         supply_targets,
                     )
                     && board_position(unit).is_some_and(|position| {
@@ -604,7 +612,7 @@ fn supply_cargo(
         .units
         .iter()
         .filter(|unit| {
-            unit.owner == incoming.id
+            unit.owner == incoming.seat
                 && ruleset::profile(unit.kind)
                     .supply
                     .is_some_and(|supply| supply.relation == Relation::Cargo)
@@ -617,7 +625,7 @@ fn supply_cargo(
             .units
             .iter()
             .filter(|unit| {
-                unit.owner == incoming.id
+                unit.owner == incoming.seat
                     && matches!(
                         &unit.location,
                         Location::Cargo { transport, .. } if transport == &transport_id
@@ -661,7 +669,7 @@ fn apply_fuel_upkeep(
         .units
         .iter()
         .filter(|unit| {
-            unit.owner == incoming.id
+            unit.owner == incoming.seat
                 && !resupplied.contains(&unit.id)
                 && matches!(
                     ruleset::profile(unit.kind).domain,
@@ -672,11 +680,10 @@ fn apply_fuel_upkeep(
         .collect();
     upkeep_ids.sort();
     for unit_id in upkeep_ids {
-        let snapshot = next
+        let snapshot = *next
             .units
             .get(unit_id)
-            .expect("upkeep unit remains present")
-            .clone();
+            .expect("upkeep unit remains present");
         let profile = ruleset::profile(snapshot.kind);
         let base_upkeep = if snapshot.concealment == Concealment::Hidden {
             profile
@@ -716,7 +723,7 @@ fn crash_out_of_fuel(next: &mut State, incoming: &Incoming, events: &mut Vec<Eve
         .units
         .iter()
         .filter(|unit| {
-            unit.owner == incoming.id
+            unit.owner == incoming.seat
                 && unit.fuel == 0
                 && matches!(
                     ruleset::profile(unit.kind).domain,
@@ -770,7 +777,7 @@ fn repair_on_properties(
             .funds
             .checked_div(heal_cost)
             .unwrap_or(missing_bars);
-        let bars = commander::effective_repair_bars(next, &incoming.id)
+        let bars = commander::effective_repair_bars(next, incoming.seat)
             .min(missing_bars)
             .min(affordable_bars);
         if bars == 0 {
@@ -800,7 +807,7 @@ fn normalize_actions(next: &mut State, incoming: &Incoming, events: &mut Vec<Eve
         .units
         .iter()
         .enumerate()
-        .filter(|(_, unit)| unit.owner == incoming.id && unit.action != UnitAction::Ready)
+        .filter(|(_, unit)| unit.owner == incoming.seat && unit.action != UnitAction::Ready)
         .map(|(index, unit)| (unit.id, index))
         .collect();
     unit_indices.sort_by_key(|left| left.0);

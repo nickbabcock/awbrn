@@ -24,22 +24,22 @@
 //! receives; this exists so a client can offer commands the server will take.
 
 use std::borrow::Borrow;
+use std::cell::OnceCell;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use crate::combat::Forecast;
-use crate::commander;
+use crate::commander::{self, Holdings};
 use crate::event::AttackTarget;
-use crate::ruleset::{self, FireMode, TerrainTrait};
+use crate::ruleset::{self, FireMode, MovementClass, TerrainTrait};
 use crate::semantic::{
-    AwbwView, AwbwVisibility, Location, Observation, ObservedMatch, ObservedPlayer, PlayerId,
-    PlayerStatus, Pos, State, TeamId, Unit, UnitId, UnitKindId, Viewpoint, Visibility, WeatherKind,
+    AwbwView, Grid, Location, Observation, ObservedMatch, ObservedPlayer, PlayerId, PlayerIdx,
+    PlayerStatus, Pos, State, Unit, UnitId, UnitKindId, WeatherKind,
 };
 use crate::transition::{
-    ExecuteError, PrepareActiveUnitOutcome, PrepareMovementOutcome, PrepareOutcome,
-    PrepareProductionSiteOutcome, PrepareUnloadCargoOutcome, PrepareUnloadTransportOutcome,
-    PreparedActiveUnit, PreparedDestination, board_position, forecast_tile_attack,
-    forecast_unit_attack, prepare_active_unit, prepare_movement, prepare_production_site,
-    prepare_unload_transport,
+    ActiveTurn, ExecuteError, PreparedActiveUnit, PreparedDestination, board_position,
+    forecast_tile_attack, forecast_unit_attack, prepare_active_unit, prepare_movement,
+    prepare_production_site, prepare_unload_transport,
 };
 use crate::violation::Violation;
 
@@ -54,8 +54,8 @@ pub enum QueryError {
     UnitNotFound(UnitId),
     #[error("unit {0} is cargo, so it has no board position to reason from")]
     UnitNotOnBoard(UnitId),
-    #[error("unit {unit} is owned by unknown player {owner}")]
-    UnknownOwner { unit: UnitId, owner: PlayerId },
+    #[error("unit {unit} is held by seat {}, which the roster does not have", seat.get())]
+    UnknownOwner { unit: UnitId, seat: PlayerIdx },
     #[error("this observation does not describe a whole board: {0}")]
     Unprojectable(&'static str),
     #[error(transparent)]
@@ -73,12 +73,17 @@ pub fn can_act(state: &State, unit: UnitId) -> Result<Result<(), Violation>, Que
     let Location::Board { .. } = subject.location else {
         return Err(QueryError::UnitNotOnBoard(unit));
     };
-    match prepare_active_unit(state, &subject.owner, unit) {
-        Ok(PrepareActiveUnitOutcome::Prepared(_)) => Ok(Ok(())),
-        Ok(PrepareActiveUnitOutcome::Rejected(violation)) => Ok(Err(violation)),
+    let owner = state
+        .try_player_id(subject.owner)
+        .ok_or(QueryError::UnknownOwner {
+            unit,
+            seat: subject.owner,
+        })?;
+    match prepare_active_unit(state, owner, unit) {
+        Ok(prepared) => Ok(prepared.map(|_| ())),
         Err(_) => Err(QueryError::UnknownOwner {
             unit,
-            owner: subject.owner.clone(),
+            seat: subject.owner,
         }),
     }
 }
@@ -107,13 +112,228 @@ pub struct Step {
 pub struct MoveField {
     unit: UnitId,
     origin: Pos,
-    width: u8,
-    height: u8,
-    /// Row-major, one entry per tile, `None` where the unit cannot reach.
-    steps: Vec<Option<Step>>,
-    entry_costs: Vec<Option<u64>>,
-    route_blocked: Vec<bool>,
+    /// What each tile costs this unit's movement class to enter, shared with
+    /// every other unit of that class this turn.
+    entry: Arc<Grid<EntryCost>>,
+    /// What each tile denies a mover, shared with every unit of the team.
+    blocking: Arc<Grid<Blocking>>,
+    /// This unit's own search result.
+    arrivals: Grid<Option<Arrival>>,
     budget: u64,
+}
+
+/// The cheapest route the search found into one tile.
+///
+/// The search once held five board-sized maps — entry cost, two blocking
+/// flags, the settled cost, and the route back — and rebuilt all five for
+/// every unit. Three of them say nothing about the unit that asked, so they
+/// are [`TurnMaps`] and are worked out once a turn; what is left is this, and
+/// it is the only board-sized thing a search allocates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Arrival {
+    /// Movement points spent getting here by that route.
+    cost: u16,
+    /// How many tiles the route holds, the origin included. The search knows
+    /// it, and a caller walking the route back can size its vectors from it
+    /// instead of growing them from nothing per destination.
+    depth: u8,
+    /// Whether a `move-*` command may name this tile as its destination.
+    can_stop: bool,
+    /// Which neighbour the route arrived from, absent at the origin.
+    from: Option<Approach>,
+}
+
+/// The arrival grid holds one of these per tile, so its width is the search's
+/// only board-sized allocation. Adding `depth` fit in the padding the other
+/// fields already left.
+const _: () = assert!(std::mem::size_of::<Option<Arrival>>() == 6);
+
+/// Which neighbour a route arrived from.
+///
+/// A route is remembered as the direction it came from rather than as the
+/// coordinate it came from, because the coordinate is one subtraction away and
+/// the board holds one of these per tile per unit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Approach {
+    West,
+    East,
+    North,
+    South,
+}
+
+impl Approach {
+    /// Which neighbour of `position` `previous` is.
+    fn of(position: Pos, previous: Pos) -> Self {
+        if previous.x < position.x {
+            Self::West
+        } else if previous.x > position.x {
+            Self::East
+        } else if previous.y < position.y {
+            Self::North
+        } else {
+            Self::South
+        }
+    }
+
+    /// The tile a route arriving this way came from.
+    fn previous(self, position: Pos) -> Pos {
+        let (x, y) = (position.x, position.y);
+        match self {
+            Self::West => Pos::new(x - 1, y),
+            Self::East => Pos::new(x + 1, y),
+            Self::North => Pos::new(x, y - 1),
+            Self::South => Pos::new(x, y + 1),
+        }
+    }
+}
+
+impl Arrival {
+    /// The public reading of a settled tile.
+    fn step(self, position: Pos) -> Step {
+        Step {
+            cost: u64::from(self.cost),
+            can_stop: self.can_stop,
+            previous: self.from.map(|from| from.previous(position)),
+        }
+    }
+}
+
+/// What a tile denies whoever moves, whoever that is.
+///
+/// Neither answer depends on the moving unit, apart from the tile the unit
+/// itself stands on: that tile is marked as blocked here, by its own occupant.
+/// A search settles its origin before it reads this table, so the reading
+/// never reaches it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Blocking {
+    /// Nothing may come to rest here: a unit the moving team sees stands on
+    /// the tile, or it is a teleporter, which is crossed but never held.
+    stop: bool,
+    /// No route may pass through, though one may end here: an enemy the moving
+    /// team sees stands in the way.
+    route: bool,
+}
+
+/// What one tile costs to enter, absent where it cannot be entered at all.
+///
+/// The width is what the table holds, not a rule. A terrain cost this large is
+/// orders of magnitude beyond anything AWBW defines, and one larger still is
+/// held as unenterable, which against any allowance this crate can spend it
+/// effectively is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct EntryCost(Option<u16>);
+
+impl EntryCost {
+    fn new(cost: Option<u64>) -> Self {
+        Self(cost.and_then(|cost| u16::try_from(cost).ok()))
+    }
+
+    /// Movement points to enter, or `None` where the mover cannot.
+    const fn points(self) -> Option<u16> {
+        self.0
+    }
+}
+
+/// The largest allowance a search can spend, and so the largest arrival cost.
+const MAXIMUM_BUDGET: u64 = u16::MAX as u64;
+
+/// The tables every action of one turn shares.
+///
+/// A movement search asks two things of every tile — what it costs to enter,
+/// and what it denies — and neither answer is about the unit that asked. Entry
+/// cost follows the mover's movement class, its owner's commander and the
+/// weather; blocking follows what the moving team can see. A turn holds dozens
+/// of units drawn from eight movement classes, so a search that answered for
+/// itself rebuilt the same few tables once per unit.
+///
+/// Every table here is bound to one `&State` and to one player of it, exactly
+/// as [`AwbwView`] is bound to one team, so none of them can outlive the state
+/// they describe or answer for another one.
+#[derive(Debug)]
+pub struct TurnMaps<'a> {
+    state: &'a State,
+    /// The seat these maps answer for. Entry costs follow this player's
+    /// commander, so a unit of any other player must not be searched with
+    /// them.
+    seat: PlayerIdx,
+    /// The weather this player's units move through.
+    weather: WeatherKind,
+    view: AwbwView<'a>,
+    blocking: OnceCell<Arc<Grid<Blocking>>>,
+    /// Entry costs, one map per movement class, each built when a unit of that
+    /// class first asks.
+    entries: [OnceCell<Arc<Grid<EntryCost>>>; MovementClass::COUNT],
+    /// What every player holds on the board. Commander combat rules read the
+    /// tower and property counts of both sides of every strike, and scoring
+    /// one attack candidate used to count them from the board twice.
+    holdings: OnceCell<Holdings<'a>>,
+}
+
+impl<'a> TurnMaps<'a> {
+    /// Open the tables a player's units share, or `None` when the player is
+    /// not on the roster.
+    pub(crate) fn new(state: &'a State, mover: &'a PlayerId) -> Option<Self> {
+        Self::for_seat(state, state.player_index(mover)?)
+    }
+
+    /// The same tables, opened for a seat a unit already names.
+    pub(crate) fn for_seat(state: &'a State, seat: PlayerIdx) -> Option<Self> {
+        let player = state.players.get(seat.get())?;
+        Some(Self {
+            state,
+            seat,
+            weather: commander::player_weather(state, seat),
+            view: AwbwView::new(state, &player.team),
+            blocking: OnceCell::new(),
+            entries: [(); MovementClass::COUNT].map(|()| OnceCell::new()),
+            holdings: OnceCell::new(),
+        })
+    }
+
+    /// The moving team's view of the state.
+    pub fn view(&self) -> &AwbwView<'a> {
+        &self.view
+    }
+
+    /// What every player holds, counted once for the whole turn.
+    pub(crate) fn holdings(&self) -> &Holdings<'a> {
+        self.holdings.get_or_init(|| Holdings::tally(self.state))
+    }
+
+    /// What each tile denies, worked out once for the whole turn.
+    fn blocking(&self) -> &Arc<Grid<Blocking>> {
+        self.blocking.get_or_init(|| {
+            // The table asks about every tile, and every destination queried
+            // through a field asks again.
+            self.view.index_occupancy();
+            Arc::new(Grid::from_fn(self.state.board.dimensions(), |position| {
+                let occupied = self.view.occupant_disclosed(position);
+                Blocking {
+                    stop: occupied || is_teleporter(self.state, position),
+                    route: occupied && self.view.occupant_obstructs(position),
+                }
+            }))
+        })
+    }
+
+    /// What each tile costs a unit of `class` to enter.
+    ///
+    /// The answer depends on the mover's movement class, its owner's commander
+    /// and the weather, and on nothing else about it, so one map serves every
+    /// unit of a class.
+    fn entry_costs(&self, class: MovementClass) -> &Arc<Grid<EntryCost>> {
+        self.entries[class.index()].get_or_init(|| {
+            Arc::new(Grid::from_fn(self.state.board.dimensions(), |position| {
+                EntryCost::new(entry_cost(
+                    self.state,
+                    self.seat,
+                    class,
+                    position,
+                    self.weather,
+                ))
+            }))
+        })
+    }
 }
 
 impl MoveField {
@@ -133,27 +353,28 @@ impl MoveField {
         self.budget
     }
 
-    fn index(&self, position: Pos) -> Option<usize> {
-        (position.x < self.width && position.y < self.height)
-            .then(|| usize::from(position.y) * usize::from(self.width) + usize::from(position.x))
-    }
-
     /// What it costs to arrive at `position`, if the unit can arrive at all.
     pub fn step(&self, position: Pos) -> Option<Step> {
-        self.index(position).and_then(|index| self.steps[index])
+        Some((*self.arrivals.get(position)?)?.step(position))
     }
 
     /// Whether a `move-*` command may end here.
     pub fn can_stop_at(&self, position: Pos) -> bool {
-        self.step(position).is_some_and(|step| step.can_stop)
+        self.arrivals
+            .get(position)
+            .is_some_and(|arrival| arrival.is_some_and(|arrival| arrival.can_stop))
     }
 
     /// Every tile the unit can end its move on, with the cost of getting there.
     ///
     /// This is the set an interface highlights.
     pub fn destinations(&self) -> impl Iterator<Item = (Pos, u64)> + '_ {
-        self.reach()
-            .filter(|(position, _)| self.can_stop_at(*position))
+        self.arrivals.iter().filter_map(|(position, arrival)| {
+            let arrival = (*arrival)?;
+            arrival
+                .can_stop
+                .then(|| (position, u64::from(arrival.cost)))
+        })
     }
 
     /// Every tile the unit can arrive at, including those it cannot stop on.
@@ -162,19 +383,9 @@ impl MoveField {
     /// come to rest on alone, so they are asked about against this rather than
     /// against [`MoveField::destinations`].
     pub fn reach(&self) -> impl Iterator<Item = (Pos, u64)> + '_ {
-        let width = usize::from(self.width);
-        self.steps
+        self.arrivals
             .iter()
-            .enumerate()
-            .filter_map(move |(index, step)| {
-                let step = (*step)?;
-                let (x, y) = (index % width, index / width);
-                let position = Pos::new(
-                    u8::try_from(x).expect("a column index fits the board width"),
-                    u8::try_from(y).expect("a row index fits the board height"),
-                );
-                Some((position, step.cost))
-            })
+            .filter_map(|(position, arrival)| Some((position, u64::from((*arrival)?.cost))))
     }
 
     /// The route to `position`, origin first, ready to be a command's `path`.
@@ -187,7 +398,12 @@ impl MoveField {
         self.step(position)?;
         let mut path = vec![position];
         let mut cursor = position;
+        // Bounded by the board for the same reason as
+        // `PreparedMoveField::prepare_destination`: a chain that pointed back
+        // into itself would walk forever.
+        let mut remaining = self.entry.dimensions().len();
         while let Some(previous) = self.step(cursor).and_then(|step| step.previous) {
+            remaining = remaining.checked_sub(1)?;
             path.push(previous);
             cursor = previous;
         }
@@ -210,12 +426,11 @@ impl MoveField {
             if !edge[0].orthogonal().any(|position| position == edge[1]) {
                 return None;
             }
-            let index = self.index(edge[1])?;
             let is_last = edge_index + 2 == path.len();
-            if self.route_blocked[index] && !is_last {
+            if self.blocking.get(edge[1])?.route && !is_last {
                 return None;
             }
-            total = total.checked_add(self.entry_costs[index]?)?;
+            total = total.checked_add(u64::from(self.entry.get(edge[1])?.points()?))?;
             if total > self.budget {
                 return None;
             }
@@ -228,32 +443,43 @@ impl MoveField {
 ///
 /// The state borrow makes paths from this field current for as long as the
 /// field exists. This lets the field prepare destinations without repeating
-/// movement validation. All destinations borrow one view from the field.
+/// movement validation. All destinations borrow one view from the field's
+/// maps.
 #[derive(Debug)]
-pub struct PreparedMoveField<'a> {
+pub struct PreparedMoveField<'a, M = TurnMaps<'a>> {
     active: PreparedActiveUnit<'a>,
     field: MoveField,
-    view: AwbwView<'a>,
+    maps: M,
 }
 
-impl<'a> PreparedMoveField<'a> {
+impl<'a> PreparedMoveField<'a, TurnMaps<'a>> {
     /// Compute a movement field for one prepared active unit.
+    ///
+    /// This form owns its maps. A caller enumerating several units of one turn
+    /// wants [`ActiveTurn::move_field`], which shares the turn's maps instead
+    /// of rebuilding the same board tables once per unit.
     pub fn new(active: PreparedActiveUnit<'a>) -> Result<Self, QueryError> {
-        let field = reachable(active.state(), active.unit())?;
-        let subject = lookup(active.state(), active.unit())?;
-        let team = active
-            .state()
-            .find_player(&subject.owner)
-            .map(|player| &player.team)
-            .ok_or_else(|| QueryError::UnknownOwner {
-                unit: active.unit(),
-                owner: subject.owner.clone(),
-            })?;
-        let view = AwbwView::new(active.state(), team);
+        let state = active.state();
+        let subject = lookup(state, active.unit())?;
+        let maps = TurnMaps::for_seat(state, subject.owner).ok_or(QueryError::UnknownOwner {
+            unit: active.unit(),
+            seat: subject.owner,
+        })?;
+        Self::with_maps(active, maps)
+    }
+}
+
+impl<'a, M> PreparedMoveField<'a, M>
+where
+    M: Borrow<TurnMaps<'a>>,
+{
+    /// Compute a movement field against maps the caller already holds.
+    fn with_maps(active: PreparedActiveUnit<'a>, maps: M) -> Result<Self, QueryError> {
+        let field = reachable_with(active.state(), active.unit(), maps.borrow())?;
         Ok(Self {
             active,
             field,
-            view,
+            maps,
         })
     }
 
@@ -314,28 +540,46 @@ impl<'a> PreparedMoveField<'a> {
     pub fn prepare_destination<'field>(
         &'field self,
         position: Pos,
-    ) -> Option<PreparedDestination<'a, &'field AwbwView<'a>>> {
+    ) -> Option<PreparedDestination<'a, &'field TurnMaps<'a>>> {
         if is_teleporter(self.active.state(), position) {
             return None;
         }
-        let path = self.field.path_to(position)?;
-        let entry_costs = path
-            .iter()
-            .enumerate()
-            .map(|(path_index, position)| {
-                if path_index == 0 {
-                    Some(0)
-                } else {
-                    self.field
-                        .index(*position)
-                        .and_then(|index| self.field.entry_costs[index])
+        let maps = self.maps.borrow();
+        // Walk the predecessor chain once, collecting the route and what each
+        // step costs together. Building the route first and pricing it after
+        // grew two vectors per candidate destination, and enumeration asks
+        // about every tile the unit can reach.
+        let dimensions = self.field.arrivals.dimensions();
+        let mut cell = dimensions.cell(position)?;
+        let depth = usize::from((*self.field.arrivals.at(cell))?.depth);
+        let mut path = Vec::with_capacity(depth);
+        let mut entry_costs = Vec::with_capacity(depth);
+        // A route visits a tile at most once, so the board's tile count bounds
+        // the walk. A predecessor chain that closed on itself would otherwise
+        // never end.
+        let mut remaining = dimensions.len();
+        loop {
+            remaining = remaining.checked_sub(1)?;
+            let cursor = cell.position();
+            let arrival = (*self.field.arrivals.at(cell))?;
+            path.push(cursor);
+            match arrival.from {
+                Some(from) => {
+                    entry_costs.push(u64::from(self.field.entry.at(cell).points()?));
+                    cell = dimensions.cell(from.previous(cursor))?;
                 }
-            })
-            .collect::<Option<Vec<_>>>()?;
+                None => {
+                    entry_costs.push(0);
+                    break;
+                }
+            }
+        }
+        path.reverse();
+        entry_costs.reverse();
         Some(
             self.active
                 .movement_from_field(path, entry_costs)
-                .prepare_destination_with(&self.view),
+                .prepare_destination_with(maps),
         )
     }
 
@@ -352,6 +596,28 @@ impl<'a> PreparedMoveField<'a> {
     }
 }
 
+impl<'a> ActiveTurn<'a> {
+    /// The movement field for one of this turn's units.
+    ///
+    /// `Ok(None)` means the reducer would refuse to move the unit at all — it
+    /// is not this player's, not on the board, or has already acted — which is
+    /// an answer, not a fault.
+    ///
+    /// The field and every destination queried through it borrow the turn's
+    /// maps, so a caller walking a whole turn resolves the acting team's
+    /// sightings, unit positions and entry costs once rather than once per
+    /// unit.
+    pub fn move_field<'turn>(
+        &'turn self,
+        unit: UnitId,
+    ) -> Result<Option<PreparedMoveField<'a, &'turn TurnMaps<'a>>>, QueryError> {
+        let Ok(active) = self.unit(unit)? else {
+            return Ok(None);
+        };
+        PreparedMoveField::with_maps(active, self.maps()).map(Some)
+    }
+}
+
 /// Everywhere `unit` can move, under the rules the reducer would apply.
 ///
 /// The geometry is computed for the unit's own owner and team, so this answers
@@ -365,44 +631,52 @@ impl<'a> PreparedMoveField<'a> {
 /// execution instead. Removing it would leak the hidden unit.
 pub fn reachable(state: &State, unit: UnitId) -> Result<MoveField, QueryError> {
     let subject = lookup(state, unit)?;
+    let maps = TurnMaps::for_seat(state, subject.owner).ok_or(QueryError::UnknownOwner {
+        unit,
+        seat: subject.owner,
+    })?;
+    reachable_with(state, unit, &maps)
+}
+
+/// [`reachable`] against maps the caller already holds.
+///
+/// The search asks one question of every tile — what it costs to enter, and
+/// what it blocks — which is exactly what the maps hold. Passing them in is
+/// what stops a caller enumerating a whole turn from rebuilding the same
+/// tables once per unit.
+fn reachable_with(
+    state: &State,
+    unit: UnitId,
+    maps: &TurnMaps<'_>,
+) -> Result<MoveField, QueryError> {
+    let subject = lookup(state, unit)?;
     let Location::Board { position: origin } = subject.location else {
         return Err(QueryError::UnitNotOnBoard(unit));
     };
-    let team = state
-        .find_player(&subject.owner)
-        .map(|player| player.team.clone())
-        .ok_or_else(|| QueryError::UnknownOwner {
-            unit,
-            owner: subject.owner.clone(),
-        })?;
+
+    debug_assert_eq!(
+        subject.owner, maps.seat,
+        "a search must use the maps opened for the mover's own player"
+    );
 
     let profile = ruleset::profile(subject.kind);
     let allowance = commander::effective_move(state, subject, profile.movement, profile.domain);
-    let budget = allowance.min(subject.fuel);
-    let weather = commander::effective_weather(state, subject);
-    let (width, height) = (state.board.width(), state.board.height());
-    let occupancy = Occupancy::new(state, subject, &team);
+    let budget = allowance.min(subject.fuel).min(MAXIMUM_BUDGET);
+    let entry = Arc::clone(maps.entry_costs(profile.movement_class));
+    let blocking = Arc::clone(maps.blocking());
+    let dimensions = state.board.dimensions();
 
-    let mut entry_costs = Vec::with_capacity(usize::from(width) * usize::from(height));
-    let mut route_blocked = Vec::with_capacity(entry_costs.capacity());
-    for y in 0..height {
-        for x in 0..width {
-            let position = Pos::new(x, y);
-            entry_costs.push(entry_cost(state, subject, position, weather));
-            route_blocked.push(occupancy.blocks_route(position));
-        }
-    }
-
-    let mut steps: Vec<Option<Step>> = vec![None; usize::from(width) * usize::from(height)];
-    let index_of =
-        |position: Pos| usize::from(position.y) * usize::from(width) + usize::from(position.x);
-
-    steps[index_of(origin)] = Some(Step {
+    // The only board-sized thing a search allocates: everything else it needs
+    // is shared with the rest of the turn.
+    let mut arrivals = Grid::filled(state.board.dimensions(), None);
+    arrivals[origin] = Some(Arrival {
         cost: 0,
+        depth: 1,
         // A predeployed unit standing on a teleporter may leave but may not
-        // wait in place: the tile is traversable and cannot hold a unit at rest.
+        // wait in place: the tile is traversable and cannot hold a unit at
+        // rest. Nothing else can block the tile the mover already stands on.
         can_stop: !is_teleporter(state, origin),
-        previous: None,
+        from: None,
     });
 
     // Dial's algorithm uses the small integer movement allowance as its bucket
@@ -416,37 +690,46 @@ pub fn reachable(state: &State, unit: UnitId) -> Result<MoveField, QueryError> {
     buckets[0].push(origin);
     for current_cost in 0..bucket_count {
         while let Some(position) = buckets[current_cost].pop() {
-            if steps[index_of(position)].is_some_and(|step| step.cost != current_cost as u64) {
+            let settled = arrivals[position].expect("a bucket only holds a settled tile");
+            if usize::from(settled.cost) != current_cost {
                 continue;
             }
             // A disclosed enemy blocks the route through its tile. Allied
             // units may be crossed but remain invalid destinations.
-            if position != origin && occupancy.blocks_route(position) {
+            if position != origin && blocking[position].route {
                 continue;
             }
             for next in position.orthogonal() {
-                if next.x >= width || next.y >= height {
-                    continue;
-                }
-                let next_index = index_of(next);
-                let Some(entry) = entry_costs[next_index] else {
+                // One coordinate, three tables: what the tile costs to enter,
+                // whether it stops a route, and how the search arrived.
+                let Some(cell) = dimensions.cell(next) else {
                     continue;
                 };
-                let Some(total) = (current_cost as u64)
-                    .checked_add(entry)
+                let Some(cost) = entry.at(cell).points() else {
+                    continue;
+                };
+                let Some(total) = u64::from(settled.cost)
+                    .checked_add(u64::from(cost))
                     .filter(|total| *total <= budget)
                 else {
                     continue;
                 };
-                if steps[next_index].is_some_and(|step| step.cost <= total) {
+                let total = total as u16;
+                let arrival = arrivals.at_mut(cell);
+                if arrival.is_some_and(|arrival| arrival.cost <= total) {
                     continue;
                 }
-                steps[next_index] = Some(Step {
+                *arrival = Some(Arrival {
                     cost: total,
-                    can_stop: !is_teleporter(state, next) && !occupancy.blocks_stop(next),
-                    previous: Some(position),
+                    // This is a capacity hint and nothing reads it as a
+                    // length: a later cheaper route to the predecessor leaves
+                    // this stale, and a route longer than a byte saturates.
+                    // Either way the vector it sizes still grows correctly.
+                    depth: settled.depth.saturating_add(1),
+                    can_stop: !blocking.at(cell).stop,
+                    from: Some(Approach::of(next, position)),
                 });
-                buckets[usize::try_from(total).expect("a movement cost fits usize")].push(next);
+                buckets[usize::from(total)].push(next);
             }
         }
     }
@@ -454,11 +737,9 @@ pub fn reachable(state: &State, unit: UnitId) -> Result<MoveField, QueryError> {
     Ok(MoveField {
         unit,
         origin,
-        width,
-        height,
-        steps,
-        entry_costs,
-        route_blocked,
+        entry,
+        blocking,
+        arrivals,
         budget,
     })
 }
@@ -583,6 +864,19 @@ impl ObservedQuery {
     /// Compute the recipient-safe movement field for `unit`.
     pub fn reachable(&self, unit: UnitId) -> Result<MoveField, QueryError> {
         reachable(&self.state, unit)
+    }
+
+    /// Open the recipient's turn over this observation.
+    ///
+    /// `Ok(None)` means the recipient may not issue commands against this
+    /// observation at all. Enumerating several units wants this rather than
+    /// [`Self::prepared_reachable`], which resolves the recipient's sightings
+    /// and unit positions again for every unit.
+    pub fn turn(&self) -> Result<Option<ActiveTurn<'_>>, QueryError> {
+        if !self.may_command {
+            return Ok(None);
+        }
+        Ok(ActiveTurn::open(&self.state, &self.state.turn.active_player)?.ok())
     }
 
     /// Bind a movement field to a commandable unit in this observation.
@@ -782,13 +1076,14 @@ pub fn observed_forecasts(
         .units
         .index_of(unit)
         .ok_or(QueryError::UnitNotFound(unit))?;
-    let player = state.units[index].owner.clone();
+    let player = state.player_id(state.units[index].owner).clone();
+    let holdings = Holdings::tally(&state);
 
     Ok(targets
         .iter()
         .map(|target| {
             (!hidden_hp.contains(target))
-                .then(|| forecast_at(&state, &player, index, unit, from, *target))
+                .then(|| forecast_at(&state, &holdings, &player, index, unit, from, *target))
                 .flatten()
         })
         .collect())
@@ -797,6 +1092,7 @@ pub fn observed_forecasts(
 /// One target's forecast, dispatched on what is standing there.
 fn forecast_at(
     state: &State,
+    holdings: &Holdings<'_>,
     player: &PlayerId,
     index: usize,
     unit: UnitId,
@@ -808,8 +1104,10 @@ fn forecast_at(
         .iter()
         .find(|candidate| candidate.id != unit && board_position(candidate) == Some(target));
     match occupant {
-        Some(defender) => forecast_unit_attack(state, player, index, from, defender.id).ok(),
-        None => forecast_tile_attack(state, player, &state.units[index], from, target)
+        Some(defender) => {
+            forecast_unit_attack(state, holdings, player, index, from, defender.id).ok()
+        }
+        None => forecast_tile_attack(state, holdings, player, &state.units[index], from, target)
             .ok()
             .flatten(),
     }
@@ -833,10 +1131,9 @@ pub fn observed_unloads(
     let Location::Board { position } = subject.location else {
         return Err(QueryError::UnitNotOnBoard(transport));
     };
-    let player = subject.owner.clone();
-    let prepared_transport = match prepare_unload_transport(&state, &player, transport) {
-        Ok(PrepareUnloadTransportOutcome::Prepared(transport)) => transport,
-        Ok(PrepareUnloadTransportOutcome::Rejected(_)) | Err(_) => return Ok(Vec::new()),
+    let player = state.player_id(subject.owner).clone();
+    let Ok(Ok(prepared_transport)) = prepare_unload_transport(&state, &player, transport) else {
+        return Ok(Vec::new());
     };
     let mut orders = Vec::new();
     for candidate in state.units.iter().filter(|candidate| {
@@ -848,14 +1145,13 @@ pub fn observed_unloads(
             } if carried_by == transport
         )
     }) {
-        let prepared_cargo = match prepared_transport.clone().prepare_cargo(candidate.id) {
-            Ok(PrepareUnloadCargoOutcome::Prepared(cargo)) => cargo,
-            Ok(PrepareUnloadCargoOutcome::Rejected(_)) | Err(_) => continue,
+        let Ok(Ok(prepared_cargo)) = prepared_transport.clone().prepare_cargo(candidate.id) else {
+            continue;
         };
         for destination in position.orthogonal() {
             if matches!(
                 prepared_cargo.clone().prepare_destination(destination),
-                Ok(PrepareOutcome::Prepared(_))
+                Ok(Ok(_))
             ) {
                 orders.push(ObservedUnload {
                     cargo: candidate.id,
@@ -879,15 +1175,11 @@ pub fn observed_can_delete(observation: &Observation, unit: UnitId) -> Result<bo
     }
 
     let state = reify(observation)?;
-    let player = lookup(&state, unit)?.owner.clone();
-    let active = match prepare_active_unit(&state, &player, unit) {
-        Ok(PrepareActiveUnitOutcome::Prepared(active)) => active,
-        Ok(PrepareActiveUnitOutcome::Rejected(_)) | Err(_) => return Ok(false),
+    let player = state.player_id(lookup(&state, unit)?.owner).clone();
+    let Ok(Ok(active)) = prepare_active_unit(&state, &player, unit) else {
+        return Ok(false);
     };
-    Ok(matches!(
-        active.prepare_delete(),
-        Ok(PrepareOutcome::Prepared(_))
-    ))
+    Ok(matches!(active.prepare_delete(), Ok(Ok(_))))
 }
 
 /// Restate an [`ActionSet`]'s targets as the positions its units occupy.
@@ -956,14 +1248,36 @@ pub fn by_position(state: &State, actions: ActionSet) -> ObservedActionSet {
 /// synthetic ids above every real one, which keeps them distinguishable to the
 /// reducer without colliding with a friendly unit's id.
 pub fn reify(observation: &Observation) -> Result<State, QueryError> {
-    let board = crate::semantic::Board::new(
+    // The roster is built first: the board's tiles name a seat in it.
+    let players =
+        crate::semantic::Roster::new(observation.players.iter().map(reified_player).collect())
+            .map_err(|_| {
+                QueryError::Unprojectable("its roster holds more players than a seat can name")
+            })?;
+    let mut board = crate::semantic::Board::new(
         observation.board.width(),
         observation.board.height(),
-        board_tiles(observation),
+        board_tiles(observation, &players)?,
     )
     .map_err(|_| QueryError::Unprojectable("its board is not a whole rectangle"))?;
+    board.set_rare_states(
+        observation
+            .board
+            .iter()
+            .filter_map(|(position, observed)| {
+                let state = crate::semantic::RareTileState {
+                    destructible_hp: observed.destructible_hp(),
+                    teleporter: observed.teleporter().cloned(),
+                    // A projection carries no trait state, so a reified board
+                    // has none either.
+                    trait_state: None,
+                };
+                (!state.is_empty()).then_some((position, state))
+            })
+            .collect(),
+    );
 
-    let units = crate::semantic::UnitStore::new(reified_units(observation))
+    let units = crate::semantic::UnitStore::new(reified_units(observation, &players)?)
         .map_err(|_| QueryError::Unprojectable("it names one unit twice"))?;
 
     Ok(State {
@@ -971,7 +1285,7 @@ pub fn reify(observation: &Observation) -> Result<State, QueryError> {
         settings: observation.settings.clone(),
         board,
         teams: observation.teams.clone(),
-        players: observation.players.iter().map(reified_player).collect(),
+        players,
         turn: observation.turn.clone(),
         weather: observation.weather.clone(),
         units,
@@ -987,7 +1301,10 @@ pub fn reify(observation: &Observation) -> Result<State, QueryError> {
     })
 }
 
-fn board_tiles(observation: &Observation) -> Vec<crate::semantic::Tile> {
+fn board_tiles(
+    observation: &Observation,
+    players: &[crate::semantic::Player],
+) -> Result<Vec<crate::semantic::Tile>, QueryError> {
     let mut tiles = Vec::with_capacity(
         usize::from(observation.board.width()) * usize::from(observation.board.height()),
     );
@@ -995,15 +1312,29 @@ fn board_tiles(observation: &Observation) -> Vec<crate::semantic::Tile> {
         for x in 0..observation.board.width() {
             let observed = observation.board.tile(Pos::new(x, y));
             let mut tile = crate::semantic::Tile::new(observed.terrain);
-            tile.owner = observed.owner.clone();
+            // The projection names its holder; the state it is reified into
+            // stores the seat that name sits in.
+            tile.owner = match observed.owner.player() {
+                Some(name) => {
+                    let seat = players
+                        .iter()
+                        .position(|player| player.id == *name)
+                        .and_then(|seat| u8::try_from(seat).ok())
+                        .map(crate::semantic::PlayerIdx::from_seat)
+                        .ok_or(QueryError::Unprojectable(
+                            "a tile names a holder its roster does not hold",
+                        ))?;
+                    crate::semantic::TileOwner::Owned(seat)
+                }
+                None if observed.owner.is_ownable() => crate::semantic::TileOwner::Neutral,
+                None => crate::semantic::TileOwner::NotOwnable,
+            };
             tile.capture_points = observed.capture_points;
             tile.silo = observed.silo;
-            tile.set_destructible_hp(observed.destructible_hp());
-            tile.set_teleporter(observed.teleporter().cloned());
             tiles.push(tile);
         }
     }
-    tiles
+    Ok(tiles)
 }
 
 /// An opponent's private state is unknown, so it is filled with the reading
@@ -1053,7 +1384,10 @@ fn reified_player(player: &ObservedPlayer) -> crate::semantic::Player {
     }
 }
 
-fn reified_units(observation: &Observation) -> Vec<Unit> {
+fn reified_units(
+    observation: &Observation,
+    players: &[crate::semantic::Player],
+) -> Result<Vec<Unit>, QueryError> {
     let mut next_synthetic = observation
         .units
         .iter()
@@ -1092,18 +1426,28 @@ fn reified_units(observation: &Observation) -> Vec<Unit> {
                 Location::Board { .. } => true,
             }
         })
-        .map(|(observed, id)| Unit {
-            id: *id,
-            kind: observed.kind,
-            owner: observed.owner.clone(),
-            // Hidden enemy HP does not affect movement or whether it can be
-            // targeted. Forecasts for these synthetic values are suppressed.
-            hp: observed.hp.exact().unwrap_or(100),
-            fuel: observed.fuel,
-            ammo: observed.ammo,
-            action: observed.action,
-            concealment: observed.concealment,
-            location: observed.location.clone(),
+        .map(|(observed, id)| {
+            let owner = players
+                .iter()
+                .position(|player| player.id == observed.owner)
+                .and_then(|seat| u8::try_from(seat).ok())
+                .map(PlayerIdx::from_seat)
+                .ok_or(QueryError::Unprojectable(
+                    "a unit names an owner its roster does not hold",
+                ))?;
+            Ok(Unit {
+                id: *id,
+                kind: observed.kind,
+                owner,
+                // Hidden enemy HP does not affect movement or whether it can be
+                // targeted. Forecasts for these synthetic values are suppressed.
+                hp: observed.hp.exact().unwrap_or(100),
+                fuel: observed.fuel,
+                ammo: observed.ammo,
+                action: observed.action,
+                concealment: observed.concealment,
+                location: observed.location,
+            })
         })
         .collect()
 }
@@ -1127,15 +1471,14 @@ fn prepared_move_field(
     if !matches!(subject.location, Location::Board { .. }) {
         return Err(QueryError::UnitNotOnBoard(unit));
     }
-    if state.find_player(&subject.owner).is_none() {
-        return Err(QueryError::UnknownOwner {
+    let owner = state
+        .try_player_id(subject.owner)
+        .ok_or(QueryError::UnknownOwner {
             unit,
-            owner: subject.owner.clone(),
-        });
-    }
-    let active = match prepare_active_unit(state, &subject.owner, unit)? {
-        PrepareActiveUnitOutcome::Prepared(active) => active,
-        PrepareActiveUnitOutcome::Rejected(_) => return Ok(None),
+            seat: subject.owner,
+        })?;
+    let Ok(active) = prepare_active_unit(state, owner, unit)? else {
+        return Ok(None);
     };
     PreparedMoveField::new(active).map(Some)
 }
@@ -1154,11 +1497,15 @@ pub fn actions_for_path(
     if !matches!(subject.location, Location::Board { .. }) {
         return Err(QueryError::UnitNotOnBoard(unit));
     }
-    let player = subject.owner.clone();
-    let movement = match prepare_movement(state, &player, unit, path) {
-        Ok(PrepareMovementOutcome::Prepared(movement)) => movement,
-        Ok(PrepareMovementOutcome::Rejected(_)) => return Ok(ActionSet::default()),
-        Err(error) => return Err(error.into()),
+    let player = state
+        .try_player_id(subject.owner)
+        .ok_or(QueryError::UnknownOwner {
+            unit,
+            seat: subject.owner,
+        })?
+        .clone();
+    let Ok(movement) = prepare_movement(state, &player, unit, path)? else {
+        return Ok(ActionSet::default());
     };
     actions_for_movement(movement)
 }
@@ -1169,48 +1516,41 @@ fn actions_for_movement(
     actions_for_destination(movement.prepare_destination())
 }
 
-fn actions_for_destination<'a, V>(
-    destination: PreparedDestination<'a, V>,
+fn actions_for_destination<'a, M>(
+    destination: PreparedDestination<'a, M>,
 ) -> Result<ActionSet, QueryError>
 where
-    V: Borrow<AwbwView<'a>>,
+    M: Borrow<TurnMaps<'a>>,
 {
     let movement = destination.movement();
-    let state = movement.state();
     let position = movement.plan().destination();
-    let occupant = occupant(state, position);
-    let join = occupant.is_some_and(|target| destination.can_join(target).unwrap_or(false));
-    let load = occupant.is_some_and(|transport| destination.can_load(transport).unwrap_or(false));
-    let attack = attack_targets_for_destination(&destination)?;
-    let repair = repair_targets(&destination);
-    let launch = launch_targets(&destination);
-    let wait = destination.can_wait().unwrap_or(false);
-    let capture = destination.can_capture().unwrap_or(false);
-    let supply = destination.can_supply().unwrap_or(false);
-    let hide = destination.can_hide().unwrap_or(false);
-    let reveal = destination.can_reveal().unwrap_or(false);
-    let explode = destination.can_explode().unwrap_or(false);
-
+    let occupant = destination.view().occupant(position);
     Ok(ActionSet {
-        wait,
-        capture,
-        supply,
-        hide,
-        reveal,
-        explode,
-        join,
-        load,
-        attack,
-        repair,
-        launch,
+        wait: destination.can_wait()?,
+        capture: destination.can_capture()?,
+        supply: destination.can_supply()?,
+        hide: destination.can_hide()?,
+        reveal: destination.can_reveal()?,
+        explode: destination.can_explode()?,
+        join: match occupant {
+            Some(target) => destination.can_join(target)?,
+            None => false,
+        },
+        load: match occupant {
+            Some(transport) => destination.can_load(transport)?,
+            None => false,
+        },
+        attack: attack_targets_for_destination(&destination)?,
+        repair: repair_targets(&destination)?,
+        launch: launch_targets(&destination)?,
     })
 }
 
-fn attack_targets_for_destination<'a, V>(
-    destination: &PreparedDestination<'a, V>,
+fn attack_targets_for_destination<'a, M>(
+    destination: &PreparedDestination<'a, M>,
 ) -> Result<Vec<AttackTarget>, QueryError>
 where
-    V: Borrow<AwbwView<'a>>,
+    M: Borrow<TurnMaps<'a>>,
 {
     let movement = destination.movement();
     let state = movement.state();
@@ -1240,49 +1580,68 @@ where
         let distance = from.distance(position);
         distance >= minimum && distance <= maximum
     };
-    let accepts = |target: AttackTarget| destination.can_attack(target).unwrap_or(false);
-
-    let mut targets = Vec::new();
-    for candidate in state.units.iter() {
-        let Location::Board { position } = candidate.location else {
-            continue;
-        };
-        if candidate.id == unit || !in_range(position) {
-            continue;
-        }
-        let target = AttackTarget::Unit { unit: candidate.id };
-        if accepts(target) {
-            targets.push(target);
-        }
-    }
+    // Walk the tiles the range covers, not the roster: the occupancy index
+    // names whoever stands on each one, so the cost follows the weapon range
+    // instead of the size of the army.
     let radius = u8::try_from(maximum).unwrap_or(u8::MAX);
     let minimum_x = from.x.saturating_sub(radius);
     let maximum_x = from.x.saturating_add(radius).min(state.board.width() - 1);
     let minimum_y = from.y.saturating_sub(radius);
     let maximum_y = from.y.saturating_add(radius).min(state.board.height() - 1);
+    let mut units: Vec<UnitId> = Vec::new();
+    let mut tiles: Vec<Pos> = Vec::new();
+    let dimensions = state.board.dimensions();
     for y in minimum_y..=maximum_y {
         for x in minimum_x..=maximum_x {
             let position = Pos::new(x, y);
-            if !in_range(position)
-                || ruleset::terrain(state.board.tile(position).terrain)
-                    .destructible
-                    .is_none()
-            {
+            if !in_range(position) {
                 continue;
             }
-            let target = AttackTarget::Tile { position };
-            if accepts(target) {
-                targets.push(target);
+            // The box is clamped to the board, so every tile in it has a cell.
+            // Both questions below are about that one tile, so the coordinate
+            // is resolved once and each table read with the answer.
+            let Some(cell) = dimensions.cell(position) else {
+                continue;
+            };
+            // The index names the occupant whether or not this team sees it,
+            // which is what the roster walk did; `can_attack` refuses the
+            // ones the team may not fire at.
+            if let Some(candidate) = destination.view().occupant_at(cell)
+                && candidate != unit
+                && destination.can_attack(AttackTarget::Unit { unit: candidate })?
+            {
+                units.push(candidate);
+            }
+            if ruleset::terrain(state.board.at(cell).terrain)
+                .destructible
+                .is_some()
+                && destination.can_attack(AttackTarget::Tile { position })?
+            {
+                tiles.push(position);
             }
         }
     }
+    // The walk finds units in board order; report them by id, so the list does
+    // not depend on where the mover stopped.
+    units.sort_unstable();
+    let mut targets: Vec<AttackTarget> = units
+        .into_iter()
+        .map(|unit| AttackTarget::Unit { unit })
+        .collect();
+    targets.extend(
+        tiles
+            .into_iter()
+            .map(|position| AttackTarget::Tile { position }),
+    );
     Ok(targets)
 }
 
 /// Friendly units `unit` may repair after moving along `path`.
-fn repair_targets<'a, V>(destination: &PreparedDestination<'a, V>) -> Vec<UnitId>
+fn repair_targets<'a, M>(
+    destination: &PreparedDestination<'a, M>,
+) -> Result<Vec<UnitId>, QueryError>
 where
-    V: Borrow<AwbwView<'a>>,
+    M: Borrow<TurnMaps<'a>>,
 {
     let movement = destination.movement();
     let state = movement.state();
@@ -1292,29 +1651,29 @@ where
         .get(unit)
         .and_then(|unit| ruleset::profile(unit.kind).repair)
     else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     if repair.relation != ruleset::Relation::Adjacent {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let from = movement.plan().destination();
-    state
-        .units
-        .iter()
-        .filter(|candidate| candidate.id != unit)
-        .filter(|candidate| {
-            matches!(candidate.location, Location::Board { position }
-                if from.distance(position) == 1)
-        })
-        .map(|candidate| candidate.id)
-        .filter(|target| destination.can_repair(*target).unwrap_or(false))
-        .collect()
+    let mut targets = Vec::new();
+    for candidate in from
+        .orthogonal()
+        .filter_map(|position| destination.view().occupant(position))
+        .filter(|candidate| *candidate != unit)
+    {
+        if destination.can_repair(candidate)? {
+            targets.push(candidate);
+        }
+    }
+    Ok(targets)
 }
 
 /// Every tile a silo under the end of `path` may be fired at.
-fn launch_targets<'a, V>(destination: &PreparedDestination<'a, V>) -> Vec<Pos>
+fn launch_targets<'a, M>(destination: &PreparedDestination<'a, M>) -> Result<Vec<Pos>, QueryError>
 where
-    V: Borrow<AwbwView<'a>>,
+    M: Borrow<TurnMaps<'a>>,
 {
     let movement = destination.movement();
     let state = movement.state();
@@ -1326,13 +1685,15 @@ where
         .get(position)
         .is_none_or(|tile| tile.silo.is_none())
     {
-        return Vec::new();
+        return Ok(Vec::new());
     }
-    state
-        .board
-        .positions()
-        .filter(|target| destination.can_launch(*target).unwrap_or(false))
-        .collect()
+    let mut targets = Vec::new();
+    for target in state.board.positions() {
+        if destination.can_launch(target)? {
+            targets.push(target);
+        }
+    }
+    Ok(targets)
 }
 
 /// Which unit kinds `player` may produce at `position` right now.
@@ -1340,19 +1701,13 @@ where
 /// A production site is a tile rather than a unit, so it has no reachable set
 /// and no [`ActionSet`]; this is the same question asked of one.
 pub fn production_options(state: &State, player: &PlayerId, position: Pos) -> Vec<UnitKindId> {
-    let site = match prepare_production_site(state, player, position) {
-        Ok(PrepareProductionSiteOutcome::Prepared(site)) => site,
-        Ok(PrepareProductionSiteOutcome::Rejected(_)) | Err(_) => return Vec::new(),
+    let Ok(Ok(site)) = prepare_production_site(state, player, position) else {
+        return Vec::new();
     };
     UnitKindId::ALL
         .iter()
         .copied()
-        .filter(|kind| {
-            matches!(
-                site.clone().prepare_kind(*kind),
-                Ok(PrepareOutcome::Prepared(_))
-            )
-        })
+        .filter(|kind| matches!(site.clone().prepare_kind(*kind), Ok(Ok(_))))
         .collect()
 }
 
@@ -1468,76 +1823,27 @@ pub fn observed_production_options(
     options.into_iter().map(|(_, option)| option).collect()
 }
 
-/// Which tiles have disclosed occupants that block stopping or traversal.
-struct Occupancy {
-    stop: Vec<bool>,
-    route: Vec<bool>,
-    width: u8,
-}
-
-impl Occupancy {
-    fn new(state: &State, mover: &Unit, team: &TeamId) -> Self {
-        let width = state.board.width();
-        let size = usize::from(width) * usize::from(state.board.height());
-        let mut stop = vec![false; size];
-        let mut route = vec![false; size];
-        let view = AwbwVisibility.view(state, team);
-        for unit in state.units.iter() {
-            if unit.id == mover.id {
-                continue;
-            }
-            let Location::Board { position } = unit.location else {
-                continue;
-            };
-            if state.board.contains(position) && view.unit(unit) {
-                let index = usize::from(position.y) * usize::from(width) + usize::from(position.x);
-                stop[index] = true;
-                route[index] = state
-                    .find_player(&unit.owner)
-                    .is_some_and(|owner| owner.team != *team);
-            }
-        }
-        Self { stop, route, width }
-    }
-
-    fn index(&self, position: Pos) -> usize {
-        usize::from(position.y) * usize::from(self.width) + usize::from(position.x)
-    }
-
-    fn blocks_stop(&self, position: Pos) -> bool {
-        self.stop[self.index(position)]
-    }
-
-    fn blocks_route(&self, position: Pos) -> bool {
-        self.route[self.index(position)]
-    }
-}
-
 /// What entering `position` costs this unit, or `None` when it cannot.
-fn entry_cost(state: &State, unit: &Unit, position: Pos, weather: WeatherKind) -> Option<u64> {
+fn entry_cost(
+    state: &State,
+    owner: PlayerIdx,
+    class: MovementClass,
+    position: Pos,
+    weather: WeatherKind,
+) -> Option<u64> {
     let terrain = state.board.tile(position).terrain;
-    let base = ruleset::movement_cost(terrain, weather, ruleset::profile(unit.kind).movement_class);
+    let base = ruleset::movement_cost(terrain, weather, class);
     // A teleporter's zero is terrain behaviour, not a finite cost for the
     // commander cost-set operators to replace (`spec/semantics/movement.md`).
     if ruleset::terrain_has(terrain, TerrainTrait::Teleporter) {
         base
     } else {
-        commander::effective_movement_cost(state, unit, base)
+        commander::player_movement_cost(state, owner, base)
     }
 }
 
 fn is_teleporter(state: &State, position: Pos) -> bool {
     ruleset::terrain_has(state.board.tile(position).terrain, TerrainTrait::Teleporter)
-}
-
-fn occupant(state: &State, position: Pos) -> Option<UnitId> {
-    state
-        .units
-        .iter()
-        .find(
-            |unit| matches!(unit.location, Location::Board { position: held } if held == position),
-        )
-        .map(|unit| unit.id)
 }
 
 fn lookup(state: &State, unit: UnitId) -> Result<&Unit, QueryError> {

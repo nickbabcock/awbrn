@@ -184,8 +184,8 @@ fn viewpoint_selects_visible_or_hidden_graphical_hp() {
     let opponent = PlayerId::from("2");
     state.players[0].id = sonja.clone();
     state.players[1].id = opponent.clone();
-    state.units[0].owner = sonja.clone();
-    state.units[1].owner = opponent.clone();
+    state.units[0].owner = state.player_index(&sonja).unwrap();
+    state.units[1].owner = state.player_index(&opponent).unwrap();
     state.turn.active_player = sonja.clone();
     state.turn.order = vec![sonja.clone(), opponent.clone()];
 

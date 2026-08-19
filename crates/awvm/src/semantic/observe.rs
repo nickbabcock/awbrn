@@ -15,9 +15,10 @@ use crate::commander::AreaStrikePolicy;
 use crate::event::{AttackTarget, Event, ObservedReason, PublicEventKind};
 
 use super::{
-    BoardShapeError, Commander, Concealment, Location, Match, Outcome, PlayerId, PlayerStatus, Pos,
-    PowerState, RareTileState, RulesetRef, Settings, Silo, State, Team, TeamId, TeleporterId,
-    TerrainId, TileOwner, TraitId, Turn, Unit, UnitAction, UnitId, Viewpoint, Visibility, Weather,
+    BoardShapeError, Commander, Concealment, Location, Match, Outcome, PlayerId, PlayerIdx,
+    PlayerStatus, Pos, PowerState, RareTileState, RulesetRef, Settings, Silo, State, Team, TeamId,
+    TeleporterId, TerrainId, TileOwner, TraitId, Turn, Unit, UnitAction, UnitId, Viewpoint,
+    Visibility, Weather,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -225,10 +226,59 @@ impl<'de> Deserialize<'de> for ObservedBoard {
 pub struct ObservedTile {
     pub terrain: TerrainId,
     pub visibility: TileVisibility,
-    pub owner: TileOwner,
+    pub owner: ObservedTileOwner,
     pub capture_points: Option<u8>,
     pub silo: Option<Silo>,
     rare: Option<Box<RareTileState>>,
+}
+
+/// Who holds a tile, as a projection spells it.
+///
+/// [`super::TileOwner`] names a seat on the state's roster, because the state
+/// is copied once per command and a name is an allocation. A projection is a
+/// message: it is built once per recipient, it travels, and the recipient has
+/// no roster to resolve a seat against. So this one carries the name.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum ObservedTileOwner {
+    /// The terrain is not a property. Serializes by being absent.
+    #[default]
+    NotOwnable,
+    /// A property nobody holds.
+    Neutral,
+    Owned(PlayerId),
+}
+
+impl ObservedTileOwner {
+    pub const fn is_not_ownable(&self) -> bool {
+        matches!(self, Self::NotOwnable)
+    }
+
+    /// Whether this is a property, held or not.
+    pub const fn is_ownable(&self) -> bool {
+        !self.is_not_ownable()
+    }
+
+    /// The holder, if there is one.
+    pub const fn player(&self) -> Option<&PlayerId> {
+        match self {
+            Self::Owned(player) => Some(player),
+            Self::NotOwnable | Self::Neutral => None,
+        }
+    }
+
+    pub fn is_owned_by(&self, player: &PlayerId) -> bool {
+        self.player().is_some_and(|held| held == player)
+    }
+
+    /// The holder as the wire spells it for an ownable tile: `null` or an id.
+    pub fn to_optional(&self) -> Option<PlayerId> {
+        self.player().cloned()
+    }
+
+    /// An ownable tile's holder, from the `null`-or-id the wire carries.
+    pub fn ownable(player: Option<PlayerId>) -> Self {
+        player.map_or(Self::Neutral, Self::Owned)
+    }
 }
 
 impl ObservedTile {
@@ -293,9 +343,11 @@ impl From<&ObservedTile> for ObservedTileWire {
             terrain: tile.terrain,
             visibility: tile.visibility,
             owner: match &tile.owner {
-                TileOwner::NotOwnable => None,
-                TileOwner::Neutral => Some(ObservedTileOwnerWire::Neutral(())),
-                TileOwner::Owned(player) => Some(ObservedTileOwnerWire::Owned(player.clone())),
+                ObservedTileOwner::NotOwnable => None,
+                ObservedTileOwner::Neutral => Some(ObservedTileOwnerWire::Neutral(())),
+                ObservedTileOwner::Owned(player) => {
+                    Some(ObservedTileOwnerWire::Owned(player.clone()))
+                }
             },
             capture_points: tile.capture_points,
             silo: tile.silo,
@@ -317,9 +369,9 @@ impl From<ObservedTileWire> for ObservedTile {
             terrain: wire.terrain,
             visibility: wire.visibility,
             owner: match wire.owner {
-                None => TileOwner::NotOwnable,
-                Some(ObservedTileOwnerWire::Neutral(())) => TileOwner::Neutral,
-                Some(ObservedTileOwnerWire::Owned(player)) => TileOwner::Owned(player),
+                None => ObservedTileOwner::NotOwnable,
+                Some(ObservedTileOwnerWire::Neutral(())) => ObservedTileOwner::Neutral,
+                Some(ObservedTileOwnerWire::Owned(player)) => ObservedTileOwner::Owned(player),
             },
             capture_points: wire.capture_points,
             silo: wire.silo,
@@ -504,8 +556,12 @@ pub struct ObservedTransition {
 pub enum ObserveError {
     #[error("UnknownRecipient({0:?})")]
     UnknownRecipient(PlayerId),
-    #[error("UnknownUnitOwner({0:?})")]
-    UnknownUnitOwner(PlayerId),
+    #[error("UnitOwnerOffTheRoster({:?})", .0.get())]
+    UnitOwnerOffTheRoster(PlayerIdx),
+    /// A tile names a seat the roster does not hold. The same disagreement a
+    /// unit's owner can carry, on the board instead of the army.
+    #[error("TileOwnerOffTheRoster({:?})", .0.get())]
+    TileOwnerOffTheRoster(PlayerIdx),
     /// An event names a unit that is in neither the prior nor the next state.
     /// The three inputs are supplied independently over the protocol, so they
     /// can disagree; a typed event cannot fail to decode, but it can still
@@ -581,8 +637,8 @@ fn transition_projection<'a, R: Visibility>(
     // a full post-observation.
     for candidate in [state, next_state] {
         for unit in &candidate.units {
-            if candidate.find_player(&unit.owner).is_none() {
-                return Err(ObserveError::UnknownUnitOwner(unit.owner.clone()));
+            if candidate.players.get(unit.owner.get()).is_none() {
+                return Err(ObserveError::UnitOwnerOffTheRoster(unit.owner));
             }
         }
     }
@@ -602,6 +658,13 @@ fn transition_projection<'a, R: Visibility>(
         .filter(|player| player.team == team)
         .map(|player| &player.id)
         .collect();
+    let teammate_seats: Vec<PlayerIdx> = state
+        .players
+        .iter()
+        .enumerate()
+        .filter(|(_, player)| player.team == team)
+        .filter_map(|(seat, _)| u8::try_from(seat).ok().map(PlayerIdx::from_seat))
+        .collect();
     Ok(Projection {
         pre_view,
         post_view,
@@ -611,6 +674,7 @@ fn transition_projection<'a, R: Visibility>(
         recipient,
         team,
         teammates,
+        teammate_seats,
         appeared: HashSet::new(),
         disappeared: HashSet::new(),
         engagements: HashSet::new(),
@@ -631,14 +695,12 @@ fn project_state(
     recipient: &PlayerId,
     team: &TeamId,
 ) -> Result<Observation, ObserveError> {
-    let owners: HashMap<&PlayerId, &TeamId> =
-        state.players.iter().map(|p| (&p.id, &p.team)).collect();
     let tiles = state
         .board
         .rows()
         .flatten()
-        .map(|(position, t)| projected_tile(view, position, t))
-        .collect();
+        .map(|(position, t)| projected_tile(view, &state.board, &state.players, position, t))
+        .collect::<Result<Vec<_>, ObserveError>>()?;
     let players = state
         .players
         .iter()
@@ -646,9 +708,11 @@ fn project_state(
         .collect();
     let mut units = Vec::new();
     for u in &state.units {
-        let owner_team = *owners
-            .get(&u.owner)
-            .ok_or_else(|| ObserveError::UnknownUnitOwner(u.owner.clone()))?;
+        let owner = state
+            .players
+            .get(u.owner.get())
+            .ok_or(ObserveError::UnitOwnerOffTheRoster(u.owner))?;
+        let owner_team = &owner.team;
         // A viewpoint already reports a teammate's unit as visible wherever it
         // is, including inside a transport, and an opponent's cargo as hidden.
         if view.unit(u) {
@@ -656,7 +720,8 @@ fn project_state(
             units.push(observed_unit_snapshot(
                 u,
                 friendly,
-                friendly || !commander::hides_hp(state, &u.owner),
+                friendly || !commander::hides_hp(state, Some(u.owner)),
+                &owner.id,
             ));
         }
     }
@@ -665,7 +730,11 @@ fn project_state(
         Match::Active { draw_offers } => {
             let mut offers: Vec<_> = draw_offers
                 .iter()
-                .filter(|id| owners.get(id).is_some_and(|t| *t == team))
+                .filter(|id| {
+                    state
+                        .find_player(id)
+                        .is_some_and(|player| player.team == team)
+                })
                 .cloned()
                 .collect();
             offers.sort();
@@ -692,16 +761,45 @@ fn project_state(
     })
 }
 
-fn projected_tile(view: &impl Viewpoint, position: Pos, tile: &super::Tile) -> ObservedTile {
+/// Name the holder a tile records as a seat.
+///
+/// The state stores a seat because it is copied once per command; a projection
+/// stores the name because it travels to a recipient with no roster.
+fn observed_owner(
+    owner: TileOwner,
+    players: &[super::Player],
+) -> Result<ObservedTileOwner, ObserveError> {
+    match owner {
+        TileOwner::NotOwnable => Ok(ObservedTileOwner::NotOwnable),
+        TileOwner::Neutral => Ok(ObservedTileOwner::Neutral),
+        TileOwner::Owned(seat) => players
+            .get(seat.get())
+            .map(|player| ObservedTileOwner::Owned(player.id.clone()))
+            .ok_or(ObserveError::TileOwnerOffTheRoster(seat)),
+    }
+}
+
+fn projected_tile(
+    view: &impl Viewpoint,
+    board: &super::Board,
+    players: &[super::Player],
+    position: Pos,
+    tile: &super::Tile,
+) -> Result<ObservedTile, ObserveError> {
     let visible = view.position(position);
     // A teleporter pairing is disclosed even through fog; the rest of a
     // tile's rare state is not.
+    let source = board.rare_state(position);
     let rare = RareTileState {
-        destructible_hp: visible.then_some(tile.destructible_hp()).flatten(),
-        teleporter: tile.teleporter().cloned(),
-        trait_state: visible.then(|| tile.trait_state().cloned()).flatten(),
+        destructible_hp: visible
+            .then(|| source.and_then(|rare| rare.destructible_hp))
+            .flatten(),
+        teleporter: source.and_then(|rare| rare.teleporter.clone()),
+        trait_state: visible
+            .then(|| source.and_then(|rare| rare.trait_state.clone()))
+            .flatten(),
     };
-    ObservedTile {
+    Ok(ObservedTile {
         terrain: tile.terrain,
         visibility: if visible {
             TileVisibility::Visible
@@ -709,14 +807,14 @@ fn projected_tile(view: &impl Viewpoint, position: Pos, tile: &super::Tile) -> O
             TileVisibility::Fogged
         },
         owner: if visible {
-            tile.owner.clone()
+            observed_owner(tile.owner, players)?
         } else {
-            TileOwner::NotOwnable
+            ObservedTileOwner::NotOwnable
         },
         capture_points: visible.then_some(tile.capture_points).flatten(),
         silo: visible.then_some(tile.silo).flatten(),
         rare: (!rare.is_empty()).then(|| Box::new(rare)),
-    }
+    })
 }
 
 fn projected_player(player: &super::Player, recipient: &PlayerId, team: &TeamId) -> ObservedPlayer {
@@ -774,6 +872,8 @@ struct Projection<'a, V: Viewpoint> {
     team: &'a TeamId,
     /// The recipient's own team. Short enough that a scan beats hashing.
     teammates: Vec<&'a PlayerId>,
+    /// The same team, by seat, for the units that name their owner that way.
+    teammate_seats: Vec<PlayerIdx>,
     /// Appearances and disappearances already announced, so that several events
     /// about one unit produce at most one of each.
     appeared: HashSet<UnitId>,
@@ -787,6 +887,11 @@ struct Projection<'a, V: Viewpoint> {
 impl<V: Viewpoint> Projection<'_, V> {
     fn owns(&self, player: &PlayerId) -> bool {
         self.teammates.contains(&player)
+    }
+
+    /// The same question a unit asks, which names its owner by seat.
+    fn owns_seat(&self, seat: PlayerIdx) -> bool {
+        self.teammate_seats.contains(&seat)
     }
 
     fn visible_pre(&self, id: UnitId) -> bool {
@@ -838,7 +943,7 @@ impl<V: Viewpoint> Projection<'_, V> {
                         .state
                         .units
                         .get(id)
-                        .is_some_and(|unit| self.owns(&unit.owner))
+                        .is_some_and(|unit| self.owns_seat(unit.owner))
                     {
                         self.output.push(ObservedEvent::MovementStopped {
                             unit: ObservedUnitRef::Friendly { unit: id },
@@ -852,7 +957,7 @@ impl<V: Viewpoint> Projection<'_, V> {
                     if self.visible_post(id)
                         && let Some(unit) = self.next_state.units.get(id)
                     {
-                        let friendly = self.owns(&unit.owner);
+                        let friendly = self.owns_seat(unit.owner);
                         self.push_appeared(unit, *position, friendly);
                     }
                 }
@@ -864,7 +969,7 @@ impl<V: Viewpoint> Projection<'_, V> {
                 Event::UnitLoaded { unit: id, .. } => {
                     let id = *id;
                     let unit = self.state.units.get(id);
-                    if unit.is_some_and(|unit| self.owns(&unit.owner)) {
+                    if unit.is_some_and(|unit| self.owns_seat(unit.owner)) {
                         self.unit_fact(id, reason);
                     } else if self.visible_pre(id)
                         && let Some(position) = unit.and_then(board_position)
@@ -877,7 +982,7 @@ impl<V: Viewpoint> Projection<'_, V> {
                 } => {
                     let id = *id;
                     let unit = self.next_state.units.get(id);
-                    if unit.is_some_and(|unit| self.owns(&unit.owner)) {
+                    if unit.is_some_and(|unit| self.owns_seat(unit.owner)) {
                         self.unit_fact(id, reason);
                     } else if self.visible_post(id)
                         && let Some(unit) = unit
@@ -896,12 +1001,14 @@ impl<V: Viewpoint> Projection<'_, V> {
                             || {
                                 projected_tile(
                                     &self.post_view,
+                                    &self.next_state.board,
+                                    &self.next_state.players,
                                     position,
                                     self.next_state.board.tile(position),
                                 )
                             },
-                            |post| post.board.tile(position).clone(),
-                        );
+                            |post| Ok(post.board.tile(position).clone()),
+                        )?;
                         self.output.push(ObservedEvent::TileChanged {
                             position,
                             tile,
@@ -1013,7 +1120,7 @@ impl<V: Viewpoint> Projection<'_, V> {
             .get(id)
             .or_else(|| self.state.units.get(id))
             .ok_or(ObserveError::UnknownUnit(id))?;
-        if self.owns(&unit.owner) {
+        if self.owns_seat(unit.owner) {
             return Ok(Some(ObservedUnitRef::Friendly { unit: id }));
         }
         let position = self
@@ -1053,11 +1160,12 @@ impl<V: Viewpoint> Projection<'_, V> {
         };
         match (self.visible_pre(id), self.visible_post(id)) {
             (true, true) => {
-                let friendly = self.owns(&unit.owner);
+                let friendly = self.owns_seat(unit.owner);
                 let snapshot = observed_unit_snapshot(
                     unit,
                     friendly,
-                    friendly || !commander::hides_hp(self.next_state, &unit.owner),
+                    friendly || !commander::hides_hp(self.next_state, Some(unit.owner)),
+                    self.next_state.player_id(unit.owner),
                 );
                 self.output.push(ObservedEvent::UnitChanged {
                     unit: snapshot.reference,
@@ -1067,7 +1175,7 @@ impl<V: Viewpoint> Projection<'_, V> {
             }
             (false, true) => {
                 if let Some(position) = board_position(unit) {
-                    let friendly = self.owns(&unit.owner);
+                    let friendly = self.owns_seat(unit.owner);
                     self.push_appeared(unit, position, friendly);
                 }
             }
@@ -1094,7 +1202,7 @@ impl<V: Viewpoint> Projection<'_, V> {
             .units
             .get(id)
             .ok_or(ObserveError::UnknownUnit(id))?;
-        if self.owns(&unit.owner) {
+        if self.owns_seat(unit.owner) {
             self.output.push(ObservedEvent::UnitMoved {
                 unit: ObservedUnitRef::Friendly { unit: id },
                 from,
@@ -1145,7 +1253,7 @@ impl<V: Viewpoint> Projection<'_, V> {
             .units
             .get(id)
             .ok_or(ObserveError::UnknownUnit(id))?;
-        if self.owns(&unit.owner) {
+        if self.owns_seat(unit.owner) {
             self.output.push(ObservedEvent::UnitRemoved {
                 unit: ObservedUnitRef::Friendly { unit: id },
                 reason,
@@ -1172,7 +1280,8 @@ impl<V: Viewpoint> Projection<'_, V> {
                 unit: observed_unit_snapshot(
                     unit,
                     friendly,
-                    friendly || !commander::hides_hp(self.next_state, &unit.owner),
+                    friendly || !commander::hides_hp(self.next_state, Some(unit.owner)),
+                    self.next_state.player_id(unit.owner),
                 ),
                 position,
             });
@@ -1189,7 +1298,12 @@ impl<V: Viewpoint> Projection<'_, V> {
     }
 }
 
-fn observed_unit_snapshot(unit: &Unit, friendly: bool, disclose_hp: bool) -> ObservedUnit {
+fn observed_unit_snapshot(
+    unit: &Unit,
+    friendly: bool,
+    disclose_hp: bool,
+    owner: &PlayerId,
+) -> ObservedUnit {
     ObservedUnit {
         reference: if friendly {
             ObservedUnitRef::Friendly { unit: unit.id }
@@ -1199,7 +1313,7 @@ fn observed_unit_snapshot(unit: &Unit, friendly: bool, disclose_hp: bool) -> Obs
             )
         },
         kind: unit.kind,
-        owner: unit.owner.clone(),
+        owner: owner.clone(),
         hp: if disclose_hp {
             ObservedUnitHp::Exact(unit.hp)
         } else {
@@ -1209,7 +1323,7 @@ fn observed_unit_snapshot(unit: &Unit, friendly: bool, disclose_hp: bool) -> Obs
         ammo: unit.ammo,
         action: unit.action,
         concealment: unit.concealment,
-        location: unit.location.clone(),
+        location: unit.location,
     }
 }
 
@@ -1339,7 +1453,7 @@ mod tests {
         let tile = ObservedTile {
             terrain: TerrainId::Plain,
             visibility: TileVisibility::Visible,
-            owner: TileOwner::NotOwnable,
+            owner: ObservedTileOwner::NotOwnable,
             capture_points: None,
             silo: None,
             rare: None,

@@ -18,7 +18,7 @@ use awvm::combat::DamageRange;
 use awvm::conformance::collect_json;
 use awvm::prelude::*;
 use awvm::query::{self, can_act};
-use awvm::semantic::{KnownReason, Location, Reason, RulesetRevision, UnitAction};
+use awvm::semantic::{KnownReason, Location, Reason, Roster, RulesetRevision, UnitAction};
 use serde_json::Value;
 
 fn corpus() -> Vec<(String, Value)> {
@@ -186,7 +186,7 @@ fn the_move_field_agrees_with_the_reducer_on_every_tile() {
 
                 let field = query::reachable(&state, subject.id).expect("an on-board unit");
                 let (expected_destinations, expected_arrivals) =
-                    reference(&state, subject.id, &subject.owner, origin);
+                    reference(&state, subject.id, state.player_id(subject.owner), origin);
 
                 let offered: Set = field.destinations().map(|(position, _)| position).collect();
                 assert_eq!(
@@ -217,7 +217,7 @@ fn the_move_field_agrees_with_the_reducer_on_every_tile() {
                             execute(
                                 &state,
                                 Command::MoveWait {
-                                    player: subject.owner.clone(),
+                                    player: state.player_id(subject.owner).clone(),
                                     unit: subject.id,
                                     path: path.clone(),
                                 },
@@ -303,20 +303,18 @@ fn prepared_action_queries_agree_with_execution() {
     for (relative, case) in corpus() {
         for state in states(&case) {
             for subject in state.units.iter() {
-                if subject.owner != state.turn.active_player
+                if Some(subject.owner) != state.player_index(&state.turn.active_player)
                     || can_act(&state, subject.id) != Ok(Ok(()))
                 {
                     continue;
                 }
                 let field = query::reachable(&state, subject.id).expect("an on-board unit");
-                let active = match prepare_active_unit(&state, &subject.owner, subject.id)
-                    .expect("an active unit can be prepared")
-                {
-                    PrepareActiveUnitOutcome::Prepared(active) => active,
-                    PrepareActiveUnitOutcome::Rejected(violation) => {
-                        panic!("{relative}: active unit was rejected: {violation:?}")
-                    }
-                };
+                let active =
+                    prepare_active_unit(&state, state.player_id(subject.owner), subject.id)
+                        .expect("an active unit can be prepared")
+                        .unwrap_or_else(|violation| {
+                            panic!("{relative}: active unit was rejected: {violation:?}")
+                        });
                 let prepared_field = PreparedMoveField::new(active)
                     .unwrap_or_else(|error| panic!("{relative}: {error}"));
                 for (destination, _) in field.reach() {
@@ -354,7 +352,7 @@ fn prepared_action_queries_agree_with_execution() {
                     assert_eq!(
                         actions.wait,
                         accepts(Command::MoveWait {
-                            player: subject.owner.clone(),
+                            player: state.player_id(subject.owner).clone(),
                             unit: subject.id,
                             path: path.clone(),
                         }),
@@ -364,7 +362,7 @@ fn prepared_action_queries_agree_with_execution() {
                     assert_eq!(
                         actions.capture,
                         accepts(Command::MoveCapture {
-                            player: subject.owner.clone(),
+                            player: state.player_id(subject.owner).clone(),
                             unit: subject.id,
                             path: path.clone(),
                         }),
@@ -374,7 +372,7 @@ fn prepared_action_queries_agree_with_execution() {
                     assert_eq!(
                         actions.supply,
                         accepts(Command::MoveSupply {
-                            player: subject.owner.clone(),
+                            player: state.player_id(subject.owner).clone(),
                             unit: subject.id,
                             path: path.clone(),
                         }),
@@ -384,7 +382,7 @@ fn prepared_action_queries_agree_with_execution() {
                     assert_eq!(
                         actions.hide,
                         accepts(Command::MoveHide {
-                            player: subject.owner.clone(),
+                            player: state.player_id(subject.owner).clone(),
                             unit: subject.id,
                             path: path.clone(),
                         }),
@@ -394,7 +392,7 @@ fn prepared_action_queries_agree_with_execution() {
                     assert_eq!(
                         actions.reveal,
                         accepts(Command::MoveReveal {
-                            player: subject.owner.clone(),
+                            player: state.player_id(subject.owner).clone(),
                             unit: subject.id,
                             path: path.clone(),
                         }),
@@ -404,7 +402,7 @@ fn prepared_action_queries_agree_with_execution() {
                     assert_eq!(
                         actions.join,
                         occupant.is_some_and(|target| accepts(Command::MoveJoin {
-                            player: subject.owner.clone(),
+                            player: state.player_id(subject.owner).clone(),
                             unit: subject.id,
                             path: path.clone(),
                             target,
@@ -415,7 +413,7 @@ fn prepared_action_queries_agree_with_execution() {
                     assert_eq!(
                         actions.load,
                         occupant.is_some_and(|transport| accepts(Command::MoveLoad {
-                            player: subject.owner.clone(),
+                            player: state.player_id(subject.owner).clone(),
                             unit: subject.id,
                             path: path.clone(),
                             transport,
@@ -426,7 +424,7 @@ fn prepared_action_queries_agree_with_execution() {
                     assert_eq!(
                         actions.explode,
                         accepts(Command::MoveExplode {
-                            player: subject.owner.clone(),
+                            player: state.player_id(subject.owner).clone(),
                             unit: subject.id,
                             path,
                         }),
@@ -484,13 +482,23 @@ fn prepared_action_queries_propagate_movement_faults() {
         Err(QueryError::Transition(ExecuteError::UnsupportedRuleset))
     );
 
+    // A turn naming a player the roster does not hold is a broken state, and
+    // every prepared query must report that rather than act on it.
     let mut invalid = state;
     invalid.turn.active_player = PlayerId::from("unknown");
-    invalid.units[0].owner = PlayerId::from("unknown");
+    let unknown = PlayerId::from("unknown");
     assert!(matches!(
-        query::actions_for_path(&invalid, unit, path.clone()),
-        Err(QueryError::Transition(ExecuteError::InvalidState(_)))
+        prepare_active_unit(&invalid, &unknown, unit),
+        Err(ExecuteError::InvalidState(_))
     ));
+    // The unit still names its owner by seat, so the query reaches the turn
+    // check first and simply offers nothing.
+    let offered = query::actions_for_path(&invalid, unit, path.clone())
+        .expect("a broken turn is not a query fault");
+    assert!(
+        !offered.wait,
+        "a unit whose turn is not open offers nothing"
+    );
 }
 
 #[test]
@@ -572,6 +580,38 @@ fn allied_units_are_not_attack_targets_or_forecasts() {
             vec![None]
         );
     }
+}
+
+/// The occupancy index names a hidden unit; the reducer still refuses it.
+///
+/// Attack enumeration walks the tiles inside the weapon's range and asks the
+/// index who stands on each one. The index answers whether or not the moving
+/// team sees the occupant, so this holds that concealment is still what
+/// decides the offer.
+#[test]
+fn a_concealed_unit_is_not_an_attack_target() {
+    let case: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../spec/fixtures/fog/hidden-unit-absence-equivalence.json"
+    )))
+    .unwrap();
+    let mut value = case["left"]["initial_state"].clone();
+    // A battleship reaches both the submerged sub at [3,0] and the exposed
+    // lander at [4,0] without moving. Map fog off leaves the sub concealed and
+    // the lander plainly in sight, so only concealment separates the two.
+    value["settings"]["fog"] = Value::Bool(false);
+    value["units"][0]["kind"] = Value::String("battleship".into());
+    let state: State = serde_json::from_value(value).unwrap();
+
+    let attacks = query::actions_at(&state, UnitId::new(0), Pos::new(0, 0))
+        .unwrap()
+        .attack;
+    assert_eq!(
+        attacks,
+        vec![AttackTarget::Unit {
+            unit: UnitId::new(2)
+        }]
+    );
 }
 
 /// Assert that `command`, which the reducer accepted, is one `query` offers.
@@ -708,8 +748,20 @@ fn can_act_reports_the_violation_the_reducer_would() {
     // the reason names the thing an interface should say: it is not your turn.
     // `can_act` asks on behalf of the unit's own owner, which is why an enemy
     // unit reports this rather than `UnitNotOwned`.
-    let mine = state.units[0].owner.clone();
-    state.units[0].owner = PlayerId::from("nobody");
+    // The fixture seats one player, so the other side is added here.
+    let mut opponent = state.players[0].clone();
+    opponent.id = PlayerId::from("blue");
+    opponent.team = "blue-team".into();
+    state.teams.push(awvm::semantic::Team {
+        id: "blue-team".into(),
+        status: awvm::semantic::TeamStatus::Active,
+    });
+    state.players = Roster::new(state.players.iter().cloned().chain([opponent]).collect())
+        .expect("two players fit a roster");
+    let mine = state.units[0].owner;
+    state.units[0].owner = state
+        .player_index(&PlayerId::from("blue"))
+        .expect("the opponent is seated");
     assert!(matches!(
         can_act(&state, unit),
         Ok(Err(Violation::NotActivePlayer { .. }))
@@ -754,7 +806,9 @@ fn observed_actions_agree_with_authoritative_actions_without_fog() {
                 query::ObservedQuery::new(&observation).expect("build observed query");
 
             for subject in state.units.iter() {
-                if subject.owner != recipient || can_act(&state, subject.id) != Ok(Ok(())) {
+                if state.player_id(subject.owner) != &recipient
+                    || can_act(&state, subject.id) != Ok(Ok(()))
+                {
                     continue;
                 }
                 let Ok(field) = query::reachable(&state, subject.id) else {
@@ -823,7 +877,11 @@ fn observed_reachable_agrees_with_authoritative_reachable_without_fog() {
                 continue;
             };
 
-            for subject in state.units.iter().filter(|unit| unit.owner == recipient) {
+            for subject in state
+                .units
+                .iter()
+                .filter(|unit| state.player_id(unit.owner) == &recipient)
+            {
                 let authoritative = query::reachable(&state, subject.id);
                 let observed = query::observed_reachable(&observation, subject.id);
                 match (authoritative, observed) {

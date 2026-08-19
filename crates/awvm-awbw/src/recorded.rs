@@ -152,9 +152,10 @@ fn apply_recorded(state: &mut State, action: &Action) -> Result<(), RecordedAdap
                 .and_then(|value| AwbwTerrain::try_from(value).ok())
                 .ok_or(RecordedAdapterError::Missing("supported seam terrain"))?;
             tile.terrain = semantic_terrain(terrain_id);
-            tile.set_destructible_hp(
-                (tile.terrain == Terrain::PipeSeam)
-                    .then(|| u64::try_from(attack_seam_action.buildings_hit_points).ok())
+            let seam = tile.terrain == Terrain::PipeSeam;
+            state.board.set_destructible_hp(
+                position,
+                seam.then(|| u64::try_from(attack_seam_action.buildings_hit_points).ok())
                     .flatten(),
             );
         }
@@ -172,15 +173,17 @@ fn apply_recorded(state: &mut State, action: &Action) -> Result<(), RecordedAdap
                 .and_then(visible_move_unit)
                 .map(|unit| unit_id(unit.units_id))
                 .or_else(|| unit_on_board(state, position));
-            let owner = actor
+            // A held tile names a seat, so the captor is resolved before the
+            // board is borrowed mutably.
+            let owner_seat = actor
                 .and_then(|actor| state.units.get(actor))
-                .map(|unit| unit.owner.clone())
+                .map(|unit| unit.owner)
                 .or_else(|| {
                     capture_action
                         .income
                         .as_ref()
                         .and_then(|income| income.values().next())
-                        .map(|income| player_id(income.player.as_u32()))
+                        .and_then(|income| state.player_index(&player_id(income.player.as_u32())))
                 });
             let tile = state
                 .board
@@ -188,8 +191,8 @@ fn apply_recorded(state: &mut State, action: &Action) -> Result<(), RecordedAdap
                 .ok_or(RecordedAdapterError::OffBoard(position))?;
             let remaining = capture_action.building_info.buildings_capture.clamp(0, 20) as u8;
             if remaining >= 20 {
-                if let Some(owner) = owner {
-                    tile.owner = TileOwner::Owned(owner);
+                if let Some(seat) = owner_seat {
+                    tile.owner = TileOwner::Owned(seat);
                 }
                 tile.capture_points = Some(20);
             } else {
@@ -335,10 +338,10 @@ fn apply_recorded(state: &mut State, action: &Action) -> Result<(), RecordedAdap
                     .units
                     .get(UnitId::new(repairing))
                     .ok_or(RecordedAdapterError::UnknownUnit(repairing))?
-                    .owner
-                    .clone();
+                    .owner;
                 let player = state
-                    .find_player_mut(&owner)
+                    .players
+                    .get_mut(owner.get())
                     .ok_or(RecordedAdapterError::Missing("repairing player"))?;
                 player.funds = u64::from(funds);
             }
@@ -471,10 +474,9 @@ fn apply_move(
     let id = unit_id(unit.units_id);
     let destination = pos(x, y)?;
     if !state.units.contains(id) {
-        let owner = player_id(unit.units_players_id);
-        if state.find_player(&owner).is_none() {
-            return Err(RecordedAdapterError::UnknownPlayer(unit.units_players_id));
-        }
+        let owner = state
+            .player_index(&player_id(unit.units_players_id))
+            .ok_or(RecordedAdapterError::UnknownPlayer(unit.units_players_id))?;
         state.units.push(Unit {
             id,
             kind: unit.units_name,
@@ -546,6 +548,9 @@ fn apply_build(state: &mut State, units: &UnitMap) -> Result<(), RecordedAdapter
         );
         player.funds = player.funds.saturating_sub(cost);
         let position = property_pos(unit)?;
+        let owner = state
+            .player_index(&owner)
+            .ok_or(RecordedAdapterError::UnknownPlayer(unit.units_players_id))?;
         state.units.push(Unit {
             id: unit_id(unit.units_id),
             kind: unit.units_name,
@@ -657,8 +662,9 @@ fn apply_power(state: &mut State, action: &PowerAction) -> Result<(), RecordedAd
     if action.co_name.eq_ignore_ascii_case("jess")
         && matches!(action.power_name.as_str(), "Turbo Charge" | "Overdrive")
     {
+        let owner_seat = state.player_index(&owner);
         for unit in &mut state.units {
-            if unit.owner == owner && matches!(unit.location, Location::Cargo { .. }) {
+            if Some(unit.owner) == owner_seat && matches!(unit.location, Location::Cargo { .. }) {
                 let unit_profile = profile(unit.kind);
                 unit.fuel = unit_profile.max_fuel;
                 unit.ammo = unit_profile.max_ammo;
@@ -678,7 +684,11 @@ fn apply_power(state: &mut State, action: &PowerAction) -> Result<(), RecordedAd
                 {
                     continue;
                 }
-                let owner = player_id(group.player_id.as_u32());
+                let owner = state
+                    .player_index(&player_id(group.player_id.as_u32()))
+                    .ok_or(RecordedAdapterError::UnknownPlayer(
+                        group.player_id.as_u32(),
+                    ))?;
                 state.units.push(Unit {
                     id: unit_id(spawned.units_id),
                     kind: group.unit_name,
@@ -744,8 +754,9 @@ fn apply_end(state: &mut State, updated: &UpdatedInfo) -> Result<(), RecordedAda
         .find_player_mut(&next)
         .ok_or(RecordedAdapterError::UnknownPlayer(updated.next_player_id))?
         .power_state = PowerState::None;
+    let next_seat = state.player_index(&next);
     for unit in &mut state.units {
-        if unit.owner == next {
+        if Some(unit.owner) == next_seat {
             unit.action = UnitAction::Ready;
         }
     }
@@ -782,11 +793,12 @@ fn apply_recorded_upkeep(
     if state.turn.day < 2 {
         return Ok(());
     }
+    let incoming_seat = state.player_index(incoming);
     let upkeep = state
         .units
         .iter()
         .filter(|unit| {
-            unit.owner == *incoming
+            Some(unit.owner) == incoming_seat
                 && !resupplied.contains(&unit.id)
                 && matches!(profile(unit.kind).domain, Domain::Air | Domain::Sea)
         })
@@ -815,7 +827,7 @@ fn apply_recorded_upkeep(
         .units
         .iter()
         .filter(|unit| {
-            unit.owner == *incoming
+            Some(unit.owner) == incoming_seat
                 && unit.fuel == 0
                 && matches!(profile(unit.kind).domain, Domain::Air | Domain::Sea)
         })
@@ -831,7 +843,7 @@ fn apply_hp_effect(state: &mut State, effect: &HpEffect) {
     let owners = effect
         .players
         .iter()
-        .map(|id| player_id(id.as_u32()))
+        .filter_map(|id| state.player_index(&player_id(id.as_u32())))
         .collect::<HashSet<_>>();
     for unit in &mut state.units {
         if !owners.contains(&unit.owner) || !matches!(unit.location, Location::Board { .. }) {
@@ -920,8 +932,7 @@ fn spend(state: &mut State, id: UnitId) -> Result<(), RecordedAdapterError> {
 }
 
 fn remove_unit(state: &mut State, id: UnitId) -> Result<(), RecordedAdapterError> {
-    if let Some(Location::Board { position }) =
-        state.units.get(id).map(|unit| unit.location.clone())
+    if let Some(Location::Board { position }) = state.units.get(id).map(|unit| unit.location)
         && !state
             .units
             .iter()
@@ -1108,7 +1119,7 @@ fn diff_events(prior: &State, post: &State, action: &Action) -> Vec<Event> {
             events.push(Event::UnitCreated {
                 unit: unit.id,
                 kind: unit.kind,
-                owner: unit.owner.clone(),
+                owner: post.player_id(unit.owner).clone(),
                 position,
             });
         }
@@ -1119,8 +1130,8 @@ fn diff_events(prior: &State, post: &State, action: &Action) -> Vec<Event> {
         if before.owner != after.owner {
             events.push(Event::TileOwnerChanged {
                 position,
-                from: before.owner.to_optional(),
-                to: after.owner.to_optional(),
+                from: prior.tile_owner_id(&before.owner).cloned(),
+                to: post.tile_owner_id(&after.owner).cloned(),
             });
         }
         if before.terrain != after.terrain {
@@ -1143,8 +1154,11 @@ fn diff_events(prior: &State, post: &State, action: &Action) -> Vec<Event> {
         {
             events.push(Event::SiloChanged { position, from, to });
         }
-        if before.destructible_hp() != after.destructible_hp()
-            && let (Some(from), Some(to)) = (before.destructible_hp(), after.destructible_hp())
+        if prior.board.destructible_hp(position) != post.board.destructible_hp(position)
+            && let (Some(from), Some(to)) = (
+                prior.board.destructible_hp(position),
+                post.board.destructible_hp(position),
+            )
             && let (Ok(from_hp), Ok(to_hp)) = (u8::try_from(from), u8::try_from(to))
         {
             events.push(Event::DestructibleDamaged {

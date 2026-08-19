@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use awvm::conformance::collect_json;
 use awvm::prelude::*;
-use awvm::semantic::{Location, StateInvariant, UnitAction};
+use awvm::semantic::{Location, Roster, StateInvariant, UnitAction};
 use serde_json::Value;
 
 fn corpus() -> Vec<(String, Value)> {
@@ -136,14 +136,22 @@ fn two_units_on_one_tile_are_caught() {
 fn a_unit_owned_by_nobody_is_caught() {
     let mut state = valid();
     let unit = state.units[0].id;
-    state.units[0].owner = PlayerId::from("nobody");
+    // A seat is minted from the roster that holds it, so the only way one ends
+    // up naming nobody is a roster swapped for a shorter one afterwards. That
+    // is what this reproduces, and what `validate` is here to catch.
+    let mut seated = state.players.iter().cloned().collect::<Vec<_>>();
+    let mut stranger = seated[0].clone();
+    stranger.id = PlayerId::from("nobody");
+    seated.push(stranger);
+    let roster = Roster::new(seated).expect("two players fit a roster");
+    let nobody = roster
+        .seat(&PlayerId::from("nobody"))
+        .expect("the roster seats them");
+    state.units[0].owner = nobody;
 
     assert_eq!(
         state.validate(),
-        Err(StateInvariant::UnknownUnitOwner {
-            unit,
-            owner: PlayerId::from("nobody"),
-        })
+        Err(StateInvariant::UnitOwnerOffTheRoster { unit, seat: nobody })
     );
 }
 
@@ -210,7 +218,9 @@ fn a_turn_position_outside_the_order_is_caught() {
 #[test]
 fn a_second_moved_unit_is_caught() {
     let mut state = valid();
-    let active = state.turn.active_player.clone();
+    let active = state
+        .player_index(&state.turn.active_player.clone())
+        .expect("the active player is on the roster");
     let mine: Vec<usize> = (0..state.units.len())
         .filter(|index| state.units[*index].owner == active)
         .collect();

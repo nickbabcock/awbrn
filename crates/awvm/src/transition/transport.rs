@@ -11,19 +11,23 @@ use super::*;
 use crate::commander::{self};
 use crate::event::Event;
 use crate::ruleset::{self, Relation, TargetSet, TerrainTrait};
-use crate::semantic::{
-    AwbwVisibility, KnownReason, Location, PlayerId, Pos, State, UnitAction, UnitId, Visibility,
-};
+use crate::semantic::{KnownReason, Location, PlayerIdx, Pos, State, UnitAction, UnitId};
 use crate::violation::{Action, Violation};
 
 #[derive(Debug)]
-pub(super) struct Supply {
+pub(super) struct Supply;
+
+#[derive(Debug)]
+pub(super) struct SupplyProof {
     targets: TargetSet,
     destination: AvailableDestination,
 }
 
 #[derive(Debug)]
-pub(super) struct Repair {
+pub(super) struct Repair(pub(super) UnitId);
+
+#[derive(Debug)]
+pub(super) struct RepairProof {
     target: UnitId,
     capability: ruleset::RepairProfile,
     target_index: usize,
@@ -34,13 +38,19 @@ pub(super) struct Repair {
 }
 
 #[derive(Debug)]
-pub(super) struct Load {
+pub(super) struct Load(pub(super) UnitId);
+
+#[derive(Debug)]
+pub(super) struct LoadProof {
     transport: UnitId,
     slot: usize,
 }
 
 #[derive(Debug)]
-pub(super) struct Join {
+pub(super) struct Join(pub(super) UnitId);
+
+#[derive(Debug)]
+pub(super) struct JoinProof {
     target: PreparedJoinTarget,
 }
 
@@ -56,56 +66,43 @@ pub(super) struct PreparedUnload<'a> {
     destination: Pos,
 }
 
-pub(crate) fn execute_move_supply(
-    turn: &ActiveTurn<'_>,
-    unit_id: UnitId,
-    path: Vec<Pos>,
-) -> Result<Execution, ExecuteError> {
-    let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_supply(movement.prepare_destination())?;
-    Ok(execute_prepared_supply(prepared))
+impl<'a> DestinationAction<'a> for Supply {
+    type Proof = SupplyProof;
+
+    fn validate<M>(
+        &self,
+        destination: &PreparedDestination<'a, M>,
+    ) -> Result<Self::Proof, ExecuteError>
+    where
+        M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
+    {
+        let movement = destination.movement();
+        let state = movement.state();
+        let plan = movement.plan();
+        let unit = &state.units[plan.unit_index()];
+        let supply = ruleset::profile(unit.kind).supply;
+        let Some(supply) = supply.filter(|supply| supply.relation == Relation::Adjacent) else {
+            return Err(violation(Violation::ActionNotSupported {
+                action: Action::MoveSupply,
+            }));
+        };
+        let available = destination.available_destination()?;
+        Ok(SupplyProof {
+            targets: supply.targets,
+            destination: available,
+        })
+    }
+
+    fn into_kind(bound: MovementAction<'a, Self::Proof>) -> PreparedCommandKind<'a> {
+        PreparedCommandKind::Supply(bound)
+    }
 }
 
-pub(super) fn prepare_supply<'a, V>(
-    destination: PreparedDestination<'a, V>,
-) -> Result<Prepared<'a, Supply>, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let action = validate_supply(&destination)?;
-    Ok(Prepared {
-        movement: destination.into_movement(),
-        action,
-    })
-}
-
-pub(super) fn validate_supply<'a, V>(
-    destination: &PreparedDestination<'a, V>,
-) -> Result<Supply, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let movement = destination.movement();
-    let state = movement.state();
-    let plan = movement.plan();
-    let unit = &state.units[plan.unit_index()];
-    let supply = ruleset::profile(unit.kind).supply;
-    let Some(supply) = supply.filter(|supply| supply.relation == Relation::Adjacent) else {
-        return Err(violation(Violation::ActionNotSupported {
-            action: Action::MoveSupply,
-        }));
-    };
-    let available = destination.available_destination()?;
-    Ok(Supply {
-        targets: supply.targets,
-        destination: available,
-    })
-}
-
-pub(super) fn execute_prepared_supply(prepared: Prepared<'_, Supply>) -> Execution {
-    let Prepared {
+pub(super) fn execute_prepared_supply(prepared: MovementAction<'_, SupplyProof>) -> Execution {
+    let MovementAction {
         movement,
-        action: Supply {
+        trap,
+        action: SupplyProof {
             targets,
             destination: _destination,
         },
@@ -114,7 +111,7 @@ pub(super) fn execute_prepared_supply(prepared: Prepared<'_, Supply>) -> Executi
     let unit_id = movement.unit();
     let plan = movement.plan();
     let unit = &state.units[plan.unit_index()];
-    let mut outcome = execute_planned_movement(state, unit_id, plan);
+    let mut outcome = execute_planned_movement(state, unit_id, plan, trap);
     if outcome.trapped {
         return Execution {
             state: outcome.state,
@@ -131,9 +128,9 @@ pub(super) fn execute_prepared_supply(prepared: Prepared<'_, Supply>) -> Executi
             target.id != unit_id
                 && supply_target_eligible(
                     state,
-                    &unit.owner,
+                    unit.owner,
                     plan.actor_team(),
-                    &target.owner,
+                    target.owner,
                     targets,
                 )
                 && board_position(target).is_some_and(|position| {
@@ -178,112 +175,101 @@ pub(super) fn execute_prepared_supply(prepared: Prepared<'_, Supply>) -> Executi
 
 pub(crate) fn supply_target_eligible(
     state: &State,
-    source_owner: &PlayerId,
+    source_owner: PlayerIdx,
     source_team: &crate::semantic::TeamId,
-    target_owner: &PlayerId,
+    target_owner: PlayerIdx,
     targets: TargetSet,
 ) -> bool {
     match targets {
         TargetSet::OwnedUnits => target_owner == source_owner,
         TargetSet::FriendlyUnits => state
-            .find_player(target_owner)
+            .players
+            .get(target_owner.get())
             .is_some_and(|owner| owner.team == source_team),
     }
 }
 
-pub(crate) fn execute_move_repair(
-    turn: &ActiveTurn<'_>,
-    unit_id: UnitId,
-    path: Vec<Pos>,
-    target_id: UnitId,
-) -> Result<Execution, ExecuteError> {
-    let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_repair(movement.prepare_destination(), target_id)?;
-    execute_prepared_repair(prepared)
-}
+impl<'a> DestinationAction<'a> for Repair {
+    type Proof = RepairProof;
 
-pub(super) fn prepare_repair<'a, V>(
-    destination: PreparedDestination<'a, V>,
-    target_id: UnitId,
-) -> Result<Prepared<'a, Repair>, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let action = validate_repair(&destination, target_id)?;
-    Ok(Prepared {
-        movement: destination.into_movement(),
-        action,
-    })
-}
+    fn validate<M>(
+        &self,
+        destination: &PreparedDestination<'a, M>,
+    ) -> Result<Self::Proof, ExecuteError>
+    where
+        M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
+    {
+        let target_id = self.0;
+        let movement = destination.movement();
+        let state = movement.state();
+        let unit_id = movement.unit();
+        let plan = movement.plan();
+        let unit = &state.units[plan.unit_index()];
+        let repair = ruleset::profile(unit.kind).repair;
+        let Some(repair) = repair.filter(|repair| repair.relation == Relation::Adjacent) else {
+            return Err(violation(Violation::ActionNotSupported {
+                action: Action::MoveRepair,
+            }));
+        };
+        let Some(target_index) = state.units.index_of(target_id) else {
+            return Err(violation(Violation::InvalidTarget {
+                target: Some(target_id.into()),
+            }));
+        };
+        let target = &state.units[target_index];
+        let target_team = state
+            .players
+            .get(target.owner.get())
+            .map(|owner| &owner.team);
+        let Some(target_position) = board_position(target) else {
+            return Err(violation(Violation::InvalidTarget {
+                target: Some(target_id.into()),
+            }));
+        };
+        if target.id == unit_id || target_team != Some(plan.actor_team()) {
+            return Err(violation(Violation::InvalidTarget {
+                target: Some(target_id.into()),
+            }));
+        }
+        let position = plan.destination();
+        if target_position.x.abs_diff(position.x) + target_position.y.abs_diff(position.y) != 1 {
+            return Err(violation(Violation::TargetOutOfRange {
+                target: Some(target_id.into()),
+            }));
+        }
+        let available = destination.available_destination()?;
 
-pub(super) fn validate_repair<'a, V>(
-    destination: &PreparedDestination<'a, V>,
-    target_id: UnitId,
-) -> Result<Repair, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let movement = destination.movement();
-    let state = movement.state();
-    let unit_id = movement.unit();
-    let plan = movement.plan();
-    let unit = &state.units[plan.unit_index()];
-    let repair = ruleset::profile(unit.kind).repair;
-    let Some(repair) = repair.filter(|repair| repair.relation == Relation::Adjacent) else {
-        return Err(violation(Violation::ActionNotSupported {
-            action: Action::MoveRepair,
-        }));
-    };
-    let Some(target_index) = state.units.index_of(target_id) else {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(target_id.into()),
-        }));
-    };
-    let target = &state.units[target_index];
-    let target_team = state.find_player(&target.owner).map(|owner| &owner.team);
-    let Some(target_position) = board_position(target) else {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(target_id.into()),
-        }));
-    };
-    if target.id == unit_id || target_team != Some(plan.actor_team()) {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(target_id.into()),
-        }));
+        let target_profile = ruleset::profile(target.kind);
+        let heal_cost = target_profile
+            .cost
+            .checked_mul(repair.cost_percent)
+            .and_then(|cost| cost.checked_div(100))
+            .ok_or(ExecuteError::UnsupportedRuleset)?;
+
+        Ok(RepairProof {
+            target: target_id,
+            capability: repair,
+            target_index,
+            heal_cost,
+            max_fuel: target_profile.max_fuel,
+            max_ammo: target_profile.max_ammo,
+            destination: available,
+        })
     }
-    let position = plan.destination();
-    if target_position.x.abs_diff(position.x) + target_position.y.abs_diff(position.y) != 1 {
-        return Err(violation(Violation::TargetOutOfRange {
-            target: Some(target_id.into()),
-        }));
+
+    fn into_kind(bound: MovementAction<'a, Self::Proof>) -> PreparedCommandKind<'a> {
+        PreparedCommandKind::Repair(bound)
     }
-    let available = destination.available_destination()?;
-
-    let target_profile = ruleset::profile(target.kind);
-    let heal_cost = target_profile
-        .cost
-        .checked_mul(repair.cost_percent)
-        .and_then(|cost| cost.checked_div(100))
-        .ok_or(ExecuteError::UnsupportedRuleset)?;
-
-    Ok(Repair {
-        target: target_id,
-        capability: repair,
-        target_index,
-        heal_cost,
-        max_fuel: target_profile.max_fuel,
-        max_ammo: target_profile.max_ammo,
-        destination: available,
-    })
 }
 
 pub(super) fn execute_prepared_repair(
-    prepared: Prepared<'_, Repair>,
+    prepared: MovementAction<'_, RepairProof>,
 ) -> Result<Execution, ExecuteError> {
-    let Prepared {
+    let MovementAction {
         movement,
+        trap,
         action:
-            Repair {
+            RepairProof {
                 target: target_id,
                 capability,
                 target_index,
@@ -299,7 +285,7 @@ pub(super) fn execute_prepared_repair(
     let plan = movement.plan();
     let exact_hp = capability.exact_hp;
 
-    let mut outcome = execute_planned_movement(state, unit_id, plan);
+    let mut outcome = execute_planned_movement(state, unit_id, plan, trap);
     if outcome.trapped {
         return Ok(Execution {
             state: outcome.state,
@@ -354,97 +340,127 @@ pub(super) fn execute_prepared_repair(
     })
 }
 
-pub(crate) fn execute_move_load(
-    turn: &ActiveTurn<'_>,
-    unit_id: UnitId,
-    path: Vec<Pos>,
-    transport_id: UnitId,
-) -> Result<Execution, ExecuteError> {
-    let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_load(movement.prepare_destination(), transport_id)?;
-    Ok(execute_prepared_load(prepared))
+/// How many cargo slots the bitmask below can name.
+///
+/// Every ruleset gives a transport a single-digit capacity, so the mask holds
+/// every slot a valid state can name.
+const CARGO_SLOTS: usize = u32::BITS as usize;
+
+/// Which of `transport`'s cargo slots are taken, as a bitmask.
+///
+/// Enumeration asks this for every destination a loadable unit can reach, and
+/// the answer used to be a `Vec<usize>` that was then searched linearly. A
+/// mask removes the allocation and turns the search for a free slot into
+/// `trailing_ones`.
+fn occupied_slots(state: &State, transport: UnitId, capacity: usize) -> Result<u32, ExecuteError> {
+    if capacity > CARGO_SLOTS {
+        return Err(ExecuteError::UnsupportedRuleset);
+    }
+    let mut occupied = 0_u32;
+    for cargo in state.units.iter() {
+        let Location::Cargo {
+            transport: carrier,
+            slot,
+        } = cargo.location
+        else {
+            continue;
+        };
+        if carrier != transport {
+            continue;
+        }
+        if slot >= CARGO_SLOTS {
+            return Err(ExecuteError::InvalidState(
+                format!(
+                    "unit {} rides slot {slot} of transport {transport}",
+                    cargo.id
+                )
+                .into(),
+            ));
+        }
+        occupied |= 1 << slot;
+    }
+    Ok(occupied)
 }
 
-pub(super) fn prepare_load<'a, V>(
-    destination: PreparedDestination<'a, V>,
-    transport_id: UnitId,
-) -> Result<Prepared<'a, Load>, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let action = validate_load(&destination, transport_id)?;
-    Ok(Prepared {
-        movement: destination.into_movement(),
-        action,
-    })
-}
+impl<'a> DestinationAction<'a> for Load {
+    type Proof = LoadProof;
 
-pub(super) fn validate_load<'a, V>(
-    destination: &PreparedDestination<'a, V>,
-    transport_id: UnitId,
-) -> Result<Load, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let movement = destination.movement();
-    let state = movement.state();
-    let unit_id = movement.unit();
-    let plan = movement.plan();
-    let player = &state.turn.active_player;
-    let mover = &state.units[plan.unit_index()];
-    let transport_index = state.units.index_of(transport_id);
-    let transport = transport_index.and_then(|index| state.units.at(index));
-    let transport_capability =
-        transport.and_then(|transport| ruleset::profile(transport.kind).transport);
-    let capacity = transport_capability.map(|capability| capability.capacity);
-    let cargo_kind_allowed =
-        transport_capability.is_some_and(|capability| capability.cargo.contains(mover.kind));
-    let occupied_slots: Vec<_> = state
-        .units
-        .iter()
-        .filter_map(|cargo| match &cargo.location {
-            Location::Cargo { transport, slot } if *transport == transport_id => Some(*slot),
-            _ => None,
+    fn validate<M>(
+        &self,
+        destination: &PreparedDestination<'a, M>,
+    ) -> Result<Self::Proof, ExecuteError>
+    where
+        M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
+    {
+        let transport_id = self.0;
+        let movement = destination.movement();
+        let state = movement.state();
+        let unit_id = movement.unit();
+        let plan = movement.plan();
+        let mover = &state.units[plan.unit_index()];
+        // The mover is the active unit, so its own seat is the active seat.
+        let seat = mover.owner;
+        let transport_index = state.units.index_of(transport_id);
+        let transport = transport_index.and_then(|index| state.units.at(index));
+        let transport_capability =
+            transport.and_then(|transport| ruleset::profile(transport.kind).transport);
+        let capacity = transport_capability.map(|capability| capability.capacity);
+        let cargo_kind_allowed =
+            transport_capability.is_some_and(|capability| capability.cargo.contains(mover.kind));
+        // Everything above is a lookup. The cargo scan below walks every unit,
+        // so it runs only for a transport that has already passed the cheap
+        // rejections that most candidate destinations fail.
+        let target_valid = transport.is_some_and(|transport| {
+            transport.id != unit_id
+                && transport.owner == seat
+                && board_position(transport).is_some()
+                && cargo_kind_allowed
+                && capacity.is_some()
+        });
+        if !target_valid {
+            return Err(violation(Violation::InvalidTarget {
+                target: Some(transport_id.into()),
+            }));
+        }
+        let capacity = capacity.expect("target validity established capacity");
+        let occupied = occupied_slots(state, transport_id, capacity)?;
+        if usize::try_from(occupied.count_ones()).unwrap_or(usize::MAX) >= capacity {
+            return Err(violation(Violation::InvalidTarget {
+                target: Some(transport_id.into()),
+            }));
+        }
+        let transport_position =
+            board_position(transport.expect("target validity established transport position"))
+                .expect("target validity established transport position");
+        let destination = plan.destination();
+        if destination != transport_position {
+            return Err(violation(Violation::InvalidTarget {
+                target: Some(destination.into()),
+            }));
+        }
+        let slot = occupied.trailing_ones() as usize;
+        if slot >= capacity {
+            return Err(ExecuteError::InvalidState(
+                format!("transport {transport_id} is full").into(),
+            ));
+        }
+
+        Ok(LoadProof {
+            transport: transport_id,
+            slot,
         })
-        .collect();
-    let target_valid = transport.is_some_and(|transport| {
-        transport.id != unit_id
-            && transport.owner == player
-            && board_position(transport).is_some()
-            && cargo_kind_allowed
-            && capacity.is_some_and(|capacity| occupied_slots.len() < capacity)
-    });
-    if !target_valid {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(transport_id.into()),
-        }));
     }
-    let transport_position =
-        board_position(transport.expect("target validity established transport position"))
-            .expect("target validity established transport position");
-    let destination = plan.destination();
-    if destination != transport_position {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(destination.into()),
-        }));
-    }
-    let capacity = capacity.expect("target validity established capacity");
-    let slot = (0..capacity)
-        .find(|slot| !occupied_slots.contains(slot))
-        .ok_or_else(|| {
-            ExecuteError::InvalidState(format!("transport {transport_id} is full").into())
-        })?;
 
-    Ok(Load {
-        transport: transport_id,
-        slot,
-    })
+    fn into_kind(bound: MovementAction<'a, Self::Proof>) -> PreparedCommandKind<'a> {
+        PreparedCommandKind::Load(bound)
+    }
 }
 
-pub(super) fn execute_prepared_load(prepared: Prepared<'_, Load>) -> Execution {
-    let Prepared {
+pub(super) fn execute_prepared_load(prepared: MovementAction<'_, LoadProof>) -> Execution {
+    let MovementAction {
         movement,
-        action: Load {
+        trap,
+        action: LoadProof {
             transport: transport_id,
             slot,
         },
@@ -452,7 +468,7 @@ pub(super) fn execute_prepared_load(prepared: Prepared<'_, Load>) -> Execution {
     let state = movement.state();
     let unit_id = movement.unit();
     let plan = movement.plan();
-    let mut outcome = execute_planned_movement(state, unit_id, plan);
+    let mut outcome = execute_planned_movement(state, unit_id, plan, trap);
     if outcome.trapped {
         return Execution {
             state: outcome.state,
@@ -476,29 +492,17 @@ pub(super) fn execute_prepared_load(prepared: Prepared<'_, Load>) -> Execution {
     }
 }
 
-pub(crate) fn execute_unload(
-    turn: &ActiveTurn<'_>,
-    transport_id: UnitId,
-    cargo_id: UnitId,
-    destination: Pos,
-) -> Result<Execution, ExecuteError> {
-    let transport = prepare_unload_transport(turn, transport_id)?;
-    let cargo = prepare_unload_cargo(transport, cargo_id)?;
-    let prepared = prepare_unload(cargo, destination)?;
-    Ok(execute_prepared_unload(prepared))
-}
-
 pub(super) fn prepare_unload_transport<'a>(
     turn: &ActiveTurn<'a>,
     transport_id: UnitId,
 ) -> Result<PreparedUnloadTransport<'a>, ExecuteError> {
     let state = turn.state();
-    let player = turn.player();
+    let seat = turn.seat();
     let transport_index = state.units.index_of(transport_id);
     let transport = transport_index.and_then(|index| state.units.at(index));
     let transport_position = transport.and_then(board_position);
     if !transport.is_some_and(|transport| {
-        transport.owner == player
+        transport.owner == seat
             && transport_position.is_some()
             && ruleset::profile(transport.kind).transport.is_some()
     }) {
@@ -614,105 +618,94 @@ pub(super) fn execute_prepared_unload(prepared: PreparedUnload<'_>) -> Execution
     }
 }
 
-pub(crate) fn execute_move_join(
-    turn: &ActiveTurn<'_>,
-    unit_id: UnitId,
-    path: Vec<Pos>,
-    target_id: UnitId,
-) -> Result<Execution, ExecuteError> {
-    let movement = turn.prepare_move(unit_id, path)?;
-    let prepared = prepare_join(movement.prepare_destination(), target_id)?;
-    execute_prepared_join(prepared)
-}
+impl<'a> DestinationAction<'a> for Join {
+    type Proof = JoinProof;
 
-pub(super) fn prepare_join<'a, V>(
-    destination: PreparedDestination<'a, V>,
-    target_id: UnitId,
-) -> Result<Prepared<'a, Join>, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let action = validate_join(&destination, target_id)?;
-    Ok(Prepared {
-        movement: destination.into_movement(),
-        action,
-    })
-}
+    fn validate<M>(
+        &self,
+        destination: &PreparedDestination<'a, M>,
+    ) -> Result<Self::Proof, ExecuteError>
+    where
+        M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
+    {
+        let target_id = self.0;
+        let movement = destination.movement();
+        let state = movement.state();
+        let unit_id = movement.unit();
+        let plan = movement.plan();
+        let unit = &state.units[plan.unit_index()];
+        let actor_team = plan.actor_team();
 
-pub(super) fn validate_join<'a, V>(
-    destination: &PreparedDestination<'a, V>,
-    target_id: UnitId,
-) -> Result<Join, ExecuteError>
-where
-    V: std::borrow::Borrow<AwbwView<'a>>,
-{
-    let movement = destination.movement();
-    let state = movement.state();
-    let unit_id = movement.unit();
-    let plan = movement.plan();
-    let unit = &state.units[plan.unit_index()];
-    let actor_team = plan.actor_team();
+        let Some(target_index) = state.units.index_of(target_id) else {
+            return Err(violation(Violation::InvalidTarget {
+                target: Some(target_id.into()),
+            }));
+        };
+        let target = &state.units[target_index];
+        let target_owner_team = state
+            .players
+            .get(target.owner.get())
+            .map(|owner| &owner.team);
+        let Some(target_position) = board_position(target) else {
+            return Err(violation(Violation::InvalidTarget {
+                target: Some(target_id.into()),
+            }));
+        };
+        if target.id == unit.id || target.kind != unit.kind || target_owner_team != Some(actor_team)
+        {
+            return Err(violation(Violation::InvalidTarget {
+                target: Some(target_id.into()),
+            }));
+        }
+        let destination = plan.destination();
+        if target_position != destination {
+            return Err(violation(Violation::InvalidTarget {
+                target: Some(destination.into()),
+            }));
+        }
+        if target.hp.div_ceil(10) == 10 {
+            return Err(violation(Violation::InvalidTarget {
+                target: Some(target_id.into()),
+            }));
+        }
+        let target_carries_cargo = state.units.iter().any(
+            |cargo| matches!(&cargo.location, Location::Cargo { transport, .. } if *transport == target_id),
+        );
+        if target_carries_cargo {
+            return Err(violation(Violation::InvalidTarget {
+                target: Some(target_id.into()),
+            }));
+        }
+        let mover_carries_cargo = state.units.iter().any(
+            |cargo| matches!(&cargo.location, Location::Cargo { transport, .. } if *transport == unit_id),
+        );
+        if mover_carries_cargo {
+            return Err(violation(Violation::InvalidTarget {
+                target: Some(unit_id.into()),
+            }));
+        }
 
-    let Some(target_index) = state.units.index_of(target_id) else {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(target_id.into()),
-        }));
-    };
-    let target = &state.units[target_index];
-    let target_owner_team = state.find_player(&target.owner).map(|owner| &owner.team);
-    let Some(target_position) = board_position(target) else {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(target_id.into()),
-        }));
-    };
-    if target.id == unit.id || target.kind != unit.kind || target_owner_team != Some(actor_team) {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(target_id.into()),
-        }));
-    }
-    let destination = plan.destination();
-    if target_position != destination {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(destination.into()),
-        }));
-    }
-    if target.hp.div_ceil(10) == 10 {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(target_id.into()),
-        }));
-    }
-    let target_carries_cargo = state.units.iter().any(
-        |cargo| matches!(&cargo.location, Location::Cargo { transport, .. } if *transport == target_id),
-    );
-    if target_carries_cargo {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(target_id.into()),
-        }));
-    }
-    let mover_carries_cargo = state.units.iter().any(
-        |cargo| matches!(&cargo.location, Location::Cargo { transport, .. } if *transport == unit_id),
-    );
-    if mover_carries_cargo {
-        return Err(violation(Violation::InvalidTarget {
-            target: Some(unit_id.into()),
-        }));
+        Ok(JoinProof {
+            target: PreparedJoinTarget {
+                id: target_id,
+                index: target_index,
+            },
+        })
     }
 
-    Ok(Join {
-        target: PreparedJoinTarget {
-            id: target_id,
-            index: target_index,
-        },
-    })
+    fn into_kind(bound: MovementAction<'a, Self::Proof>) -> PreparedCommandKind<'a> {
+        PreparedCommandKind::Join(bound)
+    }
 }
 
 pub(super) fn execute_prepared_join(
-    prepared: Prepared<'_, Join>,
+    prepared: MovementAction<'_, JoinProof>,
 ) -> Result<Execution, ExecuteError> {
-    let Prepared {
+    let MovementAction {
         movement,
+        trap,
         action:
-            Join {
+            JoinProof {
                 target:
                     PreparedJoinTarget {
                         id: target_id,
@@ -728,31 +721,13 @@ pub(super) fn execute_prepared_join(
     let origin = plan.origin();
     let path = plan.path();
     let profile = ruleset::profile(unit.kind);
-    let actor_team = plan.actor_team();
     let unit_index = plan.unit_index();
     let entry_costs = plan.entry_costs();
-    let view = AwbwVisibility.view(state, actor_team);
     let target = &state.units[target_index];
 
-    // Only an undisclosed intermediate enemy can trap a well-formed join: the
-    // allied destination target is always disclosed and explicitly licensed.
-    let trap = path
-        .iter()
-        .copied()
-        .enumerate()
-        .skip(1)
-        .take(path.len().saturating_sub(2))
-        .find_map(|(index, position)| {
-            state
-                .units
-                .iter()
-                .find(|other| {
-                    other.id != unit_id
-                        && board_position(other) == Some(position)
-                        && !occupancy_is_disclosed(&view, other)
-                })
-                .map(|blocker| (index, position, blocker.id))
-        });
+    // Only an undisclosed intermediate enemy can trap a well-formed join, and
+    // the shared trap check reports exactly those: the allied destination
+    // target is always disclosed, so it never appears as one.
     let actual_length = trap.as_ref().map_or(path.len(), |(index, _, _)| *index);
     let actual_path = path[..actual_length].to_vec();
     let actual_destination = *actual_path.last().expect("actual path includes origin");

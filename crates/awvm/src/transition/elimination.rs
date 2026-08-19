@@ -7,7 +7,9 @@ use super::ReducerError as ExecuteError;
 use super::*;
 use crate::event::Event;
 use crate::ruleset::{self, KnownReason, VictoryReason};
-use crate::semantic::{Outcome, PlayerId, PlayerStatus, Pos, State, TeamStatus, TileOwner};
+use crate::semantic::{
+    Outcome, PlayerId, PlayerIdx, PlayerStatus, Pos, State, TeamStatus, TileOwner,
+};
 
 pub(crate) fn eliminate_player(
     state: &mut State,
@@ -70,10 +72,11 @@ pub(crate) fn eliminate_player(
         return Ok(true);
     }
 
+    let defeated_seat = state.player_index(defeated_player);
     let mut unit_ids: Vec<_> = state
         .units
         .iter()
-        .filter(|unit| unit.owner == defeated_player)
+        .filter(|unit| Some(unit.owner) == defeated_seat)
         .map(|unit| unit.id)
         .collect();
     unit_ids.sort();
@@ -101,11 +104,18 @@ pub(crate) fn eliminate_player(
     }
 
     let mut properties = Vec::new();
+    let defeated_seat = state.player_index(defeated_player);
+    let beneficiary_seat = beneficiary.and_then(|player| state.player_index(player));
+    // Tiles name a seat and the event names a player, so the roster is copied
+    // out here: the loop below holds the board mutably and cannot read it.
+    let roster: Vec<PlayerId> = state
+        .players
+        .iter()
+        .map(|player| player.id.clone())
+        .collect();
+    let name = |seat: Option<PlayerIdx>| seat.map(|seat| roster[seat.get()].clone());
     for (position, tile) in state.board.iter() {
-        let owned = tile
-            .owner
-            .player()
-            .is_some_and(|owner| owner == defeated_player);
+        let owned = defeated_seat.is_some_and(|seat| tile.owner.is_owned_by(seat));
         if owned || trigger_hq == Some(position) {
             properties.push(position);
         }
@@ -130,23 +140,16 @@ pub(crate) fn eliminate_player(
                 reason: KnownReason::Elimination.into(),
             });
         }
-        let previous_owner = tile.owner.to_optional();
-        let next_owner = beneficiary.cloned();
+        let previous_owner = tile.owner.player();
+        let next_owner = beneficiary_seat;
         if previous_owner != next_owner {
-            tile.owner = TileOwner::ownable(next_owner.clone());
+            tile.owner = TileOwner::ownable(next_owner);
             events.push(Event::TileOwnerChanged {
                 position,
-                from: previous_owner,
-                to: next_owner,
+                from: name(previous_owner),
+                to: name(next_owner),
             });
         }
     }
     Ok(false)
-}
-
-pub(crate) fn execute_resign(
-    turn: &ActiveTurn<'_>,
-    draws: &mut Draws<'_>,
-) -> Result<Execution, ExecuteError> {
-    execute_turn_boundary(turn, BoundaryCommand::Resign, draws)
 }
