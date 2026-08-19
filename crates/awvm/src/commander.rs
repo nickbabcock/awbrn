@@ -491,7 +491,7 @@ pub(crate) enum PlayerTarget {
     ActivatingPlayer,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(rename_all = "kebab-case")]
 pub enum PowerLevel {
@@ -1122,24 +1122,6 @@ fn effective_profile(state: &State, seat: PlayerIdx) -> Option<(&'static Effecti
     Some((profile_table().commanders.get(commander)?, power))
 }
 
-fn observed_effective_profile(
-    commanders: &[crate::semantic::Commander],
-    power_state: &PowerState,
-) -> Option<(&'static EffectiveProfile, Power)> {
-    let (slot, power) = match power_state {
-        PowerState::None => (
-            commanders.iter().position(|commander| commander.active)?,
-            Power::None,
-        ),
-        PowerState::Cop { commander_slot } => (usize::from(*commander_slot), Power::Cop),
-        PowerState::Scop { commander_slot } => (usize::from(*commander_slot), Power::Scop),
-    };
-    let commander = commanders.get(slot)?;
-    commander
-        .active
-        .then_some((profile_table().commanders.get(commander.id)?, power))
-}
-
 /// The seat a unit's owner holds, or `None` when the owner left the roster.
 fn unit_seat(state: &State, unit: &Unit) -> Option<PlayerIdx> {
     state.players.get(unit.owner.get()).map(|_| unit.owner)
@@ -1268,21 +1250,6 @@ pub fn effective_build_cost(state: &State, seat: Option<PlayerIdx>, base: u64) -
         .checked_div(ratio.denominator)
 }
 
-pub(crate) fn observed_effective_build_cost(
-    commanders: &[crate::semantic::Commander],
-    power_state: &PowerState,
-    base: u64,
-) -> Option<u64> {
-    let Some((profile, power)) = observed_effective_profile(commanders, power_state) else {
-        return Some(base);
-    };
-    let Some(ratio) = selected_rational(&profile.build_cost, power) else {
-        return Some(base);
-    };
-    base.checked_mul(ratio.numerator)?
-        .checked_div(ratio.denominator)
-}
-
 fn production_rules(
     states: &ProductionStates,
     power: Power,
@@ -1321,32 +1288,6 @@ pub fn production_site(
         terrain,
         domain,
         commander_production_site(state, seat, terrain, domain),
-    )
-}
-
-pub(crate) fn observed_commander_production_site(
-    commanders: &[crate::semantic::Commander],
-    power_state: &PowerState,
-    terrain: Terrain,
-    domain: UnitDomain,
-) -> bool {
-    let Some((profile, power)) = observed_effective_profile(commanders, power_state) else {
-        return false;
-    };
-    production_rules(&profile.production, power)
-        .any(|rule| rule.terrain_kinds.contains(&terrain) && rule.domains.contains(&domain))
-}
-
-pub(crate) fn observed_production_site(
-    commanders: &[crate::semantic::Commander],
-    power_state: &PowerState,
-    terrain: Terrain,
-    domain: UnitDomain,
-) -> bool {
-    is_production_site(
-        terrain,
-        domain,
-        observed_commander_production_site(commanders, power_state, terrain, domain),
     )
 }
 

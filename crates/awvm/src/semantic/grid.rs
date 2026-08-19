@@ -73,6 +73,34 @@ impl Dimensions {
         }
     }
 
+    /// `position` as a [`CellIdx`] of this shape, or `None` off the board.
+    ///
+    /// This is [`Dimensions::cell`] in two bytes. A [`Cell`] carries its
+    /// coordinate so that a table read costs no arithmetic. A `CellIdx` drops
+    /// the coordinate so that a value that must stay small, such as an order a
+    /// search keeps by the million, can name a tile at all.
+    pub const fn cell_index(self, position: Pos) -> Option<CellIdx> {
+        match self.index(position) {
+            // A board is at most 255x255, so an index over it is at most
+            // 65,025 and always fits.
+            Some(index) => Some(CellIdx(index as u16)),
+            None => None,
+        }
+    }
+
+    /// The coordinate `index` names on this board, or `None` past its end.
+    pub const fn position_of(self, index: CellIdx) -> Option<Pos> {
+        let index = index.0 as usize;
+        if index >= self.len() {
+            return None;
+        }
+        let width = self.width as usize;
+        Some(Pos {
+            x: (index % width) as u8,
+            y: (index / width) as u8,
+        })
+    }
+
     /// Every coordinate, row by row.
     pub fn positions(self) -> impl Iterator<Item = Pos> {
         (0..self.height).flat_map(move |y| (0..self.width).map(move |x| Pos { x, y }))
@@ -104,6 +132,33 @@ impl Cell {
     }
 }
 
+/// Where a tile lives in a row-major map, in two bytes.
+///
+/// A board is at most 255 by 255, because [`Pos`] holds two `u8` fields, so
+/// every index over one fits a `u16`. That lets an order name its destination
+/// without a coordinate pair and without a lifetime.
+///
+/// An index alone says nothing about which board it came from. Mint one with
+/// [`Dimensions::cell_index`] and read it back with
+/// [`Dimensions::position_of`]. Both check it against a shape.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CellIdx(u16);
+
+impl CellIdx {
+    /// The raw row-major index.
+    pub const fn get(self) -> u16 {
+        self.0
+    }
+
+    /// An index built from a raw number.
+    ///
+    /// Nothing here says the number names a tile of any particular board.
+    /// [`Dimensions::position_of`] decides that.
+    pub const fn from_raw(index: u16) -> Self {
+        Self(index)
+    }
+}
+
 /// One value per tile, row-major.
 ///
 /// Indexing by [`Pos`] panics off the board, in the same way indexing a slice
@@ -126,6 +181,21 @@ impl<T> Grid<T> {
             dimensions,
             cells: vec![value; dimensions.len()],
         }
+    }
+
+    /// Fill this grid with `value` over `dimensions`, keeping its allocation.
+    ///
+    /// This is [`Grid::filled`] for a grid that is being reused. A search that
+    /// runs once per unit of a turn wants it. The arrival grid is the only
+    /// board-sized thing the search owns, and refilling one costs the write
+    /// that building one costs anyway, without the allocation and the free.
+    pub fn refill(&mut self, dimensions: Dimensions, value: T)
+    where
+        T: Clone,
+    {
+        self.cells.clear();
+        self.cells.resize(dimensions.len(), value);
+        self.dimensions = dimensions;
     }
 
     /// A grid over `dimensions` holding `cells`, row-major.

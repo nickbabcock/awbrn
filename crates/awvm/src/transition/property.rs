@@ -61,10 +61,21 @@ pub(super) fn prepare_production_site<'a>(
     })
 }
 
-pub(super) fn prepare_production(
-    site: PreparedProductionSite<'_>,
+/// Every rule a build request must pass, and what the site would charge.
+///
+/// This is the whole of what makes a request legal. All
+/// [`prepare_production`] adds after it is bookkeeping for carrying the
+/// request out, namely allocating the new unit's identifier, and a caller only
+/// deciding whether to offer the build has no reason to fault on a state that
+/// cannot allocate one. Splitting the two lets a build menu read the reducer's
+/// own answer instead of restating these checks.
+///
+/// The order of the checks matters. The price is tested last, so an
+/// [`Violation::InsufficientFunds`] means everything else was accepted.
+pub(super) fn production_cost(
+    site: &PreparedProductionSite<'_>,
     kind: UnitKind,
-) -> Result<PreparedProduction<'_>, ExecuteError> {
+) -> Result<u64, ExecuteError> {
     let state = site.state;
     let profile = ruleset::profile(kind);
 
@@ -110,6 +121,17 @@ pub(super) fn prepare_production(
             available: funds,
         }));
     }
+    Ok(cost)
+}
+
+pub(super) fn prepare_production(
+    site: PreparedProductionSite<'_>,
+    kind: UnitKind,
+) -> Result<PreparedProduction<'_>, ExecuteError> {
+    let state = site.state;
+    let profile = ruleset::profile(kind);
+    let cost = production_cost(&site, kind)?;
+    let funds = state.player(site.player_index).funds;
     let next_id = state
         .next_unit_id
         .ok_or_else(|| ExecuteError::InvalidState("production requires next_unit_id".into()))?;

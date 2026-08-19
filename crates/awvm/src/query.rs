@@ -1,4 +1,4 @@
-//! What is legal, rather than whether one thing is.
+//! The geometry an interface draws, and the oracle that tests the session.
 //!
 //! [`crate::transition::execute`] answers a question the caller already knows
 //! how to ask. A user interface has the opposite problem: before it can offer a
@@ -8,17 +8,32 @@
 //! that disagrees with them, silently, wherever weather, a commander effect, or
 //! a hidden blocker was left out.
 //!
-//! Everything here is derived from the reducer, not restated alongside it:
+//! What is legal is now [`crate::session`]'s question. A consumer holding a
+//! [`State`] or an [`Observation`] opens a [`crate::session::Session`] on it
+//! and asks there, so the rules are stated once for both. What stays here is
+//! the part that is not a rule:
 //!
-//! * Action, production, delete, and unload queries use the reducer's
-//!   preparation checks. These queries do not clone or change the state, and
-//!   they cannot drift because they do not contain a second copy of the action
-//!   rules.
-//! * [`reachable`] is the one exception. A probe per tile would answer whether
-//!   a path is legal but not produce one, and a caller needs the path to build
-//!   the command, so the search is written out here. `tests/query.rs` holds it
-//!   to `execute`'s verdict for every unit and every tile in the fixture
-//!   corpus, which is what keeps the exception honest.
+//! * [`MoveField`] is the movement geometry: every tile the unit reaches, what
+//!   entering it costs, which tiles it may rest on, and the routes between. An
+//!   interface draws a range with it, and prices a route the player traced with
+//!   [`MoveField::route_cost`], because in this game the route is the player's
+//!   choice and not a detail derived from the destination.
+//!   [`crate::session::Legal::field`] hands one out.
+//! * [`reify`] rebuilds a projection into a state the reducer can answer about.
+//!   Opening a session on an observation does this once.
+//! * [`ActionSet`], [`actions_at`], [`actions_for_path`] and [`by_position`]
+//!   are the reference reading of what one destination allows. Nothing in the
+//!   tree consumes them. `tests/session.rs` checks the session's answers
+//!   against them over the whole corpus. Both walk the same reducer
+//!   preparation, so the pair cannot drift on a rule. What the oracle catches
+//!   is the session losing an answer while reshaping it.
+//!
+//! [`reachable`] is the one thing here written beside the rules rather than
+//! derived from them. A probe per tile would answer whether a path is legal but
+//! not produce one, and a caller needs the path to build the command, so the
+//! search is written out. `tests/query.rs` holds it to `execute`'s verdict for
+//! every unit and every tile in the fixture corpus, which is what keeps the
+//! exception honest.
 //!
 //! None of this is authoritative. A server still executes the command it
 //! receives; this exists so a client can offer commands the server will take.
@@ -26,20 +41,19 @@
 use std::borrow::Borrow;
 use std::cell::OnceCell;
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::combat::Forecast;
 use crate::commander::{self, Holdings};
 use crate::event::AttackTarget;
 use crate::ruleset::{self, FireMode, MovementClass, TerrainTrait};
 use crate::semantic::{
-    AwbwView, Grid, Location, Observation, ObservedMatch, ObservedPlayer, PlayerId, PlayerIdx,
-    PlayerStatus, Pos, State, Unit, UnitId, UnitKindId, WeatherKind,
+    AwbwView, Grid, Location, Observation, ObservedMatch, ObservedPlayer, PlayerId, PlayerIdx, Pos,
+    State, Unit, UnitId, WeatherKind,
 };
 use crate::transition::{
     ActiveTurn, ExecuteError, PreparedActiveUnit, PreparedDestination, board_position,
     forecast_tile_attack, forecast_unit_attack, prepare_active_unit, prepare_movement,
-    prepare_production_site, prepare_unload_transport,
 };
 use crate::violation::Violation;
 
@@ -120,6 +134,24 @@ pub struct MoveField {
     /// This unit's own search result.
     arrivals: Grid<Option<Arrival>>,
     budget: u64,
+}
+
+/// The board-sized memory a repeated movement search reuses.
+///
+/// A search owns two things: the arrival grid, which is board-sized, and
+/// Dial's buckets, one small vector per point of the allowance. Both have the
+/// same shape for every unit of a turn, so a caller that hands the same
+/// scratch back to each search allocates once instead of once per unit.
+///
+/// Nothing here survives a search. A field takes a grid out of the pool and
+/// [`MoveField::recycle`] puts it back. A grid that is never given back is
+/// dropped, and a caller with no pool always gets that.
+#[derive(Debug, Default)]
+pub(crate) struct MoveScratch {
+    /// Arrival grids handed back by spent fields.
+    grids: Vec<Grid<Option<Arrival>>>,
+    /// Dial's buckets, cleared and resized rather than rebuilt.
+    buckets: Vec<Vec<Pos>>,
 }
 
 /// The cheapest route the search found into one tile.
@@ -237,6 +269,62 @@ impl EntryCost {
 /// The largest allowance a search can spend, and so the largest arrival cost.
 const MAXIMUM_BUDGET: u64 = u16::MAX as u64;
 
+/// The board-sized tables of one turn, held apart from the turn that built them.
+///
+/// [`TurnMaps`] borrows the state, so nothing that names it can outlive the
+/// position. These two tables do not name it. An entry-cost map and a blocking
+/// map are grids of plain cells, decided by the position but not borrowing it.
+/// Lifting them out lets a caller who opens a second turn on the same position
+/// pay for them once instead of twice. [`crate::session::Session`] does that,
+/// once to offer an order and again to spell its route. Rebuilding these
+/// tables is most of what opening a turn costs.
+///
+/// A handle is shared, so a table filled through one copy is visible through
+/// every other. Keeping one is a promise. The tables answer for one position
+/// and one seat, and a holder that reuses them against a different position
+/// hands out answers about a board that is gone. [`Session`] keys its copy by
+/// epoch for that reason: applying an order is the only thing that changes the
+/// active seat, and it advances the epoch too, so no handle survives into
+/// another position or another seat. Anything else that keeps one owes the same
+/// guard.
+///
+/// [`Session`]: crate::session::Session
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TurnTables {
+    /// `None` when nobody outside the turn wants the tables, which is every
+    /// command the reducer runs. The turn then fills the cells it carries
+    /// itself and drops them with the rest of its maps, so a share nobody
+    /// asked for costs no allocation.
+    shared: Option<Arc<SharedTables>>,
+}
+
+/// The cells a [`TurnTables`] handle shares. [`OnceLock`] rather than the
+/// cheaper [`OnceCell`] so that a session stays `Send`, because one search per
+/// core is the point of a session. No table is ever filled from two threads.
+#[derive(Debug, Default)]
+struct SharedTables {
+    blocking: OnceLock<Arc<Grid<Blocking>>>,
+    /// Entry costs, one map per movement class, each built when a unit of that
+    /// class first asks.
+    entries: [OnceLock<Arc<Grid<EntryCost>>>; MovementClass::COUNT],
+}
+
+impl TurnTables {
+    /// Whether this handle shares anything at all.
+    pub(crate) const fn is_empty(&self) -> bool {
+        self.shared.is_none()
+    }
+
+    /// Forget everything, so the next turn to ask rebuilds it.
+    ///
+    /// A holder calls this when the position it kept the tables for is gone.
+    /// Every other handle keeps the old tables, so this is safe to call while
+    /// a turn is open.
+    pub(crate) fn clear(&mut self) {
+        self.shared = Some(Arc::default());
+    }
+}
+
 /// The tables every action of one turn shares.
 ///
 /// A movement search asks two things of every tile — what it costs to enter,
@@ -250,7 +338,7 @@ const MAXIMUM_BUDGET: u64 = u16::MAX as u64;
 /// as [`AwbwView`] is bound to one team, so none of them can outlive the state
 /// they describe or answer for another one.
 #[derive(Debug)]
-pub struct TurnMaps<'a> {
+pub(crate) struct TurnMaps<'a> {
     state: &'a State,
     /// The seat these maps answer for. Entry costs follow this player's
     /// commander, so a unit of any other player must not be searched with
@@ -259,10 +347,11 @@ pub struct TurnMaps<'a> {
     /// The weather this player's units move through.
     weather: WeatherKind,
     view: AwbwView<'a>,
-    blocking: OnceCell<Arc<Grid<Blocking>>>,
-    /// Entry costs, one map per movement class, each built when a unit of that
-    /// class first asks.
-    entries: [OnceCell<Arc<Grid<EntryCost>>>; MovementClass::COUNT],
+    /// The board-sized tables, when the opener kept a handle on them.
+    tables: TurnTables,
+    /// The same tables when it did not. Empty cells cost nothing, so a turn
+    /// nobody asks for a board table never allocates one.
+    owned: SharedTables,
     /// What every player holds on the board. Commander combat rules read the
     /// tower and property counts of both sides of every strike, and scoring
     /// one attack candidate used to count them from the board twice.
@@ -270,24 +359,37 @@ pub struct TurnMaps<'a> {
 }
 
 impl<'a> TurnMaps<'a> {
-    /// Open the tables a player's units share, or `None` when the player is
-    /// not on the roster.
-    pub(crate) fn new(state: &'a State, mover: &'a PlayerId) -> Option<Self> {
-        Self::for_seat(state, state.player_index(mover)?)
+    /// Open the tables a player's units share, for a seat a unit already
+    /// names. `None` when the seat is not on the roster.
+    pub(crate) fn for_seat(state: &'a State, seat: PlayerIdx) -> Option<Self> {
+        Self::with_tables(state, seat, TurnTables::default())
     }
 
-    /// The same tables, opened for a seat a unit already names.
-    pub(crate) fn for_seat(state: &'a State, seat: PlayerIdx) -> Option<Self> {
+    /// The same tables again, reusing board tables the caller kept.
+    ///
+    /// The caller vouches that `tables` was filled against this position and
+    /// this seat. See [`TurnTables`].
+    pub(crate) fn with_tables(
+        state: &'a State,
+        seat: PlayerIdx,
+        tables: TurnTables,
+    ) -> Option<Self> {
         let player = state.players.get(seat.get())?;
         Some(Self {
             state,
             seat,
             weather: commander::player_weather(state, seat),
             view: AwbwView::new(state, &player.team),
-            blocking: OnceCell::new(),
-            entries: [(); MovementClass::COUNT].map(|()| OnceCell::new()),
+            tables,
+            owned: SharedTables::default(),
             holdings: OnceCell::new(),
         })
+    }
+
+    /// The cells the board tables live in: the opener's when it kept a handle,
+    /// otherwise this turn's own.
+    fn tables(&self) -> &SharedTables {
+        self.tables.shared.as_deref().unwrap_or(&self.owned)
     }
 
     /// The moving team's view of the state.
@@ -302,10 +404,14 @@ impl<'a> TurnMaps<'a> {
 
     /// What each tile denies, worked out once for the whole turn.
     fn blocking(&self) -> &Arc<Grid<Blocking>> {
-        self.blocking.get_or_init(|| {
-            // The table asks about every tile, and every destination queried
-            // through a field asks again.
-            self.view.index_occupancy();
+        // The table asks about every tile, and every destination queried
+        // through a field asks again. This sits outside the cell on purpose.
+        // The table may already be built, by a turn opened earlier on this
+        // same position, but the index belongs to this turn's view, and a view
+        // without one answers an occupancy question by walking every unit of
+        // the state for every tile.
+        self.view.index_occupancy();
+        self.tables().blocking.get_or_init(|| {
             Arc::new(Grid::from_fn(self.state.board.dimensions(), |position| {
                 let occupied = self.view.occupant_disclosed(position);
                 Blocking {
@@ -322,7 +428,7 @@ impl<'a> TurnMaps<'a> {
     /// and the weather, and on nothing else about it, so one map serves every
     /// unit of a class.
     fn entry_costs(&self, class: MovementClass) -> &Arc<Grid<EntryCost>> {
-        self.entries[class.index()].get_or_init(|| {
+        self.tables().entries[class.index()].get_or_init(|| {
             Arc::new(Grid::from_fn(self.state.board.dimensions(), |position| {
                 EntryCost::new(entry_cost(
                     self.state,
@@ -337,6 +443,15 @@ impl<'a> TurnMaps<'a> {
 }
 
 impl MoveField {
+    /// Give the arrival grid back to the pool it came from.
+    ///
+    /// The grid is the only board-sized thing a search owns. A caller done
+    /// with a field that will search again hands it back here, and the next
+    /// search writes into this allocation instead of asking for one.
+    pub(crate) fn recycle(self, scratch: &mut MoveScratch) {
+        scratch.grids.push(self.arrivals);
+    }
+
     /// The unit this field was computed for.
     pub const fn unit(&self) -> UnitId {
         self.unit
@@ -446,7 +561,7 @@ impl MoveField {
 /// movement validation. All destinations borrow one view from the field's
 /// maps.
 #[derive(Debug)]
-pub struct PreparedMoveField<'a, M = TurnMaps<'a>> {
+pub(crate) struct PreparedMoveField<'a, M = TurnMaps<'a>> {
     active: PreparedActiveUnit<'a>,
     field: MoveField,
     maps: M,
@@ -458,14 +573,17 @@ impl<'a> PreparedMoveField<'a, TurnMaps<'a>> {
     /// This form owns its maps. A caller enumerating several units of one turn
     /// wants [`ActiveTurn::move_field`], which shares the turn's maps instead
     /// of rebuilding the same board tables once per unit.
-    pub fn new(active: PreparedActiveUnit<'a>) -> Result<Self, QueryError> {
+    pub fn new(
+        active: PreparedActiveUnit<'a>,
+        scratch: &mut MoveScratch,
+    ) -> Result<Self, QueryError> {
         let state = active.state();
         let subject = lookup(state, active.unit())?;
         let maps = TurnMaps::for_seat(state, subject.owner).ok_or(QueryError::UnknownOwner {
             unit: active.unit(),
             seat: subject.owner,
         })?;
-        Self::with_maps(active, maps)
+        Self::with_maps(active, maps, scratch)
     }
 }
 
@@ -474,63 +592,46 @@ where
     M: Borrow<TurnMaps<'a>>,
 {
     /// Compute a movement field against maps the caller already holds.
-    fn with_maps(active: PreparedActiveUnit<'a>, maps: M) -> Result<Self, QueryError> {
-        let field = reachable_with(active.state(), active.unit(), maps.borrow())?;
-        Ok(Self {
+    fn with_maps(
+        active: PreparedActiveUnit<'a>,
+        maps: M,
+        scratch: &mut MoveScratch,
+    ) -> Result<Self, QueryError> {
+        let field = reachable_with(active.state(), active.unit(), maps.borrow(), scratch)?;
+        Ok(Self::from_parts(active, field, maps))
+    }
+
+    /// Rebind a field that was already searched for this unit.
+    ///
+    /// The search is the expensive half, and the geometry it produces borrows
+    /// nothing, so a caller that asks about one unit several times searches
+    /// once and rebinds after. The geometry describes one `&State`, and this
+    /// signature requires the new proof to come from that same state.
+    pub(crate) const fn from_parts(
+        active: PreparedActiveUnit<'a>,
+        field: MoveField,
+        maps: M,
+    ) -> Self {
+        Self {
             active,
             field,
             maps,
-        })
+        }
     }
 
-    /// The movement geometry bound to this proof.
-    pub const fn field(&self) -> &MoveField {
+    /// Give the proof and the searched geometry back, for rebinding later.
+    pub(crate) fn into_parts(self) -> (PreparedActiveUnit<'a>, MoveField) {
+        (self.active, self.field)
+    }
+
+    /// The searched geometry this field wraps.
+    pub(crate) const fn geometry(&self) -> &MoveField {
         &self.field
-    }
-
-    /// The unit this field was computed for.
-    pub const fn unit(&self) -> UnitId {
-        self.field.unit()
-    }
-
-    /// Where the unit started.
-    pub const fn origin(&self) -> Pos {
-        self.field.origin()
-    }
-
-    /// Movement points available to the unit.
-    pub const fn budget(&self) -> u64 {
-        self.field.budget()
-    }
-
-    /// What it costs to arrive at `position`.
-    pub fn step(&self, position: Pos) -> Option<Step> {
-        self.field.step(position)
-    }
-
-    /// Whether a movement command may end at `position`.
-    pub fn can_stop_at(&self, position: Pos) -> bool {
-        self.field.can_stop_at(position)
-    }
-
-    /// Every tile where the unit can stop, with its movement cost.
-    pub fn destinations(&self) -> impl Iterator<Item = (Pos, u64)> + '_ {
-        self.field.destinations()
-    }
-
-    /// Every tile the unit can reach, with its movement cost.
-    pub fn reach(&self) -> impl Iterator<Item = (Pos, u64)> + '_ {
-        self.field.reach()
     }
 
     /// Return the field's route to `position`.
     pub fn path_to(&self, position: Pos) -> Option<Vec<Pos>> {
         self.field.path_to(position)
-    }
-
-    /// Validate and price a caller-chosen route through this field.
-    pub fn route_cost(&self, path: &[Pos]) -> Option<u64> {
-        self.field.route_cost(path)
     }
 
     /// Bind one reachable destination to its prepared movement.
@@ -540,6 +641,31 @@ where
     pub fn prepare_destination<'field>(
         &'field self,
         position: Pos,
+    ) -> Option<PreparedDestination<'a, &'field TurnMaps<'a>>> {
+        self.prepare_destination_into(position, Vec::new(), Vec::new())
+    }
+
+    /// [`PreparedMoveField::prepare_destination`], writing the route into
+    /// vectors the caller supplies.
+    ///
+    /// Enumerating a turn walks a route for every tile a unit can reach, and
+    /// these two vectors are all that walk allocates. Take them back from a
+    /// spent destination with [`PreparedDestination::recycle`] and a pass
+    /// allocates once instead of once per candidate.
+    ///
+    /// They are passed by value, not lent. A `&mut` pair costs 4% of a
+    /// complete enumeration, because the walk stops reading as two independent
+    /// locals and the walk is most of the pass.
+    ///
+    /// `None` drops them. It means the tile has no route through it, either a
+    /// teleporter or a tile outside the field, and a caller reusing buffers
+    /// starts the next candidate with empty ones.
+    #[inline(always)]
+    pub(crate) fn prepare_destination_into<'field>(
+        &'field self,
+        position: Pos,
+        mut path: Vec<Pos>,
+        mut entry_costs: Vec<u64>,
     ) -> Option<PreparedDestination<'a, &'field TurnMaps<'a>>> {
         if is_teleporter(self.active.state(), position) {
             return None;
@@ -552,8 +678,16 @@ where
         let dimensions = self.field.arrivals.dimensions();
         let mut cell = dimensions.cell(position)?;
         let depth = usize::from((*self.field.arrivals.at(cell))?.depth);
-        let mut path = Vec::with_capacity(depth);
-        let mut entry_costs = Vec::with_capacity(depth);
+        // The vectors arrive empty, so growing one is replacing it. Asking
+        // `Vec::reserve` instead costs 5% of a complete enumeration, because
+        // it cannot assume an empty vector and takes the amortized-growth path
+        // on every candidate.
+        if path.capacity() < depth {
+            path = Vec::with_capacity(depth);
+        }
+        if entry_costs.capacity() < depth {
+            entry_costs = Vec::with_capacity(depth);
+        }
         // A route visits a tile at most once, so the board's tile count bounds
         // the walk. A predecessor chain that closed on itself would otherwise
         // never end.
@@ -588,12 +722,6 @@ where
         self.prepare_destination(position)
             .map_or_else(|| Ok(ActionSet::default()), actions_for_destination)
     }
-
-    /// Enumerate actions and name their targets by board position.
-    pub fn observed_actions_at(&self, position: Pos) -> Result<ObservedActionSet, QueryError> {
-        self.actions_at(position)
-            .map(|actions| by_position(self.active.state(), actions))
-    }
 }
 
 impl<'a> ActiveTurn<'a> {
@@ -610,11 +738,12 @@ impl<'a> ActiveTurn<'a> {
     pub fn move_field<'turn>(
         &'turn self,
         unit: UnitId,
+        scratch: &mut MoveScratch,
     ) -> Result<Option<PreparedMoveField<'a, &'turn TurnMaps<'a>>>, QueryError> {
         let Ok(active) = self.unit(unit)? else {
             return Ok(None);
         };
-        PreparedMoveField::with_maps(active, self.maps()).map(Some)
+        PreparedMoveField::with_maps(active, self.maps(), scratch).map(Some)
     }
 }
 
@@ -635,7 +764,7 @@ pub fn reachable(state: &State, unit: UnitId) -> Result<MoveField, QueryError> {
         unit,
         seat: subject.owner,
     })?;
-    reachable_with(state, unit, &maps)
+    reachable_with(state, unit, &maps, &mut MoveScratch::default())
 }
 
 /// [`reachable`] against maps the caller already holds.
@@ -648,6 +777,7 @@ fn reachable_with(
     state: &State,
     unit: UnitId,
     maps: &TurnMaps<'_>,
+    scratch: &mut MoveScratch,
 ) -> Result<MoveField, QueryError> {
     let subject = lookup(state, unit)?;
     let Location::Board { position: origin } = subject.location else {
@@ -666,9 +796,16 @@ fn reachable_with(
     let blocking = Arc::clone(maps.blocking());
     let dimensions = state.board.dimensions();
 
-    // The only board-sized thing a search allocates: everything else it needs
-    // is shared with the rest of the turn.
-    let mut arrivals = Grid::filled(state.board.dimensions(), None);
+    // The only board-sized thing a search owns. Everything else it needs is
+    // shared with the rest of the turn. Taken from the pool when one is warm,
+    // the ordinary case for a caller searching unit after unit.
+    let mut arrivals = match scratch.grids.pop() {
+        Some(mut grid) => {
+            grid.refill(dimensions, None);
+            grid
+        }
+        None => Grid::filled(dimensions, None),
+    };
     arrivals[origin] = Some(Arrival {
         cost: 0,
         depth: 1,
@@ -686,7 +823,13 @@ fn reachable_with(
         .ok()
         .and_then(|budget| budget.checked_add(1))
         .expect("the ruleset movement allowance and zero bucket fit usize");
-    let mut buckets = vec![Vec::new(); bucket_count];
+    if scratch.buckets.len() < bucket_count {
+        scratch.buckets.resize_with(bucket_count, Vec::new);
+    }
+    let buckets = &mut scratch.buckets[..bucket_count];
+    for bucket in buckets.iter_mut() {
+        bucket.clear();
+    }
     buckets[0].push(origin);
     for current_cost in 0..bucket_count {
         while let Some(position) = buckets[current_cost].pop() {
@@ -744,27 +887,6 @@ fn reachable_with(
     })
 }
 
-/// Everywhere the recipient-safe observation says `unit` can go.
-///
-/// This is [`reachable`] for a client that holds an [`Observation`] rather
-/// than a [`State`], and the movement counterpart of [`observed_actions_at`]:
-/// the observation is reified into a provisional state and the same search
-/// runs against it, so no movement rule is restated on the client.
-///
-/// This deliberately cannot account for facts hidden by fog. A hidden blocker
-/// can make an offered destination unreachable, and the field is advisory in
-/// the same way [`observed_actions_at`] is; executing the command against
-/// authoritative state remains the final validation step.
-///
-/// Only friendly units are nameable here. Enemy identities are deliberately
-/// absent from an observation, so this is not a threat-range query.
-pub fn observed_reachable(
-    observation: &Observation,
-    unit: UnitId,
-) -> Result<MoveField, QueryError> {
-    ObservedQuery::new(observation)?.reachable(unit)
-}
-
 /// What `unit` may do if it moves to `destination`.
 ///
 /// Every field is the reducer's own verdict on the corresponding command, so an
@@ -807,290 +929,20 @@ impl ActionSet {
     }
 }
 
-/// What a recipient may do at a destination, named the way a recipient can name
-/// it.
-///
-/// This is [`ActionSet`] with every target given as a position instead of a
-/// unit id. A projection carries no id for an enemy — `ObservedUnitRef::Enemy`
-/// holds only a position — so an id derived from one is an invention of the
-/// reification and means nothing to the server that would receive it. Reporting
-/// positions keeps that invention inside this module.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ObservedActionSet {
-    /// Move there and end the unit's turn.
-    pub wait: bool,
-    /// Begin or continue capturing the property underfoot.
-    pub capture: bool,
-    /// Merge into the unit already standing there.
-    pub join: bool,
-    /// Board the transport already standing there.
-    pub load: bool,
-    /// Resupply adjacent friendly units from there.
-    pub supply: bool,
-    /// Enter hidden state.
-    pub hide: bool,
-    /// Leave hidden state.
-    pub reveal: bool,
-    /// Self-destruct, damaging the surrounding area.
-    pub explode: bool,
-    /// Where this unit may fire from that destination.
-    pub attack: Vec<Pos>,
-    /// Where the friendly units it may repair are standing.
-    pub repair: Vec<Pos>,
-    /// Tiles a missile silo underfoot may be fired at.
-    pub launch: Vec<Pos>,
-}
-
-/// Recipient-safe queries over one reified observation.
-///
-/// Construct this once and reuse it for a movement field and its action
-/// destinations. This prevents each action query from rebuilding the same
-/// provisional state.
-#[derive(Debug)]
-pub struct ObservedQuery {
-    state: State,
-    may_command: bool,
-}
-
-impl ObservedQuery {
-    /// Reify one observation for subsequent queries.
-    pub fn new(observation: &Observation) -> Result<Self, QueryError> {
-        Ok(Self {
-            state: reify(observation)?,
-            may_command: recipient_may_command(observation),
-        })
-    }
-
-    /// Compute the recipient-safe movement field for `unit`.
-    pub fn reachable(&self, unit: UnitId) -> Result<MoveField, QueryError> {
-        reachable(&self.state, unit)
-    }
-
-    /// Open the recipient's turn over this observation.
-    ///
-    /// `Ok(None)` means the recipient may not issue commands against this
-    /// observation at all. Enumerating several units wants this rather than
-    /// [`Self::prepared_reachable`], which resolves the recipient's sightings
-    /// and unit positions again for every unit.
-    pub fn turn(&self) -> Result<Option<ActiveTurn<'_>>, QueryError> {
-        if !self.may_command {
-            return Ok(None);
-        }
-        Ok(ActiveTurn::open(&self.state, &self.state.turn.active_player)?.ok())
-    }
-
-    /// Bind a movement field to a commandable unit in this observation.
-    pub fn prepared_reachable(
-        &self,
-        unit: UnitId,
-    ) -> Result<Option<PreparedMoveField<'_>>, QueryError> {
-        if !self.may_command {
-            return Ok(None);
-        }
-        prepared_move_field(&self.state, unit)
-    }
-
-    /// Query one destination and compute its path when necessary.
-    pub fn actions_at(
-        &self,
-        unit: UnitId,
-        destination: Pos,
-    ) -> Result<ObservedActionSet, QueryError> {
-        if !self.may_command {
-            return Ok(ObservedActionSet::default());
-        }
-        self.prepared_reachable(unit)?.map_or_else(
-            || Ok(ObservedActionSet::default()),
-            |field| field.observed_actions_at(destination),
-        )
-    }
-
-    /// Query a path obtained from a movement field without rebuilding it.
-    pub fn actions_for_path(
-        &self,
-        unit: UnitId,
-        path: Vec<Pos>,
-    ) -> Result<ObservedActionSet, QueryError> {
-        if !self.may_command {
-            return Ok(ObservedActionSet::default());
-        }
-        Ok(by_position(
-            &self.state,
-            actions_for_path(&self.state, unit, path)?,
-        ))
-    }
-}
-
-/// The legal attacks from one candidate movement destination.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ObservedAttacksFrom {
-    pub from: Pos,
-    pub targets: Vec<Pos>,
-}
-
-/// One standalone AWBW unload order available to the recipient.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ObservedUnload {
-    pub cargo: UnitId,
-    pub cargo_kind: UnitKindId,
-    pub destination: Pos,
-}
-
-impl ObservedActionSet {
-    /// Whether any command at all is available at this destination.
-    pub fn is_empty(&self) -> bool {
-        *self == Self::default()
-    }
-}
-
 /// Whether the recipient is the one on turn, in the phase where units take
 /// orders, in a match that is still running under a ruleset this crate models.
 ///
 /// Every observed-side query answers with nothing when this is false: an
 /// observation the recipient cannot act on offers no commands at all.
-fn recipient_may_command(observation: &Observation) -> bool {
+pub(crate) fn recipient_may_command(observation: &Observation) -> bool {
     ruleset::supports(&observation.ruleset)
         && observation.turn.active_player == observation.recipient
         && observation.turn.phase == crate::semantic::Phase::UnitAction
         && matches!(observation.match_state, ObservedMatch::Active { .. })
 }
 
-/// Which commands the recipient-safe observation says `unit` has at
-/// `destination`.
-///
-/// This is [`actions_at`] for a client that holds an [`Observation`] rather
-/// than a [`State`]. It does not restate a single rule: the observation is
-/// reified into a provisional state and the reducer answers, exactly as it does
-/// for the authoritative caller. What the recipient cannot see is filled with
-/// the most conservative reading, so the reducer is never told a fact the
-/// projection withheld.
-///
-/// This deliberately cannot account for facts hidden by fog. A hidden blocker
-/// can make an offered command illegal, and a hidden target can make a legal
-/// one missing. The returned set is advisory; executing the selected command
-/// against authoritative state is still the final validation step.
-pub fn observed_actions_at(
-    observation: &Observation,
-    unit: UnitId,
-    destination: Pos,
-) -> Result<ObservedActionSet, QueryError> {
-    if !recipient_may_command(observation) {
-        return Ok(ObservedActionSet::default());
-    }
-
-    ObservedQuery::new(observation)?.actions_at(unit, destination)
-}
-
-/// What `unit` may attack from each candidate movement destination.
-///
-/// This is the batch form of reading [`ObservedActionSet::attack`] from
-/// [`observed_actions_at`]. Reification is the expensive part of an observed
-/// query, so a board that highlights all targets must pay that cost once per
-/// selection, not once per destination.
-pub fn observed_attacks_from(
-    observation: &Observation,
-    unit: UnitId,
-    destinations: &[Pos],
-) -> Result<Vec<ObservedAttacksFrom>, QueryError> {
-    if !recipient_may_command(observation) {
-        return Ok(Vec::new());
-    }
-
-    let state = reify(observation)?;
-    if destinations.is_empty() {
-        return Ok(Vec::new());
-    }
-    let Some(field) = prepared_move_field(&state, unit)? else {
-        return Ok(destinations
-            .iter()
-            .copied()
-            .map(|from| ObservedAttacksFrom {
-                from,
-                targets: Vec::new(),
-            })
-            .collect());
-    };
-    destinations
-        .iter()
-        .copied()
-        .map(|from| {
-            let attack = match field.prepare_destination(from) {
-                Some(destination) => attack_targets_for_destination(&destination)?,
-                None => Vec::new(),
-            };
-            Ok(ObservedAttacksFrom {
-                from,
-                targets: by_position(
-                    &state,
-                    ActionSet {
-                        attack,
-                        ..ActionSet::default()
-                    },
-                )
-                .attack,
-            })
-        })
-        .collect()
-}
-
-/// What each of these attacks would cost both sides, before any dice.
-///
-/// A player choosing between two attacks is choosing between two brackets, and
-/// until they can see both they are guessing at the one number the game
-/// actually turns on. This answers for a whole menu at once because that is how
-/// the question is asked: reifying the observation is the expensive half, and a
-/// caller asking per target would pay it once per row.
-///
-/// `targets` are positions rather than ids for the reason
-/// [`ObservedActionSet`] gives — a projection carries no id for an enemy — so a
-/// target is read as whatever stands there: a unit if one does, otherwise a
-/// destructible tile. Results are positional, one entry per requested target.
-/// An entry is `None` when the attack is not one this unit could make from
-/// `from`, which is the same answer the interface should give when it has
-/// nothing trustworthy to show: no number at all rather than a wrong one.
-///
-/// Like every observed-side query this is computed against the recipient's own
-/// projection, so fog can make it wrong in both directions. It is advisory,
-/// exactly as the order list it annotates already is.
-pub fn observed_forecasts(
-    observation: &Observation,
-    unit: UnitId,
-    from: Pos,
-    targets: &[Pos],
-) -> Result<Vec<Option<Forecast>>, QueryError> {
-    if !recipient_may_command(observation) {
-        return Ok(vec![None; targets.len()]);
-    }
-
-    let hidden_hp: HashSet<_> = observation
-        .units
-        .iter()
-        .filter(|unit| unit.hp.exact().is_none())
-        .filter_map(|unit| match unit.location {
-            Location::Board { position } => Some(position),
-            Location::Cargo { .. } => None,
-        })
-        .collect();
-    let state = reify(observation)?;
-    let index = state
-        .units
-        .index_of(unit)
-        .ok_or(QueryError::UnitNotFound(unit))?;
-    let player = state.player_id(state.units[index].owner).clone();
-    let holdings = Holdings::tally(&state);
-
-    Ok(targets
-        .iter()
-        .map(|target| {
-            (!hidden_hp.contains(target))
-                .then(|| forecast_at(&state, &holdings, &player, index, unit, from, *target))
-                .flatten()
-        })
-        .collect())
-}
-
 /// One target's forecast, dispatched on what is standing there.
-fn forecast_at(
+pub(crate) fn forecast_at(
     state: &State,
     holdings: &Holdings<'_>,
     player: &PlayerId,
@@ -1113,73 +965,32 @@ fn forecast_at(
     }
 }
 
-/// Which free unload commands the recipient may issue from `transport` now.
+/// An [`ActionSet`] whose targets are named by the tile they stand on.
 ///
-/// Unlike a move follow-up, unloading neither moves nor spends the transport,
-/// so this remains available when the transport has already acted. Results are
-/// ordered by cargo id and then map position.
-pub fn observed_unloads(
-    observation: &Observation,
-    transport: UnitId,
-) -> Result<Vec<ObservedUnload>, QueryError> {
-    if !recipient_may_command(observation) {
-        return Ok(Vec::new());
-    }
-
-    let state = reify(observation)?;
-    let subject = lookup(&state, transport)?;
-    let Location::Board { position } = subject.location else {
-        return Err(QueryError::UnitNotOnBoard(transport));
-    };
-    let player = state.player_id(subject.owner).clone();
-    let Ok(Ok(prepared_transport)) = prepare_unload_transport(&state, &player, transport) else {
-        return Ok(Vec::new());
-    };
-    let mut orders = Vec::new();
-    for candidate in state.units.iter().filter(|candidate| {
-        matches!(
-            candidate.location,
-            Location::Cargo {
-                transport: carried_by,
-                ..
-            } if carried_by == transport
-        )
-    }) {
-        let Ok(Ok(prepared_cargo)) = prepared_transport.clone().prepare_cargo(candidate.id) else {
-            continue;
-        };
-        for destination in position.orthogonal() {
-            if matches!(
-                prepared_cargo.clone().prepare_destination(destination),
-                Ok(Ok(_))
-            ) {
-                orders.push(ObservedUnload {
-                    cargo: candidate.id,
-                    cargo_kind: candidate.kind,
-                    destination,
-                });
-            }
-        }
-    }
-    orders.sort_by_key(|order| (order.cargo, order.destination));
-    Ok(orders)
+/// A projection carries no identifier for a unit its holder cannot see, so a
+/// target it may legally fire on has no id to name it by. The tile always
+/// exists, so this shape and [`crate::session::Order`] both name a target that
+/// way.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ObservedActionSet {
+    pub wait: bool,
+    pub capture: bool,
+    pub join: bool,
+    pub load: bool,
+    pub supply: bool,
+    pub hide: bool,
+    pub reveal: bool,
+    pub explode: bool,
+    pub attack: Vec<Pos>,
+    pub repair: Vec<Pos>,
+    pub launch: Vec<Pos>,
 }
 
-/// Whether the recipient may remove `unit` from the board now.
-///
-/// The reducer remains the authority for readiness, ownership, phase, and
-/// board-position checks.
-pub fn observed_can_delete(observation: &Observation, unit: UnitId) -> Result<bool, QueryError> {
-    if !recipient_may_command(observation) {
-        return Ok(false);
+impl ObservedActionSet {
+    /// Whether any command at all is available at this destination.
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
     }
-
-    let state = reify(observation)?;
-    let player = state.player_id(lookup(&state, unit)?.owner).clone();
-    let Ok(Ok(active)) = prepare_active_unit(&state, &player, unit) else {
-        return Ok(false);
-    };
-    Ok(matches!(active.prepare_delete(), Ok(Ok(_))))
 }
 
 /// Restate an [`ActionSet`]'s targets as the positions its units occupy.
@@ -1467,7 +1278,9 @@ fn prepared_move_field(
     let Ok(active) = prepare_active_unit(state, owner, unit)? else {
         return Ok(None);
     };
-    PreparedMoveField::new(active).map(Some)
+    // A one-shot caller keeps no pool, so the search allocates and frees the
+    // one grid it needs. Repeated searching wants `MoveScratch`.
+    PreparedMoveField::new(active, &mut MoveScratch::default()).map(Some)
 }
 
 /// Enumerate actions for a path without computing a movement field.
@@ -1527,15 +1340,56 @@ where
             Some(transport) => destination.can_load(transport)?,
             None => false,
         },
-        attack: attack_targets_for_destination(&destination)?,
-        repair: repair_targets(&destination)?,
-        launch: launch_targets(&destination)?,
+        attack: {
+            let mut targets = Vec::new();
+            let (mut units, mut tiles) = (Vec::new(), Vec::new());
+            attack_targets_into::<_, { usize::MAX }>(
+                &destination,
+                &mut targets,
+                &mut units,
+                &mut tiles,
+            )?;
+            targets
+        },
+        repair: {
+            let mut targets = Vec::new();
+            repair_targets_into::<_, { usize::MAX }>(&destination, &mut targets)?;
+            targets
+        },
+        launch: {
+            let mut targets = Vec::new();
+            launch_targets_into::<_, { usize::MAX }>(&destination, &mut targets)?;
+            targets
+        },
     })
 }
 
-fn attack_targets_for_destination<'a, M>(
+/// Everything the mover may fire on from here, appended to `out`.
+///
+/// The walk stops after `LIMIT` targets. A caller that only needs to know
+/// whether the destination admits an attack asks for one and stops the range
+/// walk at the first hit. A caller that wants the list asks for
+/// `{ usize::MAX }`. Enumeration asks for the bit hundreds of times per list,
+/// so the two are one function and not two.
+///
+/// The limit is a constant rather than an argument so that the unlimited walk,
+/// which is every complete enumeration, compiles to what it did before the
+/// limited one existed. Passed as a value it cost 4% of a turn.
+///
+/// This appends to `out` and never clears it. A caller collecting several
+/// kinds into one buffer wants that, and a caller that wants only this walk's
+/// answer reads from the length it noted before the call.
+///
+/// The walk sorts the units it finds, so it needs somewhere to hold them until
+/// it has them all. `units` and `tiles` are that scratch: they are cleared on
+/// entry and left full on exit, so a caller that asks once per destination
+/// lends the same two buffers to every call and pays for them once.
+pub(crate) fn attack_targets_into<'a, M, const LIMIT: usize>(
     destination: &PreparedDestination<'a, M>,
-) -> Result<Vec<AttackTarget>, QueryError>
+    out: &mut Vec<AttackTarget>,
+    units: &mut Vec<UnitId>,
+    tiles: &mut Vec<Pos>,
+) -> Result<(), QueryError>
 where
     M: Borrow<TurnMaps<'a>>,
 {
@@ -1545,7 +1399,7 @@ where
     let subject = lookup(state, unit)?;
     let profile = ruleset::profile(subject.kind);
     if profile.fire_mode == FireMode::None {
-        return Ok(Vec::new());
+        return Ok(());
     }
     let from = movement.plan().destination();
 
@@ -1575,10 +1429,10 @@ where
     let maximum_x = from.x.saturating_add(radius).min(state.board.width() - 1);
     let minimum_y = from.y.saturating_sub(radius);
     let maximum_y = from.y.saturating_add(radius).min(state.board.height() - 1);
-    let mut units: Vec<UnitId> = Vec::new();
-    let mut tiles: Vec<Pos> = Vec::new();
+    units.clear();
+    tiles.clear();
     let dimensions = state.board.dimensions();
-    for y in minimum_y..=maximum_y {
+    'walk: for y in minimum_y..=maximum_y {
         for x in minimum_x..=maximum_x {
             let position = Pos::new(x, y);
             if !in_range(position) {
@@ -1598,6 +1452,9 @@ where
                 && destination.can_attack(AttackTarget::Unit { unit: candidate })?
             {
                 units.push(candidate);
+                if units.len() + tiles.len() >= LIMIT {
+                    break 'walk;
+                }
             }
             if ruleset::terrain(state.board.at(cell).terrain)
                 .destructible
@@ -1605,28 +1462,29 @@ where
                 && destination.can_attack(AttackTarget::Tile { position })?
             {
                 tiles.push(position);
+                if units.len() + tiles.len() >= LIMIT {
+                    break 'walk;
+                }
             }
         }
     }
     // The walk finds units in board order; report them by id, so the list does
     // not depend on where the mover stopped.
     units.sort_unstable();
-    let mut targets: Vec<AttackTarget> = units
-        .into_iter()
-        .map(|unit| AttackTarget::Unit { unit })
-        .collect();
-    targets.extend(
-        tiles
-            .into_iter()
-            .map(|position| AttackTarget::Tile { position }),
-    );
-    Ok(targets)
+    out.extend(units.iter().map(|unit| AttackTarget::Unit { unit: *unit }));
+    out.extend(tiles.iter().map(|position| AttackTarget::Tile {
+        position: *position,
+    }));
+    Ok(())
 }
 
-/// Friendly units `unit` may repair after moving along `path`.
-fn repair_targets<'a, M>(
+/// Friendly units the mover may repair from here, appended to `out`.
+///
+/// [`attack_targets_into`] explains `LIMIT` and the append.
+pub(crate) fn repair_targets_into<'a, M, const LIMIT: usize>(
     destination: &PreparedDestination<'a, M>,
-) -> Result<Vec<UnitId>, QueryError>
+    out: &mut Vec<UnitId>,
+) -> Result<(), QueryError>
 where
     M: Borrow<TurnMaps<'a>>,
 {
@@ -1638,27 +1496,35 @@ where
         .get(unit)
         .and_then(|unit| ruleset::profile(unit.kind).repair)
     else {
-        return Ok(Vec::new());
+        return Ok(());
     };
     if repair.relation != ruleset::Relation::Adjacent {
-        return Ok(Vec::new());
+        return Ok(());
     }
     let from = movement.plan().destination();
-    let mut targets = Vec::new();
+    let found = out.len();
     for candidate in from
         .orthogonal()
         .filter_map(|position| destination.view().occupant(position))
         .filter(|candidate| *candidate != unit)
     {
         if destination.can_repair(candidate)? {
-            targets.push(candidate);
+            out.push(candidate);
+            if out.len() - found >= LIMIT {
+                break;
+            }
         }
     }
-    Ok(targets)
+    Ok(())
 }
 
-/// Every tile a silo under the end of `path` may be fired at.
-fn launch_targets<'a, M>(destination: &PreparedDestination<'a, M>) -> Result<Vec<Pos>, QueryError>
+/// Every tile a silo under the mover may be fired at, appended to `out`.
+///
+/// [`attack_targets_into`] explains `LIMIT` and the append.
+pub(crate) fn launch_targets_into<'a, M, const LIMIT: usize>(
+    destination: &PreparedDestination<'a, M>,
+    out: &mut Vec<Pos>,
+) -> Result<(), QueryError>
 where
     M: Borrow<TurnMaps<'a>>,
 {
@@ -1672,142 +1538,18 @@ where
         .get(position)
         .is_none_or(|tile| tile.silo.is_none())
     {
-        return Ok(Vec::new());
+        return Ok(());
     }
-    let mut targets = Vec::new();
+    let found = out.len();
     for target in state.board.positions() {
         if destination.can_launch(target)? {
-            targets.push(target);
-        }
-    }
-    Ok(targets)
-}
-
-/// Which unit kinds `player` may produce at `position` right now.
-///
-/// A production site is a tile rather than a unit, so it has no reachable set
-/// and no [`ActionSet`]; this is the same question asked of one.
-pub fn production_options(state: &State, player: &PlayerId, position: Pos) -> Vec<UnitKindId> {
-    let Ok(Ok(site)) = prepare_production_site(state, player, position) else {
-        return Vec::new();
-    };
-    UnitKindId::ALL
-        .iter()
-        .copied()
-        .filter(|kind| matches!(site.clone().prepare_kind(*kind), Ok(Ok(_))))
-        .collect()
-}
-
-/// A unit this facility produces for the recipient, and its effective cost.
-///
-/// `affordable` is false when the recipient's funds do not reach `cost`. The
-/// option is still reported, because a menu that hides what a base could build
-/// hides the information a player is deciding with; an interface shows the
-/// price it cannot pay rather than a shorter list.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ObservedProductionOption {
-    pub kind: UnitKindId,
-    pub cost: u64,
-    pub affordable: bool,
-}
-
-/// Which units the recipient-safe observation says this facility produces.
-///
-/// The list is ordered by base cost, which is the order the units are presented
-/// in, and it is stable under commander cost effects because those change the
-/// effective price rather than the ordering.
-///
-/// This deliberately cannot account for facts hidden by fog. The returned list
-/// is advisory; executing the selected command against authoritative state is
-/// still the final validation step.
-pub fn observed_production_options(
-    observation: &Observation,
-    position: Pos,
-) -> Vec<ObservedProductionOption> {
-    if !recipient_may_command(observation) {
-        return Vec::new();
-    }
-
-    let Some(ObservedPlayer::Private {
-        funds,
-        status,
-        commanders,
-        power_state,
-        ..
-    }) = observation.players.iter().find(|player| match player {
-        ObservedPlayer::Private { id, .. } | ObservedPlayer::Public { id, .. } => {
-            id == &observation.recipient
-        }
-    })
-    else {
-        return Vec::new();
-    };
-    if *status != PlayerStatus::Active {
-        return Vec::new();
-    }
-
-    let Some(tile) = observation.board.get(position) else {
-        return Vec::new();
-    };
-    if !tile.owner.is_owned_by(&observation.recipient)
-        || observation.units.iter().any(
-            |unit| matches!(unit.location, Location::Board { position: occupied } if occupied == position),
-        )
-    {
-        return Vec::new();
-    }
-
-    let owned_units = observation
-        .units
-        .iter()
-        .filter(|unit| unit.owner == observation.recipient)
-        .count() as u64;
-    if observation
-        .settings
-        .unit_limit
-        .is_some_and(|limit| owned_units >= limit)
-    {
-        return Vec::new();
-    }
-    let owns_lab = observation.board.tiles().any(|tile| {
-        tile.terrain == crate::semantic::TerrainId::Lab
-            && tile.owner.is_owned_by(&observation.recipient)
-    });
-    let mut options: Vec<(u64, ObservedProductionOption)> = UnitKindId::ALL
-        .iter()
-        .copied()
-        .filter_map(|kind| {
-            let profile = ruleset::profile(kind);
-            let is_site = commander::observed_production_site(
-                commanders,
-                power_state,
-                tile.terrain,
-                profile.domain,
-            );
-            if !is_site
-                || observation.settings.unit_bans.contains(&kind)
-                || (observation.settings.lab_units.contains(&kind) && !owns_lab)
-            {
-                return None;
+            out.push(target);
+            if out.len() - found >= LIMIT {
+                break;
             }
-            let cost =
-                commander::observed_effective_build_cost(commanders, power_state, profile.cost)?;
-            Some((
-                profile.cost,
-                ObservedProductionOption {
-                    kind,
-                    cost,
-                    affordable: cost <= *funds,
-                },
-            ))
-        })
-        .collect();
-
-    // Base cost, then the identifier, so two units priced the same always come
-    // back in the same order. `UnitKindId::ALL` is alphabetical, which is not an
-    // order any player reads a build menu in.
-    options.sort_by(|(left, a), (right, b)| left.cmp(right).then(a.kind.cmp(&b.kind)));
-    options.into_iter().map(|(_, option)| option).collect()
+        }
+    }
+    Ok(())
 }
 
 /// What entering `position` costs this unit, or `None` when it cannot.

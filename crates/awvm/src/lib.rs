@@ -30,6 +30,21 @@
 //! drives the reducer through [`transition::execute_with`] and
 //! [`random::Entropy`].
 //!
+//! Those entry points answer about a state the caller holds and keep nothing
+//! between calls. A server wants that shape. A search does not, because it
+//! applies millions of orders and rebuilds the same board tables after each
+//! one. [`session`] is the same rules under one owner. A [`session::Session`]
+//! holds the position, reports what is legal as eight-byte orders that carry
+//! no path and no lifetime, applies one, and rewinds. Both consumers drive the
+//! same reducer. Two implementations of the rules would drift, and the
+//! conformance corpus can only keep one of them honest.
+//!
+//! Ask [`session`] what is legal, whether you hold a [`semantic::State`] or a
+//! fog-limited [`semantic::Observation`]. Opening a session on a projection
+//! rebuilds it once and answers everything from that. [`query`] keeps what a
+//! consumer must draw: the movement geometry behind a range and a route, and
+//! the action set that tests the session's answers.
+//!
 //! [`prelude`] re-exports what driving all of this needs.
 //!
 //! This crate depends only on serialization and error-derivation support. It
@@ -50,6 +65,7 @@ pub mod query;
 pub mod random;
 pub mod ruleset;
 pub mod semantic;
+pub mod session;
 pub mod transition;
 pub mod violation;
 
@@ -60,9 +76,7 @@ pub mod violation;
 /// server, or a replay viewer to the reducer.
 pub mod prelude {
     pub use crate::event::{AttackTarget, Event};
-    pub use crate::query::{
-        ActionSet, MoveField, ObservedQuery, PreparedMoveField, QueryError, Step,
-    };
+    pub use crate::query::{ActionSet, MoveField, ObservedActionSet, QueryError, Step};
     pub use crate::random::{Entropy, Luck, RandomError, RandomTape, RandomToken, Recording};
     pub use crate::ruleset::{CommanderKind, Terrain, UnitKind, WeatherKind};
     pub use crate::semantic::{
@@ -70,12 +84,12 @@ pub mod prelude {
         ObservedUnitRef, PlayerId, Pos, State, TeamId, TerrainId, Unit, UnitId, UnitKindId,
         Visibility, observe, observe_events, observe_transition,
     };
+    pub use crate::session::{
+        Error as SessionError, Legal, Mark, Order, OrderKind, OrderMask, Production, Session, Sink,
+        TargetKind, UnitIdx, Unload,
+    };
     pub use crate::transition::{
-        ActiveTurn, Command, ExecuteError, ExecuteOutcome, Execution, Prepared, PreparedActiveUnit,
-        PreparedCommand, PreparedDestination, PreparedMovement, PreparedProductionSite,
-        PreparedUnloadCargo, PreparedUnloadTransport, execute, execute_prepared,
-        execute_prepared_with, execute_with, prepare_active_unit, prepare_command,
-        prepare_movement, prepare_production_site, prepare_unload_transport,
+        Command, ExecuteError, ExecuteOutcome, Execution, execute, execute_with,
     };
     pub use crate::violation::Violation;
 }
