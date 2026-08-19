@@ -81,7 +81,7 @@ pub(crate) fn turns_until_player_selection(
         selections = selections.checked_add(1).ok_or_else(|| {
             ExecuteError::InvalidState("weather duration selection count overflow".into())
         })?;
-        if candidate.id == player {
+        if candidate.id() == player {
             return Ok(selections);
         }
     }

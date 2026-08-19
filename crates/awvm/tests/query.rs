@@ -749,8 +749,7 @@ fn can_act_reports_the_violation_the_reducer_would() {
     // `can_act` asks on behalf of the unit's own owner, which is why an enemy
     // unit reports this rather than `UnitNotOwned`.
     // The fixture seats one player, so the other side is added here.
-    let mut opponent = state.players[0].clone();
-    opponent.id = PlayerId::from("blue");
+    let mut opponent = state.players[0].renamed(PlayerId::from("blue"));
     opponent.team = "blue-team".into();
     state.teams.push(awvm::semantic::Team {
         id: "blue-team".into(),

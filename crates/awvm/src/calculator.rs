@@ -23,9 +23,9 @@ use crate::combat::{CounterStep, DamageRange, Weapon};
 use crate::commander::{Holdings, PowerLevel};
 use crate::ruleset::{self, CommanderKind, Terrain, UnitKind};
 use crate::semantic::{
-    Board, Commander, Concealment, Location, Match, Phase, Player, PlayerId, PlayerIdx,
-    PlayerStatus, Pos, PowerState, Roster, RulesetRef, Settings, State, Team, TeamStatus, Tile,
-    TileOwner, Turn, Unit, UnitAction, UnitId, UnitStore, Weather, WeatherKind,
+    Board, Commander, Concealment, Location, Match, Phase, Player, PlayerId, PlayerIdx, Pos,
+    PowerState, Roster, RulesetRef, Settings, State, Team, TeamStatus, Tile, TileOwner, Turn, Unit,
+    UnitAction, UnitId, UnitStore, Weather, WeatherKind,
 };
 use crate::transition;
 
@@ -489,23 +489,19 @@ fn combatant(id: UnitId, fighter: Fighter, owner: PlayerIdx, position: Pos) -> U
 }
 
 fn player(id: &str, side: &SideContext) -> Player {
-    Player {
-        id: id.into(),
-        team: id.into(),
-        funds: side.funds,
-        status: PlayerStatus::Active,
-        power_state: match side.power {
-            Some(PowerLevel::Cop) => PowerState::Cop { commander_slot: 0 },
-            Some(PowerLevel::Scop) => PowerState::Scop { commander_slot: 0 },
-            None => PowerState::None,
-        },
-        commanders: vec![Commander {
+    Player::new(id.into(), id.into())
+        .with_funds(side.funds)
+        .with_commanders(vec![Commander {
             id: side.commander.unwrap_or(CommanderKind::Neutral),
             active: true,
             power_charge: 0,
             power_uses: 0,
-        }],
-    }
+        }])
+        .with_power_state(match side.power {
+            Some(PowerLevel::Cop) => PowerState::Cop { commander_slot: 0 },
+            Some(PowerLevel::Scop) => PowerState::Scop { commander_slot: 0 },
+            None => PowerState::None,
+        })
 }
 
 /// Fog is off, and that is the one setting here that matters.

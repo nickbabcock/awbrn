@@ -89,7 +89,7 @@ fn every_projection_round_trips_through_its_type() {
         let recipients: Vec<PlayerId> = state
             .players
             .iter()
-            .map(|player| player.id.clone())
+            .map(|player| player.id().clone())
             .collect();
 
         for recipient in &recipients {

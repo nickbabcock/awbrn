@@ -2401,7 +2401,7 @@ mod tests {
         });
         let state: State =
             serde_json::from_value(value).expect("test ECS should form an AWVM state");
-        let observation = observe(&AwbwVisibility, &state, &state.players[0].id).unwrap();
+        let observation = observe(&AwbwVisibility, &state, state.players[0].id()).unwrap();
         let mut observations = awbrn_game::replay::RecipientObservations::default();
         observations.set(vec![observation]);
         app.world_mut().insert_resource(observations);
@@ -2479,7 +2479,7 @@ mod tests {
         state["turn"]["active_player"] = serde_json::json!("0");
         state["turn"]["order"][0] = serde_json::json!("0");
         let state: State = serde_json::from_value(state.clone()).unwrap();
-        let recipient = state.players[0].id.clone();
+        let recipient = state.players[0].id().clone();
         let observation = observe(&AwbwVisibility, &state, &recipient).unwrap();
 
         let mut app = play_test_app();
@@ -2532,7 +2532,7 @@ mod tests {
         )
         .unwrap();
         let mut adapter = RecordedAdapter::new(&replay, &map_data).unwrap();
-        let recipient = adapter.state().players[0].id.clone();
+        let recipient = adapter.state().players[0].id().clone();
         let observation = observe(&AwbwVisibility, adapter.state(), &recipient).unwrap();
 
         let mut app = App::new();
@@ -2622,7 +2622,7 @@ mod tests {
         )
         .unwrap();
         let adapter = RecordedAdapter::new(&replay, &map_data).unwrap();
-        let recipient = adapter.state().players[0].id.clone();
+        let recipient = adapter.state().players[0].id().clone();
         let observation = observe(&AwbwVisibility, adapter.state(), &recipient).unwrap();
 
         let mut app = App::new();
@@ -3176,7 +3176,7 @@ mod tests {
         state["turn"]["active_player"] = serde_json::json!("0");
         state["turn"]["order"][0] = serde_json::json!("0");
         let state: State = serde_json::from_value(state.clone()).unwrap();
-        let observation = observe(&AwbwVisibility, &state, &state.players[0].id).unwrap();
+        let observation = observe(&AwbwVisibility, &state, state.players[0].id()).unwrap();
 
         let mut app = play_test_app();
         app.world_mut().remove_resource::<TestObservationSync>();
@@ -3422,15 +3422,16 @@ mod tests {
         .unwrap();
         let fixture: serde_json::Value = serde_json::from_str(&fixture).unwrap();
         let mut state: State = serde_json::from_value(fixture["initial_state"].clone()).unwrap();
-        state.players[0].id = "0".into();
-        state.players[0].commanders[0].id = awvm::semantic::CommanderId::Neutral;
+        let mut seated = state.players[0].renamed("0".into());
+        seated.commanders[0].id = awvm::semantic::CommanderId::Neutral;
+        state.players = awvm::semantic::Roster::new(vec![seated]).unwrap();
         state.turn.active_player = "0".into();
         state.turn.order = vec!["0".into()];
         let seat = state.player_index(&"0".into()).unwrap();
         state.units[0].owner = seat;
         state.units[0].action = awvm::semantic::UnitAction::Spent;
         state.units[1].owner = seat;
-        let observation = observe(&AwbwVisibility, &state, &state.players[0].id).unwrap();
+        let observation = observe(&AwbwVisibility, &state, state.players[0].id()).unwrap();
 
         let mut app = play_test_app();
         app.world_mut().remove_resource::<TestObservationSync>();

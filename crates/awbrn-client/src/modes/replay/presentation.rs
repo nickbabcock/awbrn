@@ -111,7 +111,7 @@ fn observations_for_state(
         .players
         .iter()
         .map(|player| {
-            awvm::semantic::observe(&awvm::semantic::AwbwVisibility, state, &player.id)
+            awvm::semantic::observe(&awvm::semantic::AwbwVisibility, state, player.id())
                 .map_err(|error| format!("Could not project the archive state: {error}"))
         })
         .collect()
@@ -307,7 +307,7 @@ impl ReplayTurnCommand {
                     let players = transition.post_state().players.clone();
                     players
                         .iter()
-                        .map(|player| transition.observe(&player.id))
+                        .map(|player| transition.observe(player.id()))
                         .collect::<Result<Vec<_>, _>>()
                         .map_err(|error| {
                             format!("Could not project recorded replay outcome: {error}")

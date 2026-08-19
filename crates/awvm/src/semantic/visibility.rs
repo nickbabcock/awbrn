@@ -133,13 +133,7 @@ struct Sighting {
 
 impl<'a> AwbwView<'a> {
     pub(crate) fn new(state: &'a State, team: &TeamId) -> Self {
-        let teammates: Vec<PlayerIdx> = state
-            .players
-            .iter()
-            .enumerate()
-            .filter(|(_, player)| player.team == team)
-            .filter_map(|(seat, _)| u8::try_from(seat).ok().map(PlayerIdx::from_seat))
-            .collect();
+        let teammates: Vec<PlayerIdx> = state.players.seats_on_team(team).collect();
         Self {
             state,
             fog: state.settings.fog,

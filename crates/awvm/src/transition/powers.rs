@@ -501,13 +501,7 @@ fn set_weather(cx: &mut Activation<'_>, kind: WeatherEffectKind) -> Result<(), E
 /// A power names its targets by team, and the units name their owner by seat,
 /// so the roster is turned into seats once and each unit is a lookup.
 fn enemy_seats(state: &State, actor_team: &TeamId) -> HashSet<PlayerIdx> {
-    state
-        .players
-        .iter()
-        .enumerate()
-        .filter(|(_, candidate)| candidate.team != *actor_team)
-        .filter_map(|(seat, _)| u8::try_from(seat).ok().map(PlayerIdx::from_seat))
-        .collect()
+    state.players.seats_off_team(actor_team).collect()
 }
 
 /// Take a fraction of what each target still holds.
@@ -620,15 +614,13 @@ fn reduce_power_charge_by_funds_ratio(
     let mut target_players: Vec<_> = cx
         .next
         .players
-        .iter()
-        .enumerate()
-        .filter(|(_, candidate)| candidate.team != actor_team)
-        .map(|(index, candidate)| (index, candidate.id.clone()))
+        .off_team(&actor_team)
+        .map(|(seat, candidate)| (seat, candidate.id().clone()))
         .collect();
     target_players.sort_by(|left, right| left.1.cmp(&right.1));
-    for (target_player_index, target_player_id) in target_players {
-        for commander_slot in 0..cx.next.players[target_player_index].commanders.len() {
-            let target = &cx.next.players[target_player_index].commanders[commander_slot];
+    for (target_seat, target_player_id) in target_players {
+        for commander_slot in 0..cx.next.player(target_seat).commanders.len() {
+            let target = &cx.next.player(target_seat).commanders[commander_slot];
             let from = target.power_charge;
             if from == 0 {
                 continue;
@@ -658,7 +650,7 @@ fn reduce_power_charge_by_funds_ratio(
             if to == from {
                 continue;
             }
-            cx.next.players[target_player_index].commanders[commander_slot].power_charge = to;
+            cx.next.player_mut(target_seat).commanders[commander_slot].power_charge = to;
             cx.events.push(Event::PowerChargeChanged {
                 player: target_player_id.clone(),
                 commander_slot,
