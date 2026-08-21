@@ -9,7 +9,9 @@
 use std::collections::{HashMap, HashSet};
 
 use awbrn_map::{AwbwMap, AwbwMapData, Position};
-use awbrn_types::{AwbwTerrain, Faction, MissileSiloStatus, PlayerFaction, Property};
+use awbrn_types::{
+    AwbwGamePlayerId, AwbwTerrain, Faction, MissileSiloStatus, PlayerFaction, Property,
+};
 use awbw_replay::AwbwReplay;
 use awbw_replay::game_models::{AwbwGame, AwbwPlayer, AwbwUnit, CoPower, MatchType};
 use awvm::ruleset::{RULESET_ID, RULESET_REVISION, Terrain, WeatherKind};
@@ -237,7 +239,7 @@ fn lower_player(game: &AwbwGame, player: &AwbwPlayer) -> Result<Player, AdapterE
         });
     }
 
-    Ok(Player::new(player_id(player), team_id(game, player))
+    Ok(Player::new(player_id(player.id), team_id(game, player))
         .with_funds(u64::from(player.funds))
         .with_status(if player.eliminated {
             PlayerStatus::Eliminated
@@ -383,7 +385,7 @@ fn lower_tile(
 
 fn lower_units(
     game: &AwbwGame,
-    player_seats: &HashMap<awbrn_types::AwbwGamePlayerId, PlayerIdx>,
+    player_seats: &HashMap<AwbwGamePlayerId, PlayerIdx>,
 ) -> Result<UnitStore, AdapterError> {
     let mut cargo = HashMap::<awbrn_types::AwbwUnitId, (awbrn_types::AwbwUnitId, usize)>::new();
     for transport in &game.units {
@@ -410,7 +412,7 @@ fn lower_units(
 
 fn lower_unit(
     unit: &AwbwUnit,
-    player_seats: &HashMap<awbrn_types::AwbwGamePlayerId, PlayerIdx>,
+    player_seats: &HashMap<AwbwGamePlayerId, PlayerIdx>,
     cargo: &HashMap<awbrn_types::AwbwUnitId, (awbrn_types::AwbwUnitId, usize)>,
 ) -> Result<Unit, AdapterError> {
     let owner =
@@ -478,8 +480,8 @@ fn exact_hp(unit: &AwbwUnit) -> Result<u8, AdapterError> {
     Ok(rounded as u8)
 }
 
-fn player_id(player: &AwbwPlayer) -> PlayerId {
-    PlayerId::from(player.id.as_u32().to_string())
+pub(crate) fn player_id(id: AwbwGamePlayerId) -> PlayerId {
+    PlayerId::from(id.as_u32().to_string())
 }
 
 fn team_id(game: &AwbwGame, player: &AwbwPlayer) -> TeamId {

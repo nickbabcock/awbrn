@@ -9,11 +9,13 @@
 use std::collections::{HashMap, HashSet};
 
 use awbrn_map::AwbwMapData;
-use awbrn_types::{AwbwTerrain, AwbwUnitId, UnitExt};
+use awbrn_types::{AwbwGamePlayerId, AwbwTerrain, AwbwUnitId, UnitExt};
 use awbw_replay::AwbwReplay;
+use indexmap::IndexMap;
+
 use awbw_replay::turn_models::{
-    Action, CombatUnit, HpEffect, MoveAction, PowerAction, RepairedUnit, TargetedPlayer,
-    UnitChange, UnitMap, UnitProperty, UpdatedInfo, WeatherCode,
+    Action, CombatUnit, EliminatedInfo, EndInfo, GameOverAction, HpEffect, MoveAction, PowerAction,
+    RepairedUnit, TargetedPlayer, UnitChange, UnitMap, UnitProperty, UpdatedInfo, WeatherCode,
 };
 use awvm::commander::{self, PowerLevel};
 use awvm::event::Event;
@@ -21,13 +23,14 @@ use awvm::ruleset::{
     AreaStrikeProfile, Domain, MISSILE_SILO_STRIKE, Terrain, UNIT_EXPLOSION, WeatherKind, profile,
 };
 use awvm::semantic::{
-    AwbwVisibility, Concealment, Location, Match, ObserveError, ObservedTransition, Outcome,
-    PlayerId, PlayerStatus, Pos, PowerState, Reason, ReasonId, Silo, State, StateInvariant,
-    TileOwner, Unit, UnitAction, UnitId, VictoryReason, observe_transition,
+    AwbwVisibility, Concealment, DrawReason, Location, Match, ObserveError, ObservedTransition,
+    Outcome, Phase, PlayerId, PlayerStatus, Pos, PowerState, Reason, ReasonId, Silo, State,
+    StateInvariant, TeamId, TeamStatus, TileOwner, Unit, UnitAction, UnitId, VictoryReason,
+    observe_transition,
 };
 
 use crate::targeting::{targeted_hidden, targeted_value, visible_targeted_unit, visible_unit};
-use crate::{AdapterError, awbw_power_charge, initial_state, semantic_terrain};
+use crate::{AdapterError, awbw_power_charge, initial_state, player_id, semantic_terrain};
 
 const RECORDED_REASON: &str = "recorded-awbw-outcome";
 
@@ -110,8 +113,10 @@ pub enum RecordedAdapterError {
     Missing(&'static str),
     #[error("recorded action names unknown unit {0}")]
     UnknownUnit(u32),
-    #[error("recorded action names unknown player {0}")]
-    UnknownPlayer(u32),
+    // The id is unwrapped for the message only: the variant names AWBW's
+    // player, and a bare integer would accept any count in its place.
+    #[error("recorded action names unknown player {}", .0.as_u32())]
+    UnknownPlayer(AwbwGamePlayerId),
     #[error("recorded coordinate ({x}, {y}) exceeds AWVM's coordinate domain")]
     Coordinate { x: u32, y: u32 },
     #[error("recorded coordinate {0} is outside the board")]
@@ -183,14 +188,18 @@ fn apply_recorded(state: &mut State, action: &Action) -> Result<(), RecordedAdap
                         .income
                         .as_ref()
                         .and_then(|income| income.values().next())
-                        .and_then(|income| state.player_index(&player_id(income.player.as_u32())))
+                        .and_then(|income| state.player_index(&player_id(income.player)))
                 });
             let tile = state
                 .board
                 .get_mut(position)
                 .ok_or(RecordedAdapterError::OffBoard(position))?;
             let remaining = capture_action.building_info.buildings_capture.clamp(0, 20) as u8;
-            if remaining >= 20 {
+            // AWBW counts down the points a capture still needs and writes the
+            // full value again once the property changes hands. A capture that
+            // ends the match writes zero instead: the counter it would reset
+            // has no turn left to matter in. Both values mean captured.
+            if remaining == 0 || remaining >= 20 {
                 if let Some(seat) = owner_seat {
                     tile.owner = TileOwner::Owned(seat);
                 }
@@ -201,8 +210,27 @@ fn apply_recorded(state: &mut State, action: &Action) -> Result<(), RecordedAdap
             if let Some(actor) = actor {
                 spend(state, actor)?;
             }
+            if let Some(eliminated) = &capture_action.eliminated {
+                let reason = if eliminated.player_id.is_none() {
+                    // A capture that ends the match but names no loser is the
+                    // capture limit falling to the capturing player.
+                    VictoryReason::CaptureLimit
+                } else {
+                    // The captured property names the checkpoint.
+                    match state.board.get(position).map(|tile| tile.terrain) {
+                        Some(Terrain::Hq) => VictoryReason::HqCapture,
+                        Some(Terrain::Lab) => VictoryReason::LabCapture,
+                        _ => {
+                            return Err(RecordedAdapterError::Missing(
+                                "a property that defeats its owner",
+                            ));
+                        }
+                    }
+                };
+                apply_elimination(state, eliminated, reason)?;
+            }
         }
-        Action::End { updated_info } => apply_end(state, updated_info)?,
+        Action::End { updated_info } => apply_end_info(state, updated_info)?,
         Action::Fire { fire_action, .. } => {
             let mut seen = HashSet::new();
             for view in fire_action.combat_info_vision.values() {
@@ -219,16 +247,19 @@ fn apply_recorded(state: &mut State, action: &Action) -> Result<(), RecordedAdap
             }
             update_combat_charge(
                 state,
-                fire_action.cop_values.attacker.player_id.as_u32(),
+                fire_action.cop_values.attacker.player_id,
                 fire_action.cop_values.attacker.cop_value,
                 fire_action.cop_values.attacker.tag_value,
             )?;
             update_combat_charge(
                 state,
-                fire_action.cop_values.defender.player_id.as_u32(),
+                fire_action.cop_values.defender.player_id,
                 fire_action.cop_values.defender.cop_value,
                 fire_action.cop_values.defender.tag_value,
             )?;
+            if let Some(eliminated) = &fire_action.eliminated {
+                apply_elimination(state, eliminated, VictoryReason::Rout)?;
+            }
         }
         Action::Join { join_action, .. } => {
             let survivor = visible_unit(&join_action.unit)
@@ -347,34 +378,12 @@ fn apply_recorded(state: &mut State, action: &Action) -> Result<(), RecordedAdap
             next_turn_action,
             game_over_action,
         } => {
-            let id = player_id(resign_action.player_id.as_u32());
-            state
-                .find_player_mut(&id)
-                .ok_or(RecordedAdapterError::UnknownPlayer(
-                    resign_action.player_id.as_u32(),
-                ))?
-                .status = PlayerStatus::Resigned;
+            retire_player(state, resign_action.player_id, PlayerStatus::Resigned)?;
             if let Some(next) = next_turn_action {
                 apply_end(state, &next.clone().into())?;
             }
             if let Some(game_over) = game_over_action {
-                state.turn.phase = awvm::semantic::Phase::Finished;
-                let mut winners = Vec::new();
-                for winner in &game_over.winners {
-                    if let Some(player) = state.find_player(&player_id(*winner))
-                        && !winners.contains(&player.team)
-                    {
-                        winners.push(player.team.clone());
-                    }
-                }
-                if !winners.is_empty() {
-                    state.match_state = Match::Finished {
-                        outcome: Outcome::Victory {
-                            winners,
-                            reason: VictoryReason::Resignation,
-                        },
-                    };
-                }
+                finish_match(state, game_over, VictoryReason::Resignation)?;
             }
         }
         Action::Supply { supply_action, .. } => {
@@ -447,7 +456,7 @@ fn apply_recorded(state: &mut State, action: &Action) -> Result<(), RecordedAdap
                     commander.active = !commander.active;
                 }
             }
-            apply_end(state, updated_info)?;
+            apply_end_info(state, updated_info)?;
         }
     }
     Ok(())
@@ -605,12 +614,10 @@ fn apply_combat_unit(
 }
 
 fn apply_power(state: &mut State, action: &PowerAction) -> Result<(), RecordedAdapterError> {
-    let owner = player_id(action.player_id.as_u32());
+    let owner = player_id(action.player_id);
     let player = state
         .find_player_mut(&owner)
-        .ok_or(RecordedAdapterError::UnknownPlayer(
-            action.player_id.as_u32(),
-        ))?;
+        .ok_or(RecordedAdapterError::UnknownPlayer(action.player_id))?;
     let slot = player
         .commanders
         .iter()
@@ -681,10 +688,8 @@ fn apply_power(state: &mut State, action: &PowerAction) -> Result<(), RecordedAd
                     continue;
                 }
                 let owner = state
-                    .player_index(&player_id(group.player_id.as_u32()))
-                    .ok_or(RecordedAdapterError::UnknownPlayer(
-                        group.player_id.as_u32(),
-                    ))?;
+                    .player_index(&player_id(group.player_id))
+                    .ok_or(RecordedAdapterError::UnknownPlayer(group.player_id))?;
                 state.units.push(Unit {
                     id: unit_id(spawned.units_id),
                     kind: group.unit_name,
@@ -714,8 +719,8 @@ fn apply_power(state: &mut State, action: &PowerAction) -> Result<(), RecordedAd
                     continue;
                 };
                 let player = state
-                    .find_player_mut(&player_id(id.as_u32()))
-                    .ok_or(RecordedAdapterError::UnknownPlayer(id.as_u32()))?;
+                    .find_player_mut(&player_id(*id))
+                    .ok_or(RecordedAdapterError::UnknownPlayer(*id))?;
                 if let Some(funds) = change.players_funds {
                     player.funds = u64::from(funds);
                 }
@@ -733,6 +738,145 @@ fn apply_power(state: &mut State, action: &PowerAction) -> Result<(), RecordedAd
         }
     }
     Ok(())
+}
+
+/// Apply a turn end that either opens the successor's turn or ends the match.
+///
+/// AWBW ends a match at a turn boundary only at a day limit: it names winners
+/// and losers, marks no player eliminated, and nulls every successor field.
+fn apply_end_info(state: &mut State, updated: &EndInfo) -> Result<(), RecordedAdapterError> {
+    match updated {
+        EndInfo::NextTurn(next_turn) => apply_end(state, next_turn),
+        EndInfo::GameOver(game_over) => finish_match(state, game_over, VictoryReason::DayLimit),
+    }
+}
+
+/// Record an elimination that a command caused.
+///
+/// `semantics/elimination.md` freezes the board when the elimination ends the
+/// match, so the loser keeps their units and properties. Every elimination in
+/// the archive ends the match; the cascade that a continuing match needs has no
+/// recorded evidence and is refused rather than guessed.
+fn apply_elimination(
+    state: &mut State,
+    eliminated: &EliminatedInfo,
+    reason: VictoryReason,
+) -> Result<(), RecordedAdapterError> {
+    if let Some(loser) = eliminated.player_id {
+        retire_player(state, loser, PlayerStatus::Eliminated)?;
+    }
+    let game_over = eliminated
+        .game_over
+        .as_ref()
+        .ok_or(RecordedAdapterError::Missing(
+            "a terminal record; an elimination that continues the match has no recorded cascade",
+        ))?;
+    finish_match(state, game_over, reason)
+}
+
+/// Stop a player from participating, and eliminate a team that has nobody left.
+///
+/// `semantics/elimination.md` steps 1 and 2: a resignation and a defeat differ
+/// only in the status they set, and both make the team non-surviving when no
+/// member of it still participates.
+fn retire_player(
+    state: &mut State,
+    player: AwbwGamePlayerId,
+    status: PlayerStatus,
+) -> Result<(), RecordedAdapterError> {
+    let retired = state
+        .find_player_mut(&player_id(player))
+        .ok_or(RecordedAdapterError::UnknownPlayer(player))?;
+    retired.status = status;
+    let team = retired.team.clone();
+    if state
+        .players
+        .iter()
+        .filter(|player| player.team == team)
+        .all(|player| player.status != PlayerStatus::Active)
+        && let Some(team) = state.teams.iter_mut().find(|entry| entry.id == team)
+    {
+        team.status = TeamStatus::Eliminated;
+    }
+    Ok(())
+}
+
+/// Close the match on AWBW's terminal record.
+fn finish_match(
+    state: &mut State,
+    game_over: &GameOverAction,
+    reason: VictoryReason,
+) -> Result<(), RecordedAdapterError> {
+    let outcome = match (&game_over.players_elim, reason) {
+        // A day limit reports the losing players, and reports them in the one
+        // field that agrees with the site. Everybody it does not name survives
+        // the limit: one surviving team wins, and two or more draw.
+        (Some(lost), VictoryReason::DayLimit) => {
+            let mut surviving = surviving_teams(state, lost);
+            if surviving.len() == 1 {
+                Outcome::Victory {
+                    winners: surviving,
+                    reason,
+                }
+            } else {
+                surviving.sort();
+                Outcome::Draw {
+                    teams: surviving,
+                    reason: DrawReason::DayLimit,
+                }
+            }
+        }
+        _ => {
+            let winners = teams_of(state, &game_over.winners);
+            if winners.is_empty() {
+                return Err(RecordedAdapterError::Missing("winning team"));
+            }
+            Outcome::Victory { winners, reason }
+        }
+    };
+    state.turn.phase = Phase::Finished;
+    state.match_state = Match::Finished { outcome };
+    Ok(())
+}
+
+/// The teams that still play and that AWBW did not name as losing, in seat
+/// order.
+///
+/// A player who left earlier is not surviving whatever AWBW writes about them,
+/// so the status is filtered here as `semantics/turn.md` filters it when it
+/// scores a day limit.
+fn surviving_teams(state: &State, lost: &IndexMap<TargetedPlayer, bool>) -> Vec<TeamId> {
+    let defeated = lost
+        .iter()
+        .filter(|(_, lost)| **lost)
+        .filter_map(|(player, _)| match player {
+            TargetedPlayer::Player(id) => Some(player_id(*id)),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let mut teams = Vec::new();
+    for player in state.players.iter() {
+        if player.status == PlayerStatus::Active
+            && !defeated.contains(player.id())
+            && !teams.contains(&player.team)
+        {
+            teams.push(player.team.clone());
+        }
+    }
+    teams
+}
+
+/// The distinct teams of `players`, in the order AWBW listed them.
+fn teams_of(state: &State, players: &[AwbwGamePlayerId]) -> Vec<TeamId> {
+    let mut teams = Vec::new();
+    for player in players {
+        if let Some(player) = state.find_player(&player_id(*player))
+            && !teams.contains(&player.team)
+        {
+            teams.push(player.team.clone());
+        }
+    }
+    teams
 }
 
 fn apply_end(state: &mut State, updated: &UpdatedInfo) -> Result<(), RecordedAdapterError> {
@@ -839,7 +983,7 @@ fn apply_hp_effect(state: &mut State, effect: &HpEffect) {
     let owners = effect
         .players
         .iter()
-        .filter_map(|id| state.player_index(&player_id(id.as_u32())))
+        .filter_map(|id| state.player_index(&player_id(*id)))
         .collect::<HashSet<_>>();
     for unit in &mut state.units {
         if !owners.contains(&unit.owner) || !matches!(unit.location, Location::Board { .. }) {
@@ -965,7 +1109,7 @@ fn remove_unit(state: &mut State, id: UnitId) -> Result<(), RecordedAdapterError
 
 fn update_combat_charge(
     state: &mut State,
-    player: u32,
+    player: AwbwGamePlayerId,
     lead: u32,
     tag: Option<u32>,
 ) -> Result<(), RecordedAdapterError> {
@@ -985,7 +1129,7 @@ fn update_combat_charge(
 
 fn set_player_funds(
     state: &mut State,
-    player: u32,
+    player: AwbwGamePlayerId,
     funds: u32,
 ) -> Result<(), RecordedAdapterError> {
     state
@@ -1384,10 +1528,6 @@ fn pos(x: u32, y: u32) -> Result<Pos, RecordedAdapterError> {
 
 fn unit_id(id: AwbwUnitId) -> UnitId {
     UnitId::new(id.as_u32())
-}
-
-fn player_id(id: u32) -> PlayerId {
-    PlayerId::from(id.to_string())
 }
 
 fn display_hp(value: u8) -> u8 {

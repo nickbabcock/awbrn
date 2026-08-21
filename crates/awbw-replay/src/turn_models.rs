@@ -1,4 +1,4 @@
-use crate::de::{Hidden, Masked};
+use crate::de::{Hidden, Masked, bool_ynstr_map};
 use awbrn_types::{AwbwGamePlayerId, AwbwTerrain, AwbwUnitId, PlayerFaction, Unit};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
@@ -27,7 +27,7 @@ pub enum Action {
     },
     End {
         #[serde(rename = "updatedInfo")]
-        updated_info: UpdatedInfo,
+        updated_info: EndInfo,
     },
     Fire {
         #[serde(rename = "Move", deserialize_with = "empty_field_action")]
@@ -110,7 +110,7 @@ pub enum Action {
     },
     Tag {
         #[serde(rename = "updatedInfo")]
-        updated_info: UpdatedInfo,
+        updated_info: EndInfo,
     },
 }
 
@@ -164,7 +164,7 @@ pub type UnitMap = indexmap::IndexMap<TargetedPlayer, Hidden<UnitProperty>>;
 pub struct UnitProperty {
     pub units_id: AwbwUnitId,
     pub units_games_id: Option<u32>,
-    pub units_players_id: u32,
+    pub units_players_id: AwbwGamePlayerId,
     #[serde(with = "crate::de::awbw_unit_name")]
     pub units_name: Unit,
     pub units_movement_points: Option<u32>,
@@ -317,6 +317,8 @@ pub struct CaptureAction {
     pub building_info: BuildingInfo,
     pub vision: indexmap::IndexMap<TargetedPlayer, BuildingVision>,
     pub income: Option<indexmap::IndexMap<TargetedPlayer, PlayerIncome>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eliminated: Option<EliminatedInfo>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -351,7 +353,7 @@ pub struct Coordinate {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct JoinAction {
     #[serde(rename = "playerId")]
-    pub player_id: u32,
+    pub player_id: AwbwGamePlayerId,
     #[serde(rename = "newFunds")]
     pub new_funds: indexmap::IndexMap<TargetedPlayer, u32>,
     pub unit: UnitMap,
@@ -577,7 +579,7 @@ pub struct ResignAction {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct NextTurnAction {
     #[serde(rename = "nextPId")]
-    pub next_player_id: u32,
+    pub next_player_id: AwbwGamePlayerId,
     #[serde(rename = "nextFunds")]
     pub next_funds: indexmap::IndexMap<TargetedPlayer, Hidden<u32>>,
     #[serde(rename = "nextTimer")]
@@ -591,14 +593,33 @@ pub struct NextTurnAction {
     pub next_turn_start: String,
 }
 
+/// The record that closes a match.
+///
+/// AWBW writes it nested in the action that ended the match -- a resignation,
+/// or the elimination an attack or a capture caused -- and as the payload of
+/// the turn end that reached a day limit. The nested form carries a date; the
+/// turn-end form leaves the date null and adds `playersElim`.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct GameOverAction {
     pub day: u32,
     #[serde(rename = "gameEndDate")]
-    pub game_end_date: String,
-    pub losers: Vec<u32>,
+    pub game_end_date: Option<String>,
+    pub losers: Vec<AwbwGamePlayerId>,
     pub message: String,
-    pub winners: Vec<u32>,
+    pub winners: Vec<AwbwGamePlayerId>,
+    /// The players that lost, written only by a turn end that reached a day
+    /// limit.
+    ///
+    /// This field, not `winners` and `losers`, is authoritative in that record:
+    /// replay `1714111` names 4117702 in `winners` while AWBW shows 4117701 as
+    /// the winner, and only `playersElim` agrees with the site.
+    #[serde(
+        rename = "playersElim",
+        default,
+        deserialize_with = "bool_ynstr_map",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub players_elim: Option<indexmap::IndexMap<TargetedPlayer, bool>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -607,6 +628,28 @@ pub struct FireAction {
     pub combat_info_vision: indexmap::IndexMap<TargetedPlayer, CombatInfoVision>,
     #[serde(rename = "copValues")]
     pub cop_values: CopValues,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eliminated: Option<EliminatedInfo>,
+}
+
+/// The elimination that a command caused, written inside that command.
+///
+/// A capture that reaches a capture limit ends the match without eliminating
+/// anyone, so every field except the terminal record is optional.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct EliminatedInfo {
+    #[serde(rename = "playerId", default, skip_serializing_if = "Option::is_none")]
+    pub player_id: Option<AwbwGamePlayerId>,
+    #[serde(
+        rename = "eliminatedByPId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub eliminated_by_player_id: Option<AwbwGamePlayerId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(rename = "GameOver", default, skip_serializing_if = "Option::is_none")]
+    pub game_over: Option<GameOverAction>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -648,12 +691,33 @@ pub struct CopValueInfo {
     pub tag_value: Option<u32>,
 }
 
+/// The payload of an `End` or a `Tag` action.
+///
+/// A boundary that continues the match writes the successor's start-of-turn
+/// data. A boundary that ends the match writes the terminal record instead and
+/// nulls every successor field.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[serde(tag = "event")]
+pub enum EndInfo {
+    NextTurn(UpdatedInfo),
+    GameOver(GameOverAction),
+}
+
+impl EndInfo {
+    /// The successor's start-of-turn data, or `None` when the match ended.
+    pub fn next_turn(&self) -> Option<&UpdatedInfo> {
+        match self {
+            Self::NextTurn(updated) => Some(updated),
+            Self::GameOver(_) => None,
+        }
+    }
+}
+
 /// Updated info for turn end
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct UpdatedInfo {
-    pub event: String,
     #[serde(rename = "nextPId")]
-    pub next_player_id: u32,
+    pub next_player_id: AwbwGamePlayerId,
     #[serde(rename = "nextFunds")]
     pub next_funds: indexmap::IndexMap<TargetedPlayer, Hidden<u32>>,
     #[serde(rename = "nextTimer")]
@@ -670,7 +734,6 @@ pub struct UpdatedInfo {
 impl From<NextTurnAction> for UpdatedInfo {
     fn from(action: NextTurnAction) -> Self {
         UpdatedInfo {
-            event: "NextTurn".to_string(),
             next_player_id: action.next_player_id,
             next_funds: action.next_funds,
             next_timer: action.next_timer,

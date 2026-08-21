@@ -1,0 +1,11 @@
+---
+source: crates/awvm-awbw/tests/integration/recorded_outcomes.rs
+expression: outcome.snapshot
+input_file: assets/replays/replay_1714167_hq-cap_2026-08-21.zip
+---
+00001 d=1 p=4117806 End        s=eacf9643612ede25 o=c3d38d0dda73fc42
+00002 d=2 p=4117805 End        s=19db382e27d7af7f o=0f83b7b5e5292eb5
+00004 d=2 p=4117806 End        s=2540116608d48a11 o=bd3f5544528cbc32
+00005 d=3 p=4117805 End        s=9e939d19bd355c0a o=4d578da4439d1e4e
+00006 d=3 p=4117805 Capt       s=2e7af288d1535365 o=838160d04288b8c1
+final {"day":3,"match":{"outcome":{"reason":"hq-capture","type":"victory","winners":["player:4117805"]},"status":"finished"},"phase":"finished","players":[["4117805","active",2],["4117806","eliminated",0]]}

@@ -1,0 +1,7 @@
+---
+source: crates/awvm-awbw/tests/integration/recorded_outcomes.rs
+expression: outcome.snapshot
+input_file: assets/replays/replay_1714166_rout_2026-08-21.zip
+---
+00001 d=1 p=4117803 Fire       s=e77b0e0c5d757e72 o=f5db9b3c3ef2abb4
+final {"day":1,"match":{"outcome":{"reason":"rout","type":"victory","winners":["player:4117803"]},"status":"finished"},"phase":"finished","players":[["4117803","active",1],["4117804","eliminated",1]]}

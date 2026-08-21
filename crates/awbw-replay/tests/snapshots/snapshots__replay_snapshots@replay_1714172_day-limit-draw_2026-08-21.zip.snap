@@ -1,0 +1,79 @@
+---
+source: crates/awbw-replay/tests/snapshots.rs
+expression: snapshot
+input_file: assets/replays/replay_1714172_day-limit-draw_2026-08-21.zip
+---
+{
+  "checksum": "0x8f5bdc06b6825c1e8e9f96f758a8fbfaa0f1e62d3a225dbb7c82e8e21b80a636",
+  "file_entries": [
+    {
+      "data": {
+        "Game": {
+          "count": 10
+        }
+      },
+      "file_path": "1714172",
+      "file_size": 12325
+    },
+    {
+      "data": {
+        "Turn": {
+          "turns": [
+            {
+              "day": 1,
+              "elements": 1,
+              "player_id": 4117815
+            },
+            {
+              "day": 1,
+              "elements": 1,
+              "player_id": 4117816
+            },
+            {
+              "day": 2,
+              "elements": 1,
+              "player_id": 4117815
+            },
+            {
+              "day": 2,
+              "elements": 1,
+              "player_id": 4117816
+            },
+            {
+              "day": 3,
+              "elements": 1,
+              "player_id": 4117815
+            },
+            {
+              "day": 3,
+              "elements": 1,
+              "player_id": 4117816
+            },
+            {
+              "day": 4,
+              "elements": 1,
+              "player_id": 4117815
+            },
+            {
+              "day": 4,
+              "elements": 1,
+              "player_id": 4117816
+            },
+            {
+              "day": 5,
+              "elements": 1,
+              "player_id": 4117815
+            },
+            {
+              "day": 5,
+              "elements": 1,
+              "player_id": 4117816
+            }
+          ]
+        }
+      },
+      "file_path": "a1714172",
+      "file_size": 2288
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+---
+source: crates/awbw-replay/tests/snapshots.rs
+expression: snapshot
+input_file: assets/replays/replay_1714167_hq-cap_2026-08-21.zip
+---
+{
+  "checksum": "0x7cd781263880828096419d23e3dcb9dbc112f8b370ea044172011d88a342997b",
+  "file_entries": [
+    {
+      "data": {
+        "Game": {
+          "count": 5
+        }
+      },
+      "file_path": "1714167",
+      "file_size": 6158
+    },
+    {
+      "data": {
+        "Turn": {
+          "turns": [
+            {
+              "day": 1,
+              "elements": 2,
+              "player_id": 4117805
+            },
+            {
+              "day": 1,
+              "elements": 1,
+              "player_id": 4117806
+            },
+            {
+              "day": 2,
+              "elements": 2,
+              "player_id": 4117805
+            },
+            {
+              "day": 2,
+              "elements": 1,
+              "player_id": 4117806
+            },
+            {
+              "day": 3,
+              "elements": 1,
+              "player_id": 4117805
+            }
+          ]
+        }
+      },
+      "file_path": "a1714167",
+      "file_size": 2045
+    }
+  ]
+}

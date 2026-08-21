@@ -74,7 +74,7 @@ fn every_archived_action_maps_or_has_a_named_counted_reason() {
     });
 
     if std::env::var_os("INSTA_GLOB_FILTER").is_none() {
-        assert_eq!(total, 12_929);
+        assert_eq!(total, 12_978);
         for kind in ACTION_KINDS {
             assert!(
                 mapped.get(kind).copied().unwrap_or_default() > 0,
@@ -86,16 +86,16 @@ fn every_archived_action_maps_or_has_a_named_counted_reason() {
             BTreeMap::from([
                 ("AttackSeam", 47),
                 ("Build", 1_671),
-                ("Capt", 553),
+                ("Capt", 561),
                 ("Delete", 1),
-                ("End", 598),
+                ("End", 627),
                 ("Explode", 1),
-                ("Fire", 2_332),
+                ("Fire", 2_334),
                 ("Hide", 2),
                 ("Join", 77),
                 ("Launch", 1),
                 ("Load", 242),
-                ("Move", 6_474),
+                ("Move", 6_475),
                 ("Power", 71),
                 ("Repair", 5),
                 ("Resign", 14),
@@ -109,7 +109,7 @@ fn every_archived_action_maps_or_has_a_named_counted_reason() {
         assert_eq!(
             tail,
             BTreeMap::from([
-                (("Capt", "missing-move"), 539),
+                (("Capt", "missing-move"), 548),
                 (("Repair", "missing-move"), 1),
                 (("Supply", "missing-move"), 2),
             ]),

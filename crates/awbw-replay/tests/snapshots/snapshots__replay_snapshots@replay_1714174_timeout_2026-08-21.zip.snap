@@ -1,0 +1,34 @@
+---
+source: crates/awbw-replay/tests/snapshots.rs
+expression: snapshot
+input_file: assets/replays/replay_1714174_timeout_2026-08-21.zip
+---
+{
+  "checksum": "0x2caa6a3f5d85a7db338cf01133c81f108bfd8db1d471f7b756b7a46721b7bdb2",
+  "file_entries": [
+    {
+      "data": {
+        "Game": {
+          "count": 2
+        }
+      },
+      "file_path": "1714174",
+      "file_size": 2428
+    },
+    {
+      "data": {
+        "Turn": {
+          "turns": [
+            {
+              "day": 1,
+              "elements": 1,
+              "player_id": 4117819
+            }
+          ]
+        }
+      },
+      "file_path": "a1714174",
+      "file_size": 220
+    }
+  ]
+}

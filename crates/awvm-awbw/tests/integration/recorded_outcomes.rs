@@ -178,6 +178,39 @@ fn replay_outcome(replay_path: &Path) -> ReplayOutcome {
         }
     }
 
+    // The archive is the only evidence for how AWBW ends a match, so the
+    // terminal state is spelled out instead of folded into a digest.
+    let final_state = adapter.state();
+    writeln!(
+        snapshot,
+        "final {}",
+        serde_json::to_string(&serde_json::json!({
+            "day": final_state.turn.day,
+            "phase": final_state.turn.phase,
+            "match": final_state.match_state,
+            // Owned properties are spelled out beside the outcome: they are
+            // what a day limit and a capture limit are decided on, so the
+            // snapshot shows whether AWBW's verdict agrees with the count.
+            "players": final_state
+                .players
+                .seats()
+                .map(|(seat, player)| {
+                    (
+                        player.id().to_string(),
+                        player.status,
+                        final_state
+                            .board
+                            .tiles()
+                            .filter(|tile| tile.owner.is_owned_by(seat))
+                            .count(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        }))
+        .unwrap()
+    )
+    .unwrap();
+
     ReplayOutcome {
         snapshot,
         retained_intervening_powers,
@@ -193,16 +226,16 @@ fn assert_recorded_turn_start(
     post: &awvm::semantic::State,
 ) -> (usize, usize) {
     let next = match action {
-        Action::End { updated_info } | Action::Tag { updated_info } => {
-            Some(updated_info.next_player_id)
-        }
+        Action::End { updated_info } | Action::Tag { updated_info } => updated_info
+            .next_turn()
+            .map(|next_turn| next_turn.next_player_id),
         Action::Resign {
             next_turn_action: Some(next),
             ..
         } => Some(next.next_player_id),
         _ => None,
     };
-    let Some(next) = next.map(|id| PlayerId::from(id.to_string())) else {
+    let Some(next) = next.map(|id| PlayerId::from(id.as_u32().to_string())) else {
         return (0, 0);
     };
     let tagged = matches!(action, Action::Tag { .. });

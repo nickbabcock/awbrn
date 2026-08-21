@@ -68,12 +68,12 @@ fn archived_actions_have_an_advisory_local_compatibility_report() {
         }
     });
 
-    assert_eq!(prefix.actions, 1_981, "fog-off prefix definition drifted");
+    assert_eq!(prefix.actions, 2_030, "fog-off prefix definition drifted");
     if prefix_only {
         println!("{}", prefix.render());
         return;
     }
-    assert_eq!(fog_off.actions, 7_226, "fog-off archive size drifted");
+    assert_eq!(fog_off.actions, 7_275, "fog-off archive size drifted");
     assert_eq!(fog.actions, 5_703, "fog archive size drifted");
 
     let snapshot = format!(

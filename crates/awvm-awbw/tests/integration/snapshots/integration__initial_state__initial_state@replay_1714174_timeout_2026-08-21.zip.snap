@@ -1,0 +1,6 @@
+---
+source: crates/awvm-awbw/tests/integration/initial_state.rs
+expression: snapshot
+input_file: assets/replays/replay_1714174_timeout_2026-08-21.zip
+---
+map=187835 size=10x10 players=2 units=7 state=c1abf1b3e0a5d3cb observations=e85bb3dabb1907ab

@@ -1,0 +1,7 @@
+---
+source: crates/awvm-awbw/tests/integration/recorded_outcomes.rs
+expression: outcome.snapshot
+input_file: assets/replays/replay_1714174_timeout_2026-08-21.zip
+---
+00000 d=1 p=4117820 End        s=889b7942ac92416c o=1cbeddf4e04e88dc
+final {"day":1,"match":{"draw_offers":[],"status":"active"},"phase":"unit-action","players":[["4117819","active",1],["4117820","active",1]]}

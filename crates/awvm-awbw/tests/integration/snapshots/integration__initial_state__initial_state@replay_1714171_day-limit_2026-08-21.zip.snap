@@ -1,0 +1,6 @@
+---
+source: crates/awvm-awbw/tests/integration/initial_state.rs
+expression: snapshot
+input_file: assets/replays/replay_1714171_day-limit_2026-08-21.zip
+---
+map=187835 size=10x10 players=2 units=7 state=973d643455981426 observations=795c3c2e2e1c4c65
