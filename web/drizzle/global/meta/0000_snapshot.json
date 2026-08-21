@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f718c8a5-7d92-4dda-932d-c75d7736b28d",
+  "id": "b1de914a-c1c0-4eab-8374-6af6c11ecf46",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -89,7 +89,8 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": false,
+          "default": "(unixepoch())"
         },
         "updatedAt": {
           "name": "updatedAt",
@@ -222,6 +223,193 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "match_results": {
+      "name": "match_results",
+      "columns": {
+        "matchId": {
+          "name": "matchId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "slotIndex": {
+          "name": "slotIndex",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userId": {
+          "name": "userId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "teamId": {
+          "name": "teamId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "placement": {
+          "name": "placement",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pool": {
+          "name": "pool",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "recordedAt": {
+          "name": "recordedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "match_results_user_idx": {
+          "name": "match_results_user_idx",
+          "columns": ["userId", "recordedAt"],
+          "isUnique": false
+        },
+        "match_results_pool_idx": {
+          "name": "match_results_pool_idx",
+          "columns": ["pool", "recordedAt"],
+          "isUnique": false,
+          "where": "\"match_results\".\"pool\" is not null"
+        }
+      },
+      "foreignKeys": {
+        "match_results_matchId_matches_id_fk": {
+          "name": "match_results_matchId_matches_id_fk",
+          "tableFrom": "match_results",
+          "tableTo": "matches",
+          "columnsFrom": ["matchId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "match_results_userId_user_id_fk": {
+          "name": "match_results_userId_user_id_fk",
+          "tableFrom": "match_results",
+          "tableTo": "user",
+          "columnsFrom": ["userId"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "match_results_matchId_slotIndex_pk": {
+          "columns": ["matchId", "slotIndex"],
+          "name": "match_results_matchId_slotIndex_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "match_results_placement_matches_outcome": {
+          "name": "match_results_placement_matches_outcome",
+          "value": "typeof(\"match_results\".\"placement\") = 'integer' and \"match_results\".\"placement\" >= 1 and (\"match_results\".\"placement\" = 1) = (\"match_results\".\"outcome\" in ('win', 'draw'))"
+        },
+        "match_results_outcome_vocabulary": {
+          "name": "match_results_outcome_vocabulary",
+          "value": "\"match_results\".\"outcome\" in ('win', 'loss', 'draw')"
+        },
+        "match_results_reason_null_only_for_standing_win": {
+          "name": "match_results_reason_null_only_for_standing_win",
+          "value": "\"match_results\".\"reason\" is not null or \"match_results\".\"outcome\" = 'win'"
+        }
+      }
+    },
+    "match_voids": {
+      "name": "match_voids",
+      "columns": {
+        "matchId": {
+          "name": "matchId",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "voidedByUserId": {
+          "name": "voidedByUserId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "voidedAt": {
+          "name": "voidedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "match_voids_voidedAt_idx": {
+          "name": "match_voids_voidedAt_idx",
+          "columns": ["voidedAt"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "match_voids_matchId_matches_id_fk": {
+          "name": "match_voids_matchId_matches_id_fk",
+          "tableFrom": "match_voids",
+          "tableTo": "matches",
+          "columnsFrom": ["matchId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "match_voids_voidedByUserId_user_id_fk": {
+          "name": "match_voids_voidedByUserId_user_id_fk",
+          "tableFrom": "match_voids",
+          "tableTo": "user",
+          "columnsFrom": ["voidedByUserId"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "matches": {
       "name": "matches",
       "columns": {
@@ -293,7 +481,8 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": false,
+          "default": "(unixepoch())"
         },
         "updatedAt": {
           "name": "updatedAt",
@@ -378,7 +567,8 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": false,
+          "default": "(unixepoch())"
         },
         "updatedAt": {
           "name": "updatedAt",
@@ -479,7 +669,8 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": false,
+          "default": "(unixepoch())"
         },
         "updatedAt": {
           "name": "updatedAt",
@@ -537,7 +728,8 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false
+          "autoincrement": false,
+          "default": "(unixepoch())"
         },
         "updatedAt": {
           "name": "updatedAt",

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  check,
   index,
   integer,
   primaryKey,
@@ -7,7 +8,16 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
-import type { MatchPhase, MatchSettings } from "#/matches/schemas.ts";
+import { matchOutcomes } from "#/matches/schemas.ts";
+import type {
+  MatchOutcome,
+  MatchPhase,
+  MatchSettings,
+  RankedPool,
+  SeatResultReason,
+} from "#/matches/schemas.ts";
+
+const sqlLiterals = (values: readonly string[]) => sql.raw(values.map((v) => `'${v}'`).join(", "));
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
@@ -126,4 +136,66 @@ export const matchParticipants = sqliteTable(
     index("match_participants_match_idx").on(t.matchId),
     index("match_participants_match_user_idx").on(t.matchId, t.userId),
   ],
+);
+
+/**
+ * One authoritative result row per seat. `reason` stores an elimination cause
+ * or match ending. A null reason means a standing winner. `outcome` is the
+ * team result, `placement` is the final rank, and `pool` marks ranked play.
+ */
+export const matchResults = sqliteTable(
+  "match_results",
+  {
+    matchId: text("matchId")
+      .notNull()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    slotIndex: integer("slotIndex").notNull(),
+    userId: text("userId")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    teamId: text("teamId"),
+    outcome: text("outcome").notNull().$type<MatchOutcome>(),
+    placement: integer("placement").notNull(),
+    reason: text("reason").$type<SeatResultReason>(),
+    pool: text("pool").$type<RankedPool>(),
+    recordedAt: integer("recordedAt", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [
+    primaryKey({ columns: [t.matchId, t.slotIndex] }),
+    index("match_results_user_idx").on(t.userId, t.recordedAt),
+    index("match_results_pool_idx")
+      .on(t.pool, t.recordedAt)
+      .where(sql`${t.pool} is not null`),
+    check(
+      "match_results_placement_matches_outcome",
+      // SQLite stores fractional values as REAL. Reject them before checking rank.
+      sql`typeof(${t.placement}) = 'integer' and ${t.placement} >= 1 and (${t.placement} = 1) = (${t.outcome} in ('win', 'draw'))`,
+    ),
+    check("match_results_outcome_vocabulary", sql`${t.outcome} in (${sqlLiterals(matchOutcomes)})`),
+    check(
+      "match_results_reason_null_only_for_standing_win",
+      sql`${t.reason} is not null or ${t.outcome} = 'win'`,
+    ),
+  ],
+);
+
+/** Records a voided match without changing its result. */
+export const matchVoids = sqliteTable(
+  "match_voids",
+  {
+    matchId: text("matchId")
+      .primaryKey()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    voidedByUserId: text("voidedByUserId")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    /** Free text for abuse records in the first release. */
+    reason: text("reason").notNull(),
+    voidedAt: integer("voidedAt", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [index("match_voids_voidedAt_idx").on(t.voidedAt)],
 );
