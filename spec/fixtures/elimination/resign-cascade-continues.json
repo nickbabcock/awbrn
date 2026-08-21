@@ -243,7 +243,13 @@
         },
         "events": [
           { "type": "phase-changed", "player": "red", "from": "unit-action", "to": "turn-end" },
-          { "type": "player-status-changed", "player": "red", "from": "active", "to": "resigned" },
+          {
+            "type": "player-status-changed",
+            "player": "red",
+            "from": "active",
+            "to": "resigned",
+            "reason": "resignation"
+          },
           { "type": "team-eliminated", "team": "red-team", "reason": "resignation" },
           { "type": "unit-removed", "unit": 2, "reason": "elimination" },
           { "type": "capture-changed", "position": [2, 1], "from": 15, "to": 20 },

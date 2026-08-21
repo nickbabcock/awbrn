@@ -176,8 +176,8 @@ a draw. A finished match has exactly one outcome. The outcome is a single union:
 
 - `victory` names one or more winning teams and a reason: `rout`, `hq-capture`,
   `lab-capture`, `capture-limit`, `day-limit`, `resignation`, or `timeout`;
-- `draw` names zero or more tied teams and a reason: `day-limit`, `agreement`,
-  or `no-contest`; or
+- `draw` names zero or more tied teams and a reason: `day-limit` or
+  `agreement`; or
 - `cancelled` has a stable machine-readable reason.
 
 Multiple winning/tied teams allow ruleset-defined alliances without rewriting

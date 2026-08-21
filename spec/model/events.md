@@ -58,6 +58,24 @@ consumer sees the tile's new identity before its new owner. The only transition
 in this revision that re-kinds a tile is the elimination cascade's demotion of a
 `capture-defeats-owner` property (`semantics/elimination.md`).
 
+## Facts that declare a reason
+
+Eleven event types carry a `reason`, a ruleset reason identifier naming why the
+fact occurred: `unit-action-changed`, `unit-removed`, `unit-damaged`,
+`unit-repaired`, `unit-resourced`, `tile-terrain-changed`, `funds-changed`,
+`power-charge-changed`, `weather-changed`, `player-status-changed`, and
+`team-eliminated`. Every other type omits it, and projection substitutes the
+event's own `type` where an observed element needs one (`model/observation.md`).
+
+An event declares a reason when its own payload cannot be re-derived from state
+and the surrounding stream. `player-status-changed` is in the list for that
+reason: a player eliminated while a teammate is still participating emits
+neither `team-eliminated` nor `match-completed`, so without its own `reason` the
+cause of that player's departure would leave no trace. Its value is the
+elimination cause fixed by `semantics/elimination.md`, and agrees with the
+`reason` of any `team-eliminated` or `match-completed` that follows in the same
+transition.
+
 ## `move-wait`
 
 An unobstructed accepted `move-wait` emits exactly one `unit-moved` event:

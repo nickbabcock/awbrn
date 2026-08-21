@@ -154,7 +154,8 @@ non-`null` previous owner `p`, execution continues immediately, before returning
 to `unit-action`:
 
 4. Set `S.players[p].status = eliminated` and emit
-   `player-status-changed { player: p, from: active, to: eliminated }`.
+   `player-status-changed { player: p, from: active, to: eliminated, reason:
+   "hq-capture" }`.
 5. If every player on `p`'s team is now eliminated, mark the team eliminated and
    emit `team-eliminated { team: p.team, reason: "hq-capture" }`.
 6. Evaluate the command-immediate victory checkpoint. When exactly one team
@@ -215,7 +216,7 @@ stream is:
 | 3 | `capture-changed` (`before`→`0`) | on completion; partial captures instead emit a single `before`→`after` here and stop |
 | 4 | `tile-owner-changed` | on completion |
 | 5 | `capture-changed` (`0`→`20`) | on completion |
-| 6 | `player-status-changed` | only on HQ completion with a non-`null` previous owner |
+| 6 | `player-status-changed` (`reason: "hq-capture"`) | only on HQ completion with a non-`null` previous owner |
 | 7 | `team-eliminated` | only when that player's whole team is now eliminated |
 | 8 | `match-completed` | only when exactly one team remains active |
 

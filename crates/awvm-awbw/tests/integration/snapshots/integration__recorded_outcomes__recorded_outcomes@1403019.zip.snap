@@ -100,7 +100,7 @@ input_file: assets/replays/1403019.zip
 02286 d=20 p=3277095 End        s=48492dbc76f883f4 o=d51e9d3879a5deac
 02313 d=20 p=3276843 End        s=eb1a506cb1b20b99 o=2bddef3902703622
 02361 d=21 p=3276855 End        s=d5efc56eb175c857 o=c2f28f2c6f8902be
-02363 d=21 p=3277011 Resign     s=0eaf5529cd8a605f o=0b04ae422e713b49
+02363 d=21 p=3277011 Resign     s=0eaf5529cd8a605f o=9208c84555ef6e13
 02410 d=21 p=3279740 End        s=6c83662b228c099d o=09b22d490f60b10f
 02432 d=21 p=3277095 End        s=ffcb0adfa7e23039 o=cac5f927f4b16085
 02452 d=21 p=3276843 End        s=5c223f582b1c1309 o=72c8bc3e8aaa0060
@@ -125,5 +125,5 @@ input_file: assets/replays/1403019.zip
 03109 d=26 p=3277095 End        s=aaa6640628733f23 o=36ff7475193cda3c
 03110 d=26 p=3276843 Resign     s=8298519b6ee32875 o=e8e378430aa707f9
 03154 d=27 p=3277011 End        s=4048bd082b5dc5f1 o=ce1e6e49685945b9
-03158 d=27 p=3277011 Resign     s=da6ae1331d6bf3ac o=a97b2b8cb2f10880
+03158 d=27 p=3277011 Resign     s=da6ae1331d6bf3ac o=fcb71902ec3e8d01
 final {"day":27,"match":{"outcome":{"reason":"resignation","type":"victory","winners":["team:B"]},"status":"finished"},"phase":"finished","players":[["3276855","resigned",2],["3277011","resigned",41],["3279740","active",22],["3277095","resigned",12],["3276843","active",32]]}

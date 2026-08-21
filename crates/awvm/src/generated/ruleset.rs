@@ -1405,8 +1405,6 @@ pub enum KnownReason {
     LabCapture,
     #[serde(rename = "missile-silo")]
     MissileSilo,
-    #[serde(rename = "no-contest")]
-    NoContest,
     #[serde(rename = "random-weather")]
     RandomWeather,
     #[serde(rename = "resignation")]
@@ -1431,10 +1429,10 @@ pub enum KnownReason {
 
 impl KnownReason {
     /// Number of variants, and the length of any table keyed by this vocabulary.
-    pub const COUNT: usize = 29;
+    pub const COUNT: usize = 28;
 
     /// Every variant, in table order.
-    pub const ALL: [Self; 29] = [
+    pub const ALL: [Self; 28] = [
         Self::Aborted,
         Self::Agreement,
         Self::Attack,
@@ -1453,7 +1451,6 @@ impl KnownReason {
         Self::HqCapture,
         Self::LabCapture,
         Self::MissileSilo,
-        Self::NoContest,
         Self::RandomWeather,
         Self::Resignation,
         Self::Rout,
@@ -1487,7 +1484,6 @@ impl KnownReason {
             Self::HqCapture => "hq-capture",
             Self::LabCapture => "lab-capture",
             Self::MissileSilo => "missile-silo",
-            Self::NoContest => "no-contest",
             Self::RandomWeather => "random-weather",
             Self::Resignation => "resignation",
             Self::Rout => "rout",
@@ -1522,7 +1518,6 @@ impl KnownReason {
             "hq-capture" => Some(Self::HqCapture),
             "lab-capture" => Some(Self::LabCapture),
             "missile-silo" => Some(Self::MissileSilo),
-            "no-contest" => Some(Self::NoContest),
             "random-weather" => Some(Self::RandomWeather),
             "resignation" => Some(Self::Resignation),
             "rout" => Some(Self::Rout),
@@ -1633,19 +1628,16 @@ pub enum DrawReason {
     DayLimit,
     #[serde(rename = "agreement")]
     Agreement,
-    #[serde(rename = "no-contest")]
-    NoContest,
 }
 
 impl DrawReason {
     /// Number of variants, and the length of any table keyed by this vocabulary.
-    pub const COUNT: usize = 3;
+    pub const COUNT: usize = 2;
 
     /// Every variant, in table order.
-    pub const ALL: [Self; 3] = [
+    pub const ALL: [Self; 2] = [
         Self::DayLimit,
         Self::Agreement,
-        Self::NoContest,
     ];
 
     /// The identifier this variant is written as in the specification and on the wire.
@@ -1653,7 +1645,6 @@ impl DrawReason {
         match self {
             Self::DayLimit => "day-limit",
             Self::Agreement => "agreement",
-            Self::NoContest => "no-contest",
         }
     }
 
@@ -1662,7 +1653,6 @@ impl DrawReason {
         match id {
             "day-limit" => Some(Self::DayLimit),
             "agreement" => Some(Self::Agreement),
-            "no-contest" => Some(Self::NoContest),
             _ => None,
         }
     }
@@ -1698,7 +1688,6 @@ impl From<DrawReason> for KnownReason {
         match reason {
             DrawReason::DayLimit => KnownReason::DayLimit,
             DrawReason::Agreement => KnownReason::Agreement,
-            DrawReason::NoContest => KnownReason::NoContest,
         }
     }
 }

@@ -103,8 +103,8 @@ input_file: assets/replays/1362397.zip
 01735 d=20 p=3192682 End        s=1a4e3cb6b711b61f o=ea7554700a040dec
 01743 d=20 p=3189356 End        s=258db602fa7ba47b o=05535c9bb0355992
 01791 d=21 p=3189394 End        s=4dd3034647aaf95a o=695fd6b0c72af2f6
-01792 d=21 p=3189812 Resign     s=e27e9639793a675a o=90e2f6cf8d1c3f87
-01793 d=21 p=3189442 Resign     s=1e5ae35ed000e4e8 o=16f3cff8856e71d4
-01794 d=21 p=3192682 Resign     s=4097b11621f59e31 o=39050a6aab0a500a
-01795 d=21 p=3192682 Resign     s=4aed860063aece8d o=0c904b74f67cbebd
+01792 d=21 p=3189812 Resign     s=e27e9639793a675a o=6fbfa31e831bc1aa
+01793 d=21 p=3189442 Resign     s=1e5ae35ed000e4e8 o=e0bc66ad98d174de
+01794 d=21 p=3192682 Resign     s=4097b11621f59e31 o=b7b902eb4c6e8be6
+01795 d=21 p=3192682 Resign     s=4aed860063aece8d o=8135c617546b9e28
 final {"day":21,"match":{"outcome":{"reason":"resignation","type":"victory","winners":["player:3189356"]},"status":"finished"},"phase":"finished","players":[["3189394","resigned",11],["3189812","resigned",9],["3189442","resigned",10],["3192682","resigned",8],["3189356","active",40]]}

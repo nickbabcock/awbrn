@@ -229,7 +229,7 @@
           "uniqueItems": true,
           "items": { "$ref": "common.schema.json#/$defs/team-id" }
         },
-        "reason": { "enum": ["day-limit", "agreement", "no-contest"] }
+        "reason": { "enum": ["day-limit", "agreement"] }
       }
     },
     "cancelled": {

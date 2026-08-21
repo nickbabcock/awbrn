@@ -215,10 +215,17 @@ pub enum Event {
         player: PlayerId,
         offered: bool,
     },
+    /// A participant left the match, and why.
+    ///
+    /// The status alone does not say which defeat: a player eliminated while a
+    /// teammate plays on emits no `TeamEliminated` and no `MatchCompleted`, so
+    /// this is the only fact carrying their cause
+    /// (`spec/semantics/elimination.md`).
     PlayerStatusChanged {
         player: PlayerId,
         from: PlayerStatus,
         to: PlayerStatus,
+        reason: Reason,
     },
     TeamEliminated {
         team: TeamId,
@@ -292,6 +299,7 @@ impl Event {
             | Self::FundsChanged { reason, .. }
             | Self::PowerChargeChanged { reason, .. }
             | Self::WeatherChanged { reason, .. }
+            | Self::PlayerStatusChanged { reason, .. }
             | Self::TeamEliminated { reason, .. } => ObservedReason::Declared(reason.clone()),
             _ => ObservedReason::Kind(self.kind()),
         }

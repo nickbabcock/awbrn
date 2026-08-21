@@ -31,5 +31,5 @@ input_file: assets/replays/1419680.zip
 00523 d=14 p=3313081 End        s=62e1d160ba39d607 o=abb146a820e8f803
 00563 d=14 p=3313080 End        s=1d551544a87f00cc o=c48ea1510c802f8c
 00622 d=15 p=3313081 End        s=2a88f49f1e3579f3 o=d658b310ec027dff
-00630 d=15 p=3313081 Resign     s=040013fec3875451 o=a6faf9043f4fd3b7
+00630 d=15 p=3313081 Resign     s=040013fec3875451 o=f3cfdca19e6a7444
 final {"day":15,"match":{"outcome":{"reason":"resignation","type":"victory","winners":["player:3313080"]},"status":"finished"},"phase":"finished","players":[["3313081","resigned",20],["3313080","active",24]]}

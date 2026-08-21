@@ -1325,6 +1325,7 @@ fn diff_events(prior: &State, post: &State, action: &Action) -> Vec<Event> {
                 player: before.id().clone(),
                 from: before.status,
                 to: after.status,
+                reason: reason(),
             });
         }
         for (slot, (old, new)) in before.commanders.iter().zip(&after.commanders).enumerate() {
@@ -1392,6 +1393,21 @@ fn diff_events(prior: &State, post: &State, action: &Action) -> Vec<Event> {
                 }
             }
             _ => {}
+        }
+    }
+    // `retire_player` eliminates a team directly, so the status changes with no
+    // event of its own. `semantics/elimination.md` pairs that change with
+    // `TeamEliminated`, after the player status that caused it, as a played
+    // match emits the two.
+    for before in &prior.teams {
+        let Some(after) = post.teams.iter().find(|team| team.id == before.id) else {
+            continue;
+        };
+        if before.status != TeamStatus::Eliminated && after.status == TeamStatus::Eliminated {
+            events.push(Event::TeamEliminated {
+                team: before.id.clone(),
+                reason: reason(),
+            });
         }
     }
     if prior.turn.day != post.turn.day {

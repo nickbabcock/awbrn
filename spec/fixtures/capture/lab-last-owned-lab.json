@@ -344,6 +344,7 @@
           {
             "from": "active",
             "player": "blue",
+            "reason": "lab-capture",
             "to": "eliminated",
             "type": "player-status-changed"
           },
