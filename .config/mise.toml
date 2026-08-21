@@ -93,6 +93,7 @@ depends = ["test:rust", "test:web"]
 
 [tasks."dev:web"]
 description = "Run the web server"
+depends = ["pnpm-install"]
 dir = "web"
 run = [
     "node ../scripts/setup-dev.ts",
