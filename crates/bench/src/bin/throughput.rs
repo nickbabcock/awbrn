@@ -41,10 +41,11 @@ use awvm::query;
 use awvm::random::{Entropy, Luck, RandomError};
 use awvm::ruleset::{UnitKind as UnitKindId, WeatherKind, terrain};
 use awvm::semantic::{
-    AwbwVisibility, Location, Match, Observation, ObservedTileOwner, ObservedUnitRef, PlayerId,
-    Pos, State, UnitAction, UnitId, observe,
+    AwbwVisibility, Dimensions, Location, Match, Observation, ObservedTileOwner, ObservedUnitRef,
+    PlayerId, Pos, State, UnitId, observe,
 };
-use awvm::transition::{ActiveTurn, Command, ExecuteOutcome, execute_with};
+use awvm::session::{Legal, Order, OrderKind, Session, UnitIdx};
+use awvm::transition::{Command, ExecuteOutcome, execute_with};
 
 use bench::benchmarks::server;
 
@@ -406,59 +407,93 @@ impl Reservoir {
 /// `None` means the player has no command left, which is how a turn ends.
 fn choose(observation: &Observation, truth: &State, rng: &mut Rng) -> Option<Command> {
     let player = observation.recipient.clone();
-    let query = query::ObservedQuery::new(observation).expect("an observation reifies");
-    let turn = query.turn().expect("the recipient's turn can be checked")?;
+    let session = Session::from_observation(observation).expect("an observation reifies");
+    if !session.is_commandable() {
+        return None;
+    }
+    let projection = session.state();
+    let dimensions = projection.board.dimensions();
+    let legal = session.legal();
 
     let mut reservoir = Reservoir::default();
 
-    for unit in ready_friendly_units(observation) {
-        let Some(field) = turn
-            .move_field(unit)
-            .expect("a friendly unit can be checked")
-        else {
-            continue;
-        };
-        for (destination, _) in field.reach() {
-            let actions = field
-                .observed_actions_at(destination)
-                .expect("a destination from this field can be queried");
-            offer_destination(
-                &mut reservoir,
-                rng,
-                observation,
-                unit,
-                destination,
-                &actions,
-            );
-        }
+    // One buffer for the whole turn. The session appends into it and the
+    // agent reads it, which is the shape the session API asks to be driven
+    // in.
+    let mut seats = Vec::new();
+    let mut orders = Vec::new();
+    legal.units(&mut seats);
+    for seat in seats.iter().copied() {
+        // Every unit the session offers belongs to the recipient, and a
+        // projection carries the real id of a unit its holder owns.
+        let unit = projection
+            .units
+            .at(usize::from(seat.get()))
+            .expect("a seat the session reported")
+            .id;
+        orders.clear();
+        legal.unit_orders(seat, &mut orders);
+        offer_orders(&mut reservoir, rng, observation, unit, &orders, &dimensions);
     }
-    offer_unloads(&mut reservoir, rng, observation);
-    offer_production(&mut reservoir, rng, observation, &player);
+    offer_unloads(&mut reservoir, rng, &legal, projection);
+    offer_production(
+        &mut reservoir,
+        rng,
+        &legal,
+        projection,
+        observation,
+        &player,
+    );
 
     let choice = reservoir.chosen?;
-    Some(build(&turn, observation, truth, player, choice))
+    Some(build(projection, observation, truth, player, choice))
 }
 
-fn ready_friendly_units(observation: &Observation) -> impl Iterator<Item = UnitId> + '_ {
-    observation.units.iter().filter_map(|unit| {
-        match (&unit.reference, unit.owner == observation.recipient) {
-            (ObservedUnitRef::Friendly { unit: id }, true) if unit.action == UnitAction::Ready => {
-                Some(*id)
-            }
-            _ => None,
-        }
-    })
-}
-
-fn offer_destination(
+/// Offer each order the session named for one unit.
+///
+/// Join, load and repair name a unit, and a projection carries the id of
+/// friendly units only. The agent cannot spell an order that names a tile
+/// whose occupant the recipient cannot identify, so it is not offered.
+/// Deletion is not a move, and this agent never offers it.
+fn offer_orders(
     reservoir: &mut Reservoir,
     rng: &mut Rng,
     observation: &Observation,
     unit: UnitId,
-    destination: Pos,
-    actions: &query::ObservedActionSet,
+    orders: &[Order],
+    dimensions: &Dimensions,
 ) {
-    let mut offer = |action| {
+    for order in orders {
+        let at = |cell| dimensions.position_of(cell);
+        let Some(destination) = at(order.destination()) else {
+            continue;
+        };
+        let occupied = friendly_at(observation, destination).is_some();
+        let action = match order.kind() {
+            OrderKind::Wait => MoveAction::Wait,
+            OrderKind::Capture => MoveAction::Capture,
+            OrderKind::Supply => MoveAction::Supply,
+            OrderKind::Hide => MoveAction::Hide,
+            OrderKind::Reveal => MoveAction::Reveal,
+            OrderKind::Explode => MoveAction::Explode,
+            OrderKind::Join if occupied => MoveAction::Join,
+            OrderKind::Load if occupied => MoveAction::Load,
+            OrderKind::Repair(cell) => match at(cell) {
+                Some(position) if friendly_at(observation, position).is_some() => {
+                    MoveAction::Repair(position)
+                }
+                _ => continue,
+            },
+            OrderKind::Launch(cell) => match at(cell) {
+                Some(position) => MoveAction::Launch(position),
+                None => continue,
+            },
+            OrderKind::Attack(cell) => match at(cell) {
+                Some(position) => MoveAction::Attack(position),
+                None => continue,
+            },
+            _ => continue,
+        };
         reservoir.offer(
             rng,
             Choice::Move {
@@ -467,64 +502,47 @@ fn offer_destination(
                 action,
             },
         );
-    };
-    for (present, action) in [
-        (actions.wait, MoveAction::Wait),
-        (actions.capture, MoveAction::Capture),
-        (actions.supply, MoveAction::Supply),
-        (actions.hide, MoveAction::Hide),
-        (actions.reveal, MoveAction::Reveal),
-        (actions.explode, MoveAction::Explode),
-    ] {
-        if present {
-            offer(action);
-        }
-    }
-
-    // Join and load name the unit already standing at the destination, and a
-    // projection carries the id of a friendly unit, so both resolve inside the
-    // observation.
-    let occupied = friendly_at(observation, destination).is_some();
-    if actions.join && occupied {
-        offer(MoveAction::Join);
-    }
-    if actions.load && occupied {
-        offer(MoveAction::Load);
-    }
-
-    for position in &actions.repair {
-        if friendly_at(observation, *position).is_some() {
-            offer(MoveAction::Repair(*position));
-        }
-    }
-    for target in &actions.launch {
-        offer(MoveAction::Launch(*target));
-    }
-    for position in &actions.attack {
-        offer(MoveAction::Attack(*position));
     }
 }
 
-fn offer_unloads(reservoir: &mut Reservoir, rng: &mut Rng, observation: &Observation) {
-    let mut transports: Vec<UnitId> = observation
+fn offer_unloads(reservoir: &mut Reservoir, rng: &mut Rng, legal: &Legal<'_>, projection: &State) {
+    let dimensions = projection.board.dimensions();
+    // Only a transport that holds something can offer an unload. Naming the
+    // loaded transports once is cheaper than opening a search at every unit on
+    // the board, most of which carry nothing.
+    let mut loaded: Vec<_> = projection
         .units
+        .as_slice()
         .iter()
         .filter_map(|unit| match unit.location {
             Location::Cargo { transport, .. } => Some(transport),
             Location::Board { .. } => None,
         })
         .collect();
-    transports.sort_unstable();
-    transports.dedup();
-
-    for transport in transports {
-        for unload in query::observed_unloads(observation, transport).unwrap_or_default() {
+    loaded.sort_unstable();
+    let mut unloads = Vec::new();
+    for (index, unit) in projection.units.as_slice().iter().enumerate() {
+        if !matches!(unit.location, Location::Board { .. }) {
+            continue;
+        }
+        if loaded.binary_search(&unit.id).is_err() {
+            continue;
+        }
+        let Some(seat) = u16::try_from(index).ok().map(UnitIdx::from_raw) else {
+            continue;
+        };
+        unloads.clear();
+        legal.unloads(seat, &mut unloads);
+        for unload in &unloads {
+            let Some(destination) = dimensions.position_of(unload.destination) else {
+                continue;
+            };
             reservoir.offer(
                 rng,
                 Choice::Unload {
-                    transport,
+                    transport: unit.id,
                     cargo: unload.cargo,
-                    destination: unload.destination,
+                    destination,
                 },
             );
         }
@@ -540,9 +558,13 @@ fn offer_unloads(reservoir: &mut Reservoir, rng: &mut Rng, observation: &Observa
 fn offer_production(
     reservoir: &mut Reservoir,
     rng: &mut Rng,
+    legal: &Legal<'_>,
+    projection: &State,
     observation: &Observation,
     player: &PlayerId,
 ) {
+    let dimensions = projection.board.dimensions();
+    let mut rows = Vec::new();
     for (position, tile) in observation.board.iter() {
         if !matches!(&tile.owner, ObservedTileOwner::Owned(owner) if owner == player) {
             continue;
@@ -550,22 +572,25 @@ fn offer_production(
         if !terrain(tile.terrain).produces_any() {
             continue;
         }
-        for option in query::observed_production_options(observation, position) {
-            if option.affordable {
-                reservoir.offer(
-                    rng,
-                    Choice::Produce {
-                        position,
-                        kind: option.kind,
-                    },
-                );
-            }
+        let Some(cell) = dimensions.cell_index(position) else {
+            continue;
+        };
+        rows.clear();
+        legal.production_options(cell, &mut rows);
+        for option in rows.iter().filter(|row| row.affordable) {
+            reservoir.offer(
+                rng,
+                Choice::Produce {
+                    position,
+                    kind: option.kind,
+                },
+            );
         }
     }
 }
 
 fn build(
-    turn: &ActiveTurn<'_>,
+    projection: &State,
     observation: &Observation,
     truth: &State,
     player: PlayerId,
@@ -592,9 +617,7 @@ fn build(
             destination,
             action,
         } => {
-            let path = turn
-                .move_field(unit)
-                .expect("the chosen unit can be checked")
+            let path = query::reachable(projection, unit)
                 .expect("the chosen unit had a movement field when it was offered")
                 .path_to(destination)
                 .expect("the chosen destination came from that field");

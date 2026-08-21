@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ruleset::{self, TerrainTrait};
 
-pub use grid::{Cell, Dimensions, Grid};
+pub use grid::{Cell, CellIdx, Dimensions, Grid};
 pub use observe::{
     HiddenUnitHp, Observation, ObserveError, ObservedBoard, ObservedEvent, ObservedMatch,
     ObservedPlayer, ObservedTile, ObservedTileOwner, ObservedTransition, ObservedUnit,

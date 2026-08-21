@@ -516,6 +516,38 @@ pub fn collect_json(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), Conforman
     Ok(())
 }
 
+/// Every fixture below `root`, in path order, with its path relative to
+/// `root`.
+///
+/// Each test that reads the corpus wants the same three steps: walk the tree,
+/// sort, and parse. A fixture that cannot be read or parsed is a broken corpus
+/// rather than a case to skip, so this fails instead of dropping it.
+pub fn fixture_documents(root: &Path) -> Result<Vec<(String, Value)>, ConformanceError> {
+    let mut files = Vec::new();
+    collect_json(root, &mut files)?;
+    files.sort();
+    files
+        .iter()
+        .map(|path| {
+            let relative = path
+                .strip_prefix(root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .into_owned();
+            let text = fs::read_to_string(path).map_err(|source| ConformanceError::FixtureIo {
+                path: path.clone(),
+                source,
+            })?;
+            let value =
+                serde_json::from_str(&text).map_err(|source| ConformanceError::FixtureJson {
+                    path: path.clone(),
+                    source,
+                })?;
+            Ok((relative, value))
+        })
+        .collect()
+}
+
 pub fn first_difference(expected: &Value, actual: &Value, path: &str) -> String {
     match (expected, actual) {
         (Value::Object(e), Value::Object(a)) => {

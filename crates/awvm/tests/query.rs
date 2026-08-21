@@ -15,32 +15,31 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use awvm::combat::DamageRange;
-use awvm::conformance::collect_json;
+use awvm::conformance::fixture_documents;
 use awvm::prelude::*;
 use awvm::query::{self, can_act};
-use awvm::semantic::{KnownReason, Location, Reason, Roster, RulesetRevision, UnitAction};
+use awvm::semantic::{CellIdx, KnownReason, Location, Reason, Roster, RulesetRevision, UnitAction};
 use serde_json::Value;
 
 fn corpus() -> Vec<(String, Value)> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../spec/fixtures");
-    let mut files = Vec::new();
-    collect_json(&root, &mut files).expect("walk fixture root");
-    files.sort();
-    files
-        .iter()
-        .map(|path| {
-            let relative = path
-                .strip_prefix(&root)
-                .unwrap_or(path)
-                .to_string_lossy()
-                .into_owned();
-            let text = std::fs::read_to_string(path).expect("read fixture");
-            (
-                relative,
-                serde_json::from_str(&text).expect("parse fixture"),
-            )
-        })
-        .collect()
+    fixture_documents(&root).expect("read fixture corpus")
+}
+
+/// A session on what `player` can see, and the seat `unit` holds in it.
+///
+/// Every observed-side question below is asked through here, because the
+/// session is the one place the rules are stated for a projection.
+fn observed(state: &State, player: &PlayerId, unit: UnitId) -> Option<(Session, UnitIdx)> {
+    let observation = observe(&AwbwVisibility, state, player).ok()?;
+    let session = Session::from_observation(&observation).ok()?;
+    let seat = session.index_of(unit)?;
+    Some((session, seat))
+}
+
+/// The cell `position` names on a session's board.
+fn cell_of(session: &Session, position: Pos) -> Option<CellIdx> {
+    session.state().board.dimensions().cell_index(position)
 }
 
 fn is_teleporter(state: &State, position: Pos) -> bool {
@@ -296,9 +295,10 @@ fn every_accepted_fixture_command_was_offered() {
     }
 }
 
-/// Prepared movement gives the same action verdicts as execution.
+/// Every way of asking what is legal at a destination gives the verdict
+/// execution gives.
 #[test]
-fn prepared_action_queries_agree_with_execution() {
+fn action_queries_agree_with_execution() {
     let mut checked = 0;
     for (relative, case) in corpus() {
         for state in states(&case) {
@@ -309,14 +309,6 @@ fn prepared_action_queries_agree_with_execution() {
                     continue;
                 }
                 let field = query::reachable(&state, subject.id).expect("an on-board unit");
-                let active =
-                    prepare_active_unit(&state, state.player_id(subject.owner), subject.id)
-                        .expect("an active unit can be prepared")
-                        .unwrap_or_else(|violation| {
-                            panic!("{relative}: active unit was rejected: {violation:?}")
-                        });
-                let prepared_field = PreparedMoveField::new(active)
-                    .unwrap_or_else(|error| panic!("{relative}: {error}"));
                 for (destination, _) in field.reach() {
                     let path = field
                         .path_to(destination)
@@ -328,14 +320,6 @@ fn prepared_action_queries_agree_with_execution() {
                     assert_eq!(
                         from_path, actions,
                         "{relative}: unit {} path query disagreed at {destination}",
-                        subject.id
-                    );
-                    assert_eq!(
-                        prepared_field
-                            .actions_at(destination)
-                            .unwrap_or_else(|error| panic!("{relative}: {error}")),
-                        actions,
-                        "{relative}: unit {} prepared field disagreed at {destination}",
                         subject.id
                     );
                     let accepts = |command| {
@@ -488,7 +472,15 @@ fn prepared_action_queries_propagate_movement_faults() {
     invalid.turn.active_player = PlayerId::from("unknown");
     let unknown = PlayerId::from("unknown");
     assert!(matches!(
-        prepare_active_unit(&invalid, &unknown, unit),
+        execute(
+            &invalid,
+            Command::MoveWait {
+                player: unknown.clone(),
+                unit,
+                path: path.clone(),
+            },
+            &[],
+        ),
         Err(ExecuteError::InvalidState(_))
     ));
     // The unit still names its owner by seat, so the query reaches the turn
@@ -511,7 +503,12 @@ fn observed_production_options_include_hachi_scop_city_metadata() {
     let player = state.turn.active_player.clone();
     let observation = observe(&AwbwVisibility, &state, &player).unwrap();
 
-    let options = query::observed_production_options(&observation, Pos::new(0, 0));
+    let session = Session::from_observation(&observation).expect("the observation reifies");
+    let mut options = Vec::new();
+    session.legal().production_options(
+        cell_of(&session, Pos::new(0, 0)).expect("the site is on the board"),
+        &mut options,
+    );
     assert!(
         options
             .iter()
@@ -574,10 +571,15 @@ fn allied_units_are_not_attack_targets_or_forecasts() {
                 .contains(&AttackTarget::Unit { unit: ally })
         );
 
-        let observation = observe(&AwbwVisibility, &state, &PlayerId::from("red")).unwrap();
+        let (session, seat) =
+            observed(&state, &PlayerId::from("red"), attacker).expect("red sees the attacker");
         assert_eq!(
-            query::observed_forecasts(&observation, attacker, from, &[ally_position]).unwrap(),
-            vec![None]
+            session.legal().forecast(
+                seat,
+                cell_of(&session, from).expect("the firing tile is on the board"),
+                cell_of(&session, ally_position).expect("the ally is on the board"),
+            ),
+            None
         );
     }
 }
@@ -705,17 +707,17 @@ fn offered(state: &State, command: &Command, relative: &str) -> Option<&'static 
             position,
             kind,
         } => {
-            let kinds = query::production_options(state, player, *position);
-            assert!(
-                kinds.contains(kind),
-                "{relative}: producing {kind} at {position} not offered, saw {kinds:?}"
-            );
             let observation = observe(&AwbwVisibility, state, player)
                 .unwrap_or_else(|error| panic!("{relative}: could not observe state: {error}"));
-            let observed = query::observed_production_options(&observation, *position);
+            let session = Session::from_observation(&observation)
+                .unwrap_or_else(|error| panic!("{relative}: could not reify: {error}"));
+            let cell = cell_of(&session, *position)
+                .unwrap_or_else(|| panic!("{relative}: {position} is off the board"));
+            let mut rows = Vec::new();
+            session.legal().production_options(cell, &mut rows);
             assert!(
-                observed.iter().any(|option| option.kind == *kind),
-                "{relative}: observed production omitted {kind} at {position}, saw {observed:?}"
+                rows.iter().any(|row| row.kind == *kind && row.affordable),
+                "{relative}: producing {kind} at {position} not offered, saw {rows:?}"
             );
             Some("produce-unit")
         }
@@ -781,7 +783,7 @@ fn can_act_reports_the_violation_the_reducer_would() {
 }
 
 /// With fog off, a recipient sees everything, so the projection is lossless and
-/// `observed_actions_at` must answer exactly what `actions_at` answers.
+/// A reified projection must answer exactly what the state it came from does.
 ///
 /// This is what keeps the reification honest. It rebuilds a state from a
 /// projection, and the only way to know the rebuild lost nothing that bears on
@@ -801,8 +803,6 @@ fn observed_actions_agree_with_authoritative_actions_without_fog() {
                 continue;
             };
             let reified = query::reify(&observation).expect("fog-free observation must reify");
-            let observed_query =
-                query::ObservedQuery::new(&observation).expect("build observed query");
 
             for subject in state.units.iter() {
                 if state.player_id(subject.owner) != &recipient
@@ -817,9 +817,22 @@ fn observed_actions_agree_with_authoritative_actions_without_fog() {
                     .destinations()
                     .map(|(destination, _)| destination)
                     .collect();
-                let observed_attacks =
-                    query::observed_attacks_from(&observation, subject.id, &destinations)
-                        .unwrap_or_else(|error| panic!("{relative}: {error}"));
+                let (session, seat) = observed(&state, &recipient, subject.id)
+                    .unwrap_or_else(|| panic!("{relative}: the recipient sees its own unit"));
+                let session_legal = session.legal();
+                let observed_attacks: Vec<Vec<Pos>> = destinations
+                    .iter()
+                    .map(|from| {
+                        let mut cells = Vec::new();
+                        if let Some(cell) = cell_of(&session, *from) {
+                            session_legal.targets(seat, cell, TargetKind::Attack, &mut cells);
+                        }
+                        cells
+                            .into_iter()
+                            .filter_map(|cell| session.state().board.dimensions().position_of(cell))
+                            .collect()
+                    })
+                    .collect();
 
                 for (destination, attacks) in destinations.into_iter().zip(observed_attacks) {
                     let path = field.path_to(destination).expect("destination has path");
@@ -827,7 +840,8 @@ fn observed_actions_agree_with_authoritative_actions_without_fog() {
                         .map(|actions| query::by_position(&state, actions));
                     let observed = query::actions_at(&reified, subject.id, destination)
                         .map(|actions| query::by_position(&reified, actions));
-                    let observed_from_path = observed_query.actions_for_path(subject.id, path);
+                    let observed_from_path = query::actions_for_path(&reified, subject.id, path)
+                        .map(|actions| query::by_position(&reified, actions));
                     assert_eq!(
                         observed, authoritative,
                         "{relative}: unit {} at {destination:?} disagrees between the \
@@ -839,14 +853,17 @@ fn observed_actions_agree_with_authoritative_actions_without_fog() {
                         "{relative}: unit {} path query disagrees at {destination:?}",
                         subject.id
                     );
-                    assert_eq!(attacks.from, destination);
+                    let mut expected = observed
+                        .as_ref()
+                        .expect("observed actions are available")
+                        .attack
+                        .clone();
+                    let mut found = attacks;
+                    expected.sort_unstable();
+                    found.sort_unstable();
                     assert_eq!(
-                        attacks.targets,
-                        observed
-                            .as_ref()
-                            .expect("observed actions are available")
-                            .attack,
-                        "{relative}: unit {} batch attacks disagreed at {destination:?}",
+                        found, expected,
+                        "{relative}: unit {} session attacks disagreed at {destination:?}",
                         subject.id
                     );
                     checked += 1;
@@ -875,14 +892,33 @@ fn observed_reachable_agrees_with_authoritative_reachable_without_fog() {
             let Ok(observation) = observe(&AwbwVisibility, &state, &recipient) else {
                 continue;
             };
+            let reified = query::reify(&observation).expect("fog-free observation must reify");
 
             for subject in state
                 .units
                 .iter()
                 .filter(|unit| state.player_id(unit.owner) == &recipient)
             {
+                // The session answers only for a unit that may act, the
+                // question an interface drawing a range asks. Whether the
+                // rebuilt state searches the same for every unit, spent ones
+                // included, is the reification's own property, checked against
+                // the same search over both states.
+                if can_act(&state, subject.id) == Ok(Ok(()))
+                    && let Some(through_session) = observed(&state, &recipient, subject.id)
+                        .and_then(|(session, seat)| session.legal().field(seat, Clone::clone))
+                {
+                    let direct = query::reachable(&state, subject.id).expect("an active unit");
+                    assert_eq!(
+                        through_session.reach().collect::<Vec<_>>(),
+                        direct.reach().collect::<Vec<_>>(),
+                        "{relative}: unit {} reaches elsewhere through the session",
+                        subject.id
+                    );
+                }
+
                 let authoritative = query::reachable(&state, subject.id);
-                let observed = query::observed_reachable(&observation, subject.id);
+                let observed = query::reachable(&reified, subject.id);
                 match (authoritative, observed) {
                     (Ok(authoritative), Ok(observed)) => {
                         let authoritative_steps: Vec<_> = authoritative
@@ -943,15 +979,20 @@ fn observed_unloads_are_offered_after_the_transport_is_spent() {
     let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
     state.units[0].action = UnitAction::Spent;
     let recipient = state.turn.active_player.clone();
-    let observation = observe(&AwbwVisibility, &state, &recipient).unwrap();
+    let (session, seat) = observed(&state, &recipient, UnitId::new(0)).expect("the transport");
 
+    let mut unloads = Vec::new();
+    session.legal().unloads(seat, &mut unloads);
     assert_eq!(
-        query::observed_unloads(&observation, UnitId::new(0)).unwrap(),
-        vec![query::ObservedUnload {
-            cargo: UnitId::new(1),
-            cargo_kind: UnitKindId::Infantry,
-            destination: Pos::new(0, 0),
-        }]
+        unloads
+            .iter()
+            .map(|unload| (unload.cargo, unload.cargo_kind, unload.destination))
+            .collect::<Vec<_>>(),
+        vec![(
+            UnitId::new(1),
+            UnitKindId::Infantry,
+            cell_of(&session, Pos::new(0, 0)).expect("the tile is on the board"),
+        )]
     );
 }
 
@@ -961,8 +1002,8 @@ fn observed_unloads_are_offered_after_the_transport_is_spent() {
 /// This is the only property that makes a forecast worth showing. It is checked
 /// against the resolved outcome rather than against a second implementation of
 /// the formula, so a forecast that agreed with a wrong model would still fail
-/// here. Fog states are skipped for the reason `observed_forecasts` documents:
-/// a projection can be honestly wrong, and the corpus cannot tell that apart
+/// here. Fog states are skipped for the reason [`Legal::forecast`] gives. A
+/// projection can be honestly wrong, and the corpus cannot tell that apart
 /// from a broken bracket. An attack on hidden HP must not have a forecast.
 #[test]
 fn the_forecast_brackets_every_attack_the_corpus_resolves() {
@@ -1002,10 +1043,18 @@ fn the_forecast_brackets_every_attack_the_corpus_resolves() {
                         }
                     }
                 };
-                let forecast =
-                    query::observed_forecasts(&observation, *unit, from, &[target_position])
-                        .expect("a fog-free observation forecasts")
-                        .remove(0);
+                // Only the forecast itself may come back empty here, and only
+                // for what the attacker cannot see. A projection that refuses
+                // to reify, a mover without a seat in its own observation, or
+                // a tile off the board is a fault, not a fog case.
+                let (session, seat) = observed(&state, player, *unit)
+                    .unwrap_or_else(|| panic!("{relative}: unit {unit} holds no seat"));
+                let legal = session.legal();
+                let from = cell_of(&session, from)
+                    .unwrap_or_else(|| panic!("{relative}: {from} is off the board"));
+                let target = cell_of(&session, target_position)
+                    .unwrap_or_else(|| panic!("{relative}: {target_position} is off the board"));
+                let forecast = legal.forecast(seat, from, target);
                 let Some(forecast) = forecast else {
                     assert!(
                         observation.units.iter().any(|unit| {

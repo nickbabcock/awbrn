@@ -97,6 +97,17 @@ impl<'a> MovedUnit<'a> {
         self.actor_team
     }
 
+    /// Give the route buffers back, emptied.
+    ///
+    /// Enumeration walks the predecessor chain of every reachable tile, and a
+    /// turn has hundreds of them. Reusing the two vectors keeps that walk from
+    /// allocating once per candidate.
+    pub(crate) fn recycle(mut self) -> (Vec<Pos>, Vec<u64>) {
+        self.path.clear();
+        self.entry_costs.clear();
+        (self.path, self.entry_costs)
+    }
+
     /// The destination the mover asked for, which is not where it ends up if a
     /// hidden unit traps it.
     pub(crate) fn destination(&self) -> Pos {

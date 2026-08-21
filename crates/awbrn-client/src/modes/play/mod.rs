@@ -327,10 +327,16 @@ fn move_range(
         .collect()
 }
 
-fn observed_move_field(
+/// The session a rules question about `entity` is asked through, and the seat
+/// the unit holds in it.
+///
+/// One reification answers everything a selection asks. Each `observed_*`
+/// function this replaced reified the projection for itself, so opening one
+/// unit's menu paid for four of them.
+fn unit_session(
     entity: Entity,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
-) -> Option<awvm::query::MoveField> {
+) -> Option<(awvm::session::Session, awvm::session::UnitIdx)> {
     let (Some(observations), Some(viewpoint), Ok(id)) = (
         unit_selection.observations.as_deref(),
         unit_selection.viewpoint.as_deref(),
@@ -342,44 +348,50 @@ fn observed_move_field(
         return None;
     };
     let observation = observations.for_player(*player)?;
-    awvm::query::observed_reachable(observation, awvm::semantic::UnitId::new(id.0.as_u32())).ok()
+    // The AWBW unit id and the AWVM unit id are the same number by
+    // construction. See `awvm_awbw::command::unit_id`.
+    let session = awvm::session::Session::from_observation(observation).ok()?;
+    let index = session.index_of(awvm::semantic::UnitId::new(id.0.as_u32()))?;
+    Some((session, index))
 }
 
-fn observed_attack_targets(
-    entity: Entity,
+fn unit_move_field(
+    session: &awvm::session::Session,
+    index: awvm::session::UnitIdx,
+) -> Option<awvm::query::MoveField> {
+    // Cloned out because the selection outlives the session. The field
+    // describes the projection it was taken from, and a new projection
+    // replaces it.
+    session.legal().field(index, Clone::clone)
+}
+
+fn unit_attack_targets(
+    session: &awvm::session::Session,
+    index: awvm::session::UnitIdx,
     field: Option<&awvm::query::MoveField>,
-    unit_selection: &PlayUnitSelectionParams<'_, '_>,
 ) -> HashMap<Position, Vec<Position>> {
-    let (Some(field), Some(observations), Some(viewpoint), Ok(id)) = (
-        field,
-        unit_selection.observations.as_deref(),
-        unit_selection.viewpoint.as_deref(),
-        unit_selection.unit_ids.get(entity),
-    ) else {
+    let Some(field) = field else {
         return HashMap::new();
     };
-    let awbrn_game::replay::ReplayViewpoint::Player(player) = viewpoint else {
-        return HashMap::new();
-    };
-    let Some(observation) = observations.for_player(*player) else {
-        return HashMap::new();
-    };
-    let destinations: Vec<_> = field.destinations().map(|(position, _)| position).collect();
-    let Ok(attacks) = awvm::query::observed_attacks_from(
-        observation,
-        awvm::semantic::UnitId::new(id.0.as_u32()),
-        &destinations,
-    ) else {
-        return HashMap::new();
-    };
+    let legal = session.legal();
+    let dimensions = session.state().board.dimensions();
 
     let mut targets = HashMap::<Position, Vec<Position>>::new();
-    for attack in attacks {
-        for target in attack.targets {
+    let mut firing = Vec::new();
+    for (from, _) in field.destinations() {
+        let Some(cell) = dimensions.cell_index(from) else {
+            continue;
+        };
+        firing.clear();
+        legal.targets(index, cell, awvm::session::TargetKind::Attack, &mut firing);
+        for target in firing
+            .iter()
+            .filter_map(|cell| dimensions.position_of(*cell))
+        {
             targets
                 .entry(position_from_pos(target))
                 .or_default()
-                .push(position_from_pos(attack.from));
+                .push(position_from_pos(from));
         }
     }
     for approaches in targets.values_mut() {
@@ -396,25 +408,13 @@ fn observed_attack_targets(
     targets
 }
 
-fn observed_unloads_for(
-    entity: Entity,
-    unit_selection: &PlayUnitSelectionParams<'_, '_>,
-) -> Vec<awvm::query::ObservedUnload> {
-    let (Some(observations), Some(viewpoint), Ok(id)) = (
-        unit_selection.observations.as_deref(),
-        unit_selection.viewpoint.as_deref(),
-        unit_selection.unit_ids.get(entity),
-    ) else {
-        return Vec::new();
-    };
-    let awbrn_game::replay::ReplayViewpoint::Player(player) = viewpoint else {
-        return Vec::new();
-    };
-    let Some(observation) = observations.for_player(*player) else {
-        return Vec::new();
-    };
-    awvm::query::observed_unloads(observation, awvm::semantic::UnitId::new(id.0.as_u32()))
-        .unwrap_or_default()
+fn unit_unloads(
+    session: &awvm::session::Session,
+    index: awvm::session::UnitIdx,
+) -> Vec<awvm::session::Unload> {
+    let mut unloads = Vec::new();
+    session.legal().unloads(index, &mut unloads);
+    unloads
 }
 
 /// Whether the unit can act on the tile it already holds.
@@ -428,30 +428,21 @@ fn can_act_in_place(
     field: Option<&awvm::query::MoveField>,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
 ) -> bool {
-    let can_stop = field.is_some_and(|field| {
+    if field.is_some_and(|field| {
         semantic_position(origin).is_some_and(|position| field.can_stop_at(position))
-    });
-    can_stop
-        || !observed_unloads_for(entity, unit_selection).is_empty()
-        || observed_can_delete(entity, unit_selection)
+    }) {
+        return true;
+    }
+    // One session answers both of the remaining questions. Opening one per
+    // question reifies the projection once per question.
+    let Some((session, index)) = unit_session(entity, unit_selection) else {
+        return false;
+    };
+    !unit_unloads(&session, index).is_empty() || unit_can_delete(&session, index)
 }
 
-fn observed_can_delete(entity: Entity, unit_selection: &PlayUnitSelectionParams<'_, '_>) -> bool {
-    let (Some(observations), Some(viewpoint), Ok(id)) = (
-        unit_selection.observations.as_deref(),
-        unit_selection.viewpoint.as_deref(),
-        unit_selection.unit_ids.get(entity),
-    ) else {
-        return false;
-    };
-    let awbrn_game::replay::ReplayViewpoint::Player(player) = viewpoint else {
-        return false;
-    };
-    let Some(observation) = observations.for_player(*player) else {
-        return false;
-    };
-    awvm::query::observed_can_delete(observation, awvm::semantic::UnitId::new(id.0.as_u32()))
-        .unwrap_or(false)
+fn unit_can_delete(session: &awvm::session::Session, index: awvm::session::UnitIdx) -> bool {
+    session.legal().can_delete(index)
 }
 
 fn clear_selection_state(selection: &mut PlaySelectionState<'_>) {
@@ -464,18 +455,38 @@ fn clear_selection_state(selection: &mut PlaySelectionState<'_>) {
     *selection.phase = PlayUiPhase::Idle;
 }
 
-fn select_unit(
+/// A unit a press would pick up, with the session its answers were read from.
+///
+/// The session is carried rather than reopened, because opening one reifies
+/// the projection, and everything a selection needs is a question about the
+/// same position: the range, the attack approaches, whether the unit can
+/// unload or be deleted. Four helpers each opening their own reified four
+/// times per press.
+struct SelectableUnit {
     entity: Entity,
     origin: Position,
     field: Option<awvm::query::MoveField>,
+    session: awvm::session::Session,
+    index: awvm::session::UnitIdx,
+}
+
+fn select_unit(
+    selectable: SelectableUnit,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
     selection: &mut PlaySelectionState<'_>,
 ) {
+    let SelectableUnit {
+        entity,
+        origin,
+        field,
+        session,
+        index,
+    } = selectable;
     let range = field
         .as_ref()
         .map(|field| move_range(field, unit_selection))
         .unwrap_or_default();
-    let attack_targets = observed_attack_targets(entity, field.as_ref(), unit_selection);
+    let attack_targets = unit_attack_targets(&session, index, field.as_ref());
     selection.selected.0 = Some(SelectedUnitSelection { entity, origin });
     selection.move_range.tiles = range;
     selection.move_field.0 = field;
@@ -652,14 +663,14 @@ pub(crate) fn claim_unit_drag(
                 && gesture
                     .tile
                     .and_then(|tile| selectable_unit_at(tile, &unit_selection))
-                    .is_some_and(|(entity, origin, field)| {
-                        let Some(field) = field else {
+                    .is_some_and(|selectable| {
+                        if selectable.field.is_none() {
                             return false;
-                        };
+                        }
                         // The drag begins by selecting what it grabbed, so the
                         // range is on screen from the first pixel of travel
                         // rather than only after the release.
-                        select_unit(entity, origin, Some(field), &unit_selection, &mut selection);
+                        select_unit(selectable, &unit_selection, &mut selection);
                         true
                     });
 
@@ -676,7 +687,7 @@ pub(crate) fn claim_unit_drag(
 fn selectable_unit_at(
     position: Position,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
-) -> Option<(Entity, Position, Option<awvm::query::MoveField>)> {
+) -> Option<SelectableUnit> {
     let Ok(Some(entity)) = unit_selection.board_index.unit_entity(position) else {
         return None;
     };
@@ -696,12 +707,19 @@ fn selectable_unit_at(
     }
 
     let origin = map_position.position();
+    let (session, index) = unit_session(entity, unit_selection)?;
     let field = is_active
-        .then(|| observed_move_field(entity, unit_selection))
+        .then(|| unit_move_field(&session, index))
         .flatten();
-    let can_unload = !observed_unloads_for(entity, unit_selection).is_empty();
-    let can_delete = observed_can_delete(entity, unit_selection);
-    (field.is_some() || can_unload || can_delete).then_some((entity, origin, field))
+    let can_unload = !unit_unloads(&session, index).is_empty();
+    let can_delete = unit_can_delete(&session, index);
+    (field.is_some() || can_unload || can_delete).then_some(SelectableUnit {
+        entity,
+        origin,
+        field,
+        session,
+        index,
+    })
 }
 
 pub(crate) fn handle_play_pointer_gestures(
@@ -830,19 +848,19 @@ fn handle_tap(
         }
 
         // Picking up a different unit is a change of subject, not a mistake.
-        if let Some((entity, origin, field)) = selectable_unit_at(tapped, unit_selection) {
+        if let Some(selectable) = selectable_unit_at(tapped, unit_selection) {
+            let origin = selectable.origin;
+            select_unit(selectable, unit_selection, selection);
             if gesture.coarse {
+                // The selection already holds the range it just walked, so the
+                // frame reads it rather than walking the field a second time.
                 frame_selection(
                     origin,
-                    &field
-                        .as_ref()
-                        .map(|field| move_range(field, unit_selection))
-                        .unwrap_or_default(),
+                    &selection.move_range.tiles,
                     &unit_selection.game_map,
                     &mut policy.focus,
                 );
             }
-            select_unit(entity, origin, field, unit_selection, selection);
             return;
         }
 
@@ -857,20 +875,18 @@ fn handle_tap(
         return;
     }
 
-    if let Some((entity, origin, field)) = selectable_unit_at(tapped, unit_selection) {
+    if let Some(selectable) = selectable_unit_at(tapped, unit_selection) {
         close_production_options(production_options.sink.as_deref());
+        let origin = selectable.origin;
+        select_unit(selectable, unit_selection, selection);
         if gesture.coarse {
             frame_selection(
                 origin,
-                &field
-                    .as_ref()
-                    .map(|field| move_range(field, unit_selection))
-                    .unwrap_or_default(),
+                &selection.move_range.tiles,
                 &unit_selection.game_map,
                 &mut policy.focus,
             );
         }
-        select_unit(entity, origin, field, unit_selection, selection);
         return;
     }
 
@@ -1049,7 +1065,22 @@ fn emit_production_options(
         return;
     }
 
-    let options: Vec<_> = awvm::query::observed_production_options(observation, semantic_position)
+    let Ok(session) = awvm::session::Session::from_observation(observation) else {
+        close_production_options(Some(sink));
+        return;
+    };
+    let Some(cell) = session
+        .state()
+        .board
+        .dimensions()
+        .cell_index(semantic_position)
+    else {
+        close_production_options(Some(sink));
+        return;
+    };
+    let mut rows = Vec::new();
+    session.legal().production_options(cell, &mut rows);
+    let options: Vec<_> = rows
         .into_iter()
         .map(|option| ProductionOption {
             unit: option.kind,
@@ -1717,52 +1748,51 @@ pub(crate) fn emit_unit_actions(
     // The AWBW unit id and the AWVM unit id are the same number by
     // construction; see `awvm_awbw::command::unit_id`.
     let semantic_unit_id = awvm::semantic::UnitId::new(unit_id.0.as_u32());
+    // One session answers the whole menu: what may be done here, what may be
+    // put down, whether the unit may go, and what each strike would do.
+    let (Ok(session), destination) = (
+        awvm::session::Session::from_observation(observation),
+        awvm::semantic::Pos::new(x, y),
+    ) else {
+        close_unit_actions(Some(sink));
+        return;
+    };
+    let dimensions = session.state().board.dimensions();
+    let (Some(seat), Some(cell)) = (
+        session.index_of(semantic_unit_id),
+        dimensions.cell_index(destination),
+    ) else {
+        close_unit_actions(Some(sink));
+        return;
+    };
+    let legal = session.legal();
     let is_in_place = pending.destination == pending.origin;
-    let unloads = if is_in_place {
-        awvm::query::observed_unloads(observation, semantic_unit_id).unwrap_or_default()
-    } else {
-        Vec::new()
-    };
-    let can_delete = is_in_place && observed_can_delete(pending.unit, &unit_selection);
-    let available = match awvm::query::observed_actions_at(
-        observation,
-        semantic_unit_id,
-        awvm::semantic::Pos::new(x, y),
-    ) {
-        Ok(available) => available,
-        Err(_) if !unloads.is_empty() || can_delete => awvm::query::ObservedActionSet::default(),
-        Err(error) => {
-            warn!(
-                "Could not read the orders for unit {}: {error}",
-                unit_id.0.as_u32()
-            );
-            close_unit_actions(Some(sink));
-            return;
-        }
-    };
-    // One call for every target on the menu. A forecast that could not be
-    // computed is left empty rather than guessed at, and the row falls back to
+    let mut unloads = Vec::new();
+    if is_in_place {
+        legal.unloads(seat, &mut unloads);
+    }
+    let can_delete = is_in_place && legal.can_delete(seat);
+    let mut orders = Vec::new();
+    legal.orders_at(seat, cell, &mut orders);
+    // One forecast for every attack row. A forecast the session could not
+    // compute is left empty rather than guessed at, and the row falls back to
     // naming its target alone.
-    let forecasts = awvm::query::observed_forecasts(
-        observation,
-        semantic_unit_id,
-        awvm::semantic::Pos::new(x, y),
-        &available.attack,
-    )
-    .unwrap_or_else(|error| {
-        warn!(
-            "Could not forecast the attacks for unit {}: {error}",
-            unit_id.0.as_u32()
-        );
-        vec![None; available.attack.len()]
-    });
+    let attacks: Vec<_> = orders
+        .iter()
+        .filter_map(|order| match order.kind() {
+            awvm::session::OrderKind::Attack(target) => Some(target),
+            _ => None,
+        })
+        .map(|target| (target, legal.forecast(seat, cell, target)))
+        .collect();
     let mut options = build_options(
-        &available,
+        &orders,
+        &dimensions,
         &unloads,
         can_delete,
         pending,
         &unit_selection,
-        &forecasts,
+        &attacks,
     );
     let attack_intent = pending.attack_intent.filter(|target| {
         options.iter().any(|option| {
@@ -1820,31 +1850,55 @@ pub(crate) fn emit_unit_actions(
 /// numbers come from AWVM in one call for the whole menu: reifying the
 /// observation is the expensive half of the question and asking per row would
 /// pay it once a row.
+/// The menu rows for one destination, in the order a player reads them.
+///
+/// The orders arrive as the session names them, by the tile a target stands
+/// on, and the menu renames them the way the interface reads. Nothing here
+/// decides what is legal. The reducer decided that once.
 fn build_options(
-    available: &awvm::query::ObservedActionSet,
-    unloads: &[awvm::query::ObservedUnload],
+    orders: &[awvm::session::Order],
+    dimensions: &awvm::semantic::Dimensions,
+    unloads: &[awvm::session::Unload],
     can_delete: bool,
     pending: &PendingMoveDestinationSelection,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
-    forecasts: &[Option<awvm::combat::Forecast>],
+    attacks: &[(awvm::semantic::CellIdx, Option<awvm::combat::Forecast>)],
 ) -> Vec<UnitActionOption> {
-    let mut options = Vec::new();
+    use awvm::session::OrderKind;
 
-    for (index, target) in available.attack.iter().enumerate() {
-        let position = position_from_pos(*target);
+    let mut options = Vec::new();
+    let offers = |wanted: OrderKind| orders.iter().any(|order| order.kind() == wanted);
+    let targets = |pick: fn(OrderKind) -> Option<awvm::semantic::CellIdx>| {
+        orders
+            .iter()
+            .filter_map(|order| pick(order.kind()))
+            .filter_map(|cell| dimensions.position_of(cell))
+            .collect::<Vec<_>>()
+    };
+    let repairs = targets(|kind| match kind {
+        OrderKind::Repair(cell) => Some(cell),
+        _ => None,
+    });
+    let launches = targets(|kind| match kind {
+        OrderKind::Launch(cell) => Some(cell),
+        _ => None,
+    });
+
+    for (target, forecast) in attacks {
+        let Some(position) = dimensions.position_of(*target).map(position_from_pos) else {
+            continue;
+        };
         options.push(UnitActionOption {
             name: "Fire".to_string(),
             action: UnitOrder::Move {
                 action: PostMoveAction::Attack { target: position },
             },
-            forecast: forecasts
-                .get(index)
-                .cloned()
-                .flatten()
+            forecast: forecast
+                .clone()
                 .and_then(|forecast| describe_forecast(forecast, position, unit_selection)),
         });
     }
-    if available.capture {
+    if offers(OrderKind::Capture) {
         options.push(UnitActionOption::plain(
             "Capture",
             UnitOrder::Move {
@@ -1852,7 +1906,7 @@ fn build_options(
             },
         ));
     }
-    if available.supply {
+    if offers(OrderKind::Supply) {
         options.push(UnitActionOption::plain(
             "Supply",
             UnitOrder::Move {
@@ -1860,7 +1914,7 @@ fn build_options(
             },
         ));
     }
-    for target in &available.repair {
+    for target in &repairs {
         let target = position_from_pos(*target);
         if let Some(target_id) = unit_id_at_position(target, unit_selection) {
             options.push(UnitActionOption::plain(
@@ -1876,7 +1930,7 @@ fn build_options(
     // Join and Load name the unit already standing there, which is friendly by
     // definition and therefore has a real id in the projection.
     if let Some(occupant) = unit_id_at_position(pending.destination, unit_selection) {
-        if available.join {
+        if offers(OrderKind::Join) {
             options.push(UnitActionOption::plain(
                 "Join",
                 UnitOrder::Move {
@@ -1886,7 +1940,7 @@ fn build_options(
                 },
             ));
         }
-        if available.load {
+        if offers(OrderKind::Load) {
             options.push(UnitActionOption::plain(
                 "Load",
                 UnitOrder::Move {
@@ -1897,7 +1951,7 @@ fn build_options(
             ));
         }
     }
-    if available.hide {
+    if offers(OrderKind::Hide) {
         options.push(UnitActionOption::plain(
             "Dive",
             UnitOrder::Move {
@@ -1905,7 +1959,7 @@ fn build_options(
             },
         ));
     }
-    if available.reveal {
+    if offers(OrderKind::Reveal) {
         options.push(UnitActionOption::plain(
             "Surface",
             UnitOrder::Move {
@@ -1914,7 +1968,12 @@ fn build_options(
         ));
     }
     for unload in unloads {
-        let position = position_from_pos(unload.destination);
+        let Some(position) = dimensions
+            .position_of(unload.destination)
+            .map(position_from_pos)
+        else {
+            continue;
+        };
         options.push(UnitActionOption::plain(
             format!("Unload {}", unload.cargo_kind.name()),
             UnitOrder::Unload {
@@ -1923,7 +1982,7 @@ fn build_options(
             },
         ));
     }
-    for target in &available.launch {
+    for target in &launches {
         options.push(UnitActionOption::plain(
             "Launch",
             UnitOrder::Move {
@@ -1933,7 +1992,7 @@ fn build_options(
             },
         ));
     }
-    if available.explode {
+    if offers(OrderKind::Explode) {
         options.push(UnitActionOption::plain(
             "Explode",
             UnitOrder::Move {
@@ -1941,7 +2000,7 @@ fn build_options(
             },
         ));
     }
-    if available.wait {
+    if offers(OrderKind::Wait) {
         options.push(UnitActionOption::plain(
             "Wait",
             UnitOrder::Move {

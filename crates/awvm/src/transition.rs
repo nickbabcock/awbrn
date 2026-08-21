@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::commander::Holdings;
 use crate::commander::{self, PowerLevel};
 use crate::event::{AttackTarget, Event};
-use crate::query::TurnMaps;
+use crate::query::{TurnMaps, TurnTables};
 use crate::random::{Entropy, Luck, RandomError, RandomTape, RandomToken, RandomTokenKind};
 use crate::ruleset::{self, Domain, UnitKind};
 use crate::semantic::{
@@ -190,7 +190,7 @@ pub enum ExecuteOutcome {
 /// The borrowed state binds the plan to the state that produced it. A caller
 /// can inspect several actions without validating the path again.
 #[derive(Clone, Debug)]
-pub struct PreparedMovement<'a> {
+pub(crate) struct PreparedMovement<'a> {
     state: &'a State,
     unit: UnitId,
     movement: MovedUnit<'a>,
@@ -201,7 +201,7 @@ pub struct PreparedMovement<'a> {
 /// The borrowed state binds later movement and delete preparation to the
 /// checks that produced this value.
 #[derive(Clone, Debug)]
-pub struct PreparedActiveUnit<'a> {
+pub(crate) struct PreparedActiveUnit<'a> {
     state: &'a State,
     unit: UnitId,
     unit_index: usize,
@@ -214,7 +214,7 @@ pub struct PreparedActiveUnit<'a> {
 /// roster facts are computed once, while each kind keeps the violation order
 /// required by the reducer.
 #[derive(Clone, Debug)]
-pub struct PreparedProductionSite<'a> {
+pub(crate) struct PreparedProductionSite<'a> {
     state: &'a State,
     position: Pos,
     player_index: PlayerIdx,
@@ -225,7 +225,7 @@ pub struct PreparedProductionSite<'a> {
 
 /// A valid transport bound to one active turn.
 #[derive(Clone, Debug)]
-pub struct PreparedUnloadTransport<'a> {
+pub(crate) struct PreparedUnloadTransport<'a> {
     state: &'a State,
     transport: UnitId,
     position: Pos,
@@ -233,17 +233,11 @@ pub struct PreparedUnloadTransport<'a> {
 
 /// Cargo that is carried by a prepared transport.
 #[derive(Clone, Debug)]
-pub struct PreparedUnloadCargo<'a> {
+pub(crate) struct PreparedUnloadCargo<'a> {
     transport: PreparedUnloadTransport<'a>,
     cargo: UnitId,
     cargo_index: usize,
     cargo_slot: usize,
-}
-
-/// A command that was resolved against one state but was not applied.
-#[derive(Debug)]
-pub struct PreparedCommand<'a> {
-    command: PreparedCommandKind<'a>,
 }
 
 #[derive(Debug)]
@@ -291,7 +285,7 @@ enum PreparedCommandKind<'a> {
 /// let Ok(unit) = prepare_active_unit(&state, &player, unit)? else { return };
 /// let Ok(movement) = unit.prepare_movement(path)? else { return };
 /// ```
-pub type Prepared<T> = Result<T, Violation>;
+pub(crate) type Prepared<T> = Result<T, Violation>;
 
 /// Adapter-owned diagnostic detail for an invalid authoritative state.
 ///
@@ -384,23 +378,8 @@ pub fn execute_with(
     }
 }
 
-/// Resolve a command without cloning or changing its input state.
-///
-/// Preparation covers every command this adapter implements. It performs the
-/// same deterministic checks as [`execute`] — the two share one implementation
-/// of each — but delays the state clone, the mutation, and the random draws
-/// until [`execute_prepared`] is called. A caller that has to know whether a
-/// command would be accepted, and only sometimes wants it applied, pays for
-/// the answer once.
-pub fn prepare_command(
-    state: &State,
-    command: Command,
-) -> Result<Prepared<PreparedCommand<'_>>, ExecuteError> {
-    prepare_outcome(prepare(state, command))
-}
-
 /// Resolve movement without choosing the action at its destination.
-pub fn prepare_movement<'a>(
+pub(crate) fn prepare_movement<'a>(
     state: &'a State,
     player: &PlayerId,
     unit: UnitId,
@@ -411,10 +390,11 @@ pub fn prepare_movement<'a>(
 
 /// Resolve the checks shared by movement and deletion.
 ///
-/// This opens a turn for the one question. A caller asking several — every unit
-/// of a turn, or a unit and a production site — wants [`ActiveTurn::open`] once and
-/// its methods after, which share the acting team's view.
-pub fn prepare_active_unit<'a>(
+/// This opens a turn for the one question. A caller asking several, such as
+/// every unit of a turn or a unit and a production site, wants
+/// [`ActiveTurn::opened`] once and its methods after, which share the acting
+/// team's view.
+pub(crate) fn prepare_active_unit<'a>(
     state: &'a State,
     player: &PlayerId,
     unit: UnitId,
@@ -422,28 +402,18 @@ pub fn prepare_active_unit<'a>(
     prepared(ActiveTurn::opened(state, player).and_then(|turn| turn.prepare_unit(unit)))
 }
 
-/// Bind a production position to the active turn.
-pub fn prepare_production_site<'a>(
-    state: &'a State,
-    player: &PlayerId,
-    position: Pos,
-) -> Result<Prepared<PreparedProductionSite<'a>>, ExecuteError> {
-    prepared(
-        ActiveTurn::opened(state, player)
-            .and_then(|turn| property::prepare_production_site(&turn, position)),
-    )
-}
-
-/// Bind an unload-capable transport to the active turn.
-pub fn prepare_unload_transport<'a>(
-    state: &'a State,
-    player: &PlayerId,
-    transport: UnitId,
-) -> Result<Prepared<PreparedUnloadTransport<'a>>, ExecuteError> {
-    prepared(
-        ActiveTurn::opened(state, player)
-            .and_then(|turn| transport::prepare_unload_transport(&turn, transport)),
-    )
+/// Whether the reducer would accept `command` against `state`.
+///
+/// The same deterministic checks [`execute`] makes, and from one shared
+/// implementation of each, without the state clone, the mutation or the random
+/// draws. [`crate::session::Legal`] asks this about the orders that belong to
+/// no unit and no destination, where there is no cheaper question.
+pub(crate) fn accepts(state: &State, command: Command) -> Result<bool, ExecuteError> {
+    match prepare(state, command) {
+        Ok(_) => Ok(true),
+        Err(ReducerError::Violation(_)) => Ok(false),
+        Err(error) => Err(execute_error(error)),
+    }
 }
 
 impl<'a> PreparedMovement<'a> {
@@ -467,76 +437,6 @@ impl<'a> PreparedMovement<'a> {
         }
     }
 
-    /// Resolve waiting at this movement's destination.
-    pub fn prepare_wait(self) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_destination().prepare_wait()
-    }
-
-    /// Resolve capture at this movement's destination.
-    pub fn prepare_capture(self) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_destination().prepare_capture()
-    }
-
-    /// Resolve supplying from this movement's destination.
-    pub fn prepare_supply(self) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_destination().prepare_supply()
-    }
-
-    /// Resolve entering hidden state at this movement's destination.
-    pub fn prepare_hide(self) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_destination().prepare_hide()
-    }
-
-    /// Resolve entering exposed state at this movement's destination.
-    pub fn prepare_reveal(self) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_destination().prepare_reveal()
-    }
-
-    /// Resolve joining another unit at this movement's destination.
-    pub fn prepare_join(
-        self,
-        target: UnitId,
-    ) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_destination().prepare_join(target)
-    }
-
-    /// Resolve loading into a transport at this movement's destination.
-    pub fn prepare_load(
-        self,
-        transport: UnitId,
-    ) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_destination().prepare_load(transport)
-    }
-
-    /// Resolve attacking a unit or tile from this movement's destination.
-    pub fn prepare_attack(
-        self,
-        target: AttackTarget,
-    ) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_destination().prepare_attack(target)
-    }
-
-    /// Resolve repairing another unit from this movement's destination.
-    pub fn prepare_repair(
-        self,
-        target: UnitId,
-    ) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_destination().prepare_repair(target)
-    }
-
-    /// Resolve launching a silo at a target tile.
-    pub fn prepare_launch(
-        self,
-        target: Pos,
-    ) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_destination().prepare_launch(target)
-    }
-
-    /// Resolve exploding at this movement's destination.
-    pub fn prepare_explode(self) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_destination().prepare_explode()
-    }
-
     pub(crate) const fn state(&self) -> &State {
         self.state
     }
@@ -557,7 +457,7 @@ impl<'a> PreparedMovement<'a> {
 /// resolved once when an action needs them. The default form owns the turn's
 /// tables. A move field supplies a form that borrows the tables it shares.
 #[derive(Debug)]
-pub struct PreparedDestination<'a, M = TurnMaps<'a>> {
+pub(crate) struct PreparedDestination<'a, M = TurnMaps<'a>> {
     movement: PreparedMovement<'a>,
     maps: M,
     available: OnceCell<Result<AvailableDestination, Violation>>,
@@ -591,76 +491,6 @@ impl<'a, M> PreparedDestination<'a, M>
 where
     M: Borrow<TurnMaps<'a>>,
 {
-    /// Resolve waiting at this destination.
-    pub fn prepare_wait(self) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_action(movement::Wait)
-    }
-
-    /// Resolve capture at this destination.
-    pub fn prepare_capture(self) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_action(property::Capture)
-    }
-
-    /// Resolve supplying from this destination.
-    pub fn prepare_supply(self) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_action(transport::Supply)
-    }
-
-    /// Resolve entering hidden state at this destination.
-    pub fn prepare_hide(self) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_action(movement::Conceal(Concealment::Hidden))
-    }
-
-    /// Resolve entering exposed state at this destination.
-    pub fn prepare_reveal(self) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_action(movement::Conceal(Concealment::Exposed))
-    }
-
-    /// Resolve joining another unit at this destination.
-    pub fn prepare_join(
-        self,
-        target: UnitId,
-    ) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_action(transport::Join(target))
-    }
-
-    /// Resolve loading into a transport at this destination.
-    pub fn prepare_load(
-        self,
-        transport: UnitId,
-    ) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_action(transport::Load(transport))
-    }
-
-    /// Resolve attacking a unit or tile from this destination.
-    pub fn prepare_attack(
-        self,
-        target: AttackTarget,
-    ) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_action(attack::Attack(target))
-    }
-
-    /// Resolve repairing another unit from this destination.
-    pub fn prepare_repair(
-        self,
-        target: UnitId,
-    ) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_action(transport::Repair(target))
-    }
-
-    /// Resolve launching a silo at a target tile.
-    pub fn prepare_launch(
-        self,
-        target: Pos,
-    ) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_action(special::Launch(target))
-    }
-
-    /// Resolve exploding at this destination.
-    pub fn prepare_explode(self) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        self.prepare_action(special::Explode)
-    }
-
     /// Validate `action` here and keep the proof bound to this movement.
     ///
     /// The reducer path wants a rejection as an error, which is what separates
@@ -684,14 +514,6 @@ where
         A: DestinationAction<'a>,
     {
         self.validated(action).map(A::into_kind)
-    }
-
-    /// Validate `action` here and bind it to this destination's movement.
-    fn prepare_action<A>(self, action: A) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError>
-    where
-        A: DestinationAction<'a>,
-    {
-        prepare_outcome(self.prepare_kind(action))
     }
 
     /// Whether `action` would be accepted here, without preparing it.
@@ -754,6 +576,11 @@ where
         self.movement
     }
 
+    /// Drop this destination and give its route buffers back, emptied.
+    pub(crate) fn recycle(self) -> (Vec<Pos>, Vec<u64>) {
+        self.movement.movement.recycle()
+    }
+
     pub(crate) fn view(&self) -> &AwbwView<'a> {
         self.maps.borrow().view()
     }
@@ -782,20 +609,6 @@ where
 }
 
 impl<'a> PreparedActiveUnit<'a> {
-    /// Resolve movement for this unit without repeating active-unit checks.
-    pub fn prepare_movement(
-        self,
-        path: Vec<Pos>,
-    ) -> Result<Prepared<PreparedMovement<'a>>, ExecuteError> {
-        prepared(
-            movement::plan(&self, path).map(|movement| PreparedMovement {
-                state: self.state,
-                unit: self.unit,
-                movement,
-            }),
-        )
-    }
-
     pub(crate) fn movement_from_field(
         &self,
         path: Vec<Pos>,
@@ -808,9 +621,9 @@ impl<'a> PreparedActiveUnit<'a> {
         }
     }
 
-    /// Resolve deletion for this unit.
-    pub fn prepare_delete(self) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        prepare_outcome(special::prepare_delete(self).map(PreparedCommandKind::Delete))
+    /// Whether the reducer would accept deleting this unit.
+    pub(crate) fn can_delete(&self) -> Result<bool, ExecuteError> {
+        prepared(special::prepare_delete(self.clone())).map(|outcome| outcome.is_ok())
     }
 
     pub(crate) const fn state(&self) -> &'a State {
@@ -830,35 +643,48 @@ impl<'a> PreparedActiveUnit<'a> {
     }
 }
 
-impl<'a> PreparedProductionSite<'a> {
-    /// Resolve one unit kind at this position.
-    pub fn prepare_kind(
-        self,
-        kind: UnitKindId,
-    ) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        prepare_outcome(property::prepare_production(self, kind).map(PreparedCommandKind::Produce))
+impl PreparedProductionSite<'_> {
+    /// Whether the reducer would accept building `kind` here.
+    ///
+    /// Binding the site counts the player's army and reads the board, so a
+    /// caller asking about every unit kind binds once and probes many times.
+    pub(crate) fn can_produce(&self, kind: UnitKindId) -> Result<bool, ExecuteError> {
+        prepared(property::prepare_production(self.clone(), kind)).map(|outcome| outcome.is_ok())
+    }
+
+    /// What this site would charge for `kind`, or why it would refuse.
+    ///
+    /// A build menu shows a unit the player cannot pay for and hides one the
+    /// site cannot make at all, and telling those apart means reading the
+    /// refusal rather than a boolean. The order of the checks makes that
+    /// readable. The price is tested last, so an
+    /// [`Violation::InsufficientFunds`] means everything else about the
+    /// request was accepted.
+    ///
+    /// This answers about the request alone. [`Self::can_produce`] answers the
+    /// stronger question the action space needs, whether applying the build
+    /// would also succeed, which further requires a state that can name the
+    /// unit it creates.
+    pub(crate) fn produce_cost(&self, kind: UnitKindId) -> Result<Prepared<u64>, ExecuteError> {
+        prepared(property::production_cost(self, kind))
     }
 }
 
 impl<'a> PreparedUnloadTransport<'a> {
     /// Resolve cargo carried by this transport.
-    pub fn prepare_cargo(
-        self,
+    pub(crate) fn cargo(
+        &self,
         cargo: UnitId,
     ) -> Result<Prepared<PreparedUnloadCargo<'a>>, ExecuteError> {
-        prepared(transport::prepare_unload_cargo(self, cargo))
+        prepared(transport::prepare_unload_cargo(self.clone(), cargo))
     }
 }
 
-impl<'a> PreparedUnloadCargo<'a> {
-    /// Resolve one destination for this cargo.
-    pub fn prepare_destination(
-        self,
-        destination: Pos,
-    ) -> Result<Prepared<PreparedCommand<'a>>, ExecuteError> {
-        prepare_outcome(
-            transport::prepare_unload(self, destination).map(PreparedCommandKind::Unload),
-        )
+impl PreparedUnloadCargo<'_> {
+    /// Whether the reducer would accept putting this cargo down there.
+    pub(crate) fn can_unload(&self, destination: Pos) -> Result<bool, ExecuteError> {
+        prepared(transport::prepare_unload(self.clone(), destination))
+            .map(|outcome| outcome.is_ok())
     }
 }
 
@@ -869,12 +695,6 @@ fn prepared<T>(result: Result<T, ReducerError>) -> Result<Prepared<T>, ExecuteEr
         Err(ReducerError::Violation(violation)) => Ok(Err(violation)),
         Err(error) => Err(execute_error(error)),
     }
-}
-
-fn prepare_outcome(
-    result: Result<PreparedCommandKind<'_>, ReducerError>,
-) -> Result<Prepared<PreparedCommand<'_>>, ExecuteError> {
-    prepared(result.map(|command| PreparedCommand { command }))
 }
 
 fn prepare(state: &State, command: Command) -> Result<PreparedCommandKind<'_>, ReducerError> {
@@ -998,35 +818,10 @@ fn execute_error(error: ReducerError) -> ExecuteError {
     }
 }
 
-/// Apply a prepared command to the state that produced it.
-///
-/// Only combat consumes tokens from `random`. Deterministic actions report
-/// zero `random_consumed`. Do not reconcile these actions against tape offsets.
-pub fn execute_prepared(
-    prepared: PreparedCommand<'_>,
-    random: &[RandomToken],
-) -> Result<Execution, ExecuteError> {
-    execute_prepared_with(prepared, &mut RandomTape::new(random))
-}
-
-/// Apply a prepared command and ask `entropy` for values when it needs them.
-///
-/// Only combat asks `entropy` for values. Deterministic actions report zero
-/// `random_consumed`. Do not reconcile these actions against tape offsets. Attack
-/// preparation delays its combat draws until this application step.
-pub fn execute_prepared_with(
-    prepared: PreparedCommand<'_>,
-    entropy: &mut impl Entropy,
-) -> Result<Execution, ExecuteError> {
-    let mut draws = Draws::new(entropy);
-    apply(prepared.command, &mut draws).map_err(execute_error)
-}
-
 /// Apply a resolved command. The one place a command changes anything.
 ///
-/// [`execute_with`] and [`execute_prepared_with`] both end here, so a rule
-/// cannot hold for a command a caller prepared and not for the same command
-/// executed outright.
+/// [`execute_with`] is the only way in, so there is one reducer path and no
+/// second one to keep equivalent to it.
 fn apply(
     command: PreparedCommandKind<'_>,
     draws: &mut Draws<'_>,
@@ -1244,7 +1039,7 @@ pub(crate) fn draw(
 /// cached below is rebuilt against the state it actually describes. The cache
 /// cannot go stale because it cannot outlive its subject.
 #[derive(Debug)]
-pub struct ActiveTurn<'a> {
+pub(crate) struct ActiveTurn<'a> {
     state: &'a State,
     /// The active player's seat, resolved once when the turn opened. Units name
     /// their owner this way, so every ownership check reads it.
@@ -1258,24 +1053,33 @@ pub struct ActiveTurn<'a> {
     /// pays for them once; one that opens a turn to run a single command never
     /// touches them.
     maps: OnceCell<TurnMaps<'a>>,
+    /// The board-sized half of those maps, which the opener may have kept from
+    /// an earlier turn on this same position. Rebuilding an entry-cost map per
+    /// movement class and a blocking map is most of what opening a turn costs.
+    /// A caller that opens two turns on one position, offering an order and
+    /// then spelling its route, would otherwise pay twice.
+    tables: TurnTables,
 }
 
 impl<'a> ActiveTurn<'a> {
     /// Run the shared checks, in the order `spec/model/violations.md` fixes:
     /// ruleset, then terminal match, then phase, then actor.
-    pub fn open(state: &'a State, player: &PlayerId) -> Result<Prepared<Self>, ExecuteError> {
-        prepared(Self::opened(state, player))
-    }
-
-    /// The acting team's view of this state.
-    pub fn view(&self) -> &AwbwView<'a> {
-        self.maps().view()
+    ///
+    /// `tables` is the board tables the caller kept from an earlier turn on
+    /// this same position, or [`TurnTables::default`] to have this turn build
+    /// and drop its own. See [`TurnTables`].
+    pub(crate) fn open(
+        state: &'a State,
+        player: &PlayerId,
+        tables: TurnTables,
+    ) -> Result<Prepared<Self>, ExecuteError> {
+        prepared(Self::opened_with(state, player, tables))
     }
 
     /// The board tables every unit of this turn shares.
     pub(crate) fn maps(&self) -> &TurnMaps<'a> {
         self.maps.get_or_init(|| {
-            TurnMaps::new(self.state, self.player())
+            TurnMaps::with_tables(self.state, self.seat, self.tables.clone())
                 .expect("an open turn names a player on the roster")
         })
     }
@@ -1302,6 +1106,19 @@ impl<'a> ActiveTurn<'a> {
     }
 
     pub(crate) fn opened(state: &'a State, player: &PlayerId) -> Result<Self, ReducerError> {
+        Self::opened_with(state, player, TurnTables::default())
+    }
+
+    /// The same turn, reusing board tables the caller kept from this position.
+    ///
+    /// The caller vouches that `tables` names this position and this turn's
+    /// seat. See [`TurnTables`]. Reusing tables from another position would
+    /// answer about a board that is gone.
+    pub(crate) fn opened_with(
+        state: &'a State,
+        player: &PlayerId,
+        tables: TurnTables,
+    ) -> Result<Self, ReducerError> {
         if !ruleset::supports(&state.ruleset) {
             return Err(ReducerError::UnsupportedRuleset);
         }
@@ -1330,6 +1147,7 @@ impl<'a> ActiveTurn<'a> {
             state,
             seat,
             maps: OnceCell::new(),
+            tables,
         })
     }
 
@@ -2352,15 +2170,15 @@ mod tests {
                 })
         );
         let observation = crate::semantic::observe(&AwbwVisibility, &state, &"red".into()).unwrap();
+        let session = crate::session::Session::from_observation(&observation).unwrap();
+        let dimensions = session.state().board.dimensions();
         assert_eq!(
-            crate::query::observed_forecasts(
-                &observation,
-                UnitId::new(0),
-                Pos::new(1, 0),
-                &[Pos::new(2, 0)]
-            )
-            .unwrap(),
-            vec![None]
+            session.legal().forecast(
+                session.index_of(UnitId::new(0)).unwrap(),
+                dimensions.cell_index(Pos::new(1, 0)).unwrap(),
+                dimensions.cell_index(Pos::new(2, 0)).unwrap(),
+            ),
+            None
         );
         assert_eq!(
             execute(&state, command, &[]),
