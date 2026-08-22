@@ -1,7 +1,7 @@
 use crate::de::{bool_ynstr, deserialize_sub_dive, non_negative_u32, values_only};
 use awbrn_types::{
-    AwbwCoId, AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId, AwbwTerrain, AwbwUnitId, Co,
-    CoExt, PlayerFaction, Unit,
+    AwbwCoId, AwbwDateTime, AwbwGameId, AwbwGamePlayerId, AwbwMapId, AwbwPlayerId, AwbwTerrain,
+    AwbwUnitId, Co, CoExt, PlayerFaction, Unit,
 };
 use serde::{Deserialize, Serialize};
 
@@ -11,9 +11,10 @@ pub struct AwbwGame {
     pub name: String,
     pub password: Option<String>,
     pub creator: AwbwPlayerId,
-    pub start_date: String,
-    pub end_date: Option<String>,
-    pub activity_date: String,
+    pub start_date: AwbwDateTime,
+    /// AWBW currently sends this field as null.
+    pub end_date: Option<AwbwDateTime>,
+    pub activity_date: AwbwDateTime,
     pub maps_id: AwbwMapId,
     pub weather_type: String,
     pub weather_start: Option<u32>,
@@ -40,7 +41,7 @@ pub struct AwbwGame {
     #[serde(deserialize_with = "bool_ynstr")]
     pub team: bool,
     pub aet_interval: i32,
-    pub aet_date: String,
+    pub aet_date: AwbwDateTime,
     #[serde(deserialize_with = "bool_ynstr")]
     pub use_powers: bool,
     #[serde(deserialize_with = "values_only")]
@@ -116,7 +117,7 @@ pub struct AwbwBuilding {
     /// into separate concepts immediately.
     pub capture: u32,
     pub last_capture: u32,
-    pub last_updated: String,
+    pub last_updated: AwbwDateTime,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]

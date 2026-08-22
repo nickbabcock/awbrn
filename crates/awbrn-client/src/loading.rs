@@ -520,7 +520,9 @@ impl Plugin for LoadingPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use awbrn_types::{AwbwTerrain, Faction as TerrainFaction, PlayerFaction, Property};
+    use awbrn_types::{
+        AwbwDateTime, AwbwTerrain, Faction as TerrainFaction, PlayerFaction, Property,
+    };
     use awbw_replay::AwbwReplay;
     use awbw_replay::game_models::{AwbwGame, AwbwPlayer, CoPower, MatchType};
     use std::collections::HashMap;
@@ -587,7 +589,7 @@ mod tests {
                 y: 1,
                 capture: 20,
                 last_capture: 20,
-                last_updated: "2026-03-14".to_string(),
+                last_updated: AwbwDateTime::parse("2026-03-14 00:00:00").unwrap(),
             }],
         );
 
@@ -613,7 +615,7 @@ mod tests {
                 y: 99,
                 capture: 20,
                 last_capture: 20,
-                last_updated: "2026-03-14".to_string(),
+                last_updated: AwbwDateTime::parse("2026-03-14 00:00:00").unwrap(),
             }],
         );
 
@@ -635,9 +637,9 @@ mod tests {
                 name: "Test Replay".to_string(),
                 password: None,
                 creator: awbrn_types::AwbwPlayerId::new(99),
-                start_date: "2026-03-28".to_string(),
+                start_date: AwbwDateTime::parse("2026-03-28 00:00:00").unwrap(),
                 end_date: None,
-                activity_date: "2026-03-28".to_string(),
+                activity_date: AwbwDateTime::parse("2026-03-28 00:00:00").unwrap(),
                 maps_id: awbrn_types::AwbwMapId::new(162795),
                 weather_type: "Clear".to_string(),
                 weather_start: None,
@@ -659,7 +661,7 @@ mod tests {
                 league: None,
                 team: true,
                 aet_interval: 0,
-                aet_date: "2026-03-28".to_string(),
+                aet_date: AwbwDateTime::parse("2026-03-28 00:00:00").unwrap(),
                 use_powers: true,
                 players: vec![
                     test_player(
@@ -713,9 +715,9 @@ mod tests {
                 name: "Unknown CO Replay".to_string(),
                 password: None,
                 creator: awbrn_types::AwbwPlayerId::new(99),
-                start_date: "2026-03-28".to_string(),
+                start_date: AwbwDateTime::parse("2026-03-28 00:00:00").unwrap(),
                 end_date: None,
-                activity_date: "2026-03-28".to_string(),
+                activity_date: AwbwDateTime::parse("2026-03-28 00:00:00").unwrap(),
                 maps_id: awbrn_types::AwbwMapId::new(162795),
                 weather_type: "Clear".to_string(),
                 weather_start: None,
@@ -737,7 +739,7 @@ mod tests {
                 league: None,
                 team: false,
                 aet_interval: 0,
-                aet_date: "2026-03-28".to_string(),
+                aet_date: AwbwDateTime::parse("2026-03-28 00:00:00").unwrap(),
                 use_powers: true,
                 players: vec![test_player(
                     1,

@@ -1,5 +1,5 @@
 use crate::de::{Hidden, Masked, bool_ynstr_map};
-use awbrn_types::{AwbwGamePlayerId, AwbwTerrain, AwbwUnitId, PlayerFaction, Unit};
+use awbrn_types::{AwbwDate, AwbwGamePlayerId, AwbwTerrain, AwbwUnitId, PlayerFaction, Unit};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
@@ -603,7 +603,8 @@ pub struct NextTurnAction {
 pub struct GameOverAction {
     pub day: u32,
     #[serde(rename = "gameEndDate")]
-    pub game_end_date: Option<String>,
+    /// AWBW encodes this end time as a calendar day.
+    pub game_end_date: Option<AwbwDate>,
     pub losers: Vec<AwbwGamePlayerId>,
     pub message: String,
     pub winners: Vec<AwbwGamePlayerId>,

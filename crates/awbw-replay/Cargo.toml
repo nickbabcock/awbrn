@@ -15,4 +15,5 @@ serde_path_to_error.workspace = true
 
 [dev-dependencies]
 highway.workspace = true
+jiff.workspace = true
 insta.workspace = true
