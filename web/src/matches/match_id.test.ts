@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { generateMatchId, MATCH_ID_LENGTH } from "./match_id";
+import { generateMatchId, matchIdSchema, MATCH_ID_LENGTH } from "./match_id";
 
 describe("generateMatchId", () => {
   it("emits fixed-width lowercase base36 ids", () => {
@@ -18,5 +18,9 @@ describe("generateMatchId", () => {
     }
 
     expect(ids.size).toBe(1_000);
+  });
+
+  it.each(["abc123", "ABC123DEF456G", "abc123def456-"])("rejects an invalid id: %s", (matchId) => {
+    expect(matchIdSchema.safeParse(matchId).success).toBe(false);
   });
 });

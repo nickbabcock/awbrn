@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { sessionMiddleware } from "#/auth/session.middleware.ts";
 import { getFactionById } from "#/factions.ts";
+import { matchIdSchema } from "./match_id.ts";
 import {
   createMatch,
   getMatchSnapshot,
@@ -34,7 +35,7 @@ export const listMyMatchesFn = createServerFn({ method: "GET" })
 
 export const getMatchFn = createServerFn({ method: "GET" })
   .middleware([sessionMiddleware])
-  .validator(z.object({ matchId: z.string(), joinSlug: z.string().nullish() }))
+  .validator(z.object({ matchId: matchIdSchema, joinSlug: z.string().nullish() }))
   .handler(async ({ data, context }) => {
     const result = await getMatchSnapshot(
       data.matchId,
@@ -60,7 +61,7 @@ export const createMatchFn = createServerFn({ method: "POST" })
 
 export const mutateMatchFn = createServerFn({ method: "POST" })
   .middleware([sessionMiddleware])
-  .validator(z.object({ matchId: z.string(), action: matchMutationRequestSchema }))
+  .validator(z.object({ matchId: matchIdSchema, action: matchMutationRequestSchema }))
   .handler(async ({ data, context }) => {
     if (!context.session) throw new Error("you must be signed in to update a lobby");
 
