@@ -14,6 +14,9 @@ pub struct PlayerSetup {
 }
 
 /// Configuration for creating a new game.
+///
+/// The map carries the units it starts, so there is no second field here that
+/// could disagree with it.
 #[derive(Debug, Clone)]
 pub struct GameSetup {
     pub map: AwbrnMap,

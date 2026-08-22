@@ -10,7 +10,7 @@
 
 use std::collections::HashSet;
 
-use awbrn_map::Position;
+use awbrn_map::{Dimensions, Grid, Pos};
 use awbrn_types::{AwbwGamePlayerId, AwbwUnitId, PlayerFaction};
 use bevy::prelude::*;
 
@@ -30,11 +30,10 @@ pub struct FriendlyFactions(pub HashSet<PlayerFaction>);
 #[derive(Resource, Debug, Default)]
 pub struct ViewerVisibility {
     fog: bool,
-    width: usize,
-    height: usize,
-    /// Row-major, matching `BoardIndex`. Empty while no observation has been
-    /// selected, which reads as fully visible.
-    tiles: Vec<bool>,
+    /// One flag for each tile, over the same board shape as `BoardIndex`. A
+    /// zero-tile board is what no selected observation looks like, and it
+    /// reads as fully visible because `fog` is false alongside it.
+    tiles: Grid<bool>,
     units: HashSet<AwbwUnitId>,
     players: HashSet<AwbwGamePlayerId>,
 }
@@ -48,15 +47,14 @@ impl ViewerVisibility {
         self.fog
     }
 
-    pub fn tile_visible(&self, position: Position) -> bool {
+    pub fn tile_visible(&self, position: Pos) -> bool {
         if !self.fog {
             return true;
         }
-        self.tile_index(position)
-            .is_some_and(|index| self.tiles[index])
+        self.tiles.get(position).copied().unwrap_or(false)
     }
 
-    pub fn is_fogged(&self, position: Position) -> bool {
+    pub fn is_fogged(&self, position: Pos) -> bool {
         !self.tile_visible(position)
     }
 
@@ -83,27 +81,19 @@ impl ViewerVisibility {
     /// public so a test can state a view without building an `Observation`;
     /// nothing in production writes them anywhere else.
     pub fn clear(&mut self) {
-        self.fog = false;
-        self.width = 0;
-        self.height = 0;
-        self.tiles.clear();
-        self.units.clear();
-        self.players.clear();
+        self.reset(false, Dimensions::new(0, 0));
     }
 
-    pub fn reset(&mut self, fog: bool, width: usize, height: usize) {
+    pub fn reset(&mut self, fog: bool, dimensions: Dimensions) {
         self.fog = fog;
-        self.width = width;
-        self.height = height;
-        self.tiles.clear();
-        self.tiles.resize(width * height, false);
+        self.tiles.refill(dimensions, false);
         self.units.clear();
         self.players.clear();
     }
 
-    pub fn set_tile_visible(&mut self, position: Position) {
-        if let Some(index) = self.tile_index(position) {
-            self.tiles[index] = true;
+    pub fn set_tile_visible(&mut self, position: Pos) {
+        if let Some(tile) = self.tiles.get_mut(position) {
+            *tile = true;
         }
     }
 
@@ -113,14 +103,6 @@ impl ViewerVisibility {
 
     pub fn set_player_disclosed(&mut self, player: AwbwGamePlayerId) {
         self.players.insert(player);
-    }
-
-    fn tile_index(&self, position: Position) -> Option<usize> {
-        if position.x < self.width && position.y < self.height {
-            Some(position.y * self.width + position.x)
-        } else {
-            None
-        }
     }
 }
 
@@ -132,7 +114,7 @@ mod tests {
     fn an_unobserved_viewer_sees_everything() {
         let visibility = ViewerVisibility::default();
         assert!(!visibility.fog_active());
-        assert!(visibility.tile_visible(Position::new(4, 9)));
+        assert!(visibility.tile_visible(Pos::new(4, 9)));
         assert!(visibility.unit_visible(AwbwUnitId::new(7)));
         assert!(visibility.player_disclosed(AwbwGamePlayerId::new(3)));
     }
@@ -140,15 +122,15 @@ mod tests {
     #[test]
     fn a_fogged_viewer_sees_only_what_the_observation_listed() {
         let mut visibility = ViewerVisibility::default();
-        visibility.reset(true, 3, 3);
-        visibility.set_tile_visible(Position::new(1, 1));
+        visibility.reset(true, Dimensions::new(3, 3));
+        visibility.set_tile_visible(Pos::new(1, 1));
         visibility.set_unit_visible(AwbwUnitId::new(7));
         visibility.set_player_disclosed(AwbwGamePlayerId::new(3));
 
-        assert!(visibility.tile_visible(Position::new(1, 1)));
-        assert!(visibility.is_fogged(Position::new(0, 0)));
+        assert!(visibility.tile_visible(Pos::new(1, 1)));
+        assert!(visibility.is_fogged(Pos::new(0, 0)));
         // Off the board is never visible, and never panics.
-        assert!(visibility.is_fogged(Position::new(9, 9)));
+        assert!(visibility.is_fogged(Pos::new(9, 9)));
         assert!(visibility.unit_visible(AwbwUnitId::new(7)));
         assert!(!visibility.unit_visible(AwbwUnitId::new(8)));
         assert!(visibility.player_disclosed(AwbwGamePlayerId::new(3)));
@@ -158,9 +140,9 @@ mod tests {
     #[test]
     fn an_unfogged_match_discloses_everything_it_was_reset_with() {
         let mut visibility = ViewerVisibility::default();
-        visibility.reset(false, 3, 3);
+        visibility.reset(false, Dimensions::new(3, 3));
 
-        assert!(visibility.tile_visible(Position::new(2, 2)));
+        assert!(visibility.tile_visible(Pos::new(2, 2)));
         assert!(visibility.unit_visible(AwbwUnitId::new(1)));
         assert!(visibility.player_disclosed(AwbwGamePlayerId::new(1)));
     }

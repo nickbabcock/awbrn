@@ -1,5 +1,5 @@
 use crate::core::{RenderLayer, SpriteSize};
-use awbrn_map::Position;
+use awbrn_map::Pos;
 
 pub(crate) const COURSE_ARROW_SPRITE_SIZE: SpriteSize = SpriteSize {
     width: 16.0,
@@ -27,7 +27,7 @@ impl CourseArrowSpriteKind {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct CourseArrowSpawn {
     pub(crate) kind: CourseArrowSpriteKind,
-    pub(crate) position: Position,
+    pub(crate) position: Pos,
     pub(crate) rotation_degrees: f32,
     /// Index in the source path; replay presentation uses it for its stagger
     /// and visibility mask.
@@ -35,8 +35,8 @@ pub(crate) struct CourseArrowSpawn {
 }
 
 pub(crate) fn course_arrow_tip(
-    previous: Position,
-    position: Position,
+    previous: Pos,
+    position: Pos,
     path_index: usize,
 ) -> CourseArrowSpawn {
     let diff_x = position.x as isize - previous.x as isize;
@@ -59,7 +59,7 @@ pub(crate) fn course_arrow_tip(
 }
 
 /// Mode-neutral arrow geometry for a board path.
-pub(crate) fn build_course_arrow_spawns(path: &[Position]) -> Vec<CourseArrowSpawn> {
+pub(crate) fn build_course_arrow_spawns(path: &[Pos]) -> Vec<CourseArrowSpawn> {
     if path.len() < 2 {
         return Vec::new();
     }
@@ -123,19 +123,11 @@ mod tests {
 
     #[test]
     fn builds_straight_and_curved_geometry() {
-        let straight = build_course_arrow_spawns(&[
-            Position::new(0, 0),
-            Position::new(1, 0),
-            Position::new(2, 0),
-        ]);
+        let straight = build_course_arrow_spawns(&[Pos::new(0, 0), Pos::new(1, 0), Pos::new(2, 0)]);
         assert_eq!(straight[0].kind, CourseArrowSpriteKind::Body);
         assert_eq!(straight[1].kind, CourseArrowSpriteKind::Tip);
 
-        let curved = build_course_arrow_spawns(&[
-            Position::new(0, 0),
-            Position::new(1, 0),
-            Position::new(1, 1),
-        ]);
+        let curved = build_course_arrow_spawns(&[Pos::new(0, 0), Pos::new(1, 0), Pos::new(1, 1)]);
         assert_eq!(curved[0].kind, CourseArrowSpriteKind::Curved);
         assert_eq!(curved[1].kind, CourseArrowSpriteKind::Tip);
     }
@@ -143,11 +135,11 @@ mod tests {
     #[test]
     fn repeated_middle_tile_skips_only_that_segment() {
         let spawns = build_course_arrow_spawns(&[
-            Position::new(0, 0),
-            Position::new(1, 0),
-            Position::new(1, 0),
-            Position::new(2, 0),
-            Position::new(3, 0),
+            Pos::new(0, 0),
+            Pos::new(1, 0),
+            Pos::new(1, 0),
+            Pos::new(2, 0),
+            Pos::new(3, 0),
         ]);
 
         assert_eq!(spawns.len(), 2);

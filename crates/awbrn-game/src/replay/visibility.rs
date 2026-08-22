@@ -11,7 +11,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use awbrn_map::Position;
+use awbrn_map::{Dimensions, Pos};
 use awbrn_types::{AwbwGamePlayerId, AwbwUnitId as RawAwbwUnitId, PlayerFaction};
 use awvm::semantic::{
     Observation, ObservedPlayer, ObservedUnitHp, ObservedUnitRef, TileVisibility,
@@ -76,7 +76,7 @@ pub enum ReplayKnowledgeKey {
 /// presentation memory the observation cannot supply.
 #[derive(Resource, Default, Clone)]
 pub struct ReplayTerrainKnowledge {
-    pub by_view: HashMap<ReplayKnowledgeKey, HashMap<Position, awbrn_types::GraphicalTerrain>>,
+    pub by_view: HashMap<ReplayKnowledgeKey, HashMap<Pos, awbrn_types::GraphicalTerrain>>,
 }
 
 impl ReplayTerrainKnowledge {
@@ -84,7 +84,7 @@ impl ReplayTerrainKnowledge {
         let terrain_by_position = (0..game_map.height())
             .flat_map(|y| {
                 (0..game_map.width()).filter_map(move |x| {
-                    let position = Position::new(x, y);
+                    let position = Pos::new(x, y);
                     game_map
                         .terrain_at(position)
                         .map(|terrain| (position, terrain))
@@ -255,8 +255,7 @@ fn selected_player(world: &World) -> Option<AwbwGamePlayerId> {
 }
 
 fn apply_observation_visibility(world: &mut World, observation: &Observation) {
-    let width = usize::from(observation.board.width());
-    let height = usize::from(observation.board.height());
+    let dimensions = Dimensions::new(observation.board.width(), observation.board.height());
 
     // A friendly unit keeps its semantic id in the ECS. An enemy is referenced
     // only by position, so resolve it against the board before borrowing the
@@ -266,9 +265,7 @@ fn apply_observation_visibility(world: &mut World, observation: &Observation) {
         .iter()
         .filter_map(|unit| match unit.reference {
             ObservedUnitRef::Friendly { unit: id } => Some((RawAwbwUnitId::new(id.get()), unit.hp)),
-            ObservedUnitRef::Enemy { position } => {
-                unit_at(world, map_position(position)).map(|id| (id, unit.hp))
-            }
+            ObservedUnitRef::Enemy { position } => unit_at(world, position).map(|id| (id, unit.hp)),
         })
         .collect::<Vec<_>>();
 
@@ -283,10 +280,10 @@ fn apply_observation_visibility(world: &mut World, observation: &Observation) {
     }
 
     let mut visibility = world.resource_mut::<ViewerVisibility>();
-    visibility.reset(observation.settings.fog, width, height);
+    visibility.reset(observation.settings.fog, dimensions);
     for position in observation.board.positions() {
         if observation.board.tile(position).visibility == TileVisibility::Visible {
-            visibility.set_tile_visible(map_position(position));
+            visibility.set_tile_visible(position);
         }
     }
     for (unit, _) in visible_units {
@@ -358,7 +355,7 @@ fn refresh_terrain_knowledge(world: &mut World, viewer: Option<AwbwGamePlayerId>
         let visibility = world.resource::<ViewerVisibility>();
         let game_map = world.resource::<GameMap>();
         (0..game_map.height())
-            .flat_map(|y| (0..game_map.width()).map(move |x| Position::new(x, y)))
+            .flat_map(|y| (0..game_map.width()).map(move |x| Pos::new(x, y)))
             .filter(|position| !visibility.is_fogged(*position))
             .filter_map(|position| {
                 game_map
@@ -377,17 +374,13 @@ fn refresh_terrain_knowledge(world: &mut World, viewer: Option<AwbwGamePlayerId>
     }
 }
 
-fn unit_at(world: &World, position: Position) -> Option<RawAwbwUnitId> {
+fn unit_at(world: &World, position: Pos) -> Option<RawAwbwUnitId> {
     let entity = world
         .get_resource::<BoardIndex>()?
         .unit_entity(position)
         .ok()
         .flatten()?;
     world.get::<AwbwUnitId>(entity).map(|id| id.0)
-}
-
-fn map_position(position: awvm::semantic::Pos) -> Position {
-    Position::new(usize::from(position.x), usize::from(position.y))
 }
 
 fn parse_player_id(id: &str) -> Option<AwbwGamePlayerId> {

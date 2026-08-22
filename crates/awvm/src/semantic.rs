@@ -44,7 +44,7 @@ pub use visibility::{AwbwView, AwbwVisibility, Viewpoint, Visibility};
 /// (`spec/model/violations.md`). Storing it as a named pair is the point: the
 /// board is indexed row-major, so every hand-written `tiles[p.y][p.x]` had to
 /// invert the pair by hand, and one that forgot read as valid Rust.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Pos {
     pub x: u8,
     pub y: u8,
@@ -61,8 +61,26 @@ impl Pos {
         u64::from(self.x.abs_diff(other.x)) + u64::from(self.y.abs_diff(other.y))
     }
 
+    /// The coordinate `dx` tiles right and `dy` tiles down, or `None` when
+    /// that leaves the coordinate space.
+    ///
+    /// A board is a rectangle anchored at the origin, so a neighbour off the
+    /// top or left edge has no coordinate at all. That is why this returns an
+    /// option rather than wrapping: a caller that walks outward from a tile
+    /// gets `None` for the tiles that do not exist, instead of a coordinate
+    /// that silently names the far edge.
+    pub fn offset(self, dx: i16, dy: i16) -> Option<Self> {
+        let x = u8::try_from(i16::from(self.x) + dx).ok()?;
+        let y = u8::try_from(i16::from(self.y) + dy).ok()?;
+        Some(Self { x, y })
+    }
+
     /// The four orthogonally adjacent coordinates that exist. A coordinate on
     /// an edge simply yields fewer.
+    ///
+    /// Written out rather than deferring to [`Pos::offset`]: enumeration walks
+    /// this for every reachable tile of every unit, and it is measurably the
+    /// hotter for keeping its own body.
     pub fn orthogonal(self) -> impl Iterator<Item = Self> {
         [(1i16, 0i16), (-1, 0), (0, 1), (0, -1)]
             .into_iter()

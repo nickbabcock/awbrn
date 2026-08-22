@@ -1,20 +1,16 @@
-use crate::{Position, awbw_map::AwbwMap};
+use crate::awbw_map::AwbwMap;
+use crate::deployment::{Deployment, Deployments};
 use awbrn_types::{AwbwTerrain, GraphicalTerrain, SeaDirection, ShoalDirection};
+use awvm::semantic::{Dimensions, Grid, Pos};
 
-/// Represents a game map with graphical terrain data
+/// A game map with graphical terrain data, and the units the map starts.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AwbrnMap {
-    /// Width of the map in tiles
-    width: usize,
-
-    /// Height of the map in tiles
-    height: usize,
-
-    /// Graphical terrain data stored as a flattened 2D array (row-major order)
-    terrain: Vec<GraphicalTerrain>,
+    terrain: Grid<GraphicalTerrain>,
+    deployments: Deployments,
 }
 
-/// Represents the terrain types of neighboring tiles
+/// The terrain of the eight tiles around a position, `None` where the board ends.
 #[derive(Debug, Clone, Copy)]
 struct NearbyTiles {
     north_west: Option<AwbwTerrain>,
@@ -28,53 +24,22 @@ struct NearbyTiles {
 }
 
 impl AwbrnMap {
-    /// Get neighboring tiles for a position
-    fn get_nearby_tiles(map: &AwbwMap, pos: Position) -> NearbyTiles {
-        let north_west = if pos.x > 0 && pos.y > 0 {
-            map.terrain_at(pos.movement(-1, -1))
-        } else {
-            None
-        };
-
-        let north = if pos.y > 0 {
-            map.terrain_at(pos.movement(0, -1))
-        } else {
-            None
-        };
-
-        let north_east = if pos.y > 0 {
-            map.terrain_at(pos.movement(1, -1))
-        } else {
-            None
-        };
-
-        let east = map.terrain_at(pos.movement(1, 0));
-
-        let south_east = map.terrain_at(pos.movement(1, 1));
-
-        let south = map.terrain_at(pos.movement(0, 1));
-
-        let south_west = if pos.x > 0 {
-            map.terrain_at(pos.movement(-1, 1))
-        } else {
-            None
-        };
-
-        let west = if pos.x > 0 {
-            map.terrain_at(pos.movement(-1, 0))
-        } else {
-            None
-        };
+    /// The terrain around `position`.
+    ///
+    /// A neighbour off any edge reads as `None`: [`Pos::offset`] has no
+    /// coordinate past the origin, and the grid bounds-checks the rest.
+    fn get_nearby_tiles(map: &AwbwMap, position: Pos) -> NearbyTiles {
+        let at = |dx, dy| position.offset(dx, dy).and_then(|pos| map.terrain_at(pos));
 
         NearbyTiles {
-            north_west,
-            north,
-            north_east,
-            east,
-            south_east,
-            south,
-            south_west,
-            west,
+            north_west: at(-1, -1),
+            north: at(0, -1),
+            north_east: at(1, -1),
+            east: at(1, 0),
+            south_east: at(1, 1),
+            south: at(0, 1),
+            south_west: at(-1, 1),
+            west: at(-1, 0),
         }
     }
 
@@ -406,16 +371,17 @@ impl AwbrnMap {
         }
     }
 
-    /// Convert an AwbwMap to an AwbrnMap, handling graphical differences
+    /// Converts an [`AwbwMap`] to an `AwbrnMap`, resolving graphical variants.
+    ///
+    /// The deployments come across with the terrain. They are part of the map,
+    /// so a caller cannot convert a map and leave its starting units behind.
     pub fn from_map(map: &AwbwMap) -> Self {
-        let width = map.width();
-
         let terrain = map
             .iter()
             .map(|(pos, t)| match t {
                 AwbwTerrain::Mountain
                     if matches!(
-                        map.terrain_at(pos.movement(0, -1)),
+                        pos.offset(0, -1).and_then(|north| map.terrain_at(north)),
                         Some(AwbwTerrain::Property(_) | AwbwTerrain::MissileSilo(_))
                     ) =>
                 {
@@ -429,13 +395,11 @@ impl AwbrnMap {
                 AwbwTerrain::Bridge(bridge_type) => GraphicalTerrain::Bridge(bridge_type),
                 AwbwTerrain::Sea => {
                     let nearby = Self::get_nearby_tiles(map, pos);
-                    let sea_direction = Self::determine_sea_direction(&nearby);
-                    GraphicalTerrain::Sea(sea_direction)
+                    GraphicalTerrain::Sea(Self::determine_sea_direction(&nearby))
                 }
                 AwbwTerrain::Shoal(_) => {
                     let nearby = Self::get_nearby_tiles(map, pos);
-                    let shoal_direction = Self::determine_shoal_direction(&nearby);
-                    GraphicalTerrain::Shoal(shoal_direction)
+                    GraphicalTerrain::Shoal(Self::determine_shoal_direction(&nearby))
                 }
                 AwbwTerrain::Reef => GraphicalTerrain::Reef,
                 AwbwTerrain::Property(property) => GraphicalTerrain::Property(property),
@@ -449,60 +413,70 @@ impl AwbrnMap {
                 }
                 AwbwTerrain::Teleporter => GraphicalTerrain::Teleporter,
             })
-            .collect::<Vec<_>>();
+            .collect();
 
         Self {
-            width,
-            height: map.height(),
-            terrain,
+            terrain: Grid::from_cells(map.dimensions(), terrain)
+                .expect("a converted grid keeps its shape"),
+            deployments: map.deployments().clone(),
         }
     }
 
-    /// Create a new map with specified dimensions and default terrain
-    pub fn new(width: usize, height: usize, default_terrain: GraphicalTerrain) -> Self {
+    /// Creates a map of `dimensions` filled with `default_terrain` and no units.
+    pub fn new(dimensions: Dimensions, default_terrain: GraphicalTerrain) -> Self {
         Self {
-            width,
-            height,
-            terrain: vec![default_terrain; width * height],
+            terrain: Grid::filled(dimensions, default_terrain),
+            deployments: Deployments::new(dimensions),
         }
     }
 
-    /// Get the width of the map
-    pub fn width(&self) -> usize {
-        self.width
+    /// The shape of this board, and of every map over it.
+    #[inline]
+    pub fn dimensions(&self) -> Dimensions {
+        self.terrain.dimensions()
     }
 
-    /// Get the height of the map
-    pub fn height(&self) -> usize {
-        self.height
+    #[inline]
+    pub fn width(&self) -> u8 {
+        self.terrain.width()
+    }
+
+    #[inline]
+    pub fn height(&self) -> u8 {
+        self.terrain.height()
+    }
+
+    /// The units that the map places before the first turn.
+    pub fn deployments(&self) -> &Deployments {
+        &self.deployments
+    }
+
+    /// Places a unit on `position` before the first turn.
+    ///
+    /// Fails when the tile is off the board or already holds a unit.
+    pub fn deploy(&mut self, position: Pos, deployment: Deployment) -> Result<(), crate::MapError> {
+        self.deployments.insert(position, deployment)
     }
 
     /// Get the terrain at the specified position
-    pub fn terrain_at(&self, pos: Position) -> Option<GraphicalTerrain> {
-        self.terrain.get(pos.y * self.width + pos.x).copied()
+    #[inline]
+    pub fn terrain_at(&self, position: Pos) -> Option<GraphicalTerrain> {
+        self.terrain.get(position).copied()
     }
 
     /// Set the terrain at the specified position, returning the previous terrain.
     pub fn set_terrain(
         &mut self,
-        pos: Position,
+        position: Pos,
         terrain: GraphicalTerrain,
     ) -> Option<GraphicalTerrain> {
-        if pos.x >= self.width || pos.y >= self.height {
-            return None;
-        }
-        let slot = self.terrain.get_mut(pos.y * self.width + pos.x)?;
-        let previous = *slot;
-        *slot = terrain;
-        Some(previous)
+        self.terrain
+            .get_mut(position)
+            .map(|slot| std::mem::replace(slot, terrain))
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (Position, GraphicalTerrain)> {
-        self.terrain.iter().enumerate().map(move |(idx, terrain)| {
-            let y = idx / self.width;
-            let x = idx % self.width;
-            (Position::new(x, y), *terrain)
-        })
+    pub fn iter(&self) -> impl Iterator<Item = (Pos, GraphicalTerrain)> {
+        self.terrain.iter().map(|(pos, terrain)| (pos, *terrain))
     }
 }
 
@@ -529,13 +503,13 @@ mod tests {
         let awbrn_map = AwbrnMap::from_map(&awbw_map);
 
         // Expected stubby mountain coordinates as a set of (x, y) tuples
-        let expected_stubby_mountains: HashSet<Position> = [
-            Position::new(21, 15),
-            Position::new(16, 13),
-            Position::new(13, 1),
-            Position::new(3, 10),
-            Position::new(14, 11),
-            Position::new(16, 10),
+        let expected_stubby_mountains: HashSet<Pos> = [
+            Pos::new(21, 15),
+            Pos::new(16, 13),
+            Pos::new(13, 1),
+            Pos::new(3, 10),
+            Pos::new(14, 11),
+            Pos::new(16, 10),
         ]
         .into();
 

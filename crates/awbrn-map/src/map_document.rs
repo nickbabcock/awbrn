@@ -1,9 +1,10 @@
-use crate::{AwbwMap, AwbwMapData, MapError, Position, PredeployedUnit};
-use awbrn_types::{AwbwTerrain, FactionCode, Unit, UnitExt};
-use awvm::semantic::Dimensions;
+use crate::deployment::{Deployment, Deployments, MAX_UNIT_HP};
+use crate::{AwbwMap, AwbwMapData, MapError, PredeployedUnit};
+use awbrn_types::{AwbwTerrain, FactionCode, Unit, VisualHp};
+use awvm::semantic::{Dimensions, Pos};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{collections::HashSet, fmt};
+use std::fmt;
 
 /// Canonical map-document format version.
 pub const MAP_FORMAT: u32 = 1;
@@ -11,17 +12,38 @@ pub const MAP_FORMAT: u32 = 1;
 /// Maximum map width or height supported by the VM.
 pub const MAX_DIMENSION: u32 = Dimensions::MAX_AXIS as u32;
 
-/// Maximum HP for a predeployed unit.
-const MAX_UNIT_HP: u32 = 10;
-
 /// Domain-separation tags for the canonical digests.
 const CONTENT_TAG: &str = "awbrn-map-content-v1\n";
 const PROPERTY_TAG: &str = "awbrn-map-property-v1\n";
 const UNIT_TAG: &str = "awbrn-map-unit-v1\n";
 
+/// The board shape `width` by `height` describes, if the VM can run it.
+///
+/// A board is at most [`MAX_DIMENSION`] on each axis, because a coordinate is
+/// a pair of bytes. Checking that here is what lets every coordinate past this
+/// point be a [`Pos`] rather than a pair that might not fit one.
+pub(crate) fn dimensions(width: usize, height: usize) -> Result<Dimensions, MapError> {
+    if width == 0 || height == 0 {
+        return Err(MapError::EmptyMap);
+    }
+
+    let out_of_range = || MapError::DimensionsOutOfRange {
+        width: width as u32,
+        height: height as u32,
+        limit: MAX_DIMENSION,
+    };
+
+    let width = u8::try_from(width).map_err(|_| out_of_range())?;
+    let height = u8::try_from(height).map_err(|_| out_of_range())?;
+    Ok(Dimensions::new(width, height))
+}
+
 /// Canonical map document stored for each revision.
 ///
-/// Terrain is row-major and retains AWBW IDs; units use AWBRN IDs.
+/// This is the wire shape, so it can hold a document that is not a map: the
+/// terrain length need not match the dimensions and two units may claim one
+/// tile. [`AwbrnMapDocument::validate`] is what rules those out, and it hands
+/// back a [`ValidatedMapDocument`] that cannot express them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AwbrnMapDocument {
     pub map_format: u32,
@@ -34,12 +56,23 @@ pub struct AwbrnMapDocument {
     pub metadata: AwbrnMapMetadata,
 }
 
-/// Map document that has passed structural validation.
+/// A map document that has passed structural validation.
 ///
-/// Deserialization also validates the document before exposing this type.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(transparent)]
-pub struct ValidatedMapDocument(AwbrnMapDocument);
+/// It holds the map itself rather than the document it came from: validation's
+/// whole job is to turn a wire shape into a board, so the result is a board.
+/// That is why reading the map back out of it is an accessor and not another
+/// fallible conversion.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ValidatedMapDocument {
+    map: AwbwMap,
+    metadata: AwbrnMapMetadata,
+}
+
+impl Serialize for ValidatedMapDocument {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.to_document().serialize(serializer)
+    }
+}
 
 impl<'de> Deserialize<'de> for ValidatedMapDocument {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -49,23 +82,14 @@ impl<'de> Deserialize<'de> for ValidatedMapDocument {
     }
 }
 
-impl std::ops::Deref for ValidatedMapDocument {
-    type Target = AwbrnMapDocument;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-/// A predeployed unit and its playable state.
+/// A predeployed unit and its playable state, as the document spells it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AwbrnMapUnit {
-    #[serde(flatten)]
-    pub position: Position,
+    pub position: Pos,
     pub unit: Unit,
     pub faction: FactionCode,
     /// Included in the content hash.
-    pub hp: u32,
+    pub hp: VisualHp,
 }
 
 /// Mutable metadata that does not identify map content.
@@ -111,17 +135,25 @@ pub struct MapDigests {
 
 impl AwbrnMapDocument {
     /// Builds a document from an AWBW map and metadata.
-    pub fn from_awbw_map(
-        map: &AwbwMap,
-        units: Vec<AwbrnMapUnit>,
-        metadata: AwbrnMapMetadata,
-    ) -> Self {
+    ///
+    /// The units come from the map, so a document always describes the same
+    /// board the map does.
+    pub fn from_awbw_map(map: &AwbwMap, metadata: AwbrnMapMetadata) -> Self {
         Self {
             map_format: MAP_FORMAT,
-            width: map.width() as u32,
-            height: map.height() as u32,
+            width: u32::from(map.width()),
+            height: u32::from(map.height()),
             terrain: map.iter().map(|(_, terrain)| terrain).collect(),
-            units,
+            units: map
+                .deployments()
+                .iter()
+                .map(|(position, deployment)| AwbrnMapUnit {
+                    position,
+                    unit: deployment.unit,
+                    faction: deployment.faction.into(),
+                    hp: deployment.hp,
+                })
+                .collect(),
             metadata,
         }
     }
@@ -134,86 +166,76 @@ impl AwbrnMapDocument {
             });
         }
 
-        if self.width == 0 || self.height == 0 {
-            return Err(MapError::EmptyMap);
-        }
+        let shape = dimensions(self.width as usize, self.height as usize)?;
 
-        if self.width > MAX_DIMENSION || self.height > MAX_DIMENSION {
-            return Err(MapError::DimensionsOutOfRange {
-                width: self.width,
-                height: self.height,
-                limit: MAX_DIMENSION,
-            });
-        }
-
-        // Keep the multiplication checked if the VM's coordinate type changes.
-        let expected = (self.width as usize)
-            .checked_mul(self.height as usize)
-            .ok_or(MapError::DimensionsOutOfRange {
-                width: self.width,
-                height: self.height,
-                limit: MAX_DIMENSION,
-            })?;
-        if self.terrain.len() != expected {
-            return Err(MapError::TerrainSizeMismatch {
-                expected,
-                found: self.terrain.len(),
-            });
-        }
-
-        let mut occupied: HashSet<Position> = HashSet::with_capacity(self.units.len());
+        let mut deployments = Deployments::new(shape);
         for unit in &self.units {
-            if unit.position.x >= self.width as usize || unit.position.y >= self.height as usize {
-                return Err(MapError::UnitOutOfBounds {
-                    x: unit.position.x,
-                    y: unit.position.y,
-                });
-            }
-
-            if unit.hp == 0 || unit.hp > MAX_UNIT_HP {
+            let hp = u32::from(unit.hp.get());
+            if hp == 0 || hp > MAX_UNIT_HP {
                 return Err(MapError::UnitHpOutOfRange {
-                    x: unit.position.x,
-                    y: unit.position.y,
-                    hp: unit.hp,
+                    x: u32::from(unit.position.x),
+                    y: u32::from(unit.position.y),
+                    hp,
                 });
             }
 
-            // A revision cannot contain overlapping units.
-            if !occupied.insert(unit.position) {
-                return Err(MapError::UnitPositionOccupied {
-                    x: unit.position.x,
-                    y: unit.position.y,
-                });
-            }
+            // Rejects both an off-board tile and a tile already taken.
+            deployments.insert(
+                unit.position,
+                Deployment {
+                    unit: unit.unit,
+                    hp: unit.hp,
+                    faction: unit.faction.into(),
+                },
+            )?;
         }
 
-        Ok(ValidatedMapDocument(self))
+        let found = self.terrain.len();
+        let map = AwbwMap::from_parts(shape, self.terrain, deployments).ok_or(
+            MapError::TerrainSizeMismatch {
+                expected: shape.len(),
+                found,
+            },
+        )?;
+
+        Ok(ValidatedMapDocument {
+            map,
+            metadata: self.metadata,
+        })
     }
 }
 
 impl ValidatedMapDocument {
-    /// Returns the validated document.
-    pub fn document(&self) -> &AwbrnMapDocument {
-        &self.0
+    /// The board this document describes, with the units it starts.
+    pub fn map(&self) -> &AwbwMap {
+        &self.map
     }
 
-    /// Returns the document as an unchecked value.
-    pub fn into_document(self) -> AwbrnMapDocument {
-        self.0
+    /// The board, taken out of the document.
+    pub fn into_map(self) -> AwbwMap {
+        self.map
+    }
+
+    pub fn metadata(&self) -> &AwbrnMapMetadata {
+        &self.metadata
+    }
+
+    /// The document as its wire shape.
+    pub fn to_document(&self) -> AwbrnMapDocument {
+        AwbrnMapDocument::from_awbw_map(&self.map, self.metadata.clone())
     }
 
     /// Builds the content-hash preimage.
     ///
-    /// Units are sorted row-major; `map_format` and `metadata` are excluded.
+    /// `map_format` and `metadata` are excluded. Units need no sort: a map
+    /// holds them keyed by tile, so they come out row-major already.
     pub fn content_preimage(&self) -> String {
-        let mut units = self.units.clone();
-        units.sort_by_key(content_sort_key);
-
+        let document = self.to_document();
         let view = ContentView {
-            width: self.width,
-            height: self.height,
-            terrain: &self.terrain,
-            units,
+            width: document.width,
+            height: document.height,
+            terrain: &document.terrain,
+            units: &document.units,
         };
 
         preimage(CONTENT_TAG, &view)
@@ -221,17 +243,11 @@ impl ValidatedMapDocument {
 
     /// Builds the replay property-signature preimage.
     pub fn property_preimage(&self) -> String {
-        // The validated terrain is already row-major.
         let entries: Vec<PropertyEntry> = self
-            .terrain
+            .map
             .iter()
-            .enumerate()
-            .filter(|(_, terrain)| is_signature_tile(**terrain))
-            .map(|(index, terrain)| PropertyEntry {
-                x: (index as u32) % self.width,
-                y: (index as u32) / self.width,
-                terrain: *terrain,
-            })
+            .filter(|(_, terrain)| is_signature_tile(*terrain))
+            .map(|(position, terrain)| PropertyEntry { position, terrain })
             .collect();
 
         preimage(PROPERTY_TAG, &entries)
@@ -241,23 +257,16 @@ impl ValidatedMapDocument {
     ///
     /// HP is excluded because replay matching does not include it.
     pub fn unit_preimage(&self) -> String {
-        let mut entries: Vec<UnitEntry> = self
-            .units
+        let entries: Vec<UnitEntry> = self
+            .map
+            .deployments()
             .iter()
-            .map(|unit| UnitEntry {
-                position: unit.position,
-                unit: unit.unit,
-                faction: unit.faction,
+            .map(|(position, deployment)| UnitEntry {
+                position,
+                unit: deployment.unit,
+                faction: deployment.faction.into(),
             })
             .collect();
-        entries.sort_by_key(|entry| {
-            (
-                entry.position.y,
-                entry.position.x,
-                entry.unit.as_str(),
-                entry.faction.as_str(),
-            )
-        });
 
         preimage(UNIT_TAG, &entries)
     }
@@ -295,16 +304,6 @@ fn is_signature_tile(terrain: AwbwTerrain) -> bool {
     )
 }
 
-fn content_sort_key(unit: &AwbrnMapUnit) -> (usize, usize, &'static str, &'static str, u32) {
-    (
-        unit.position.y,
-        unit.position.x,
-        unit.unit.as_str(),
-        unit.faction.as_str(),
-        unit.hp,
-    )
-}
-
 /// Builds a tagged compact-JSON preimage.
 fn preimage<T: Serialize>(tag: &str, value: &T) -> String {
     let body = serde_json::to_string(value).expect("canonical views serialize infallibly");
@@ -321,20 +320,18 @@ struct ContentView<'a> {
     width: u32,
     height: u32,
     terrain: &'a [AwbwTerrain],
-    units: Vec<AwbrnMapUnit>,
+    units: &'a [AwbrnMapUnit],
 }
 
 #[derive(Serialize)]
 struct PropertyEntry {
-    x: u32,
-    y: u32,
+    position: Pos,
     terrain: AwbwTerrain,
 }
 
 #[derive(Serialize)]
 struct UnitEntry {
-    #[serde(flatten)]
-    position: Position,
+    position: Pos,
     unit: Unit,
     faction: FactionCode,
 }
@@ -343,22 +340,17 @@ impl TryFrom<&'_ AwbwMapData> for ValidatedMapDocument {
     type Error = MapError;
 
     fn try_from(data: &AwbwMapData) -> Result<Self, Self::Error> {
-        // AwbwMap handles terrain conversion and dimension checks.
+        // The map carries its own units, so there is nothing to reconcile here.
         let map = AwbwMap::try_from(data)?;
 
-        let units = data
-            .predeployed_units
-            .iter()
-            .map(AwbrnMapUnit::try_from)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let metadata = AwbrnMapMetadata {
-            name: data.name.clone(),
-            author: data.author.clone(),
-            player_count: data.player_count,
-        };
-
-        AwbrnMapDocument::from_awbw_map(&map, units, metadata).validate()
+        Ok(ValidatedMapDocument {
+            map,
+            metadata: AwbrnMapMetadata {
+                name: data.name.clone(),
+                author: data.author.clone(),
+                player_count: data.player_count,
+            },
+        })
     }
 }
 
@@ -366,37 +358,14 @@ impl TryFrom<&'_ PredeployedUnit> for AwbrnMapUnit {
     type Error = MapError;
 
     fn try_from(unit: &PredeployedUnit) -> Result<Self, Self::Error> {
-        let kind =
-            Unit::from_awbw_id(unit.unit_id).ok_or(MapError::UnknownUnitId { id: unit.unit_id })?;
-
-        let faction =
-            FactionCode::parse(&unit.country_code).ok_or_else(|| MapError::UnknownCountryCode {
-                code: unit.country_code.clone(),
-            })?;
+        let (position, deployment) = Deployment::from_predeployed(unit)?;
 
         Ok(AwbrnMapUnit {
-            position: Position::new(unit.unit_x as usize, unit.unit_y as usize),
-            unit: kind,
-            faction,
-            hp: unit.unit_hp,
+            position,
+            unit: deployment.unit,
+            faction: deployment.faction.into(),
+            hp: deployment.hp,
         })
-    }
-}
-
-impl TryFrom<&'_ ValidatedMapDocument> for AwbwMap {
-    type Error = MapError;
-
-    fn try_from(document: &ValidatedMapDocument) -> Result<Self, Self::Error> {
-        let width = document.width as usize;
-        let mut map = AwbwMap::new(width, document.height as usize, AwbwTerrain::Plain);
-        for (idx, terrain) in document.terrain.iter().enumerate() {
-            let position = Position::new(idx % width, idx / width);
-            if let Some(slot) = map.terrain_at_mut(position) {
-                *slot = *terrain;
-            }
-        }
-
-        Ok(map)
     }
 }
 

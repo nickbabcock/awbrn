@@ -666,7 +666,7 @@ mod tests {
         // Blue Moon publicly.
         {
             let mut visibility = app.world_mut().resource_mut::<ViewerVisibility>();
-            visibility.reset(true, 1, 1);
+            visibility.reset(true, awbrn_map::Dimensions::new(1, 1));
             visibility.set_player_disclosed(AwbwGamePlayerId::new(1));
         }
 

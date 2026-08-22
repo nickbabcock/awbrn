@@ -27,7 +27,7 @@ pub(crate) struct TerrainAnimation {
 #[derive(Component, Debug, Clone)]
 #[component(storage = "SparseSet")]
 pub struct UnitPathAnimation {
-    pub path: Vec<awbrn_map::Position>,
+    pub path: Vec<awbrn_map::Pos>,
     pub segment_durations: Vec<Duration>,
     pub total_duration: Duration,
     pub elapsed: Duration,
@@ -37,7 +37,7 @@ pub struct UnitPathAnimation {
 }
 
 impl UnitPathAnimation {
-    pub fn new(path: Vec<awbrn_map::Position>, idle_flip_x: bool) -> Option<Self> {
+    pub fn new(path: Vec<awbrn_map::Pos>, idle_flip_x: bool) -> Option<Self> {
         if path.len() < 2 {
             return None;
         }

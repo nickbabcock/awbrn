@@ -1,6 +1,6 @@
 use crate::features::camera::{CameraScale, compute_map_dimensions};
 use awbrn_game::world::GameMap;
-use awbrn_map::Position;
+use awbrn_map::Pos;
 pub use awbrn_protocol::PostMoveAction;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -52,8 +52,8 @@ pub struct UnitMoved {
 pub struct UnitBuilt {
     pub unit_id: u32,
     pub unit_type: String,
-    pub x: usize,
-    pub y: usize,
+    pub x: u8,
+    pub y: u8,
     pub player_id: u32,
 }
 
@@ -62,8 +62,8 @@ pub struct UnitBuilt {
 #[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct TileSelected {
-    pub x: usize,
-    pub y: usize,
+    pub x: u8,
+    pub y: u8,
     pub terrain_type: String,
 }
 
@@ -139,8 +139,8 @@ pub struct HoveredUnit {
 #[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct HoveredTile {
-    pub x: usize,
-    pub y: usize,
+    pub x: u8,
+    pub y: u8,
     /// The kind of terrain alone: `Shoal`, `HQ`. The tile art carries the shape
     /// it is drawn in and the colour of the army that holds it.
     pub terrain_name: String,
@@ -170,8 +170,8 @@ pub struct TileHoverChanged {
 #[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct ProductionSite {
-    pub x: usize,
-    pub y: usize,
+    pub x: u8,
+    pub y: u8,
     pub facility: awvm::ruleset::Terrain,
 }
 
@@ -323,7 +323,7 @@ pub enum UnitOrder {
     Unload {
         cargo_id: u32,
         #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }"))]
-        position: Position,
+        position: Pos,
     },
     Delete,
 }
@@ -339,7 +339,7 @@ pub struct UnitActionsChanged {
         target_family = "wasm",
         tsify(optional, type = "{ x: number; y: number }")
     )]
-    pub destination: Option<Position>,
+    pub destination: Option<Pos>,
     pub options: Vec<UnitActionOption>,
     /// Which order to highlight first. A drag released on an enemy is explicit
     /// attack intent, and the menu opens saying so.
@@ -360,7 +360,7 @@ pub struct UnitActionsChanged {
 pub struct MoveCommandRequested {
     pub unit_id: u32,
     #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }[]"))]
-    pub path: Vec<Position>,
+    pub path: Vec<Pos>,
     pub action: PostMoveAction,
 }
 
@@ -373,7 +373,7 @@ pub struct UnloadCommandRequested {
     pub transport_id: u32,
     pub cargo_id: u32,
     #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }"))]
-    pub position: Position,
+    pub position: Pos,
 }
 
 /// A voluntary unit-removal intent chosen on the live board.

@@ -655,9 +655,12 @@ mod tests {
     use awbrn_types::GraphicalTerrain;
     use bevy::window::WindowResolution;
 
-    fn test_map(width: usize, height: usize) -> GameMap {
+    fn test_map(width: u8, height: u8) -> GameMap {
         let mut game_map = GameMap::default();
-        game_map.set(AwbrnMap::new(width, height, GraphicalTerrain::Plain));
+        game_map.set(AwbrnMap::new(
+            awbrn_map::Dimensions::new(width, height),
+            GraphicalTerrain::Plain,
+        ));
         game_map
     }
 

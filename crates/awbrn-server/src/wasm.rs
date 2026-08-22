@@ -304,8 +304,8 @@ pub struct WireVisibleTerrain {
 #[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct WirePosition {
-    pub x: usize,
-    pub y: usize,
+    pub x: u8,
+    pub y: u8,
 }
 
 #[derive(Tsify, Serialize)]
@@ -564,7 +564,7 @@ fn capture_event_message(event: &CaptureEvent) -> CaptureEventMessage {
     }
 }
 
-fn wire_position(position: &awbrn_map::Position) -> WirePosition {
+fn wire_position(position: &awbrn_map::Pos) -> WirePosition {
     WirePosition {
         x: position.x,
         y: position.y,
@@ -614,6 +614,7 @@ impl TryFrom<MatchSetupInput> for GameSetup {
         let awbw_map = AwbwMap::try_from(&value.map).map_err(|error| error.to_string())?;
 
         Ok(Self {
+            // The map carries its own starting units.
             map: AwbrnMap::from_map(&awbw_map),
             players: value
                 .players

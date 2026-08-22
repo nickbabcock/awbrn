@@ -8,7 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use awbrn_map::{AwbwMap, AwbwMapData, Position};
+use awbrn_map::{AwbwMap, AwbwMapData};
 use awbrn_types::{
     AwbwGamePlayerId, AwbwTerrain, Faction, MissileSiloStatus, PlayerFaction, Property,
 };
@@ -160,21 +160,18 @@ pub enum AdapterError {
     DuplicateFaction(PlayerFaction),
     #[error("invalid AWBW map: {0}")]
     InvalidMap(String),
-    #[error("map {axis} {value} exceeds AWVM's 255-tile coordinate domain")]
-    MapDimension { axis: &'static str, value: usize },
     #[error("building ({x}, {y}) is outside the {width}x{height} map")]
     BuildingOutOfBounds {
         x: u32,
         y: u32,
-        width: usize,
-        height: usize,
+        width: u8,
+        height: u8,
     },
     #[error("more than one replay building describes ({x}, {y})")]
     DuplicateBuilding { x: u32, y: u32 },
-    #[error("property at ({x}, {y}) belongs to faction {faction:?}, which has no player")]
+    #[error("property at {position} belongs to faction {faction:?}, which has no player")]
     UnknownPropertyOwner {
-        x: usize,
-        y: usize,
+        position: Pos,
         faction: PlayerFaction,
     },
     #[error("player {player} has unknown AWBW commander id {commander}")]
@@ -284,22 +281,21 @@ fn lower_board(
     map: &AwbwMap,
     faction_seats: &HashMap<PlayerFaction, PlayerIdx>,
 ) -> Result<Board, AdapterError> {
-    let width = u8::try_from(map.width()).map_err(|_| AdapterError::MapDimension {
-        axis: "width",
-        value: map.width(),
-    })?;
-    let height = u8::try_from(map.height()).map_err(|_| AdapterError::MapDimension {
-        axis: "height",
-        value: map.height(),
-    })?;
+    // A map already holds VM coordinates, so its shape needs no reconversion.
+    let dimensions = map.dimensions();
+    let (width, height) = (dimensions.width(), dimensions.height());
     let mut buildings = HashMap::with_capacity(game.buildings.len());
     for building in &game.buildings {
-        if building.x as usize >= map.width() || building.y as usize >= map.height() {
+        let on_board = u8::try_from(building.x)
+            .ok()
+            .zip(u8::try_from(building.y).ok())
+            .is_some_and(|(x, y)| dimensions.contains(Pos::new(x, y)));
+        if !on_board {
             return Err(AdapterError::BuildingOutOfBounds {
                 x: building.x,
                 y: building.y,
-                width: map.width(),
-                height: map.height(),
+                width,
+                height,
             });
         }
         if buildings
@@ -313,32 +309,30 @@ fn lower_board(
         }
     }
 
-    let mut tiles = Vec::with_capacity(map.width() * map.height());
+    let mut tiles = Vec::with_capacity(dimensions.len());
     // Seam HP belongs to the board, not to the tile, so it is collected here
     // and applied once the rectangle is built.
     let mut seams = Vec::new();
-    for y in 0..map.height() {
-        for x in 0..map.width() {
-            let position = Position::new(x, y);
-            let mut terrain = map
-                .terrain_at(position)
-                .expect("coordinates inside an AwbwMap rectangle have terrain");
-            let building = buildings.get(&(x as u32, y as u32)).copied();
-            if let Some(building) = building {
-                terrain = building.terrain_id;
-            }
-            let (tile, seam_hp) = lower_tile(
-                terrain,
-                building.map(|building| building.capture),
-                x,
-                y,
-                faction_seats,
-            )?;
-            if let Some(hp) = seam_hp {
-                seams.push((Pos::new(x as u8, y as u8), hp));
-            }
-            tiles.push(tile);
+    for position in dimensions.positions() {
+        let mut terrain = map
+            .terrain_at(position)
+            .expect("coordinates inside an AwbwMap rectangle have terrain");
+        let building = buildings
+            .get(&(u32::from(position.x), u32::from(position.y)))
+            .copied();
+        if let Some(building) = building {
+            terrain = building.terrain_id;
         }
+        let (tile, seam_hp) = lower_tile(
+            terrain,
+            building.map(|building| building.capture),
+            position,
+            faction_seats,
+        )?;
+        if let Some(hp) = seam_hp {
+            seams.push((position, hp));
+        }
+        tiles.push(tile);
     }
     let mut board =
         Board::new(width, height, tiles).map_err(|error| AdapterError::Board(error.to_string()))?;
@@ -351,8 +345,7 @@ fn lower_board(
 fn lower_tile(
     terrain: AwbwTerrain,
     building_capture: Option<u32>,
-    x: usize,
-    y: usize,
+    position: Pos,
     faction_seats: &HashMap<PlayerFaction, PlayerIdx>,
 ) -> Result<(Tile, Option<u64>), AdapterError> {
     let mut tile = Tile::new(semantic_terrain(terrain));
@@ -363,7 +356,7 @@ fn lower_tile(
                 faction_seats
                     .get(&faction)
                     .copied()
-                    .ok_or(AdapterError::UnknownPropertyOwner { x, y, faction })?,
+                    .ok_or(AdapterError::UnknownPropertyOwner { position, faction })?,
             ),
         };
         // AWBW records remaining capture points, so an untouched property

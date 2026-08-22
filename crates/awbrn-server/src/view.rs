@@ -7,7 +7,6 @@
 use std::cell::OnceCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use awbrn_map::Position;
 use awbrn_types::{
     BridgeType, Faction, GraphicalTerrain, MissileSiloStatus, PipeSeamType, PipeType,
     PlayerFaction, Property, RiverType, RoadType, SeaDirection, ShoalDirection, Unit as ServerUnit,
@@ -39,7 +38,7 @@ pub struct VisibleUnit {
     pub id: ServerUnitId,
     pub unit_type: ServerUnit,
     pub faction: PlayerFaction,
-    pub position: Position,
+    pub position: Pos,
     pub hp: Option<u8>,
     pub fuel: Option<u32>,
     pub ammo: Option<u32>,
@@ -51,7 +50,7 @@ pub struct VisibleUnit {
 /// A terrain tile as visible to a specific player.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct VisibleTerrain {
-    pub position: Position,
+    pub position: Pos,
     pub terrain: GraphicalTerrain,
 }
 
@@ -82,9 +81,9 @@ pub struct SpectatorView {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct UnitMoved {
     pub id: ServerUnitId,
-    pub path: Vec<Position>,
-    pub from: Position,
-    pub to: Position,
+    pub path: Vec<Pos>,
+    pub from: Pos,
+    pub to: Pos,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -105,12 +104,12 @@ pub struct UnitCombatEvent {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum CaptureEvent {
     CaptureContinued {
-        tile: Position,
+        tile: Pos,
         unit_id: ServerUnitId,
         progress: u8,
     },
     PropertyCaptured {
-        tile: Position,
+        tile: Pos,
         new_faction: PlayerFaction,
     },
 }
@@ -275,8 +274,8 @@ pub(crate) fn build_player_view(
             .iter()
             .filter(|(_, tile)| tile.visibility == TileVisibility::Visible)
             .map(|(position, tile)| VisibleTerrain {
-                position: server_pos(position),
-                terrain: graphical_terrain(
+                position,
+                terrain: graphical_terrain_at(
                     authority,
                     position,
                     tile.terrain,
@@ -290,6 +289,23 @@ pub(crate) fn build_player_view(
 
 pub(crate) fn build_spectator_view(authority: &Authority) -> SpectatorView {
     let state = authority.state();
+
+    // A spectator sees the whole board, so the tile count is known before the
+    // walk starts and the vector is sized once rather than grown.
+    let mut terrain = Vec::with_capacity(state.board.dimensions().len());
+    for (position, tile) in state.board.iter() {
+        terrain.push(VisibleTerrain {
+            position,
+            terrain: graphical_terrain_at(
+                authority,
+                position,
+                tile.terrain,
+                state.tile_owner_id(&tile.owner),
+                tile.silo,
+            ),
+        });
+    }
+
     SpectatorView {
         state: game_state_header(state),
         players: public_player_states(state),
@@ -298,20 +314,7 @@ pub(crate) fn build_spectator_view(authority: &Authority) -> SpectatorView {
             .iter()
             .filter_map(|unit| visible_unit(authority, state, unit, None))
             .collect(),
-        terrain: state
-            .board
-            .iter()
-            .map(|(position, tile)| VisibleTerrain {
-                position: server_pos(position),
-                terrain: graphical_terrain(
-                    authority,
-                    position,
-                    tile.terrain,
-                    state.tile_owner_id(&tile.owner),
-                    tile.silo,
-                ),
-            })
-            .collect(),
+        terrain,
     }
 }
 
@@ -448,9 +451,9 @@ fn player_update<V: Viewpoint>(
         };
         units_moved.push(UnitMoved {
             id: ids.move_unit(unit, *from, *to),
-            path: path.iter().copied().map(server_pos).collect(),
-            from: server_pos(*from),
-            to: server_pos(*to),
+            path: path.to_vec(),
+            from: *from,
+            to: *to,
         });
     }
 
@@ -569,8 +572,8 @@ fn visible_authoritative_terrain(authority: &Authority, position: Pos) -> Visibl
     let state = authority.state();
     let tile = state.board.tile(position);
     VisibleTerrain {
-        position: server_pos(position),
-        terrain: graphical_terrain(
+        position,
+        terrain: graphical_terrain_at(
             authority,
             position,
             tile.terrain,
@@ -692,7 +695,7 @@ fn capture_event(
         let visible = pre.position(position) || post.position(position);
         if visible {
             return Some(CaptureEvent::PropertyCaptured {
-                tile: server_pos(position),
+                tile: position,
                 new_faction: authority
                     .player_faction(owner)
                     .expect("a tile owner has a faction"),
@@ -705,7 +708,7 @@ fn capture_event(
                 |unit| matches!(unit.location, Location::Board { position: p } if p == *position),
             )?;
             Some(CaptureEvent::CaptureContinued {
-                tile: server_pos(*position),
+                tile: *position,
                 unit_id: ids.resolve(&unit.reference),
                 progress: 20 - *to,
             })
@@ -750,7 +753,7 @@ fn visible_observed_unit(
         faction: authority
             .player_faction(&unit.owner)
             .expect("every unit owner has a faction"),
-        position: server_pos(position),
+        position,
         hp: awbrn_game::world::GraphicalHp::from(unit.hp)
             .visible()
             .map(awbrn_types::VisualHp::get),
@@ -782,7 +785,7 @@ fn visible_unit(
         faction: authority
             .player_faction(state.player_id(unit.owner))
             .expect("every unit owner has a faction"),
-        position: server_pos(position),
+        position,
         hp: awbrn_game::world::GraphicalHp::from(awbrn_types::ExactHp::new(unit.hp))
             .visible()
             .map(awbrn_types::VisualHp::get),
@@ -794,15 +797,22 @@ fn visible_unit(
     })
 }
 
-fn graphical_terrain(
+/// The graphical terrain the view reports for one tile.
+///
+/// The map's own tile is the template: the board says what kind of terrain is
+/// there, and the map says which art that kind is drawn in. Where the two
+/// disagree, which a board edited after loading can do, the board wins and the
+/// art falls back.
+fn graphical_terrain_at(
     authority: &Authority,
     position: Pos,
     terrain: Terrain,
     owner: Option<&awvm::semantic::PlayerId>,
     silo: Option<awvm::semantic::Silo>,
 ) -> GraphicalTerrain {
-    let template = authority.map().terrain_at(server_pos(position));
-    let mut graphical = template
+    let mut graphical = authority
+        .map()
+        .terrain_at(position)
         .filter(|candidate| semantic_terrain(candidate.as_terrain()) == terrain)
         .unwrap_or_else(|| fallback_terrain(terrain, silo));
     match graphical {
@@ -921,10 +931,6 @@ fn server_player_id(player: &VmPlayerId) -> PlayerId {
 
 fn server_unit_id(unit: UnitId) -> ServerUnitId {
     ServerUnitId(u64::from(unit.get()))
-}
-
-fn server_pos(position: Pos) -> Position {
-    Position::new(usize::from(position.x), usize::from(position.y))
 }
 
 fn narrow_u32(value: u64) -> u32 {

@@ -14,7 +14,7 @@ use awbrn_game::world::{
     Ammo, BoardIndex, CaptureProgress, Faction, FriendlyFactions, Fuel, GameMap, GraphicalHp,
     HasCargo, TerrainTile, Unit, ViewerVisibility,
 };
-use awbrn_map::Position;
+use awbrn_map::Pos;
 use awbrn_types::{GraphicalTerrain, UnitExt};
 use bevy::ecs::system::SystemParam;
 use bevy::input::{
@@ -35,7 +35,7 @@ pub struct TileCursor;
 
 #[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TileClicked {
-    pub position: Position,
+    pub position: Pos,
 }
 
 pub(crate) const TILE_CORE_SPRITE_SIZE: SpriteSize = SpriteSize {
@@ -74,7 +74,7 @@ pub struct PointerGesture {
     /// and since the previous report for [`PointerGestureKind::DragMove`].
     pub delta: Vec2,
     /// The tile under the pointer, when it is over the board.
-    pub tile: Option<Position>,
+    pub tile: Option<Pos>,
     /// Whether the pointer is a finger rather than a mouse.
     pub coarse: bool,
 }
@@ -110,7 +110,7 @@ pub enum PointerSet {
 struct ActivePointer {
     id: PointerId,
     start_viewport: Vec2,
-    start_tile: Option<Position>,
+    start_tile: Option<Pos>,
     viewport: Vec2,
     dragging: bool,
     /// A gesture that a second contact interrupted. It is tracked to its
@@ -258,7 +258,7 @@ struct HoveredUnitKey {
 /// The tile under the mouse, as the readout compares it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct HoveredTileKey {
-    position: Position,
+    position: Pos,
     terrain: GraphicalTerrain,
     terrain_sprite_index: u16,
     unit: Option<HoveredUnitKey>,
@@ -283,7 +283,7 @@ struct HoverKey {
 /// the finger the whole way, which is how the destination of a move can be read
 /// before the finger lifts. A mouse needs none of this and keeps its cursor.
 #[derive(Resource, Debug, Default)]
-struct InspectedTile(Option<Position>);
+struct InspectedTile(Option<Pos>);
 
 /// Follow the finger, for the readout only. This commits nothing.
 fn track_inspected_tile(
@@ -352,7 +352,7 @@ fn cargo_details(key: HoveredUnitKey) -> HoveredCargoUnit {
 }
 
 /// Read one tile into `key`, reusing its cargo buffer.
-fn read_hovered_tile(info: &HoverInfo<'_, '_>, position: Option<Position>, key: &mut HoverKey) {
+fn read_hovered_tile(info: &HoverInfo<'_, '_>, position: Option<Pos>, key: &mut HoverKey) {
     key.tile = None;
     key.cargo.clear();
 
@@ -504,7 +504,7 @@ impl BoardProjection<'_, '_> {
     }
 
     /// The tile under a viewport position, when that position is over the board.
-    pub(crate) fn tile_at(&self, viewport: Vec2) -> Option<Position> {
+    pub(crate) fn tile_at(&self, viewport: Vec2) -> Option<Pos> {
         let world = self.world_at(viewport)?;
         crate::core::coords::WorldPos::from_bevy(world)
             .to_map_position(self.game_map.as_ref())
@@ -512,7 +512,7 @@ impl BoardProjection<'_, '_> {
     }
 
     /// The tile under the mouse cursor, when there is one over the board.
-    pub(crate) fn cursor_tile(&self) -> Option<Position> {
+    pub(crate) fn cursor_tile(&self) -> Option<Pos> {
         let cursor = self.windows.single().ok()?.cursor_position()?;
         self.tile_at(cursor)
     }
@@ -829,20 +829,21 @@ mod tests {
     use super::*;
     use crate::projection::ProjectedUnitOverlayFlags;
     use awbrn_game::world::{CarriedBy, Hiding};
+    use awbrn_map::Dimensions;
     use awbrn_types::{GraphicalTerrain, PlayerFaction};
     use bevy::ecs::system::RunSystemOnce;
     use bevy::window::WindowResolution;
 
     fn hover_app() -> App {
         let mut app = App::new();
-        app.insert_resource(BoardIndex::new(2, 1));
+        app.insert_resource(BoardIndex::new(Dimensions::new(2, 1)));
         app.init_resource::<GameMap>();
         app.init_resource::<CurrentWeather>();
         app.init_resource::<ViewerVisibility>();
         app.init_resource::<FriendlyFactions>();
 
         for x in 0..2 {
-            let position = Position::new(x, 0);
+            let position = Pos::new(x, 0);
             let terrain = app
                 .world_mut()
                 .spawn(ProjectedTerrainRenderState(GraphicalTerrain::Plain))
@@ -859,7 +860,7 @@ mod tests {
     /// A unit the viewer can see, placed on the board at `position`.
     fn spawn_unit(
         app: &mut App,
-        position: Position,
+        position: Pos,
         unit: awbrn_types::Unit,
         faction: PlayerFaction,
     ) -> Entity {
@@ -895,10 +896,10 @@ mod tests {
     }
 
     /// What the readout would report for `position`, without a camera.
-    fn hover_at(app: &mut App, position: Position) -> Option<HoveredTile> {
+    fn hover_at(app: &mut App, position: Pos) -> Option<HoveredTile> {
         app.world_mut()
             .run_system_once_with(
-                |In(position): In<Position>, info: HoverInfo| {
+                |In(position): In<Pos>, info: HoverInfo| {
                     let mut key = HoverKey::default();
                     read_hovered_tile(&info, Some(position), &mut key);
                     hover_payload(&key)
@@ -916,7 +917,7 @@ mod tests {
             .init_resource::<HoveredTileState>()
             .add_systems(Update, emit_tile_hover_changed);
         app.world_mut().resource_mut::<PointerIsCoarse>().0 = true;
-        app.world_mut().resource_mut::<InspectedTile>().0 = Some(Position::new(0, 0));
+        app.world_mut().resource_mut::<InspectedTile>().0 = Some(Pos::new(0, 0));
 
         let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let recorded = events.clone();
@@ -941,7 +942,7 @@ mod tests {
         let mut app = hover_app();
         app.world_mut()
             .resource_mut::<ViewerVisibility>()
-            .reset(true, 2, 1);
+            .reset(true, awbrn_map::Dimensions::new(2, 1));
         app.world_mut()
             .resource_mut::<FriendlyFactions>()
             .0
@@ -949,7 +950,7 @@ mod tests {
 
         let transport = spawn_unit(
             &mut app,
-            Position::new(0, 0),
+            Pos::new(0, 0),
             awbrn_types::Unit::Apc,
             PlayerFaction::BlueMoon,
         );
@@ -962,10 +963,7 @@ mod tests {
             .entity_mut(cargo)
             .insert(CarriedBy(transport));
 
-        let unit = hover_at(&mut app, Position::new(0, 0))
-            .unwrap()
-            .unit
-            .unwrap();
+        let unit = hover_at(&mut app, Pos::new(0, 0)).unwrap().unit.unwrap();
 
         assert_eq!(unit.ammo, Some(4));
         assert_eq!(unit.fuel, Some(50));
@@ -979,7 +977,7 @@ mod tests {
 
         let transport = spawn_unit(
             &mut app,
-            Position::new(0, 0),
+            Pos::new(0, 0),
             awbrn_types::Unit::Lander,
             PlayerFaction::OrangeStar,
         );
@@ -997,10 +995,7 @@ mod tests {
         // were loaded in.
         app.world_mut().entity_mut(loaded[0]).insert(Hiding);
 
-        let unit = hover_at(&mut app, Position::new(0, 0))
-            .unwrap()
-            .unit
-            .unwrap();
+        let unit = hover_at(&mut app, Pos::new(0, 0)).unwrap().unit.unwrap();
 
         let names: Vec<_> = unit
             .loaded_units
@@ -1015,15 +1010,12 @@ mod tests {
         let mut app = hover_app();
         spawn_unit(
             &mut app,
-            Position::new(0, 0),
+            Pos::new(0, 0),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
         );
 
-        let unit = hover_at(&mut app, Position::new(0, 0))
-            .unwrap()
-            .unit
-            .unwrap();
+        let unit = hover_at(&mut app, Pos::new(0, 0)).unwrap().unit.unwrap();
 
         assert_eq!(unit.ammo_display, AmmoDisplay::Unlimited);
         assert_eq!(

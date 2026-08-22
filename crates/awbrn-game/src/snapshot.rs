@@ -16,8 +16,8 @@ use serde_json::Value;
 use crate::MapPosition;
 use crate::replay::{AwbwUnitId, ReplayState};
 use crate::world::{
-    Ammo, CaptureProgress, CarriedBy, Faction, Fuel, GraphicalHp, HasCargo, TerrainHp, TerrainTile,
-    Unit, UnitActive, VisionRange,
+    Ammo, BoardRoot, CaptureProgress, CarriedBy, Faction, Fuel, GraphicalHp, HasCargo, TerrainHp,
+    TerrainTile, Unit, UnitActive, VisionRange, adopt_unattached_board_entities, board_root,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -204,6 +204,13 @@ pub fn restore_game_snapshot(
     snapshot
         .scene
         .write_to_world_with(world, &mut entity_map, &type_registry)?;
+    drop(type_registry);
+
+    // A snapshot holds no board membership, so the entities it writes arrive
+    // outside the board. Put them on it, or the next board teardown leaves
+    // them behind.
+    let root = board_root(world).unwrap_or_else(|| world.spawn(BoardRoot).id());
+    adopt_unattached_board_entities(world, root);
 
     if let Some(mut replay_state) = world.get_resource_mut::<ReplayState>() {
         replay_state.next_action_index = snapshot.next_action_index;
@@ -587,7 +594,7 @@ mod tests {
     use crate::replay::ReplayState;
     use crate::world::{Ammo, Faction, Fuel, GameMap, TerrainHp, Unit, UnitActive, VisionRange};
     use crate::{GameWorldPlugin, MapPosition};
-    use awbrn_map::AwbrnMap;
+    use awbrn_map::{AwbrnMap, Dimensions};
     use awbrn_types::{AwbwGamePlayerId, GraphicalTerrain, PlayerFaction};
     use bevy::app::App;
     use bevy::ecs::reflect::AppTypeRegistry;
@@ -922,9 +929,10 @@ mod tests {
         app.add_plugins(GameWorldPlugin);
         app.register_type::<TestEntityRef>()
             .register_type_data::<TestEntityRef, ReplaySemanticComponentType>();
-        app.world_mut()
-            .resource_mut::<GameMap>()
-            .set(AwbrnMap::new(2, 2, GraphicalTerrain::Plain));
+        app.world_mut().resource_mut::<GameMap>().set(AwbrnMap::new(
+            Dimensions::new(2, 2),
+            GraphicalTerrain::Plain,
+        ));
         app
     }
 }

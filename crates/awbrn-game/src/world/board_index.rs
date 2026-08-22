@@ -1,4 +1,4 @@
-use awbrn_map::Position;
+use awbrn_map::{Dimensions, Grid, Pos};
 use bevy::ecs::world::DeferredWorld;
 use bevy::log::warn;
 use bevy::prelude::*;
@@ -6,74 +6,72 @@ use bevy::prelude::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoardIndexError {
     OutOfBounds {
-        position: Position,
-        width: usize,
-        height: usize,
+        position: Pos,
+        width: u8,
+        height: u8,
     },
     MissingTerrain {
-        position: Position,
+        position: Pos,
     },
 }
 
+/// Which entity holds the terrain, and which the unit, for each tile.
+///
+/// Two maps over one board shape, so a coordinate that reads one reads the
+/// other. The shape does the bounds checking; this holds no arithmetic of its
+/// own.
 #[derive(Debug, Resource)]
 pub struct BoardIndex {
-    width: usize,
-    height: usize,
-    terrain_by_tile: Vec<Option<Entity>>,
-    unit_by_tile: Vec<Option<Entity>>,
+    terrain_by_tile: Grid<Option<Entity>>,
+    unit_by_tile: Grid<Option<Entity>>,
 }
 
 impl Default for BoardIndex {
     fn default() -> Self {
-        Self::new(0, 0)
+        // A board with no tiles: every coordinate is out of bounds, which is
+        // what an index consulted before a map loads should say.
+        Self::new(Dimensions::new(0, 0))
     }
 }
 
 impl BoardIndex {
-    pub fn new(width: usize, height: usize) -> Self {
-        let tile_count = width.saturating_mul(height);
-
+    pub fn new(dimensions: Dimensions) -> Self {
         Self {
-            width,
-            height,
-            terrain_by_tile: vec![None; tile_count],
-            unit_by_tile: vec![None; tile_count],
+            terrain_by_tile: Grid::filled(dimensions, None),
+            unit_by_tile: Grid::filled(dimensions, None),
         }
     }
 
-    pub fn reset(&mut self, width: usize, height: usize) {
-        *self = Self::new(width, height);
+    pub fn reset(&mut self, dimensions: Dimensions) {
+        self.terrain_by_tile.refill(dimensions, None);
+        self.unit_by_tile.refill(dimensions, None);
     }
 
-    pub fn terrain_entity(&self, position: Position) -> Result<Entity, BoardIndexError> {
-        let index = self.tile_index(position)?;
-        self.terrain_by_tile[index].ok_or(BoardIndexError::MissingTerrain { position })
+    pub fn terrain_entity(&self, position: Pos) -> Result<Entity, BoardIndexError> {
+        self.cell(position)?;
+        self.terrain_by_tile[position].ok_or(BoardIndexError::MissingTerrain { position })
     }
 
-    pub fn unit_entity(&self, position: Position) -> Result<Option<Entity>, BoardIndexError> {
-        let index = self.tile_index(position)?;
-        Ok(self.unit_by_tile[index])
+    pub fn unit_entity(&self, position: Pos) -> Result<Option<Entity>, BoardIndexError> {
+        self.cell(position)?;
+        Ok(self.unit_by_tile[position])
     }
 
-    pub fn set_terrain(
-        &mut self,
-        position: Position,
-        entity: Entity,
-    ) -> Result<(), BoardIndexError> {
-        let index = self.tile_index(position)?;
-        self.terrain_by_tile[index] = Some(entity);
+    pub fn set_terrain(&mut self, position: Pos, entity: Entity) -> Result<(), BoardIndexError> {
+        self.cell(position)?;
+        self.terrain_by_tile[position] = Some(entity);
         Ok(())
     }
 
-    pub fn remove_terrain(&mut self, position: Position) -> Result<(), BoardIndexError> {
-        let index = self.tile_index(position)?;
-        self.terrain_by_tile[index] = None;
+    pub fn remove_terrain(&mut self, position: Pos) -> Result<(), BoardIndexError> {
+        self.cell(position)?;
+        self.terrain_by_tile[position] = None;
         Ok(())
     }
 
-    pub fn set_unit(&mut self, position: Position, entity: Entity) -> Result<(), BoardIndexError> {
-        let index = self.tile_index(position)?;
-        match self.unit_by_tile[index] {
+    pub fn set_unit(&mut self, position: Pos, entity: Entity) -> Result<(), BoardIndexError> {
+        self.cell(position)?;
+        match self.unit_by_tile[position] {
             Some(existing) if existing != entity => {
                 warn!(
                     "BoardIndex unit collision at {:?}: replacing {:?} with {:?}",
@@ -82,36 +80,35 @@ impl BoardIndex {
             }
             _ => {}
         }
-        self.unit_by_tile[index] = Some(entity);
+        self.unit_by_tile[position] = Some(entity);
         Ok(())
     }
 
-    pub fn remove_unit(
-        &mut self,
-        position: Position,
-        entity: Entity,
-    ) -> Result<(), BoardIndexError> {
-        let index = self.tile_index(position)?;
-        if self.unit_by_tile[index] == Some(entity) {
-            self.unit_by_tile[index] = None;
+    pub fn remove_unit(&mut self, position: Pos, entity: Entity) -> Result<(), BoardIndexError> {
+        self.cell(position)?;
+        if self.unit_by_tile[position] == Some(entity) {
+            self.unit_by_tile[position] = None;
         }
         Ok(())
     }
 
-    fn tile_index(&self, position: Position) -> Result<usize, BoardIndexError> {
-        if position.x >= self.width || position.y >= self.height {
-            return Err(BoardIndexError::OutOfBounds {
+    /// Checks `position` against the board once, so the indexing below cannot
+    /// panic.
+    fn cell(&self, position: Pos) -> Result<(), BoardIndexError> {
+        let dimensions = self.terrain_by_tile.dimensions();
+        if dimensions.contains(position) {
+            Ok(())
+        } else {
+            Err(BoardIndexError::OutOfBounds {
                 position,
-                width: self.width,
-                height: self.height,
-            });
+                width: dimensions.width(),
+                height: dimensions.height(),
+            })
         }
-
-        Ok(position.y * self.width + position.x)
     }
 }
 
-pub fn add_terrain_to_board_index(mut world: DeferredWorld, entity: Entity, position: Position) {
+pub fn add_terrain_to_board_index(mut world: DeferredWorld, entity: Entity, position: Pos) {
     let Some(mut index) = world.get_resource_mut::<BoardIndex>() else {
         return;
     };
@@ -124,11 +121,7 @@ pub fn add_terrain_to_board_index(mut world: DeferredWorld, entity: Entity, posi
     }
 }
 
-pub fn remove_terrain_from_board_index(
-    mut world: DeferredWorld,
-    entity: Entity,
-    position: Position,
-) {
+pub fn remove_terrain_from_board_index(mut world: DeferredWorld, entity: Entity, position: Pos) {
     let Some(mut index) = world.get_resource_mut::<BoardIndex>() else {
         return;
     };
@@ -141,7 +134,7 @@ pub fn remove_terrain_from_board_index(
     }
 }
 
-pub fn add_unit_to_board_index(mut world: DeferredWorld, entity: Entity, position: Position) {
+pub fn add_unit_to_board_index(mut world: DeferredWorld, entity: Entity, position: Pos) {
     let Some(mut index) = world.get_resource_mut::<BoardIndex>() else {
         return;
     };
@@ -154,7 +147,7 @@ pub fn add_unit_to_board_index(mut world: DeferredWorld, entity: Entity, positio
     }
 }
 
-pub fn remove_unit_from_board_index(mut world: DeferredWorld, entity: Entity, position: Position) {
+pub fn remove_unit_from_board_index(mut world: DeferredWorld, entity: Entity, position: Pos) {
     let Some(mut index) = world.get_resource_mut::<BoardIndex>() else {
         return;
     };
@@ -179,26 +172,60 @@ mod tests {
     fn terrain_bootstrap_populates_every_in_bounds_slot() {
         let mut app = App::new();
         let mut game_map = GameMap::default();
-        game_map.set(AwbrnMap::new(2, 2, GraphicalTerrain::Plain));
+        game_map.set(AwbrnMap::new(
+            Dimensions::new(2, 2),
+            GraphicalTerrain::Plain,
+        ));
         app.insert_resource(game_map);
         app.insert_resource(BoardIndex::default());
 
         initialize_terrain_semantic_world(app.world_mut());
 
         let board_index = app.world().resource::<BoardIndex>();
-        assert!(board_index.terrain_entity(Position::new(0, 0)).is_ok());
-        assert!(board_index.terrain_entity(Position::new(1, 0)).is_ok());
-        assert!(board_index.terrain_entity(Position::new(0, 1)).is_ok());
-        assert!(board_index.terrain_entity(Position::new(1, 1)).is_ok());
+        assert!(board_index.terrain_entity(Pos::new(0, 0)).is_ok());
+        assert!(board_index.terrain_entity(Pos::new(1, 0)).is_ok());
+        assert!(board_index.terrain_entity(Pos::new(0, 1)).is_ok());
+        assert!(board_index.terrain_entity(Pos::new(1, 1)).is_ok());
+    }
+
+    #[test]
+    fn terrain_bootstrap_keeps_units_spawned_before_it() {
+        let mut app = App::new();
+        let mut game_map = GameMap::default();
+        game_map.set(AwbrnMap::new(
+            Dimensions::new(2, 2),
+            GraphicalTerrain::Plain,
+        ));
+        app.insert_resource(game_map);
+        app.insert_resource(BoardIndex::default());
+
+        let position = Pos::new(1, 0);
+        let entity = app
+            .world_mut()
+            .spawn((
+                MapPosition::from(position),
+                Unit(awbrn_types::Unit::Infantry),
+            ))
+            .id();
+
+        initialize_terrain_semantic_world(app.world_mut());
+
+        assert_eq!(
+            app.world()
+                .resource::<BoardIndex>()
+                .unit_entity(position)
+                .unwrap(),
+            Some(entity)
+        );
     }
 
     #[test]
     fn board_index_updates_when_unit_map_position_changes_or_is_removed() {
         let mut app = App::new();
-        app.insert_resource(BoardIndex::new(8, 8));
+        app.insert_resource(BoardIndex::new(Dimensions::new(8, 8)));
 
-        let start = Position::new(1, 1);
-        let end = Position::new(4, 5);
+        let start = Pos::new(1, 1);
+        let end = Pos::new(4, 5);
         let entity = app
             .world_mut()
             .spawn((MapPosition::from(start), Unit(awbrn_types::Unit::Infantry)))
@@ -235,9 +262,9 @@ mod tests {
     #[test]
     fn despawning_unit_clears_its_unit_slot() {
         let mut app = App::new();
-        app.insert_resource(BoardIndex::new(4, 4));
+        app.insert_resource(BoardIndex::new(Dimensions::new(4, 4)));
 
-        let position = Position::new(2, 3);
+        let position = Pos::new(2, 3);
         let entity = app
             .world_mut()
             .spawn((
@@ -259,22 +286,22 @@ mod tests {
 
     #[test]
     fn terrain_entity_returns_out_of_bounds_errors() {
-        let board_index = BoardIndex::new(2, 2);
+        let board_index = BoardIndex::new(Dimensions::new(2, 2));
 
         assert!(matches!(
-            board_index.terrain_entity(Position::new(5, 0)),
+            board_index.terrain_entity(Pos::new(5, 0)),
             Err(BoardIndexError::OutOfBounds { .. })
         ));
         assert!(matches!(
-            board_index.unit_entity(Position::new(0, 5)),
+            board_index.unit_entity(Pos::new(0, 5)),
             Err(BoardIndexError::OutOfBounds { .. })
         ));
     }
 
     #[test]
     fn second_unit_overwrites_existing_slot() {
-        let mut board_index = BoardIndex::new(2, 2);
-        let position = Position::new(1, 1);
+        let mut board_index = BoardIndex::new(Dimensions::new(2, 2));
+        let position = Pos::new(1, 1);
         let first = Entity::from_raw_u32(1).unwrap();
         let second = Entity::from_raw_u32(2).unwrap();
 
@@ -288,7 +315,10 @@ mod tests {
     fn terrain_bootstrap_registers_spawned_terrain_entities() {
         let mut app = App::new();
         let mut game_map = GameMap::default();
-        game_map.set(AwbrnMap::new(1, 1, GraphicalTerrain::Plain));
+        game_map.set(AwbrnMap::new(
+            Dimensions::new(1, 1),
+            GraphicalTerrain::Plain,
+        ));
         app.insert_resource(game_map);
         app.insert_resource(BoardIndex::default());
 
@@ -304,7 +334,7 @@ mod tests {
         assert_eq!(
             app.world()
                 .resource::<BoardIndex>()
-                .terrain_entity(Position::new(0, 0))
+                .terrain_entity(Pos::new(0, 0))
                 .unwrap(),
             terrain_entity
         );
@@ -313,9 +343,9 @@ mod tests {
     #[test]
     fn removing_or_despawning_terrain_clears_its_slot() {
         let mut app = App::new();
-        app.insert_resource(BoardIndex::new(2, 2));
+        app.insert_resource(BoardIndex::new(Dimensions::new(2, 2)));
 
-        let position = Position::new(1, 1);
+        let position = Pos::new(1, 1);
         let entity = app
             .world_mut()
             .spawn((

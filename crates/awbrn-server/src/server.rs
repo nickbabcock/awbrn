@@ -7,7 +7,7 @@ use crate::setup::{GameSetup, SetupError};
 use crate::unit_id::ServerUnitId;
 use crate::view::{self, CommandResult, PlayerView, SpectatorView};
 
-use awbrn_map::Position;
+use awbrn_map::Pos;
 use awbrn_types::{PlayerFaction, Unit};
 use awvm::semantic::{AwbwVisibility, Observation, observe};
 
@@ -120,7 +120,7 @@ impl GameServer {
     /// Spawn a unit into the game world. Returns the assigned [`ServerUnitId`].
     pub fn spawn_unit(
         &mut self,
-        position: Position,
+        position: Pos,
         unit_type: Unit,
         faction: PlayerFaction,
     ) -> ServerUnitId {

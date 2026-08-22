@@ -4,7 +4,7 @@
 //! units, presentation visibility, and replay state. It does not insert any
 //! client-only resources (such as `ReplayAdvanceLock`).
 
-use awbrn_map::Position;
+use awbrn_map::Pos;
 use awbrn_types::PlayerFaction;
 use awbw_replay::AwbwReplay;
 use bevy::prelude::*;
@@ -14,8 +14,8 @@ use crate::replay::{
     AwbwUnitId, RecipientObservations, ReplayPlayerRegistry, ReplayState, ReplayTerrainKnowledge,
 };
 use crate::world::{
-    Ammo, Faction, FriendlyFactions, Fuel, GameMap, GraphicalHp, TerrainHp, TerrainTile, Unit,
-    UnitActive, ViewerVisibility, VisionRange, initialize_terrain_semantic_world,
+    Ammo, BoardOf, Faction, FriendlyFactions, Fuel, GameMap, GraphicalHp, TerrainHp, TerrainTile,
+    Unit, UnitActive, ViewerVisibility, VisionRange, initialize_terrain_semantic_world,
 };
 
 /// Initialize the ECS world for replay playback from a parsed `AwbwReplay`.
@@ -24,7 +24,7 @@ use crate::world::{
 /// presentation-visibility resources. Does NOT insert `ReplayAdvanceLock` —
 /// the client layer is responsible for that.
 pub fn initialize_replay_semantic_world(replay: &AwbwReplay, world: &mut World) {
-    initialize_terrain_semantic_world(world);
+    let board_root = initialize_terrain_semantic_world(world);
 
     let terrain_entities: Vec<_> = {
         let mut query = world.query::<(Entity, &TerrainTile, &MapPosition)>();
@@ -75,7 +75,7 @@ pub fn initialize_replay_semantic_world(replay: &AwbwReplay, world: &mut World) 
                 })
                 .map(|(unit, faction)| {
                     (
-                        MapPosition::new(unit.x as usize, unit.y as usize),
+                        MapPosition::new(unit.x as u8, unit.y as u8),
                         Faction(faction),
                         AwbwUnitId(unit.id),
                         Unit(unit.name),
@@ -95,7 +95,7 @@ pub fn initialize_replay_semantic_world(replay: &AwbwReplay, world: &mut World) 
         .unwrap_or_default();
 
     for replay_unit in replay_units {
-        world.spawn(replay_unit);
+        world.spawn((replay_unit, BoardOf(board_root)));
     }
 
     // Presentation visibility stays omniscient until the first projection
@@ -123,7 +123,7 @@ fn initial_graphical_hp(hit_points: f64) -> u8 {
 fn initial_terrain_hp(
     replay: &AwbwReplay,
     terrain_tile: TerrainTile,
-    position: Position,
+    position: Pos,
 ) -> Option<TerrainHp> {
     if !matches!(
         terrain_tile.terrain,
@@ -137,7 +137,7 @@ fn initial_terrain_hp(
         .first()
         .and_then(|game| {
             game.buildings.iter().find(|building| {
-                building.x as usize == position.x && building.y as usize == position.y
+                building.x == u32::from(position.x) && building.y == u32::from(position.y)
             })
         })
         // AWBW overloads replay building capture progress for pipe seams. We
@@ -152,6 +152,7 @@ fn initial_terrain_hp(
 mod tests {
     use super::*;
     use awbrn_map::AwbrnMap;
+    use awbrn_map::Dimensions;
     use awbrn_types::GraphicalTerrain;
     use awbw_replay::ReplayParser;
     use bevy::app::App;
@@ -175,8 +176,7 @@ mod tests {
     fn seam_tiles_default_to_99_hp_without_replay_building_data() {
         let mut app = bootstrap_test_app();
         app.world_mut().resource_mut::<GameMap>().set(AwbrnMap::new(
-            1,
-            1,
+            Dimensions::new(1, 1),
             GraphicalTerrain::PipeSeam(awbrn_types::PipeSeamType::Vertical),
         ));
 
@@ -207,9 +207,9 @@ mod tests {
             .expect("fixture should have a building at the pipe seam position");
 
         let mut app = bootstrap_test_app();
-        let mut map = AwbrnMap::new(17, 11, GraphicalTerrain::Plain);
+        let mut map = AwbrnMap::new(Dimensions::new(17, 11), GraphicalTerrain::Plain);
         map.set_terrain(
-            Position::new(16, 10),
+            Pos::new(16, 10),
             GraphicalTerrain::PipeSeam(awbrn_types::PipeSeamType::Vertical),
         );
         app.world_mut().resource_mut::<GameMap>().set(map);
@@ -219,7 +219,7 @@ mod tests {
         let mut query = app.world_mut().query::<(&MapPosition, &TerrainHp)>();
         let (_, terrain_hp) = query
             .iter(app.world())
-            .find(|(map_pos, _)| map_pos.position() == Position::new(16, 10))
+            .find(|(map_pos, _)| map_pos.position() == Pos::new(16, 10))
             .unwrap();
         assert_eq!(terrain_hp.value(), expected_hp);
     }

@@ -6,7 +6,7 @@ use crate::world::{
     BoardIndex, CaptureProgress, CaptureResolution, Faction, GameMap, GraphicalHp, TerrainHp,
     TerrainTile, Unit, UnitActive,
 };
-use awbrn_map::Position;
+use awbrn_map::Pos;
 use awbrn_types::{Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, Property};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,13 +25,13 @@ pub struct CaptureAction {
 pub enum CaptureActionOutcome {
     Continued {
         entity: Entity,
-        tile: Position,
+        tile: Pos,
         faction: PlayerFaction,
         progress: CaptureProgress,
     },
     Completed {
         entity: Entity,
-        tile: Position,
+        tile: Pos,
         new_faction: PlayerFaction,
     },
 }
@@ -39,14 +39,14 @@ pub enum CaptureActionOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptureActionError {
     MissingUnit(Entity),
-    MissingTerrain(Position),
-    NonPropertyTerrain(Position),
+    MissingTerrain(Pos),
+    NonPropertyTerrain(Pos),
     NonCapturingUnit {
         entity: Entity,
         unit: awbrn_types::Unit,
     },
     OwnProperty {
-        tile: Position,
+        tile: Pos,
         faction: PlayerFaction,
     },
     HiddenHp(Entity),
@@ -83,7 +83,7 @@ struct CaptureActor {
 }
 
 struct CaptureActorSnapshot {
-    tile: Position,
+    tile: Pos,
     faction: PlayerFaction,
     visual_hp: u8,
     progress: CaptureProgress,
@@ -180,7 +180,7 @@ impl CaptureAction {
 
 fn validate_capture_target(
     world: &World,
-    tile: Position,
+    tile: Pos,
     faction: PlayerFaction,
 ) -> Result<(), CaptureActionError> {
     let terrain = world
@@ -199,7 +199,7 @@ fn validate_capture_target(
 
 pub fn capture_property_at(
     world: &mut World,
-    tile: Position,
+    tile: Pos,
     faction: PlayerFaction,
 ) -> Result<GraphicalTerrain, CaptureActionError> {
     let terrain = world
@@ -257,15 +257,16 @@ pub fn captured_terrain(
 mod tests {
     use super::*;
     use awbrn_map::AwbrnMap;
+    use awbrn_map::Dimensions;
     use awbrn_types::Unit as UnitKind;
 
-    fn capture_world(unit: UnitKind, terrain: GraphicalTerrain) -> (World, Entity, Position) {
-        let tile = Position::new(0, 0);
+    fn capture_world(unit: UnitKind, terrain: GraphicalTerrain) -> (World, Entity, Pos) {
+        let tile = Pos::new(0, 0);
         let mut world = World::new();
-        world.insert_resource(BoardIndex::new(1, 1));
+        world.insert_resource(BoardIndex::new(Dimensions::new(1, 1)));
 
         let mut game_map = GameMap::default();
-        game_map.set(AwbrnMap::new(1, 1, terrain));
+        game_map.set(AwbrnMap::new(Dimensions::new(1, 1), terrain));
         world.insert_resource(game_map);
 
         world.spawn((MapPosition::from(tile), TerrainTile { terrain }));

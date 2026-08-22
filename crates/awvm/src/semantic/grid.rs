@@ -32,21 +32,25 @@ impl Dimensions {
         Self { width, height }
     }
 
+    #[inline]
     pub const fn width(self) -> u8 {
         self.width
     }
 
+    #[inline]
     pub const fn height(self) -> u8 {
         self.height
     }
 
     /// How many tiles a map over this board holds. A board is never empty:
     /// `Board::new` rejects a zero width or height.
+    #[inline]
     pub const fn len(self) -> usize {
         self.width as usize * self.height as usize
     }
 
     /// Whether a coordinate is on the board.
+    #[inline]
     pub const fn contains(self, position: Pos) -> bool {
         position.x < self.width && position.y < self.height
     }
@@ -58,6 +62,7 @@ impl Dimensions {
     }
 
     /// Where `position` lives in a row-major map, or `None` off the board.
+    #[inline]
     pub const fn index(self, position: Pos) -> Option<usize> {
         if self.contains(position) {
             Some(position.y as usize * self.width as usize + position.x as usize)
@@ -69,6 +74,7 @@ impl Dimensions {
     /// `position` as a [`Cell`] of this shape, or `None` off the board.
     ///
     /// Ask once and read every table beside it with the answer.
+    #[inline]
     pub const fn cell(self, position: Pos) -> Option<Cell> {
         match self.index(position) {
             Some(index) => Some(Cell { index, position }),
@@ -82,6 +88,7 @@ impl Dimensions {
     /// coordinate so that a table read costs no arithmetic. A `CellIdx` drops
     /// the coordinate so that a value that must stay small, such as an order a
     /// search keeps by the million, can name a tile at all.
+    #[inline]
     pub const fn cell_index(self, position: Pos) -> Option<CellIdx> {
         match self.index(position) {
             // A board is at most 255x255, so an index over it is at most
@@ -92,6 +99,7 @@ impl Dimensions {
     }
 
     /// The coordinate `index` names on this board, or `None` past its end.
+    #[inline]
     pub const fn position_of(self, index: CellIdx) -> Option<Pos> {
         let index = index.0 as usize;
         if index >= self.len() {
@@ -217,18 +225,22 @@ impl<T> Grid<T> {
     }
 
     /// The shape this grid and every map beside it share.
+    #[inline]
     pub const fn dimensions(&self) -> Dimensions {
         self.dimensions
     }
 
+    #[inline]
     pub const fn width(&self) -> u8 {
         self.dimensions.width()
     }
 
+    #[inline]
     pub const fn height(&self) -> u8 {
         self.dimensions.height()
     }
 
+    #[inline]
     pub fn get(&self, position: Pos) -> Option<&T> {
         self.dimensions
             .index(position)
@@ -241,12 +253,14 @@ impl<T> Grid<T> {
     /// indexing a slice past its end does. A cell from a board of a different
     /// shape names a different tile even when the index is in range, which a
     /// debug build reports rather than answering about the wrong tile.
+    #[inline]
     pub fn at(&self, cell: Cell) -> &T {
         debug_assert!(self.holds(cell), "a cell from another board shape");
         &self.cells[cell.index]
     }
 
     /// [`Grid::at`], mutably.
+    #[inline]
     pub fn at_mut(&mut self, cell: Cell) -> &mut T {
         debug_assert!(self.holds(cell), "a cell from another board shape");
         &mut self.cells[cell.index]
@@ -257,6 +271,7 @@ impl<T> Grid<T> {
         self.dimensions.index(cell.position()) == Some(cell.index)
     }
 
+    #[inline]
     pub fn get_mut(&mut self, position: Pos) -> Option<&mut T> {
         self.dimensions
             .index(position)
@@ -299,6 +314,18 @@ impl<T> Grid<T> {
                 .enumerate()
                 .map(move |(x, cell)| (Pos::new(x as u8, y as u8), cell))
         })
+    }
+}
+
+/// A grid over a board with no tiles, which every coordinate is off.
+///
+/// This is what a table looks like before the board it shadows is known.
+impl<T> Default for Grid<T> {
+    fn default() -> Self {
+        Self {
+            dimensions: Dimensions::new(0, 0),
+            cells: Vec::new(),
+        }
     }
 }
 
