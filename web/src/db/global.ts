@@ -97,7 +97,10 @@ export const matches = sqliteTable(
     creatorUserId: text("creatorUserId")
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),
-    mapId: integer("mapId").notNull(),
+    mapId: text("mapId")
+      .notNull()
+      .references(() => maps.id, { onDelete: "restrict" }),
+    mapRevision: integer("mapRevision").notNull(),
     maxPlayers: integer("maxPlayers").notNull(),
     isPrivate: integer("isPrivate", { mode: "boolean" }).notNull(),
     joinSlug: text("joinSlug"),

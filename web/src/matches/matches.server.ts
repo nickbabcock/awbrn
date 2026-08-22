@@ -22,8 +22,8 @@ import {
   decodeMatchBrowseCursor,
   encodeMatchBrowseCursor,
 } from "./match_browse";
-import { fetchAwbwMapData } from "#/awbw/awbw.server.ts";
-import type { AwbwMapData } from "#/awbw/schemas.ts";
+import type { AwbrnMapDocument } from "#/maps/map_document.ts";
+import { importAwbwMap, loadMapRevision } from "#/maps/maps.server.ts";
 import { err, ok, type MatchResult } from "./match_protocol";
 import { generateMatchId } from "./match_id";
 import { getMatchStub } from "./match_service";
@@ -60,8 +60,9 @@ export async function createMatch(
   creator: MatchViewer,
 ): Promise<MatchResult<MatchCreateResponse>> {
   try {
-    const awbwMap = await fetchAwbwMapData(input.mapId);
-    const maxPlayers = awbwMap["Player Count"];
+    const mapRef = await importAwbwMap(input.mapId);
+    const mapDocument = await loadMapRevision(mapRef);
+    const maxPlayers = mapDocument.metadata.player_count;
 
     if (!Number.isSafeInteger(maxPlayers) || maxPlayers <= 0) {
       return err("invalidMap", "selected map has an invalid player count", 400);
@@ -79,7 +80,8 @@ export async function createMatch(
           name: input.name,
           phase: PUBLIC_MATCH_PHASE,
           creatorUserId: creator.id,
-          mapId: input.mapId,
+          mapId: mapRef.mapId,
+          mapRevision: mapRef.revision,
           maxPlayers,
           isPrivate: input.isPrivate,
           joinSlug,
@@ -518,20 +520,21 @@ async function buildMatchSetup(row: NonNullable<MatchRow>): Promise<MatchResult<
     }
   }
 
-  let map: AwbwMapData;
+  let map: AwbrnMapDocument;
   try {
-    map = await fetchAwbwMapData(row.mapId);
+    map = await loadMapRevision({ mapId: row.mapId, revision: row.mapRevision });
   } catch (error) {
     return err(
       "matchStartBlocked",
-      error instanceof Error ? error.message : "failed to fetch map data",
-      502,
+      error instanceof Error ? error.message : "failed to load map data",
+      500,
     );
   }
 
   return ok({
     matchId: row.id,
     mapId: row.mapId,
+    revision: row.mapRevision,
     map,
     fogEnabled: settings.value.fogEnabled,
     startingFunds: settings.value.startingFunds,
@@ -565,6 +568,7 @@ async function loadMatchSnapshot(matchId: string): Promise<MatchResult<MatchSnap
     creatorUserId: row.creatorUserId,
     creatorName: row.creatorName,
     mapId: row.mapId,
+    mapRevision: row.mapRevision,
     maxPlayers: row.maxPlayers,
     isPrivate: row.isPrivate,
     joinSlug: row.joinSlug ?? null,
@@ -586,6 +590,7 @@ async function queryMatchRow(matchId: string) {
       creatorUserId: matches.creatorUserId,
       creatorName: user.name,
       mapId: matches.mapId,
+      mapRevision: matches.mapRevision,
       maxPlayers: matches.maxPlayers,
       isPrivate: matches.isPrivate,
       joinSlug: matches.joinSlug,
@@ -640,6 +645,7 @@ async function queryBrowseRows(cursor: { createdAt: string; matchId: string } | 
       name: matches.name,
       creatorName: user.name,
       mapId: matches.mapId,
+      mapRevision: matches.mapRevision,
       maxPlayers: matches.maxPlayers,
       participantCount: count(matchParticipants.userId),
       settings: matches.settings,
@@ -654,6 +660,7 @@ async function queryBrowseRows(cursor: { createdAt: string; matchId: string } | 
       matches.name,
       user.name,
       matches.mapId,
+      matches.mapRevision,
       matches.maxPlayers,
       matches.settings,
       matches.createdAt,
@@ -690,6 +697,7 @@ async function queryMyMatchRows(viewerUserId: string) {
       phase: matches.phase,
       creatorName: user.name,
       mapId: matches.mapId,
+      mapRevision: matches.mapRevision,
       maxPlayers: matches.maxPlayers,
       participantCount: sql<number>`(
         SELECT COUNT(*)
@@ -769,6 +777,7 @@ function toMatchBrowseSummary(
     name: row.name,
     creatorName: row.creatorName,
     mapId: row.mapId,
+    mapRevision: row.mapRevision,
     maxPlayers: row.maxPlayers,
     participantCount,
     openSlotCount: Math.max(0, row.maxPlayers - participantCount),
@@ -788,6 +797,7 @@ function toMyMatchSummary(rows: MyMatchRow[], settings: MatchSettings): MyMatchS
     phase: row.phase,
     creatorName: row.creatorName,
     mapId: row.mapId,
+    mapRevision: row.mapRevision,
     maxPlayers: row.maxPlayers,
     participantCount,
     openSlotCount: Math.max(0, row.maxPlayers - participantCount),

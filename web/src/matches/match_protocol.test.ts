@@ -24,19 +24,15 @@ describe("live match commands", () => {
 
 const setup: MatchSetup = {
   matchId: "match_123",
-  mapId: 162795,
+  mapId: "000000162795",
+  revision: 1,
   map: {
-    Name: "Test Map",
-    Author: "Andy",
-    "Player Count": 2,
-    "Published Date": "2026-04-12",
-    "Size X": 2,
-    "Size Y": 2,
-    "Terrain Map": [
-      [1, 2],
-      [3, 4],
-    ],
-    "Predeployed Units": [],
+    map_format: 1,
+    width: 2,
+    height: 2,
+    terrain: [1, 3, 2, 4],
+    units: [],
+    metadata: { name: "Test Map", author: "Andy", player_count: 2 },
   },
   players: [
     {
@@ -115,7 +111,8 @@ describe("initial match connection messages", () => {
     expect(initialMatchConnectionMessages(setup, 0, gameState)).toEqual([
       {
         type: "initialBoard",
-        mapId: 162795,
+        mapId: "000000162795",
+        revision: 1,
         map: setup.map,
         gameState,
       },
@@ -130,7 +127,8 @@ describe("initial match connection messages", () => {
     expect(initialMatchConnectionMessages(setup, null, null)).toEqual([
       {
         type: "initialBoard",
-        mapId: 162795,
+        mapId: "000000162795",
+        revision: 1,
         map: setup.map,
         gameState: null,
       },
@@ -150,7 +148,8 @@ describe("initial match connection messages", () => {
     ).toEqual([
       {
         type: "initialBoard",
-        mapId: 162795,
+        mapId: "000000162795",
+        revision: 1,
         map: setup.map,
         gameState: null,
       },
