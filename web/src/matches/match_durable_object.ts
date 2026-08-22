@@ -21,6 +21,7 @@ import { matchResults, matches } from "#/db/global.ts";
 import { getRequestSession } from "#/auth/auth.server.ts";
 import { ownedSlotIndices, selectOwnedPerspectiveSlot } from "./hotseat.ts";
 import { matchResultRows } from "./match_completion.ts";
+import { uploadMatchReplay } from "./replay_archive.ts";
 
 interface WebSocketAttachment {
   userId: string;
@@ -310,6 +311,7 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
 
     const db = drizzleD1(this.env.DB);
     const now = new Date();
+    await uploadMatchReplay(this.env.CONTENT, setup, this.readActionEvents());
     await db.batch([
       db.insert(matchResults).values(rows).onConflictDoNothing(),
       db

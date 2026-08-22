@@ -16,6 +16,7 @@ import { Route as MatchesIndexRouteImport } from './routes/matches/index'
 import { Route as MatchesMatchIdRouteImport } from './routes/matches/$matchId'
 import { Route as MatchesNewRouteImport } from './routes/matches/new'
 import { Route as MyMatchesRouteImport } from './routes/my/matches'
+import { Route as ReplaysChar123matchIdChar125DotjsonRouteImport } from './routes/replays/{$matchId}[.]json'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiAwbwMapMapIdRouteImport } from './routes/api/awbw/map.$mapId'
 import { Route as ApiAwbwSmallmapMapIdRouteImport } from './routes/api/awbw/smallmap.$mapId'
@@ -56,6 +57,12 @@ const MyMatchesRoute = MyMatchesRouteImport.update({
   path: '/my/matches',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ReplaysChar123matchIdChar125DotjsonRoute =
+  ReplaysChar123matchIdChar125DotjsonRouteImport.update({
+    id: '/replays/{$matchId}.json',
+    path: '/replays/{$matchId}.json',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -84,6 +91,7 @@ export interface FileRoutesByFullPath {
   '/matches/$matchId': typeof MatchesMatchIdRoute
   '/matches/new': typeof MatchesNewRoute
   '/my/matches': typeof MyMatchesRoute
+  '/replays/{$matchId}.json': typeof ReplaysChar123matchIdChar125DotjsonRoute
   '/matches/': typeof MatchesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
@@ -97,6 +105,7 @@ export interface FileRoutesByTo {
   '/matches/$matchId': typeof MatchesMatchIdRoute
   '/matches/new': typeof MatchesNewRoute
   '/my/matches': typeof MyMatchesRoute
+  '/replays/{$matchId}.json': typeof ReplaysChar123matchIdChar125DotjsonRoute
   '/matches': typeof MatchesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
@@ -111,6 +120,7 @@ export interface FileRoutesById {
   '/matches/$matchId': typeof MatchesMatchIdRoute
   '/matches/new': typeof MatchesNewRoute
   '/my/matches': typeof MyMatchesRoute
+  '/replays/{$matchId}.json': typeof ReplaysChar123matchIdChar125DotjsonRoute
   '/matches/': typeof MatchesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
@@ -126,6 +136,7 @@ export interface FileRouteTypes {
     | '/matches/$matchId'
     | '/matches/new'
     | '/my/matches'
+    | '/replays/{$matchId}.json'
     | '/matches/'
     | '/api/auth/$'
     | '/api/awbw/map/$mapId'
@@ -139,6 +150,7 @@ export interface FileRouteTypes {
     | '/matches/$matchId'
     | '/matches/new'
     | '/my/matches'
+    | '/replays/{$matchId}.json'
     | '/matches'
     | '/api/auth/$'
     | '/api/awbw/map/$mapId'
@@ -152,6 +164,7 @@ export interface FileRouteTypes {
     | '/matches/$matchId'
     | '/matches/new'
     | '/my/matches'
+    | '/replays/{$matchId}.json'
     | '/matches/'
     | '/api/auth/$'
     | '/api/awbw/map/$mapId'
@@ -166,6 +179,7 @@ export interface RootRouteChildren {
   MatchesMatchIdRoute: typeof MatchesMatchIdRoute
   MatchesNewRoute: typeof MatchesNewRoute
   MyMatchesRoute: typeof MyMatchesRoute
+  ReplaysChar123matchIdChar125DotjsonRoute: typeof ReplaysChar123matchIdChar125DotjsonRoute
   MatchesIndexRoute: typeof MatchesIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiAwbwMapMapIdRoute: typeof ApiAwbwMapMapIdRoute
@@ -224,6 +238,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MyMatchesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/replays/{$matchId}.json': {
+      id: '/replays/{$matchId}.json'
+      path: '/replays/{$matchId}.json'
+      fullPath: '/replays/{$matchId}.json'
+      preLoaderRoute: typeof ReplaysChar123matchIdChar125DotjsonRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -262,6 +283,8 @@ const rootRouteChildren: RootRouteChildren = {
   MatchesMatchIdRoute: MatchesMatchIdRoute,
   MatchesNewRoute: MatchesNewRoute,
   MyMatchesRoute: MyMatchesRoute,
+  ReplaysChar123matchIdChar125DotjsonRoute:
+    ReplaysChar123matchIdChar125DotjsonRoute,
   MatchesIndexRoute: MatchesIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiAwbwMapMapIdRoute: ApiAwbwMapMapIdRoute,

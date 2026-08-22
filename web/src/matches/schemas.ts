@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { awbwMapDataSchema } from "#/awbw/schemas.ts";
+import { matchIdSchema } from "./match_id.ts";
 
 export const matchSettingsSchema = z.object({
   fogEnabled: z.boolean(),
@@ -176,7 +177,7 @@ export const matchSetupPlayerSchema = z.object({
 });
 
 export const matchSetupSchema = z.object({
-  matchId: z.string(),
+  matchId: matchIdSchema,
   mapId: z.number().int().positive(),
   map: awbwMapDataSchema,
   players: z.array(matchSetupPlayerSchema),
