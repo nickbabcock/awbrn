@@ -58,7 +58,8 @@ jobs:
           rust: beta
         - build: nightly
           os: ubuntu-latest
-          rust: nightly
+          # Current nightly does not compile Bevy 0.19.1.
+          rust: nightly-2026-07-09
         - build: macos
           os: macos-latest
           rust: stable
