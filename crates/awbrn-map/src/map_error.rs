@@ -28,8 +28,8 @@ pub enum MapError {
         found: usize,
     },
     UnitOutOfBounds {
-        x: usize,
-        y: usize,
+        x: u32,
+        y: u32,
     },
     DimensionsOutOfRange {
         width: u32,
@@ -37,13 +37,13 @@ pub enum MapError {
         limit: u32,
     },
     UnitHpOutOfRange {
-        x: usize,
-        y: usize,
+        x: u32,
+        y: u32,
         hp: u32,
     },
     UnitPositionOccupied {
-        x: usize,
-        y: usize,
+        x: u32,
+        y: u32,
     },
     UnknownUnitId {
         id: u32,

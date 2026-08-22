@@ -8,7 +8,7 @@
 //! | [`WorldPos`]  | Map center     | Up     | 1 unit = 1 logical px at camera scale 1.0 |
 //! | Tile grid     | Map top-left   | Down   | [`TILE_SIZE`] logical px per cell        |
 //!
-//! Tile-grid positions use [`awbrn_map::Position`] / [`awbrn_game::MapPosition`] (already
+//! Tile-grid positions use [`awbrn_map::Pos`] / [`awbrn_game::MapPosition`] (already
 //! strong types) and are not folded into the f32 system here.
 //!
 //! ## Conversions
@@ -23,7 +23,7 @@
 use std::ops::{Add, Sub};
 
 use awbrn_game::{MapPosition, world::GameMap};
-use awbrn_map::Position;
+use awbrn_map::Pos;
 use bevy::prelude::*;
 
 use crate::core::SpriteSize;
@@ -255,10 +255,9 @@ fn world_to_map_position(world: WorldPos, map: &GameMap) -> Option<MapPosition> 
         return None;
     }
 
-    Some(MapPosition::new(
-        gx_f.floor() as usize,
-        gy_f.floor() as usize,
-    ))
+    // The bounds check above puts both inside the map, and a map is at most
+    // 255 tiles on each axis, so each floor fits a coordinate.
+    Some(MapPosition::new(gx_f.floor() as u8, gy_f.floor() as u8))
 }
 
 /// Compute `Transform::translation` for a sprite at `pos`.
@@ -291,12 +290,12 @@ pub fn map_position_to_world_translation(
     )
 }
 
-/// Like [`map_position_to_world_translation`] but takes a raw [`Position`].
+/// Like [`map_position_to_world_translation`] but takes a raw [`Pos`].
 ///
-/// Kept for call sites (e.g., fog overlay) that work with [`Position`] directly.
+/// Kept for call sites (e.g., fog overlay) that work with [`Pos`] directly.
 pub fn position_to_world_translation(
     sprite_size: &SpriteSize,
-    position: Position,
+    position: Pos,
     game_map: &GameMap,
 ) -> Vec3 {
     map_position_to_world_translation(sprite_size, position.into(), game_map)
@@ -309,7 +308,10 @@ mod tests {
 
     fn map_3x2() -> GameMap {
         let mut m = GameMap::default();
-        m.set(AwbrnMap::new(3, 2, awbrn_types::GraphicalTerrain::Plain));
+        m.set(AwbrnMap::new(
+            awbrn_map::Dimensions::new(3, 2),
+            awbrn_types::GraphicalTerrain::Plain,
+        ));
         m
     }
 

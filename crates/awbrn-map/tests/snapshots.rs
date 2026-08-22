@@ -1,4 +1,4 @@
-use awbrn_map::Position;
+use awbrn_map::Pos;
 use awbrn_types::GraphicalTerrain;
 use insta::{assert_snapshot, glob};
 use std::fmt::Write;
@@ -47,7 +47,7 @@ fn format_map_as_grid(map: &awbrn_map::AwbrnMap) -> String {
 
     for y in 0..height {
         for x in 0..width {
-            let terrain = map.terrain_at(Position::new(x, y)).unwrap();
+            let terrain = map.terrain_at(Pos::new(x, y)).unwrap();
             let terrain = terrain_to_chars(terrain);
             let _ = write!(result, "{}", terrain);
             if x < width - 1 {

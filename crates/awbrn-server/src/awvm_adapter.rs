@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use awbrn_map::{AwbrnMap, Position};
+use awbrn_map::AwbrnMap;
 use awbrn_types::{
     AwbwTerrain, Faction, GraphicalTerrain, MissileSiloStatus, PlayerFaction, Property,
     Unit as ServerUnit,
@@ -148,7 +148,7 @@ impl Authority {
     pub(crate) fn spawn_unit(
         &mut self,
         id: ServerUnitId,
-        position: Position,
+        position: Pos,
         kind: ServerUnit,
         faction: PlayerFaction,
         active: bool,
@@ -173,9 +173,7 @@ impl Authority {
                 UnitAction::Spent
             },
             concealment: Concealment::Exposed,
-            location: Location::Board {
-                position: pos(position),
-            },
+            location: Location::Board { position },
         });
         let next = id
             .get()
@@ -297,7 +295,7 @@ fn commands(
             unit_type,
         } => one(Command::ProduceUnit {
             player,
-            position: pos(*position),
+            position: *position,
             kind: *unit_type,
         }),
         GameCommand::ActivatePower { level } => one(Command::ActivatePower {
@@ -317,7 +315,7 @@ fn commands(
             player,
             transport: command_unit_id(transport_id.0)?,
             cargo: command_unit_id(cargo_id.0)?,
-            destination: pos(*position),
+            destination: *position,
         }),
         GameCommand::MoveUnit {
             unit_id: server_unit_id,
@@ -325,10 +323,10 @@ fn commands(
             action,
         } => {
             let unit = unit_id(*server_unit_id);
-            let path = path.iter().copied().map(pos).collect::<Vec<_>>();
+            let path = path.to_vec();
             match action {
                 Some(PostMoveAction::Attack { target }) => {
-                    let target_position = pos(*target);
+                    let target_position = *target;
                     let target = state
                         .units
                         .iter()
@@ -368,7 +366,7 @@ fn commands(
                         player,
                         transport: unit,
                         cargo: command_unit_id(*cargo_id)?,
-                        destination: pos(*position),
+                        destination: *position,
                     },
                 ]),
                 Some(PostMoveAction::Supply) => one(Command::MoveSupply { player, unit, path }),
@@ -390,7 +388,7 @@ fn commands(
                     player,
                     unit,
                     path,
-                    target: pos(*target),
+                    target: *target,
                 }),
                 Some(PostMoveAction::Explode) => one(Command::MoveExplode { player, unit, path }),
                 Some(PostMoveAction::Wait) | None => one(Command::MoveWait { player, unit, path }),
@@ -458,6 +456,7 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
         .filter_map(|(faction, id)| Some((*faction, players.seat(id)?)))
         .collect();
     let active_player = players[0].id().clone();
+    let (units, next_unit_id) = deployed_units(setup, &faction_seats)?;
 
     Ok(State {
         ruleset: RulesetRef {
@@ -495,43 +494,78 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
             kind: WeatherKind::Clear,
             remaining_turns: 0,
         },
-        units: UnitStore::default(),
-        next_unit_id: Some(1),
+        units,
+        next_unit_id: Some(next_unit_id),
         match_state: Match::Active {
             draw_offers: Vec::new(),
         },
     })
 }
 
+fn deployed_units(
+    setup: &GameSetup,
+    faction_seats: &HashMap<PlayerFaction, PlayerIdx>,
+) -> Result<(UnitStore, u32), SetupError> {
+    let deployments = setup.map.deployments();
+    let mut units = Vec::with_capacity(deployments.len());
+    let mut next = 1u32;
+
+    for (position, deployed) in deployments.iter() {
+        let owner =
+            *faction_seats
+                .get(&deployed.faction)
+                .ok_or_else(|| SetupError::InvalidMap {
+                    reason: format!(
+                        "the map starts a {:?} unit and no player holds that faction",
+                        deployed.faction
+                    ),
+                })?;
+        let profile = profile(deployed.unit);
+        units.push(Unit {
+            id: UnitId::new(next),
+            kind: deployed.unit,
+            owner,
+            hp: deployed.hp.get() * 10,
+            fuel: profile.max_fuel,
+            ammo: profile.max_ammo,
+            action: UnitAction::Ready,
+            concealment: Concealment::Exposed,
+            location: Location::Board { position },
+        });
+        next = next.checked_add(1).ok_or_else(|| SetupError::InvalidMap {
+            reason: "the map starts more units than an identifier can name".to_owned(),
+        })?;
+    }
+
+    let units = UnitStore::new(units).map_err(|error| SetupError::InvalidMap {
+        reason: error.to_string(),
+    })?;
+    Ok((units, next))
+}
+
 fn board(
     map: &AwbrnMap,
     faction_seats: &HashMap<PlayerFaction, PlayerIdx>,
 ) -> Result<Board, SetupError> {
-    let width = u8::try_from(map.width()).map_err(|_| SetupError::InvalidMap {
-        reason: format!("map width {} exceeds AWVM's 255-tile limit", map.width()),
-    })?;
-    let height = u8::try_from(map.height()).map_err(|_| SetupError::InvalidMap {
-        reason: format!("map height {} exceeds AWVM's 255-tile limit", map.height()),
-    })?;
-    let mut tiles = Vec::with_capacity(map.width() * map.height());
+    // A map already holds VM coordinates, so its shape needs no reconversion.
+    let dimensions = map.dimensions();
+    let mut tiles = Vec::with_capacity(dimensions.len());
     // Seam HP belongs to the board, not to the tile, so it is collected here
     // and applied once the rectangle is built.
     let mut seams = Vec::new();
-    for y in 0..map.height() {
-        for x in 0..map.width() {
-            let terrain = map
-                .terrain_at(Position::new(x, y))
-                .expect("map coordinates inside its rectangle have terrain");
-            let (built, seam_hp) = tile(terrain, faction_seats);
-            if let Some(hp) = seam_hp {
-                seams.push((Pos::new(x as u8, y as u8), hp));
-            }
-            tiles.push(built);
+    for (position, terrain) in map.iter() {
+        let (built, seam_hp) = tile(terrain, faction_seats);
+        if let Some(hp) = seam_hp {
+            seams.push((position, hp));
         }
+        tiles.push(built);
     }
-    let mut board = Board::new(width, height, tiles).map_err(|error| SetupError::InvalidMap {
-        reason: error.to_string(),
-    })?;
+    let mut board =
+        Board::new(dimensions.width(), dimensions.height(), tiles).map_err(|error| {
+            SetupError::InvalidMap {
+                reason: error.to_string(),
+            }
+        })?;
     for (position, hp) in seams {
         board.set_destructible_hp(position, Some(hp));
     }
@@ -624,11 +658,4 @@ fn command_unit_id(id: u64) -> Result<UnitId, CommandError> {
         .map_err(|_| CommandError::InvalidAction {
             reason: format!("unit id {id} exceeds AWVM's identifier domain"),
         })
-}
-
-fn pos(position: Position) -> Pos {
-    Pos::new(
-        u8::try_from(position.x).expect("validated x coordinate fits AWVM"),
-        u8::try_from(position.y).expect("validated y coordinate fits AWVM"),
-    )
 }

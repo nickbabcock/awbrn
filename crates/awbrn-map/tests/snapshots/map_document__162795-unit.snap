@@ -3,4 +3,4 @@ source: crates/awbrn-map/tests/map_document.rs
 expression: document.unit_preimage()
 ---
 awbrn-map-unit-v1
-[{"x":12,"y":9,"unit":"infantry","faction":"bh"},{"x":14,"y":9,"unit":"infantry","faction":"bh"},{"x":12,"y":11,"unit":"infantry","faction":"bh"},{"x":14,"y":11,"unit":"infantry","faction":"bh"}]
+[{"position":[12,9],"unit":"infantry","faction":"bh"},{"position":[14,9],"unit":"infantry","faction":"bh"},{"position":[12,11],"unit":"infantry","faction":"bh"},{"position":[14,11],"unit":"infantry","faction":"bh"}]

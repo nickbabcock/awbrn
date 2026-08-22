@@ -25,17 +25,17 @@
 //! case therefore rebuilds its server in setup, which both harnesses exclude
 //! from the measurement.
 
-use awbrn_map::{AwbrnMap, AwbwMap, Position};
+use awbrn_map::{AwbrnMap, AwbwMap, Dimensions, Pos};
 use awbrn_server::{
     GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup, PostMoveAction, state_from_setup,
 };
 use awbrn_types::{AwbwTerrain, Co, Faction, PlayerFaction, Property, Unit as ServerUnit};
 use awvm::ruleset::{UnitKind, profile};
-use awvm::semantic::{Concealment, Location, Pos, State, Unit as AwvmUnit, UnitAction, UnitId};
+use awvm::semantic::{Concealment, Location, State, Unit as AwvmUnit, UnitAction, UnitId};
 
 /// The board every case runs on. AWBW's own maps cluster around this size.
-const WIDTH: usize = 20;
-const HEIGHT: usize = 20;
+const WIDTH: u8 = 20;
+const HEIGHT: u8 = 20;
 
 /// Factions in seating order. Cases take a prefix of this.
 ///
@@ -69,10 +69,10 @@ const UNITS: usize = 40;
 /// income over, and they are the tiles a fog rebuild treats differently from
 /// open ground.
 fn map(players: usize) -> AwbrnMap {
-    let mut awbw = AwbwMap::new(WIDTH, HEIGHT, AwbwTerrain::Plain);
+    let mut awbw = AwbwMap::new(Dimensions::new(WIDTH, HEIGHT), AwbwTerrain::Plain);
 
-    let mut put = |x: usize, y: usize, terrain: AwbwTerrain| {
-        if let Some(tile) = awbw.terrain_at_mut(Position::new(x, y)) {
+    let mut put = |x: u8, y: u8, terrain: AwbwTerrain| {
+        if let Some(tile) = awbw.terrain_at_mut(Pos::new(x, y)) {
             *tile = terrain;
         }
     };
@@ -80,7 +80,7 @@ fn map(players: usize) -> AwbrnMap {
     for (seat, faction) in FACTIONS.iter().take(players).enumerate() {
         // Seats alternate between the top and bottom edges, working inward, so
         // six of them fit without overlapping.
-        let band = seat / 2;
+        let band = seat as u8 / 2;
         let (row, inner) = if seat % 2 == 0 {
             (band * 2, band * 2 + 1)
         } else {
@@ -130,17 +130,18 @@ const ROSTER: [ServerUnit; 5] = [
 
 /// The tile the mover starts on, and the two it walks to. Kept clear of every
 /// other unit so the move case is never blocked.
-const MOVER_START: (usize, usize) = (0, 3);
-const MOVER_PATH: [(usize, usize); 3] = [(0, 3), (0, 4), (0, 5)];
+const MOVER_START: (u8, u8) = (0, 3);
+const MOVER_PATH: [(u8, u8); 3] = [(0, 3), (0, 4), (0, 5)];
 /// Adjacent to the mover's destination, so the attack case measures an attack
 /// rather than a fourteen-row walk to find someone to shoot.
-const ATTACK_TARGET: (usize, usize) = (1, 5);
+const ATTACK_TARGET: (u8, u8) = (1, 5);
 
 /// Where the rest of the roster stands: rows 6 upward, clear of both edges'
 /// properties and of the mover's lane.
-fn deployment(players: usize) -> impl Iterator<Item = (Position, ServerUnit, PlayerFaction)> {
+fn deployment(players: usize) -> impl Iterator<Item = (Pos, ServerUnit, PlayerFaction)> {
     (0..UNITS - 1).map(move |i| {
-        let position = Position::new(i % WIDTH, 6 + i / WIDTH);
+        let column = (i % usize::from(WIDTH)) as u8;
+        let position = Pos::new(column, 6 + (i / usize::from(WIDTH)) as u8);
         // Round-robin so every seat owns units — a seat with none sees nothing
         // and its fog rebuild would be unrepresentatively cheap.
         let faction = FACTIONS[(i + 1) % players];
@@ -175,7 +176,7 @@ pub fn server(players: usize, fog: bool) -> GameServer {
     let mut server = GameServer::new(setup(players, fog)).expect("game setup is valid");
     // The mover goes first so it is always unit 1, whatever the roster does.
     server.spawn_unit(
-        Position::new(MOVER_START.0, MOVER_START.1),
+        Pos::new(MOVER_START.0, MOVER_START.1),
         ServerUnit::Tank,
         FACTIONS[0],
     );
@@ -192,7 +193,7 @@ pub fn server(players: usize, fog: bool) -> GameServer {
 pub fn state(players: usize, fog: bool) -> State {
     let mut state = state_from_setup(&setup(players, fog)).expect("game setup is valid");
     let units = std::iter::once((
-        Position::new(MOVER_START.0, MOVER_START.1),
+        Pos::new(MOVER_START.0, MOVER_START.1),
         ServerUnit::Tank,
         FACTIONS[0],
     ))
@@ -222,12 +223,7 @@ pub fn state(players: usize, fog: bool) -> State {
             ammo: unit_profile.max_ammo,
             action: UnitAction::Ready,
             concealment: Concealment::Exposed,
-            location: Location::Board {
-                position: Pos::new(
-                    u8::try_from(position.x).expect("map position fits in u8"),
-                    u8::try_from(position.y).expect("map position fits in u8"),
-                ),
-            },
+            location: Location::Board { position },
         });
     }
     state.next_unit_id = Some(u32::try_from(UNITS + 1).expect("unit identifier fits in u32"));
@@ -267,10 +263,7 @@ pub enum Kind {
 pub fn submission(kind: Kind, players: usize, fog: bool) -> Submission {
     let mut server = server(players, fog);
     let player = PlayerId(0);
-    let path: Vec<Position> = MOVER_PATH
-        .iter()
-        .map(|(x, y)| Position::new(*x, *y))
-        .collect();
+    let path: Vec<Pos> = MOVER_PATH.iter().map(|(x, y)| Pos::new(*x, *y)).collect();
 
     let command = match kind {
         Kind::Move => GameCommand::MoveUnit {
@@ -279,7 +272,7 @@ pub fn submission(kind: Kind, players: usize, fog: bool) -> Submission {
             action: Some(PostMoveAction::Wait),
         },
         Kind::Attack => {
-            let target = Position::new(ATTACK_TARGET.0, ATTACK_TARGET.1);
+            let target = Pos::new(ATTACK_TARGET.0, ATTACK_TARGET.1);
             server.spawn_unit(target, ServerUnit::Infantry, FACTIONS[1]);
             GameCommand::MoveUnit {
                 unit_id: awbrn_server::ServerUnitId(1),

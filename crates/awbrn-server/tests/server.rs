@@ -1,9 +1,9 @@
 use std::num::NonZeroU8;
 
-use awbrn_map::{AwbrnMap, Position};
+use awbrn_map::{AwbrnMap, Deployment, Dimensions, Pos};
 use awbrn_types::{
     Faction as TerrainFaction, GraphicalTerrain, MissileSiloStatus, PlayerFaction, Property,
-    SeaDirection, ShoalDirection, Unit, UnitExt,
+    SeaDirection, ShoalDirection, Unit, UnitExt, VisualHp,
 };
 
 use awbrn_server::{
@@ -14,7 +14,7 @@ use awbrn_server::{
 use awvm::ruleset::VictoryReason;
 use awvm::semantic::{ObservedEvent, ObservedUnitRef, PlayerStatus};
 
-fn attack_command(unit_id: ServerUnitId, path: Vec<Position>, target: Position) -> GameCommand {
+fn attack_command(unit_id: ServerUnitId, path: Vec<Pos>, target: Pos) -> GameCommand {
     GameCommand::MoveUnit {
         unit_id,
         path,
@@ -22,7 +22,7 @@ fn attack_command(unit_id: ServerUnitId, path: Vec<Position>, target: Position) 
     }
 }
 
-fn capture_command(unit_id: ServerUnitId, position: Position) -> GameCommand {
+fn capture_command(unit_id: ServerUnitId, position: Pos) -> GameCommand {
     GameCommand::MoveUnit {
         unit_id,
         path: vec![position],
@@ -30,11 +30,7 @@ fn capture_command(unit_id: ServerUnitId, position: Position) -> GameCommand {
     }
 }
 
-fn action_command(
-    unit_id: ServerUnitId,
-    path: Vec<Position>,
-    action: PostMoveAction,
-) -> GameCommand {
+fn action_command(unit_id: ServerUnitId, path: Vec<Pos>, action: PostMoveAction) -> GameCommand {
     GameCommand::MoveUnit {
         unit_id,
         path,
@@ -45,7 +41,7 @@ fn action_command(
 fn unload_command(
     transport_id: ServerUnitId,
     cargo_id: ServerUnitId,
-    position: Position,
+    position: Pos,
 ) -> GameCommand {
     GameCommand::Unload {
         transport_id,
@@ -54,7 +50,7 @@ fn unload_command(
     }
 }
 
-fn build_command(position: Position, unit_type: Unit) -> GameCommand {
+fn build_command(position: Pos, unit_type: Unit) -> GameCommand {
     GameCommand::Build {
         position,
         unit_type,
@@ -83,9 +79,9 @@ fn expect_replay_error(setup: GameSetup, events: &[StoredActionEvent]) -> Replay
     }
 }
 
-fn two_player_setup(width: usize, height: usize) -> GameSetup {
+fn two_player_setup(width: u8, height: u8) -> GameSetup {
     GameSetup {
-        map: AwbrnMap::new(width, height, GraphicalTerrain::Plain),
+        map: AwbrnMap::new(Dimensions::new(width, height), GraphicalTerrain::Plain),
         players: vec![
             PlayerSetup {
                 faction: PlayerFaction::OrangeStar,
@@ -105,13 +101,43 @@ fn two_player_setup(width: usize, height: usize) -> GameSetup {
     }
 }
 
-fn two_player_setup_with_funds(width: usize, height: usize, p1_funds: u32) -> GameSetup {
+fn two_player_setup_with_funds(width: u8, height: u8, p1_funds: u32) -> GameSetup {
     let mut setup = two_player_setup(width, height);
     setup.players[0].starting_funds = p1_funds;
     setup
 }
 
-fn set_property(setup: &mut GameSetup, position: Position, property: Property) {
+#[test]
+fn state_conversion_starts_with_deployed_units() {
+    let mut setup = two_player_setup(5, 3);
+    setup
+        .map
+        .deploy(
+            Pos::new(3, 2),
+            Deployment {
+                unit: Unit::Infantry,
+                hp: VisualHp::new(4),
+                faction: PlayerFaction::BlueMoon,
+            },
+        )
+        .expect("the tile is on the board and empty");
+
+    let state = state_from_setup(&setup).expect("the setup is valid");
+    let second = state
+        .players
+        .seats()
+        .nth(1)
+        .map(|(seat, _)| seat)
+        .expect("the setup has two players");
+    let units: Vec<_> = state.units.iter().collect();
+
+    assert_eq!(units.len(), 1);
+    assert_eq!(units[0].owner, second);
+    assert_eq!(units[0].hp, 40);
+    assert_eq!(state.next_unit_id, Some(2));
+}
+
+fn set_property(setup: &mut GameSetup, position: Pos, property: Property) {
     setup
         .map
         .set_terrain(position, GraphicalTerrain::Property(property));
@@ -123,17 +149,17 @@ fn replay_combat_setup() -> GameSetup {
     setup.players[1].starting_funds = 50_000;
     set_property(
         &mut setup,
-        Position::new(0, 0),
+        Pos::new(0, 0),
         Property::Base(TerrainFaction::Player(PlayerFaction::OrangeStar)),
     );
     set_property(
         &mut setup,
-        Position::new(2, 0),
+        Pos::new(2, 0),
         Property::City(TerrainFaction::Neutral),
     );
     set_property(
         &mut setup,
-        Position::new(3, 0),
+        Pos::new(3, 0),
         Property::Base(TerrainFaction::Player(PlayerFaction::BlueMoon)),
     );
     setup
@@ -148,14 +174,14 @@ fn valid_attack_replay_prefix() -> (GameSetup, Vec<StoredActionEvent>) {
         &mut server,
         &mut events,
         p1(),
-        build_command(Position::new(0, 0), Unit::Infantry),
+        build_command(Pos::new(0, 0), Unit::Infantry),
     );
     submit_and_store(&mut server, &mut events, p1(), GameCommand::EndTurn);
     submit_and_store(
         &mut server,
         &mut events,
         p2(),
-        build_command(Position::new(3, 0), Unit::Infantry),
+        build_command(Pos::new(3, 0), Unit::Infantry),
     );
     submit_and_store(&mut server, &mut events, p2(), GameCommand::EndTurn);
     submit_and_store(
@@ -164,7 +190,7 @@ fn valid_attack_replay_prefix() -> (GameSetup, Vec<StoredActionEvent>) {
         p1(),
         action_command(
             ServerUnitId(1),
-            vec![Position::new(0, 0), Position::new(1, 0)],
+            vec![Pos::new(0, 0), Pos::new(1, 0)],
             PostMoveAction::Wait,
         ),
     );
@@ -174,9 +200,9 @@ fn valid_attack_replay_prefix() -> (GameSetup, Vec<StoredActionEvent>) {
     (setup, events)
 }
 
-fn allied_player_setup(width: usize, height: usize) -> GameSetup {
+fn allied_player_setup(width: u8, height: u8) -> GameSetup {
     GameSetup {
-        map: AwbrnMap::new(width, height, GraphicalTerrain::Plain),
+        map: AwbrnMap::new(Dimensions::new(width, height), GraphicalTerrain::Plain),
         players: vec![
             PlayerSetup {
                 faction: PlayerFaction::OrangeStar,
@@ -196,7 +222,7 @@ fn allied_player_setup(width: usize, height: usize) -> GameSetup {
     }
 }
 
-fn three_player_setup(width: usize, height: usize) -> GameSetup {
+fn three_player_setup(width: u8, height: u8) -> GameSetup {
     let mut setup = two_player_setup(width, height);
     setup.players.push(PlayerSetup {
         faction: PlayerFaction::GreenEarth,
@@ -222,7 +248,7 @@ fn p3() -> PlayerId {
 #[test]
 fn state_conversion_rejects_empty_player_setup() {
     let setup = GameSetup {
-        map: AwbrnMap::new(5, 5, GraphicalTerrain::Plain),
+        map: AwbrnMap::new(Dimensions::new(5, 5), GraphicalTerrain::Plain),
         players: Vec::new(),
         fog_enabled: false,
         rng_seed: 0,
@@ -240,7 +266,7 @@ fn state_conversion_rejects_empty_player_setup() {
 #[test]
 fn state_conversion_rejects_more_than_255_players() {
     let setup = GameSetup {
-        map: AwbrnMap::new(5, 5, GraphicalTerrain::Plain),
+        map: AwbrnMap::new(Dimensions::new(5, 5), GraphicalTerrain::Plain),
         players: vec![
             PlayerSetup {
                 faction: PlayerFaction::OrangeStar,
@@ -263,32 +289,27 @@ fn state_conversion_rejects_more_than_255_players() {
     );
 }
 
+/// A board past the VM's coordinate domain is no longer a runtime error here:
+/// a map holds VM coordinates, so an oversized one cannot be built to hand to
+/// the server. The rejection now happens where the dimensions are still
+/// untrusted numbers, which `awbrn-map`'s
+/// `validate_rejects_dimensions_wider_than_the_vm_board` covers. What is left
+/// to check on this side is that the widest board the type admits is accepted.
 #[test]
-fn server_rejects_map_dimensions_outside_awvm_domain() {
-    let mut setup = two_player_setup(256, 1);
-    let err = GameServer::new(setup.clone()).err().unwrap();
-    assert_eq!(
-        err,
-        SetupError::InvalidMap {
-            reason: "map width 256 exceeds AWVM's 255-tile limit".into(),
-        }
-    );
+fn server_accepts_the_widest_map_the_vm_can_address() {
+    let setup = two_player_setup(u8::MAX, 1);
+    let state = state_from_setup(&setup).expect("the widest board is a valid map");
 
-    setup.map = AwbrnMap::new(1, 256, GraphicalTerrain::Plain);
-    let err = GameServer::new(setup).err().unwrap();
-    assert_eq!(
-        err,
-        SetupError::InvalidMap {
-            reason: "map height 256 exceeds AWVM's 255-tile limit".into(),
-        }
-    );
+    assert_eq!(state.board.width(), u8::MAX);
+    assert_eq!(state.board.height(), 1);
+    assert!(GameServer::new(setup).is_ok());
 }
 
 #[test]
 fn create_server_and_spawn_unit() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
     let id = server.spawn_unit(
-        Position::new(2, 2),
+        Pos::new(2, 2),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
@@ -298,7 +319,7 @@ fn create_server_and_spawn_unit() {
     let view = server.player_view(p1()).unwrap();
     assert_eq!(view.units.len(), 1);
     assert_eq!(view.units[0].unit_type, awbrn_types::Unit::Infantry);
-    assert_eq!(view.units[0].position, Position::new(2, 2));
+    assert_eq!(view.units[0].position, Pos::new(2, 2));
     assert_eq!(view.units[0].hp, Some(10));
     assert_eq!(view.units[0].fuel, Some(99)); // Infantry max fuel
     assert_eq!(view.my_funds, 1000);
@@ -311,19 +332,15 @@ fn sonja_unit_hp_is_hidden_only_from_opponents() {
     let mut setup = two_player_setup(3, 1);
     setup.players[0].co = Co::Sonja;
     let mut server = GameServer::new(setup).unwrap();
-    let unit = server.spawn_unit(
-        Position::new(1, 0),
-        Unit::Infantry,
-        PlayerFaction::OrangeStar,
-    );
-    let opponent = server.spawn_unit(Position::new(2, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+    let unit = server.spawn_unit(Pos::new(1, 0), Unit::Infantry, PlayerFaction::OrangeStar);
+    let opponent = server.spawn_unit(Pos::new(2, 0), Unit::Infantry, PlayerFaction::BlueMoon);
 
     let own_hp = server
         .player_view(p1())
         .unwrap()
         .units
         .into_iter()
-        .find(|candidate| candidate.position == Position::new(1, 0))
+        .find(|candidate| candidate.position == Pos::new(1, 0))
         .unwrap()
         .hp;
     let opponent_hp = server
@@ -331,7 +348,7 @@ fn sonja_unit_hp_is_hidden_only_from_opponents() {
         .unwrap()
         .units
         .into_iter()
-        .find(|candidate| candidate.position == Position::new(1, 0))
+        .find(|candidate| candidate.position == Pos::new(1, 0))
         .unwrap()
         .hp;
 
@@ -341,7 +358,7 @@ fn sonja_unit_hp_is_hidden_only_from_opponents() {
     let result = server
         .submit_command(
             p1(),
-            attack_command(unit, vec![Position::new(1, 0)], Position::new(2, 0)),
+            attack_command(unit, vec![Pos::new(1, 0)], Pos::new(2, 0)),
         )
         .unwrap();
     let event = result
@@ -374,12 +391,12 @@ fn sonja_unit_hp_is_hidden_only_from_opponents() {
 fn delete_unit_rejects_an_owned_unit_after_it_acts() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
     let deleted = server.spawn_unit(
-        Position::new(1, 1),
+        Pos::new(1, 1),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
     server.spawn_unit(
-        Position::new(2, 1),
+        Pos::new(2, 1),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
@@ -387,7 +404,7 @@ fn delete_unit_rejects_an_owned_unit_after_it_acts() {
     server
         .submit_command(
             p1(),
-            action_command(deleted, vec![Position::new(1, 1)], PostMoveAction::Wait),
+            action_command(deleted, vec![Pos::new(1, 1)], PostMoveAction::Wait),
         )
         .unwrap();
     let error = server
@@ -403,12 +420,12 @@ fn delete_unit_rejects_an_owned_unit_after_it_acts() {
 fn delete_unit_removes_a_ready_owned_unit() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
     let deleted = server.spawn_unit(
-        Position::new(1, 1),
+        Pos::new(1, 1),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
     server.spawn_unit(
-        Position::new(2, 1),
+        Pos::new(2, 1),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
@@ -432,7 +449,7 @@ fn player_view_returns_none_for_unknown_player() {
 
 #[test]
 fn build_infantry_from_owned_base_deducts_funds_and_spawns_unit() {
-    let base = Position::new(0, 0);
+    let base = Pos::new(0, 0);
     let mut setup = two_player_setup(3, 3);
     set_property(
         &mut setup,
@@ -485,7 +502,7 @@ fn build_infantry_from_owned_base_deducts_funds_and_spawns_unit() {
 
 #[test]
 fn built_unit_cannot_act_until_next_turn_and_id_is_registered() {
-    let base = Position::new(0, 0);
+    let base = Pos::new(0, 0);
     let mut setup = two_player_setup(3, 3);
     set_property(
         &mut setup,
@@ -514,7 +531,7 @@ fn built_unit_cannot_act_until_next_turn_and_id_is_registered() {
             p1(),
             GameCommand::MoveUnit {
                 unit_id: built_id,
-                path: vec![base, Position::new(1, 0)],
+                path: vec![base, Pos::new(1, 0)],
                 action: Some(PostMoveAction::Wait),
             },
         )
@@ -529,7 +546,7 @@ fn built_unit_cannot_act_until_next_turn_and_id_is_registered() {
             p1(),
             GameCommand::MoveUnit {
                 unit_id: built_id,
-                path: vec![base, Position::new(1, 0)],
+                path: vec![base, Pos::new(1, 0)],
                 action: Some(PostMoveAction::Wait),
             },
         )
@@ -538,7 +555,7 @@ fn built_unit_cannot_act_until_next_turn_and_id_is_registered() {
 
 #[test]
 fn build_rejects_insufficient_funds() {
-    let base = Position::new(0, 0);
+    let base = Pos::new(0, 0);
     let mut setup = two_player_setup_with_funds(3, 3, 1000);
     set_property(
         &mut setup,
@@ -584,7 +601,7 @@ fn activate_power_rejects_insufficient_charge() {
 
 #[test]
 fn build_rejects_occupied_facility() {
-    let base = Position::new(0, 0);
+    let base = Pos::new(0, 0);
     let mut setup = two_player_setup(3, 3);
     set_property(
         &mut setup,
@@ -603,7 +620,7 @@ fn build_rejects_occupied_facility() {
 
 #[test]
 fn build_rejects_unit_domain_that_facility_cannot_produce() {
-    let base = Position::new(0, 0);
+    let base = Pos::new(0, 0);
     let mut setup = two_player_setup_with_funds(3, 3, 30000);
     set_property(
         &mut setup,
@@ -621,8 +638,8 @@ fn build_rejects_unit_domain_that_facility_cannot_produce() {
 
 #[test]
 fn build_rejects_facility_not_owned_by_player() {
-    let neutral_base = Position::new(0, 0);
-    let enemy_base = Position::new(1, 0);
+    let neutral_base = Pos::new(0, 0);
+    let enemy_base = Pos::new(1, 0);
     let mut setup = two_player_setup(3, 3);
     set_property(
         &mut setup,
@@ -649,8 +666,8 @@ fn build_rejects_facility_not_owned_by_player() {
 
 #[test]
 fn build_supports_airport_and_port_domains() {
-    let airport = Position::new(0, 0);
-    let port = Position::new(1, 0);
+    let airport = Pos::new(0, 0);
+    let port = Pos::new(1, 0);
     let mut setup = two_player_setup_with_funds(3, 3, 20000);
     set_property(
         &mut setup,
@@ -691,7 +708,7 @@ fn build_supports_airport_and_port_domains() {
 
 #[test]
 fn build_fog_update_reveals_unit_only_when_opponent_has_vision() {
-    let base = Position::new(0, 0);
+    let base = Pos::new(0, 0);
     let mut visible_setup = two_player_setup(5, 1);
     visible_setup.fog_enabled = true;
     set_property(
@@ -700,7 +717,7 @@ fn build_fog_update_reveals_unit_only_when_opponent_has_vision() {
         Property::Base(TerrainFaction::Player(PlayerFaction::OrangeStar)),
     );
     let mut visible_server = GameServer::new(visible_setup).unwrap();
-    visible_server.spawn_unit(Position::new(2, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+    visible_server.spawn_unit(Pos::new(2, 0), Unit::Infantry, PlayerFaction::BlueMoon);
 
     let visible_result = visible_server
         .submit_command(p1(), build_command(base, Unit::Infantry))
@@ -728,7 +745,7 @@ fn build_fog_update_reveals_unit_only_when_opponent_has_vision() {
         Property::Base(TerrainFaction::Player(PlayerFaction::OrangeStar)),
     );
     let mut hidden_server = GameServer::new(hidden_setup).unwrap();
-    hidden_server.spawn_unit(Position::new(7, 7), Unit::Infantry, PlayerFaction::BlueMoon);
+    hidden_server.spawn_unit(Pos::new(7, 7), Unit::Infantry, PlayerFaction::BlueMoon);
 
     let hidden_result = hidden_server
         .submit_command(p1(), build_command(base, Unit::Infantry))
@@ -749,19 +766,15 @@ fn fogged_enemy_gets_new_id_after_leaving_and_returning_to_vision() {
     let mut setup = two_player_setup(5, 1);
     setup.fog_enabled = true;
     let mut server = GameServer::new(setup).unwrap();
-    let enemy = server.spawn_unit(
-        Position::new(2, 0),
-        Unit::Infantry,
-        PlayerFaction::OrangeStar,
-    );
-    server.spawn_unit(Position::new(4, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+    let enemy = server.spawn_unit(Pos::new(2, 0), Unit::Infantry, PlayerFaction::OrangeStar);
+    server.spawn_unit(Pos::new(4, 0), Unit::Infantry, PlayerFaction::BlueMoon);
 
     let first_id = server
         .player_view(p2())
         .unwrap()
         .units
         .into_iter()
-        .find(|unit| unit.position == Position::new(2, 0))
+        .find(|unit| unit.position == Pos::new(2, 0))
         .expect("the enemy starts in vision")
         .id;
     assert_ne!(first_id, enemy);
@@ -771,7 +784,7 @@ fn fogged_enemy_gets_new_id_after_leaving_and_returning_to_vision() {
         .unwrap()
         .units
         .into_iter()
-        .find(|unit| unit.position == Position::new(2, 0))
+        .find(|unit| unit.position == Pos::new(2, 0))
         .expect("the enemy remains in vision")
         .id;
     assert_eq!(repeated_id, first_id);
@@ -781,11 +794,7 @@ fn fogged_enemy_gets_new_id_after_leaving_and_returning_to_vision() {
             p1(),
             action_command(
                 enemy,
-                vec![
-                    Position::new(2, 0),
-                    Position::new(1, 0),
-                    Position::new(0, 0),
-                ],
+                vec![Pos::new(2, 0), Pos::new(1, 0), Pos::new(0, 0)],
                 PostMoveAction::Wait,
             ),
         )
@@ -805,11 +814,7 @@ fn fogged_enemy_gets_new_id_after_leaving_and_returning_to_vision() {
             p1(),
             action_command(
                 enemy,
-                vec![
-                    Position::new(0, 0),
-                    Position::new(1, 0),
-                    Position::new(2, 0),
-                ],
+                vec![Pos::new(0, 0), Pos::new(1, 0), Pos::new(2, 0)],
                 PostMoveAction::Wait,
             ),
         )
@@ -822,7 +827,7 @@ fn fogged_enemy_gets_new_id_after_leaving_and_returning_to_vision() {
         .1
         .units_revealed
         .iter()
-        .find(|unit| unit.position == Position::new(2, 0))
+        .find(|unit| unit.position == Pos::new(2, 0))
         .expect("the enemy reappears in vision")
         .id;
     assert_ne!(second_id, first_id);
@@ -834,26 +839,21 @@ fn friendly_movement_reconciles_stationary_enemy_ids() {
     let mut setup = two_player_setup(5, 1);
     setup.fog_enabled = true;
     let mut server = GameServer::new(setup).unwrap();
-    let mover = server.spawn_unit(
-        Position::new(2, 0),
-        Unit::Infantry,
-        PlayerFaction::OrangeStar,
-    );
-    let lost_enemy =
-        server.spawn_unit(Position::new(0, 0), Unit::Infantry, PlayerFaction::BlueMoon);
-    server.spawn_unit(Position::new(4, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+    let mover = server.spawn_unit(Pos::new(2, 0), Unit::Infantry, PlayerFaction::OrangeStar);
+    let lost_enemy = server.spawn_unit(Pos::new(0, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+    server.spawn_unit(Pos::new(4, 0), Unit::Infantry, PlayerFaction::BlueMoon);
 
     let initial = server.player_view(p1()).unwrap();
     let lost_id = initial
         .units
         .iter()
-        .find(|unit| unit.position == Position::new(0, 0))
+        .find(|unit| unit.position == Pos::new(0, 0))
         .expect("the first enemy starts in vision")
         .id;
     let retained_id = initial
         .units
         .iter()
-        .find(|unit| unit.position == Position::new(4, 0))
+        .find(|unit| unit.position == Pos::new(4, 0))
         .expect("the second enemy starts in vision")
         .id;
 
@@ -862,7 +862,7 @@ fn friendly_movement_reconciles_stationary_enemy_ids() {
             p1(),
             action_command(
                 mover,
-                vec![Position::new(2, 0), Position::new(3, 0)],
+                vec![Pos::new(2, 0), Pos::new(3, 0)],
                 PostMoveAction::Wait,
             ),
         )
@@ -881,12 +881,12 @@ fn friendly_movement_reconciles_stationary_enemy_ids() {
         !post
             .units
             .iter()
-            .any(|unit| unit.position == Position::new(0, 0))
+            .any(|unit| unit.position == Pos::new(0, 0))
     );
     assert_eq!(
         post.units
             .iter()
-            .find(|unit| unit.position == Position::new(4, 0))
+            .find(|unit| unit.position == Pos::new(4, 0))
             .expect("the second enemy remains in vision")
             .id,
         retained_id
@@ -901,14 +901,14 @@ fn friendly_movement_reconciles_stationary_enemy_ids() {
             },
         )
         .unwrap();
-    server.spawn_unit(Position::new(0, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+    server.spawn_unit(Pos::new(0, 0), Unit::Infantry, PlayerFaction::BlueMoon);
     server.submit_command(p2(), GameCommand::EndTurn).unwrap();
     server
         .submit_command(
             p1(),
             action_command(
                 mover,
-                vec![Position::new(3, 0), Position::new(2, 0)],
+                vec![Pos::new(3, 0), Pos::new(2, 0)],
                 PostMoveAction::Wait,
             ),
         )
@@ -918,7 +918,7 @@ fn friendly_movement_reconciles_stationary_enemy_ids() {
         .unwrap()
         .units
         .iter()
-        .find(|unit| unit.position == Position::new(0, 0))
+        .find(|unit| unit.position == Pos::new(0, 0))
         .expect("the replacement enemy enters vision")
         .id;
     assert_ne!(replacement_id, lost_id);
@@ -928,7 +928,7 @@ fn friendly_movement_reconciles_stationary_enemy_ids() {
 fn move_unit_updates_position() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
     let unit_id = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
@@ -938,11 +938,7 @@ fn move_unit_updates_position() {
             p1(),
             GameCommand::MoveUnit {
                 unit_id,
-                path: vec![
-                    Position::new(0, 0),
-                    Position::new(1, 0),
-                    Position::new(2, 0),
-                ],
+                path: vec![Pos::new(0, 0), Pos::new(1, 0), Pos::new(2, 0)],
                 action: Some(PostMoveAction::Wait),
             },
         )
@@ -950,7 +946,7 @@ fn move_unit_updates_position() {
 
     // Verify unit moved.
     let view = server.player_view(p1()).unwrap();
-    assert_eq!(view.units[0].position, Position::new(2, 0));
+    assert_eq!(view.units[0].position, Pos::new(2, 0));
 
     // Verify fuel consumed (2 tiles moved).
     assert_eq!(view.units[0].fuel, Some(97));
@@ -986,7 +982,7 @@ fn move_unit_updates_position() {
 fn move_unit_deactivates_it() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
     let unit_id = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
@@ -996,7 +992,7 @@ fn move_unit_deactivates_it() {
             p1(),
             GameCommand::MoveUnit {
                 unit_id,
-                path: vec![Position::new(0, 0), Position::new(1, 0)],
+                path: vec![Pos::new(0, 0), Pos::new(1, 0)],
                 action: Some(PostMoveAction::Wait),
             },
         )
@@ -1008,7 +1004,7 @@ fn move_unit_deactivates_it() {
             p1(),
             GameCommand::MoveUnit {
                 unit_id,
-                path: vec![Position::new(1, 0), Position::new(2, 0)],
+                path: vec![Pos::new(1, 0), Pos::new(2, 0)],
                 action: Some(PostMoveAction::Wait),
             },
         )
@@ -1021,7 +1017,7 @@ fn move_unit_deactivates_it() {
 fn not_your_turn_rejected() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
     let unit_id = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::BlueMoon,
     );
@@ -1032,7 +1028,7 @@ fn not_your_turn_rejected() {
             p2(),
             GameCommand::MoveUnit {
                 unit_id,
-                path: vec![Position::new(0, 0), Position::new(1, 0)],
+                path: vec![Pos::new(0, 0), Pos::new(1, 0)],
                 action: Some(PostMoveAction::Wait),
             },
         )
@@ -1045,7 +1041,7 @@ fn not_your_turn_rejected() {
 fn cannot_move_enemy_unit() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
     let enemy_unit = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::BlueMoon,
     );
@@ -1056,7 +1052,7 @@ fn cannot_move_enemy_unit() {
             p1(),
             GameCommand::MoveUnit {
                 unit_id: enemy_unit,
-                path: vec![Position::new(0, 0), Position::new(1, 0)],
+                path: vec![Pos::new(0, 0), Pos::new(1, 0)],
                 action: Some(PostMoveAction::Wait),
             },
         )
@@ -1109,7 +1105,7 @@ fn end_turn_reactivates_next_player_units() {
 
     // Spawn a unit for player 2.
     let p2_unit = server.spawn_unit(
-        Position::new(3, 3),
+        Pos::new(3, 3),
         awbrn_types::Unit::Infantry,
         PlayerFaction::BlueMoon,
     );
@@ -1123,7 +1119,7 @@ fn end_turn_reactivates_next_player_units() {
             p2(),
             GameCommand::MoveUnit {
                 unit_id: p2_unit,
-                path: vec![Position::new(3, 3), Position::new(4, 3)],
+                path: vec![Pos::new(3, 3), Pos::new(4, 3)],
                 action: Some(PostMoveAction::Wait),
             },
         )
@@ -1134,7 +1130,7 @@ fn end_turn_reactivates_next_player_units() {
 fn move_with_no_displacement_still_deactivates() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
     let unit_id = server.spawn_unit(
-        Position::new(2, 2),
+        Pos::new(2, 2),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
@@ -1145,7 +1141,7 @@ fn move_with_no_displacement_still_deactivates() {
             p1(),
             GameCommand::MoveUnit {
                 unit_id,
-                path: vec![Position::new(2, 2)],
+                path: vec![Pos::new(2, 2)],
                 action: Some(PostMoveAction::Wait),
             },
         )
@@ -1153,7 +1149,7 @@ fn move_with_no_displacement_still_deactivates() {
 
     // Unit should be at the same position but deactivated.
     let view = server.player_view(p1()).unwrap();
-    assert_eq!(view.units[0].position, Position::new(2, 2));
+    assert_eq!(view.units[0].position, Pos::new(2, 2));
 
     // Should not be able to act again.
     let err = server
@@ -1161,7 +1157,7 @@ fn move_with_no_displacement_still_deactivates() {
             p1(),
             GameCommand::MoveUnit {
                 unit_id,
-                path: vec![Position::new(2, 2), Position::new(3, 2)],
+                path: vec![Pos::new(2, 2), Pos::new(3, 2)],
                 action: Some(PostMoveAction::Wait),
             },
         )
@@ -1173,7 +1169,7 @@ fn move_with_no_displacement_still_deactivates() {
 fn invalid_path_start_rejected() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
     let unit_id = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
@@ -1184,7 +1180,7 @@ fn invalid_path_start_rejected() {
             p1(),
             GameCommand::MoveUnit {
                 unit_id,
-                path: vec![Position::new(1, 1), Position::new(2, 1)],
+                path: vec![Pos::new(1, 1), Pos::new(2, 1)],
                 action: Some(PostMoveAction::Wait),
             },
         )
@@ -1202,14 +1198,14 @@ fn fog_hides_enemy_units() {
 
     // Player 1 unit at (0,0) with vision 2.
     server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
 
     // Player 2 unit at (5,0) -- outside player 1's vision.
     server.spawn_unit(
-        Position::new(5, 0),
+        Pos::new(5, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::BlueMoon,
     );
@@ -1234,14 +1230,14 @@ fn fog_reveals_units_within_vision() {
 
     // Player 1 unit at (0,0).
     server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
 
     // Player 2 unit at (2,0) -- within player 1's vision (infantry vision = 2).
     server.spawn_unit(
-        Position::new(2, 0),
+        Pos::new(2, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::BlueMoon,
     );
@@ -1256,12 +1252,12 @@ fn own_unit_fuel_visible_enemy_fuel_hidden() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
 
     server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
     server.spawn_unit(
-        Position::new(1, 0),
+        Pos::new(1, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::BlueMoon,
     );
@@ -1290,7 +1286,7 @@ fn own_unit_fuel_visible_enemy_fuel_hidden() {
 #[test]
 fn allied_units_share_fuel_and_ammo_visibility() {
     let mut server = GameServer::new(GameSetup {
-        map: AwbrnMap::new(5, 5, GraphicalTerrain::Plain),
+        map: AwbrnMap::new(Dimensions::new(5, 5), GraphicalTerrain::Plain),
         players: vec![
             PlayerSetup {
                 faction: PlayerFaction::OrangeStar,
@@ -1311,12 +1307,12 @@ fn allied_units_share_fuel_and_ammo_visibility() {
     .unwrap();
 
     server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
     server.spawn_unit(
-        Position::new(1, 0),
+        Pos::new(1, 0),
         awbrn_types::Unit::Tank,
         PlayerFaction::BlueMoon,
     );
@@ -1341,12 +1337,12 @@ fn attack_kills_defender() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
 
     let attacker = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::MegaTank,
         PlayerFaction::OrangeStar,
     );
     let defender = server.spawn_unit(
-        Position::new(1, 0),
+        Pos::new(1, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::BlueMoon,
     );
@@ -1354,7 +1350,7 @@ fn attack_kills_defender() {
     let result = server
         .submit_command(
             p1(),
-            attack_command(attacker, vec![Position::new(0, 0)], Position::new(1, 0)),
+            attack_command(attacker, vec![Pos::new(0, 0)], Pos::new(1, 0)),
         )
         .unwrap();
 
@@ -1386,12 +1382,12 @@ fn attack_reduces_hp_without_killing() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
 
     let attacker = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
     let _defender = server.spawn_unit(
-        Position::new(1, 0),
+        Pos::new(1, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::BlueMoon,
     );
@@ -1399,7 +1395,7 @@ fn attack_reduces_hp_without_killing() {
     let result = server
         .submit_command(
             p1(),
-            attack_command(attacker, vec![Position::new(0, 0)], Position::new(1, 0)),
+            attack_command(attacker, vec![Pos::new(0, 0)], Pos::new(1, 0)),
         )
         .unwrap();
 
@@ -1412,7 +1408,7 @@ fn attack_reduces_hp_without_killing() {
     let defender_unit = p1_view
         .units
         .iter()
-        .find(|unit| unit.position == Position::new(1, 0))
+        .find(|unit| unit.position == Pos::new(1, 0))
         .unwrap();
     assert!(
         defender_unit.hp.is_some_and(|hp| hp < 10),
@@ -1455,12 +1451,12 @@ fn indirect_unit_cannot_attack_after_moving() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
 
     let attacker = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Artillery,
         PlayerFaction::OrangeStar,
     );
     server.spawn_unit(
-        Position::new(2, 0),
+        Pos::new(2, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::BlueMoon,
     );
@@ -1471,8 +1467,8 @@ fn indirect_unit_cannot_attack_after_moving() {
             p1(),
             attack_command(
                 attacker,
-                vec![Position::new(0, 0), Position::new(1, 0)],
-                Position::new(2, 0),
+                vec![Pos::new(0, 0), Pos::new(1, 0)],
+                Pos::new(2, 0),
             ),
         )
         .unwrap_err();
@@ -1486,12 +1482,12 @@ fn indirect_unit_can_attack_without_moving() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
 
     let attacker = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Artillery,
         PlayerFaction::OrangeStar,
     );
     server.spawn_unit(
-        Position::new(2, 0),
+        Pos::new(2, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::BlueMoon,
     );
@@ -1499,7 +1495,7 @@ fn indirect_unit_can_attack_without_moving() {
     // No movement (path = [origin]) then attack at range 2.
     let result = server.submit_command(
         p1(),
-        attack_command(attacker, vec![Position::new(0, 0)], Position::new(2, 0)),
+        attack_command(attacker, vec![Pos::new(0, 0)], Pos::new(2, 0)),
     );
 
     assert!(
@@ -1513,12 +1509,12 @@ fn attack_out_of_range_rejected() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
 
     let attacker = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
     server.spawn_unit(
-        Position::new(2, 0),
+        Pos::new(2, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::BlueMoon,
     );
@@ -1527,7 +1523,7 @@ fn attack_out_of_range_rejected() {
     let err = server
         .submit_command(
             p1(),
-            attack_command(attacker, vec![Position::new(0, 0)], Position::new(2, 0)),
+            attack_command(attacker, vec![Pos::new(0, 0)], Pos::new(2, 0)),
         )
         .unwrap_err();
 
@@ -1539,12 +1535,12 @@ fn cannot_attack_friendly_unit() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
 
     let attacker = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
     let friendly = server.spawn_unit(
-        Position::new(1, 0),
+        Pos::new(1, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
@@ -1552,7 +1548,7 @@ fn cannot_attack_friendly_unit() {
     let err = server
         .submit_command(
             p1(),
-            attack_command(attacker, vec![Position::new(0, 0)], Position::new(1, 0)),
+            attack_command(attacker, vec![Pos::new(0, 0)], Pos::new(1, 0)),
         )
         .unwrap_err();
 
@@ -1567,12 +1563,12 @@ fn attack_no_weapon_against_type_rejected() {
     let mut server = GameServer::new(two_player_setup(10, 10)).unwrap();
 
     let attacker = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
     server.spawn_unit(
-        Position::new(1, 0),
+        Pos::new(1, 0),
         awbrn_types::Unit::Battleship,
         PlayerFaction::BlueMoon,
     );
@@ -1580,7 +1576,7 @@ fn attack_no_weapon_against_type_rejected() {
     let err = server
         .submit_command(
             p1(),
-            attack_command(attacker, vec![Position::new(0, 0)], Position::new(1, 0)),
+            attack_command(attacker, vec![Pos::new(0, 0)], Pos::new(1, 0)),
         )
         .unwrap_err();
 
@@ -1592,18 +1588,14 @@ fn fogged_indirect_attacker_is_not_disclosed_in_combat_event() {
     let mut setup = two_player_setup(7, 1);
     setup.fog_enabled = true;
     let mut server = GameServer::new(setup).unwrap();
-    let attacker = server.spawn_unit(Position::new(0, 0), Unit::Rocket, PlayerFaction::OrangeStar);
-    server.spawn_unit(
-        Position::new(4, 0),
-        Unit::Infantry,
-        PlayerFaction::OrangeStar,
-    );
-    server.spawn_unit(Position::new(5, 0), Unit::Tank, PlayerFaction::BlueMoon);
+    let attacker = server.spawn_unit(Pos::new(0, 0), Unit::Rocket, PlayerFaction::OrangeStar);
+    server.spawn_unit(Pos::new(4, 0), Unit::Infantry, PlayerFaction::OrangeStar);
+    server.spawn_unit(Pos::new(5, 0), Unit::Tank, PlayerFaction::BlueMoon);
 
     let result = server
         .submit_command(
             p1(),
-            attack_command(attacker, vec![Position::new(0, 0)], Position::new(5, 0)),
+            attack_command(attacker, vec![Pos::new(0, 0)], Pos::new(5, 0)),
         )
         .unwrap();
 
@@ -1631,7 +1623,7 @@ fn attack_no_unit_at_target_rejected() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
 
     let attacker = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
@@ -1640,7 +1632,7 @@ fn attack_no_unit_at_target_rejected() {
     let err = server
         .submit_command(
             p1(),
-            attack_command(attacker, vec![Position::new(0, 0)], Position::new(1, 0)),
+            attack_command(attacker, vec![Pos::new(0, 0)], Pos::new(1, 0)),
         )
         .unwrap_err();
 
@@ -1654,12 +1646,12 @@ fn primary_weapon_attack_consumes_ammo() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
 
     let attacker = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Mech,
         PlayerFaction::OrangeStar,
     );
     server.spawn_unit(
-        Position::new(1, 0),
+        Pos::new(1, 0),
         awbrn_types::Unit::Tank,
         PlayerFaction::BlueMoon,
     );
@@ -1678,7 +1670,7 @@ fn primary_weapon_attack_consumes_ammo() {
     server
         .submit_command(
             p1(),
-            attack_command(attacker, vec![Position::new(0, 0)], Position::new(1, 0)),
+            attack_command(attacker, vec![Pos::new(0, 0)], Pos::new(1, 0)),
         )
         .unwrap();
 
@@ -1705,27 +1697,19 @@ fn primary_weapon_attack_consumes_ammo() {
 fn special_post_move_actions_reach_awvm() {
     // Manual repair is accepted and routed to move-repair.
     let mut repair_setup = two_player_setup(3, 2);
-    repair_setup.map.set_terrain(
-        Position::new(0, 0),
-        GraphicalTerrain::Sea(SeaDirection::Sea),
-    );
+    repair_setup
+        .map
+        .set_terrain(Pos::new(0, 0), GraphicalTerrain::Sea(SeaDirection::Sea));
     let mut repair_server = GameServer::new(repair_setup).unwrap();
-    let boat = repair_server.spawn_unit(
-        Position::new(0, 0),
-        Unit::BlackBoat,
-        PlayerFaction::OrangeStar,
-    );
-    let repair_target = repair_server.spawn_unit(
-        Position::new(1, 0),
-        Unit::Infantry,
-        PlayerFaction::OrangeStar,
-    );
+    let boat = repair_server.spawn_unit(Pos::new(0, 0), Unit::BlackBoat, PlayerFaction::OrangeStar);
+    let repair_target =
+        repair_server.spawn_unit(Pos::new(1, 0), Unit::Infantry, PlayerFaction::OrangeStar);
     repair_server
         .submit_command(
             p1(),
             action_command(
                 boat,
-                vec![Position::new(0, 0)],
+                vec![Pos::new(0, 0)],
                 PostMoveAction::Repair {
                     target_id: repair_target.0,
                 },
@@ -1736,25 +1720,21 @@ fn special_post_move_actions_reach_awvm() {
     // Launch consumes the silo and applies its area strike.
     let mut launch_setup = two_player_setup(5, 5);
     launch_setup.map.set_terrain(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         GraphicalTerrain::MissileSilo(MissileSiloStatus::Loaded),
     );
     let mut launch_server = GameServer::new(launch_setup).unwrap();
-    let infantry = launch_server.spawn_unit(
-        Position::new(0, 0),
-        Unit::Infantry,
-        PlayerFaction::OrangeStar,
-    );
-    let _victim =
-        launch_server.spawn_unit(Position::new(3, 3), Unit::Tank, PlayerFaction::BlueMoon);
+    let infantry =
+        launch_server.spawn_unit(Pos::new(0, 0), Unit::Infantry, PlayerFaction::OrangeStar);
+    let _victim = launch_server.spawn_unit(Pos::new(3, 3), Unit::Tank, PlayerFaction::BlueMoon);
     launch_server
         .submit_command(
             p1(),
             action_command(
                 infantry,
-                vec![Position::new(0, 0)],
+                vec![Pos::new(0, 0)],
                 PostMoveAction::Launch {
-                    target: Position::new(3, 3),
+                    target: Pos::new(3, 3),
                 },
             ),
         )
@@ -1764,7 +1744,7 @@ fn special_post_move_actions_reach_awvm() {
         launch_view
             .units
             .iter()
-            .find(|unit| unit.position == Position::new(3, 3))
+            .find(|unit| unit.position == Pos::new(3, 3))
             .unwrap()
             .hp,
         Some(7)
@@ -1773,7 +1753,7 @@ fn special_post_move_actions_reach_awvm() {
         launch_view
             .terrain
             .iter()
-            .find(|tile| tile.position == Position::new(0, 0))
+            .find(|tile| tile.position == Pos::new(0, 0))
             .unwrap()
             .terrain,
         GraphicalTerrain::MissileSilo(MissileSiloStatus::Unloaded)
@@ -1781,22 +1761,15 @@ fn special_post_move_actions_reach_awvm() {
 
     // Explode removes the bomb after applying damage.
     let mut explode_server = GameServer::new(two_player_setup(5, 5)).unwrap();
-    let bomb = explode_server.spawn_unit(
-        Position::new(2, 2),
-        Unit::BlackBomb,
-        PlayerFaction::OrangeStar,
-    );
-    explode_server.spawn_unit(
-        Position::new(0, 0),
-        Unit::Infantry,
-        PlayerFaction::OrangeStar,
-    );
+    let bomb =
+        explode_server.spawn_unit(Pos::new(2, 2), Unit::BlackBomb, PlayerFaction::OrangeStar);
+    explode_server.spawn_unit(Pos::new(0, 0), Unit::Infantry, PlayerFaction::OrangeStar);
     let _blast_victim =
-        explode_server.spawn_unit(Position::new(3, 2), Unit::Tank, PlayerFaction::BlueMoon);
+        explode_server.spawn_unit(Pos::new(3, 2), Unit::Tank, PlayerFaction::BlueMoon);
     explode_server
         .submit_command(
             p1(),
-            action_command(bomb, vec![Position::new(2, 2)], PostMoveAction::Explode),
+            action_command(bomb, vec![Pos::new(2, 2)], PostMoveAction::Explode),
         )
         .unwrap();
     let explode_view = explode_server.player_view(p1()).unwrap();
@@ -1805,7 +1778,7 @@ fn special_post_move_actions_reach_awvm() {
         explode_view
             .units
             .iter()
-            .find(|unit| unit.position == Position::new(3, 2))
+            .find(|unit| unit.position == Pos::new(3, 2))
             .unwrap()
             .hp,
         Some(5)
@@ -1815,21 +1788,17 @@ fn special_post_move_actions_reach_awvm() {
 #[test]
 fn supply_restores_self_owned_adjacent_fuel_and_ammo() {
     let mut server = GameServer::new(two_player_setup(5, 3)).unwrap();
-    let apc = server.spawn_unit(Position::new(1, 1), Unit::Apc, PlayerFaction::OrangeStar);
-    let infantry = server.spawn_unit(
-        Position::new(0, 0),
-        Unit::Infantry,
-        PlayerFaction::OrangeStar,
-    );
-    let mech = server.spawn_unit(Position::new(2, 1), Unit::Mech, PlayerFaction::OrangeStar);
-    server.spawn_unit(Position::new(3, 1), Unit::Tank, PlayerFaction::BlueMoon);
+    let apc = server.spawn_unit(Pos::new(1, 1), Unit::Apc, PlayerFaction::OrangeStar);
+    let infantry = server.spawn_unit(Pos::new(0, 0), Unit::Infantry, PlayerFaction::OrangeStar);
+    let mech = server.spawn_unit(Pos::new(2, 1), Unit::Mech, PlayerFaction::OrangeStar);
+    server.spawn_unit(Pos::new(3, 1), Unit::Tank, PlayerFaction::BlueMoon);
 
     server
         .submit_command(
             p1(),
             action_command(
                 infantry,
-                vec![Position::new(0, 0), Position::new(0, 1)],
+                vec![Pos::new(0, 0), Pos::new(0, 1)],
                 PostMoveAction::Wait,
             ),
         )
@@ -1840,7 +1809,7 @@ fn supply_restores_self_owned_adjacent_fuel_and_ammo() {
     server
         .submit_command(
             p1(),
-            attack_command(mech, vec![Position::new(2, 1)], Position::new(3, 1)),
+            attack_command(mech, vec![Pos::new(2, 1)], Pos::new(3, 1)),
         )
         .unwrap();
 
@@ -1861,7 +1830,7 @@ fn supply_restores_self_owned_adjacent_fuel_and_ammo() {
     server
         .submit_command(
             p1(),
-            action_command(apc, vec![Position::new(1, 1)], PostMoveAction::Supply),
+            action_command(apc, vec![Pos::new(1, 1)], PostMoveAction::Supply),
         )
         .unwrap();
 
@@ -1875,9 +1844,9 @@ fn supply_restores_self_owned_adjacent_fuel_and_ammo() {
 #[test]
 fn supply_without_adjacent_self_owned_units_is_a_valid_noop() {
     let mut server = GameServer::new(allied_player_setup(3, 1)).unwrap();
-    let apc = server.spawn_unit(Position::new(0, 0), Unit::Apc, PlayerFaction::OrangeStar);
+    let apc = server.spawn_unit(Pos::new(0, 0), Unit::Apc, PlayerFaction::OrangeStar);
     let neighboring_ally =
-        server.spawn_unit(Position::new(1, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+        server.spawn_unit(Pos::new(1, 0), Unit::Infantry, PlayerFaction::BlueMoon);
     let before = server.player_view(p1()).unwrap();
     let neighboring_ally_before = before
         .units
@@ -1889,7 +1858,7 @@ fn supply_without_adjacent_self_owned_units_is_a_valid_noop() {
     server
         .submit_command(
             p1(),
-            action_command(apc, vec![Position::new(0, 0)], PostMoveAction::Supply),
+            action_command(apc, vec![Pos::new(0, 0)], PostMoveAction::Supply),
         )
         .unwrap();
 
@@ -1908,14 +1877,10 @@ fn supply_without_adjacent_self_owned_units_is_a_valid_noop() {
 #[test]
 fn supply_does_not_restore_allied_teammate_units() {
     let mut server = GameServer::new(allied_player_setup(4, 2)).unwrap();
-    let apc = server.spawn_unit(Position::new(0, 0), Unit::Apc, PlayerFaction::OrangeStar);
-    server.spawn_unit(
-        Position::new(0, 1),
-        Unit::Infantry,
-        PlayerFaction::OrangeStar,
-    );
+    let apc = server.spawn_unit(Pos::new(0, 0), Unit::Apc, PlayerFaction::OrangeStar);
+    server.spawn_unit(Pos::new(0, 1), Unit::Infantry, PlayerFaction::OrangeStar);
     let allied_infantry =
-        server.spawn_unit(Position::new(2, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+        server.spawn_unit(Pos::new(2, 0), Unit::Infantry, PlayerFaction::BlueMoon);
 
     server.submit_command(p1(), GameCommand::EndTurn).unwrap();
     server
@@ -1923,7 +1888,7 @@ fn supply_does_not_restore_allied_teammate_units() {
             p2(),
             action_command(
                 allied_infantry,
-                vec![Position::new(2, 0), Position::new(1, 0)],
+                vec![Pos::new(2, 0), Pos::new(1, 0)],
                 PostMoveAction::Wait,
             ),
         )
@@ -1943,7 +1908,7 @@ fn supply_does_not_restore_allied_teammate_units() {
     server
         .submit_command(
             p1(),
-            action_command(apc, vec![Position::new(0, 0)], PostMoveAction::Supply),
+            action_command(apc, vec![Pos::new(0, 0)], PostMoveAction::Supply),
         )
         .unwrap();
 
@@ -1961,19 +1926,15 @@ fn supply_does_not_restore_allied_teammate_units() {
 #[test]
 fn load_removes_cargo_from_map_and_unload_restores_it() {
     let mut server = GameServer::new(two_player_setup(5, 1)).unwrap();
-    let cargo = server.spawn_unit(
-        Position::new(0, 0),
-        Unit::Infantry,
-        PlayerFaction::OrangeStar,
-    );
-    let apc = server.spawn_unit(Position::new(1, 0), Unit::Apc, PlayerFaction::OrangeStar);
+    let cargo = server.spawn_unit(Pos::new(0, 0), Unit::Infantry, PlayerFaction::OrangeStar);
+    let apc = server.spawn_unit(Pos::new(1, 0), Unit::Apc, PlayerFaction::OrangeStar);
 
     server
         .submit_command(
             p1(),
             action_command(
                 cargo,
-                vec![Position::new(0, 0), Position::new(1, 0)],
+                vec![Pos::new(0, 0), Pos::new(1, 0)],
                 PostMoveAction::Load {
                     transport_id: apc.0,
                 },
@@ -1992,7 +1953,7 @@ fn load_removes_cargo_from_map_and_unload_restores_it() {
     );
 
     server
-        .submit_command(p1(), unload_command(apc, cargo, Position::new(2, 0)))
+        .submit_command(p1(), unload_command(apc, cargo, Pos::new(2, 0)))
         .unwrap();
 
     let view = server.player_view(p1()).unwrap();
@@ -2001,7 +1962,7 @@ fn load_removes_cargo_from_map_and_unload_restores_it() {
             .iter()
             .find(|unit| unit.id == cargo)
             .map(|unit| unit.position),
-        Some(Position::new(2, 0))
+        Some(Pos::new(2, 0))
     );
 
     server.submit_command(p1(), GameCommand::EndTurn).unwrap();
@@ -2011,7 +1972,7 @@ fn load_removes_cargo_from_map_and_unload_restores_it() {
             p1(),
             action_command(
                 cargo,
-                vec![Position::new(2, 0), Position::new(3, 0)],
+                vec![Pos::new(2, 0), Pos::new(3, 0)],
                 PostMoveAction::Wait,
             ),
         )
@@ -2021,22 +1982,13 @@ fn load_removes_cargo_from_map_and_unload_restores_it() {
 #[test]
 fn spent_transport_can_unload_successive_cargo_units() {
     let mut setup = two_player_setup(5, 3);
-    setup.map.set_terrain(
-        Position::new(2, 1),
-        GraphicalTerrain::Shoal(ShoalDirection::S),
-    );
+    setup
+        .map
+        .set_terrain(Pos::new(2, 1), GraphicalTerrain::Shoal(ShoalDirection::S));
     let mut server = GameServer::new(setup).unwrap();
-    let first = server.spawn_unit(
-        Position::new(1, 1),
-        Unit::Infantry,
-        PlayerFaction::OrangeStar,
-    );
-    let transport = server.spawn_unit(
-        Position::new(2, 1),
-        Unit::BlackBoat,
-        PlayerFaction::OrangeStar,
-    );
-    let second = server.spawn_unit(Position::new(3, 1), Unit::Mech, PlayerFaction::OrangeStar);
+    let first = server.spawn_unit(Pos::new(1, 1), Unit::Infantry, PlayerFaction::OrangeStar);
+    let transport = server.spawn_unit(Pos::new(2, 1), Unit::BlackBoat, PlayerFaction::OrangeStar);
+    let second = server.spawn_unit(Pos::new(3, 1), Unit::Mech, PlayerFaction::OrangeStar);
 
     for cargo in [first, second] {
         let origin = server
@@ -2052,7 +2004,7 @@ fn spent_transport_can_unload_successive_cargo_units() {
                 p1(),
                 action_command(
                     cargo,
-                    vec![origin, Position::new(2, 1)],
+                    vec![origin, Pos::new(2, 1)],
                     PostMoveAction::Load {
                         transport_id: transport.0,
                     },
@@ -2063,15 +2015,15 @@ fn spent_transport_can_unload_successive_cargo_units() {
     server
         .submit_command(
             p1(),
-            action_command(transport, vec![Position::new(2, 1)], PostMoveAction::Wait),
+            action_command(transport, vec![Pos::new(2, 1)], PostMoveAction::Wait),
         )
         .unwrap();
 
     server
-        .submit_command(p1(), unload_command(transport, first, Position::new(2, 0)))
+        .submit_command(p1(), unload_command(transport, first, Pos::new(2, 0)))
         .unwrap();
     server
-        .submit_command(p1(), unload_command(transport, second, Position::new(2, 2)))
+        .submit_command(p1(), unload_command(transport, second, Pos::new(2, 2)))
         .unwrap();
 
     let view = server.player_view(p1()).unwrap();
@@ -2081,7 +2033,7 @@ fn spent_transport_can_unload_successive_cargo_units() {
             .find(|unit| unit.id == first)
             .unwrap()
             .position,
-        Position::new(2, 0)
+        Pos::new(2, 0)
     );
     assert_eq!(
         view.units
@@ -2089,27 +2041,23 @@ fn spent_transport_can_unload_successive_cargo_units() {
             .find(|unit| unit.id == second)
             .unwrap()
             .position,
-        Position::new(2, 2)
+        Pos::new(2, 2)
     );
 }
 
 #[test]
 fn load_rejects_full_transport() {
     let mut server = GameServer::new(two_player_setup(5, 1)).unwrap();
-    let first = server.spawn_unit(
-        Position::new(0, 0),
-        Unit::Infantry,
-        PlayerFaction::OrangeStar,
-    );
-    let apc = server.spawn_unit(Position::new(1, 0), Unit::Apc, PlayerFaction::OrangeStar);
-    let second = server.spawn_unit(Position::new(2, 0), Unit::Mech, PlayerFaction::OrangeStar);
+    let first = server.spawn_unit(Pos::new(0, 0), Unit::Infantry, PlayerFaction::OrangeStar);
+    let apc = server.spawn_unit(Pos::new(1, 0), Unit::Apc, PlayerFaction::OrangeStar);
+    let second = server.spawn_unit(Pos::new(2, 0), Unit::Mech, PlayerFaction::OrangeStar);
 
     server
         .submit_command(
             p1(),
             action_command(
                 first,
-                vec![Position::new(0, 0), Position::new(1, 0)],
+                vec![Pos::new(0, 0), Pos::new(1, 0)],
                 PostMoveAction::Load {
                     transport_id: apc.0,
                 },
@@ -2122,7 +2070,7 @@ fn load_rejects_full_transport() {
             p1(),
             action_command(
                 second,
-                vec![Position::new(2, 0), Position::new(1, 0)],
+                vec![Pos::new(2, 0), Pos::new(1, 0)],
                 PostMoveAction::Load {
                     transport_id: apc.0,
                 },
@@ -2146,16 +2094,9 @@ fn post_move_unit_ids_outside_awvm_domain_are_invalid_actions() {
 
     for action in actions {
         let mut server = GameServer::new(two_player_setup(2, 1)).unwrap();
-        let unit = server.spawn_unit(
-            Position::new(0, 0),
-            Unit::Infantry,
-            PlayerFaction::OrangeStar,
-        );
+        let unit = server.spawn_unit(Pos::new(0, 0), Unit::Infantry, PlayerFaction::OrangeStar);
         let error = server
-            .submit_command(
-                p1(),
-                action_command(unit, vec![Position::new(0, 0)], action),
-            )
+            .submit_command(p1(), action_command(unit, vec![Pos::new(0, 0)], action))
             .unwrap_err();
 
         assert!(matches!(error, CommandError::InvalidAction { .. }));
@@ -2168,7 +2109,7 @@ fn post_move_unit_ids_outside_awvm_domain_are_invalid_actions() {
             GameCommand::Unload {
                 transport_id: ServerUnitId(0),
                 cargo_id: ServerUnitId(u64::from(u32::MAX) + 1),
-                position: Position::new(1, 0),
+                position: Pos::new(1, 0),
             },
         )
         .unwrap_err();
@@ -2180,19 +2121,15 @@ fn load_does_not_leak_fogged_destination_coordinates() {
     let mut setup = two_player_setup(4, 1);
     setup.fog_enabled = true;
     let mut server = GameServer::new(setup).unwrap();
-    let cargo = server.spawn_unit(
-        Position::new(1, 0),
-        Unit::Infantry,
-        PlayerFaction::OrangeStar,
-    );
-    let transport = server.spawn_unit(Position::new(2, 0), Unit::Apc, PlayerFaction::OrangeStar);
-    server.spawn_unit(Position::new(0, 0), Unit::Apc, PlayerFaction::BlueMoon);
+    let cargo = server.spawn_unit(Pos::new(1, 0), Unit::Infantry, PlayerFaction::OrangeStar);
+    let transport = server.spawn_unit(Pos::new(2, 0), Unit::Apc, PlayerFaction::OrangeStar);
+    server.spawn_unit(Pos::new(0, 0), Unit::Apc, PlayerFaction::BlueMoon);
     let observed_cargo = server
         .player_view(p2())
         .unwrap()
         .units
         .into_iter()
-        .find(|unit| unit.position == Position::new(1, 0))
+        .find(|unit| unit.position == Pos::new(1, 0))
         .unwrap()
         .id;
 
@@ -2201,7 +2138,7 @@ fn load_does_not_leak_fogged_destination_coordinates() {
             p1(),
             action_command(
                 cargo,
-                vec![Position::new(1, 0), Position::new(2, 0)],
+                vec![Pos::new(1, 0), Pos::new(2, 0)],
                 PostMoveAction::Load {
                     transport_id: transport.0,
                 },
@@ -2227,25 +2164,20 @@ fn load_does_not_leak_fogged_destination_coordinates() {
 #[test]
 fn unload_rejects_occupied_or_impassable_target() {
     let mut setup = two_player_setup(4, 3);
-    setup.map.set_terrain(
-        Position::new(1, 0),
-        GraphicalTerrain::Sea(SeaDirection::Sea),
-    );
+    setup
+        .map
+        .set_terrain(Pos::new(1, 0), GraphicalTerrain::Sea(SeaDirection::Sea));
     let mut server = GameServer::new(setup).unwrap();
-    let cargo = server.spawn_unit(
-        Position::new(0, 1),
-        Unit::Infantry,
-        PlayerFaction::OrangeStar,
-    );
-    let apc = server.spawn_unit(Position::new(1, 1), Unit::Apc, PlayerFaction::OrangeStar);
-    server.spawn_unit(Position::new(2, 1), Unit::Tank, PlayerFaction::OrangeStar);
+    let cargo = server.spawn_unit(Pos::new(0, 1), Unit::Infantry, PlayerFaction::OrangeStar);
+    let apc = server.spawn_unit(Pos::new(1, 1), Unit::Apc, PlayerFaction::OrangeStar);
+    server.spawn_unit(Pos::new(2, 1), Unit::Tank, PlayerFaction::OrangeStar);
 
     server
         .submit_command(
             p1(),
             action_command(
                 cargo,
-                vec![Position::new(0, 1), Position::new(1, 1)],
+                vec![Pos::new(0, 1), Pos::new(1, 1)],
                 PostMoveAction::Load {
                     transport_id: apc.0,
                 },
@@ -2254,7 +2186,7 @@ fn unload_rejects_occupied_or_impassable_target() {
         .unwrap();
 
     let occupied_err = server
-        .submit_command(p1(), unload_command(apc, cargo, Position::new(2, 1)))
+        .submit_command(p1(), unload_command(apc, cargo, Pos::new(2, 1)))
         .unwrap_err();
     assert!(matches!(occupied_err, CommandError::InvalidAction { .. }));
     assert_eq!(
@@ -2266,12 +2198,12 @@ fn unload_rejects_occupied_or_impassable_target() {
             .find(|unit| unit.id == apc)
             .unwrap()
             .position,
-        Position::new(1, 1),
+        Pos::new(1, 1),
         "a rejected compound move-plus-unload must roll back the move"
     );
 
     let impassable_err = server
-        .submit_command(p1(), unload_command(apc, cargo, Position::new(1, 0)))
+        .submit_command(p1(), unload_command(apc, cargo, Pos::new(1, 0)))
         .unwrap_err();
     assert!(matches!(impassable_err, CommandError::InvalidPath { .. }));
 }
@@ -2279,15 +2211,15 @@ fn unload_rejects_occupied_or_impassable_target() {
 #[test]
 fn hide_and_unhide_change_enemy_player_view() {
     let mut server = GameServer::new(two_player_setup(5, 1)).unwrap();
-    let sub = server.spawn_unit(Position::new(0, 0), Unit::Sub, PlayerFaction::OrangeStar);
-    server.spawn_unit(Position::new(4, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+    let sub = server.spawn_unit(Pos::new(0, 0), Unit::Sub, PlayerFaction::OrangeStar);
+    server.spawn_unit(Pos::new(4, 0), Unit::Infantry, PlayerFaction::BlueMoon);
 
     let first_enemy_id = server
         .player_view(p2())
         .unwrap()
         .units
         .into_iter()
-        .find(|unit| unit.position == Position::new(0, 0))
+        .find(|unit| unit.position == Pos::new(0, 0))
         .unwrap()
         .id;
     assert_ne!(first_enemy_id, sub);
@@ -2295,7 +2227,7 @@ fn hide_and_unhide_change_enemy_player_view() {
     let hide_result = server
         .submit_command(
             p1(),
-            action_command(sub, vec![Position::new(0, 0)], PostMoveAction::Hide),
+            action_command(sub, vec![Pos::new(0, 0)], PostMoveAction::Hide),
         )
         .unwrap();
     let p1_hide_update = hide_result
@@ -2327,7 +2259,7 @@ fn hide_and_unhide_change_enemy_player_view() {
             .unwrap()
             .units
             .iter()
-            .any(|unit| unit.position == Position::new(0, 0)),
+            .any(|unit| unit.position == Pos::new(0, 0)),
         "hidden sub should disappear from enemy view when not detected"
     );
 
@@ -2336,7 +2268,7 @@ fn hide_and_unhide_change_enemy_player_view() {
     let unhide_result = server
         .submit_command(
             p1(),
-            action_command(sub, vec![Position::new(0, 0)], PostMoveAction::Unhide),
+            action_command(sub, vec![Pos::new(0, 0)], PostMoveAction::Unhide),
         )
         .unwrap();
     let p1_unhide_update = unhide_result
@@ -2368,7 +2300,7 @@ fn hide_and_unhide_change_enemy_player_view() {
         .unwrap()
         .units
         .into_iter()
-        .find(|unit| unit.position == Position::new(0, 0))
+        .find(|unit| unit.position == Pos::new(0, 0))
         .expect("unhidden sub should reappear")
         .id;
     assert_ne!(second_enemy_id, first_enemy_id);
@@ -2378,12 +2310,12 @@ fn hide_and_unhide_change_enemy_player_view() {
 #[test]
 fn untracked_disappearance_does_not_allocate_enemy_id() {
     let mut server = GameServer::new(two_player_setup(5, 1)).unwrap();
-    let sub = server.spawn_unit(Position::new(0, 0), Unit::Sub, PlayerFaction::OrangeStar);
+    let sub = server.spawn_unit(Pos::new(0, 0), Unit::Sub, PlayerFaction::OrangeStar);
 
     let hidden = server
         .submit_command(
             p1(),
-            action_command(sub, vec![Position::new(0, 0)], PostMoveAction::Hide),
+            action_command(sub, vec![Pos::new(0, 0)], PostMoveAction::Hide),
         )
         .unwrap();
     let p2_update = &hidden
@@ -2399,7 +2331,7 @@ fn untracked_disappearance_does_not_allocate_enemy_id() {
     server
         .submit_command(
             p1(),
-            action_command(sub, vec![Position::new(0, 0)], PostMoveAction::Unhide),
+            action_command(sub, vec![Pos::new(0, 0)], PostMoveAction::Unhide),
         )
         .unwrap();
     let id = server
@@ -2407,7 +2339,7 @@ fn untracked_disappearance_does_not_allocate_enemy_id() {
         .unwrap()
         .units
         .iter()
-        .find(|unit| unit.position == Position::new(0, 0))
+        .find(|unit| unit.position == Pos::new(0, 0))
         .expect("the unhidden enemy is visible")
         .id;
     assert_eq!(id, ServerUnitId(u64::MAX));
@@ -2416,21 +2348,21 @@ fn untracked_disappearance_does_not_allocate_enemy_id() {
 #[test]
 fn hide_and_unhide_refresh_detecting_enemy_visible_unit() {
     let mut server = GameServer::new(two_player_setup(3, 1)).unwrap();
-    let sub = server.spawn_unit(Position::new(0, 0), Unit::Sub, PlayerFaction::OrangeStar);
-    server.spawn_unit(Position::new(1, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+    let sub = server.spawn_unit(Pos::new(0, 0), Unit::Sub, PlayerFaction::OrangeStar);
+    server.spawn_unit(Pos::new(1, 0), Unit::Infantry, PlayerFaction::BlueMoon);
     let observed_sub = server
         .player_view(p2())
         .unwrap()
         .units
         .into_iter()
-        .find(|unit| unit.position == Position::new(0, 0))
+        .find(|unit| unit.position == Pos::new(0, 0))
         .unwrap()
         .id;
 
     let hide_result = server
         .submit_command(
             p1(),
-            action_command(sub, vec![Position::new(0, 0)], PostMoveAction::Hide),
+            action_command(sub, vec![Pos::new(0, 0)], PostMoveAction::Hide),
         )
         .unwrap();
     let p2_hide_update = hide_result
@@ -2462,7 +2394,7 @@ fn hide_and_unhide_refresh_detecting_enemy_visible_unit() {
     let unhide_result = server
         .submit_command(
             p1(),
-            action_command(sub, vec![Position::new(0, 0)], PostMoveAction::Unhide),
+            action_command(sub, vec![Pos::new(0, 0)], PostMoveAction::Unhide),
         )
         .unwrap();
     let p2_unhide_update = unhide_result
@@ -2484,12 +2416,12 @@ fn hide_and_unhide_refresh_detecting_enemy_visible_unit() {
 #[test]
 fn hide_rejects_non_hidden_capable_units() {
     let mut server = GameServer::new(two_player_setup(3, 1)).unwrap();
-    let tank = server.spawn_unit(Position::new(0, 0), Unit::Tank, PlayerFaction::OrangeStar);
+    let tank = server.spawn_unit(Pos::new(0, 0), Unit::Tank, PlayerFaction::OrangeStar);
 
     let err = server
         .submit_command(
             p1(),
-            action_command(tank, vec![Position::new(0, 0)], PostMoveAction::Hide),
+            action_command(tank, vec![Pos::new(0, 0)], PostMoveAction::Hide),
         )
         .unwrap_err();
 
@@ -2499,23 +2431,15 @@ fn hide_rejects_non_hidden_capable_units() {
 #[test]
 fn join_rejects_a_target_already_at_full_visual_hp() {
     let mut server = GameServer::new(two_player_setup(4, 1)).unwrap();
-    let source = server.spawn_unit(
-        Position::new(0, 0),
-        Unit::Infantry,
-        PlayerFaction::OrangeStar,
-    );
-    let target = server.spawn_unit(
-        Position::new(1, 0),
-        Unit::Infantry,
-        PlayerFaction::OrangeStar,
-    );
+    let source = server.spawn_unit(Pos::new(0, 0), Unit::Infantry, PlayerFaction::OrangeStar);
+    let target = server.spawn_unit(Pos::new(1, 0), Unit::Infantry, PlayerFaction::OrangeStar);
 
     let error = server
         .submit_command(
             p1(),
             action_command(
                 source,
-                vec![Position::new(0, 0), Position::new(1, 0)],
+                vec![Pos::new(0, 0), Pos::new(1, 0)],
                 PostMoveAction::Join {
                     target_id: target.0,
                 },
@@ -2532,21 +2456,16 @@ fn join_rejects_a_target_already_at_full_visual_hp() {
 #[test]
 fn join_rejects_different_type_or_owner() {
     let mut server = GameServer::new(two_player_setup(5, 1)).unwrap();
-    let source = server.spawn_unit(
-        Position::new(0, 0),
-        Unit::Infantry,
-        PlayerFaction::OrangeStar,
-    );
-    let tank = server.spawn_unit(Position::new(1, 0), Unit::Tank, PlayerFaction::OrangeStar);
-    let enemy_infantry =
-        server.spawn_unit(Position::new(2, 0), Unit::Infantry, PlayerFaction::BlueMoon);
+    let source = server.spawn_unit(Pos::new(0, 0), Unit::Infantry, PlayerFaction::OrangeStar);
+    let tank = server.spawn_unit(Pos::new(1, 0), Unit::Tank, PlayerFaction::OrangeStar);
+    let enemy_infantry = server.spawn_unit(Pos::new(2, 0), Unit::Infantry, PlayerFaction::BlueMoon);
 
     let different_type_err = server
         .submit_command(
             p1(),
             action_command(
                 source,
-                vec![Position::new(0, 0), Position::new(1, 0)],
+                vec![Pos::new(0, 0), Pos::new(1, 0)],
                 PostMoveAction::Join { target_id: tank.0 },
             ),
         )
@@ -2561,11 +2480,7 @@ fn join_rejects_different_type_or_owner() {
             p1(),
             action_command(
                 source,
-                vec![
-                    Position::new(0, 0),
-                    Position::new(1, 0),
-                    Position::new(2, 0),
-                ],
+                vec![Pos::new(0, 0), Pos::new(1, 0), Pos::new(2, 0)],
                 PostMoveAction::Join {
                     target_id: enemy_infantry.0,
                 },
@@ -2584,18 +2499,18 @@ fn join_rejects_different_type_or_owner() {
 fn full_hp_infantry_captures_property_in_two_capture_actions() {
     let mut setup = two_player_setup(3, 1);
     setup.map.set_terrain(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         GraphicalTerrain::Property(Property::City(TerrainFaction::Neutral)),
     );
     let mut server = GameServer::new(setup).unwrap();
     let infantry = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
 
     let first = server
-        .submit_command(p1(), capture_command(infantry, Position::new(0, 0)))
+        .submit_command(p1(), capture_command(infantry, Pos::new(0, 0)))
         .unwrap();
     let p1_update = first
         .updates
@@ -2624,7 +2539,7 @@ fn full_hp_infantry_captures_property_in_two_capture_actions() {
     server.submit_command(p2(), GameCommand::EndTurn).unwrap();
 
     let second = server
-        .submit_command(p1(), capture_command(infantry, Position::new(0, 0)))
+        .submit_command(p1(), capture_command(infantry, Pos::new(0, 0)))
         .unwrap();
     let p1_update = second
         .updates
@@ -2638,7 +2553,7 @@ fn full_hp_infantry_captures_property_in_two_capture_actions() {
         Some(CaptureEvent::PropertyCaptured {
             tile,
             new_faction: PlayerFaction::OrangeStar
-        }) if tile == Position::new(0, 0)
+        }) if tile == Pos::new(0, 0)
     ));
     assert_eq!(
         p1_update.terrain_changed[0].terrain,
@@ -2652,7 +2567,7 @@ fn full_hp_infantry_captures_property_in_two_capture_actions() {
         .unwrap()
         .terrain
         .into_iter()
-        .find(|tile| tile.position == Position::new(0, 0))
+        .find(|tile| tile.position == Pos::new(0, 0))
         .unwrap();
     assert_eq!(
         terrain.terrain,
@@ -2677,20 +2592,20 @@ fn full_hp_infantry_captures_property_in_two_capture_actions() {
 fn mech_can_initiate_capture_on_enemy_property() {
     let mut setup = two_player_setup(3, 1);
     setup.map.set_terrain(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         GraphicalTerrain::Property(Property::City(TerrainFaction::Player(
             PlayerFaction::BlueMoon,
         ))),
     );
     let mut server = GameServer::new(setup).unwrap();
     let mech = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Mech,
         PlayerFaction::OrangeStar,
     );
 
     let result = server
-        .submit_command(p1(), capture_command(mech, Position::new(0, 0)))
+        .submit_command(p1(), capture_command(mech, Pos::new(0, 0)))
         .unwrap();
     let p1_update = result
         .updates
@@ -2710,18 +2625,18 @@ fn mech_can_initiate_capture_on_enemy_property() {
 fn moving_away_loses_capture_progress() {
     let mut setup = two_player_setup(3, 1);
     setup.map.set_terrain(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         GraphicalTerrain::Property(Property::City(TerrainFaction::Neutral)),
     );
     let mut server = GameServer::new(setup).unwrap();
     let infantry = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
 
     server
-        .submit_command(p1(), capture_command(infantry, Position::new(0, 0)))
+        .submit_command(p1(), capture_command(infantry, Pos::new(0, 0)))
         .unwrap();
     server.submit_command(p1(), GameCommand::EndTurn).unwrap();
     server.submit_command(p2(), GameCommand::EndTurn).unwrap();
@@ -2731,7 +2646,7 @@ fn moving_away_loses_capture_progress() {
             p1(),
             GameCommand::MoveUnit {
                 unit_id: infantry,
-                path: vec![Position::new(0, 0), Position::new(1, 0)],
+                path: vec![Pos::new(0, 0), Pos::new(1, 0)],
                 action: Some(PostMoveAction::Wait),
             },
         )
@@ -2754,17 +2669,17 @@ fn moving_away_loses_capture_progress() {
 fn damaged_infantry_takes_more_than_two_capture_actions() {
     let mut setup = two_player_setup(3, 1);
     setup.map.set_terrain(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         GraphicalTerrain::Property(Property::City(TerrainFaction::Neutral)),
     );
     let mut server = GameServer::new(setup).unwrap();
     let infantry = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
     let attacker = server.spawn_unit(
-        Position::new(1, 0),
+        Pos::new(1, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::BlueMoon,
     );
@@ -2773,7 +2688,7 @@ fn damaged_infantry_takes_more_than_two_capture_actions() {
     server
         .submit_command(
             p2(),
-            attack_command(attacker, vec![Position::new(1, 0)], Position::new(0, 0)),
+            attack_command(attacker, vec![Pos::new(1, 0)], Pos::new(0, 0)),
         )
         .unwrap();
     let damaged_hp = server
@@ -2789,12 +2704,12 @@ fn damaged_infantry_takes_more_than_two_capture_actions() {
 
     server.submit_command(p2(), GameCommand::EndTurn).unwrap();
     server
-        .submit_command(p1(), capture_command(infantry, Position::new(0, 0)))
+        .submit_command(p1(), capture_command(infantry, Pos::new(0, 0)))
         .unwrap();
     server.submit_command(p1(), GameCommand::EndTurn).unwrap();
     server.submit_command(p2(), GameCommand::EndTurn).unwrap();
     server
-        .submit_command(p1(), capture_command(infantry, Position::new(0, 0)))
+        .submit_command(p1(), capture_command(infantry, Pos::new(0, 0)))
         .unwrap();
 
     let terrain = server
@@ -2802,7 +2717,7 @@ fn damaged_infantry_takes_more_than_two_capture_actions() {
         .unwrap()
         .terrain
         .into_iter()
-        .find(|tile| tile.position == Position::new(0, 0))
+        .find(|tile| tile.position == Pos::new(0, 0))
         .unwrap();
     assert_eq!(
         terrain.terrain,
@@ -2825,34 +2740,34 @@ fn damaged_infantry_takes_more_than_two_capture_actions() {
 fn capture_rejects_non_infantry_and_own_property() {
     let mut setup = two_player_setup(3, 1);
     setup.map.set_terrain(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         GraphicalTerrain::Property(Property::City(TerrainFaction::Neutral)),
     );
     setup.map.set_terrain(
-        Position::new(1, 0),
+        Pos::new(1, 0),
         GraphicalTerrain::Property(Property::City(TerrainFaction::Player(
             PlayerFaction::OrangeStar,
         ))),
     );
     let mut server = GameServer::new(setup).unwrap();
     let tank = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Tank,
         PlayerFaction::OrangeStar,
     );
     let infantry = server.spawn_unit(
-        Position::new(1, 0),
+        Pos::new(1, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
 
     let err = server
-        .submit_command(p1(), capture_command(tank, Position::new(0, 0)))
+        .submit_command(p1(), capture_command(tank, Pos::new(0, 0)))
         .unwrap_err();
     assert!(matches!(err, CommandError::InvalidAction { .. }));
 
     let err = server
-        .submit_command(p1(), capture_command(infantry, Position::new(1, 0)))
+        .submit_command(p1(), capture_command(infantry, Pos::new(1, 0)))
         .unwrap_err();
     assert!(matches!(err, CommandError::InvalidAction { .. }));
 }
@@ -2861,20 +2776,20 @@ fn capture_rejects_non_infantry_and_own_property() {
 fn capture_rejects_allied_property() {
     let mut setup = allied_player_setup(3, 1);
     setup.map.set_terrain(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         GraphicalTerrain::Property(Property::City(TerrainFaction::Player(
             PlayerFaction::BlueMoon,
         ))),
     );
     let mut server = GameServer::new(setup).unwrap();
     let infantry = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
 
     let err = server
-        .submit_command(p1(), capture_command(infantry, Position::new(0, 0)))
+        .submit_command(p1(), capture_command(infantry, Pos::new(0, 0)))
         .unwrap_err();
 
     assert!(matches!(err, CommandError::InvalidAction { .. }));
@@ -2885,29 +2800,29 @@ fn fogged_opponent_does_not_receive_capture_event() {
     let mut setup = two_player_setup(8, 8);
     setup.fog_enabled = true;
     setup.map.set_terrain(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         GraphicalTerrain::Property(Property::City(TerrainFaction::Neutral)),
     );
     let mut server = GameServer::new(setup).unwrap();
     let infantry = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
     server.spawn_unit(
-        Position::new(7, 7),
+        Pos::new(7, 7),
         awbrn_types::Unit::Infantry,
         PlayerFaction::BlueMoon,
     );
 
     server
-        .submit_command(p1(), capture_command(infantry, Position::new(0, 0)))
+        .submit_command(p1(), capture_command(infantry, Pos::new(0, 0)))
         .unwrap();
     server.submit_command(p1(), GameCommand::EndTurn).unwrap();
     server.submit_command(p2(), GameCommand::EndTurn).unwrap();
 
     let result = server
-        .submit_command(p1(), capture_command(infantry, Position::new(0, 0)))
+        .submit_command(p1(), capture_command(infantry, Pos::new(0, 0)))
         .unwrap();
     let p2_update = result
         .updates
@@ -2931,14 +2846,14 @@ fn reconstruct_replays_action_log_to_matching_player_views() {
         &mut original,
         &mut events,
         p1(),
-        build_command(Position::new(0, 0), Unit::Infantry),
+        build_command(Pos::new(0, 0), Unit::Infantry),
     );
     submit_and_store(&mut original, &mut events, p1(), GameCommand::EndTurn);
     submit_and_store(
         &mut original,
         &mut events,
         p2(),
-        build_command(Position::new(3, 0), Unit::Infantry),
+        build_command(Pos::new(3, 0), Unit::Infantry),
     );
     submit_and_store(&mut original, &mut events, p2(), GameCommand::EndTurn);
     submit_and_store(
@@ -2947,7 +2862,7 @@ fn reconstruct_replays_action_log_to_matching_player_views() {
         p1(),
         action_command(
             ServerUnitId(1),
-            vec![Position::new(0, 0), Position::new(1, 0)],
+            vec![Pos::new(0, 0), Pos::new(1, 0)],
             PostMoveAction::Wait,
         ),
     );
@@ -2960,8 +2875,8 @@ fn reconstruct_replays_action_log_to_matching_player_views() {
         p1(),
         attack_command(
             ServerUnitId(1),
-            vec![Position::new(1, 0), Position::new(2, 0)],
-            Position::new(3, 0),
+            vec![Pos::new(1, 0), Pos::new(2, 0)],
+            Pos::new(3, 0),
         ),
     );
     assert!(
@@ -2977,13 +2892,13 @@ fn reconstruct_replays_action_log_to_matching_player_views() {
         &mut original,
         &mut events,
         p1(),
-        capture_command(ServerUnitId(1), Position::new(2, 0)),
+        capture_command(ServerUnitId(1), Pos::new(2, 0)),
     );
     submit_and_store(
         &mut original,
         &mut events,
         p1(),
-        build_command(Position::new(0, 0), Unit::Infantry),
+        build_command(Pos::new(0, 0), Unit::Infantry),
     );
 
     let encoded = serde_json::to_string(&events).unwrap();
@@ -3006,8 +2921,8 @@ fn replay_attack_requires_stored_randomness() {
         player: p1(),
         command: attack_command(
             ServerUnitId(1),
-            vec![Position::new(1, 0), Position::new(2, 0)],
-            Position::new(3, 0),
+            vec![Pos::new(1, 0), Pos::new(2, 0)],
+            Pos::new(3, 0),
         ),
         random: Vec::new(),
     });
@@ -3028,7 +2943,7 @@ fn replay_uses_stored_submitter_and_rejects_corrupted_turn_order() {
     let setup = replay_combat_setup();
     let events = vec![StoredActionEvent {
         player: p2(),
-        command: build_command(Position::new(3, 0), Unit::Infantry),
+        command: build_command(Pos::new(3, 0), Unit::Infantry),
         random: Vec::new(),
     }];
 
@@ -3071,7 +2986,7 @@ fn replay_rejects_randomness_on_non_random_command() {
     let setup = replay_combat_setup();
     let events = vec![StoredActionEvent {
         player: p1(),
-        command: build_command(Position::new(0, 0), Unit::Infantry),
+        command: build_command(Pos::new(0, 0), Unit::Infantry),
         random: vec![awvm::random::RandomToken::CombatGoodLuck(1)],
     }];
 
@@ -3091,11 +3006,7 @@ fn replay_invalid_command_returns_error() {
     let setup = replay_combat_setup();
     let events = vec![StoredActionEvent {
         player: p1(),
-        command: action_command(
-            ServerUnitId(99),
-            vec![Position::new(0, 0)],
-            PostMoveAction::Wait,
-        ),
+        command: action_command(ServerUnitId(99), vec![Pos::new(0, 0)], PostMoveAction::Wait),
         random: Vec::new(),
     }];
 
@@ -3118,8 +3029,8 @@ fn replay_rejects_out_of_domain_randomness() {
         player: p1(),
         command: attack_command(
             ServerUnitId(1),
-            vec![Position::new(1, 0), Position::new(2, 0)],
-            Position::new(3, 0),
+            vec![Pos::new(1, 0), Pos::new(2, 0)],
+            Pos::new(3, 0),
         ),
         random: vec![
             awvm::random::RandomToken::CombatGoodLuck(200),
@@ -3144,12 +3055,12 @@ fn replay_rejects_out_of_domain_randomness() {
 fn a_match_in_play_has_no_result() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
     server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::OrangeStar,
     );
     server.spawn_unit(
-        Position::new(4, 4),
+        Pos::new(4, 4),
         awbrn_types::Unit::Infantry,
         PlayerFaction::BlueMoon,
     );
@@ -3162,12 +3073,12 @@ fn a_match_in_play_has_no_result() {
 fn a_rout_records_a_win_and_a_loss() {
     let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
     let attacker = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::MegaTank,
         PlayerFaction::OrangeStar,
     );
     server.spawn_unit(
-        Position::new(1, 0),
+        Pos::new(1, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::BlueMoon,
     );
@@ -3175,7 +3086,7 @@ fn a_rout_records_a_win_and_a_loss() {
     server
         .submit_command(
             p1(),
-            attack_command(attacker, vec![Position::new(0, 0)], Position::new(1, 0)),
+            attack_command(attacker, vec![Pos::new(0, 0)], Pos::new(1, 0)),
         )
         .unwrap();
 
@@ -3211,14 +3122,14 @@ fn a_replayed_match_recovers_its_result() {
         &mut server,
         &mut events,
         p1(),
-        build_command(Position::new(0, 0), Unit::MegaTank),
+        build_command(Pos::new(0, 0), Unit::MegaTank),
     );
     submit_and_store(&mut server, &mut events, p1(), GameCommand::EndTurn);
     submit_and_store(
         &mut server,
         &mut events,
         p2(),
-        build_command(Position::new(3, 0), Unit::Infantry),
+        build_command(Pos::new(3, 0), Unit::Infantry),
     );
     submit_and_store(&mut server, &mut events, p2(), GameCommand::EndTurn);
     submit_and_store(
@@ -3227,12 +3138,8 @@ fn a_replayed_match_recovers_its_result() {
         p1(),
         attack_command(
             ServerUnitId(1),
-            vec![
-                Position::new(0, 0),
-                Position::new(1, 0),
-                Position::new(2, 0),
-            ],
-            Position::new(3, 0),
+            vec![Pos::new(0, 0), Pos::new(1, 0), Pos::new(2, 0)],
+            Pos::new(3, 0),
         ),
     );
 
@@ -3252,17 +3159,17 @@ fn a_replayed_match_recovers_its_result() {
 fn a_free_for_all_ranks_its_losers_by_when_they_fell() {
     let mut server = GameServer::new(three_player_setup(5, 5)).unwrap();
     let attacker = server.spawn_unit(
-        Position::new(0, 0),
+        Pos::new(0, 0),
         awbrn_types::Unit::MegaTank,
         PlayerFaction::OrangeStar,
     );
     server.spawn_unit(
-        Position::new(1, 0),
+        Pos::new(1, 0),
         awbrn_types::Unit::Infantry,
         PlayerFaction::BlueMoon,
     );
     server.spawn_unit(
-        Position::new(0, 1),
+        Pos::new(0, 1),
         awbrn_types::Unit::Infantry,
         PlayerFaction::GreenEarth,
     );
@@ -3271,7 +3178,7 @@ fn a_free_for_all_ranks_its_losers_by_when_they_fell() {
     server
         .submit_command(
             p1(),
-            attack_command(attacker, vec![Position::new(0, 0)], Position::new(1, 0)),
+            attack_command(attacker, vec![Pos::new(0, 0)], Pos::new(1, 0)),
         )
         .unwrap();
     assert!(server.results().is_none(), "a third seat is still in play");
@@ -3281,7 +3188,7 @@ fn a_free_for_all_ranks_its_losers_by_when_they_fell() {
     server
         .submit_command(
             p1(),
-            attack_command(attacker, vec![Position::new(0, 0)], Position::new(0, 1)),
+            attack_command(attacker, vec![Pos::new(0, 0)], Pos::new(0, 1)),
         )
         .unwrap();
 

@@ -12,7 +12,7 @@ use awbrn_game::world::{
     CaptureProgress, CarriedBy, Faction, GraphicalHp, HasCargo, Hiding, TerrainTile, Unit,
     UnitActive, ViewerVisibility,
 };
-use awbrn_map::Position;
+use awbrn_map::Pos;
 use awbrn_types::{Faction as TerrainFaction, GraphicalTerrain, Property, PropertyKind};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -169,7 +169,7 @@ fn terrain_for_viewer(
     visibility: &ViewerVisibility,
     knowledge: Option<&ReplayTerrainKnowledge>,
     knowledge_key: Option<ReplayKnowledgeKey>,
-    position: Position,
+    position: Pos,
     actual: GraphicalTerrain,
 ) -> GraphicalTerrain {
     if !visibility.is_fogged(position) {
@@ -344,6 +344,7 @@ mod tests {
     use awbrn_game::GameWorldPlugin;
     use awbrn_game::world::GameMap;
     use awbrn_map::AwbrnMap;
+    use awbrn_map::Dimensions;
     use awbrn_types::{AwbwGamePlayerId, PlayerFaction, Property};
 
     /// A fogged property keeps the owner the viewer last saw on it.
@@ -369,7 +370,7 @@ mod tests {
         registry.add_player(player, PlayerFaction::OrangeStar, 0);
         app.world_mut()
             .resource_mut::<GameMap>()
-            .set(AwbrnMap::new(1, 1, remembered));
+            .set(AwbrnMap::new(Dimensions::new(1, 1), remembered));
         let knowledge = {
             let game_map = app.world().resource::<GameMap>();
             ReplayTerrainKnowledge::from_map_and_registry(game_map, &registry)
@@ -384,7 +385,7 @@ mod tests {
         });
         app.world_mut()
             .resource_mut::<GameMap>()
-            .set(AwbrnMap::new(1, 1, actual));
+            .set(AwbrnMap::new(Dimensions::new(1, 1), actual));
         let entity = app
             .world_mut()
             .spawn((MapPosition::new(0, 0), TerrainTile { terrain: actual }))
@@ -392,7 +393,7 @@ mod tests {
 
         app.world_mut()
             .resource_mut::<ViewerVisibility>()
-            .reset(true, 1, 1);
+            .reset(true, awbrn_map::Dimensions::new(1, 1));
         app.update();
         assert_eq!(
             app.world()
@@ -403,7 +404,7 @@ mod tests {
 
         app.world_mut()
             .resource_mut::<ViewerVisibility>()
-            .set_tile_visible(Position::new(0, 0));
+            .set_tile_visible(Pos::new(0, 0));
         app.update();
         assert_eq!(
             app.world()
@@ -432,7 +433,7 @@ mod tests {
         }
         {
             let mut visibility = app.world_mut().resource_mut::<ViewerVisibility>();
-            visibility.reset(true, 1, 1);
+            visibility.reset(true, awbrn_map::Dimensions::new(1, 1));
             visibility.set_unit_visible(seen);
         }
         app.update();

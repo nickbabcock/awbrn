@@ -5,7 +5,7 @@
 //! `ObservedTransition` values.
 
 use awbw_replay::turn_models::Action;
-use awvm::semantic::{ObservedEvent, ObservedTransition, ObservedUnitRef, PlayerId, Pos};
+use awvm::semantic::{ObservedEvent, ObservedTransition, ObservedUnitRef, PlayerId};
 use bevy::{log, prelude::*};
 use std::collections::BTreeMap;
 
@@ -534,7 +534,7 @@ fn collect_player_roster_unit_cost_updates(action: &Action) -> Vec<(AwbwUnitId, 
 /// is one the viewer is entitled to see. `unit_visible` stays on the tile
 /// because the archived AWBW path in `replay_path_tiles` still carries it.
 fn typed_path_for_current_view(
-    path: &[awbrn_map::Position],
+    path: &[awbrn_map::Pos],
 ) -> Vec<crate::modes::replay::navigation::ReplayPathTile> {
     use crate::modes::replay::navigation::ReplayPathTile;
 
@@ -588,11 +588,7 @@ fn start_typed_movement_animation(
 fn movement_for_current_view<'a>(
     transitions: &'a [ObservedTransition],
     world: &World,
-) -> Option<(
-    ObservedUnitRef,
-    awbrn_map::Position,
-    Vec<awbrn_map::Position>,
-)> {
+) -> Option<(ObservedUnitRef, awbrn_map::Pos, Vec<awbrn_map::Pos>)> {
     let selected = if transitions.len() == 1 {
         transitions.first()
     } else {
@@ -627,11 +623,7 @@ fn movement_for_current_view<'a>(
     candidates.find_map(|event| match event {
         ObservedEvent::UnitMoved {
             unit, from, path, ..
-        } => Some((
-            *unit,
-            position_from_pos(*from),
-            path.iter().copied().map(position_from_pos).collect(),
-        )),
+        } => Some((*unit, *from, path.to_vec())),
         ObservedEvent::UnitAppeared { .. }
         | ObservedEvent::UnitDisappeared { .. }
         | ObservedEvent::MovementStopped { .. }
@@ -663,7 +655,7 @@ fn parse_player_id(id: &PlayerId) -> Option<awbrn_types::AwbwGamePlayerId> {
 
 fn entity_for_observed_unit(
     unit: ObservedUnitRef,
-    origin: awbrn_map::Position,
+    origin: awbrn_map::Pos,
     world: &World,
 ) -> Option<Entity> {
     match unit {
@@ -679,10 +671,6 @@ fn entity_for_observed_unit(
             .ok()
             .flatten(),
     }
-}
-
-pub(crate) fn position_from_pos(position: Pos) -> awbrn_map::Position {
-    awbrn_map::Position::new(usize::from(position.x), usize::from(position.y))
 }
 
 /// Observer: when `CarriedBy` is added to an entity, hide it visually.

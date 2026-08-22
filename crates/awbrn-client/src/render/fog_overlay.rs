@@ -1,4 +1,4 @@
-use awbrn_map::Position;
+use awbrn_map::Pos;
 use bevy::prelude::*;
 
 use crate::core::{AppState, RenderLayer, SpriteSize};
@@ -11,7 +11,7 @@ const FOG_OVERLAY_ALPHA: f32 = 0.75;
 pub struct FogOverlayTile;
 
 #[derive(Component)]
-struct FogTilePosition(Position);
+struct FogTilePosition(Pos);
 
 const FOG_OVERLAY_SPRITE_SIZE: SpriteSize = SpriteSize {
     width: 16.0,
@@ -30,7 +30,7 @@ pub fn spawn_fog_overlay_tiles(
 
     for y in 0..game_map.height() {
         for x in 0..game_map.width() {
-            let pos = Position::new(x, y);
+            let pos = Pos::new(x, y);
             let world_pos = crate::core::coords::position_to_world_translation(
                 &FOG_OVERLAY_SPRITE_SIZE,
                 pos,
@@ -84,6 +84,7 @@ impl Plugin for FogOverlayPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use awbrn_map::Dimensions;
     use awbrn_types::GraphicalTerrain;
     use bevy::ecs::system::RunSystemOnce;
 
@@ -94,10 +95,10 @@ mod tests {
         app
     }
 
-    fn fog_everything(app: &mut App, width: usize, height: usize) {
+    fn fog_everything(app: &mut App, width: u8, height: u8) {
         app.world_mut()
             .resource_mut::<ViewerVisibility>()
-            .reset(true, width, height);
+            .reset(true, Dimensions::new(width, height));
     }
 
     #[test]
@@ -105,7 +106,10 @@ mod tests {
         let mut app = fog_overlay_test_app();
         app.world_mut()
             .resource_mut::<GameMap>()
-            .set(awbrn_map::AwbrnMap::new(3, 2, GraphicalTerrain::Plain));
+            .set(awbrn_map::AwbrnMap::new(
+                Dimensions::new(3, 2),
+                GraphicalTerrain::Plain,
+            ));
 
         app.world_mut()
             .run_system_once(spawn_fog_overlay_tiles)
@@ -124,7 +128,10 @@ mod tests {
         let mut app = fog_overlay_test_app();
         app.world_mut()
             .resource_mut::<GameMap>()
-            .set(awbrn_map::AwbrnMap::new(2, 2, GraphicalTerrain::Plain));
+            .set(awbrn_map::AwbrnMap::new(
+                Dimensions::new(2, 2),
+                GraphicalTerrain::Plain,
+            ));
         fog_everything(&mut app, 2, 2);
 
         app.world_mut()
@@ -149,7 +156,10 @@ mod tests {
         let mut app = fog_overlay_test_app();
         app.world_mut()
             .resource_mut::<GameMap>()
-            .set(awbrn_map::AwbrnMap::new(2, 2, GraphicalTerrain::Plain));
+            .set(awbrn_map::AwbrnMap::new(
+                Dimensions::new(2, 2),
+                GraphicalTerrain::Plain,
+            ));
 
         app.world_mut()
             .run_system_once(spawn_fog_overlay_tiles)
@@ -172,11 +182,14 @@ mod tests {
         let mut app = fog_overlay_test_app();
         app.world_mut()
             .resource_mut::<GameMap>()
-            .set(awbrn_map::AwbrnMap::new(2, 1, GraphicalTerrain::Plain));
+            .set(awbrn_map::AwbrnMap::new(
+                Dimensions::new(2, 1),
+                GraphicalTerrain::Plain,
+            ));
         fog_everything(&mut app, 2, 1);
         app.world_mut()
             .resource_mut::<ViewerVisibility>()
-            .set_tile_visible(Position::new(0, 0));
+            .set_tile_visible(Pos::new(0, 0));
 
         app.world_mut()
             .run_system_once(spawn_fog_overlay_tiles)
@@ -187,7 +200,7 @@ mod tests {
             .world_mut()
             .query_filtered::<(&FogTilePosition, &Sprite), With<FogOverlayTile>>();
         for (tile_pos, sprite) in query.iter(app.world()) {
-            if tile_pos.0 == Position::new(0, 0) {
+            if tile_pos.0 == Pos::new(0, 0) {
                 assert!(
                     sprite.color.alpha().abs() < f32::EPSILON,
                     "revealed tile should have alpha 0"

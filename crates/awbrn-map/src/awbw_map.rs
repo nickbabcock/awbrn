@@ -1,30 +1,46 @@
-use crate::{MapError, Position};
+use crate::MapError;
+use crate::deployment::{Deployment, Deployments};
 use awbrn_types::{AwbwTerrain, Faction, PLAYER_FACTION_METADATA, PlayerFaction};
+use awvm::semantic::{Dimensions, Grid, Pos};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
 
-/// Represents a game map with terrain data
+/// A game map: the terrain of each tile, and the units the map starts.
+///
+/// The deployments live here rather than beside the map because they are part
+/// of what the map is. A caller that loads a map cannot forget to carry them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AwbwMap {
-    /// Width of the map in tiles
-    width: usize,
-
-    /// Height of the map in tiles
-    height: usize,
-
-    /// Terrain data stored as a flattened 2D array (row-major order)
-    terrain: Vec<awbrn_types::AwbwTerrain>,
+    terrain: Grid<AwbwTerrain>,
+    deployments: Deployments,
 }
 
 impl AwbwMap {
-    /// Creates a new map with specified dimensions and default terrain
-    pub fn new(width: usize, height: usize, default_terrain: AwbwTerrain) -> Self {
+    /// Creates a map of `dimensions` filled with `default_terrain` and no units.
+    pub fn new(dimensions: Dimensions, default_terrain: AwbwTerrain) -> Self {
         Self {
-            width,
-            height,
-            terrain: vec![default_terrain; width * height],
+            terrain: Grid::filled(dimensions, default_terrain),
+            deployments: Deployments::new(dimensions),
         }
+    }
+
+    /// Creates a map from row-major `terrain` and the units it starts.
+    ///
+    /// `None` unless `terrain` is exactly the rectangle `dimensions` describes,
+    /// and unless every deployment is keyed against that same shape.
+    pub fn from_parts(
+        dimensions: Dimensions,
+        terrain: Vec<AwbwTerrain>,
+        deployments: Deployments,
+    ) -> Option<Self> {
+        (deployments.dimensions() == dimensions)
+            .then(|| Grid::from_cells(dimensions, terrain))
+            .flatten()
+            .map(|terrain| Self {
+                terrain,
+                deployments,
+            })
     }
 
     /// Parses a Awbw text map
@@ -32,7 +48,7 @@ impl AwbwMap {
     /// Ref: https://awbw.amarriner.com/text_map.php?maps_id=162795
     pub fn parse_txt(data: &str) -> Result<Self, MapError> {
         let mut result = Vec::new();
-        let mut width = 0;
+        let mut width = 0usize;
 
         for (row_idx, row) in data.split('\n').enumerate() {
             if row.trim().is_empty() {
@@ -78,10 +94,11 @@ impl AwbwMap {
         }
 
         let height = result.len() / width;
-        Ok(AwbwMap {
-            width,
-            height,
-            terrain: result,
+        let dimensions = crate::map_document::dimensions(width, height)?;
+        Ok(Self {
+            terrain: Grid::from_cells(dimensions, result)
+                .expect("the row count came from the tile count"),
+            deployments: Deployments::new(dimensions),
         })
     }
 
@@ -97,12 +114,20 @@ impl AwbwMap {
         AwbwMap::try_from(&map_data)
     }
 
-    pub fn width(&self) -> usize {
-        self.width
+    /// The shape of this board, and of every map over it.
+    #[inline]
+    pub fn dimensions(&self) -> Dimensions {
+        self.terrain.dimensions()
     }
 
-    pub fn height(&self) -> usize {
-        self.height
+    #[inline]
+    pub fn width(&self) -> u8 {
+        self.terrain.width()
+    }
+
+    #[inline]
+    pub fn height(&self) -> u8 {
+        self.terrain.height()
     }
 
     /// Render every tile as a unique glyph (never a space), preserving full
@@ -133,52 +158,63 @@ impl AwbwMap {
         // `seen` records distinct player factions in first-appearance order; a
         // faction's slot in `seen` indexes its canonical replacement.
         let mut seen: Vec<PlayerFaction> = Vec::new();
-        let terrain = self
-            .terrain
-            .iter()
-            .map(|terrain| match terrain {
-                AwbwTerrain::Property(property) => match property.faction() {
-                    Faction::Player(old) => {
-                        let slot = seen.iter().position(|f| *f == old).unwrap_or_else(|| {
-                            seen.push(old);
-                            seen.len() - 1
-                        });
-                        let new = PLAYER_FACTION_METADATA[slot].faction();
-                        AwbwTerrain::Property(property.with_owner(Faction::Player(new)))
-                    }
-                    Faction::Neutral => *terrain,
-                },
-                _ => *terrain,
-            })
-            .collect();
+        let mut canonical = |old: PlayerFaction| {
+            let slot = seen.iter().position(|f| *f == old).unwrap_or_else(|| {
+                seen.push(old);
+                seen.len() - 1
+            });
+            PLAYER_FACTION_METADATA[slot].faction()
+        };
+
+        let terrain = Grid::from_cells(
+            self.dimensions(),
+            self.terrain
+                .cells()
+                .map(|terrain| match terrain {
+                    AwbwTerrain::Property(property) => match property.faction() {
+                        Faction::Player(old) => AwbwTerrain::Property(
+                            property.with_owner(Faction::Player(canonical(old))),
+                        ),
+                        Faction::Neutral => *terrain,
+                    },
+                    _ => *terrain,
+                })
+                .collect(),
+        )
+        .expect("a remapped grid keeps its shape");
 
         AwbwMap {
-            width: self.width,
-            height: self.height,
             terrain,
+            deployments: self.deployments.map_factions(canonical),
         }
+    }
+
+    /// The units that the map places before the first turn.
+    pub fn deployments(&self) -> &Deployments {
+        &self.deployments
+    }
+
+    /// Places a unit on `position` before the first turn.
+    ///
+    /// Fails when the tile is off the board or already holds a unit.
+    pub fn deploy(&mut self, position: Pos, deployment: Deployment) -> Result<(), crate::MapError> {
+        self.deployments.insert(position, deployment)
     }
 
     /// Get the terrain at the specified position
-    pub fn terrain_at(&self, pos: Position) -> Option<AwbwTerrain> {
-        if pos.x >= self.width || pos.y >= self.height() {
-            return None;
-        }
-
-        self.terrain.get(pos.y * self.width + pos.x).copied()
+    #[inline]
+    pub fn terrain_at(&self, position: Pos) -> Option<AwbwTerrain> {
+        self.terrain.get(position).copied()
     }
 
     /// Set the terrain at a specific position
-    pub fn terrain_at_mut(&mut self, pos: Position) -> Option<&mut AwbwTerrain> {
-        self.terrain.get_mut(pos.y * self.width + pos.x)
+    #[inline]
+    pub fn terrain_at_mut(&mut self, position: Pos) -> Option<&mut AwbwTerrain> {
+        self.terrain.get_mut(position)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (Position, AwbwTerrain)> {
-        self.terrain.iter().enumerate().map(move |(idx, terrain)| {
-            let y = idx / self.width;
-            let x = idx % self.width;
-            (Position::new(x, y), *terrain)
-        })
+    pub fn iter(&self) -> impl Iterator<Item = (Pos, AwbwTerrain)> {
+        self.terrain.iter().map(|(pos, terrain)| (pos, *terrain))
     }
 }
 
@@ -188,15 +224,15 @@ fn write_grid(
     map: &AwbwMap,
     glyph: impl Fn(&AwbwTerrain) -> char,
 ) -> fmt::Result {
-    let height = map.height();
-    for y in 0..height {
-        for x in 0..map.width {
-            write!(f, "{}", glyph(&map.terrain[y * map.width + x]))?;
+    for (y, row) in map.terrain.rows().enumerate() {
+        // Separate rows rather than terminate them, so the last row has no
+        // trailing newline.
+        if y > 0 {
+            writeln!(f)?;
         }
 
-        // Add a newline after each row unless it's the last row
-        if y < height - 1 {
-            writeln!(f)?;
+        for (_, terrain) in row {
+            write!(f, "{}", glyph(terrain))?;
         }
     }
 
@@ -232,7 +268,7 @@ impl fmt::Display for Legend<'_> {
         // A terrain needs a legend entry exactly when it has no AWBW symbol, i.e.
         // its lossless glyph is the non-ASCII fallback rather than an ASCII symbol.
         let mut entries: BTreeMap<char, &'static str> = BTreeMap::new();
-        for terrain in &self.0.terrain {
+        for terrain in self.0.terrain.cells() {
             if terrain.awbw_symbol().is_none() {
                 entries.insert(terrain.symbol(), terrain.name());
             }
@@ -300,18 +336,25 @@ impl TryFrom<&'_ AwbwMapData> for AwbwMap {
             return Err(MapError::EmptyMap);
         }
 
+        let dimensions = crate::map_document::dimensions(column_count, row_count)?;
+
         // Transpose from column-major to row-major
-        let mut terrain = Vec::with_capacity(column_count * row_count);
+        let mut terrain = Vec::with_capacity(dimensions.len());
         for row_idx in 0..row_count {
             for col_idx in 0..column_count {
                 terrain.push(data.terrain_map[col_idx][row_idx]);
             }
         }
 
-        Ok(AwbwMap {
-            width: column_count,
-            height: row_count,
-            terrain,
+        let mut deployments = Deployments::new(dimensions);
+        for entry in &data.predeployed_units {
+            let (position, deployment) = Deployment::from_predeployed(entry)?;
+            deployments.insert(position, deployment)?;
+        }
+
+        AwbwMap::from_parts(dimensions, terrain, deployments).ok_or(MapError::TerrainSizeMismatch {
+            expected: dimensions.len(),
+            found: column_count * row_count,
         })
     }
 }

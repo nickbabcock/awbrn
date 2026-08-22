@@ -78,7 +78,7 @@ mod tests {
     use crate::modes::replay::ReplayPlugin;
     use awbrn_game::MapPosition;
     use awbrn_game::world::{GameMap, TerrainHp, TerrainTile};
-    use awbrn_map::{AwbrnMap, Position};
+    use awbrn_map::{AwbrnMap, Dimensions, Pos};
     use awbrn_types::GraphicalTerrain;
     use awbw_replay::ReplayParser;
     use bevy::state::app::StatesPlugin;
@@ -88,8 +88,7 @@ mod tests {
     fn seam_tiles_default_to_99_hp_without_replay_building_data() {
         let mut app = bootstrap_test_app();
         app.world_mut().resource_mut::<GameMap>().set(AwbrnMap::new(
-            1,
-            1,
+            Dimensions::new(1, 1),
             GraphicalTerrain::PipeSeam(awbrn_types::PipeSeamType::Vertical),
         ));
 
@@ -116,9 +115,9 @@ mod tests {
             .expect("fixture should have a building at the pipe seam position");
 
         let mut app = bootstrap_test_app();
-        let mut map = AwbrnMap::new(17, 11, GraphicalTerrain::Plain);
+        let mut map = AwbrnMap::new(Dimensions::new(17, 11), GraphicalTerrain::Plain);
         map.set_terrain(
-            Position::new(16, 10),
+            Pos::new(16, 10),
             GraphicalTerrain::PipeSeam(awbrn_types::PipeSeamType::Vertical),
         );
         app.world_mut().resource_mut::<GameMap>().set(map);
@@ -130,7 +129,7 @@ mod tests {
         let mut query = app.world_mut().query::<(&MapPosition, &TerrainHp)>();
         let (_, terrain_hp) = query
             .iter(app.world())
-            .find(|(map_pos, _)| map_pos.position() == Position::new(16, 10))
+            .find(|(map_pos, _)| map_pos.position() == Pos::new(16, 10))
             .unwrap();
         assert_eq!(terrain_hp.value(), expected_hp);
     }

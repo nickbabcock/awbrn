@@ -4,7 +4,7 @@ use crate::features::event_bus::{EventSink, ReplayLoaded, ReplayLoadedPlayer};
 use crate::render::UiAtlasResource;
 use awbrn_content::co_portrait_by_awbw_id;
 use awbrn_game::world::GameMap;
-use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Position};
+use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Pos};
 use awbw_replay::game_models::AwbwPlayer;
 use awbw_replay::{AwbwReplay, ReplayParser, game_models::AwbwBuilding};
 use awvm::semantic::{Observation, ObservedTransition};
@@ -374,7 +374,7 @@ pub(crate) fn check_match_map_loaded(
 
 pub fn apply_replay_building_overrides(map: &mut AwbwMap, buildings: &[AwbwBuilding]) {
     for building in buildings {
-        let position = Position::new(building.x as usize, building.y as usize);
+        let position = Pos::new(building.x as u8, building.y as u8);
         let Some(terrain) = map.terrain_at_mut(position) else {
             warn!(
                 "Skipping replay building override at out-of-bounds position {:?}",
@@ -520,6 +520,7 @@ impl Plugin for LoadingPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use awbrn_map::Dimensions;
     use awbrn_types::{
         AwbwDateTime, AwbwTerrain, Faction as TerrainFaction, PlayerFaction, Property,
     };
@@ -573,8 +574,8 @@ mod tests {
 
     #[test]
     fn test_apply_replay_building_overrides_updates_owned_property_terrain() {
-        let mut map = AwbwMap::new(3, 3, AwbwTerrain::Plain);
-        *map.terrain_at_mut(Position::new(1, 1)).unwrap() =
+        let mut map = AwbwMap::new(Dimensions::new(3, 3), AwbwTerrain::Plain);
+        *map.terrain_at_mut(Pos::new(1, 1)).unwrap() =
             AwbwTerrain::Property(Property::City(TerrainFaction::Neutral));
 
         apply_replay_building_overrides(
@@ -594,7 +595,7 @@ mod tests {
         );
 
         assert_eq!(
-            map.terrain_at(Position::new(1, 1)),
+            map.terrain_at(Pos::new(1, 1)),
             Some(AwbwTerrain::Property(Property::City(
                 TerrainFaction::Player(PlayerFaction::BlueMoon)
             )))
@@ -603,7 +604,7 @@ mod tests {
 
     #[test]
     fn test_apply_replay_building_overrides_ignores_out_of_bounds_positions() {
-        let mut map = AwbwMap::new(2, 2, AwbwTerrain::Plain);
+        let mut map = AwbwMap::new(Dimensions::new(2, 2), AwbwTerrain::Plain);
 
         apply_replay_building_overrides(
             &mut map,
@@ -619,14 +620,8 @@ mod tests {
             }],
         );
 
-        assert_eq!(
-            map.terrain_at(Position::new(0, 0)),
-            Some(AwbwTerrain::Plain)
-        );
-        assert_eq!(
-            map.terrain_at(Position::new(1, 1)),
-            Some(AwbwTerrain::Plain)
-        );
+        assert_eq!(map.terrain_at(Pos::new(0, 0)), Some(AwbwTerrain::Plain));
+        assert_eq!(map.terrain_at(Pos::new(1, 1)), Some(AwbwTerrain::Plain));
     }
 
     #[test]

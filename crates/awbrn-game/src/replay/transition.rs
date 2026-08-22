@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use awbrn_map::Position;
+use awbrn_map::Pos;
 use awbrn_types::{AwbwGamePlayerId, AwbwUnitId as RawAwbwUnitId, Faction as MapFaction};
 use awvm::semantic::{
     Location, Observation, ObservedEvent, ObservedTileOwner, ObservedTransition, ObservedUnit,
@@ -21,8 +21,9 @@ use crate::replay::{
     AwbwUnitId, RecipientObservations, ReplayPlayerRegistry, ReplayState, refresh_viewer_visibility,
 };
 use crate::world::{
-    Ammo, BoardIndex, CaptureProgress, CarriedBy, CurrentWeather, Faction, Fuel, GameMap,
+    Ammo, BoardIndex, BoardOf, CaptureProgress, CarriedBy, CurrentWeather, Faction, Fuel, GameMap,
     GraphicalHp, Hiding, StrongIdMap, TerrainHp, TerrainTile, Unit, UnitActive, VisionRange,
+    board_root,
 };
 
 #[derive(Component)]
@@ -208,10 +209,10 @@ fn collect_recipient_units(
         let id = match unit.reference {
             ObservedUnitRef::Friendly { unit } => RawAwbwUnitId::new(unit.get()),
             ObservedUnitRef::Enemy { position } => {
-                let post = map_position(position);
+                let post = position;
                 let moved_from = moved_enemies
                     .iter()
-                    .find_map(|(from, to)| (*to == position).then_some(map_position(*from)));
+                    .find_map(|(from, to)| (*to == position).then_some(*from));
                 let existing = moved_from
                     .and_then(|position| recipient_enemy_at(world, position))
                     .or_else(|| recipient_enemy_at(world, post))
@@ -225,7 +226,7 @@ fn collect_recipient_units(
     Ok(units)
 }
 
-fn recipient_enemy_at(world: &World, position: Position) -> Option<RawAwbwUnitId> {
+fn recipient_enemy_at(world: &World, position: Pos) -> Option<RawAwbwUnitId> {
     let entity = world
         .resource::<BoardIndex>()
         .unit_entity(position)
@@ -235,11 +236,7 @@ fn recipient_enemy_at(world: &World, position: Position) -> Option<RawAwbwUnitId
     world.get::<AwbwUnitId>(entity).map(|id| id.0)
 }
 
-fn spawn_recipient_enemy(
-    world: &mut World,
-    unit: &ObservedUnit,
-    position: Position,
-) -> RawAwbwUnitId {
+fn spawn_recipient_enemy(world: &mut World, unit: &ObservedUnit, position: Pos) -> RawAwbwUnitId {
     let id = loop {
         let candidate = {
             let mut ids = world.resource_mut::<RecipientEnemyIds>();
@@ -278,10 +275,6 @@ fn store_observations(world: &mut World, transitions: &[ObservedTransition]) {
     );
 }
 
-fn map_position(position: awvm::semantic::Pos) -> Position {
-    Position::new(usize::from(position.x), usize::from(position.y))
-}
-
 fn sync_replay_state(world: &mut World, post: &Observation) -> Result<(), TransitionApplyError> {
     let active_player_id = parse_player_id(&post.turn.active_player)?;
     let mut state = world
@@ -305,7 +298,7 @@ fn sync_weather(world: &mut World, post: &Observation) {
 fn sync_tiles(
     world: &mut World,
     transitions: &[ObservedTransition],
-) -> Result<HashMap<Position, u8>, TransitionApplyError> {
+) -> Result<HashMap<Pos, u8>, TransitionApplyError> {
     let first = &transitions[0].post;
     let tile_updates = first
         .board
@@ -316,14 +309,13 @@ fn sync_tiles(
                 .map(|transition| transition.post.board.tile(position))
                 .find(|tile| tile.visibility == awvm::semantic::TileVisibility::Visible)
                 .unwrap_or_else(|| first.board.tile(position));
-            let position = Position::new(usize::from(position.x), usize::from(position.y));
             let terrain_entity = world
                 .resource::<BoardIndex>()
                 .terrain_entity(position)
-                .map_err(|_| TransitionApplyError::MissingTerrain(position.x, position.y))?;
+                .map_err(|_| TransitionApplyError::MissingTerrain(position))?;
             let graphical = world
                 .get::<TerrainTile>(terrain_entity)
-                .ok_or(TransitionApplyError::MissingTerrain(position.x, position.y))?
+                .ok_or(TransitionApplyError::MissingTerrain(position))?
                 .terrain;
             let owner = match &tile.owner {
                 ObservedTileOwner::NotOwnable => None,
@@ -416,7 +408,7 @@ fn sync_tiles(
 fn sync_units(
     world: &mut World,
     units: &BTreeMap<RawAwbwUnitId, ObservedUnit>,
-    capture_points: &HashMap<Position, u8>,
+    capture_points: &HashMap<Pos, u8>,
 ) -> Result<(), TransitionApplyError> {
     let existing: Vec<(RawAwbwUnitId, Entity)> = {
         let mut query = world.query::<(Entity, &AwbwUnitId)>();
@@ -431,14 +423,18 @@ fn sync_units(
         }
     }
 
+    let board_root = board_root(world);
     for (id, unit) in units {
         let entity = world
             .resource::<StrongIdMap<AwbwUnitId>>()
             .get(&AwbwUnitId(*id))
             .unwrap_or_else(|| {
-                world
-                    .spawn((AwbwUnitId(*id), Unit(unit.kind), MapPosition::new(0, 0)))
-                    .id()
+                let mut spawned =
+                    world.spawn((AwbwUnitId(*id), Unit(unit.kind), MapPosition::new(0, 0)));
+                if let Some(root) = board_root {
+                    spawned.insert(BoardOf(root));
+                }
+                spawned.id()
             });
         sync_unit_components(world, entity, unit)?;
     }
@@ -459,10 +455,9 @@ fn sync_units(
             .ok_or(TransitionApplyError::MissingUnit(id.as_u32()))?;
         match &unit.location {
             Location::Board { position } => {
-                world.entity_mut(entity).insert(MapPosition::new(
-                    usize::from(position.x),
-                    usize::from(position.y),
-                ));
+                world
+                    .entity_mut(entity)
+                    .insert(MapPosition::from(*position));
             }
             Location::Cargo { .. } => {
                 world.entity_mut(entity).remove::<MapPosition>();
@@ -535,11 +530,11 @@ fn sync_unit_components(
 
 fn sync_capture_progress(
     world: &mut World,
-    capture_points: &HashMap<Position, u8>,
+    capture_points: &HashMap<Pos, u8>,
 ) -> Result<(), TransitionApplyError> {
     // Capture progress belongs to the tile in AWVM. Match it to the occupying
     // board unit after tile synchronization.
-    let positions: Vec<(Entity, Position)> = {
+    let positions: Vec<(Entity, Pos)> = {
         let mut query = world.query_filtered::<(Entity, &MapPosition), With<Unit>>();
         query
             .iter(world)
@@ -582,8 +577,8 @@ pub enum TransitionApplyError {
     UnknownPlayer(u32),
     #[error("missing AWBW unit {0}")]
     MissingUnit(u32),
-    #[error("missing terrain at ({0}, {1})")]
-    MissingTerrain(usize, usize),
+    #[error("missing terrain at {0}")]
+    MissingTerrain(Pos),
     #[error("missing ECS resource {0}")]
     MissingResource(&'static str),
     #[error("{0} exceeds the ECS presentation domain")]

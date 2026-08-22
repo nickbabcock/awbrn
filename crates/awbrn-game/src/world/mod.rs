@@ -1,3 +1,4 @@
+pub(crate) mod board;
 pub(crate) mod board_index;
 pub(crate) mod capture;
 pub(crate) mod id_index;
@@ -7,6 +8,9 @@ pub(crate) mod weather;
 
 pub mod visibility;
 
+pub use board::{
+    BoardEntities, BoardOf, BoardRoot, adopt_unattached_board_entities, board_root, despawn_board,
+};
 pub use board_index::{BoardIndex, BoardIndexError};
 pub use capture::{
     CaptureAction, CaptureActionError, CaptureActionOutcome, CaptureProgressInput,

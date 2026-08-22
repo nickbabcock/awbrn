@@ -614,7 +614,10 @@ mod tests {
         });
         app.world_mut()
             .resource_mut::<GameMap>()
-            .set(awbrn_map::AwbrnMap::new(3, 2, GraphicalTerrain::Plain));
+            .set(awbrn_map::AwbrnMap::new(
+                awbrn_map::Dimensions::new(3, 2),
+                GraphicalTerrain::Plain,
+            ));
 
         app.world_mut()
             .run_system_once(setup_map_backdrops)
@@ -693,7 +696,10 @@ mod tests {
         });
         app.world_mut()
             .resource_mut::<GameMap>()
-            .set(awbrn_map::AwbrnMap::new(2, 2, GraphicalTerrain::Plain));
+            .set(awbrn_map::AwbrnMap::new(
+                awbrn_map::Dimensions::new(2, 2),
+                GraphicalTerrain::Plain,
+            ));
 
         app.world_mut()
             .run_system_once(setup_map_backdrops)

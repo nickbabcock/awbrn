@@ -20,15 +20,13 @@ use awbrn_game::world::{
     BoardIndex, CarriedBy, Faction, FriendlyFactions, Fuel, GameMap, GraphicalHp, HasCargo, Unit,
     UnitActive,
 };
-use awbrn_map::Position;
+use awbrn_map::Pos;
 use awbrn_types::UnitExt;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::loading::{LiveMatchBootstrap, PendingLiveTransitions};
-use crate::modes::replay::presentation::{
-    LiveTransitionCommand, ReplayAdvanceLock, position_from_pos,
-};
+use crate::modes::replay::presentation::{LiveTransitionCommand, ReplayAdvanceLock};
 
 const MOVE_RANGE_GLASS_COLOR: Color = Color::srgba(0.18, 0.82, 0.9, 0.28);
 const MOVE_RANGE_GLASS_LIGHT_EDGE: Color = Color::srgba(0.82, 1.0, 1.0, 0.82);
@@ -63,7 +61,7 @@ const TARGET_RETICLE_SPRITE_SIZE: SpriteSize = SpriteSize {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SelectedUnitSelection {
     pub entity: Entity,
-    pub origin: Position,
+    pub origin: Pos,
 }
 
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -71,7 +69,7 @@ pub struct SelectedUnit(pub Option<SelectedUnitSelection>);
 
 #[derive(Resource, Debug, Clone, PartialEq, Eq, Default)]
 pub struct MoveRange {
-    pub tiles: HashMap<Position, u8>,
+    pub tiles: HashMap<Pos, u8>,
 }
 
 #[derive(Resource, Debug, Clone, Default)]
@@ -80,18 +78,18 @@ struct SelectedMoveField(Option<awvm::query::MoveField>);
 /// Legal firing tiles, grouped by the unit or destructible tile they target.
 #[derive(Resource, Debug, Clone, PartialEq, Eq, Default)]
 pub struct AttackTargets {
-    pub approaches: HashMap<Position, Vec<Position>>,
+    pub approaches: HashMap<Pos, Vec<Pos>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingMoveDestinationSelection {
     pub unit: Entity,
-    pub origin: Position,
-    pub destination: Position,
-    pub path: Vec<Position>,
+    pub origin: Pos,
+    pub destination: Pos,
+    pub path: Vec<Pos>,
     /// The enemy a drag was aimed at, when the destination was reached by
     /// releasing on one. It decides which order the menu opens on.
-    pub attack_intent: Option<Position>,
+    pub attack_intent: Option<Pos>,
 }
 
 #[derive(Resource, Debug, Clone, PartialEq, Eq, Default)]
@@ -102,13 +100,13 @@ pub struct PendingMoveDestination(pub Option<PendingMoveDestinationSelection>);
 /// route around a tile instead of being forced onto the cheapest path.
 #[derive(Resource, Debug, Clone, PartialEq, Eq, Default)]
 pub struct ProposedMovePath {
-    pub path: Vec<Position>,
-    pub drawn_path: Vec<Position>,
-    hovered: Option<Position>,
+    pub path: Vec<Pos>,
+    pub drawn_path: Vec<Pos>,
+    hovered: Option<Pos>,
     was_shift_down: bool,
     /// The enemy the route is currently aimed at, when a drag is being held on
     /// one. Carried into the proposal so the menu can open on Fire.
-    attack_intent: Option<Position>,
+    attack_intent: Option<Pos>,
 }
 
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -207,15 +205,15 @@ pub(crate) struct PointerPolicy<'w> {
 /// middle of the range, rather than the unit, is what needs to be centred: the
 /// unit is at the edge of its own reach as often as not.
 fn frame_selection(
-    origin: Position,
-    range: &HashMap<Position, u8>,
+    origin: Pos,
+    range: &HashMap<Pos, u8>,
     game_map: &GameMap,
     focus: &mut MessageWriter<FocusBoardOn>,
 ) {
     let (mut min, mut max) = (origin, origin);
     for tile in range.keys() {
-        min = Position::new(min.x.min(tile.x), min.y.min(tile.y));
-        max = Position::new(max.x.max(tile.x), max.y.max(tile.y));
+        min = Pos::new(min.x.min(tile.x), min.y.min(tile.y));
+        max = Pos::new(max.x.max(tile.x), max.y.max(tile.y));
     }
 
     let low = position_to_world_translation(&MOVE_RANGE_SPRITE_SIZE, min, game_map).truncate();
@@ -265,40 +263,26 @@ fn unit_is_selectable(
 /// Positions are unsigned, so the two neighbours off the top and left edges are
 /// dropped rather than clamped. The right and bottom edges need no guard: the
 /// callers all test membership of a set that only holds on-board tiles.
-fn orthogonal_neighbors(position: Position) -> impl Iterator<Item = Position> {
+fn orthogonal_neighbors(position: Pos) -> impl Iterator<Item = Pos> {
     [
-        (position.y > 0).then(|| Position::new(position.x, position.y - 1)),
-        (position.x > 0).then(|| Position::new(position.x - 1, position.y)),
-        Some(Position::new(position.x, position.y + 1)),
-        Some(Position::new(position.x + 1, position.y)),
+        (position.y > 0).then(|| Pos::new(position.x, position.y - 1)),
+        (position.x > 0).then(|| Pos::new(position.x - 1, position.y)),
+        Some(Pos::new(position.x, position.y + 1)),
+        Some(Pos::new(position.x + 1, position.y)),
     ]
     .into_iter()
     .flatten()
 }
 
-fn semantic_position(position: Position) -> Option<awvm::semantic::Pos> {
-    Some(awvm::semantic::Pos::new(
-        u8::try_from(position.x).ok()?,
-        u8::try_from(position.y).ok()?,
-    ))
+fn field_path(field: &awvm::query::MoveField, destination: Pos) -> Option<Vec<Pos>> {
+    field.path_to(destination)
 }
 
-fn position_path(path: Vec<awvm::semantic::Pos>) -> Vec<Position> {
-    path.into_iter().map(position_from_pos).collect()
+fn field_route_cost(field: &awvm::query::MoveField, path: &[Pos]) -> Option<u64> {
+    field.route_cost(path)
 }
 
-fn field_path(field: &awvm::query::MoveField, destination: Position) -> Option<Vec<Position>> {
-    field
-        .path_to(semantic_position(destination)?)
-        .map(position_path)
-}
-
-fn field_route_cost(field: &awvm::query::MoveField, path: &[Position]) -> Option<u64> {
-    let semantic: Option<Vec<_>> = path.iter().copied().map(semantic_position).collect();
-    field.route_cost(&semantic?)
-}
-
-fn friendly_unit_at(position: Position, unit_selection: &PlayUnitSelectionParams<'_, '_>) -> bool {
+fn friendly_unit_at(position: Pos, unit_selection: &PlayUnitSelectionParams<'_, '_>) -> bool {
     let Ok(Some(entity)) = unit_selection.board_index.unit_entity(position) else {
         return false;
     };
@@ -313,17 +297,14 @@ fn friendly_unit_at(position: Position, unit_selection: &PlayUnitSelectionParams
 fn move_range(
     field: &awvm::query::MoveField,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
-) -> HashMap<Position, u8> {
+) -> HashMap<Pos, u8> {
     field
         .reach()
         .filter(|(position, _)| *position != field.origin())
         .filter(|(position, _)| {
-            field.can_stop_at(*position)
-                || friendly_unit_at(position_from_pos(*position), unit_selection)
+            field.can_stop_at(*position) || friendly_unit_at(*position, unit_selection)
         })
-        .filter_map(|(position, cost)| {
-            Some((position_from_pos(position), u8::try_from(cost).ok()?))
-        })
+        .filter_map(|(position, cost)| Some((position, u8::try_from(cost).ok()?)))
         .collect()
 }
 
@@ -369,14 +350,14 @@ fn unit_attack_targets(
     session: &awvm::session::Session,
     index: awvm::session::UnitIdx,
     field: Option<&awvm::query::MoveField>,
-) -> HashMap<Position, Vec<Position>> {
+) -> HashMap<Pos, Vec<Pos>> {
     let Some(field) = field else {
         return HashMap::new();
     };
     let legal = session.legal();
     let dimensions = session.state().board.dimensions();
 
-    let mut targets = HashMap::<Position, Vec<Position>>::new();
+    let mut targets = HashMap::<Pos, Vec<Pos>>::new();
     let mut firing = Vec::new();
     for (from, _) in field.destinations() {
         let Some(cell) = dimensions.cell_index(from) else {
@@ -388,18 +369,13 @@ fn unit_attack_targets(
             .iter()
             .filter_map(|cell| dimensions.position_of(*cell))
         {
-            targets
-                .entry(position_from_pos(target))
-                .or_default()
-                .push(position_from_pos(from));
+            targets.entry(target).or_default().push(from);
         }
     }
     for approaches in targets.values_mut() {
         approaches.sort_by_key(|approach| {
             (
-                field
-                    .step(semantic_position(*approach).expect("an AWVM position fits AWVM"))
-                    .map_or(u64::MAX, |step| step.cost),
+                field.step(*approach).map_or(u64::MAX, |step| step.cost),
                 *approach,
             )
         });
@@ -424,13 +400,11 @@ fn unit_unloads(
 /// unit can still unload or delete, because these actions do not move the unit.
 fn can_act_in_place(
     entity: Entity,
-    origin: Position,
+    origin: Pos,
     field: Option<&awvm::query::MoveField>,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
 ) -> bool {
-    if field.is_some_and(|field| {
-        semantic_position(origin).is_some_and(|position| field.can_stop_at(position))
-    }) {
+    if field.is_some_and(|field| field.can_stop_at(origin)) {
         return true;
     }
     // One session answers both of the remaining questions. Opening one per
@@ -464,7 +438,7 @@ fn clear_selection_state(selection: &mut PlaySelectionState<'_>) {
 /// times per press.
 struct SelectableUnit {
     entity: Entity,
-    origin: Position,
+    origin: Pos,
     field: Option<awvm::query::MoveField>,
     session: awvm::session::Session,
     index: awvm::session::UnitIdx,
@@ -497,8 +471,8 @@ fn select_unit(
 }
 
 fn confirm_selected_destination(
-    destination: Position,
-    proposed_path: &[Position],
+    destination: Pos,
+    proposed_path: &[Pos],
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
     selection: &mut PlaySelectionState<'_>,
 ) {
@@ -555,33 +529,20 @@ fn confirm_selected_destination(
         clear_selection_state(selection);
         return;
     };
-    let destination_pos = semantic_position(destination);
-    if destination_pos
-        .and_then(|position| field.step(position))
-        .is_none()
-    {
+    if field.step(destination).is_none() {
         clear_selection_state(selection);
         return;
     }
     let path = if proposed_path.first() == Some(&selected_unit.origin)
         && proposed_path.last() == Some(&destination)
     {
-        let semantic: Option<Vec<_>> = proposed_path
-            .iter()
-            .copied()
-            .map(semantic_position)
-            .collect();
-        semantic
-            .filter(|path| field.route_cost(path).is_some())
+        field
+            .route_cost(proposed_path)
             .map(|_| proposed_path.to_vec())
     } else {
         None
     }
-    .or_else(|| {
-        destination_pos
-            .and_then(|position| field.path_to(position))
-            .map(position_path)
-    });
+    .or_else(|| field.path_to(destination));
     let Some(path) = path else {
         clear_selection_state(selection);
         return;
@@ -612,12 +573,12 @@ const TAP_SLOP_WORLD: f32 = TILE_SIZE * 0.4;
 /// One just outside the range is pulled to the nearest reachable neighbour,
 /// but only when the pointer is genuinely near that tile.
 fn resolve_tap_target(
-    tapped: Position,
+    tapped: Pos,
     world: Option<Vec2>,
     move_range: &MoveRange,
     game_map: &GameMap,
-    selected_origin: Option<Position>,
-) -> Position {
+    selected_origin: Option<Pos>,
+) -> Pos {
     if selected_origin == Some(tapped) || move_range.tiles.contains_key(&tapped) {
         return tapped;
     }
@@ -685,7 +646,7 @@ pub(crate) fn claim_unit_drag(
 
 /// The unit a press on this tile would pick up, with the range it would show.
 fn selectable_unit_at(
-    position: Position,
+    position: Pos,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
 ) -> Option<SelectableUnit> {
     let Ok(Some(entity)) = unit_selection.board_index.unit_entity(position) else {
@@ -824,14 +785,12 @@ fn handle_tap(
                 unit_selection,
             )
         } else {
-            semantic_position(destination).is_some_and(|position| {
-                selection
-                    .move_field
-                    .0
-                    .as_ref()
-                    .and_then(|field| field.step(position))
-                    .is_some()
-            })
+            selection
+                .move_field
+                .0
+                .as_ref()
+                .and_then(|field| field.step(destination))
+                .is_some()
         };
         if destination_is_reachable {
             // A tile too small to hit is a tile too small to commit to. The
@@ -913,7 +872,7 @@ fn handle_tap(
 /// The route stops following rather than disappearing, so the preview never
 /// shows an illegal state. Overshoot is the most common drag error and
 /// cancelling on it punishes the error hardest.
-fn extend_drag_route(hovered: Option<Position>, selection: &mut PlaySelectionState<'_>) {
+fn extend_drag_route(hovered: Option<Pos>, selection: &mut PlaySelectionState<'_>) {
     if selection.selected.0.is_none() {
         return;
     }
@@ -936,8 +895,11 @@ fn extend_drag_route(hovered: Option<Position>, selection: &mut PlaySelectionSta
     selection.proposed_path.attack_intent = approach.map(|_| hovered);
     let target = approach.unwrap_or(hovered);
 
-    if semantic_position(target)
-        .and_then(|position| selection.move_field.0.as_ref()?.step(position))
+    if selection
+        .move_field
+        .0
+        .as_ref()
+        .and_then(|field| field.step(target))
         .is_none()
     {
         return;
@@ -958,11 +920,11 @@ fn extend_drag_route(hovered: Option<Position>, selection: &mut PlaySelectionSta
 /// miss, which is why it may resolve onto a tile the pointer never touched.
 /// Slop correction never does this.
 fn attack_approach(
-    target: Position,
-    preferred_path: &[Position],
+    target: Pos,
+    preferred_path: &[Pos],
     attack_targets: &AttackTargets,
     field: Option<&awvm::query::MoveField>,
-) -> Option<Position> {
+) -> Option<Pos> {
     let approaches = attack_targets.approaches.get(&target)?;
     let field = field?;
     preferred_path
@@ -974,7 +936,7 @@ fn attack_approach(
 }
 
 fn finish_drag(
-    released: Option<Position>,
+    released: Option<Pos>,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
     selection: &mut PlaySelectionState<'_>,
 ) {
@@ -1028,7 +990,7 @@ fn close_production_options(sink: Option<&EventSink<ProductionOptionsChanged>>) 
 }
 
 fn emit_production_options(
-    position: Position,
+    position: Pos,
     observations: Option<&awbrn_game::replay::RecipientObservations>,
     viewpoint: Option<&awbrn_game::replay::ReplayViewpoint>,
     sink: Option<&EventSink<ProductionOptionsChanged>>,
@@ -1048,12 +1010,7 @@ fn emit_production_options(
         close_production_options(Some(sink));
         return;
     };
-    let (Ok(x), Ok(y)) = (u8::try_from(position.x), u8::try_from(position.y)) else {
-        close_production_options(Some(sink));
-        return;
-    };
-    let semantic_position = awvm::semantic::Pos::new(x, y);
-    let Some(tile) = observation.board.get(semantic_position) else {
+    let Some(tile) = observation.board.get(position) else {
         close_production_options(Some(sink));
         return;
     };
@@ -1069,12 +1026,7 @@ fn emit_production_options(
         close_production_options(Some(sink));
         return;
     };
-    let Some(cell) = session
-        .state()
-        .board
-        .dimensions()
-        .cell_index(semantic_position)
-    else {
+    let Some(cell) = session.state().board.dimensions().cell_index(position) else {
         close_production_options(Some(sink));
         return;
     };
@@ -1203,7 +1155,7 @@ pub(crate) fn update_proposed_move_path(
 
         let endpoint = *prefix.last().unwrap_or(&selected_unit.origin);
         let mut candidate = prefix.clone();
-        if endpoint.manhattan(&destination) == 1 {
+        if endpoint.distance(destination) == 1 {
             candidate.push(destination);
         } else if let Some(route) = field_path(field, destination)
             && let Some(endpoint_index) = route.iter().position(|position| *position == endpoint)
@@ -1241,8 +1193,8 @@ pub(crate) fn update_proposed_move_path(
 }
 
 fn update_automatic_move_path(
-    origin: Position,
-    destination: Position,
+    origin: Pos,
+    destination: Pos,
     is_attack: bool,
     is_in_move_range: bool,
     field: &awvm::query::MoveField,
@@ -1351,17 +1303,17 @@ pub(crate) fn sync_move_range_highlights(
 
         let neighbors = [
             (
-                Position::new(position.x, position.y.saturating_sub(1)),
+                Pos::new(position.x, position.y.saturating_sub(1)),
                 position.y > 0,
                 true,
             ),
             (
-                Position::new(position.x.saturating_sub(1), position.y),
+                Pos::new(position.x.saturating_sub(1), position.y),
                 position.x > 0,
                 true,
             ),
-            (Position::new(position.x, position.y + 1), true, false),
-            (Position::new(position.x + 1, position.y), true, false),
+            (Pos::new(position.x, position.y + 1), true, false),
+            (Pos::new(position.x + 1, position.y), true, false),
         ];
         for (edge_index, (neighbor, in_bounds, is_light)) in neighbors.into_iter().enumerate() {
             if in_bounds && move_range.tiles.contains_key(&neighbor) {
@@ -1669,12 +1621,12 @@ pub struct OfferedActions(pub Vec<UnitActionOption>);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommittedSnapshot {
     pub unit: Entity,
-    pub origin: Position,
-    pub range: HashMap<Position, u8>,
-    pub attack_targets: HashMap<Position, Vec<Position>>,
-    pub path: Vec<Position>,
-    pub destination: Position,
-    pub attack_intent: Option<Position>,
+    pub origin: Pos,
+    pub range: HashMap<Pos, u8>,
+    pub attack_targets: HashMap<Pos, Vec<Pos>>,
+    pub path: Vec<Pos>,
+    pub destination: Pos,
+    pub attack_intent: Option<Pos>,
     pub kind: CommittedKind,
 }
 
@@ -1737,26 +1689,16 @@ pub(crate) fn emit_unit_actions(
         close_unit_actions(Some(sink));
         return;
     };
-    let (Ok(x), Ok(y)) = (
-        u8::try_from(pending.destination.x),
-        u8::try_from(pending.destination.y),
-    ) else {
-        close_unit_actions(Some(sink));
-        return;
-    };
-
     // The AWBW unit id and the AWVM unit id are the same number by
     // construction; see `awvm_awbw::command::unit_id`.
     let semantic_unit_id = awvm::semantic::UnitId::new(unit_id.0.as_u32());
     // One session answers the whole menu: what may be done here, what may be
     // put down, whether the unit may go, and what each strike would do.
-    let (Ok(session), destination) = (
-        awvm::session::Session::from_observation(observation),
-        awvm::semantic::Pos::new(x, y),
-    ) else {
+    let Ok(session) = awvm::session::Session::from_observation(observation) else {
         close_unit_actions(Some(sink));
         return;
     };
+    let destination = pending.destination;
     let dimensions = session.state().board.dimensions();
     let (Some(seat), Some(cell)) = (
         session.index_of(semantic_unit_id),
@@ -1885,7 +1827,7 @@ fn build_options(
     });
 
     for (target, forecast) in attacks {
-        let Some(position) = dimensions.position_of(*target).map(position_from_pos) else {
+        let Some(position) = dimensions.position_of(*target) else {
             continue;
         };
         options.push(UnitActionOption {
@@ -1915,7 +1857,7 @@ fn build_options(
         ));
     }
     for target in &repairs {
-        let target = position_from_pos(*target);
+        let target = *target;
         if let Some(target_id) = unit_id_at_position(target, unit_selection) {
             options.push(UnitActionOption::plain(
                 "Repair",
@@ -1968,10 +1910,7 @@ fn build_options(
         ));
     }
     for unload in unloads {
-        let Some(position) = dimensions
-            .position_of(unload.destination)
-            .map(position_from_pos)
-        else {
+        let Some(position) = dimensions.position_of(unload.destination) else {
             continue;
         };
         options.push(UnitActionOption::plain(
@@ -1986,9 +1925,7 @@ fn build_options(
         options.push(UnitActionOption::plain(
             "Launch",
             UnitOrder::Move {
-                action: PostMoveAction::Launch {
-                    target: position_from_pos(*target),
-                },
+                action: PostMoveAction::Launch { target: *target },
             },
         ));
     }
@@ -2023,7 +1960,7 @@ fn build_options(
 /// unnamed forecast is worse than none.
 fn describe_forecast(
     forecast: awvm::combat::Forecast,
-    position: Position,
+    position: Pos,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
 ) -> Option<AttackForecast> {
     let target = forecast_target(position, unit_selection)?;
@@ -2067,7 +2004,7 @@ fn unit_badge(
 
 /// Who or what is standing on the targeted tile.
 fn forecast_target(
-    position: Position,
+    position: Pos,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
 ) -> Option<ForecastTarget> {
     if let Ok(Some(entity)) = unit_selection.board_index.unit_entity(position)
@@ -2087,7 +2024,7 @@ fn forecast_target(
 }
 
 fn unit_id_at_position(
-    position: Position,
+    position: Pos,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
 ) -> Option<u32> {
     let Ok(Some(entity)) = unit_selection.board_index.unit_entity(position) else {
@@ -2338,6 +2275,7 @@ mod tests {
     use awbrn_game::GameWorldPlugin;
     use awbrn_game::world::StrongIdMap;
     use awbrn_game::world::initialize_terrain_semantic_world;
+    use awbrn_map::Dimensions;
     use awbrn_map::{AwbwMap, AwbwMapData};
     use awbrn_types::{GraphicalTerrain, PlayerFaction};
     use awbw_replay::ReplayParser;
@@ -2373,7 +2311,7 @@ mod tests {
         app
     }
 
-    fn gesture(kind: PointerGestureKind, tile: Option<Position>) -> PointerGesture {
+    fn gesture(kind: PointerGestureKind, tile: Option<Pos>) -> PointerGesture {
         PointerGesture {
             kind,
             viewport: Vec2::ZERO,
@@ -2383,7 +2321,7 @@ mod tests {
         }
     }
 
-    fn send(app: &mut App, kind: PointerGestureKind, tile: Option<Position>) {
+    fn send(app: &mut App, kind: PointerGestureKind, tile: Option<Pos>) {
         sync_test_observation(app);
         app.world_mut()
             .resource_mut::<Messages<PointerGesture>>()
@@ -2402,7 +2340,7 @@ mod tests {
                 (0..width)
                     .map(|x| {
                         let graphical = game_map
-                            .terrain_at(Position::new(x, y))
+                            .terrain_at(Pos::new(x, y))
                             .unwrap_or(GraphicalTerrain::Plain);
                         let terrain = awvm_awbw::semantic_terrain(graphical.as_terrain());
                         serde_json::json!({ "terrain": terrain })
@@ -2471,7 +2409,7 @@ mod tests {
     }
 
     /// Drag a unit from where it stands to a tile, the way a finger would.
-    fn drag_unit(app: &mut App, from: Position, over: &[Position], release: Position) {
+    fn drag_unit(app: &mut App, from: Pos, over: &[Pos], release: Pos) {
         send(app, PointerGestureKind::DragStart, Some(from));
         for step in over {
             send(app, PointerGestureKind::DragMove, Some(*step));
@@ -2480,12 +2418,11 @@ mod tests {
         send(app, PointerGestureKind::DragEnd, Some(release));
     }
 
-    fn set_plain_map(app: &mut App, width: usize, height: usize) {
+    fn set_plain_map(app: &mut App, width: u8, height: u8) {
         app.world_mut()
             .resource_mut::<GameMap>()
             .set(awbrn_map::AwbrnMap::new(
-                width,
-                height,
+                Dimensions::new(width, height),
                 GraphicalTerrain::Plain,
             ));
         initialize_terrain_semantic_world(app.world_mut());
@@ -2493,7 +2430,7 @@ mod tests {
 
     fn spawn_unit(
         app: &mut App,
-        position: Position,
+        position: Pos,
         unit: awbrn_types::Unit,
         faction: PlayerFaction,
         active: bool,
@@ -2520,7 +2457,7 @@ mod tests {
         entity.id()
     }
 
-    fn click_tile(app: &mut App, position: Position) {
+    fn click_tile(app: &mut App, position: Pos) {
         send(app, PointerGestureKind::Tap, Some(position));
     }
 
@@ -2558,7 +2495,7 @@ mod tests {
                 received_by_sink.lock().unwrap().push(event);
             }));
 
-        click_tile(&mut app, Position::new(0, 0));
+        click_tile(&mut app, Pos::new(0, 0));
 
         let received = received.lock().unwrap();
         let event = received.last().expect("production event");
@@ -2748,33 +2685,33 @@ mod tests {
 
         let unit = spawn_unit(
             &mut app,
-            Position::new(2, 2),
+            Pos::new(2, 2),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
             Some(99),
         );
 
-        click_tile(&mut app, Position::new(2, 2));
+        click_tile(&mut app, Pos::new(2, 2));
 
         assert_eq!(
             app.world().resource::<SelectedUnit>().0,
             Some(SelectedUnitSelection {
                 entity: unit,
-                origin: Position::new(2, 2),
+                origin: Pos::new(2, 2),
             })
         );
         assert!(
             app.world()
                 .resource::<MoveRange>()
                 .tiles
-                .contains_key(&Position::new(2, 1))
+                .contains_key(&Pos::new(2, 1))
         );
         assert!(
             !app.world()
                 .resource::<MoveRange>()
                 .tiles
-                .contains_key(&Position::new(2, 2))
+                .contains_key(&Pos::new(2, 2))
         );
 
         let highlight_count = app
@@ -2796,7 +2733,7 @@ mod tests {
 
         spawn_unit(
             &mut app,
-            Position::new(1, 1),
+            Pos::new(1, 1),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             false,
@@ -2804,17 +2741,17 @@ mod tests {
         );
         spawn_unit(
             &mut app,
-            Position::new(3, 3),
+            Pos::new(3, 3),
             awbrn_types::Unit::Infantry,
             PlayerFaction::BlueMoon,
             true,
             Some(99),
         );
 
-        click_tile(&mut app, Position::new(1, 1));
+        click_tile(&mut app, Pos::new(1, 1));
         assert_eq!(app.world().resource::<SelectedUnit>().0, None);
 
-        click_tile(&mut app, Position::new(3, 3));
+        click_tile(&mut app, Pos::new(3, 3));
         assert_eq!(app.world().resource::<SelectedUnit>().0, None);
     }
 
@@ -2829,18 +2766,18 @@ mod tests {
 
         spawn_unit(
             &mut app,
-            Position::new(3, 3),
+            Pos::new(3, 3),
             awbrn_types::Unit::Tank,
             PlayerFaction::OrangeStar,
             true,
             Some(2),
         );
 
-        click_tile(&mut app, Position::new(3, 3));
+        click_tile(&mut app, Pos::new(3, 3));
 
         let range = &app.world().resource::<MoveRange>().tiles;
-        assert!(range.contains_key(&Position::new(5, 3)));
-        assert!(!range.contains_key(&Position::new(6, 3)));
+        assert!(range.contains_key(&Pos::new(5, 3)));
+        assert!(!range.contains_key(&Pos::new(6, 3)));
     }
 
     #[test]
@@ -2854,13 +2791,13 @@ mod tests {
 
         let attacker = spawn_unit(
             &mut app,
-            Position::new(0, 1),
+            Pos::new(0, 1),
             awbrn_types::Unit::Tank,
             PlayerFaction::OrangeStar,
             true,
             Some(99),
         );
-        let target = Position::new(3, 1);
+        let target = Pos::new(3, 1);
         spawn_unit(
             &mut app,
             target,
@@ -2870,7 +2807,7 @@ mod tests {
             Some(99),
         );
 
-        click_tile(&mut app, Position::new(0, 1));
+        click_tile(&mut app, Pos::new(0, 1));
 
         assert!(
             app.world()
@@ -2888,9 +2825,9 @@ mod tests {
         );
 
         let unit_targets = app.world().resource::<AttackTargets>().clone();
-        let tile_target = Position::new(4, 2);
+        let tile_target = Pos::new(4, 2);
         app.world_mut().resource_mut::<AttackTargets>().approaches =
-            HashMap::from([(tile_target, vec![Position::new(3, 2)])]);
+            HashMap::from([(tile_target, vec![Pos::new(3, 2)])]);
         app.update();
         assert_eq!(
             app.world_mut()
@@ -2903,11 +2840,11 @@ mod tests {
         *app.world_mut().resource_mut::<AttackTargets>() = unit_targets;
 
         let traced = vec![
-            Position::new(0, 1),
-            Position::new(0, 0),
-            Position::new(1, 0),
-            Position::new(2, 0),
-            Position::new(2, 1),
+            Pos::new(0, 1),
+            Pos::new(0, 0),
+            Pos::new(1, 0),
+            Pos::new(2, 0),
+            Pos::new(2, 1),
         ];
         {
             let mut proposed = app.world_mut().resource_mut::<ProposedMovePath>();
@@ -2921,8 +2858,8 @@ mod tests {
             app.world().resource::<PendingMoveDestination>().0,
             Some(PendingMoveDestinationSelection {
                 unit: attacker,
-                origin: Position::new(0, 1),
-                destination: Position::new(2, 1),
+                origin: Pos::new(0, 1),
+                destination: Pos::new(2, 1),
                 path: traced.clone(),
                 attack_intent: Some(target),
             })
@@ -2939,10 +2876,10 @@ mod tests {
             .0
             .insert(PlayerFaction::OrangeStar);
 
-        let origin = Position::new(0, 1);
-        let first_target = Position::new(3, 1);
-        let second_target = Position::new(2, 0);
-        let firing_position = Position::new(2, 1);
+        let origin = Pos::new(0, 1);
+        let first_target = Pos::new(3, 1);
+        let second_target = Pos::new(2, 0);
+        let firing_position = Pos::new(2, 1);
         spawn_unit(
             &mut app,
             origin,
@@ -2963,7 +2900,7 @@ mod tests {
         }
         click_tile(&mut app, origin);
 
-        let path = vec![origin, Position::new(1, 1), firing_position];
+        let path = vec![origin, Pos::new(1, 1), firing_position];
         let field = app
             .world()
             .resource::<SelectedMoveField>()
@@ -2975,7 +2912,7 @@ mod tests {
 
         update_automatic_move_path(
             origin,
-            Position::new(4, 2),
+            Pos::new(4, 2),
             false,
             false,
             &field,
@@ -3026,7 +2963,7 @@ mod tests {
 
         spawn_unit(
             &mut app,
-            Position::new(0, 0),
+            Pos::new(0, 0),
             awbrn_types::Unit::Recon,
             PlayerFaction::OrangeStar,
             true,
@@ -3034,7 +2971,7 @@ mod tests {
         );
         spawn_unit(
             &mut app,
-            Position::new(1, 0),
+            Pos::new(1, 0),
             awbrn_types::Unit::Recon,
             PlayerFaction::OrangeStar,
             true,
@@ -3042,34 +2979,34 @@ mod tests {
         );
         spawn_unit(
             &mut app,
-            Position::new(3, 0),
+            Pos::new(3, 0),
             awbrn_types::Unit::Infantry,
             PlayerFaction::BlueMoon,
             true,
             Some(99),
         );
 
-        click_tile(&mut app, Position::new(0, 0));
+        click_tile(&mut app, Pos::new(0, 0));
 
         let range = &app.world().resource::<MoveRange>().tiles;
-        assert!(range.contains_key(&Position::new(1, 0)));
-        assert!(range.contains_key(&Position::new(2, 0)));
-        assert!(!range.contains_key(&Position::new(3, 0)));
-        assert!(!range.contains_key(&Position::new(4, 0)));
+        assert!(range.contains_key(&Pos::new(1, 0)));
+        assert!(range.contains_key(&Pos::new(2, 0)));
+        assert!(!range.contains_key(&Pos::new(3, 0)));
+        assert!(!range.contains_key(&Pos::new(4, 0)));
 
-        click_tile(&mut app, Position::new(1, 0));
+        click_tile(&mut app, Pos::new(1, 0));
         assert_eq!(
             app.world()
                 .resource::<PendingMoveDestination>()
                 .0
                 .as_ref()
                 .map(|pending| pending.destination),
-            Some(Position::new(1, 0)),
+            Some(Pos::new(1, 0)),
             "an occupied friendly tile must reach the action query"
         );
         assert_eq!(
             app.world().resource::<ProposedMovePath>().path,
-            vec![Position::new(0, 0), Position::new(1, 0)],
+            vec![Pos::new(0, 0), Pos::new(1, 0)],
             "the arrow must follow the route to an occupied friendly tile"
         );
     }
@@ -3085,23 +3022,23 @@ mod tests {
 
         let unit = spawn_unit(
             &mut app,
-            Position::new(2, 2),
+            Pos::new(2, 2),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
             Some(99),
         );
 
-        click_tile(&mut app, Position::new(2, 2));
-        click_tile(&mut app, Position::new(2, 1));
+        click_tile(&mut app, Pos::new(2, 2));
+        click_tile(&mut app, Pos::new(2, 1));
 
         assert_eq!(
             app.world().resource::<PendingMoveDestination>().0,
             Some(PendingMoveDestinationSelection {
                 unit,
-                origin: Position::new(2, 2),
-                destination: Position::new(2, 1),
-                path: vec![Position::new(2, 2), Position::new(2, 1)],
+                origin: Pos::new(2, 2),
+                destination: Pos::new(2, 1),
+                path: vec![Pos::new(2, 2), Pos::new(2, 1)],
                 attack_intent: None,
             })
         );
@@ -3120,7 +3057,7 @@ mod tests {
             .0
             .insert(PlayerFaction::OrangeStar);
 
-        let origin = Position::new(2, 2);
+        let origin = Pos::new(2, 2);
         let unit = spawn_unit(
             &mut app,
             origin,
@@ -3168,7 +3105,7 @@ mod tests {
             .0
             .insert(PlayerFaction::OrangeStar);
 
-        let origin = Position::new(2, 2);
+        let origin = Pos::new(2, 2);
         let teleporter = app
             .world()
             .resource::<BoardIndex>()
@@ -3246,7 +3183,7 @@ mod tests {
             .insert(PlayerFaction::OrangeStar);
         spawn_unit(
             &mut app,
-            Position::new(0, 0),
+            Pos::new(0, 0),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
@@ -3266,12 +3203,12 @@ mod tests {
                 received_by_sink.lock().unwrap().push(event);
             }));
 
-        click_tile(&mut app, Position::new(0, 0));
-        click_tile(&mut app, Position::new(0, 0));
+        click_tile(&mut app, Pos::new(0, 0));
+        click_tile(&mut app, Pos::new(0, 0));
 
         let received = received.lock().unwrap();
         let menu = received.last().expect("unit action menu");
-        assert_eq!(menu.destination, Some(Position::new(0, 0)));
+        assert_eq!(menu.destination, Some(Pos::new(0, 0)));
         assert!(menu.options.iter().any(|option| option.action
             == UnitOrder::Move {
                 action: PostMoveAction::Capture,
@@ -3289,7 +3226,7 @@ mod tests {
 
         let unit = spawn_unit(
             &mut app,
-            Position::new(2, 2),
+            Pos::new(2, 2),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
@@ -3305,8 +3242,8 @@ mod tests {
                 received_by_sink.lock().unwrap().push(event);
             }));
 
-        click_tile(&mut app, Position::new(2, 2));
-        click_tile(&mut app, Position::new(2, 1));
+        click_tile(&mut app, Pos::new(2, 2));
+        click_tile(&mut app, Pos::new(2, 1));
 
         // A destination on its own commits nothing. That is the whole point of
         // the menu: arriving somewhere is not an order.
@@ -3334,7 +3271,7 @@ mod tests {
             received.lock().unwrap().as_slice(),
             &[MoveCommandRequested {
                 unit_id: 42,
-                path: vec![Position::new(2, 2), Position::new(2, 1)],
+                path: vec![Pos::new(2, 2), Pos::new(2, 1)],
                 action: PostMoveAction::Wait,
             }]
         );
@@ -3352,7 +3289,7 @@ mod tests {
         set_plain_map(&mut app, 3, 3);
         let transport = spawn_unit(
             &mut app,
-            Position::new(1, 1),
+            Pos::new(1, 1),
             awbrn_types::Unit::Apc,
             PlayerFaction::OrangeStar,
             false,
@@ -3364,14 +3301,14 @@ mod tests {
 
         app.world_mut().resource_mut::<SelectedUnit>().0 = Some(SelectedUnitSelection {
             entity: transport,
-            origin: Position::new(1, 1),
+            origin: Pos::new(1, 1),
         });
         app.world_mut().resource_mut::<PendingMoveDestination>().0 =
             Some(PendingMoveDestinationSelection {
                 unit: transport,
-                origin: Position::new(1, 1),
-                destination: Position::new(1, 1),
-                path: vec![Position::new(1, 1)],
+                origin: Pos::new(1, 1),
+                destination: Pos::new(1, 1),
+                path: vec![Pos::new(1, 1)],
                 attack_intent: None,
             });
         app.world_mut()
@@ -3381,7 +3318,7 @@ mod tests {
                 "Unload #7",
                 UnitOrder::Unload {
                     cargo_id: 7,
-                    position: Position::new(1, 0),
+                    position: Pos::new(1, 0),
                 },
             ));
 
@@ -3401,7 +3338,7 @@ mod tests {
             &[UnloadCommandRequested {
                 transport_id: 42,
                 cargo_id: 7,
-                position: Position::new(1, 0),
+                position: Pos::new(1, 0),
             }]
         );
     }
@@ -3416,7 +3353,7 @@ mod tests {
             .insert(PlayerFaction::OrangeStar);
         let unit = spawn_unit(
             &mut app,
-            Position::new(1, 1),
+            Pos::new(1, 1),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
@@ -3439,8 +3376,8 @@ mod tests {
                 commands_by_sink.lock().unwrap().push(event);
             }));
 
-        click_tile(&mut app, Position::new(1, 1));
-        click_tile(&mut app, Position::new(1, 1));
+        click_tile(&mut app, Pos::new(1, 1));
+        click_tile(&mut app, Pos::new(1, 1));
 
         let delete_index = app
             .world()
@@ -3501,7 +3438,7 @@ mod tests {
             .insert(PlayerFaction::OrangeStar);
         let transport = spawn_unit(
             &mut app,
-            Position::new(1, 0),
+            Pos::new(1, 0),
             awbrn_types::Unit::Apc,
             PlayerFaction::OrangeStar,
             false,
@@ -3530,28 +3467,28 @@ mod tests {
         send(
             &mut app,
             PointerGestureKind::DragStart,
-            Some(Position::new(1, 0)),
+            Some(Pos::new(1, 0)),
         );
         assert_eq!(*app.world().resource::<DragOwner>(), DragOwner::Camera);
         assert_eq!(app.world().resource::<SelectedUnit>().0, None);
 
-        click_tile(&mut app, Position::new(1, 0));
+        click_tile(&mut app, Pos::new(1, 0));
         assert_eq!(
             *app.world().resource::<PlayUiPhase>(),
             PlayUiPhase::UnitSelected
         );
-        click_tile(&mut app, Position::new(1, 0));
+        click_tile(&mut app, Pos::new(1, 0));
 
         let received = received.lock().unwrap();
         let menu = received.last().expect("unload menu");
-        assert_eq!(menu.destination, Some(Position::new(1, 0)));
+        assert_eq!(menu.destination, Some(Pos::new(1, 0)));
         assert_eq!(
             menu.options,
             vec![UnitActionOption::plain(
                 "Unload Infantry",
                 UnitOrder::Unload {
                     cargo_id: 1,
-                    position: Position::new(0, 0),
+                    position: Pos::new(0, 0),
                 },
             )]
         );
@@ -3569,7 +3506,7 @@ mod tests {
 
         let unit = spawn_unit(
             &mut app,
-            Position::new(2, 2),
+            Pos::new(2, 2),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
@@ -3581,9 +3518,9 @@ mod tests {
         app.world_mut()
             .insert_resource(EventSink::<MoveCommandRequested>::new(|_| {}));
 
-        click_tile(&mut app, Position::new(2, 2));
-        click_tile(&mut app, Position::new(2, 1));
-        let target = Position::new(3, 1);
+        click_tile(&mut app, Pos::new(2, 2));
+        click_tile(&mut app, Pos::new(2, 1));
+        let target = Pos::new(3, 1);
         app.world_mut()
             .resource_mut::<PendingMoveDestination>()
             .0
@@ -3620,7 +3557,7 @@ mod tests {
             app.world().resource::<SelectedUnit>().0,
             Some(SelectedUnitSelection {
                 entity: unit,
-                origin: Position::new(2, 2),
+                origin: Pos::new(2, 2),
             })
         );
         assert_eq!(
@@ -3631,12 +3568,12 @@ mod tests {
             app.world()
                 .resource::<MoveRange>()
                 .tiles
-                .contains_key(&Position::new(2, 1)),
+                .contains_key(&Pos::new(2, 1)),
             "the range the player was working with comes back"
         );
         assert_eq!(
             app.world().resource::<ProposedMovePath>().path,
-            vec![Position::new(2, 2), Position::new(2, 1)],
+            vec![Pos::new(2, 2), Pos::new(2, 1)],
             "and so does the route, so a retry is one tap"
         );
         assert_eq!(
@@ -3659,15 +3596,15 @@ mod tests {
 
             let unit = spawn_unit(
                 &mut app,
-                Position::new(2, 2),
+                Pos::new(2, 2),
                 awbrn_types::Unit::Infantry,
                 PlayerFaction::OrangeStar,
                 true,
                 Some(99),
             );
 
-            click_tile(&mut app, Position::new(2, 2));
-            click_tile(&mut app, Position::new(2, 1));
+            click_tile(&mut app, Pos::new(2, 2));
+            click_tile(&mut app, Pos::new(2, 1));
 
             if dismiss_with_escape {
                 app.world_mut()
@@ -3684,7 +3621,7 @@ mod tests {
                 app.world().resource::<SelectedUnit>().0,
                 Some(SelectedUnitSelection {
                     entity: unit,
-                    origin: Position::new(2, 2),
+                    origin: Pos::new(2, 2),
                 }),
                 "escape: {dismiss_with_escape}"
             );
@@ -3707,21 +3644,21 @@ mod tests {
 
         spawn_unit(
             &mut app,
-            Position::new(2, 2),
+            Pos::new(2, 2),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
             Some(99),
         );
-        click_tile(&mut app, Position::new(2, 2));
-        click_tile(&mut app, Position::new(2, 1));
+        click_tile(&mut app, Pos::new(2, 2));
+        click_tile(&mut app, Pos::new(2, 1));
 
         app.world_mut()
             .resource_mut::<Messages<UnitActionDismissed>>()
             .write(UnitActionDismissed);
         app.world_mut()
             .resource_mut::<Messages<PointerGesture>>()
-            .write(gesture(PointerGestureKind::Tap, Some(Position::new(1, 2))));
+            .write(gesture(PointerGestureKind::Tap, Some(Pos::new(1, 2))));
         app.update();
 
         assert_eq!(
@@ -3730,7 +3667,7 @@ mod tests {
                 .0
                 .as_ref()
                 .map(|pending| pending.destination),
-            Some(Position::new(1, 2))
+            Some(Pos::new(1, 2))
         );
         assert_eq!(
             *app.world().resource::<PlayUiPhase>(),
@@ -3751,32 +3688,23 @@ mod tests {
 
         let unit = spawn_unit(
             &mut app,
-            Position::new(2, 2),
+            Pos::new(2, 2),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
             Some(99),
         );
 
-        drag_unit(
-            &mut app,
-            Position::new(2, 2),
-            &[Position::new(2, 1)],
-            Position::new(2, 0),
-        );
+        drag_unit(&mut app, Pos::new(2, 2), &[Pos::new(2, 1)], Pos::new(2, 0));
 
         assert_eq!(*app.world().resource::<DragOwner>(), DragOwner::Camera);
         assert_eq!(
             app.world().resource::<PendingMoveDestination>().0,
             Some(PendingMoveDestinationSelection {
                 unit,
-                origin: Position::new(2, 2),
-                destination: Position::new(2, 0),
-                path: vec![
-                    Position::new(2, 2),
-                    Position::new(2, 1),
-                    Position::new(2, 0)
-                ],
+                origin: Pos::new(2, 2),
+                destination: Pos::new(2, 0),
+                path: vec![Pos::new(2, 2), Pos::new(2, 1), Pos::new(2, 0)],
                 attack_intent: None,
             })
         );
@@ -3796,7 +3724,7 @@ mod tests {
 
         spawn_unit(
             &mut app,
-            Position::new(0, 1),
+            Pos::new(0, 1),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
@@ -3804,12 +3732,7 @@ mod tests {
         );
 
         // Infantry reach three tiles, so tile 8 is far outside the range.
-        drag_unit(
-            &mut app,
-            Position::new(0, 1),
-            &[Position::new(3, 1)],
-            Position::new(8, 1),
-        );
+        drag_unit(&mut app, Pos::new(0, 1), &[Pos::new(3, 1)], Pos::new(8, 1));
 
         let pending = app
             .world()
@@ -3819,7 +3742,7 @@ mod tests {
             .expect("the drag still proposes something");
         assert_eq!(
             pending.destination,
-            Position::new(3, 1),
+            Pos::new(3, 1),
             "the route holds where it was still legal"
         );
     }
@@ -3837,7 +3760,7 @@ mod tests {
 
         spawn_unit(
             &mut app,
-            Position::new(1, 1),
+            Pos::new(1, 1),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
@@ -3845,7 +3768,7 @@ mod tests {
         );
         spawn_unit(
             &mut app,
-            Position::new(3, 1),
+            Pos::new(3, 1),
             awbrn_types::Unit::Infantry,
             PlayerFaction::BlueMoon,
             true,
@@ -3853,7 +3776,7 @@ mod tests {
         );
         spawn_unit(
             &mut app,
-            Position::new(2, 0),
+            Pos::new(2, 0),
             awbrn_types::Unit::Infantry,
             PlayerFaction::BlueMoon,
             true,
@@ -3866,12 +3789,7 @@ mod tests {
                 menus_by_sink.lock().unwrap().push(event);
             }));
 
-        drag_unit(
-            &mut app,
-            Position::new(1, 1),
-            &[Position::new(2, 1)],
-            Position::new(3, 1),
-        );
+        drag_unit(&mut app, Pos::new(1, 1), &[Pos::new(2, 1)], Pos::new(3, 1));
 
         let pending = app
             .world()
@@ -3881,12 +3799,12 @@ mod tests {
             .expect("an approach was proposed");
         assert_eq!(
             pending.destination,
-            Position::new(2, 1),
+            Pos::new(2, 1),
             "it stops on the cheapest tile it can fire from"
         );
         assert_eq!(
             pending.attack_intent,
-            Some(Position::new(3, 1)),
+            Some(Pos::new(3, 1)),
             "and remembers which enemy, so the menu can open on Fire"
         );
         let initial_menus = menus.lock().unwrap();
@@ -3897,7 +3815,7 @@ mod tests {
             menu.options[0].action,
             UnitOrder::Move {
                 action: PostMoveAction::Attack {
-                    target: Position::new(3, 1),
+                    target: Pos::new(3, 1),
                 },
             }
         );
@@ -3908,7 +3826,7 @@ mod tests {
             .0
             .as_mut()
             .expect("the destination remains pending")
-            .attack_intent = Some(Position::new(5, 2));
+            .attack_intent = Some(Pos::new(5, 2));
         app.update();
 
         assert_eq!(
@@ -3934,7 +3852,7 @@ mod tests {
 
         spawn_unit(
             &mut app,
-            Position::new(2, 2),
+            Pos::new(2, 2),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
@@ -3944,20 +3862,12 @@ mod tests {
         send(
             &mut app,
             PointerGestureKind::DragStart,
-            Some(Position::new(0, 0)),
+            Some(Pos::new(0, 0)),
         );
         assert_eq!(*app.world().resource::<DragOwner>(), DragOwner::Camera);
 
-        send(
-            &mut app,
-            PointerGestureKind::DragMove,
-            Some(Position::new(1, 0)),
-        );
-        send(
-            &mut app,
-            PointerGestureKind::DragEnd,
-            Some(Position::new(2, 2)),
-        );
+        send(&mut app, PointerGestureKind::DragMove, Some(Pos::new(1, 0)));
+        send(&mut app, PointerGestureKind::DragEnd, Some(Pos::new(2, 2)));
 
         assert_eq!(
             app.world().resource::<SelectedUnit>().0,
@@ -3972,50 +3882,47 @@ mod tests {
     #[test]
     fn a_near_miss_resolves_onto_the_nearest_reachable_tile() {
         let mut range = MoveRange::default();
-        range.tiles.insert(Position::new(2, 1), 1);
+        range.tiles.insert(Pos::new(2, 1), 1);
         let mut game_map = GameMap::default();
-        game_map.set(awbrn_map::AwbrnMap::new(5, 5, GraphicalTerrain::Plain));
+        game_map.set(awbrn_map::AwbrnMap::new(
+            Dimensions::new(5, 5),
+            GraphicalTerrain::Plain,
+        ));
 
         let center =
-            position_to_world_translation(&MOVE_RANGE_SPRITE_SIZE, Position::new(2, 1), &game_map)
+            position_to_world_translation(&MOVE_RANGE_SPRITE_SIZE, Pos::new(2, 1), &game_map)
                 .truncate();
 
         // Just over the border into the tile above, but still within the slop
         // of the reachable tile below it.
         let just_outside = center + Vec2::new(0.0, TILE_SIZE * 0.6);
         assert_eq!(
-            resolve_tap_target(
-                Position::new(2, 0),
-                Some(just_outside),
-                &range,
-                &game_map,
-                None,
-            ),
-            Position::new(2, 1),
+            resolve_tap_target(Pos::new(2, 0), Some(just_outside), &range, &game_map, None,),
+            Pos::new(2, 1),
         );
 
         // Far enough away that the player meant the tile they hit.
         let clearly_elsewhere = center + Vec2::new(0.0, TILE_SIZE * 1.4);
         assert_eq!(
             resolve_tap_target(
-                Position::new(2, 0),
+                Pos::new(2, 0),
                 Some(clearly_elsewhere),
                 &range,
                 &game_map,
                 None,
             ),
-            Position::new(2, 0),
+            Pos::new(2, 0),
         );
 
         assert_eq!(
             resolve_tap_target(
-                Position::new(2, 0),
+                Pos::new(2, 0),
                 Some(just_outside),
                 &range,
                 &game_map,
-                Some(Position::new(2, 0)),
+                Some(Pos::new(2, 0)),
             ),
-            Position::new(2, 0),
+            Pos::new(2, 0),
             "the selected unit's tile must not be pulled onto a neighbour"
         );
     }
@@ -4032,7 +3939,7 @@ mod tests {
             .insert(PlayerFaction::OrangeStar);
         spawn_unit(
             &mut app,
-            Position::new(2, 2),
+            Pos::new(2, 2),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
@@ -4042,14 +3949,14 @@ mod tests {
             .resource_mut::<CameraScale>()
             .set_clamped(0.5, 0.2);
 
-        click_tile(&mut app, Position::new(2, 2));
+        click_tile(&mut app, Pos::new(2, 2));
         app.world_mut()
             .resource_mut::<Messages<PointerGesture>>()
             .write(PointerGesture {
                 kind: PointerGestureKind::Tap,
                 viewport: Vec2::ZERO,
                 delta: Vec2::ZERO,
-                tile: Some(Position::new(2, 1)),
+                tile: Some(Pos::new(2, 1)),
                 coarse: true,
             });
         app.update();
@@ -4082,23 +3989,23 @@ mod tests {
 
         let unit = spawn_unit(
             &mut app,
-            Position::new(3, 3),
+            Pos::new(3, 3),
             awbrn_types::Unit::Tank,
             PlayerFaction::OrangeStar,
             true,
             Some(2),
         );
 
-        click_tile(&mut app, Position::new(3, 3));
+        click_tile(&mut app, Pos::new(3, 3));
         assert!(
             app.world()
                 .resource::<MoveRange>()
                 .tiles
-                .contains_key(&Position::new(5, 3))
+                .contains_key(&Pos::new(5, 3))
         );
 
         app.world_mut().entity_mut(unit).insert(Fuel(1));
-        click_tile(&mut app, Position::new(5, 3));
+        click_tile(&mut app, Pos::new(5, 3));
 
         assert!(app.world().resource::<PendingMoveDestination>().0.is_some());
         assert!(app.world().resource::<SelectedUnit>().0.is_some());
@@ -4115,30 +4022,30 @@ mod tests {
 
         spawn_unit(
             &mut app,
-            Position::new(2, 2),
+            Pos::new(2, 2),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
             Some(99),
         );
 
-        click_tile(&mut app, Position::new(2, 2));
+        click_tile(&mut app, Pos::new(2, 2));
         assert!(
             app.world()
                 .resource::<MoveRange>()
                 .tiles
-                .contains_key(&Position::new(2, 1))
+                .contains_key(&Pos::new(2, 1))
         );
 
         spawn_unit(
             &mut app,
-            Position::new(2, 1),
+            Pos::new(2, 1),
             awbrn_types::Unit::Infantry,
             PlayerFaction::BlueMoon,
             true,
             Some(99),
         );
-        click_tile(&mut app, Position::new(2, 1));
+        click_tile(&mut app, Pos::new(2, 1));
 
         assert!(app.world().resource::<PendingMoveDestination>().0.is_some());
         assert!(app.world().resource::<SelectedUnit>().0.is_some());
@@ -4155,20 +4062,20 @@ mod tests {
 
         let unit = spawn_unit(
             &mut app,
-            Position::new(2, 2),
+            Pos::new(2, 2),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
             Some(99),
         );
 
-        click_tile(&mut app, Position::new(2, 2));
+        click_tile(&mut app, Pos::new(2, 2));
         assert!(app.world().resource::<SelectedUnit>().0.is_some());
         assert!(!app.world().resource::<MoveRange>().tiles.is_empty());
 
         app.world_mut()
             .entity_mut(unit)
-            .insert(MapPosition::from(Position::new(2, 1)));
+            .insert(MapPosition::from(Pos::new(2, 1)));
         app.update();
 
         assert_eq!(app.world().resource::<SelectedUnit>().0, None);
@@ -4187,29 +4094,29 @@ mod tests {
 
         let unit = spawn_unit(
             &mut app,
-            Position::new(2, 2),
+            Pos::new(2, 2),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
             Some(99),
         );
-        click_tile(&mut app, Position::new(2, 2));
+        click_tile(&mut app, Pos::new(2, 2));
         *app.world_mut().resource_mut::<PlayUiPhase>() = PlayUiPhase::AwaitingServer;
         let range = app.world().resource::<MoveRange>().tiles.clone();
         app.world_mut().resource_mut::<CommittedCommand>().0 = Some(CommittedSnapshot {
             unit,
-            origin: Position::new(2, 2),
+            origin: Pos::new(2, 2),
             range,
             attack_targets: HashMap::new(),
-            path: vec![Position::new(2, 2), Position::new(2, 1)],
-            destination: Position::new(2, 1),
+            path: vec![Pos::new(2, 2), Pos::new(2, 1)],
+            destination: Pos::new(2, 1),
             attack_intent: None,
             kind: CommittedKind::Move,
         });
 
         app.world_mut()
             .entity_mut(unit)
-            .insert(MapPosition::from(Position::new(2, 1)));
+            .insert(MapPosition::from(Pos::new(2, 1)));
         app.update();
 
         assert!(app.world().resource::<CommittedCommand>().0.is_none());
@@ -4227,22 +4134,22 @@ mod tests {
 
         let unit = spawn_unit(
             &mut app,
-            Position::new(2, 2),
+            Pos::new(2, 2),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
             Some(99),
         );
-        click_tile(&mut app, Position::new(2, 2));
+        click_tile(&mut app, Pos::new(2, 2));
         *app.world_mut().resource_mut::<PlayUiPhase>() = PlayUiPhase::AwaitingServer;
         let range = app.world().resource::<MoveRange>().tiles.clone();
         let snapshot = CommittedSnapshot {
             unit,
-            origin: Position::new(2, 2),
+            origin: Pos::new(2, 2),
             range,
             attack_targets: HashMap::new(),
-            path: vec![Position::new(2, 2), Position::new(2, 1)],
-            destination: Position::new(2, 1),
+            path: vec![Pos::new(2, 2), Pos::new(2, 1)],
+            destination: Pos::new(2, 1),
             attack_intent: None,
             kind: CommittedKind::Move,
         };
@@ -4277,20 +4184,20 @@ mod tests {
 
         spawn_unit(
             &mut app,
-            Position::new(2, 2),
+            Pos::new(2, 2),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
             Some(99),
         );
 
-        click_tile(&mut app, Position::new(2, 2));
-        click_tile(&mut app, Position::new(4, 4));
+        click_tile(&mut app, Pos::new(2, 2));
+        click_tile(&mut app, Pos::new(4, 4));
 
         assert_eq!(app.world().resource::<SelectedUnit>().0, None);
         assert!(app.world().resource::<MoveRange>().tiles.is_empty());
 
-        click_tile(&mut app, Position::new(2, 2));
+        click_tile(&mut app, Pos::new(2, 2));
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .press(KeyCode::Escape);
@@ -4312,7 +4219,7 @@ mod tests {
         let mountain_entity = app
             .world()
             .resource::<BoardIndex>()
-            .terrain_entity(Position::new(2, 1))
+            .terrain_entity(Pos::new(2, 1))
             .unwrap();
         app.world_mut()
             .entity_mut(mountain_entity)
@@ -4321,24 +4228,24 @@ mod tests {
             });
         app.world_mut()
             .resource_mut::<GameMap>()
-            .set_terrain(Position::new(2, 1), GraphicalTerrain::Mountain);
+            .set_terrain(Pos::new(2, 1), GraphicalTerrain::Mountain);
 
         spawn_unit(
             &mut app,
-            Position::new(2, 2),
+            Pos::new(2, 2),
             awbrn_types::Unit::Infantry,
             PlayerFaction::OrangeStar,
             true,
             Some(99),
         );
 
-        click_tile(&mut app, Position::new(2, 2));
+        click_tile(&mut app, Pos::new(2, 2));
 
         assert_eq!(
             app.world()
                 .resource::<MoveRange>()
                 .tiles
-                .get(&Position::new(2, 1)),
+                .get(&Pos::new(2, 1)),
             Some(&2)
         );
     }

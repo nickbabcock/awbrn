@@ -1,6 +1,6 @@
 //! Types shared by both ends of the browser/server wire contract.
 
-use awbrn_map::Position;
+use awbrn_map::Pos;
 use serde::{Deserialize, Serialize};
 
 /// An action to perform after a unit moves.
@@ -15,7 +15,8 @@ pub enum PostMoveAction {
     /// Attack a target at the given position.
     Attack {
         #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }"))]
-        target: Position,
+        #[serde(with = "awbrn_map::xy")]
+        target: Pos,
     },
     /// Begin or continue capturing the building at the destination.
     Capture,
@@ -28,7 +29,8 @@ pub enum PostMoveAction {
     Unload {
         cargo_id: u64,
         #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }"))]
-        position: Position,
+        #[serde(with = "awbrn_map::xy")]
+        position: Pos,
     },
     /// Supply adjacent friendly units.
     Supply,
@@ -43,7 +45,8 @@ pub enum PostMoveAction {
     /// Launch the missile silo at the destination at a target tile.
     Launch {
         #[cfg_attr(target_family = "wasm", tsify(type = "{ x: number; y: number }"))]
-        target: Position,
+        #[serde(with = "awbrn_map::xy")]
+        target: Pos,
     },
     /// Self-destruct after moving.
     Explode,

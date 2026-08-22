@@ -1,4 +1,4 @@
-use awbrn_map::Position;
+use awbrn_map::Pos;
 pub use awbrn_protocol::PostMoveAction;
 pub use awvm::commander::PowerLevel;
 use tsify::Tsify;
@@ -16,14 +16,16 @@ pub enum GameCommand {
         /// Full path from current position to destination (inclusive of both endpoints).
         /// Used for fuel consumption and client animation.
         #[tsify(type = "{ x: number; y: number }[]")]
-        path: Vec<Position>,
+        #[serde(with = "awbrn_map::xy::vec")]
+        path: Vec<Pos>,
         /// Action to perform after arriving at the destination.
         action: Option<PostMoveAction>,
     },
     /// Build a new unit at a production facility.
     Build {
         #[tsify(type = "{ x: number; y: number }")]
-        position: Position,
+        #[serde(with = "awbrn_map::xy")]
+        position: Pos,
         unit_type: awvm::ruleset::UnitKind,
     },
     /// Unload one carried unit without moving or spending its transport.
@@ -33,7 +35,8 @@ pub enum GameCommand {
         #[tsify(type = "number")]
         cargo_id: ServerUnitId,
         #[tsify(type = "{ x: number; y: number }")]
-        position: Position,
+        #[serde(with = "awbrn_map::xy")]
+        position: Pos,
     },
     /// Remove one owned unit from the board without compensation.
     DeleteUnit {
@@ -63,9 +66,9 @@ mod tests {
             } => {
                 assert_eq!(unit_id, ServerUnitId(3));
                 assert_eq!(path.len(), 2);
-                assert_eq!(path[1], Position::new(2, 2));
+                assert_eq!(path[1], Pos::new(2, 2));
                 match action.unwrap() {
-                    PostMoveAction::Attack { target } => assert_eq!(target, Position::new(3, 2)),
+                    PostMoveAction::Attack { target } => assert_eq!(target, Pos::new(3, 2)),
                     other => panic!("expected Attack, got {other:?}"),
                 }
             }
@@ -103,7 +106,7 @@ mod tests {
             GameCommand::Unload {
                 transport_id: ServerUnitId(4),
                 cargo_id: ServerUnitId(7),
-                position: Position::new(2, 3),
+                position: Pos::new(2, 3),
             }
         );
     }
@@ -140,10 +143,10 @@ mod tests {
             command,
             GameCommand::MoveUnit {
                 unit_id: ServerUnitId(4),
-                path: vec![Position::new(1, 2)],
+                path: vec![Pos::new(1, 2)],
                 action: Some(PostMoveAction::Unload {
                     cargo_id: 7,
-                    position: Position::new(2, 2),
+                    position: Pos::new(2, 2),
                 }),
             }
         );
@@ -158,7 +161,7 @@ mod tests {
                 position,
                 unit_type,
             } => {
-                assert_eq!(position, Position::new(0, 0));
+                assert_eq!(position, Pos::new(0, 0));
                 assert_eq!(unit_type, awbrn_types::Unit::Infantry);
             }
             other => panic!("expected Build, got {other:?}"),
@@ -183,7 +186,7 @@ mod tests {
         assert_eq!(
             launch,
             PostMoveAction::Launch {
-                target: Position::new(3, 4)
+                target: Pos::new(3, 4)
             }
         );
 

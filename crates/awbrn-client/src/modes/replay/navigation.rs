@@ -10,7 +10,7 @@ use crate::render::course_arrow::{
 };
 use awbrn_game::replay::AwbwUnitId;
 use awbrn_game::world::{Faction, GameMap, Unit, UnitActive};
-use awbrn_map::Position;
+use awbrn_map::Pos;
 use awbrn_types::GraphicalMovement;
 use awbw_replay::turn_models::{MoveAction, TargetedPlayer};
 use bevy::prelude::*;
@@ -32,7 +32,7 @@ pub(crate) const COURSE_ARROW_STAGGER_MS: u64 = 25;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReplayPathTile {
-    pub position: Position,
+    pub position: Pos,
     pub unit_visible: bool,
 }
 
@@ -78,7 +78,7 @@ pub(crate) fn replay_move_view(
         })
 }
 
-pub fn movement_direction(from: Position, to: Position) -> GraphicalMovement {
+pub fn movement_direction(from: Pos, to: Pos) -> GraphicalMovement {
     if from.y > to.y {
         GraphicalMovement::Up
     } else if from.y < to.y {
@@ -121,7 +121,7 @@ pub(crate) fn replay_path_tiles(
         .map(|path| {
             path.iter()
                 .map(|tile| ReplayPathTile {
-                    position: Position::new(tile.x as usize, tile.y as usize),
+                    position: Pos::new(tile.x as u8, tile.y as u8),
                     unit_visible: tile.unit_visible,
                 })
                 .collect()
@@ -131,7 +131,7 @@ pub(crate) fn replay_path_tiles(
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct ReplayCourseArrowSpawn {
     pub(crate) kind: CourseArrowSpriteKind,
-    pub(crate) position: Position,
+    pub(crate) position: Pos,
     pub(crate) rotation_degrees: f32,
     pub(crate) start_delay: Duration,
 }
@@ -455,15 +455,15 @@ mod tests {
     fn course_arrow_generation_matches_expected_rotations() {
         let straight = build_course_arrow_spawns(&[
             ReplayPathTile {
-                position: Position::new(1, 1),
+                position: Pos::new(1, 1),
                 unit_visible: true,
             },
             ReplayPathTile {
-                position: Position::new(2, 1),
+                position: Pos::new(2, 1),
                 unit_visible: true,
             },
             ReplayPathTile {
-                position: Position::new(3, 1),
+                position: Pos::new(3, 1),
                 unit_visible: true,
             },
         ]);
@@ -475,15 +475,15 @@ mod tests {
 
         let curved = build_course_arrow_spawns(&[
             ReplayPathTile {
-                position: Position::new(3, 3),
+                position: Pos::new(3, 3),
                 unit_visible: true,
             },
             ReplayPathTile {
-                position: Position::new(2, 3),
+                position: Pos::new(2, 3),
                 unit_visible: true,
             },
             ReplayPathTile {
-                position: Position::new(2, 2),
+                position: Pos::new(2, 2),
                 unit_visible: true,
             },
         ]);
@@ -498,41 +498,41 @@ mod tests {
     fn course_arrow_generation_skips_hidden_tiles() {
         let spawns = build_course_arrow_spawns(&[
             ReplayPathTile {
-                position: Position::new(1, 1),
+                position: Pos::new(1, 1),
                 unit_visible: true,
             },
             ReplayPathTile {
-                position: Position::new(2, 1),
+                position: Pos::new(2, 1),
                 unit_visible: false,
             },
             ReplayPathTile {
-                position: Position::new(3, 1),
+                position: Pos::new(3, 1),
                 unit_visible: true,
             },
         ]);
 
         assert_eq!(spawns.len(), 1);
         assert_eq!(spawns[0].kind, CourseArrowSpriteKind::Tip);
-        assert_eq!(spawns[0].position, Position::new(3, 1));
+        assert_eq!(spawns[0].position, Pos::new(3, 1));
     }
 
     #[test]
     fn hidden_tiles_do_not_leave_stagger_gaps() {
         let spawns = build_course_arrow_spawns(&[
             ReplayPathTile {
-                position: Position::new(0, 0),
+                position: Pos::new(0, 0),
                 unit_visible: true,
             },
             ReplayPathTile {
-                position: Position::new(1, 0),
+                position: Pos::new(1, 0),
                 unit_visible: false,
             },
             ReplayPathTile {
-                position: Position::new(2, 0),
+                position: Pos::new(2, 0),
                 unit_visible: true,
             },
             ReplayPathTile {
-                position: Position::new(3, 0),
+                position: Pos::new(3, 0),
                 unit_visible: true,
             },
         ]);
@@ -549,22 +549,22 @@ mod tests {
     fn hidden_tail_promotes_last_visible_middle_tile_to_tip() {
         let spawns = build_course_arrow_spawns(&[
             ReplayPathTile {
-                position: Position::new(1, 1),
+                position: Pos::new(1, 1),
                 unit_visible: true,
             },
             ReplayPathTile {
-                position: Position::new(2, 1),
+                position: Pos::new(2, 1),
                 unit_visible: true,
             },
             ReplayPathTile {
-                position: Position::new(3, 1),
+                position: Pos::new(3, 1),
                 unit_visible: false,
             },
         ]);
 
         assert_eq!(spawns.len(), 1);
         assert_eq!(spawns[0].kind, CourseArrowSpriteKind::Tip);
-        assert_eq!(spawns[0].position, Position::new(2, 1));
+        assert_eq!(spawns[0].position, Pos::new(2, 1));
         assert_eq!(spawns[0].start_delay, scaled_animation_duration(0));
         assert_eq!(spawns[0].rotation_degrees, 90.0);
     }
@@ -573,19 +573,19 @@ mod tests {
     fn s_curve_generates_complementary_curve_rotations() {
         let spawns = build_course_arrow_spawns(&[
             ReplayPathTile {
-                position: Position::new(0, 0),
+                position: Pos::new(0, 0),
                 unit_visible: true,
             },
             ReplayPathTile {
-                position: Position::new(1, 0),
+                position: Pos::new(1, 0),
                 unit_visible: true,
             },
             ReplayPathTile {
-                position: Position::new(1, 1),
+                position: Pos::new(1, 1),
                 unit_visible: true,
             },
             ReplayPathTile {
-                position: Position::new(2, 1),
+                position: Pos::new(2, 1),
                 unit_visible: true,
             },
         ]);
@@ -603,11 +603,11 @@ mod tests {
     fn leftward_tip_points_left() {
         let spawns = build_course_arrow_spawns(&[
             ReplayPathTile {
-                position: Position::new(3, 1),
+                position: Pos::new(3, 1),
                 unit_visible: true,
             },
             ReplayPathTile {
-                position: Position::new(2, 1),
+                position: Pos::new(2, 1),
                 unit_visible: true,
             },
         ]);

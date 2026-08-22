@@ -75,8 +75,7 @@ fn native_and_recorded_sources_drive_the_same_headless_boundary() {
     let awbw_replay::turn_models::Action::Launch { launch_action, .. } = action else {
         panic!("fixture action is not a launch");
     };
-    let silo =
-        awbrn_map::Position::new(launch_action.silo_x as usize, launch_action.silo_y as usize);
+    let silo = awbrn_map::Pos::new(launch_action.silo_x as u8, launch_action.silo_y as u8);
     for app in [&native_app, &archived_app] {
         assert_eq!(
             app.world().resource::<GameMap>().terrain_at(silo),
@@ -326,7 +325,7 @@ fn terrain_memory_follows_the_projections_visibility() {
         let visibility = app.world().resource::<ViewerVisibility>();
         let game_map = app.world().resource::<GameMap>();
         let mut positions = (0..game_map.height())
-            .flat_map(|y| (0..game_map.width()).map(move |x| awbrn_map::Position::new(x, y)));
+            .flat_map(|y| (0..game_map.width()).map(move |x| awbrn_map::Pos::new(x, y)));
         let visible = positions
             .clone()
             .find(|position| !visibility.is_fogged(*position))
