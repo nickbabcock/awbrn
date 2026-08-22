@@ -75,6 +75,76 @@ impl PlayerFactionMetadata {
 
 include!("generated/factions.rs");
 
+/// Stable short code used to serialize a player faction.
+///
+/// The code is part of the AWBRN wire format; its source-system meaning is
+/// intentionally hidden behind this type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FactionCode(PlayerFaction);
+
+impl FactionCode {
+    pub const fn new(faction: PlayerFaction) -> Self {
+        Self(faction)
+    }
+
+    pub const fn faction(self) -> PlayerFaction {
+        self.0
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        self.0.country_code()
+    }
+
+    pub fn parse(code: &str) -> Option<Self> {
+        PlayerFaction::from_country_code(code).map(Self)
+    }
+}
+
+impl From<PlayerFaction> for FactionCode {
+    fn from(faction: PlayerFaction) -> Self {
+        Self::new(faction)
+    }
+}
+
+impl From<FactionCode> for PlayerFaction {
+    fn from(code: FactionCode) -> Self {
+        code.faction()
+    }
+}
+
+impl Serialize for FactionCode {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for FactionCode {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let code = String::deserialize(deserializer)?;
+        Self::parse(&code)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown faction code '{code}'")))
+    }
+}
+
+/// Serialize and deserialize a [`PlayerFaction`] using its AWBRN faction code.
+pub mod faction_code {
+    use super::{FactionCode, PlayerFaction};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        faction: &PlayerFaction,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        FactionCode::from(*faction).serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<PlayerFaction, D::Error> {
+        FactionCode::deserialize(deserializer).map(FactionCode::faction)
+    }
+}
+
 impl PlayerFaction {
     /// Get the display name of this faction
     pub const fn name(&self) -> &'static str {
@@ -183,7 +253,7 @@ impl Faction {
 
 #[cfg(test)]
 mod tests {
-    use super::PlayerFaction;
+    use super::{FactionCode, PlayerFaction};
     use strum::VariantArray;
 
     #[test]
@@ -211,5 +281,23 @@ mod tests {
                 Some(*faction)
             );
         }
+    }
+
+    #[test]
+    fn faction_code_serializes_and_deserializes_for_all_factions() {
+        for faction in PlayerFaction::VARIANTS {
+            let code = FactionCode::from(*faction);
+            let json = serde_json::to_string(&code).unwrap();
+
+            assert_eq!(json, format!("\"{}\"", faction.country_code()));
+            assert_eq!(serde_json::from_str::<FactionCode>(&json).unwrap(), code);
+            assert_eq!(FactionCode::parse(code.as_str()), Some(code));
+        }
+    }
+
+    #[test]
+    fn faction_code_rejects_unknown_codes() {
+        let error = serde_json::from_str::<FactionCode>(r#""unknown""#).unwrap_err();
+        assert!(error.to_string().contains("unknown faction code 'unknown'"));
     }
 }

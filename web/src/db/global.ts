@@ -16,6 +16,7 @@ import type {
   RankedPool,
   SeatResultReason,
 } from "#/matches/schemas.ts";
+import type { MapSourceKind } from "#/maps/schemas.ts";
 
 const sqlLiterals = (values: readonly string[]) => sql.raw(values.map((v) => `'${v}'`).join(", "));
 
@@ -198,4 +199,70 @@ export const matchVoids = sqliteTable(
       .default(sql`(unixepoch())`),
   },
   (t) => [index("match_voids_voidedAt_idx").on(t.voidedAt)],
+);
+
+/** One logical map; external identity lives in `mapSources`. */
+export const maps = sqliteTable(
+  "maps",
+  {
+    id: text("id").primaryKey(),
+
+    // Editable metadata; changes do not create revisions.
+    name: text("name").notNull(),
+    author: text("author").notNull(),
+    authorUserId: text("authorUserId").references(() => user.id, { onDelete: "set null" }),
+
+    /** Current revision; maintained with `map_revisions`. */
+    currentRevision: integer("currentRevision").notNull(),
+
+    createdAt: integer("createdAt", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [index("maps_author_idx").on(t.authorUserId)],
+);
+
+/** Optional external identity for a map. */
+export const mapSources = sqliteTable(
+  "map_sources",
+  {
+    mapId: text("mapId")
+      .primaryKey()
+      .references(() => maps.id, { onDelete: "cascade" }),
+    source: text("source").notNull().$type<MapSourceKind>(),
+    sourceMapId: integer("sourceMapId").notNull(),
+  },
+  (t) => [uniqueIndex("map_sources_source_unique").on(t.source, t.sourceMapId)],
+);
+
+/** Immutable playable content for a map revision. */
+export const mapRevisions = sqliteTable(
+  "map_revisions",
+  {
+    mapId: text("mapId")
+      .notNull()
+      .references(() => maps.id, { onDelete: "cascade" }),
+    revision: integer("revision").notNull(),
+
+    contentHash: text("contentHash").notNull(),
+
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    playerCount: integer("playerCount").notNull(),
+
+    // Replay-matching signatures.
+    propertySignature: text("propertySignature").notNull(),
+    unitSignature: text("unitSignature").notNull(),
+
+    createdAt: integer("createdAt", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    lastSeenAt: integer("lastSeenAt", { mode: "timestamp" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.mapId, t.revision] }),
+    uniqueIndex("map_revisions_content_unique").on(t.mapId, t.contentHash),
+    index("map_revisions_signature_idx").on(t.mapId, t.propertySignature),
+  ],
 );

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b1de914a-c1c0-4eab-8374-6af6c11ecf46",
+  "id": "2c90cec3-d7b7-4b93-bb8d-cebab43d9811",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -115,6 +115,236 @@
           "columnsFrom": ["userId"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "map_revisions": {
+      "name": "map_revisions",
+      "columns": {
+        "mapId": {
+          "name": "mapId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "contentHash": {
+          "name": "contentHash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "width": {
+          "name": "width",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "height": {
+          "name": "height",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "playerCount": {
+          "name": "playerCount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "propertySignature": {
+          "name": "propertySignature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "unitSignature": {
+          "name": "unitSignature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        },
+        "lastSeenAt": {
+          "name": "lastSeenAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "map_revisions_content_unique": {
+          "name": "map_revisions_content_unique",
+          "columns": ["mapId", "contentHash"],
+          "isUnique": true
+        },
+        "map_revisions_signature_idx": {
+          "name": "map_revisions_signature_idx",
+          "columns": ["mapId", "propertySignature"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "map_revisions_mapId_maps_id_fk": {
+          "name": "map_revisions_mapId_maps_id_fk",
+          "tableFrom": "map_revisions",
+          "tableTo": "maps",
+          "columnsFrom": ["mapId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "map_revisions_mapId_revision_pk": {
+          "columns": ["mapId", "revision"],
+          "name": "map_revisions_mapId_revision_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "map_sources": {
+      "name": "map_sources",
+      "columns": {
+        "mapId": {
+          "name": "mapId",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sourceMapId": {
+          "name": "sourceMapId",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "map_sources_source_unique": {
+          "name": "map_sources_source_unique",
+          "columns": ["source", "sourceMapId"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "map_sources_mapId_maps_id_fk": {
+          "name": "map_sources_mapId_maps_id_fk",
+          "tableFrom": "map_sources",
+          "tableTo": "maps",
+          "columnsFrom": ["mapId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "maps": {
+      "name": "maps",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "author": {
+          "name": "author",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "authorUserId": {
+          "name": "authorUserId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "currentRevision": {
+          "name": "currentRevision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "maps_author_idx": {
+          "name": "maps_author_idx",
+          "columns": ["authorUserId"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "maps_authorUserId_user_id_fk": {
+          "name": "maps_authorUserId_user_id_fk",
+          "tableFrom": "maps",
+          "tableTo": "user",
+          "columnsFrom": ["authorUserId"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

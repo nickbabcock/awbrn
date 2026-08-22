@@ -25,6 +25,9 @@ pub struct Dimensions {
 }
 
 impl Dimensions {
+    /// Maximum width or height supported by the VM.
+    pub const MAX_AXIS: u8 = u8::MAX;
+
     pub const fn new(width: u8, height: u8) -> Self {
         Self { width, height }
     }

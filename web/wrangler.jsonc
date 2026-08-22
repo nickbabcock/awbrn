@@ -24,6 +24,12 @@
       "new_sqlite_classes": ["MatchDurableObject"],
     },
   ],
+  "r2_buckets": [
+    {
+      "binding": "CONTENT",
+      "bucket_name": "awbrn-content",
+    },
+  ],
   "d1_databases": [
     {
       "binding": "DB",
