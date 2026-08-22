@@ -5,8 +5,11 @@ use std::path::Path;
 
 use awbrn_map::AwbwMapData;
 use awbw_replay::{ReplayParser, turn_models::Action};
-use awvm::ruleset::{Domain, profile};
-use awvm::semantic::{Location, ObservedTransition, PlayerId, PowerState, UnitAction};
+use awvm::event::Event;
+use awvm::ruleset::{Domain, KnownReason, profile};
+use awvm::semantic::{
+    Location, ObservedTransition, PlayerId, PlayerStatus, PowerState, Reason, UnitAction,
+};
 use awvm_awbw::RecordedAdapter;
 use highway::HighwayHash;
 use rayon::prelude::*;
@@ -19,6 +22,8 @@ struct ReplayOutcome {
     snapshot: String,
     retained_intervening_powers: usize,
     expired_returning_powers: usize,
+    /// Eliminations the match outlived, whose cause no later event repeats.
+    continuing_eliminations: usize,
 }
 
 #[test]
@@ -29,6 +34,7 @@ fn every_recorded_outcome_produces_valid_typed_transitions() {
     let outcomes = replay_archive_in_parallel();
     let mut retained_intervening_powers = 0;
     let mut expired_returning_powers = 0;
+    let mut continuing_eliminations = 0;
     insta::glob!("../../../../assets/replays", "*.zip", |replay_path| {
         let replay_file = replay_path.file_name().unwrap().to_string_lossy();
         let outcome = outcomes
@@ -36,6 +42,7 @@ fn every_recorded_outcome_produces_valid_typed_transitions() {
             .expect("every globbed replay was replayed");
         retained_intervening_powers += outcome.retained_intervening_powers;
         expired_returning_powers += outcome.expired_returning_powers;
+        continuing_eliminations += outcome.continuing_eliminations;
         insta::with_settings!({snapshot_suffix => replay_file.to_string()}, {
             insta::assert_snapshot!("recorded_outcomes", outcome.snapshot);
         });
@@ -48,6 +55,11 @@ fn every_recorded_outcome_produces_valid_typed_transitions() {
         assert!(
             expired_returning_powers > 0,
             "archive never exercised power expiry when its owner regained the turn"
+        );
+        // Ensure a player-only elimination cause is exercised.
+        assert!(
+            continuing_eliminations > 0,
+            "archive never exercised an elimination the match outlived"
         );
     }
 }
@@ -85,6 +97,7 @@ fn replay_file_name(path: &Path) -> String {
 fn replay_outcome(replay_path: &Path) -> ReplayOutcome {
     let mut retained_intervening_powers = 0;
     let mut expired_returning_powers = 0;
+    let mut continuing_eliminations = 0;
     let replay_file = replay_file_name(replay_path);
     let replay_file = replay_file.as_str();
     let replay = ReplayParser::new()
@@ -163,6 +176,8 @@ fn replay_outcome(replay_path: &Path) -> ReplayOutcome {
             assert_recorded_turn_start(replay_file, index, action, &prior, transition.post_state());
         retained_intervening_powers += retained;
         expired_returning_powers += expired;
+        continuing_eliminations +=
+            assert_elimination_causes(replay_file, index, action, transition.recorded_events());
         if is_checkpoint {
             checkpoint = post_key;
             writeln!(
@@ -215,7 +230,66 @@ fn replay_outcome(replay_path: &Path) -> ReplayOutcome {
         snapshot,
         retained_intervening_powers,
         expired_returning_powers,
+        continuing_eliminations,
     }
+}
+
+/// Assert recorded causes and count eliminations that did not end the match.
+fn assert_elimination_causes(
+    replay_file: &str,
+    index: usize,
+    action: &Action,
+    events: &[Event],
+) -> usize {
+    let cause = |reason: &Reason| {
+        matches!(
+            reason,
+            Reason::Known(
+                KnownReason::Rout
+                    | KnownReason::HqCapture
+                    | KnownReason::LabCapture
+                    | KnownReason::CaptureLimit
+                    | KnownReason::Resignation
+                    | KnownReason::Timeout
+            )
+        )
+    };
+    let completed = events
+        .iter()
+        .any(|event| matches!(event, Event::MatchCompleted { .. }));
+    let mut continuing = 0;
+    for event in events {
+        match event {
+            Event::PlayerStatusChanged {
+                player, to, reason, ..
+            } => {
+                assert!(
+                    cause(reason),
+                    "{replay_file} action {index} ({}) left {player} with reason {}",
+                    action.kind_name(),
+                    reason.as_str(),
+                );
+                assert_eq!(
+                    *to == PlayerStatus::Resigned,
+                    matches!(reason, Reason::Known(KnownReason::Resignation)),
+                    "{replay_file} action {index} ({}) gave {player} status {to:?} for reason {}",
+                    action.kind_name(),
+                    reason.as_str(),
+                );
+                continuing += usize::from(!completed);
+            }
+            Event::TeamEliminated { team, reason } => {
+                assert!(
+                    cause(reason),
+                    "{replay_file} action {index} ({}) eliminated {team} with reason {}",
+                    action.kind_name(),
+                    reason.as_str(),
+                );
+            }
+            _ => {}
+        }
+    }
+    continuing
 }
 
 fn assert_recorded_turn_start(
