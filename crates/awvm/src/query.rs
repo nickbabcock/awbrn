@@ -1091,6 +1091,20 @@ pub fn reify(observation: &Observation) -> Result<State, QueryError> {
     let units = crate::semantic::UnitStore::new(reified_units(observation, &players)?)
         .map_err(|_| QueryError::Unprojectable("it names one unit twice"))?;
 
+    // An observation carries no identifier counter, and production is
+    // inadmissible without one (`spec/semantics/production.md`), so a
+    // projection with no counter offers no build at all. One past the highest
+    // reified unit satisfies the freshness the state invariant asks for
+    // (`spec/model/state.md`), which is enough for the projection to answer
+    // what a player may build. It is a guess, like every enemy identifier a
+    // projection holds: the identifier the produced unit really gets comes
+    // from the authoritative state when the command executes there.
+    let next_unit_id = units
+        .iter()
+        .map(|unit| unit.id.get())
+        .max()
+        .map_or(Some(1), |highest| highest.checked_add(1));
+
     Ok(State {
         ruleset: observation.ruleset.clone(),
         settings: observation.settings.clone(),
@@ -1100,7 +1114,7 @@ pub fn reify(observation: &Observation) -> Result<State, QueryError> {
         turn: observation.turn.clone(),
         weather: observation.weather.clone(),
         units,
-        next_unit_id: None,
+        next_unit_id,
         match_state: match &observation.match_state {
             ObservedMatch::Active { own_team_offers } => crate::semantic::Match::Active {
                 draw_offers: own_team_offers.clone(),

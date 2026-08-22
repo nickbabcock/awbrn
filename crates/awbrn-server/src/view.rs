@@ -19,7 +19,9 @@ use awvm::semantic::{
     State, TileVisibility, UnitId, Viewpoint, Visibility, observe, observe_transition,
 };
 
-use crate::awvm_adapter::{AcceptedTransition, Authority, semantic_terrain};
+use awbrn_map::semantic_terrain;
+
+use crate::awvm_adapter::{AcceptedTransition, Authority};
 use crate::player::PlayerId;
 use crate::state::TurnPhase;
 use crate::unit_id::ServerUnitId;
