@@ -26,29 +26,34 @@ use crate::agent::Agent;
 /// What stops a game the agents do not finish.
 #[derive(Clone, Copy, Debug)]
 pub struct Limits {
-    /// Player turns before the harness abandons the game.
+    /// Days before the harness abandons the game.
     ///
     /// A random agent almost never captures a headquarters, so its games do
     /// not end on their own.
-    pub turns: u32,
+    ///
+    /// The cap is a day rather than a player turn, because a day is what a
+    /// played match is measured in and a player turn is not: the same cap of
+    /// sixty turns is thirty days of a duel and twenty of a three-player
+    /// match. The harness stops once the reducer rolls the day past this one,
+    /// so a cap of 35 plays day 35 to its end.
+    pub days: u32,
     /// Refusals in a row that end the turn by force.
     ///
     /// A refused offer changes nothing, so a loop that ends a turn only when
     /// no offer is left has no guarantee that it makes progress. This bounds
-    /// it: `turns` then rises whatever the reducer says, and the turn cap
-    /// always stops the game.
+    /// it: the turn then ends whatever the reducer says, the day rises, and
+    /// the day cap always stops the game.
     pub refusals: u32,
 }
 
 impl Limits {
     /// What a game costs unless a caller says otherwise.
     ///
-    /// Sixty player turns is about a thirty-day duel, which is the length of a
-    /// played game. The refusal cap is high enough that an ordinary fog refusal
-    /// does not end a turn early; [`Record::refusals`] is what says whether
-    /// that holds.
+    /// Thirty-five days is the length of a played game. The refusal cap is
+    /// high enough that an ordinary fog refusal does not end a turn early;
+    /// [`Record::refusals`] is what says whether that holds.
     pub const DEFAULT: Self = Self {
-        turns: 60,
+        days: 35,
         refusals: 64,
     };
 }
@@ -66,6 +71,11 @@ pub struct Record {
     pub outcome: Option<Outcome>,
     /// Player turns played, counting each forced turn end.
     pub turns: u32,
+    /// The day the game stopped on.
+    ///
+    /// One more than the cap when the game was abandoned, because the harness
+    /// stops when the day rolls past it.
+    pub days: u32,
     /// Commands the reducer accepted.
     pub commands: u64,
     /// Offers the reducer refused.
@@ -131,10 +141,12 @@ pub fn play<E: Entropy>(
             Match::Active { .. } => None,
             Match::Finished { outcome } => Some(outcome.clone()),
         };
-        if outcome.is_some() || turns >= limits.turns {
+        let day = u32::try_from(session.state().turn.day).unwrap_or(u32::MAX);
+        if outcome.is_some() || day > limits.days {
             return Record {
                 outcome,
                 turns,
+                days: day,
                 commands,
                 refusals,
                 units: session.state().units.iter().count(),
@@ -189,5 +201,49 @@ pub fn play<E: Entropy>(
             }
             Err(error) => panic!("the reducer failed on a generated command: {error:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::RandomAgent;
+    use crate::board::arena;
+    use crate::rng::Rng;
+
+    /// The cap is a day, and the harness stops on the day after it.
+    ///
+    /// Two random agents on the arena board never finish a game, so what stops
+    /// this one is the cap, and what it stops on is the number the cap names.
+    /// A cap counted in player turns would mean a different length of match on
+    /// a board with three seats.
+    #[test]
+    fn a_game_stops_the_day_after_the_cap() {
+        const LIMITS: Limits = Limits {
+            days: 4,
+            ..Limits::DEFAULT
+        };
+
+        let mut session = Session::new(arena(false, 1));
+        let mut entropy = Rng::from_seed(1);
+        let mut first = RandomAgent::from_seed(2);
+        let mut second = RandomAgent::from_seed(3);
+        let mut agents: [&mut dyn Agent; 2] = [&mut first, &mut second];
+
+        let record = play(
+            arena(false, 1),
+            &mut session,
+            &mut agents,
+            &mut entropy,
+            LIMITS,
+        );
+
+        assert!(
+            record.abandoned(),
+            "the game ended on its own, so the cap was never reached"
+        );
+        assert_eq!(record.days, LIMITS.days + 1);
+        // Two seats, so a day is two player turns.
+        assert_eq!(record.turns, LIMITS.days * 2);
     }
 }

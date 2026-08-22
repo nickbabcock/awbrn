@@ -14,12 +14,12 @@ use awvm::session::Session;
 
 const FIXTURE: &str = include_str!("../../../spec/fixtures/fog/vision-sources-and-terrain.json");
 
-/// Player turns one game may play before the test gives up on it.
+/// Days one game may play before the test gives up on it.
 ///
 /// A random agent almost never wins, so a game ends at this cap and that is
 /// expected. The cap is what stops the test rather than the game's own end.
 const LIMITS: Limits = Limits {
-    turns: 30,
+    days: 15,
     refusals: 64,
 };
 
@@ -100,10 +100,11 @@ fn report_the_shape_of_a_game() {
     for seed in 0..4 {
         let record = game(seed);
         println!(
-            "seed {seed}: {} commands, {} refused, {} turns, {} units, abandoned {}",
+            "seed {seed}: {} commands, {} refused, {} turns, {} days, {} units, abandoned {}",
             record.commands,
             record.refusals,
             record.turns,
+            record.days,
             record.units,
             record.abandoned()
         );
