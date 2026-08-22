@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroU8;
 
-use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
-use awbrn_types::PlayerFaction;
+use awbrn_map::{AwbrnMap, AwbwMapData, ValidatedMapDocument};
+use awbrn_types::{AwbwTerrain, PlayerFaction};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tsify::Tsify;
@@ -13,6 +13,111 @@ use crate::{CaptureEvent, PlayerUpdate, PlayerView, SpectatorView};
 use crate::{GameServer, GameSetup, PlayerSetup, StoredActionEvent};
 use awbrn_types::{AwbwCoId, Co, CoExt};
 use awvm::semantic::ObservedTransition;
+
+/// Normalize and hash an upstream AWBW payload using the canonical Rust map implementation.
+#[wasm_bindgen(js_name = importAwbwMapDocument)]
+pub fn import_awbw_map_document(map_data: AwbwMapDataWire) -> Result<ImportedMapDocument, JsError> {
+    let source: AwbwMapData =
+        convert_wire(map_data).map_err(|error| invalid_input("map", error))?;
+    let document = ValidatedMapDocument::try_from(&source)
+        .map_err(|error| invalid_input("map", error.to_string()))?;
+    let digests = document.digests();
+
+    Ok(ImportedMapDocument {
+        document: convert_domain(document)?,
+        content_hash: digests.content_hash.to_string(),
+        property_signature: digests.property_signature.to_string(),
+        unit_signature: digests.unit_signature.to_string(),
+    })
+}
+
+#[derive(Tsify, Serialize)]
+#[tsify(into_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedMapDocument {
+    pub document: AwbrnMapDocumentWire,
+    pub content_hash: String,
+    pub property_signature: String,
+    pub unit_signature: String,
+}
+
+#[derive(Tsify, Serialize, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct AwbwMapDataWire {
+    #[serde(rename = "Name")]
+    pub name: String,
+    #[serde(rename = "Author")]
+    pub author: String,
+    #[serde(rename = "Player Count")]
+    pub player_count: u32,
+    #[serde(rename = "Published Date")]
+    pub published_date: String,
+    #[serde(rename = "Size X")]
+    pub size_x: u32,
+    #[serde(rename = "Size Y")]
+    pub size_y: u32,
+    #[serde(rename = "Terrain Map")]
+    #[tsify(type = "number[][]")]
+    pub terrain_map: Vec<Vec<AwbwTerrain>>,
+    #[serde(rename = "Predeployed Units")]
+    pub predeployed_units: Vec<PredeployedUnitWire>,
+}
+
+#[derive(Tsify, Serialize, Deserialize)]
+#[tsify(from_wasm_abi, into_wasm_abi)]
+pub struct PredeployedUnitWire {
+    #[serde(rename = "Unit ID")]
+    pub unit_id: u32,
+    #[serde(rename = "Unit X")]
+    pub unit_x: u32,
+    #[serde(rename = "Unit Y")]
+    pub unit_y: u32,
+    #[serde(rename = "Unit HP")]
+    pub unit_hp: u32,
+    #[serde(rename = "Country Code")]
+    pub country_code: String,
+}
+
+#[derive(Tsify, Serialize, Deserialize)]
+#[tsify(from_wasm_abi, into_wasm_abi)]
+pub struct AwbrnMapDocumentWire {
+    pub map_format: u32,
+    pub width: u32,
+    pub height: u32,
+    pub terrain: Vec<u8>,
+    pub units: Vec<AwbrnMapUnitWire>,
+    pub metadata: AwbrnMapMetadataWire,
+}
+
+#[derive(Tsify, Serialize, Deserialize)]
+#[tsify(from_wasm_abi, into_wasm_abi)]
+pub struct AwbrnMapUnitWire {
+    pub x: usize,
+    pub y: usize,
+    pub unit: String,
+    pub faction: String,
+    pub hp: u32,
+}
+
+#[derive(Tsify, Serialize, Deserialize)]
+#[tsify(from_wasm_abi, into_wasm_abi)]
+pub struct AwbrnMapMetadataWire {
+    pub name: String,
+    pub author: String,
+    pub player_count: u32,
+}
+
+fn convert_wire<T: Serialize, U: for<'de> Deserialize<'de>>(value: T) -> Result<U, String> {
+    serde_json::to_value(value)
+        .and_then(serde_json::from_value)
+        .map_err(|error| error.to_string())
+}
+
+fn convert_domain<T: Serialize, U: for<'de> Deserialize<'de>>(value: T) -> Result<U, JsError> {
+    serde_json::to_value(value)
+        .and_then(serde_json::from_value)
+        .map_err(|error| JsError::new(&format!("Could not serialize map: {error}")))
+}
 
 #[wasm_bindgen]
 pub struct WasmMatch {
@@ -579,8 +684,7 @@ fn serialized_value<T: Serialize>(value: &T) -> Value {
 #[tsify(from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchSetupInput {
-    #[tsify(type = "unknown")]
-    pub map: AwbwMapData,
+    pub map: AwbrnMapDocumentWire,
     pub players: Vec<PlayerSetupInput>,
     pub fog_enabled: bool,
     pub starting_funds: u32,
@@ -611,7 +715,8 @@ impl TryFrom<MatchSetupInput> for GameSetup {
     type Error = String;
 
     fn try_from(value: MatchSetupInput) -> Result<Self, Self::Error> {
-        let awbw_map = AwbwMap::try_from(&value.map).map_err(|error| error.to_string())?;
+        let document: ValidatedMapDocument = convert_wire(value.map)?;
+        let awbw_map = document.into_map();
 
         Ok(Self {
             // The map carries its own starting units.

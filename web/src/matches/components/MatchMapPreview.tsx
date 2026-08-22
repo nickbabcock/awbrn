@@ -4,6 +4,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useEffect } from "react";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
 import type { GameRunner } from "#/engine/game_runner.ts";
+import type { AwbrnMapDocument } from "#/maps/map_document.ts";
 
 const styles = stylex.create({
   viewport: {
@@ -22,13 +23,21 @@ const styles = stylex.create({
   },
 });
 
-export function MatchMapPreview({ mapId, runner }: { mapId: number | null; runner: GameRunner }) {
+export function MatchMapPreview({
+  mapId,
+  map,
+  runner,
+}: {
+  mapId?: number | null;
+  map?: AwbrnMapDocument | null;
+  runner: GameRunner;
+}) {
   const { canvasRef, surfaceRef } = useCanvasCourierSurface({
     controller: runner,
   });
 
   useEffect(() => {
-    if (mapId === null) {
+    if (mapId == null && !map) {
       return;
     }
 
@@ -37,7 +46,8 @@ export function MatchMapPreview({ mapId, runner }: { mapId: number | null; runne
     void Promise.resolve()
       .then(async () => {
         if (!cancelled) {
-          await runner.loadMapPreview(mapId);
+          if (map) await runner.loadMatchMap(map);
+          else await runner.loadMapPreview(mapId!);
         }
       })
       .catch((error) => {
@@ -47,7 +57,7 @@ export function MatchMapPreview({ mapId, runner }: { mapId: number | null; runne
     return () => {
       cancelled = true;
     };
-  }, [mapId, runner]);
+  }, [map, mapId, runner]);
 
   return (
     <Card padding={4} width="100%" xstyle={styles.viewport}>

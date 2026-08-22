@@ -16,7 +16,7 @@ import { Check as CheckIcon } from "pixelarticons/react/Check";
 import { Logout as LogoutIcon } from "pixelarticons/react/Logout";
 import { Plus as PlusIcon } from "pixelarticons/react/Plus";
 import { useAppSession } from "#/auth/useAppSession.ts";
-import { awbwMapDataQueryOptions } from "#/awbw/awbw.queries.ts";
+import { mapRevisionQueryOptions } from "#/maps/maps.queries.ts";
 import { CoPortrait } from "#/components/CoPortrait.tsx";
 import {
   DEFAULT_CO_PORTRAIT_KEY,
@@ -92,7 +92,7 @@ export function MatchLobbyPage({
       return lobbyPollInterval(Date.now() - lastChangeAt);
     },
   });
-  const mapQuery = useQuery(awbwMapDataQueryOptions(match.mapId));
+  const mapQuery = useQuery(mapRevisionQueryOptions(match.mapId, match.mapRevision));
   const mapData = mapQuery.data ?? null;
   // The map decides which faction each seat holds, so a seat cannot be claimed
   // before the map arrives. Until then the rows show catalog defaults and the
@@ -245,18 +245,18 @@ export function MatchLobbyPage({
                 <Text color="accent" type="supporting" weight="bold">
                   Map
                 </Text>
-                <Heading level={2}>{mapData?.Name ?? `Map ${match.mapId}`}</Heading>
+                <Heading level={2}>{mapData?.metadata.name ?? `Map ${match.mapId}`}</Heading>
                 <Text color="secondary" type="supporting">
                   {mapData
-                    ? `${mapData.Author} · ${mapData["Size X"]} × ${mapData["Size Y"]}`
+                    ? `${mapData.metadata.author} · ${mapData.width} × ${mapData.height}`
                     : "Preview the terrain before everyone locks in."}
                 </Text>
               </VStack>
-              <MatchMapPreview mapId={match.mapId} runner={previewRunner} />
+              <MatchMapPreview map={mapData} runner={previewRunner} />
               <MetadataList columns={3} label={{ position: "top" }}>
                 <MetadataListItem label="Layout">
                   {mapData
-                    ? `${mapData["Size X"]} × ${mapData["Size Y"]}`
+                    ? `${mapData.width} × ${mapData.height}`
                     : `${match.maxPlayers} player map`}
                 </MetadataListItem>
                 <MetadataListItem label="Visibility">
