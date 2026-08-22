@@ -1,4 +1,4 @@
-import type { AwbwMapData } from "#/awbw/schemas.ts";
+import type { AwbrnMapDocument } from "#/maps/map_document.ts";
 import type {
   CombatEventMessage,
   GameCommand as WasmGameCommand,
@@ -42,8 +42,9 @@ export type LiveTransition = ObservedTransition;
 
 export interface InitialBoardMessage {
   type: "initialBoard";
-  mapId: number;
-  map: AwbwMapData;
+  mapId: string;
+  revision: number;
+  map: AwbrnMapDocument;
   gameState: MatchGameState | null;
 }
 
@@ -141,7 +142,7 @@ export function normalizeCaughtError(error: unknown): MatchFailure {
 }
 
 export function initialMatchConnectionMessages(
-  setup: Pick<MatchSetup, "mapId" | "map">,
+  setup: Pick<MatchSetup, "mapId" | "revision" | "map">,
   slotIndex: number | null,
   gameState: MatchGameState | null,
   spectatorNotice: SpectatorNoticeMessage | null = null,
@@ -150,6 +151,7 @@ export function initialMatchConnectionMessages(
     {
       type: "initialBoard",
       mapId: setup.mapId,
+      revision: setup.revision,
       map: setup.map,
       gameState,
     },

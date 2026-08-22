@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { awbwMapDataSchema } from "#/awbw/schemas.ts";
+import { awbrnMapDocumentSchema } from "#/maps/map_document.ts";
+import { MAP_ID_LENGTH } from "#/maps/map_id.ts";
 import { matchIdSchema } from "./match_id.ts";
 
 export const matchSettingsSchema = z.object({
@@ -94,7 +95,8 @@ export interface MatchBrowseSummary {
   matchId: string;
   name: string;
   creatorName: string;
-  mapId: number;
+  mapId: string;
+  mapRevision: number;
   maxPlayers: number;
   participantCount: number;
   openSlotCount: number;
@@ -124,7 +126,8 @@ export interface MyMatchSummary {
   name: string;
   phase: MatchPhase;
   creatorName: string;
-  mapId: number;
+  mapId: string;
+  mapRevision: number;
   maxPlayers: number;
   participantCount: number;
   openSlotCount: number;
@@ -157,7 +160,8 @@ export interface MatchSnapshot {
   phase: MatchPhase;
   creatorUserId: string;
   creatorName: string;
-  mapId: number;
+  mapId: string;
+  mapRevision: number;
   maxPlayers: number;
   isPrivate: boolean;
   joinSlug: string | null;
@@ -183,8 +187,9 @@ export const matchSetupPlayerSchema = z.object({
 
 export const matchSetupSchema = z.object({
   matchId: matchIdSchema,
-  mapId: z.number().int().positive(),
-  map: awbwMapDataSchema,
+  mapId: z.string().length(MAP_ID_LENGTH),
+  revision: z.number().int().positive(),
+  map: awbrnMapDocumentSchema,
   players: z.array(matchSetupPlayerSchema),
   fogEnabled: z.boolean(),
   startingFunds: z.number().int().nonnegative(),
@@ -211,7 +216,9 @@ export interface MatchHistorySeat {
 export interface MatchHistoryEntry {
   matchId: string;
   name: string;
-  mapId: number;
+  mapId: string;
+  mapRevision: number;
+  awbwMapId: number | null;
   isPrivate: boolean;
   settings: MatchSettings;
   startedAt: string | null;

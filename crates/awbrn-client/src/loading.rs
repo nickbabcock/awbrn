@@ -4,7 +4,7 @@ use crate::features::event_bus::{EventSink, ReplayLoaded, ReplayLoadedPlayer};
 use crate::render::UiAtlasResource;
 use awbrn_bevy::world::GameMap;
 use awbrn_content::co_portrait_by_awbw_id;
-use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Pos};
+use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Pos, ValidatedMapDocument};
 use awbw_replay::game_models::AwbwPlayer;
 use awbw_replay::{AwbwReplay, game_models::AwbwBuilding};
 use awvm::semantic::{Observation, ObservedTransition};
@@ -66,9 +66,9 @@ pub struct LoadedReplay(pub crate::replay_archive::ReplayArchive);
 #[derive(Debug, Resource)]
 pub struct PendingGameStart(pub u32);
 
-/// Resource containing AWBW map data supplied by the match server.
+/// Resource containing a canonical map document supplied by the match server.
 #[derive(Debug, Resource)]
-pub struct PendingMatchMap(pub AwbwMapData);
+pub struct PendingMatchMap(pub ValidatedMapDocument);
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,7 +80,7 @@ pub struct LiveMatchPlayer {
 /// Complete typed bootstrap payload for an active live match.
 #[derive(Debug, Resource)]
 pub struct PendingLiveMatch {
-    pub map: AwbwMapData,
+    pub map: ValidatedMapDocument,
     pub players: Vec<LiveMatchPlayer>,
     pub observation: Observation,
 }
@@ -280,15 +280,7 @@ pub(crate) fn detect_pending_match_map(
     mut transitions: LoadingTransitions,
     asset_loader: ClientAssetLoader,
 ) {
-    let awbw_map = match AwbwMap::try_from(&pending_map.0) {
-        Ok(map) => map,
-        Err(error) => {
-            error!("Failed to parse match map data: {:?}", error);
-            commands.remove_resource::<PendingMatchMap>();
-            return;
-        }
-    };
-    let awbrn_map = AwbrnMap::from_map(&awbw_map);
+    let awbrn_map = AwbrnMap::from_map(pending_map.0.map());
 
     commands.insert_resource(PendingLoadedMatchMap(awbrn_map));
     commands.remove_resource::<PendingMatchMap>();
@@ -304,16 +296,7 @@ pub(crate) fn detect_pending_live_match(
     mut transitions: LoadingTransitions,
     asset_loader: ClientAssetLoader,
 ) {
-    let awbw_map = match AwbwMap::try_from(&pending.map) {
-        Ok(map) => map,
-        Err(error) => {
-            error!("Failed to parse live match map data: {error:?}");
-            commands.remove_resource::<PendingLiveMatch>();
-            return;
-        }
-    };
-
-    commands.insert_resource(PendingLoadedMatchMap(AwbrnMap::from_map(&awbw_map)));
+    commands.insert_resource(PendingLoadedMatchMap(AwbrnMap::from_map(pending.map.map())));
     commands.insert_resource(LiveMatchBootstrap {
         players: pending.players.clone(),
         observation: pending.observation.clone(),

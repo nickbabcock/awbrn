@@ -10,7 +10,7 @@ import init, {
 import type { ObservedTransition } from "#/wasm/awbrn_server.js";
 import wasmPath from "#/wasm/awbrn_wasm_bg.wasm?url";
 import { proxy } from "comlink";
-import type { AwbwMapData } from "#/awbw/schemas.ts";
+import type { AwbrnMapDocument } from "#/maps/map_document.ts";
 import {
   SharedCanvasEventAction,
   SharedCanvasEventType,
@@ -32,9 +32,9 @@ export interface LiveMatchPlayer {
 export interface GameInstance {
   newReplay: (file: File | FileSystemFileHandle) => Promise<void>;
   loadMapPreview: (mapId: number) => Promise<void>;
-  loadMatchMap: (map: AwbwMapData) => Promise<void>;
+  loadMatchMap: (map: AwbrnMapDocument) => Promise<void>;
   loadLiveMatch: (
-    map: AwbwMapData,
+    map: AwbrnMapDocument,
     players: LiveMatchPlayer[],
     observation: unknown,
   ) => Promise<void>;
@@ -196,10 +196,14 @@ export const createGame = async (
     loadMapPreview: async (mapId: number) => {
       app.preview_map(mapId);
     },
-    loadMatchMap: async (map: AwbwMapData) => {
+    loadMatchMap: async (map: AwbrnMapDocument) => {
       app.load_match_map(map);
     },
-    loadLiveMatch: async (map: AwbwMapData, players: LiveMatchPlayer[], observation: unknown) => {
+    loadLiveMatch: async (
+      map: AwbrnMapDocument,
+      players: LiveMatchPlayer[],
+      observation: unknown,
+    ) => {
       app.load_live_match(map, players, observation);
     },
     applyLiveTransition: async (transition: ObservedTransition) => {

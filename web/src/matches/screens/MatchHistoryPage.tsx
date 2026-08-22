@@ -186,7 +186,7 @@ function AfterActionReport({
           <Thumbnail
             alt={`Map preview for ${entry.name}`}
             label={`${entry.name} map`}
-            src={awbwSmallMapAssetPath(entry.mapId)}
+            src={entry.awbwMapId === null ? undefined : awbwSmallMapAssetPath(entry.awbwMapId)}
           />
           <VStack gap={2} xstyle={styles.briefText}>
             <Heading level={2}>

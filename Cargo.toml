@@ -32,7 +32,7 @@ thiserror = "2.0.18"
 tracing = "0.1.44"
 tsify = { version = "0.5.6", default-features = false, features = ["js"] }
 walkdir = "2.5"
-wasm-bindgen = "0.2.114"
+wasm-bindgen = "0.2.118"
 web-sys = { version = "0.3.91", features = ["OffscreenCanvas"] }
 
 [workspace.lints.rust]

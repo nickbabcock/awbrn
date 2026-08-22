@@ -8,9 +8,7 @@ import { List } from "@astryxdesign/core/List";
 import { Section } from "@astryxdesign/core/Section";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { Thumbnail } from "#/ui/Thumbnail.tsx";
 import { useState } from "react";
-import { awbwSmallMapAssetPath } from "#/awbw/paths.ts";
 import { RouterButton, RouterListItem } from "#/ui/astryx-links.tsx";
 import { matchesBrowseQueryOptions } from "#/matches/matches.queries.ts";
 import type { MatchBrowseSummary } from "#/matches/schemas.ts";
@@ -146,13 +144,6 @@ function LobbyRow({
         </HStack>
       }
       params={{ matchId: lobby.matchId }}
-      startContent={
-        <Thumbnail
-          alt={`Map preview for ${lobby.name}`}
-          label={`${lobby.name} map`}
-          src={awbwSmallMapAssetPath(lobby.mapId)}
-        />
-      }
       to="/matches/$matchId"
     />
   );

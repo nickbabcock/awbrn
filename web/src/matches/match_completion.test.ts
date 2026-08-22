@@ -7,7 +7,8 @@ import type { MatchSetup } from "./schemas.ts";
 function setup(userIds: string[]): MatchSetup {
   return {
     matchId: "match-1",
-    mapId: 1,
+    mapId: "000000000001",
+    revision: 1,
     map: {} as MatchSetup["map"],
     fogEnabled: false,
     startingFunds: 0,

@@ -5,7 +5,7 @@ use awbrn_client::{
     ReplayLoaded, ReplayToLoad, StaticAssetPathResolver, TileHoverChanged, TileSelected,
     UnitActionsChanged, UnitBuilt, UnitMoved, UnloadCommandRequested, core::coords::LogicalPx,
 };
-use awbrn_map::AwbwMapData;
+use awbrn_map::ValidatedMapDocument;
 use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
 use bevy::{
     app::PluginsState,
@@ -31,10 +31,7 @@ mod web_key_code_generated;
 const AWBW_API_ASSET_SOURCE: &str = "awbw_api";
 
 #[cfg(target_arch = "wasm32")]
-use bevy::asset::{
-    AssetApp,
-    io::{AssetSourceBuilder, wasm::HttpWasmAssetReader},
-};
+use bevy::asset::io::{AssetSourceBuilder, wasm::HttpWasmAssetReader};
 
 /// Discriminated union of all game events sent to JavaScript.
 #[derive(Debug, Serialize, tsify::Tsify)]
@@ -463,8 +460,8 @@ impl BevyApp {
 
     #[wasm_bindgen]
     pub fn load_match_map(&mut self, map_data: JsValue) -> Result<(), JsError> {
-        let map = serde_wasm_bindgen::from_value::<AwbwMapData>(map_data)
-            .map_err(|error| JsError::new(&format!("Invalid AWBW match map data: {error}")))?;
+        let map = serde_wasm_bindgen::from_value::<ValidatedMapDocument>(map_data)
+            .map_err(|error| JsError::new(&format!("Invalid awbrn match map: {error}")))?;
 
         self.app.world_mut().insert_resource(PendingMatchMap(map));
 
@@ -478,8 +475,8 @@ impl BevyApp {
         players: JsValue,
         observation: JsValue,
     ) -> Result<(), JsError> {
-        let map = serde_wasm_bindgen::from_value::<AwbwMapData>(map_data)
-            .map_err(|error| JsError::new(&format!("Invalid AWBW live match map: {error}")))?;
+        let map = serde_wasm_bindgen::from_value::<ValidatedMapDocument>(map_data)
+            .map_err(|error| JsError::new(&format!("Invalid awbrn live match map: {error}")))?;
         let players = serde_wasm_bindgen::from_value::<Vec<LiveMatchPlayer>>(players)
             .map_err(|error| JsError::new(&format!("Invalid live match players: {error}")))?;
         let observation =
