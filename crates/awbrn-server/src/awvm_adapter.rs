@@ -3,26 +3,17 @@
 
 use std::collections::HashMap;
 
-use awbrn_map::AwbrnMap;
-use awbrn_types::{
-    AwbwTerrain, Faction, GraphicalTerrain, MissileSiloStatus, PlayerFaction, Property,
-    Unit as ServerUnit,
-};
+use awbrn_map::{AwbrnMap, GameSetup, SetupError, faction_players, state_from_setup};
+use awbrn_types::{PlayerFaction, Unit as ServerUnit};
 use awvm::event::{AttackTarget, Event};
 use awvm::random::{RandomToken, Recording};
-use awvm::ruleset::{RULESET_ID, RULESET_REVISION, Terrain, WeatherKind, profile};
-use awvm::semantic::{
-    Board, Commander, CommanderBans, Concealment, Location, Match, Phase, Player, PlayerId,
-    PlayerIdx, Pos, Roster, RulesetId, RulesetRef, RulesetRevision, Settings, Silo, State, Team,
-    TeamId, TeamStatus, Tile, TileOwner, Toggle, Turn, Unit, UnitAction, UnitId, UnitStore,
-    Weather, WeatherSetting,
-};
+use awvm::ruleset::profile;
+use awvm::semantic::{Concealment, Location, PlayerId, Pos, State, Unit, UnitAction, UnitId};
 use awvm::transition::{Command, ExecuteError, ExecuteOutcome, execute, execute_with};
 
 use crate::command::{GameCommand, PostMoveAction};
 use crate::error::CommandError;
 use crate::player::PlayerId as ServerPlayerId;
-use crate::setup::{GameRng, GameSetup, SetupError};
 use crate::unit_id::ServerUnitId;
 
 pub(crate) struct Authority {
@@ -322,7 +313,7 @@ fn commands(
             path,
             action,
         } => {
-            let unit = unit_id(*server_unit_id);
+            let unit = command_unit_id(server_unit_id.0)?;
             let path = path.to_vec();
             match action {
                 Some(PostMoveAction::Attack { target }) => {
@@ -397,257 +388,6 @@ fn commands(
     }
 }
 
-/// Converts a game setup to an AWVM state.
-///
-/// This function does not perform server work. It does not compute fog or
-/// record entropy.
-pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
-    if setup.players.is_empty() {
-        return Err(SetupError::InvalidPlayers {
-            reason: "game must contain at least one player".into(),
-        });
-    }
-    if setup.players.len() > u8::MAX as usize {
-        return Err(SetupError::InvalidPlayers {
-            reason: format!(
-                "game supports at most {} players, got {}",
-                u8::MAX,
-                setup.players.len()
-            ),
-        });
-    }
-
-    let starting_funds = u64::from(setup.players[0].starting_funds);
-    let players = setup
-        .players
-        .iter()
-        .enumerate()
-        .map(|(index, player)| {
-            let id = player_id(ServerPlayerId(index as u8));
-            Player::new(id, team_id(index, player.team.map(|team| team.get())))
-                .with_funds(u64::from(player.starting_funds))
-                .with_commanders(vec![Commander {
-                    id: player.co,
-                    active: true,
-                    power_charge: 0,
-                    power_uses: 0,
-                }])
-        })
-        .collect::<Vec<_>>();
-    let players = Roster::new(players).map_err(|error| SetupError::InvalidPlayers {
-        reason: error.to_string(),
-    })?;
-    let teams = players
-        .iter()
-        .fold(Vec::<Team>::new(), |mut teams, player| {
-            if !teams.iter().any(|team| team.id == player.team) {
-                teams.push(Team {
-                    id: player.team.clone(),
-                    status: TeamStatus::Active,
-                });
-            }
-            teams
-        });
-    let faction_players = faction_players(setup);
-    // A held tile names a seat, and `players` below is the roster those seats
-    // index, so a faction maps straight to the seat its player sits in.
-    let faction_seats: HashMap<PlayerFaction, PlayerIdx> = faction_players
-        .iter()
-        .filter_map(|(faction, id)| Some((*faction, players.seat(id)?)))
-        .collect();
-    let active_player = players[0].id().clone();
-    let (units, next_unit_id) = deployed_units(setup, &faction_seats)?;
-
-    Ok(State {
-        ruleset: RulesetRef {
-            id: RulesetId::from(RULESET_ID),
-            revision: RulesetRevision::from(RULESET_REVISION),
-        },
-        settings: Settings {
-            fog: setup.fog_enabled,
-            income_per_property: 1_000,
-            starting_funds,
-            powers: Toggle::Enabled,
-            tags: false,
-            weather: WeatherSetting::Clear,
-            lab_units: Vec::new(),
-            unit_bans: Vec::new(),
-            commander_bans: CommanderBans {
-                lead: Vec::new(),
-                backup: Vec::new(),
-            },
-            capture_limit: None,
-            day_limit: None,
-            unit_limit: None,
-        },
-        board: board(&setup.map, &faction_seats)?,
-        teams,
-        players: players.clone(),
-        turn: Turn {
-            day: 1,
-            active_player,
-            phase: Phase::UnitAction,
-            order: players.iter().map(|player| player.id().clone()).collect(),
-            position: 0,
-        },
-        weather: Weather {
-            kind: WeatherKind::Clear,
-            remaining_turns: 0,
-        },
-        units,
-        next_unit_id: Some(next_unit_id),
-        match_state: Match::Active {
-            draw_offers: Vec::new(),
-        },
-    })
-}
-
-fn deployed_units(
-    setup: &GameSetup,
-    faction_seats: &HashMap<PlayerFaction, PlayerIdx>,
-) -> Result<(UnitStore, u32), SetupError> {
-    let deployments = setup.map.deployments();
-    let mut units = Vec::with_capacity(deployments.len());
-    let mut next = 1u32;
-
-    for (position, deployed) in deployments.iter() {
-        let owner =
-            *faction_seats
-                .get(&deployed.faction)
-                .ok_or_else(|| SetupError::InvalidMap {
-                    reason: format!(
-                        "the map starts a {:?} unit and no player holds that faction",
-                        deployed.faction
-                    ),
-                })?;
-        let profile = profile(deployed.unit);
-        units.push(Unit {
-            id: UnitId::new(next),
-            kind: deployed.unit,
-            owner,
-            hp: deployed.hp.get() * 10,
-            fuel: profile.max_fuel,
-            ammo: profile.max_ammo,
-            action: UnitAction::Ready,
-            concealment: Concealment::Exposed,
-            location: Location::Board { position },
-        });
-        next = next.checked_add(1).ok_or_else(|| SetupError::InvalidMap {
-            reason: "the map starts more units than an identifier can name".to_owned(),
-        })?;
-    }
-
-    let units = UnitStore::new(units).map_err(|error| SetupError::InvalidMap {
-        reason: error.to_string(),
-    })?;
-    Ok((units, next))
-}
-
-fn board(
-    map: &AwbrnMap,
-    faction_seats: &HashMap<PlayerFaction, PlayerIdx>,
-) -> Result<Board, SetupError> {
-    // A map already holds VM coordinates, so its shape needs no reconversion.
-    let dimensions = map.dimensions();
-    let mut tiles = Vec::with_capacity(dimensions.len());
-    // Seam HP belongs to the board, not to the tile, so it is collected here
-    // and applied once the rectangle is built.
-    let mut seams = Vec::new();
-    for (position, terrain) in map.iter() {
-        let (built, seam_hp) = tile(terrain, faction_seats);
-        if let Some(hp) = seam_hp {
-            seams.push((position, hp));
-        }
-        tiles.push(built);
-    }
-    let mut board =
-        Board::new(dimensions.width(), dimensions.height(), tiles).map_err(|error| {
-            SetupError::InvalidMap {
-                reason: error.to_string(),
-            }
-        })?;
-    for (position, hp) in seams {
-        board.set_destructible_hp(position, Some(hp));
-    }
-    Ok(board)
-}
-
-fn tile(
-    graphical: GraphicalTerrain,
-    faction_seats: &HashMap<PlayerFaction, PlayerIdx>,
-) -> (Tile, Option<u64>) {
-    let terrain = graphical.as_terrain();
-    let mut tile = Tile::new(semantic_terrain(terrain));
-    if let AwbwTerrain::Property(property) = terrain {
-        tile.owner = match property.faction() {
-            Faction::Neutral => TileOwner::Neutral,
-            Faction::Player(faction) => faction_seats
-                .get(&faction)
-                .copied()
-                .map_or(TileOwner::Neutral, TileOwner::Owned),
-        };
-        tile.capture_points = Some(20);
-    }
-    if let AwbwTerrain::MissileSilo(status) = terrain {
-        tile.silo = Some(match status {
-            MissileSiloStatus::Loaded => Silo::Ready,
-            MissileSiloStatus::Unloaded => Silo::Spent,
-        });
-    }
-    let seam_hp = matches!(terrain, AwbwTerrain::PipeSeam(_)).then_some(99);
-    (tile, seam_hp)
-}
-
-pub(crate) fn semantic_terrain(terrain: AwbwTerrain) -> Terrain {
-    match terrain {
-        AwbwTerrain::Plain | AwbwTerrain::PipeRubble(_) => Terrain::Plain,
-        AwbwTerrain::Mountain => Terrain::Mountain,
-        AwbwTerrain::Wood => Terrain::Wood,
-        AwbwTerrain::River(_) => Terrain::River,
-        AwbwTerrain::Road(_) => Terrain::Road,
-        AwbwTerrain::Bridge(_) => Terrain::Bridge,
-        AwbwTerrain::Sea => Terrain::Sea,
-        AwbwTerrain::Shoal(_) => Terrain::Shoal,
-        AwbwTerrain::Reef => Terrain::Reef,
-        AwbwTerrain::Property(property) => match property {
-            Property::City(_) => Terrain::City,
-            Property::Base(_) => Terrain::Base,
-            Property::Airport(_) => Terrain::Airport,
-            Property::Port(_) => Terrain::Port,
-            Property::ComTower(_) => Terrain::ComTower,
-            Property::Lab(_) => Terrain::Lab,
-            Property::HQ(_) => Terrain::Hq,
-        },
-        AwbwTerrain::Pipe(_) => Terrain::Pipe,
-        AwbwTerrain::MissileSilo(_) => Terrain::MissileSilo,
-        AwbwTerrain::PipeSeam(_) => Terrain::PipeSeam,
-        AwbwTerrain::Teleporter => Terrain::Teleporter,
-    }
-}
-
-fn player_id(player: ServerPlayerId) -> PlayerId {
-    PlayerId::from(player.0.to_string())
-}
-
-fn team_id(index: usize, team: Option<u8>) -> TeamId {
-    match team {
-        Some(team) => TeamId::from(format!("team-{team}")),
-        None => TeamId::from(format!("player-{index}")),
-    }
-}
-
-fn faction_players(setup: &GameSetup) -> HashMap<PlayerFaction, PlayerId> {
-    let mut players = HashMap::new();
-    for (index, player) in setup.players.iter().enumerate() {
-        // `PlayerRegistry::player_for_faction` resolves the first matching
-        // seat, so preserve that behavior if a malformed setup repeats one.
-        players
-            .entry(player.faction)
-            .or_insert_with(|| player_id(ServerPlayerId(index as u8)));
-    }
-    players
-}
-
 fn unit_id(id: ServerUnitId) -> UnitId {
     UnitId::new(u32::try_from(id.0).expect("server unit id exceeds AWVM's identifier domain"))
 }
@@ -658,4 +398,80 @@ fn command_unit_id(id: u64) -> Result<UnitId, CommandError> {
         .map_err(|_| CommandError::InvalidAction {
             reason: format!("unit id {id} exceeds AWVM's identifier domain"),
         })
+}
+
+/// The entropy an authority draws from.
+///
+/// A seed gives one tape, and the tape is what a replay repeats.
+#[derive(Clone)]
+pub struct GameRng {
+    state: u64,
+}
+
+impl GameRng {
+    pub fn from_seed(seed: u64) -> Self {
+        Self {
+            state: if seed == 0 {
+                0x9e37_79b9_7f4a_7c15
+            } else {
+                seed
+            },
+        }
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.state ^= self.state << 13;
+        self.state ^= self.state >> 7;
+        self.state ^= self.state << 17;
+        self.state
+    }
+
+    /// Returns a uniformly distributed value in `0..range`.
+    ///
+    /// Samples again when a draw falls in the tail that the modulus would
+    /// count twice, which keeps each value equally likely.
+    fn below(&mut self, range: u64) -> u64 {
+        let max_usable = u64::MAX - (u64::MAX % range);
+
+        loop {
+            let sample = self.next_u64();
+            if sample < max_usable {
+                return sample % range;
+            }
+        }
+    }
+
+    /// Returns a uniformly distributed value in `0..=max`.
+    pub fn roll(&mut self, max: u8) -> u8 {
+        if max == 0 {
+            return 0;
+        }
+
+        self.below(u64::from(max) + 1) as u8
+    }
+}
+
+impl awvm::random::Entropy for GameRng {
+    fn luck(
+        &mut self,
+        _polarity: awvm::random::Luck,
+        domain: awvm::commander::Domain,
+    ) -> Result<i64, awvm::random::RandomError> {
+        let width = u64::try_from(domain.maximum - domain.minimum)
+            .expect("commander luck domains are ordered");
+        let offset = if width == 0 { 0 } else { self.below(width + 1) };
+        Ok(domain.minimum + offset as i64)
+    }
+
+    fn weather(&mut self) -> Result<awvm::ruleset::WeatherKind, awvm::random::RandomError> {
+        Ok(match self.roll(2) {
+            0 => awvm::ruleset::WeatherKind::Clear,
+            1 => awvm::ruleset::WeatherKind::Rain,
+            _ => awvm::ruleset::WeatherKind::Snow,
+        })
+    }
+}
+
+fn player_id(player: ServerPlayerId) -> PlayerId {
+    awbrn_map::player_id(usize::from(player.0))
 }
