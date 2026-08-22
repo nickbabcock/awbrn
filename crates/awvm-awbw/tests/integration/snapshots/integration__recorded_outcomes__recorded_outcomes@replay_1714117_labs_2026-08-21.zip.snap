@@ -5,5 +5,5 @@ input_file: assets/replays/replay_1714117_labs_2026-08-21.zip
 ---
 00002 d=1 p=4117713 End        s=44dc0d3fbfa91509 o=cfe2127462398e53
 00003 d=2 p=4117712 End        s=db5628e6b3ca8c31 o=36a183a3dae036b8
-00005 d=2 p=4117712 Capt       s=9d149c778ac68b08 o=f45b102bd0b22551
+00005 d=2 p=4117712 Capt       s=9d149c778ac68b08 o=9c6442208e528da2
 final {"day":2,"match":{"outcome":{"reason":"lab-capture","type":"victory","winners":["player:4117712"]},"status":"finished"},"phase":"finished","players":[["4117712","active",4],["4117713","eliminated",0]]}

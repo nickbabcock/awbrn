@@ -19,7 +19,6 @@
     "hq-capture",
     "lab-capture",
     "missile-silo",
-    "no-contest",
     "random-weather",
     "resignation",
     "rout",
@@ -40,5 +39,5 @@
     "resignation",
     "timeout"
   ],
-  "draw": ["day-limit", "agreement", "no-contest"]
+  "draw": ["day-limit", "agreement"]
 }

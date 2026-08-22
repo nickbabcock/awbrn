@@ -2407,7 +2407,8 @@ mod tests {
                 Event::PlayerStatusChanged {
                     player: PlayerId::from("blue"),
                     from: PlayerStatus::Active,
-                    to: PlayerStatus::Eliminated
+                    to: PlayerStatus::Eliminated,
+                    reason: KnownReason::Rout.into()
                 },
                 Event::TeamEliminated {
                     team: crate::semantic::TeamId::from("blue-team"),

@@ -44,5 +44,5 @@ input_file: assets/replays/1391406.zip
 00938 d=20 p=3252473 End        s=ee3f9e0b1bd467f6 o=2387e2130fd2963c
 00962 d=21 p=3252378 End        s=f38fe6088f2f7f28 o=444dc50ede3362da
 01000 d=21 p=3252473 End        s=cc6ef74600760e6d o=d29469f27f675059
-01006 d=21 p=3252473 Resign     s=daf4b723965ecb0e o=3f6b3a60331ed899
+01006 d=21 p=3252473 Resign     s=daf4b723965ecb0e o=86a0291859fb12d3
 final {"day":21,"match":{"outcome":{"reason":"resignation","type":"victory","winners":["player:3252378"]},"status":"finished"},"phase":"finished","players":[["3252378","active",27],["3252473","resigned",26]]}

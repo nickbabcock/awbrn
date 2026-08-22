@@ -38,5 +38,5 @@ input_file: assets/replays/replay_1578186_d-day_2026-01-14.zip
 00765 d=17 p=3654564 End        s=afd285e70cc77ddc o=d5156dbc41a6eb8e
 00790 d=18 p=3653682 End        s=a3f9648db2ea84d6 o=e969c0ff0aaf25db
 00829 d=18 p=3654564 End        s=439f5740282b2452 o=bf25f9303cc64f51
-00846 d=18 p=3654564 Resign     s=7722668531323421 o=d855f96973fe811d
+00846 d=18 p=3654564 Resign     s=7722668531323421 o=19eda6dffb448b9e
 final {"day":18,"match":{"outcome":{"reason":"resignation","type":"victory","winners":["player:3653682"]},"status":"finished"},"phase":"finished","players":[["3653682","active",23],["3654564","resigned",17]]}

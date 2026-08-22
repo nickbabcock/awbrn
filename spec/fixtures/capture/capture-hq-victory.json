@@ -162,7 +162,8 @@
             "type": "player-status-changed",
             "player": "blue",
             "from": "active",
-            "to": "eliminated"
+            "to": "eliminated",
+            "reason": "hq-capture"
           },
           { "type": "team-eliminated", "team": "blue-team", "reason": "hq-capture" },
           {

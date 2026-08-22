@@ -33,6 +33,7 @@ pub(crate) fn eliminate_player(
         player: defeated_player.clone(),
         from: previous_status,
         to: state.player_mut(player_index).status,
+        reason: KnownReason::from(cause).into(),
     });
     if state
         .players

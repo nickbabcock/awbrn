@@ -453,12 +453,13 @@
     "player-status-changed": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "player", "from", "to"],
+      "required": ["type", "player", "from", "to", "reason"],
       "properties": {
         "type": { "const": "player-status-changed" },
         "player": { "$ref": "#/$defs/player-id" },
         "from": { "enum": ["active", "resigned", "timed-out", "eliminated"] },
-        "to": { "enum": ["resigned", "timed-out", "eliminated"] }
+        "to": { "enum": ["resigned", "timed-out", "eliminated"] },
+        "reason": { "$ref": "#/$defs/reason" }
       }
     },
     "team-eliminated": {

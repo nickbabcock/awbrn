@@ -183,7 +183,13 @@
         },
         "events": [
           { "type": "phase-changed", "player": "red", "from": "unit-action", "to": "turn-end" },
-          { "type": "player-status-changed", "player": "red", "from": "active", "to": "resigned" },
+          {
+            "type": "player-status-changed",
+            "player": "red",
+            "from": "active",
+            "to": "resigned",
+            "reason": "resignation"
+          },
           { "type": "team-eliminated", "team": "red-team", "reason": "resignation" },
           {
             "type": "match-completed",

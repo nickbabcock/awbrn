@@ -31,7 +31,10 @@ The causes in scope are `hq-capture` (from `semantics/capture.md`), `rout`, and
 - **`timeout`.** Timeout is a hosting-service clock/boot policy AWVM does not
   model. The `timed-out` player status and the `timeout` victory reason stay
   reserved for imported or server-projected terminal state. The procedure below
-  remains parameterized so an adapter can apply the same cascade.
+  remains parameterized so an adapter can apply the same cascade, and the
+  adapter contract below fixes what that adapter MUST produce. What stays out of
+  scope is the clock itself — when a timeout fires — not the shape of its
+  result.
 - **`lab-capture` and `capture-limit`.** Both are capture-driven checkpoints
   whose own conditions are unspecified. Once either fires it invokes exactly the
   procedure below, but neither is reachable in this feature.
@@ -96,9 +99,13 @@ For state `S`:
   `capture-defeats-owner` trait from a property that has served its purpose, so
   a demoted HQ can never eliminate its new owner.
 - The **cause** of an elimination is one of `rout`, `hq-capture`, or
-  `resignation`. It is not stored on the player record — `model/state.md` keeps
-  cause in history — and travels only in the `team-eliminated` and
-  `match-completed` events.
+  `resignation`; a host adapter adds `timeout` under the adapter contract
+  below. It is not stored on the player record — `model/state.md` keeps cause
+  in history — and travels in the `player-status-changed`, `team-eliminated`,
+  and `match-completed` events. Only the first of those is
+  always emitted: a player eliminated while a teammate plays on produces
+  neither of the other two, so `player-status-changed` is the one fact that
+  carries every elimination's cause.
 - The **beneficiary** of an elimination is the player who inherits the
   eliminated player's properties, or `null`. It is the capturing player when the
   cause is `hq-capture`, and `null` for every other cause.
@@ -114,17 +121,33 @@ The steps run in this exact order.
 
 ### 1. Player status
 
-Set `S.players[p].status` to `resigned` when the cause is `resignation`, and to
-`eliminated` for every other cause. Emit
+Set `S.players[p].status` to `resigned` when the cause is `resignation`, to
+`timed-out` when an adapter supplies the cause `timeout`, and to `eliminated`
+for every other cause. Emit
 
 ```json
-{ "type": "player-status-changed", "player": "blue", "from": "active", "to": "eliminated" }
+{
+  "type": "player-status-changed",
+  "player": "blue",
+  "from": "active",
+  "to": "eliminated",
+  "reason": "rout"
+}
 ```
 
-The status distinguishes a voluntary departure from a defeat; it does not record
-which defeat. `resigned` and `eliminated` are equivalent for every rule in this
-revision: neither participates, both make their team non-surviving, and both
-receive the identical cascade.
+`reason` is the cause, written as its reason identifier. The status
+distinguishes a voluntary departure from a defeat and the reason records which
+defeat, because the status alone cannot: `resigned` and `eliminated` are
+equivalent for every rule in this revision — neither participates, both make
+their team non-surviving, and both receive the identical cascade — and
+`eliminated` covers `rout` and `hq-capture` alike.
+
+The reason is carried here, and not left to the two later events, because
+neither is guaranteed to follow. `team-eliminated` fires only when the player's
+whole team stopped participating and `match-completed` only when the match
+ended, so in a team match a consumer recording a per-player result would
+otherwise have no cause to record. When a later event does follow, its reason
+is the same value; the events agree by construction.
 
 ### 2. Team elimination
 
@@ -240,6 +263,10 @@ its three causes accordingly.
 | `resignation` | within `resign`'s execution, before its boundary loop | this document |
 | `rout` | command-immediate for a command-caused removal; directly after the automatic hook for a hook-caused removal | this document |
 
+`timeout` has no row: it is not evaluated at any AWVM checkpoint. A host adapter
+decides it on its own clock and applies the procedure, as the adapter contract
+below fixes.
+
 ### The rout condition
 
 A player is routed when a transition removes their **last** living unit. The
@@ -345,6 +372,109 @@ are neutral before the successor's income is computed, so a successor who owned
 none of those properties gains nothing from the resignation — neutral property
 produces no income for anyone.
 
+## The `timeout` adapter contract
+
+AWVM does not model a clock. *When* a player's time expires is a
+hosting-service policy — bank size, boot delay, grace on disconnect — and no
+AWVM command, checkpoint, or random token expresses it. `resign`'s
+`AUTHORITY_REQUIRED` says as much from the command side: host-service timeout
+handling is outside the command surface, and this document adds no `time-out`
+command to reach it.
+
+What *is* specified is the shape of the result. An **adapter** is the host-side
+component that decides a player has timed out; this section fixes what it MUST
+then produce, so that a booted player leaves the same shaped state and event
+stream as a routed or resigned one, and a consumer recording match results needs
+no separate code path for the cause. It is a clarification of the existing
+procedure and introduces no new behavior, event type, or vocabulary.
+
+### The adapter runs the same procedure
+
+An adapter that has determined player `p` timed out invokes
+
+```text
+eliminate(S, p, "timeout", null)
+```
+
+exactly as specified above, with one substitution: step 1 sets
+`S.players[p].status` to `timed-out` rather than `eliminated`. Every other step
+is unchanged, and the beneficiary is `null` as it is for every cause but
+`hq-capture`.
+
+1. **Status.** Emit
+   `player-status-changed { player: p, from: "active", to: "timed-out", reason:
+   "timeout" }`.
+2. **Team elimination.** Emit `team-eliminated { team, reason: "timeout" }` when
+   no member of `p`'s team is still participating, and nothing otherwise.
+3. **Victory checkpoint.** If exactly one team now survives, that team wins with
+   the cause mapped identically to every other cause:
+   `{ "type": "victory", "winners": ["red-team"], "reason": "timeout" }`.
+   `timeout` is already a member of the `victory` reason vocabulary
+   (`rulesets/awbw/2026-07-10/reasons.json`), so a 1v1 timeout produces exactly
+   that outcome. Execution stops here on the same terms as any other cause: the
+   loser's units stay on the board and their properties stay owned, frozen at
+   the winning instant.
+4. **The cascade.** Reached only when two or more teams survive, and run in
+   full — an interrupted capture reset to `20`, every unit removed in ascending
+   unit-ID order, then every property in board order reset, a demotable HQ
+   demoted to its `elimination_replacement`, and every property disposed. With a
+   `null` beneficiary the disposition is neutral throughout. A timeout is not a
+   capture and enriches nobody: no `tile-owner-changed` names a player as the
+   new owner.
+
+The event ordering table below applies to a timeout unchanged, with row 1
+carrying `reason: "timeout"`.
+
+### `timed-out` is not a distinct standing
+
+`timed-out`, `resigned`, and `eliminated` are equivalent for every rule in this
+revision, extending the equivalence step 1 states for the first two. None
+participates in turn order, each makes its team non-surviving, each is skipped
+by successor selection, and each receives the identical cascade. No rule
+branches on which of the three a player carries.
+
+The three statuses are worth keeping distinct only because they record *how* a
+seat's run ended for a reader, and even that is a coarse record: `eliminated`
+covers `rout`, `hq-capture`, and `lab-capture` alike. A consumer that needs the
+cause reads the `reason` of `player-status-changed` (step 1), never the status.
+
+### The boundary
+
+A timeout normally strikes the player holding the turn, and the boundary must
+then be finished — otherwise the match sits in `unit-action` with a
+non-participating player as `S.turn.active_player`, a position successor
+selection would never have produced, since it skips every player whose status is
+not `active` (`model/phases.md`). Nothing would advance the match from there.
+
+- **`p` is `S.turn.active_player`.** The adapter applies exactly the `resign`
+  execution above, substituting the cause: set `S.turn.phase = turn-end` and
+  emit `phase-changed { player: p, from: unit-action, to: turn-end }`; run
+  `eliminate(S, p, "timeout", null)`; and, if the match continues, resume the
+  `semantics/turn.md` reduction from successor selection with the
+  `turn-hooks.md` hooks in their fixed positions. `p` is no longer selectable,
+  so the scan skips them. This mirrors AWBW, where a booted player's turn ends
+  and play passes on exactly as a resignation passes it.
+- **`p` is not the active player.** `S.turn` is untouched. No `phase-changed`,
+  `turn-selected`, or `day-advanced` is emitted, and the procedure's own events
+  are the whole transition. A host whose clock can expire off-turn takes this
+  branch; one that only boots on-turn never does.
+
+A timeout that eliminates the active player during their own `turn-start` — a
+host policy that boots on the boundary rather than during `unit-action` — takes
+the rout-during-`turn-start` resumption above verbatim, since that section is
+written on the elimination, not on the cause.
+
+### Conformance
+
+The clock is not conformance-testable, so no `elimination-v1` fixture exercises
+timeout and an implementation claiming `elimination-v1` is not required to ship
+an adapter. This contract fixes admissibility rather than conformance: a state
+carrying `timed-out`, or a `timeout` victory outcome, is a valid AWVM state; the
+cascade that produced it is the cascade specified here; and a consumer may read
+a timeout elimination with the same rules it reads a rout. Should a future
+revision bring the clock inside AWVM, it adds the checkpoint that fires this
+procedure and does not change the procedure.
+
 ## Event ordering
 
 The procedure's events, in order, for an elimination that does **not** end the
@@ -352,7 +482,7 @@ match:
 
 | # | Event | Emitted when |
 | --- | --- | --- |
-| 1 | `player-status-changed` | always |
+| 1 | `player-status-changed` (`reason: <cause>`) | always |
 | 2 | `team-eliminated` | only when the player's whole team stopped participating |
 | 3 | `capture-changed` (to `20`) | per removed unit that was a current capturer, immediately before its removal |
 | 4 | `unit-removed` (`reason: "elimination"`) | once per owned unit, ascending unit ID, interleaved with row 3 |
@@ -402,8 +532,10 @@ day-limit outcome stays deferred for want of a scoring rule.
 
 `rout`, `hq-capture`, and `resignation` are the terminal outcomes this feature
 can produce, each named by the cause of the elimination that left one surviving
-team. `lab-capture`, `capture-limit`, `day-limit`, `timeout`, and every `draw`
-are other features' checkpoints and are not reachable here.
+team. `lab-capture`, `capture-limit`, `day-limit`, and every `draw` are other
+features' checkpoints and are not reachable here. `timeout` is reachable only
+through the adapter contract above: no command and no checkpoint in this
+document produces it, and no fixture claims it.
 
 ## Evidence
 
@@ -470,9 +602,17 @@ Corroborated implementation:
 
 Known deferral:
 
-- The `timeout` cause, `lab-capture`, `capture-limit`, day-limit outcome naming,
-  the zero-active-team state, simultaneous elimination precedence, and the fate
-  of an eliminated player's power charge and commander-sourced weather all
-  require evidence this corpus does not contain, and are excluded rather than
-  guessed. WarsWorld's own source marks the last of these `TODO what happens
-  with olaf snow and other CO powers?`.
+- `lab-capture`, `capture-limit`, day-limit outcome naming, the zero-active-team
+  state, simultaneous elimination precedence, and the fate of an eliminated
+  player's power charge and commander-sourced weather all require evidence this
+  corpus does not contain, and are excluded rather than guessed. WarsWorld's own
+  source marks the last of these `TODO what happens with olaf snow and other CO
+  powers?`.
+- The `timeout` **clock** is deferred for a different reason: it is a hosting
+  policy, not an AWBW rule, and no corpus can supply it. Its *result* is not
+  deferred. The wiki's account of resignation — a departing player is
+  "eliminated from the game as if they were routed" — and the non-capture
+  cascade it fixes apply to a booted player on the same terms, which is what the
+  adapter contract states. No replay in the corpus ends by timeout, so its
+  boundary handling is specified by analogy with the observed `Resign` payload
+  rather than observed directly.
