@@ -40,6 +40,40 @@ export const matchMutationRequestSchema = z.discriminatedUnion("action", [
 ]);
 
 export type MatchPhase = "draft" | "lobby" | "starting" | "active" | "completed" | "cancelled";
+
+/** Engine reasons for a seat elimination or match ending. */
+export const seatResultReasons = [
+  "rout",
+  "hq-capture",
+  "lab-capture",
+  "capture-limit",
+  "day-limit",
+  "resignation",
+  "timeout",
+  "agreement",
+] as const;
+
+export const seatResultReasonSchema = z.enum(seatResultReasons);
+
+/** Result for one seat. Team members share the team outcome. */
+export const matchOutcomes = ["win", "loss", "draw"] as const;
+
+export const matchOutcomeSchema = z.enum(matchOutcomes);
+
+/** Terminal seat status derived from its result reason. */
+export const matchSeatStatuses = ["active", "resigned", "timed-out", "eliminated"] as const;
+
+export const matchSeatStatusSchema = z.enum(matchSeatStatuses);
+
+/** Ranked pools, one per `{ fog, pace }` pair. Live pools open after async ones. */
+export const rankedPools = ["async", "fog_async", "live", "fog_live"] as const;
+
+export const rankedPoolSchema = z.enum(rankedPools);
+
+export type SeatResultReason = (typeof seatResultReasons)[number];
+export type MatchOutcome = (typeof matchOutcomes)[number];
+export type MatchSeatStatus = (typeof matchSeatStatuses)[number];
+export type RankedPool = (typeof rankedPools)[number];
 export type MatchSettings = z.infer<typeof matchSettingsSchema>;
 export type MatchCreateRequest = z.infer<typeof matchCreateRequestSchema>;
 export type MatchBrowseRequest = z.infer<typeof matchBrowseRequestSchema>;

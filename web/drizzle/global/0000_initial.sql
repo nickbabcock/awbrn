@@ -32,6 +32,36 @@ CREATE TABLE `match_participants` (
 --> statement-breakpoint
 CREATE INDEX `match_participants_match_idx` ON `match_participants` (`matchId`);--> statement-breakpoint
 CREATE INDEX `match_participants_match_user_idx` ON `match_participants` (`matchId`,`userId`);--> statement-breakpoint
+CREATE TABLE `match_results` (
+	`matchId` text NOT NULL,
+	`slotIndex` integer NOT NULL,
+	`userId` text NOT NULL,
+	`teamId` text,
+	`outcome` text NOT NULL,
+	`placement` integer NOT NULL,
+	`reason` text,
+	`pool` text,
+	`recordedAt` integer NOT NULL DEFAULT (unixepoch()),
+	PRIMARY KEY(`matchId`, `slotIndex`),
+	FOREIGN KEY (`matchId`) REFERENCES `matches`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`userId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "match_results_placement_matches_outcome" CHECK(typeof("match_results"."placement") = 'integer' and "match_results"."placement" >= 1 and ("match_results"."placement" = 1) = ("match_results"."outcome" in ('win', 'draw'))),
+	CONSTRAINT "match_results_outcome_vocabulary" CHECK("match_results"."outcome" in ('win', 'loss', 'draw')),
+	CONSTRAINT "match_results_reason_null_only_for_standing_win" CHECK("match_results"."reason" is not null or "match_results"."outcome" = 'win')
+);
+--> statement-breakpoint
+CREATE INDEX `match_results_user_idx` ON `match_results` (`userId`,`recordedAt`);--> statement-breakpoint
+CREATE INDEX `match_results_pool_idx` ON `match_results` (`pool`,`recordedAt`) WHERE "match_results"."pool" is not null;--> statement-breakpoint
+CREATE TABLE `match_voids` (
+	`matchId` text PRIMARY KEY NOT NULL,
+	`voidedByUserId` text NOT NULL,
+	`reason` text NOT NULL,
+	`voidedAt` integer NOT NULL DEFAULT (unixepoch()),
+	FOREIGN KEY (`matchId`) REFERENCES `matches`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`voidedByUserId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict
+);
+--> statement-breakpoint
+CREATE INDEX `match_voids_voidedAt_idx` ON `match_voids` (`voidedAt`);--> statement-breakpoint
 CREATE TABLE `matches` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
