@@ -133,7 +133,7 @@ export function UnitActionMenu({
       onRestoreFocus={onRestoreFocus}
       presentation={presentation}
     >
-      {({ spriteScale }) => (
+      {({ isSheet, spriteScale }) => (
         <VStack gap={0} xstyle={boardMenuStyles.body}>
           <HStack
             align="center"
@@ -168,7 +168,7 @@ export function UnitActionMenu({
               presentation={presentation}
             />
           ) : (
-            <VStack gap={0} xstyle={boardMenuStyles.list}>
+            <VStack gap={0} xstyle={isSheet ? undefined : boardMenuStyles.list}>
               {options.map((option, index) => (
                 <OrderRow
                   index={index}
