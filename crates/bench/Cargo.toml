@@ -8,17 +8,17 @@ publish = false
 bench = false
 
 [dependencies]
-awvm = { path = "../awvm" }
-serde_json.workspace = true
-awbrn-types = { path = "../awbrn-types" }
 awbrn-map = { path = "../awbrn-map" }
 awbrn-server = { path = "../awbrn-server" }
+awbrn-types = { path = "../awbrn-types" }
 awbw-replay = { path = "../awbw-replay" }
+awvm = { path = "../awvm" }
 criterion = { workspace = true }
+serde_json.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-gungraun = { workspace = true }
 criterion = { workspace = true, default-features = true }
+gungraun = { workspace = true }
 
 [[bench]]
 name = "awbrn-bench-criterion"

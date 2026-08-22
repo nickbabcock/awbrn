@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-awbrn-types = { path = "../awbrn-types", features = ["bevy"] }
 awbrn-map = { path = "../awbrn-map", features = ["bevy"] }
+awbrn-types = { path = "../awbrn-types", features = ["bevy"] }
 awbw-replay = { path = "../awbw-replay" }
 awvm = { path = "../awvm" }
 bevy = { workspace = true, features = ["std", "bevy_log", "bevy_world_serialization"] }
@@ -16,6 +16,6 @@ thiserror.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
-awvm-awbw = { path = "../awvm-awbw" }
 awbw-replay = { path = "../awbw-replay" }
+awvm-awbw = { path = "../awvm-awbw" }
 serde_json.workspace = true

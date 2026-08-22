@@ -9,11 +9,11 @@ flate2.workspace = true
 indexmap.workspace = true
 phpserz.workspace = true
 rawzip.workspace = true
-serde_json.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 serde_path_to_error.workspace = true
 
 [dev-dependencies]
 highway.workspace = true
-jiff.workspace = true
 insta.workspace = true
+jiff.workspace = true
