@@ -24,10 +24,11 @@ pub(crate) fn eliminate_player(
         .ok_or(ExecuteError::UnsupportedRuleset)?;
     let defeated_team = state.player_mut(player_index).team.clone();
     let previous_status = state.player_mut(player_index).status;
-    state.player_mut(player_index).status = if cause == VictoryReason::Resignation {
-        PlayerStatus::Resigned
-    } else {
-        PlayerStatus::Eliminated
+    // Timeout is host-supplied but otherwise follows the same cascade.
+    state.player_mut(player_index).status = match cause {
+        VictoryReason::Resignation => PlayerStatus::Resigned,
+        VictoryReason::Timeout => PlayerStatus::TimedOut,
+        _ => PlayerStatus::Eliminated,
     };
     events.push(Event::PlayerStatusChanged {
         player: defeated_player.clone(),

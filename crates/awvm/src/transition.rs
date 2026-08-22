@@ -2423,4 +2423,51 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn timeout_sets_timed_out_status_and_reason() {
+        let case: Value = serde_json::from_str(include_str!(
+            "../../../spec/fixtures/elimination/resign-ends-match.json"
+        ))
+        .unwrap();
+        let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
+        let mut events = Vec::new();
+
+        let completed = eliminate_player(
+            &mut state,
+            &PlayerId::from("blue"),
+            VictoryReason::Timeout,
+            None,
+            None,
+            &mut events,
+        )
+        .unwrap();
+
+        assert!(completed);
+        assert_eq!(
+            state.find_player(&PlayerId::from("blue")).unwrap().status,
+            PlayerStatus::TimedOut
+        );
+        assert_eq!(
+            events,
+            [
+                Event::PlayerStatusChanged {
+                    player: PlayerId::from("blue"),
+                    from: PlayerStatus::Active,
+                    to: PlayerStatus::TimedOut,
+                    reason: KnownReason::Timeout.into(),
+                },
+                Event::TeamEliminated {
+                    team: crate::semantic::TeamId::from("blue-team"),
+                    reason: KnownReason::Timeout.into(),
+                },
+                Event::MatchCompleted {
+                    outcome: Outcome::Victory {
+                        winners: vec![crate::semantic::TeamId::from("red-team")],
+                        reason: VictoryReason::Timeout,
+                    },
+                },
+            ]
+        );
+    }
 }

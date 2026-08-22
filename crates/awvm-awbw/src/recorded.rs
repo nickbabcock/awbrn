@@ -20,7 +20,8 @@ use awbw_replay::turn_models::{
 use awvm::commander::{self, PowerLevel};
 use awvm::event::Event;
 use awvm::ruleset::{
-    AreaStrikeProfile, Domain, MISSILE_SILO_STRIKE, Terrain, UNIT_EXPLOSION, WeatherKind, profile,
+    AreaStrikeProfile, Domain, KnownReason, MISSILE_SILO_STRIKE, Terrain, UNIT_EXPLOSION,
+    WeatherKind, profile,
 };
 use awvm::semantic::{
     AwbwVisibility, Concealment, DrawReason, Location, Match, ObserveError, ObservedTransition,
@@ -65,9 +66,9 @@ impl RecordedAdapter {
         // rejected payload cannot leave the adapter holding a half-applied
         // state: the candidate is simply dropped and `self` never moved.
         let mut next = self.state.clone();
-        apply_recorded(&mut next, action)?;
+        let cause = apply_recorded(&mut next, action)?;
         next.validate()?;
-        let recorded_events = diff_events(&self.state, &next, action);
+        let recorded_events = diff_events(&self.state, &next, action, cause);
         let post = next.clone();
         Ok(RecordedTransition {
             prior: std::mem::replace(&mut self.state, next),
@@ -88,6 +89,11 @@ pub struct RecordedTransition {
 impl RecordedTransition {
     pub const fn post_state(&self) -> &State {
         &self.post
+    }
+
+    /// The typed facts derived before visibility projection.
+    pub fn recorded_events(&self) -> &[Event] {
+        &self.recorded_events
     }
 
     /// Project the recorded transition through AWVM's normal visibility rules.
@@ -129,7 +135,12 @@ pub enum RecordedAdapterError {
     Observation(#[from] ObserveError),
 }
 
-fn apply_recorded(state: &mut State, action: &Action) -> Result<(), RecordedAdapterError> {
+/// Apply one action and retain any elimination cause for derived events.
+fn apply_recorded(
+    state: &mut State,
+    action: &Action,
+) -> Result<Option<VictoryReason>, RecordedAdapterError> {
+    let mut cause = None;
     if let Some(movement) = action.move_action() {
         apply_move(
             state,
@@ -227,7 +238,7 @@ fn apply_recorded(state: &mut State, action: &Action) -> Result<(), RecordedAdap
                         }
                     }
                 };
-                apply_elimination(state, eliminated, reason)?;
+                cause = apply_elimination(state, eliminated, reason)?;
             }
         }
         Action::End { updated_info } => apply_end_info(state, updated_info)?,
@@ -258,7 +269,7 @@ fn apply_recorded(state: &mut State, action: &Action) -> Result<(), RecordedAdap
                 fire_action.cop_values.defender.tag_value,
             )?;
             if let Some(eliminated) = &fire_action.eliminated {
-                apply_elimination(state, eliminated, VictoryReason::Rout)?;
+                cause = apply_elimination(state, eliminated, VictoryReason::Rout)?;
             }
         }
         Action::Join { join_action, .. } => {
@@ -378,7 +389,8 @@ fn apply_recorded(state: &mut State, action: &Action) -> Result<(), RecordedAdap
             next_turn_action,
             game_over_action,
         } => {
-            retire_player(state, resign_action.player_id, PlayerStatus::Resigned)?;
+            retire_player(state, resign_action.player_id, VictoryReason::Resignation)?;
+            cause = Some(VictoryReason::Resignation);
             if let Some(next) = next_turn_action {
                 apply_end(state, &next.clone().into())?;
             }
@@ -459,7 +471,7 @@ fn apply_recorded(state: &mut State, action: &Action) -> Result<(), RecordedAdap
             apply_end_info(state, updated_info)?;
         }
     }
-    Ok(())
+    Ok(cause)
 }
 
 fn apply_move(
@@ -761,33 +773,39 @@ fn apply_elimination(
     state: &mut State,
     eliminated: &EliminatedInfo,
     reason: VictoryReason,
-) -> Result<(), RecordedAdapterError> {
-    if let Some(loser) = eliminated.player_id {
-        retire_player(state, loser, PlayerStatus::Eliminated)?;
-    }
+) -> Result<Option<VictoryReason>, RecordedAdapterError> {
+    let cause = if let Some(loser) = eliminated.player_id {
+        retire_player(state, loser, reason)?;
+        Some(reason)
+    } else {
+        None
+    };
     let game_over = eliminated
         .game_over
         .as_ref()
         .ok_or(RecordedAdapterError::Missing(
             "a terminal record; an elimination that continues the match has no recorded cascade",
         ))?;
-    finish_match(state, game_over, reason)
+    finish_match(state, game_over, reason)?;
+    Ok(cause)
 }
 
 /// Stop a player from participating, and eliminate a team that has nobody left.
 ///
-/// `semantics/elimination.md` steps 1 and 2: a resignation and a defeat differ
-/// only in the status they set, and both make the team non-surviving when no
-/// member of it still participates.
+/// Retire a player and, when necessary, their team.
 fn retire_player(
     state: &mut State,
     player: AwbwGamePlayerId,
-    status: PlayerStatus,
+    cause: VictoryReason,
 ) -> Result<(), RecordedAdapterError> {
     let retired = state
         .find_player_mut(&player_id(player))
         .ok_or(RecordedAdapterError::UnknownPlayer(player))?;
-    retired.status = status;
+    retired.status = match cause {
+        VictoryReason::Resignation => PlayerStatus::Resigned,
+        VictoryReason::Timeout => PlayerStatus::TimedOut,
+        _ => PlayerStatus::Eliminated,
+    };
     let team = retired.team.clone();
     if state
         .players
@@ -1164,9 +1182,17 @@ fn apply_area(
     }
 }
 
-fn diff_events(prior: &State, post: &State, action: &Action) -> Vec<Event> {
+fn diff_events(
+    prior: &State,
+    post: &State,
+    action: &Action,
+    cause: Option<VictoryReason>,
+) -> Vec<Event> {
     let mut events = Vec::new();
     let reason = || Reason::Other(ReasonId::from(RECORDED_REASON));
+    // Elimination actions name their cause; other derived facts cite the archive.
+    let elimination_reason =
+        || cause.map_or_else(reason, |cause| Reason::Known(KnownReason::from(cause)));
     let paths = recorded_paths(action);
 
     for before in &prior.units {
@@ -1325,7 +1351,7 @@ fn diff_events(prior: &State, post: &State, action: &Action) -> Vec<Event> {
                 player: before.id().clone(),
                 from: before.status,
                 to: after.status,
-                reason: reason(),
+                reason: elimination_reason(),
             });
         }
         for (slot, (old, new)) in before.commanders.iter().zip(&after.commanders).enumerate() {
@@ -1406,7 +1432,7 @@ fn diff_events(prior: &State, post: &State, action: &Action) -> Vec<Event> {
         if before.status != TeamStatus::Eliminated && after.status == TeamStatus::Eliminated {
             events.push(Event::TeamEliminated {
                 team: before.id.clone(),
-                reason: reason(),
+                reason: elimination_reason(),
             });
         }
     }
