@@ -190,7 +190,7 @@ pub struct UnitProperty {
     #[serde(default)]
     pub units_cargo2_units_id: Masked<u32>,
     pub units_carried: Option<String>,
-    #[serde(with = "awbw_country_code")]
+    #[serde(with = "awbrn_types::faction_code")]
     pub countries_code: PlayerFaction,
 }
 
@@ -869,28 +869,6 @@ impl<'de> Deserialize<'de> for TargetedPlayer {
 
         // Use deserialize_any to support both string and number formats
         deserializer.deserialize_any(PlayerVisitor)
-    }
-}
-
-mod awbw_country_code {
-    use awbrn_types::PlayerFaction;
-    use serde::de::Error;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    pub fn serialize<S>(faction: &PlayerFaction, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        faction.country_code().serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<PlayerFaction, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let code: &str = Deserialize::deserialize(deserializer)?;
-        PlayerFaction::from_country_code(code)
-            .ok_or_else(|| D::Error::custom(format!("Invalid country code: {}", code)))
     }
 }
 

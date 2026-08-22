@@ -117,3 +117,41 @@ CREATE TABLE `verification` (
 );
 --> statement-breakpoint
 CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);
+--> statement-breakpoint
+CREATE TABLE `map_revisions` (
+	`mapId` text NOT NULL,
+	`revision` integer NOT NULL,
+	`contentHash` text NOT NULL,
+	`width` integer NOT NULL,
+	`height` integer NOT NULL,
+	`playerCount` integer NOT NULL,
+	`propertySignature` text NOT NULL,
+	`unitSignature` text NOT NULL,
+	`createdAt` integer DEFAULT (unixepoch()) NOT NULL,
+	`lastSeenAt` integer,
+	PRIMARY KEY(`mapId`, `revision`),
+	FOREIGN KEY (`mapId`) REFERENCES `maps`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `map_revisions_content_unique` ON `map_revisions` (`mapId`,`contentHash`);--> statement-breakpoint
+CREATE INDEX `map_revisions_signature_idx` ON `map_revisions` (`mapId`,`propertySignature`);--> statement-breakpoint
+CREATE TABLE `map_sources` (
+	`mapId` text PRIMARY KEY NOT NULL,
+	`source` text NOT NULL,
+	`sourceMapId` integer NOT NULL,
+	FOREIGN KEY (`mapId`) REFERENCES `maps`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `map_sources_source_unique` ON `map_sources` (`source`,`sourceMapId`);--> statement-breakpoint
+CREATE TABLE `maps` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`author` text NOT NULL,
+	`authorUserId` text,
+	`currentRevision` integer NOT NULL,
+	`createdAt` integer DEFAULT (unixepoch()) NOT NULL,
+	`updatedAt` integer NOT NULL,
+	FOREIGN KEY (`authorUserId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE set null
+);
+--> statement-breakpoint
+CREATE INDEX `maps_author_idx` ON `maps` (`authorUserId`);
