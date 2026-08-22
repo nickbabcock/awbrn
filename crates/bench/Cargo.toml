@@ -8,6 +8,7 @@ publish = false
 bench = false
 
 [dependencies]
+awbrn-ai = { path = "../awbrn-ai" }
 awbrn-map = { path = "../awbrn-map" }
 awbrn-server = { path = "../awbrn-server" }
 awbrn-types = { path = "../awbrn-types" }
