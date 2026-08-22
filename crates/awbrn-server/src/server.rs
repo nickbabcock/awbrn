@@ -2,6 +2,7 @@ use crate::command::GameCommand;
 use crate::error::CommandError;
 use crate::player::PlayerId;
 use crate::replay::{ReplayEventError, StoredActionEvent};
+use crate::results::{MatchResults, SeatExits, match_results};
 use crate::setup::{GameSetup, SetupError};
 use crate::unit_id::ServerUnitId;
 use crate::view::{self, CommandResult, PlayerView, SpectatorView};
@@ -14,6 +15,7 @@ use awvm::semantic::{AwbwVisibility, Observation, observe};
 pub struct GameServer {
     authority: crate::awvm_adapter::Authority,
     unit_ids: view::RecipientUnitIds,
+    exits: SeatExits,
 }
 
 impl GameServer {
@@ -23,6 +25,7 @@ impl GameServer {
         Ok(Self {
             authority,
             unit_ids: view::RecipientUnitIds::default(),
+            exits: SeatExits::default(),
         })
     }
 
@@ -33,6 +36,8 @@ impl GameServer {
         command: GameCommand,
     ) -> Result<CommandResult, CommandError> {
         let transition = self.authority.execute(player, &command)?;
+        self.exits
+            .observe(self.authority.state(), &transition.events);
         Ok(view::build_command_result(
             &self.authority,
             &transition,
@@ -47,10 +52,17 @@ impl GameServer {
         let transition =
             self.authority
                 .execute_recorded(event.player, &event.command, &event.random)?;
+        self.exits
+            .observe(self.authority.state(), &transition.events);
         // Discard the result, but advance recipient ID allocators. This keeps
         // opaque IDs equal between replay and live servers.
         view::build_command_result(&self.authority, &transition, &mut self.unit_ids);
         Ok(())
+    }
+
+    /// Return results for a finished non-cancelled match.
+    pub fn results(&self) -> Option<MatchResults> {
+        match_results(self.authority.state(), &self.exits)
     }
 
     /// Get the full visible state for a player (for initial load or reconnection).

@@ -8,10 +8,11 @@ use awbrn_types::{
 
 use awbrn_server::{
     CaptureEvent, Co, CommandError, GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup,
-    PostMoveAction, PowerLevel, ReplayError, ReplayEventError, ServerUnitId, SetupError,
-    StoredActionEvent, reconstruct_from_events, state_from_setup,
+    PostMoveAction, PowerLevel, ReplayError, ReplayEventError, SeatOutcome, SeatResultReason,
+    ServerUnitId, SetupError, StoredActionEvent, reconstruct_from_events, state_from_setup,
 };
-use awvm::semantic::{ObservedEvent, ObservedUnitRef};
+use awvm::ruleset::VictoryReason;
+use awvm::semantic::{ObservedEvent, ObservedUnitRef, PlayerStatus};
 
 fn attack_command(unit_id: ServerUnitId, path: Vec<Position>, target: Position) -> GameCommand {
     GameCommand::MoveUnit {
@@ -195,12 +196,27 @@ fn allied_player_setup(width: usize, height: usize) -> GameSetup {
     }
 }
 
+fn three_player_setup(width: usize, height: usize) -> GameSetup {
+    let mut setup = two_player_setup(width, height);
+    setup.players.push(PlayerSetup {
+        faction: PlayerFaction::GreenEarth,
+        team: None,
+        starting_funds: 1000,
+        co: Co::Andy,
+    });
+    setup
+}
+
 fn p1() -> PlayerId {
     PlayerId(0)
 }
 
 fn p2() -> PlayerId {
     PlayerId(1)
+}
+
+fn p3() -> PlayerId {
+    PlayerId(2)
 }
 
 #[test]
@@ -3122,4 +3138,172 @@ fn replay_rejects_out_of_domain_randomness() {
             source: ReplayEventError::Command(CommandError::InvalidAction { .. }),
         } if err_index == index
     ));
+}
+
+#[test]
+fn a_match_in_play_has_no_result() {
+    let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
+    server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::OrangeStar,
+    );
+    server.spawn_unit(
+        Position::new(4, 4),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::BlueMoon,
+    );
+
+    assert!(server.results().is_none());
+}
+
+/// The winner has no exit cause; the eliminated seat has the rout cause.
+#[test]
+fn a_rout_records_a_win_and_a_loss() {
+    let mut server = GameServer::new(two_player_setup(5, 5)).unwrap();
+    let attacker = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::MegaTank,
+        PlayerFaction::OrangeStar,
+    );
+    server.spawn_unit(
+        Position::new(1, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::BlueMoon,
+    );
+
+    server
+        .submit_command(
+            p1(),
+            attack_command(attacker, vec![Position::new(0, 0)], Position::new(1, 0)),
+        )
+        .unwrap();
+
+    let results = server.results().expect("a routed match has a result");
+    assert_eq!(results.seats.len(), 2);
+
+    let winner = &results.seats[0];
+    assert_eq!(winner.slot_index, 0);
+    assert_eq!(winner.outcome, SeatOutcome::Win);
+    assert_eq!(winner.placement, 1);
+    assert_eq!(winner.reason, None);
+    assert_eq!(winner.status, PlayerStatus::Active);
+
+    let loser = &results.seats[1];
+    assert_eq!(loser.slot_index, 1);
+    assert_eq!(loser.outcome, SeatOutcome::Loss);
+    assert_eq!(loser.placement, 2);
+    assert_eq!(
+        loser.reason,
+        Some(SeatResultReason::Victory(VictoryReason::Rout))
+    );
+    assert_eq!(loser.status, PlayerStatus::Eliminated);
+}
+
+/// Replaying stored events restores seat exit causes.
+#[test]
+fn a_replayed_match_recovers_its_result() {
+    let setup = replay_combat_setup();
+    let mut server = GameServer::new(setup.clone()).unwrap();
+    let mut events = Vec::new();
+
+    submit_and_store(
+        &mut server,
+        &mut events,
+        p1(),
+        build_command(Position::new(0, 0), Unit::MegaTank),
+    );
+    submit_and_store(&mut server, &mut events, p1(), GameCommand::EndTurn);
+    submit_and_store(
+        &mut server,
+        &mut events,
+        p2(),
+        build_command(Position::new(3, 0), Unit::Infantry),
+    );
+    submit_and_store(&mut server, &mut events, p2(), GameCommand::EndTurn);
+    submit_and_store(
+        &mut server,
+        &mut events,
+        p1(),
+        attack_command(
+            ServerUnitId(1),
+            vec![
+                Position::new(0, 0),
+                Position::new(1, 0),
+                Position::new(2, 0),
+            ],
+            Position::new(3, 0),
+        ),
+    );
+
+    let live = server.results().expect("a routed match has a result");
+    assert_eq!(live.seats[1].outcome, SeatOutcome::Loss);
+    assert_eq!(
+        live.seats[1].reason,
+        Some(SeatResultReason::Victory(VictoryReason::Rout))
+    );
+
+    let replayed = reconstruct_from_events(setup, &events).unwrap();
+    assert_eq!(replayed.results(), Some(live));
+}
+
+/// Free-for-all losers receive distinct placements.
+#[test]
+fn a_free_for_all_ranks_its_losers_by_when_they_fell() {
+    let mut server = GameServer::new(three_player_setup(5, 5)).unwrap();
+    let attacker = server.spawn_unit(
+        Position::new(0, 0),
+        awbrn_types::Unit::MegaTank,
+        PlayerFaction::OrangeStar,
+    );
+    server.spawn_unit(
+        Position::new(1, 0),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::BlueMoon,
+    );
+    server.spawn_unit(
+        Position::new(0, 1),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::GreenEarth,
+    );
+
+    // Blue Moon falls first; Green Earth remains in play.
+    server
+        .submit_command(
+            p1(),
+            attack_command(attacker, vec![Position::new(0, 0)], Position::new(1, 0)),
+        )
+        .unwrap();
+    assert!(server.results().is_none(), "a third seat is still in play");
+
+    server.submit_command(p1(), GameCommand::EndTurn).unwrap();
+    server.submit_command(p3(), GameCommand::EndTurn).unwrap();
+    server
+        .submit_command(
+            p1(),
+            attack_command(attacker, vec![Position::new(0, 0)], Position::new(0, 1)),
+        )
+        .unwrap();
+
+    let results = server.results().expect("the last rout ends the match");
+    let placements: Vec<_> = results
+        .seats
+        .iter()
+        .map(|seat| (seat.slot_index, seat.outcome, seat.placement))
+        .collect();
+    assert_eq!(
+        placements,
+        vec![
+            (0, SeatOutcome::Win, 1),
+            // Blue Moon fell first.
+            (1, SeatOutcome::Loss, 3),
+            (2, SeatOutcome::Loss, 2),
+        ]
+    );
+    for seat in &results.seats[1..] {
+        assert_eq!(
+            seat.reason,
+            Some(SeatResultReason::Victory(VictoryReason::Rout))
+        );
+    }
 }

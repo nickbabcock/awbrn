@@ -1,7 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import { drizzle, DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
+import { drizzle as drizzleD1 } from "drizzle-orm/d1";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
-import { asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, isNull } from "drizzle-orm";
 import { WasmMatch, initSync } from "#/wasm/awbrn_server.js";
 import matchWasmModule from "../wasm/awbrn_server_bg.wasm";
 import {
@@ -16,8 +17,10 @@ import { matchSetupSchema } from "./schemas";
 import type { MatchCreateResponse, MatchSetup } from "./schemas";
 import migrations from "../../drizzle/match/migrations";
 import { matchEventsTable } from "#/db/match.ts";
+import { matchResults, matches } from "#/db/global.ts";
 import { getRequestSession } from "#/auth/auth.server.ts";
 import { ownedSlotIndices, selectOwnedPerspectiveSlot } from "./hotseat.ts";
+import { matchResultRows } from "./match_completion.ts";
 
 interface WebSocketAttachment {
   userId: string;
@@ -38,6 +41,9 @@ function parseMatchEvent(row: { kind: string; payload: unknown }): MatchEvent | 
       return null;
   }
 }
+
+/** Retry delay for an unwritten result. */
+const RESULT_ALARM_DELAY_MS = 10_000;
 
 let wasmInitialized = false;
 
@@ -74,7 +80,10 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
         return new Response("Match not initialized", { status: 503 });
       }
 
-      return this.handleWebSocketUpgrade(session.user.id, setup);
+      const response = this.handleWebSocketUpgrade(session.user.id, setup);
+      // Retry result writes because the event log is durable.
+      this.ctx.waitUntil(this.recordResultInBackground(setup));
+      return response;
     }
     return new Response("Not found", { status: 404 });
   }
@@ -114,10 +123,20 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
         throw new Error("match setup disappeared after processing an action");
       }
       this.broadcastActionResponse(response, setup, game);
+      await this.recordResultInBackground(setup);
     } catch (error) {
       const failure = normalizeCaughtError(error);
       sendJson(ws, { type: "error", message: failure.error.message });
     }
+  }
+
+  /** Retry a terminal result write after a database failure. */
+  async alarm(): Promise<void> {
+    const setup = this.readSetupEvent();
+    if (!setup) {
+      return;
+    }
+    await this.recordResultIfFinished(setup);
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
@@ -269,8 +288,44 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
           sendJson(target, message);
         }
       } catch {
-        // ignore closed connections
+        // Ignore closed connections.
       }
+    }
+  }
+
+  /** Persist terminal results. Throws on failure so the alarm can retry. */
+  private async recordResultIfFinished(setup: MatchSetup): Promise<void> {
+    const game = this.loadGame();
+    const results = game?.matchResults();
+    if (!results) {
+      return;
+    }
+
+    const rows = matchResultRows(setup, results);
+    if (rows.length === 0) {
+      return;
+    }
+
+    await this.ctx.storage.setAlarm(Date.now() + RESULT_ALARM_DELAY_MS);
+
+    const db = drizzleD1(this.env.DB);
+    const now = new Date();
+    await db.batch([
+      db.insert(matchResults).values(rows).onConflictDoNothing(),
+      db
+        .update(matches)
+        .set({ phase: "completed", completedAt: now, updatedAt: now })
+        .where(and(eq(matches.id, setup.matchId), isNull(matches.completedAt))),
+    ]);
+    await this.ctx.storage.deleteAlarm();
+  }
+
+  /** Persist a result without reporting database errors to the player. */
+  private async recordResultInBackground(setup: MatchSetup): Promise<void> {
+    try {
+      await this.recordResultIfFinished(setup);
+    } catch (error) {
+      console.error("Failed to record match results:", error);
     }
   }
 
