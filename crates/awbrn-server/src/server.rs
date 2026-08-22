@@ -3,9 +3,9 @@ use crate::error::CommandError;
 use crate::player::PlayerId;
 use crate::replay::{ReplayEventError, StoredActionEvent};
 use crate::results::{MatchResults, SeatExits, match_results};
-use crate::setup::{GameSetup, SetupError};
 use crate::unit_id::ServerUnitId;
 use crate::view::{self, CommandResult, PlayerView, SpectatorView};
+use awbrn_map::{GameSetup, SetupError};
 
 use awbrn_map::Pos;
 use awbrn_types::{PlayerFaction, Unit};

@@ -4,7 +4,7 @@ use crate::command::GameCommand;
 use crate::error::CommandError;
 use crate::player::PlayerId;
 use crate::server::GameServer;
-use crate::setup::{GameSetup, SetupError};
+use awbrn_map::{GameSetup, SetupError};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct StoredActionEvent {

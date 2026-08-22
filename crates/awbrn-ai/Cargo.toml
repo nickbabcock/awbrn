@@ -1,0 +1,18 @@
+[package]
+name = "awbrn-ai"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# The opponent. It depends on `awvm` and on the map crate that builds a
+# starting position from one, and on nothing else: every tier above the first
+# one runs headless self-play, and a dependency on the client would put a
+# renderer and a frame loop in that path.
+
+[dependencies]
+awbrn-map = { path = "../awbrn-map" }
+awbrn-types = { path = "../awbrn-types" }
+awvm = { path = "../awvm" }
+
+[dev-dependencies]
+serde_json.workspace = true
