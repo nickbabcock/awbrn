@@ -1,6 +1,6 @@
 import { spacingDefaults } from "@astryxdesign/core";
 import { Button } from "#/ui/Button.tsx";
-import { Dialog } from "@astryxdesign/core/Dialog";
+import { BottomSheet } from "@astryxdesign/core/BottomSheet";
 import { VStack } from "@astryxdesign/core/Stack";
 import {
   borderVars,
@@ -64,10 +64,11 @@ export interface BoardMenuShellProps {
   inlineSize?: string;
   /**
    * The menu's contents. `spriteScale` is the only thing that differs between a
-   * menu read at arm's length with a mouse and one pressed with a thumb, and
-   * `takesCursor` says whether the first order should be lit when it opens.
+   * menu read at arm's length with a mouse and one pressed with a thumb.
+   * `takesCursor` says whether the first order should be lit when it opens, and
+   * `isSheet` says whether Astryx owns the scroll area.
    */
-  children: (context: { spriteScale: 1 | 2; takesCursor: boolean }) => ReactNode;
+  children: (context: { isSheet: boolean; spriteScale: 1 | 2; takesCursor: boolean }) => ReactNode;
 }
 
 /**
@@ -172,7 +173,7 @@ function BoardAnchoredMenu({
       xstyle={styles.boardMenu}
     >
       <MenuKeyboardScope onDismiss={onDismiss} onRestoreFocus={onRestoreFocus} takesCursor>
-        {children({ spriteScale: 1, takesCursor: true })}
+        {children({ isSheet: false, spriteScale: 1, takesCursor: true })}
       </MenuKeyboardScope>
     </VStack>
   );
@@ -194,14 +195,12 @@ function MenuSheet({ children, footer, label, onDismiss, onRestoreFocus }: Board
   );
 
   return (
-    <Dialog
-      aria-label={label}
+    <BottomSheet
+      height="capped"
       isOpen
-      maxHeight="min(72svh, 40rem)"
+      label={label}
       onOpenChange={handleOpenChange}
-      padding={0}
-      position={{ bottom: 0, left: 0, right: 0 }}
-      width="100%"
+      purpose="info"
       xstyle={styles.sheet}
     >
       {/* The sheet itself takes the focus a modal must place somewhere. Without
@@ -225,9 +224,9 @@ function MenuSheet({ children, footer, label, onDismiss, onRestoreFocus }: Board
         onRestoreFocus={onRestoreFocus}
         takesCursor={false}
       >
-        {children({ spriteScale: 2, takesCursor: false })}
+        {children({ isSheet: true, spriteScale: 2, takesCursor: false })}
       </MenuKeyboardScope>
-    </Dialog>
+    </BottomSheet>
   );
 }
 
@@ -478,13 +477,12 @@ const styles = stylex.create({
     maxWidth: "100%",
     borderRadius: boardMenuLayout.sheetBorderRadius,
     borderBlockEndWidth: 0,
-    // The board behind a sheet is dimmed, not defocused. A blurred backdrop is
-    // the one soft edge this system does not have anywhere else.
-    "::backdrop": { backdropFilter: "none" },
   },
   sheetBody: {
     minBlockSize: 0,
     outline: "none",
+    // The BottomSheet handle is out of flow. Reserve its space above the menu.
+    paddingBlockStart: spacingVars["--spacing-6"],
     // The sheet ends at the bottom edge of the device, not at the bottom edge
     // of the screen.
     paddingBlockEnd: "env(safe-area-inset-bottom)",

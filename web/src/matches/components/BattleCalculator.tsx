@@ -1,5 +1,5 @@
 import { Button } from "#/ui/Button.tsx";
-import { Dialog } from "@astryxdesign/core/Dialog";
+import { BottomSheet } from "@astryxdesign/core/BottomSheet";
 import { Grid } from "@astryxdesign/core/Grid";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
@@ -99,9 +99,6 @@ export type BattleCalculatorPresentation = "board" | "sheet";
  * player did not ask for.
  */
 export const BATTLE_CALCULATOR_SHEET_MEDIA = "(max-width: 1279px), (max-height: 899px)";
-
-/** As deep as a sheet may stand before it stops being a sheet. */
-const SHEET_MAX_BLOCK_SIZE = "min(86svh, 46rem)";
 
 interface BattleCalculatorProps {
   onDismiss: () => void;
@@ -610,20 +607,15 @@ function PanelFrame({ children, kit }: { children: React.ReactNode; kit: PanelKi
 
   if (kit.isSheet) {
     return (
-      <Dialog
-        aria-label="Battle calculator"
+      <BottomSheet
+        height="tall"
         isOpen
-        maxHeight={SHEET_MAX_BLOCK_SIZE}
+        label="Battle calculator"
         onOpenChange={(isOpen) => {
           if (!isOpen) kit.onDismiss();
         }}
-        padding={0}
-        // A form rather than an informational dialog: a press outside is not an
-        // answer to a panel the player has spent eight controls describing an
-        // engagement in, so only Escape and the close key take it away.
         purpose="form"
-        position={{ bottom: 0, left: 0, right: 0 }}
-        width="100%"
+        snapPoints={[0.5]}
         xstyle={styles.sheet}
       >
         {/* The sheet takes the focus a modal has to place somewhere. Without a
@@ -632,7 +624,7 @@ function PanelFrame({ children, kit }: { children: React.ReactNode; kit: PanelKi
         <VStack data-autofocus gap={0} tabIndex={-1} xstyle={styles.sheetBody}>
           {panel}
         </VStack>
-      </Dialog>
+      </BottomSheet>
     );
   }
 
@@ -649,8 +641,7 @@ function PanelFrame({ children, kit }: { children: React.ReactNode; kit: PanelKi
         // opens over the panel opens in the top layer, and a control holding
         // one open says so on itself, so the two together are the whole test:
         // the key landed inside a layer, or on the trigger that opened it.
-        // The sheet needs none of this: the dialog defers to the top layer on
-        // its own.
+        // The sheet needs none of this. BottomSheet manages its own top layer.
         if (event.key !== "Escape") return;
         if (
           event.target instanceof Element &&
@@ -1339,14 +1330,12 @@ const styles = stylex.create({
     maxWidth: "100%",
     borderRadius: `${radiusVars["--radius-container"]} ${radiusVars["--radius-container"]} 0 0`,
     borderBlockEndWidth: 0,
-    // The board behind the sheet is dimmed, not defocused. A blurred backdrop
-    // is the one soft edge this system does not have anywhere else.
-    "::backdrop": { backdropFilter: "none" },
   },
   sheetBody: {
     minBlockSize: 0,
-    blockSize: "100%",
     outline: "none",
+    // The BottomSheet handle is out of flow. Reserve its space above the form.
+    paddingBlockStart: spacingVars["--spacing-6"],
     // The sheet ends at the bottom edge of the device, not at the bottom edge
     // of the screen.
     paddingBlockEnd: "env(safe-area-inset-bottom)",
