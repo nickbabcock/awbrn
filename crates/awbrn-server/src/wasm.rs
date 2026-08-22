@@ -141,6 +141,12 @@ impl WasmMatch {
         })
     }
 
+    /// Return results for a finished non-cancelled match.
+    #[wasm_bindgen(js_name = matchResults)]
+    pub fn match_results(&self) -> Option<crate::MatchResults> {
+        self.server.results()
+    }
+
     #[wasm_bindgen(js_name = playerGameState)]
     pub fn player_game_state(&mut self, player_slot: u8) -> Result<MatchGameState, JsError> {
         let player = crate::player::PlayerId(player_slot);
