@@ -5,3 +5,4 @@ input_file: assets/replays/replay_1699315_missle-bomb_2026-07-28.zip
 ---
 00002 d=1 p=4086371 End        s=687b47d1ea817a5c o=a27e3c6e0f9033ce
 00003 d=2 p=4086370 End        s=08d11eeb4a05ca98 o=a14f9f89cd54a8a2
+final {"day":2,"match":{"draw_offers":[],"status":"active"},"phase":"unit-action","players":[["4086370","active",1],["4086371","active",1]]}

@@ -1,0 +1,16 @@
+---
+source: crates/awvm-awbw/tests/integration/recorded_outcomes.rs
+expression: outcome.snapshot
+input_file: assets/replays/replay_1714171_day-limit_2026-08-21.zip
+---
+00001 d=1 p=4117813 End        s=db1284d91a07869f o=222234dee39c0582
+00002 d=2 p=4117812 End        s=77a6558f034f1081 o=c688825bca49c3b8
+00004 d=2 p=4117813 End        s=bcaa011ee26ecbd5 o=0187f35a560f3791
+00005 d=3 p=4117812 End        s=25cbd63c5a67042f o=976e0d09f39ec058
+00006 d=3 p=4117813 End        s=febe886d62c9a4c2 o=092209d1e07d8911
+00007 d=4 p=4117812 End        s=5af9c493c31faef3 o=fda52fb121bb8222
+00008 d=4 p=4117813 End        s=2a99f0fb806ba31a o=094a6acdb9b91e0c
+00009 d=5 p=4117812 End        s=674b6495134769d0 o=c87abfd742cf181c
+00010 d=5 p=4117813 End        s=53c57a9dda3bfa4e o=207bc4570c2028a6
+00011 d=5 p=4117813 End        s=5c835efe66276bff o=9eb27cb9269c67af
+final {"day":5,"match":{"outcome":{"reason":"day-limit","type":"victory","winners":["player:4117812"]},"status":"finished"},"phase":"finished","players":[["4117812","active",2],["4117813","active",1]]}

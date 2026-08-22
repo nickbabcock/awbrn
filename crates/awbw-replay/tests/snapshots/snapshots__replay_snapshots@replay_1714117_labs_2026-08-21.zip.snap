@@ -1,0 +1,44 @@
+---
+source: crates/awbw-replay/tests/snapshots.rs
+expression: snapshot
+input_file: assets/replays/replay_1714117_labs_2026-08-21.zip
+---
+{
+  "checksum": "0xf9f25efa2a36ddf41225c0a9fa8f247a49e906f2b9a67dba8397b723ed4a9572",
+  "file_entries": [
+    {
+      "data": {
+        "Game": {
+          "count": 3
+        }
+      },
+      "file_path": "1714117",
+      "file_size": 3770
+    },
+    {
+      "data": {
+        "Turn": {
+          "turns": [
+            {
+              "day": 1,
+              "elements": 3,
+              "player_id": 4117712
+            },
+            {
+              "day": 1,
+              "elements": 1,
+              "player_id": 4117713
+            },
+            {
+              "day": 2,
+              "elements": 2,
+              "player_id": 4117712
+            }
+          ]
+        }
+      },
+      "file_path": "a1714117",
+      "file_size": 1399
+    }
+  ]
+}

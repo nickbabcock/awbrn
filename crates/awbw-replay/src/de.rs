@@ -42,6 +42,25 @@ where
     })
 }
 
+/// Decode a map whose values are AWBW's `Y`/`N` flags.
+///
+/// The flags decode to booleans exactly as [`bool_ynstr`] decodes a single one.
+pub fn bool_ynstr_map<'de, D, K>(
+    deserializer: D,
+) -> Result<Option<indexmap::IndexMap<K, bool>>, D::Error>
+where
+    D: Deserializer<'de>,
+    K: Deserialize<'de> + std::hash::Hash + Eq,
+{
+    #[derive(Deserialize)]
+    struct Flag(#[serde(deserialize_with = "bool_ynstr")] bool);
+
+    let flags = indexmap::IndexMap::<K, Flag>::deserialize(deserializer)?;
+    Ok(Some(
+        flags.into_iter().map(|(key, flag)| (key, flag.0)).collect(),
+    ))
+}
+
 pub fn bool_ynstr<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: Deserializer<'de>,

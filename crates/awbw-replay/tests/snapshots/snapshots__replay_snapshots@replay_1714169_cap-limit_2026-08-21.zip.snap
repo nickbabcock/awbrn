@@ -1,0 +1,44 @@
+---
+source: crates/awbw-replay/tests/snapshots.rs
+expression: snapshot
+input_file: assets/replays/replay_1714169_cap-limit_2026-08-21.zip
+---
+{
+  "checksum": "0x0a629e03d8bbc69ea2419327e5bfa6a5ba6b9369d52d8e4b2921765421b54ef5",
+  "file_entries": [
+    {
+      "data": {
+        "Game": {
+          "count": 3
+        }
+      },
+      "file_path": "1714169",
+      "file_size": 3695
+    },
+    {
+      "data": {
+        "Turn": {
+          "turns": [
+            {
+              "day": 1,
+              "elements": 6,
+              "player_id": 4117808
+            },
+            {
+              "day": 1,
+              "elements": 1,
+              "player_id": 4117809
+            },
+            {
+              "day": 2,
+              "elements": 4,
+              "player_id": 4117808
+            }
+          ]
+        }
+      },
+      "file_path": "a1714169",
+      "file_size": 1485
+    }
+  ]
+}

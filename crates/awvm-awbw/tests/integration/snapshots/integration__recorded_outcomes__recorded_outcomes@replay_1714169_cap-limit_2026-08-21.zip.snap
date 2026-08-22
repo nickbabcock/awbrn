@@ -1,0 +1,9 @@
+---
+source: crates/awvm-awbw/tests/integration/recorded_outcomes.rs
+expression: outcome.snapshot
+input_file: assets/replays/replay_1714169_cap-limit_2026-08-21.zip
+---
+00005 d=1 p=4117809 End        s=20519cdc64030537 o=08335ce0b255250e
+00006 d=2 p=4117808 End        s=a8c405866f268146 o=0fddc06bcb446c03
+00010 d=2 p=4117808 Capt       s=a78c30640a31f5fa o=a19733db1b414854
+final {"day":2,"match":{"outcome":{"reason":"capture-limit","type":"victory","winners":["player:4117808"]},"status":"finished"},"phase":"finished","players":[["4117808","active",5],["4117809","active",1]]}

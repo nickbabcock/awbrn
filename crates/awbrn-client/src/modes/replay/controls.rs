@@ -419,7 +419,7 @@ mod tests {
                 Hidden::Visible(UnitProperty {
                     units_id: awbrn_types::AwbwUnitId::new(1),
                     units_games_id: Some(1),
-                    units_players_id: 1,
+                    units_players_id: AwbwGamePlayerId::new(1),
                     units_name: awbrn_types::Unit::Infantry,
                     units_movement_points: Some(3),
                     units_vision: Some(2),

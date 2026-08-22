@@ -248,4 +248,5 @@ input_file: assets/replays/1468032_landfall_2025-12-22.zip
 04791 d=41 p=3422137 End        s=aecd52d74b142af1 o=30b522d3cac1e328
 04792 d=41 p=3418315 Resign     s=78ea1125601e2a26 o=de6a779eabbfed1d
 04793 d=41 p=3416925 End        s=78d167604ee688ae o=12bce0b7b82e8f22
-04794 d=41 p=3416925 Resign     s=60d984e84be5e9b2 o=36039dd64335ae2f
+04794 d=41 p=3416925 Resign     s=727e897bcd1f065a o=ef87acd4bc474849
+final {"day":41,"match":{"outcome":{"reason":"resignation","type":"victory","winners":["team:A"]},"status":"finished"},"phase":"finished","players":[["3416848","active",21],["3417170","resigned",13],["3421988","active",17],["3422137","resigned",15],["3418315","active",18],["3416925","resigned",16]]}

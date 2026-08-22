@@ -1,0 +1,6 @@
+---
+source: crates/awvm-awbw/tests/integration/initial_state.rs
+expression: snapshot
+input_file: assets/replays/replay_1714172_day-limit-draw_2026-08-21.zip
+---
+map=187835 size=10x10 players=2 units=7 state=1f96fea2ed6c57da observations=21154d043d99dc6e

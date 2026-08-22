@@ -1,0 +1,16 @@
+---
+source: crates/awvm-awbw/tests/integration/recorded_outcomes.rs
+expression: outcome.snapshot
+input_file: assets/replays/replay_1714172_day-limit-draw_2026-08-21.zip
+---
+00000 d=1 p=4117816 End        s=dc14bc1757102d41 o=bcdb7f501e7b4a8e
+00001 d=2 p=4117815 End        s=55a3a05c6657fab0 o=de8dcdb9e632c2a2
+00002 d=2 p=4117816 End        s=0927b88c7c07180d o=9f38d147341902a8
+00003 d=3 p=4117815 End        s=6b7b11558a35d2c2 o=6284c2283d97554d
+00004 d=3 p=4117816 End        s=d9ce6f04c0144140 o=75914ed3859515ae
+00005 d=4 p=4117815 End        s=0be4664186e6ccec o=51d2a60a5b2818f7
+00006 d=4 p=4117816 End        s=e93e9f157bfa343d o=7d38262d92fc7de8
+00007 d=5 p=4117815 End        s=ea8d9405d53c1eba o=78202ec7ffad5be3
+00008 d=5 p=4117816 End        s=90f8176d830fa4de o=bde04b9ef3d5e1ad
+00009 d=5 p=4117816 End        s=0a4f15010bde8e7c o=837ea76b03990e24
+final {"day":5,"match":{"outcome":{"reason":"day-limit","teams":["player:4117815","player:4117816"],"type":"draw"},"status":"finished"},"phase":"finished","players":[["4117815","active",1],["4117816","active",1]]}

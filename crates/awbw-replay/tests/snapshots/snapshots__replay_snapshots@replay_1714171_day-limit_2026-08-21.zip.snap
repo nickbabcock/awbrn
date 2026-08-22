@@ -1,0 +1,79 @@
+---
+source: crates/awbw-replay/tests/snapshots.rs
+expression: snapshot
+input_file: assets/replays/replay_1714171_day-limit_2026-08-21.zip
+---
+{
+  "checksum": "0x7ddc8a2f95cd6394b5b190beb11371ce76ede79495786db58ab5434b4a23fdb8",
+  "file_entries": [
+    {
+      "data": {
+        "Game": {
+          "count": 10
+        }
+      },
+      "file_path": "1714171",
+      "file_size": 12300
+    },
+    {
+      "data": {
+        "Turn": {
+          "turns": [
+            {
+              "day": 1,
+              "elements": 2,
+              "player_id": 4117812
+            },
+            {
+              "day": 1,
+              "elements": 1,
+              "player_id": 4117813
+            },
+            {
+              "day": 2,
+              "elements": 2,
+              "player_id": 4117812
+            },
+            {
+              "day": 2,
+              "elements": 1,
+              "player_id": 4117813
+            },
+            {
+              "day": 3,
+              "elements": 1,
+              "player_id": 4117812
+            },
+            {
+              "day": 3,
+              "elements": 1,
+              "player_id": 4117813
+            },
+            {
+              "day": 4,
+              "elements": 1,
+              "player_id": 4117812
+            },
+            {
+              "day": 4,
+              "elements": 1,
+              "player_id": 4117813
+            },
+            {
+              "day": 5,
+              "elements": 1,
+              "player_id": 4117812
+            },
+            {
+              "day": 5,
+              "elements": 1,
+              "player_id": 4117813
+            }
+          ]
+        }
+      },
+      "file_path": "a1714171",
+      "file_size": 2927
+    }
+  ]
+}
