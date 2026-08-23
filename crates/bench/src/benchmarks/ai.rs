@@ -494,7 +494,7 @@ pub fn play_amber_valley_match(case: AmberValleyMatchCase) -> Record {
     let AmberValleyMatchCase { state, mut session } = case;
     let game = Rng::mix(AMBER_VALLEY_MATCH_SEED);
     let mut entropy = Rng::from_seed(Rng::mix(game ^ 0x1));
-    let mut threat = GreedyAgent::with_weights(Rng::mix(game ^ 0x2), Weights::WITHOUT_DENIAL);
+    let mut threat = GreedyAgent::with_weights(Rng::mix(game ^ 0x2), Weights::THREAT);
     let mut deny = GreedyAgent::from_seed(Rng::mix(game ^ 0x3));
     let mut agents: [&mut dyn Agent; 2] = [&mut threat, &mut deny];
 
@@ -668,7 +668,7 @@ pub mod criterion_benches {
 
     fn matches(c: &mut Criterion) {
         let mut group = c.benchmark_group("ai-match");
-        group.bench_function("amber-valley-greedy-threat-vs-greedy-deny", |b| {
+        group.bench_function("amber-valley-threat-vs-deny", |b| {
             b.iter_batched(
                 amber_valley_match_case,
                 |case| black_box(run_amber_valley_match(case)),
