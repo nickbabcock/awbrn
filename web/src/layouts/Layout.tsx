@@ -39,6 +39,7 @@ export function Layout({ children }: { children: ReactNode }) {
       }
 
       queryClient.removeQueries({ queryKey: matchKeys.mine() });
+      queryClient.removeQueries({ queryKey: matchKeys.completed() });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: authKeys.all }),
         queryClient.invalidateQueries({ queryKey: matchKeys.details() }),
@@ -69,11 +70,18 @@ export function Layout({ children }: { children: ReactNode }) {
             label="Matches"
           />
           {session ? (
-            <RouterTopNavItem
-              to="/my/matches"
-              isSelected={pathname === "/my/matches"}
-              label="My Matches"
-            />
+            <>
+              <RouterTopNavItem
+                to="/my/matches"
+                isSelected={pathname === "/my/matches"}
+                label="My Matches"
+              />
+              <RouterTopNavItem
+                to="/my/history"
+                isSelected={pathname === "/my/history"}
+                label="History"
+              />
+            </>
           ) : null}
           <RouterTopNavItem
             to="/matches/new"

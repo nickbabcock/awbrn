@@ -13,10 +13,21 @@ import type {
   MatchSettings,
   MatchSetup,
   MatchSnapshot,
+  MatchHistoryEntry,
+  MatchHistoryRequest,
+  MatchHistoryResponse,
+  MatchHistorySeat,
   MyMatchesResponse,
   MyMatchSummary,
 } from "./schemas";
 import { groupMyMatchRows, ONGOING_MATCH_PHASES } from "./my_matches";
+import {
+  COMPLETED_MATCH_PHASE,
+  decodeMatchHistoryCursor,
+  encodeMatchHistoryCursor,
+  MATCH_HISTORY_PAGE_SIZE,
+} from "./match_history";
+import { matchReplaysExist } from "./replay_archive";
 import {
   MATCH_BROWSE_PAGE_SIZE,
   decodeMatchBrowseCursor,
@@ -28,10 +39,23 @@ import { err, ok, type MatchResult } from "./match_protocol";
 import { generateMatchId } from "./match_id";
 import { getMatchStub } from "./match_service";
 import { drizzle } from "drizzle-orm/d1";
-import { and, asc, count, desc, eq, exists, gt, inArray, lt, or, sql } from "drizzle-orm";
-import { matches, matchParticipants, user } from "#/db/global.ts";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  exists,
+  gt,
+  inArray,
+  isNotNull,
+  lt,
+  or,
+  sql,
+} from "drizzle-orm";
+import { matches, matchParticipants, matchResults, user } from "#/db/global.ts";
 
-const db = drizzle(env.DB, { schema: { matches, matchParticipants, user } });
+const db = drizzle(env.DB, { schema: { matches, matchParticipants, matchResults, user } });
 
 const PUBLIC_MATCH_PHASE: MatchPhase = "lobby";
 const STARTING_MATCH_PHASE: MatchPhase = "starting";
@@ -54,6 +78,7 @@ type MatchRow = Awaited<ReturnType<typeof queryMatchRow>>;
 type MatchParticipantRow = Awaited<ReturnType<typeof queryParticipantRows>>[number];
 type MatchBrowseRow = Awaited<ReturnType<typeof queryBrowseRows>>[number];
 type MyMatchRow = Awaited<ReturnType<typeof queryMyMatchRows>>[number];
+type MatchHistoryRow = Awaited<ReturnType<typeof queryMatchHistoryRows>>[number];
 
 export async function createMatch(
   input: MatchCreateRequest,
@@ -185,6 +210,98 @@ export async function listMyMatches(viewerUserId: string): Promise<MatchResult<M
   }
 
   return ok({ matches: myMatches });
+}
+
+/**
+ * The viewer's finished matches, newest first.
+ *
+ * Two queries rather than one: the page is a count of matches, not of seats,
+ * so the ids are picked first and every seat of those matches is read second.
+ */
+export async function listMyCompletedMatches(
+  viewerUserId: string,
+  input: MatchHistoryRequest,
+): Promise<MatchResult<MatchHistoryResponse>> {
+  const cursor = decodeMatchHistoryCursor(input.cursor);
+  const cursorCompletedAt = cursor ? new Date(cursor.completedAt) : null;
+  const cursorPredicate =
+    cursor && cursorCompletedAt && !Number.isNaN(cursorCompletedAt.getTime())
+      ? or(
+          lt(matches.completedAt, cursorCompletedAt),
+          and(eq(matches.completedAt, cursorCompletedAt), lt(matches.id, cursor.matchId)),
+        )
+      : undefined;
+  const recent = await db
+    .select({ matchId: matches.id, completedAt: matches.completedAt })
+    .from(matches)
+    .innerJoin(
+      matchParticipants,
+      and(eq(matchParticipants.matchId, matches.id), eq(matchParticipants.userId, viewerUserId)),
+    )
+    .where(
+      and(
+        eq(matches.phase, COMPLETED_MATCH_PHASE),
+        isNotNull(matches.completedAt),
+        cursorPredicate,
+      ),
+    )
+    .groupBy(matches.id)
+    .orderBy(desc(matches.completedAt), desc(matches.id))
+    .limit(MATCH_HISTORY_PAGE_SIZE + 1)
+    .all();
+
+  const hasNextPage = recent.length > MATCH_HISTORY_PAGE_SIZE;
+  const visibleRows = hasNextPage ? recent.slice(0, MATCH_HISTORY_PAGE_SIZE) : recent;
+  const matchIds = visibleRows.map((row) => row.matchId);
+  if (matchIds.length === 0) {
+    return ok({
+      matches: [],
+      pageSize: MATCH_HISTORY_PAGE_SIZE,
+      hasNextPage: false,
+      nextCursor: null,
+    });
+  }
+
+  const [rows, storedReplays] = await Promise.all([
+    queryMatchHistoryRows(matchIds),
+    matchReplaysExist(env.CONTENT, matchIds),
+  ]);
+
+  const rowsByMatchId = new Map<string, MatchHistoryRow[]>();
+  for (const row of rows) {
+    const current = rowsByMatchId.get(row.matchId);
+    if (current) current.push(row);
+    else rowsByMatchId.set(row.matchId, [row]);
+  }
+
+  const history: MatchHistoryEntry[] = [];
+  for (const matchId of matchIds) {
+    const matchRows = rowsByMatchId.get(matchId);
+    if (!matchRows) continue;
+
+    const settings = parseMatchSettingsValue(matchRows[0]!.settings);
+    if (!settings.ok) {
+      return settings;
+    }
+
+    history.push(
+      toMatchHistoryEntry(matchRows, settings.value, viewerUserId, storedReplays.has(matchId)),
+    );
+  }
+
+  const lastVisibleRow = visibleRows[visibleRows.length - 1] ?? null;
+  return ok({
+    matches: history,
+    pageSize: MATCH_HISTORY_PAGE_SIZE,
+    hasNextPage,
+    nextCursor:
+      hasNextPage && lastVisibleRow
+        ? encodeMatchHistoryCursor({
+            completedAt: lastVisibleRow.completedAt!.toISOString(),
+            matchId: lastVisibleRow.matchId,
+          })
+        : null,
+  });
 }
 
 export async function mutateMatch(
@@ -729,6 +846,41 @@ async function queryMyMatchRows(viewerUserId: string) {
     .all();
 }
 
+/** Every seat of the named matches, with the result recorded for each. */
+async function queryMatchHistoryRows(matchIds: string[]) {
+  return db
+    .select({
+      matchId: matches.id,
+      name: matches.name,
+      mapId: matches.mapId,
+      isPrivate: matches.isPrivate,
+      settings: matches.settings,
+      startedAt: matches.startedAt,
+      completedAt: matches.completedAt,
+      seatSlotIndex: matchParticipants.slotIndex,
+      seatUserId: matchParticipants.userId,
+      seatUserName: user.name,
+      seatFactionId: matchParticipants.factionId,
+      seatCoId: matchParticipants.coId,
+      seatOutcome: matchResults.outcome,
+      seatPlacement: matchResults.placement,
+      seatReason: matchResults.reason,
+    })
+    .from(matches)
+    .innerJoin(matchParticipants, eq(matchParticipants.matchId, matches.id))
+    .innerJoin(user, eq(user.id, matchParticipants.userId))
+    .leftJoin(
+      matchResults,
+      and(
+        eq(matchResults.matchId, matchParticipants.matchId),
+        eq(matchResults.slotIndex, matchParticipants.slotIndex),
+      ),
+    )
+    .where(inArray(matches.id, matchIds))
+    .orderBy(asc(matchParticipants.slotIndex))
+    .all();
+}
+
 function parseMatchSettingsValue(value: unknown): MatchResult<MatchSettings> {
   try {
     const result = matchSettingsSchema.safeParse(value);
@@ -806,6 +958,42 @@ function toMyMatchSummary(rows: MyMatchRow[], settings: MatchSettings): MyMatchS
         updatedAt: viewerRow.viewerUpdatedAt.toISOString(),
       }))
       .sort((a, b) => a.slotIndex - b.slotIndex),
+  };
+}
+
+/** One finished match, as the report the viewer reads. */
+function toMatchHistoryEntry(
+  rows: MatchHistoryRow[],
+  settings: MatchSettings,
+  viewerUserId: string,
+  hasReplay: boolean,
+): MatchHistoryEntry {
+  const row = rows[0]!;
+  const seats: MatchHistorySeat[] = rows.map((seatRow) => ({
+    slotIndex: seatRow.seatSlotIndex,
+    userId: seatRow.seatUserId,
+    userName: seatRow.seatUserName,
+    factionId: seatRow.seatFactionId,
+    coId: seatRow.seatCoId,
+    outcome: seatRow.seatOutcome,
+    placement: seatRow.seatPlacement,
+    reason: seatRow.seatReason,
+  }));
+
+  return {
+    matchId: row.matchId,
+    name: row.name,
+    mapId: row.mapId,
+    isPrivate: row.isPrivate,
+    settings,
+    startedAt: row.startedAt === null ? null : row.startedAt.toISOString(),
+    // Only matches with a completion time are selected, so this is never null.
+    completedAt: (row.completedAt ?? row.startedAt ?? new Date(0)).toISOString(),
+    viewerSlotIndexes: seats
+      .filter((seat) => seat.userId === viewerUserId)
+      .map((seat) => seat.slotIndex),
+    seats,
+    hasReplay,
   };
 }
 

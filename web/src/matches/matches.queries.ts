@@ -1,5 +1,10 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
-import { getMatchFn, listMatchesFn, listMyMatchesFn } from "./matches.functions";
+import {
+  getMatchFn,
+  listMatchesFn,
+  listMyCompletedMatchesFn,
+  listMyMatchesFn,
+} from "./matches.functions";
 import { matchKeys, normalizeJoinSlug } from "./matches.keys";
 import type { MyMatchesResponse } from "./schemas";
 
@@ -28,6 +33,16 @@ export function myMatchesQueryOptions() {
         loadedAt: new Date().toISOString(),
       };
     },
+  });
+}
+
+export function myCompletedMatchesQueryOptions() {
+  return infiniteQueryOptions({
+    queryKey: matchKeys.completed(),
+    queryFn: ({ pageParam }) =>
+      listMyCompletedMatchesFn({ data: pageParam ? { cursor: pageParam } : {} }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
 }
 

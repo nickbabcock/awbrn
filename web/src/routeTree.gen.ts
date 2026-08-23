@@ -15,6 +15,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as MatchesIndexRouteImport } from './routes/matches/index'
 import { Route as MatchesMatchIdRouteImport } from './routes/matches/$matchId'
 import { Route as MatchesNewRouteImport } from './routes/matches/new'
+import { Route as MyHistoryRouteImport } from './routes/my/history'
 import { Route as MyMatchesRouteImport } from './routes/my/matches'
 import { Route as ReplaysChar123matchIdChar125DotjsonRouteImport } from './routes/replays/{$matchId}[.]json'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
@@ -50,6 +51,11 @@ const MatchesMatchIdRoute = MatchesMatchIdRouteImport.update({
 const MatchesNewRoute = MatchesNewRouteImport.update({
   id: '/matches/new',
   path: '/matches/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MyHistoryRoute = MyHistoryRouteImport.update({
+  id: '/my/history',
+  path: '/my/history',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MyMatchesRoute = MyMatchesRouteImport.update({
@@ -90,6 +96,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/matches/$matchId': typeof MatchesMatchIdRoute
   '/matches/new': typeof MatchesNewRoute
+  '/my/history': typeof MyHistoryRoute
   '/my/matches': typeof MyMatchesRoute
   '/replays/{$matchId}.json': typeof ReplaysChar123matchIdChar125DotjsonRoute
   '/matches/': typeof MatchesIndexRoute
@@ -104,6 +111,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/matches/$matchId': typeof MatchesMatchIdRoute
   '/matches/new': typeof MatchesNewRoute
+  '/my/history': typeof MyHistoryRoute
   '/my/matches': typeof MyMatchesRoute
   '/replays/{$matchId}.json': typeof ReplaysChar123matchIdChar125DotjsonRoute
   '/matches': typeof MatchesIndexRoute
@@ -119,6 +127,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/matches/$matchId': typeof MatchesMatchIdRoute
   '/matches/new': typeof MatchesNewRoute
+  '/my/history': typeof MyHistoryRoute
   '/my/matches': typeof MyMatchesRoute
   '/replays/{$matchId}.json': typeof ReplaysChar123matchIdChar125DotjsonRoute
   '/matches/': typeof MatchesIndexRoute
@@ -135,6 +144,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/matches/$matchId'
     | '/matches/new'
+    | '/my/history'
     | '/my/matches'
     | '/replays/{$matchId}.json'
     | '/matches/'
@@ -149,6 +159,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/matches/$matchId'
     | '/matches/new'
+    | '/my/history'
     | '/my/matches'
     | '/replays/{$matchId}.json'
     | '/matches'
@@ -163,6 +174,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/matches/$matchId'
     | '/matches/new'
+    | '/my/history'
     | '/my/matches'
     | '/replays/{$matchId}.json'
     | '/matches/'
@@ -178,6 +190,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   MatchesMatchIdRoute: typeof MatchesMatchIdRoute
   MatchesNewRoute: typeof MatchesNewRoute
+  MyHistoryRoute: typeof MyHistoryRoute
   MyMatchesRoute: typeof MyMatchesRoute
   ReplaysChar123matchIdChar125DotjsonRoute: typeof ReplaysChar123matchIdChar125DotjsonRoute
   MatchesIndexRoute: typeof MatchesIndexRoute
@@ -231,6 +244,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MatchesNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/my/history': {
+      id: '/my/history'
+      path: '/my/history'
+      fullPath: '/my/history'
+      preLoaderRoute: typeof MyHistoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/my/matches': {
       id: '/my/matches'
       path: '/my/matches'
@@ -282,6 +302,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   MatchesMatchIdRoute: MatchesMatchIdRoute,
   MatchesNewRoute: MatchesNewRoute,
+  MyHistoryRoute: MyHistoryRoute,
   MyMatchesRoute: MyMatchesRoute,
   ReplaysChar123matchIdChar125DotjsonRoute:
     ReplaysChar123matchIdChar125DotjsonRoute,

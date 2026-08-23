@@ -7,12 +7,14 @@ import {
   createMatch,
   getMatchSnapshot,
   listMatches,
+  listMyCompletedMatches,
   listMyMatches,
   mutateMatch,
 } from "./matches.server";
 import {
   matchBrowseRequestSchema,
   matchCreateRequestSchema,
+  matchHistoryRequestSchema,
   matchMutationRequestSchema,
 } from "./schemas";
 
@@ -29,6 +31,16 @@ export const listMyMatchesFn = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     if (!context.session) throw new Response("Unauthorized", { status: 401 });
     const result = await listMyMatches(context.session.user.id);
+    if (!result.ok) throw new Error(result.error.message);
+    return result.value;
+  });
+
+export const listMyCompletedMatchesFn = createServerFn({ method: "GET" })
+  .middleware([sessionMiddleware])
+  .validator(matchHistoryRequestSchema)
+  .handler(async ({ data, context }) => {
+    if (!context.session) throw new Response("Unauthorized", { status: 401 });
+    const result = await listMyCompletedMatches(context.session.user.id, data);
     if (!result.ok) throw new Error(result.error.message);
     return result.value;
   });

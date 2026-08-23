@@ -43,6 +43,7 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
       }
 
       queryClient.removeQueries({ queryKey: matchKeys.mine() });
+      queryClient.removeQueries({ queryKey: matchKeys.completed() });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: authKeys.all }),
         queryClient.invalidateQueries({ queryKey: matchKeys.details() }),
