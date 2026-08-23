@@ -145,10 +145,13 @@ struct EnemyUnitIds {
     positions: HashMap<Pos, ServerUnitId>,
 }
 
+/// The largest integer that JavaScript can represent without loss.
+const MAX_SAFE_JAVASCRIPT_INTEGER: u64 = (1 << 53) - 1;
+
 impl Default for EnemyUnitIds {
     fn default() -> Self {
         Self {
-            next: u64::MAX,
+            next: MAX_SAFE_JAVASCRIPT_INTEGER,
             positions: HashMap::new(),
         }
     }
