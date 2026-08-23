@@ -15,7 +15,7 @@
 use std::time::Instant;
 
 use awbrn_ai::agent::Agent;
-use awbrn_ai::agents::{GreedyAgent, RandomAgent};
+use awbrn_ai::agents::{GreedyAgent, RandomAgent, Weights};
 use awbrn_ai::board::arena;
 use awbrn_ai::harness::{Limits, Record, play};
 use awbrn_ai::rng::Rng;
@@ -48,7 +48,7 @@ usage: arena [--seed N] [--games N] [--fog] [--day-cap N] [--first NAME] [--seco
   --first NAME   The agent under test. Default random.
   --second NAME  The agent it plays. Default random.
 
-agents: random, greedy";
+agents: random, greedy, greedy-threat, greedy-deny";
 
 struct Options {
     seed: u64,
@@ -113,7 +113,12 @@ fn parse_number<T: std::str::FromStr>(text: &str) -> Result<T, String> {
 }
 
 /// The agents this binary can seat, by the name the arguments use.
-const AGENTS: [&str; 2] = ["random", "greedy"];
+///
+/// Each name adds one term to the one before it, so any adjacent pair is the
+/// measurement of that term and nothing else. `greedy` is tier 1 as it
+/// landed, `greedy-threat` adds the threat map, and `greedy-deny` adds the
+/// price of stopping an enemy capture.
+const AGENTS: [&str; 4] = ["random", "greedy", "greedy-threat", "greedy-deny"];
 
 fn agent_name(name: &str) -> Result<&'static str, String> {
     AGENTS
@@ -130,7 +135,9 @@ fn agent_name(name: &str) -> Result<&'static str, String> {
 fn build(name: &str, seed: u64) -> Box<dyn Agent> {
     match name {
         "random" => Box::new(RandomAgent::from_seed(seed)),
-        "greedy" => Box::new(GreedyAgent::from_seed(seed)),
+        "greedy" => Box::new(GreedyAgent::with_weights(seed, Weights::THREATLESS)),
+        "greedy-threat" => Box::new(GreedyAgent::with_weights(seed, Weights::WITHOUT_DENIAL)),
+        "greedy-deny" => Box::new(GreedyAgent::from_seed(seed)),
         other => unreachable!("{other} passed the argument check"),
     }
 }

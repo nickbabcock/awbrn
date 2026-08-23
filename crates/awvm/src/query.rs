@@ -147,11 +147,21 @@ pub struct MoveField {
 /// [`MoveField::recycle`] puts it back. A grid that is never given back is
 /// dropped, and a caller with no pool always gets that.
 #[derive(Debug, Default)]
-pub(crate) struct MoveScratch {
+pub struct MoveScratch {
     /// Arrival grids handed back by spent fields.
     grids: Vec<Grid<Option<Arrival>>>,
     /// Dial's buckets, cleared and resized rather than rebuilt.
     buckets: Vec<Vec<Pos>>,
+}
+
+impl MoveScratch {
+    /// An empty pool. The first search fills it.
+    pub const fn new() -> Self {
+        Self {
+            grids: Vec::new(),
+            buckets: Vec::new(),
+        }
+    }
 }
 
 /// The cheapest route the search found into one tile.
@@ -448,7 +458,7 @@ impl MoveField {
     /// The grid is the only board-sized thing a search owns. A caller done
     /// with a field that will search again hands it back here, and the next
     /// search writes into this allocation instead of asking for one.
-    pub(crate) fn recycle(self, scratch: &mut MoveScratch) {
+    pub fn recycle(self, scratch: &mut MoveScratch) {
         scratch.grids.push(self.arrivals);
     }
 
@@ -759,12 +769,30 @@ impl<'a> ActiveTurn<'a> {
 /// hidden occupancy out of validation and resolves it as a trap during
 /// execution instead. Removing it would leak the hidden unit.
 pub fn reachable(state: &State, unit: UnitId) -> Result<MoveField, QueryError> {
+    reachable_into(state, unit, &mut MoveScratch::default())
+}
+
+/// [`reachable`], writing into memory the caller keeps.
+///
+/// The search allocates one board-sized grid, and a caller that asks about
+/// unit after unit pays for one of those per unit. Hand the same scratch to
+/// each search, and give each spent field back with [`MoveField::recycle`],
+/// and the whole sweep allocates once.
+///
+/// The board tables are not shared this way, because they belong to one
+/// player's turn and this entry point answers for any owner. A caller
+/// sweeping the units of a single player wants the turn instead.
+pub fn reachable_into(
+    state: &State,
+    unit: UnitId,
+    scratch: &mut MoveScratch,
+) -> Result<MoveField, QueryError> {
     let subject = lookup(state, unit)?;
     let maps = TurnMaps::for_seat(state, subject.owner).ok_or(QueryError::UnknownOwner {
         unit,
         seat: subject.owner,
     })?;
-    reachable_with(state, unit, &maps, &mut MoveScratch::default())
+    reachable_with(state, unit, &maps, scratch)
 }
 
 /// [`reachable`] against maps the caller already holds.

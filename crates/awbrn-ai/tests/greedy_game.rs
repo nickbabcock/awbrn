@@ -61,7 +61,7 @@ fn assert_greedy_wins(fog: bool) {
 }
 
 #[test]
-fn greedy_beats_random_in_the_open() {
+fn greedy_beats_random_in_a_standard_game() {
     assert_greedy_wins(false);
 }
 
