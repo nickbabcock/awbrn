@@ -1,8 +1,8 @@
 //! CPU-side compositing of an AWBW map into a static PNG-ready image.
 //!
 //! This mirrors what the Bevy client renders on the GPU, but produces a single
-//! [`RgbaImage`] by blitting terrain/property and unit sprites out of the same
-//! `tiles.png` / `units.png` atlases the client uses. Sprite-cell lookups reuse
+//! [`RgbaImage`] by blitting terrain/property, unit, and unit-status sprites out
+//! of the same atlases the client uses. Sprite-cell lookups reuse
 //! [`awbrn_content`] so the appearance stays in sync with the live renderer.
 
 use std::path::Path;
@@ -26,21 +26,26 @@ pub const TILE_SIZE: u32 = 16;
 /// tile and the top 16px is overhang that rises into the cell above.
 const TERRAIN_CELL_W: u32 = 16;
 const TERRAIN_CELL_H: u32 = 32;
+const CAPTURE_REQUIRED_POINTS: u8 = 20;
 
-/// The two sprite atlases needed to render a map.
+/// The sprite atlases needed to render a map.
 pub struct Tilesets {
     /// Terrain / property spritesheet (`tiles.png`).
     pub tiles: RgbaImage,
     /// Unit spritesheet (`units.png`).
     pub units: RgbaImage,
+    /// Unit status overlays (`ui.png`), such as health and capture markers.
+    pub ui: RgbaImage,
 }
 
 impl Tilesets {
-    /// Load `tiles.png` and `units.png` from a directory (e.g. `assets/textures`).
+    /// Load `tiles.png`, `units.png`, and `ui.png` from a directory (e.g.
+    /// `assets/textures`).
     pub fn load_from_dir(dir: &Path) -> anyhow::Result<Self> {
         let tiles = image::open(dir.join("tiles.png"))?.to_rgba8();
         let units = image::open(dir.join("units.png"))?.to_rgba8();
-        Ok(Self { tiles, units })
+        let ui = image::open(dir.join("ui.png"))?.to_rgba8();
+        Ok(Self { tiles, units, ui })
     }
 }
 
@@ -68,6 +73,7 @@ pub fn render_map_with_weather(
 
     render_terrain(&graphical, tilesets, weather, &mut canvas);
 
+    let mut overlays = Vec::with_capacity(units.len());
     for unit in units {
         let Some(kind) = Unit::from_awbw_id(unit.unit_id) else {
             eprintln!("warning: skipping unknown unit id {}", unit.unit_id);
@@ -80,7 +86,7 @@ pub fn render_map_with_weather(
             );
             continue;
         };
-        draw_unit(
+        let origin = draw_unit(
             &mut canvas,
             kind,
             faction,
@@ -88,6 +94,13 @@ pub fn render_map_with_weather(
             unit.unit_y,
             tilesets,
         );
+        overlays.push((
+            origin,
+            UnitStatus::from_visual_hp(unit.unit_hp.min(10) as u8),
+        ));
+    }
+    for (origin, status) in overlays {
+        draw_unit_status(&mut canvas, origin, status, tilesets);
     }
 
     canvas
@@ -132,13 +145,109 @@ fn draw_unit(
     x: u32,
     y: u32,
     tilesets: &Tilesets,
-) {
+) -> (i64, i64) {
     let index = unit_spritesheet_index(GraphicalMovement::Idle, kind, faction).index();
     let (sx, sy, sw, sh) = unit_cell_rect(index);
     let sprite = tilesets.units.view(sx, sy, sw, sh).to_image();
 
     let (dx, dy) = unit_draw_origin(x, y);
     imageops::overlay(canvas, &sprite, dx, dy);
+    (dx, dy)
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct UnitStatus {
+    /// Graphical HP, on the board's 1–10 scale. Full health has no overlay.
+    health: Option<u8>,
+    capturing: bool,
+}
+
+impl UnitStatus {
+    fn from_visual_hp(health: u8) -> Self {
+        Self {
+            health: (health > 0 && health < 10).then_some(health),
+            capturing: false,
+        }
+    }
+
+    fn from_exact_hp(health: u8) -> Self {
+        Self::from_visual_hp(health.div_ceil(10))
+    }
+}
+
+/// The UI atlas is packed rather than gridded. These rectangles mirror the
+/// entries in `assets/data/ui_atlas.json`, which is also what the Bevy client
+/// uses to name these sprites.
+#[derive(Debug, Clone, Copy)]
+enum UiSprite {
+    Capturing,
+    Health(u8),
+}
+
+impl UiSprite {
+    fn rect(self) -> (u32, u32, u32, u32) {
+        match self {
+            Self::Capturing => (151, 20, 8, 8),
+            Self::Health(0) => (151, 30, 8, 7),
+            Self::Health(1) => (46, 150, 8, 7),
+            Self::Health(2) => (56, 150, 8, 7),
+            Self::Health(3) => (1, 151, 8, 7),
+            Self::Health(4) => (11, 151, 8, 7),
+            Self::Health(5) => (21, 151, 8, 7),
+            Self::Health(6) => (31, 151, 8, 7),
+            Self::Health(7) => (135, 1, 8, 7),
+            Self::Health(8) => (135, 10, 8, 7),
+            Self::Health(9) => (145, 1, 8, 7),
+            Self::Health(_) => (145, 10, 8, 7),
+        }
+    }
+
+    fn local_translation(self) -> (f32, f32) {
+        match self {
+            Self::Capturing => (0.0, 8.0),
+            Self::Health(_) => (7.5, 8.0),
+        }
+    }
+}
+
+fn draw_unit_status(
+    canvas: &mut RgbaImage,
+    unit_origin: (i64, i64),
+    status: UnitStatus,
+    tilesets: &Tilesets,
+) {
+    if let Some(health) = status.health {
+        draw_ui_sprite(canvas, unit_origin, UiSprite::Health(health), tilesets);
+    }
+    if status.capturing {
+        draw_ui_sprite(canvas, unit_origin, UiSprite::Capturing, tilesets);
+    }
+}
+
+/// Draw a status sprite at the same local offset used by the Bevy unit
+/// renderer. The raster compositor rounds the half-pixel positions that the
+/// center-anchored GPU sprites use.
+fn draw_ui_sprite(
+    canvas: &mut RgbaImage,
+    unit_origin: (i64, i64),
+    sprite: UiSprite,
+    tilesets: &Tilesets,
+) {
+    let (sx, sy, width, height) = sprite.rect();
+    let source = tilesets.ui.view(sx, sy, width, height).to_image();
+    let (x, y) = overlay_origin(unit_origin, sprite);
+    imageops::overlay(canvas, &source, x, y);
+}
+
+fn overlay_origin(origin: (i64, i64), sprite: UiSprite) -> (i64, i64) {
+    let (_, _, width, height) = sprite.rect();
+    let (local_x, local_y) = sprite.local_translation();
+    (
+        (origin.0 as f32 + UNIT_SPRITE_WIDTH as f32 / 2.0 + local_x - width as f32 / 2.0).round()
+            as i64,
+        (origin.1 as f32 + UNIT_SPRITE_HEIGHT as f32 / 2.0 + local_y - height as f32 / 2.0).round()
+            as i64,
+    )
 }
 
 /// Return the top-left draw position that matches the client's center anchor.
@@ -191,11 +300,17 @@ pub fn render_state(
     let mut canvas = RgbaImage::new(width_px.max(1), height_px.max(1));
     render_terrain(&map, tilesets, Weather::Clear, &mut canvas);
 
+    let mut overlays = Vec::with_capacity(state.units.len());
     for unit in state.units.iter() {
         let Location::Board { position } = unit.location else {
             continue;
         };
-        draw_unit(
+        let capturing = state
+            .board
+            .tile(position)
+            .capture_points
+            .is_some_and(|points| points < CAPTURE_REQUIRED_POINTS);
+        let origin = draw_unit(
             &mut canvas,
             unit.kind,
             factions[unit.owner.get()],
@@ -203,6 +318,16 @@ pub fn render_state(
             u32::from(position.y),
             tilesets,
         );
+        overlays.push((
+            origin,
+            UnitStatus {
+                health: UnitStatus::from_exact_hp(unit.hp).health,
+                capturing,
+            },
+        ));
+    }
+    for (origin, status) in overlays {
+        draw_unit_status(&mut canvas, origin, status, tilesets);
     }
     canvas
 }
@@ -277,5 +402,24 @@ mod tests {
     fn unit_draw_origin_matches_the_client_alignment() {
         assert_eq!(unit_draw_origin(0, 0), (-7, 8));
         assert_eq!(unit_draw_origin(2, 3), (25, 56));
+    }
+
+    #[test]
+    fn exact_health_uses_the_client_graphical_health_rules() {
+        assert_eq!(UnitStatus::from_exact_hp(100).health, None);
+        assert_eq!(UnitStatus::from_exact_hp(91).health, None);
+        assert_eq!(UnitStatus::from_exact_hp(90).health, Some(9));
+        assert_eq!(UnitStatus::from_exact_hp(1).health, Some(1));
+        assert_eq!(UnitStatus::from_exact_hp(0).health, None);
+    }
+
+    #[test]
+    fn status_overlay_positions_match_the_client_offsets() {
+        let origin = unit_draw_origin(0, 0);
+        let (capture_x, capture_y) = overlay_origin(origin, UiSprite::Capturing);
+        let (health_x, health_y) = overlay_origin(origin, UiSprite::Health(9));
+
+        assert_eq!((capture_x, capture_y), (1, 24));
+        assert_eq!((health_x, health_y), (8, 25));
     }
 }
