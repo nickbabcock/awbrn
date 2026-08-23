@@ -490,6 +490,7 @@ dependencies = [
  "approx",
  "awbrn-bevy",
  "awbrn-content",
+ "awbrn-game",
  "awbrn-map",
  "awbrn-protocol",
  "awbrn-types",

@@ -27,8 +27,8 @@ fn archived_movement_animates_and_applies_only_typed_transitions() {
         serde_json::from_slice(&std::fs::read(map_fixture_path("162795.json")).unwrap()).unwrap();
     let mut app = replay_test_app(&replay, &map_data);
 
-    for action in replay.turns.iter().cloned() {
-        ReplayTurnCommand { action }.apply(app.world_mut());
+    for index in 0..replay.turns.len() {
+        ReplayTurnCommand { index }.apply(app.world_mut());
         let Some(entity) = app.world().resource::<ReplayAdvanceLock>().active_entity() else {
             continue;
         };
@@ -101,8 +101,8 @@ fn typed_transitions_record_public_power_meter() {
     let mut app = replay_test_app(&replay, &map_data);
 
     let mut charged = false;
-    for action in replay.turns.iter().cloned() {
-        ReplayTurnCommand { action }.apply(app.world_mut());
+    for index in 0..replay.turns.len() {
+        ReplayTurnCommand { index }.apply(app.world_mut());
         if let Some(entity) = app.world().resource::<ReplayAdvanceLock>().active_entity() {
             let followup = app
                 .world_mut()
@@ -320,17 +320,16 @@ fn replay_test_app(replay: &awbw_replay::AwbwReplay, map_data: &AwbwMapData) -> 
     app.world_mut()
         .resource_mut::<GameMap>()
         .set(AwbrnMap::from_map(&graphical_map));
-    app.insert_resource(LoadedReplay(replay.clone()));
+    app.insert_resource(LoadedReplay(
+        awbrn_client::replay_archive::ReplayArchive::Awbw(replay.clone()),
+    ));
     app.insert_resource(ReplayTransitionSource::new(adapter));
     initialize_replay_semantic_world_for_client(app.world_mut());
     app
 }
 
-fn apply_settled_action(app: &mut App, replay: &awbw_replay::AwbwReplay, index: usize) {
-    ReplayTurnCommand {
-        action: replay.turns[index].clone(),
-    }
-    .apply(app.world_mut());
+fn apply_settled_action(app: &mut App, _replay: &awbw_replay::AwbwReplay, index: usize) {
+    ReplayTurnCommand { index }.apply(app.world_mut());
     if let Some(entity) = app.world().resource::<ReplayAdvanceLock>().active_entity() {
         let followup = app
             .world_mut()

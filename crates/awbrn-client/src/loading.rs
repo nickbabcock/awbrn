@@ -6,7 +6,7 @@ use awbrn_bevy::world::GameMap;
 use awbrn_content::co_portrait_by_awbw_id;
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData, Pos};
 use awbw_replay::game_models::AwbwPlayer;
-use awbw_replay::{AwbwReplay, ReplayParser, game_models::AwbwBuilding};
+use awbw_replay::{AwbwReplay, game_models::AwbwBuilding};
 use awvm::semantic::{Observation, ObservedTransition};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -58,7 +58,7 @@ pub struct ReplayToLoad(pub Vec<u8>);
 
 /// Resource containing the loaded replay data
 #[derive(Resource)]
-pub struct LoadedReplay(pub AwbwReplay);
+pub struct LoadedReplay(pub crate::replay_archive::ReplayArchive);
 
 /// Resource to mark that a new game should be started
 #[derive(Resource)]
@@ -191,8 +191,7 @@ pub(crate) fn detect_replay_to_load(
 ) {
     commands.remove_resource::<ReplayToLoad>();
 
-    let parser = ReplayParser::new();
-    let replay = match parser.parse(&replay_to_load.0) {
+    let replay = match crate::replay_archive::ReplayArchive::parse(&replay_to_load.0) {
         Ok(replay) => replay,
         Err(e) => {
             error!("Failed to parse replay: {:?}", e);
@@ -200,20 +199,43 @@ pub(crate) fn detect_replay_to_load(
         }
     };
 
-    if let Some(replay_loaded) = replay_loaded_event(&replay) {
-        commands.insert_resource(PendingReplayLoadedEvent(replay_loaded));
-    }
-
-    if let Some(first_game) = replay.games.first() {
-        let map_id = first_game.maps_id;
-        info!("Found map ID: {:?} in replay", map_id);
-
-        let map_handle = asset_loader.load_map(map_id.as_u32());
-        commands.insert_resource(MapAssetHandle(map_handle));
-    } else {
-        error!("No games found in replay");
-        let map_handle = asset_loader.load_map(162795);
-        commands.insert_resource(MapAssetHandle(map_handle));
+    match &replay {
+        crate::replay_archive::ReplayArchive::Awbw(awbw) => {
+            if let Some(replay_loaded) = replay_loaded_event(awbw) {
+                commands.insert_resource(PendingReplayLoadedEvent(replay_loaded));
+            }
+            let map_id = awbw
+                .games
+                .first()
+                .map_or(162795, |game| game.maps_id.as_u32());
+            commands.insert_resource(MapAssetHandle(asset_loader.load_map(map_id)));
+        }
+        crate::replay_archive::ReplayArchive::Awbrn(native) => {
+            let setup = match native.game_setup() {
+                Ok(setup) => setup,
+                Err(error) => {
+                    error!("Failed to initialize AWBRN replay: {error}");
+                    return;
+                }
+            };
+            let authority = match awbrn_game::Authority::new(&setup) {
+                Ok(authority) => authority,
+                Err(error) => {
+                    error!("Failed to initialize AWBRN replay: {error}");
+                    return;
+                }
+            };
+            let map = setup.map.clone();
+            commands.insert_resource(
+                crate::modes::replay::presentation::ReplayTransitionSource::new(
+                    crate::replay_archive::ReplayTimeline::Awbrn {
+                        setup,
+                        current: Box::new(authority),
+                    },
+                ),
+            );
+            commands.insert_resource(PendingLoadedMatchMap(map));
+        }
     }
 
     commands.insert_resource(asset_loader.load_pending_ui_atlas());
@@ -318,9 +340,10 @@ pub(crate) fn check_assets_loaded(
 
     let mut awbw_map = awbw_map_asset.to_awbw_map();
     if let Some(replay) = assets.replay
-        && let Some(first_game) = replay.0.games.first()
+        && let Some(awbw_replay) = replay.0.awbw()
+        && let Some(first_game) = awbw_replay.games.first()
     {
-        match awvm_awbw::RecordedAdapter::new(&replay.0, &awbw_map_asset.0) {
+        match awvm_awbw::RecordedAdapter::new(awbw_replay, &awbw_map_asset.0) {
             Ok(adapter) => {
                 commands.insert_resource(
                     crate::modes::replay::presentation::ReplayTransitionSource::new(adapter),

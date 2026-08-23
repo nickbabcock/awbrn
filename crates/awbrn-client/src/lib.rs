@@ -6,6 +6,7 @@ pub mod loading;
 pub mod modes;
 pub mod projection;
 pub mod render;
+pub mod replay_archive;
 mod ui_atlas;
 
 pub use awbrn_plugin::AwbrnPlugin;

@@ -441,7 +441,8 @@ impl BevyApp {
 
     #[wasm_bindgen]
     pub fn new_replay(&mut self, data: Vec<u8>) -> Result<(), JsError> {
-        // Signal that a new replay should be loaded
+        awbrn_client::replay_archive::ReplayArchive::parse(&data)
+            .map_err(|error| JsError::new(&error))?;
         self.app.world_mut().insert_resource(ReplayToLoad(data));
 
         Ok(())
