@@ -89,7 +89,7 @@ fn main() -> Result<()> {
             let assets_dir = assets_dir.unwrap_or_else(default_assets_dir);
             let tilesets = Tilesets::load_from_dir(&assets_dir).with_context(|| {
                 format!(
-                    "loading tiles.png / units.png from {} (override with --assets-dir)",
+                    "loading tiles.png / units.png / ui.png from {} (override with --assets-dir)",
                     assets_dir.display()
                 )
             })?;
@@ -175,7 +175,7 @@ fn print_usage() {
          OPTIONS:\n    -o, --output <file>    Output path (default: input with .png; stdout for text)\n    \
          -f, --format <fmt>     png (default), text (lossless Unicode + legend), or awbw\n                           \
          (collapsed ASCII). Inferred as text when --output ends in .txt\n    \
-         --assets-dir <dir>     Directory containing tiles.png and units.png\n                           \
+         --assets-dir <dir>     Directory containing tiles.png, units.png, and ui.png\n                           \
          (default: bundled assets/textures)\n    -h, --help             Print this help"
     );
 }
