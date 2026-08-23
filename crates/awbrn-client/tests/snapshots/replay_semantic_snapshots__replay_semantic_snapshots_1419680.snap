@@ -1,5 +1,6 @@
 ---
 source: crates/awbrn-client/tests/replay_semantic_snapshots.rs
+assertion_line: 54
 expression: rows
 ---
 [
@@ -7,174 +8,174 @@ expression: rows
     "action_index": 2,
     "day": 1,
     "action_kind": "End",
-    "checksum": "0x2c9e868a632cae359519d3199dca03e42e2eb7c8e73bf7b0f6b71a8c4f416546"
+    "checksum": "0xf4970dbbe0fad18b197a2309b642294eab8eae3f30ecf0e8d30542703dc09124"
   },
   {
     "action_index": 6,
     "day": 2,
     "action_kind": "End",
-    "checksum": "0x5ac5291c93bd0e5c9a39cba7ec3b5c3d4e4a2f17e4a572fe012d11dd3492cba8"
+    "checksum": "0x33a4c1223f3957b83c5693123ce950fd0cda8ebd0688c3729dff0bb38f6bd09e"
   },
   {
     "action_index": 10,
     "day": 2,
     "action_kind": "End",
-    "checksum": "0x249aede110f1be64f1d1a497852c4e73189bfc4ee374b804b55dac9c6446bd87"
+    "checksum": "0xcf81021fa9e2a22642af2cfc90ee1b86c5f6b679c2cd0fd29517d026b3e4c1e9"
   },
   {
     "action_index": 15,
     "day": 3,
     "action_kind": "End",
-    "checksum": "0xacc7baf678a7e3c53acde86dc8201636ff2dbb664794b3c4779a1d57270fa6e3"
+    "checksum": "0xdc0adddbb2fe38d917f1683079323db128d35e537449cc9e24d6ecb86628ee3e"
   },
   {
     "action_index": 21,
     "day": 3,
     "action_kind": "End",
-    "checksum": "0xba89c4c06cf458151822080a3ec07f6bd9fe6b908dab0cabe68c6a8a3772910d"
+    "checksum": "0x4d7cecf5aabbc4d76bad437c56d023823948bc75bad3acc72143c8c4f50c26e0"
   },
   {
     "action_index": 28,
     "day": 4,
     "action_kind": "End",
-    "checksum": "0x943a58087fa0cfeca9fadecd77f77246d0c11e6cffddda85e25790961c5bea56"
+    "checksum": "0x649ca5edc8a183f7e12f9ead6a15d9b121da819739dd15e9adaf1f57c4d34b5d"
   },
   {
     "action_index": 36,
     "day": 4,
     "action_kind": "End",
-    "checksum": "0xe016d2778d162c4c55b35f5fb0fb881c6e00bd553b13d9350f74772ef7bf569e"
+    "checksum": "0x7acc5866a1b97a1d888781609e97f397ea808c5344a0664fa2838d02ea339426"
   },
   {
     "action_index": 45,
     "day": 5,
     "action_kind": "End",
-    "checksum": "0xd48f9e080f371acf479d2e79397ffd66a13f636f6b14fd04b1ea116620f7b70a"
+    "checksum": "0x511ae2b34b3cdbd9a181c43ed24282f199411a5dbd1f83aae9ec380748280eec"
   },
   {
     "action_index": 56,
     "day": 5,
     "action_kind": "End",
-    "checksum": "0x57a624619db54f77942fb5050097bc3dc85706d8efebaf44a671ae564922d110"
+    "checksum": "0xcca3776f1a4a2e5dba3f7b3f61e19cfbe529e3d9a792e5079374da04609a408e"
   },
   {
     "action_index": 67,
     "day": 6,
     "action_kind": "End",
-    "checksum": "0xa6439bb4c47c33578974a4d11016dd5ab8c237bf0b53c0929757b93267c5a50c"
+    "checksum": "0x10c910dbeaea747b7c7db1a97197a66a6c7eed3bd10cca2a9f2346ae3132c86d"
   },
   {
     "action_index": 80,
     "day": 6,
     "action_kind": "End",
-    "checksum": "0x7c702783375509ca0209d9bc42fbfba6a98514127c8e9074ebe78b585a713fa9"
+    "checksum": "0x2ea526bd6f2d06db67499e1dca76adc84bbdb111ffd8715073f773f6738da854"
   },
   {
     "action_index": 94,
     "day": 7,
     "action_kind": "End",
-    "checksum": "0xa0dfcdc134cba2af963d0ab779d9df3eb1a799545d5ec8377dee861974f8c75c"
+    "checksum": "0x26b2dcab6eb933e4263eee795e52424df498e9acf8b0ab0671265fdeca2953e5"
   },
   {
     "action_index": 111,
     "day": 7,
     "action_kind": "End",
-    "checksum": "0xf5b021f0bdd440cd76aa46fe4db31361edffa09fac9446755b3f77d4fd8d603a"
+    "checksum": "0x181a9b1acf9167cf8a2bfc38a7dbade1d6efb8892529c70fa9fd34d2ccdaf861"
   },
   {
     "action_index": 128,
     "day": 8,
     "action_kind": "End",
-    "checksum": "0xcc6b26a9d63ab17592c642339fd2e92bdf11c5573990c6d15fb02e40795ea3f7"
+    "checksum": "0x07a25ce3409ded4155d7019164a5b48ade6063f122035b84394e220d73b82b2c"
   },
   {
     "action_index": 147,
     "day": 8,
     "action_kind": "End",
-    "checksum": "0x49ca0aa267d848b7da97f4a59d847b137beaeed6e94acb309ca60dda8c194adb"
+    "checksum": "0x8605f2796a67ea61cbff5396e833eb40d8b19500cd2e63a286e2d24899d32a02"
   },
   {
     "action_index": 167,
     "day": 9,
     "action_kind": "End",
-    "checksum": "0xc1bbbe5aed6dd1d20abe4cf2ace47a1836e237a1beece51eaec4ebae894d55b8"
+    "checksum": "0x4cbd3e69c18d3e08d3eafb715ed65d57adaa828f2ac3a52d84504b11e5eed5f5"
   },
   {
     "action_index": 190,
     "day": 9,
     "action_kind": "End",
-    "checksum": "0xcf5e2927980c3807893e43e91696107ba2ce0a91e7141519009a862956c3d804"
+    "checksum": "0x56409e031db46be7bdd29459ed591f17d630defec756a07c7668e3711d42fd78"
   },
   {
     "action_index": 213,
     "day": 10,
     "action_kind": "End",
-    "checksum": "0x15e131ce2c4fe17057809da5521926631db1a07344d53139b4e3b49c9f577e1d"
+    "checksum": "0x609fce18d72d64bb6387bf99de1b2f0da4a5c4d77a71f8f85477042d64149e02"
   },
   {
     "action_index": 234,
     "day": 10,
     "action_kind": "End",
-    "checksum": "0xc49769b3ce74e89311353912343f344a1c485c69975c5a66aaa50d3978d2c8ac"
+    "checksum": "0x06e0b3e864f757ca4ae56afa462757e59b55480ea101ebf9339563a757e74e63"
   },
   {
     "action_index": 261,
     "day": 11,
     "action_kind": "End",
-    "checksum": "0xd60df5a9c054e737d144c3c0ea59cacfdcd1e31bbb144c0271c513ac51ae03c5"
+    "checksum": "0xbe7f7d3286ce4b14030a74c218e25091c9b9075c5dd085062dfbcc088dd49a9b"
   },
   {
     "action_index": 293,
     "day": 11,
     "action_kind": "End",
-    "checksum": "0x144a7f0cbe9a993a38689fea0c34b6b12ce88eb8b58ae97b615435d2e1a1e0b2"
+    "checksum": "0xe7702fad44b06b12037e1eeca3cf04ad8bf9262aea4ab7fc60b3e71fed4d3a97"
   },
   {
     "action_index": 335,
     "day": 12,
     "action_kind": "End",
-    "checksum": "0x1d0208c313d900ce2b05d06c45a1cbd878c705906c326f6a8b97140ddbd95c03"
+    "checksum": "0x855ce3d2147d86a0a22b2b8c4f67aaa768ff5149a923859b817c83817faeaee7"
   },
   {
     "action_index": 371,
     "day": 12,
     "action_kind": "End",
-    "checksum": "0x5675fa92a42e4e4ffc09766a42f4f39655386a838e016772c797e268d5f62118"
+    "checksum": "0xe0e1ca3a2c688f0d0c8daa398c3861ec5fef676e52246c6ae8492706c21d3e7a"
   },
   {
     "action_index": 427,
     "day": 13,
     "action_kind": "End",
-    "checksum": "0x07885f8cd5931edc08e637acb446be834b2c73beb11527dd66571a47a04e6766"
+    "checksum": "0xc855ff01a5b56ffd04b04b3b1b1456ff34b03e4168c1c6f519561cc4ac267263"
   },
   {
     "action_index": 473,
     "day": 13,
     "action_kind": "End",
-    "checksum": "0x0afc6af389088e21d441316385d04228fab3abb1a6339d1007c14bdea24e7dbe"
+    "checksum": "0x2e08ba5b5133161a6511dbbebcf18a84ed78326266e99111e1a341e940228dea"
   },
   {
     "action_index": 523,
     "day": 14,
     "action_kind": "End",
-    "checksum": "0x6f3438ccd7c3ec6f781aba31d23cbd9a28a5cc43ee2c09fcf340bee0064dad07"
+    "checksum": "0x2f2d7aa4e51af8bfbdc96ded68338337f137b1a68d4a5c249142c3c2b040c54a"
   },
   {
     "action_index": 563,
     "day": 14,
     "action_kind": "End",
-    "checksum": "0x0e1c857ea7addd7c29dba6227a4207771f8ca16688fd3e2a787e683e2614498c"
+    "checksum": "0x491f8f0b6f9f257e917d6ee85f17f066f60c6e5eed9ac76a73c3bea07eb7ec85"
   },
   {
     "action_index": 622,
     "day": 15,
     "action_kind": "End",
-    "checksum": "0x9b5081370d3488d98ceb393eaf976569f39e25a4d09f636f901a77637a341f14"
+    "checksum": "0x9f3a2e12394aa859c4663755050a0ab1c9f90d9e8bf5256c5c1865dbfc464d90"
   },
   {
     "action_index": 630,
     "day": 15,
     "action_kind": "Resign",
-    "checksum": "0xfcc3e236288c8e15b211055c5c8b4971b1ac5bc32dae4b6b790580799a837d9c"
+    "checksum": "0x528efd0c02a12f4be18224f676fc7884e65be69207ecd565cb118cd1da9b3d78"
   }
 ]

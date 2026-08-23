@@ -311,7 +311,7 @@ impl<'a> ReplaySemanticView<'a> {
         type_registry: &'a TypeRegistry,
     ) -> Result<Self, GameSnapshotError> {
         let mut resources = entries(snapshot.scene.resources.iter().map(AsRef::as_ref));
-        resources.sort_by_key(|entry| entry.type_path);
+        resources.sort_by_key(|entry| semantic_type_id(entry.type_path));
 
         let mut entities = snapshot
             .scene
@@ -324,7 +324,7 @@ impl<'a> ReplaySemanticView<'a> {
                     .map(String::as_str)
                     .ok_or(GameSnapshotError::MissingEntityMapping(entity.entity))?;
                 let mut components = entries(entity.components.iter().map(AsRef::as_ref));
-                components.sort_by_key(|entry| entry.type_path);
+                components.sort_by_key(|entry| semantic_type_id(entry.type_path));
                 Ok((id, components))
             })
             .collect::<Result<Vec<_>, GameSnapshotError>>()?;
@@ -439,7 +439,7 @@ impl Serialize for EntriesView<'_> {
         impl Serialize for EntryView<'_> {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 let mut state = serializer.serialize_struct("CanonicalSceneEntry", 2)?;
-                state.serialize_field("type_path", self.entry.type_path)?;
+                state.serialize_field("type_path", semantic_type_id(self.entry.type_path))?;
                 state.serialize_field(
                     "value",
                     &TypedReflectSerializer::with_processor(
@@ -462,6 +462,15 @@ impl Serialize for EntriesView<'_> {
         }
         seq.end()
     }
+}
+
+/// Return the stable identifier used by replay-semantic checksums.
+///
+/// Rust crate and module paths can change without changing game state. The
+/// registered semantic types have distinct terminal names, so the checksum
+/// uses that name instead of the implementation path.
+fn semantic_type_id(type_path: &str) -> &str {
+    type_path.rsplit("::").next().unwrap_or(type_path)
 }
 
 fn game_semantic_component_filter(world: &World) -> WorldFilter {
@@ -580,8 +589,8 @@ fn canonical_scene_entry(
 ) -> Result<CanonicalSceneEntry, GameSnapshotError> {
     let type_path = reflect_value
         .get_represented_type_info()
-        .map(|info| info.type_path().to_string())
-        .unwrap_or_else(|| reflect_value.reflect_type_path().to_string());
+        .map(|info| semantic_type_id(info.type_path()).to_owned())
+        .unwrap_or_else(|| semantic_type_id(reflect_value.reflect_type_path()).to_owned());
     let ser = TypedReflectSerializer::with_processor(reflect_value, type_registry, processor);
     let value =
         serde_json::to_value(&ser).map_err(|e| GameSnapshotError::Serialization(e.to_string()))?;
@@ -591,6 +600,18 @@ fn canonical_scene_entry(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn semantic_type_ids_ignore_crate_and_module_paths() {
+        assert_eq!(
+            semantic_type_id("awbrn_game::world::units::GraphicalHp"),
+            semantic_type_id("awbrn_types::hp::GraphicalHp")
+        );
+        assert_eq!(
+            semantic_type_id("awbrn_game::replay::state::ReplayState"),
+            "ReplayState"
+        );
+    }
     use crate::replay::ReplayState;
     use crate::world::{Ammo, Faction, Fuel, GameMap, TerrainHp, Unit, UnitActive, VisionRange};
     use crate::{GameWorldPlugin, MapPosition};
@@ -846,7 +867,7 @@ mod tests {
         let kind = unit
             .components
             .iter()
-            .find(|component| component.type_path.ends_with("world::units::Unit"))
+            .find(|component| component.type_path == "Unit")
             .unwrap();
         let fuel = unit
             .components
