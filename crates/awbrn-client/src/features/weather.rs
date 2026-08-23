@@ -1,4 +1,4 @@
-pub use awbrn_game::world::CurrentWeather;
+pub use awbrn_bevy::world::CurrentWeather;
 
 use awbrn_types::Weather;
 use bevy::prelude::*;

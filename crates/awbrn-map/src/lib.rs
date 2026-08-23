@@ -3,8 +3,6 @@ mod awbw_map;
 mod deployment;
 mod map_document;
 mod map_error;
-mod setup;
-mod setup_state;
 pub mod xy;
 
 pub use awbrn_map::AwbrnMap;
@@ -15,8 +13,6 @@ pub use map_document::{
     MapDigests, ValidatedMapDocument,
 };
 pub use map_error::MapError;
-pub use setup::{GameSetup, PlayerSetup, SetupError};
-pub use setup_state::{faction_players, player_id, semantic_terrain, state_from_setup};
 
 /// The board coordinate, the board shape, and the table keyed by them.
 ///

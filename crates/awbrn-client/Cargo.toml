@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 awbrn-content = { path = "../awbrn-content", features = ["bevy"] }
-awbrn-game = { path = "../awbrn-game" }
+awbrn-bevy = { path = "../awbrn-bevy" }
 awbrn-map = { path = "../awbrn-map", features = ["bevy"] }
 awbrn-protocol = { path = "../awbrn-protocol" }
 awbrn-types = { path = "../awbrn-types", features = ["bevy"] }

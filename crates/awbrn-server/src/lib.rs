@@ -1,24 +1,20 @@
-mod awvm_adapter;
-pub mod command;
-pub mod error;
 mod player;
 pub mod replay;
 pub mod results;
 pub mod server;
 mod state;
-mod unit_id;
 mod view;
 mod wasm;
 
-pub use awbrn_map::{GameSetup, PlayerSetup, SetupError, state_from_setup};
+pub use awbrn_game::{
+    CommandError, GameCommand, GameSetup, PlayerId, PlayerSetup, PostMoveAction, PowerLevel,
+    ReplayEventError, ServerUnitId, SetupError, StoredActionEvent, state_from_setup,
+};
 pub use awbrn_types::Co;
-pub use command::{GameCommand, PostMoveAction, PowerLevel};
-pub use error::CommandError;
-pub use player::{PlayerId, PlayerRegistry};
-pub use replay::{ReplayError, ReplayEventError, StoredActionEvent, reconstruct_from_events};
+pub use player::PlayerRegistry;
+pub use replay::{ReplayError, reconstruct_from_events};
 pub use results::{MatchResults, SeatOutcome, SeatResult, SeatResultReason};
 pub use server::GameServer;
 pub use state::ServerGameState;
-pub use unit_id::ServerUnitId;
 pub use view::{CaptureEvent, CommandResult, PlayerUpdate, PlayerView, SpectatorView};
 pub use wasm::WasmMatch;

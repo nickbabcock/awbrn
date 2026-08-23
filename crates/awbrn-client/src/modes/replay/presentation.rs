@@ -16,11 +16,11 @@ use crate::features::player_roster::{
 };
 use crate::modes::replay::navigation::PendingCourseArrows;
 use crate::render::animation::UnitPathAnimation;
-use awbrn_game::replay::{
+use awbrn_bevy::replay::{
     AwbwUnitId, NewDay, ReplayState, ReplayTerrainKnowledge, ReplayViewpoint, TransitionApplyError,
     apply_observed_transition, apply_observed_transitions,
 };
-use awbrn_game::world::{BoardIndex, CarriedBy, StrongIdMap};
+use awbrn_bevy::world::{BoardIndex, CarriedBy, StrongIdMap};
 use awbrn_types::UnitExt;
 
 /// Historical replay source for the typed presentation boundary.

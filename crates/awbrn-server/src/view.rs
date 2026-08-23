@@ -19,12 +19,9 @@ use awvm::semantic::{
     State, TileVisibility, UnitId, Viewpoint, Visibility, observe, observe_transition,
 };
 
-use awbrn_map::semantic_terrain;
-
-use crate::awvm_adapter::{AcceptedTransition, Authority};
-use crate::player::PlayerId;
 use crate::state::TurnPhase;
-use crate::unit_id::ServerUnitId;
+use awbrn_game::ServerUnitId;
+use awbrn_game::{AcceptedTransition, Authority, PlayerId, semantic_terrain};
 
 /// Header with the current game state, included in every response.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -98,8 +95,8 @@ pub struct TurnChange {
 pub struct UnitCombatEvent {
     pub attacker_id: ServerUnitId,
     pub defender_id: ServerUnitId,
-    pub attacker_hp_after: awbrn_game::world::GraphicalHp,
-    pub defender_hp_after: awbrn_game::world::GraphicalHp,
+    pub attacker_hp_after: awbrn_types::GraphicalHp,
+    pub defender_hp_after: awbrn_types::GraphicalHp,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -619,7 +616,7 @@ fn combat_graphical_hp(
     observed: &ObservedTransition,
     projection: &RecipientProjection<'_>,
     prior_observation: &OnceCell<Observation>,
-) -> Option<awbrn_game::world::GraphicalHp> {
+) -> Option<awbrn_types::GraphicalHp> {
     if let Some(unit) = observed
         .events
         .iter()
@@ -756,7 +753,7 @@ fn visible_observed_unit(
             .player_faction(&unit.owner)
             .expect("every unit owner has a faction"),
         position,
-        hp: awbrn_game::world::GraphicalHp::from(unit.hp)
+        hp: awbrn_types::GraphicalHp::from(unit.hp)
             .visible()
             .map(awbrn_types::VisualHp::get),
         fuel: friendly.then(|| narrow_u32(unit.fuel)),
@@ -788,7 +785,7 @@ fn visible_unit(
             .player_faction(state.player_id(unit.owner))
             .expect("every unit owner has a faction"),
         position,
-        hp: awbrn_game::world::GraphicalHp::from(awbrn_types::ExactHp::new(unit.hp))
+        hp: awbrn_types::GraphicalHp::from(awbrn_types::ExactHp::new(unit.hp))
             .visible()
             .map(awbrn_types::VisualHp::get),
         fuel: friendly.unwrap_or(true).then(|| narrow_u32(unit.fuel)),

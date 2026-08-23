@@ -3,19 +3,18 @@ name = "awbrn-game"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+typescript = ["dep:tsify", "dep:wasm-bindgen"]
+
 [dependencies]
-awbrn-map = { path = "../awbrn-map", features = ["bevy"] }
-awbrn-types = { path = "../awbrn-types", features = ["bevy"] }
-awbw-replay = { path = "../awbw-replay" }
-awvm = { path = "../awvm" }
-bevy = { workspace = true, features = ["std", "bevy_log", "bevy_world_serialization"] }
-indexmap.workspace = true
-serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
-thiserror.workspace = true
+awbrn-map.path = "../awbrn-map"
+awbrn-protocol.path = "../awbrn-protocol"
+awbrn-types.path = "../awbrn-types"
+awvm.path = "../awvm"
+serde.workspace = true
+tsify = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
 
 [dev-dependencies]
-awbw-replay = { path = "../awbw-replay" }
-awvm-awbw = { path = "../awvm-awbw" }
-insta.workspace = true
 serde_json.workspace = true

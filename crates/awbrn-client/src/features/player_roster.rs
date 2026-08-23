@@ -3,9 +3,9 @@ use crate::features::event_bus::{
 };
 use crate::features::player_display::{PlayerDisplayFactionOverrides, display_faction_for_player};
 use crate::loading::LiveMatchPlayer;
+use awbrn_bevy::replay::{AwbwUnitId, ReplayState};
+use awbrn_bevy::world::{Faction, GraphicalHp, TerrainTile, Unit, ViewerVisibility};
 use awbrn_content::{CoPortraitMetadata, co_portrait_by_awbw_id, co_portraits};
-use awbrn_game::replay::{AwbwUnitId, ReplayState};
-use awbrn_game::world::{Faction, GraphicalHp, TerrainTile, Unit, ViewerVisibility};
 use awbrn_types::{
     Faction as TerrainFaction, GraphicalTerrain, PlayerFaction, PropertyKind, UnitExt,
 };
@@ -579,8 +579,8 @@ pub fn player_id_for_faction(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use awbrn_game::GameWorldPlugin;
-    use awbrn_game::world::{GraphicalHp, ViewerVisibility};
+    use awbrn_bevy::GameWorldPlugin;
+    use awbrn_bevy::world::{GraphicalHp, ViewerVisibility};
     use awbrn_types::{AwbwGamePlayerId, AwbwPlayerId};
     use bevy::app::App;
     use std::collections::HashMap;

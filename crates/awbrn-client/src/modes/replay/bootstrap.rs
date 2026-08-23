@@ -8,7 +8,7 @@ use crate::features::player_roster::{
 };
 use crate::loading::LoadedReplay;
 use crate::modes::replay::presentation::{ReplayAdvanceLock, ReplayTransitionSource};
-use awbrn_game::replay::{
+use awbrn_bevy::replay::{
     RecipientObservations, ReplayTerrainKnowledge, initialize_replay_semantic_world,
     refresh_viewer_visibility,
 };
@@ -76,8 +76,8 @@ mod tests {
     use crate::core::CorePlugin;
     use crate::features::visibility::VisibilityPlugin;
     use crate::modes::replay::ReplayPlugin;
-    use awbrn_game::MapPosition;
-    use awbrn_game::world::{GameMap, TerrainHp, TerrainTile};
+    use awbrn_bevy::MapPosition;
+    use awbrn_bevy::world::{GameMap, TerrainHp, TerrainTile};
     use awbrn_map::{AwbrnMap, Dimensions, Pos};
     use awbrn_types::GraphicalTerrain;
     use awbw_replay::ReplayParser;

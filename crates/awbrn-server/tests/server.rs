@@ -367,10 +367,7 @@ fn sonja_unit_hp_is_hidden_only_from_opponents() {
         .find(|(player, _)| *player == p2())
         .and_then(|(_, update)| update.combat_event.as_ref())
         .expect("the opponent sees the adjacent combat");
-    assert_eq!(
-        event.attacker_hp_after,
-        awbrn_game::world::GraphicalHp::Hidden
-    );
+    assert_eq!(event.attacker_hp_after, awbrn_types::GraphicalHp::Hidden);
     assert_eq!(
         event
             .defender_hp_after

@@ -1,4 +1,4 @@
-pub use awbrn_game::world::{FriendlyFactions, ViewerVisibility};
+pub use awbrn_bevy::world::{FriendlyFactions, ViewerVisibility};
 use bevy::prelude::*;
 
 pub struct VisibilityPlugin;

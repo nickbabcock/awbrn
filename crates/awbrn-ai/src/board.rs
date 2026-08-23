@@ -13,7 +13,8 @@
 //! lands on the side it was written for. The arena still swaps seats, which
 //! swaps the free unit with them.
 
-use awbrn_map::{AwbrnMap, AwbwMap, GameSetup, PlayerSetup, state_from_setup};
+use awbrn_game::{GameSetup, PlayerSetup, state_from_setup};
+use awbrn_map::{AwbrnMap, AwbwMap};
 use awbrn_types::{Co, PlayerFaction};
 use awvm::semantic::State;
 

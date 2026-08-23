@@ -5,7 +5,7 @@ use crate::features::input::{
 };
 use crate::loading::ClientAssetLoader;
 use crate::render::UnitAtlasResource;
-use awbrn_game::world::GameMap;
+use awbrn_bevy::world::GameMap;
 use bevy::input::{
     mouse::{MouseScrollUnit, MouseWheel},
     touch::{TouchInput, TouchPhase},

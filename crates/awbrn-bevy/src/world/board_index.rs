@@ -3,16 +3,16 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::log::warn;
 use bevy::prelude::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum BoardIndexError {
+    #[error("position {position:?} is outside the {width}x{height} board")]
     OutOfBounds {
         position: Pos,
         width: u8,
         height: u8,
     },
-    MissingTerrain {
-        position: Pos,
-    },
+    #[error("no terrain entity indexed at {position:?}")]
+    MissingTerrain { position: Pos },
 }
 
 /// Which entity holds the terrain, and which the unit, for each tile.
@@ -63,9 +63,11 @@ impl BoardIndex {
         Ok(())
     }
 
-    pub fn remove_terrain(&mut self, position: Pos) -> Result<(), BoardIndexError> {
+    pub fn remove_terrain(&mut self, position: Pos, entity: Entity) -> Result<(), BoardIndexError> {
         self.cell(position)?;
-        self.terrain_by_tile[position] = None;
+        if self.terrain_by_tile[position] == Some(entity) {
+            self.terrain_by_tile[position] = None;
+        }
         Ok(())
     }
 
@@ -126,7 +128,7 @@ pub fn remove_terrain_from_board_index(mut world: DeferredWorld, entity: Entity,
         return;
     };
 
-    if let Err(error) = index.remove_terrain(position) {
+    if let Err(error) = index.remove_terrain(position, entity) {
         warn!(
             "Failed to remove terrain entity {:?} at {:?} from BoardIndex: {:?}",
             entity, position, error

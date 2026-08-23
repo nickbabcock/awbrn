@@ -1,5 +1,5 @@
 use crate::features::camera::{CameraScale, compute_map_dimensions};
-use awbrn_game::world::GameMap;
+use awbrn_bevy::world::GameMap;
 use awbrn_map::Pos;
 pub use awbrn_protocol::PostMoveAction;
 use bevy::prelude::*;

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::player::PlayerId;
+use awbrn_game::PlayerId;
 
 /// The phase of the current game.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]

@@ -1,12 +1,8 @@
 use std::collections::HashSet;
 use std::num::NonZeroU8;
 
+use awbrn_game::PlayerId;
 use awbrn_types::{Co, PlayerFaction};
-
-/// Opaque player identifier assigned by the server at game creation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(transparent)]
-pub struct PlayerId(pub u8);
 
 /// A player slot in the game.
 #[derive(Debug, Clone)]

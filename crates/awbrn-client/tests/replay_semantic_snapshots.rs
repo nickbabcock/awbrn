@@ -1,14 +1,14 @@
 use std::io::BufWriter;
 use std::path::Path;
 
+use awbrn_bevy::GameWorldPlugin;
+use awbrn_bevy::replay::{ReplayState, ReplayViewpoint, initialize_replay_semantic_world};
+use awbrn_bevy::snapshot::{GameSnapshot, capture_game_snapshot, write_replay_semantic_snapshot};
+use awbrn_bevy::world::GameMap;
 use awbrn_client::loading::apply_replay_building_overrides;
 use awbrn_client::modes::replay::presentation::{
     ReplayAdvanceLock, ReplayFollowupCommand, ReplayTransitionSource, ReplayTurnCommand,
 };
-use awbrn_game::GameWorldPlugin;
-use awbrn_game::replay::{ReplayState, ReplayViewpoint, initialize_replay_semantic_world};
-use awbrn_game::snapshot::{GameSnapshot, capture_game_snapshot, write_replay_semantic_snapshot};
-use awbrn_game::world::GameMap;
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
 use awbw_replay::ReplayParser;
 use awvm_awbw::RecordedAdapter;
@@ -167,7 +167,7 @@ fn turn_key(world: &World) -> (u32, Option<awbrn_types::AwbwGamePlayerId>) {
 fn checksum(
     snapshot: &GameSnapshot,
     type_registry: &bevy::reflect::TypeRegistry,
-) -> Result<String, awbrn_game::snapshot::GameSnapshotError> {
+) -> Result<String, awbrn_bevy::snapshot::GameSnapshotError> {
     let hasher = highway::HighwayHasher::new(highway::Key::default());
     let mut writer = BufWriter::with_capacity(0x8000, hasher);
     write_replay_semantic_snapshot(snapshot, type_registry, &mut writer)?;

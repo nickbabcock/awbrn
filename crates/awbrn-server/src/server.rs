@@ -1,19 +1,16 @@
-use crate::command::GameCommand;
-use crate::error::CommandError;
-use crate::player::PlayerId;
-use crate::replay::{ReplayEventError, StoredActionEvent};
 use crate::results::{MatchResults, SeatExits, match_results};
-use crate::unit_id::ServerUnitId;
 use crate::view::{self, CommandResult, PlayerView, SpectatorView};
-use awbrn_map::{GameSetup, SetupError};
-
+use awbrn_game::{
+    Authority, CommandError, GameCommand, GameSetup, PlayerId, ReplayEventError, ServerUnitId,
+    SetupError, StoredActionEvent,
+};
 use awbrn_map::Pos;
 use awbrn_types::{PlayerFaction, Unit};
 use awvm::semantic::{AwbwVisibility, Observation, observe};
 
 /// Authoritative game server driven by AWVM.
 pub struct GameServer {
-    authority: crate::awvm_adapter::Authority,
+    authority: Authority,
     unit_ids: view::RecipientUnitIds,
     exits: SeatExits,
 }
@@ -21,7 +18,7 @@ pub struct GameServer {
 impl GameServer {
     /// Create a new game server with the given configuration.
     pub fn new(setup: GameSetup) -> Result<Self, SetupError> {
-        let authority = crate::awvm_adapter::Authority::new(&setup)?;
+        let authority = Authority::new(&setup)?;
         Ok(Self {
             authority,
             unit_ids: view::RecipientUnitIds::default(),
@@ -58,6 +55,29 @@ impl GameServer {
         // opaque IDs equal between replay and live servers.
         view::build_command_result(&self.authority, &transition, &mut self.unit_ids);
         Ok(())
+    }
+
+    /// Replay one stored action and return the same typed projections that a
+    /// live submission produces.
+    pub fn replay_stored_action_event_observations(
+        &mut self,
+        event: &StoredActionEvent,
+    ) -> Result<Vec<(PlayerId, awvm::semantic::ObservedTransition)>, ReplayEventError> {
+        let transition =
+            self.authority
+                .execute_recorded(event.player, &event.command, &event.random)?;
+        self.exits
+            .observe(self.authority.state(), &transition.events);
+        let result = view::build_command_result(&self.authority, &transition, &mut self.unit_ids);
+        Ok(result.observed_transitions)
+    }
+
+    /// Return the opening observation for every player in slot order.
+    pub fn player_observations(&self) -> Vec<(PlayerId, Observation)> {
+        self.authority
+            .players()
+            .filter_map(|player| Some((player, self.player_observation(player)?)))
+            .collect()
     }
 
     /// Return results for a finished non-cancelled match.

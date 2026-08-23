@@ -137,6 +137,12 @@ fn register_capture_actor_components(world: &mut World) {
     world.register_component::<CaptureProgress>();
 }
 
+/// A capture resolution with the terrain entity it needs already found.
+enum ResolvedCapture {
+    Continued(CaptureProgress),
+    Completed(Entity),
+}
+
 impl CaptureAction {
     pub fn apply(self, world: &mut World) -> Result<CaptureActionOutcome, CaptureActionError> {
         let actor = CaptureActorSnapshot::read(world, self.unit_entity)?;
@@ -151,10 +157,19 @@ impl CaptureAction {
             }
         };
 
+        // Find the terrain entity before the actor changes. A missing index
+        // entry must fail the whole action, not leave the unit half-updated.
+        let resolution = match resolution {
+            CaptureResolution::Continued(progress) => ResolvedCapture::Continued(progress),
+            CaptureResolution::Completed => {
+                ResolvedCapture::Completed(terrain_entity_at(world, actor.tile)?)
+            }
+        };
+
         world.entity_mut(self.unit_entity).remove::<UnitActive>();
 
         match resolution {
-            CaptureResolution::Continued(progress) => {
+            ResolvedCapture::Continued(progress) => {
                 world.entity_mut(self.unit_entity).insert(progress);
                 Ok(CaptureActionOutcome::Continued {
                     entity: self.unit_entity,
@@ -163,11 +178,11 @@ impl CaptureAction {
                     progress,
                 })
             }
-            CaptureResolution::Completed => {
+            ResolvedCapture::Completed(terrain_entity) => {
                 world
                     .entity_mut(self.unit_entity)
                     .remove::<CaptureProgress>();
-                capture_property_at(world, actor.tile, actor.faction)?;
+                capture_property_on(world, terrain_entity, actor.tile, actor.faction)?;
                 Ok(CaptureActionOutcome::Completed {
                     entity: self.unit_entity,
                     tile: actor.tile,
@@ -202,16 +217,30 @@ pub fn capture_property_at(
     tile: Pos,
     faction: PlayerFaction,
 ) -> Result<GraphicalTerrain, CaptureActionError> {
+    let terrain_entity = terrain_entity_at(world, tile)?;
+    capture_property_on(world, terrain_entity, tile, faction)
+}
+
+fn terrain_entity_at(world: &World, tile: Pos) -> Result<Entity, CaptureActionError> {
+    world
+        .resource::<BoardIndex>()
+        .terrain_entity(tile)
+        .map_err(|_| CaptureActionError::MissingTerrain(tile))
+}
+
+/// Applies the capture to an already resolved terrain entity.
+fn capture_property_on(
+    world: &mut World,
+    terrain_entity: Entity,
+    tile: Pos,
+    faction: PlayerFaction,
+) -> Result<GraphicalTerrain, CaptureActionError> {
     let terrain = world
         .resource::<GameMap>()
         .terrain_at(tile)
         .ok_or(CaptureActionError::MissingTerrain(tile))?;
     let new_terrain =
         captured_terrain(terrain, faction).ok_or(CaptureActionError::NonPropertyTerrain(tile))?;
-    let terrain_entity = world
-        .resource::<BoardIndex>()
-        .terrain_entity(tile)
-        .map_err(|_| CaptureActionError::MissingTerrain(tile))?;
 
     let updated = world
         .resource_mut::<GameMap>()

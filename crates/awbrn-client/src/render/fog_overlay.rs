@@ -3,7 +3,7 @@ use bevy::prelude::*;
 
 use crate::core::{AppState, RenderLayer, SpriteSize};
 use crate::features::visibility::ViewerVisibility;
-use awbrn_game::world::GameMap;
+use awbrn_bevy::world::GameMap;
 
 const FOG_OVERLAY_ALPHA: f32 = 0.75;
 

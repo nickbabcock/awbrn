@@ -50,11 +50,12 @@ pub fn despawn_board(world: &mut World) {
 ///
 /// A terrain tile or a unit can reach the world without a board: spawned before
 /// the board existed, or written in by a snapshot restore. This adopts them, so
-/// the next [`despawn_board`] takes them too, and puts the units back into
+/// the next [`despawn_board`] takes them too, and puts them back into
 /// [`BoardIndex`], which their spawn hook cannot do when the index is reset
-/// after they arrive.
+/// after they arrive, or when their position arrives before the component that
+/// tells the hook which slot to fill.
 pub fn adopt_unattached_board_entities(world: &mut World, root: Entity) {
-    let unattached: Vec<(Entity, Option<Pos>)> = {
+    let unattached: Vec<(Entity, Option<Pos>, bool)> = {
         let mut query = world.query_filtered::<
             (Entity, Option<&MapPosition>, Has<Unit>),
             (Or<(With<Unit>, With<TerrainTile>)>, Without<BoardOf>),
@@ -62,24 +63,26 @@ pub fn adopt_unattached_board_entities(world: &mut World, root: Entity) {
         query
             .iter(world)
             .map(|(entity, map_position, is_unit)| {
-                let unit_position = is_unit
-                    .then(|| map_position.map(MapPosition::position))
-                    .flatten();
-                (entity, unit_position)
+                (entity, map_position.map(MapPosition::position), is_unit)
             })
             .collect()
     };
 
-    for (entity, unit_position) in unattached {
+    for (entity, position, is_unit) in unattached {
         world.entity_mut(entity).insert(BoardOf(root));
 
-        let Some(position) = unit_position else {
+        let Some(position) = position else {
             continue;
         };
         let mut board_index = world.resource_mut::<BoardIndex>();
-        if let Err(error) = board_index.set_unit(position, entity) {
+        let result = if is_unit {
+            board_index.set_unit(position, entity)
+        } else {
+            board_index.set_terrain(position, entity)
+        };
+        if let Err(error) = result {
             warn!(
-                "Failed to index adopted unit entity {:?} at {:?}: {:?}",
+                "Failed to index adopted board entity {:?} at {:?}: {:?}",
                 entity, position, error
             );
         }

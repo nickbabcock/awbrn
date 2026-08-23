@@ -60,7 +60,7 @@ impl WasmMatch {
         player_slot: u8,
         action: JsValue,
     ) -> Result<WasmActionResponse, JsError> {
-        if !self.server.has_player(crate::player::PlayerId(player_slot)) {
+        if !self.server.has_player(crate::PlayerId(player_slot)) {
             return Err(invalid_input(
                 "player_slot",
                 format!("unknown player slot {player_slot}"),
@@ -70,7 +70,7 @@ impl WasmMatch {
         let command = parse_action(action)?;
         let stored_command = command.clone();
 
-        let player = crate::player::PlayerId(player_slot);
+        let player = crate::PlayerId(player_slot);
 
         let result = self
             .server
@@ -149,7 +149,7 @@ impl WasmMatch {
 
     #[wasm_bindgen(js_name = playerGameState)]
     pub fn player_game_state(&mut self, player_slot: u8) -> Result<MatchGameState, JsError> {
-        let player = crate::player::PlayerId(player_slot);
+        let player = crate::PlayerId(player_slot);
         if !self.server.has_player(player) {
             return Err(invalid_input(
                 "player_slot",
@@ -182,7 +182,7 @@ impl WasmMatch {
     }
 
     pub fn player_view(&mut self, player_slot: u8) -> Result<JsValue, JsError> {
-        let player = crate::player::PlayerId(player_slot);
+        let player = crate::PlayerId(player_slot);
         if !self.server.has_player(player) {
             return Err(invalid_input(
                 "player_slot",
@@ -226,7 +226,7 @@ pub struct WasmActionResponse {
     pub spectator_message: SpectatorMessage,
 }
 
-fn parse_action(action: JsValue) -> Result<crate::command::GameCommand, JsError> {
+fn parse_action(action: JsValue) -> Result<crate::GameCommand, JsError> {
     if let Some(action_str) = action.as_string() {
         serde_json::from_str(&action_str).map_err(|e| invalid_input("action", e.to_string()))
     } else {
@@ -536,7 +536,7 @@ fn visible_terrain(terrain: &[VisibleTerrain]) -> Vec<WireVisibleTerrain> {
         .collect()
 }
 
-fn graphical_hp_value(hp: awbrn_game::world::GraphicalHp) -> Option<u8> {
+fn graphical_hp_value(hp: awbrn_types::GraphicalHp) -> Option<u8> {
     if hp.is_destroyed() {
         None
     } else {
@@ -650,17 +650,17 @@ fn invalid_input(field: &'static str, reason: String) -> JsError {
     )
 }
 
-fn command_error(error: crate::error::CommandError) -> JsError {
+fn command_error(error: crate::CommandError) -> JsError {
     let (code, http_status) = match &error {
-        crate::error::CommandError::NotYourTurn => ("notYourTurn", 403),
-        crate::error::CommandError::GameOver => ("gameOver", 409),
-        crate::error::CommandError::InvalidUnit(_)
-        | crate::error::CommandError::UnitAlreadyActed(_)
-        | crate::error::CommandError::InvalidPath { .. }
-        | crate::error::CommandError::InvalidAction { .. }
-        | crate::error::CommandError::InsufficientFunds { .. }
-        | crate::error::CommandError::InsufficientPower { .. }
-        | crate::error::CommandError::InvalidBuildLocation => ("invalidCommand", 400),
+        crate::CommandError::NotYourTurn => ("notYourTurn", 403),
+        crate::CommandError::GameOver => ("gameOver", 409),
+        crate::CommandError::InvalidUnit(_)
+        | crate::CommandError::UnitAlreadyActed(_)
+        | crate::CommandError::InvalidPath { .. }
+        | crate::CommandError::InvalidAction { .. }
+        | crate::CommandError::InsufficientFunds { .. }
+        | crate::CommandError::InsufficientPower { .. }
+        | crate::CommandError::InvalidBuildLocation => ("invalidCommand", 400),
     };
     js_error(code, error.to_string(), http_status, json!(null))
 }
