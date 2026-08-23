@@ -7,6 +7,7 @@ use crate::render::animation::{
 use crate::render::{UiAtlas, UnitAtlasResource};
 use awbrn_bevy::world::{Faction, Unit, UnitActive};
 use awbrn_content::get_unit_animation_frames;
+use awbrn_content::{UnitOverlay, unit_overlay_spec};
 use bevy::sprite::Anchor;
 use bevy::{log, prelude::*};
 
@@ -113,24 +114,30 @@ type ProjectedUnitRenderFilter = (
     Without<OverlayVisual>,
 );
 
-fn health_overlay(health: awbrn_bevy::world::GraphicalHp) -> OverlaySpec {
-    let sprite = health.visible().map_or_else(
-        || "Healthv2/Question.png".to_owned(),
-        |value| format!("Healthv2/{}.png", value.get()),
-    );
-    OverlaySpec::new(sprite, Vec3::new(7.5, -8.0, 1.0))
+fn health_overlay(health: awbrn_bevy::world::GraphicalHp) -> Option<OverlaySpec> {
+    shared_overlay(UnitOverlay::Health(health))
 }
 
-fn capturing_overlay() -> OverlaySpec {
-    OverlaySpec::new("Capturing.png", Vec3::new(0.0, -8.0, 1.0))
+fn capturing_overlay() -> Option<OverlaySpec> {
+    shared_overlay(UnitOverlay::Capturing)
 }
 
-fn cargo_overlay() -> OverlaySpec {
-    OverlaySpec::new("HasCargo.png", Vec3::new(0.0, -8.0, 1.0))
+fn cargo_overlay() -> Option<OverlaySpec> {
+    shared_overlay(UnitOverlay::Cargo)
 }
 
-fn dive_overlay() -> OverlaySpec {
-    OverlaySpec::new("Dive.png", Vec3::new(0.0, -8.0, 1.0))
+fn dive_overlay() -> Option<OverlaySpec> {
+    shared_overlay(UnitOverlay::Dive)
+}
+
+/// `None` when the overlay has nothing to draw, as full-health and destroyed
+/// units do.
+fn shared_overlay(overlay: UnitOverlay) -> Option<OverlaySpec> {
+    let spec = unit_overlay_spec(overlay)?;
+    Some(OverlaySpec::new(
+        spec.sprite_name,
+        Vec3::new(spec.offset.x, -spec.offset.y, 1.0),
+    ))
 }
 
 fn spawn_overlay_entity(
@@ -228,7 +235,7 @@ fn sync_projected_overlays(
         entity,
         registry,
         OverlayKind::Health,
-        overlays.health.map(health_overlay),
+        overlays.health.and_then(health_overlay),
         commands,
         ui_atlas,
         overlay_query,
@@ -237,7 +244,7 @@ fn sync_projected_overlays(
         entity,
         registry,
         OverlayKind::Capturing,
-        overlays.capturing.then(capturing_overlay),
+        overlays.capturing.then(capturing_overlay).flatten(),
         commands,
         ui_atlas,
         overlay_query,
@@ -246,7 +253,7 @@ fn sync_projected_overlays(
         entity,
         registry,
         OverlayKind::Cargo,
-        overlays.cargo.then(cargo_overlay),
+        overlays.cargo.then(cargo_overlay).flatten(),
         commands,
         ui_atlas,
         overlay_query,
@@ -255,7 +262,7 @@ fn sync_projected_overlays(
         entity,
         registry,
         OverlayKind::Dive,
-        overlays.dive.then(dive_overlay),
+        overlays.dive.then(dive_overlay).flatten(),
         commands,
         ui_atlas,
         overlay_query,
@@ -409,7 +416,7 @@ mod tests {
     fn unit_render_test_app() -> App {
         let mut app = App::new();
         let mut atlas_assets = Assets::<crate::UiAtlasAsset>::default();
-        let atlas_handle = atlas_assets.add(crate::UiAtlasAsset {
+        let atlas_handle = atlas_assets.add(crate::UiAtlasAsset(awbrn_content::UiAtlasManifest {
             size: crate::UiAtlasSize {
                 width: 128,
                 height: 128,
@@ -465,7 +472,7 @@ mod tests {
                     height: 8,
                 },
             ],
-        });
+        }));
 
         app.insert_resource(UnitAtlasResource {
             texture: Handle::default(),

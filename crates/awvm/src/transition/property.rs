@@ -331,7 +331,7 @@ pub(super) fn execute_prepared_capture(
             from: previous_owner.as_ref().map(|(_, owner)| owner.clone()),
             to: Some(capturing_player.clone()),
         });
-        tile.capture_points = Some(20);
+        tile.capture_points = Some(crate::semantic::CAPTURE_REQUIRED_POINTS);
         events.push(Event::CaptureChanged {
             position: destination,
             from: 0,

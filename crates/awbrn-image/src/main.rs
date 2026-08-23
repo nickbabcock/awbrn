@@ -176,6 +176,7 @@ fn print_usage() {
          -f, --format <fmt>     png (default), text (lossless Unicode + legend), or awbw\n                           \
          (collapsed ASCII). Inferred as text when --output ends in .txt\n    \
          --assets-dir <dir>     Directory containing tiles.png, units.png, and ui.png\n                           \
-         (default: bundled assets/textures)\n    -h, --help             Print this help"
+         (ui_atlas.json must be here or in sibling data/; default: bundled assets/textures)\n    \
+    -h, --help             Print this help"
     );
 }

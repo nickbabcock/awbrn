@@ -1692,7 +1692,7 @@ mod tests {
         .unwrap();
         let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
         let mut destination = *state.board.tile(Pos::new(0, 0));
-        destination.capture_points = Some(20);
+        destination.capture_points = Some(crate::semantic::CAPTURE_REQUIRED_POINTS);
         state.board.tile_mut(Pos::new(0, 0)).capture_points = Some(10);
         let mut tiles = row(&state);
         tiles.push(destination);
@@ -2196,7 +2196,7 @@ mod tests {
         let property = state.board.tile_mut(destination);
         property.terrain = TerrainId::City;
         property.owner = TileOwner::Neutral;
-        property.capture_points = Some(20);
+        property.capture_points = Some(crate::semantic::CAPTURE_REQUIRED_POINTS);
         assert!(
             !AwbwVisibility
                 .view(&state, &crate::semantic::TeamId::from("red-team"))
@@ -2226,7 +2226,7 @@ mod tests {
         let target_tile = state.board.tile_mut(Pos::new(4, 0));
         target_tile.terrain = TerrainId::City;
         target_tile.owner = TileOwner::Owned(PlayerIdx::from_seat(0));
-        target_tile.capture_points = Some(20);
+        target_tile.capture_points = Some(crate::semantic::CAPTURE_REQUIRED_POINTS);
         let mut blocker = state.units[0];
         blocker.id = UnitId::new(1);
         blocker.kind = UnitKindId::Tank;

@@ -14,9 +14,10 @@ use awbrn_types::{
 use awvm::event::Event;
 use awvm::ruleset::Terrain;
 use awvm::semantic::{
-    AwbwVisibility, Concealment, Location, Match, Observation, ObservedEvent, ObservedTransition,
-    ObservedUnit, ObservedUnitHp, ObservedUnitRef, Outcome, Phase, PlayerId as VmPlayerId, Pos,
-    State, TileVisibility, UnitId, Viewpoint, Visibility, observe, observe_transition,
+    AwbwVisibility, CAPTURE_REQUIRED_POINTS, Concealment, Location, Match, Observation,
+    ObservedEvent, ObservedTransition, ObservedUnit, ObservedUnitHp, ObservedUnitRef, Outcome,
+    Phase, PlayerId as VmPlayerId, Pos, State, TileVisibility, UnitId, Viewpoint, Visibility,
+    observe, observe_transition,
 };
 
 use crate::state::TurnPhase;
@@ -743,8 +744,8 @@ fn visible_observed_unit(
         .board
         .tile(position)
         .capture_points
-        .filter(|points| *points < 20)
-        .map(|remaining| 20 - remaining);
+        .filter(|points| *points < CAPTURE_REQUIRED_POINTS)
+        .map(|remaining| CAPTURE_REQUIRED_POINTS - remaining);
     let friendly = matches!(unit.reference, ObservedUnitRef::Friendly { .. });
     VisibleUnit {
         id: ids.resolve(&unit.reference),
@@ -776,8 +777,8 @@ fn visible_unit(
     let tile = state.board.tile(position);
     let capture_progress = tile
         .capture_points
-        .filter(|points| *points < 20)
-        .map(|remaining| 20 - remaining);
+        .filter(|points| *points < CAPTURE_REQUIRED_POINTS)
+        .map(|remaining| CAPTURE_REQUIRED_POINTS - remaining);
     Some(VisibleUnit {
         id: server_unit_id(unit.id),
         unit_type: unit.kind,

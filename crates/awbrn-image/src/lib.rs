@@ -8,25 +8,17 @@
 use std::path::Path;
 
 use awbrn_content::{
-    TILESHEET_COLUMNS, UNIT_SPRITE_HEIGHT, UNIT_SPRITE_WIDTH, UNIT_SPRITESHEET_COLUMNS,
-    UNIT_SPRITESHEET_OFFSET_X, UNIT_SPRITESHEET_OFFSET_Y, UNIT_SPRITESHEET_PADDING_X,
-    UNIT_SPRITESHEET_PADDING_Y, spritesheet_index, unit_spritesheet_index,
+    PixelSize, TILE_SIZE, UNIT_SPRITE_HEIGHT, UNIT_SPRITE_WIDTH, UiAtlasManifest, UnitOverlay,
+    plain_backdrop_rect, sprite_top_left, spritesheet_index, terrain_sprite_rect,
+    unit_overlay_spec, unit_sprite_rect, unit_spritesheet_index,
 };
 use awbrn_map::{AwbrnMap, AwbwMap, PredeployedUnit};
 use awbrn_types::{
-    Faction, GraphicalMovement, GraphicalTerrain, PlayerFaction, Unit, UnitExt, Weather,
+    ExactHp, Faction, GraphicalHp, GraphicalMovement, GraphicalTerrain, PlayerFaction, Unit,
+    UnitExt, VisualHp, Weather,
 };
-use awvm::semantic::{Location, State, TileOwner};
+use awvm::semantic::{CAPTURE_REQUIRED_POINTS, Location, State, TileOwner};
 use image::{GenericImageView, RgbaImage, imageops};
-
-/// Logical tile size, in pixels.
-pub const TILE_SIZE: u32 = 16;
-
-/// Terrain atlas cells are 16 wide by 32 tall; the bottom 16px is the ground
-/// tile and the top 16px is overhang that rises into the cell above.
-const TERRAIN_CELL_W: u32 = 16;
-const TERRAIN_CELL_H: u32 = 32;
-const CAPTURE_REQUIRED_POINTS: u8 = 20;
 
 /// The sprite atlases needed to render a map.
 pub struct Tilesets {
@@ -36,6 +28,8 @@ pub struct Tilesets {
     pub units: RgbaImage,
     /// Unit status overlays (`ui.png`), such as health and capture markers.
     pub ui: RgbaImage,
+    /// Renderer-neutral metadata for the packed UI atlas.
+    pub ui_atlas: UiAtlasManifest,
 }
 
 impl Tilesets {
@@ -45,7 +39,18 @@ impl Tilesets {
         let tiles = image::open(dir.join("tiles.png"))?.to_rgba8();
         let units = image::open(dir.join("units.png"))?.to_rgba8();
         let ui = image::open(dir.join("ui.png"))?.to_rgba8();
-        Ok(Self { tiles, units, ui })
+        let manifest_path = dir
+            .parent()
+            .map(|parent| parent.join("data/ui_atlas.json"))
+            .filter(|path| path.exists())
+            .unwrap_or_else(|| dir.join("ui_atlas.json"));
+        let ui_atlas = serde_json::from_slice(&std::fs::read(manifest_path)?)?;
+        Ok(Self {
+            tiles,
+            units,
+            ui,
+            ui_atlas,
+        })
     }
 }
 
@@ -130,8 +135,11 @@ fn render_terrain(
     // lower tile's overhang correctly paints over the tile above it.
     for (pos, terrain) in graphical.iter() {
         let index = spritesheet_index(weather, terrain).index();
-        let (sx, sy, sw, sh) = terrain_cell_rect(index);
-        let sprite = tilesets.tiles.view(sx, sy, sw, sh).to_image();
+        let rect = terrain_sprite_rect(index);
+        let sprite = tilesets
+            .tiles
+            .view(rect.x, rect.y, rect.width, rect.height)
+            .to_image();
         let dx = (pos.x as u32 * TILE_SIZE) as i64;
         let dy = (pos.y as u32 * TILE_SIZE) as i64;
         imageops::overlay(canvas, &sprite, dx, dy);
@@ -147,8 +155,11 @@ fn draw_unit(
     tilesets: &Tilesets,
 ) -> (i64, i64) {
     let index = unit_spritesheet_index(GraphicalMovement::Idle, kind, faction).index();
-    let (sx, sy, sw, sh) = unit_cell_rect(index);
-    let sprite = tilesets.units.view(sx, sy, sw, sh).to_image();
+    let rect = unit_sprite_rect(index);
+    let sprite = tilesets
+        .units
+        .view(rect.x, rect.y, rect.width, rect.height)
+        .to_image();
 
     let (dx, dy) = unit_draw_origin(x, y);
     imageops::overlay(canvas, &sprite, dx, dy);
@@ -171,45 +182,13 @@ impl UnitStatus {
     }
 
     fn from_exact_hp(health: u8) -> Self {
-        Self::from_visual_hp(health.div_ceil(10))
+        Self::from_visual_hp(ExactHp::new(health).visual().get())
     }
 }
 
 /// The UI atlas is packed rather than gridded. These rectangles mirror the
 /// entries in `assets/data/ui_atlas.json`, which is also what the Bevy client
 /// uses to name these sprites.
-#[derive(Debug, Clone, Copy)]
-enum UiSprite {
-    Capturing,
-    Health(u8),
-}
-
-impl UiSprite {
-    fn rect(self) -> (u32, u32, u32, u32) {
-        match self {
-            Self::Capturing => (151, 20, 8, 8),
-            Self::Health(0) => (151, 30, 8, 7),
-            Self::Health(1) => (46, 150, 8, 7),
-            Self::Health(2) => (56, 150, 8, 7),
-            Self::Health(3) => (1, 151, 8, 7),
-            Self::Health(4) => (11, 151, 8, 7),
-            Self::Health(5) => (21, 151, 8, 7),
-            Self::Health(6) => (31, 151, 8, 7),
-            Self::Health(7) => (135, 1, 8, 7),
-            Self::Health(8) => (135, 10, 8, 7),
-            Self::Health(9) => (145, 1, 8, 7),
-            Self::Health(_) => (145, 10, 8, 7),
-        }
-    }
-
-    fn local_translation(self) -> (f32, f32) {
-        match self {
-            Self::Capturing => (0.0, 8.0),
-            Self::Health(_) => (7.5, 8.0),
-        }
-    }
-}
-
 fn draw_unit_status(
     canvas: &mut RgbaImage,
     unit_origin: (i64, i64),
@@ -217,10 +196,15 @@ fn draw_unit_status(
     tilesets: &Tilesets,
 ) {
     if let Some(health) = status.health {
-        draw_ui_sprite(canvas, unit_origin, UiSprite::Health(health), tilesets);
+        draw_ui_sprite(
+            canvas,
+            unit_origin,
+            UnitOverlay::Health(GraphicalHp::Visible(VisualHp::new(health))),
+            tilesets,
+        );
     }
     if status.capturing {
-        draw_ui_sprite(canvas, unit_origin, UiSprite::Capturing, tilesets);
+        draw_ui_sprite(canvas, unit_origin, UnitOverlay::Capturing, tilesets);
     }
 }
 
@@ -230,22 +214,33 @@ fn draw_unit_status(
 fn draw_ui_sprite(
     canvas: &mut RgbaImage,
     unit_origin: (i64, i64),
-    sprite: UiSprite,
+    overlay: UnitOverlay,
     tilesets: &Tilesets,
 ) {
-    let (sx, sy, width, height) = sprite.rect();
-    let source = tilesets.ui.view(sx, sy, width, height).to_image();
-    let (x, y) = overlay_origin(unit_origin, sprite);
+    let spec = unit_overlay_spec(overlay).expect("requested overlay should be visible");
+    let sprite = tilesets
+        .ui_atlas
+        .sprite(&spec.sprite_name)
+        .unwrap_or_else(|| panic!("UI atlas is missing {}", spec.sprite_name));
+    let rect = sprite.rect();
+    let source = tilesets
+        .ui
+        .view(rect.x, rect.y, rect.width, rect.height)
+        .to_image();
+    let (x, y) = overlay_origin(unit_origin, rect.width, rect.height, spec.offset);
     imageops::overlay(canvas, &source, x, y);
 }
 
-fn overlay_origin(origin: (i64, i64), sprite: UiSprite) -> (i64, i64) {
-    let (_, _, width, height) = sprite.rect();
-    let (local_x, local_y) = sprite.local_translation();
+fn overlay_origin(
+    origin: (i64, i64),
+    width: u32,
+    height: u32,
+    offset: awbrn_content::LogicalOffset,
+) -> (i64, i64) {
     (
-        (origin.0 as f32 + UNIT_SPRITE_WIDTH as f32 / 2.0 + local_x - width as f32 / 2.0).round()
+        (origin.0 as f32 + UNIT_SPRITE_WIDTH as f32 / 2.0 + offset.x - width as f32 / 2.0).round()
             as i64,
-        (origin.1 as f32 + UNIT_SPRITE_HEIGHT as f32 / 2.0 + local_y - height as f32 / 2.0).round()
+        (origin.1 as f32 + UNIT_SPRITE_HEIGHT as f32 / 2.0 + offset.y - height as f32 / 2.0).round()
             as i64,
     )
 }
@@ -256,12 +251,8 @@ fn overlay_origin(origin: (i64, i64), sprite: UiSprite) -> (i64, i64) {
 /// visible unit. The client alignment offsets compensate for this space. A
 /// top-left compositor must apply the equivalent offset directly.
 fn unit_draw_origin(x: u32, y: u32) -> (i64, i64) {
-    let ground_x = i64::from(x * TILE_SIZE);
-    let ground_y = i64::from((y + 1) * TILE_SIZE);
-    (
-        ground_x + i64::from(TILE_SIZE) - i64::from(UNIT_SPRITE_WIDTH),
-        ground_y + i64::from(TILE_SIZE) - i64::from(UNIT_SPRITE_HEIGHT),
-    )
+    let point = sprite_top_left(x, y, PixelSize::new(UNIT_SPRITE_WIDTH, UNIT_SPRITE_HEIGHT));
+    (i64::from(point.x), i64::from(point.y))
 }
 
 /// Render an authoritative game state over the graphical map it came from.
@@ -335,35 +326,10 @@ pub fn render_state(
 /// The 16x16 plain-grass backdrop tile: the bottom (ground) half of the Plain
 /// terrain cell for the given weather, used to fill the base layer.
 fn plain_backdrop_tile(tiles: &RgbaImage, weather: Weather) -> RgbaImage {
-    let index = spritesheet_index(weather, GraphicalTerrain::Plain).index();
-    let (sx, sy, _w, _h) = terrain_cell_rect(index);
+    let rect = plain_backdrop_rect(weather);
     tiles
-        .view(sx, sy + (TERRAIN_CELL_H - TILE_SIZE), TILE_SIZE, TILE_SIZE)
+        .view(rect.x, rect.y, rect.width, rect.height)
         .to_image()
-}
-
-/// Pixel rectangle `(x, y, w, h)` of a terrain atlas cell.
-fn terrain_cell_rect(index: u16) -> (u32, u32, u32, u32) {
-    let i = u32::from(index);
-    let col = i % TILESHEET_COLUMNS;
-    let row = i / TILESHEET_COLUMNS;
-    (
-        col * TERRAIN_CELL_W,
-        row * TERRAIN_CELL_H,
-        TERRAIN_CELL_W,
-        TERRAIN_CELL_H,
-    )
-}
-
-/// Pixel rectangle `(x, y, w, h)` of a unit atlas cell, accounting for the
-/// atlas's per-cell padding and outer offset.
-fn unit_cell_rect(index: u16) -> (u32, u32, u32, u32) {
-    let i = u32::from(index);
-    let col = i % UNIT_SPRITESHEET_COLUMNS;
-    let row = i / UNIT_SPRITESHEET_COLUMNS;
-    let x = UNIT_SPRITESHEET_OFFSET_X + col * (UNIT_SPRITE_WIDTH + UNIT_SPRITESHEET_PADDING_X);
-    let y = UNIT_SPRITESHEET_OFFSET_Y + row * (UNIT_SPRITE_HEIGHT + UNIT_SPRITESHEET_PADDING_Y);
-    (x, y, UNIT_SPRITE_WIDTH, UNIT_SPRITE_HEIGHT)
 }
 
 #[cfg(test)]
@@ -372,25 +338,34 @@ mod tests {
 
     #[test]
     fn terrain_cell_rect_walks_the_grid() {
-        assert_eq!(terrain_cell_rect(0), (0, 0, 16, 32));
-        assert_eq!(terrain_cell_rect(1), (16, 0, 16, 32));
+        assert_eq!(
+            terrain_sprite_rect(0),
+            awbrn_content::PixelRect::new(0, 0, 16, 32)
+        );
+        assert_eq!(
+            terrain_sprite_rect(1),
+            awbrn_content::PixelRect::new(16, 0, 16, 32)
+        );
         // First cell of the second row.
-        let cols = TILESHEET_COLUMNS as u16;
-        assert_eq!(terrain_cell_rect(cols), (0, 32, 16, 32));
+        let cols = awbrn_content::TILESHEET_COLUMNS as u16;
+        assert_eq!(
+            terrain_sprite_rect(cols),
+            awbrn_content::PixelRect::new(0, 32, 16, 32)
+        );
     }
 
     #[test]
     fn unit_cell_rect_applies_offset_and_padding() {
         // Offset (1,1) for cell 0.
         assert_eq!(
-            unit_cell_rect(0),
-            (1, 1, UNIT_SPRITE_WIDTH, UNIT_SPRITE_HEIGHT)
+            unit_sprite_rect(0),
+            awbrn_content::PixelRect::new(1, 1, UNIT_SPRITE_WIDTH, UNIT_SPRITE_HEIGHT)
         );
         // Cell 1: x advances by width + padding.
         assert_eq!(
-            unit_cell_rect(1),
-            (
-                1 + UNIT_SPRITE_WIDTH + UNIT_SPRITESHEET_PADDING_X,
+            unit_sprite_rect(1),
+            awbrn_content::PixelRect::new(
+                1 + UNIT_SPRITE_WIDTH + awbrn_content::UNIT_SPRITESHEET_PADDING_X,
                 1,
                 UNIT_SPRITE_WIDTH,
                 UNIT_SPRITE_HEIGHT
@@ -416,8 +391,11 @@ mod tests {
     #[test]
     fn status_overlay_positions_match_the_client_offsets() {
         let origin = unit_draw_origin(0, 0);
-        let (capture_x, capture_y) = overlay_origin(origin, UiSprite::Capturing);
-        let (health_x, health_y) = overlay_origin(origin, UiSprite::Health(9));
+        let capture = unit_overlay_spec(UnitOverlay::Capturing).unwrap();
+        let health =
+            unit_overlay_spec(UnitOverlay::Health(GraphicalHp::Visible(VisualHp::new(9)))).unwrap();
+        let (capture_x, capture_y) = overlay_origin(origin, 8, 8, capture.offset);
+        let (health_x, health_y) = overlay_origin(origin, 8, 7, health.offset);
 
         assert_eq!((capture_x, capture_y), (1, 24));
         assert_eq!((health_x, health_y), (8, 25));

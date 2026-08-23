@@ -1624,6 +1624,9 @@ enum BoardDecodeError {
 /// `Copy` is the point of all of it: a tile holds no pointer and owns nothing,
 /// so copying a board is one `memcpy` of six bytes a tile and dropping one is
 /// a single deallocation, where it used to be per-tile clone and drop glue.
+/// Capture points on a fully controlled property.
+pub const CAPTURE_REQUIRED_POINTS: u8 = 20;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Tile {
     pub terrain: TerrainId,

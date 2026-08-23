@@ -211,7 +211,7 @@ fn tile(
                 .copied()
                 .map_or(TileOwner::Neutral, TileOwner::Owned),
         };
-        tile.capture_points = Some(20);
+        tile.capture_points = Some(awvm::semantic::CAPTURE_REQUIRED_POINTS);
     }
     if let AwbwTerrain::MissileSilo(status) = terrain {
         tile.silo = Some(match status {

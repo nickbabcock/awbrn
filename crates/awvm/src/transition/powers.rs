@@ -15,8 +15,8 @@ use crate::commander::{
 use crate::event::Event;
 use crate::ruleset::{self, PropertyKind, TerrainTrait, UnitKind};
 use crate::semantic::{
-    Concealment, KnownReason, Location, PlayerId, Pos, State, TeamId, Unit, UnitAction, UnitId,
-    WeatherKind,
+    CAPTURE_REQUIRED_POINTS, Concealment, KnownReason, Location, PlayerId, Pos, State, TeamId,
+    Unit, UnitAction, UnitId, WeatherKind,
 };
 use crate::violation::{Action, Violation};
 use std::collections::HashSet;
@@ -48,7 +48,7 @@ pub(crate) fn area_strike_centers(
                 .board
                 .tile(position)
                 .capture_points
-                .is_some_and(|points| points < 20);
+                .is_some_and(|points| points < CAPTURE_REQUIRED_POINTS);
         priced_units.push((unit, position, cost, friendly, capturing));
     }
 
