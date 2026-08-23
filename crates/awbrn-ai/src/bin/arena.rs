@@ -53,7 +53,7 @@ fn main() {
 }
 
 const USAGE: &str = "\
-usage: arena [--map NAME] [--seed N] [--games N] [--fog] [--day-cap N] [--first NAME] [--second NAME] [--sample DIR]
+usage: arena [--map NAME] [--seed N] [--games N] [--fog] [--day-cap N] [--first NAME] [--second NAME] [--weights FILE] [--second-weights FILE] [--sample DIR]
 
   --map NAME     Map to play. Default close-encounters. Also amber-valley.
   --seed N       Seed for the tournament. The same seed gives the same result.
@@ -64,10 +64,16 @@ usage: arena [--map NAME] [--seed N] [--games N] [--fog] [--day-cap N] [--first 
   --day-cap N    Abandon a game after this many days. Default 35.
   --first NAME   The agent under test. Default random.
   --second NAME  The agent it plays. Default random.
+  --weights FILE Read JSON weight overrides for the first agent. Unspecified
+                 weights use their defaults. The first agent cannot be random.
+  --second-weights FILE
+                 Read JSON weight overrides for the second agent. Unspecified
+                 weights use their defaults. The second agent cannot be random.
   --sample DIR   Capture the first game as turn PNGs and a JSONL sidecar.
 
 agents: random, greedy, greedy-threat, greedy-deny";
 
+#[derive(Debug)]
 struct Options {
     map: &'static str,
     seed: u64,
@@ -76,6 +82,8 @@ struct Options {
     day_cap: u32,
     first: &'static str,
     second: &'static str,
+    weights: Option<PathBuf>,
+    second_weights: Option<PathBuf>,
     sample: Option<PathBuf>,
 }
 
@@ -89,6 +97,8 @@ impl Options {
             day_cap: Limits::default().days,
             first: "random",
             second: "random",
+            weights: None,
+            second_weights: None,
             sample: None,
         };
         let mut arguments = arguments.peekable();
@@ -106,6 +116,8 @@ impl Options {
                 "--fog" => options.fog = true,
                 "--first" => options.first = agent_name(&value()?)?,
                 "--second" => options.second = agent_name(&value()?)?,
+                "--weights" => options.weights = Some(value()?.into()),
+                "--second-weights" => options.second_weights = Some(value()?.into()),
                 "--sample" => options.sample = Some(value()?.into()),
                 "--help" | "-h" => {
                     println!("{USAGE}");
@@ -119,6 +131,12 @@ impl Options {
         }
         if options.day_cap == 0 {
             return Err("--day-cap must be at least 1".to_owned());
+        }
+        if options.weights.is_some() && options.first == "random" {
+            return Err("--weights requires a greedy first agent".to_owned());
+        }
+        if options.second_weights.is_some() && options.second == "random" {
+            return Err("--second-weights requires a greedy second agent".to_owned());
         }
         Ok(options)
     }
@@ -166,7 +184,10 @@ fn agent_name(name: &str) -> Result<&'static str, String> {
         })
 }
 
-fn build(name: &str, seed: u64) -> Box<dyn Agent> {
+fn build(name: &str, seed: u64, weights: Option<Weights>) -> Box<dyn Agent> {
+    if let Some(weights) = weights {
+        return Box::new(GreedyAgent::with_weights(seed, weights));
+    }
     match name {
         "random" => Box::new(RandomAgent::from_seed(seed)),
         "greedy" => Box::new(GreedyAgent::with_weights(seed, Weights::THREATLESS)),
@@ -219,6 +240,12 @@ impl Tally {
 }
 
 fn run(options: &Options) -> Result<Tally> {
+    let first_weights = options.weights.as_deref().map(read_weights).transpose()?;
+    let second_weights = options
+        .second_weights
+        .as_deref()
+        .map(read_weights)
+        .transpose()?;
     let mut tally = Tally::default();
     // One session for the whole tournament. It keeps the board-sized tables it
     // allocated, so a game after the first asks the allocator for nothing.
@@ -228,8 +255,8 @@ fn run(options: &Options) -> Result<Tally> {
         for under_test_first in [true, false] {
             let game = Rng::mix(options.seed ^ ((pair as u64) << 32));
             let mut entropy = Rng::from_seed(Rng::mix(game ^ 0x1));
-            let mut first = build(options.first, Rng::mix(game ^ 0x2));
-            let mut second = build(options.second, Rng::mix(game ^ 0x3));
+            let mut first = build(options.first, Rng::mix(game ^ 0x2), first_weights);
+            let mut second = build(options.second, Rng::mix(game ^ 0x3), second_weights);
 
             // The seat the agent under test sits in. Playing the same seed
             // both ways is what removes the first-player advantage from the
@@ -287,6 +314,13 @@ fn run(options: &Options) -> Result<Tally> {
     Ok(tally)
 }
 
+fn read_weights(path: &Path) -> Result<Weights> {
+    let file =
+        File::open(path).with_context(|| format!("opening weights file {}", path.display()))?;
+    serde_json::from_reader(file)
+        .with_context(|| format!("reading weights file {}", path.display()))
+}
+
 struct Sample {
     directory: PathBuf,
     map: AwbrnMap,
@@ -334,6 +368,8 @@ impl Sample {
                 "seat_order": [options.first, options.second],
                 "fog": options.fog,
                 "day_cap": options.day_cap,
+                "weights": options.weights,
+                "second_weights": options.second_weights,
             }),
         )?;
         Ok(Self {
@@ -461,6 +497,12 @@ fn report(options: &Options, tally: &Tally, elapsed: f64) {
         "{} vs {}   seed {}  fog {}  day cap {}",
         options.first, options.second, options.seed, options.fog, options.day_cap
     );
+    if let Some(path) = &options.weights {
+        println!("first-agent weights     {}", path.display());
+    }
+    if let Some(path) = &options.second_weights {
+        println!("second-agent weights    {}", path.display());
+    }
     println!("{} pairs, {games} games, both seat orders", options.pairs);
     println!();
     println!(
@@ -501,6 +543,55 @@ fn report(options: &Options, tally: &Tally, elapsed: f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_weights_file_can_override_one_default() {
+        let weights: Weights =
+            serde_json::from_str(r#"{"threat":0.125}"#).expect("the weights parse");
+        assert_eq!(weights.threat, 0.125);
+        assert_eq!(weights.hq, Weights::DEFAULT.hq);
+        assert_eq!(weights.deny, Weights::DEFAULT.deny);
+    }
+
+    #[test]
+    fn a_weights_file_rejects_an_unknown_name() {
+        let error = serde_json::from_str::<Weights>(r#"{"thret":0.125}"#)
+            .expect_err("an unknown weight is an error");
+        assert!(error.to_string().contains("unknown field `thret`"));
+    }
+
+    #[test]
+    fn weights_need_greedy_agents() {
+        let error = Options::parse(["--weights", "weights.json"].map(str::to_owned).into_iter())
+            .expect_err("random does not use weights");
+        assert_eq!(error, "--weights requires a greedy first agent");
+
+        let error = Options::parse(
+            ["--second-weights", "weights.json"]
+                .map(str::to_owned)
+                .into_iter(),
+        )
+        .expect_err("random does not use second weights");
+        assert_eq!(error, "--second-weights requires a greedy second agent");
+
+        let options = Options::parse(
+            [
+                "--first",
+                "greedy-deny",
+                "--weights",
+                "first.json",
+                "--second",
+                "greedy-threat",
+                "--second-weights",
+                "second.json",
+            ]
+            .map(str::to_owned)
+            .into_iter(),
+        )
+        .expect("greedy agents use weights");
+        assert_eq!(options.weights, Some(PathBuf::from("first.json")));
+        assert_eq!(options.second_weights, Some(PathBuf::from("second.json")));
+    }
 
     #[test]
     fn a_wilson_interval_holds_the_score_and_stays_in_range() {
