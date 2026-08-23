@@ -33,6 +33,44 @@ pub(super) struct PreparedDelete<'a> {
     unit: PreparedActiveUnit<'a>,
 }
 
+/// Everything a launch needs that the target does not decide.
+///
+/// A missile reaches any tile of the board, so of the four things a launch
+/// validates only the target's bounds are about the target at all. Who is
+/// firing, whether the silo underfoot is loaded, and whether the mover may
+/// stop there are the same answer for every tile. A caller asking tile after
+/// tile — [`crate::query`] enumerating launch targets is the one that does —
+/// asks this once and then asks only about bounds.
+///
+/// This is the whole of [`Launch::validate`] except the bounds check, rather
+/// than a second statement of it, so a rule added here cannot be missed by a
+/// caller that skipped the loop on its answer.
+pub(crate) fn launch_preflight<'a, M>(
+    destination: &PreparedDestination<'a, M>,
+) -> Result<AvailableDestination, ExecuteError>
+where
+    M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
+{
+    let movement = destination.movement();
+    let state = movement.state();
+    let plan = movement.plan();
+
+    let unit = &state.units[plan.unit_index()];
+    if !matches!(unit.kind, UnitKind::Infantry | UnitKind::Mech) {
+        return Err(violation(Violation::ActionNotSupported {
+            action: Action::MoveLaunch,
+        }));
+    }
+    let silo_position = plan.destination();
+    let silo = &state.board.tile(silo_position).silo;
+    if silo != &Some(Silo::Ready) {
+        return Err(violation(Violation::InvalidTarget {
+            target: Some(silo_position.into()),
+        }));
+    }
+    destination.available_destination()
+}
+
 impl<'a> DestinationAction<'a> for Launch {
     type Proof = LaunchProof;
 
@@ -44,32 +82,15 @@ impl<'a> DestinationAction<'a> for Launch {
         M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
     {
         let target = self.0;
-        let movement = destination.movement();
-        let state = movement.state();
-        let plan = movement.plan();
+        let state = destination.movement().state();
         if target.x >= state.board.width() || target.y >= state.board.height() {
             return Err(violation(Violation::InvalidTarget {
                 target: Some(target.into()),
             }));
         }
-
-        let unit = &state.units[plan.unit_index()];
-        if !matches!(unit.kind, UnitKind::Infantry | UnitKind::Mech) {
-            return Err(violation(Violation::ActionNotSupported {
-                action: Action::MoveLaunch,
-            }));
-        }
-        let silo_position = plan.destination();
-        let silo = &state.board.tile(silo_position).silo;
-        if silo != &Some(Silo::Ready) {
-            return Err(violation(Violation::InvalidTarget {
-                target: Some(silo_position.into()),
-            }));
-        }
-        let available = destination.available_destination()?;
         Ok(LaunchProof {
             target,
-            destination: available,
+            destination: launch_preflight(destination)?,
         })
     }
 

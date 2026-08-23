@@ -162,6 +162,37 @@ impl ObservedBoard {
     pub fn tiles(&self) -> impl Iterator<Item = &ObservedTile> {
         self.tiles.iter()
     }
+
+    /// A board with no tiles at all, which is what a lent board holds until
+    /// its tiles come back.
+    ///
+    /// [`ObservedBoard::new`] refuses a zero dimension, because no projection
+    /// of a real board has one. This does not, and nothing but
+    /// [`ObservedBoard::lend`] builds one: every reader answers the same way
+    /// it answers for a coordinate off a real board.
+    const fn empty() -> Self {
+        Self {
+            width: 0,
+            height: 0,
+            tiles: Vec::new(),
+        }
+    }
+
+    /// Take the tiles away, leaving an empty board behind.
+    ///
+    /// The allocation is the point. A caller that projects the same board
+    /// after every command lends the vector to the next projection rather
+    /// than freeing one board-sized buffer and asking for another.
+    fn lend(&mut self) -> Vec<ObservedTile> {
+        core::mem::take(&mut self.tiles)
+    }
+
+    /// Give the tiles back, on the same rectangle contract as
+    /// [`ObservedBoard::new`].
+    fn restore(&mut self, width: u8, height: u8, tiles: Vec<ObservedTile>) {
+        *self = Self::new(width, height, tiles)
+            .expect("the projection keeps the authoritative board's rectangle");
+    }
 }
 
 /// The wire shape: nested rows, one per `y`.
@@ -550,6 +581,70 @@ pub fn observe(
     project_state(&rules.view(state, team), state, recipient, team)
 }
 
+/// The same projection as [`observe`], written into an observation the caller
+/// already holds.
+///
+/// The result is what [`observe`] returns and nothing else: this is where the
+/// board, the roster and the army go, not what they say. An observation of one
+/// board holds three board-sized or army-sized vectors, and a caller that
+/// observes after every command — a harness driving an agent, most of all —
+/// otherwise frees all three and asks for them again for each position it
+/// projects.
+///
+/// On an error the buffer is left empty rather than half written, so a caller
+/// that ignores the error reads nothing instead of reading a mixture of two
+/// positions.
+pub fn observe_into(
+    rules: &impl Visibility,
+    state: &State,
+    recipient: &PlayerId,
+    out: &mut Observation,
+) -> Result<(), ObserveError> {
+    let team = match recipient_team(state, recipient) {
+        Ok(team) => team,
+        Err(error) => {
+            out.board = ObservedBoard::empty();
+            out.players.clear();
+            out.units.clear();
+            return Err(error);
+        }
+    };
+    let view = rules.view(state, team);
+    let mut tiles = out.board.lend();
+    let mut players = core::mem::take(&mut out.players);
+    let mut units = core::mem::take(&mut out.units);
+    match project_into(
+        &view,
+        state,
+        recipient,
+        team,
+        &mut tiles,
+        &mut players,
+        &mut units,
+    ) {
+        Ok(match_state) => {
+            out.ruleset.clone_from(&state.ruleset);
+            out.recipient.clone_from(recipient);
+            out.settings.clone_from(&state.settings);
+            out.board
+                .restore(state.board.width(), state.board.height(), tiles);
+            out.teams.clone_from(&state.teams);
+            out.players = players;
+            out.turn.clone_from(&state.turn);
+            out.weather.clone_from(&state.weather);
+            out.units = units;
+            out.match_state = match_state;
+            Ok(())
+        }
+        Err(error) => {
+            out.board = ObservedBoard::empty();
+            out.players.clear();
+            out.units.clear();
+            Err(error)
+        }
+    }
+}
+
 /// Project one command for one recipient: the post-state as that recipient sees
 /// it, and the events it is entitled to.
 ///
@@ -658,18 +753,69 @@ fn project_state(
     recipient: &PlayerId,
     team: &TeamId,
 ) -> Result<Observation, ObserveError> {
-    let tiles = state
-        .board
-        .rows()
-        .flatten()
-        .map(|(position, t)| projected_tile(view, &state.board, &state.players, position, t))
-        .collect::<Result<Vec<_>, ObserveError>>()?;
-    let players = state
-        .players
-        .iter()
-        .map(|player| projected_player(player, recipient, team))
-        .collect();
+    let mut tiles = Vec::new();
+    let mut players = Vec::new();
     let mut units = Vec::new();
+    let match_state = project_into(
+        view,
+        state,
+        recipient,
+        team,
+        &mut tiles,
+        &mut players,
+        &mut units,
+    )?;
+    Ok(Observation {
+        ruleset: state.ruleset.clone(),
+        recipient: recipient.clone(),
+        settings: state.settings.clone(),
+        board: ObservedBoard::new(state.board.width(), state.board.height(), tiles)
+            .expect("the projection keeps the authoritative board's rectangle"),
+        teams: state.teams.clone(),
+        players,
+        turn: state.turn.clone(),
+        weather: state.weather.clone(),
+        units,
+        match_state,
+    })
+}
+
+/// Fill one projection's three vectors and answer its match state.
+///
+/// The vectors arrive emptied and leave holding the projection, so the caller
+/// decides whether they are fresh allocations or ones an earlier projection
+/// paid for. The walks push into a reserved vector rather than collecting,
+/// because the board is projected once for every command of a match and the
+/// collect this replaced re-checked the capacity for each of the four hundred
+/// tiles.
+fn project_into(
+    view: &impl Viewpoint,
+    state: &State,
+    recipient: &PlayerId,
+    team: &TeamId,
+    tiles: &mut Vec<ObservedTile>,
+    players: &mut Vec<ObservedPlayer>,
+    units: &mut Vec<ObservedUnit>,
+) -> Result<ObservedMatch, ObserveError> {
+    tiles.clear();
+    tiles.reserve(usize::from(state.board.width()) * usize::from(state.board.height()));
+    for (position, tile) in state.board.rows().flatten() {
+        tiles.push(projected_tile(
+            view,
+            &state.board,
+            &state.players,
+            position,
+            tile,
+        )?);
+    }
+
+    players.clear();
+    players.reserve(state.players.len());
+    for player in state.players.iter() {
+        players.push(projected_player(player, recipient, team));
+    }
+
+    units.clear();
     for u in &state.units {
         let owner = state
             .players
@@ -689,7 +835,8 @@ fn project_state(
         }
     }
     units.sort_by_key(|unit| unit.reference);
-    let match_state = match &state.match_state {
+
+    Ok(match &state.match_state {
         Match::Active { draw_offers } => {
             let mut offers: Vec<_> = draw_offers
                 .iter()
@@ -708,19 +855,6 @@ fn project_state(
         Match::Finished { outcome } => ObservedMatch::Finished {
             outcome: outcome.clone(),
         },
-    };
-    Ok(Observation {
-        ruleset: state.ruleset.clone(),
-        recipient: recipient.clone(),
-        settings: state.settings.clone(),
-        board: ObservedBoard::new(state.board.width(), state.board.height(), tiles)
-            .expect("the projection keeps the authoritative board's rectangle"),
-        teams: state.teams.clone(),
-        players,
-        turn: state.turn.clone(),
-        weather: state.weather.clone(),
-        units,
-        match_state,
     })
 }
 
@@ -752,16 +886,18 @@ fn projected_tile(
     let visible = view.position(position);
     // A teleporter pairing is disclosed even through fog; the rest of a
     // tile's rare state is not.
-    let source = board.rare_state(position);
-    let rare = RareTileState {
-        destructible_hp: visible
-            .then(|| source.and_then(|rare| rare.destructible_hp))
-            .flatten(),
-        teleporter: source.and_then(|rare| rare.teleporter.clone()),
-        trait_state: visible
-            .then(|| source.and_then(|rare| rare.trait_state.clone()))
-            .flatten(),
-    };
+    //
+    // Almost no tile of a board carries rare state at all, and this runs for
+    // every tile of every projection, so a tile whose source holds nothing
+    // says so without building an empty state to ask whether it is empty.
+    let rare = board.rare_state(position).and_then(|source| {
+        let rare = RareTileState {
+            destructible_hp: visible.then_some(source.destructible_hp).flatten(),
+            teleporter: source.teleporter.clone(),
+            trait_state: visible.then(|| source.trait_state.clone()).flatten(),
+        };
+        (!rare.is_empty()).then(|| Box::new(rare))
+    });
     Ok(ObservedTile {
         terrain: tile.terrain,
         visibility: if visible {
@@ -776,7 +912,7 @@ fn projected_tile(
         },
         capture_points: visible.then_some(tile.capture_points).flatten(),
         silo: visible.then_some(tile.silo).flatten(),
-        rare: (!rare.is_empty()).then(|| Box::new(rare)),
+        rare,
     })
 }
 

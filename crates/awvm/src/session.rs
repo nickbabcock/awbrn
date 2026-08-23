@@ -40,11 +40,12 @@ use crate::combat::Forecast;
 use crate::commander::PowerLevel;
 use crate::event::{AttackTarget, Event};
 use crate::query::{
-    self, MoveField, MoveScratch, PreparedMoveField, TurnMaps, TurnTables, recipient_may_command,
+    self, MoveField, MoveScratch, PreparedMoveField, Sweep, Travel, TurnMaps, TurnTables,
+    recipient_may_command,
 };
 use crate::random::Entropy;
 use crate::ruleset::{self, UnitKind as UnitKindId};
-use crate::semantic::{CellIdx, Location, Observation, Pos, State, UnitAction, UnitId};
+use crate::semantic::{CellIdx, Location, Observation, PlayerIdx, Pos, State, UnitAction, UnitId};
 use crate::transition::{
     ActiveTurn, Command, ExecuteError, ExecuteOutcome, PreparedDestination, PreparedProductionSite,
     execute_with,
@@ -411,16 +412,23 @@ struct Reach {
     held: Option<(UnitIdx, u64, MoveField)>,
     /// Board-sized allocations spent fields have handed back.
     scratch: MoveScratch,
-    /// The active turn's board tables, and the epoch they were built at.
+    /// Each seat's board tables, in seat order, and the epoch they were built
+    /// at.
     ///
     /// Opening a turn costs an entry-cost grid per movement class and a
     /// blocking grid, rebuilt over every tile. A single order opens two turns
     /// on one position, [`Session::legal`] to offer it and
     /// [`Session::route_to`] to spell its route, and answering a mask and then
     /// a route used to pay for the same grids twice. Holding them here makes
-    /// the second turn free. The epoch stops it from answering out of a
+    /// the second turn free. The epoch stops them from answering out of a
     /// position the session has left.
-    tables: (u64, TurnTables),
+    ///
+    /// One row per seat rather than one row, because a reader of the position
+    /// asks about the seats it is not playing: what the enemy threatens is a
+    /// search of the enemy's units, under the enemy's commander, and those are
+    /// the enemy's tables. A row is built when a seat is first asked about, so
+    /// a session nobody asks that of still holds one.
+    tables: (u64, Vec<TurnTables>),
 }
 
 /// One position, and the memory that answering about it needs.
@@ -620,18 +628,62 @@ impl Session {
         self.epoch += 1;
     }
 
-    /// The board tables for the position the session holds now.
+    /// The board tables of the active seat, for the position the session holds
+    /// now.
+    fn turn_tables(&self) -> TurnTables {
+        self.state
+            .players
+            .seat(&self.state.turn.active_player)
+            .map(|seat| self.turn_tables_for(seat))
+            .unwrap_or_default()
+    }
+
+    /// The board tables of one seat, for the position the session holds now.
     ///
     /// Stale tables are dropped rather than reused, because a handle kept from
     /// another epoch describes a board that has changed under it. See
     /// [`TurnTables`].
-    fn turn_tables(&self) -> TurnTables {
+    fn turn_tables_for(&self, seat: PlayerIdx) -> TurnTables {
         let mut reach = self.reach.borrow_mut();
-        if reach.tables.0 != self.epoch || reach.tables.1.is_empty() {
+        if reach.tables.0 != self.epoch {
+            // Every seat's row describes the position that has just gone, so
+            // the whole set goes with it rather than one row at a time.
             reach.tables.1.clear();
             reach.tables.0 = self.epoch;
         }
-        reach.tables.1.clone()
+        let row = seat.get();
+        if reach.tables.1.len() <= row {
+            reach.tables.1.resize_with(row + 1, TurnTables::default);
+        }
+        // A row nobody has shared yet holds nothing at all, which is what a
+        // turn that builds and drops its own tables wants. Sharing it is what
+        // this call is asking for.
+        if reach.tables.1[row].is_empty() {
+            reach.tables.1[row].clear();
+        }
+        reach.tables.1[row].clone()
+    }
+
+    /// One seat's board tables, to search unit after unit of that seat with.
+    ///
+    /// An agent that measures what a player can reach searches every unit of
+    /// that player, and [`query::reachable`] would open the same tables once
+    /// per unit. A sweep opens them once, and the session keeps them for as
+    /// long as the position stands. `None` when the roster has no such seat.
+    ///
+    /// The tables belong to the position the session holds now. Applying or
+    /// rewinding an order ends that position, and the borrow ends with it.
+    pub fn sweep(&self, seat: PlayerIdx) -> Option<Sweep<'_>> {
+        TurnMaps::with_tables(&self.state, seat, self.turn_tables_for(seat)).map(Sweep::with_maps)
+    }
+
+    /// One seat's movement-point distances, over the same board tables.
+    ///
+    /// [`Travel`] and [`Session::sweep`] read the same entry-cost grids, so a
+    /// caller that asks both questions of one seat builds each grid once.
+    /// `None` when the roster has no such seat.
+    pub fn travel(&self, seat: PlayerIdx) -> Option<Travel<'_>> {
+        TurnMaps::with_tables(&self.state, seat, self.turn_tables_for(seat)).map(Travel::with_maps)
     }
 
     /// Run `read` against one index's movement field.

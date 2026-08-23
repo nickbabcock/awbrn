@@ -564,6 +564,19 @@ where
         self.can_action(special::Launch(target))
     }
 
+    /// Whether a launch from here could be accepted at any target at all.
+    ///
+    /// Everything [`can_launch`] checks except the target's own bounds. A
+    /// caller walking the board for launch targets asks this first, because a
+    /// spent silo or a mover that cannot fire one refuses every tile, and
+    /// finding that out tile by tile is a board-sized answer to a question
+    /// about the tile underfoot.
+    ///
+    /// [`can_launch`]: Self::can_launch
+    pub(crate) fn can_launch_anywhere(&self) -> Result<bool, ExecuteError> {
+        prepared(special::launch_preflight(self)).map(|outcome| outcome.is_ok())
+    }
+
     pub(crate) fn can_explode(&self) -> Result<bool, ExecuteError> {
         self.can_action(special::Explode)
     }
