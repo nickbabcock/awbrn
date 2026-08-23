@@ -1,5 +1,6 @@
 ---
 source: crates/awbrn-client/tests/replay_semantic_snapshots.rs
+assertion_line: 74
 expression: rows
 ---
 [
@@ -7,12 +8,12 @@ expression: rows
     "action_index": 2,
     "day": 1,
     "action_kind": "End",
-    "checksum": "0x34e50a76fb00384b49341a0f3848d5844da879e38efd8cf0bbf58edb40f8999e"
+    "checksum": "0x1c0d197196d03c8ddbaaa7d8c6bdcc4fa9c65c8c85d2870c333d143cb475962c"
   },
   {
     "action_index": 3,
     "day": 2,
     "action_kind": "End",
-    "checksum": "0x509ff4e4a65a2d4c3ce6e2d5ea4cb7750c23ee9bc39e852346d44c116658acb6"
+    "checksum": "0x7299798fa7db54924c6ad4619f301c699ebac9ec3301271a400a4de02a4acfda"
   }
 ]
