@@ -48,7 +48,8 @@ use crate::threat::{self, ThreatMap};
 /// them mean anything. They are listed in the order of the priorities the
 /// agent plays to, and a field below is smaller than the field above it by
 /// enough that no sum of the lower ones outranks a single higher one.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Weights {
     /// A headquarters, once a unit is standing on it. Completing this capture
     /// wins the match outright, so it is not on the same scale as the
