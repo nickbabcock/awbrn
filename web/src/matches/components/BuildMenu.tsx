@@ -59,11 +59,12 @@ export function BuildMenu({
       onRestoreFocus={onRestoreFocus}
       presentation={presentation}
     >
-      {({ spriteScale }) => (
+      {({ isSheet, spriteScale }) => (
         <BuildMenuBody
           disabledReason={disabledReason}
           factionCode={factionCode}
           funds={funds}
+          isSheet={isSheet}
           isEnabled={isEnabled}
           onBuild={onBuild}
           options={options}
@@ -86,6 +87,7 @@ function BuildMenuBody({
   disabledReason,
   factionCode,
   funds,
+  isSheet,
   isEnabled,
   onBuild,
   options,
@@ -95,6 +97,7 @@ function BuildMenuBody({
   disabledReason?: string;
   factionCode: string;
   funds: number | null;
+  isSheet: boolean;
   isEnabled: boolean;
   onBuild: (unit: UnitKind) => void;
   options: ProductionOption[];
@@ -130,7 +133,7 @@ function BuildMenuBody({
           </Text>
         </VStack>
       ) : (
-        <VStack gap={0} xstyle={boardMenuStyles.list}>
+        <VStack gap={0} xstyle={isSheet ? undefined : boardMenuStyles.list}>
           {options.map((option) => (
             <BuildRow
               factionCode={factionCode}
