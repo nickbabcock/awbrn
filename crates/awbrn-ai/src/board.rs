@@ -16,6 +16,7 @@
 use awbrn_game::{GameSetup, PlayerSetup, state_from_setup};
 use awbrn_map::{AwbrnMap, AwbwMap};
 use awbrn_types::{Co, PlayerFaction};
+use awvm::ruleset::UnitKind;
 use awvm::semantic::State;
 
 const ARENA_MAP: &str = include_str!("../../../assets/maps/174183.json");
@@ -39,6 +40,18 @@ pub const AMBER_VALLEY_SEATS: [PlayerFaction; 2] =
 /// Enough for one infantry on turn one and no more. A larger purse would let
 /// turn one decide a game the arena means to measure over thirty days.
 pub const STARTING_FUNDS: u32 = 1_000;
+
+/// The units no arena board may build.
+///
+/// A stealth is invisible to an agent that keeps no belief about what it
+/// cannot see, so the seat that buys one wins for a reason the arena is not
+/// measuring. A black bomb removes a stack of units for a price no combat
+/// term prices, which does the same to the weightings that fight. Both are
+/// banned until an agent can answer them.
+///
+/// The ban is a setting, so the reducer refuses the build and
+/// [`awvm::session::Legal`] never offers it. No agent needs to know.
+pub const BANNED_UNITS: [UnitKind; 2] = [UnitKind::Stealth, UnitKind::BlackBomb];
 
 /// The graphical map used by the arena.
 pub fn arena_map() -> AwbrnMap {
@@ -87,7 +100,9 @@ fn state_from_map(map: AwbrnMap, seats: &[PlayerFaction; 2], fog: bool, seed: u6
         fog_enabled: fog,
         rng_seed: seed,
     };
-    state_from_setup(&setup).expect("the arena setup is valid")
+    let mut state = state_from_setup(&setup).expect("the arena setup is valid");
+    state.settings.unit_bans = BANNED_UNITS.to_vec();
+    state
 }
 
 #[cfg(test)]
@@ -128,6 +143,19 @@ mod tests {
             "it belongs to the seat that moves second"
         );
         assert_eq!(units[0].hp, 100, "the map writes a full unit as 10");
+    }
+
+    /// The ban reaches the position, and through it the action space.
+    #[test]
+    fn no_arena_board_may_build_a_stealth_or_a_black_bomb() {
+        for state in [arena(false, 1), amber_valley(false, 1)] {
+            for kind in BANNED_UNITS {
+                assert!(
+                    state.settings.unit_bans.contains(&kind),
+                    "{kind:?} is banned"
+                );
+            }
+        }
     }
 
     #[test]

@@ -31,7 +31,7 @@
 //! stops where three tanks can answer made a bad exchange, and the forecast
 //! alone scores it as a good one.
 
-use awvm::combat::Forecast;
+use awvm::combat::{self, Forecast, Side};
 use awvm::commander;
 use awvm::query::{self};
 use awvm::ruleset::{self, MovementClass, Terrain, TerrainTrait, UnitKind};
@@ -148,6 +148,28 @@ pub struct Weights {
     /// answer it without a strike.
     pub deny_decay: f64,
 
+    /// Standing on one of our own capturable properties, as a share of the
+    /// weight of that property.
+    ///
+    /// This is the other half of [`Weights::deny`]. Denial pays to strike an
+    /// enemy capturer that has already arrived; this pays to be there first.
+    /// A property with a unit on it cannot be captured at all, so occupancy
+    /// refuses a capture outright and costs nothing but a turn of that unit's
+    /// time.
+    ///
+    /// The headquarters needs no special arm, exactly as denial needs none:
+    /// `property_weight` already answers `hq` for it.
+    pub hold: f64,
+    /// The decay for each tile between the property and the nearest enemy
+    /// unit that can capture it.
+    ///
+    /// Guarding everything is guarding nothing. A property no enemy capturer
+    /// is near is worth almost nothing to stand on, and this is what says so
+    /// without a cutoff that a unit one tile beyond steps over. Distance is
+    /// measured in tiles, because step 5 measured turns against tiles for the
+    /// capture field and the two tied.
+    pub hold_decay: f64,
+
     /// One point of funds a tile is exposed to, as a score. It is priced
     /// level with a point of funds won in an exchange: ground the enemy can
     /// take a whole tank off is worth as much to avoid as a whole tank is
@@ -160,6 +182,34 @@ pub struct Weights {
     /// safe to hold for one turn. Counting it whole gives an agent that never
     /// closes on an artillery, which is the one thing that answers one.
     pub deferred_threat: f64,
+
+    /// What one point of the price of a unit is worth to build.
+    ///
+    /// This is the whole of what a build used to be worth, and it ranks the
+    /// kinds by cost: the dearest kind a factory offers wins every time. It
+    /// is kept as a weight rather than deleted because the two modes want
+    /// different answers from it — a standard game is a race that cheap
+    /// capturers win, and a fog game is a war that army value wins.
+    pub build_cost: f64,
+    /// What one point of funds an exchange is expected to win is worth when
+    /// a unit is bought rather than when it fires.
+    ///
+    /// This is what a unit is *for*, and without it a unit is worth what it
+    /// costs. Pricing a build by its price buys the dearest kind the factory
+    /// offers: a mech where an infantry captures the same property at the
+    /// same rate, and a missile — which has no weapon that reaches a ground
+    /// unit at all — over an anti-air that answers the infantry the enemy
+    /// actually fields.
+    pub counter: f64,
+    /// How much of a build is priced against the funds it spends.
+    ///
+    /// At nothing a kind is worth what it does. At one it is worth what it
+    /// does for each thousand funds, which is what makes three infantry beat
+    /// one mech. Between the two because both readings are true: funds are
+    /// the constraint early, and the factories are the constraint late. It is
+    /// nothing in every weighting below `army`, so that the weighting a
+    /// published number was taken at reads the same as it did.
+    pub funds_efficiency: f64,
 
     /// A commander power, whenever the position offers one. The power is
     /// worth more on some turns than on others, and reading which is a term
@@ -194,36 +244,100 @@ impl Weights {
         deny: 1.0,
         deny_neutral: 0.5,
         deny_decay: 0.5,
+        hold: 0.0,
+        hold_decay: 0.5,
+        build_cost: 0.02,
+        counter: 0.0,
+        funds_efficiency: 0.0,
         threat: 0.02,
         deferred_threat: 0.35,
         power: 200.0,
         supply: 10.0,
     };
 
-    /// The threat map, but with an enemy capture priced only by what the
-    /// capturer costs to replace.
+    /// Tier 1 as it landed: neither the threat map, nor the denial term,
+    /// nor the garrison term.
     ///
-    /// The baseline the denial term is measured against.
-    pub const WITHOUT_DENIAL: Self = Self {
+    /// A term priced at nothing is never built, so this is also the fastest
+    /// weighting the agent holds.
+    pub const TIER1: Self = Self {
+        threat: 0.0,
+        deferred_threat: 0.0,
         deny: 0.0,
+        hold: 0.0,
+        counter: 0.0,
         ..Self::DEFAULT
     };
 
-    /// The same ranking again with what a tile is exposed to priced at
-    /// nothing.
+    /// Tier 1 and the threat map, and nothing else.
     ///
-    /// This is what tier 1 landed with: neither the threat map nor the
-    /// denial term. It is the baseline the arena measures the threat map
-    /// against, and it holds one term less than [`Weights::WITHOUT_DENIAL`]
-    /// so that the pair measures the threat map and nothing else. Keeping it
-    /// named rather than deleted is what lets a later change be compared with
-    /// the score that is already published rather than with a rebuilt
-    /// approximation of it.
-    pub const THREATLESS: Self = Self {
-        threat: 0.0,
-        deferred_threat: 0.0,
-        ..Self::WITHOUT_DENIAL
+    /// The baseline the denial term is measured against.
+    pub const THREAT: Self = Self {
+        threat: Self::DEFAULT.threat,
+        deferred_threat: Self::DEFAULT.deferred_threat,
+        ..Self::TIER1
     };
+
+    /// The threat map and the denial term: the weighting the agent ships.
+    pub const DENY: Self = Self::DEFAULT;
+
+    /// The denial term and the garrison term.
+    ///
+    /// The baseline the garrison term is measured against is
+    /// [`Weights::DENY`], which is the same weighting with `hold` at nothing.
+    pub const DEFEND: Self = Self {
+        hold: 0.75,
+        ..Self::DENY
+    };
+
+    /// The garrison term, and a build priced against the funds it spends.
+    ///
+    /// An infantry and a mech take the same capture points a turn, and one
+    /// costs three times the other. This is the weighting that knows it.
+    pub const ARMY: Self = Self {
+        funds_efficiency: 1.0,
+        ..Self::DEFEND
+    };
+
+    /// The same again, and a build priced against the army in front of us.
+    ///
+    /// **Standard only.** The table is worth about 91 Elo in a standard game
+    /// and loses about 62 under fog, where most of what it reads is the
+    /// guess, not the enemy. See the handoff note.
+    pub const COUNTER: Self = Self {
+        counter: 5.0,
+        ..Self::ARMY
+    };
+
+    /// The weightings this crate names, weakest first.
+    ///
+    /// Each one adds one term to the one before it, so any adjacent pair is
+    /// the measurement of that term and nothing else. They are weightings and
+    /// not agents: one greedy agent reads any of them, which is what stops a
+    /// new term from needing a new agent to seat it.
+    pub const PRESETS: [(&'static str, Self); 7] = [
+        ("default", Self::DEFAULT),
+        ("tier1", Self::TIER1),
+        ("threat", Self::THREAT),
+        ("deny", Self::DENY),
+        ("defend", Self::DEFEND),
+        ("army", Self::ARMY),
+        ("counter", Self::COUNTER),
+    ];
+
+    /// The weighting of this name, or `None` for a name this crate does not
+    /// hold.
+    pub fn preset(name: &str) -> Option<Self> {
+        Self::PRESETS
+            .into_iter()
+            .find(|(known, _)| *known == name)
+            .map(|(_, weights)| weights)
+    }
+
+    /// The names [`Weights::preset`] answers, for a usage message.
+    pub fn preset_names() -> String {
+        Self::PRESETS.map(|(name, _)| name).join(", ")
+    }
 }
 
 impl Default for Weights {
@@ -246,11 +360,16 @@ pub struct GreedyAgent {
     /// for each play rather than once for each candidate.
     capture_fields: CaptureFields,
     advance_field: Vec<f64>,
+    /// What standing on each tile is worth to hold it, which is nothing
+    /// anywhere except on a property of ours an enemy capturer is near.
+    hold_field: Vec<f64>,
     /// `proximity_decay` raised to each turn a field can hold, so that
     /// building the fields is a multiply rather than a power.
     decay: Vec<f64>,
     /// The unit standing on each tile, by its index in the roster.
     occupant: Vec<Option<u16>>,
+    /// What each kind is worth to build against the army in front of us.
+    counter: CounterTable,
     /// What the enemy can take off each tile. Built once for each position,
     /// which is once for each play: the harness applies one command between
     /// calls, and a command moves a unit, so a map held across calls would be
@@ -270,8 +389,10 @@ impl GreedyAgent {
             orders: Vec::new(),
             capture_fields: CaptureFields::new(),
             advance_field: Vec::new(),
+            hold_field: Vec::new(),
             decay: Vec::new(),
             occupant: Vec::new(),
+            counter: CounterTable::new(),
             threat: ThreatMap::new(),
         }
     }
@@ -489,6 +610,101 @@ impl CaptureFields {
     }
 }
 
+/// What each kind of unit is worth to build against the army in front of us.
+///
+/// A build is the one play this agent makes that nothing on the board argues
+/// for. A capture is worth the property, an attack is worth the forecast, and
+/// a build was worth its own price — which ranks the kinds by cost and buys
+/// the dearest one the factory offers. This ranks them by what they do to the
+/// units the enemy actually fields.
+///
+/// One entry for each kind, in funds: what a whole one of that kind takes off
+/// the average enemy unit in one strike, less what that enemy takes back. A
+/// missile against an army of soldiers reads a loss, because no weapon it
+/// carries reaches one; an anti-air against the same army reads most of a
+/// thousand funds.
+///
+/// It is rebuilt only when the army it reads moves. Most commands change
+/// nobody's roster, and the table is `UnitKind::COUNT` rows over the kinds
+/// the enemy fields.
+struct CounterTable {
+    /// The enemy roster this was built from: one entry for each kind they
+    /// field, holding the health of all of them as a share of a whole unit.
+    army: Vec<(UnitKind, f64)>,
+    seen: Vec<(UnitKind, f64)>,
+    values: Vec<f64>,
+}
+
+impl CounterTable {
+    const fn new() -> Self {
+        Self {
+            army: Vec::new(),
+            seen: Vec::new(),
+            values: Vec::new(),
+        }
+    }
+
+    /// What one strike of `kind` is worth against that army, in funds.
+    /// Zero while no enemy is in sight, which is an answer and not a guess.
+    fn of(&self, kind: UnitKind) -> f64 {
+        self.values.get(kind.index()).copied().unwrap_or(0.0)
+    }
+
+    fn build(&mut self, board: &Board<'_>) {
+        board.enemy_army(&mut self.seen);
+        if self.seen == self.army && !self.values.is_empty() {
+            return;
+        }
+        std::mem::swap(&mut self.army, &mut self.seen);
+
+        self.values.clear();
+        self.values.resize(UnitKind::COUNT, 0.0);
+        let whole: f64 = self.army.iter().map(|(_, health)| health).sum();
+        if whole <= 0.0 {
+            return;
+        }
+
+        for kind in UnitKind::ALL {
+            let ours = cost(kind);
+            let value: f64 = self
+                .army
+                .iter()
+                .map(|(theirs, health)| {
+                    let dealt = strike(kind, *theirs) * cost(*theirs);
+                    // What the average enemy of that kind does back. A unit
+                    // is not worth building because it kills what cannot
+                    // answer it only; it is worth building for the exchange.
+                    let taken = strike(*theirs, kind) * ours;
+                    health * (dealt - taken)
+                })
+                .sum();
+            self.values[kind.index()] = value / whole;
+        }
+    }
+}
+
+/// The share of a whole unit of `defender` that one strike of `attacker`
+/// removes, on flat ground against a commander with no combat rule.
+///
+/// Both sides are read at whole health and a full magazine, which is the
+/// unit this table is about: the one that has not been built yet.
+fn strike(attacker: UnitKind, defender: UnitKind) -> f64 {
+    /// The attack and defense a commander with no combat rule presents.
+    const NEUTRAL: i64 = 100;
+
+    let side = |kind: UnitKind, ammo| Side {
+        kind,
+        hp: 100,
+        ammo,
+        attack: NEUTRAL,
+        defense: NEUTRAL,
+        terrain_stars: 0,
+    };
+    let ammo = ruleset::profile(attacker).max_ammo;
+    combat::damage(side(attacker, ammo), side(defender, 0), 0)
+        .map_or(0.0, |hit| f64::from(hit.damage) / 100.0)
+}
+
 impl Agent for GreedyAgent {
     fn act(&mut self, view: &Observation) -> Option<Play> {
         // A projection this player may not act on reports nothing legal, so
@@ -506,8 +722,10 @@ impl Agent for GreedyAgent {
             orders,
             capture_fields,
             advance_field,
+            hold_field,
             decay,
             occupant,
+            counter,
             threat,
         } = self;
 
@@ -520,11 +738,24 @@ impl Agent for GreedyAgent {
         board.occupants(occupant);
         capture_fields.build(&session, &board, decay, occupant);
         board.advance_field(advance_field, decay);
+        // A term priced at nothing decides nothing, so the field it reads is
+        // not built. That is what keeps every weighting below `defend` at the
+        // throughput its numbers were taken at.
+        if weights.hold != 0.0 {
+            board.hold_field(hold_field);
+        } else {
+            hold_field.clear();
+        }
         // A map priced at nothing is never read, so it is never built. That
         // is what keeps the threatless weighting at the throughput it was
         // measured at, and it is what makes the two a comparison of one term.
         if weights.threat != 0.0 {
             threat.build(&session, seat);
+        }
+        // A table priced at nothing decides nothing, so a weighting without
+        // this term never pays to build one.
+        if weights.counter != 0.0 {
+            counter.build(&board);
         }
 
         orders.clear();
@@ -536,7 +767,9 @@ impl Agent for GreedyAgent {
             legal: &legal,
             capture_fields,
             advance_field,
+            hold_field,
             occupant,
+            counter,
             threat,
             shortfall: board.capturer_shortfall(occupant),
         };
@@ -707,7 +940,7 @@ impl Board<'_> {
             if !self.hostile(unit.owner) {
                 continue;
             }
-            let weight = self.weights.advance * cost(unit.kind) * health(unit);
+            let weight = self.weights.advance * cost(unit.kind) * health_of(unit);
             for (from, value) in self.state.board.positions().zip(out.iter_mut()) {
                 let pull = weight * decay[target.distance(from) as usize];
                 if pull > *value {
@@ -715,6 +948,107 @@ impl Board<'_> {
                 }
             }
         }
+    }
+
+    /// What standing on each tile is worth as a garrison.
+    ///
+    /// Only a property of ours can be garrisoned, and only one an enemy
+    /// capturer is near is worth a unit's turn. The value is the property's
+    /// own weight, decayed by the tiles between it and the nearest enemy that
+    /// could take it, so a headquarters with a soldier beside it outbids a
+    /// city on the far side of the board without either being named.
+    ///
+    /// Distance is the straight line and not the route, which is the fidelity
+    /// [`Board::advance_field`] already has. The nearest enemy capturer is
+    /// what decides the deadline, so this is a walk over our properties
+    /// against the enemy capturers on the board, and not a search.
+    fn hold_field(&self, out: &mut Vec<f64>) {
+        out.clear();
+        out.resize(self.cells(), 0.0);
+        for (position, tile) in self.state.board.iter() {
+            if !ruleset::terrain_has(tile.terrain, TerrainTrait::Capturable) {
+                continue;
+            }
+            if tile.owner != TileOwner::Owned(self.seat) {
+                continue;
+            }
+            let Some(cell) = self.cell(position) else {
+                continue;
+            };
+            let Some(distance) = self.nearest_hostile_capturer(position) else {
+                continue;
+            };
+            let decay = self
+                .weights
+                .hold_decay
+                .powi(i32::try_from(distance).unwrap_or(i32::MAX));
+            out[cell] = self.weights.hold * self.property_weight(tile.terrain) * decay;
+        }
+    }
+
+    /// The tiles between `position` and the nearest enemy unit that captures,
+    /// or `None` when the enemy fields none we can see.
+    fn nearest_hostile_capturer(&self, position: Pos) -> Option<u64> {
+        self.state
+            .units
+            .iter()
+            .filter_map(|unit| {
+                let Location::Board { position: from } = unit.location else {
+                    return None;
+                };
+                (self.hostile(unit.owner) && ruleset::profile(unit.kind).can_capture)
+                    .then(|| from.distance(position))
+            })
+            .min()
+    }
+
+    /// The army to price a build against, one entry for each kind in it.
+    ///
+    /// The health of every unit of a kind, added up as shares of a whole
+    /// unit, so a damaged army counts for less than a whole one and a kind
+    /// nobody fields is not in the list at all.
+    ///
+    /// **What is not seen is assumed to look like us.** Under fog the enemy
+    /// units in sight are a handful of the ones they hold, and an army priced
+    /// against a handful is priced against nothing: every kind reads the same
+    /// value and the factory draws one at random. Where our own army is
+    /// larger than what we can see of theirs, the difference is filled in
+    /// with our own composition. It is the one guess on the board that costs
+    /// nothing to make and is wrong in the same direction for both players.
+    fn enemy_army(&self, out: &mut Vec<(UnitKind, f64)>) {
+        out.clear();
+        let mut seen = 0.0;
+        let mut ours = 0.0;
+        for unit in self.state.units.iter() {
+            if !matches!(unit.location, Location::Board { .. }) {
+                continue;
+            }
+            if unit.owner == self.seat {
+                ours += health_of(unit);
+                continue;
+            }
+            if !self.hostile(unit.owner) {
+                continue;
+            }
+            seen += health_of(unit);
+            add_to(out, unit.kind, health_of(unit));
+        }
+
+        let missing = ours - seen;
+        if missing <= 0.0 || ours <= 0.0 {
+            out.sort_unstable_by_key(|(kind, _)| kind.index());
+            return;
+        }
+        let share = missing / ours;
+        for unit in self.state.units.iter() {
+            if unit.owner != self.seat || !matches!(unit.location, Location::Board { .. }) {
+                continue;
+            }
+            add_to(out, unit.kind, health_of(unit) * share);
+        }
+        // The roster order is the board's own, so a list that is the same
+        // army must read the same both times it is compared.
+        out.sort_unstable_by_key(|(kind, _)| kind.index());
     }
 
     fn is_our_capturer(&self, index: u16) -> bool {
@@ -752,13 +1086,21 @@ impl Board<'_> {
     }
 }
 
+/// Add one kind's health to a roster summary, in place.
+fn add_to(army: &mut Vec<(UnitKind, f64)>, kind: UnitKind, health: f64) {
+    match army.iter_mut().find(|(known, _)| *known == kind) {
+        Some((_, held)) => *held += health,
+        None => army.push((kind, health)),
+    }
+}
+
 /// What one unit costs to replace, in funds.
 fn cost(kind: UnitKind) -> f64 {
     ruleset::profile(kind).cost as f64
 }
 
 /// A unit's health as a share of a whole one.
-fn health(unit: &Unit) -> f64 {
+fn health_of(unit: &Unit) -> f64 {
     f64::from(unit.hp) / 100.0
 }
 
@@ -799,7 +1141,9 @@ struct Scorer<'a> {
     legal: &'a Legal<'a>,
     capture_fields: &'a CaptureFields,
     advance_field: &'a [f64],
+    hold_field: &'a [f64],
     occupant: &'a [Option<u16>],
+    counter: &'a CounterTable,
     threat: &'a ThreatMap,
     shortfall: f64,
 }
@@ -1009,7 +1353,12 @@ impl Scorer<'_> {
         } else {
             self.advance_field
         };
-        field.get(cell).copied().unwrap_or(0.0)
+        // Holding a property of ours is added rather than taken the best of.
+        // The two answer different questions — where this unit is going, and
+        // what it is worth for it to stop where it is — and a tile that is
+        // both a garrison and a step toward the next property is worth both.
+        let hold = self.hold_field.get(cell).copied().unwrap_or(0.0);
+        field.get(cell).copied().unwrap_or(0.0) + hold
     }
 
     /// What standing on `cell` costs this unit, in score.
@@ -1035,11 +1384,17 @@ impl Scorer<'_> {
     fn produce(&self, kind: UnitKind) -> f64 {
         let weights = self.weights();
         let profile = ruleset::profile(kind);
-        let mut score = weights.funds * cost(kind) + weights.unit_count;
+        let mut score = weights.unit_count;
+        // Both roles are priced against the funds the build spends, because
+        // the question a factory asks is not which kind is strongest but
+        // which kind is worth the money. An infantry and a mech take the same
+        // capture points a turn and one of them costs three times the other.
+        let efficiency = (1000.0 / cost(kind).max(1.0)).powf(weights.funds_efficiency);
         if profile.can_capture {
-            score += weights.capturer_shortfall * self.shortfall;
+            score += weights.capturer_shortfall * self.shortfall * efficiency;
         }
-        score
+        score += weights.build_cost * cost(kind);
+        score + weights.counter * self.counter.of(kind) * efficiency
     }
 }
 
@@ -1496,6 +1851,205 @@ mod tests {
         );
     }
 
+    /// The build table answers the army in front of it, and not the price
+    /// list.
+    ///
+    /// Against an army of soldiers an anti-air takes a whole one off in a
+    /// strike, and a missile carries no weapon that reaches one at all — so
+    /// the missile, which costs half again as much, must read a loss and the
+    /// anti-air a gain. Pricing a build by its cost ranks them the other way
+    /// round, which is what this pins.
+    #[test]
+    fn a_build_is_worth_what_it_answers_and_not_what_it_costs() {
+        let (state, ours, _) = army_of(UnitKind::Infantry, 3);
+        let weights = Weights::COUNTER;
+        let board = Board {
+            state: &state,
+            seat: ours,
+            weights: &weights,
+        };
+        let mut table = CounterTable::new();
+        table.build(&board);
+
+        assert!(
+            table.of(UnitKind::AntiAir) > 0.0,
+            "an anti-air answers an army of soldiers"
+        );
+        assert!(
+            table.of(UnitKind::Missile) < 0.0,
+            "a missile has no weapon that reaches a soldier"
+        );
+        assert!(table.of(UnitKind::AntiAir) > table.of(UnitKind::Missile));
+    }
+
+    /// What is not seen is assumed to look like us.
+    ///
+    /// Under fog the enemy in sight is a handful of what they hold, and a
+    /// table built on a handful reads the same value for every kind, which
+    /// leaves the factory drawing at random. The army our side fields fills
+    /// the rest in.
+    #[test]
+    fn an_unseen_enemy_is_assumed_to_look_like_the_army_we_hold() {
+        let (mut state, ours, _) = army_of(UnitKind::Infantry, 1);
+        for index in 0..4 {
+            let mut ours = test_unit(UnitKind::MdTank, Pos { x: 5, y: 5 }, ours);
+            ours.id = UnitId::new(500 + index);
+            state.units.push(ours);
+        }
+        let weights = Weights::COUNTER;
+        let board = Board {
+            state: &state,
+            seat: ours,
+            weights: &weights,
+        };
+
+        let mut army = Vec::new();
+        board.enemy_army(&mut army);
+        assert!(
+            army.iter().any(|(kind, _)| *kind == UnitKind::MdTank),
+            "the army we cannot see was left empty rather than guessed at"
+        );
+        let seen = army
+            .iter()
+            .find(|(kind, _)| *kind == UnitKind::Infantry)
+            .map(|(_, health)| *health);
+        assert_eq!(seen, Some(1.0), "the enemy in sight is counted as it is");
+    }
+
+    /// A board holding `count` enemy units of one kind, and nothing else,
+    /// with the seat that is asking and the seat it is at war with.
+    fn army_of(kind: UnitKind, count: u32) -> (State, PlayerIdx, PlayerIdx) {
+        let mut state = arena(false, 1);
+        let ours = state
+            .players
+            .seat(&state.turn.active_player)
+            .expect("the active player holds a seat");
+        let theirs = state
+            .players
+            .seats()
+            .map(|(seat, _)| seat)
+            .find(|seat| *seat != ours)
+            .expect("the arena seats two players");
+        state.units.retain(|_| false);
+        for index in 0..count {
+            let mut unit = test_unit(kind, Pos { x: 3, y: 3 }, theirs);
+            unit.id = UnitId::new(400 + index);
+            state.units.push(unit);
+        }
+        (state, ours, theirs)
+    }
+
+    /// The garrison weighting keeps a body on the headquarters. The shipped
+    /// one walks off it.
+    ///
+    /// The position holds an enemy soldier two tiles from our headquarters
+    /// and one soldier of ours standing on it. Denial cannot answer this:
+    /// nothing is capturing yet, so there is nothing to strike. The only play
+    /// that saves the headquarters is staying, because a property with a unit
+    /// on it cannot be captured at all.
+    #[test]
+    fn a_garrison_holds_the_headquarters_an_enemy_capturer_is_near() {
+        /// Where the guard's turn takes it, or `None` for a guard that
+        /// never left the headquarters.
+        fn guard_destination(weights: Weights) -> Option<CellIdx> {
+            let (mut session, guard, hq) = headquarters_under_approach();
+            let mut agent = GreedyAgent::with_weights(1, weights);
+            let mut entropy = Rng::from_seed(7);
+            let hq = session
+                .state()
+                .board
+                .dimensions()
+                .cell_index(hq)
+                .expect("the headquarters is on the board");
+
+            for _ in 0..12 {
+                let state = session.state();
+                let Ok(view) = observe(&AwbwVisibility, state, &state.turn.active_player) else {
+                    break;
+                };
+                // The turn ends with the guard where it stands, which is one
+                // of the two ways of holding the tile.
+                let Some(play) = agent.act(&view) else { break };
+                if play.unit() == Some(guard) && play.destination() != hq {
+                    return Some(play.destination());
+                }
+                let Some(command) = play.command(&session) else {
+                    break;
+                };
+                if session
+                    .apply_command::<()>(command, &mut entropy, &mut ())
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            None
+        }
+
+        assert!(
+            guard_destination(Weights::DENY).is_some(),
+            "the shipped weighting already holds the headquarters, so this \
+             measures nothing"
+        );
+        assert_eq!(
+            guard_destination(Weights::DEFEND),
+            None,
+            "the garrison weighting walked off the headquarters"
+        );
+    }
+
+    /// Our headquarters with one soldier of ours on it, and an enemy capturer
+    /// two tiles from it.
+    fn headquarters_under_approach() -> (Session, UnitId, Pos) {
+        let mut state = arena(false, 1);
+        let ours = state
+            .players
+            .seat(&state.turn.active_player)
+            .expect("the active player holds a seat");
+        let theirs = state
+            .players
+            .seats()
+            .map(|(seat, _)| seat)
+            .find(|seat| *seat != ours)
+            .expect("the arena seats two players");
+
+        let hq = state
+            .board
+            .iter()
+            .find(|(_, tile)| {
+                ruleset::terrain_has(tile.terrain, TerrainTrait::CaptureDefeatsOwner)
+                    && tile.owner == TileOwner::Owned(ours)
+            })
+            .map(|(position, _)| position)
+            .expect("the arena gives each seat a headquarters");
+        let approach = state
+            .board
+            .positions()
+            .find(|position| {
+                hq.distance(*position) == 2
+                    && state.board.get(*position).is_some_and(|tile| {
+                        ruleset::movement_cost(
+                            tile.terrain,
+                            state.weather.kind,
+                            ruleset::profile(UnitKind::Infantry).movement_class,
+                        )
+                        .is_some()
+                    })
+            })
+            .expect("the headquarters has a walkable tile two steps from it");
+
+        let guard = UnitId::new(9_004);
+        state.units.retain(|_| false);
+        let mut raider = test_unit(UnitKind::Infantry, approach, theirs);
+        raider.id = UnitId::new(9_003);
+        state.units.push(raider);
+        let mut ours_soldier = test_unit(UnitKind::Infantry, hq, ours);
+        ours_soldier.id = guard;
+        state.units.push(ours_soldier);
+
+        (Session::new(state), guard, hq)
+    }
+
     /// Our headquarters, one enemy turn from falling, and one unit of ours
     /// beside it. Every other unit is off the board so that the position asks
     /// exactly one question.
@@ -1607,9 +2161,9 @@ mod tests {
         let read = game(Weights {
             threat: f64::MIN_POSITIVE,
             deferred_threat: 0.0,
-            ..Weights::THREATLESS
+            ..Weights::TIER1
         });
-        assert_eq!(game(Weights::THREATLESS), read);
+        assert_eq!(game(Weights::TIER1), read);
     }
 
     /// A board with nothing left to take is a board that builds soldiers no

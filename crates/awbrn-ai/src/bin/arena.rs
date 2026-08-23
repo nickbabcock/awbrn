@@ -73,16 +73,19 @@ usage: arena [--map NAME] [--seed N] [--games N] [--fog] [--day-cap N] [--first 
                  both seat orders, so the tournament plays 2N games. Default 50.
   --fog          Play with fog of war on. Default off.
   --day-cap N    Abandon a game after this many days. Default 35.
-  --first NAME   The agent under test. Default random.
-  --second NAME  The agent it plays. Default random.
-  --weights FILE Read JSON weight overrides for the first agent. Unspecified
-                 weights use their defaults. The first agent cannot be random.
+  --first NAME   What the agent under test plays: random, a weighting this
+                 crate names, or a path to a JSON weights file. Default random.
+  --second NAME  The same, for the agent it plays. Default random.
+  --weights FILE Read JSON weight overrides for the first agent. A weight the
+                 file does not name keeps what --first gives it. The first
+                 agent cannot be random.
   --second-weights FILE
-                 Read JSON weight overrides for the second agent. Unspecified
-                 weights use their defaults. The second agent cannot be random.
+                 The same, for the second agent.
   --sample DIR   Capture the first game as turn PNGs and a JSONL sidecar.
 
-agents: random, greedy, greedy-threat, greedy-deny";
+agents: random, or one of the weightings tier1, threat, deny, defend, default.
+Each weighting adds one term to the one before it, so an adjacent pair is the
+measurement of that term and nothing else.";
 
 #[derive(Debug)]
 struct Options {
@@ -91,8 +94,8 @@ struct Options {
     pairs: usize,
     fog: bool,
     day_cap: u32,
-    first: &'static str,
-    second: &'static str,
+    first: String,
+    second: String,
     weights: Option<PathBuf>,
     second_weights: Option<PathBuf>,
     sample: Option<PathBuf>,
@@ -106,8 +109,8 @@ impl Options {
             pairs: 50,
             fog: false,
             day_cap: Limits::default().days,
-            first: "random",
-            second: "random",
+            first: "random".to_owned(),
+            second: "random".to_owned(),
             weights: None,
             second_weights: None,
             sample: None,
@@ -125,8 +128,8 @@ impl Options {
                 "--games" => options.pairs = parse_number(&value()?)?,
                 "--day-cap" => options.day_cap = parse_number(&value()?)?,
                 "--fog" => options.fog = true,
-                "--first" => options.first = agent_name(&value()?)?,
-                "--second" => options.second = agent_name(&value()?)?,
+                "--first" => options.first = agent_spec(&value()?)?,
+                "--second" => options.second = agent_spec(&value()?)?,
                 "--weights" => options.weights = Some(value()?.into()),
                 "--second-weights" => options.second_weights = Some(value()?.into()),
                 "--sample" => options.sample = Some(value()?.into()),
@@ -143,10 +146,10 @@ impl Options {
         if options.day_cap == 0 {
             return Err("--day-cap must be at least 1".to_owned());
         }
-        if options.weights.is_some() && options.first == "random" {
+        if options.weights.is_some() && options.first == RANDOM {
             return Err("--weights requires a greedy first agent".to_owned());
         }
-        if options.second_weights.is_some() && options.second == "random" {
+        if options.second_weights.is_some() && options.second == RANDOM {
             return Err("--second-weights requires a greedy second agent".to_owned());
         }
         Ok(options)
@@ -175,36 +178,59 @@ fn parse_number<T: std::str::FromStr>(text: &str) -> Result<T, String> {
         .map_err(|_| format!("{text} is not a number this argument accepts"))
 }
 
-/// The agents this binary can seat, by the name the arguments use.
-///
-/// Each name adds one term to the one before it, so any adjacent pair is the
-/// measurement of that term and nothing else. `greedy` is tier 1 as it
-/// landed, `greedy-threat` adds the threat map, and `greedy-deny` adds the
-/// price of stopping an enemy capture.
-const AGENTS: [&str; 4] = ["random", "greedy", "greedy-threat", "greedy-deny"];
+/// The one agent that reads no weights.
+const RANDOM: &str = "random";
 
-fn agent_name(name: &str) -> Result<&'static str, String> {
-    AGENTS
-        .into_iter()
-        .find(|known| *known == name)
-        .ok_or_else(|| {
-            format!(
-                "unknown agent {name}, known agents are {}",
-                AGENTS.join(", ")
-            )
-        })
+/// What one seat plays, by the word the arguments use.
+///
+/// There are two agents and not five. Every greedy doctrine this crate has
+/// ever seated is a weighting of the one greedy agent, so a seat names either
+/// `random`, one of [`Weights::PRESETS`], or a file of weights. A new term
+/// then needs a weight and no agent at all, which is what stops the ladder
+/// from growing a name for each of them.
+fn agent_spec(name: &str) -> Result<String, String> {
+    if name == RANDOM || Weights::preset(name).is_some() || is_path(name) {
+        return Ok(name.to_owned());
+    }
+    Err(format!(
+        "unknown agent {name}, known agents are {RANDOM}, {}, or a path to a weights file",
+        Weights::preset_names()
+    ))
 }
 
-fn build(name: &str, seed: u64, weights: Option<Weights>) -> Box<dyn Agent> {
-    if let Some(weights) = weights {
-        return Box::new(GreedyAgent::with_weights(seed, weights));
+/// Whether this word is meant as a file and not as a name.
+///
+/// A name this crate holds is one word with no punctuation in it, so anything
+/// that looks like a path is read as one. Saying so here is what lets a
+/// misspelled preset report the names instead of an unreadable file.
+fn is_path(name: &str) -> bool {
+    name.contains(std::path::MAIN_SEPARATOR) || name.ends_with(".json")
+}
+
+/// The weighting one seat plays, or `None` for the random agent.
+///
+/// `overrides` is layered over the named weighting rather than over the
+/// defaults, so `--first defend --weights sweep/hold-0.4.json` is the defend
+/// weighting with one field moved. A field the file does not name keeps what
+/// the named weighting gives it, and a name no weighting holds is an error.
+fn seat_weights(spec: &str, overrides: Option<&Path>) -> Result<Option<Weights>> {
+    if spec == RANDOM {
+        return Ok(None);
     }
-    match name {
-        "random" => Box::new(RandomAgent::from_seed(seed)),
-        "greedy" => Box::new(GreedyAgent::with_weights(seed, Weights::THREATLESS)),
-        "greedy-threat" => Box::new(GreedyAgent::with_weights(seed, Weights::WITHOUT_DENIAL)),
-        "greedy-deny" => Box::new(GreedyAgent::from_seed(seed)),
-        other => unreachable!("{other} passed the argument check"),
+    let base = match Weights::preset(spec) {
+        Some(weights) => weights,
+        None => read_weights(Path::new(spec))?,
+    };
+    match overrides {
+        Some(path) => layer_weights(base, path).map(Some),
+        None => Ok(Some(base)),
+    }
+}
+
+fn build(seed: u64, weights: Option<Weights>) -> Box<dyn Agent> {
+    match weights {
+        Some(weights) => Box::new(GreedyAgent::with_weights(seed, weights)),
+        None => Box::new(RandomAgent::from_seed(seed)),
     }
 }
 
@@ -361,12 +387,8 @@ impl Side {
 }
 
 fn run(options: &Options) -> Result<Tally> {
-    let first_weights = options.weights.as_deref().map(read_weights).transpose()?;
-    let second_weights = options
-        .second_weights
-        .as_deref()
-        .map(read_weights)
-        .transpose()?;
+    let first_weights = seat_weights(&options.first, options.weights.as_deref())?;
+    let second_weights = seat_weights(&options.second, options.second_weights.as_deref())?;
     let mut tally = Tally::default();
     // One session for the whole tournament. It keeps the board-sized tables it
     // allocated, so a game after the first asks the allocator for nothing.
@@ -377,8 +399,8 @@ fn run(options: &Options) -> Result<Tally> {
         for under_test_first in [true, false] {
             let game = Rng::mix(options.seed ^ ((pair as u64) << 32));
             let mut entropy = Rng::from_seed(Rng::mix(game ^ 0x1));
-            let mut first = build(options.first, Rng::mix(game ^ 0x2), first_weights);
-            let mut second = build(options.second, Rng::mix(game ^ 0x3), second_weights);
+            let mut first = build(Rng::mix(game ^ 0x2), first_weights);
+            let mut second = build(Rng::mix(game ^ 0x3), second_weights);
 
             // The seat the agent under test sits in. Playing the same seed
             // both ways is what removes the first-player advantage from the
@@ -435,6 +457,28 @@ fn run(options: &Options) -> Result<Tally> {
     }
 
     Ok(tally)
+}
+
+/// Read one file of weights over `base`.
+///
+/// The file holds the fields it moves and nothing else, so it is read as a
+/// map and laid over the named weighting written out as one. Reading it into
+/// [`Weights`] directly would fill every field it does not name from the
+/// defaults, which would quietly throw the named weighting away.
+fn layer_weights(base: Weights, path: &Path) -> Result<Weights> {
+    let file =
+        File::open(path).with_context(|| format!("opening weights file {}", path.display()))?;
+    let overrides: serde_json::Map<String, serde_json::Value> = serde_json::from_reader(file)
+        .with_context(|| format!("reading weights file {}", path.display()))?;
+    let mut merged = serde_json::to_value(base).context("writing the named weighting out")?;
+    let Some(fields) = merged.as_object_mut() else {
+        unreachable!("weights write out as an object");
+    };
+    fields.extend(overrides);
+    // `Weights` refuses a name it does not hold, so a misspelled weight is an
+    // error here rather than a sweep that measured nothing.
+    serde_json::from_value(merged)
+        .with_context(|| format!("applying weights file {}", path.display()))
 }
 
 fn read_weights(path: &Path) -> Result<Weights> {
@@ -826,11 +870,11 @@ mod tests {
         let options = Options::parse(
             [
                 "--first",
-                "greedy-deny",
+                "deny",
                 "--weights",
                 "first.json",
                 "--second",
-                "greedy-threat",
+                "threat",
                 "--second-weights",
                 "second.json",
             ]
