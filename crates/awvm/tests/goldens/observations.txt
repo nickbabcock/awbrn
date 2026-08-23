@@ -322,7 +322,7 @@ fc5bfdf526db241e  obs=4 ev=4  turn/day-limit-draw.json
 f9c2f57cf148b238  obs=4 ev=13  turn/round-boundary-day-advance.json
 327251b81d03c8b2  obs=4 ev=20  turn-hooks/apc-auto-supply.json
 245b83e3739301d7  obs=4 ev=18  turn-hooks/fuel-upkeep-and-crash.json
-4f9963a0810fee8a  obs=4 ev=17  turn-hooks/property-repair.json
+f838d802b4d97ed5  obs=4 ev=23  turn-hooks/property-repair.json
 7ed465bc0470e612  obs=10 ev=42  turn-hooks/random-weather-outcomes.json
 bdcec65ac4e352fa  obs=4 ev=10  turn-hooks/random-weather-override-expiry.json
 c80dc8022a2ad82a  obs=4 ev=14  turn-hooks/weather-expiry.json
