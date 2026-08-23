@@ -22,22 +22,30 @@ use awvm::session::Session;
 use awvm::transition::{Command, ExecuteOutcome, execute_with};
 
 use crate::agent::Agent;
+use crate::shape::Shape;
 
 type Observer<'a> = &'a mut dyn FnMut(&State, Option<&Command>);
 
 /// What stops a game the agents do not finish.
 #[derive(Clone, Copy, Debug)]
 pub struct Limits {
-    /// Days before the harness abandons the game.
+    /// Days the game may last.
     ///
     /// A random agent almost never captures a headquarters, so its games do
     /// not end on their own.
     ///
+    /// This is the ruleset's own day limit, not an abort: [`play`] writes it
+    /// into `Settings::day_limit`, so the reducer ends the match at the end of
+    /// this day and awards it to whoever holds the most properties, or draws
+    /// it when they are level. A game that reaches the cap is therefore a
+    /// decided game and not a thrown-away one, which is what a scored
+    /// tournament needs. The harness keeps a check of its own for the day
+    /// after, which nothing should reach.
+    ///
     /// The cap is a day rather than a player turn, because a day is what a
     /// played match is measured in and a player turn is not: the same cap of
     /// sixty turns is thirty days of a duel and twenty of a three-player
-    /// match. The harness stops once the reducer rolls the day past this one,
-    /// so a cap of 35 plays day 35 to its end.
+    /// match.
     pub days: u32,
     /// Refusals in a row that end the turn by force.
     ///
@@ -92,6 +100,16 @@ pub struct Record {
     /// disagree: units collect over a game, and the state clone, the
     /// projection and the enumeration all grow with them.
     pub units: usize,
+    /// What the game looked like, seat by seat.
+    ///
+    /// A result says which agent won. This says what the game it won was made
+    /// of, which is what a term that prices combat must be measured against.
+    /// See [`crate::shape`].
+    ///
+    /// Empty unless [`play_measured`] or [`play_observed`] played the game.
+    /// Counting the shape costs about 7% of the command rate, and [`play`] is
+    /// what the throughput measurement runs.
+    pub shape: Shape,
 }
 
 impl Record {
@@ -125,13 +143,32 @@ pub fn play<E: Entropy>(
     entropy: &mut E,
     limits: Limits,
 ) -> Record {
-    play_inner(state, session, agents, entropy, limits, None)
+    play_inner(state, session, agents, entropy, limits, None, false)
+}
+
+/// Play one game and count what it was made of.
+///
+/// The same game [`play`] plays, with [`Record::shape`] filled in. The count
+/// reads the events of every command and samples each seat at the end of each
+/// of its turns, which costs about 7% of the command rate. That is why it is
+/// a second entry point and not the only one: the throughput measurement
+/// prices the agent, not the measurement of the agent.
+pub fn play_measured<E: Entropy>(
+    state: State,
+    session: &mut Session,
+    agents: &mut [&mut dyn Agent],
+    entropy: &mut E,
+    limits: Limits,
+) -> Record {
+    play_inner(state, session, agents, entropy, limits, None, true)
 }
 
 /// Play one game and report its initial state and each accepted command.
 ///
 /// The observer runs after the session adopts the new state. Its command is
-/// `None` for the initial state and `Some` after an accepted command.
+/// `None` for the initial state and `Some` after an accepted command. The
+/// shape is counted, because a caller that renders every turn does not need
+/// the command rate.
 pub fn play_observed<E: Entropy>(
     state: State,
     session: &mut Session,
@@ -140,7 +177,15 @@ pub fn play_observed<E: Entropy>(
     limits: Limits,
     mut observer: impl FnMut(&State, Option<&Command>),
 ) -> Record {
-    play_inner(state, session, agents, entropy, limits, Some(&mut observer))
+    play_inner(
+        state,
+        session,
+        agents,
+        entropy,
+        limits,
+        Some(&mut observer),
+        true,
+    )
 }
 
 fn play_inner<E: Entropy>(
@@ -150,6 +195,7 @@ fn play_inner<E: Entropy>(
     entropy: &mut E,
     limits: Limits,
     mut observer: Option<Observer<'_>>,
+    measure: bool,
 ) -> Record {
     assert!(
         state.players.len() <= agents.len(),
@@ -157,6 +203,11 @@ fn play_inner<E: Entropy>(
         state.players.len(),
         agents.len(),
     );
+    // The cap is the ruleset's, so a game that reaches it is decided on
+    // properties held rather than abandoned. Anything the caller set is
+    // replaced: two limits on one game is one limit too many.
+    let mut state = state;
+    state.settings.day_limit = Some(u64::from(limits.days));
     session.reset(state);
     if let Some(observer) = observer.as_mut() {
         observer(session.state(), None);
@@ -166,6 +217,11 @@ fn play_inner<E: Entropy>(
     let mut commands = 0;
     let mut refusals = 0;
     let mut refusals_in_a_row = 0;
+    let mut shape = if measure {
+        Shape::new(session.state().players.len())
+    } else {
+        Shape::default()
+    };
 
     loop {
         let outcome = match &session.state().match_state {
@@ -181,6 +237,7 @@ fn play_inner<E: Entropy>(
                 commands,
                 refusals,
                 units: session.state().units.iter().count(),
+                shape,
             };
         }
 
@@ -220,7 +277,16 @@ fn play_inner<E: Entropy>(
         let observed_command = observer.is_some().then(|| command.clone());
         match execute_with(session.state(), command, entropy) {
             Ok(ExecuteOutcome::Accepted(execution)) => {
+                if measure {
+                    // The state the command ran against is the only one that
+                    // still holds the units it removed, so the count comes
+                    // first.
+                    shape.observe(session.state(), &execution.events);
+                }
                 session.reset(execution.state);
+                if measure && ends_turn {
+                    shape.sample_turn(session.state(), seat);
+                }
                 if let Some(observer) = observer.as_mut() {
                     observer(session.state(), observed_command.as_ref());
                 }
@@ -246,14 +312,17 @@ mod tests {
     use crate::board::arena;
     use crate::rng::Rng;
 
-    /// The cap is a day, and the harness stops on the day after it.
+    /// The cap decides the game, and it decides it on the day it names.
     ///
-    /// Two random agents on the arena board never finish a game, so what stops
-    /// this one is the cap, and what it stops on is the number the cap names.
-    /// A cap counted in player turns would mean a different length of match on
-    /// a board with three seats.
+    /// Two random agents on the arena board never finish a game, so what ends
+    /// this one is the cap. It ends it the way the ruleset ends a day limit,
+    /// with the properties counted and a winner named, and not by throwing the
+    /// position away: a tournament that scores an abandoned game as a draw
+    /// measures the cap instead of the agents. A cap counted in player turns
+    /// would also mean a different length of match on a board with three
+    /// seats.
     #[test]
-    fn a_game_stops_the_day_after_the_cap() {
+    fn a_game_reaching_the_cap_is_decided_on_the_day_it_names() {
         const LIMITS: Limits = Limits {
             days: 4,
             ..Limits::DEFAULT
@@ -274,10 +343,10 @@ mod tests {
         );
 
         assert!(
-            record.abandoned(),
-            "the game ended on its own, so the cap was never reached"
+            !record.abandoned(),
+            "the reducer named an outcome, so the harness threw nothing away"
         );
-        assert_eq!(record.days, LIMITS.days + 1);
+        assert_eq!(record.days, LIMITS.days);
         // Two seats, so a day is two player turns.
         assert_eq!(record.turns, LIMITS.days * 2);
     }

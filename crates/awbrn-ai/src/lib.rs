@@ -9,7 +9,8 @@
 //! [`agent`] holds the interface: the [`Agent`] trait and the [`Play`] an agent
 //! returns. [`agents`] holds the implementations. [`rng`] is the seeded
 //! generator that makes a game repeatable, which every measurement of one agent
-//! against another needs.
+//! against another needs. [`shape`] holds what a game was made of, which a
+//! score does not say.
 //!
 //! This crate is a sibling of `awbrn-client` and `awbrn-server`, not a layer
 //! under either. All three consume the same core.
@@ -19,9 +20,11 @@ pub mod agents;
 pub mod board;
 pub mod harness;
 pub mod rng;
+pub mod shape;
 pub mod threat;
 
 pub use agent::{Agent, Play};
-pub use harness::{Limits, Record, play};
+pub use harness::{Limits, Record, play, play_measured};
 pub use rng::Rng;
+pub use shape::{SeatShape, Shape};
 pub use threat::ThreatMap;
