@@ -21,6 +21,11 @@ use ::awvm::semantic::{
 };
 use ::awvm::session::{Order, OrderKind, OrderMask, Session, UnitIdx};
 use ::awvm::transition::{Command, ExecuteOutcome, execute};
+use awbrn_ai::agent::Agent;
+use awbrn_ai::agents::{GreedyAgent, Weights};
+use awbrn_ai::board::amber_valley;
+use awbrn_ai::harness::{Limits, play};
+use awbrn_ai::rng::Rng;
 
 use super::{awvm, server};
 
@@ -444,6 +449,40 @@ pub fn warm_session_case(fog: bool) -> SessionCase {
     case
 }
 
+const AMBER_VALLEY_MATCH_SEED: u64 = 1;
+
+pub struct AmberValleyMatchCase {
+    state: State,
+    session: Session,
+}
+
+pub fn amber_valley_match_case() -> AmberValleyMatchCase {
+    let game = Rng::mix(AMBER_VALLEY_MATCH_SEED);
+    let state = amber_valley(false, game);
+    AmberValleyMatchCase {
+        session: Session::new(state.clone()),
+        state,
+    }
+}
+
+pub fn run_amber_valley_match(case: AmberValleyMatchCase) -> u64 {
+    let AmberValleyMatchCase { state, mut session } = case;
+    let game = Rng::mix(AMBER_VALLEY_MATCH_SEED);
+    let mut entropy = Rng::from_seed(Rng::mix(game ^ 0x1));
+    let mut threat = GreedyAgent::with_weights(Rng::mix(game ^ 0x2), Weights::WITHOUT_DENIAL);
+    let mut deny = GreedyAgent::from_seed(Rng::mix(game ^ 0x3));
+    let mut agents: [&mut dyn Agent; 2] = [&mut threat, &mut deny];
+
+    let record = play(
+        state,
+        &mut session,
+        &mut agents,
+        &mut entropy,
+        Limits::DEFAULT,
+    );
+    u64::from(record.turns)
+}
+
 pub mod criterion_benches {
     use super::*;
     use criterion::{BatchSize, BenchmarkId, Criterion};
@@ -599,7 +638,21 @@ pub mod criterion_benches {
         group.finish();
     }
 
-    criterion::criterion_group!(ai_benches, commands, enumerate, resolve, cycle, session);
+    fn matches(c: &mut Criterion) {
+        let mut group = c.benchmark_group("ai-match");
+        group.bench_function("amber-valley-greedy-threat-vs-greedy-deny", |b| {
+            b.iter_batched(
+                amber_valley_match_case,
+                |case| black_box(run_amber_valley_match(case)),
+                BatchSize::SmallInput,
+            );
+        });
+        group.finish();
+    }
+
+    criterion::criterion_group!(
+        ai_benches, commands, enumerate, resolve, cycle, session, matches
+    );
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -762,6 +815,16 @@ pub mod gungraun_benches {
         run_cycle(&case)
     }
 
+    fn match_case() -> AmberValleyMatchCase {
+        amber_valley_match_case()
+    }
+
+    #[library_benchmark(setup = match_case)]
+    #[bench::standard()]
+    fn amber_valley_match(case: AmberValleyMatchCase) -> u64 {
+        run_amber_valley_match(case)
+    }
+
     library_benchmark_group!(
         name = ai_benches,
         benchmarks = [
@@ -779,6 +842,7 @@ pub mod gungraun_benches {
             session_apply_rewind,
             session_apply_rewind_warm,
             complete_cycle,
+            amber_valley_match,
         ]
     );
 }
