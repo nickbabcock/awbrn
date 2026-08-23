@@ -15,7 +15,7 @@
 //! bounds every other agent. The first half holds. The second does not: a
 //! random agent almost never captures a headquarters and almost never
 //! eliminates an army, so its games do not end, and its rate is a rate over
-//! abandoned games that falls as the turn cap rises. The report says so when
+//! abandoned games that falls as the day cap rises. The report says so when
 //! every game reaches the cap.
 //!
 //! So the number to take from here is **commands for each second**, which is
@@ -54,19 +54,19 @@ use bench::benchmarks::server;
 const MODELED_CYCLE_FOG_OFF_US: f64 = 350.0;
 const MODELED_CYCLE_FOG_ON_US: f64 = 368.0;
 
-/// How many player turns a game may take before this binary abandons it.
+/// How many days a game may take before this binary abandons it.
 ///
-/// Random agents make games that never end, so a cap is necessary. Sixty player
-/// turns is about a thirty-day duel, which is the length of a played game.
+/// Random agents make games that never end, so a cap is necessary.
+/// Thirty-five days is the length of a played game.
 ///
 /// The cap does more than stop the loop. This agent produces a unit at every
 /// chance and loses units slowly, so its armies grow without limit, and the
-/// cost of one command grows with them: at a cap of 200 a game ends with about
-/// 123 units, against the 40 the other measurements use. A high cap therefore
-/// measures armies larger than a game ever holds. The report gives the units a
-/// game ended with, so raise the cap when the question is how the cost grows,
-/// and keep it low when the question is what one command costs.
-const DEFAULT_TURN_CAP: u32 = 60;
+/// cost of one command grows with them: at a cap of a hundred days a game ends
+/// with about 123 units, against the 40 the other measurements use. A high cap
+/// therefore measures armies larger than a game ever holds. The report gives
+/// the units a game ended with, so raise the cap when the question is how the
+/// cost grows, and keep it low when the question is what one command costs.
+const DEFAULT_DAY_CAP: u32 = 35;
 
 fn main() {
     let options = match Options::parse(std::env::args().skip(1)) {
@@ -93,20 +93,20 @@ fn main() {
 }
 
 const USAGE: &str = "\
-usage: throughput [--seed N] [--games N] [--fog] [--turn-cap N]
+usage: throughput [--seed N] [--games N] [--fog] [--day-cap N]
 
   --seed N       Seed for the agent and the reducer. The same seed gives the
                  same result. Default 1.
   --games N      Complete games to play. Default 200.
   --fog          Play with fog of war on. Default off.
-  --turn-cap N   Abandon a game after this many player turns. Default 60.
+  --day-cap N    Abandon a game after this many days. Default 35.
                  A high cap measures armies larger than a real game holds.";
 
 struct Options {
     seed: u64,
     games: usize,
     fog: bool,
-    turn_cap: u32,
+    day_cap: u32,
 }
 
 impl Options {
@@ -115,7 +115,7 @@ impl Options {
             seed: 1,
             games: 200,
             fog: false,
-            turn_cap: DEFAULT_TURN_CAP,
+            day_cap: DEFAULT_DAY_CAP,
         };
         let mut arguments = arguments.peekable();
         while let Some(argument) = arguments.next() {
@@ -127,7 +127,7 @@ impl Options {
             match argument.as_str() {
                 "--seed" => options.seed = parse_number(&value()?)?,
                 "--games" => options.games = parse_number(&value()?)?,
-                "--turn-cap" => options.turn_cap = parse_number(&value()?)?,
+                "--day-cap" => options.day_cap = parse_number(&value()?)?,
                 "--fog" => options.fog = true,
                 "--help" | "-h" => {
                     println!("{USAGE}");
@@ -139,8 +139,8 @@ impl Options {
         if options.games == 0 {
             return Err("--games must be at least 1".to_owned());
         }
-        if options.turn_cap == 0 {
-            return Err("--turn-cap must be at least 1".to_owned());
+        if options.day_cap == 0 {
+            return Err("--day-cap must be at least 1".to_owned());
         }
         Ok(options)
     }
@@ -170,7 +170,7 @@ fn one_game(options: &Options, session: &mut Session, game: u64) -> Record {
         &mut agents,
         &mut entropy,
         Limits {
-            turns: options.turn_cap,
+            days: options.day_cap,
             ..Limits::DEFAULT
         },
     )
@@ -183,6 +183,7 @@ fn report(options: &Options, records: &[Record], elapsed: f64) {
     let capped = records.iter().filter(|record| record.abandoned()).count();
     let capped_share = capped as f64 / games as f64 * 100.0;
 
+    let median_days = median(&sorted(records, |record| u64::from(record.days)));
     let median_turns = median(&sorted(records, |record| u64::from(record.turns)));
     let median_commands = median(&sorted(records, |record| record.commands));
     let median_units = median(&sorted(records, |record| record.units as u64));
@@ -201,7 +202,7 @@ fn report(options: &Options, records: &[Record], elapsed: f64) {
         "seed {}  games {}  fog {}",
         options.seed, games, options.fog
     );
-    println!("turn cap {}", options.turn_cap);
+    println!("day cap {}", options.day_cap);
     println!();
 
     // The engine number. This is what measurement 4 can actually establish,
@@ -219,10 +220,11 @@ fn report(options: &Options, records: &[Record], elapsed: f64) {
 
     // The policy numbers. A game's length belongs to the agent, not the engine,
     // so these describe the random agent and not the workspace.
+    println!("median days each game    {median_days}");
     println!("median turns each game   {median_turns}");
     println!("median commands each game {median_commands}");
     println!("median units at the end  {median_units}");
-    println!("reached the turn cap     {capped} of {games} ({capped_share:.1}%)");
+    println!("reached the day cap      {capped} of {games} ({capped_share:.1}%)");
     println!();
 
     if capped == games {

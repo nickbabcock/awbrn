@@ -15,7 +15,7 @@
 use std::time::Instant;
 
 use awbrn_ai::agent::Agent;
-use awbrn_ai::agents::RandomAgent;
+use awbrn_ai::agents::{GreedyAgent, RandomAgent};
 use awbrn_ai::board::arena;
 use awbrn_ai::harness::{Limits, Record, play};
 use awbrn_ai::rng::Rng;
@@ -37,24 +37,24 @@ fn main() {
 }
 
 const USAGE: &str = "\
-usage: arena [--seed N] [--games N] [--fog] [--turn-cap N] [--first NAME] [--second NAME]
+usage: arena [--seed N] [--games N] [--fog] [--day-cap N] [--first NAME] [--second NAME]
 
   --seed N       Seed for the tournament. The same seed gives the same result.
                  Default 1.
   --games N      Game pairs to play. Each pair is the same seed played with
                  both seat orders, so the tournament plays 2N games. Default 50.
   --fog          Play with fog of war on. Default off.
-  --turn-cap N   Abandon a game after this many player turns. Default 60.
+  --day-cap N    Abandon a game after this many days. Default 35.
   --first NAME   The agent under test. Default random.
   --second NAME  The agent it plays. Default random.
 
-agents: random";
+agents: random, greedy";
 
 struct Options {
     seed: u64,
     pairs: usize,
     fog: bool,
-    turn_cap: u32,
+    day_cap: u32,
     first: &'static str,
     second: &'static str,
 }
@@ -65,7 +65,7 @@ impl Options {
             seed: 1,
             pairs: 50,
             fog: false,
-            turn_cap: Limits::default().turns,
+            day_cap: Limits::default().days,
             first: "random",
             second: "random",
         };
@@ -79,7 +79,7 @@ impl Options {
             match argument.as_str() {
                 "--seed" => options.seed = parse_number(&value()?)?,
                 "--games" => options.pairs = parse_number(&value()?)?,
-                "--turn-cap" => options.turn_cap = parse_number(&value()?)?,
+                "--day-cap" => options.day_cap = parse_number(&value()?)?,
                 "--fog" => options.fog = true,
                 "--first" => options.first = agent_name(&value()?)?,
                 "--second" => options.second = agent_name(&value()?)?,
@@ -93,15 +93,15 @@ impl Options {
         if options.pairs == 0 {
             return Err("--games must be at least 1".to_owned());
         }
-        if options.turn_cap == 0 {
-            return Err("--turn-cap must be at least 1".to_owned());
+        if options.day_cap == 0 {
+            return Err("--day-cap must be at least 1".to_owned());
         }
         Ok(options)
     }
 
     const fn limits(&self) -> Limits {
         Limits {
-            turns: self.turn_cap,
+            days: self.day_cap,
             ..Limits::DEFAULT
         }
     }
@@ -113,7 +113,7 @@ fn parse_number<T: std::str::FromStr>(text: &str) -> Result<T, String> {
 }
 
 /// The agents this binary can seat, by the name the arguments use.
-const AGENTS: [&str; 1] = ["random"];
+const AGENTS: [&str; 2] = ["random", "greedy"];
 
 fn agent_name(name: &str) -> Result<&'static str, String> {
     AGENTS
@@ -130,6 +130,7 @@ fn agent_name(name: &str) -> Result<&'static str, String> {
 fn build(name: &str, seed: u64) -> Box<dyn Agent> {
     match name {
         "random" => Box::new(RandomAgent::from_seed(seed)),
+        "greedy" => Box::new(GreedyAgent::from_seed(seed)),
         other => unreachable!("{other} passed the argument check"),
     }
 }
@@ -140,7 +141,7 @@ struct Tally {
     wins: u32,
     losses: u32,
     draws: u32,
-    /// Games that reached the turn cap with no winner.
+    /// Games that reached the day cap with no winner.
     ///
     /// These count as draws in the score. A tournament in which most games are
     /// abandoned measures the cap and not the agents, so the report says so.
@@ -249,8 +250,8 @@ fn report(options: &Options, tally: &Tally, elapsed: f64) {
     );
 
     println!(
-        "{} vs {}   seed {}  fog {}  turn cap {}",
-        options.first, options.second, options.seed, options.fog, options.turn_cap
+        "{} vs {}   seed {}  fog {}  day cap {}",
+        options.first, options.second, options.seed, options.fog, options.day_cap
     );
     println!("{} pairs, {games} games, both seat orders", options.pairs);
     println!();
@@ -281,7 +282,7 @@ fn report(options: &Options, tally: &Tally, elapsed: f64) {
         let share = f64::from(tally.abandoned) / f64::from(games) * 100.0;
         println!();
         println!(
-            "{} of {games} games ({share:.1}%) reached the turn cap and are scored as\n\
+            "{} of {games} games ({share:.1}%) reached the day cap and are scored as\n\
              draws. A tournament in which most games are abandoned measures the cap,\n\
              not the agents.",
             tally.abandoned
