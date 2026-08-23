@@ -1160,3 +1160,101 @@ fn destructible_damage(events: &[Event], position: Pos) -> u8 {
         })
         .unwrap_or(0)
 }
+
+/// `Travel` against `reachable`, over the whole corpus.
+///
+/// `reachable` searches forward from one unit and is already held to the
+/// reducer's own verdicts by the tests above. `Travel` searches backward from
+/// a set of targets, so it is the same movement rules read in the other
+/// direction and it needs its own equivalence coverage.
+///
+/// Two claims, and the second is the one that catches the mistake this search
+/// is easy to get wrong. A route walked backward must pay for the tile it came
+/// from rather than the tile it arrives at, because movement charges on entry.
+/// Charging the wrong end still gives a plausible-looking table: it differs
+/// from the truth only by the two endpoint costs, so it is right wherever the
+/// endpoints happen to cost the same and quietly wrong everywhere else. The
+/// equality below is what refuses it.
+#[test]
+fn travel_agrees_with_reachable_in_the_other_direction() {
+    let mut checked = 0usize;
+    let mut exact = 0usize;
+    for (name, case) in corpus() {
+        for state in states(&case) {
+            // The table ignores units in the way, so it can only be a lower
+            // bound while anything else stands on the board. With one unit
+            // there is nothing to block, and the bound must be tight.
+            let alone = state
+                .units
+                .iter()
+                .filter(|unit| matches!(unit.location, Location::Board { .. }))
+                .count()
+                == 1;
+            for unit in state.units.iter() {
+                let Location::Board { position: origin } = unit.location else {
+                    continue;
+                };
+                let seat = unit.owner;
+                let profile = awvm::ruleset::profile(unit.kind);
+                let class = profile.movement_class;
+                let allowance =
+                    awvm::commander::effective_move(&state, unit, profile.movement, profile.domain)
+                        as u16;
+                let Some(mut travel) = query::Travel::open(&state, seat) else {
+                    continue;
+                };
+                let Ok(field) = query::reachable(&state, unit.id) else {
+                    continue;
+                };
+                let dimensions = state.board.dimensions();
+                let Some(home) = dimensions.cell_index(origin) else {
+                    continue;
+                };
+                let mut points = Vec::new();
+                // The corpus holds boards built to exercise a rule rather
+                // than to be playable, and one of them stands a battleship on
+                // a plain. `reachable` always reports the tile a unit already
+                // occupies, whatever it costs to enter, so a unit standing
+                // where its own class cannot go has a reach this table is
+                // right to call unreachable. Nothing below can say anything
+                // about such a unit.
+                travel.points_to(class, allowance, [origin], &mut points);
+                if points[usize::from(home.get())].is_none() {
+                    continue;
+                }
+                for (destination, forward) in field.reach() {
+                    if destination == origin {
+                        continue;
+                    }
+                    travel.points_to(class, allowance, [destination], &mut points);
+                    let backward = u64::from(points[usize::from(home.get())]
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "{name}: {origin:?} reaches {destination:?} forward, so a route exists"
+                            )
+                        }));
+                    assert!(
+                        backward <= forward,
+                        "{name}: travel {backward} beats the reducer's own route {forward} \
+                         from {origin:?} to {destination:?}"
+                    );
+                    checked += 1;
+                    if alone {
+                        assert_eq!(
+                            backward, forward,
+                            "{name}: nothing is in the way from {origin:?} to {destination:?}, \
+                             so the backward cost must be the forward one"
+                        );
+                        exact += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert!(checked > 0, "the corpus offered no routes to check");
+    assert!(
+        exact > 0,
+        "no single-unit board was found, so the equality above never ran and \
+         the direction of the search is untested"
+    );
+}

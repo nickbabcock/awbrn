@@ -32,7 +32,9 @@
 //! alone scores it as a good one.
 
 use awvm::combat::Forecast;
-use awvm::ruleset::{self, Terrain, TerrainTrait, UnitKind};
+use awvm::commander;
+use awvm::query::{self};
+use awvm::ruleset::{self, MovementClass, Terrain, TerrainTrait, UnitKind};
 use awvm::semantic::{
     CellIdx, Location, Observation, PlayerIdx, Pos, State, Tile, TileOwner, Unit,
 };
@@ -88,8 +90,15 @@ pub struct Weights {
     /// on the next turn. Heavily weighted on purpose: it is the difference
     /// between a unit that is two turns from paying and one that is three.
     pub capture_two_turn: f64,
-    /// The decay for each tile of Manhattan distance between a tile and a
-    /// property, which is what "in close proximity" means here.
+    /// The decay for each step between a tile and what pulls it, which is
+    /// what "in close proximity" means here.
+    ///
+    /// The two fields do not measure a step the same way. [`CaptureFields`]
+    /// measures turns, through the movement points a route really costs;
+    /// [`Board::advance_field`] measures tiles of Manhattan distance, because
+    /// its targets are enemy units, which move and can be of any class. A turn
+    /// is worth several tiles, so one number serving both is a compromise and
+    /// is the first thing to split if the sweep asks for it.
     pub proximity_decay: f64,
 
     /// One point of funds, as a score. This prices an exchange: damage dealt
@@ -231,12 +240,13 @@ pub struct GreedyAgent {
     weights: Weights,
     /// Held across calls so that a turn's enumeration reuses one allocation.
     orders: Vec<Order>,
-    /// The pull each tile feels toward the properties worth capturing, and the
-    /// pull it feels toward the enemy. One entry for each tile of the board,
-    /// rebuilt once for each play rather than once for each candidate.
-    capture_field: Vec<f64>,
+    /// The pull each tile feels toward the properties worth capturing, one
+    /// field for each movement class that can capture, and the pull it feels
+    /// toward the enemy. One entry for each tile of the board, rebuilt once
+    /// for each play rather than once for each candidate.
+    capture_fields: CaptureFields,
     advance_field: Vec<f64>,
-    /// `proximity_decay` raised to each distance the board can hold, so that
+    /// `proximity_decay` raised to each turn a field can hold, so that
     /// building the fields is a multiply rather than a power.
     decay: Vec<f64>,
     /// The unit standing on each tile, by its index in the roster.
@@ -258,7 +268,7 @@ impl GreedyAgent {
             rng: Rng::from_seed(seed),
             weights,
             orders: Vec::new(),
-            capture_field: Vec::new(),
+            capture_fields: CaptureFields::new(),
             advance_field: Vec::new(),
             decay: Vec::new(),
             occupant: Vec::new(),
@@ -268,6 +278,124 @@ impl GreedyAgent {
 
     pub const fn weights(&self) -> &Weights {
         &self.weights
+    }
+}
+
+/// The pull toward capturable property, measured in turns rather than tiles.
+///
+/// Manhattan distance says a mountain and a road are the same distance apart,
+/// and that a river is no further than the bridge over it. On a board twenty
+/// tiles wide that is most of what the pull field is deciding, so the field
+/// asks [`query::Travel`] what a route really costs and divides by what a unit
+/// can spend in a turn.
+///
+/// One field for each movement class that can capture, because the two classes
+/// that can — foot at three points a turn and boot at two — are not the same
+/// distance from anything. Both fields are read by tile, so the extra work is
+/// all in the building.
+///
+/// The searches are grouped by what a property is worth and not run once for
+/// each property. A group's pull is `weight * decay^turns` and the field takes
+/// the best of them, so the best over the targets of one weight is that weight
+/// at the nearest of them — which is one search seeded at all of them at once.
+/// The board holds at most a handful of distinct weights, so this is a
+/// handful of searches rather than one for each of the thirty-eight
+/// properties.
+struct CaptureFields {
+    /// One field for each movement class, filled only for those that capture
+    /// and only while our side holds a unit of the class.
+    fields: [Vec<f64>; MovementClass::COUNT],
+    /// The targets of each distinct approach weight, rebuilt each play.
+    groups: Vec<(f64, Vec<Pos>)>,
+    /// Movement points to the nearest target of the group being walked.
+    points: Vec<Option<u16>>,
+}
+
+/// The movement classes that can capture, and what one of them spends in a
+/// turn.
+///
+/// Only two unit profiles carry `can_capture`, so the whole table is two
+/// classes wide however many kinds the ruleset grows. The field uses the
+/// effective movement allowance, including the active commander's power.
+/// Fuel is unit-specific and can change after resupply, so it is not a route
+/// property and does not limit this multi-turn estimate.
+const CAPTURE_CLASSES: [MovementClass; 2] = [MovementClass::Foot, MovementClass::Boot];
+
+impl CaptureFields {
+    const fn new() -> Self {
+        Self {
+            fields: [const { Vec::new() }; MovementClass::COUNT],
+            groups: Vec::new(),
+            points: Vec::new(),
+        }
+    }
+
+    /// The field a unit of this class reads. Empty for a class that cannot
+    /// capture, which answers no pull rather than a wrong one.
+    fn of(&self, class: MovementClass) -> &[f64] {
+        &self.fields[class.index()]
+    }
+
+    /// Rebuild both fields for the position in front of the agent.
+    ///
+    /// A property already carrying a capturer of ours pulls nothing. Without
+    /// that, every capturer on the board walks at the same property, and the
+    /// ones that arrive second stand next to it doing nothing at all.
+    fn build(&mut self, board: &Board<'_>, decay: &[f64], occupant: &[Option<u16>]) {
+        let cells = board.cells();
+        for field in &mut self.fields {
+            field.clear();
+        }
+        self.groups.clear();
+        for (position, tile) in board.state.board.iter() {
+            if !board.capturable(tile) {
+                continue;
+            }
+            let Some(cell) = board.cell(position) else {
+                continue;
+            };
+            if occupant[cell].is_some_and(|index| board.is_our_capturer(index)) {
+                continue;
+            }
+            let weight = board.approach_weight(tile.terrain);
+            match self.groups.iter_mut().find(|(known, _)| *known == weight) {
+                Some((_, targets)) => targets.push(position),
+                None => self.groups.push((weight, vec![position])),
+            }
+        }
+        if self.groups.is_empty() {
+            return;
+        }
+
+        let Some(mut travel) = query::Travel::open(board.state, board.seat) else {
+            return;
+        };
+        for class in CAPTURE_CLASSES {
+            // A class our side does not field costs a search for each weight
+            // on the board and is read by nothing.
+            let Some(allowance) = board.capture_allowance(class) else {
+                continue;
+            };
+            let field = &mut self.fields[class.index()];
+            field.resize(cells, 0.0);
+            for (weight, targets) in &self.groups {
+                travel.points_to(class, allowance, targets.iter().copied(), &mut self.points);
+                for (cell, value) in field.iter_mut().enumerate() {
+                    let Some(Some(points)) = self.points.get(cell).copied() else {
+                        continue;
+                    };
+                    let turns = usize::from(query::Travel::turns(points, allowance));
+                    // Past the end of the table the pull is smaller than
+                    // anything that decides a play, so the last entry stands
+                    // for every distance beyond it.
+                    let step = decay[turns.min(decay.len() - 1)];
+                    let pull = weight * step;
+                    if pull > *value {
+                        *value = pull;
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -286,7 +414,7 @@ impl Agent for GreedyAgent {
             rng,
             weights,
             orders,
-            capture_field,
+            capture_fields,
             advance_field,
             decay,
             occupant,
@@ -300,7 +428,7 @@ impl Agent for GreedyAgent {
         };
         board.decay_table(decay);
         board.occupants(occupant);
-        board.capture_field(capture_field, decay, occupant);
+        capture_fields.build(&board, decay, occupant);
         board.advance_field(advance_field, decay);
         // A map priced at nothing is never read, so it is never built. That
         // is what keeps the threatless weighting at the throughput it was
@@ -316,7 +444,7 @@ impl Agent for GreedyAgent {
         let scorer = Scorer {
             board: &board,
             legal: &legal,
-            capture_field,
+            capture_fields,
             advance_field,
             occupant,
             threat,
@@ -426,7 +554,13 @@ impl Board<'_> {
         }
     }
 
-    /// `proximity_decay` for each distance this board can hold.
+    /// `proximity_decay` for each turn, and for each tile of the board's
+    /// span, which is longer than any field needs and short enough to build.
+    ///
+    /// [`CaptureFields`] reads it by turns and [`Board::advance_field`] by
+    /// tiles, and the two are not the same unit. Both clamp at the end of the
+    /// table, where the pull is already smaller than anything that decides a
+    /// play.
     fn decay_table(&self, out: &mut Vec<f64>) {
         let span = usize::from(self.state.board.width()) + usize::from(self.state.board.height());
         out.clear();
@@ -451,32 +585,22 @@ impl Board<'_> {
         }
     }
 
-    /// How much each tile wants a capture-capable unit.
+    /// The effective allowance of our capturer in this movement class.
     ///
-    /// A property already carrying a capturer of ours pulls nothing. Without
-    /// that, every capturer on the board walks at the same property, and the
-    /// ones that arrive second stand next to it doing nothing at all.
-    fn capture_field(&self, out: &mut Vec<f64>, decay: &[f64], occupant: &[Option<u16>]) {
-        out.clear();
-        out.resize(self.cells(), 0.0);
-        for (target, tile) in self.state.board.iter() {
-            if !self.capturable(tile) {
-                continue;
-            }
-            let Some(cell) = self.cell(target) else {
-                continue;
-            };
-            if occupant[cell].is_some_and(|index| self.is_our_capturer(index)) {
-                continue;
-            }
-            let weight = self.approach_weight(tile.terrain);
-            for (from, value) in self.state.board.positions().zip(out.iter_mut()) {
-                let pull = weight * decay[target.distance(from) as usize];
-                if pull > *value {
-                    *value = pull;
-                }
-            }
-        }
+    /// A pull field is read only by capturers, so a class without one is a
+    /// search for each weight on the board that answers nobody.
+    fn capture_allowance(&self, class: MovementClass) -> Option<u16> {
+        self.state.units.iter().find_map(|unit| {
+            let profile = ruleset::profile(unit.kind);
+            (matches!(unit.location, Location::Board { .. })
+                && unit.owner == self.seat
+                && profile.can_capture
+                && profile.movement_class == class)
+                .then(|| {
+                    commander::effective_move(self.state, unit, profile.movement, profile.domain)
+                        .min(u64::from(u16::MAX)) as u16
+                })
+        })
     }
 
     /// How much each tile wants a unit that fights.
@@ -583,7 +707,7 @@ fn capture_value(weights: &Weights, weight: f64, points: u8, progress: u8) -> f6
 struct Scorer<'a> {
     board: &'a Board<'a>,
     legal: &'a Legal<'a>,
-    capture_field: &'a [f64],
+    capture_fields: &'a CaptureFields,
     advance_field: &'a [f64],
     occupant: &'a [Option<u16>],
     threat: &'a ThreatMap,
@@ -789,8 +913,9 @@ impl Scorer<'_> {
             return 0.0;
         };
         let cell = usize::from(order.destination().get());
-        let field = if ruleset::profile(unit.kind).can_capture {
-            self.capture_field
+        let profile = ruleset::profile(unit.kind);
+        let field = if profile.can_capture {
+            self.capture_fields.of(profile.movement_class)
         } else {
             self.advance_field
         };
@@ -831,7 +956,7 @@ impl Scorer<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::arena;
+    use crate::board::{amber_valley, arena};
     use awvm::semantic::{AwbwVisibility, Concealment, UnitAction, UnitId, observe};
 
     /// One unit of `kind`, at whole health, standing where it is put.
@@ -865,8 +990,11 @@ mod tests {
         );
         // A capture that wins the match is not one objective among several.
         assert!(weights.hq > weights.land * 10.0);
-        // The walk toward a headquarters is, and it beats a base two tiles
-        // further away and loses to one two tiles nearer.
+        // The walk toward a headquarters is, and it beats a base three turns
+        // further away and loses to one three turns nearer. The unit here is
+        // turns because that is what the capture field now measures; it was
+        // tiles when the field counted them, and the same three steps of decay
+        // is now a far longer reach.
         assert!(weights.hq_approach > weights.land);
         assert!(weights.hq_approach < weights.land / weights.proximity_decay.powi(3));
     }
@@ -914,6 +1042,132 @@ mod tests {
             ruleset::profile(kind).can_capture,
             "the opening build was a {kind:?}, which captures nothing"
         );
+    }
+
+    /// The whole reason for measuring turns: terrain is what a route costs.
+    ///
+    /// Manhattan distance says a mountain and a road are the same distance
+    /// apart, so a property behind a mountain range pulled exactly as hard as
+    /// one along a road. The field now asks what the route costs, so a tile
+    /// the terrain puts further away is further away.
+    ///
+    /// This drives the real board rather than a fixture, because the claim is
+    /// about a field built from a whole position. It asserts the two things
+    /// that separate the new field from the old one: it disagrees with a
+    /// straight line somewhere, and a foot unit and a boot unit — three points
+    /// a turn against two — do not read the same field.
+    #[test]
+    fn the_capture_field_measures_the_route_and_not_the_line() {
+        let mut state = amber_valley(false, 1);
+        let seat = state
+            .players
+            .seat(&state.turn.active_player)
+            .expect("the active player holds a seat");
+        // The opening position fields no mech, and a class we hold nothing of
+        // is skipped rather than searched for. Give the seat one, so that both
+        // fields are built and the two allowances can be compared.
+        let home = state
+            .units
+            .iter()
+            .find(|unit| unit.owner == seat)
+            .and_then(|unit| match unit.location {
+                Location::Board { position } => Some(position),
+                Location::Cargo { .. } => None,
+            })
+            .expect("the seat opens with a unit on the board");
+        let mut mech = test_unit(UnitKind::Mech, home, seat);
+        mech.id = UnitId::new(u32::from(u16::MAX));
+        state.units.push(mech);
+        let weights = Weights::DEFAULT;
+        let board = Board {
+            state: &state,
+            seat,
+            weights: &weights,
+        };
+        let mut decay = Vec::new();
+        let mut occupant = Vec::new();
+        board.decay_table(&mut decay);
+        board.occupants(&mut occupant);
+        let mut fields = CaptureFields::new();
+        fields.build(&board, &decay, &occupant);
+
+        let foot = fields.of(MovementClass::Foot);
+        let boot = fields.of(MovementClass::Boot);
+        assert_eq!(foot.len(), board.cells(), "a foot field covers the board");
+        assert_eq!(boot.len(), board.cells(), "a boot field covers the board");
+        assert!(
+            foot.iter().any(|pull| *pull > 0.0),
+            "a board with open property pulls somewhere"
+        );
+
+        // Two classes, two allowances, two fields. Equal fields would mean the
+        // allowance is not being read at all.
+        assert!(
+            foot != boot,
+            "foot spends three points a turn and boot two, so the two classes \
+             are not the same number of turns from the same property"
+        );
+
+        // And the field is not the old one under another name. A tile whose
+        // best pull differs from what a Manhattan field would give is a tile
+        // the terrain moved, which is the entire change.
+        let mut manhattan = vec![0.0; board.cells()];
+        for (target, tile) in board.state.board.iter() {
+            if !board.capturable(tile) {
+                continue;
+            }
+            let Some(cell) = board.cell(target) else {
+                continue;
+            };
+            if occupant[cell].is_some_and(|index| board.is_our_capturer(index)) {
+                continue;
+            }
+            let weight = board.approach_weight(tile.terrain);
+            for (from, value) in board.state.board.positions().zip(&mut manhattan) {
+                let pull = weight * decay[target.distance(from) as usize];
+                if pull > *value {
+                    *value = pull;
+                }
+            }
+        }
+        let moved = foot
+            .iter()
+            .zip(manhattan.iter())
+            .filter(|(route, line)| (*route - *line).abs() > f64::EPSILON)
+            .count();
+        assert!(
+            moved > 0,
+            "the route field agreed with a straight line everywhere"
+        );
+    }
+
+    #[test]
+    fn travel_rejects_an_entry_cost_above_the_turn_allowance() {
+        let mut state = amber_valley(false, 1);
+        state.weather.kind = awvm::ruleset::WeatherKind::Snow;
+        let seat = state
+            .players
+            .seat(&state.turn.active_player)
+            .expect("the active player holds a seat");
+        let mountain = state
+            .board
+            .iter()
+            .find_map(|(position, tile)| (tile.terrain == Terrain::Mountain).then_some(position))
+            .expect("Amber Valley contains a mountain");
+        let dimensions = state.board.dimensions();
+        let cell = dimensions
+            .cell_index(mountain)
+            .expect("the mountain is on the board");
+        let mut travel = query::Travel::open(&state, seat).expect("the seat has travel tables");
+        let mut points = Vec::new();
+
+        // Foot movement pays four points for a snowy mountain. Infantry can
+        // spend only three, so waiting for another turn cannot make it enter.
+        travel.points_to(MovementClass::Foot, 3, [mountain], &mut points);
+        assert_eq!(points[usize::from(cell.get())], None);
+
+        travel.points_to(MovementClass::Foot, 4, [mountain], &mut points);
+        assert_eq!(points[usize::from(cell.get())], Some(0));
     }
 
     /// The emergency the priorities did not name: an enemy soldier standing

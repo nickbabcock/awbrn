@@ -247,6 +247,17 @@ struct Tally {
     /// The shape of the games, from each side of the board.
     under_test: Side,
     opponent: Side,
+    /// Pairs completed, and the points the agent under test took over them.
+    ///
+    /// A pair is one observation and the interval counts these, not games.
+    /// See [`paired_interval`].
+    pairs: u32,
+    pair_points: f64,
+    pair_scores: Vec<f64>,
+    /// How the pairs went: both games, one each, neither.
+    swept: u32,
+    split: u32,
+    lost_both: u32,
 }
 
 impl Tally {
@@ -257,6 +268,24 @@ impl Tally {
     /// The score of the agent under test, a draw counting a half.
     fn score(&self) -> f64 {
         (f64::from(self.wins) + f64::from(self.draws) / 2.0) / f64::from(self.games())
+    }
+
+    /// Add one pair, worth the points the agent under test took over its two
+    /// games.
+    ///
+    /// `points` is 0, a half or 1, and a quarter or three quarters when one of
+    /// the two games was drawn.
+    fn add_pair(&mut self, points: f64) {
+        self.pairs += 1;
+        self.pair_points += points;
+        self.pair_scores.push(points);
+        if points > 0.75 {
+            self.swept += 1;
+        } else if points < 0.25 {
+            self.lost_both += 1;
+        } else {
+            self.split += 1;
+        }
     }
 
     fn mean_days(&self) -> f64 {
@@ -344,6 +373,7 @@ fn run(options: &Options) -> Result<Tally> {
     let mut session = Session::new(state(options, options.seed));
 
     for pair in 0..options.pairs {
+        let mut pair_points = 0.0;
         for under_test_first in [true, false] {
             let game = Rng::mix(options.seed ^ ((pair as u64) << 32));
             let mut entropy = Rng::from_seed(Rng::mix(game ^ 0x1));
@@ -399,8 +429,9 @@ fn run(options: &Options) -> Result<Tally> {
                     options.limits(),
                 )
             };
-            score(&mut tally, &record, &teams[seat], seat);
+            pair_points += score(&mut tally, &record, &teams[seat], seat);
         }
+        tally.add_pair(pair_points / 2.0);
     }
 
     Ok(tally)
@@ -545,7 +576,10 @@ impl Sample {
 ///
 /// `seat` is the seat the agent under test sat in, which changes with the seat
 /// order and is what keeps the shape of the game on the right side.
-fn score(tally: &mut Tally, record: &Record, team: &TeamId, seat: usize) {
+///
+/// Answers the points the agent under test took, which the pair it belongs to
+/// sums.
+fn score(tally: &mut Tally, record: &Record, team: &TeamId, seat: usize) -> f64 {
     tally.commands += record.commands;
     tally.refusals += record.refusals;
     tally.days += u64::from(record.days);
@@ -571,32 +605,46 @@ fn score(tally: &mut Tally, record: &Record, team: &TeamId, seat: usize) {
             }
             if winners.contains(team) {
                 tally.wins += 1;
+                1.0
             } else {
                 tally.losses += 1;
+                0.0
             }
         }
         Some(_) => {
             tally.endings.drawn += 1;
             tally.draws += 1;
+            0.5
         }
         None => {
             tally.abandoned += 1;
             tally.draws += 1;
+            0.5
         }
     }
 }
 
-/// The 95% Wilson score interval for a proportion.
+/// A 95% percentile-bootstrap interval over independent pair scores.
 ///
-/// A normal interval is wrong near zero and one, and a first agent against a
-/// random one lands near one. This one does not, and it never leaves `0..=1`.
-fn wilson(wins: f64, games: f64) -> (f64, f64) {
-    const Z: f64 = 1.96;
-    let p = wins / games;
-    let denominator = 1.0 + Z * Z / games;
-    let centre = (p + Z * Z / (2.0 * games)) / denominator;
-    let half = Z * (p * (1.0 - p) / games + Z * Z / (4.0 * games * games)).sqrt() / denominator;
-    ((centre - half).max(0.0), (centre + half).min(1.0))
+/// Each observation is the bounded score from a seat-swapped pair and can be
+/// 0, 0.25, 0.5, 0.75, or 1. Resampling those observations supports the
+/// fractional outcomes that a binomial interval does not. A fixed seed keeps
+/// repeated reports identical.
+fn paired_interval(scores: &[f64]) -> (f64, f64) {
+    const RESAMPLES: usize = 10_000;
+    assert!(!scores.is_empty(), "an interval needs at least one pair");
+
+    let mut rng = Rng::from_seed(0x7061_6972_2d63_6921);
+    let mut means = Vec::with_capacity(RESAMPLES);
+    for _ in 0..RESAMPLES {
+        let sum = (0..scores.len())
+            .map(|_| scores[rng.below(scores.len() as u64) as usize])
+            .sum::<f64>();
+        means.push(sum / scores.len() as f64);
+    }
+    means.sort_unstable_by(f64::total_cmp);
+    let percentile = |numerator: usize| means[(RESAMPLES - 1) * numerator / 1_000];
+    (percentile(25), percentile(975))
 }
 
 /// The rating difference a score implies.
@@ -610,10 +658,7 @@ fn elo(score: f64) -> Option<f64> {
 fn report(options: &Options, tally: &Tally, elapsed: f64) {
     let games = tally.games();
     let score = tally.score();
-    let (low, high) = wilson(
-        f64::from(tally.wins) + f64::from(tally.draws) / 2.0,
-        f64::from(games),
-    );
+    let (low, high) = paired_interval(&tally.pair_scores);
 
     println!(
         "{} vs {}   seed {}  fog {}  day cap {}",
@@ -631,7 +676,11 @@ fn report(options: &Options, tally: &Tally, elapsed: f64) {
         "wins {}  losses {}  draws {}",
         tally.wins, tally.losses, tally.draws
     );
-    println!("score                    {score:.4}  ({low:.4} to {high:.4}, Wilson 95%)");
+    println!("score                    {score:.4}  ({low:.4} to {high:.4}, paired bootstrap 95%)");
+    println!(
+        "pairs swept {}  split {}  lost {}",
+        tally.swept, tally.split, tally.lost_both
+    );
     match elo(score) {
         Some(elo) => println!("elo difference           {elo:+.0}"),
         None => println!(
@@ -794,19 +843,44 @@ mod tests {
     }
 
     #[test]
-    fn a_wilson_interval_holds_the_score_and_stays_in_range() {
-        let (low, high) = wilson(55.0, 100.0);
-        assert!(low < 0.55 && 0.55 < high);
-        // The reason for Wilson rather than a normal interval: at the ends the
-        // normal one leaves the range a proportion lives in.
-        let (low, high) = wilson(100.0, 100.0);
-        assert!(low > 0.9 && (high - 1.0).abs() < 1e-9);
-        let (low, high) = wilson(0.0, 100.0);
-        assert!(low.abs() < 1e-9 && high < 0.1);
-        // More games, a tighter interval.
-        let (few, _) = wilson(9.0, 10.0);
-        let (many, _) = wilson(900.0, 1000.0);
-        assert!(many > few);
+    fn the_paired_interval_supports_fractional_scores() {
+        let scores = [0.0, 0.25, 0.5, 0.75, 1.0];
+        let (low, high) = paired_interval(&scores);
+        assert!(low < 0.5 && 0.5 < high);
+        assert!(0.0 <= low && high <= 1.0);
+
+        // Fractional observations are values in their own right. They are not
+        // randomly rounded to wins and losses before the interval is built.
+        assert_eq!(paired_interval(&[0.5; 20]), (0.5, 0.5));
+    }
+
+    #[test]
+    fn the_interval_counts_pairs_and_is_wider_than_it_was() {
+        // Treating the games as independent duplicates each pair score and
+        // makes the interval too narrow.
+        let pairs = [0.0, 1.0].repeat(50);
+        let games = pairs
+            .iter()
+            .flat_map(|score| [*score, *score])
+            .collect::<Vec<_>>();
+        let over_pairs = paired_interval(&pairs);
+        let over_games = paired_interval(&games);
+        let width = |(low, high): (f64, f64)| high - low;
+        assert!(width(over_pairs) > width(over_games));
+    }
+
+    #[test]
+    fn a_pair_is_one_observation_however_its_games_went() {
+        let mut tally = Tally::default();
+        tally.add_pair(1.0);
+        tally.add_pair(0.5);
+        tally.add_pair(0.0);
+        // A pair with one drawn game is neither swept nor lost.
+        tally.add_pair(0.75);
+        assert_eq!(tally.pairs, 4);
+        assert!((tally.pair_points - 2.25).abs() < 1e-9);
+        assert_eq!(tally.pair_scores, [1.0, 0.5, 0.0, 0.75]);
+        assert_eq!((tally.swept, tally.split, tally.lost_both), (1, 2, 1));
     }
 
     #[test]
