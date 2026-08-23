@@ -6,7 +6,7 @@ pub mod player_roster;
 pub mod visibility;
 pub mod weather;
 
-pub use awbrn_game::world::{CurrentWeather, FriendlyFactions, ViewerVisibility};
+pub use awbrn_bevy::world::{CurrentWeather, FriendlyFactions, ViewerVisibility};
 pub use camera::CameraScale;
 pub use event_bus::{
     DeleteUnitCommandRequested, EventSink, HoveredCargoUnit, HoveredTile, HoveredUnit,

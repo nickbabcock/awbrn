@@ -1,7 +1,7 @@
 pub mod coords;
 
-use awbrn_game::world::{GameMap, TerrainTile, Unit};
-use awbrn_game::{GameWorldPlugin, MapPosition};
+use awbrn_bevy::world::{GameMap, TerrainTile, Unit};
+use awbrn_bevy::{GameWorldPlugin, MapPosition};
 use bevy::prelude::*;
 
 /// Color used for inactive units
@@ -75,7 +75,7 @@ impl Plugin for CorePlugin {
             .add_sub_state::<LoadingState>()
             .add_observer(on_map_position_insert);
 
-        // Register visual required components for game types defined in awbrn-game
+        // Register visual required components for game types defined in awbrn-bevy
         app.world_mut()
             .register_required_components_with::<Unit, SpriteSize>(|| SpriteSize {
                 width: 23.0,

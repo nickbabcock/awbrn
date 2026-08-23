@@ -1,5 +1,9 @@
 use std::path::Path;
 
+use awbrn_bevy::GameWorldPlugin;
+use awbrn_bevy::replay::{NewDay, ReplayPlayerRegistry, ReplayState};
+use awbrn_bevy::snapshot::{canonicalize_replay_semantic_snapshot, capture_game_snapshot};
+use awbrn_bevy::world::GameMap;
 use awbrn_client::features::player_roster::PlayerPowerMeters;
 use awbrn_client::loading::LoadedReplay;
 use awbrn_client::loading::apply_replay_building_overrides;
@@ -10,10 +14,6 @@ use awbrn_client::modes::replay::presentation::{
     ReplayTransitionSource, ReplayTurnCommand,
 };
 use awbrn_client::render::animation::UnitPathAnimation;
-use awbrn_game::GameWorldPlugin;
-use awbrn_game::replay::{NewDay, ReplayPlayerRegistry, ReplayState};
-use awbrn_game::snapshot::{canonicalize_replay_semantic_snapshot, capture_game_snapshot};
-use awbrn_game::world::GameMap;
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
 use awbw_replay::ReplayParser;
 use awvm_awbw::RecordedAdapter;
@@ -79,7 +79,7 @@ fn archived_movement_animates_and_applies_only_typed_transitions() {
         assert_eq!(
             app.world()
                 .entity(entity)
-                .get::<awbrn_game::MapPosition>()
+                .get::<awbrn_bevy::MapPosition>()
                 .expect("the first archived mover should remain on the board")
                 .position(),
             destination
@@ -350,7 +350,7 @@ fn apply_settled_action(app: &mut App, replay: &awbw_replay::AwbwReplay, index: 
         .next_action_index = (index + 1) as u32;
 }
 
-fn semantic_snapshot(app: &mut App) -> awbrn_game::snapshot::CanonicalReplaySnapshot {
+fn semantic_snapshot(app: &mut App) -> awbrn_bevy::snapshot::CanonicalReplaySnapshot {
     let snapshot = capture_game_snapshot(app.world_mut()).unwrap();
     let registry = app
         .world()

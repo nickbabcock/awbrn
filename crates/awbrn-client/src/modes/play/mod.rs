@@ -14,9 +14,9 @@ use crate::features::input::{
 };
 use crate::render::UiAtlas;
 use crate::render::course_arrow::{COURSE_ARROW_SPRITE_SIZE, build_course_arrow_spawns};
-use awbrn_game::MapPosition;
-use awbrn_game::replay::AwbwUnitId;
-use awbrn_game::world::{
+use awbrn_bevy::MapPosition;
+use awbrn_bevy::replay::AwbwUnitId;
+use awbrn_bevy::world::{
     BoardIndex, CarriedBy, Faction, FriendlyFactions, Fuel, GameMap, GraphicalHp, HasCargo, Unit,
     UnitActive,
 };
@@ -178,14 +178,14 @@ pub(crate) struct PlayUnitSelectionParams<'w, 's> {
     units: Query<'w, 's, UnitSelectionQueryItem<'static>, With<Unit>>,
     unit_ids: Query<'w, 's, &'static AwbwUnitId, With<Unit>>,
     graphical_hp: Query<'w, 's, &'static GraphicalHp, With<Unit>>,
-    observations: Option<Res<'w, awbrn_game::replay::RecipientObservations>>,
-    viewpoint: Option<Res<'w, awbrn_game::replay::ReplayViewpoint>>,
+    observations: Option<Res<'w, awbrn_bevy::replay::RecipientObservations>>,
+    viewpoint: Option<Res<'w, awbrn_bevy::replay::ReplayViewpoint>>,
 }
 
 #[derive(SystemParam)]
 pub(crate) struct ProductionOptionsParams<'w> {
-    observations: Option<Res<'w, awbrn_game::replay::RecipientObservations>>,
-    viewpoint: Option<Res<'w, awbrn_game::replay::ReplayViewpoint>>,
+    observations: Option<Res<'w, awbrn_bevy::replay::RecipientObservations>>,
+    viewpoint: Option<Res<'w, awbrn_bevy::replay::ReplayViewpoint>>,
     sink: Option<Res<'w, EventSink<ProductionOptionsChanged>>>,
 }
 
@@ -236,8 +236,8 @@ pub(crate) struct HoverState<'w> {
 
 #[derive(SystemParam)]
 pub(crate) struct UnitActionParams<'w> {
-    observations: Option<Res<'w, awbrn_game::replay::RecipientObservations>>,
-    viewpoint: Option<Res<'w, awbrn_game::replay::ReplayViewpoint>>,
+    observations: Option<Res<'w, awbrn_bevy::replay::RecipientObservations>>,
+    viewpoint: Option<Res<'w, awbrn_bevy::replay::ReplayViewpoint>>,
     sink: Option<Res<'w, EventSink<UnitActionsChanged>>>,
 }
 
@@ -325,7 +325,7 @@ fn unit_session(
     ) else {
         return None;
     };
-    let awbrn_game::replay::ReplayViewpoint::Player(player) = viewpoint else {
+    let awbrn_bevy::replay::ReplayViewpoint::Player(player) = viewpoint else {
         return None;
     };
     let observation = observations.for_player(*player)?;
@@ -991,8 +991,8 @@ fn close_production_options(sink: Option<&EventSink<ProductionOptionsChanged>>) 
 
 fn emit_production_options(
     position: Pos,
-    observations: Option<&awbrn_game::replay::RecipientObservations>,
-    viewpoint: Option<&awbrn_game::replay::ReplayViewpoint>,
+    observations: Option<&awbrn_bevy::replay::RecipientObservations>,
+    viewpoint: Option<&awbrn_bevy::replay::ReplayViewpoint>,
     sink: Option<&EventSink<ProductionOptionsChanged>>,
 ) {
     let Some(sink) = sink else {
@@ -1002,7 +1002,7 @@ fn emit_production_options(
         close_production_options(Some(sink));
         return;
     };
-    let awbrn_game::replay::ReplayViewpoint::Player(player) = viewpoint else {
+    let awbrn_bevy::replay::ReplayViewpoint::Player(player) = viewpoint else {
         close_production_options(Some(sink));
         return;
     };
@@ -1505,7 +1505,7 @@ pub(crate) fn cleanup_play_selection(
 }
 
 pub(crate) fn initialize_live_semantic_world(world: &mut World) {
-    awbrn_game::world::initialize_terrain_semantic_world(world);
+    awbrn_bevy::world::initialize_terrain_semantic_world(world);
     let Some(bootstrap) = world.remove_resource::<LiveMatchBootstrap>() else {
         return;
     };
@@ -1520,7 +1520,7 @@ pub(crate) fn initialize_live_semantic_world(world: &mut World) {
     world.insert_resource(unit_costs);
     world.insert_resource(power_meters);
 
-    let mut registry = awbrn_game::replay::ReplayPlayerRegistry::default();
+    let mut registry = awbrn_bevy::replay::ReplayPlayerRegistry::default();
     for player in &bootstrap.players {
         let Some(faction) = awbrn_types::PlayerFaction::from_id(player.faction_id) else {
             warn!(
@@ -1542,23 +1542,23 @@ pub(crate) fn initialize_live_semantic_world(world: &mut World) {
         .parse::<u32>()
         .ok()
         .map(awbrn_types::AwbwGamePlayerId::new);
-    let knowledge = awbrn_game::replay::ReplayTerrainKnowledge::from_map_and_registry(
+    let knowledge = awbrn_bevy::replay::ReplayTerrainKnowledge::from_map_and_registry(
         world.resource::<GameMap>(),
         &registry,
     );
     world.insert_resource(registry);
     world.insert_resource(knowledge);
-    world.insert_resource(awbrn_game::replay::ReplayState::default());
+    world.insert_resource(awbrn_bevy::replay::ReplayState::default());
     world.insert_resource(
         recipient
-            .map(awbrn_game::replay::ReplayViewpoint::Player)
-            .unwrap_or(awbrn_game::replay::ReplayViewpoint::Spectator),
+            .map(awbrn_bevy::replay::ReplayViewpoint::Player)
+            .unwrap_or(awbrn_bevy::replay::ReplayViewpoint::Spectator),
     );
     let transition = awvm::semantic::ObservedTransition {
         post: bootstrap.observation,
         events: Vec::new(),
     };
-    if let Err(error) = awbrn_game::replay::apply_observed_transition(world, &transition) {
+    if let Err(error) = awbrn_bevy::replay::apply_observed_transition(world, &transition) {
         error!("Could not initialize live typed presentation state: {error}");
     }
     crate::features::player_roster::emit_player_roster_updated(world);
@@ -1678,7 +1678,7 @@ pub(crate) fn emit_unit_actions(
     ) else {
         return;
     };
-    let awbrn_game::replay::ReplayViewpoint::Player(player) = viewpoint else {
+    let awbrn_bevy::replay::ReplayViewpoint::Player(player) = viewpoint else {
         close_unit_actions(Some(sink));
         return;
     };
@@ -2272,9 +2272,9 @@ mod tests {
         DeferredTransitions, LiveTransitionCommand, ReplayFollowupCommand,
     };
     use crate::render::animation::UnitPathAnimation;
-    use awbrn_game::GameWorldPlugin;
-    use awbrn_game::world::StrongIdMap;
-    use awbrn_game::world::initialize_terrain_semantic_world;
+    use awbrn_bevy::GameWorldPlugin;
+    use awbrn_bevy::world::StrongIdMap;
+    use awbrn_bevy::world::initialize_terrain_semantic_world;
     use awbrn_map::Dimensions;
     use awbrn_map::{AwbwMap, AwbwMapData};
     use awbrn_types::{GraphicalTerrain, PlayerFaction};
@@ -2399,11 +2399,11 @@ mod tests {
         let state: State =
             serde_json::from_value(value).expect("test ECS should form an AWVM state");
         let observation = observe(&AwbwVisibility, &state, state.players[0].id()).unwrap();
-        let mut observations = awbrn_game::replay::RecipientObservations::default();
+        let mut observations = awbrn_bevy::replay::RecipientObservations::default();
         observations.set(vec![observation]);
         app.world_mut().insert_resource(observations);
         app.world_mut()
-            .insert_resource(awbrn_game::replay::ReplayViewpoint::Player(
+            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
                 awbrn_types::AwbwGamePlayerId::new(0),
             ));
     }
@@ -2481,11 +2481,11 @@ mod tests {
         let mut app = play_test_app();
         app.world_mut().remove_resource::<TestObservationSync>();
         set_plain_map(&mut app, 1, 1);
-        let mut observations = awbrn_game::replay::RecipientObservations::default();
+        let mut observations = awbrn_bevy::replay::RecipientObservations::default();
         observations.set(vec![observation]);
         app.world_mut().insert_resource(observations);
         app.world_mut()
-            .insert_resource(awbrn_game::replay::ReplayViewpoint::Player(
+            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
                 awbrn_types::AwbwGamePlayerId::new(0),
             ));
         let received = Arc::new(Mutex::new(Vec::new()));
@@ -3113,7 +3113,7 @@ mod tests {
             .unwrap();
         app.world_mut()
             .entity_mut(teleporter)
-            .insert(awbrn_game::world::TerrainTile {
+            .insert(awbrn_bevy::world::TerrainTile {
                 terrain: GraphicalTerrain::Teleporter,
             });
         app.world_mut()
@@ -3189,11 +3189,11 @@ mod tests {
             true,
             Some(99),
         );
-        let mut observations = awbrn_game::replay::RecipientObservations::default();
+        let mut observations = awbrn_bevy::replay::RecipientObservations::default();
         observations.set(vec![observation]);
         app.world_mut().insert_resource(observations);
         app.world_mut()
-            .insert_resource(awbrn_game::replay::ReplayViewpoint::Player(
+            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
                 awbrn_types::AwbwGamePlayerId::new(0),
             ));
         let received = Arc::new(Mutex::new(Vec::new()));
@@ -3450,11 +3450,11 @@ mod tests {
             AwbwUnitId(awbrn_types::AwbwUnitId::new(1)),
             CarriedBy(transport),
         ));
-        let mut observations = awbrn_game::replay::RecipientObservations::default();
+        let mut observations = awbrn_bevy::replay::RecipientObservations::default();
         observations.set(vec![observation]);
         app.world_mut().insert_resource(observations);
         app.world_mut()
-            .insert_resource(awbrn_game::replay::ReplayViewpoint::Player(
+            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
                 awbrn_types::AwbwGamePlayerId::new(0),
             ));
         let received = Arc::new(Mutex::new(Vec::new()));
@@ -4157,7 +4157,7 @@ mod tests {
 
         let observation = app
             .world()
-            .resource::<awbrn_game::replay::RecipientObservations>()
+            .resource::<awbrn_bevy::replay::RecipientObservations>()
             .for_player(awbrn_types::AwbwGamePlayerId::new(0))
             .unwrap()
             .clone();
@@ -4223,7 +4223,7 @@ mod tests {
             .unwrap();
         app.world_mut()
             .entity_mut(mountain_entity)
-            .insert(awbrn_game::world::TerrainTile {
+            .insert(awbrn_bevy::world::TerrainTile {
                 terrain: GraphicalTerrain::Mountain,
             });
         app.world_mut()

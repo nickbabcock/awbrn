@@ -3,12 +3,12 @@ use crate::features::player_display::{
     PlayerDisplayFactionOverrides, display_faction_for_actual_faction,
 };
 use crate::features::player_roster::PlayerRosterConfig;
-use awbrn_game::MapPosition;
-use awbrn_game::replay::{
+use awbrn_bevy::MapPosition;
+use awbrn_bevy::replay::{
     AwbwUnitId, ReplayKnowledgeKey, ReplayPlayerRegistry, ReplayState, ReplayTerrainKnowledge,
     ReplayViewpoint,
 };
-use awbrn_game::world::{
+use awbrn_bevy::world::{
     CaptureProgress, CarriedBy, Faction, GraphicalHp, HasCargo, Hiding, TerrainTile, Unit,
     UnitActive, ViewerVisibility,
 };
@@ -341,8 +341,8 @@ impl Plugin for ClientProjectionPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use awbrn_game::GameWorldPlugin;
-    use awbrn_game::world::GameMap;
+    use awbrn_bevy::GameWorldPlugin;
+    use awbrn_bevy::world::GameMap;
     use awbrn_map::AwbrnMap;
     use awbrn_map::Dimensions;
     use awbrn_types::{AwbwGamePlayerId, PlayerFaction, Property};

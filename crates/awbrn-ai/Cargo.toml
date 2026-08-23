@@ -11,6 +11,7 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+awbrn-game = { path = "../awbrn-game" }
 awbrn-map = { path = "../awbrn-map" }
 awbrn-image = { path = "../awbrn-image" }
 awbrn-types = { path = "../awbrn-types" }

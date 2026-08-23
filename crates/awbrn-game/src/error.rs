@@ -29,8 +29,8 @@ impl fmt::Display for CommandError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotYourTurn => write!(f, "it is not your turn"),
-            Self::InvalidUnit(id) => write!(f, "invalid unit {:?}", id),
-            Self::UnitAlreadyActed(id) => write!(f, "unit {:?} has already acted", id),
+            Self::InvalidUnit(id) => write!(f, "invalid unit {}", id.0),
+            Self::UnitAlreadyActed(id) => write!(f, "unit {} has already acted", id.0),
             Self::InvalidPath { reason } => write!(f, "invalid path: {reason}"),
             Self::InvalidAction { reason } => write!(f, "invalid action: {reason}"),
             Self::InsufficientFunds { cost, available } => {

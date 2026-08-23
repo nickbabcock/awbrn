@@ -1,7 +1,7 @@
 use crate::core::INACTIVE_UNIT_COLOR;
 use crate::modes::replay::navigation;
+use awbrn_bevy::world::{Faction, Unit};
 use awbrn_content::get_unit_animation_frames;
-use awbrn_game::world::{Faction, Unit};
 use awbrn_types::GraphicalMovement;
 use bevy::prelude::*;
 use std::time::Duration;

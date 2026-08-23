@@ -60,6 +60,7 @@ pub fn apply_observed_transitions(
     ensure_every_player_is_represented(transitions, post)?;
 
     let units = collect_owned_units(transitions)?;
+    ensure_players_are_known(world, transitions)?;
     sync_replay_state(world, post)?;
     sync_weather(world, post);
     let capture_points = sync_tiles(world, transitions)?;
@@ -81,6 +82,7 @@ pub fn apply_observed_transition(
 ) -> Result<(), TransitionApplyError> {
     consume_events(&transition.events);
     let units = collect_recipient_units(world, transition)?;
+    ensure_players_are_known(world, std::slice::from_ref(transition))?;
     sync_replay_state(world, &transition.post)?;
     sync_weather(world, &transition.post);
     let capture_points = sync_tiles(world, std::slice::from_ref(transition))?;
@@ -129,6 +131,33 @@ fn ensure_every_player_is_represented(
             return Err(TransitionApplyError::MissingPlayerTransition(
                 id.to_string(),
             ));
+        }
+    }
+    Ok(())
+}
+
+/// Reject a projection that names a player the registry does not hold, before
+/// the world changes. A faction lookup that fails halfway through leaves the
+/// ECS between two states, so make reconciliation all-or-nothing.
+fn ensure_players_are_known(
+    world: &World,
+    transitions: &[ObservedTransition],
+) -> Result<(), TransitionApplyError> {
+    // A world with no registry does no faction lookups either, so it has
+    // nothing to check.
+    let Some(registry) = world.get_resource::<ReplayPlayerRegistry>() else {
+        return Ok(());
+    };
+    for transition in transitions {
+        for player in &transition.post.players {
+            let id = match player {
+                awvm::semantic::ObservedPlayer::Private { id, .. }
+                | awvm::semantic::ObservedPlayer::Public { id, .. } => id,
+            };
+            let player = parse_player_id(id)?;
+            if registry.faction_for_player(player).is_none() {
+                return Err(TransitionApplyError::UnknownPlayer(player.as_u32()));
+            }
         }
     }
     Ok(())
@@ -252,12 +281,16 @@ fn spawn_recipient_enemy(world: &mut World, unit: &ObservedUnit, position: Pos) 
             break candidate;
         }
     };
-    world.spawn((
+    let root = board_root(world);
+    let mut spawned = world.spawn((
         AwbwUnitId(id),
         Unit(unit.kind),
         MapPosition::from(position),
         RecipientEnemy,
     ));
+    if let Some(root) = root {
+        spawned.insert(BoardOf(root));
+    }
     id
 }
 

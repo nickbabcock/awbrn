@@ -5,7 +5,7 @@ pub mod presentation;
 pub(crate) mod state;
 
 use crate::core::{AppState, GameMode};
-use awbrn_game::replay::{ReplayViewpoint, refresh_viewer_visibility};
+use awbrn_bevy::replay::{ReplayViewpoint, refresh_viewer_visibility};
 use bevy::prelude::*;
 
 pub struct ReplayPlugin;

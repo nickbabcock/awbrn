@@ -16,8 +16,9 @@ use serde_json::Value;
 use crate::MapPosition;
 use crate::replay::{AwbwUnitId, ReplayState};
 use crate::world::{
-    Ammo, BoardRoot, CaptureProgress, CarriedBy, Faction, Fuel, GraphicalHp, HasCargo, TerrainHp,
-    TerrainTile, Unit, UnitActive, VisionRange, adopt_unattached_board_entities, board_root,
+    Ammo, BoardRoot, CaptureProgress, CarriedBy, Faction, Fuel, GraphicalHp, HasCargo, Hiding,
+    TerrainHp, TerrainTile, Unit, UnitActive, VisionRange, adopt_unattached_board_entities,
+    board_root,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -144,6 +145,8 @@ impl Plugin for GameSnapshotPlugin {
             .register_type_data::<CarriedBy, ReplaySemanticComponentType>()
             .register_type::<HasCargo>()
             .register_type_data::<HasCargo, ReplaySemanticComponentType>()
+            .register_type::<Hiding>()
+            .register_type_data::<Hiding, ReplaySemanticComponentType>()
             .register_type::<ReplayState>()
             .register_type_data::<ReplayState, ReplaySemanticResourceType>();
     }

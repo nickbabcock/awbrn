@@ -8,7 +8,7 @@
 //! | [`WorldPos`]  | Map center     | Up     | 1 unit = 1 logical px at camera scale 1.0 |
 //! | Tile grid     | Map top-left   | Down   | [`TILE_SIZE`] logical px per cell        |
 //!
-//! Tile-grid positions use [`awbrn_map::Pos`] / [`awbrn_game::MapPosition`] (already
+//! Tile-grid positions use [`awbrn_map::Pos`] / [`awbrn_bevy::MapPosition`] (already
 //! strong types) and are not folded into the f32 system here.
 //!
 //! ## Conversions
@@ -22,7 +22,7 @@
 
 use std::ops::{Add, Sub};
 
-use awbrn_game::{MapPosition, world::GameMap};
+use awbrn_bevy::{MapPosition, world::GameMap};
 use awbrn_map::Pos;
 use bevy::prelude::*;
 

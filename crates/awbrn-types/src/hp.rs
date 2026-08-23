@@ -1,4 +1,8 @@
+use awvm::semantic::ObservedUnitHp;
 use serde::{Deserialize, Serialize};
+
+#[cfg(feature = "bevy")]
+use bevy::prelude::ReflectComponent;
 
 /// Exact unit HP on the 0-100 combat scale.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
@@ -41,6 +45,51 @@ impl VisualHp {
 
     pub const fn get(self) -> u8 {
         self.0
+    }
+}
+
+/// Unit HP as it can be presented to one viewer.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize)]
+#[cfg_attr(
+    feature = "bevy",
+    derive(bevy::prelude::Component, bevy::reflect::Reflect)
+)]
+#[cfg_attr(feature = "bevy", component(immutable))]
+#[cfg_attr(feature = "bevy", reflect(Component))]
+pub enum GraphicalHp {
+    Visible(VisualHp),
+    Hidden,
+}
+
+impl GraphicalHp {
+    pub const fn visible(self) -> Option<VisualHp> {
+        match self {
+            Self::Visible(hp) => Some(hp),
+            Self::Hidden => None,
+        }
+    }
+
+    pub const fn is_full_health(self) -> bool {
+        matches!(self, Self::Visible(hp) if hp.get() >= 10)
+    }
+
+    pub const fn is_destroyed(self) -> bool {
+        matches!(self, Self::Visible(hp) if hp.get() == 0)
+    }
+}
+
+impl From<ObservedUnitHp> for GraphicalHp {
+    fn from(hp: ObservedUnitHp) -> Self {
+        match hp {
+            ObservedUnitHp::Exact(hp) => Self::from(ExactHp::new(hp)),
+            ObservedUnitHp::Hidden(_) => Self::Hidden,
+        }
+    }
+}
+
+impl From<ExactHp> for GraphicalHp {
+    fn from(hp: ExactHp) -> Self {
+        Self::Visible(hp.visual())
     }
 }
 

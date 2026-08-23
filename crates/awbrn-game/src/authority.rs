@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use awbrn_map::{AwbrnMap, GameSetup, SetupError, faction_players, state_from_setup};
+use awbrn_map::AwbrnMap;
 use awbrn_types::{PlayerFaction, Unit as ServerUnit};
 use awvm::event::{AttackTarget, Event};
 use awvm::random::{RandomToken, Recording};
@@ -15,8 +15,9 @@ use crate::command::{GameCommand, PostMoveAction};
 use crate::error::CommandError;
 use crate::player::PlayerId as ServerPlayerId;
 use crate::unit_id::ServerUnitId;
+use crate::{GameSetup, SetupError, faction_players, state_from_setup};
 
-pub(crate) struct Authority {
+pub struct Authority {
     state: State,
     entropy: Recording<GameRng>,
     last_random: Vec<RandomToken>,
@@ -25,13 +26,35 @@ pub(crate) struct Authority {
     map: AwbrnMap,
 }
 
-pub(crate) struct AcceptedTransition {
-    pub(crate) prior: State,
-    pub(crate) events: Vec<Event>,
+pub struct AcceptedTransition {
+    pub prior: State,
+    pub events: Vec<Event>,
+}
+
+impl AcceptedTransition {
+    /// Project this transition for one recipient.
+    ///
+    /// `authority` must be the same [`Authority`] that produced the transition,
+    /// and it must have executed no command since. The projection reads the
+    /// authority's current state as the post-state, so a later command makes
+    /// the result describe a transition that never happened.
+    pub fn observe(
+        &self,
+        authority: &Authority,
+        recipient: &PlayerId,
+    ) -> Result<awvm::semantic::ObservedTransition, awvm::semantic::ObserveError> {
+        awvm::semantic::observe_transition(
+            &awvm::semantic::AwbwVisibility,
+            &self.prior,
+            authority.state(),
+            &self.events,
+            recipient,
+        )
+    }
 }
 
 impl Authority {
-    pub(crate) fn new(setup: &GameSetup) -> Result<Self, SetupError> {
+    pub fn new(setup: &GameSetup) -> Result<Self, SetupError> {
         let faction_players = faction_players(setup);
         Ok(Self {
             state: state_from_setup(setup)?,
@@ -43,7 +66,7 @@ impl Authority {
         })
     }
 
-    pub(crate) fn execute(
+    pub fn execute(
         &mut self,
         player: ServerPlayerId,
         command: &GameCommand,
@@ -86,7 +109,7 @@ impl Authority {
         })
     }
 
-    pub(crate) fn execute_recorded(
+    pub fn execute_recorded(
         &mut self,
         player: ServerPlayerId,
         command: &GameCommand,
@@ -136,7 +159,7 @@ impl Authority {
         })
     }
 
-    pub(crate) fn spawn_unit(
+    pub fn spawn_unit(
         &mut self,
         id: ServerUnitId,
         position: Pos,
@@ -173,23 +196,23 @@ impl Authority {
         self.state.next_unit_id = Some(self.state.next_unit_id.unwrap_or(1).max(next));
     }
 
-    pub(crate) fn random_tokens(&self) -> &[RandomToken] {
+    pub fn random_tokens(&self) -> &[RandomToken] {
         self.entropy.tokens()
     }
 
-    pub(crate) fn last_random_tokens(&self) -> &[RandomToken] {
+    pub fn last_random_tokens(&self) -> &[RandomToken] {
         &self.last_random
     }
 
-    pub(crate) fn state(&self) -> &State {
+    pub fn state(&self) -> &State {
         &self.state
     }
 
-    pub(crate) fn map(&self) -> &AwbrnMap {
+    pub fn map(&self) -> &AwbrnMap {
         &self.map
     }
 
-    pub(crate) fn player_faction(&self, player: &PlayerId) -> Option<PlayerFaction> {
+    pub fn player_faction(&self, player: &PlayerId) -> Option<PlayerFaction> {
         player
             .as_str()
             .parse::<usize>()
@@ -198,11 +221,11 @@ impl Authority {
             .copied()
     }
 
-    pub(crate) fn players(&self) -> impl Iterator<Item = ServerPlayerId> + '_ {
+    pub fn players(&self) -> impl Iterator<Item = ServerPlayerId> + '_ {
         (0..self.player_factions.len()).map(|index| ServerPlayerId(index as u8))
     }
 
-    pub(crate) fn player(&self, player: ServerPlayerId) -> PlayerId {
+    pub fn player(&self, player: ServerPlayerId) -> PlayerId {
         player_id(player)
     }
 }
@@ -473,5 +496,5 @@ impl awvm::random::Entropy for GameRng {
 }
 
 fn player_id(player: ServerPlayerId) -> PlayerId {
-    awbrn_map::player_id(usize::from(player.0))
+    crate::semantic_player_id(usize::from(player.0))
 }

@@ -5,8 +5,8 @@ use crate::render::animation::{
     Animation, UnitPathAnimation, UnitVisualState, restore_unit_visual_state,
 };
 use crate::render::{UiAtlas, UnitAtlasResource};
+use awbrn_bevy::world::{Faction, Unit, UnitActive};
 use awbrn_content::get_unit_animation_frames;
-use awbrn_game::world::{Faction, Unit, UnitActive};
 use bevy::sprite::Anchor;
 use bevy::{log, prelude::*};
 
@@ -113,7 +113,7 @@ type ProjectedUnitRenderFilter = (
     Without<OverlayVisual>,
 );
 
-fn health_overlay(health: awbrn_game::world::GraphicalHp) -> OverlaySpec {
+fn health_overlay(health: awbrn_bevy::world::GraphicalHp) -> OverlaySpec {
     let sprite = health.visible().map_or_else(
         || "Healthv2/Question.png".to_owned(),
         |value| format!("Healthv2/{}.png", value.get()),
@@ -400,7 +400,7 @@ mod tests {
     use super::*;
     use crate::projection::project_unit_render_state;
     use crate::render::UiAtlasResource;
-    use awbrn_game::world::{
+    use awbrn_bevy::world::{
         CaptureProgress, CarriedBy, FriendlyFactions, GraphicalHp, UnitActive, ViewerVisibility,
     };
     use awbrn_types::{GraphicalMovement, PlayerFaction};

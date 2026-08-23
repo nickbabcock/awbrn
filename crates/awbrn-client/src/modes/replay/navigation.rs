@@ -8,8 +8,8 @@ use crate::render::animation::{
 use crate::render::course_arrow::{
     COURSE_ARROW_SPRITE_SIZE, CourseArrowSpriteKind, course_arrow_tip,
 };
-use awbrn_game::replay::AwbwUnitId;
-use awbrn_game::world::{Faction, GameMap, Unit, UnitActive};
+use awbrn_bevy::replay::AwbwUnitId;
+use awbrn_bevy::world::{Faction, GameMap, Unit, UnitActive};
 use awbrn_map::Pos;
 use awbrn_types::GraphicalMovement;
 use awbw_replay::turn_models::{MoveAction, TargetedPlayer};

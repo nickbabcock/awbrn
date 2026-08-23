@@ -457,6 +457,7 @@ name = "awbrn-ai"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "awbrn-game",
  "awbrn-image",
  "awbrn-map",
  "awbrn-types",
@@ -466,12 +467,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "awbrn-bevy"
+version = "0.1.0"
+dependencies = [
+ "awbrn-map",
+ "awbrn-types",
+ "awbw-replay",
+ "awvm",
+ "awvm-awbw",
+ "bevy",
+ "indexmap",
+ "insta",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "awbrn-client"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "awbrn-bevy",
  "awbrn-content",
- "awbrn-game",
  "awbrn-map",
  "awbrn-protocol",
  "awbrn-types",
@@ -515,16 +533,13 @@ name = "awbrn-game"
 version = "0.1.0"
 dependencies = [
  "awbrn-map",
+ "awbrn-protocol",
  "awbrn-types",
- "awbw-replay",
  "awvm",
- "awvm-awbw",
- "bevy",
- "indexmap",
- "insta",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
+ "tsify",
+ "wasm-bindgen",
 ]
 
 [[package]]

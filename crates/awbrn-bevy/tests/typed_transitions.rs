@@ -1,12 +1,12 @@
 use std::path::Path;
 
-use awbrn_game::GameWorldPlugin;
-use awbrn_game::replay::{
+use awbrn_bevy::GameWorldPlugin;
+use awbrn_bevy::replay::{
     AwbwUnitId, ReplayPlayerRegistry, ReplayTerrainKnowledge, ReplayViewpoint,
     apply_observed_transitions, initialize_replay_semantic_world, refresh_viewer_visibility,
 };
-use awbrn_game::snapshot::{canonicalize_replay_semantic_snapshot, capture_game_snapshot};
-use awbrn_game::world::{GameMap, GraphicalHp, ViewerVisibility};
+use awbrn_bevy::snapshot::{canonicalize_replay_semantic_snapshot, capture_game_snapshot};
+use awbrn_bevy::world::{GameMap, GraphicalHp, ViewerVisibility};
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
 use awbrn_types::VisualHp;
 use awbw_replay::ReplayParser;
@@ -221,7 +221,7 @@ fn viewpoint_selects_visible_or_hidden_graphical_hp() {
 
     let unit = app
         .world()
-        .resource::<awbrn_game::world::StrongIdMap<AwbwUnitId>>()
+        .resource::<awbrn_bevy::world::StrongIdMap<AwbwUnitId>>()
         .get(&AwbwUnitId(awbrn_types::AwbwUnitId::new(0)))
         .unwrap();
     assert_eq!(
@@ -375,7 +375,7 @@ fn presentation_app(replay: &awbw_replay::AwbwReplay, map_data: &AwbwMapData) ->
     app
 }
 
-fn canonical_snapshot(app: &mut App) -> awbrn_game::snapshot::CanonicalReplaySnapshot {
+fn canonical_snapshot(app: &mut App) -> awbrn_bevy::snapshot::CanonicalReplaySnapshot {
     let snapshot = capture_game_snapshot(app.world_mut()).unwrap();
     let registry = app.world().resource::<AppTypeRegistry>().read();
     canonicalize_replay_semantic_snapshot(&snapshot, &registry).unwrap()

@@ -13,8 +13,8 @@ use awvm::semantic::{
     WeatherSetting,
 };
 
-use crate::AwbrnMap;
 use crate::setup::{GameSetup, SetupError};
+use awbrn_map::AwbrnMap;
 
 /// Converts a game setup to an AWVM state.
 ///
@@ -42,7 +42,7 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
         .iter()
         .enumerate()
         .map(|(index, player)| {
-            let id = player_id(index);
+            let id = semantic_player_id(index);
             Player::new(id, team_id(index, player.team.map(|team| team.get())))
                 .with_funds(u64::from(player.starting_funds))
                 .with_commanders(vec![Commander {
@@ -255,7 +255,7 @@ pub fn semantic_terrain(terrain: AwbwTerrain) -> Terrain {
 ///
 /// A seat is named by its position in the roster, so the same setup always
 /// gives the same identifiers.
-pub fn player_id(index: usize) -> PlayerId {
+pub fn semantic_player_id(index: usize) -> PlayerId {
     PlayerId::from(index.to_string())
 }
 
@@ -274,7 +274,7 @@ pub fn faction_players(setup: &GameSetup) -> HashMap<PlayerFaction, PlayerId> {
         // is what the server's own faction lookup does.
         players
             .entry(player.faction)
-            .or_insert_with(|| player_id(index));
+            .or_insert_with(|| semantic_player_id(index));
     }
     players
 }

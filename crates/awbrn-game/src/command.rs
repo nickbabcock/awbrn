@@ -1,21 +1,21 @@
 use awbrn_map::Pos;
 pub use awbrn_protocol::PostMoveAction;
 pub use awvm::commander::PowerLevel;
-use tsify::Tsify;
 
 use crate::unit_id::ServerUnitId;
 
 /// A command submitted by a player during their turn.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Tsify)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum GameCommand {
     /// Move a unit along a path, optionally performing an action at the destination.
     MoveUnit {
-        #[tsify(type = "number")]
+        #[cfg_attr(feature = "typescript", tsify(type = "number"))]
         unit_id: ServerUnitId,
         /// Full path from current position to destination (inclusive of both endpoints).
         /// Used for fuel consumption and client animation.
-        #[tsify(type = "{ x: number; y: number }[]")]
+        #[cfg_attr(feature = "typescript", tsify(type = "{ x: number; y: number }[]"))]
         #[serde(with = "awbrn_map::xy::vec")]
         path: Vec<Pos>,
         /// Action to perform after arriving at the destination.
@@ -23,24 +23,24 @@ pub enum GameCommand {
     },
     /// Build a new unit at a production facility.
     Build {
-        #[tsify(type = "{ x: number; y: number }")]
+        #[cfg_attr(feature = "typescript", tsify(type = "{ x: number; y: number }"))]
         #[serde(with = "awbrn_map::xy")]
         position: Pos,
         unit_type: awvm::ruleset::UnitKind,
     },
     /// Unload one carried unit without moving or spending its transport.
     Unload {
-        #[tsify(type = "number")]
+        #[cfg_attr(feature = "typescript", tsify(type = "number"))]
         transport_id: ServerUnitId,
-        #[tsify(type = "number")]
+        #[cfg_attr(feature = "typescript", tsify(type = "number"))]
         cargo_id: ServerUnitId,
-        #[tsify(type = "{ x: number; y: number }")]
+        #[cfg_attr(feature = "typescript", tsify(type = "{ x: number; y: number }"))]
         #[serde(with = "awbrn_map::xy")]
         position: Pos,
     },
     /// Remove one owned unit from the board without compensation.
     DeleteUnit {
-        #[tsify(type = "number")]
+        #[cfg_attr(feature = "typescript", tsify(type = "number"))]
         unit_id: ServerUnitId,
     },
     /// Activate the current commander's normal or super power.

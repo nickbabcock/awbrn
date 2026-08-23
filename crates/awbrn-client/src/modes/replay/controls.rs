@@ -4,7 +4,7 @@ use crate::modes::replay::presentation::{
     ReplayAdvanceLock, ReplayRewindCommand, ReplayTurnCommand,
 };
 use crate::modes::replay::state::ReplayControlState;
-use awbrn_game::replay::ReplayState;
+use awbrn_bevy::replay::ReplayState;
 use bevy::input::{ButtonState, keyboard::KeyboardInput};
 use bevy::prelude::*;
 
@@ -53,8 +53,8 @@ pub(crate) fn handle_replay_controls(
     loaded_replay: Res<LoadedReplay>,
     replay_lock: Res<ReplayAdvanceLock>,
     viewpoint_params: (
-        ResMut<awbrn_game::replay::ReplayViewpoint>,
-        Res<awbrn_game::replay::ReplayPlayerRegistry>,
+        ResMut<awbrn_bevy::replay::ReplayViewpoint>,
+        Res<awbrn_bevy::replay::ReplayPlayerRegistry>,
     ),
 ) {
     let (mut viewpoint, registry) = viewpoint_params;
@@ -103,10 +103,10 @@ pub(crate) fn handle_replay_controls(
                 }
             }
             KeyCode::Digit0 | KeyCode::Numpad0 => {
-                viewpoint.set_if_neq(awbrn_game::replay::ReplayViewpoint::Spectator);
+                viewpoint.set_if_neq(awbrn_bevy::replay::ReplayViewpoint::Spectator);
             }
             KeyCode::Tab => {
-                viewpoint.set_if_neq(awbrn_game::replay::ReplayViewpoint::ActivePlayer);
+                viewpoint.set_if_neq(awbrn_bevy::replay::ReplayViewpoint::ActivePlayer);
             }
             key @ (KeyCode::Digit1
             | KeyCode::Digit2
@@ -136,7 +136,7 @@ pub(crate) fn handle_replay_controls(
                     _ => unreachable!(),
                 };
                 if let Some(player_id) = registry.player_id_at_index(index) {
-                    viewpoint.set_if_neq(awbrn_game::replay::ReplayViewpoint::Player(player_id));
+                    viewpoint.set_if_neq(awbrn_bevy::replay::ReplayViewpoint::Player(player_id));
                 }
             }
             _ => {}
@@ -149,9 +149,9 @@ mod tests {
     use super::*;
     use crate::loading::apply_replay_building_overrides;
     use crate::modes::replay::bootstrap::initialize_replay_semantic_world_for_client;
-    use awbrn_game::GameWorldPlugin;
-    use awbrn_game::replay::AwbwUnitId;
-    use awbrn_game::world::{GameMap, StrongIdMap};
+    use awbrn_bevy::GameWorldPlugin;
+    use awbrn_bevy::replay::AwbwUnitId;
+    use awbrn_bevy::world::{GameMap, StrongIdMap};
     use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
     use awbrn_types::AwbwGamePlayerId;
     use awbw_replay::AwbwReplay;
@@ -335,10 +335,10 @@ mod tests {
         }));
         app.init_resource::<crate::features::visibility::ViewerVisibility>();
         app.init_resource::<crate::features::visibility::FriendlyFactions>();
-        app.init_resource::<awbrn_game::replay::ReplayTerrainKnowledge>();
-        app.init_resource::<awbrn_game::replay::RecipientObservations>();
-        app.init_resource::<awbrn_game::replay::ReplayViewpoint>();
-        app.init_resource::<awbrn_game::replay::ReplayPlayerRegistry>();
+        app.init_resource::<awbrn_bevy::replay::ReplayTerrainKnowledge>();
+        app.init_resource::<awbrn_bevy::replay::RecipientObservations>();
+        app.init_resource::<awbrn_bevy::replay::ReplayViewpoint>();
+        app.init_resource::<awbrn_bevy::replay::ReplayPlayerRegistry>();
         app
     }
 

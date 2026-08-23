@@ -9,8 +9,8 @@ use crate::projection::{
     ClientProjectionSet, ProjectedTerrainRenderState, ProjectedUnitRenderState,
 };
 use crate::render::UiAtlas;
-use awbrn_game::MapPosition;
-use awbrn_game::world::{
+use awbrn_bevy::MapPosition;
+use awbrn_bevy::world::{
     Ammo, BoardIndex, CaptureProgress, Faction, FriendlyFactions, Fuel, GameMap, GraphicalHp,
     HasCargo, TerrainTile, Unit, ViewerVisibility,
 };
@@ -828,7 +828,7 @@ impl Plugin for InputPlugin {
 mod tests {
     use super::*;
     use crate::projection::ProjectedUnitOverlayFlags;
-    use awbrn_game::world::{CarriedBy, Hiding};
+    use awbrn_bevy::world::{CarriedBy, Hiding};
     use awbrn_map::Dimensions;
     use awbrn_types::{GraphicalTerrain, PlayerFaction};
     use bevy::ecs::system::RunSystemOnce;
