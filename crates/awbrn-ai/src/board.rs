@@ -1,11 +1,10 @@
-//! The board the arena plays on.
+//! The boards the arena can play on.
 //!
-//! Map 174183, "Close Encounters": 10 by 10, two players, land only, and a
-//! mirror under a half turn. The fixtures under `spec/fixtures/` are 7 by 3 or
-//! smaller and none is symmetric, so a win rate over one of them measures the
-//! fixture. This board is a fair mirror, cheap enough that a game costs little,
-//! and it holds bases and neutral cities, because capture and income are the
-//! two terms a hand-written tactics AI most often gets wrong.
+//! Map 174183, "Close Encounters", is the default arena board. It is a 10 by
+//! 10 two-player board with land only and a mirror under a half turn. It is a
+//! fair mirror, cheap enough that a game costs little, and it holds bases and
+//! neutral cities, because capture and income are the two terms a hand-written
+//! tactics AI most often gets wrong.
 //!
 //! The board is not symmetric in its units, and that is the point. The map
 //! starts one Blue Moon infantry and nothing for Orange Star, because Orange
@@ -19,6 +18,7 @@ use awbrn_types::{Co, PlayerFaction};
 use awvm::semantic::State;
 
 const ARENA_MAP: &str = include_str!("../../../assets/maps/174183.json");
+const AMBER_VALLEY_MAP: &str = include_str!("../../../assets/maps/61748.json");
 
 /// The seats the arena plays, in roster order.
 ///
@@ -28,6 +28,10 @@ const ARENA_MAP: &str = include_str!("../../../assets/maps/174183.json");
 /// holds the map's one predeployed unit, which is the pairing the map was
 /// drawn for.
 pub const SEATS: [PlayerFaction; 2] = [PlayerFaction::OrangeStar, PlayerFaction::BlueMoon];
+
+/// The seats for Amber Valley, in roster order.
+pub const AMBER_VALLEY_SEATS: [PlayerFaction; 2] =
+    [PlayerFaction::TealGalaxy, PlayerFaction::PinkCosmos];
 
 /// Funds each seat starts with.
 ///
@@ -41,15 +45,31 @@ pub fn arena_map() -> AwbrnMap {
     AwbrnMap::from_map(&map)
 }
 
+/// The graphical Amber Valley map.
+pub fn amber_valley_map() -> AwbrnMap {
+    let map =
+        AwbwMap::parse_json(AMBER_VALLEY_MAP.as_bytes()).expect("the Amber Valley map parses");
+    AwbrnMap::from_map(&map)
+}
+
 /// The arena's starting position.
 ///
 /// `seed` reaches the setup only, which uses it for nothing the harness does:
 /// the harness draws its own entropy. It is here so that a caller cannot build
 /// two setups that differ in a field it did not choose.
 pub fn arena(fog: bool, seed: u64) -> State {
+    state_from_map(arena_map(), &SEATS, fog, seed)
+}
+
+/// The Amber Valley starting position.
+pub fn amber_valley(fog: bool, seed: u64) -> State {
+    state_from_map(amber_valley_map(), &AMBER_VALLEY_SEATS, fog, seed)
+}
+
+fn state_from_map(map: AwbrnMap, seats: &[PlayerFaction; 2], fog: bool, seed: u64) -> State {
     let setup = GameSetup {
-        map: arena_map(),
-        players: SEATS
+        map,
+        players: seats
             .iter()
             .map(|faction| PlayerSetup {
                 faction: *faction,
@@ -79,6 +99,14 @@ mod tests {
         let state = arena(false, 1);
         assert_eq!(state.players.len(), 2);
         assert_eq!(state.teams.len(), 2, "two seats off a team are two teams");
+        assert!(matches!(state.match_state, Match::Active { .. }));
+    }
+
+    #[test]
+    fn amber_valley_opens_on_an_active_two_player_match() {
+        let state = amber_valley(false, 1);
+        assert_eq!(state.players.len(), 2);
+        assert_eq!(state.teams.len(), 2);
         assert!(matches!(state.match_state, Match::Active { .. }));
     }
 
