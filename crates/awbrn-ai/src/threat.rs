@@ -51,9 +51,10 @@
 //! against the tens of thousands of commands this crate plays each second.
 
 use awvm::combat::{self, Side};
-use awvm::query::{self, MoveScratch};
+use awvm::query::{MoveScratch, Sweep};
 use awvm::ruleset::{self, Domain, FireMode, UnitKind};
 use awvm::semantic::{CellIdx, Dimensions, Location, PlayerIdx, Pos, State, Unit};
+use awvm::session::Session;
 
 /// Terrain defense runs from no stars to four, so a row holds five columns.
 const STAR_LEVELS: usize = 5;
@@ -80,6 +81,17 @@ pub struct ThreatMap {
     /// `UnitKind::COUNT` funds for each tile, the tiles in cell order.
     immediate: Vec<f32>,
     deferred: Vec<f32>,
+    /// The build each tile's row was last written in, one entry for each tile
+    /// of each layer.
+    ///
+    /// A row a build never wrote to reads as zero and is emptied where it lies
+    /// the first time that build writes to it. Emptying both layers up front
+    /// instead means writing the whole board twice for each command of a
+    /// match, and a threat map is mostly empty: only the tiles an enemy can
+    /// reach carry anything.
+    written: [Vec<u32>; 2],
+    /// Which build the map holds. Rows stamped with anything else are stale.
+    generation: u32,
     /// Which tiles the attacker being walked has already been added to. It
     /// holds the serial of that attacker rather than a flag, so the sweep
     /// clears it by counting up instead of by writing the board.
@@ -97,6 +109,19 @@ pub struct ThreatMap {
     scratch: MoveScratch,
 }
 
+/// Empty `buffer` to `len` zeroes, reusing what it already holds.
+///
+/// `clear` then `resize` writes each element through the extend loop, where a
+/// buffer that is already the right length is emptied where it lies.
+fn zero<T: Copy + Default>(buffer: &mut Vec<T>, len: usize) {
+    if buffer.len() == len {
+        buffer.fill(T::default());
+    } else {
+        buffer.clear();
+        buffer.resize(len, T::default());
+    }
+}
+
 impl Default for ThreatMap {
     fn default() -> Self {
         Self::new()
@@ -110,6 +135,8 @@ impl ThreatMap {
             dimensions: Dimensions::new(0, 0),
             immediate: Vec::new(),
             deferred: Vec::new(),
+            written: [const { Vec::new() }; 2],
+            generation: 0,
             stamp: Vec::new(),
             serial: 0,
             stars: Vec::new(),
@@ -120,19 +147,41 @@ impl ThreatMap {
 
     /// Work out what every player at war with `seat` threatens.
     ///
-    /// `state` is the position the asking player can see, so a hidden enemy
-    /// threatens nothing here. That is the same blindness the agent plays
-    /// under everywhere else, and not a defect of the map.
-    pub fn build(&mut self, state: &State, seat: PlayerIdx) {
+    /// The session holds the position the asking player can see, so a hidden
+    /// enemy threatens nothing here. That is the same blindness the agent
+    /// plays under everywhere else, and not a defect of the map.
+    ///
+    /// The searches go through the session's own board tables, one set per
+    /// hostile seat, so a sweep of twenty enemy units builds the entry-cost
+    /// and blocking grids once for each side rather than once for each unit.
+    pub fn build(&mut self, session: &Session, seat: PlayerIdx) {
+        let state = session.state();
         self.dimensions = state.board.dimensions();
         let cells = self.dimensions.len();
 
-        self.immediate.clear();
-        self.immediate.resize(cells * UnitKind::COUNT, 0.0);
-        self.deferred.clear();
-        self.deferred.resize(cells * UnitKind::COUNT, 0.0);
-        self.stamp.clear();
-        self.stamp.resize(cells, 0);
+        let rows = cells * UnitKind::COUNT;
+        // The rows themselves are not emptied. Only their stamps say what this
+        // build holds, so a board that has not changed shape keeps both
+        // allocations and every stale value in them.
+        self.immediate.resize(rows, 0.0);
+        self.deferred.resize(rows, 0.0);
+        for written in &mut self.written {
+            if written.len() == cells {
+                continue;
+            }
+            written.clear();
+            written.resize(cells, 0);
+        }
+        self.generation = self.generation.wrapping_add(1);
+        if self.generation == 0 {
+            // The counter wrapped onto the stamp a fresh row carries, so every
+            // row has to be made stale by hand this once.
+            for written in &mut self.written {
+                written.fill(0);
+            }
+            self.generation = 1;
+        }
+        zero(&mut self.stamp, cells);
         self.serial = 0;
 
         self.stars.clear();
@@ -143,21 +192,38 @@ impl ThreatMap {
                 .map(|position| stars_of(state, position)),
         );
 
+        // One row per seat, filled for the hostile ones only, so the loop
+        // below reads a sweep by seat index and skips a friendly unit by
+        // finding none. The units are walked in their own order, because the
+        // rows are sums of floats and grouping them by owner would round
+        // differently.
+        let mut sweeps: Vec<Option<Sweep<'_>>> = Vec::new();
+        for (other, _) in state.players.seats() {
+            if !hostile(state, seat, other) {
+                continue;
+            }
+            let row = other.get();
+            if sweeps.len() <= row {
+                sweeps.resize_with(row + 1, || None);
+            }
+            sweeps[row] = session.sweep(other);
+        }
+
         for unit in state.units.iter() {
             let Location::Board { position } = unit.location else {
                 continue;
             };
-            if !hostile(state, seat, unit.owner) {
+            let Some(Some(sweep)) = sweeps.get(unit.owner.get()) else {
                 continue;
-            }
-            self.add(state, unit, position);
+            };
+            self.add(sweep, unit, position);
         }
     }
 
     /// The funds an enemy could take off a whole unit of `kind` standing on
     /// `cell` on the enemy's next turn.
     pub fn immediate(&self, cell: CellIdx, kind: UnitKind) -> f64 {
-        f64::from(read(&self.immediate, cell, kind))
+        self.read(Layer::Immediate, cell, kind)
     }
 
     /// The same for the turn after that, from the firing positions an
@@ -166,11 +232,25 @@ impl ThreatMap {
     /// This does not include [`ThreatMap::immediate`]. A reader that wants
     /// both adds them, and discounts this one.
     pub fn deferred(&self, cell: CellIdx, kind: UnitKind) -> f64 {
-        f64::from(read(&self.deferred, cell, kind))
+        self.read(Layer::Deferred, cell, kind)
+    }
+
+    /// One tile's row of one layer, or zero where this build wrote nothing.
+    fn read(&self, layer: Layer, cell: CellIdx, kind: UnitKind) -> f64 {
+        let index = usize::from(cell.get());
+        if self.written[layer.index()].get(index) != Some(&self.generation) {
+            return 0.0;
+        }
+        let rows = match layer {
+            Layer::Immediate => &self.immediate,
+            Layer::Deferred => &self.deferred,
+        };
+        rows.get(index * UnitKind::COUNT + kind.index())
+            .map_or(0.0, |value| f64::from(*value))
     }
 
     /// Add one enemy unit's threat to both layers.
-    fn add(&mut self, state: &State, unit: &Unit, position: Pos) {
+    fn add(&mut self, sweep: &Sweep<'_>, unit: &Unit, position: Pos) {
         let profile = ruleset::profile(unit.kind);
         // A unit with no weapon threatens nothing, and neither does one with
         // no health left to fire with.
@@ -186,7 +266,7 @@ impl ThreatMap {
             // A direct unit moves and fires in one turn, so every tile beside
             // a tile it can stop on is under fire now.
             FireMode::Direct => {
-                self.collect_stops(state, unit);
+                self.collect_stops(sweep, unit);
                 self.serial += 1;
                 for index in 0..self.stops.len() {
                     let stop = self.stops[index];
@@ -205,7 +285,7 @@ impl ThreatMap {
                 self.serial += 1;
                 self.ring(&table, position, range, Layer::Immediate);
 
-                self.collect_stops(state, unit);
+                self.collect_stops(sweep, unit);
                 self.serial += 1;
                 for index in 0..self.stops.len() {
                     let stop = self.stops[index];
@@ -223,9 +303,12 @@ impl ThreatMap {
     }
 
     /// Every tile `unit` can come to rest on, its own tile included.
-    fn collect_stops(&mut self, state: &State, unit: &Unit) {
+    ///
+    /// The sweep is the one opened for this unit's own seat, which is what
+    /// makes the search read tables that are already built.
+    fn collect_stops(&mut self, sweep: &Sweep<'_>, unit: &Unit) {
         self.stops.clear();
-        let Ok(field) = query::reachable_into(state, unit.id, &mut self.scratch) else {
+        let Ok(field) = sweep.reachable_into(unit.id, &mut self.scratch) else {
             return;
         };
         self.stops
@@ -269,12 +352,25 @@ impl ThreatMap {
 
         let stars = usize::from(self.stars[index]);
         let row = index * UnitKind::COUNT;
+        let generation = self.generation;
+        let fresh = self.written[layer.index()][index] != generation;
+        self.written[layer.index()][index] = generation;
         let out = match layer {
             Layer::Immediate => &mut self.immediate,
             Layer::Deferred => &mut self.deferred,
         };
-        for (kind, value) in out[row..row + UnitKind::COUNT].iter_mut().enumerate() {
-            *value += table.funds[kind][stars];
+        let out = &mut out[row..row + UnitKind::COUNT];
+        if fresh {
+            // Whatever this row held is an earlier build's answer about this
+            // tile, so the first attacker of this build replaces it rather
+            // than adding to it.
+            for (kind, value) in out.iter_mut().enumerate() {
+                *value = table.funds[kind][stars];
+            }
+        } else {
+            for (kind, value) in out.iter_mut().enumerate() {
+                *value += table.funds[kind][stars];
+            }
         }
     }
 }
@@ -305,11 +401,13 @@ enum Layer {
     Deferred,
 }
 
-fn read(layer: &[f32], cell: CellIdx, kind: UnitKind) -> f32 {
-    layer
-        .get(usize::from(cell.get()) * UnitKind::COUNT + kind.index())
-        .copied()
-        .unwrap_or(0.0)
+impl Layer {
+    const fn index(self) -> usize {
+        match self {
+            Self::Immediate => 0,
+            Self::Deferred => 1,
+        }
+    }
 }
 
 /// Whether `other` is a seat `seat` is at war with.
@@ -523,13 +621,69 @@ mod tests {
         (state, ours, position)
     }
 
+    /// A map built over one that was built before answers what a map built
+    /// from nothing answers.
+    ///
+    /// The rows are not emptied between builds — a build stamps the tiles it
+    /// writes and every other tile reads as zero — so this is the standing
+    /// proof that no row of an earlier position survives into a later one. The
+    /// last position of each pair holds no enemy at all, which is the case a
+    /// stale row shows up in most loudly.
+    #[test]
+    fn a_rebuilt_map_holds_nothing_of_the_build_before_it() {
+        let mut reused = ThreatMap::new();
+        let mut compared = 0;
+        let mut carried = 0;
+        for kind in [UnitKind::Tank, UnitKind::Artillery, UnitKind::Infantry] {
+            for emptied in [false, true] {
+                let (mut state, ours, _) = one_enemy(kind);
+                if emptied {
+                    state.units.retain(|_| false);
+                }
+                let session = Session::new(state);
+                reused.build(&session, ours);
+
+                let mut fresh = ThreatMap::new();
+                fresh.build(&session, ours);
+
+                let dimensions = session.state().board.dimensions();
+                for position in session.state().board.positions() {
+                    let cell = dimensions.cell_index(position).expect("a board position");
+                    for defender in UnitKind::ALL {
+                        let (was, now) = (
+                            reused.immediate(cell, defender),
+                            fresh.immediate(cell, defender),
+                        );
+                        assert_eq!(was, now, "immediate at {position} for {defender:?}");
+                        let (was, now) = (
+                            reused.deferred(cell, defender),
+                            fresh.deferred(cell, defender),
+                        );
+                        assert_eq!(was, now, "deferred at {position} for {defender:?}");
+                        compared += 1;
+                        if now > 0.0 {
+                            carried += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(compared > 10_000, "compared only {compared} rows");
+        assert!(
+            carried > 0,
+            "every build read zero everywhere, so this proves nothing"
+        );
+    }
+
     /// A direct unit moves and fires in one turn, so its threat is the tiles
     /// beside everywhere it can stop, and it defers nothing.
     #[test]
     fn a_direct_unit_threatens_beside_everywhere_it_can_reach() {
         let (state, ours, origin) = one_enemy(UnitKind::Tank);
+        let session = Session::new(state);
+        let state = session.state();
         let mut map = ThreatMap::new();
-        map.build(&state, ours);
+        map.build(&session, ours);
 
         let cell = |position: Pos| {
             state
@@ -571,11 +725,13 @@ mod tests {
     #[test]
     fn an_indirect_unit_defers_the_ring_it_must_walk_to() {
         let (state, ours, origin) = one_enemy(UnitKind::Artillery);
+        let session = Session::new(state);
+        let state = session.state();
         let range = ruleset::profile(UnitKind::Artillery)
             .indirect_range
             .expect("an artillery fires at range");
         let mut map = ThreatMap::new();
-        map.build(&state, ours);
+        map.build(&session, ours);
 
         let cell = |position: Pos| {
             state

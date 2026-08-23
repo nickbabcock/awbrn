@@ -17,7 +17,9 @@
 //! that does is what pays for the wiring.
 
 use awvm::random::Entropy;
-use awvm::semantic::{AwbwVisibility, Match, Outcome, State, TeamId, observe};
+use awvm::semantic::{
+    AwbwVisibility, Match, Observation, Outcome, State, TeamId, observe, observe_into,
+};
 use awvm::session::Session;
 use awvm::transition::{Command, ExecuteOutcome, execute_with};
 
@@ -213,6 +215,7 @@ fn play_inner<E: Entropy>(
         observer(session.state(), None);
     }
 
+    let mut projection: Option<Observation> = None;
     let mut turns = 0;
     let mut commands = 0;
     let mut refusals = 0;
@@ -255,13 +258,25 @@ fn play_inner<E: Entropy>(
             refusals_in_a_row = 0;
             end_turn()
         } else {
-            let view = observe(&AwbwVisibility, session.state(), &player)
-                .expect("the active player can observe the position they act on");
+            // One observation is projected over and over. A match projects the
+            // same board once for every command, and the vectors the first
+            // projection allocated fit every one after it.
+            let view = match &mut projection {
+                Some(view) => {
+                    observe_into(&AwbwVisibility, session.state(), &player, view)
+                        .expect("the active player can observe the position they act on");
+                    view
+                }
+                None => projection.insert(
+                    observe(&AwbwVisibility, session.state(), &player)
+                        .expect("the active player can observe the position they act on"),
+                ),
+            };
             // A `None` from the agent ends the turn. A `None` from the play
             // ends it too: the true state holds no such route, which a hidden
             // blocker does, and passing is the honest answer.
             match agents[seat.get()]
-                .act(&view)
+                .act(view)
                 .and_then(|play| play.command(session))
             {
                 Some(command) => command,

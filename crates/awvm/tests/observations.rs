@@ -24,6 +24,8 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use awvm::conformance::{InProcess, Peer, collect_json};
+use awvm::prelude::*;
+use awvm::semantic::{DrawReason, Match, ObserveError, Outcome, RulesetRevision, observe_into};
 use serde_json::{Value, json};
 
 fn manifest() -> PathBuf {
@@ -177,29 +179,34 @@ fn count_observations(projection: &Value) -> usize {
     initial + stepwise
 }
 
-fn fixtures() -> Vec<(String, Value)> {
+/// Every fixture of the corpus, in path order, equivalence cases included.
+fn all_fixtures() -> Vec<(String, Value)> {
     let root = fixture_root();
     let mut files = Vec::new();
     collect_json(&root, &mut files).expect("walk fixture root");
     files.sort();
     files
         .into_iter()
-        .filter_map(|file| {
+        .map(|file| {
             let case: Value =
                 serde_json::from_str(&std::fs::read_to_string(&file).expect("read fixture"))
                     .expect("parse fixture");
-            // Equivalence cases assert two sides against each other rather than
-            // against a literal; they have no single projection to record.
-            if case.get("left").is_some() {
-                return None;
-            }
             let relative = file
                 .strip_prefix(&root)
                 .expect("fixture under root")
                 .to_string_lossy()
                 .replace('\\', "/");
-            Some((relative, case))
+            (relative, case)
         })
+        .collect()
+}
+
+fn fixtures() -> Vec<(String, Value)> {
+    all_fixtures()
+        .into_iter()
+        // Equivalence cases assert two sides against each other rather than
+        // against a literal; they have no single projection to record.
+        .filter(|(_, case)| case.get("left").is_none())
         .collect()
 }
 
@@ -292,4 +299,165 @@ fn detailed_projections_are_unchanged() {
              visibility, and every fixture asserting observations"
         );
     }
+}
+
+/// Every state of the corpus, projected to every recipient it names.
+///
+/// The steps are not replayed here: a fixture's initial states already cover
+/// every board shape, roster size and fog setting the corpus holds, which is
+/// what the buffer below has to survive.
+fn corpus_states() -> Vec<(String, State)> {
+    let mut states = Vec::new();
+    for (relative, case) in all_fixtures() {
+        for key in ["initial_state", "left", "right"] {
+            let Some(value) = case.get(key) else {
+                continue;
+            };
+            let value = value.get("initial_state").unwrap_or(value);
+            if let Ok(state) = serde_json::from_value::<State>(value.clone()) {
+                states.push((format!("{relative}:{key}"), state));
+            }
+        }
+    }
+    states
+}
+
+/// `observe_into` answers what `observe` answers, into a buffer that is never
+/// emptied between fixtures.
+///
+/// One buffer walks the whole corpus, so each projection is written over a
+/// different board, a different roster and a different weather than the one it
+/// is about. A field the fill forgets to overwrite therefore reads as the
+/// previous fixture's value, and the comparison against a freshly built
+/// projection is what catches it. Emptying the buffer for each case would
+/// prove nothing but that the fill can write to an empty vector.
+#[test]
+fn a_reused_projection_answers_what_a_fresh_one_answers() {
+    let states = corpus_states();
+    assert!(states.len() > 100, "the corpus should hold real coverage");
+
+    let mut buffer: Option<Observation> = None;
+    let mut compared = 0;
+    for (name, state) in &states {
+        for player in state.players.iter() {
+            let recipient = player.id().clone();
+            let expected = observe(&AwbwVisibility, state, &recipient).expect("a seated recipient");
+            match &mut buffer {
+                Some(reused) => {
+                    observe_into(&AwbwVisibility, state, &recipient, reused)
+                        .expect("a seated recipient");
+                    assert_eq!(*reused, expected, "{name}: reused projection differs");
+                }
+                None => {
+                    buffer = Some(
+                        observe(&AwbwVisibility, state, &recipient).expect("a seated recipient"),
+                    );
+                }
+            }
+            compared += 1;
+        }
+    }
+    assert!(compared > 200, "compared only {compared} projections");
+}
+
+/// Each field of a reused projection is written from the position in front of
+/// it and not left over from the position before it.
+///
+/// The corpus walk above cannot prove this on its own. It only ever catches a
+/// forgotten field when some fixture disagrees with the fixture before it, and
+/// the fixtures agree about most of what an observation carries — every one of
+/// them is clear weather on day one of an unfinished match. So this changes one
+/// field at a time, projects the changed position into a buffer that holds the
+/// unchanged one, and asks whether the change came through.
+#[test]
+fn a_reused_projection_carries_no_field_of_the_position_before_it() {
+    let (name, base) = corpus_states()
+        .into_iter()
+        .find(|(_, state)| state.players.iter().count() > 1 && state.units.iter().count() > 0)
+        .expect("the corpus seats a two-player match with units");
+    let recipient = base.players.iter().next().expect("a seat").id().clone();
+
+    /// A named change to one field of a state.
+    type Mutation = (&'static str, fn(&mut State));
+
+    let mutations: Vec<Mutation> = vec![
+        ("ruleset", |state| {
+            state.ruleset.revision = RulesetRevision::from("some-other-revision");
+        }),
+        ("settings", |state| {
+            state.settings.day_limit = Some(state.settings.day_limit.unwrap_or(0) + 7);
+        }),
+        ("board", |state| {
+            let tile = state
+                .board
+                .get_mut(Pos::new(0, 0))
+                .expect("every board holds an origin");
+            tile.capture_points = Some(tile.capture_points.unwrap_or(0) + 3);
+        }),
+        ("turn", |state| {
+            state.turn.day += 3;
+        }),
+        ("weather", |state| {
+            state.weather.remaining_turns += 5;
+        }),
+        ("units", |state| {
+            state.units.remove(0);
+        }),
+        ("match", |state| {
+            state.match_state = Match::Finished {
+                outcome: Outcome::Draw {
+                    teams: state.teams.iter().map(|team| team.id.clone()).collect(),
+                    reason: DrawReason::Agreement,
+                },
+            };
+        }),
+    ];
+
+    for (field, mutate) in mutations {
+        let mut changed = base.clone();
+        mutate(&mut changed);
+        let expected = observe(&AwbwVisibility, &changed, &recipient).expect("a seated recipient");
+        assert_ne!(
+            expected,
+            observe(&AwbwVisibility, &base, &recipient).expect("a seated recipient"),
+            "{name}: changing {field} changed no projection, so it pins nothing",
+        );
+
+        let mut buffer = observe(&AwbwVisibility, &base, &recipient).expect("a seated recipient");
+        observe_into(&AwbwVisibility, &changed, &recipient, &mut buffer)
+            .expect("a seated recipient");
+        assert_eq!(buffer, expected, "{name}: {field} was not written");
+    }
+
+    // The recipient is the one input that is not a field of the state.
+    let other = base.players.get(1).expect("a second seat").id().clone();
+    let expected = observe(&AwbwVisibility, &base, &other).expect("a seated recipient");
+    let mut buffer = observe(&AwbwVisibility, &base, &recipient).expect("a seated recipient");
+    assert_ne!(buffer, expected, "{name}: the two seats see the same thing");
+    observe_into(&AwbwVisibility, &base, &other, &mut buffer).expect("a seated recipient");
+    assert_eq!(buffer, expected, "{name}: the recipient was not written");
+}
+
+/// A refused projection leaves the buffer empty rather than half written.
+#[test]
+fn a_refused_projection_empties_the_buffer_it_was_given() {
+    let (_, state) = corpus_states()
+        .into_iter()
+        .find(|(_, state)| state.players.iter().next().is_some())
+        .expect("the corpus seats a player");
+    let recipient = state.players.iter().next().expect("a seat").id().clone();
+    let mut buffer = observe(&AwbwVisibility, &state, &recipient).expect("a seated recipient");
+    assert!(buffer.board.width() > 0);
+
+    let stranger = PlayerId::from("nobody-on-this-roster");
+    let error = observe_into(&AwbwVisibility, &state, &stranger, &mut buffer)
+        .expect_err("a recipient off the roster cannot be projected to");
+    assert!(matches!(error, ObserveError::UnknownRecipient(_)));
+    assert_eq!(
+        buffer.board.width(),
+        0,
+        "the board should have been emptied"
+    );
+    assert!(buffer.units.is_empty());
+    assert!(buffer.players.is_empty());
 }

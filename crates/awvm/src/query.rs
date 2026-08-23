@@ -70,6 +70,12 @@ pub enum QueryError {
     UnitNotOnBoard(UnitId),
     #[error("unit {unit} is held by seat {}, which the roster does not have", seat.get())]
     UnknownOwner { unit: UnitId, seat: PlayerIdx },
+    #[error("unit {unit} is held by seat {}, but these maps answer for seat {}", owner.get(), seat.get())]
+    WrongSeat {
+        unit: UnitId,
+        owner: PlayerIdx,
+        seat: PlayerIdx,
+    },
     #[error("this observation does not describe a whole board: {0}")]
     Unprojectable(&'static str),
     #[error(transparent)]
@@ -801,7 +807,7 @@ pub fn reachable_into(
 /// what it blocks — which is exactly what the maps hold. Passing them in is
 /// what stops a caller enumerating a whole turn from rebuilding the same
 /// tables once per unit.
-fn reachable_with(
+pub(crate) fn reachable_with(
     state: &State,
     unit: UnitId,
     maps: &TurnMaps<'_>,
@@ -915,6 +921,60 @@ fn reachable_with(
     })
 }
 
+/// One seat's board tables, held across a search of many of its units.
+///
+/// [`reachable_into`] answers about one unit and opens the tables that answer
+/// it, so a caller that walks unit after unit — an influence map is the
+/// example — rebuilds the same entry-cost and blocking grids once per unit,
+/// and rebuilds the occupancy index under them too. A sweep opens them once
+/// and lends them to every search.
+///
+/// The tables answer for one position and one seat. The position a sweep
+/// cannot outlive, because it borrows the state. The seat it refuses at the
+/// door. [`Session::sweep`] is what opens one, because the session owns the
+/// epoch that says whether kept tables still describe the board.
+///
+/// [`Session::sweep`]: crate::session::Session::sweep
+#[derive(Debug)]
+pub struct Sweep<'a> {
+    maps: TurnMaps<'a>,
+}
+
+impl<'a> Sweep<'a> {
+    /// Lend a turn's maps to a sweep. The opener vouches for the position and
+    /// the seat, exactly as [`TurnMaps::with_tables`] asks.
+    pub(crate) const fn with_maps(maps: TurnMaps<'a>) -> Self {
+        Self { maps }
+    }
+
+    /// The seat these tables answer for.
+    pub const fn seat(&self) -> PlayerIdx {
+        self.maps.seat
+    }
+
+    /// [`reachable_into`], reading the tables this sweep already holds.
+    ///
+    /// A unit of any other seat is refused rather than answered. Entry costs
+    /// follow the owner's commander and the weather over it, so reading one
+    /// seat's unit out of another seat's tables gives a wrong answer, not a
+    /// slow one.
+    pub fn reachable_into(
+        &self,
+        unit: UnitId,
+        scratch: &mut MoveScratch,
+    ) -> Result<MoveField, QueryError> {
+        let owner = lookup(self.maps.state, unit)?.owner;
+        if owner != self.maps.seat {
+            return Err(QueryError::WrongSeat {
+                unit,
+                owner,
+                seat: self.maps.seat,
+            });
+        }
+        reachable_with(self.maps.state, unit, &self.maps, scratch)
+    }
+}
+
 /// Movement points from every tile to the nearest of a set of targets.
 ///
 /// [`reachable`] answers "where can this unit go", which is a search for each
@@ -960,13 +1020,21 @@ impl<'a> Travel<'a> {
     /// Entry costs follow the seat's commander and weather, so a table opened
     /// for one player must not be read for another.
     pub fn open(state: &'a State, seat: PlayerIdx) -> Option<Self> {
-        TurnMaps::for_seat(state, seat).map(|maps| Self {
+        TurnMaps::for_seat(state, seat).map(Self::with_maps)
+    }
+
+    /// The same tables, read through maps the caller already holds.
+    ///
+    /// This is what lets a caller who searches and then measures distance pay
+    /// for one entry-cost grid per movement class instead of two.
+    pub(crate) const fn with_maps(maps: TurnMaps<'a>) -> Self {
+        Self {
             maps,
             flattened: None,
             costs: Vec::new(),
             widest: 0,
             ring: Vec::new(),
-        })
+        }
     }
 
     /// Flatten the turn's entry costs for one class, if they are not already.
@@ -992,6 +1060,23 @@ impl<'a> Travel<'a> {
         self.ring
             .resize_with(usize::from(self.widest) + 1, Vec::new);
         self.flattened = Some(class);
+    }
+
+    /// The entry costs this travel reads for one class, row-major, absent
+    /// where a unit of the class cannot stand.
+    ///
+    /// Every answer [`Travel::points_to`] gives for a class is derived from
+    /// this table and the targets it is handed, and from nothing else. A
+    /// caller that keeps an answer keeps this beside it: while the table and
+    /// the targets are both unchanged, the answer is unchanged too.
+    ///
+    /// That is what makes it a safe cache key rather than a guess at one. The
+    /// terrain, the weather, the seat's commander and the power it is under
+    /// are all already folded in here, so a cache keyed on this cannot miss a
+    /// rule it did not know to read — including one added later.
+    pub fn costs(&mut self, class: MovementClass) -> &[Option<u16>] {
+        self.flatten(class);
+        &self.costs
     }
 
     /// The cheapest movement points from each tile to the nearest target.
@@ -1289,19 +1374,39 @@ pub fn reify(observation: &Observation) -> Result<State, QueryError> {
         board_tiles(observation, &players)?,
     )
     .map_err(|_| QueryError::Unprojectable("its board is not a whole rectangle"))?;
+    let width = usize::from(observation.board.width());
     board.set_rare_states(
         observation
             .board
-            .iter()
-            .filter_map(|(position, observed)| {
-                let state = crate::semantic::RareTileState {
-                    destructible_hp: observed.destructible_hp(),
-                    teleporter: observed.teleporter().cloned(),
-                    // A projection carries no trait state, so a reified board
-                    // has none either.
-                    trait_state: None,
-                };
-                (!state.is_empty()).then_some((position, state))
+            .tiles()
+            .enumerate()
+            .filter_map(|(index, observed)| {
+                // Read the two fields first. Nearly every tile of a board
+                // holds neither, and this walks every tile of every
+                // projection the agent reifies.
+                let destructible_hp = observed.destructible_hp();
+                let teleporter = observed.teleporter();
+                if destructible_hp.is_none() && teleporter.is_none() {
+                    return None;
+                }
+                // The coordinate is worked out only for a tile that has
+                // something to record, so the walk over the board is a read
+                // of two options and not a division for each tile.
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "a board is at most 255 wide and 255 tall, so both fit a u8"
+                )]
+                let position = Pos::new((index % width) as u8, (index / width) as u8);
+                Some((
+                    position,
+                    crate::semantic::RareTileState {
+                        destructible_hp,
+                        teleporter: teleporter.cloned(),
+                        // A projection carries no trait state, so a reified
+                        // board has none either.
+                        trait_state: None,
+                    },
+                ))
             })
             .collect(),
     );
@@ -1770,6 +1875,12 @@ where
         .get(position)
         .is_none_or(|tile| tile.silo.is_none())
     {
+        return Ok(());
+    }
+    // A silo the mover cannot fire refuses every tile of the board for the
+    // same reason, and a standard map carries a dozen of them already spent.
+    // Asking once is the difference between a board walk and a tile lookup.
+    if !destination.can_launch_anywhere()? {
         return Ok(());
     }
     let found = out.len();

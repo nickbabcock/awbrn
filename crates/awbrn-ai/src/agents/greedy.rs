@@ -305,10 +305,63 @@ struct CaptureFields {
     /// One field for each movement class, filled only for those that capture
     /// and only while our side holds a unit of the class.
     fields: [Vec<f64>; MovementClass::COUNT],
+    /// What each field in hand was built from, so that a play which changed
+    /// none of it reads the field again instead of searching for it again.
+    /// `None` for a class holding no field.
+    built: [Option<Built>; MovementClass::COUNT],
     /// The targets of each distinct approach weight, rebuilt each play.
     groups: Vec<(f64, Vec<Pos>)>,
     /// Movement points to the nearest target of the group being walked.
     points: Vec<Option<u16>>,
+}
+
+/// Everything one class's field was derived from.
+///
+/// The agent is asked for a play after every command, and rebuilds this field
+/// each time, but a command moves one unit and most commands move nothing the
+/// field reads. Over the fixture match the inputs take 47 distinct values
+/// across 150 rebuilds, so about seven in ten searches recompute an answer
+/// already in hand.
+///
+/// Keeping one is only sound while it names every input, so it names them by
+/// holding them rather than by summarising them:
+///
+/// - `costs` is [`query::Travel::costs`], the table the search reads. Terrain,
+///   weather, the seat's commander and its power are folded into it already,
+///   which is why this is the table and not a list of those four. A rule added
+///   to any of them moves this table and invalidates the field, without this
+///   code knowing the rule exists.
+/// - `targets` and `allowance` are the search's other two arguments.
+/// - `decay` turns the search's answer into the pull that is stored. It comes
+///   from the weights, which do not change while an agent plays, but a field
+///   that outlived a weight change would be wrong in a way nothing else here
+///   would catch.
+///
+/// Those are the whole input of the loop below. Comparing them costs a walk
+/// over the board and a handful of positions, against the several full
+/// searches it decides not to run.
+#[derive(Clone, PartialEq)]
+struct Built {
+    allowance: u16,
+    costs: Vec<Option<u16>>,
+    targets: Vec<(f64, Vec<Pos>)>,
+    decay: Vec<f64>,
+}
+
+impl Built {
+    /// Whether a field built from this still answers for these inputs.
+    fn still_answers(
+        &self,
+        allowance: u16,
+        costs: &[Option<u16>],
+        targets: &[(f64, Vec<Pos>)],
+        decay: &[f64],
+    ) -> bool {
+        self.allowance == allowance
+            && self.costs == costs
+            && self.targets == targets
+            && self.decay == decay
+    }
 }
 
 /// The movement classes that can capture, and what one of them spends in a
@@ -325,8 +378,17 @@ impl CaptureFields {
     const fn new() -> Self {
         Self {
             fields: [const { Vec::new() }; MovementClass::COUNT],
+            built: [const { None }; MovementClass::COUNT],
             groups: Vec::new(),
             points: Vec::new(),
+        }
+    }
+
+    /// Drop every field, so that the next play searches for all of them.
+    fn forget(&mut self) {
+        for (field, built) in self.fields.iter_mut().zip(self.built.iter_mut()) {
+            field.clear();
+            *built = None;
         }
     }
 
@@ -341,11 +403,14 @@ impl CaptureFields {
     /// A property already carrying a capturer of ours pulls nothing. Without
     /// that, every capturer on the board walks at the same property, and the
     /// ones that arrive second stand next to it doing nothing at all.
-    fn build(&mut self, board: &Board<'_>, decay: &[f64], occupant: &[Option<u16>]) {
+    fn build(
+        &mut self,
+        session: &Session,
+        board: &Board<'_>,
+        decay: &[f64],
+        occupant: &[Option<u16>],
+    ) {
         let cells = board.cells();
-        for field in &mut self.fields {
-            field.clear();
-        }
         self.groups.clear();
         for (position, tile) in board.state.board.iter() {
             if !board.capturable(tile) {
@@ -364,19 +429,44 @@ impl CaptureFields {
             }
         }
         if self.groups.is_empty() {
+            self.forget();
             return;
         }
 
-        let Some(mut travel) = query::Travel::open(board.state, board.seat) else {
+        // The session's own entry-cost grids, which the legal-order walk and
+        // the threat sweep read as well. Opening a travel of its own would
+        // build the same grid for every class a second time.
+        let Some(mut travel) = session.travel(board.seat) else {
+            self.forget();
             return;
         };
         for class in CAPTURE_CLASSES {
+            let index = class.index();
             // A class our side does not field costs a search for each weight
             // on the board and is read by nothing.
             let Some(allowance) = board.capture_allowance(class) else {
+                self.fields[index].clear();
+                self.built[index] = None;
                 continue;
             };
-            let field = &mut self.fields[class.index()];
+            // Ask for the table before the searches, because deciding not to
+            // run them is what this is for.
+            let costs = travel.costs(class);
+            if self.built[index]
+                .as_ref()
+                .is_some_and(|built| built.still_answers(allowance, costs, &self.groups, decay))
+            {
+                continue;
+            }
+            self.built[index] = Some(Built {
+                allowance,
+                costs: costs.to_vec(),
+                targets: self.groups.clone(),
+                decay: decay.to_vec(),
+            });
+
+            let field = &mut self.fields[index];
+            field.clear();
             field.resize(cells, 0.0);
             for (weight, targets) in &self.groups {
                 travel.points_to(class, allowance, targets.iter().copied(), &mut self.points);
@@ -428,13 +518,13 @@ impl Agent for GreedyAgent {
         };
         board.decay_table(decay);
         board.occupants(occupant);
-        capture_fields.build(&board, decay, occupant);
+        capture_fields.build(&session, &board, decay, occupant);
         board.advance_field(advance_field, decay);
         // A map priced at nothing is never read, so it is never built. That
         // is what keeps the threatless weighting at the throughput it was
         // measured at, and it is what makes the two a comparison of one term.
         if weights.threat != 0.0 {
-            threat.build(state, seat);
+            threat.build(&session, seat);
         }
 
         orders.clear();
@@ -956,7 +1046,9 @@ impl Scorer<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::Play;
     use crate::board::{amber_valley, arena};
+    use awvm::ruleset::WeatherKind;
     use awvm::semantic::{AwbwVisibility, Concealment, UnitAction, UnitId, observe};
 
     /// One unit of `kind`, at whole health, standing where it is put.
@@ -973,6 +1065,182 @@ mod tests {
             concealment: Concealment::Exposed,
             location: Location::Board { position },
         }
+    }
+
+    /// A kept capture field says exactly what a field with no memory says.
+    ///
+    /// The field is rebuilt after every command in the fixture match, and
+    /// most commands change nothing it reads, so the play a cached field
+    /// chooses must be the play a rebuilt one chooses — every time, not
+    /// mostly. This plays a whole match and compares the two at every
+    /// decision, and refuses to pass unless the cache was actually reused,
+    /// because a cache that never hits agrees with anything.
+    #[test]
+    fn a_kept_capture_field_answers_what_a_rebuilt_one_answers() {
+        struct Checker {
+            inner: GreedyAgent,
+            fresh: CaptureFields,
+            last: [Option<Built>; MovementClass::COUNT],
+            decay: Vec<f64>,
+            occupant: Vec<Option<u16>>,
+            compared: u32,
+            reused: u32,
+        }
+
+        impl Agent for Checker {
+            fn act(&mut self, view: &Observation) -> Option<Play> {
+                let play = self.inner.act(view);
+
+                let Ok(session) = Session::from_observation(view) else {
+                    return play;
+                };
+                if !session.is_commandable() {
+                    return play;
+                }
+                let state = session.state();
+                let Some(seat) = state.players.seat(&state.turn.active_player) else {
+                    return play;
+                };
+                let board = Board {
+                    state,
+                    seat,
+                    weights: self.inner.weights(),
+                };
+                board.decay_table(&mut self.decay);
+                board.occupants(&mut self.occupant);
+
+                // No memory at all: every search run again from nothing.
+                self.fresh = CaptureFields::new();
+                self.fresh
+                    .build(&session, &board, &self.decay, &self.occupant);
+
+                for class in CAPTURE_CLASSES {
+                    assert_eq!(
+                        self.inner.capture_fields.of(class),
+                        self.fresh.of(class),
+                        "a kept {class:?} field disagrees with a rebuilt one"
+                    );
+                    let index = class.index();
+                    if self.inner.capture_fields.built[index].is_some()
+                        && self.last[index] == self.inner.capture_fields.built[index]
+                    {
+                        self.reused += 1;
+                    }
+                    self.last[index] = self.inner.capture_fields.built[index].clone();
+                }
+                self.compared += 1;
+                play
+            }
+        }
+
+        let state = amber_valley(false, crate::rng::Rng::mix(9));
+        let mut session = Session::new(state.clone());
+        let mut entropy = crate::rng::Rng::from_seed(17);
+        let mut checker = Checker {
+            inner: GreedyAgent::from_seed(23),
+            fresh: CaptureFields::new(),
+            last: [const { None }; MovementClass::COUNT],
+            decay: Vec::new(),
+            occupant: Vec::new(),
+            compared: 0,
+            reused: 0,
+        };
+        let mut opponent = GreedyAgent::from_seed(29);
+        {
+            let mut agents: [&mut dyn Agent; 2] = [&mut checker, &mut opponent];
+            crate::harness::play(
+                state,
+                &mut session,
+                &mut agents,
+                &mut entropy,
+                crate::harness::Limits::DEFAULT,
+            );
+        }
+
+        assert!(
+            checker.compared > 50,
+            "the match offered {} decisions to compare",
+            checker.compared
+        );
+        assert!(
+            checker.reused > 0,
+            "the cache never hit, so the comparison proves nothing"
+        );
+    }
+
+    /// The key names every input, and a real rule change moves it.
+    ///
+    /// The fixture match never changes the weather, the commander or an
+    /// allowance, so the match-long comparison above can only prove the
+    /// target set. These two pin the rest: the first that each field of the
+    /// key is compared at all, the second that a rule change outside this
+    /// crate — snow, which reprices every tile — actually reaches the key and
+    /// throws the field away.
+    #[test]
+    fn a_capture_key_names_every_input_it_reads() {
+        let built = Built {
+            allowance: 3,
+            costs: vec![Some(1), None],
+            targets: vec![(2.0, vec![Pos { x: 1, y: 1 }])],
+            decay: vec![1.0, 0.75],
+        };
+        assert!(built.still_answers(3, &built.costs, &built.targets, &built.decay));
+        assert!(
+            !built.still_answers(4, &built.costs, &built.targets, &built.decay),
+            "the allowance divides the search into turns"
+        );
+        assert!(
+            !built.still_answers(3, &[Some(2), None], &built.targets, &built.decay),
+            "the entry costs are what the search walks"
+        );
+        assert!(
+            !built.still_answers(3, &built.costs, &[(2.0, vec![])], &built.decay),
+            "the targets are what the search is seeded with"
+        );
+        assert!(
+            !built.still_answers(3, &built.costs, &built.targets, &[1.0, 0.5]),
+            "the decay turns the search into the pull that is stored"
+        );
+    }
+
+    #[test]
+    fn snow_throws_away_a_capture_field_built_under_clear_skies() {
+        let build = |state: State, fields: &mut CaptureFields| {
+            let session = Session::new(state);
+            let state = session.state();
+            let seat = state
+                .players
+                .seat(&state.turn.active_player)
+                .expect("the active player holds a seat");
+            let weights = Weights::DEFAULT;
+            let board = Board {
+                state,
+                seat,
+                weights: &weights,
+            };
+            let (mut decay, mut occupant) = (Vec::new(), Vec::new());
+            board.decay_table(&mut decay);
+            board.occupants(&mut occupant);
+            fields.build(&session, &board, &decay, &occupant);
+            fields.of(MovementClass::Foot).to_vec()
+        };
+
+        let clear = amber_valley(false, 5);
+        let mut snowy = clear.clone();
+        snowy.weather.kind = WeatherKind::Snow;
+
+        let mut kept = CaptureFields::new();
+        let under_clear = build(clear, &mut kept);
+        // The same fields again, now over snow. A key that did not carry the
+        // entry costs would hand back the clear-weather answer here.
+        let after_snow = build(snowy.clone(), &mut kept);
+        let from_nothing = build(snowy, &mut CaptureFields::new());
+
+        assert_eq!(after_snow, from_nothing, "a kept field survived the thaw");
+        assert_ne!(
+            under_clear, after_snow,
+            "snow reprices the board, so the field must move"
+        );
     }
 
     /// The priorities, read back off the weights.
@@ -1078,9 +1346,10 @@ mod tests {
         let mut mech = test_unit(UnitKind::Mech, home, seat);
         mech.id = UnitId::new(u32::from(u16::MAX));
         state.units.push(mech);
+        let session = Session::new(state);
         let weights = Weights::DEFAULT;
         let board = Board {
-            state: &state,
+            state: session.state(),
             seat,
             weights: &weights,
         };
@@ -1089,7 +1358,7 @@ mod tests {
         board.decay_table(&mut decay);
         board.occupants(&mut occupant);
         let mut fields = CaptureFields::new();
-        fields.build(&board, &decay, &occupant);
+        fields.build(&session, &board, &decay, &occupant);
 
         let foot = fields.of(MovementClass::Foot);
         let boot = fields.of(MovementClass::Boot);

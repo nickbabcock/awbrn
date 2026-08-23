@@ -24,7 +24,7 @@ use ::awvm::transition::{Command, ExecuteOutcome, execute};
 use awbrn_ai::agent::Agent;
 use awbrn_ai::agents::{GreedyAgent, Weights};
 use awbrn_ai::board::amber_valley;
-use awbrn_ai::harness::{Limits, play};
+use awbrn_ai::harness::{Limits, Record, play};
 use awbrn_ai::rng::Rng;
 
 use super::{awvm, server};
@@ -348,6 +348,30 @@ mod tests {
         assert_eq!(observed, authoritative);
     }
 
+    /// The fixture match plays out the same way every time.
+    ///
+    /// Every optimization of the forward model is gated on this: the match is
+    /// deterministic in its seed, so a change that only removes work leaves
+    /// the record alone, and one that changes an answer shows up here rather
+    /// than as a drifting benchmark. The numbers are the record of the match,
+    /// not a target — a deliberate change to the agent or the rules moves
+    /// them, and re-pinning them is part of that change.
+    #[test]
+    fn the_amber_valley_match_is_the_same_match_every_time() {
+        let record = play_amber_valley_match(amber_valley_match_case());
+
+        assert_eq!(record.turns, 16);
+        assert_eq!(record.days, 9);
+        assert_eq!(record.commands, 150);
+        assert_eq!(record.refusals, 0);
+        assert_eq!(record.units, 33);
+        let outcome = record.outcome.expect("the match ends in a victory");
+        assert_eq!(
+            format!("{outcome:?}"),
+            r#"Victory { winners: [TeamId("player-0")], reason: HqCapture }"#
+        );
+    }
+
     #[test]
     fn complete_cycles_match_the_isolated_enumeration() {
         for fog in [false, true] {
@@ -465,7 +489,8 @@ pub fn amber_valley_match_case() -> AmberValleyMatchCase {
     }
 }
 
-pub fn run_amber_valley_match(case: AmberValleyMatchCase) -> u64 {
+/// Plays the fixture match and answers the whole record of it.
+pub fn play_amber_valley_match(case: AmberValleyMatchCase) -> Record {
     let AmberValleyMatchCase { state, mut session } = case;
     let game = Rng::mix(AMBER_VALLEY_MATCH_SEED);
     let mut entropy = Rng::from_seed(Rng::mix(game ^ 0x1));
@@ -473,14 +498,17 @@ pub fn run_amber_valley_match(case: AmberValleyMatchCase) -> u64 {
     let mut deny = GreedyAgent::from_seed(Rng::mix(game ^ 0x3));
     let mut agents: [&mut dyn Agent; 2] = [&mut threat, &mut deny];
 
-    let record = play(
+    play(
         state,
         &mut session,
         &mut agents,
         &mut entropy,
         Limits::DEFAULT,
-    );
-    u64::from(record.turns)
+    )
+}
+
+pub fn run_amber_valley_match(case: AmberValleyMatchCase) -> u64 {
+    u64::from(play_amber_valley_match(case).turns)
 }
 
 pub mod criterion_benches {

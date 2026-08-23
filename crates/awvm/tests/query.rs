@@ -18,6 +18,7 @@ use awvm::combat::DamageRange;
 use awvm::conformance::fixture_documents;
 use awvm::prelude::*;
 use awvm::query::{self, can_act};
+use awvm::random::RandomTape;
 use awvm::semantic::{CellIdx, KnownReason, Location, Reason, Roster, RulesetRevision, UnitAction};
 use serde_json::Value;
 
@@ -165,6 +166,115 @@ fn walk(
     }
 }
 
+/// A sweep's shared tables answer what an unshared search answers, and stop
+/// answering when the position moves under them.
+///
+/// [`Session::sweep`] hands one seat's entry-cost and blocking grids to search
+/// after search, so nothing rebuilds them per unit. That is only sound while a
+/// kept grid cannot describe a board the session has left, which is the whole
+/// risk the epoch guard carries. This puts both halves to the corpus: every
+/// unit of every seat, and then the same units again after an order has
+/// changed the position under a sweep that was already opened.
+#[test]
+fn a_sweep_answers_what_an_unshared_search_answers() {
+    let mut compared = 0;
+    let mut after_orders = 0;
+    for (relative, case) in corpus() {
+        for state in states(&case) {
+            let mut session = Session::new(state);
+
+            let mut expected: BTreeMap<UnitId, Set> = BTreeMap::new();
+            for unit in session.state().units.iter() {
+                if !matches!(unit.location, Location::Board { .. }) {
+                    continue;
+                }
+                let field = query::reachable(session.state(), unit.id).expect("an on-board unit");
+                expected.insert(unit.id, field.destinations().map(|(at, _)| at).collect());
+            }
+
+            let mut scratch = Default::default();
+            for (seat, _) in session.state().players.seats() {
+                let Some(sweep) = session.sweep(seat) else {
+                    continue;
+                };
+                for unit in session.state().units.iter() {
+                    let Some(want) = expected.get(&unit.id) else {
+                        continue;
+                    };
+                    if unit.owner != seat {
+                        // Another seat's unit is refused rather than answered
+                        // out of the wrong commander's entry costs.
+                        assert!(
+                            sweep.reachable_into(unit.id, &mut scratch).is_err(),
+                            "{relative}: seat {} answered for unit {} of seat {}",
+                            seat.get(),
+                            unit.id,
+                            unit.owner.get()
+                        );
+                        continue;
+                    }
+                    let field = sweep
+                        .reachable_into(unit.id, &mut scratch)
+                        .expect("the sweep holds this unit's seat");
+                    let got: Set = field.destinations().map(|(at, _)| at).collect();
+                    assert_eq!(
+                        &got, want,
+                        "{relative}: unit {} reads differently through a sweep",
+                        unit.id
+                    );
+                    compared += 1;
+                    field.recycle(&mut scratch);
+                }
+            }
+
+            // The same tables again, over a board that has moved. A stale grid
+            // would show here as the answer the position before this one had.
+            let mut offered = Vec::new();
+            session.legal().orders(&mut offered);
+            let Some(order) = offered.first().copied() else {
+                continue;
+            };
+            let mut tape = RandomTape::new(&[]);
+            if session.apply(order, &mut tape, &mut ()).is_err() {
+                continue;
+            }
+            for (seat, _) in session.state().players.seats() {
+                let Some(sweep) = session.sweep(seat) else {
+                    continue;
+                };
+                let units: Vec<UnitId> = session
+                    .state()
+                    .units
+                    .iter()
+                    .filter(|unit| {
+                        unit.owner == seat && matches!(unit.location, Location::Board { .. })
+                    })
+                    .map(|unit| unit.id)
+                    .collect();
+                for unit in units {
+                    let want: Set = query::reachable(session.state(), unit)
+                        .expect("an on-board unit")
+                        .destinations()
+                        .map(|(at, _)| at)
+                        .collect();
+                    let field = sweep
+                        .reachable_into(unit, &mut scratch)
+                        .expect("the sweep holds this unit's seat");
+                    let got: Set = field.destinations().map(|(at, _)| at).collect();
+                    assert_eq!(
+                        &got, &want,
+                        "{relative}: unit {unit} reads a position the session has left"
+                    );
+                    after_orders += 1;
+                    field.recycle(&mut scratch);
+                }
+            }
+        }
+    }
+    assert!(compared > 0, "the corpus offered no unit to compare");
+    assert!(after_orders > 0, "no fixture offered an order to apply");
+}
+
 /// `reachable` reports exactly the destinations the reducer accepts.
 #[test]
 fn the_move_field_agrees_with_the_reducer_on_every_tile() {
@@ -300,6 +410,10 @@ fn every_accepted_fixture_command_was_offered() {
 #[test]
 fn action_queries_agree_with_execution() {
     let mut checked = 0;
+    // Destinations where a launch was actually accepted. Without one of these
+    // the launch comparison only ever proves the empty case, which is the half
+    // the shortcut answers without asking the reducer at all.
+    let mut launched = 0;
     for (relative, case) in corpus() {
         for state in states(&case) {
             for subject in state.units.iter() {
@@ -405,6 +519,34 @@ fn action_queries_agree_with_execution() {
                         "{relative}: unit {} Load disagreed at {destination}",
                         subject.id
                     );
+                    // Every tile of the board, one at a time. A launch is
+                    // all-or-nothing — only the target's bounds are about the
+                    // target, so a loaded silo offers the whole board and a
+                    // spent one offers none of it — and `launch_targets_into`
+                    // leans on that to skip the walk. This is what says the
+                    // shortcut and the reducer still agree tile by tile.
+                    let offered: Set = actions.launch.iter().copied().collect();
+                    let accepted: Set = state
+                        .board
+                        .positions()
+                        .filter(|target| {
+                            accepts(Command::MoveLaunch {
+                                player: state.player_id(subject.owner).clone(),
+                                unit: subject.id,
+                                path: path.clone(),
+                                target: *target,
+                            })
+                        })
+                        .collect();
+                    assert_eq!(
+                        offered, accepted,
+                        "{relative}: unit {} Launch disagreed at {destination}",
+                        subject.id
+                    );
+                    if !accepted.is_empty() {
+                        launched += 1;
+                    }
+
                     assert_eq!(
                         actions.explode,
                         accepts(Command::MoveExplode {
@@ -424,6 +566,10 @@ fn action_queries_agree_with_execution() {
     assert!(
         checked >= 704,
         "expected the full movement corpus, saw {checked} destinations"
+    );
+    assert!(
+        launched > 0,
+        "no destination in the corpus offered a launch; the loaded-silo half is unchecked"
     );
 }
 

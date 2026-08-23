@@ -34,7 +34,7 @@ pub use observe::{
     HiddenUnitHp, Observation, ObserveError, ObservedBoard, ObservedEvent, ObservedMatch,
     ObservedPlayer, ObservedTile, ObservedTileOwner, ObservedTransition, ObservedUnit,
     ObservedUnitHp, ObservedUnitRef, PublicCommander, Relation, TileVisibility, observe,
-    observe_events, observe_transition,
+    observe_events, observe_into, observe_transition,
 };
 pub use visibility::{AwbwView, AwbwVisibility, Viewpoint, Visibility};
 
