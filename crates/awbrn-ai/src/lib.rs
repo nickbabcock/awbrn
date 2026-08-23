@@ -19,7 +19,9 @@ pub mod agents;
 pub mod board;
 pub mod harness;
 pub mod rng;
+pub mod threat;
 
 pub use agent::{Agent, Play};
 pub use harness::{Limits, Record, play};
 pub use rng::Rng;
+pub use threat::ThreatMap;
