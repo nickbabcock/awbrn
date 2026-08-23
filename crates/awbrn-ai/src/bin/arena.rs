@@ -20,11 +20,14 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use awbrn_ai::agent::Agent;
 use awbrn_ai::agents::{GreedyAgent, RandomAgent, Weights};
-use awbrn_ai::board::{SEATS, arena, arena_map};
+use awbrn_ai::board::{
+    AMBER_VALLEY_SEATS, SEATS, amber_valley, amber_valley_map, arena, arena_map,
+};
 use awbrn_ai::harness::{Limits, Record, play, play_observed};
 use awbrn_ai::rng::Rng;
 use awbrn_image::{Tilesets, render_state};
 use awbrn_map::AwbrnMap;
+use awbrn_types::PlayerFaction;
 use awvm::semantic::{Match, Outcome, State, TeamId};
 use awvm::session::Session;
 use awvm::transition::Command;
@@ -50,8 +53,9 @@ fn main() {
 }
 
 const USAGE: &str = "\
-usage: arena [--seed N] [--games N] [--fog] [--day-cap N] [--first NAME] [--second NAME] [--sample DIR]
+usage: arena [--map NAME] [--seed N] [--games N] [--fog] [--day-cap N] [--first NAME] [--second NAME] [--sample DIR]
 
+  --map NAME     Map to play. Default close-encounters. Also amber-valley.
   --seed N       Seed for the tournament. The same seed gives the same result.
                  Default 1.
   --games N      Game pairs to play. Each pair is the same seed played with
@@ -65,6 +69,7 @@ usage: arena [--seed N] [--games N] [--fog] [--day-cap N] [--first NAME] [--seco
 agents: random, greedy, greedy-threat, greedy-deny";
 
 struct Options {
+    map: &'static str,
     seed: u64,
     pairs: usize,
     fog: bool,
@@ -77,6 +82,7 @@ struct Options {
 impl Options {
     fn parse(arguments: impl Iterator<Item = String>) -> Result<Self, String> {
         let mut options = Self {
+            map: "close-encounters",
             seed: 1,
             pairs: 50,
             fog: false,
@@ -93,6 +99,7 @@ impl Options {
                     .ok_or_else(|| format!("{argument} needs a value"))
             };
             match argument.as_str() {
+                "--map" => options.map = map_name(&value()?)?,
                 "--seed" => options.seed = parse_number(&value()?)?,
                 "--games" => options.pairs = parse_number(&value()?)?,
                 "--day-cap" => options.day_cap = parse_number(&value()?)?,
@@ -121,6 +128,16 @@ impl Options {
             days: self.day_cap,
             ..Limits::DEFAULT
         }
+    }
+}
+
+fn map_name(name: &str) -> Result<&'static str, String> {
+    match name {
+        "close-encounters" => Ok("close-encounters"),
+        "amber-valley" => Ok("amber-valley"),
+        _ => Err(format!(
+            "unknown map {name}, known maps are close-encounters, amber-valley"
+        )),
     }
 }
 
@@ -159,6 +176,22 @@ fn build(name: &str, seed: u64) -> Box<dyn Agent> {
     }
 }
 
+fn state(options: &Options, seed: u64) -> State {
+    match options.map {
+        "close-encounters" => arena(options.fog, seed),
+        "amber-valley" => amber_valley(options.fog, seed),
+        other => unreachable!("{other} passed the argument check"),
+    }
+}
+
+fn map_and_seats(options: &Options) -> (AwbrnMap, [PlayerFaction; 2]) {
+    match options.map {
+        "close-encounters" => (arena_map(), SEATS),
+        "amber-valley" => (amber_valley_map(), AMBER_VALLEY_SEATS),
+        other => unreachable!("{other} passed the argument check"),
+    }
+}
+
 #[derive(Default)]
 struct Tally {
     /// Games the agent named by `--first` won.
@@ -189,7 +222,7 @@ fn run(options: &Options) -> Result<Tally> {
     let mut tally = Tally::default();
     // One session for the whole tournament. It keeps the board-sized tables it
     // allocated, so a game after the first asks the allocator for nothing.
-    let mut session = Session::new(arena(options.fog, options.seed));
+    let mut session = Session::new(state(options, options.seed));
 
     for pair in 0..options.pairs {
         for under_test_first in [true, false] {
@@ -208,7 +241,7 @@ fn run(options: &Options) -> Result<Tally> {
                 [second.as_mut(), first.as_mut()]
             };
 
-            let state = arena(options.fog, game);
+            let state = state(options, game);
             let teams: Vec<TeamId> = state
                 .players
                 .seats()
@@ -217,7 +250,8 @@ fn run(options: &Options) -> Result<Tally> {
 
             let record = if pair == 0 && under_test_first {
                 if let Some(directory) = &options.sample {
-                    let mut sample = Sample::new(directory, arena_map(), options, game)?;
+                    let (map, seats) = map_and_seats(options);
+                    let mut sample = Sample::new(directory, map, seats, options, game)?;
                     let record = play_observed(
                         state,
                         &mut session,
@@ -256,6 +290,7 @@ fn run(options: &Options) -> Result<Tally> {
 struct Sample {
     directory: PathBuf,
     map: AwbrnMap,
+    seats: [PlayerFaction; 2],
     tilesets: Tilesets,
     log: BufWriter<File>,
     frame: u32,
@@ -264,7 +299,13 @@ struct Sample {
 }
 
 impl Sample {
-    fn new(directory: &Path, map: AwbrnMap, options: &Options, game_seed: u64) -> Result<Self> {
+    fn new(
+        directory: &Path,
+        map: AwbrnMap,
+        seats: [PlayerFaction; 2],
+        options: &Options,
+        game_seed: u64,
+    ) -> Result<Self> {
         std::fs::create_dir(directory).with_context(|| {
             format!(
                 "creating sample directory {} (choose a path that does not exist)",
@@ -286,6 +327,7 @@ impl Sample {
             metadata,
             &serde_json::json!({
                 "schema_version": 1,
+                "map": options.map,
                 "tournament_seed": options.seed,
                 "game_seed": game_seed,
                 "pair": 0,
@@ -297,6 +339,7 @@ impl Sample {
         Ok(Self {
             directory: directory.to_owned(),
             map,
+            seats,
             tilesets,
             log: BufWriter::new(log),
             frame: 0,
@@ -336,7 +379,7 @@ impl Sample {
         } else {
             format!("frame-{:04}-turn.png", self.frame)
         };
-        render_state(&self.map, state, &SEATS, &self.tilesets)
+        render_state(&self.map, state, &self.seats, &self.tilesets)
             .save(self.directory.join(&name))
             .with_context(|| format!("writing sample frame {name}"))?;
         serde_json::to_writer(
