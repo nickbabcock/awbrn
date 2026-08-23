@@ -23,6 +23,8 @@ use awvm::transition::{Command, ExecuteOutcome, execute_with};
 
 use crate::agent::Agent;
 
+type Observer<'a> = &'a mut dyn FnMut(&State, Option<&Command>);
+
 /// What stops a game the agents do not finish.
 #[derive(Clone, Copy, Debug)]
 pub struct Limits {
@@ -123,6 +125,32 @@ pub fn play<E: Entropy>(
     entropy: &mut E,
     limits: Limits,
 ) -> Record {
+    play_inner(state, session, agents, entropy, limits, None)
+}
+
+/// Play one game and report its initial state and each accepted command.
+///
+/// The observer runs after the session adopts the new state. Its command is
+/// `None` for the initial state and `Some` after an accepted command.
+pub fn play_observed<E: Entropy>(
+    state: State,
+    session: &mut Session,
+    agents: &mut [&mut dyn Agent],
+    entropy: &mut E,
+    limits: Limits,
+    mut observer: impl FnMut(&State, Option<&Command>),
+) -> Record {
+    play_inner(state, session, agents, entropy, limits, Some(&mut observer))
+}
+
+fn play_inner<E: Entropy>(
+    state: State,
+    session: &mut Session,
+    agents: &mut [&mut dyn Agent],
+    entropy: &mut E,
+    limits: Limits,
+    mut observer: Option<Observer<'_>>,
+) -> Record {
     assert!(
         state.players.len() <= agents.len(),
         "the roster seats {} players and {} agents were given",
@@ -130,6 +158,9 @@ pub fn play<E: Entropy>(
         agents.len(),
     );
     session.reset(state);
+    if let Some(observer) = observer.as_mut() {
+        observer(session.state(), None);
+    }
 
     let mut turns = 0;
     let mut commands = 0;
@@ -186,9 +217,13 @@ pub fn play<E: Entropy>(
         // one the harness ends for it.
         let ends_turn = matches!(command, Command::EndTurn { .. });
 
+        let observed_command = observer.is_some().then(|| command.clone());
         match execute_with(session.state(), command, entropy) {
             Ok(ExecuteOutcome::Accepted(execution)) => {
                 session.reset(execution.state);
+                if let Some(observer) = observer.as_mut() {
+                    observer(session.state(), observed_command.as_ref());
+                }
                 commands += 1;
                 refusals_in_a_row = 0;
                 if ends_turn {

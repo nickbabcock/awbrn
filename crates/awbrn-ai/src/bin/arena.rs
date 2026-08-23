@@ -12,15 +12,22 @@
 //! and the game index, so a ten-game run and a two-hundred-game run play the
 //! same first ten games.
 
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use anyhow::{Context, Result};
 use awbrn_ai::agent::Agent;
 use awbrn_ai::agents::{GreedyAgent, RandomAgent, Weights};
-use awbrn_ai::board::arena;
-use awbrn_ai::harness::{Limits, Record, play};
+use awbrn_ai::board::{SEATS, arena, arena_map};
+use awbrn_ai::harness::{Limits, Record, play, play_observed};
 use awbrn_ai::rng::Rng;
-use awvm::semantic::{Outcome, TeamId};
+use awbrn_image::{Tilesets, render_state};
+use awbrn_map::AwbrnMap;
+use awvm::semantic::{Match, Outcome, State, TeamId};
 use awvm::session::Session;
+use awvm::transition::Command;
 
 fn main() {
     let options = match Options::parse(std::env::args().skip(1)) {
@@ -32,12 +39,18 @@ fn main() {
     };
 
     let start = Instant::now();
-    let tally = run(&options);
+    let tally = match run(&options) {
+        Ok(tally) => tally,
+        Err(error) => {
+            eprintln!("error: {error:#}");
+            std::process::exit(1);
+        }
+    };
     report(&options, &tally, start.elapsed().as_secs_f64());
 }
 
 const USAGE: &str = "\
-usage: arena [--seed N] [--games N] [--fog] [--day-cap N] [--first NAME] [--second NAME]
+usage: arena [--seed N] [--games N] [--fog] [--day-cap N] [--first NAME] [--second NAME] [--sample DIR]
 
   --seed N       Seed for the tournament. The same seed gives the same result.
                  Default 1.
@@ -47,6 +60,7 @@ usage: arena [--seed N] [--games N] [--fog] [--day-cap N] [--first NAME] [--seco
   --day-cap N    Abandon a game after this many days. Default 35.
   --first NAME   The agent under test. Default random.
   --second NAME  The agent it plays. Default random.
+  --sample DIR   Capture the first game as turn PNGs and a JSONL sidecar.
 
 agents: random, greedy, greedy-threat, greedy-deny";
 
@@ -57,6 +71,7 @@ struct Options {
     day_cap: u32,
     first: &'static str,
     second: &'static str,
+    sample: Option<PathBuf>,
 }
 
 impl Options {
@@ -68,6 +83,7 @@ impl Options {
             day_cap: Limits::default().days,
             first: "random",
             second: "random",
+            sample: None,
         };
         let mut arguments = arguments.peekable();
         while let Some(argument) = arguments.next() {
@@ -83,6 +99,7 @@ impl Options {
                 "--fog" => options.fog = true,
                 "--first" => options.first = agent_name(&value()?)?,
                 "--second" => options.second = agent_name(&value()?)?,
+                "--sample" => options.sample = Some(value()?.into()),
                 "--help" | "-h" => {
                     println!("{USAGE}");
                     std::process::exit(0);
@@ -168,7 +185,7 @@ impl Tally {
     }
 }
 
-fn run(options: &Options) -> Tally {
+fn run(options: &Options) -> Result<Tally> {
     let mut tally = Tally::default();
     // One session for the whole tournament. It keeps the board-sized tables it
     // allocated, so a game after the first asks the allocator for nothing.
@@ -198,18 +215,159 @@ fn run(options: &Options) -> Tally {
                 .map(|(_, player)| player.team.clone())
                 .collect();
 
-            let record = play(
-                state,
-                &mut session,
-                &mut agents,
-                &mut entropy,
-                options.limits(),
-            );
+            let record = if pair == 0 && under_test_first {
+                if let Some(directory) = &options.sample {
+                    let mut sample = Sample::new(directory, arena_map(), options, game)?;
+                    let record = play_observed(
+                        state,
+                        &mut session,
+                        &mut agents,
+                        &mut entropy,
+                        options.limits(),
+                        |state, command| sample.observe(state, command),
+                    );
+                    sample.finish()?;
+                    record
+                } else {
+                    play(
+                        state,
+                        &mut session,
+                        &mut agents,
+                        &mut entropy,
+                        options.limits(),
+                    )
+                }
+            } else {
+                play(
+                    state,
+                    &mut session,
+                    &mut agents,
+                    &mut entropy,
+                    options.limits(),
+                )
+            };
             score(&mut tally, &record, &teams[seat]);
         }
     }
 
-    tally
+    Ok(tally)
+}
+
+struct Sample {
+    directory: PathBuf,
+    map: AwbrnMap,
+    tilesets: Tilesets,
+    log: BufWriter<File>,
+    frame: u32,
+    commands: Vec<serde_json::Value>,
+    error: Option<anyhow::Error>,
+}
+
+impl Sample {
+    fn new(directory: &Path, map: AwbrnMap, options: &Options, game_seed: u64) -> Result<Self> {
+        std::fs::create_dir(directory).with_context(|| {
+            format!(
+                "creating sample directory {} (choose a path that does not exist)",
+                directory.display()
+            )
+        })?;
+        let assets = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("the AI crate is inside the workspace")
+            .join("assets/textures");
+        let tilesets = Tilesets::load_from_dir(&assets)
+            .with_context(|| format!("loading sample sprites from {}", assets.display()))?;
+        let log = File::create(directory.join("log.jsonl"))
+            .with_context(|| format!("creating {}/log.jsonl", directory.display()))?;
+        let metadata = File::create(directory.join("metadata.json"))
+            .with_context(|| format!("creating {}/metadata.json", directory.display()))?;
+        serde_json::to_writer_pretty(
+            metadata,
+            &serde_json::json!({
+                "schema_version": 1,
+                "tournament_seed": options.seed,
+                "game_seed": game_seed,
+                "pair": 0,
+                "seat_order": [options.first, options.second],
+                "fog": options.fog,
+                "day_cap": options.day_cap,
+            }),
+        )?;
+        Ok(Self {
+            directory: directory.to_owned(),
+            map,
+            tilesets,
+            log: BufWriter::new(log),
+            frame: 0,
+            commands: Vec::new(),
+            error: None,
+        })
+    }
+
+    fn observe(&mut self, state: &State, command: Option<&Command>) {
+        if self.error.is_some() {
+            return;
+        }
+        let mut completed_turn = false;
+        if let Some(command) = command {
+            match serde_json::to_value(command) {
+                Ok(value) => self.commands.push(value),
+                Err(error) => {
+                    self.error = Some(error.into());
+                    return;
+                }
+            }
+            completed_turn = matches!(command, Command::EndTurn { .. });
+            if !completed_turn && matches!(state.match_state, Match::Active { .. }) {
+                return;
+            }
+        }
+        if let Err(error) = self.write_frame(state, completed_turn) {
+            self.error = Some(error);
+        }
+    }
+
+    fn write_frame(&mut self, state: &State, completed_turn: bool) -> Result<()> {
+        let name = if self.frame == 0 {
+            "frame-0000-start.png".to_owned()
+        } else if matches!(state.match_state, Match::Finished { .. }) {
+            format!("frame-{:04}-final.png", self.frame)
+        } else {
+            format!("frame-{:04}-turn.png", self.frame)
+        };
+        render_state(&self.map, state, &SEATS, &self.tilesets)
+            .save(self.directory.join(&name))
+            .with_context(|| format!("writing sample frame {name}"))?;
+        serde_json::to_writer(
+            &mut self.log,
+            &serde_json::json!({
+                "frame": self.frame,
+                "image": name,
+                "completed_turn": completed_turn.then_some(self.frame),
+                "terminal": matches!(state.match_state, Match::Finished { .. }),
+                "commands": &self.commands,
+                "state": state,
+            }),
+        )?;
+        self.log.write_all(b"\n")?;
+        self.commands.clear();
+        self.frame += 1;
+        Ok(())
+    }
+
+    fn finish(mut self) -> Result<()> {
+        if let Some(error) = self.error.take() {
+            return Err(error).context("capturing arena sample");
+        }
+        self.log.flush().context("flushing arena sample log")?;
+        eprintln!(
+            "wrote {} frames and log.jsonl to {}",
+            self.frame,
+            self.directory.display()
+        );
+        Ok(())
+    }
 }
 
 /// Add one game to the tally, from the point of view of the agent under test.

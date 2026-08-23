@@ -35,15 +35,20 @@ pub const SEATS: [PlayerFaction; 2] = [PlayerFaction::OrangeStar, PlayerFaction:
 /// turn one decide a game the arena means to measure over thirty days.
 pub const STARTING_FUNDS: u32 = 1_000;
 
+/// The graphical map used by the arena.
+pub fn arena_map() -> AwbrnMap {
+    let map = AwbwMap::parse_json(ARENA_MAP.as_bytes()).expect("the arena map parses");
+    AwbrnMap::from_map(&map)
+}
+
 /// The arena's starting position.
 ///
 /// `seed` reaches the setup only, which uses it for nothing the harness does:
 /// the harness draws its own entropy. It is here so that a caller cannot build
 /// two setups that differ in a field it did not choose.
 pub fn arena(fog: bool, seed: u64) -> State {
-    let map = AwbwMap::parse_json(ARENA_MAP.as_bytes()).expect("the arena map parses");
     let setup = GameSetup {
-        map: AwbrnMap::from_map(&map),
+        map: arena_map(),
         players: SEATS
             .iter()
             .map(|faction| PlayerSetup {
