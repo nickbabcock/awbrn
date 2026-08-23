@@ -7,7 +7,6 @@
 use awbw_replay::turn_models::Action;
 use awvm::semantic::{ObservedEvent, ObservedTransition, ObservedUnitRef, PlayerId};
 use bevy::{log, prelude::*};
-use std::collections::BTreeMap;
 
 use crate::features::event_bus::{EventSink, NewDay as ExternalNewDay};
 use crate::features::player_roster::{
@@ -29,19 +28,14 @@ use awbrn_types::UnitExt;
 /// AWVM command or reconstructs random tokens.
 #[derive(Resource)]
 pub struct ReplayTransitionSource {
-    initial_adapter: awvm_awbw::RecordedAdapter,
-    adapter: awvm_awbw::RecordedAdapter,
-    checkpoints: BTreeMap<usize, awvm_awbw::RecordedAdapter>,
+    timeline: crate::replay_archive::ReplayTimeline,
     initial_terrain_knowledge: Option<ReplayTerrainKnowledge>,
 }
 
 impl ReplayTransitionSource {
-    pub fn new(adapter: awvm_awbw::RecordedAdapter) -> Self {
-        let checkpoints = BTreeMap::from([(0, adapter.clone())]);
+    pub fn new(timeline: impl Into<crate::replay_archive::ReplayTimeline>) -> Self {
         Self {
-            initial_adapter: adapter.clone(),
-            adapter,
-            checkpoints,
+            timeline: timeline.into(),
             initial_terrain_knowledge: None,
         }
     }
@@ -56,65 +50,16 @@ impl ReplayTransitionSource {
     /// already populated; these projections are what a viewpoint switch made
     /// before the first action selects between.
     pub fn initial_observations(&self) -> Result<Vec<awvm::semantic::Observation>, String> {
-        observations_for_state(self.initial_adapter.state())
+        self.timeline.initial_observations()
     }
 
     fn rebuild_to(
         &mut self,
-        replay: &awbw_replay::AwbwReplay,
+        replay: &crate::replay_archive::ReplayArchive,
         target_index: usize,
-    ) -> Result<(awvm_awbw::RecordedAdapter, Vec<ObservedTransition>), String> {
-        const CHECKPOINT_INTERVAL: usize = 64;
-
-        let (checkpoint_index, mut adapter) = self
-            .checkpoints
-            .range(..=target_index)
-            .next_back()
-            .map(|(index, adapter)| (*index, adapter.clone()))
-            .unwrap_or_else(|| (0, self.initial_adapter.clone()));
-        for (index, action) in replay
-            .turns
-            .iter()
-            .enumerate()
-            .take(target_index)
-            .skip(checkpoint_index)
-        {
-            adapter.advance(action).map_err(|error| {
-                format!(
-                    "Could not rebuild recorded replay through action {index} ({}): {error}",
-                    action.kind_name()
-                )
-            })?;
-            let completed = index + 1;
-            if completed % CHECKPOINT_INTERVAL == 0 {
-                self.checkpoints
-                    .entry(completed)
-                    .or_insert_with(|| adapter.clone());
-            }
-        }
-
-        let transitions = observations_for_state(adapter.state())?
-            .into_iter()
-            .map(|post| ObservedTransition {
-                post,
-                events: Vec::new(),
-            })
-            .collect();
-        Ok((adapter, transitions))
+    ) -> Result<Vec<ObservedTransition>, String> {
+        self.timeline.rebuild(replay, target_index)
     }
-}
-
-fn observations_for_state(
-    state: &awvm::semantic::State,
-) -> Result<Vec<awvm::semantic::Observation>, String> {
-    state
-        .players
-        .iter()
-        .map(|player| {
-            awvm::semantic::observe(&awvm::semantic::AwbwVisibility, state, player.id())
-                .map_err(|error| format!("Could not project the archive state: {error}"))
-        })
-        .collect()
 }
 
 /// Terminal marker for a replay whose typed source can no longer be trusted.
@@ -213,7 +158,7 @@ impl Command for LiveTransitionCommand {
 
 /// A custom Command for processing replay turn actions.
 pub struct ReplayTurnCommand {
-    pub action: Action,
+    pub index: usize,
 }
 
 impl Command for ReplayTurnCommand {
@@ -252,7 +197,7 @@ impl Command for ReplayRewindCommand {
         };
         let target_index = usize::try_from(self.target_index)
             .unwrap_or(usize::MAX)
-            .min(replay.0.turns.len());
+            .min(replay.0.len());
 
         if !world.contains_resource::<ReplayTransitionSource>() {
             log::error!("Cannot rewind replay without a typed transition source");
@@ -262,7 +207,7 @@ impl Command for ReplayRewindCommand {
             let replay = &world.resource::<crate::loading::LoadedReplay>().0;
             source.rebuild_to(replay, target_index)
         });
-        let (adapter, transitions) = match rebuilt {
+        let transitions = match rebuilt {
             Ok(rebuilt) => rebuilt,
             Err(error) => {
                 log::error!("{error}");
@@ -286,7 +231,6 @@ impl Command for ReplayRewindCommand {
             return;
         }
         world.resource_mut::<ReplayState>().next_action_index = target_index as u32;
-        world.resource_mut::<ReplayTransitionSource>().adapter = adapter;
         world.remove_resource::<ReplayTransitionFailed>();
     }
 }
@@ -298,21 +242,10 @@ impl ReplayTurnCommand {
         }
 
         let observed = {
-            let mut source = world.resource_mut::<ReplayTransitionSource>();
-            source
-                .adapter
-                .advance(&self.action)
-                .map_err(|error| format!("Could not advance recorded replay outcome: {error}"))
-                .and_then(|transition| {
-                    let players = transition.post_state().players.clone();
-                    players
-                        .iter()
-                        .map(|player| transition.observe(player.id()))
-                        .collect::<Result<Vec<_>, _>>()
-                        .map_err(|error| {
-                            format!("Could not project recorded replay outcome: {error}")
-                        })
-                })
+            world.resource_scope(|world, mut source: Mut<ReplayTransitionSource>| {
+                let replay = &world.resource::<crate::loading::LoadedReplay>().0;
+                source.timeline.advance(replay, self.index)
+            })
         };
         let observed = match observed {
             Ok(observed) => observed,
@@ -323,7 +256,18 @@ impl ReplayTurnCommand {
             }
         };
 
-        update_player_roster_unit_costs(&self.action, world);
+        let cost_updates = world
+            .resource::<crate::loading::LoadedReplay>()
+            .0
+            .awbw()
+            .and_then(|replay| replay.turns.get(self.index))
+            .map(collect_player_roster_unit_cost_updates)
+            .unwrap_or_default();
+        if let Some(mut unit_costs) = world.get_resource_mut::<PlayerUnitCosts>() {
+            for (unit_id, cost) in cost_updates {
+                unit_costs.set(unit_id, cost);
+            }
+        }
 
         if start_typed_movement_animation(
             &observed,
@@ -377,6 +321,9 @@ fn apply_typed_transitions(
 fn reset_player_roster_for_rewind(target_index: usize, world: &mut World) {
     let rebuilt = {
         let replay = &world.resource::<crate::loading::LoadedReplay>().0;
+        let Some(replay) = replay.awbw() else {
+            return;
+        };
         let Some((config, funds, mut unit_costs)) = player_roster_seed_from_replay(replay) else {
             return;
         };
@@ -480,22 +427,6 @@ fn sync_player_roster_from_transition(transitions: &[ObservedTransition], world:
                 entry.eliminated = status != awvm::semantic::PlayerStatus::Active;
             }
         }
-    }
-}
-
-/// Record what a built unit actually cost.
-///
-/// Transitions carry no purchase price, and the ruleset base cost is already
-/// the fallback in `player_roster_snapshot`, so only the archived action can
-/// supply a discounted CO price.
-fn update_player_roster_unit_costs(action: &Action, world: &mut World) {
-    let updates = collect_player_roster_unit_cost_updates(action);
-    let Some(mut unit_costs) = world.get_resource_mut::<PlayerUnitCosts>() else {
-        return;
-    };
-
-    for (unit_id, cost) in updates {
-        unit_costs.set(unit_id, cost);
     }
 }
 

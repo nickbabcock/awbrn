@@ -122,9 +122,9 @@ export function ReplayPage() {
 
   const replayLoader = (
     <FileInput
-      accept=".zip"
+      accept=".zip,.json"
       changeAction={handleReplayFileChange}
-      description={playerRoster ? undefined : "AWBW replay archives, in .zip format"}
+      description={playerRoster ? undefined : "AWBW .zip or AWBRN .json replay archives"}
       isLabelHidden={Boolean(playerRoster)}
       label="Load a replay"
       mode={playerRoster ? "input" : "dropzone"}

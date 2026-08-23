@@ -1,4 +1,3 @@
-use awbw_replay::AwbwReplay;
 use bevy::prelude::*;
 
 use crate::features::player_display::PlayerDisplayFactionOverrides;
@@ -36,22 +35,34 @@ fn seed_initial_observations(world: &mut World) {
 }
 
 pub fn initialize_replay_semantic_world_for_client(world: &mut World) {
-    let replay = world
+    let is_awbrn = world
         .get_resource::<LoadedReplay>()
-        .map(|r| r.0.clone())
-        .unwrap_or_else(|| AwbwReplay {
+        .is_some_and(|replay| replay.0.awbw().is_none());
+    if is_awbrn {
+        initialize_awbrn_replay_world(world);
+    } else {
+        let empty = awbw_replay::AwbwReplay {
             games: Vec::new(),
             turns: Vec::new(),
-        });
-
-    initialize_replay_semantic_world(&replay, world);
+        };
+        let replay = world
+            .get_resource::<LoadedReplay>()
+            .and_then(|replay| replay.0.awbw())
+            .cloned()
+            .unwrap_or(empty);
+        initialize_replay_semantic_world(&replay, world);
+    }
     let initial_terrain_knowledge = world.resource::<ReplayTerrainKnowledge>().clone();
     if let Some(mut source) = world.get_resource_mut::<ReplayTransitionSource>() {
         source.set_initial_terrain_knowledge(initial_terrain_knowledge);
     }
     seed_initial_observations(world);
 
-    if let Some((config, funds, unit_costs)) = player_roster_seed_from_replay(&replay) {
+    if let Some(replay) = world
+        .get_resource::<LoadedReplay>()
+        .and_then(|replay| replay.0.awbw())
+        && let Some((config, funds, unit_costs)) = player_roster_seed_from_replay(replay)
+    {
         world.insert_resource(config);
         world.insert_resource(funds);
         world.insert_resource(unit_costs);
@@ -68,6 +79,77 @@ pub fn initialize_replay_semantic_world_for_client(world: &mut World) {
 
     world.insert_resource(ReplayAdvanceLock::default());
     emit_player_roster_updated(world);
+}
+
+fn initialize_awbrn_replay_world(world: &mut World) {
+    awbrn_bevy::world::initialize_terrain_semantic_world(world);
+    let players = {
+        let Some(LoadedReplay(crate::replay_archive::ReplayArchive::Awbrn(replay))) =
+            world.get_resource::<LoadedReplay>()
+        else {
+            return;
+        };
+        replay
+            .setup
+            .players
+            .iter()
+            .enumerate()
+            .map(|(index, player)| crate::loading::LiveMatchPlayer {
+                player_id: index as u32,
+                faction_id: player.faction_id,
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut registry = awbrn_bevy::replay::ReplayPlayerRegistry::default();
+    for player in &players {
+        if let Some(faction) = awbrn_types::PlayerFaction::from_id(player.faction_id) {
+            registry.add_player(
+                awbrn_types::AwbwGamePlayerId::new(player.player_id),
+                faction,
+                0,
+            );
+        }
+    }
+    let knowledge = ReplayTerrainKnowledge::from_map_and_registry(
+        world.resource::<awbrn_bevy::world::GameMap>(),
+        &registry,
+    );
+    world.insert_resource(registry);
+    world.insert_resource(knowledge);
+    world.insert_resource(awbrn_bevy::replay::ReplayState::default());
+    world.insert_resource(awbrn_bevy::replay::RecipientObservations::default());
+    world.insert_resource(awbrn_bevy::world::ViewerVisibility::default());
+    world.insert_resource(awbrn_bevy::world::FriendlyFactions::default());
+    let observations = match world
+        .get_resource::<ReplayTransitionSource>()
+        .map(ReplayTransitionSource::initial_observations)
+    {
+        Some(Ok(observations)) => observations,
+        Some(Err(error)) => {
+            error!("Could not observe the opening AWBRN replay state: {error}");
+            return;
+        }
+        None => return,
+    };
+    let Some(first) = observations.first() else {
+        return;
+    };
+    let (config, funds, unit_costs, power_meters) =
+        crate::features::player_roster::player_roster_seed_from_live_match(&players, first);
+    world.insert_resource(config);
+    world.insert_resource(funds);
+    world.insert_resource(unit_costs);
+    world.insert_resource(power_meters);
+    let transitions = observations
+        .into_iter()
+        .map(|post| awvm::semantic::ObservedTransition {
+            post,
+            events: Vec::new(),
+        })
+        .collect::<Vec<_>>();
+    if let Err(error) = awbrn_bevy::replay::apply_observed_transitions(world, &transitions) {
+        error!("Could not initialize AWBRN replay presentation: {error}");
+    }
 }
 
 #[cfg(test)]
@@ -122,7 +204,9 @@ mod tests {
         );
         app.world_mut().resource_mut::<GameMap>().set(map);
         app.world_mut()
-            .insert_resource(crate::loading::LoadedReplay(replay));
+            .insert_resource(crate::loading::LoadedReplay(
+                crate::replay_archive::ReplayArchive::Awbw(replay),
+            ));
 
         initialize_replay_semantic_world_for_client(app.world_mut());
 

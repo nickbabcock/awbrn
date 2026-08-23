@@ -20,25 +20,20 @@ pub(crate) fn advance_replay_action(
     replay_state: &mut ReplayState,
     loaded_replay: &LoadedReplay,
 ) -> ReplayAdvanceResult {
-    let Some(action) = loaded_replay
-        .0
-        .turns
-        .get(replay_state.next_action_index as usize)
-        .cloned()
-    else {
+    let index = replay_state.next_action_index as usize;
+    if index >= loaded_replay.0.len() {
         return ReplayAdvanceResult::Exhausted;
-    };
+    }
 
-    commands.queue(ReplayTurnCommand { action });
+    commands.queue(ReplayTurnCommand { index });
     replay_state.next_action_index += 1;
 
-    if action_requires_path_animation(
-        loaded_replay
-            .0
-            .turns
-            .get((replay_state.next_action_index - 1) as usize)
-            .expect("queued replay action should still exist"),
-    ) {
+    let awbw_requires_animation = loaded_replay
+        .0
+        .awbw()
+        .and_then(|replay| replay.turns.get(index))
+        .is_some_and(action_requires_path_animation);
+    if awbw_requires_animation || loaded_replay.0.awbw().is_none() {
         ReplayAdvanceResult::AdvancedWithLock
     } else {
         ReplayAdvanceResult::Advanced
@@ -288,8 +283,8 @@ mod tests {
     #[test]
     fn replay_left_repeat_is_ignored_while_advance_is_locked() {
         let (mut app, replay) = replay_rewind_controls_test_app();
-        for action in replay.turns.iter().cloned() {
-            ReplayTurnCommand { action }.apply(app.world_mut());
+        for index in 0..replay.turns.len() {
+            ReplayTurnCommand { index }.apply(app.world_mut());
             if app.world().resource::<ReplayAdvanceLock>().is_active() {
                 break;
             }
@@ -329,10 +324,12 @@ mod tests {
         app.insert_resource(ReplayState::default());
         app.insert_resource(ReplayAdvanceLock::default());
         app.insert_resource(StrongIdMap::<AwbwUnitId>::default());
-        app.insert_resource(LoadedReplay(AwbwReplay {
-            games: Vec::new(),
-            turns: actions,
-        }));
+        app.insert_resource(LoadedReplay(crate::replay_archive::ReplayArchive::Awbw(
+            AwbwReplay {
+                games: Vec::new(),
+                turns: actions,
+            },
+        )));
         app.init_resource::<crate::features::visibility::ViewerVisibility>();
         app.init_resource::<crate::features::visibility::FriendlyFactions>();
         app.init_resource::<awbrn_bevy::replay::ReplayTerrainKnowledge>();
@@ -362,7 +359,9 @@ mod tests {
         app.world_mut()
             .resource_mut::<GameMap>()
             .set(AwbrnMap::from_map(&graphical_map));
-        app.insert_resource(LoadedReplay(replay.clone()));
+        app.insert_resource(LoadedReplay(crate::replay_archive::ReplayArchive::Awbw(
+            replay.clone(),
+        )));
         app.insert_resource(
             crate::modes::replay::presentation::ReplayTransitionSource::new(adapter),
         );

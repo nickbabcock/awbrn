@@ -97,6 +97,9 @@ fn replay_semantic_snapshot_rows(replay_file: &str, map_file: &str) -> Vec<Repla
     let actions = replay.turns.clone();
     let adapter = RecordedAdapter::new(&replay, &map_data).unwrap();
     app.insert_resource(ReplayTransitionSource::new(adapter));
+    app.insert_resource(awbrn_client::loading::LoadedReplay(
+        awbrn_client::replay_archive::ReplayArchive::Awbw(replay.clone()),
+    ));
     app.insert_resource(ReplayAdvanceLock::default());
     app.insert_resource(ReplayViewpoint::Spectator);
     let last_index = actions.len().saturating_sub(1);
@@ -109,7 +112,10 @@ fn replay_semantic_snapshot_rows(replay_file: &str, map_file: &str) -> Vec<Repla
     let mut rows = Vec::new();
     for (action_index, action) in actions.into_iter().enumerate() {
         let action_kind = action.kind_name();
-        ReplayTurnCommand { action }.apply(app.world_mut());
+        ReplayTurnCommand {
+            index: action_index,
+        }
+        .apply(app.world_mut());
         if let Some(entity) = app.world().resource::<ReplayAdvanceLock>().active_entity() {
             let followup = app
                 .world_mut()
