@@ -915,6 +915,196 @@ fn reachable_with(
     })
 }
 
+/// Movement points from every tile to the nearest of a set of targets.
+///
+/// [`reachable`] answers "where can this unit go", which is a search for each
+/// unit from where it stands. This answers the other direction: "what does it
+/// cost to get to one of these tiles", which is one search for a whole set of
+/// targets and is then read for any number of units. A caller that scores
+/// every tile of the board against every property wants this and not the
+/// other one, because the properties do not move and the units do.
+///
+/// The answer is movement points and not turns. Turns need an allowance, and
+/// an allowance is not a property of the board: a commander power changes it
+/// and fuel caps it. Divide where it is read, and one table serves every unit
+/// of the class.
+///
+/// **This ignores units in the way.** It is a table about terrain, weather and
+/// the seat's commander, so it stays true for a whole turn while units move
+/// around inside it. That makes it a lower bound on what a route really costs,
+/// which is the same fidelity a straight-line distance already has, and it is
+/// why this does not build the blocking map [`reachable`] does.
+pub struct Travel<'a> {
+    maps: TurnMaps<'a>,
+    /// The class `costs` was flattened for, so that a caller asking about one
+    /// class again does not rebuild it.
+    flattened: Option<MovementClass>,
+    /// What each tile costs to enter, row-major, absent where it cannot be
+    /// entered. The same answer as the turn's entry-cost grid, in the shape
+    /// the search reads it in: a search settles every tile and looks at four
+    /// neighbours of each, and asking a grid costs a bounds check and a
+    /// multiply every time.
+    costs: Vec<Option<u16>>,
+    /// The largest entry cost on the board, which is the width of the ring
+    /// below.
+    widest: u16,
+    /// Dial's buckets, as a ring. Every edge of this graph costs at most
+    /// `widest`, so every tile still waiting sits within `widest` of the cost
+    /// being settled and a ring that long holds all of them.
+    ring: Vec<Vec<u16>>,
+}
+
+impl<'a> Travel<'a> {
+    /// Open the tables for one seat. `None` when the roster has no such seat.
+    ///
+    /// Entry costs follow the seat's commander and weather, so a table opened
+    /// for one player must not be read for another.
+    pub fn open(state: &'a State, seat: PlayerIdx) -> Option<Self> {
+        TurnMaps::for_seat(state, seat).map(|maps| Self {
+            maps,
+            flattened: None,
+            costs: Vec::new(),
+            widest: 0,
+            ring: Vec::new(),
+        })
+    }
+
+    /// Flatten the turn's entry costs for one class, if they are not already.
+    fn flatten(&mut self, class: MovementClass) {
+        if self.flattened == Some(class) {
+            return;
+        }
+        let entry = Arc::clone(self.maps.entry_costs(class));
+        let dimensions = self.maps.state.board.dimensions();
+        self.costs.clear();
+        self.costs.reserve(dimensions.len());
+        self.widest = 1;
+        for position in dimensions.positions() {
+            let points = dimensions
+                .cell(position)
+                .and_then(|cell| entry.at(cell).points());
+            if let Some(points) = points {
+                self.widest = self.widest.max(points);
+            }
+            self.costs.push(points);
+        }
+        self.ring.clear();
+        self.ring
+            .resize_with(usize::from(self.widest) + 1, Vec::new);
+        self.flattened = Some(class);
+    }
+
+    /// The cheapest movement points from each tile to the nearest target.
+    ///
+    /// `out` is written row-major, one entry per tile, and is `None` where no
+    /// route to any target exists for this movement class. A target a unit of
+    /// this class cannot enter is not a target and is skipped. `allowance` is
+    /// what the unit can spend in one turn. A finite entry cost above it is
+    /// impassable, because movement points cannot carry between turns.
+    ///
+    /// The search is seeded at the targets and expands outward, which is what
+    /// makes it one search rather than one for each tile. The cost of a tile
+    /// is charged on **leaving** it here, not on entering it: movement charges
+    /// on entry, so a route walked backward pays for the tile it came from,
+    /// and charging on entry instead would answer the cost of walking *out* of
+    /// a property rather than into it. The two differ by the endpoint costs.
+    pub fn points_to(
+        &mut self,
+        class: MovementClass,
+        allowance: u16,
+        targets: impl IntoIterator<Item = Pos>,
+        out: &mut Vec<Option<u16>>,
+    ) {
+        self.flatten(class);
+        let dimensions = self.maps.state.board.dimensions();
+        let width = usize::from(dimensions.width());
+        let cells = dimensions.len();
+        out.clear();
+        out.resize(cells, None);
+        for bucket in &mut self.ring {
+            bucket.clear();
+        }
+        let ring = self.ring.len();
+        let mut waiting = 0usize;
+
+        for target in targets {
+            let Some(index) = dimensions.cell_index(target) else {
+                continue;
+            };
+            let index = usize::from(index.get());
+            // A tile this class cannot enter cannot be walked to, so it is not
+            // a target however much the caller wants it.
+            if !self.costs[index].is_some_and(|cost| cost <= allowance) || out[index].is_some() {
+                continue;
+            }
+            out[index] = Some(0);
+            self.ring[0].push(index as u16);
+            waiting += 1;
+        }
+
+        let mut cost = 0u16;
+        while waiting > 0 {
+            let bucket = usize::from(cost) % ring;
+            while let Some(index) = self.ring[bucket].pop() {
+                waiting -= 1;
+                let index = usize::from(index);
+                // A tile is settled once, at the cost it was settled with. A
+                // later copy left in the ring by a cheaper route is stale.
+                if out[index] != Some(cost) {
+                    continue;
+                }
+                let Some(leaving) = self.costs[index] else {
+                    continue;
+                };
+                // A finite terrain cost can still exceed what this unit can
+                // spend in one turn. Such a tile can never occur in its path.
+                if leaving > allowance {
+                    continue;
+                }
+                let total = cost.saturating_add(leaving);
+                let column = index % width;
+                let west = (column > 0).then(|| index - 1);
+                let east = (column + 1 < width).then(|| index + 1);
+                let north = index.checked_sub(width);
+                let south = (index + width < cells).then_some(index + width);
+                for next in [west, east, north, south].into_iter().flatten() {
+                    // The neighbour is where the route would stand, so it must
+                    // be a tile this class can occupy at all.
+                    if self.costs[next].is_none() {
+                        continue;
+                    }
+                    if out[next].is_some_and(|best| best <= total) {
+                        continue;
+                    }
+                    out[next] = Some(total);
+                    self.ring[usize::from(total) % ring].push(next as u16);
+                    waiting += 1;
+                }
+            }
+            let Some(next) = cost.checked_add(1) else {
+                break;
+            };
+            cost = next;
+        }
+    }
+
+    /// Turns to cross `points` at an allowance, which is what a caller wants.
+    ///
+    /// **This is a lower bound.** A unit cannot always stop where its
+    /// allowance runs out: an occupied tile or a teleporter forces it short,
+    /// and a terrain cost can overshoot the boundary. It is optimistic by up
+    /// to a turn on awkward ground, and it is still far nearer the truth than
+    /// counting tiles.
+    ///
+    /// Zero points is the tile itself, which is nought turns away.
+    pub const fn turns(points: u16, allowance: u16) -> u16 {
+        if allowance == 0 {
+            return u16::MAX;
+        }
+        points.div_ceil(allowance)
+    }
+}
+
 /// What `unit` may do if it moves to `destination`.
 ///
 /// Every field is the reducer's own verdict on the corresponding command, so an
