@@ -10,9 +10,12 @@ publish = false
 # renderer and a frame loop in that path.
 
 [dependencies]
+anyhow.workspace = true
 awbrn-map = { path = "../awbrn-map" }
+awbrn-image = { path = "../awbrn-image" }
 awbrn-types = { path = "../awbrn-types" }
 awvm = { path = "../awvm" }
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true

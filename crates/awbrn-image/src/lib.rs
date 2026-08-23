@@ -13,7 +13,10 @@ use awbrn_content::{
     UNIT_SPRITESHEET_PADDING_Y, spritesheet_index, unit_spritesheet_index,
 };
 use awbrn_map::{AwbrnMap, AwbwMap, PredeployedUnit};
-use awbrn_types::{GraphicalMovement, GraphicalTerrain, PlayerFaction, Unit, UnitExt, Weather};
+use awbrn_types::{
+    Faction, GraphicalMovement, GraphicalTerrain, PlayerFaction, Unit, UnitExt, Weather,
+};
+use awvm::semantic::{Location, State, TileOwner};
 use image::{GenericImageView, RgbaImage, imageops};
 
 /// Logical tile size, in pixels.
@@ -63,32 +66,8 @@ pub fn render_map_with_weather(
     let height_px = (map.height() as u32 + 1) * TILE_SIZE;
     let mut canvas = RgbaImage::new(width_px.max(1), height_px.max(1));
 
-    // Base plains layer: the client paints a repeating plain-grass backdrop
-    // beneath the terrain, so terrain sprites with transparency (neutral cities,
-    // pipes, etc.) show grass underneath rather than empty pixels. The backdrop
-    // is the bottom 16px of the Plain cell, tiled over every ground cell (the
-    // top overhang strip stays transparent — it is "above" the map).
-    let backdrop = plain_backdrop_tile(&tilesets.tiles, weather);
-    for y in 0..map.height() as u32 {
-        for x in 0..map.width() as u32 {
-            let dx = (x * TILE_SIZE) as i64;
-            let dy = ((y + 1) * TILE_SIZE) as i64;
-            imageops::replace(&mut canvas, &backdrop, dx, dy);
-        }
-    }
+    render_terrain(&graphical, tilesets, weather, &mut canvas);
 
-    // Terrain (and properties). `iter` yields row-major (y ascending), so a
-    // lower tile's overhang correctly paints over the tile above it.
-    for (pos, terrain) in graphical.iter() {
-        let index = spritesheet_index(weather, terrain).index();
-        let (sx, sy, sw, sh) = terrain_cell_rect(index);
-        let sprite = tilesets.tiles.view(sx, sy, sw, sh).to_image();
-        let dx = (pos.x as u32 * TILE_SIZE) as i64;
-        let dy = (pos.y as u32 * TILE_SIZE) as i64;
-        imageops::overlay(&mut canvas, &sprite, dx, dy);
-    }
-
-    // Pre-deployed units, centered on their tile's ground cell.
     for unit in units {
         let Some(kind) = Unit::from_awbw_id(unit.unit_id) else {
             eprintln!("warning: skipping unknown unit id {}", unit.unit_id);
@@ -101,19 +80,130 @@ pub fn render_map_with_weather(
             );
             continue;
         };
-
-        let index = unit_spritesheet_index(GraphicalMovement::Idle, kind, faction).index();
-        let (sx, sy, sw, sh) = unit_cell_rect(index);
-        let sprite = tilesets.units.view(sx, sy, sw, sh).to_image();
-
-        // Ground cell top-left lives below the top overhang strip, i.e. at
-        // canvas y = (uy + 1) * TILE_SIZE. The unit sprite is centered within
-        // the 16x16 ground cell: x offset (16-23)/2 ≈ -4, y offset (16-24)/2 = -4.
-        let dx = unit.unit_x as i64 * TILE_SIZE as i64 - 4;
-        let dy = unit.unit_y as i64 * TILE_SIZE as i64 + (TILE_SIZE as i64) - 4;
-        imageops::overlay(&mut canvas, &sprite, dx, dy);
+        draw_unit(
+            &mut canvas,
+            kind,
+            faction,
+            unit.unit_x,
+            unit.unit_y,
+            tilesets,
+        );
     }
 
+    canvas
+}
+
+fn render_terrain(
+    graphical: &AwbrnMap,
+    tilesets: &Tilesets,
+    weather: Weather,
+    canvas: &mut RgbaImage,
+) {
+    // Base plains layer: the client paints a repeating plain-grass backdrop
+    // beneath the terrain, so terrain sprites with transparency (neutral cities,
+    // pipes, etc.) show grass underneath rather than empty pixels. The backdrop
+    // is the bottom 16px of the Plain cell, tiled over every ground cell (the
+    // top overhang strip stays transparent — it is "above" the map).
+    let backdrop = plain_backdrop_tile(&tilesets.tiles, weather);
+    for y in 0..graphical.height() as u32 {
+        for x in 0..graphical.width() as u32 {
+            let dx = (x * TILE_SIZE) as i64;
+            let dy = ((y + 1) * TILE_SIZE) as i64;
+            imageops::replace(canvas, &backdrop, dx, dy);
+        }
+    }
+
+    // Terrain (and properties). `iter` yields row-major (y ascending), so a
+    // lower tile's overhang correctly paints over the tile above it.
+    for (pos, terrain) in graphical.iter() {
+        let index = spritesheet_index(weather, terrain).index();
+        let (sx, sy, sw, sh) = terrain_cell_rect(index);
+        let sprite = tilesets.tiles.view(sx, sy, sw, sh).to_image();
+        let dx = (pos.x as u32 * TILE_SIZE) as i64;
+        let dy = (pos.y as u32 * TILE_SIZE) as i64;
+        imageops::overlay(canvas, &sprite, dx, dy);
+    }
+}
+
+fn draw_unit(
+    canvas: &mut RgbaImage,
+    kind: Unit,
+    faction: PlayerFaction,
+    x: u32,
+    y: u32,
+    tilesets: &Tilesets,
+) {
+    let index = unit_spritesheet_index(GraphicalMovement::Idle, kind, faction).index();
+    let (sx, sy, sw, sh) = unit_cell_rect(index);
+    let sprite = tilesets.units.view(sx, sy, sw, sh).to_image();
+
+    let (dx, dy) = unit_draw_origin(x, y);
+    imageops::overlay(canvas, &sprite, dx, dy);
+}
+
+/// Return the top-left draw position that matches the client's center anchor.
+///
+/// Unit atlas cells include transparent space above and to the left of the
+/// visible unit. The client alignment offsets compensate for this space. A
+/// top-left compositor must apply the equivalent offset directly.
+fn unit_draw_origin(x: u32, y: u32) -> (i64, i64) {
+    let ground_x = i64::from(x * TILE_SIZE);
+    let ground_y = i64::from((y + 1) * TILE_SIZE);
+    (
+        ground_x + i64::from(TILE_SIZE) - i64::from(UNIT_SPRITE_WIDTH),
+        ground_y + i64::from(TILE_SIZE) - i64::from(UNIT_SPRITE_HEIGHT),
+    )
+}
+
+/// Render an authoritative game state over the graphical map it came from.
+///
+/// `factions` is in roster order. The state stores ownership as roster seats,
+/// while the sprite atlas identifies armies by faction.
+pub fn render_state(
+    source: &AwbrnMap,
+    state: &State,
+    factions: &[PlayerFaction],
+    tilesets: &Tilesets,
+) -> RgbaImage {
+    assert_eq!(
+        state.players.len(),
+        factions.len(),
+        "each roster seat needs a display faction"
+    );
+
+    let mut map = source.clone();
+    for (position, tile) in state.board.iter() {
+        let Some(GraphicalTerrain::Property(property)) = map.terrain_at(position) else {
+            continue;
+        };
+        let owner = match tile.owner {
+            TileOwner::Owned(seat) => Faction::Player(factions[seat.get()]),
+            TileOwner::Neutral | TileOwner::NotOwnable => Faction::Neutral,
+        };
+        map.set_terrain(
+            position,
+            GraphicalTerrain::Property(property.with_owner(owner)),
+        );
+    }
+
+    let width_px = map.width() as u32 * TILE_SIZE;
+    let height_px = (map.height() as u32 + 1) * TILE_SIZE;
+    let mut canvas = RgbaImage::new(width_px.max(1), height_px.max(1));
+    render_terrain(&map, tilesets, Weather::Clear, &mut canvas);
+
+    for unit in state.units.iter() {
+        let Location::Board { position } = unit.location else {
+            continue;
+        };
+        draw_unit(
+            &mut canvas,
+            unit.kind,
+            factions[unit.owner.get()],
+            u32::from(position.x),
+            u32::from(position.y),
+            tilesets,
+        );
+    }
     canvas
 }
 
@@ -181,5 +271,11 @@ mod tests {
                 UNIT_SPRITE_HEIGHT
             )
         );
+    }
+
+    #[test]
+    fn unit_draw_origin_matches_the_client_alignment() {
+        assert_eq!(unit_draw_origin(0, 0), (-7, 8));
+        assert_eq!(unit_draw_origin(2, 3), (25, 56));
     }
 }

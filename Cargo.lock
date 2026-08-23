@@ -456,9 +456,12 @@ dependencies = [
 name = "awbrn-ai"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "awbrn-image",
  "awbrn-map",
  "awbrn-types",
  "awvm",
+ "serde",
  "serde_json",
 ]
 
@@ -532,6 +535,7 @@ dependencies = [
  "awbrn-content",
  "awbrn-map",
  "awbrn-types",
+ "awvm",
  "image",
  "serde_json",
 ]
