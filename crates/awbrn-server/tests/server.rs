@@ -2339,7 +2339,7 @@ fn untracked_disappearance_does_not_allocate_enemy_id() {
         .find(|unit| unit.position == Pos::new(0, 0))
         .expect("the unhidden enemy is visible")
         .id;
-    assert_eq!(id, ServerUnitId(u64::MAX));
+    assert_eq!(id, ServerUnitId((1 << 53) - 1));
 }
 
 #[test]

@@ -175,11 +175,12 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     const ownedSlots = ownedSlotIndices(setup, userId);
-    const playerSlotIndex = this.resolveConnectionSlot(game, ownedSlots);
+    let playerSlotIndex: number | null = null;
     let gameState: MatchGameState | null = null;
     let spectatorNotice: Parameters<typeof initialMatchConnectionMessages>[3] = null;
 
     try {
+      playerSlotIndex = this.resolveConnectionSlot(game, ownedSlots);
       if (playerSlotIndex !== null) {
         gameState = game.playerGameState(playerSlotIndex);
       } else {
@@ -187,6 +188,13 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       }
     } catch (error) {
       const failure = normalizeCaughtError(error);
+      console.error("Failed to prepare match WebSocket upgrade:", {
+        matchId: setup.matchId,
+        ownedSlots,
+        playerSlotIndex,
+        error: failure.error,
+        cause: error,
+      });
       return new Response(failure.error.message, { status: failure.error.httpStatus });
     }
 
