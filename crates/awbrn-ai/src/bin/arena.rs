@@ -11,6 +11,15 @@
 //! One seed gives one tournament. Each game's seed is derived from the run seed
 //! and the game index, so a ten-game run and a two-hundred-game run play the
 //! same first ten games.
+//!
+//! The board is Amber Valley. Close Encounters, the first arena board, is
+//! decided by a day-six headquarters rush and holds almost no combat, so it
+//! cannot measure a term that prices combat. It stays behind `--map
+//! close-encounters` because the tier 1 numbers were taken on it.
+//!
+//! The report says what the games were made of as well as who won them, for
+//! the same reason: a score against a mirror of the same agent cannot see that
+//! the games hold no combat. See [`awbrn_ai::shape`].
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -23,12 +32,13 @@ use awbrn_ai::agents::{GreedyAgent, RandomAgent, Weights};
 use awbrn_ai::board::{
     AMBER_VALLEY_SEATS, SEATS, amber_valley, amber_valley_map, arena, arena_map,
 };
-use awbrn_ai::harness::{Limits, Record, play, play_observed};
+use awbrn_ai::harness::{Limits, Record, play_measured, play_observed};
 use awbrn_ai::rng::Rng;
+use awbrn_ai::shape::SeatShape;
 use awbrn_image::{Tilesets, render_state};
 use awbrn_map::AwbrnMap;
 use awbrn_types::PlayerFaction;
-use awvm::semantic::{Match, Outcome, State, TeamId};
+use awvm::semantic::{Match, Outcome, State, TeamId, VictoryReason};
 use awvm::session::Session;
 use awvm::transition::Command;
 
@@ -55,7 +65,8 @@ fn main() {
 const USAGE: &str = "\
 usage: arena [--map NAME] [--seed N] [--games N] [--fog] [--day-cap N] [--first NAME] [--second NAME] [--weights FILE] [--second-weights FILE] [--sample DIR]
 
-  --map NAME     Map to play. Default close-encounters. Also amber-valley.
+  --map NAME     Map to play. Default amber-valley. Also close-encounters,
+                 which is the board the first tier 1 numbers were taken on.
   --seed N       Seed for the tournament. The same seed gives the same result.
                  Default 1.
   --games N      Game pairs to play. Each pair is the same seed played with
@@ -90,7 +101,7 @@ struct Options {
 impl Options {
     fn parse(arguments: impl Iterator<Item = String>) -> Result<Self, String> {
         let mut options = Self {
-            map: "close-encounters",
+            map: "amber-valley",
             seed: 1,
             pairs: 50,
             fog: false,
@@ -219,13 +230,23 @@ struct Tally {
     wins: u32,
     losses: u32,
     draws: u32,
-    /// Games that reached the day cap with no winner.
+    /// Games the harness stopped without the reducer naming an outcome.
     ///
-    /// These count as draws in the score. A tournament in which most games are
-    /// abandoned measures the cap and not the agents, so the report says so.
+    /// The day cap is the ruleset's own limit now, so it decides a game on the
+    /// properties held rather than abandoning it. This counts what is left,
+    /// which should be nothing.
     abandoned: u32,
     commands: u64,
     refusals: u64,
+    /// How the games that ended ended.
+    endings: Endings,
+    /// Days played, over every game, and the shortest and the longest.
+    days: u64,
+    shortest: u32,
+    longest: u32,
+    /// The shape of the games, from each side of the board.
+    under_test: Side,
+    opponent: Side,
 }
 
 impl Tally {
@@ -236,6 +257,77 @@ impl Tally {
     /// The score of the agent under test, a draw counting a half.
     fn score(&self) -> f64 {
         (f64::from(self.wins) + f64::from(self.draws) / 2.0) / f64::from(self.games())
+    }
+
+    fn mean_days(&self) -> f64 {
+        self.days as f64 / f64::from(self.games().max(1))
+    }
+}
+
+/// How the tournament's games ended.
+///
+/// A score cannot tell a rush from a war. This can: a board every game leaves
+/// by a headquarters capture on day six is a board where nothing that prices
+/// combat can be measured, and a change that makes the agent fight shows up
+/// here as a rout before it shows up in the score.
+#[derive(Default)]
+struct Endings {
+    hq_capture: u32,
+    rout: u32,
+    /// The day limit, won on the properties each side holds.
+    day_limit: u32,
+    /// Another victory reason: a capture limit, a resignation, a timeout.
+    other: u32,
+    /// A draw, which the day limit gives when the two sides hold the same
+    /// number of properties.
+    drawn: u32,
+}
+
+/// One side of the board, over the whole tournament.
+///
+/// The two sides are the agent under test and the agent it plays, and not the
+/// two seats: the tournament plays each pair both ways round, so a seat is
+/// both agents in equal measure and tells nothing about either.
+#[derive(Default)]
+struct Side {
+    games: u32,
+    built: u64,
+    lost: u64,
+    /// Turns behind the sums below, which is what they average over.
+    turns: u64,
+    units: f64,
+    value: f64,
+    income: f64,
+    last_units: u64,
+    last_value: f64,
+    last_income: u64,
+}
+
+impl Side {
+    fn add(&mut self, seat: &SeatShape) {
+        self.games += 1;
+        self.built += u64::from(seat.built);
+        self.lost += u64::from(seat.lost);
+        self.turns += u64::from(seat.turns);
+        self.units += seat.units_total;
+        self.value += seat.value_total;
+        self.income += seat.income_total;
+        self.last_units += u64::from(seat.last_units);
+        self.last_value += seat.last_value;
+        self.last_income += seat.last_income;
+    }
+
+    /// A count over the games played, which is what "each game" means.
+    fn each_game(&self, total: f64) -> f64 {
+        total / f64::from(self.games.max(1))
+    }
+
+    /// A sample over the turns sampled, which is what "each turn" means.
+    ///
+    /// The turns of a long game weigh more than the turns of a short one,
+    /// because this pools the samples rather than averaging the games.
+    fn each_turn(&self, total: f64) -> f64 {
+        total / (self.turns.max(1)) as f64
     }
 }
 
@@ -290,7 +382,7 @@ fn run(options: &Options) -> Result<Tally> {
                     sample.finish()?;
                     record
                 } else {
-                    play(
+                    play_measured(
                         state,
                         &mut session,
                         &mut agents,
@@ -299,7 +391,7 @@ fn run(options: &Options) -> Result<Tally> {
                     )
                 }
             } else {
-                play(
+                play_measured(
                     state,
                     &mut session,
                     &mut agents,
@@ -307,7 +399,7 @@ fn run(options: &Options) -> Result<Tally> {
                     options.limits(),
                 )
             };
-            score(&mut tally, &record, &teams[seat]);
+            score(&mut tally, &record, &teams[seat], seat);
         }
     }
 
@@ -450,13 +542,43 @@ impl Sample {
 }
 
 /// Add one game to the tally, from the point of view of the agent under test.
-fn score(tally: &mut Tally, record: &Record, team: &TeamId) {
+///
+/// `seat` is the seat the agent under test sat in, which changes with the seat
+/// order and is what keeps the shape of the game on the right side.
+fn score(tally: &mut Tally, record: &Record, team: &TeamId, seat: usize) {
     tally.commands += record.commands;
     tally.refusals += record.refusals;
+    tally.days += u64::from(record.days);
+    tally.shortest = if tally.shortest == 0 {
+        record.days
+    } else {
+        tally.shortest.min(record.days)
+    };
+    tally.longest = tally.longest.max(record.days);
+    if let Some(shape) = record.shape.seats.get(seat) {
+        tally.under_test.add(shape);
+    }
+    if let Some(shape) = record.shape.seats.get(seat ^ 1) {
+        tally.opponent.add(shape);
+    }
     match &record.outcome {
-        Some(Outcome::Victory { winners, .. }) if winners.contains(team) => tally.wins += 1,
-        Some(Outcome::Victory { .. }) => tally.losses += 1,
-        Some(_) => tally.draws += 1,
+        Some(Outcome::Victory { winners, reason }) => {
+            match reason {
+                VictoryReason::HqCapture => tally.endings.hq_capture += 1,
+                VictoryReason::Rout => tally.endings.rout += 1,
+                VictoryReason::DayLimit => tally.endings.day_limit += 1,
+                _ => tally.endings.other += 1,
+            }
+            if winners.contains(team) {
+                tally.wins += 1;
+            } else {
+                tally.losses += 1;
+            }
+        }
+        Some(_) => {
+            tally.endings.drawn += 1;
+            tally.draws += 1;
+        }
         None => {
             tally.abandoned += 1;
             tally.draws += 1;
@@ -528,16 +650,94 @@ fn report(options: &Options, tally: &Tally, elapsed: f64) {
         tally.refusals as f64 / (tally.commands + tally.refusals) as f64 * 100.0
     );
 
+    println!();
+    shape_report(tally);
+
     if tally.abandoned > 0 {
         let share = f64::from(tally.abandoned) / f64::from(games) * 100.0;
         println!();
         println!(
-            "{} of {games} games ({share:.1}%) reached the day cap and are scored as\n\
-             draws. A tournament in which most games are abandoned measures the cap,\n\
-             not the agents.",
+            "{} of {games} games ({share:.1}%) stopped with no outcome, which the day\n\
+             limit should have decided. That is a defect, not a result.",
             tally.abandoned
         );
     }
+}
+
+/// What the games were made of, beside who won them.
+///
+/// A standard tier 1 game ends by headquarters capture on day six with one
+/// unit dead, so a term that prices combat reads zero there whatever it is
+/// worth. That is a property of the games and not of the term, and it is only
+/// visible in these numbers. Read the days and the losses first.
+fn shape_report(tally: &Tally) {
+    let games = f64::from(tally.games().max(1));
+    let endings = &tally.endings;
+    println!("game shape");
+    println!(
+        "  days each game         {:.1}  ({} to {})",
+        tally.mean_days(),
+        tally.shortest,
+        tally.longest
+    );
+    println!(
+        "  ended by               hq capture {}  rout {}  day limit {}  other {}  drawn {}",
+        endings.hq_capture, endings.rout, endings.day_limit, endings.other, endings.drawn
+    );
+    println!(
+        "  units lost each game   {:.1}  over both sides",
+        (tally.under_test.lost + tally.opponent.lost) as f64 / games
+    );
+
+    let under_test = &tally.under_test;
+    let opponent = &tally.opponent;
+    println!();
+    println!("                                  under test    opponent");
+    row(
+        "units built each game",
+        under_test.each_game(under_test.built as f64),
+        opponent.each_game(opponent.built as f64),
+    );
+    row(
+        "units lost each game",
+        under_test.each_game(under_test.lost as f64),
+        opponent.each_game(opponent.lost as f64),
+    );
+    row(
+        "units each turn",
+        under_test.each_turn(under_test.units),
+        opponent.each_turn(opponent.units),
+    );
+    row(
+        "unit value each turn",
+        under_test.each_turn(under_test.value),
+        opponent.each_turn(opponent.value),
+    );
+    row(
+        "income each turn",
+        under_test.each_turn(under_test.income),
+        opponent.each_turn(opponent.income),
+    );
+    row(
+        "units, last turn",
+        under_test.each_game(under_test.last_units as f64),
+        opponent.each_game(opponent.last_units as f64),
+    );
+    row(
+        "unit value, last turn",
+        under_test.each_game(under_test.last_value),
+        opponent.each_game(opponent.last_value),
+    );
+    row(
+        "income, last turn",
+        under_test.each_game(under_test.last_income as f64),
+        opponent.each_game(opponent.last_income as f64),
+    );
+}
+
+/// One line of the shape table, both sides of the board.
+fn row(name: &str, under_test: f64, opponent: f64) {
+    println!("  {name:<30}  {under_test:>9.1}   {opponent:>9.1}");
 }
 
 #[cfg(test)]
