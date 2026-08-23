@@ -24,10 +24,10 @@ use awvm::ruleset::{
     WeatherKind, profile,
 };
 use awvm::semantic::{
-    AwbwVisibility, Concealment, DrawReason, Location, Match, ObserveError, ObservedTransition,
-    Outcome, Phase, PlayerId, PlayerStatus, Pos, PowerState, Reason, ReasonId, Silo, State,
-    StateInvariant, TeamId, TeamStatus, TileOwner, Unit, UnitAction, UnitId, VictoryReason,
-    observe_transition,
+    AwbwVisibility, CAPTURE_REQUIRED_POINTS, Concealment, DrawReason, Location, Match,
+    ObserveError, ObservedTransition, Outcome, Phase, PlayerId, PlayerStatus, Pos, PowerState,
+    Reason, ReasonId, Silo, State, StateInvariant, TeamId, TeamStatus, TileOwner, Unit, UnitAction,
+    UnitId, VictoryReason, observe_transition,
 };
 
 use crate::targeting::{targeted_hidden, targeted_value, visible_targeted_unit, visible_unit};
@@ -214,7 +214,7 @@ fn apply_recorded(
                 if let Some(seat) = owner_seat {
                     tile.owner = TileOwner::Owned(seat);
                 }
-                tile.capture_points = Some(20);
+                tile.capture_points = Some(CAPTURE_REQUIRED_POINTS);
             } else {
                 tile.capture_points = Some(remaining);
             }
@@ -544,7 +544,7 @@ fn apply_move(
         && let Some(tile) = prior.and_then(|position| state.board.get_mut(position))
         && tile.capture_points.is_some()
     {
-        tile.capture_points = Some(20);
+        tile.capture_points = Some(CAPTURE_REQUIRED_POINTS);
     }
     Ok(())
 }
@@ -1099,9 +1099,9 @@ fn remove_unit(state: &mut State, id: UnitId) -> Result<(), RecordedAdapterError
             .board
             .get(position)
             .and_then(|tile| tile.capture_points)
-            .is_some_and(|points| points < 20)
+            .is_some_and(|points| points < CAPTURE_REQUIRED_POINTS)
     {
-        state.board.tile_mut(position).capture_points = Some(20);
+        state.board.tile_mut(position).capture_points = Some(CAPTURE_REQUIRED_POINTS);
     }
     let cargo = state
         .units

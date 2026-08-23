@@ -10,7 +10,7 @@ use super::*;
 use crate::commander::AreaStrikePolicy;
 use crate::event::Event;
 use crate::ruleset::{MISSILE_SILO_STRIKE, UNIT_EXPLOSION, UnitKind};
-use crate::semantic::{KnownReason, Pos, Silo, UnitId, VictoryReason};
+use crate::semantic::{CAPTURE_REQUIRED_POINTS, KnownReason, Pos, Silo, UnitId, VictoryReason};
 use crate::violation::{Action, Violation};
 
 #[derive(Debug)]
@@ -290,9 +290,9 @@ pub(super) fn execute_prepared_delete(
         .board
         .tile(position)
         .capture_points
-        .filter(|points| *points < 20)
+        .filter(|points| *points < CAPTURE_REQUIRED_POINTS)
     {
-        next.board.tile_mut(position).capture_points = Some(20);
+        next.board.tile_mut(position).capture_points = Some(CAPTURE_REQUIRED_POINTS);
         events.push(Event::CaptureChanged {
             position,
             from: before,

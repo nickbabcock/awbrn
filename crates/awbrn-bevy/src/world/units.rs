@@ -55,7 +55,7 @@ pub struct UnitActive;
 pub struct CaptureProgress(u8);
 
 impl CaptureProgress {
-    pub const REQUIRED: u8 = 20;
+    pub const REQUIRED: u8 = awvm::semantic::CAPTURE_REQUIRED_POINTS;
 
     pub const fn new(value: u8) -> Option<Self> {
         if value < Self::REQUIRED {

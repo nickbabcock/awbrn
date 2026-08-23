@@ -39,10 +39,6 @@ impl BackdropTexturesResource {
     }
 }
 
-const TERRAIN_TILE_WIDTH: u32 = 16;
-const TERRAIN_TILE_HEIGHT: u32 = 32;
-const BACKDROP_TILE_SIZE: u32 = 16;
-
 pub(crate) fn setup_terrain_atlas(
     mut commands: Commands,
     asset_loader: ClientAssetLoader,
@@ -50,7 +46,10 @@ pub(crate) fn setup_terrain_atlas(
 ) {
     let texture = asset_loader.load_terrain_texture();
     let layout = texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
-        UVec2::new(16, 32),
+        UVec2::new(
+            awbrn_content::TERRAIN_SPRITE_WIDTH,
+            awbrn_content::TERRAIN_SPRITE_HEIGHT,
+        ),
         awbrn_content::TILESHEET_COLUMNS,
         awbrn_content::TILESHEET_ROWS,
         None,
@@ -219,12 +218,7 @@ fn insert_terrain_visual(
 }
 
 fn extract_plain_backdrop_image(source: &Image, weather: awbrn_types::Weather) -> Image {
-    let sprite_index = awbrn_content::spritesheet_index(weather, GraphicalTerrain::Plain).index();
-    let columns = awbrn_content::TILESHEET_COLUMNS;
-    let col = u32::from(sprite_index) % columns;
-    let row = u32::from(sprite_index) / columns;
-    let base_x = col * TERRAIN_TILE_WIDTH;
-    let base_y = row * TERRAIN_TILE_HEIGHT + (TERRAIN_TILE_HEIGHT - BACKDROP_TILE_SIZE);
+    let backdrop = awbrn_content::plain_backdrop_rect(weather);
     let source_width = source.texture_descriptor.size.width as usize;
     let pixel_size = source
         .texture_descriptor
@@ -236,21 +230,21 @@ fn extract_plain_backdrop_image(source: &Image, weather: awbrn_types::Weather) -
         .as_ref()
         .expect("terrain atlas image should have CPU-side pixel data");
     let row_stride = source_width * pixel_size;
-    let copy_width = BACKDROP_TILE_SIZE as usize * pixel_size;
+    let copy_width = backdrop.width as usize * pixel_size;
 
-    let mut data =
-        Vec::with_capacity((BACKDROP_TILE_SIZE * BACKDROP_TILE_SIZE) as usize * pixel_size);
+    let mut data = Vec::with_capacity((backdrop.width * backdrop.height) as usize * pixel_size);
 
-    for y in 0..BACKDROP_TILE_SIZE {
-        let row_start = (base_y as usize + y as usize) * row_stride + base_x as usize * pixel_size;
+    for y in 0..backdrop.height {
+        let row_start =
+            (backdrop.y as usize + y as usize) * row_stride + backdrop.x as usize * pixel_size;
         let row_end = row_start + copy_width;
         data.extend_from_slice(&source_data[row_start..row_end]);
     }
 
     let mut image = Image::new(
         Extent3d {
-            width: BACKDROP_TILE_SIZE,
-            height: BACKDROP_TILE_SIZE,
+            width: backdrop.width,
+            height: backdrop.height,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
@@ -536,15 +530,17 @@ mod tests {
     fn extracts_plain_backdrop_tile_from_bottom_of_atlas_cell() {
         let mut atlas = Image::new(
             Extent3d {
-                width: TERRAIN_TILE_WIDTH * awbrn_content::TILESHEET_COLUMNS,
-                height: TERRAIN_TILE_HEIGHT,
+                width: awbrn_content::TERRAIN_SPRITE_WIDTH * awbrn_content::TILESHEET_COLUMNS,
+                height: awbrn_content::TERRAIN_SPRITE_HEIGHT,
                 depth_or_array_layers: 1,
             },
             TextureDimension::D2,
             vec![
                 0;
-                (TERRAIN_TILE_WIDTH * awbrn_content::TILESHEET_COLUMNS * TERRAIN_TILE_HEIGHT * 4)
-                    as usize
+                (awbrn_content::TERRAIN_SPRITE_WIDTH
+                    * awbrn_content::TILESHEET_COLUMNS
+                    * awbrn_content::TERRAIN_SPRITE_HEIGHT
+                    * 4) as usize
             ],
             bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
             RenderAssetUsages::default(),
@@ -553,10 +549,10 @@ mod tests {
         let plain_index =
             awbrn_content::spritesheet_index(Weather::Clear, GraphicalTerrain::Plain).index();
         let col = u32::from(plain_index) % awbrn_content::TILESHEET_COLUMNS;
-        let x = col * TERRAIN_TILE_WIDTH;
+        let x = col * awbrn_content::TERRAIN_SPRITE_WIDTH;
 
-        for y in 0..TERRAIN_TILE_HEIGHT {
-            for dx in 0..TERRAIN_TILE_WIDTH {
+        for y in 0..awbrn_content::TERRAIN_SPRITE_HEIGHT {
+            for dx in 0..awbrn_content::TERRAIN_SPRITE_WIDTH {
                 let pixel = atlas
                     .pixel_bytes_mut(UVec3::new(x + dx, y, 0))
                     .expect("pixel should be writable");
@@ -566,8 +562,14 @@ mod tests {
 
         let image = extract_plain_backdrop_image(&atlas, Weather::Clear);
 
-        assert_eq!(image.texture_descriptor.size.width, BACKDROP_TILE_SIZE);
-        assert_eq!(image.texture_descriptor.size.height, BACKDROP_TILE_SIZE);
+        assert_eq!(
+            image.texture_descriptor.size.width,
+            awbrn_content::TILE_SIZE
+        );
+        assert_eq!(
+            image.texture_descriptor.size.height,
+            awbrn_content::TILE_SIZE
+        );
         assert_eq!(
             image
                 .pixel_bytes(UVec3::new(0, 0, 0))
@@ -576,7 +578,7 @@ mod tests {
         );
         assert_eq!(
             image
-                .pixel_bytes(UVec3::new(0, BACKDROP_TILE_SIZE - 1, 0))
+                .pixel_bytes(UVec3::new(0, awbrn_content::TILE_SIZE - 1, 0))
                 .expect("cropped pixel should exist"),
             &[10, 31, 20, 255]
         );

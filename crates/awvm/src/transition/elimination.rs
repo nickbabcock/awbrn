@@ -89,8 +89,11 @@ pub(crate) fn eliminate_player(
             .expect("elimination unit remains present until its pass");
         if let Some(position) = board_position(&state.units[unit_index]) {
             let tile = &mut state.board.tile_mut(position);
-            if let Some(before) = tile.capture_points.filter(|points| *points < 20) {
-                tile.capture_points = Some(20);
+            if let Some(before) = tile
+                .capture_points
+                .filter(|points| *points < crate::semantic::CAPTURE_REQUIRED_POINTS)
+            {
+                tile.capture_points = Some(crate::semantic::CAPTURE_REQUIRED_POINTS);
                 events.push(Event::CaptureChanged {
                     position,
                     from: before,
@@ -124,8 +127,11 @@ pub(crate) fn eliminate_player(
     }
     for position in properties {
         let tile = state.board.tile_mut(position);
-        if let Some(before) = tile.capture_points.filter(|points| *points < 20) {
-            tile.capture_points = Some(20);
+        if let Some(before) = tile
+            .capture_points
+            .filter(|points| *points < crate::semantic::CAPTURE_REQUIRED_POINTS)
+        {
+            tile.capture_points = Some(crate::semantic::CAPTURE_REQUIRED_POINTS);
             events.push(Event::CaptureChanged {
                 position,
                 from: before,
