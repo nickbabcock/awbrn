@@ -171,18 +171,30 @@ fn income(state: &State, seat: PlayerIdx) -> u64 {
 mod tests {
     use super::*;
     use crate::agent::Agent;
-    use crate::agents::GreedyAgent;
+    use crate::agents::{GreedyAgent, Weights};
     use crate::board::arena;
     use crate::harness::{Limits, play_measured};
     use crate::rng::Rng;
     use awvm::session::Session;
 
+    /// Keep this fixture's combat shape independent of the live tuning
+    /// baseline. The assertions below test accounting, not which doctrine
+    /// wins Amber Valley.
+    const SHAPE_WEIGHTS: Weights = Weights {
+        hq_approach: 2_000.0,
+        capture_completion: 0.8,
+        capture_two_turn: 0.5,
+        proximity_decay: 0.75,
+        capturer_shortfall: 150.0,
+        ..Weights::DEFAULT
+    };
+
     /// Play one arena game between two greedy agents.
     fn game(fog: bool, seed: u64) -> crate::harness::Record {
         let mut session = Session::new(arena(fog, seed));
         let mut entropy = Rng::from_seed(seed);
-        let mut first = GreedyAgent::from_seed(seed ^ 0x2);
-        let mut second = GreedyAgent::from_seed(seed ^ 0x3);
+        let mut first = GreedyAgent::with_weights(seed ^ 0x2, SHAPE_WEIGHTS);
+        let mut second = GreedyAgent::with_weights(seed ^ 0x3, SHAPE_WEIGHTS);
         let mut agents: [&mut dyn Agent; 2] = [&mut first, &mut second];
         play_measured(
             arena(fog, seed),
