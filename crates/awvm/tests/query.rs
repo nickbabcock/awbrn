@@ -18,7 +18,6 @@ use awvm::combat::DamageRange;
 use awvm::conformance::fixture_documents;
 use awvm::prelude::*;
 use awvm::query::{self, can_act};
-use awvm::random::RandomTape;
 use awvm::semantic::{CellIdx, KnownReason, Location, Reason, Roster, RulesetRevision, UnitAction};
 use serde_json::Value;
 

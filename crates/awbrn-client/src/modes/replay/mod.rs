@@ -8,6 +8,7 @@ use crate::core::{AppState, GameMode};
 use awbrn_bevy::replay::{ReplayViewpoint, refresh_viewer_visibility};
 use bevy::prelude::*;
 
+#[derive(Debug)]
 pub struct ReplayPlugin;
 
 impl Plugin for ReplayPlugin {

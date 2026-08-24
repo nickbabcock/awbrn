@@ -3,6 +3,9 @@ name = "awbrn-bevy"
 version = "0.1.0"
 edition = "2024"
 
+[lints]
+workspace = true
+
 [dependencies]
 awbrn-map = { path = "../awbrn-map", features = ["bevy"] }
 awbrn-types = { path = "../awbrn-types", features = ["bevy"] }

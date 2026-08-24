@@ -5,11 +5,8 @@
 
 use super::ReducerError as ExecuteError;
 use super::*;
-use crate::event::Event;
-use crate::ruleset::{self, KnownReason, VictoryReason};
-use crate::semantic::{
-    Outcome, PlayerId, PlayerIdx, PlayerStatus, Pos, State, TeamStatus, TileOwner,
-};
+use crate::ruleset::{self, VictoryReason};
+use crate::semantic::{PlayerStatus, TeamStatus, TileOwner};
 
 pub(crate) fn eliminate_player(
     state: &mut State,

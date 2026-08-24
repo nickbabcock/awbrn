@@ -312,6 +312,7 @@ pub(crate) fn project_terrain_render_state(
     }
 }
 
+#[derive(Debug)]
 pub struct ClientProjectionPlugin;
 
 impl Plugin for ClientProjectionPlugin {
@@ -345,7 +346,7 @@ mod tests {
     use awbrn_bevy::world::GameMap;
     use awbrn_map::AwbrnMap;
     use awbrn_map::Dimensions;
-    use awbrn_types::{AwbwGamePlayerId, PlayerFaction, Property};
+    use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
 
     /// A fogged property keeps the owner the viewer last saw on it.
     ///
@@ -435,7 +436,7 @@ mod tests {
             let mut visibility = app.world_mut().resource_mut::<ViewerVisibility>();
             visibility.reset(true, awbrn_map::Dimensions::new(1, 1));
             visibility.set_unit_visible(seen);
-        }
+        };
         app.update();
 
         let mut query = app

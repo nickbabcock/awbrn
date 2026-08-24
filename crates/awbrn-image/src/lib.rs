@@ -38,6 +38,7 @@ pub enum RenderError {
 }
 
 /// The sprite atlases needed to render a map.
+#[derive(Debug)]
 pub struct Tilesets {
     /// Terrain / property spritesheet (`tiles.png`).
     pub tiles: RgbaImage,

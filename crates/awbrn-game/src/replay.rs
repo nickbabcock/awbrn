@@ -20,9 +20,9 @@ impl From<CommandError> for ReplayEventError {
 }
 
 impl std::fmt::Display for ReplayEventError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Command(error) => write!(formatter, "{error}"),
+            Self::Command(error) => write!(f, "{error}"),
         }
     }
 }

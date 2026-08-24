@@ -7,13 +7,9 @@
 use super::ReducerError as ExecuteError;
 use super::*;
 use crate::commander::{self};
-use crate::event::Event;
-use crate::ruleset::{self, TerrainTrait, UnitKind};
-use crate::semantic::{
-    Concealment, KnownReason, Location, Outcome, PlayerIdx, Pos, State, TerrainId, TileOwner, Unit,
-    UnitAction, UnitId, VictoryReason,
-};
-use crate::violation::{Action, Violation};
+use crate::ruleset::{self, TerrainTrait};
+use crate::semantic::{TileOwner, UnitAction, VictoryReason};
+use crate::violation::Action;
 
 #[derive(Debug)]
 pub(super) struct Capture;
@@ -218,14 +214,11 @@ pub(crate) fn player_owns_lab(state: &State, seat: PlayerIdx) -> bool {
 impl<'a> DestinationAction<'a> for Capture {
     type Proof = CaptureProof;
 
-    fn validate<M>(
-        &self,
-        destination: &PreparedDestination<'a, M>,
-    ) -> Result<Self::Proof, ExecuteError>
+    fn validate<M>(&self, at: &PreparedDestination<'a, M>) -> Result<Self::Proof, ExecuteError>
     where
         M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
     {
-        let movement = destination.movement();
+        let movement = at.movement();
         let state = movement.state();
         let plan = movement.plan();
         let unit = &state.units[plan.unit_index()];
@@ -251,7 +244,7 @@ impl<'a> DestinationAction<'a> for Capture {
                 target: Some(position.into()),
             }));
         }
-        let available_destination = destination.available_destination()?;
+        let available_destination = at.available_destination()?;
 
         let strength =
             commander::effective_capture_points(state, unit, u64::from(unit.hp.div_ceil(10)));

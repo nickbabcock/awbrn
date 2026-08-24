@@ -1234,8 +1234,8 @@ mod tests {
     use crate::combat::Weapon;
     use crate::event::{EventKind, SupplySource};
     use crate::semantic::{
-        AwbwVisibility, Board, Concealment, KnownReason, ObservedEvent, ObservedUnitRef,
-        PlayerStatus, ReasonId, Silo, Tile, TileOwner, UnitAction, VictoryReason, Visibility,
+        AwbwVisibility, Board, ObservedEvent, ObservedUnitRef, PlayerStatus, ReasonId, Silo, Tile,
+        TileOwner, UnitAction, VictoryReason, Visibility,
     };
     use crate::violation::Action;
     use serde_json::{Value, json};
@@ -1316,7 +1316,7 @@ mod tests {
         let base = movement_state(3);
         let red = PlayerId::from("red");
         let blue = PlayerId::from("blue");
-        assert!(ActiveTurn::opened(&base, &red).is_ok());
+        ActiveTurn::opened(&base, &red).unwrap();
 
         let mut wrong_ruleset = base.clone();
         wrong_ruleset.ruleset.revision = "1999-01-01".into();
@@ -1383,7 +1383,7 @@ mod tests {
     fn planning_a_move_rejects_every_malformed_path() {
         let state = movement_state(4);
         let origin = Pos::new(0, 0);
-        assert!(plan_for(&state, vec![origin, Pos::new(1, 0)]).is_ok());
+        plan_for(&state, vec![origin, Pos::new(1, 0)]).unwrap();
 
         assert_eq!(
             plan_for(&state, vec![Pos::new(1, 0), Pos::new(2, 0)]).unwrap_err(),

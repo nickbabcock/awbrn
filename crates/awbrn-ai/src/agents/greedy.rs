@@ -502,6 +502,7 @@ impl Default for Weights {
     }
 }
 
+#[derive(Debug)]
 pub struct GreedyAgent {
     /// Ties are common — a mirror board answers the same score from two
     /// tiles — and breaking them the same way every time makes an agent that
@@ -590,6 +591,7 @@ impl GreedyAgent {
 /// The board holds at most a handful of distinct weights, so this is a
 /// handful of searches rather than one for each of the thirty-eight
 /// properties.
+#[derive(Debug)]
 struct CaptureFields {
     /// One field for each movement class, filled only for those that capture
     /// and only while our side holds a unit of the class.
@@ -629,7 +631,7 @@ struct CaptureFields {
 /// Those are the whole input of the loop below. Comparing them costs a walk
 /// over the board and a handful of positions, against the several full
 /// searches it decides not to run.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Built {
     allowance: u16,
     costs: Vec<Option<u16>>,
@@ -804,6 +806,7 @@ impl CaptureFields {
 /// It is rebuilt only when the army it reads moves. Most commands change
 /// nobody's roster, and the table is `UnitKind::COUNT` rows over the kinds
 /// the enemy fields.
+#[derive(Debug)]
 struct CounterTable {
     /// The enemy roster this was built from: one entry for each kind they
     /// field, holding the health of all of them as a share of a whole unit.
@@ -1648,7 +1651,6 @@ impl Scorer<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::Play;
     use crate::board::{amber_valley, arena};
     use awvm::ruleset::WeatherKind;
     use awvm::semantic::{AwbwVisibility, Concealment, UnitAction, UnitId, observe};
@@ -1758,8 +1760,8 @@ mod tests {
                 &mut agents,
                 &mut entropy,
                 crate::harness::Limits::DEFAULT,
-            );
-        }
+            )
+        };
 
         assert!(
             checker.compared > 50,

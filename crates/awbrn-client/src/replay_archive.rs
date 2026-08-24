@@ -17,7 +17,7 @@ pub struct AwbrnReplayPlayer {
     pub co_id: u32,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AwbrnReplaySetup {
     pub match_id: String,
@@ -30,7 +30,7 @@ pub struct AwbrnReplaySetup {
     pub rng_seed: Option<u64>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct AwbrnReplayFile {
     pub version: u32,
     pub setup: AwbrnReplaySetup,
@@ -85,6 +85,12 @@ pub enum ReplayArchive {
     Awbrn(AwbrnReplayFile),
 }
 
+impl std::fmt::Debug for ReplayArchive {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReplayArchive").finish_non_exhaustive()
+    }
+}
+
 impl ReplayArchive {
     pub fn parse(data: &[u8]) -> Result<Self, String> {
         if data
@@ -130,6 +136,12 @@ pub enum ReplayTimeline {
         setup: GameSetup,
         current: Box<Authority>,
     },
+}
+
+impl std::fmt::Debug for ReplayTimeline {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReplayTimeline").finish_non_exhaustive()
+    }
 }
 
 impl From<awvm_awbw::RecordedAdapter> for ReplayTimeline {

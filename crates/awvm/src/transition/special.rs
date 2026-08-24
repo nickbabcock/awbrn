@@ -8,10 +8,9 @@
 use super::ReducerError as ExecuteError;
 use super::*;
 use crate::commander::AreaStrikePolicy;
-use crate::event::Event;
-use crate::ruleset::{MISSILE_SILO_STRIKE, UNIT_EXPLOSION, UnitKind};
-use crate::semantic::{CAPTURE_REQUIRED_POINTS, KnownReason, Pos, Silo, UnitId, VictoryReason};
-use crate::violation::{Action, Violation};
+use crate::ruleset::{MISSILE_SILO_STRIKE, UNIT_EXPLOSION};
+use crate::semantic::{CAPTURE_REQUIRED_POINTS, Silo, VictoryReason};
+use crate::violation::Action;
 
 #[derive(Debug)]
 pub(super) struct Launch(pub(super) Pos);
@@ -74,15 +73,12 @@ where
 impl<'a> DestinationAction<'a> for Launch {
     type Proof = LaunchProof;
 
-    fn validate<M>(
-        &self,
-        destination: &PreparedDestination<'a, M>,
-    ) -> Result<Self::Proof, ExecuteError>
+    fn validate<M>(&self, at: &PreparedDestination<'a, M>) -> Result<Self::Proof, ExecuteError>
     where
         M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
     {
         let target = self.0;
-        let state = destination.movement().state();
+        let state = at.movement().state();
         if target.x >= state.board.width() || target.y >= state.board.height() {
             return Err(violation(Violation::InvalidTarget {
                 target: Some(target.into()),
@@ -90,7 +86,7 @@ impl<'a> DestinationAction<'a> for Launch {
         }
         Ok(LaunchProof {
             target,
-            destination: launch_preflight(destination)?,
+            destination: launch_preflight(at)?,
         })
     }
 
@@ -176,14 +172,11 @@ pub(super) fn execute_prepared_launch(
 impl<'a> DestinationAction<'a> for Explode {
     type Proof = ExplodeProof;
 
-    fn validate<M>(
-        &self,
-        destination: &PreparedDestination<'a, M>,
-    ) -> Result<Self::Proof, ExecuteError>
+    fn validate<M>(&self, at: &PreparedDestination<'a, M>) -> Result<Self::Proof, ExecuteError>
     where
         M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
     {
-        let movement = destination.movement();
+        let movement = at.movement();
         let state = movement.state();
         let plan = movement.plan();
         let unit = &state.units[plan.unit_index()];
@@ -192,7 +185,7 @@ impl<'a> DestinationAction<'a> for Explode {
                 action: Action::MoveExplode,
             }));
         }
-        Ok(ExplodeProof(destination.available_destination()?))
+        Ok(ExplodeProof(at.available_destination()?))
     }
 
     fn into_kind(bound: MovementAction<'a, Self::Proof>) -> PreparedCommandKind<'a> {

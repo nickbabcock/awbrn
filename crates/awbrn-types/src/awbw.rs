@@ -97,38 +97,38 @@ impl<'de> Deserialize<'de> for AwbwUnitId {
                 formatter.write_str("a number or numeric string")
             }
 
-            fn visit_u32<E>(self, value: u32) -> Result<Self::Value, E>
+            fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                Ok(AwbwUnitId::new(value))
+                Ok(AwbwUnitId::new(v))
             }
 
-            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                let val = u32::try_from(value)
-                    .map_err(|_| E::custom(format!("Unit ID out of range: {}", value)))?;
+                let val = u32::try_from(v)
+                    .map_err(|_| E::custom(format!("Unit ID out of range: {}", v)))?;
                 Ok(AwbwUnitId::new(val))
             }
 
-            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                let val = u32::try_from(value)
-                    .map_err(|_| E::custom(format!("Unit ID out of range: {}", value)))?;
+                let val = u32::try_from(v)
+                    .map_err(|_| E::custom(format!("Unit ID out of range: {}", v)))?;
                 Ok(AwbwUnitId::new(val))
             }
 
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                let val = value
+                let val = v
                     .parse::<u32>()
-                    .map_err(|_| E::custom(format!("Invalid unit ID: {}", value)))?;
+                    .map_err(|_| E::custom(format!("Invalid unit ID: {}", v)))?;
                 Ok(AwbwUnitId::new(val))
             }
         }

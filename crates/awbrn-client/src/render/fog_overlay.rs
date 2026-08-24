@@ -6,7 +6,7 @@ use crate::features::visibility::ViewerVisibility;
 use awbrn_bevy::world::GameMap;
 use awbrn_content::FOG_OVERLAY_ALPHA;
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct FogOverlayTile;
 
 #[derive(Component)]
@@ -67,6 +67,7 @@ fn update_fog_overlay(
     }
 }
 
+#[derive(Debug)]
 pub struct FogOverlayPlugin;
 
 impl Plugin for FogOverlayPlugin {

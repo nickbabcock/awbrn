@@ -3,6 +3,9 @@ name = "awbrn-game"
 version = "0.1.0"
 edition = "2024"
 
+[lints]
+workspace = true
+
 [features]
 default = []
 typescript = ["dep:tsify", "dep:wasm-bindgen"]

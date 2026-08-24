@@ -17,6 +17,7 @@ use crate::player::PlayerId as ServerPlayerId;
 use crate::unit_id::ServerUnitId;
 use crate::{GameSetup, SetupError, faction_players, state_from_setup};
 
+#[derive(Debug)]
 pub struct Authority {
     state: State,
     entropy: Recording<GameRng>,
@@ -26,6 +27,7 @@ pub struct Authority {
     map: AwbrnMap,
 }
 
+#[derive(Debug)]
 pub struct AcceptedTransition {
     pub prior: State,
     pub events: Vec<Event>,
@@ -426,7 +428,7 @@ fn command_unit_id(id: u64) -> Result<UnitId, CommandError> {
 /// The entropy an authority draws from.
 ///
 /// A seed gives one tape, and the tape is what a replay repeats.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct GameRng {
     state: u64,
 }

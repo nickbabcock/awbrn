@@ -66,6 +66,7 @@ fn apply_player_display_faction_commands(
     }
 }
 
+#[derive(Debug)]
 pub struct PlayerDisplayPlugin;
 
 impl Plugin for PlayerDisplayPlugin {

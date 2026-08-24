@@ -332,21 +332,16 @@ impl<T> Default for Grid<T> {
 impl<T> Index<Pos> for Grid<T> {
     type Output = T;
 
-    fn index(&self, position: Pos) -> &T {
-        self.get(position).unwrap_or_else(|| {
-            panic!(
-                "{position} is off a {}x{} grid",
-                self.width(),
-                self.height()
-            )
-        })
+    fn index(&self, index: Pos) -> &T {
+        self.get(index)
+            .unwrap_or_else(|| panic!("{index} is off a {}x{} grid", self.width(), self.height()))
     }
 }
 
 impl<T> IndexMut<Pos> for Grid<T> {
-    fn index_mut(&mut self, position: Pos) -> &mut T {
+    fn index_mut(&mut self, index: Pos) -> &mut T {
         let (width, height) = (self.width(), self.height());
-        self.get_mut(position)
-            .unwrap_or_else(|| panic!("{position} is off a {width}x{height} grid"))
+        self.get_mut(index)
+            .unwrap_or_else(|| panic!("{index} is off a {width}x{height} grid"))
     }
 }

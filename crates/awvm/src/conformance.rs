@@ -71,6 +71,7 @@ pub trait Peer {
 }
 
 /// An external adapter driven over the JSON Lines protocol.
+#[derive(Debug)]
 pub struct Subprocess {
     child: Child,
     input: BufWriter<ChildStdin>,
@@ -124,7 +125,7 @@ impl Peer for Subprocess {
 /// The request is serialized and handed to [`crate::protocol::handle`] rather
 /// than dispatched directly to `execute`/`observe`, so that a fixture run
 /// exercises the same decoding an external adapter would.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct InProcess;
 
 impl Peer for InProcess {

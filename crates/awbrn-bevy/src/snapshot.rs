@@ -3,13 +3,10 @@ use std::error::Error;
 use std::fmt;
 
 use bevy::ecs::entity::EntityHashMap;
-use bevy::ecs::reflect::AppTypeRegistry;
 use bevy::prelude::*;
+use bevy::reflect::TypeRegistry;
 use bevy::reflect::serde::{ReflectSerializerProcessor, TypedReflectSerializer};
-use bevy::reflect::{PartialReflect, TypeRegistry};
-use bevy::world_serialization::{
-    DynamicEntity, DynamicWorld, DynamicWorldBuilder, WorldFilter, WorldInstanceSpawnError,
-};
+use bevy::world_serialization::{DynamicEntity, WorldInstanceSpawnError};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -44,6 +41,16 @@ pub struct GameSnapshot {
     pub day: u32,
     pub active_player_id: Option<awbrn_types::AwbwGamePlayerId>,
     pub scene: DynamicWorld,
+}
+
+impl std::fmt::Debug for GameSnapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GameSnapshot")
+            .field("next_action_index", &self.next_action_index)
+            .field("day", &self.day)
+            .field("active_player_id", &self.active_player_id)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -113,6 +120,7 @@ impl fmt::Display for GameSnapshotError {
 
 impl Error for GameSnapshotError {}
 
+#[derive(Debug)]
 pub struct GameSnapshotPlugin;
 
 impl Plugin for GameSnapshotPlugin {
@@ -615,13 +623,10 @@ mod tests {
             "ReplayState"
         );
     }
-    use crate::replay::ReplayState;
-    use crate::world::{Ammo, Faction, Fuel, GameMap, TerrainHp, Unit, UnitActive, VisionRange};
-    use crate::{GameWorldPlugin, MapPosition};
+    use crate::GameWorldPlugin;
+    use crate::world::GameMap;
     use awbrn_map::{AwbrnMap, Dimensions};
     use awbrn_types::{AwbwGamePlayerId, GraphicalTerrain, PlayerFaction};
-    use bevy::app::App;
-    use bevy::ecs::reflect::AppTypeRegistry;
     use bevy::{ecs::entity::MapEntities, ecs::reflect::ReflectMapEntities};
 
     #[derive(Component, Reflect, MapEntities)]

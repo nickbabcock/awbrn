@@ -128,6 +128,7 @@ fn on_map_position_replace_in_board_index(
 }
 
 /// Initializes the headless semantic ECS world used by clients and tests.
+#[derive(Debug)]
 pub struct GameWorldPlugin;
 
 impl Plugin for GameWorldPlugin {

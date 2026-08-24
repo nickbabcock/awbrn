@@ -242,6 +242,7 @@ fn awvm_kind(kind: ServerUnit) -> UnitKind {
 }
 
 /// A server and the command to submit against it.
+#[derive(Debug)]
 pub struct Submission {
     pub server: GameServer,
     pub player: PlayerId,
@@ -249,7 +250,7 @@ pub struct Submission {
 }
 
 /// Which of the three command shapes a case measures.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Kind {
     /// The cheapest accepted command: validate, move, rebuild fog twice.
     Move,

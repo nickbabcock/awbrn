@@ -34,6 +34,7 @@ pub const CASES: &[(&str, &str)] = &[
 
 /// A fixture's initial state and first step, already decoded, so the benchmark
 /// measures `execute` rather than deserialization.
+#[derive(Debug)]
 pub struct Case {
     pub state: State,
     pub command: Value,
@@ -63,6 +64,7 @@ pub fn run(case: &Case) -> usize {
 
 /// One command already executed, so the projection benchmarks measure `observe`
 /// rather than the reducer that produced their inputs.
+#[derive(Debug)]
 pub struct Projected {
     pub state: State,
     pub next_state: State,

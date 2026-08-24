@@ -392,9 +392,9 @@ fn render_vocabulary(vocabulary: &Vocabulary, out: &mut String) {
     let _ = writeln!(out, "impl fmt::Display for {name} {{");
     let _ = writeln!(
         out,
-        "    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {{"
+        "    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {{"
     );
-    let _ = writeln!(out, "        formatter.write_str(self.as_str())");
+    let _ = writeln!(out, "        f.write_str(self.as_str())");
     let _ = writeln!(out, "    }}");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);

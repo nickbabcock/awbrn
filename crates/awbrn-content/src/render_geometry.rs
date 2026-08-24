@@ -190,7 +190,7 @@ pub fn unit_overlay_spec(overlay: UnitOverlay) -> Option<UnitOverlaySpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use awbrn_types::{VisualHp, Weather};
+    use awbrn_types::VisualHp;
 
     #[test]
     fn atlas_rectangles_include_grid_padding_and_offsets() {

@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+[lints]
+workspace = true
+
 # The opponent. It depends on `awvm` and on the map crate that builds a
 # starting position from one, and on nothing else: every tier above the first
 # one runs headless self-play, and a dependency on the client would put a

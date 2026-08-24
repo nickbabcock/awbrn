@@ -42,22 +42,22 @@ impl TerrainKnowledge {
 impl Index<Pos> for TerrainKnowledge {
     type Output = GraphicalTerrain;
 
-    fn index(&self, position: Pos) -> &Self::Output {
-        &self.terrain[position]
+    fn index(&self, index: Pos) -> &Self::Output {
+        &self.terrain[index]
     }
 }
 
 impl Index<&Pos> for TerrainKnowledge {
     type Output = GraphicalTerrain;
 
-    fn index(&self, position: &Pos) -> &Self::Output {
-        &self.terrain[*position]
+    fn index(&self, index: &Pos) -> &Self::Output {
+        &self.terrain[*index]
     }
 }
 
 impl IndexMut<Pos> for TerrainKnowledge {
-    fn index_mut(&mut self, position: Pos) -> &mut Self::Output {
-        &mut self.terrain[position]
+    fn index_mut(&mut self, index: Pos) -> &mut Self::Output {
+        &mut self.terrain[index]
     }
 }
 

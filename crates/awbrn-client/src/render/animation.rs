@@ -217,6 +217,7 @@ pub(crate) fn animate_terrain(
     }
 }
 
+#[derive(Debug)]
 pub struct AnimationPlugin;
 
 impl Plugin for AnimationPlugin {

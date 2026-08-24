@@ -1749,8 +1749,8 @@ mod tests {
         );
 
         // Test deserializing invalid values
-        assert!(from_str::<AwbwTerrain>("0").is_err());
-        assert!(from_str::<AwbwTerrain>("999").is_err());
+        from_str::<AwbwTerrain>("0").unwrap_err();
+        from_str::<AwbwTerrain>("999").unwrap_err();
     }
 
     #[test]
@@ -1787,6 +1787,6 @@ mod tests {
         // Test error handling with invalid terrain
         let json = r#"{"terrain":999,"x":5,"y":10}"#;
         let result: Result<TerrainCell, _> = from_str(json);
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 }

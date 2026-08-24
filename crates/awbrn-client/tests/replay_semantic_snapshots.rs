@@ -12,7 +12,6 @@ use awbrn_client::modes::replay::presentation::{
 use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
 use awbw_replay::ReplayParser;
 use awvm_awbw::RecordedAdapter;
-use bevy::ecs::reflect::AppTypeRegistry;
 use bevy::prelude::*;
 use highway::HighwayHash;
 use insta::assert_json_snapshot;

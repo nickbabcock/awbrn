@@ -3,6 +3,9 @@ name = "xtask-assets"
 version = "0.1.0"
 edition = "2024"
 
+[lints]
+workspace = true
+
 [dependencies]
 anyhow.workspace = true
 awbrn-types = { path = "../awbrn-types" }

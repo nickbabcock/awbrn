@@ -130,12 +130,12 @@ where
     impl<T: FromStr<Err = AwbwTimeError>> serde::de::Visitor<'_> for AwbwStr<T> {
         type Value = T;
 
-        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.write_str("an AWBW date or timestamp")
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("an AWBW date or timestamp")
         }
 
-        fn visit_str<E: serde::de::Error>(self, raw: &str) -> Result<T, E> {
-            raw.parse().map_err(E::custom)
+        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<T, E> {
+            v.parse().map_err(E::custom)
         }
     }
 

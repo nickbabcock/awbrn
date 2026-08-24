@@ -4,6 +4,7 @@ use bevy::prelude::TypePath;
 use serde_json::from_slice;
 use std::marker::PhantomData;
 
+#[derive(Debug)]
 pub struct JsonAssetPlugin<A> {
     _type: PhantomData<A>,
 }
@@ -38,7 +39,7 @@ where
 }
 
 /// Loads your asset type `A` from json files
-#[derive(TypePath)]
+#[derive(Debug, TypePath)]
 pub struct JsonAssetLoader<A> {
     _type: PhantomData<A>,
 }

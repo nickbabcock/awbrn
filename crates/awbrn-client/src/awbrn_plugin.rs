@@ -41,6 +41,12 @@ pub struct AwbrnPlugin {
     static_asset_resolver: Arc<dyn StaticAssetPathResolver>,
 }
 
+impl std::fmt::Debug for AwbrnPlugin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AwbrnPlugin").finish_non_exhaustive()
+    }
+}
+
 impl AwbrnPlugin {
     pub fn new(map_resolver: Arc<dyn MapAssetPathResolver>) -> Self {
         Self {
@@ -72,8 +78,8 @@ impl Plugin for AwbrnPlugin {
         app.add_plugins((
             crate::core::CorePlugin,
             LoadingPlugin::new(
-                self.map_resolver.clone(),
-                self.static_asset_resolver.clone(),
+                Arc::clone(&self.map_resolver),
+                Arc::clone(&self.static_asset_resolver),
             ),
             crate::features::FeaturesPlugin,
             crate::projection::ClientProjectionPlugin,

@@ -8,12 +8,9 @@
 use super::ReducerError as ExecuteError;
 use super::*;
 use crate::commander::{self};
-use crate::event::Event;
 use crate::ruleset::{self, TerrainTrait};
-use crate::semantic::{
-    AwbwVisibility, Concealment, Location, Pos, State, UnitAction, UnitId, Visibility,
-};
-use crate::violation::{Action, Violation};
+use crate::semantic::{AwbwVisibility, UnitAction, Visibility};
+use crate::violation::Action;
 
 /// Move there and end the unit's turn.
 pub(super) struct Wait;
@@ -382,16 +379,13 @@ pub(crate) fn reset_capture_on_removal(state: &mut State, position: Pos, events:
 impl<'a> DestinationAction<'a> for Conceal {
     type Proof = ConcealProof;
 
-    fn validate<M>(
-        &self,
-        destination: &PreparedDestination<'a, M>,
-    ) -> Result<Self::Proof, ExecuteError>
+    fn validate<M>(&self, at: &PreparedDestination<'a, M>) -> Result<Self::Proof, ExecuteError>
     where
         M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
     {
         let target = self.0;
         let hide = target == Concealment::Hidden;
-        let movement = destination.movement();
+        let movement = at.movement();
         let state = movement.state();
         let plan = movement.plan();
         let original = &state.units[plan.unit_index()];
@@ -405,7 +399,7 @@ impl<'a> DestinationAction<'a> for Conceal {
                 },
             }));
         }
-        let available = destination.available_destination()?;
+        let available = at.available_destination()?;
         Ok(ConcealProof {
             target,
             destination: available,
@@ -456,14 +450,11 @@ pub(super) fn execute_prepared_concealment(
 impl<'a> DestinationAction<'a> for Wait {
     type Proof = WaitProof;
 
-    fn validate<M>(
-        &self,
-        destination: &PreparedDestination<'a, M>,
-    ) -> Result<Self::Proof, ExecuteError>
+    fn validate<M>(&self, at: &PreparedDestination<'a, M>) -> Result<Self::Proof, ExecuteError>
     where
         M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
     {
-        Ok(WaitProof(destination.available_destination()?))
+        Ok(WaitProof(at.available_destination()?))
     }
 
     fn into_kind(bound: MovementAction<'a, Self::Proof>) -> PreparedCommandKind<'a> {

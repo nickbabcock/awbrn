@@ -129,13 +129,13 @@ where
 
     /// Keeps the span until it exits, because a field can be recorded after the
     /// span is made.
-    fn new_span(&self, attributes: &Attributes<'_>) -> Id {
-        let metadata = attributes.metadata();
+    fn new_span(&self, span: &Attributes<'_>) -> Id {
+        let metadata = span.metadata();
         let State { scratch, spans } = &mut *self.state();
 
         scratch.clear();
         scratch.push_str(metadata.name());
-        attributes.record(&mut FieldVisitor::new(scratch));
+        span.record(&mut FieldVisitor::new(scratch));
 
         let id = spans.insert(SpanData {
             message: scratch.clone(),
@@ -169,17 +169,17 @@ where
         self.output.write(event.metadata().level(), scratch);
     }
 
-    fn clone_span(&self, span: &Id) -> Id {
-        if let Some(data) = self.state().spans.get_mut(span) {
+    fn clone_span(&self, id: &Id) -> Id {
+        if let Some(data) = self.state().spans.get_mut(id) {
             data.handles += 1;
         }
 
-        span.clone()
+        id.clone()
     }
 
-    fn try_close(&self, span: Id) -> bool {
+    fn try_close(&self, id: Id) -> bool {
         let mut state = self.state();
-        let Some(data) = state.spans.get_mut(&span) else {
+        let Some(data) = state.spans.get_mut(&id) else {
             return true;
         };
 
@@ -188,7 +188,7 @@ where
             return false;
         }
 
-        state.spans.remove(&span);
+        state.spans.remove(&id);
         true
     }
 

@@ -484,8 +484,8 @@ impl AwbrnMap {
 impl Index<Pos> for AwbrnMap {
     type Output = GraphicalTerrain;
 
-    fn index(&self, position: Pos) -> &Self::Output {
-        &self.terrain[position]
+    fn index(&self, index: Pos) -> &Self::Output {
+        &self.terrain[index]
     }
 }
 

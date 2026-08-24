@@ -6,7 +6,7 @@ use bevy::ecs::relationship::RelationshipSourceCollection;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 
-#[derive(EntityEvent)]
+#[derive(Debug, EntityEvent)]
 pub struct UnitDestroyed {
     pub entity: Entity,
 }

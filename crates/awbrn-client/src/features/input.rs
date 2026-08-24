@@ -17,20 +17,15 @@ use awbrn_bevy::world::{
 use awbrn_map::Pos;
 use awbrn_types::{GraphicalTerrain, UnitExt};
 use bevy::ecs::system::SystemParam;
-use bevy::input::{
-    ButtonState,
-    mouse::MouseButtonInput,
-    touch::{TouchInput, TouchPhase},
-};
+use bevy::input::{ButtonState, mouse::MouseButtonInput, touch::TouchPhase};
 use bevy::prelude::*;
-use bevy::window::CursorMoved;
 
 /// Component to mark the currently selected tile
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct SelectedTile;
 
 /// Marker component for the tile hover cursor sprite entity.
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct TileCursor;
 
 #[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
@@ -771,6 +766,7 @@ pub(crate) fn on_tile_selected(
     });
 }
 
+#[derive(Debug)]
 pub struct InputPlugin;
 
 impl Plugin for InputPlugin {
@@ -830,7 +826,7 @@ mod tests {
     use crate::projection::ProjectedUnitOverlayFlags;
     use awbrn_bevy::world::{CarriedBy, Hiding};
     use awbrn_map::Dimensions;
-    use awbrn_types::{GraphicalTerrain, PlayerFaction};
+    use awbrn_types::PlayerFaction;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::window::WindowResolution;
 
@@ -920,7 +916,7 @@ mod tests {
         app.world_mut().resource_mut::<InspectedTile>().0 = Some(Pos::new(0, 0));
 
         let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let recorded = events.clone();
+        let recorded = std::sync::Arc::clone(&events);
         app.insert_resource(EventSink::<TileHoverChanged>::new(move |event| {
             recorded.lock().unwrap().push(event);
         }));

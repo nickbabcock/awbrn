@@ -6,15 +6,10 @@
 use super::ReducerError as ExecuteError;
 use super::*;
 use crate::combat::{self, CounterStep, DamageRange, Forecast, HEALTH_STEP, Hit, Side};
-use crate::commander::{self, CombatContext, Combatant, Holdings, Strike};
-use crate::event::{AttackTarget, Event};
-use crate::random::Luck;
-use crate::ruleset::{self, Domain, FireMode, TerrainTrait};
-use crate::semantic::{
-    AwbwView, Concealment, KnownReason, Location, PlayerId, PlayerIdx, Pos, PowerState, State,
-    TerrainId, Unit, UnitAction, UnitId, UnitKindId, Viewpoint,
-};
-use crate::violation::{Action, Violation};
+use crate::commander::{self, CombatContext, Combatant, Strike};
+use crate::ruleset::{self, FireMode, TerrainTrait};
+use crate::semantic::{PowerState, UnitAction};
+use crate::violation::Action;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
@@ -690,15 +685,12 @@ fn execute_tile_attack(
 impl<'a> DestinationAction<'a> for Attack {
     type Proof = AttackProof;
 
-    fn validate<M>(
-        &self,
-        destination: &PreparedDestination<'a, M>,
-    ) -> Result<Self::Proof, ExecuteError>
+    fn validate<M>(&self, at: &PreparedDestination<'a, M>) -> Result<Self::Proof, ExecuteError>
     where
         M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
     {
         let target = self.0;
-        let movement = destination.movement();
+        let movement = at.movement();
         let state = movement.state();
         let plan = movement.plan();
         let ai = plan.unit_index();
@@ -720,31 +712,31 @@ impl<'a> DestinationAction<'a> for Attack {
             }
 
             let prepared_target =
-                prepare_attack_target(state, plan.actor_team(), destination.view(), target)?;
+                prepare_attack_target(state, plan.actor_team(), at.view(), target)?;
             let attack_origin = plan.destination();
-            let available_destination = destination.available_destination()?;
+            let available_destination = at.available_destination()?;
 
-            if destination.trap().is_none() {
+            if at.trap().is_none() {
                 validate_attack_target(
                     state,
-                    destination.holdings(),
+                    at.holdings(),
                     ai,
                     attack_origin,
                     prepared_target,
-                    destination.view(),
+                    at.view(),
                 )?;
             }
             (prepared_target, Some(available_destination))
         } else {
             let prepared_target =
-                prepare_attack_target(state, plan.actor_team(), destination.view(), target)?;
+                prepare_attack_target(state, plan.actor_team(), at.view(), target)?;
             validate_attack_target(
                 state,
-                destination.holdings(),
+                at.holdings(),
                 ai,
                 plan.origin(),
                 prepared_target,
-                destination.view(),
+                at.view(),
             )?;
             (prepared_target, None)
         };

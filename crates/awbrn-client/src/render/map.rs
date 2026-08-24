@@ -16,7 +16,7 @@ use bevy::sprite::Anchor;
 use bevy::sprite_render::AlphaMode2d;
 use std::time::Duration;
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct MapBackdrop;
 
 #[derive(Component)]
@@ -258,6 +258,7 @@ fn extract_plain_backdrop_image(source: &Image, weather: awbrn_types::Weather) -
     image
 }
 
+#[derive(Debug)]
 pub struct MapVisualsPlugin;
 
 impl Plugin for MapVisualsPlugin {
