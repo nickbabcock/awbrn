@@ -47,9 +47,10 @@ use awvm::semantic::{
 use awvm::session::{Legal, Order, OrderKind, Session, UnitIdx};
 
 use crate::agent::{Agent, Play};
+use crate::map::ContestMap;
 use crate::rng::Rng;
 use crate::threat::{self, ThreatMap};
-use crate::vision::{self, VisionMap};
+use crate::vision::{Needs, VisionMap};
 
 /// What each objective is worth, in one place.
 ///
@@ -110,6 +111,20 @@ pub struct Weights {
     /// is worth several tiles, so one number serving both is a compromise and
     /// is the first thing to split if the sweep asks for it.
     pub proximity_decay: f64,
+    /// The decay for each turn the enemy reaches a property before we do.
+    ///
+    /// This is the whole of what the contest map ([`crate::map::ContestMap`])
+    /// prices. The capture field measures the distance from us and nothing
+    /// else, so a property four turns away behind the enemy headquarters and
+    /// one four turns away behind ours pull the same. They are not the same
+    /// property: our soldier arrives at the first of them after theirs has
+    /// taken it, with a base of theirs behind it building what kills him.
+    ///
+    /// One at no discount, which is the reading the agent shipped with and
+    /// which builds no map at all. Below one a property the enemy stands
+    /// nearer to pulls less, one decay for each turn of the deficit, and the
+    /// deficit is capped at [`crate::map::MAX_DEFICIT`] turns.
+    pub contest_decay: f64,
 
     /// One point of funds, as a score. This prices an exchange: damage dealt
     /// is the defender's cost scaled by the health removed, and damage taken
@@ -214,6 +229,31 @@ pub struct Weights {
     /// not go at. This is the other half of the vision term: the first pays to
     /// see, and this pays not to be seen.
     pub conceal: f64,
+    /// How much of a dark tile's worth is where it is. **Fog only.**
+    ///
+    /// Measured at nothing on this board. A sweep over `scout` under fog read
+    /// 0.5292, 0.5583, 0.5458 and 0.5000 at a quarter, a half, three quarters
+    /// and the whole of it over 60 pairs, and the plateau at a half read
+    /// 0.5417, 0.5433 and 0.4717 over three seeds of 150 — three readings that
+    /// do not agree, which is the file's own test of a term that is not there.
+    /// It is kept at nothing rather than deleted because the mechanism is one
+    /// file and a rerun, and because the map analysis prices the same ground
+    /// from the other side.
+    ///
+    /// At nothing every dark tile counts one: the fog in front of our
+    /// headquarters and the fog in the corner behind us are the same tile, and
+    /// a recon that walks away from the game lights as many of them as one
+    /// that walks into it. At one a dark tile is worth only its nearness to a
+    /// property, which is the ground both sides have to stand on. Between the
+    /// two the term is a blend of the two readings.
+    pub scout_focus: f64,
+    /// The decay for each tile between a dark tile and the nearest property.
+    ///
+    /// Read only where [`Weights::scout_focus`] prices it. Tiles rather than
+    /// turns, on the same reading as [`Weights::hold_decay`]: the question is
+    /// how far the dark is from the ground worth holding, and a tile of it is
+    /// a tile of it whatever walks there.
+    pub scout_decay: f64,
     /// What one tile of a kind's vision is worth to build. **Fog only.**
     ///
     /// A recon sees five tiles and costs four thousand funds, and no other
@@ -274,6 +314,7 @@ impl Weights {
         capture_completion: 1.0,
         capture_two_turn: 0.2,
         proximity_decay: 0.6,
+        contest_decay: 1.0,
 
         funds: 0.02,
         unit_count: 20.0,
@@ -292,6 +333,8 @@ impl Weights {
         threat: 0.02,
         deferred_threat: 0.35,
         scout: 0.0,
+        scout_focus: 0.0,
+        scout_decay: 0.75,
         conceal: 0.0,
         scout_build: 0.0,
         power: 200.0,
@@ -370,10 +413,13 @@ impl Weights {
     /// The cover half, and the disclosure half. **Fog only.**
     ///
     /// Walking into the dark, priced per tile lit. It is worth about 60 Elo
-    /// laid over [`Weights::ARMY`] and reads as a tie over [`Weights::VEIL`],
-    /// which is the ordering a stronger army explains: an agent that buys the
-    /// right units meets what it walks into, and one that does not needs to
-    /// know what it is walking into.
+    /// laid over [`Weights::ARMY`] and **loses about 25 Elo** over
+    /// [`Weights::VEIL`]: 0.4567 and 0.4733 over two seeds of 150 pairs. The
+    /// shape table says which of the two stories is true, and it is the
+    /// unkinder one — the scouts die. This weighting builds slightly more than
+    /// `veil` and takes slightly more property, and loses 42.1 units a game
+    /// against 37.4, ending on a fifth less unit value. Walking into the dark
+    /// is a trade, and at this weight the agent takes it at a loss.
     pub const SCOUT: Self = Self {
         scout: 0.05,
         // Measured at nothing. A recon is five tiles of vision for four
@@ -395,16 +441,33 @@ impl Weights {
         ..Self::COUNTER
     };
 
+    /// The cover half, and the board's own reading of whose the properties
+    /// are. **Fog only.**
+    ///
+    /// The contest map discounts a property the enemy's production stands
+    /// nearer to than ours, one decay for each turn of the deficit. Worth
+    /// about 77 Elo over [`Weights::VEIL`] under fog — 0.6117, 0.5917 and
+    /// 0.6250 over three seeds of 150 pairs — and a loss of about 91 in a
+    /// standard game, where the same discount read 0.3725 over 200 pairs. The
+    /// two modes disagree about it as plainly as they disagree about the
+    /// counter table.
+    pub const CONTEST: Self = Self {
+        contest_decay: 0.5,
+        ..Self::VEIL
+    };
+
     /// The weightings this crate names, weakest first.
     ///
-    /// Each ladder weighting adds one term to the one before it, so any
-    /// adjacent pair through `counter` measures that term and nothing else.
-    /// `baseline` repeats the current standard winner so future rounds can
-    /// include it without changing the ladder. `veil` and `scout` are
-    /// fog-specific candidates; the standard and fog frontiers are measured
-    /// separately. They are weightings and not agents: one greedy agent reads
-    /// any of them.
-    pub const PRESETS: [(&'static str, Self); 10] = [
+    /// Each one adds one term to the one before it, so any adjacent pair is
+    /// the measurement of that term and nothing else. They are weightings and
+    /// not agents: one greedy agent reads any of them, which is what stops a
+    /// new term from needing a new agent to seat it.
+    ///
+    /// The chain forks once, at [`Weights::VEIL`]: `scout` and `contest` each
+    /// add one term to it and neither adds anything to the other, so each of
+    /// them is measured against `veil` and not against the name above it in
+    /// this list.
+    pub const PRESETS: [(&'static str, Self); 11] = [
         ("default", Self::DEFAULT),
         ("tier1", Self::TIER1),
         ("threat", Self::THREAT),
@@ -415,6 +478,7 @@ impl Weights {
         ("baseline", Self::BASELINE),
         ("veil", Self::VEIL),
         ("scout", Self::SCOUT),
+        ("contest", Self::CONTEST),
     ];
 
     /// The weighting of this name, or `None` for a name this crate does not
@@ -462,6 +526,10 @@ pub struct GreedyAgent {
     occupant: Vec<Option<u16>>,
     /// What each kind is worth to build against the army in front of us.
     counter: CounterTable,
+    /// How many turns the enemy is ahead of us at each tile, which is what
+    /// says whether a property is ours to take. Built once for each position,
+    /// and reused across every position that did not move it.
+    contest: ContestMap,
     /// What this player can see, and what it would see from each tile it can
     /// reach. Built once for each position, for the same reason the threat map
     /// is: a play moves a unit, so a map held across calls is a map of a board
@@ -491,6 +559,7 @@ impl GreedyAgent {
             decay: Vec::new(),
             occupant: Vec::new(),
             counter: CounterTable::new(),
+            contest: ContestMap::new(),
             vision: VisionMap::new(),
             threat: ThreatMap::new(),
         }
@@ -629,6 +698,7 @@ impl CaptureFields {
         board: &Board<'_>,
         decay: &[f64],
         occupant: &[Option<u16>],
+        contest: &ContestMap,
     ) {
         let cells = board.cells();
         self.groups.clear();
@@ -642,7 +712,15 @@ impl CaptureFields {
             if occupant[cell].is_some_and(|index| board.is_our_capturer(index)) {
                 continue;
             }
-            let weight = board.approach_weight(tile.terrain);
+            // What the property is worth, less what the board says about
+            // whose it is. A property the enemy reaches first is one we would
+            // arrive at second, and the contest map is the only thing here
+            // that knows the difference.
+            let weight = board.approach_weight(tile.terrain)
+                * board
+                    .weights
+                    .contest_decay
+                    .powi(i32::from(contest.deficit(cell)));
             match self.groups.iter_mut().find(|(known, _)| *known == weight) {
                 Some((_, targets)) => targets.push(position),
                 None => self.groups.push((weight, vec![position])),
@@ -825,6 +903,7 @@ impl Agent for GreedyAgent {
             decay,
             occupant,
             counter,
+            contest,
             vision,
             threat,
         } = self;
@@ -836,7 +915,15 @@ impl Agent for GreedyAgent {
         };
         board.decay_table(decay);
         board.occupants(occupant);
-        capture_fields.build(&session, &board, decay, occupant);
+        // A map priced at nothing is never built, and a contest at no discount
+        // is priced at nothing: every property then reads the weight its
+        // terrain gives it, which is the reading the field shipped with.
+        if weights.contest_decay != 1.0 {
+            contest.build(state, seat);
+        } else {
+            contest.forget();
+        }
+        capture_fields.build(&session, &board, decay, occupant, contest);
         board.advance_field(advance_field, decay);
         // A term priced at nothing decides nothing, so the field it reads is
         // not built. That is what keeps every weighting below `defend` at the
@@ -861,10 +948,17 @@ impl Agent for GreedyAgent {
         // of the vision term is zero however it is weighted. Not building the
         // map there is what keeps a standard game at the throughput its
         // numbers were taken at.
-        let prices_vision =
-            weights.scout != 0.0 || weights.conceal != 0.0 || weights.scout_build != 0.0;
-        if state.settings.fog && prices_vision {
-            vision.build(state, seat);
+        let needs = Needs {
+            focus: weights.scout_focus,
+            focus_decay: weights.scout_decay,
+            // The build term reads a kind's own vision and not the board, but
+            // it is a fog term all the same, and it is priced beside the tiles
+            // a play lights.
+            disclosure: weights.scout != 0.0 || weights.scout_build != 0.0,
+            cover: weights.conceal != 0.0,
+        };
+        if state.settings.fog {
+            vision.build(state, seat, needs);
         } else {
             vision.forget();
         }
@@ -1496,8 +1590,12 @@ impl Scorer<'_> {
         };
         let weights = self.weights();
         let state = self.board.state;
-        let mut score = weights.scout * self.vision.reveal(state, unit, position);
-        if weights.conceal != 0.0 && vision::conceals(state, position) {
+        let mut score = if weights.scout != 0.0 {
+            weights.scout * self.vision.reveal(state, unit, position)
+        } else {
+            0.0
+        };
+        if weights.conceal != 0.0 && self.vision.conceals(position) {
             score += weights.conceal;
         }
         score
@@ -1584,6 +1682,7 @@ mod tests {
         struct Checker {
             inner: GreedyAgent,
             fresh: CaptureFields,
+            contest: ContestMap,
             last: [Option<Built>; MovementClass::COUNT],
             decay: Vec<f64>,
             occupant: Vec<Option<u16>>,
@@ -1616,7 +1715,7 @@ mod tests {
                 // No memory at all: every search run again from nothing.
                 self.fresh = CaptureFields::new();
                 self.fresh
-                    .build(&session, &board, &self.decay, &self.occupant);
+                    .build(&session, &board, &self.decay, &self.occupant, &self.contest);
 
                 for class in CAPTURE_CLASSES {
                     assert_eq!(
@@ -1643,6 +1742,7 @@ mod tests {
         let mut checker = Checker {
             inner: GreedyAgent::from_seed(23),
             fresh: CaptureFields::new(),
+            contest: ContestMap::new(),
             last: [const { None }; MovementClass::COUNT],
             decay: Vec::new(),
             occupant: Vec::new(),
@@ -1725,7 +1825,7 @@ mod tests {
             let (mut decay, mut occupant) = (Vec::new(), Vec::new());
             board.decay_table(&mut decay);
             board.occupants(&mut occupant);
-            fields.build(&session, &board, &decay, &occupant);
+            fields.build(&session, &board, &decay, &occupant, &ContestMap::new());
             fields.of(MovementClass::Foot).to_vec()
         };
 
@@ -1744,6 +1844,64 @@ mod tests {
         assert_ne!(
             under_clear, after_snow,
             "snow reprices the board, so the field must move"
+        );
+    }
+
+    /// A property the enemy reaches first pulls less than the same property
+    /// on our own half of the board.
+    #[test]
+    fn the_contest_map_discounts_the_properties_behind_the_enemy() {
+        let state = amber_valley(false, 5);
+        let session = Session::new(state);
+        let state = session.state();
+        let seat = state
+            .players
+            .seat(&state.turn.active_player)
+            .expect("the active player holds a seat");
+
+        let field = |contest_decay: f64| {
+            let weights = Weights {
+                contest_decay,
+                ..Weights::DEFAULT
+            };
+            let board = Board {
+                state,
+                seat,
+                weights: &weights,
+            };
+            let (mut decay, mut occupant) = (Vec::new(), Vec::new());
+            board.decay_table(&mut decay);
+            board.occupants(&mut occupant);
+            let mut contest = ContestMap::new();
+            if weights.contest_decay != 1.0 {
+                contest.build(state, seat);
+            }
+            let mut fields = CaptureFields::new();
+            fields.build(&session, &board, &decay, &occupant, &contest);
+            fields.of(MovementClass::Foot).to_vec()
+        };
+
+        let flat = field(1.0);
+        let contested = field(0.5);
+        let discounted = flat
+            .iter()
+            .zip(contested.iter())
+            .filter(|(open, held)| *held < *open)
+            .count();
+        let raised = flat
+            .iter()
+            .zip(contested.iter())
+            .filter(|(open, held)| *held > *open)
+            .count();
+        assert!(
+            discounted > 0,
+            "no tile of the board reads the enemy as nearer to anything"
+        );
+        assert_eq!(raised, 0, "a discount may not make a property pull harder");
+        assert_eq!(
+            flat,
+            field(1.0),
+            "a contest at no discount reads what no contest reads"
         );
     }
 
@@ -1863,7 +2021,7 @@ mod tests {
         board.decay_table(&mut decay);
         board.occupants(&mut occupant);
         let mut fields = CaptureFields::new();
-        fields.build(&session, &board, &decay, &occupant);
+        fields.build(&session, &board, &decay, &occupant, &ContestMap::new());
 
         let foot = fields.of(MovementClass::Foot);
         let boot = fields.of(MovementClass::Boot);
