@@ -1,5 +1,3 @@
-use bevy::prelude::*;
-
 use awbrn_game::PlayerId;
 
 /// The phase of the current game.
@@ -11,8 +9,8 @@ pub enum TurnPhase {
     GameOver { winner: Option<PlayerId> },
 }
 
-/// Authoritative game state resource stored in the server's World.
-#[derive(Debug, Resource)]
+/// Authoritative game state.
+#[derive(Debug)]
 pub struct ServerGameState {
     pub day: u32,
     pub active_player: PlayerId,

@@ -255,7 +255,7 @@ pub(crate) fn build_player_view(
     let observation = match observe(&AwbwVisibility, state, &recipient) {
         Ok(observation) => observation,
         Err(error) => {
-            bevy::log::error!("failed to project player {player:?} view: {error}");
+            tracing::error!(%error, ?player, "failed to project player view");
             return None;
         }
     };

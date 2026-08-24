@@ -590,11 +590,11 @@ dependencies = [
  "awbrn-protocol",
  "awbrn-types",
  "awvm",
- "bevy",
  "insta",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
+ "tracing",
  "tsify",
  "wasm-bindgen",
 ]

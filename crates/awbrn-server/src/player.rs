@@ -16,8 +16,8 @@ pub struct PlayerSlot {
     pub co: Co,
 }
 
-/// Manages the set of players and turn order. Stored as a Bevy resource.
-#[derive(Debug, bevy::prelude::Resource)]
+/// Manages the set of players and turn order.
+#[derive(Debug)]
 pub struct PlayerRegistry {
     players: Vec<PlayerSlot>,
 }

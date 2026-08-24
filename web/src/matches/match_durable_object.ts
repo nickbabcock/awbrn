@@ -3,7 +3,7 @@ import { drizzle, DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { and, asc, count, eq, isNull } from "drizzle-orm";
-import { WasmMatch, initSync } from "#/wasm/awbrn_server.js";
+import { WasmMatch, initSync, initLogging } from "#/wasm/awbrn_server.js";
 import matchWasmModule from "../wasm/awbrn_server_bg.wasm";
 import {
   initialMatchConnectionMessages,
@@ -54,6 +54,7 @@ function ensureMatchWasmInitialized(): void {
   }
 
   initSync({ module: matchWasmModule });
+  initLogging({ level: "info" });
   wasmInitialized = true;
 }
 
