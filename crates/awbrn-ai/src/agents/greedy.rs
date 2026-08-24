@@ -69,9 +69,12 @@ pub struct Weights {
     /// The walk is scored separately from the capture, and far lower. An
     /// infantry that arrives alone at a defended headquarters captures
     /// nothing, so the match-winning weight belongs to the capture it
-    /// completes and not to every tile pointed at it. At this weight the
-    /// enemy headquarters outranks a base of the same distance and loses to
-    /// one that is two tiles nearer.
+    /// completes and not to every tile pointed at it. At zero, which is the
+    /// Amber Valley baseline, the headquarters has no
+    /// general approach pull: it matters when a capturer can finish the
+    /// capture, not merely because the tile is the match-winning objective.
+    /// Positive values can restore an HQ rush when a different board calls
+    /// for one.
     pub hq_approach: f64,
     /// A property that produces land units: the base.
     pub land: f64,
@@ -260,7 +263,7 @@ impl Weights {
     /// The ordering the agent was asked for.
     pub const DEFAULT: Self = Self {
         hq: 100_000.0,
-        hq_approach: 2_000.0,
+        hq_approach: 500.0,
         land: 1_000.0,
         air: 800.0,
         income: 600.0,
@@ -268,15 +271,15 @@ impl Weights {
         other_property: 300.0,
 
         capture: 1.0,
-        capture_completion: 0.8,
-        capture_two_turn: 0.5,
-        proximity_decay: 0.75,
+        capture_completion: 1.0,
+        capture_two_turn: 0.2,
+        proximity_decay: 0.6,
 
         funds: 0.02,
         unit_count: 20.0,
         blind_attack: 0.3,
 
-        capturer_shortfall: 150.0,
+        capturer_shortfall: 0.0,
         advance: 0.01,
         deny: 1.0,
         deny_neutral: 0.5,
@@ -345,7 +348,8 @@ impl Weights {
     /// and loses about 62 under fog, where most of what it reads is the
     /// guess, not the enemy. See the handoff note.
     pub const COUNTER: Self = Self {
-        counter: 5.0,
+        counter: 7.5,
+        funds_efficiency: 0.5,
         ..Self::ARMY
     };
 
@@ -382,13 +386,25 @@ impl Weights {
         ..Self::VEIL
     };
 
+    /// The current standard Amber Valley winner. It is kept as a named
+    /// baseline so future tuning rounds can keep it in the opponent pool.
+    /// R8 kept the counter and funds-efficiency terms, but removed the
+    /// garrison hold that `COUNTER` inherits from `ARMY`.
+    pub const BASELINE: Self = Self {
+        hold: 0.0,
+        ..Self::COUNTER
+    };
+
     /// The weightings this crate names, weakest first.
     ///
-    /// Each one adds one term to the one before it, so any adjacent pair is
-    /// the measurement of that term and nothing else. They are weightings and
-    /// not agents: one greedy agent reads any of them, which is what stops a
-    /// new term from needing a new agent to seat it.
-    pub const PRESETS: [(&'static str, Self); 9] = [
+    /// Each ladder weighting adds one term to the one before it, so any
+    /// adjacent pair through `counter` measures that term and nothing else.
+    /// `baseline` repeats the current standard winner so future rounds can
+    /// include it without changing the ladder. `veil` and `scout` are
+    /// fog-specific candidates; the standard and fog frontiers are measured
+    /// separately. They are weightings and not agents: one greedy agent reads
+    /// any of them.
+    pub const PRESETS: [(&'static str, Self); 10] = [
         ("default", Self::DEFAULT),
         ("tier1", Self::TIER1),
         ("threat", Self::THREAT),
@@ -396,6 +412,7 @@ impl Weights {
         ("defend", Self::DEFEND),
         ("army", Self::ARMY),
         ("counter", Self::COUNTER),
+        ("baseline", Self::BASELINE),
         ("veil", Self::VEIL),
         ("scout", Self::SCOUT),
     ];
@@ -460,7 +477,7 @@ pub struct GreedyAgent {
 
 impl GreedyAgent {
     pub const fn from_seed(seed: u64) -> Self {
-        Self::with_weights(seed, Weights::DEFAULT)
+        Self::with_weights(seed, Weights::BASELINE)
     }
 
     pub const fn with_weights(seed: u64, weights: Weights) -> Self {
@@ -1745,19 +1762,20 @@ mod tests {
         );
         // A capture that wins the match is not one objective among several.
         assert!(weights.hq > weights.land * 10.0);
-        // The walk toward a headquarters is, and it beats a base three turns
-        // further away and loses to one three turns nearer. The unit here is
-        // turns because that is what the capture field now measures; it was
-        // tiles when the field counted them, and the same three steps of decay
-        // is now a far longer reach.
-        assert!(weights.hq_approach > weights.land);
-        assert!(weights.hq_approach < weights.land / weights.proximity_decay.powi(3));
+        // The Amber Valley baseline does not send every new unit toward the
+        // enemy headquarters from turn one. HQ capture still outranks every
+        // ordinary objective once it can actually be completed.
+        assert!(weights.hq_approach < weights.land);
     }
 
     /// The two capture bonuses, in the order the priorities put them.
     #[test]
     fn a_capture_is_worth_more_the_sooner_it_finishes() {
-        let weights = Weights::DEFAULT;
+        let weights = Weights {
+            capture_completion: 0.8,
+            capture_two_turn: 0.5,
+            ..Weights::DEFAULT
+        };
         let value = |points, progress| capture_value(&weights, weights.income, points, progress);
 
         // A whole soldier takes ten points off a whole property, so it
@@ -2350,14 +2368,22 @@ mod tests {
     /// faster than it needs them.
     #[test]
     fn production_stops_favouring_capturers_once_the_board_is_covered() {
-        let weights = Weights::DEFAULT;
-        let with_shortfall = weights.capturer_shortfall * 4.0;
+        let weights = Weights {
+            capturer_shortfall: 150.0,
+            funds_efficiency: 1.0,
+            ..Weights::DEFAULT
+        };
+        let with_shortfall = |kind| {
+            weights.capturer_shortfall
+                * 4.0
+                * (1000.0 / cost(kind).max(1.0)).powf(weights.funds_efficiency)
+        };
         // An infantry against a medium tank, with four properties open and
         // with none.
         let soldier = weights.funds * cost(UnitKind::Infantry) + weights.unit_count;
         let tank = weights.funds * cost(UnitKind::MdTank) + weights.unit_count;
         assert!(
-            soldier + with_shortfall > tank,
+            soldier + with_shortfall(UnitKind::Infantry) > tank + with_shortfall(UnitKind::MdTank),
             "open properties buy soldiers"
         );
         assert!(tank > soldier, "a covered board buys what fights");
