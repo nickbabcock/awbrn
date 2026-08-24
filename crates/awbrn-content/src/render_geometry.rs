@@ -10,6 +10,14 @@ use crate::{
 pub const TILE_SIZE: u32 = 16;
 pub const TERRAIN_SPRITE_WIDTH: u32 = 16;
 pub const TERRAIN_SPRITE_HEIGHT: u32 = 32;
+/// Opacity of the black fog overlay.
+///
+/// Both renderers must agree on it, and both must composite it in linear
+/// light: the GPU blends linear values, so blending the encoded sRGB bytes
+/// instead darkens a tile far more than the client shows.
+pub const FOG_OVERLAY_ALPHA: f32 = 0.75;
+/// The sRGB grey a unit that cannot act is tinted with.
+pub const INACTIVE_UNIT_TINT_SRGB: f32 = 0.67;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PixelSize {

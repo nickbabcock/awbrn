@@ -5,7 +5,11 @@ use awbrn_bevy::{GameWorldPlugin, MapPosition};
 use bevy::prelude::*;
 
 /// Color used for inactive units
-pub const INACTIVE_UNIT_COLOR: Color = Color::srgb(0.67, 0.67, 0.67);
+pub const INACTIVE_UNIT_COLOR: Color = Color::srgb(
+    awbrn_content::INACTIVE_UNIT_TINT_SRGB,
+    awbrn_content::INACTIVE_UNIT_TINT_SRGB,
+    awbrn_content::INACTIVE_UNIT_TINT_SRGB,
+);
 
 /// Z-layer ordering for rendering. Higher values render on top.
 /// Within each layer, a small y-based offset (0.001 per row) provides depth sorting.

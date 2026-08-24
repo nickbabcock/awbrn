@@ -94,7 +94,7 @@ fn main() -> Result<()> {
                 )
             })?;
 
-            let image = render_map(&map, &units, &tilesets);
+            let image = render_map(&map, &units, &tilesets)?;
             image
                 .save(&output)
                 .with_context(|| format!("writing {}", output.display()))?;

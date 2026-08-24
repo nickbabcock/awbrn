@@ -4,8 +4,7 @@ use bevy::prelude::*;
 use crate::core::{AppState, RenderLayer, SpriteSize};
 use crate::features::visibility::ViewerVisibility;
 use awbrn_bevy::world::GameMap;
-
-const FOG_OVERLAY_ALPHA: f32 = 0.75;
+use awbrn_content::FOG_OVERLAY_ALPHA;
 
 #[derive(Component)]
 pub struct FogOverlayTile;
