@@ -8,11 +8,56 @@ use serde_json::{Value, json};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
+use crate::subscriber::LoggingConfig;
 use crate::view::{VisibleTerrain, VisibleUnit};
 use crate::{CaptureEvent, PlayerUpdate, PlayerView, SpectatorView};
 use crate::{GameServer, GameSetup, PlayerSetup, StoredActionEvent};
 use awbrn_types::{AwbwCoId, Co, CoExt};
 use awvm::semantic::ObservedTransition;
+
+#[derive(Debug, Clone, Copy, Tsify, Serialize, Deserialize, PartialEq, Eq)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+impl From<LogLevel> for tracing::Level {
+    fn from(level: LogLevel) -> Self {
+        match level {
+            LogLevel::Error => Self::ERROR,
+            LogLevel::Warn => Self::WARN,
+            LogLevel::Info => Self::INFO,
+            LogLevel::Debug => Self::DEBUG,
+            LogLevel::Trace => Self::TRACE,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Tsify, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct LoggingOptions {
+    pub level: LogLevel,
+
+    /// Writes how long each span was entered. Keep this off in a cloudflare
+    /// worker, where the clock does not move between I/O operations.
+    #[tsify(optional)]
+    #[serde(default)]
+    pub span_durations: bool,
+}
+
+#[wasm_bindgen(js_name = initLogging)]
+pub fn init_logging(options: LoggingOptions) {
+    crate::console_writer::init_logging(LoggingConfig {
+        max_level: options.level.into(),
+        span_durations: options.span_durations,
+    });
+}
 
 #[wasm_bindgen]
 pub struct WasmMatch {
