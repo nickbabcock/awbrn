@@ -30,6 +30,12 @@
 //! what prices the reply to a trade: a tank that kills a weak soldier and
 //! stops where three tanks can answer made a bad exchange, and the forecast
 //! alone scores it as a good one.
+//!
+//! Under fog it also prices what a tile does to what either side can see. The
+//! vision map ([`crate::vision`]) says which tiles are dark, so a play is
+//! scored for the dark it lights — the mountain a soldier climbs, the ground a
+//! recon covers — and for the cover it takes, which is the woods. Both are
+//! zero with the board lit, and the map is not built there.
 
 use awvm::combat::{self, Forecast, Side};
 use awvm::commander;
@@ -43,6 +49,7 @@ use awvm::session::{Legal, Order, OrderKind, Session, UnitIdx};
 use crate::agent::{Agent, Play};
 use crate::rng::Rng;
 use crate::threat::{self, ThreatMap};
+use crate::vision::{self, VisionMap};
 
 /// What each objective is worth, in one place.
 ///
@@ -183,6 +190,36 @@ pub struct Weights {
     /// closes on an artillery, which is the one thing that answers one.
     pub deferred_threat: f64,
 
+    /// One dark tile a play lights, as a score. **Fog only.**
+    ///
+    /// The count comes from the ruleset's own vision operators, so one weight
+    /// prices every reading of vision the board holds: a soldier on a mountain
+    /// counts the mountain's bonus, a recon counts its five tiles against a
+    /// tank's three, and rain takes a tile off both. A tile that is already
+    /// lit counts for nothing, so this pays to walk into the dark and not to
+    /// stand in the light.
+    ///
+    /// It is priced per tile, and a recon in the open lights twenty or more of
+    /// them, so the weight that pays for one scouting move is far below what
+    /// a property is worth.
+    pub scout: f64,
+    /// Ending a move on terrain that hides the unit standing on it: the woods
+    /// and the reef. **Fog only.**
+    ///
+    /// The threat map cannot state this. It prices what the enemy can take off
+    /// a tile if it goes there, and a unit the enemy cannot see is one it does
+    /// not go at. This is the other half of the vision term: the first pays to
+    /// see, and this pays not to be seen.
+    pub conceal: f64,
+    /// What one tile of a kind's vision is worth to build. **Fog only.**
+    ///
+    /// A recon sees five tiles and costs four thousand funds, and no other
+    /// term in the scorer can tell it from a tank that sees three. Priced
+    /// against the funds the build spends, on the same reading as
+    /// [`Weights::funds_efficiency`], so that the vision is bought where it is
+    /// cheap rather than on the dearest hull that carries it.
+    pub scout_build: f64,
+
     /// What one point of the price of a unit is worth to build.
     ///
     /// This is the whole of what a build used to be worth, and it ranks the
@@ -251,6 +288,9 @@ impl Weights {
         funds_efficiency: 0.0,
         threat: 0.02,
         deferred_threat: 0.35,
+        scout: 0.0,
+        conceal: 0.0,
+        scout_build: 0.0,
         power: 200.0,
         supply: 10.0,
     };
@@ -309,13 +349,46 @@ impl Weights {
         ..Self::ARMY
     };
 
+    /// The counter table and the cover half of the vision term. **Fog only.**
+    ///
+    /// A unit that ends its move in the woods or on a reef is one the enemy
+    /// cannot see, cannot price and does not walk at. This is the half of the
+    /// vision term that carries the gain, and it is built on
+    /// [`Weights::COUNTER`] and not on [`Weights::ARMY`] for a reason worth
+    /// stating: the counter table loses under fog on its own, because what it
+    /// reads there is the guess about the unseen enemy rather than the enemy.
+    /// Given eyes it is the strongest weighting the arena holds.
+    pub const VEIL: Self = Self {
+        conceal: 2.0,
+        ..Self::COUNTER
+    };
+
+    /// The cover half, and the disclosure half. **Fog only.**
+    ///
+    /// Walking into the dark, priced per tile lit. It is worth about 60 Elo
+    /// laid over [`Weights::ARMY`] and reads as a tie over [`Weights::VEIL`],
+    /// which is the ordering a stronger army explains: an agent that buys the
+    /// right units meets what it walks into, and one that does not needs to
+    /// know what it is walking into.
+    pub const SCOUT: Self = Self {
+        scout: 0.05,
+        // Measured at nothing. A recon is five tiles of vision for four
+        // thousand funds, and every reading of this weight from 1 to 360 lost
+        // to the same weighting without it, so what the term buys is not the
+        // eyes but the hull under them, and the hull is a bad one. It is kept
+        // at nothing rather than deleted because the sweep that says so is
+        // one file and a rerun.
+        scout_build: 0.0,
+        ..Self::VEIL
+    };
+
     /// The weightings this crate names, weakest first.
     ///
     /// Each one adds one term to the one before it, so any adjacent pair is
     /// the measurement of that term and nothing else. They are weightings and
     /// not agents: one greedy agent reads any of them, which is what stops a
     /// new term from needing a new agent to seat it.
-    pub const PRESETS: [(&'static str, Self); 7] = [
+    pub const PRESETS: [(&'static str, Self); 9] = [
         ("default", Self::DEFAULT),
         ("tier1", Self::TIER1),
         ("threat", Self::THREAT),
@@ -323,6 +396,8 @@ impl Weights {
         ("defend", Self::DEFEND),
         ("army", Self::ARMY),
         ("counter", Self::COUNTER),
+        ("veil", Self::VEIL),
+        ("scout", Self::SCOUT),
     ];
 
     /// The weighting of this name, or `None` for a name this crate does not
@@ -370,6 +445,12 @@ pub struct GreedyAgent {
     occupant: Vec<Option<u16>>,
     /// What each kind is worth to build against the army in front of us.
     counter: CounterTable,
+    /// What this player can see, and what it would see from each tile it can
+    /// reach. Built once for each position, for the same reason the threat map
+    /// is: a play moves a unit, so a map held across calls is a map of a board
+    /// that is gone. Never built with fog off, where it answers the same for
+    /// every tile.
+    vision: VisionMap,
     /// What the enemy can take off each tile. Built once for each position,
     /// which is once for each play: the harness applies one command between
     /// calls, and a command moves a unit, so a map held across calls would be
@@ -393,6 +474,7 @@ impl GreedyAgent {
             decay: Vec::new(),
             occupant: Vec::new(),
             counter: CounterTable::new(),
+            vision: VisionMap::new(),
             threat: ThreatMap::new(),
         }
     }
@@ -726,6 +808,7 @@ impl Agent for GreedyAgent {
             decay,
             occupant,
             counter,
+            vision,
             threat,
         } = self;
 
@@ -757,6 +840,17 @@ impl Agent for GreedyAgent {
         if weights.counter != 0.0 {
             counter.build(&board);
         }
+        // With fog off every tile is lit and every unit is seen, so the whole
+        // of the vision term is zero however it is weighted. Not building the
+        // map there is what keeps a standard game at the throughput its
+        // numbers were taken at.
+        let prices_vision =
+            weights.scout != 0.0 || weights.conceal != 0.0 || weights.scout_build != 0.0;
+        if state.settings.fog && prices_vision {
+            vision.build(state, seat);
+        } else {
+            vision.forget();
+        }
 
         orders.clear();
         session.legal().orders(orders);
@@ -770,6 +864,7 @@ impl Agent for GreedyAgent {
             hold_field,
             occupant,
             counter,
+            vision,
             threat,
             shortfall: board.capturer_shortfall(occupant),
         };
@@ -1144,6 +1239,7 @@ struct Scorer<'a> {
     hold_field: &'a [f64],
     occupant: &'a [Option<u16>],
     counter: &'a CounterTable,
+    vision: &'a VisionMap,
     threat: &'a ThreatMap,
     shortfall: f64,
 }
@@ -1167,13 +1263,16 @@ impl Scorer<'_> {
     /// left is worth nothing.
     fn score(&self, order: Order) -> f64 {
         match order.kind() {
-            OrderKind::Capture => self.capture(order),
+            OrderKind::Capture => self.capture(order) + self.sight(order),
             OrderKind::Attack(target) => self.attack(order, target),
-            OrderKind::Wait | OrderKind::Unload(_) => self.arrival(order),
+            OrderKind::Wait | OrderKind::Unload(_) => self.arrival(order) + self.sight(order),
             // Both cost a unit from the roster and give its health to another,
             // so both are scored as the arrival less what the count is worth.
+            // Neither is scored for vision: a unit that joins another adds no
+            // eye the tile does not already hold, and one that loads into a
+            // transport is cargo, which sees nothing at all.
             OrderKind::Join | OrderKind::Load => self.arrival(order) - self.weights().unit_count,
-            OrderKind::Supply => self.arrival(order) + self.weights().supply,
+            OrderKind::Supply => self.arrival(order) + self.weights().supply + self.sight(order),
             OrderKind::Produce(kind) => self.produce(kind),
             OrderKind::Power(_) => self.weights().power,
             // Nothing below is scored. Resignation and deletion decide a game
@@ -1228,7 +1327,9 @@ impl Scorer<'_> {
             // A fogged defender has no exact health, so there is nothing to
             // forecast against. A strike is still usually worth making, and
             // this says so without pretending to know how much.
-            return weights.blind_attack * weights.funds * cost(defender.kind) + self.pull(order);
+            return weights.blind_attack * weights.funds * cost(defender.kind)
+                + self.pull(order)
+                + self.sight(order);
         };
 
         let mean = |low: u16, high: u16| f64::from(low + high) / 2.0;
@@ -1258,7 +1359,7 @@ impl Scorer<'_> {
         // the same exchange twice. The arena is plain about it — the more of
         // the exposure an attack pays, the worse the agent plays, and it is
         // worst at the whole of it.
-        score + self.pull(order)
+        score + self.pull(order) + self.sight(order)
     }
 
     /// What stopping this defender's capture is worth.
@@ -1361,6 +1462,30 @@ impl Scorer<'_> {
         field.get(cell).copied().unwrap_or(0.0) + hold
     }
 
+    /// What this play is worth for what it does to vision.
+    ///
+    /// The dark tiles the destination lights, and the cover the destination
+    /// itself gives. Both are zero with fog off, where the map is not built
+    /// at all, and both are zero for a weighting that prices them at nothing.
+    fn sight(&self, order: Order) -> f64 {
+        if !self.vision.is_built() {
+            return 0.0;
+        }
+        let Some(unit) = order.unit().and_then(|index| self.unit(index)) else {
+            return 0.0;
+        };
+        let Some(position) = self.board.position(order.destination()) else {
+            return 0.0;
+        };
+        let weights = self.weights();
+        let state = self.board.state;
+        let mut score = weights.scout * self.vision.reveal(state, unit, position);
+        if weights.conceal != 0.0 && vision::conceals(state, position) {
+            score += weights.conceal;
+        }
+        score
+    }
+
     /// What standing on `cell` costs this unit, in score.
     ///
     /// The two layers of the threat map are read apart and the deferred one
@@ -1394,6 +1519,13 @@ impl Scorer<'_> {
             score += weights.capturer_shortfall * self.shortfall * efficiency;
         }
         score += weights.build_cost * cost(kind);
+        // The eyes a hull carries, priced where the map is dark. A recon is a
+        // cheap five tiles of it and every other land kind is two or three,
+        // which no other term here can tell apart.
+        if self.vision.is_built() {
+            let sight = f64::from(i32::try_from(profile.vision).unwrap_or(0)).max(0.0);
+            score += weights.scout_build * sight * efficiency;
+        }
         score + weights.counter * self.counter.of(kind) * efficiency
     }
 }
@@ -2123,6 +2255,54 @@ mod tests {
     /// The threatless weighting is the baseline every measurement of the
     /// threat map is read against, so it has to play the game tier 1 played.
     /// A map priced at nothing and a map never built must give the same game.
+    #[test]
+    fn the_vision_terms_decide_nothing_with_fog_off() {
+        use crate::harness::{Limits, play};
+        use awvm::session::Session;
+
+        fn game(weights: Weights, fog: bool) -> String {
+            let mut first = GreedyAgent::with_weights(1, weights);
+            let mut second = GreedyAgent::with_weights(2, weights);
+            let mut agents: [&mut dyn Agent; 2] = [&mut first, &mut second];
+            let state = amber_valley(fog, 1);
+            let mut session = Session::new(state.clone());
+            let record = play(
+                state,
+                &mut session,
+                &mut agents,
+                &mut Rng::from_seed(3),
+                Limits {
+                    days: 20,
+                    ..Limits::default()
+                },
+            );
+            let end = session.state();
+            format!(
+                "{:?} {} {:?}",
+                record.days,
+                end.units.iter().count(),
+                end.players
+                    .seats()
+                    .map(|(_, player)| player.funds)
+                    .collect::<Vec<_>>()
+            )
+        }
+
+        // With the board lit there is no dark tile to disclose and no terrain
+        // that hides anything, so the whole of the vision term is zero however
+        // it is weighted. The map is not built there, and this is what says the
+        // gate holds.
+        assert_eq!(
+            game(Weights::SCOUT, false),
+            game(Weights::COUNTER, false),
+            "the vision terms are fog only"
+        );
+        // The same weighting under fog does not play the same game, which is
+        // what makes the equality above a gate and not a term that reads
+        // nothing anywhere.
+        assert_ne!(game(Weights::SCOUT, true), game(Weights::COUNTER, true));
+    }
+
     #[test]
     fn a_map_priced_at_nothing_changes_no_decision() {
         use crate::harness::{Limits, play};
