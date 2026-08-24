@@ -827,6 +827,7 @@ impl Sample {
             format!("frame-{:04}-turn.png", self.frame)
         };
         render_state(&self.map, state, &self.seats, &self.tilesets)
+            .with_context(|| format!("rendering sample frame {name}"))?
             .save(self.directory.join(&name))
             .with_context(|| format!("writing sample frame {name}"))?;
         serde_json::to_writer(

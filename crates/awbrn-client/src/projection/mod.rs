@@ -182,7 +182,7 @@ fn terrain_for_viewer(
 
     knowledge
         .and_then(|knowledge| knowledge.by_view.get(&knowledge_key))
-        .and_then(|known| known.get(&position).copied())
+        .and_then(|known| known.get(position).copied())
         .unwrap_or(actual)
 }
 

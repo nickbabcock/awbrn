@@ -8,17 +8,34 @@
 use std::path::Path;
 
 use awbrn_content::{
-    PixelSize, TILE_SIZE, UNIT_SPRITE_HEIGHT, UNIT_SPRITE_WIDTH, UiAtlasManifest, UnitOverlay,
-    plain_backdrop_rect, sprite_top_left, spritesheet_index, terrain_sprite_rect,
-    unit_overlay_spec, unit_sprite_rect, unit_spritesheet_index,
+    INACTIVE_UNIT_TINT_SRGB, PixelSize, TILE_SIZE, UNIT_SPRITE_HEIGHT, UNIT_SPRITE_WIDTH,
+    UiAtlasManifest, UnitOverlay, plain_backdrop_rect, sprite_top_left, spritesheet_index,
+    terrain_sprite_rect, unit_overlay_spec, unit_sprite_rect, unit_spritesheet_index,
 };
 use awbrn_map::{AwbrnMap, AwbwMap, PredeployedUnit};
 use awbrn_types::{
     ExactHp, Faction, GraphicalHp, GraphicalMovement, GraphicalTerrain, PlayerFaction, Unit,
     UnitExt, VisualHp, Weather,
 };
-use awvm::semantic::{CAPTURE_REQUIRED_POINTS, Location, State, TileOwner};
+use awvm::semantic::{
+    CAPTURE_REQUIRED_POINTS, Concealment, Location, Pos, State, TileOwner, UnitAction, UnitId,
+};
 use image::{GenericImageView, RgbaImage, imageops};
+use std::collections::HashSet;
+use std::hash::BuildHasher;
+
+/// What can stop a render.
+///
+/// This is a library: a caller that hands over a mismatched roster or an
+/// incomplete atlas gets told so, rather than taking the process down.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum RenderError {
+    #[error("the state has {seats} roster seats but {factions} display factions")]
+    FactionCount { seats: usize, factions: usize },
+    #[error("the UI atlas is missing {0}")]
+    MissingUiSprite(String),
+}
 
 /// The sprite atlases needed to render a map.
 pub struct Tilesets {
@@ -58,7 +75,11 @@ impl Tilesets {
 ///
 /// Unknown unit ids or country codes are skipped with a warning rather than
 /// aborting the whole render.
-pub fn render_map(map: &AwbwMap, units: &[PredeployedUnit], tilesets: &Tilesets) -> RgbaImage {
+pub fn render_map(
+    map: &AwbwMap,
+    units: &[PredeployedUnit],
+    tilesets: &Tilesets,
+) -> Result<RgbaImage, RenderError> {
     render_map_with_weather(map, units, tilesets, Weather::Clear)
 }
 
@@ -68,7 +89,7 @@ pub fn render_map_with_weather(
     units: &[PredeployedUnit],
     tilesets: &Tilesets,
     weather: Weather,
-) -> RgbaImage {
+) -> Result<RgbaImage, RenderError> {
     let graphical = AwbrnMap::from_map(map);
 
     let width_px = map.width() as u32 * TILE_SIZE;
@@ -91,12 +112,15 @@ pub fn render_map_with_weather(
             );
             continue;
         };
+        // A map's pre-deployed units belong to nobody's turn yet, so they are
+        // all drawn ready.
         let origin = draw_unit(
             &mut canvas,
             kind,
             faction,
             unit.unit_x,
             unit.unit_y,
+            true,
             tilesets,
         );
         overlays.push((
@@ -105,10 +129,10 @@ pub fn render_map_with_weather(
         ));
     }
     for (origin, status) in overlays {
-        draw_unit_status(&mut canvas, origin, status, tilesets);
+        draw_unit_status(&mut canvas, origin, status, tilesets)?;
     }
 
-    canvas
+    Ok(canvas)
 }
 
 fn render_terrain(
@@ -152,14 +176,18 @@ fn draw_unit(
     faction: PlayerFaction,
     x: u32,
     y: u32,
+    active: bool,
     tilesets: &Tilesets,
 ) -> (i64, i64) {
     let index = unit_spritesheet_index(GraphicalMovement::Idle, kind, faction).index();
     let rect = unit_sprite_rect(index);
-    let sprite = tilesets
+    let mut sprite = tilesets
         .units
         .view(rect.x, rect.y, rect.width, rect.height)
         .to_image();
+    if !active {
+        tint_inactive(&mut sprite);
+    }
 
     let (dx, dy) = unit_draw_origin(x, y);
     imageops::overlay(canvas, &sprite, dx, dy);
@@ -171,6 +199,10 @@ struct UnitStatus {
     /// Graphical HP, on the board's 1–10 scale. Full health has no overlay.
     health: Option<u8>,
     capturing: bool,
+    /// The unit is a transport carrying at least one passenger.
+    cargo: bool,
+    /// A submarine that has dived.
+    dive: bool,
 }
 
 impl UnitStatus {
@@ -178,11 +210,32 @@ impl UnitStatus {
         Self {
             health: (health > 0 && health < 10).then_some(health),
             capturing: false,
+            cargo: false,
+            dive: false,
         }
     }
 
     fn from_exact_hp(health: u8) -> Self {
         Self::from_visual_hp(ExactHp::new(health).visual().get())
+    }
+
+    /// The overlays an authoritative unit standing on the board shows.
+    fn of_state_unit<S: BuildHasher>(
+        state: &State,
+        unit: &awvm::semantic::Unit,
+        position: Pos,
+        loaded_transports: &HashSet<UnitId, S>,
+    ) -> Self {
+        Self {
+            health: Self::from_exact_hp(unit.hp).health,
+            capturing: state
+                .board
+                .tile(position)
+                .capture_points
+                .is_some_and(|points| points < CAPTURE_REQUIRED_POINTS),
+            cargo: loaded_transports.contains(&unit.id),
+            dive: unit.concealment == Concealment::Hidden,
+        }
     }
 }
 
@@ -194,18 +247,25 @@ fn draw_unit_status(
     unit_origin: (i64, i64),
     status: UnitStatus,
     tilesets: &Tilesets,
-) {
+) -> Result<(), RenderError> {
     if let Some(health) = status.health {
         draw_ui_sprite(
             canvas,
             unit_origin,
             UnitOverlay::Health(GraphicalHp::Visible(VisualHp::new(health))),
             tilesets,
-        );
+        )?;
     }
     if status.capturing {
-        draw_ui_sprite(canvas, unit_origin, UnitOverlay::Capturing, tilesets);
+        draw_ui_sprite(canvas, unit_origin, UnitOverlay::Capturing, tilesets)?;
     }
+    if status.cargo {
+        draw_ui_sprite(canvas, unit_origin, UnitOverlay::Cargo, tilesets)?;
+    }
+    if status.dive {
+        draw_ui_sprite(canvas, unit_origin, UnitOverlay::Dive, tilesets)?;
+    }
+    Ok(())
 }
 
 /// Draw a status sprite at the same local offset used by the Bevy unit
@@ -216,12 +276,15 @@ fn draw_ui_sprite(
     unit_origin: (i64, i64),
     overlay: UnitOverlay,
     tilesets: &Tilesets,
-) {
-    let spec = unit_overlay_spec(overlay).expect("requested overlay should be visible");
+) -> Result<(), RenderError> {
+    // An overlay with nothing to show (full health) has no sprite.
+    let Some(spec) = unit_overlay_spec(overlay) else {
+        return Ok(());
+    };
     let sprite = tilesets
         .ui_atlas
         .sprite(&spec.sprite_name)
-        .unwrap_or_else(|| panic!("UI atlas is missing {}", spec.sprite_name));
+        .ok_or_else(|| RenderError::MissingUiSprite(spec.sprite_name.clone()))?;
     let rect = sprite.rect();
     let source = tilesets
         .ui
@@ -229,6 +292,7 @@ fn draw_ui_sprite(
         .to_image();
     let (x, y) = overlay_origin(unit_origin, rect.width, rect.height, spec.offset);
     imageops::overlay(canvas, &source, x, y);
+    Ok(())
 }
 
 fn overlay_origin(
@@ -264,12 +328,13 @@ pub fn render_state(
     state: &State,
     factions: &[PlayerFaction],
     tilesets: &Tilesets,
-) -> RgbaImage {
-    assert_eq!(
-        state.players.len(),
-        factions.len(),
-        "each roster seat needs a display faction"
-    );
+) -> Result<RgbaImage, RenderError> {
+    if state.players.len() != factions.len() {
+        return Err(RenderError::FactionCount {
+            seats: state.players.len(),
+            factions: factions.len(),
+        });
+    }
 
     let mut map = source.clone();
     for (position, tile) in state.board.iter() {
@@ -289,38 +354,71 @@ pub fn render_state(
     let width_px = map.width() as u32 * TILE_SIZE;
     let height_px = (map.height() as u32 + 1) * TILE_SIZE;
     let mut canvas = RgbaImage::new(width_px.max(1), height_px.max(1));
-    render_terrain(&map, tilesets, Weather::Clear, &mut canvas);
+    render_terrain(&map, tilesets, state.weather.kind, &mut canvas);
 
+    // Cargo is spelled on the carried unit, so gather the loaded transports
+    // once rather than rescanning the roster for every unit drawn.
+    let loaded_transports = state.units.loaded_transports();
     let mut overlays = Vec::with_capacity(state.units.len());
     for unit in state.units.iter() {
         let Location::Board { position } = unit.location else {
             continue;
         };
-        let capturing = state
-            .board
-            .tile(position)
-            .capture_points
-            .is_some_and(|points| points < CAPTURE_REQUIRED_POINTS);
+        // Only the player whose turn it is can spend units, so only their
+        // spent units are greyed out — the same rule the client draws by.
+        let spent = unit.action != UnitAction::Ready
+            && state.player_id(unit.owner) == &state.turn.active_player;
         let origin = draw_unit(
             &mut canvas,
             unit.kind,
             factions[unit.owner.get()],
             u32::from(position.x),
             u32::from(position.y),
+            !spent,
             tilesets,
         );
         overlays.push((
             origin,
-            UnitStatus {
-                health: UnitStatus::from_exact_hp(unit.hp).health,
-                capturing,
-            },
+            UnitStatus::of_state_unit(state, unit, position, &loaded_transports),
         ));
     }
     for (origin, status) in overlays {
-        draw_unit_status(&mut canvas, origin, status, tilesets);
+        draw_unit_status(&mut canvas, origin, status, tilesets)?;
     }
-    canvas
+    Ok(canvas)
+}
+
+/// Grey out a unit that cannot act.
+///
+/// The client tints on the GPU, which decodes the texel to linear light,
+/// multiplies, and re-encodes. Scaling the encoded sRGB bytes instead is a
+/// different curve, so the conversion happens here too.
+fn tint_inactive(sprite: &mut RgbaImage) {
+    let factor = srgb_to_linear(INACTIVE_UNIT_TINT_SRGB);
+    for pixel in sprite.pixels_mut() {
+        for channel in &mut pixel.0[..3] {
+            let linear = srgb_to_linear(f32::from(*channel) / 255.0) * factor;
+            *channel = (linear_to_srgb(linear).clamp(0.0, 1.0) * 255.0).round() as u8;
+        }
+    }
+}
+
+/// Decode one sRGB-encoded component (0..=1) to linear light.
+fn srgb_to_linear(value: f32) -> f32 {
+    if value <= 0.04045 {
+        value / 12.92
+    } else {
+        ((value + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// Encode one linear-light component (0..=1) back to sRGB.
+fn linear_to_srgb(value: f32) -> f32 {
+    if value <= 0.0031308 {
+        value * 12.92
+    } else {
+        1.055 * value.powf(1.0 / 2.4) - 0.055
+    }
 }
 
 /// The 16x16 plain-grass backdrop tile: the bottom (ground) half of the Plain
@@ -335,6 +433,92 @@ fn plain_backdrop_tile(tiles: &RgbaImage, weather: Weather) -> RgbaImage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use awbrn_content::{
+        TERRAIN_SPRITE_HEIGHT, TILESHEET_COLUMNS, TILESHEET_ROWS, UNIT_SPRITESHEET_COLUMNS,
+        UNIT_SPRITESHEET_PADDING_X, UNIT_SPRITESHEET_PADDING_Y, UNIT_SPRITESHEET_ROWS, UiAtlasSize,
+        UiAtlasSprite,
+    };
+
+    /// Synthetic atlases: the tests here compare renders with each other, so
+    /// the sprites only have to be distinguishable, not real.
+    fn test_tilesets() -> Tilesets {
+        fn pixel(x: u32, y: u32, salt: u32) -> image::Rgba<u8> {
+            let cell_x = x / 8;
+            let cell_y = y / 8;
+            image::Rgba([
+                cell_x.wrapping_add(salt) as u8,
+                cell_y.wrapping_add(salt * 3) as u8,
+                cell_x
+                    .wrapping_mul(37)
+                    .wrapping_add(cell_y.wrapping_mul(17))
+                    .wrapping_add(salt * 7) as u8,
+                255,
+            ])
+        }
+
+        let names = (1..=9)
+            .map(|health| format!("Healthv2/{health}.png"))
+            .chain(
+                ["Capturing.png", "HasCargo.png", "Dive.png"]
+                    .into_iter()
+                    .map(String::from),
+            );
+        let sprites = names
+            .enumerate()
+            .map(|(index, name)| UiAtlasSprite {
+                name,
+                x: index as u32 * 8,
+                y: 0,
+                width: 8,
+                height: 8,
+            })
+            .collect();
+
+        Tilesets {
+            tiles: RgbaImage::from_fn(
+                TILESHEET_COLUMNS * TILE_SIZE,
+                TILESHEET_ROWS * TERRAIN_SPRITE_HEIGHT,
+                |x, y| pixel(x, y, 1),
+            ),
+            units: RgbaImage::from_fn(
+                UNIT_SPRITESHEET_COLUMNS * (UNIT_SPRITE_WIDTH + UNIT_SPRITESHEET_PADDING_X),
+                UNIT_SPRITESHEET_ROWS * (UNIT_SPRITE_HEIGHT + UNIT_SPRITESHEET_PADDING_Y),
+                |x, y| pixel(x, y, 2),
+            ),
+            ui: RgbaImage::from_fn(160, 160, |x, y| pixel(x, y, 3)),
+            ui_atlas: UiAtlasManifest {
+                size: UiAtlasSize {
+                    width: 160,
+                    height: 160,
+                },
+                sprites,
+            },
+        }
+    }
+
+    /// A two-player state whose second player owns a loaded APC.
+    fn fixture() -> (State, AwbrnMap, [PlayerFaction; 2]) {
+        let json: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../spec/fixtures/fog/vision-sources-and-terrain.json"
+        )))
+        .unwrap();
+        let state: State = serde_json::from_value(json["initial_state"].clone()).unwrap();
+        let map = AwbrnMap::new(state.board.dimensions(), GraphicalTerrain::Plain);
+        (
+            state,
+            map,
+            [PlayerFaction::OrangeStar, PlayerFaction::BlueMoon],
+        )
+    }
+
+    fn board_unit(state: &State, id: u32) -> (&awvm::semantic::Unit, Pos) {
+        let unit = state.units.get(UnitId::new(id)).unwrap();
+        let Location::Board { position } = unit.location else {
+            panic!("unit {id} is not on the board");
+        };
+        (unit, position)
+    }
 
     #[test]
     fn terrain_cell_rect_walks_the_grid() {
@@ -399,5 +583,83 @@ mod tests {
 
         assert_eq!((capture_x, capture_y), (1, 24));
         assert_eq!((health_x, health_y), (8, 25));
+    }
+
+    #[test]
+    fn an_inactive_unit_tints_in_linear_light() {
+        let mut sprite = RgbaImage::from_pixel(1, 1, image::Rgba([128, 128, 128, 255]));
+        tint_inactive(&mut sprite);
+
+        // Scaling the encoded bytes would give 86; the GPU's linear multiply
+        // lands on 84 once re-encoded.
+        assert_eq!(sprite.get_pixel(0, 0), &image::Rgba([84, 84, 84, 255]));
+    }
+
+    #[test]
+    fn the_authoritative_render_follows_the_state_weather() {
+        let (mut state, map, factions) = fixture();
+        let tilesets = test_tilesets();
+
+        let clear = render_state(&map, &state, &factions, &tilesets).unwrap();
+        state.weather.kind = Weather::Snow;
+        let snow = render_state(&map, &state, &factions, &tilesets).unwrap();
+
+        assert_ne!(clear.as_raw(), snow.as_raw());
+    }
+
+    #[test]
+    fn a_spent_unit_of_the_active_player_renders_tinted() {
+        let (mut state, map, factions) = fixture();
+        let tilesets = test_tilesets();
+        let ready = render_state(&map, &state, &factions, &tilesets).unwrap();
+
+        // The fixture's first unit belongs to the player whose turn it is.
+        let owner = state.units.at(0).unwrap().owner;
+        assert_eq!(state.player_id(owner), &state.turn.active_player);
+        state.units.at_mut(0).unwrap().action = UnitAction::Spent;
+        let spent = render_state(&map, &state, &factions, &tilesets).unwrap();
+        assert_ne!(ready.as_raw(), spent.as_raw());
+
+        // A waiting unit of any other player says nothing to the viewer, so it
+        // keeps its colors.
+        let (idle, _) = board_unit(&state, 1);
+        let idle = state.units.index_of(idle.id).unwrap();
+        state.units.at_mut(idle).unwrap().action = UnitAction::Spent;
+        let other_player_spent = render_state(&map, &state, &factions, &tilesets).unwrap();
+        assert_eq!(spent.as_raw(), other_player_spent.as_raw());
+    }
+
+    #[test]
+    fn overlays_follow_cargo_and_concealment() {
+        let (mut state, ..) = fixture();
+        let loaded = state.units.loaded_transports();
+
+        // Unit 1 is an APC carrying unit 2; unit 3 is a bomber carrying nobody.
+        let (transport, position) = board_unit(&state, 1);
+        let status = UnitStatus::of_state_unit(&state, transport, position, &loaded);
+        assert!(status.cargo);
+        assert!(!status.dive);
+
+        let (empty, position) = board_unit(&state, 3);
+        assert!(!UnitStatus::of_state_unit(&state, empty, position, &loaded).cargo);
+
+        let index = state.units.index_of(empty.id).unwrap();
+        state.units.at_mut(index).unwrap().concealment = Concealment::Hidden;
+        let (hidden, position) = board_unit(&state, 3);
+        assert!(UnitStatus::of_state_unit(&state, hidden, position, &loaded).dive);
+    }
+
+    #[test]
+    fn a_roster_without_a_faction_for_every_seat_is_an_error() {
+        let (state, map, _) = fixture();
+        let tilesets = test_tilesets();
+
+        assert!(matches!(
+            render_state(&map, &state, &[PlayerFaction::OrangeStar], &tilesets),
+            Err(RenderError::FactionCount {
+                seats: 2,
+                factions: 1
+            })
+        ));
     }
 }

@@ -11,7 +11,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use awbrn_map::{Dimensions, Pos};
+use awbrn_map::{Dimensions, Pos, TerrainKnowledge};
 use awbrn_types::{AwbwGamePlayerId, AwbwUnitId as RawAwbwUnitId, PlayerFaction};
 use awvm::semantic::{
     Observation, ObservedPlayer, ObservedUnitHp, ObservedUnitRef, TileVisibility,
@@ -76,26 +76,20 @@ pub enum ReplayKnowledgeKey {
 /// presentation memory the observation cannot supply.
 #[derive(Resource, Default, Clone)]
 pub struct ReplayTerrainKnowledge {
-    pub by_view: HashMap<ReplayKnowledgeKey, HashMap<Pos, awbrn_types::GraphicalTerrain>>,
+    pub by_view: HashMap<ReplayKnowledgeKey, TerrainKnowledge>,
 }
 
 impl ReplayTerrainKnowledge {
     pub fn from_map_and_registry(game_map: &GameMap, registry: &ReplayPlayerRegistry) -> Self {
-        let terrain_by_position = (0..game_map.height())
-            .flat_map(|y| {
-                (0..game_map.width()).filter_map(move |x| {
-                    let position = Pos::new(x, y);
-                    game_map
-                        .terrain_at(position)
-                        .map(|terrain| (position, terrain))
-                })
-            })
-            .collect::<HashMap<_, _>>();
-
         let by_view = registry
             .knowledge_keys()
             .into_iter()
-            .map(|key| (key, terrain_by_position.clone()))
+            .map(|key| {
+                (
+                    key,
+                    TerrainKnowledge::from_fn(game_map.dimensions(), |position| game_map[position]),
+                )
+            })
             .collect();
 
         Self { by_view }

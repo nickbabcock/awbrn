@@ -3,6 +3,7 @@ mod awbw_map;
 mod deployment;
 mod map_document;
 mod map_error;
+mod terrain_knowledge;
 pub mod xy;
 
 pub use awbrn_map::AwbrnMap;
@@ -13,6 +14,7 @@ pub use map_document::{
     MapDigests, ValidatedMapDocument,
 };
 pub use map_error::MapError;
+pub use terrain_knowledge::TerrainKnowledge;
 
 /// The board coordinate, the board shape, and the table keyed by them.
 ///

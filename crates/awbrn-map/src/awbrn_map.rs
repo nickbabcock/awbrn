@@ -2,6 +2,7 @@ use crate::awbw_map::AwbwMap;
 use crate::deployment::{Deployment, Deployments};
 use awbrn_types::{AwbwTerrain, GraphicalTerrain, SeaDirection, ShoalDirection};
 use awvm::semantic::{Dimensions, Grid, Pos};
+use std::ops::Index;
 
 /// A game map with graphical terrain data, and the units the map starts.
 #[derive(Debug, Clone, PartialEq)]
@@ -477,6 +478,14 @@ impl AwbrnMap {
 
     pub fn iter(&self) -> impl Iterator<Item = (Pos, GraphicalTerrain)> {
         self.terrain.iter().map(|(pos, terrain)| (pos, *terrain))
+    }
+}
+
+impl Index<Pos> for AwbrnMap {
+    type Output = GraphicalTerrain;
+
+    fn index(&self, position: Pos) -> &Self::Output {
+        &self.terrain[position]
     }
 }
 

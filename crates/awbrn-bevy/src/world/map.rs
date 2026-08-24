@@ -4,6 +4,7 @@ use crate::world::board::{BoardOf, BoardRoot, adopt_unattached_board_entities, d
 use awbrn_map::{AwbrnMap, Dimensions, Pos};
 use awbrn_types::GraphicalTerrain;
 use bevy::prelude::*;
+use std::ops::Index;
 
 #[derive(Component, Reflect, Debug, Clone, Copy, PartialEq, Eq)]
 #[component(immutable)]
@@ -68,6 +69,14 @@ impl GameMap {
         terrain: GraphicalTerrain,
     ) -> Option<GraphicalTerrain> {
         self.0.set_terrain(position, terrain)
+    }
+}
+
+impl Index<Pos> for GameMap {
+    type Output = GraphicalTerrain;
+
+    fn index(&self, position: Pos) -> &Self::Output {
+        &self.0[position]
     }
 }
 

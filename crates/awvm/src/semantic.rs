@@ -623,6 +623,21 @@ impl UnitStore {
         &self.units
     }
 
+    /// The transports that are carrying at least one unit, in one pass.
+    ///
+    /// Cargo is spelled on the carried unit, so the only way to ask whether a
+    /// transport is loaded is to look at everyone else. A renderer asks that of
+    /// every unit it draws, which is why the answer is gathered once.
+    pub fn loaded_transports(&self) -> HashSet<UnitId, BuildHasherDefault<IdHasher>> {
+        self.units
+            .iter()
+            .filter_map(|unit| match unit.location {
+                Location::Cargo { transport, .. } => Some(transport),
+                Location::Board { .. } => None,
+            })
+            .collect()
+    }
+
     /// Add a unit. Panics on a duplicate id, which the reducer must not
     /// produce: ids come from `next_unit_id`, which only ever moves forward.
     pub fn push(&mut self, unit: Unit) {
