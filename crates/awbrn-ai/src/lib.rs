@@ -7,7 +7,10 @@
 //! seeing through fog.
 //!
 //! [`agent`] holds the interface: the [`Agent`] trait and the [`Play`] an agent
-//! returns. [`agents`] holds the implementations. [`vision`] is the one map
+//! returns. [`agents`] holds the implementations. [`map`] is what the board
+//! says before anybody plays on it. [`probe`] is what a commander is worth,
+//! measured off the ruleset's own calculator rather than restated as a rule.
+//! [`vision`] is the one map
 //! that reads fog as fog: what this player can see now, and what a play would
 //! light. [`rng`] is the seeded
 //! generator that makes a game repeatable, which every measurement of one agent
@@ -21,6 +24,8 @@ pub mod agent;
 pub mod agents;
 pub mod board;
 pub mod harness;
+pub mod map;
+pub mod probe;
 pub mod rng;
 pub mod shape;
 pub mod threat;
@@ -28,6 +33,8 @@ pub mod vision;
 
 pub use agent::{Agent, Play};
 pub use harness::{Limits, Record, play, play_measured};
+pub use map::ContestMap;
+pub use probe::Probe;
 pub use rng::Rng;
 pub use shape::{SeatShape, Shape};
 pub use threat::ThreatMap;
