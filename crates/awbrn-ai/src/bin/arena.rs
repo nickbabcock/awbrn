@@ -20,13 +20,21 @@
 //! The report says what the games were made of as well as who won them, for
 //! the same reason: a score against a mirror of the same agent cannot see that
 //! the games hold no combat. See [`awbrn_ai::shape`].
+//!
+//! A weighting that wins does not have to be compiled in to play again.
+//! `--freeze` writes it into the ladder directory, a seat names it by its file
+//! name from then on, and `--round-robin` plays the whole ladder against the
+//! weightings this crate holds. Tuning is then a loop of sweep, freeze and
+//! round, and only a term that needs code needs a rebuild.
 
+use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use awbrn_ai::agent::Agent;
 use awbrn_ai::agents::{GreedyAgent, RandomAgent, Weights};
 use awbrn_ai::board::{
@@ -52,18 +60,45 @@ fn main() {
     };
 
     let start = Instant::now();
-    let tally = match run(&options) {
-        Ok(tally) => tally,
-        Err(error) => {
-            eprintln!("error: {error:#}");
-            std::process::exit(1);
-        }
-    };
-    report(&options, &tally, start.elapsed().as_secs_f64());
+    if let Err(error) = dispatch(&options, start) {
+        eprintln!("error: {error:#}");
+        std::process::exit(1);
+    }
+}
+
+/// Run the mode the arguments name.
+///
+/// There are three: freeze one weighting into the ladder, play the ladder
+/// against itself, or play two seats. Each of them reads the ladder first,
+/// because a seat can name what is in it.
+fn dispatch(options: &Options, start: Instant) -> Result<()> {
+    let ladder = Ladder::load(&options.ladder)?;
+
+    if let Some(name) = &options.freeze {
+        let weights = ladder
+            .seat(&options.first, options.weights.as_deref())?
+            .context("the random agent holds no weights to freeze")?;
+        let path = ladder.freeze(name, &weights)?;
+        println!("wrote {}", path.display());
+        println!("seat it by name: arena --first {name} --second defend");
+        return Ok(());
+    }
+
+    if options.round_robin {
+        let round = round_robin(options, &ladder)?;
+        report_round(options, &ladder, &round, start.elapsed().as_secs_f64());
+        return Ok(());
+    }
+
+    let first = ladder.seat(&options.first, options.weights.as_deref())?;
+    let second = ladder.seat(&options.second, options.second_weights.as_deref())?;
+    let tally = run(options, first, second, options.sample.as_deref())?;
+    report(options, &tally, start.elapsed().as_secs_f64());
+    Ok(())
 }
 
 const USAGE: &str = "\
-usage: arena [--map NAME] [--seed N] [--games N] [--fog] [--day-cap N] [--first NAME] [--second NAME] [--weights FILE] [--second-weights FILE] [--sample DIR]
+usage: arena [--map NAME] [--seed N] [--games N] [--fog] [--day-cap N] [--first NAME] [--second NAME] [--weights FILE] [--second-weights FILE] [--sample DIR] [--ladder DIR] [--round-robin] [--roster NAMES] [--freeze NAME]
 
   --map NAME     Map to play. Default amber-valley. Also close-encounters,
                  which is the board the first tier 1 numbers were taken on.
@@ -82,10 +117,23 @@ usage: arena [--map NAME] [--seed N] [--games N] [--fog] [--day-cap N] [--first 
   --second-weights FILE
                  The same, for the second agent.
   --sample DIR   Capture the first game as turn PNGs and a JSONL sidecar.
+  --ladder DIR   Where the weightings that are not compiled in live. One JSON
+                 file for each, named by the file. Default the crate's ladder
+                 directory.
+  --round-robin  Play every contender against every other, both seat orders,
+                 and report the cross table. The field is the ladder and the
+                 built-in weightings unless --roster names it.
+  --roster NAMES A comma-separated field for --round-robin, in place of the
+                 whole ladder: --roster defend,counter,my-champion.
+  --freeze NAME  Write what --first and --weights resolve to into the ladder
+                 as NAME, and play nothing. This is how a sweep winner joins
+                 later rounds without a rebuild.
 
-agents: random, or one of the weightings tier1, threat, deny, defend, default.
-Each weighting adds one term to the one before it, so an adjacent pair is the
-measurement of that term and nothing else.";
+agents: random, one of the weightings this crate names, a name the ladder
+holds, or a path to a JSON weights file. Each built-in weighting adds one term
+to the one before it, so an adjacent pair is the measurement of that term and
+nothing else. A ladder file names the fields it moves and, in
+its base field, the weighting it moves them from.";
 
 #[derive(Debug)]
 struct Options {
@@ -99,6 +147,12 @@ struct Options {
     weights: Option<PathBuf>,
     second_weights: Option<PathBuf>,
     sample: Option<PathBuf>,
+    ladder: PathBuf,
+    round_robin: bool,
+    /// The field of a round robin, or empty for the whole ladder.
+    roster: Vec<String>,
+    /// The name to write the first agent's weighting into the ladder under.
+    freeze: Option<String>,
 }
 
 impl Options {
@@ -114,6 +168,10 @@ impl Options {
             weights: None,
             second_weights: None,
             sample: None,
+            ladder: PathBuf::from(DEFAULT_LADDER),
+            round_robin: false,
+            roster: Vec::new(),
+            freeze: None,
         };
         let mut arguments = arguments.peekable();
         while let Some(argument) = arguments.next() {
@@ -133,6 +191,10 @@ impl Options {
                 "--weights" => options.weights = Some(value()?.into()),
                 "--second-weights" => options.second_weights = Some(value()?.into()),
                 "--sample" => options.sample = Some(value()?.into()),
+                "--ladder" => options.ladder = value()?.into(),
+                "--round-robin" => options.round_robin = true,
+                "--roster" => options.roster = roster(&value()?)?,
+                "--freeze" => options.freeze = Some(value()?),
                 "--help" | "-h" => {
                     println!("{USAGE}");
                     std::process::exit(0);
@@ -151,6 +213,17 @@ impl Options {
         }
         if options.second_weights.is_some() && options.second == RANDOM {
             return Err("--second-weights requires a greedy second agent".to_owned());
+        }
+        if !options.roster.is_empty() && !options.round_robin {
+            return Err("--roster names the field of a --round-robin run".to_owned());
+        }
+        if options.round_robin && options.sample.is_some() {
+            return Err(
+                "--sample captures one game, which a --round-robin run does not have".to_owned(),
+            );
+        }
+        if options.round_robin && options.freeze.is_some() {
+            return Err("--freeze writes a weighting and plays nothing".to_owned());
         }
         Ok(options)
     }
@@ -181,21 +254,176 @@ fn parse_number<T: std::str::FromStr>(text: &str) -> Result<T, String> {
 /// The one agent that reads no weights.
 const RANDOM: &str = "random";
 
+/// Where the weightings that are not compiled in live by default.
+const DEFAULT_LADDER: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/ladder");
+
 /// What one seat plays, by the word the arguments use.
 ///
 /// There are two agents and not five. Every greedy doctrine this crate has
-/// ever seated is a weighting of the one greedy agent, so a seat names either
-/// `random`, one of [`Weights::PRESETS`], or a file of weights. A new term
-/// then needs a weight and no agent at all, which is what stops the ladder
-/// from growing a name for each of them.
+/// ever seated is a weighting of the one greedy agent, so a seat names
+/// `random`, one of [`Weights::PRESETS`], a name the ladder holds, or a file
+/// of weights. A new term then needs a weight and no agent at all, which is
+/// what stops the ladder from growing a name for each of them.
+///
+/// The name is only kept here. What it means is decided in [`Ladder::seat`],
+/// after the arguments have said where the ladder is.
 fn agent_spec(name: &str) -> Result<String, String> {
-    if name == RANDOM || Weights::preset(name).is_some() || is_path(name) {
-        return Ok(name.to_owned());
+    if name.is_empty() {
+        return Err("an agent needs a name".to_owned());
     }
-    Err(format!(
-        "unknown agent {name}, known agents are {RANDOM}, {}, or a path to a weights file",
-        Weights::preset_names()
-    ))
+    Ok(name.to_owned())
+}
+
+/// The field of a round robin, from one comma-separated word.
+fn roster(names: &str) -> Result<Vec<String>, String> {
+    let names: Vec<String> = names
+        .split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if names.len() < 2 {
+        return Err("--roster needs at least two contenders".to_owned());
+    }
+    Ok(names)
+}
+
+/// The weightings that live outside the binary.
+///
+/// A weighting that wins its round joins the ladder by being written into
+/// this directory, and every later round seats it by name. Nothing in here is
+/// compiled in, which is the point: the field grows without a rebuild, and
+/// the built-in weightings stay the fixed rungs the handoff note measures
+/// against.
+struct Ladder {
+    directory: PathBuf,
+    /// Sorted by name, so a round robin plays the same order every run.
+    entries: BTreeMap<String, Weights>,
+}
+
+impl Ladder {
+    /// Read every weighting in `directory`.
+    ///
+    /// A directory that is not there is an empty ladder and not an error: the
+    /// built-in weightings are still a field.
+    fn load(directory: &Path) -> Result<Self> {
+        let mut entries = BTreeMap::new();
+        let listing = match std::fs::read_dir(directory) {
+            Ok(listing) => listing,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Self {
+                    directory: directory.to_owned(),
+                    entries,
+                });
+            }
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("reading the ladder at {}", directory.display()));
+            }
+        };
+        for entry in listing {
+            let path = entry
+                .with_context(|| format!("reading the ladder at {}", directory.display()))?
+                .path();
+            if path.extension().and_then(OsStr::to_str) != Some("json") {
+                continue;
+            }
+            let name = path
+                .file_stem()
+                .and_then(OsStr::to_str)
+                .with_context(|| format!("{} has no name a seat can hold", path.display()))?
+                .to_owned();
+            if name == RANDOM || Weights::preset(&name).is_some() {
+                bail!(
+                    "ladder file {} takes a name this crate already holds; rename it",
+                    path.display()
+                );
+            }
+            entries.insert(name, read_entry(&path)?);
+        }
+        Ok(Self {
+            directory: directory.to_owned(),
+            entries,
+        })
+    }
+
+    /// The weighting one seat plays, or `None` for the random agent.
+    ///
+    /// `overrides` is layered over the named weighting rather than over the
+    /// defaults, so `--first defend --weights sweep/hold-0.4.json` is the
+    /// defend weighting with one field moved. A field the file does not name
+    /// keeps what the named weighting gives it, and a name nothing holds is
+    /// an error.
+    fn seat(&self, spec: &str, overrides: Option<&Path>) -> Result<Option<Weights>> {
+        if spec == RANDOM {
+            return Ok(None);
+        }
+        let base = if let Some(weights) = Weights::preset(spec) {
+            weights
+        } else if let Some(weights) = self.entries.get(spec) {
+            *weights
+        } else if is_path(spec) {
+            read_entry(Path::new(spec))?
+        } else {
+            bail!(
+                "unknown agent {spec}, known agents are {RANDOM}, the weightings {}, \
+                 the ladder at {} ({}), or a path to a weights file",
+                Weights::preset_names(),
+                self.directory.display(),
+                self.names()
+            );
+        };
+        match overrides {
+            Some(path) => layer_weights(base, path).map(Some),
+            None => Ok(Some(base)),
+        }
+    }
+
+    /// The ladder names, for a message that has to list them.
+    fn names(&self) -> String {
+        if self.entries.is_empty() {
+            return "empty".to_owned();
+        }
+        self.entries
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    /// Every contender: the built-in weightings, then the ladder.
+    ///
+    /// The random agent is not one. A round robin measures weightings against
+    /// each other, and a seat that plays at random only widens the table.
+    fn field(&self) -> Vec<String> {
+        Weights::PRESETS
+            .iter()
+            .map(|(name, _)| (*name).to_owned())
+            .chain(self.entries.keys().cloned())
+            .collect()
+    }
+
+    /// Write one weighting into the ladder under `name`.
+    ///
+    /// The file holds every field, because a contender has to mean the same
+    /// thing after the weighting it was swept from moves. It refuses to
+    /// overwrite: a name that already stands has results measured against it.
+    fn freeze(&self, name: &str, weights: &Weights) -> Result<PathBuf> {
+        freezable(name)?;
+        let path = self.directory.join(format!("{name}.json"));
+        if path.exists() {
+            bail!(
+                "{} already stands; delete it or choose another name",
+                path.display()
+            );
+        }
+        std::fs::create_dir_all(&self.directory)
+            .with_context(|| format!("creating the ladder at {}", self.directory.display()))?;
+        let mut text = serde_json::to_string_pretty(weights).context("writing the weighting")?;
+        text.push('\n');
+        std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
+        Ok(path)
+    }
 }
 
 /// Whether this word is meant as a file and not as a name.
@@ -205,26 +433,6 @@ fn agent_spec(name: &str) -> Result<String, String> {
 /// misspelled preset report the names instead of an unreadable file.
 fn is_path(name: &str) -> bool {
     name.contains(std::path::MAIN_SEPARATOR) || name.ends_with(".json")
-}
-
-/// The weighting one seat plays, or `None` for the random agent.
-///
-/// `overrides` is layered over the named weighting rather than over the
-/// defaults, so `--first defend --weights sweep/hold-0.4.json` is the defend
-/// weighting with one field moved. A field the file does not name keeps what
-/// the named weighting gives it, and a name no weighting holds is an error.
-fn seat_weights(spec: &str, overrides: Option<&Path>) -> Result<Option<Weights>> {
-    if spec == RANDOM {
-        return Ok(None);
-    }
-    let base = match Weights::preset(spec) {
-        Some(weights) => weights,
-        None => read_weights(Path::new(spec))?,
-    };
-    match overrides {
-        Some(path) => layer_weights(base, path).map(Some),
-        None => Ok(Some(base)),
-    }
 }
 
 fn build(seed: u64, weights: Option<Weights>) -> Box<dyn Agent> {
@@ -386,9 +594,12 @@ impl Side {
     }
 }
 
-fn run(options: &Options) -> Result<Tally> {
-    let first_weights = seat_weights(&options.first, options.weights.as_deref())?;
-    let second_weights = seat_weights(&options.second, options.second_weights.as_deref())?;
+fn run(
+    options: &Options,
+    first_weights: Option<Weights>,
+    second_weights: Option<Weights>,
+    sample: Option<&Path>,
+) -> Result<Tally> {
     let mut tally = Tally::default();
     // One session for the whole tournament. It keeps the board-sized tables it
     // allocated, so a game after the first asks the allocator for nothing.
@@ -420,7 +631,7 @@ fn run(options: &Options) -> Result<Tally> {
                 .collect();
 
             let record = if pair == 0 && under_test_first {
-                if let Some(directory) = &options.sample {
+                if let Some(directory) = sample {
                     let (map, seats) = map_and_seats(options);
                     let mut sample = Sample::new(directory, map, seats, options, game)?;
                     let record = play_observed(
@@ -461,31 +672,64 @@ fn run(options: &Options) -> Result<Tally> {
 
 /// Read one file of weights over `base`.
 ///
-/// The file holds the fields it moves and nothing else, so it is read as a
-/// map and laid over the named weighting written out as one. Reading it into
-/// [`Weights`] directly would fill every field it does not name from the
-/// defaults, which would quietly throw the named weighting away.
+/// The file holds the fields it moves and nothing else, so it is laid over
+/// the named weighting rather than read into [`Weights`] directly, which
+/// would fill every field it does not name from the defaults and quietly
+/// throw the named weighting away.
 fn layer_weights(base: Weights, path: &Path) -> Result<Weights> {
-    let file =
-        File::open(path).with_context(|| format!("opening weights file {}", path.display()))?;
-    let overrides: serde_json::Map<String, serde_json::Value> = serde_json::from_reader(file)
-        .with_context(|| format!("reading weights file {}", path.display()))?;
-    let mut merged = serde_json::to_value(base).context("writing the named weighting out")?;
-    let Some(fields) = merged.as_object_mut() else {
-        unreachable!("weights write out as an object");
-    };
-    fields.extend(overrides);
-    // `Weights` refuses a name it does not hold, so a misspelled weight is an
-    // error here rather than a sweep that measured nothing.
-    serde_json::from_value(merged)
-        .with_context(|| format!("applying weights file {}", path.display()))
+    let fields = read_fields(path)?;
+    if fields.contains_key(BASE) {
+        bail!(
+            "{} names a base weighting, which --first already names",
+            path.display()
+        );
+    }
+    merge(base, fields).with_context(|| format!("applying weights file {}", path.display()))
 }
 
-fn read_weights(path: &Path) -> Result<Weights> {
+/// The field that names what a weights file moves its weights from.
+const BASE: &str = "base";
+
+/// Read one weighting a seat can play on its own.
+///
+/// The file names the fields it moves, and in `base` the weighting it moves
+/// them from. A file without a base moves from the defaults, so a contender
+/// frozen out of a sweep holds every field and means the same thing after the
+/// weighting it came from moves.
+fn read_entry(path: &Path) -> Result<Weights> {
+    let mut fields = read_fields(path)?;
+    let base = match fields.remove(BASE) {
+        None => Weights::DEFAULT,
+        Some(serde_json::Value::String(name)) => Weights::preset(&name).with_context(|| {
+            format!(
+                "{} takes the base {name}, which is not one of {}",
+                path.display(),
+                Weights::preset_names()
+            )
+        })?,
+        Some(other) => bail!("{}: base names a weighting, not {other}", path.display()),
+    };
+    merge(base, fields).with_context(|| format!("reading weights file {}", path.display()))
+}
+
+fn read_fields(path: &Path) -> Result<serde_json::Map<String, serde_json::Value>> {
     let file =
         File::open(path).with_context(|| format!("opening weights file {}", path.display()))?;
     serde_json::from_reader(file)
         .with_context(|| format!("reading weights file {}", path.display()))
+}
+
+/// Lay named fields over a weighting.
+///
+/// `Weights` refuses a name it does not hold, so a misspelled weight is an
+/// error here rather than a sweep that measured nothing.
+fn merge(base: Weights, fields: serde_json::Map<String, serde_json::Value>) -> Result<Weights> {
+    let mut merged = serde_json::to_value(base).context("writing the named weighting out")?;
+    let Some(written) = merged.as_object_mut() else {
+        unreachable!("weights write out as an object");
+    };
+    written.extend(fields);
+    Ok(serde_json::from_value(merged)?)
 }
 
 struct Sample {
@@ -699,6 +943,207 @@ fn elo(score: f64) -> Option<f64> {
     (score > 0.0 && score < 1.0).then(|| -400.0 * (1.0 / score - 1.0).log10())
 }
 
+/// One matchup, from the point of view of the contender in the row.
+#[derive(Clone, Copy)]
+struct Cell {
+    score: f64,
+    low: f64,
+    high: f64,
+}
+
+impl Cell {
+    /// The same matchup seen from the other side.
+    const fn mirrored(self) -> Self {
+        Self {
+            score: 1.0 - self.score,
+            low: 1.0 - self.high,
+            high: 1.0 - self.low,
+        }
+    }
+
+    /// Whether this contender beat the other one and the interval agrees.
+    ///
+    /// A score over a half that an interval straddling a half comes with is
+    /// a run that measured nothing, so it does not count as a win here.
+    const fn won(self) -> bool {
+        self.low > 0.5
+    }
+}
+
+/// Every contender against every other, both seat orders.
+///
+/// This is what answers the question a two-agent run cannot: a weighting that
+/// beats the one it was swept from can still lose to the rung below it, and
+/// only a field shows that.
+struct Round {
+    names: Vec<String>,
+    /// `cells[row][column]`, and `None` where a contender meets itself.
+    cells: Vec<Vec<Option<Cell>>>,
+    games: u32,
+}
+
+impl Round {
+    /// The mean score of one contender over the field.
+    ///
+    /// Each matchup weighs the same however many games it held, because every
+    /// matchup in a round holds the same number.
+    fn score(&self, row: usize) -> f64 {
+        let played: Vec<f64> = self.cells[row]
+            .iter()
+            .flatten()
+            .map(|cell| cell.score)
+            .collect();
+        played.iter().sum::<f64>() / played.len().max(1) as f64
+    }
+
+    /// Whether this contender beat every other one it played.
+    fn swept(&self, row: usize) -> bool {
+        self.cells[row].iter().flatten().all(|cell| cell.won())
+    }
+
+    /// The rows, strongest first.
+    fn ranking(&self) -> Vec<usize> {
+        let mut order: Vec<usize> = (0..self.names.len()).collect();
+        order.sort_by(|left, right| self.score(*right).total_cmp(&self.score(*left)));
+        order
+    }
+}
+
+/// Whether a contender can take this name.
+///
+/// A name is what a seat says and what the file is called, so it holds to
+/// what both can take: a word this crate does not already hold, and not a
+/// path.
+fn freezable(name: &str) -> Result<()> {
+    if name == RANDOM || Weights::preset(name).is_some() {
+        bail!("{name} is a name this crate already holds; choose another");
+    }
+    let word = |letter: char| letter.is_ascii_alphanumeric() || matches!(letter, '-' | '_' | '.');
+    if name.is_empty() || name.ends_with(".json") || !name.chars().all(word) {
+        bail!("{name} is not a name a ladder file can take; use letters, digits, dashes and dots");
+    }
+    Ok(())
+}
+
+fn round_robin(options: &Options, ladder: &Ladder) -> Result<Round> {
+    let names = if options.roster.is_empty() {
+        ladder.field()
+    } else {
+        options.roster.clone()
+    };
+    if names.len() < 2 {
+        bail!(
+            "a round needs at least two contenders, and the field is {}",
+            names.join(", ")
+        );
+    }
+    let field: Vec<Option<Weights>> = names
+        .iter()
+        .map(|name| ladder.seat(name, None))
+        .collect::<Result<_>>()?;
+
+    let mut round = Round {
+        cells: vec![vec![None; names.len()]; names.len()],
+        games: 0,
+        names,
+    };
+    let matchups = round.names.len() * (round.names.len() - 1) / 2;
+    let mut played = 0;
+    for row in 0..round.names.len() {
+        for column in (row + 1)..round.names.len() {
+            played += 1;
+            eprintln!(
+                "matchup {played} of {matchups}: {} vs {}",
+                round.names[row], round.names[column]
+            );
+            let tally = run(options, field[row], field[column], None)?;
+            let (low, high) = paired_interval(&tally.pair_scores);
+            let cell = Cell {
+                score: tally.score(),
+                low,
+                high,
+            };
+            round.cells[row][column] = Some(cell);
+            round.cells[column][row] = Some(cell.mirrored());
+            round.games += tally.games();
+        }
+    }
+    Ok(round)
+}
+
+fn report_round(options: &Options, ladder: &Ladder, round: &Round, elapsed: f64) {
+    let order = round.ranking();
+    // Room for the rank, the dot and the longest name.
+    let width = round.names.iter().map(String::len).max().unwrap_or(0) + 5;
+
+    println!(
+        "ladder round robin   map {}  seed {}  fog {}  day cap {}",
+        options.map, options.seed, options.fog, options.day_cap
+    );
+    println!("ladder               {}", ladder.directory.display());
+    println!(
+        "{} contenders, {} games, {} pairs in each matchup",
+        round.names.len(),
+        round.games,
+        options.pairs
+    );
+    println!();
+
+    print!("{:width$}", "");
+    for column in 1..=order.len() {
+        print!("{:>7}", format!("({column})"));
+    }
+    println!("{:>9}{:>7}", "score", "elo");
+
+    for (rank, row) in order.iter().enumerate() {
+        print!("{:<width$}", format!("{}. {}", rank + 1, round.names[*row]));
+        for column in &order {
+            match round.cells[*row][*column] {
+                Some(cell) => print!("{:>7.3}", cell.score),
+                None => print!("{:>7}", "-"),
+            }
+        }
+        let score = round.score(*row);
+        match elo(score) {
+            Some(elo) => println!("{score:>9.4}{elo:>+7.0}"),
+            None => println!("{score:>9.4}{:>7}", "-"),
+        }
+    }
+    println!();
+    println!("A cell is the row's score against the column, over both seat orders.");
+
+    let champions: Vec<usize> = order
+        .iter()
+        .copied()
+        .filter(|row| round.swept(*row))
+        .collect();
+    match champions.as_slice() {
+        [] => {
+            println!("No contender beat every other one by more than its interval,");
+            println!("so this round names no champion.");
+        }
+        [champion] => {
+            let name = &round.names[*champion];
+            println!("{name} beat every other contender.");
+            if !ladder.entries.contains_key(name) && Weights::preset(name).is_none() {
+                println!("Freeze it into the ladder to seat it in later rounds:");
+                println!("  arena --first {name} --freeze NAME");
+            }
+        }
+        several => {
+            let names = several
+                .iter()
+                .map(|row| round.names[*row].as_str())
+                .collect::<Vec<_>>()
+                .join(" and ");
+            println!("{names} each beat every other contender they played, which this");
+            println!("round cannot rank between. Play them at more pairs.");
+        }
+    }
+    println!();
+    println!("elapsed              {elapsed:.3} s");
+}
+
 fn report(options: &Options, tally: &Tally, elapsed: f64) {
     let games = tally.games();
     let score = tally.score();
@@ -884,6 +1329,152 @@ mod tests {
         .expect("greedy agents use weights");
         assert_eq!(options.weights, Some(PathBuf::from("first.json")));
         assert_eq!(options.second_weights, Some(PathBuf::from("second.json")));
+    }
+
+    /// A ladder with the entries named, and no directory behind it.
+    fn ladder(entries: &[(&str, Weights)]) -> Ladder {
+        Ladder {
+            directory: PathBuf::from("ladder"),
+            entries: entries
+                .iter()
+                .map(|(name, weights)| ((*name).to_owned(), *weights))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn a_seat_names_a_weighting_the_ladder_holds() {
+        let champion = Weights {
+            hold: 12.5,
+            ..Weights::DEFEND
+        };
+        let ladder = ladder(&[("champion", champion)]);
+
+        let seated = ladder
+            .seat("champion", None)
+            .expect("the ladder holds it")
+            .expect("it is not the random agent");
+        assert_eq!(seated.hold, 12.5);
+
+        // A built-in weighting still wins the name, and the random agent
+        // still reads no weights at all.
+        assert_eq!(
+            ladder
+                .seat("defend", None)
+                .expect("a preset")
+                .expect("not random")
+                .hold,
+            Weights::DEFEND.hold
+        );
+        assert!(ladder.seat(RANDOM, None).expect("random").is_none());
+    }
+
+    #[test]
+    fn an_unknown_seat_reports_the_whole_field() {
+        let error = ladder(&[("champion", Weights::DEFEND)])
+            .seat("champoin", None)
+            .expect_err("a misspelled name is an error")
+            .to_string();
+        assert!(error.contains("defend"), "{error}");
+        assert!(error.contains("champion"), "{error}");
+    }
+
+    #[test]
+    fn the_field_is_the_weightings_and_then_the_ladder() {
+        let field = ladder(&[("champion", Weights::DEFEND)]).field();
+        assert_eq!(field.len(), Weights::PRESETS.len() + 1);
+        assert_eq!(field.last().expect("the ladder is last"), "champion");
+        assert!(!field.iter().any(|name| name == RANDOM));
+    }
+
+    #[test]
+    fn a_ladder_file_moves_its_weights_from_the_base_it_names() {
+        let fields = |text: &str| serde_json::from_str(text).expect("the file parses");
+        let merged = merge(Weights::DEFEND, fields(r#"{"hold":0.4}"#)).expect("the weights merge");
+        assert_eq!(merged.hold, 0.4);
+        // Every field the file does not name is the base's, not the default's.
+        assert_eq!(merged.deny, Weights::DEFEND.deny);
+        assert_eq!(merged.threat, Weights::DEFEND.threat);
+    }
+
+    #[test]
+    fn a_frozen_name_cannot_shadow_a_weighting_this_crate_holds() {
+        for name in [
+            "defend",
+            RANDOM,
+            "sweep/champion",
+            "champion.json",
+            "a b",
+            "",
+        ] {
+            freezable(name).expect_err("the name is not one a ladder file can take");
+        }
+        // A name a sweep gives a weighting is one of these, dot and all.
+        freezable("hold-0.4").expect("a sweep names a weighting like this");
+    }
+
+    #[test]
+    fn a_roster_needs_a_field_to_play() {
+        assert!(roster("defend").is_err());
+        assert_eq!(
+            roster(" defend , counter ,").expect("two contenders"),
+            ["defend", "counter"]
+        );
+        let error = Options::parse(
+            ["--roster", "defend,counter"]
+                .map(str::to_owned)
+                .into_iter(),
+        )
+        .expect_err("a roster without a round is an error");
+        assert_eq!(error, "--roster names the field of a --round-robin run");
+    }
+
+    #[test]
+    fn a_matchup_reads_the_same_from_either_side() {
+        let cell = Cell {
+            score: 0.62,
+            low: 0.55,
+            high: 0.69,
+        };
+        let mirrored = cell.mirrored();
+        assert!((mirrored.score - 0.38).abs() < 1e-9);
+        assert!((mirrored.low - 0.31).abs() < 1e-9);
+        assert!((mirrored.high - 0.45).abs() < 1e-9);
+        assert!(cell.won());
+        assert!(!mirrored.won());
+        // A score over a half the interval does not support is not a win.
+        assert!(
+            !Cell {
+                score: 0.52,
+                low: 0.48,
+                high: 0.56
+            }
+            .won()
+        );
+    }
+
+    #[test]
+    fn a_round_ranks_by_the_score_over_the_field() {
+        let cell = |score: f64| {
+            Some(Cell {
+                score,
+                low: score - 0.02,
+                high: score + 0.02,
+            })
+        };
+        let round = Round {
+            names: ["weak", "strong", "middling"].map(str::to_owned).to_vec(),
+            cells: vec![
+                vec![None, cell(0.2), cell(0.4)],
+                vec![cell(0.8), None, cell(0.7)],
+                vec![cell(0.6), cell(0.3), None],
+            ],
+            games: 600,
+        };
+        assert_eq!(round.ranking(), [1, 2, 0]);
+        assert!((round.score(1) - 0.75).abs() < 1e-9);
+        assert!(round.swept(1));
+        assert!(!round.swept(2));
     }
 
     #[test]
