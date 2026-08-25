@@ -1,12 +1,12 @@
 //! CLI: render an AWBW text or JSON map to a PNG or a text grid.
 //!
 //! Usage:
-//!   awbrn-image <input.(txt|json)> [-o <output>] [--format png|text|awbw] [--assets-dir <dir>]
+//!   awbrn-image <input.(txt|json)> [-o <output>] [--format png|smallmap|text|awbw]
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use awbrn_image::{Tilesets, render_map};
+use awbrn_image::{Tilesets, render_map, render_small_map};
 use awbrn_map::{AwbwMap, AwbwMapData, PredeployedUnit};
 
 /// Output representation for a parsed map.
@@ -14,6 +14,8 @@ use awbrn_map::{AwbwMap, AwbwMapData, PredeployedUnit};
 enum Format {
     /// Rendered PNG image.
     Png,
+    /// Compact terrain-only PNG image with 4-by-4 pixel tiles.
+    Smallmap,
     /// Lossless Unicode glyph grid (every tile a unique character) plus a legend.
     Text,
     /// AWBW text-format ASCII grid, with factions collapsed to the canonical set.
@@ -26,9 +28,10 @@ impl std::str::FromStr for Format {
     fn from_str(s: &str) -> Result<Self> {
         match s {
             "png" => Ok(Format::Png),
+            "smallmap" => Ok(Format::Smallmap),
             "text" => Ok(Format::Text),
             "awbw" => Ok(Format::Awbw),
-            other => bail!("unknown format: {other} (expected png, text, or awbw)"),
+            other => bail!("unknown format: {other} (expected png, smallmap, text, or awbw)"),
         }
     }
 }
@@ -105,6 +108,19 @@ fn main() -> Result<()> {
                 image.height()
             );
         }
+        Format::Smallmap => {
+            let output = output.unwrap_or_else(|| input.with_extension("png"));
+            let image = render_small_map(&map);
+            image
+                .save(&output)
+                .with_context(|| format!("writing {}", output.display()))?;
+            eprintln!(
+                "wrote {} ({}x{})",
+                output.display(),
+                image.width(),
+                image.height()
+            );
+        }
         Format::Text => {
             let map = map.collapse_factions();
             let mut content = map.lossless().to_string();
@@ -170,13 +186,23 @@ fn default_assets_dir() -> PathBuf {
 fn print_usage() {
     eprintln!(
         "awbrn-image — render an AWBW map to PNG or text\n\n\
-         USAGE:\n    awbrn-image <input.(txt|json)> [-o <output>] [--format png|text|awbw] [--assets-dir <dir>]\n\n\
+         USAGE:\n    awbrn-image <input.(txt|json)> [-o <output>] [--format png|smallmap|text|awbw] [--assets-dir <dir>]\n\n\
          ARGS:\n    <input>            AWBW text (.txt) or map_info JSON (.json) map\n\n\
          OPTIONS:\n    -o, --output <file>    Output path (default: input with .png; stdout for text)\n    \
-         -f, --format <fmt>     png (default), text (lossless Unicode + legend), or awbw\n                           \
+         -f, --format <fmt>     png (default), smallmap, text (lossless Unicode + legend), or awbw\n                           \
          (collapsed ASCII). Inferred as text when --output ends in .txt\n    \
          --assets-dir <dir>     Directory containing tiles.png, units.png, and ui.png\n                           \
          (ui_atlas.json must be here or in sibling data/; default: bundled assets/textures)\n    \
     -h, --help             Print this help"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn smallmap_is_a_supported_format() {
+        assert!(matches!("smallmap".parse::<Format>(), Ok(Format::Smallmap)));
+    }
 }
