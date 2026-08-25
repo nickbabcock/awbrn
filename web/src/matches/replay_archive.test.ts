@@ -1,5 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { getMatchReplayResponse, matchReplayKey, uploadMatchReplay } from "./replay_archive";
+import {
+  getMatchReplayResponse,
+  isMatchReplayDownload,
+  matchReplayFileName,
+  matchReplayKey,
+  matchReplayDownloadPath,
+  matchReplayPath,
+  matchReplaysExist,
+  parseMatchReplay,
+  uploadMatchReplay,
+} from "./replay_archive";
 import type { MatchSetup } from "./schemas";
 
 const setup = {
@@ -65,5 +75,61 @@ describe("match replay archive", () => {
     const response = await getMatchReplayResponse({ get } as unknown as R2Bucket, setup.matchId);
 
     expect(response.status).toBe(404);
+  });
+});
+
+describe("parseMatchReplay", () => {
+  it("accepts an archive the uploader wrote", () => {
+    const replay = parseMatchReplay({ version: 1, setup, actions: [{ command: "endTurn" }] });
+
+    expect(replay.version).toBe(1);
+    expect(replay.setup.matchId).toBe(setup.matchId);
+    expect(replay.actions).toHaveLength(1);
+  });
+
+  it("rejects a file that is not an AWBRN archive", () => {
+    expect(() => parseMatchReplay({ version: 2, setup, actions: [] })).toThrow(
+      /not a valid AWBRN archive/,
+    );
+    expect(() => parseMatchReplay({ version: 1, actions: [] })).toThrow(
+      /not a valid AWBRN archive/,
+    );
+    expect(() => parseMatchReplay("nope")).toThrow(/not a valid AWBRN archive/);
+  });
+});
+
+describe("matchReplayPath", () => {
+  it("points at the route that serves the archive", () => {
+    expect(matchReplayPath("abc123def456g")).toBe("/replays/abc123def456g.json");
+  });
+
+  it("names the downloaded file after its match", () => {
+    expect(matchReplayFileName("abc123def456g")).toBe("awbrn-replay-abc123def456g.json");
+  });
+
+  it("asks for the file to keep on its own path, so the two do not share a cache entry", () => {
+    expect(matchReplayDownloadPath("abc123def456g")).toBe("/replays/abc123def456g.json?download=1");
+    expect(isMatchReplayDownload(new URL("https://awbrn.test/replays/x.json?download=1"))).toBe(
+      true,
+    );
+    expect(isMatchReplayDownload(new URL("https://awbrn.test/replays/x.json"))).toBe(false);
+  });
+});
+
+describe("matchReplaysExist", () => {
+  it("reports only the matches that have a stored archive", async () => {
+    const head = vi.fn(async (key: string) => (key.includes("kept") ? {} : null));
+
+    const stored = await matchReplaysExist({ head } as unknown as R2Bucket, ["kept", "missing"]);
+
+    expect(stored).toEqual(new Set(["kept"]));
+    expect(head).toHaveBeenCalledWith("replays/kept.json");
+    expect(head).toHaveBeenCalledWith("replays/missing.json");
+  });
+
+  it("checks nothing when no match is named", async () => {
+    const head = vi.fn();
+    expect(await matchReplaysExist({ head } as unknown as R2Bucket, [])).toEqual(new Set());
+    expect(head).not.toHaveBeenCalled();
   });
 });

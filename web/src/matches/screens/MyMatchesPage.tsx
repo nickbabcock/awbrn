@@ -44,6 +44,7 @@ export function MyMatchesPage() {
           <HStack gap={2} justify="end" wrap="wrap">
             <RouterButton label="Create match" to="/matches/new" variant="primary" />
             <RouterButton label="Browse lobbies" to="/matches" variant="secondary" />
+            <RouterButton label="Completed games" to="/my/history" variant="secondary" />
           </HStack>
         </Grid>
 
@@ -53,6 +54,7 @@ export function MyMatchesPage() {
               <HStack gap={2} justify="center" wrap="wrap">
                 <RouterButton label="Create match" to="/matches/new" variant="primary" />
                 <RouterButton label="Browse lobbies" to="/matches" variant="secondary" />
+                <RouterButton label="Completed games" to="/my/history" variant="secondary" />
               </HStack>
             }
             description="Create a match or join an open lobby to see it here."

@@ -9,12 +9,12 @@ describe("cursor encoding", () => {
   it("round-trips a valid browse cursor", () => {
     const encoded = encodeMatchBrowseCursor({
       createdAt: "2026-04-06T12:00:00.000Z",
-      matchId: "abc123",
+      matchId: "abc123def4567",
     });
 
     expect(decodeMatchBrowseCursor(encoded)).toEqual({
       createdAt: "2026-04-06T12:00:00.000Z",
-      matchId: "abc123",
+      matchId: "abc123def4567",
     });
   });
 

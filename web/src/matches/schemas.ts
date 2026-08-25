@@ -22,6 +22,10 @@ export const matchBrowseRequestSchema = z.object({
   cursor: z.string().min(1).optional(),
 });
 
+export const matchHistoryRequestSchema = z.object({
+  cursor: z.string().min(1).optional(),
+});
+
 export const matchMutationRequestSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("join"),
@@ -78,6 +82,7 @@ export type RankedPool = (typeof rankedPools)[number];
 export type MatchSettings = z.infer<typeof matchSettingsSchema>;
 export type MatchCreateRequest = z.infer<typeof matchCreateRequestSchema>;
 export type MatchBrowseRequest = z.infer<typeof matchBrowseRequestSchema>;
+export type MatchHistoryRequest = z.infer<typeof matchHistoryRequestSchema>;
 export type MatchMutationRequest = z.infer<typeof matchMutationRequestSchema>;
 
 export interface MatchCreateResponse {
@@ -188,3 +193,39 @@ export const matchSetupSchema = z.object({
 
 export type MatchSetupPlayer = z.infer<typeof matchSetupPlayerSchema>;
 export type MatchSetup = z.infer<typeof matchSetupSchema>;
+
+/** One seat in a finished match, with the result recorded for it. */
+export interface MatchHistorySeat {
+  slotIndex: number;
+  userId: string;
+  userName: string;
+  factionId: number;
+  coId: number | null;
+  /** Null while a completed match has no recorded result for the seat. */
+  outcome: MatchOutcome | null;
+  placement: number | null;
+  reason: SeatResultReason | null;
+}
+
+/** One finished match, as the viewer's own after action report. */
+export interface MatchHistoryEntry {
+  matchId: string;
+  name: string;
+  mapId: number;
+  isPrivate: boolean;
+  settings: MatchSettings;
+  startedAt: string | null;
+  completedAt: string;
+  /** Every seat the viewer held. More than one means a hotseat match. */
+  viewerSlotIndexes: number[];
+  seats: MatchHistorySeat[];
+  /** False when the archive is missing, so the page never offers a dead file. */
+  hasReplay: boolean;
+}
+
+export interface MatchHistoryResponse {
+  matches: MatchHistoryEntry[];
+  pageSize: number;
+  hasNextPage: boolean;
+  nextCursor: string | null;
+}
