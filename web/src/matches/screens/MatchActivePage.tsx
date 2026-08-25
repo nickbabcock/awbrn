@@ -6,7 +6,6 @@ import { Card } from "@astryxdesign/core/Card";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Section } from "@astryxdesign/core/Section";
-import { Link } from "@astryxdesign/core/Link";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
@@ -91,7 +90,6 @@ const BOARD_BLEED_MEDIA = "@media (max-width: 767px)";
  * where it is published. AWBRN is independent of AWBW; this is a reference to
  * the map, not a claim of any relationship.
  */
-const AWBW_MAP_URL = "https://awbw.amarriner.com/prevmaps.php?maps_id=";
 
 /**
  * How long a press can still be the one that opened a menu. A selection made
@@ -454,7 +452,7 @@ function ActiveMatchBoard({
   day: number | null;
   initialBoard: InitialBoardMessage | null;
   isEndingTurn: boolean;
-  match: { mapId: number; maxPlayers: number; name: string; settings: { fogEnabled: boolean } };
+  match: { mapId: string; maxPlayers: number; name: string; settings: { fogEnabled: boolean } };
   onBoardError: (message: string | null) => void;
   onBuildUnit: (unit: UnitKind, x: number, y: number) => void;
   onEndTurn: () => void;
@@ -580,7 +578,7 @@ function ActiveMatchBoard({
   // The map names itself in the readout, so the status line reports the
   // connection and nothing else. Naming the map here as well made a socket
   // state and a match identity share one sentence, and neither one read.
-  const mapName = initialBoard?.map.Name ?? null;
+  const mapName = initialBoard?.map.metadata.name ?? null;
   const statusText =
     status === "connected"
       ? initialBoard
@@ -717,14 +715,9 @@ function ActiveMatchBoard({
           {/* The map is the one thing here a player may want to leave the match
               for, so it names itself and links out. The id is the fallback for
               the window before the engine reports the board, not the label. */}
-          <Link
-            href={`${AWBW_MAP_URL}${match.mapId}`}
-            isExternalLink
-            type="supporting"
-            xstyle={styles.hudMap}
-          >
+          <Text type="supporting" xstyle={styles.hudMap}>
             {mapName ?? `Map ${match.mapId}`}
-          </Link>
+          </Text>
           <HStack align="center" gap={2} xstyle={styles.hudState}>
             <StatusDot
               aria-hidden="true"

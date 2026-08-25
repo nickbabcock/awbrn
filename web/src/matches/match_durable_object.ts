@@ -3,8 +3,7 @@ import { drizzle, DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { and, asc, count, eq, isNull } from "drizzle-orm";
-import { WasmMatch, initSync, initLogging } from "#/wasm/awbrn_server.js";
-import matchWasmModule from "../wasm/awbrn_server_bg.wasm";
+import { WasmMatch } from "#/wasm/awbrn_server.js";
 import {
   initialMatchConnectionMessages,
   normalizeCaughtError,
@@ -45,18 +44,6 @@ function parseMatchEvent(row: { kind: string; payload: unknown }): MatchEvent | 
 
 /** Retry delay for an unwritten result. */
 const RESULT_ALARM_DELAY_MS = 10_000;
-
-let wasmInitialized = false;
-
-function ensureMatchWasmInitialized(): void {
-  if (wasmInitialized) {
-    return;
-  }
-
-  initSync({ module: matchWasmModule });
-  initLogging({ level: "info" });
-  wasmInitialized = true;
-}
 
 export class MatchDurableObject extends DurableObject<CloudflareBindings> {
   private readonly db: DrizzleSqliteDODatabase;
@@ -157,7 +144,6 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
         return ok({ matchId, joinSlug: null });
       }
 
-      ensureMatchWasmInitialized();
       this.wasmMatch = new WasmMatch(setup);
       this.appendEvent({ kind: "setup", payload: setup });
 
@@ -240,7 +226,6 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     if (!setup) {
       return null;
     }
-    ensureMatchWasmInitialized();
     try {
       const actionEvents = this.readActionEvents();
       this.wasmMatch = WasmMatch.reconstructFromEvents(setup, actionEvents);

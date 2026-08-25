@@ -7,8 +7,6 @@ import { List } from "@astryxdesign/core/List";
 import { Section } from "@astryxdesign/core/Section";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { Thumbnail } from "#/ui/Thumbnail.tsx";
-import { awbwSmallMapAssetPath } from "#/awbw/paths.ts";
 import { getCoPortraitByAwbwId } from "#/components/co_portraits.ts";
 import { getFactionById } from "#/factions.ts";
 import { RouterButton, RouterListItem } from "#/ui/astryx-links.tsx";
@@ -133,13 +131,6 @@ function MyMatchRow({ loadedAt, match }: { loadedAt: string; match: MyMatchSumma
         </HStack>
       }
       params={{ matchId: match.matchId }}
-      startContent={
-        <Thumbnail
-          alt={`Map preview for ${match.name}`}
-          label={`${match.name} map`}
-          src={awbwSmallMapAssetPath(match.mapId)}
-        />
-      }
       to="/matches/$matchId"
     />
   );

@@ -1,8 +1,11 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroU8;
 
-use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
-use awbrn_types::PlayerFaction;
+use awbrn_map::{
+    AwbrnMap, AwbrnMapDocument, AwbrnMapMetadata, AwbrnMapUnit, AwbwMapData, Pos, PredeployedUnit,
+    ValidatedMapDocument,
+};
+use awbrn_types::{AwbwTerrain, FactionCode, PlayerFaction, Unit, VisualHp};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tsify::Tsify;
@@ -57,6 +60,226 @@ pub fn init_logging(options: LoggingOptions) {
         max_level: options.level.into(),
         span_durations: options.span_durations,
     });
+}
+
+/// Normalize and hash an upstream AWBW payload using the canonical Rust map implementation.
+#[wasm_bindgen(js_name = importAwbwMapDocument)]
+pub fn import_awbw_map_document(map_data: AwbwMapDataWire) -> Result<ImportedMapDocument, JsError> {
+    let source = AwbwMapData::from(map_data);
+    let document = ValidatedMapDocument::try_from(&source)
+        .map_err(|error| invalid_input("map", error.to_string()))?;
+    let digests = document.digests();
+
+    Ok(ImportedMapDocument {
+        document: document.into(),
+        content_hash: digests.content_hash.to_string(),
+        property_signature: digests.property_signature.to_string(),
+        unit_signature: digests.unit_signature.to_string(),
+    })
+}
+
+#[derive(Debug, Tsify, Serialize)]
+#[tsify(into_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedMapDocument {
+    pub document: AwbrnMapDocumentWire,
+    pub content_hash: String,
+    pub property_signature: String,
+    pub unit_signature: String,
+}
+
+#[derive(Debug, Tsify, Serialize, Deserialize)]
+#[tsify(from_wasm_abi)]
+pub struct AwbwMapDataWire {
+    #[serde(rename = "Name")]
+    pub name: String,
+    #[serde(rename = "Author")]
+    pub author: String,
+    #[serde(rename = "Player Count")]
+    pub player_count: u32,
+    #[serde(rename = "Published Date")]
+    pub published_date: String,
+    #[serde(rename = "Size X")]
+    pub size_x: u32,
+    #[serde(rename = "Size Y")]
+    pub size_y: u32,
+    #[serde(rename = "Terrain Map")]
+    #[tsify(type = "number[][]")]
+    pub terrain_map: Vec<Vec<AwbwTerrain>>,
+    #[serde(rename = "Predeployed Units")]
+    pub predeployed_units: Vec<PredeployedUnitWire>,
+}
+
+#[derive(Debug, Tsify, Serialize, Deserialize)]
+#[tsify(from_wasm_abi, into_wasm_abi)]
+pub struct PredeployedUnitWire {
+    #[serde(rename = "Unit ID")]
+    pub unit_id: u32,
+    #[serde(rename = "Unit X")]
+    pub unit_x: u32,
+    #[serde(rename = "Unit Y")]
+    pub unit_y: u32,
+    #[serde(rename = "Unit HP")]
+    pub unit_hp: u32,
+    #[serde(rename = "Country Code")]
+    pub country_code: String,
+}
+
+#[derive(Debug, Tsify, Serialize, Deserialize)]
+#[tsify(from_wasm_abi, into_wasm_abi)]
+pub struct AwbrnMapDocumentWire {
+    pub map_format: u32,
+    pub width: u32,
+    pub height: u32,
+    pub terrain: Vec<u8>,
+    pub units: Vec<AwbrnMapUnitWire>,
+    pub metadata: AwbrnMapMetadataWire,
+}
+
+#[derive(Debug, Tsify, Serialize, Deserialize)]
+#[tsify(from_wasm_abi, into_wasm_abi)]
+pub struct AwbrnMapUnitWire {
+    pub position: [u8; 2],
+    pub unit: String,
+    pub faction: String,
+    pub hp: u32,
+}
+
+#[derive(Debug, Tsify, Serialize, Deserialize)]
+#[tsify(from_wasm_abi, into_wasm_abi)]
+pub struct AwbrnMapMetadataWire {
+    pub name: String,
+    pub author: String,
+    pub player_count: u32,
+}
+
+impl From<PredeployedUnitWire> for PredeployedUnit {
+    fn from(unit: PredeployedUnitWire) -> Self {
+        Self {
+            unit_id: unit.unit_id,
+            unit_x: unit.unit_x,
+            unit_y: unit.unit_y,
+            unit_hp: unit.unit_hp,
+            country_code: unit.country_code,
+        }
+    }
+}
+
+impl From<AwbwMapDataWire> for AwbwMapData {
+    fn from(map: AwbwMapDataWire) -> Self {
+        Self {
+            name: map.name,
+            author: map.author,
+            player_count: map.player_count,
+            published_date: map.published_date,
+            size_x: map.size_x,
+            size_y: map.size_y,
+            terrain_map: map.terrain_map,
+            predeployed_units: map
+                .predeployed_units
+                .into_iter()
+                .map(PredeployedUnit::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<ValidatedMapDocument> for AwbrnMapDocumentWire {
+    fn from(document: ValidatedMapDocument) -> Self {
+        document.to_document().into()
+    }
+}
+
+impl From<AwbrnMapDocument> for AwbrnMapDocumentWire {
+    fn from(document: AwbrnMapDocument) -> Self {
+        Self {
+            map_format: document.map_format,
+            width: document.width,
+            height: document.height,
+            terrain: document
+                .terrain
+                .into_iter()
+                .map(|terrain| terrain.id().get())
+                .collect(),
+            units: document
+                .units
+                .into_iter()
+                .map(AwbrnMapUnitWire::from)
+                .collect(),
+            metadata: AwbrnMapMetadataWire {
+                name: document.metadata.name,
+                author: document.metadata.author,
+                player_count: document.metadata.player_count,
+            },
+        }
+    }
+}
+
+impl From<AwbrnMapUnit> for AwbrnMapUnitWire {
+    fn from(unit: AwbrnMapUnit) -> Self {
+        Self {
+            position: [unit.position.x, unit.position.y],
+            unit: unit.unit.as_str().to_owned(),
+            faction: unit.faction.as_str().to_owned(),
+            hp: u32::from(unit.hp.get()),
+        }
+    }
+}
+
+impl TryFrom<AwbrnMapDocumentWire> for ValidatedMapDocument {
+    type Error = String;
+
+    fn try_from(document: AwbrnMapDocumentWire) -> Result<Self, Self::Error> {
+        AwbrnMapDocument::try_from(document)?
+            .validate()
+            .map_err(|error| error.to_string())
+    }
+}
+
+impl TryFrom<AwbrnMapDocumentWire> for AwbrnMapDocument {
+    type Error = String;
+
+    fn try_from(document: AwbrnMapDocumentWire) -> Result<Self, Self::Error> {
+        Ok(Self {
+            map_format: document.map_format,
+            width: document.width,
+            height: document.height,
+            terrain: document
+                .terrain
+                .into_iter()
+                .map(|id| AwbwTerrain::try_from(id).map_err(|error| error.to_string()))
+                .collect::<Result<_, _>>()?,
+            units: document
+                .units
+                .into_iter()
+                .map(AwbrnMapUnit::try_from)
+                .collect::<Result<_, _>>()?,
+            metadata: AwbrnMapMetadata {
+                name: document.metadata.name,
+                author: document.metadata.author,
+                player_count: document.metadata.player_count,
+            },
+        })
+    }
+}
+
+impl TryFrom<AwbrnMapUnitWire> for AwbrnMapUnit {
+    type Error = String;
+
+    fn try_from(unit: AwbrnMapUnitWire) -> Result<Self, Self::Error> {
+        let kind = Unit::from_id(&unit.unit)
+            .ok_or_else(|| format!("unknown unit kind '{}'", unit.unit))?;
+        let faction = FactionCode::parse(&unit.faction)
+            .ok_or_else(|| format!("unknown faction code '{}'", unit.faction))?;
+        let hp = u8::try_from(unit.hp).map_err(|_| format!("unit HP {} is too large", unit.hp))?;
+
+        Ok(Self {
+            position: Pos::new(unit.position[0], unit.position[1]),
+            unit: kind,
+            faction,
+            hp: VisualHp::new(hp),
+        })
+    }
 }
 
 #[wasm_bindgen]
@@ -625,8 +848,7 @@ fn serialized_value<T: Serialize>(value: &T) -> Value {
 #[tsify(from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchSetupInput {
-    #[tsify(type = "unknown")]
-    pub map: AwbwMapData,
+    pub map: AwbrnMapDocumentWire,
     pub players: Vec<PlayerSetupInput>,
     pub fog_enabled: bool,
     pub starting_funds: u32,
@@ -657,7 +879,8 @@ impl TryFrom<MatchSetupInput> for GameSetup {
     type Error = String;
 
     fn try_from(value: MatchSetupInput) -> Result<Self, Self::Error> {
-        let awbw_map = AwbwMap::try_from(&value.map).map_err(|error| error.to_string())?;
+        let document = ValidatedMapDocument::try_from(value.map)?;
+        let awbw_map = document.into_map();
 
         Ok(Self {
             // The map carries its own starting units.

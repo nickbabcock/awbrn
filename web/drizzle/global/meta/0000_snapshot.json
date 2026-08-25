@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "2c90cec3-d7b7-4b93-bb8d-cebab43d9811",
+  "id": "1bce9787-85c7-414c-80b2-654c033dc75e",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -673,6 +673,13 @@
         },
         "mapId": {
           "name": "mapId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mapRevision": {
+          "name": "mapRevision",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -760,6 +767,24 @@
           "tableTo": "user",
           "columnsFrom": ["creatorUserId"],
           "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "matches_mapId_maps_id_fk": {
+          "name": "matches_mapId_maps_id_fk",
+          "tableFrom": "matches",
+          "tableTo": "maps",
+          "columnsFrom": ["mapId"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "matches_mapId_mapRevision_map_revisions_mapId_revision_fk": {
+          "name": "matches_mapId_mapRevision_map_revisions_mapId_revision_fk",
+          "tableFrom": "matches",
+          "tableTo": "map_revisions",
+          "columnsFrom": ["mapId", "mapRevision"],
+          "columnsTo": ["mapId", "revision"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }

@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   check,
+  foreignKey,
   index,
   integer,
   primaryKey,
@@ -97,7 +98,10 @@ export const matches = sqliteTable(
     creatorUserId: text("creatorUserId")
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),
-    mapId: integer("mapId").notNull(),
+    mapId: text("mapId")
+      .notNull()
+      .references(() => maps.id, { onDelete: "restrict" }),
+    mapRevision: integer("mapRevision").notNull(),
     maxPlayers: integer("maxPlayers").notNull(),
     isPrivate: integer("isPrivate", { mode: "boolean" }).notNull(),
     joinSlug: text("joinSlug"),
@@ -110,6 +114,10 @@ export const matches = sqliteTable(
     completedAt: integer("completedAt", { mode: "timestamp" }),
   },
   (t) => [
+    foreignKey({
+      columns: [t.mapId, t.mapRevision],
+      foreignColumns: [mapRevisions.mapId, mapRevisions.revision],
+    }).onDelete("restrict"),
     index("matches_creator_idx").on(t.creatorUserId),
     index("matches_browse_idx").on(t.phase, t.isPrivate, t.createdAt),
     uniqueIndex("matches_joinSlug_unique").on(t.joinSlug),

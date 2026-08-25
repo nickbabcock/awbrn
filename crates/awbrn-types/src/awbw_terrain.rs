@@ -443,6 +443,11 @@ impl AwbwTerrainId {
     pub const fn new(id: u8) -> Self {
         Self(id)
     }
+
+    /// Return the numeric AWBW terrain ID.
+    pub const fn get(self) -> u8 {
+        self.0
+    }
 }
 
 impl From<AwbwTerrain> for AwbwTerrainId {

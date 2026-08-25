@@ -1,17 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { AwbwMapData } from "#/awbw/schemas.ts";
+import type { AwbrnMapDocument } from "#/maps/map_document.ts";
 import { mapSlotFactionIds } from "./factions.ts";
 
-function mapWithTerrain(terrainIds: number[], playerCount = 2): AwbwMapData {
+function mapWithTerrain(terrainIds: number[], playerCount = 2): AwbrnMapDocument {
   return {
-    Name: "Test map",
-    Author: "Test author",
-    "Player Count": playerCount,
-    "Published Date": "2026-08-04 00:00:00",
-    "Size X": terrainIds.length,
-    "Size Y": 1,
-    "Terrain Map": [terrainIds],
-    "Predeployed Units": [],
+    map_format: 1,
+    width: terrainIds.length,
+    height: 1,
+    terrain: terrainIds,
+    units: [],
+    metadata: { name: "Test map", author: "Test author", player_count: playerCount },
   };
 }
 
@@ -24,9 +22,9 @@ describe("mapSlotFactionIds", () => {
 
   it("recognizes factions represented only by predeployed units", () => {
     const map = mapWithTerrain([]);
-    map["Predeployed Units"] = [
-      { "Unit ID": 1, "Unit X": 0, "Unit Y": 0, "Unit HP": 10, "Country Code": "yc" },
-      { "Unit ID": 1, "Unit X": 1, "Unit Y": 0, "Unit HP": 10, "Country Code": "gs" },
+    map.units = [
+      { position: [0, 0], unit: "infantry", hp: 10, faction: "yc" },
+      { position: [1, 0], unit: "infantry", hp: 10, faction: "gs" },
     ];
 
     expect(mapSlotFactionIds(map, 2)).toEqual([4, 7]);

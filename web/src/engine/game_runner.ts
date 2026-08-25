@@ -5,7 +5,7 @@ import {
   type CanvasCourierSurface,
   type CanvasSize,
 } from "#/canvas_courier/index.ts";
-import type { AwbwMapData } from "#/awbw/schemas.ts";
+import type { AwbrnMapDocument } from "#/maps/map_document.ts";
 import type { ObservedTransition } from "#/wasm/awbrn_server.js";
 import type {
   BattleCatalog,
@@ -69,13 +69,13 @@ export class GameRunner implements CanvasCourierController {
     await game.loadMapPreview(mapId);
   }
 
-  async loadMatchMap(map: AwbwMapData): Promise<void> {
+  async loadMatchMap(map: AwbrnMapDocument): Promise<void> {
     const game = await this.requireGame();
     await game.loadMatchMap(map);
   }
 
   async loadLiveMatch(
-    map: AwbwMapData,
+    map: AwbrnMapDocument,
     players: LiveMatchPlayer[],
     observation: unknown,
   ): Promise<void> {

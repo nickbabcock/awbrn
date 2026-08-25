@@ -1,5 +1,5 @@
 import factionsData from "../../assets/data/factions.json";
-import type { AwbwMapData } from "#/awbw/schemas.ts";
+import type { AwbrnMapDocument } from "#/maps/map_document.ts";
 
 export interface FactionCatalogEntry {
   id: number;
@@ -50,16 +50,14 @@ const propertyOwnerByTerrainId = new Map(
  * remainder from the catalog. The faction a player later selects is a depiction
  * only and does not change these.
  */
-export function mapSlotFactionIds(map: AwbwMapData, slotCount: number): number[] {
+export function mapSlotFactionIds(map: AwbrnMapDocument, slotCount: number): number[] {
   const presentFactionIds = new Set<number>();
-  for (const column of map["Terrain Map"]) {
-    for (const terrainId of column) {
-      const factionId = propertyOwnerByTerrainId.get(terrainId);
-      if (factionId !== undefined) presentFactionIds.add(factionId);
-    }
+  for (const terrainId of map.terrain) {
+    const factionId = propertyOwnerByTerrainId.get(terrainId);
+    if (factionId !== undefined) presentFactionIds.add(factionId);
   }
-  for (const unit of map["Predeployed Units"]) {
-    const faction = getFactionByCode(unit["Country Code"]);
+  for (const unit of map.units) {
+    const faction = getFactionByCode(unit.faction);
     if (faction) presentFactionIds.add(faction.id);
   }
 
