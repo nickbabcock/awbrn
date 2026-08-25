@@ -78,6 +78,50 @@ pub fn import_awbw_map_document(map_data: AwbwMapDataWire) -> Result<ImportedMap
     })
 }
 
+/// Draws map screenshots, holding the decoded sprite atlases.
+///
+/// The atlases are the expensive part — about 22 ms to decode — so the host
+/// builds one of these and keeps it for as long as it wants the atlases in
+/// memory. Nothing here is global: an isolate that never draws a map never
+/// decodes an atlas.
+#[wasm_bindgen]
+#[derive(Debug)]
+pub struct MapRenderer {
+    tilesets: awbrn_image::Tilesets,
+}
+
+#[wasm_bindgen]
+impl MapRenderer {
+    /// Decode the atlases. The host reads the same files the client loads.
+    #[wasm_bindgen(constructor)]
+    pub fn new(tiles: &[u8], units: &[u8], ui: &[u8], ui_atlas: &[u8]) -> Result<Self, JsError> {
+        Ok(Self {
+            tilesets: crate::map_image::load_atlases(tiles, units, ui, ui_atlas)
+                .map_err(render_error)?,
+        })
+    }
+
+    /// Draw a map at its starting position and return the PNG bytes.
+    #[wasm_bindgen(js_name = renderFull)]
+    pub fn render_full(&self, document: AwbrnMapDocumentWire) -> Result<Vec<u8>, JsError> {
+        crate::map_image::full_screenshot(&self.tilesets, &validated_map(document)?)
+            .map_err(render_error)
+    }
+}
+
+/// Draw a map as a smallmap and return the PNG bytes.
+///
+/// Four pixels for each tile, terrain only, from a fixed palette. No atlas is
+/// read, which is why this is a free function and not a [`MapRenderer`] method.
+#[wasm_bindgen(js_name = renderSmallMapScreenshot)]
+pub fn render_small_map_screenshot(document: AwbrnMapDocumentWire) -> Result<Vec<u8>, JsError> {
+    crate::map_image::small_screenshot(&validated_map(document)?).map_err(render_error)
+}
+
+fn validated_map(document: AwbrnMapDocumentWire) -> Result<ValidatedMapDocument, JsError> {
+    ValidatedMapDocument::try_from(document).map_err(|error| invalid_input("map", error))
+}
+
 #[derive(Debug, Tsify, Serialize)]
 #[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
@@ -917,6 +961,12 @@ fn invalid_input(field: &'static str, reason: String) -> JsError {
             "reason": reason,
         }),
     )
+}
+
+/// A screenshot that could not be drawn. The whole chain is reported: the top
+/// of it names the step, and the rest says what the atlas or the encoder said.
+fn render_error(error: anyhow::Error) -> JsError {
+    js_error("renderFailed", format!("{error:#}"), 500, json!(null))
 }
 
 fn command_error(error: crate::CommandError) -> JsError {
