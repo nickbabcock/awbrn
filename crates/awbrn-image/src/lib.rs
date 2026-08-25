@@ -1,9 +1,9 @@
-//! CPU-side compositing of an AWBW map into a static PNG-ready image.
+//! CPU-side rendering of AWBW maps into static PNG-ready images.
 //!
-//! This mirrors what the Bevy client renders on the GPU, but produces a single
-//! [`RgbaImage`] by blitting terrain/property, unit, and unit-status sprites out
-//! of the same atlases the client uses. Sprite-cell lookups reuse
-//! [`awbrn_content`] so the appearance stays in sync with the live renderer.
+//! Full-size renders mirror what the Bevy client renders on the GPU. They blit
+//! terrain, property, unit, and unit-status sprites from the same atlases that
+//! the client uses. Smallmaps use a fixed 4-by-4 pixel terrain palette and do
+//! not need those assets.
 
 use std::path::Path;
 
@@ -23,6 +23,10 @@ use awvm::semantic::{
 use image::{GenericImageView, RgbaImage, imageops};
 use std::collections::HashSet;
 use std::hash::BuildHasher;
+
+mod smallmap;
+
+pub use smallmap::render_small_map;
 
 /// What can stop a render.
 ///

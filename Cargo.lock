@@ -552,6 +552,7 @@ dependencies = [
  "awbrn-map",
  "awbrn-types",
  "awvm",
+ "highway",
  "image",
  "serde_json",
  "thiserror 2.0.18",
