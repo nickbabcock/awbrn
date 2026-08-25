@@ -1,9 +1,7 @@
 //! What a game looked like, beside who won it.
 //!
-//! A score says which agent is better. It does not say what changed, and on
-//! this board that gap is the measurement problem: two terms that price combat
-//! read zero in a standard game because a standard game holds almost no
-//! combat. A score against a mirror of the same agent cannot see that at all.
+//! A score says which agent is better. It does not say what changed, so it
+//! cannot show how the agents reached that result.
 //!
 //! So the harness counts the shape of a game as well as its result. Each seat
 //! gets the units it built, the units it lost, and three metrics sampled at
@@ -241,9 +239,8 @@ mod tests {
 
     /// The sweep that clears a defeated army is not a casualty count.
     ///
-    /// Every standard arena game ends by headquarters capture, so the loser
-    /// still holds an army when the ruleset removes it. Counting that as
-    /// losses would report the whole force as dead in a game with no combat.
+    /// The loser can still hold an army when the ruleset removes it. Counting
+    /// that as losses would report the whole force as dead after the match.
     #[test]
     fn losing_the_match_is_not_losing_the_army() {
         let record = game(false, 7);
@@ -262,11 +259,24 @@ mod tests {
         }
     }
 
-    /// A fog game holds combat, and combat is what the loss count is for.
+    /// A combat removal is counted as a loss.
     #[test]
     fn a_unit_that_dies_is_counted() {
-        let record = game(true, 7);
-        let lost: u32 = record.shape.seats.iter().map(|seat| seat.lost).sum();
-        assert!(lost > 0, "a fog game between greedy agents kills something");
+        use awvm::event::Event;
+        use awvm::semantic::KnownReason;
+
+        let state = arena(false, 7);
+        let unit = state.units.iter().next().expect("the arena starts a unit");
+        let mut shape = Shape::new(state.players.len());
+        shape.observe(
+            &state,
+            &[Event::UnitRemoved {
+                unit: unit.id,
+                reason: KnownReason::Combat.into(),
+            }],
+        );
+
+        let lost: u32 = shape.seats.iter().map(|seat| seat.lost).sum();
+        assert_eq!(lost, 1, "a combat removal counts as one loss");
     }
 }

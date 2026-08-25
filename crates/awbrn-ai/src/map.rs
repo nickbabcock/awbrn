@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn a_property_no_soldier_can_reach_is_nobody_s() {
         let mut state = amber_valley(false, 1);
-        let (seat, other) = seats(&state);
+        let (other, seat) = seats(&state);
         let dimensions = state.board.dimensions();
         // A city in the sea, beside nothing: no soldier of ours can walk to
         // it, and none of theirs can either, so it is not the enemy's ground

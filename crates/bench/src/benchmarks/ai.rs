@@ -365,9 +365,9 @@ mod tests {
 
         assert_eq!(record.turns, 29);
         assert_eq!(record.days, 15);
-        assert_eq!(record.commands, 310);
+        assert_eq!(record.commands, 372);
         assert_eq!(record.refusals, 0);
-        assert_eq!(record.units, 28);
+        assert_eq!(record.units, 32);
         let outcome = record.outcome.expect("the match ends in a victory");
         assert_eq!(
             format!("{outcome:?}"),

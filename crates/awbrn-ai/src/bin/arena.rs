@@ -5,21 +5,18 @@
 //! needs it, because an improvement nobody can measure is a claim.
 //!
 //! Each game index is played twice, once with each agent in the first seat, so
-//! the first-player advantage falls out of the score. The board is a mirror
-//! (see [`awbrn_ai::board`]), which is what makes that control worth running.
+//! the first-player advantage is part of the reported control.
 //!
 //! One seed gives one tournament. Each game's seed is derived from the run seed
 //! and the game index, so a ten-game run and a two-hundred-game run play the
 //! same first ten games.
 //!
-//! The board is Amber Valley. Close Encounters, the first arena board, is
-//! decided by a day-six headquarters rush and holds almost no combat, so it
-//! cannot measure a term that prices combat. It stays behind `--map
-//! close-encounters` because the tier 1 numbers were taken on it.
+//! The board is Amber Valley. It is the only board used by the arena, so
+//! calibration and tournament results use one consistent map.
 //!
-//! The report says what the games were made of as well as who won them, for
-//! the same reason: a score against a mirror of the same agent cannot see that
-//! the games hold no combat. See [`awbrn_ai::shape`].
+//! The report says what the games were made of as well as who won them, so a
+//! score can be read with the combat and economy of the games in view. See
+//! [`awbrn_ai::shape`].
 //!
 //! A weighting that wins does not have to be compiled in to play again.
 //! `--freeze` writes it into the ladder directory, a seat names it by its file
@@ -37,9 +34,9 @@ use std::time::Instant;
 use anyhow::{Context, Result, bail};
 use awbrn_ai::agent::Agent;
 use awbrn_ai::agents::{GreedyAgent, RandomAgent, Weights};
-use awbrn_ai::board::{
-    AMBER_VALLEY_SEATS, SEATS, amber_valley, amber_valley_map, arena, arena_map,
-};
+use awbrn_ai::board::{SEATS, amber_valley_map, arena};
+use awbrn_ai::calibration::Calibration;
+use awbrn_ai::eval::{EvalWeights, Evaluator};
 use awbrn_ai::harness::{Limits, Record, play_measured, play_observed};
 use awbrn_ai::rng::Rng;
 use awbrn_ai::shape::SeatShape;
@@ -92,16 +89,27 @@ fn dispatch(options: &Options, start: Instant) -> Result<()> {
 
     let first = ladder.seat(&options.first, options.weights.as_deref())?;
     let second = ladder.seat(&options.second, options.second_weights.as_deref())?;
+
+    if options.calibrate {
+        let (calibration, eval_weights) = calibrate(options, first, second)?;
+        report_calibration(
+            options,
+            &calibration,
+            eval_weights,
+            start.elapsed().as_secs_f64(),
+        )?;
+        return Ok(());
+    }
+
     let tally = run(options, first, second, options.sample.as_deref())?;
     report(options, &tally, start.elapsed().as_secs_f64());
     Ok(())
 }
 
 const USAGE: &str = "\
-usage: arena [--map NAME] [--seed N] [--games N] [--fog] [--day-cap N] [--first NAME] [--second NAME] [--weights FILE] [--second-weights FILE] [--sample DIR] [--ladder DIR] [--round-robin] [--roster NAMES] [--freeze NAME]
+usage: arena [--map NAME] [--seed N] [--games N] [--fog] [--day-cap N] [--first NAME] [--second NAME] [--weights FILE] [--second-weights FILE] [--sample DIR] [--ladder DIR] [--round-robin] [--roster NAMES] [--freeze NAME] [--calibrate] [--calibrate-out FILE] [--eval-weights FILE]
 
-  --map NAME     Map to play. Default amber-valley. Also close-encounters,
-                 which is the board the first tier 1 numbers were taken on.
+  --map NAME     Map to play. Default amber-valley.
   --seed N       Seed for the tournament. The same seed gives the same result.
                  Default 1.
   --games N      Game pairs to play. Each pair is the same seed played with
@@ -128,6 +136,16 @@ usage: arena [--map NAME] [--seed N] [--games N] [--fog] [--day-cap N] [--first 
   --freeze NAME  Write what --first and --weights resolve to into the ladder
                  as NAME, and play nothing. This is how a sweep winner joins
                  later rounds without a rebuild.
+  --calibrate    Score the evaluation function instead of the agents. Plays
+                 the same games, reads awbrn_ai::eval at every turn boundary,
+                 and reports how well those readings predicted the result.
+  --calibrate-out FILE
+                 Write one JSON object for each sample of a --calibrate run,
+                 one to a line, for fitting the weights outside this binary.
+  --eval-weights FILE
+                 JSON overrides for the evaluation weights a --calibrate run
+                 reads. A field the file does not name keeps the compiled
+                 value. This is how one term of the evaluation is swept.
 
 agents: random, one of the weightings this crate names, a name the ladder
 holds, or a path to a JSON weights file. Each built-in weighting adds one term
@@ -153,6 +171,12 @@ struct Options {
     roster: Vec<String>,
     /// The name to write the first agent's weighting into the ladder under.
     freeze: Option<String>,
+    /// Score the evaluation function over these games, not the agents.
+    calibrate: bool,
+    /// Where to write the samples of a calibration run.
+    calibrate_out: Option<PathBuf>,
+    /// Evaluation weights to read in place of the compiled ones.
+    eval_weights: Option<PathBuf>,
 }
 
 impl Options {
@@ -172,6 +196,9 @@ impl Options {
             round_robin: false,
             roster: Vec::new(),
             freeze: None,
+            calibrate: false,
+            calibrate_out: None,
+            eval_weights: None,
         };
         let mut arguments = arguments.peekable();
         while let Some(argument) = arguments.next() {
@@ -195,6 +222,9 @@ impl Options {
                 "--round-robin" => options.round_robin = true,
                 "--roster" => options.roster = roster(&value()?)?,
                 "--freeze" => options.freeze = Some(value()?),
+                "--calibrate" => options.calibrate = true,
+                "--calibrate-out" => options.calibrate_out = Some(value()?.into()),
+                "--eval-weights" => options.eval_weights = Some(value()?.into()),
                 "--help" | "-h" => {
                     println!("{USAGE}");
                     std::process::exit(0);
@@ -225,6 +255,21 @@ impl Options {
         if options.round_robin && options.freeze.is_some() {
             return Err("--freeze writes a weighting and plays nothing".to_owned());
         }
+        if options.calibrate && (options.round_robin || options.freeze.is_some()) {
+            return Err(
+                "--calibrate scores the evaluation over one pairing, not a round or a freeze"
+                    .to_owned(),
+            );
+        }
+        if options.calibrate && options.sample.is_some() {
+            return Err("--sample captures pictures, which a --calibrate run does not".to_owned());
+        }
+        if options.calibrate_out.is_some() && !options.calibrate {
+            return Err("--calibrate-out writes the samples of a --calibrate run".to_owned());
+        }
+        if options.eval_weights.is_some() && !options.calibrate {
+            return Err("--eval-weights is read by a --calibrate run".to_owned());
+        }
         Ok(options)
     }
 
@@ -238,11 +283,8 @@ impl Options {
 
 fn map_name(name: &str) -> Result<&'static str, String> {
     match name {
-        "close-encounters" => Ok("close-encounters"),
         "amber-valley" => Ok("amber-valley"),
-        _ => Err(format!(
-            "unknown map {name}, known maps are close-encounters, amber-valley"
-        )),
+        _ => Err(format!("unknown map {name}, known maps are amber-valley")),
     }
 }
 
@@ -442,18 +484,30 @@ fn build(seed: u64, weights: Option<Weights>) -> Box<dyn Agent> {
     }
 }
 
+/// Prepare the random sources and agents for one game in a pair.
+fn game_setup(
+    seed: u64,
+    pair: usize,
+    first_weights: Option<Weights>,
+    second_weights: Option<Weights>,
+) -> (u64, Rng, Box<dyn Agent>, Box<dyn Agent>) {
+    let game = Rng::mix(seed ^ ((pair as u64) << 32));
+    let entropy = Rng::from_seed(Rng::mix(game ^ 0x1));
+    let first = build(Rng::mix(game ^ 0x2), first_weights);
+    let second = build(Rng::mix(game ^ 0x3), second_weights);
+    (game, entropy, first, second)
+}
+
 fn state(options: &Options, seed: u64) -> State {
     match options.map {
-        "close-encounters" => arena(options.fog, seed),
-        "amber-valley" => amber_valley(options.fog, seed),
+        "amber-valley" => arena(options.fog, seed),
         other => unreachable!("{other} passed the argument check"),
     }
 }
 
 fn map_and_seats(options: &Options) -> (AwbrnMap, [PlayerFaction; 2]) {
     match options.map {
-        "close-encounters" => (arena_map(), SEATS),
-        "amber-valley" => (amber_valley_map(), AMBER_VALLEY_SEATS),
+        "amber-valley" => (amber_valley_map(), SEATS),
         other => unreachable!("{other} passed the argument check"),
     }
 }
@@ -608,10 +662,8 @@ fn run(
     for pair in 0..options.pairs {
         let mut pair_points = 0.0;
         for under_test_first in [true, false] {
-            let game = Rng::mix(options.seed ^ ((pair as u64) << 32));
-            let mut entropy = Rng::from_seed(Rng::mix(game ^ 0x1));
-            let mut first = build(Rng::mix(game ^ 0x2), first_weights);
-            let mut second = build(Rng::mix(game ^ 0x3), second_weights);
+            let (game, mut entropy, mut first, mut second) =
+                game_setup(options.seed, pair, first_weights, second_weights);
 
             // The seat the agent under test sits in. Playing the same seed
             // both ways is what removes the first-player advantage from the
@@ -670,6 +722,141 @@ fn run(
     Ok(tally)
 }
 
+/// Play the tournament and score the evaluation function over it.
+///
+/// The same games as [`run`], and none of the tally. What is collected is one
+/// reading of [`Evaluator::value`] at every turn boundary, taken for the seat
+/// the agent under test sits in and labelled at the end with what that seat
+/// scored.
+///
+/// The terminal position is skipped. [`awbrn_ai::eval`] answers the result
+/// there, so scoring it would report an accuracy the function did not earn.
+fn calibrate(
+    options: &Options,
+    first_weights: Option<Weights>,
+    second_weights: Option<Weights>,
+) -> Result<(Calibration, EvalWeights)> {
+    let eval_weights = eval_weights(options)?;
+    let mut calibration = Calibration::new();
+    let mut evaluator = Evaluator::new(eval_weights);
+    let mut session = Session::new(state(options, options.seed));
+
+    for pair in 0..options.pairs {
+        for under_test_first in [true, false] {
+            let (game, mut entropy, mut first, mut second) =
+                game_setup(options.seed, pair, first_weights, second_weights);
+
+            let index = usize::from(!under_test_first);
+            let mut agents: [&mut dyn Agent; 2] = if under_test_first {
+                [first.as_mut(), second.as_mut()]
+            } else {
+                [second.as_mut(), first.as_mut()]
+            };
+
+            let start = state(options, game);
+            let (seat, team) = start
+                .players
+                .seats()
+                .nth(index)
+                .map(|(seat, player)| (seat, player.team.clone()))
+                .context("the board seats the agent under test")?;
+
+            let record = play_observed(
+                start,
+                &mut session,
+                &mut agents,
+                &mut entropy,
+                options.limits(),
+                |state, command| {
+                    // A turn boundary, and not the end of the match. The
+                    // reducer has already paid the next player and refreshed
+                    // its units, so this is the position that player decides
+                    // from.
+                    if !matches!(command, Some(Command::EndTurn { .. }))
+                        || matches!(state.match_state, Match::Finished { .. })
+                    {
+                        return;
+                    }
+                    let day = u32::try_from(state.turn.day).unwrap_or(u32::MAX);
+                    let active = state
+                        .players
+                        .seat(&state.turn.active_player)
+                        .map_or(index, |seat| seat.get());
+                    calibration.sample(day, index, active, evaluator.value(state, seat));
+                },
+            );
+
+            match &record.outcome {
+                Some(Outcome::Victory { winners, .. }) => {
+                    calibration.finish_game(f64::from(u8::from(winners.contains(&team))));
+                }
+                Some(Outcome::Draw { .. }) => calibration.finish_game(0.5),
+                // A cancelled match and an abandoned one both say nothing
+                // about the positions that led to them.
+                Some(Outcome::Cancelled { .. }) | None => calibration.abandon_game(),
+            }
+        }
+    }
+
+    Ok((calibration, eval_weights))
+}
+
+/// Print what the calibration run found, and write the samples if asked.
+fn report_calibration(
+    options: &Options,
+    calibration: &Calibration,
+    eval_weights: EvalWeights,
+    elapsed: f64,
+) -> Result<()> {
+    println!(
+        "calibration: {} vs {}   seed {}  fog {}  day cap {}",
+        options.first, options.second, options.seed, options.fog, options.day_cap
+    );
+    println!(
+        "{} pairs, {} games, both seat orders",
+        options.pairs,
+        options.pairs * 2
+    );
+    // Written out whole, so that a swept run says what it was swept at
+    // without the reader going back to the command that made it.
+    println!("evaluation {}", serde_json::to_string(&eval_weights)?);
+    println!();
+
+    let fitted = calibration.fit_temperature();
+    print!("{}", calibration.report(fitted));
+
+    // The compiled temperature beside the fitted one. A gap between them is
+    // the number to move in `EvalWeights::DEFAULT`, and nothing else here
+    // says how large it is.
+    let compiled = eval_weights.temperature;
+    let standing = calibration.report(compiled);
+    println!();
+    println!(
+        "the compiled temperature is {compiled:.0} funds, and scores brier {:.4}, log loss {:.4}",
+        standing.brier, standing.log_loss
+    );
+    println!("elapsed              {elapsed:.3} s");
+
+    if let Some(path) = &options.calibrate_out {
+        let file = File::create(path).with_context(|| format!("creating {}", path.display()))?;
+        let mut out = BufWriter::new(file);
+        for sample in calibration.samples() {
+            serde_json::to_writer(&mut out, sample)
+                .with_context(|| format!("serializing calibration sample to {}", path.display()))?;
+            out.write_all(b"\n")
+                .with_context(|| format!("writing calibration sample to {}", path.display()))?;
+        }
+        out.flush()
+            .with_context(|| format!("flushing {}", path.display()))?;
+        eprintln!(
+            "wrote {} samples to {}",
+            calibration.samples().len(),
+            path.display()
+        );
+    }
+    Ok(())
+}
+
 /// Read one file of weights over `base`.
 ///
 /// The file holds the fields it moves and nothing else, so it is laid over
@@ -723,13 +910,36 @@ fn read_fields(path: &Path) -> Result<serde_json::Map<String, serde_json::Value>
 ///
 /// `Weights` refuses a name it does not hold, so a misspelled weight is an
 /// error here rather than a sweep that measured nothing.
-fn merge(base: Weights, fields: serde_json::Map<String, serde_json::Value>) -> Result<Weights> {
+fn merge<T>(base: T, fields: serde_json::Map<String, serde_json::Value>) -> Result<T>
+where
+    T: serde::Serialize + serde::de::DeserializeOwned,
+{
     let mut merged = serde_json::to_value(base).context("writing the named weighting out")?;
     let Some(written) = merged.as_object_mut() else {
         unreachable!("weights write out as an object");
     };
     written.extend(fields);
     Ok(serde_json::from_value(merged)?)
+}
+
+/// The evaluation weights this run reads.
+fn eval_weights(options: &Options) -> Result<EvalWeights> {
+    match &options.eval_weights {
+        Some(path) => read_eval_weights(path),
+        None => Ok(EvalWeights::DEFAULT),
+    }
+}
+
+/// Read one file of evaluation weights over the compiled ones.
+///
+/// The same shape as a weights file and for the same reason: the file names
+/// the fields it moves, so a sweep over one term of the evaluation reads as
+/// that one term and a rerun after the defaults move still means what it
+/// meant.
+fn read_eval_weights(path: &Path) -> Result<EvalWeights> {
+    let fields = read_fields(path)?;
+    merge(EvalWeights::DEFAULT, fields)
+        .with_context(|| format!("reading evaluation weights {}", path.display()))
 }
 
 struct Sample {
@@ -1330,6 +1540,55 @@ mod tests {
         .expect("greedy agents use weights");
         assert_eq!(options.weights, Some(PathBuf::from("first.json")));
         assert_eq!(options.second_weights, Some(PathBuf::from("second.json")));
+    }
+
+    #[test]
+    fn calibration_options_are_validated() {
+        let error = Options::parse(
+            ["--calibrate", "--round-robin"]
+                .map(str::to_owned)
+                .into_iter(),
+        )
+        .expect_err("calibration does not run a round robin");
+        assert_eq!(
+            error,
+            "--calibrate scores the evaluation over one pairing, not a round or a freeze"
+        );
+
+        let error = Options::parse(
+            ["--calibrate-out", "samples.jsonl"]
+                .map(str::to_owned)
+                .into_iter(),
+        )
+        .expect_err("calibration output needs a calibration run");
+        assert_eq!(
+            error,
+            "--calibrate-out writes the samples of a --calibrate run"
+        );
+
+        let error = Options::parse(
+            ["--eval-weights", "eval.json"]
+                .map(str::to_owned)
+                .into_iter(),
+        )
+        .expect_err("evaluation weights need a calibration run");
+        assert_eq!(error, "--eval-weights is read by a --calibrate run");
+
+        let options = Options::parse(
+            [
+                "--calibrate",
+                "--calibrate-out",
+                "samples.jsonl",
+                "--eval-weights",
+                "eval.json",
+            ]
+            .map(str::to_owned)
+            .into_iter(),
+        )
+        .expect("calibration accepts its output and evaluation weights");
+        assert!(options.calibrate);
+        assert_eq!(options.calibrate_out, Some(PathBuf::from("samples.jsonl")));
+        assert_eq!(options.eval_weights, Some(PathBuf::from("eval.json")));
     }
 
     /// A ladder with the entries named, and no directory behind it.
