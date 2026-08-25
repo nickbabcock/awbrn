@@ -18,7 +18,8 @@ use awvm::random::RandomToken;
 use awvm::semantic::{
     AwbwVisibility, Observation, ObservedEvent, PlayerId, State, observe, observe_transition,
 };
-use awvm::transition::{Command, ExecuteOutcome, execute};
+use awvm::setup::MatchSetup;
+use awvm::transition::{Command, ExecuteOutcome, execute, initialize_match};
 use serde_json::Value;
 
 fn fixture_root() -> PathBuf {
@@ -55,6 +56,12 @@ fn corpus() -> Vec<(String, Value)> {
 fn every_fixture_command_round_trips_through_its_type() {
     let mut checked = 0;
     for (relative, case) in corpus() {
+        if let Some(wire) = case.get("setup") {
+            let setup: MatchSetup = serde_json::from_value(wire.clone())
+                .unwrap_or_else(|error| panic!("{relative}: decoding setup: {error}"));
+            let encoded = serde_json::to_value(&setup).expect("a setup re-encodes");
+            assert_eq!(&encoded, wire, "{relative}: setup did not round-trip");
+        }
         let Some(steps) = case["steps"].as_array() else {
             continue;
         };
@@ -83,14 +90,32 @@ fn every_projection_round_trips_through_its_type() {
     let mut observations = 0;
     let mut event_sets = 0;
     for (relative, case) in corpus() {
-        let Ok(mut state) = serde_json::from_value::<State>(case["initial_state"].clone()) else {
-            continue;
-        };
-        let recipients: Vec<PlayerId> = state
-            .players
-            .iter()
-            .map(|player| player.id().clone())
-            .collect();
+        let mut state;
+        let recipients: Vec<PlayerId>;
+        if let Some(opening) = case.get("opening") {
+            let setup: MatchSetup = serde_json::from_value(case["setup"].clone())
+                .unwrap_or_else(|error| panic!("{relative}: setup failed to decode: {error}"));
+            recipients = setup
+                .players()
+                .iter()
+                .map(|player| player.id().clone())
+                .collect();
+            let random: Vec<RandomToken> =
+                serde_json::from_value(opening["random"].clone()).unwrap_or_default();
+            let execution = initialize_match(setup, &random)
+                .unwrap_or_else(|error| panic!("{relative}: opening failed: {error}"));
+            state = execution.state;
+        } else {
+            let Ok(decoded) = serde_json::from_value::<State>(case["initial_state"].clone()) else {
+                continue;
+            };
+            state = decoded;
+            recipients = state
+                .players
+                .iter()
+                .map(|player| player.id().clone())
+                .collect();
+        }
 
         for recipient in &recipients {
             let projected = observe(&AwbwVisibility, &state, recipient).expect("project the state");

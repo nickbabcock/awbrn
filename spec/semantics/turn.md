@@ -64,6 +64,12 @@ For pre-state `S` and the accepted boundary command's player `e`:
   `lab` are ownable but carry no `income` trait and never contribute.
 - `income(S, p) = |income-tiles(S, p)| * S.settings.income_per_property`.
 
+`income(S, p)` is the whole definition of income for this ruleset, and the
+boundary below is not its only caller: `model/phases.md` pays the same value to
+the first player when a match is initialized, because their day-one turn-start
+runs with no boundary before it. Day one is not a separate rule and MUST NOT be
+given a separate amount.
+
 All derived values are evaluated against the authoritative pre-state. The
 reduction does not recompute terrain, ownership, or settings partway through.
 
@@ -200,6 +206,10 @@ Corroborated implementation:
   `nextTurnPlayer.data.funds += nextTurnPlayer.getFundsPerTurn()`), confirming
   that income is a start-of-successor-turn effect rather than an end-of-turn
   effect for the player who passed.
+- Archived AWBW replays open on day one with the first player already holding
+  one turn of income and every other player holding their starting funds alone,
+  which is the initialization grant `model/phases.md` describes. Replay 1362397
+  is worked through there.
 - WarsWorld's `getFundsPerTurn`
   (`src/shared/wrappers/player-in-match.ts`) counts owned changeable tiles
   excluding `lab` and `commtower`, then multiplies by `fundsPerProperty`. The

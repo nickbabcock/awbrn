@@ -31,10 +31,11 @@ a claim about an AWBW deployment date.
 
 ## Rust interface
 
-The reference implementation exposes three operations:
+The reference implementation exposes four operations:
 
 ```text
 execute(state, command, random) -> execution | error
+initialize-match(setup, random) -> execution | error
 observe(visibility, state, recipient) -> observation | error
 observe-events(visibility, state, next-state, events, recipient)
   -> observed-events | error
@@ -45,12 +46,27 @@ command does not mutate the input state and consumes no random tokens. Accepted
 commands return a complete new state, ordered events, and the number of random
 tokens consumed.
 
+A host that builds a match rather than loading one also needs the opening that
+`model/phases.md` describes, which no command reaches:
+
+```text
+initialize-match(setup, random) -> execution | error
+```
+
+It takes the one-time setup — settings, board, roster, predeployed units, and
+starting funds — constructs day one, runs the first player's start hooks, and
+returns the state they act from. The JSON Lines protocol carries this operation
+as `initialize-match`. A sequence
+fixture with an `opening` assertion checks initialization before its command
+steps. The opening and every turn boundary use the same turn-start hooks.
+
 The main Rust types and functions are:
 
 ```rust
 use awvm::{
     semantic::{observe, observe_events, AwbwVisibility, State},
-    transition::{execute, Command, Execution},
+    setup::MatchSetup,
+    transition::{execute, initialize_match, Command, Execution},
 };
 ```
 

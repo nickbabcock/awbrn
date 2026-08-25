@@ -319,6 +319,7 @@ ae3b8527dd64f008  obs=2 ev=0  transport/unload-nonadjacent-rejected.json
 fc5bfdf526db241e  obs=4 ev=4  turn/day-limit-draw.json
 289f531202e2deb1  obs=4 ev=4  turn/day-limit-property-victory.json
 9ca12a2f1c263c41  obs=4 ev=11  turn/end-turn-income-ready.json
+a0d00c0b7e4dfc39  obs=3 ev=4  turn/opening-income-funds-bases.json
 f9c2f57cf148b238  obs=4 ev=13  turn/round-boundary-day-advance.json
 327251b81d03c8b2  obs=4 ev=20  turn-hooks/apc-auto-supply.json
 245b83e3739301d7  obs=4 ev=18  turn-hooks/fuel-upkeep-and-crash.json

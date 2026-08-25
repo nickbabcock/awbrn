@@ -5,13 +5,12 @@ use std::collections::HashMap;
 use awbrn_types::{
     AwbwTerrain, Faction, GraphicalTerrain, MissileSiloStatus, PlayerFaction, Property,
 };
-use awvm::ruleset::{RULESET_ID, RULESET_REVISION, Terrain, WeatherKind, profile};
+use awvm::ruleset::{RULESET_ID, RULESET_REVISION, Terrain};
 use awvm::semantic::{
-    Board, Commander, CommanderBans, Concealment, Location, Match, Phase, Player, PlayerId,
-    PlayerIdx, Roster, RulesetId, RulesetRef, RulesetRevision, Settings, Silo, State, Team, TeamId,
-    TeamStatus, Tile, TileOwner, Toggle, Turn, Unit, UnitAction, UnitId, UnitStore, Weather,
-    WeatherSetting,
+    Board, CommanderBans, Player, PlayerId, PlayerIdx, Roster, RulesetId, RulesetRef,
+    RulesetRevision, Settings, Silo, State, TeamId, Tile, TileOwner, Toggle, WeatherSetting,
 };
+use awvm::setup::{MatchSetup, PlayerSetup as AwvmPlayerSetup, UnitDeployment};
 
 use crate::setup::{GameSetup, SetupError};
 use awbrn_map::AwbrnMap;
@@ -37,36 +36,31 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
     }
 
     let starting_funds = u64::from(setup.players[0].starting_funds);
-    let players = setup
+    let setup_players = setup
         .players
         .iter()
         .enumerate()
         .map(|(index, player)| {
-            let id = semantic_player_id(index);
-            Player::new(id, team_id(index, player.team.map(|team| team.get())))
-                .with_funds(u64::from(player.starting_funds))
-                .with_commanders(vec![Commander {
-                    id: player.co,
-                    active: true,
-                    power_charge: 0,
-                    power_uses: 0,
-                }])
+            AwvmPlayerSetup::new(
+                semantic_player_id(index),
+                team_id(index, player.team.map(|team| team.get())),
+                u64::from(player.starting_funds),
+                vec![player.co],
+            )
+            .map_err(|error| SetupError::InvalidPlayers {
+                reason: error.to_string(),
+            })
         })
-        .collect::<Vec<_>>();
-    let players = Roster::new(players).map_err(|error| SetupError::InvalidPlayers {
+        .collect::<Result<Vec<_>, _>>()?;
+    let players = Roster::new(
+        setup_players
+            .iter()
+            .map(|player| Player::new(player.id().clone(), player.team().clone()))
+            .collect(),
+    )
+    .map_err(|error| SetupError::InvalidPlayers {
         reason: error.to_string(),
     })?;
-    let teams = players
-        .iter()
-        .fold(Vec::<Team>::new(), |mut teams, player| {
-            if !teams.iter().any(|team| team.id == player.team) {
-                teams.push(Team {
-                    id: player.team.clone(),
-                    status: TeamStatus::Active,
-                });
-            }
-            teams
-        });
     let faction_players = faction_players(setup);
     // A held tile names a seat, and `players` below is the roster those seats
     // index, so a faction maps straight to the seat its player sits in.
@@ -74,15 +68,12 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
         .iter()
         .filter_map(|(faction, id)| Some((*faction, players.seat(id)?)))
         .collect();
-    let active_player = players[0].id().clone();
-    let (units, next_unit_id) = deployed_units(setup, &faction_seats)?;
-
-    Ok(State {
-        ruleset: RulesetRef {
+    let match_setup = MatchSetup::new(
+        RulesetRef {
             id: RulesetId::from(RULESET_ID),
             revision: RulesetRevision::from(RULESET_REVISION),
         },
-        settings: Settings {
+        Settings {
             fog: setup.fog_enabled,
             income_per_property: 1_000,
             starting_funds,
@@ -99,26 +90,18 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
             day_limit: None,
             unit_limit: None,
         },
-        board: board(&setup.map, &faction_seats)?,
-        teams,
-        players: players.clone(),
-        turn: Turn {
-            day: 1,
-            active_player,
-            phase: Phase::UnitAction,
-            order: players.iter().map(|player| player.id().clone()).collect(),
-            position: 0,
-        },
-        weather: Weather {
-            kind: WeatherKind::Clear,
-            remaining_turns: 0,
-        },
-        units,
-        next_unit_id: Some(next_unit_id),
-        match_state: Match::Active {
-            draw_offers: Vec::new(),
-        },
-    })
+        board(&setup.map, &faction_seats)?,
+        setup_players,
+        deployed_units(setup, &faction_seats, &players)?,
+    )
+    .map_err(|error| SetupError::InvalidMap {
+        reason: error.to_string(),
+    })?;
+    awvm::transition::initialize_match(match_setup, &[])
+        .map(|execution| execution.state)
+        .map_err(|error| SetupError::InvalidMap {
+            reason: format!("the map cannot open a match: {error}"),
+        })
 }
 
 /// The units the map starts on the board.
@@ -129,10 +112,10 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
 fn deployed_units(
     setup: &GameSetup,
     faction_seats: &HashMap<PlayerFaction, PlayerIdx>,
-) -> Result<(UnitStore, u32), SetupError> {
+    players: &Roster,
+) -> Result<Vec<UnitDeployment>, SetupError> {
     let deployments = setup.map.deployments();
     let mut units = Vec::with_capacity(deployments.len());
-    let mut next = 1u32;
 
     for (position, deployed) in deployments.iter() {
         let owner =
@@ -144,29 +127,21 @@ fn deployed_units(
                         deployed.faction
                     ),
                 })?;
-        let profile = profile(deployed.unit);
-        units.push(Unit {
-            id: UnitId::new(next),
-            kind: deployed.unit,
-            owner,
-            // The map file writes health on the 0 to 10 scale; the reducer
-            // counts on the 0 to 100 one.
-            hp: deployed.hp.get() * 10,
-            fuel: profile.max_fuel,
-            ammo: profile.max_ammo,
-            action: UnitAction::Ready,
-            concealment: Concealment::Exposed,
-            location: Location::Board { position },
-        });
-        next = next.checked_add(1).ok_or_else(|| SetupError::InvalidMap {
-            reason: "the map starts more units than an identifier can name".to_owned(),
-        })?;
+        units.push(
+            UnitDeployment::new(
+                deployed.unit,
+                players[owner.get()].id().clone(),
+                // The map file writes health on the 0 to 10 scale; the reducer
+                // counts on the 0 to 100 one.
+                deployed.hp.get() * 10,
+                position,
+            )
+            .map_err(|error| SetupError::InvalidMap {
+                reason: error.to_string(),
+            })?,
+        );
     }
-
-    let units = UnitStore::new(units).map_err(|error| SetupError::InvalidMap {
-        reason: error.to_string(),
-    })?;
-    Ok((units, next))
+    Ok(units)
 }
 
 fn board(
@@ -277,4 +252,111 @@ pub fn faction_players(setup: &GameSetup) -> HashMap<PlayerFaction, PlayerId> {
             .or_insert_with(|| semantic_player_id(index));
     }
     players
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use awbrn_map::{AwbwMap, Deployments};
+    use awbrn_types::Co;
+    use awvm::semantic::Dimensions;
+
+    use crate::setup::PlayerSetup;
+
+    const STARTING_FUNDS: u32 = 500;
+
+    fn orange(property: fn(Faction) -> Property) -> AwbwTerrain {
+        AwbwTerrain::Property(property(Faction::Player(PlayerFaction::OrangeStar)))
+    }
+
+    /// A one-row board of `terrain`, with two seats on it.
+    fn setup(terrain: Vec<AwbwTerrain>) -> GameSetup {
+        let dimensions = Dimensions::new(
+            u8::try_from(terrain.len()).expect("the test board is small"),
+            1,
+        );
+        let map = AwbwMap::from_parts(dimensions, terrain, Deployments::new(dimensions))
+            .expect("the test board is a rectangle");
+        GameSetup {
+            map: AwbrnMap::from_map(&map),
+            players: [PlayerFaction::OrangeStar, PlayerFaction::BlueMoon]
+                .into_iter()
+                .map(|faction| PlayerSetup {
+                    faction,
+                    team: None,
+                    starting_funds: STARTING_FUNDS,
+                    co: Co::Andy,
+                })
+                .collect(),
+            fog_enabled: false,
+            rng_seed: 1,
+        }
+    }
+
+    fn funds(state: &State) -> Vec<u64> {
+        state.players.iter().map(|player| player.funds).collect()
+    }
+
+    /// The first player opens the match inside their own turn-start, so the
+    /// properties the map gives them pay before they act.
+    #[test]
+    fn the_first_player_collects_day_one_income() {
+        let state = state_from_setup(&setup(vec![
+            AwbwTerrain::Property(Property::HQ(PlayerFaction::OrangeStar)),
+            orange(Property::City),
+            orange(Property::Base),
+            AwbwTerrain::Plain,
+        ]))
+        .expect("the test setup is valid");
+
+        assert_eq!(
+            funds(&state),
+            vec![u64::from(STARTING_FUNDS) + 3_000, u64::from(STARTING_FUNDS)],
+            "the first player holds their starting funds and three properties of income"
+        );
+    }
+
+    /// Every other seat collects at the boundary that opens its turn, not here.
+    #[test]
+    fn a_later_player_collects_nothing_at_setup() {
+        let state = state_from_setup(&setup(vec![
+            AwbwTerrain::Property(Property::City(Faction::Player(PlayerFaction::BlueMoon))),
+            AwbwTerrain::Plain,
+        ]))
+        .expect("the test setup is valid");
+
+        assert_eq!(
+            funds(&state),
+            vec![u64::from(STARTING_FUNDS); 2],
+            "a property of the second player pays at their own turn-start"
+        );
+    }
+
+    /// A com tower and a lab are ownable and carry no income trait.
+    #[test]
+    fn a_com_tower_and_a_lab_pay_no_day_one_income() {
+        let state = state_from_setup(&setup(vec![
+            orange(Property::ComTower),
+            orange(Property::Lab),
+            AwbwTerrain::Property(Property::City(Faction::Neutral)),
+            AwbwTerrain::Plain,
+        ]))
+        .expect("the test setup is valid");
+
+        assert_eq!(
+            funds(&state),
+            vec![u64::from(STARTING_FUNDS); 2],
+            "neither tower, lab, nor neutral city pays income"
+        );
+    }
+
+    /// A first player with no property still opens with the funds they were
+    /// given, and an infantry stays out of reach until they capture something.
+    #[test]
+    fn a_propertyless_first_player_collects_nothing() {
+        let state = state_from_setup(&setup(vec![AwbwTerrain::Plain, AwbwTerrain::Plain]))
+            .expect("the test setup is valid");
+
+        assert_eq!(funds(&state), vec![u64::from(STARTING_FUNDS); 2]);
+    }
 }

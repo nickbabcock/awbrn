@@ -65,9 +65,12 @@ fn in_detail_set(relative: &str, case: &Value) -> bool {
 /// Everything one fixture projects, in playback order.
 fn project(case: &Value) -> Value {
     let mut peer = InProcess;
-    let mut state = case["initial_state"].clone();
-    let recipients: Vec<String> = state["players"]
-        .as_array()
+    let mut state = case.get("initial_state").cloned().unwrap_or(Value::Null);
+    let recipients: Vec<String> = case
+        .get("initial_state")
+        .or_else(|| case.get("setup"))
+        .and_then(|source| source.get("players"))
+        .and_then(Value::as_array)
         .map(|players| {
             players
                 .iter()
@@ -88,11 +91,38 @@ fn project(case: &Value) -> Value {
     };
 
     let mut initial = serde_json::Map::new();
-    for recipient in &recipients {
-        initial.insert(recipient.clone(), observe(&mut peer, &state, recipient));
+    if !state.is_null() {
+        for recipient in &recipients {
+            initial.insert(recipient.clone(), observe(&mut peer, &state, recipient));
+        }
     }
 
     let mut steps = Vec::new();
+    if let Some(opening) = case.get("opening") {
+        let result = peer
+            .exchange(json!({
+                "protocol_version":"0.1.0","request_id":"golden","operation":"initialize-match",
+                "ruleset":case["ruleset"],"setup":case["setup"],"random":opening["random"]
+            }))
+            .expect("initialize-match");
+        assert_eq!(
+            result["status"], "accepted",
+            "initialize-match failed: {result}"
+        );
+        state = result["state"].clone();
+
+        let mut observations = serde_json::Map::new();
+        for recipient in &recipients {
+            observations.insert(recipient.clone(), observe(&mut peer, &state, recipient));
+        }
+        steps.push(json!({
+            "id": "opening",
+            "status": result["status"],
+            "observations": observations,
+            // Opening has no pre-state from which to project recipient events.
+            "observed_events": {},
+        }));
+    }
     for step in case["steps"].as_array().cloned().unwrap_or_default() {
         let previous_state = state.clone();
         let result = peer

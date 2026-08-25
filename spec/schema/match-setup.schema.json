@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/match-setup.schema.json",
+  "title": "AWVM one-time match setup",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ruleset", "settings", "board", "players", "deployments"],
+  "properties": {
+    "ruleset": { "$ref": "common.schema.json#/$defs/ruleset" },
+    "settings": { "$ref": "settings.schema.json" },
+    "board": { "$ref": "state.schema.json#/$defs/board" },
+    "players": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 255,
+      "items": { "$ref": "#/$defs/player" }
+    },
+    "deployments": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/deployment" }
+    }
+  },
+  "$defs": {
+    "player": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "team", "starting_funds", "commanders"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/player-id" },
+        "team": { "$ref": "common.schema.json#/$defs/team-id" },
+        "starting_funds": { "type": "integer", "minimum": 0 },
+        "commanders": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "items": { "$ref": "common.schema.json#/$defs/commander-id" }
+        }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "owner", "hp", "position"],
+      "properties": {
+        "kind": { "$ref": "common.schema.json#/$defs/unit-kind-id" },
+        "owner": { "$ref": "common.schema.json#/$defs/player-id" },
+        "hp": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "position": { "$ref": "common.schema.json#/$defs/position" }
+      }
+    }
+  }
+}

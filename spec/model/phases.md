@@ -53,9 +53,33 @@ Starting a match constructs the immutable settings and stable turn order, sets
 position, and enters `turn-start`.
 
 Starting funds and predeployed board/unit state are initialization inputs, not
-turn-start effects. The first player receives ordinary day-one start hooks,
-including income. Random input required for the first turn is supplied to this
-initial automatic advance.
+turn-start effects. The first player then receives ordinary day-one start
+hooks, in the published order and with the meaning each feature gives them.
+Random input required for the first turn is supplied to this initial automatic
+advance.
+
+A match therefore does not become playable at `turn-start`: initialization MUST
+run that phase to `unit-action` before the first player is asked for a command,
+exactly as a turn boundary does. The one difference is that no `turn-end` runs
+first, so no successor is selected and `turn.day` is not incremented.
+
+### Day-one income
+
+Income is the hook this matters most for. The first player's funds when they
+take their first action are their starting funds **plus** one turn of income,
+where income is the derived value `income(S, p)` that `semantics/turn.md`
+defines: the properties they own whose terrain carries the `income` trait,
+times `settings.income_per_property`, under any commander effect on that rate.
+
+An implementation MUST NOT special-case the amount. Day one pays what any other
+day pays; only the phase's entry point differs. Every other player collects
+nothing at initialization, because their first turn has not started; each
+collects at the boundary that opens it.
+
+The consequence is what makes the rule observable: on a board that gives the
+first player a headquarters and a base, they open day one able to afford a
+soldier, and a match that skipped the grant would open them unable to build at
+all when `starting_funds` is zero, which is AWBW's default.
 
 ## Command loop
 
@@ -189,6 +213,14 @@ extra, or out-of-domain random input is an execution error, not an alternative
 game outcome.
 
 ## Evidence and unresolved details
+
+Day-one income is confirmed by replay. Every archived AWBW replay records the
+match at the opening of day one, before any capture, so the properties a player
+holds there are the properties the map gave them. In replay 1362397, a
+five-player match with `starting_funds = 0` and `funds = 1000` on map 162795,
+the first player in turn order holds 3000 and every other player holds 0. That
+player's map ownership is two bases and a headquarters: three income
+properties, one turn of income, collected before they were asked for a command.
 
 Documentation-only evidence currently establishes:
 

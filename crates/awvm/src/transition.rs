@@ -19,6 +19,7 @@ use crate::violation::Violation;
 
 mod attack;
 mod elimination;
+mod initialization;
 mod movement;
 mod powers;
 mod property;
@@ -28,6 +29,7 @@ mod turn;
 
 pub(crate) use attack::*;
 pub(crate) use elimination::*;
+pub use initialization::{InitializeError, initialize_match};
 pub(crate) use movement::*;
 pub(crate) use property::*;
 pub(crate) use transport::*;
@@ -376,6 +378,46 @@ pub fn execute_with(
         Err(ReducerError::InvalidState(error)) => Err(ExecuteError::InvalidState(error)),
         Err(ReducerError::InvalidRandom(error)) => Err(ExecuteError::InvalidRandom(error)),
     }
+}
+
+/// Open a match against a recorded tape.
+///
+/// A host builds the opening state — settings, board, roster, predeployed
+/// units, starting funds — and hands it here in `turn-start`, the phase
+/// `spec/model/phases.md` says initialization enters. This runs the first
+/// player's day-one start hooks, income above all, and returns the state the
+/// first player acts from, with the events those hooks emitted.
+///
+/// Skipping it opens a match on a first player who never collected day-one
+/// income, which is a different game: on an ordinary board they cannot afford
+/// the soldier the day is for.
+pub(crate) fn begin_match(
+    state: &State,
+    random: &[RandomToken],
+) -> Result<Execution, ExecuteError> {
+    begin_match_with(state, &mut RandomTape::new(random))
+}
+
+/// Open a match, asking `entropy` for each value as the hooks reach it.
+///
+/// [`begin_match`] against a recorded tape; this is what an authority rolling
+/// its own dice wants, for the same reason [`execute_with`] is.
+pub(crate) fn begin_match_with(
+    state: &State,
+    entropy: &mut impl Entropy,
+) -> Result<Execution, ExecuteError> {
+    let mut draws = Draws::new(entropy);
+    turn::begin_match(state, &mut draws).map_err(|error| match error {
+        ReducerError::UnsupportedCommand => ExecuteError::UnsupportedCommand,
+        ReducerError::UnsupportedRuleset => ExecuteError::UnsupportedRuleset,
+        ReducerError::InvalidState(error) => ExecuteError::InvalidState(error),
+        ReducerError::InvalidRandom(error) => ExecuteError::InvalidRandom(error),
+        // The opening hooks refuse a state rather than a command, so nothing
+        // they run produces a violation.
+        ReducerError::Violation(violation) => {
+            ExecuteError::InvalidState(format!("opening a match was refused: {violation:?}").into())
+        }
+    })
 }
 
 /// Resolve movement without choosing the action at its destination.
@@ -1234,8 +1276,8 @@ mod tests {
     use crate::combat::Weapon;
     use crate::event::{EventKind, SupplySource};
     use crate::semantic::{
-        AwbwVisibility, Board, ObservedEvent, ObservedUnitRef, PlayerStatus, ReasonId, Silo, Tile,
-        TileOwner, UnitAction, VictoryReason, Visibility,
+        AwbwVisibility, Board, ObservedEvent, ObservedUnitRef, PlayerStatus, Reason, ReasonId,
+        Silo, Tile, TileOwner, UnitAction, VictoryReason, Visibility,
     };
     use crate::violation::Action;
     use serde_json::{Value, json};
@@ -1543,6 +1585,110 @@ mod tests {
                     ..
                 }
             ] if *to == Pos::new(0, 0) && *position == Pos::new(3, 0)
+        ));
+    }
+
+    /// A match opens inside the first player's turn-start, so the properties
+    /// the map gave them pay before they act.
+    ///
+    /// `spec/model/phases.md` grants the first player ordinary day-one start
+    /// hooks. The board below is the income fixture's, rewound to the state a
+    /// host builds: day one, turn-start, nobody has moved.
+    #[test]
+    fn opening_a_match_pays_the_first_player_day_one_income() {
+        let case: Value = serde_json::from_str(include_str!(
+            "../../../spec/fixtures/turn/end-turn-income-ready.json"
+        ))
+        .unwrap();
+        let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
+        // The two cities the fixture gives blue, given to the player the match
+        // opens on instead.
+        for tile in state.board.tiles_mut() {
+            if tile.owner != TileOwner::Neutral {
+                tile.owner = TileOwner::Owned(SEAT_ZERO);
+            }
+        }
+        state.turn.phase = Phase::TurnStart;
+        let opening = state.player(SEAT_ZERO).funds;
+
+        let execution = begin_match(&state, &[]).unwrap();
+
+        assert_eq!(
+            execution.state.player(SEAT_ZERO).funds,
+            opening + 2 * state.settings.income_per_property,
+            "two cities pay the player the match opens on"
+        );
+        assert_eq!(
+            execution.state.turn.phase,
+            Phase::UnitAction,
+            "the first player is handed a phase they can act in"
+        );
+        assert_eq!(execution.random_consumed, 0);
+        assert!(
+            matches!(
+                execution.events.as_slice(),
+                [
+                    Event::FundsChanged { reason, .. },
+                    Event::UnitActionChanged { .. },
+                    Event::PhaseChanged {
+                        from: Phase::TurnStart,
+                        to: Phase::UnitAction,
+                        ..
+                    },
+                ] if *reason == Reason::Known(KnownReason::TurnStartIncome)
+            ),
+            "the opening emits the income it granted, the units it readied, and \
+             the phase it entered, got {:?}",
+            execution.events.iter().map(Event::kind).collect::<Vec<_>>()
+        );
+    }
+
+    /// Every other seat waits for the boundary that opens its own turn.
+    #[test]
+    fn opening_a_match_pays_no_other_player() {
+        let case: Value = serde_json::from_str(include_str!(
+            "../../../spec/fixtures/turn/end-turn-income-ready.json"
+        ))
+        .unwrap();
+        let mut state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
+        state.turn.phase = Phase::TurnStart;
+        let before: Vec<u64> = state.players.iter().map(|player| player.funds).collect();
+
+        let execution = begin_match(&state, &[]).unwrap();
+
+        assert_eq!(
+            execution
+                .state
+                .players
+                .iter()
+                .map(|player| player.funds)
+                .collect::<Vec<_>>(),
+            before,
+            "the fixture's cities belong to the second player, who has not started a turn"
+        );
+        assert!(
+            execution
+                .events
+                .iter()
+                .all(|event| !matches!(event, Event::FundsChanged { .. }))
+        );
+    }
+
+    /// The opening runs once, on a state a host has just built.
+    ///
+    /// No accepted command leaves a match in turn-start, so a match already
+    /// under way cannot be opened a second time and collect a second income.
+    #[test]
+    fn a_match_already_under_way_cannot_be_opened() {
+        let case: Value = serde_json::from_str(include_str!(
+            "../../../spec/fixtures/turn/end-turn-income-ready.json"
+        ))
+        .unwrap();
+        let state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
+
+        assert!(matches!(
+            begin_match(&state, &[]),
+            Err(ExecuteError::InvalidState(_))
         ));
     }
 

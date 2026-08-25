@@ -6,6 +6,7 @@
 //!
 //! ```text
 //! execute(state, command, random) -> accepted | rejected | error
+//! initialize-match(setup, random) -> execution | error
 //! observe(visibility, state, recipient) -> observation | error
 //! observe-events(visibility, state, next-state, events, recipient)
 //!   -> observed-events | error
@@ -18,7 +19,7 @@
 //! lowering it into a state and asking the reducer rather than by restating the
 //! formula.
 //!
-//! Those three operations answer questions a caller already knows how to ask.
+//! Those four operations answer questions a caller already knows how to ask.
 //! A user interface has the opposite problem — it has to offer the questions —
 //! so [`query`] answers *what is legal* from the same rules the reducer
 //! enforces: where a unit may move, what it may attack, and which command
@@ -66,6 +67,7 @@ pub mod random;
 pub mod ruleset;
 pub mod semantic;
 pub mod session;
+pub mod setup;
 pub mod transition;
 pub mod violation;
 
