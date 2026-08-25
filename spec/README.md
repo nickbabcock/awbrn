@@ -45,12 +45,26 @@ command does not mutate the input state and consumes no random tokens. Accepted
 commands return a complete new state, ordered events, and the number of random
 tokens consumed.
 
+A host that builds a match rather than loading one also needs the opening that
+`model/phases.md` describes, which no command reaches:
+
+```text
+begin-match(state) -> execution | error
+```
+
+It takes the initialized state — settings, board, roster, predeployed units,
+starting funds, `day = 1`, phase `turn-start` — runs the first player's day-one
+start hooks, day-one income included, and returns the state they act from.
+The JSON Lines protocol below carries no such operation, so match
+initialization is not part of the conformance corpus; what the corpus checks is
+the hooks themselves, which the opening and every turn boundary share.
+
 The main Rust types and functions are:
 
 ```rust
 use awvm::{
     semantic::{observe, observe_events, AwbwVisibility, State},
-    transition::{execute, Command, Execution},
+    transition::{begin_match, execute, Command, Execution},
 };
 ```
 

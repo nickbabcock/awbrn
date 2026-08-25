@@ -360,11 +360,11 @@ mod tests {
     fn the_amber_valley_match_is_the_same_match_every_time() {
         let record = play_amber_valley_match(amber_valley_match_case());
 
-        assert_eq!(record.turns, 33);
-        assert_eq!(record.days, 17);
-        assert_eq!(record.commands, 445);
+        assert_eq!(record.turns, 29);
+        assert_eq!(record.days, 15);
+        assert_eq!(record.commands, 310);
         assert_eq!(record.refusals, 0);
-        assert_eq!(record.units, 42);
+        assert_eq!(record.units, 28);
         let outcome = record.outcome.expect("the match ends in a victory");
         assert_eq!(
             format!("{outcome:?}"),

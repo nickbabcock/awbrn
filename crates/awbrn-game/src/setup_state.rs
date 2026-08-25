@@ -77,7 +77,7 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
     let active_player = players[0].id().clone();
     let (units, next_unit_id) = deployed_units(setup, &faction_seats)?;
 
-    Ok(State {
+    let state = State {
         ruleset: RulesetRef {
             id: RulesetId::from(RULESET_ID),
             revision: RulesetRevision::from(RULESET_REVISION),
@@ -105,7 +105,9 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
         turn: Turn {
             day: 1,
             active_player,
-            phase: Phase::UnitAction,
+            // Initialization enters turn-start; `open_match` below runs it
+            // and leaves the first player in unit-action.
+            phase: Phase::TurnStart,
             order: players.iter().map(|player| player.id().clone()).collect(),
             position: 0,
         },
@@ -118,7 +120,27 @@ pub fn state_from_setup(setup: &GameSetup) -> Result<State, SetupError> {
         match_state: Match::Active {
             draw_offers: Vec::new(),
         },
-    })
+    };
+
+    open_match(&state)
+}
+
+/// Opens the match: runs the first player's day-one `turn-start`.
+///
+/// A fresh state is the board before anyone has been handed it, and
+/// `spec/model/phases.md` puts the first player's start hooks between there and
+/// their first order. AWVM runs them, so day one collects the same income by
+/// the same rule as day two, rather than by a second copy of it here.
+///
+/// The hooks draw no randomness on a board this builds: the weather is clear
+/// and fixed, so an empty tape is the whole input. A setting that made the
+/// opening roll would fail here rather than roll silently.
+fn open_match(state: &State) -> Result<State, SetupError> {
+    awvm::transition::begin_match(state, &[])
+        .map(|execution| execution.state)
+        .map_err(|error| SetupError::InvalidMap {
+            reason: format!("the map cannot open a match: {error}"),
+        })
 }
 
 /// The units the map starts on the board.
@@ -277,4 +299,111 @@ pub fn faction_players(setup: &GameSetup) -> HashMap<PlayerFaction, PlayerId> {
             .or_insert_with(|| semantic_player_id(index));
     }
     players
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use awbrn_map::{AwbwMap, Deployments};
+    use awbrn_types::Co;
+    use awvm::semantic::Dimensions;
+
+    use crate::setup::PlayerSetup;
+
+    const STARTING_FUNDS: u32 = 500;
+
+    fn orange(property: fn(Faction) -> Property) -> AwbwTerrain {
+        AwbwTerrain::Property(property(Faction::Player(PlayerFaction::OrangeStar)))
+    }
+
+    /// A one-row board of `terrain`, with two seats on it.
+    fn setup(terrain: Vec<AwbwTerrain>) -> GameSetup {
+        let dimensions = Dimensions::new(
+            u8::try_from(terrain.len()).expect("the test board is small"),
+            1,
+        );
+        let map = AwbwMap::from_parts(dimensions, terrain, Deployments::new(dimensions))
+            .expect("the test board is a rectangle");
+        GameSetup {
+            map: AwbrnMap::from_map(&map),
+            players: [PlayerFaction::OrangeStar, PlayerFaction::BlueMoon]
+                .into_iter()
+                .map(|faction| PlayerSetup {
+                    faction,
+                    team: None,
+                    starting_funds: STARTING_FUNDS,
+                    co: Co::Andy,
+                })
+                .collect(),
+            fog_enabled: false,
+            rng_seed: 1,
+        }
+    }
+
+    fn funds(state: &State) -> Vec<u64> {
+        state.players.iter().map(|player| player.funds).collect()
+    }
+
+    /// The first player opens the match inside their own turn-start, so the
+    /// properties the map gives them pay before they act.
+    #[test]
+    fn the_first_player_collects_day_one_income() {
+        let state = state_from_setup(&setup(vec![
+            AwbwTerrain::Property(Property::HQ(PlayerFaction::OrangeStar)),
+            orange(Property::City),
+            orange(Property::Base),
+            AwbwTerrain::Plain,
+        ]))
+        .expect("the test setup is valid");
+
+        assert_eq!(
+            funds(&state),
+            vec![u64::from(STARTING_FUNDS) + 3_000, u64::from(STARTING_FUNDS)],
+            "the first player holds their starting funds and three properties of income"
+        );
+    }
+
+    /// Every other seat collects at the boundary that opens its turn, not here.
+    #[test]
+    fn a_later_player_collects_nothing_at_setup() {
+        let state = state_from_setup(&setup(vec![
+            AwbwTerrain::Property(Property::City(Faction::Player(PlayerFaction::BlueMoon))),
+            AwbwTerrain::Plain,
+        ]))
+        .expect("the test setup is valid");
+
+        assert_eq!(
+            funds(&state),
+            vec![u64::from(STARTING_FUNDS); 2],
+            "a property of the second player pays at their own turn-start"
+        );
+    }
+
+    /// A com tower and a lab are ownable and carry no income trait.
+    #[test]
+    fn a_com_tower_and_a_lab_pay_no_day_one_income() {
+        let state = state_from_setup(&setup(vec![
+            orange(Property::ComTower),
+            orange(Property::Lab),
+            AwbwTerrain::Property(Property::City(Faction::Neutral)),
+            AwbwTerrain::Plain,
+        ]))
+        .expect("the test setup is valid");
+
+        assert_eq!(
+            funds(&state),
+            vec![u64::from(STARTING_FUNDS); 2],
+            "neither tower, lab, nor neutral city pays income"
+        );
+    }
+
+    /// A first player with no property still opens with the funds they were
+    /// given, and an infantry stays out of reach until they capture something.
+    #[test]
+    fn a_propertyless_first_player_collects_nothing() {
+        let state = state_from_setup(&setup(vec![AwbwTerrain::Plain, AwbwTerrain::Plain]))
+            .expect("the test setup is valid");
+
+        assert_eq!(funds(&state), vec![u64::from(STARTING_FUNDS); 2]);
+    }
 }

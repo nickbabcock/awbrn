@@ -1,5 +1,6 @@
 use awbrn_map::AwbwMapData;
 use awbw_replay::ReplayParser;
+use awvm::query::income;
 use awvm::semantic::{AwbwVisibility, Observation, State, observe};
 use awvm_awbw::initial_state;
 use highway::HighwayHash;
@@ -78,4 +79,55 @@ fn every_archived_replay_produces_a_valid_round_tripping_observable_state() {
 
 fn checksum(bytes: &[u8]) -> u64 {
     highway::HighwayHasher::new(highway::Key::default()).hash64(bytes)
+}
+
+/// The first player of a fresh AWBW match already holds day one's income.
+///
+/// `spec/model/phases.md` puts day-one income in the first player's turn-start,
+/// which a match runs before it hands the first player the board. The archive
+/// is the evidence: every replay opens on day one, before any capture, so the
+/// properties the map gives the first player are the properties that paid, and
+/// the funds AWBW recorded are the starting purse plus one turn of them. Every
+/// other seat is still holding its purse alone, because its turn has not
+/// started.
+#[test]
+fn every_archived_replay_opens_with_the_first_player_holding_day_one_income() {
+    insta::glob!("../../../../assets/replays", "*.zip", |replay_path| {
+        let replay_file = replay_path.file_name().unwrap().to_string_lossy();
+        let replay = ReplayParser::new()
+            .parse(&std::fs::read(replay_path).unwrap())
+            .unwrap();
+        let map_id = replay
+            .games
+            .first()
+            .expect("archived replay has a game")
+            .maps_id
+            .as_u32();
+        let map_data: AwbwMapData =
+            serde_json::from_slice(&std::fs::read(map_path(&format!("{map_id}.json"))).unwrap())
+                .unwrap();
+        let state = initial_state(&replay, &map_data).unwrap();
+        assert_eq!(state.turn.day, 1, "{replay_file} does not open on day one");
+
+        let starting_funds = state.settings.starting_funds;
+        let first = state
+            .players
+            .seat(&state.turn.active_player)
+            .expect("the first player holds a seat");
+        for (seat, player) in state.players.seats() {
+            let collected = if seat == first {
+                income(&state, seat).expect("a recorded board pays an income that fits")
+            } else {
+                0
+            };
+            assert_eq!(
+                player.funds,
+                starting_funds + collected,
+                "{replay_file} opens with player {} holding {} rather than {}",
+                player.id(),
+                player.funds,
+                starting_funds + collected,
+            );
+        }
+    });
 }

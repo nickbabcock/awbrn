@@ -8,8 +8,9 @@ use super::ReducerError as ExecuteError;
 use super::*;
 use crate::commander::{self, PowerLevel};
 use crate::event::{Event, RandomKind, RandomValue, SupplySource};
+use crate::query;
 
-use crate::ruleset::{self, Domain, Relation, TerrainTrait};
+use crate::ruleset::{self, Domain, Relation};
 use crate::semantic::{
     Concealment, DrawReason, KnownReason, Location, Outcome, Phase, PlayerId, PlayerIdx,
     PlayerStatus, PowerState, State, UnitAction, VictoryReason, WeatherKind, WeatherSetting,
@@ -103,7 +104,7 @@ pub(crate) enum BoundaryCommand {
 /// Every hook needs both the id, because units and tiles name their owner, and
 /// the seat, because the roster is what income and repair spend from. Resolving
 /// the pair once is what keeps the hooks from re-scanning the roster.
-struct Incoming {
+pub(crate) struct Incoming {
     id: PlayerId,
     seat: PlayerIdx,
 }
@@ -238,60 +239,136 @@ pub(super) fn execute_prepared_boundary(
             player: incoming.id.clone(),
             position,
         });
-        if next.turn.phase == Phase::TurnEnd {
-            next.turn.phase = Phase::TurnStart;
-            events.push(Event::PhaseChanged {
-                player: incoming.id.clone(),
-                from: Phase::TurnEnd,
-                to: Phase::TurnStart,
-            });
-        }
-
-        end_expired_power(&mut next, &incoming, &mut events)?;
-        advance_weather(&mut next, draws, &mut events)?;
-        collect_income(&mut next, &incoming, &mut events)?;
-
-        let sites = repair_sites(&next, &incoming);
-        let mut resupplied = HashSet::new();
-        supply_from_properties(&mut next, &sites, &mut resupplied, &mut events);
-        supply_from_adjacent_transports(&mut next, &incoming, &mut resupplied, &mut events)?;
-        supply_cargo(&mut next, &incoming, &mut resupplied, &mut events);
-        apply_fuel_upkeep(&mut next, &incoming, &resupplied, &mut events);
-        let removed_units = crash_out_of_fuel(&mut next, &incoming, &mut events);
-        repair_on_properties(&mut next, &incoming, &sites, &mut events)?;
-
-        if removed_units && !next.units.iter().any(|unit| unit.owner == incoming.seat) {
-            if eliminate_player(
-                &mut next,
-                &incoming.id,
-                VictoryReason::Rout,
-                None,
-                None,
-                &mut events,
-            )? {
+        match run_turn_start(&mut next, &incoming, draws, &mut events)? {
+            TurnStart::Open | TurnStart::Finished => {
                 return Ok(Execution {
                     state: next,
                     events,
                     random_consumed: draws.drawn(),
                 });
             }
-            continue;
+            TurnStart::Routed => continue,
         }
+    }
+}
 
-        normalize_actions(&mut next, &incoming, &mut events);
-        next.turn.phase = Phase::UnitAction;
-        events.push(Event::PhaseChanged {
-            player: incoming.id,
-            from: Phase::TurnStart,
-            to: Phase::UnitAction,
-        });
+/// Open a match: run the first player's `turn-start` and hand them the board.
+///
+/// `spec/model/phases.md` builds a match at day one, in `turn-start`, holding
+/// the first player. The hooks of that phase still owe them everything a later
+/// turn is owed — day-one income above all — and no boundary command runs
+/// here, so this is the operation that runs them. Starting funds and the
+/// predeployed board are initialization inputs already in `state`; this adds
+/// only what the phase itself grants.
+///
+/// The state must be in `turn-start`, which no accepted command produces: the
+/// boundary loop leaves a match in `unit-action` or `finished`, so this is
+/// callable once, on a state a host has just built.
+pub(crate) fn begin_match(state: &State, draws: &mut Draws<'_>) -> Result<Execution, ExecuteError> {
+    if !matches!(state.match_state, Match::Active { .. }) {
+        return Err(ExecuteError::InvalidState(
+            "a finished match cannot be opened".into(),
+        ));
+    }
+    if state.turn.phase != Phase::TurnStart {
+        return Err(ExecuteError::InvalidState(
+            "a match opens from turn-start, the phase its initialization enters".into(),
+        ));
+    }
+    let seat = state
+        .player_index(&state.turn.active_player)
+        .ok_or_else(|| ExecuteError::InvalidState("active player is not on the roster".into()))?;
+    if state.player(seat).status != PlayerStatus::Active {
+        return Err(ExecuteError::InvalidState(
+            "a match opens on an active player".into(),
+        ));
+    }
+    let incoming = Incoming {
+        id: state.turn.active_player.clone(),
+        seat,
+    };
 
-        return Ok(Execution {
+    let mut next = state.clone();
+    let mut events = Vec::new();
+    match run_turn_start(&mut next, &incoming, draws, &mut events)? {
+        TurnStart::Open | TurnStart::Finished => Ok(Execution {
             state: next,
             events,
             random_consumed: draws.drawn(),
+        }),
+        // The opening hooks route a player only by crashing every unit they
+        // hold, which a match cannot be built into: a predeployed unit opens
+        // with the fuel its profile gives it.
+        TurnStart::Routed => Err(ExecuteError::InvalidState(
+            "the opening turn-start routed the first player".into(),
+        )),
+    }
+}
+
+/// What the incoming player's turn-start left behind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TurnStart {
+    /// The player holds an ordinary `unit-action` phase.
+    Open,
+    /// The hooks routed the player and the match continues, so a successor
+    /// must be selected in their place.
+    Routed,
+    /// The hooks ended the match.
+    Finished,
+}
+
+/// Run one player's whole `turn-start`, as `spec/semantics/turn-hooks.md`
+/// orders it, and leave them in `unit-action`.
+///
+/// Both ways into the phase run this: the boundary that hands the turn on, and
+/// the first turn of a match, which `spec/model/phases.md` gives day-one start
+/// hooks with no boundary before it. Stating the sequence once is what keeps
+/// day one from paying a different income than day two.
+pub(crate) fn run_turn_start(
+    next: &mut State,
+    incoming: &Incoming,
+    draws: &mut Draws<'_>,
+    events: &mut Vec<Event>,
+) -> Result<TurnStart, ExecuteError> {
+    if next.turn.phase != Phase::TurnStart {
+        let from = next.turn.phase;
+        next.turn.phase = Phase::TurnStart;
+        events.push(Event::PhaseChanged {
+            player: incoming.id.clone(),
+            from,
+            to: Phase::TurnStart,
         });
     }
+
+    end_expired_power(next, incoming, events)?;
+    advance_weather(next, draws, events)?;
+    collect_income(next, incoming, events)?;
+
+    let sites = repair_sites(next, incoming);
+    let mut resupplied = HashSet::new();
+    supply_from_properties(next, &sites, &mut resupplied, events);
+    supply_from_adjacent_transports(next, incoming, &mut resupplied, events)?;
+    supply_cargo(next, incoming, &mut resupplied, events);
+    apply_fuel_upkeep(next, incoming, &resupplied, events);
+    let removed_units = crash_out_of_fuel(next, incoming, events);
+    repair_on_properties(next, incoming, &sites, events)?;
+
+    if removed_units && !next.units.iter().any(|unit| unit.owner == incoming.seat) {
+        return if eliminate_player(next, &incoming.id, VictoryReason::Rout, None, None, events)? {
+            Ok(TurnStart::Finished)
+        } else {
+            Ok(TurnStart::Routed)
+        };
+    }
+
+    normalize_actions(next, incoming, events);
+    next.turn.phase = Phase::UnitAction;
+    events.push(Event::PhaseChanged {
+        player: incoming.id.clone(),
+        from: Phase::TurnStart,
+        to: Phase::UnitAction,
+    });
+    Ok(TurnStart::Open)
 }
 
 /// Hand the turn to the outgoing player's other commander.
@@ -453,18 +530,7 @@ fn collect_income(
     incoming: &Incoming,
     events: &mut Vec<Event>,
 ) -> Result<(), ExecuteError> {
-    let income_tiles = next
-        .board
-        .tiles()
-        .filter(|tile| {
-            tile.owner.is_owned_by(incoming.seat)
-                && ruleset::terrain_has(tile.terrain, TerrainTrait::Income)
-        })
-        .count();
-    let income_per_property = commander::effective_income_per_property(next, incoming.seat);
-    let income = u64::try_from(income_tiles)
-        .ok()
-        .and_then(|count| count.checked_mul(income_per_property))
+    let income = query::income(next, incoming.seat)
         .ok_or_else(|| ExecuteError::InvalidState("turn-start income overflow".into()))?;
     if income == 0 {
         return Ok(());
