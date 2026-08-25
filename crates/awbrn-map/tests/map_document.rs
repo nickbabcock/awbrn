@@ -345,10 +345,10 @@ fn canonical_orders_are_all_row_major() {
 #[test]
 fn deserializing_the_checked_type_rejects_invalid_documents() {
     let valid = serde_json::to_string(&tiny_valid()).unwrap();
-    assert!(serde_json::from_str::<ValidatedMapDocument>(&valid).is_ok());
+    serde_json::from_str::<ValidatedMapDocument>(&valid).unwrap();
 
     let truncated = valid.replace("\"terrain\":[1,2,34,42]", "\"terrain\":[1,2,34]");
-    assert!(serde_json::from_str::<AwbrnMapDocument>(&truncated).is_ok());
+    serde_json::from_str::<AwbrnMapDocument>(&truncated).unwrap();
 
     let error = serde_json::from_str::<ValidatedMapDocument>(&truncated).unwrap_err();
     assert!(

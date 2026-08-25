@@ -26,7 +26,7 @@ use awbrn_types::UnitExt;
 ///
 /// `RecordedAdapter` applies archived graphical outcomes and never executes an
 /// AWVM command or reconstructs random tokens.
-#[derive(Resource)]
+#[derive(Debug, Resource)]
 pub struct ReplayTransitionSource {
     timeline: crate::replay_archive::ReplayTimeline,
     initial_terrain_knowledge: Option<ReplayTerrainKnowledge>,
@@ -112,6 +112,7 @@ pub struct ReplayAnimationFollowup {
     pub transitions: Option<DeferredTransitions>,
 }
 
+#[derive(Debug)]
 pub struct ReplayFollowupCommand {
     pub transitions: Option<DeferredTransitions>,
 }
@@ -137,6 +138,7 @@ pub enum DeferredTransitions {
 
 /// Apply one live server transition through the same typed presentation and
 /// animation path used by archived replay playback.
+#[derive(Debug)]
 pub struct LiveTransitionCommand {
     pub transition: ObservedTransition,
 }
@@ -157,6 +159,7 @@ impl Command for LiveTransitionCommand {
 }
 
 /// A custom Command for processing replay turn actions.
+#[derive(Debug)]
 pub struct ReplayTurnCommand {
     pub index: usize,
 }
@@ -176,6 +179,7 @@ impl Command for ReplayTurnCommand {
 /// Restore one stable replay action boundary without presenting the actions
 /// used to calculate it. The adapter is rebuilt in local memory first; only
 /// the final projections are committed to the ECS.
+#[derive(Debug)]
 pub struct ReplayRewindCommand {
     pub target_index: u32,
 }

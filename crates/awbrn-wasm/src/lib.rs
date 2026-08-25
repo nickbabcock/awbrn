@@ -12,11 +12,11 @@ use bevy::{
     input::{
         ButtonState,
         keyboard::{Key, KeyboardFocusLost, KeyboardInput, NativeKey},
-        mouse::{MouseButton, MouseButtonInput, MouseScrollUnit, MouseWheel},
-        touch::{TouchInput, TouchPhase},
+        mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel},
+        touch::TouchPhase,
     },
     prelude::*,
-    window::{CursorLeft, CursorMoved, RawHandleWrapper, WindowResolution, WindowWrapper},
+    window::{RawHandleWrapper, WindowResolution, WindowWrapper},
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
@@ -37,7 +37,7 @@ use bevy::asset::{
 };
 
 /// Discriminated union of all game events sent to JavaScript.
-#[derive(Serialize, tsify::Tsify)]
+#[derive(Debug, Serialize, tsify::Tsify)]
 #[tsify(into_wasm_abi)]
 #[serde(tag = "type")]
 pub enum GameEvent {
@@ -63,8 +63,6 @@ extern "C" {
 }
 
 /// Wrapper around a JS callback that is safe to send across threads.
-///
-/// SAFETY: WASM runs on a single thread, so Send + Sync are safe here.
 struct WasmCallback(js_sys::Function);
 unsafe impl Send for WasmCallback {}
 unsafe impl Sync for WasmCallback {}
@@ -152,6 +150,12 @@ fn register_awbw_asset_source(_app: &mut App) {}
 #[wasm_bindgen]
 pub struct BevyApp {
     app: App,
+}
+
+impl std::fmt::Debug for BevyApp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BevyApp").finish_non_exhaustive()
+    }
 }
 
 #[wasm_bindgen]

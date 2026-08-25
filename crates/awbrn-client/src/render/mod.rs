@@ -10,7 +10,7 @@ use bevy::prelude::*;
 pub use units::{OverlayBlink, OverlayKind, OverlayVisual, UnitOverlayRegistry};
 
 /// Resource to store loaded UI atlas for reuse
-#[derive(Resource)]
+#[derive(Debug, Resource)]
 pub struct UiAtlasResource {
     pub handle: Handle<crate::UiAtlasAsset>,
     pub texture: Handle<Image>,
@@ -18,14 +18,14 @@ pub struct UiAtlasResource {
 }
 
 /// Resource to store the unit sprite atlas for reuse.
-#[derive(Resource)]
+#[derive(Debug, Resource)]
 pub struct UnitAtlasResource {
     pub texture: Handle<Image>,
     pub layout: Handle<TextureAtlasLayout>,
 }
 
 /// Resource to store the terrain sprite atlas for reuse.
-#[derive(Resource)]
+#[derive(Debug, Resource)]
 pub struct TerrainAtlasResource {
     pub texture: Handle<Image>,
     pub layout: Handle<TextureAtlasLayout>,
@@ -65,6 +65,7 @@ impl<'w> UiAtlas<'w> {
     }
 }
 
+#[derive(Debug)]
 pub struct RenderPlugin;
 
 impl Plugin for RenderPlugin {

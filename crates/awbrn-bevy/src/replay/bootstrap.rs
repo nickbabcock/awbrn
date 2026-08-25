@@ -155,7 +155,6 @@ mod tests {
     use awbrn_map::Dimensions;
     use awbrn_types::GraphicalTerrain;
     use awbw_replay::ReplayParser;
-    use bevy::app::App;
     use std::path::Path;
 
     use crate::GameWorldPlugin;

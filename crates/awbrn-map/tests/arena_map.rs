@@ -16,7 +16,7 @@ use awbrn_types::{AwbwTerrain, Faction, GameplayTerrain, PlayerFaction};
 
 fn arena_map() -> AwbwMap {
     let data = std::fs::read("../../assets/maps/174183.json").expect("the arena map is in assets");
-    AwbwMap::parse_json(&data[..]).expect("the arena map parses")
+    AwbwMap::parse_json(&data).expect("the arena map parses")
 }
 
 /// The other player's counterpart of `terrain`.

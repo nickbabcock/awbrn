@@ -314,36 +314,36 @@ where
             formatter.write_str("a string or a value")
         }
 
-        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
         where
             E: de::Error,
         {
-            if S::is_special(value) {
+            if S::is_special(v) {
                 Ok(S::create_special())
             } else {
-                T::deserialize(StrDeserializer::new(value)).map(S::create_visible)
+                T::deserialize(StrDeserializer::new(v)).map(S::create_visible)
             }
         }
 
-        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
         where
             E: de::Error,
         {
-            if S::is_special(&value) {
+            if S::is_special(&v) {
                 Ok(S::create_special())
             } else {
-                T::deserialize(StringDeserializer::new(value)).map(S::create_visible)
+                T::deserialize(StringDeserializer::new(v)).map(S::create_visible)
             }
         }
 
-        fn visit_borrowed_str<E>(self, value: &'de str) -> Result<Self::Value, E>
+        fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
         where
             E: de::Error,
         {
-            if S::is_special(value) {
+            if S::is_special(v) {
                 Ok(S::create_special())
             } else {
-                T::deserialize(BorrowedStrDeserializer::new(value)).map(S::create_visible)
+                T::deserialize(BorrowedStrDeserializer::new(v)).map(S::create_visible)
             }
         }
 
@@ -523,8 +523,8 @@ where
     impl de::Visitor<'_> for Visitor {
         type Value = u32;
 
-        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            f.write_str("u32 or string-encoded u32")
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("u32 or string-encoded u32")
         }
 
         fn visit_u64<E: de::Error>(self, v: u64) -> Result<u32, E> {
@@ -556,8 +556,8 @@ where
     impl<'de, T: Deserialize<'de>> de::Visitor<'de> for Visitor<T> {
         type Value = Option<T>;
 
-        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            f.write_str("an empty string or object")
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("an empty string or object")
         }
 
         fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
@@ -857,7 +857,7 @@ mod tests {
 
         let json = r#"{"value": "invalid"}"#;
         let result: Result<TestBool, _> = serde_json::from_str(json);
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -886,7 +886,7 @@ mod tests {
 
         let json = r#"{"value": "invalid"}"#;
         let result: Result<TestBool, _> = serde_json::from_str(json);
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -915,6 +915,6 @@ mod tests {
         // Test negative value other than -1 fails
         let json = r#"{"timer": -5}"#;
         let result: Result<TestTimer, _> = serde_json::from_str(json);
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 }

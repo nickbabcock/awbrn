@@ -9,10 +9,9 @@
 use super::ReducerError as ExecuteError;
 use super::*;
 use crate::commander::{self};
-use crate::event::Event;
 use crate::ruleset::{self, Relation, TargetSet, TerrainTrait};
-use crate::semantic::{KnownReason, Location, PlayerIdx, Pos, State, UnitAction, UnitId};
-use crate::violation::{Action, Violation};
+use crate::semantic::UnitAction;
+use crate::violation::Action;
 
 #[derive(Debug)]
 pub(super) struct Supply;
@@ -69,14 +68,11 @@ pub(super) struct PreparedUnload<'a> {
 impl<'a> DestinationAction<'a> for Supply {
     type Proof = SupplyProof;
 
-    fn validate<M>(
-        &self,
-        destination: &PreparedDestination<'a, M>,
-    ) -> Result<Self::Proof, ExecuteError>
+    fn validate<M>(&self, at: &PreparedDestination<'a, M>) -> Result<Self::Proof, ExecuteError>
     where
         M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
     {
-        let movement = destination.movement();
+        let movement = at.movement();
         let state = movement.state();
         let plan = movement.plan();
         let unit = &state.units[plan.unit_index()];
@@ -86,7 +82,7 @@ impl<'a> DestinationAction<'a> for Supply {
                 action: Action::MoveSupply,
             }));
         };
-        let available = destination.available_destination()?;
+        let available = at.available_destination()?;
         Ok(SupplyProof {
             targets: supply.targets,
             destination: available,
@@ -192,15 +188,12 @@ pub(crate) fn supply_target_eligible(
 impl<'a> DestinationAction<'a> for Repair {
     type Proof = RepairProof;
 
-    fn validate<M>(
-        &self,
-        destination: &PreparedDestination<'a, M>,
-    ) -> Result<Self::Proof, ExecuteError>
+    fn validate<M>(&self, at: &PreparedDestination<'a, M>) -> Result<Self::Proof, ExecuteError>
     where
         M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
     {
         let target_id = self.0;
-        let movement = destination.movement();
+        let movement = at.movement();
         let state = movement.state();
         let unit_id = movement.unit();
         let plan = movement.plan();
@@ -237,7 +230,7 @@ impl<'a> DestinationAction<'a> for Repair {
                 target: Some(target_id.into()),
             }));
         }
-        let available = destination.available_destination()?;
+        let available = at.available_destination()?;
 
         let target_profile = ruleset::profile(target.kind);
         let heal_cost = target_profile
@@ -385,15 +378,12 @@ fn occupied_slots(state: &State, transport: UnitId, capacity: usize) -> Result<u
 impl<'a> DestinationAction<'a> for Load {
     type Proof = LoadProof;
 
-    fn validate<M>(
-        &self,
-        destination: &PreparedDestination<'a, M>,
-    ) -> Result<Self::Proof, ExecuteError>
+    fn validate<M>(&self, at: &PreparedDestination<'a, M>) -> Result<Self::Proof, ExecuteError>
     where
         M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
     {
         let transport_id = self.0;
-        let movement = destination.movement();
+        let movement = at.movement();
         let state = movement.state();
         let unit_id = movement.unit();
         let plan = movement.plan();
@@ -621,15 +611,12 @@ pub(super) fn execute_prepared_unload(prepared: PreparedUnload<'_>) -> Execution
 impl<'a> DestinationAction<'a> for Join {
     type Proof = JoinProof;
 
-    fn validate<M>(
-        &self,
-        destination: &PreparedDestination<'a, M>,
-    ) -> Result<Self::Proof, ExecuteError>
+    fn validate<M>(&self, at: &PreparedDestination<'a, M>) -> Result<Self::Proof, ExecuteError>
     where
         M: std::borrow::Borrow<crate::query::TurnMaps<'a>>,
     {
         let target_id = self.0;
-        let movement = destination.movement();
+        let movement = at.movement();
         let state = movement.state();
         let unit_id = movement.unit();
         let plan = movement.plan();

@@ -13,10 +13,6 @@ use awvm::conformance::fixture_documents;
 use awvm::prelude::*;
 use awvm::query;
 use awvm::semantic::{CellIdx, Location, TileOwner};
-use awvm::session::{
-    Error as SessionError, Order, OrderKind, OrderMask, Session, TargetKind, UnitIdx,
-};
-use awvm::transition::{ExecuteOutcome, execute};
 use serde_json::Value;
 
 fn corpus() -> Vec<State> {

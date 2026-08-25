@@ -3,6 +3,9 @@ name = "awbw-replay"
 version = "0.1.0"
 edition = "2024"
 
+[lints]
+workspace = true
+
 [dependencies]
 awbrn-types.path = "../awbrn-types"
 flate2.workspace = true

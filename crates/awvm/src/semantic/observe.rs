@@ -196,7 +196,7 @@ impl ObservedBoard {
 }
 
 /// The wire shape: nested rows, one per `y`.
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 pub struct ObservedBoardWire {
     width: u8,
@@ -298,7 +298,7 @@ impl ObservedTile {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[cfg_attr(feature = "typescript", tsify(hashmap_as_object))]
 pub struct ObservedTileWire {
@@ -320,7 +320,7 @@ pub struct ObservedTileWire {
     trait_state: Option<BTreeMap<TraitId, serde_json::Value>>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[cfg_attr(feature = "typescript", tsify(missing_as_null))]
 #[serde(untagged)]
@@ -1443,7 +1443,7 @@ fn board_position(unit: &Unit) -> Option<Pos> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::semantic::{KnownReason, TileVisibility, UnitKindId};
+    use crate::semantic::{KnownReason, UnitKindId};
     use serde_json::json;
 
     /// Every branch of `spec/schema/observed-event.schema.json`, in the shape

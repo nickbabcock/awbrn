@@ -302,7 +302,7 @@ fn server_accepts_the_widest_map_the_vm_can_address() {
 
     assert_eq!(state.board.width(), u8::MAX);
     assert_eq!(state.board.height(), 1);
-    assert!(GameServer::new(setup).is_ok());
+    GameServer::new(setup).unwrap();
 }
 
 #[test]
@@ -2974,8 +2974,8 @@ fn stored_events_require_submitter_and_random_tape() {
         }
     });
 
-    assert!(serde_json::from_value::<StoredActionEvent>(without_player).is_err());
-    assert!(serde_json::from_value::<StoredActionEvent>(without_random).is_err());
+    serde_json::from_value::<StoredActionEvent>(without_player).unwrap_err();
+    serde_json::from_value::<StoredActionEvent>(without_random).unwrap_err();
 }
 
 #[test]

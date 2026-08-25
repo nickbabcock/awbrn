@@ -818,51 +818,51 @@ impl<'de> Deserialize<'de> for TargetedPlayer {
                 formatter.write_str("a string \"global\", a team letter (A-Z), or a player ID")
             }
 
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                if value == "global" {
+                if v == "global" {
                     return Ok(TargetedPlayer::Global);
                 }
 
-                if let Ok(val) = value.parse::<u32>() {
+                if let Ok(val) = v.parse::<u32>() {
                     return Ok(TargetedPlayer::Player(AwbwGamePlayerId::new(val)));
                 }
 
-                let bytes = value.as_bytes();
+                let bytes = v.as_bytes();
                 if bytes.len() == 1 && bytes[0].is_ascii_uppercase() {
                     return Ok(TargetedPlayer::Team(bytes[0]));
                 }
 
                 Err(E::custom(format!(
                     "Expected \"global\", a team letter (A-Z), or a player ID number, got {}",
-                    value
+                    v
                 )))
             }
 
-            fn visit_u32<E>(self, value: u32) -> Result<Self::Value, E>
+            fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                Ok(TargetedPlayer::Player(AwbwGamePlayerId::new(value)))
+                Ok(TargetedPlayer::Player(AwbwGamePlayerId::new(v)))
             }
 
-            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                let val = u32::try_from(value)
-                    .map_err(|_| E::custom(format!("Player ID out of range: {}", value)))?;
+                let val = u32::try_from(v)
+                    .map_err(|_| E::custom(format!("Player ID out of range: {}", v)))?;
                 Ok(TargetedPlayer::Player(AwbwGamePlayerId::new(val)))
             }
 
-            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                let val = u32::try_from(value)
-                    .map_err(|_| E::custom(format!("Player ID out of range: {}", value)))?;
+                let val = u32::try_from(v)
+                    .map_err(|_| E::custom(format!("Player ID out of range: {}", v)))?;
                 Ok(TargetedPlayer::Player(AwbwGamePlayerId::new(val)))
             }
         }
@@ -1194,10 +1194,10 @@ mod tests {
     fn test_global_or_player_deserialize_invalid() {
         // Test deserializing an invalid string (not "global", not a team letter, and not a number)
         let result = serde_json::from_str::<TargetedPlayer>(r#""invalid""#);
-        assert!(result.is_err());
+        result.unwrap_err();
 
         // Test lowercase letter should fail
         let result = serde_json::from_str::<TargetedPlayer>(r#""a""#);
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 }

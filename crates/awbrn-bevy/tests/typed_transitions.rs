@@ -15,7 +15,6 @@ use awvm::semantic::{
 };
 use awvm::transition::{ExecuteOutcome, execute};
 use awvm_awbw::{RecordedAdapter, diagnostic_command};
-use bevy::ecs::reflect::AppTypeRegistry;
 use bevy::prelude::*;
 
 #[test]
@@ -346,7 +345,7 @@ fn terrain_memory_follows_the_projections_visibility() {
         let mut game_map = app.world_mut().resource_mut::<GameMap>();
         game_map.set_terrain(visible, repainted);
         game_map.set_terrain(fogged, repainted);
-    }
+    };
     refresh_viewer_visibility(app.world_mut());
 
     let knowledge = &app.world().resource::<ReplayTerrainKnowledge>().by_view[&key];

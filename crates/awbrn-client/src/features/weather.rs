@@ -19,6 +19,7 @@ pub(crate) fn handle_weather_toggle(
     }
 }
 
+#[derive(Debug)]
 pub struct WeatherPlugin;
 
 impl Plugin for WeatherPlugin {

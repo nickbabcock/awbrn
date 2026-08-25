@@ -994,6 +994,7 @@ impl<'a> Sweep<'a> {
 /// around inside it. That makes it a lower bound on what a route really costs,
 /// which is the same fidelity a straight-line distance already has, and it is
 /// why this does not build the blocking map [`reachable`] does.
+#[derive(Debug)]
 pub struct Travel<'a> {
     maps: TurnMaps<'a>,
     /// The class `costs` was flattened for, so that a caller asking about one

@@ -241,6 +241,7 @@ fn write_grid(
 
 /// Lossless map rendering: every tile is a unique glyph, never a space. The
 /// default [`fmt::Display`] for [`AwbwMap`]. See [`AwbwMap::lossless`].
+#[derive(Debug)]
 pub struct LosslessSymbols<'a>(&'a AwbwMap);
 
 impl fmt::Display for LosslessSymbols<'_> {
@@ -251,6 +252,7 @@ impl fmt::Display for LosslessSymbols<'_> {
 
 /// AWBW text-format rendering: ASCII symbols, with a space for any terrain the
 /// AWBW format can't represent. See [`AwbwMap::awbw`].
+#[derive(Debug)]
 pub struct AwbwSymbols<'a>(&'a AwbwMap);
 
 impl fmt::Display for AwbwSymbols<'_> {
@@ -261,6 +263,7 @@ impl fmt::Display for AwbwSymbols<'_> {
 
 /// A key for the non-ASCII glyphs used by [`AwbwMap::lossless`], mapping each to
 /// its terrain name. See [`AwbwMap::legend`].
+#[derive(Debug)]
 pub struct Legend<'a>(&'a AwbwMap);
 
 impl fmt::Display for Legend<'_> {
@@ -293,7 +296,7 @@ impl fmt::Display for AwbwMap {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AwbwMapData {
     #[serde(rename = "Name")]
     pub name: String,
@@ -316,13 +319,13 @@ pub struct AwbwMapData {
 impl TryFrom<&'_ AwbwMapData> for AwbwMap {
     type Error = MapError;
 
-    fn try_from(data: &AwbwMapData) -> Result<Self, Self::Error> {
+    fn try_from(value: &AwbwMapData) -> Result<Self, Self::Error> {
         // Get dimensions from the column-major data
-        let column_count = data.terrain_map.len();
-        let row_count = data.terrain_map.first().map(|v| v.len()).unwrap_or(0);
+        let column_count = value.terrain_map.len();
+        let row_count = value.terrain_map.first().map(|v| v.len()).unwrap_or(0);
 
         // Check if all columns have the same height
-        for (idx, col) in data.terrain_map.iter().enumerate() {
+        for (idx, col) in value.terrain_map.iter().enumerate() {
             if col.len() != row_count {
                 return Err(MapError::UnevenDimensions {
                     expected: row_count,
@@ -342,12 +345,12 @@ impl TryFrom<&'_ AwbwMapData> for AwbwMap {
         let mut terrain = Vec::with_capacity(dimensions.len());
         for row_idx in 0..row_count {
             for col_idx in 0..column_count {
-                terrain.push(data.terrain_map[col_idx][row_idx]);
+                terrain.push(value.terrain_map[col_idx][row_idx]);
             }
         }
 
         let mut deployments = Deployments::new(dimensions);
-        for entry in &data.predeployed_units {
+        for entry in &value.predeployed_units {
             let (position, deployment) = Deployment::from_predeployed(entry)?;
             deployments.insert(position, deployment)?;
         }
@@ -359,7 +362,7 @@ impl TryFrom<&'_ AwbwMapData> for AwbwMap {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PredeployedUnit {
     #[serde(rename = "Unit ID")]
     pub unit_id: u32,
@@ -376,7 +379,6 @@ pub struct PredeployedUnit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MapError;
 
     #[test]
     fn test_parse_empty_input() {

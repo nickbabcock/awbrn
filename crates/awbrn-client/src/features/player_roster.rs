@@ -15,7 +15,7 @@ use awvm::semantic::{Observation, ObservedPlayer};
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
-#[derive(Resource, Clone)]
+#[derive(Debug, Resource, Clone)]
 pub struct PlayerRosterConfig {
     pub match_id: u32,
     pub map_id: u32,
@@ -23,7 +23,7 @@ pub struct PlayerRosterConfig {
     pub players: Vec<PlayerRosterPlayer>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct PlayerRosterPlayer {
     pub player_id: awbrn_types::AwbwGamePlayerId,
     pub user_id: awbrn_types::AwbwPlayerId,
@@ -39,7 +39,7 @@ pub struct PlayerRosterPlayer {
     pub tag_co_name: Option<String>,
 }
 
-#[derive(Resource, Clone, Default)]
+#[derive(Debug, Resource, Clone, Default)]
 pub struct PlayerFunds(pub HashMap<awbrn_types::AwbwGamePlayerId, u32>);
 
 impl PlayerFunds {
@@ -74,7 +74,7 @@ pub struct PlayerPowerMeter {
     pub active_power: Option<awvm::commander::PowerLevel>,
 }
 
-#[derive(Resource, Clone, Default)]
+#[derive(Debug, Resource, Clone, Default)]
 pub struct PlayerPowerMeters(pub HashMap<awbrn_types::AwbwGamePlayerId, PlayerPowerMeter>);
 
 impl PlayerPowerMeters {
@@ -87,7 +87,7 @@ impl PlayerPowerMeters {
     }
 }
 
-#[derive(Resource, Clone, Default)]
+#[derive(Debug, Resource, Clone, Default)]
 pub struct PlayerUnitCosts(pub HashMap<AwbwUnitId, u32>);
 
 impl PlayerUnitCosts {
@@ -580,10 +580,7 @@ pub fn player_id_for_faction(
 mod tests {
     use super::*;
     use awbrn_bevy::GameWorldPlugin;
-    use awbrn_bevy::world::{GraphicalHp, ViewerVisibility};
     use awbrn_types::{AwbwGamePlayerId, AwbwPlayerId};
-    use bevy::app::App;
-    use std::collections::HashMap;
 
     #[test]
     fn active_power_meter_reports_active_power() {
@@ -668,7 +665,7 @@ mod tests {
             let mut visibility = app.world_mut().resource_mut::<ViewerVisibility>();
             visibility.reset(true, awbrn_map::Dimensions::new(1, 1));
             visibility.set_player_disclosed(AwbwGamePlayerId::new(1));
-        }
+        };
 
         app.world_mut().spawn((
             Faction(PlayerFaction::OrangeStar),

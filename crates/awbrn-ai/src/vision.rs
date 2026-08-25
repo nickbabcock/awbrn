@@ -513,7 +513,7 @@ mod tests {
     use super::*;
     use crate::board::arena;
     use awvm::ruleset::{Terrain, UnitKind};
-    use awvm::semantic::{Concealment, Location, State, TileOwner, UnitAction, UnitId};
+    use awvm::semantic::{Concealment, TileOwner, UnitAction, UnitId};
 
     /// The arena board under fog, cleared of units, with `terrain` laid over
     /// the middle of it so that a vision reading is of one tile and not of the

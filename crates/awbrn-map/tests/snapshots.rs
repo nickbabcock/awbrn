@@ -7,7 +7,7 @@ use std::fmt::Write;
 fn test_map_snapshots() {
     glob!("../../../assets/maps", "*.txt", |path| {
         let data = std::fs::read_to_string(path).unwrap();
-        let map = awbrn_map::AwbwMap::parse_txt(&data[..]);
+        let map = awbrn_map::AwbwMap::parse_txt(&data);
 
         let map = match map {
             Ok(x) => x,
@@ -26,7 +26,7 @@ fn test_map_snapshots() {
 fn test_map_refinement() {
     glob!("../../../assets/maps", "*.txt", |path| {
         let data = std::fs::read_to_string(path).unwrap();
-        let Ok(map) = awbrn_map::AwbwMap::parse_txt(&data[..]) else {
+        let Ok(map) = awbrn_map::AwbwMap::parse_txt(&data) else {
             return;
         };
 

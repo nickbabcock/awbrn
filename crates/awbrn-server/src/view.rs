@@ -135,11 +135,12 @@ pub struct CommandResult {
     pub observed_transitions: Vec<(PlayerId, ObservedTransition)>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub(crate) struct RecipientUnitIds {
     recipients: HashMap<PlayerId, EnemyUnitIds>,
 }
 
+#[derive(Debug)]
 struct EnemyUnitIds {
     next: u64,
     positions: HashMap<Pos, ServerUnitId>,

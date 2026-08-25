@@ -18,7 +18,7 @@ use bevy::prelude::*;
 ///
 /// This is authority, not sight: play mode asks it which units the local
 /// player may select. What the viewer can *see* is [`ViewerVisibility`].
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Debug)]
 pub struct FriendlyFactions(pub HashSet<PlayerFaction>);
 
 /// What the selected viewpoint is entitled to see.

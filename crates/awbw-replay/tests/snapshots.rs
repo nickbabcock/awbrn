@@ -29,7 +29,7 @@ fn test_replay_snapshots() {
     glob!("../../../assets/replays", "*.zip", |path| {
         let data = std::fs::read(path).unwrap();
 
-        let file = ReplayFile::open(&data[..]).unwrap();
+        let file = ReplayFile::open(&data).unwrap();
 
         let mut file_entries = Vec::new();
         let mut sink = Vec::new();
@@ -71,7 +71,7 @@ fn test_replay_snapshots() {
         }
 
         let parser = awbw_replay::ReplayParser::new().with_debug(true);
-        let parsed = parser.parse(&data[..]);
+        let parsed = parser.parse(&data);
 
         let replay = match parsed {
             Ok(x) => x,

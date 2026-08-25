@@ -10,6 +10,9 @@ path = "src/lib.rs"
 name = "awbrn-image"
 path = "src/main.rs"
 
+[lints]
+workspace = true
+
 [dependencies]
 anyhow.workspace = true
 awbrn-content = { path = "../awbrn-content" }

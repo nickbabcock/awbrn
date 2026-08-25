@@ -6,6 +6,9 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[lints]
+workspace = true
+
 [dependencies]
 awbrn-client = { path = "../awbrn-client" }
 awbrn-content = { path = "../awbrn-content" }

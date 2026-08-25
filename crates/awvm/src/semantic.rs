@@ -93,8 +93,8 @@ impl Pos {
 }
 
 impl fmt::Display for Pos {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "({}, {})", self.x, self.y)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({}, {})", self.x, self.y)
     }
 }
 
@@ -262,8 +262,8 @@ impl UnitId {
 }
 
 impl fmt::Display for UnitId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(formatter)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 
@@ -535,8 +535,8 @@ impl Hasher for IdHasher {
         }
     }
 
-    fn write_u32(&mut self, value: u32) {
-        self.0 = u64::from(value).wrapping_mul(ID_SPREAD);
+    fn write_u32(&mut self, i: u32) {
+        self.0 = u64::from(i).wrapping_mul(ID_SPREAD);
     }
 }
 
@@ -2116,7 +2116,7 @@ mod tests {
                 .contains("beyond the largest representable board"),
             "unexpected error: {error}"
         );
-        assert!(serde_json::from_value::<Pos>(serde_json::json!([255, 255])).is_ok());
+        serde_json::from_value::<Pos>(serde_json::json!([255, 255])).unwrap();
     }
 
     /// Three states, three wire spellings: absent, `null`, and an id. Getting

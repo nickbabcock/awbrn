@@ -3,6 +3,9 @@ name = "awbrn-client"
 version = "0.1.0"
 edition = "2024"
 
+[lints]
+workspace = true
+
 [dependencies]
 awbrn-content = { path = "../awbrn-content", features = ["bevy"] }
 awbrn-bevy = { path = "../awbrn-bevy" }

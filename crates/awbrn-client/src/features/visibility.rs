@@ -1,6 +1,7 @@
 pub use awbrn_bevy::world::{FriendlyFactions, ViewerVisibility};
 use bevy::prelude::*;
 
+#[derive(Debug)]
 pub struct VisibilityPlugin;
 
 impl Plugin for VisibilityPlugin {

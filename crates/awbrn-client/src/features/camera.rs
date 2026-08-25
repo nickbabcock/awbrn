@@ -8,7 +8,7 @@ use crate::render::UnitAtlasResource;
 use awbrn_bevy::world::GameMap;
 use bevy::input::{
     mouse::{MouseScrollUnit, MouseWheel},
-    touch::{TouchInput, TouchPhase},
+    touch::TouchPhase,
 };
 use bevy::prelude::*;
 use std::collections::BTreeMap;
@@ -603,6 +603,7 @@ fn emit_map_dimensions_on_scale_change(
     sink.emit(compute_map_dimensions(&game_map, &camera_scale));
 }
 
+#[derive(Debug)]
 pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {

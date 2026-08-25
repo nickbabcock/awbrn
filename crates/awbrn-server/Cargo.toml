@@ -6,6 +6,9 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[lints]
+workspace = true
+
 [dependencies]
 awbrn-game = { path = "../awbrn-game", features = ["typescript"] }
 awbrn-map = { path = "../awbrn-map" }

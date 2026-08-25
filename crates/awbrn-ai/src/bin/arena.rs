@@ -1416,7 +1416,7 @@ mod tests {
 
     #[test]
     fn a_roster_needs_a_field_to_play() {
-        assert!(roster("defend").is_err());
+        roster("defend").unwrap_err();
         assert_eq!(
             roster(" defend , counter ,").expect("two contenders"),
             ["defend", "counter"]

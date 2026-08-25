@@ -3,6 +3,9 @@ name = "awvm"
 version = "0.1.0"
 edition = "2024"
 
+[lints]
+workspace = true
+
 # Implementation of the AWVM executable specification under `spec/`.
 #
 # This crate is deliberately free of Bevy, ECS, rendering, and AWBW replay

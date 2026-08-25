@@ -26,7 +26,7 @@ impl TerrainHp {
 }
 
 /// Add a resource to store the loaded map
-#[derive(Resource)]
+#[derive(Resource, Debug)]
 pub struct GameMap(AwbrnMap);
 
 impl Default for GameMap {
@@ -75,8 +75,8 @@ impl GameMap {
 impl Index<Pos> for GameMap {
     type Output = GraphicalTerrain;
 
-    fn index(&self, position: Pos) -> &Self::Output {
-        &self.0[position]
+    fn index(&self, index: Pos) -> &Self::Output {
+        &self.0[index]
     }
 }
 

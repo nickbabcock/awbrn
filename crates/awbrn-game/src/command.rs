@@ -197,6 +197,6 @@ mod tests {
     #[test]
     fn wrong_tag_is_rejected() {
         let json = r#"{"type":"MoveUnit","unitId":1,"path":[],"action":null}"#;
-        assert!(serde_json::from_str::<GameCommand>(json).is_err());
+        serde_json::from_str::<GameCommand>(json).unwrap_err();
     }
 }

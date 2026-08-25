@@ -8,17 +8,13 @@ use super::ReducerError as ExecuteError;
 use super::*;
 use crate::commander::{
     self, AreaStrikeCenterTarget, AreaStrikePolicy, CommanderSlotTarget, FriendlyContribution,
-    ImmobilizationDuration, InstantEffect, OccupiedTileHandling, PlayerTarget, PowerLevel,
-    PropertyOrder, PropertyTarget, SpawnAction, SpawnConcealment, SpawnResources, SpawnUnitLimit,
+    ImmobilizationDuration, InstantEffect, OccupiedTileHandling, PlayerTarget, PropertyOrder,
+    PropertyTarget, SpawnAction, SpawnConcealment, SpawnResources, SpawnUnitLimit,
     TargetedAreaStrikePolicy, TargetedUnitValue, UnitTarget, WeatherDuration, WeatherEffectKind,
 };
-use crate::event::Event;
-use crate::ruleset::{self, PropertyKind, TerrainTrait, UnitKind};
-use crate::semantic::{
-    CAPTURE_REQUIRED_POINTS, Concealment, KnownReason, Location, PlayerId, Pos, State, TeamId,
-    Unit, UnitAction, UnitId, WeatherKind,
-};
-use crate::violation::{Action, Violation};
+use crate::ruleset::{self, PropertyKind, TerrainTrait};
+use crate::semantic::{CAPTURE_REQUIRED_POINTS, TeamId, UnitAction};
+use crate::violation::Action;
 use std::collections::HashSet;
 
 pub(crate) fn area_strike_centers(

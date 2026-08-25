@@ -14,6 +14,7 @@ use awvm::session::{Order, OrderKind, Session};
 use crate::agent::{Agent, Play};
 use crate::rng::Rng;
 
+#[derive(Debug)]
 pub struct RandomAgent {
     rng: Rng,
     /// Held across calls so that a turn's enumeration reuses one allocation.

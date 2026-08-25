@@ -2210,6 +2210,7 @@ pub(crate) fn sync_destination_ghost(
     ));
 }
 
+#[derive(Debug)]
 pub struct PlayPlugin;
 
 impl Plugin for PlayPlugin {
@@ -2267,10 +2268,8 @@ impl Plugin for PlayPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::loading::{LiveMatchBootstrap, LiveMatchPlayer};
-    use crate::modes::replay::presentation::{
-        DeferredTransitions, LiveTransitionCommand, ReplayFollowupCommand,
-    };
+    use crate::loading::LiveMatchPlayer;
+    use crate::modes::replay::presentation::{DeferredTransitions, ReplayFollowupCommand};
     use crate::render::animation::UnitPathAnimation;
     use awbrn_bevy::GameWorldPlugin;
     use awbrn_bevy::world::StrongIdMap;
@@ -2489,7 +2488,7 @@ mod tests {
                 awbrn_types::AwbwGamePlayerId::new(0),
             ));
         let received = Arc::new(Mutex::new(Vec::new()));
-        let received_by_sink = received.clone();
+        let received_by_sink = std::sync::Arc::clone(&received);
         app.world_mut()
             .insert_resource(EventSink::<ProductionOptionsChanged>::new(move |event| {
                 received_by_sink.lock().unwrap().push(event);
@@ -2850,7 +2849,7 @@ mod tests {
             let mut proposed = app.world_mut().resource_mut::<ProposedMovePath>();
             proposed.path = traced.clone();
             proposed.drawn_path = traced.iter().copied().skip(1).collect();
-        }
+        };
 
         click_tile(&mut app, target);
 
@@ -3197,7 +3196,7 @@ mod tests {
                 awbrn_types::AwbwGamePlayerId::new(0),
             ));
         let received = Arc::new(Mutex::new(Vec::new()));
-        let received_by_sink = received.clone();
+        let received_by_sink = std::sync::Arc::clone(&received);
         app.world_mut()
             .insert_resource(EventSink::<UnitActionsChanged>::new(move |event| {
                 received_by_sink.lock().unwrap().push(event);
@@ -3236,7 +3235,7 @@ mod tests {
             .entity_mut(unit)
             .insert(AwbwUnitId(awbrn_types::AwbwUnitId::new(42)));
         let received = Arc::new(Mutex::new(Vec::new()));
-        let received_by_sink = received.clone();
+        let received_by_sink = std::sync::Arc::clone(&received);
         app.world_mut()
             .insert_resource(EventSink::<MoveCommandRequested>::new(move |event| {
                 received_by_sink.lock().unwrap().push(event);
@@ -3323,7 +3322,7 @@ mod tests {
             ));
 
         let received = Arc::new(Mutex::new(Vec::new()));
-        let received_by_sink = received.clone();
+        let received_by_sink = std::sync::Arc::clone(&received);
         app.world_mut()
             .insert_resource(EventSink::<UnloadCommandRequested>::new(move |event| {
                 received_by_sink.lock().unwrap().push(event);
@@ -3364,13 +3363,13 @@ mod tests {
             .insert(AwbwUnitId(awbrn_types::AwbwUnitId::new(42)));
 
         let menus = Arc::new(Mutex::new(Vec::new()));
-        let menus_by_sink = menus.clone();
+        let menus_by_sink = std::sync::Arc::clone(&menus);
         app.world_mut()
             .insert_resource(EventSink::<UnitActionsChanged>::new(move |event| {
                 menus_by_sink.lock().unwrap().push(event);
             }));
         let commands = Arc::new(Mutex::new(Vec::new()));
-        let commands_by_sink = commands.clone();
+        let commands_by_sink = std::sync::Arc::clone(&commands);
         app.world_mut()
             .insert_resource(EventSink::<DeleteUnitCommandRequested>::new(move |event| {
                 commands_by_sink.lock().unwrap().push(event);
@@ -3458,7 +3457,7 @@ mod tests {
                 awbrn_types::AwbwGamePlayerId::new(0),
             ));
         let received = Arc::new(Mutex::new(Vec::new()));
-        let received_by_sink = received.clone();
+        let received_by_sink = std::sync::Arc::clone(&received);
         app.world_mut()
             .insert_resource(EventSink::<UnitActionsChanged>::new(move |event| {
                 received_by_sink.lock().unwrap().push(event);
@@ -3783,7 +3782,7 @@ mod tests {
             Some(99),
         );
         let menus = Arc::new(Mutex::new(Vec::new()));
-        let menus_by_sink = menus.clone();
+        let menus_by_sink = std::sync::Arc::clone(&menus);
         app.world_mut()
             .insert_resource(EventSink::<UnitActionsChanged>::new(move |event| {
                 menus_by_sink.lock().unwrap().push(event);

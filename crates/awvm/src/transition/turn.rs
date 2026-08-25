@@ -6,15 +6,14 @@
 
 use super::ReducerError as ExecuteError;
 use super::*;
-use crate::commander::{self, PowerLevel};
-use crate::event::{Event, RandomKind, RandomValue, SupplySource};
+use crate::commander::{self};
+use crate::event::{RandomKind, RandomValue, SupplySource};
 
-use crate::ruleset::{self, Domain, Relation, TerrainTrait};
+use crate::ruleset::{self, Relation, TerrainTrait};
 use crate::semantic::{
-    Concealment, DrawReason, KnownReason, Location, Outcome, Phase, PlayerId, PlayerIdx,
-    PlayerStatus, PowerState, State, UnitAction, VictoryReason, WeatherKind, WeatherSetting,
+    DrawReason, PlayerStatus, PowerState, UnitAction, VictoryReason, WeatherSetting,
 };
-use crate::violation::{Action, Violation};
+use crate::violation::Action;
 use std::collections::HashSet;
 
 pub(crate) fn day_limit_outcome(state: &State) -> Result<Outcome, ExecuteError> {

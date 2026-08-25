@@ -20,6 +20,7 @@ pub trait MapAssetPathResolver: Send + Sync + 'static {
 }
 
 /// Default implementation of MapAssetPathResolver
+#[derive(Debug)]
 pub struct DefaultMapAssetPathResolver;
 
 impl MapAssetPathResolver for DefaultMapAssetPathResolver {
@@ -34,6 +35,7 @@ pub trait StaticAssetPathResolver: Send + Sync + 'static {
 }
 
 /// Default implementation of StaticAssetPathResolver.
+#[derive(Debug)]
 pub struct DefaultStaticAssetPathResolver;
 
 impl StaticAssetPathResolver for DefaultStaticAssetPathResolver {
@@ -42,7 +44,7 @@ impl StaticAssetPathResolver for DefaultStaticAssetPathResolver {
     }
 }
 
-#[derive(Asset, TypePath, Deserialize)]
+#[derive(Asset, Debug, TypePath, Deserialize)]
 #[serde(transparent)]
 pub struct AwbwMapAsset(AwbwMapData);
 
@@ -53,19 +55,19 @@ impl AwbwMapAsset {
 }
 
 /// Resource containing the raw replay data to parse and load
-#[derive(Resource)]
+#[derive(Debug, Resource)]
 pub struct ReplayToLoad(pub Vec<u8>);
 
 /// Resource containing the loaded replay data
-#[derive(Resource)]
+#[derive(Debug, Resource)]
 pub struct LoadedReplay(pub crate::replay_archive::ReplayArchive);
 
 /// Resource to mark that a new game should be started
-#[derive(Resource)]
+#[derive(Debug, Resource)]
 pub struct PendingGameStart(pub u32);
 
 /// Resource containing AWBW map data supplied by the match server.
-#[derive(Resource)]
+#[derive(Debug, Resource)]
 pub struct PendingMatchMap(pub AwbwMapData);
 
 #[derive(Debug, Clone, Deserialize)]
@@ -76,7 +78,7 @@ pub struct LiveMatchPlayer {
 }
 
 /// Complete typed bootstrap payload for an active live match.
-#[derive(Resource)]
+#[derive(Debug, Resource)]
 pub struct PendingLiveMatch {
     pub map: AwbwMapData,
     pub players: Vec<LiveMatchPlayer>,
@@ -496,6 +498,12 @@ pub struct LoadingPlugin {
     static_asset_resolver: Arc<dyn StaticAssetPathResolver>,
 }
 
+impl std::fmt::Debug for LoadingPlugin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadingPlugin").finish_non_exhaustive()
+    }
+}
+
 impl LoadingPlugin {
     pub fn new(
         map_resolver: Arc<dyn MapAssetPathResolver>,
@@ -512,8 +520,8 @@ impl Plugin for LoadingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(crate::JsonAssetPlugin::<AwbwMapAsset>::new())
             .add_plugins(crate::JsonAssetPlugin::<UiAtlasAsset>::new())
-            .insert_resource(MapPathResolver(self.map_resolver.clone()))
-            .insert_resource(StaticPathResolver(self.static_asset_resolver.clone()))
+            .insert_resource(MapPathResolver(Arc::clone(&self.map_resolver)))
+            .insert_resource(StaticPathResolver(Arc::clone(&self.static_asset_resolver)))
             .add_systems(
                 Update,
                 (
@@ -547,8 +555,7 @@ mod tests {
     use awbrn_types::{
         AwbwDateTime, AwbwTerrain, Faction as TerrainFaction, PlayerFaction, Property,
     };
-    use awbw_replay::AwbwReplay;
-    use awbw_replay::game_models::{AwbwGame, AwbwPlayer, CoPower, MatchType};
+    use awbw_replay::game_models::{AwbwGame, CoPower, MatchType};
     use std::collections::HashMap;
 
     struct MappingStaticAssetPathResolver {

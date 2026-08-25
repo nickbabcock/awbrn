@@ -432,6 +432,7 @@ pub(crate) fn animate_unit_paths(
     }
 }
 
+#[derive(Debug)]
 pub struct NavigationPlugin;
 
 impl Plugin for NavigationPlugin {

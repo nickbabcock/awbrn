@@ -382,6 +382,7 @@ pub(crate) fn handle_unit_spawn(
         .insert((sprite, Anchor::default(), Visibility::Hidden));
 }
 
+#[derive(Debug)]
 pub struct UnitRenderingPlugin;
 
 impl Plugin for UnitRenderingPlugin {
@@ -408,10 +409,9 @@ mod tests {
     use crate::projection::project_unit_render_state;
     use crate::render::UiAtlasResource;
     use awbrn_bevy::world::{
-        CaptureProgress, CarriedBy, FriendlyFactions, GraphicalHp, UnitActive, ViewerVisibility,
+        CaptureProgress, CarriedBy, FriendlyFactions, GraphicalHp, ViewerVisibility,
     };
     use awbrn_types::{GraphicalMovement, PlayerFaction};
-    use bevy::asset::Assets;
 
     fn unit_render_test_app() -> App {
         let mut app = App::new();
@@ -629,7 +629,7 @@ mod tests {
             let mut animation = entity_mut.get_mut::<Animation>().unwrap();
             animation.start_index = 999;
             animation.current_frame = 3;
-        }
+        };
 
         app.world_mut().entity_mut(entity).insert(UnitActive);
         app.update();

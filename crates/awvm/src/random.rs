@@ -113,7 +113,7 @@ impl<E: Entropy + ?Sized> Entropy for &mut E {
 /// tape that RNG produced to persist, so the same command can be replayed
 /// through [`crate::transition::execute`] and checked token-for-token. Wrapping
 /// its source in this is how it gets the second without giving up the first.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Recording<E> {
     source: E,
     drawn: Vec<RandomToken>,
@@ -160,6 +160,7 @@ impl<E: Entropy> Entropy for Recording<E> {
 /// The protocol boundary decodes every supplied value into a [`RandomToken`].
 /// Drawing remains demand-driven: unused trailing tokens are valid and do not
 /// contribute to `random_consumed`.
+#[derive(Debug)]
 pub struct RandomTape<'a> {
     tokens: &'a [RandomToken],
     cursor: usize,
@@ -240,7 +241,6 @@ impl Entropy for RandomTape<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commander::Domain;
     use serde_json::json;
 
     const ZERO_TO_NINE: Domain = Domain {
@@ -262,12 +262,10 @@ mod tests {
             .unwrap(),
             RandomToken::WeatherSelection(WeatherKind::Rain)
         );
-        assert!(
-            serde_json::from_value::<RandomToken>(
-                json!({"type":"weather-selection","value":"sandstorm"})
-            )
-            .is_err()
-        );
+        serde_json::from_value::<RandomToken>(
+            json!({"type":"weather-selection","value":"sandstorm"}),
+        )
+        .unwrap_err();
     }
 
     /// The count is the point of the type: it must follow the draws, including

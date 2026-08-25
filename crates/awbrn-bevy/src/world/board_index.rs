@@ -184,10 +184,10 @@ mod tests {
         initialize_terrain_semantic_world(app.world_mut());
 
         let board_index = app.world().resource::<BoardIndex>();
-        assert!(board_index.terrain_entity(Pos::new(0, 0)).is_ok());
-        assert!(board_index.terrain_entity(Pos::new(1, 0)).is_ok());
-        assert!(board_index.terrain_entity(Pos::new(0, 1)).is_ok());
-        assert!(board_index.terrain_entity(Pos::new(1, 1)).is_ok());
+        board_index.terrain_entity(Pos::new(0, 0)).unwrap();
+        board_index.terrain_entity(Pos::new(1, 0)).unwrap();
+        board_index.terrain_entity(Pos::new(0, 1)).unwrap();
+        board_index.terrain_entity(Pos::new(1, 1)).unwrap();
     }
 
     #[test]

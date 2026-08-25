@@ -87,6 +87,7 @@ impl<'a, R: AsRef<[u8]>> Iterator for ReplayFileIterator<'a, R> {
     }
 }
 
+#[derive(Debug)]
 pub struct ReplayFileEntry<'a, R: AsRef<[u8]>> {
     wayfinder: rawzip::ZipArchiveEntryWayfinder,
     file_name: &'a [u8],
@@ -135,9 +136,12 @@ impl Read for VerifyingReader<'_> {
     }
 }
 
+#[derive(Debug)]
 pub struct GameKind;
+#[derive(Debug)]
 pub struct TurnKind;
 
+#[derive(Debug)]
 pub enum ReplayEntriesKind<R> {
     Game(ReplayEntries<GameKind, R>),
     Turn(ReplayEntries<TurnKind, R>),
@@ -347,6 +351,7 @@ impl ReplayParser {
     }
 }
 
+#[derive(Debug)]
 pub struct TurnContent<'a> {
     player_id: u32,
     day: u32,

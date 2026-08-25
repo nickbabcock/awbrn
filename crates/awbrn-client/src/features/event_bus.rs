@@ -15,6 +15,12 @@ use std::sync::Arc;
 #[derive(Resource)]
 pub struct EventSink<T: Send + Sync + 'static>(Arc<dyn Fn(T) + Send + Sync + 'static>);
 
+impl<T: Send + Sync + 'static> std::fmt::Debug for EventSink<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EventSink").finish_non_exhaustive()
+    }
+}
+
 impl<T: Send + Sync + 'static> EventSink<T> {
     pub fn new(f: impl Fn(T) + Send + Sync + 'static) -> Self {
         Self(Arc::new(f))

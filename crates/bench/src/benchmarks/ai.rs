@@ -34,6 +34,7 @@ const HEIGHT: u8 = 20;
 const UNITS: usize = 30;
 
 /// One accepted command and its input state.
+#[derive(Debug)]
 pub struct CommandCase {
     pub state: State,
     pub command: Command,
@@ -44,6 +45,7 @@ pub struct CommandCase {
 /// Opening the session clones the state, which is what a server pays once at
 /// its edge and not per command. Holding it here keeps the clone out of the
 /// measured region.
+#[derive(Debug)]
 pub struct ResolveCase {
     pub session: Session,
     pub command: Command,
@@ -257,6 +259,7 @@ pub fn observation(state: &State) -> Observation {
 }
 
 /// Inputs and intermediate values for one execute-to-enumeration cycle.
+#[derive(Debug)]
 pub struct CycleCase {
     command: CommandCase,
     post_state: State,
@@ -388,6 +391,7 @@ mod tests {
 /// The order is chosen once so that a case measures the verb and not the
 /// choosing. It is a unit order rather than a boundary one, because a boundary
 /// order ends the turn and a search node does not.
+#[derive(Debug)]
 pub struct SessionCase {
     pub session: Session,
     pub order: Order,
@@ -475,6 +479,7 @@ pub fn warm_session_case(fog: bool) -> SessionCase {
 
 const AMBER_VALLEY_MATCH_SEED: u64 = 1;
 
+#[derive(Debug)]
 pub struct AmberValleyMatchCase {
     state: State,
     session: Session,

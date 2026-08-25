@@ -13,6 +13,7 @@ pub const INACTIVE_UNIT_COLOR: Color = Color::srgb(
 
 /// Z-layer ordering for rendering. Higher values render on top.
 /// Within each layer, a small y-based offset (0.001 per row) provides depth sorting.
+#[derive(Debug)]
 pub struct RenderLayer;
 
 impl RenderLayer {
@@ -25,7 +26,7 @@ impl RenderLayer {
     pub const CURSOR: i8 = 10;
 }
 
-#[derive(Component, Copy, Clone)]
+#[derive(Component, Copy, Clone, Debug)]
 pub struct SpriteSize {
     pub width: f32,
     pub height: f32,
@@ -69,6 +70,7 @@ pub(crate) fn on_map_position_insert(
     );
 }
 
+#[derive(Debug)]
 pub struct CorePlugin;
 
 impl Plugin for CorePlugin {

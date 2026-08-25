@@ -60,6 +60,7 @@ pub fn init_logging(options: LoggingOptions) {
 }
 
 #[wasm_bindgen]
+#[derive(Debug)]
 pub struct WasmMatch {
     server: GameServer,
     fog_enabled: bool,
@@ -261,7 +262,7 @@ where
     details: T,
 }
 
-#[derive(Tsify, Serialize)]
+#[derive(Debug, Tsify, Serialize)]
 #[tsify(into_wasm_abi, hashmap_as_object)]
 #[serde(rename_all = "camelCase")]
 pub struct WasmActionResponse {
@@ -279,7 +280,7 @@ fn parse_action(action: JsValue) -> Result<crate::GameCommand, JsError> {
     }
 }
 
-#[derive(Tsify, Serialize)]
+#[derive(Debug, Tsify, Serialize)]
 #[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct SpectatorGameStateResponse {
@@ -287,7 +288,7 @@ pub struct SpectatorGameStateResponse {
     pub game_state: Option<MatchGameState>,
 }
 
-#[derive(Tsify, Serialize)]
+#[derive(Debug, Tsify, Serialize)]
 #[tsify(into_wasm_abi, hashmap_as_object)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchGameState {
@@ -306,7 +307,7 @@ pub struct MatchGameState {
     pub observation: awvm::semantic::Observation,
 }
 
-#[derive(Tsify, Serialize, Clone)]
+#[derive(Debug, Tsify, Serialize, Clone)]
 #[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct PublicPlayerState {
@@ -314,7 +315,7 @@ pub struct PublicPlayerState {
     pub funds: u32,
 }
 
-#[derive(Tsify, Serialize)]
+#[derive(Debug, Tsify, Serialize)]
 #[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct WireVisibleUnit {
@@ -336,7 +337,7 @@ pub struct WireVisibleUnit {
     pub hiding: bool,
 }
 
-#[derive(Tsify, Serialize)]
+#[derive(Debug, Tsify, Serialize)]
 #[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct WireVisibleTerrain {
@@ -345,7 +346,7 @@ pub struct WireVisibleTerrain {
     pub terrain: Value,
 }
 
-#[derive(Tsify, Serialize)]
+#[derive(Debug, Tsify, Serialize)]
 #[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct WirePosition {
@@ -353,7 +354,7 @@ pub struct WirePosition {
     pub y: u8,
 }
 
-#[derive(Tsify, Serialize)]
+#[derive(Debug, Tsify, Serialize)]
 #[tsify(into_wasm_abi)]
 #[serde(
     tag = "type",
@@ -370,7 +371,7 @@ pub enum SpectatorMessage {
     },
 }
 
-#[derive(Tsify, Serialize)]
+#[derive(Debug, Tsify, Serialize)]
 #[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerUpdateMessage {
@@ -396,7 +397,7 @@ pub struct PlayerUpdateMessage {
     pub transition: ObservedTransition,
 }
 
-#[derive(Tsify, Serialize)]
+#[derive(Debug, Tsify, Serialize)]
 #[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct UnitMovedMessage {
@@ -406,7 +407,7 @@ pub struct UnitMovedMessage {
     pub to: WirePosition,
 }
 
-#[derive(Tsify, Serialize)]
+#[derive(Debug, Tsify, Serialize)]
 #[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct CombatEventMessage {
@@ -418,7 +419,7 @@ pub struct CombatEventMessage {
     pub defender_visual_hp_after: Option<u8>,
 }
 
-#[derive(Tsify, Serialize)]
+#[derive(Debug, Tsify, Serialize)]
 #[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct TurnChangeMessage {
@@ -427,7 +428,7 @@ pub struct TurnChangeMessage {
     pub new_day: Option<u32>,
 }
 
-#[derive(Tsify, Serialize)]
+#[derive(Debug, Tsify, Serialize)]
 #[tsify(into_wasm_abi)]
 #[serde(
     tag = "type",
@@ -620,7 +621,7 @@ fn serialized_value<T: Serialize>(value: &T) -> Value {
     serde_json::to_value(value).expect("wire field should serialize")
 }
 
-#[derive(Tsify, Deserialize)]
+#[derive(Debug, Tsify, Deserialize)]
 #[tsify(from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchSetupInput {
@@ -634,7 +635,7 @@ pub struct MatchSetupInput {
     pub rng_seed: Option<u64>,
 }
 
-#[derive(Tsify, Deserialize)]
+#[derive(Debug, Tsify, Deserialize)]
 #[tsify(from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerSetupInput {

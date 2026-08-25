@@ -74,7 +74,7 @@ pub enum ReplayKnowledgeKey {
 /// A projection reports a fogged tile's terrain but not its owner
 /// (`spec/semantics/fog.md`), so the property sprite a viewer remembers is
 /// presentation memory the observation cannot supply.
-#[derive(Resource, Default, Clone)]
+#[derive(Resource, Default, Clone, Debug)]
 pub struct ReplayTerrainKnowledge {
     pub by_view: HashMap<ReplayKnowledgeKey, TerrainKnowledge>,
 }
@@ -106,7 +106,7 @@ struct ReplayPlayerInfo {
 }
 
 /// Maps factions to players and teams. Built once at bootstrap from player data.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Debug)]
 pub struct ReplayPlayerRegistry {
     players: Vec<ReplayPlayerInfo>,
 }

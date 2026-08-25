@@ -9,6 +9,7 @@ use awbrn_types::{PlayerFaction, Unit};
 use awvm::semantic::{AwbwVisibility, Observation, observe};
 
 /// Authoritative game server driven by AWVM.
+#[derive(Debug)]
 pub struct GameServer {
     authority: Authority,
     unit_ids: view::RecipientUnitIds,

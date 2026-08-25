@@ -19,6 +19,7 @@ pub use input::{SelectedTile, TileCursor};
 
 use bevy::prelude::*;
 
+#[derive(Debug)]
 pub struct FeaturesPlugin;
 
 impl Plugin for FeaturesPlugin {
