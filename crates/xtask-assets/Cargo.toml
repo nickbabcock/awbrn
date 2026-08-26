@@ -9,7 +9,9 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 awbrn-types = { path = "../awbrn-types" }
-image.workspace = true
+# The country logos and the power stars are GIFs; everything else the
+# pipeline reads is a PNG.
+image = { workspace = true, features = ["gif"] }
 indexmap.workspace = true
 oxipng.workspace = true
 rectangle-pack.workspace = true

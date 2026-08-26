@@ -1,5 +1,6 @@
 #[cfg(target_family = "wasm")]
 mod console_writer;
+pub mod map_image;
 mod player;
 pub mod replay;
 pub mod results;

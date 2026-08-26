@@ -39,3 +39,5 @@ export const importedMapDocumentSchema = z.object({
   propertySignature: z.string().regex(/^[0-9a-f]{64}$/),
   unitSignature: z.string().regex(/^[0-9a-f]{64}$/),
 });
+
+export type ImportedMapDocument = z.infer<typeof importedMapDocumentSchema>;

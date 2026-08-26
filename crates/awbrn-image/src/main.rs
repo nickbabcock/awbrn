@@ -6,8 +6,8 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use awbrn_image::{Tilesets, render_map, render_small_map};
-use awbrn_map::{AwbwMap, AwbwMapData, PredeployedUnit};
+use awbrn_image::{Tilesets, encode_png, render_map, render_small_map};
+use awbrn_map::{AwbwMap, AwbwMapData};
 
 /// Output representation for a parsed map.
 #[derive(Debug, Clone, Copy)]
@@ -71,16 +71,14 @@ fn main() -> Result<()> {
     let input = input.context("missing <input> map file (.txt or .json)\n\n(run with --help)")?;
 
     let data = std::fs::read(&input).with_context(|| format!("reading {}", input.display()))?;
-    let (map, units) = if is_json(&input) {
+    let map = if is_json(&input) {
         let map_data: AwbwMapData = serde_json::from_slice(&data)
             .with_context(|| format!("parsing JSON map {}", input.display()))?;
-        let map = AwbwMap::try_from(&map_data)?;
-        (map, map_data.predeployed_units)
+        AwbwMap::try_from(&map_data)?
     } else {
         let text =
             String::from_utf8(data).with_context(|| format!("{} is not UTF-8", input.display()))?;
-        let map = AwbwMap::parse_txt(&text)?;
-        (map, Vec::<PredeployedUnit>::new())
+        AwbwMap::parse_txt(&text)?
     };
 
     // Default to PNG, but infer text output from a `.txt` output path.
@@ -97,29 +95,11 @@ fn main() -> Result<()> {
                 )
             })?;
 
-            let image = render_map(&map, &units, &tilesets)?;
-            image
-                .save(&output)
-                .with_context(|| format!("writing {}", output.display()))?;
-            eprintln!(
-                "wrote {} ({}x{})",
-                output.display(),
-                image.width(),
-                image.height()
-            );
+            write_png(&render_map(&map, &tilesets)?, &output)?;
         }
         Format::Smallmap => {
             let output = output.unwrap_or_else(|| input.with_extension("png"));
-            let image = render_small_map(&map);
-            image
-                .save(&output)
-                .with_context(|| format!("writing {}", output.display()))?;
-            eprintln!(
-                "wrote {} ({}x{})",
-                output.display(),
-                image.width(),
-                image.height()
-            );
+            write_png(&render_small_map(&map), &output)?;
         }
         Format::Text => {
             let map = map.collapse_factions();
@@ -136,6 +116,20 @@ fn main() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// Write a render, through the same encoder every other caller uses, so a
+/// picture made here is the picture the server stores.
+fn write_png(image: &image::RgbaImage, output: &Path) -> Result<()> {
+    std::fs::write(output, encode_png(image)?)
+        .with_context(|| format!("writing {}", output.display()))?;
+    eprintln!(
+        "wrote {} ({}x{})",
+        output.display(),
+        image.width(),
+        image.height()
+    );
     Ok(())
 }
 

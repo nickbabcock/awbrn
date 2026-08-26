@@ -5,8 +5,20 @@ import { fetchAwbwMapData } from "#/awbw/awbw.server.ts";
 import { mapRevisions, maps, mapSources } from "#/db/global.ts";
 import { generateMapId } from "./map_id.ts";
 import { awbrnMapDocumentSchema, importedMapDocumentSchema } from "./map_document.ts";
+import type { AwbrnMapDocument, ImportedMapDocument } from "./map_document.ts";
 import type { MapRef } from "./schemas.ts";
-import { canonicalizeAwbwMap } from "#/server_wasm.ts";
+import {
+  canonicalizeAwbwMap,
+  renderFullMapScreenshotPng,
+  renderSmallMapScreenshotPng,
+} from "#/server_wasm.ts";
+import {
+  MAP_SCREENSHOT_CACHE_CONTROL,
+  MAP_SCREENSHOT_CONTENT_TYPE,
+  MAP_SCREENSHOT_KINDS,
+  mapScreenshotKey,
+  type MapScreenshotKind,
+} from "./map_screenshot.ts";
 
 const db = drizzle(env.DB, { schema: { maps, mapSources, mapRevisions } });
 
@@ -32,6 +44,7 @@ export async function importAwbwMap(sourceMapId: number): Promise<MapRef> {
     }),
     { httpMetadata: { contentType: "application/json" } },
   );
+  await storeMapScreenshots(imported);
 
   try {
     await db.batch([
@@ -62,6 +75,47 @@ export async function importAwbwMap(sourceMapId: number): Promise<MapRef> {
     const raced = await findAwbwMap(sourceMapId);
     if (raced) return raced;
     throw error;
+  }
+}
+
+/** How each picture of a map is drawn. */
+const MAP_SCREENSHOT_RENDERERS: Record<
+  MapScreenshotKind,
+  (document: AwbrnMapDocument) => Uint8Array | Promise<Uint8Array>
+> = {
+  full: renderFullMapScreenshotPng,
+  small: renderSmallMapScreenshotPng,
+};
+
+/**
+ * Draw both pictures of the map and store them beside its document.
+ *
+ * A picture that cannot be stored fails the import. Nothing is written to the
+ * database until both are in the bucket, so a map is never recorded without
+ * its pictures, and the caller can import it again to try once more. Storing
+ * them first is what makes that retry safe: both keys name the content hash,
+ * so a second attempt rewrites the same bytes to the same places.
+ */
+async function storeMapScreenshots(imported: ImportedMapDocument): Promise<void> {
+  await Promise.all(MAP_SCREENSHOT_KINDS.map((kind) => storeMapScreenshot(imported, kind)));
+}
+
+async function storeMapScreenshot(
+  imported: ImportedMapDocument,
+  kind: MapScreenshotKind,
+): Promise<void> {
+  try {
+    const png = await MAP_SCREENSHOT_RENDERERS[kind](imported.document);
+    await env.CONTENT.put(mapScreenshotKey(imported.contentHash, kind), png, {
+      httpMetadata: {
+        contentType: MAP_SCREENSHOT_CONTENT_TYPE,
+        cacheControl: MAP_SCREENSHOT_CACHE_CONTROL,
+      },
+    });
+  } catch (error) {
+    throw new Error(`could not store the ${kind} picture of the map ${imported.contentHash}`, {
+      cause: error,
+    });
   }
 }
 

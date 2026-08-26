@@ -7,20 +7,22 @@
 
 use std::path::Path;
 
+use anyhow::Context;
 use awbrn_content::{
     INACTIVE_UNIT_TINT_SRGB, PixelSize, TILE_SIZE, UNIT_SPRITE_HEIGHT, UNIT_SPRITE_WIDTH,
     UiAtlasManifest, UnitOverlay, plain_backdrop_rect, sprite_top_left, spritesheet_index,
     terrain_sprite_rect, unit_overlay_spec, unit_sprite_rect, unit_spritesheet_index,
 };
-use awbrn_map::{AwbrnMap, AwbwMap, PredeployedUnit};
+use awbrn_map::{AwbrnMap, AwbwMap};
 use awbrn_types::{
     ExactHp, Faction, GraphicalHp, GraphicalMovement, GraphicalTerrain, PlayerFaction, Unit,
-    UnitExt, VisualHp, Weather,
+    VisualHp, Weather,
 };
 use awvm::semantic::{
     CAPTURE_REQUIRED_POINTS, Concealment, Location, Pos, State, TileOwner, UnitAction, UnitId,
 };
-use image::{GenericImageView, RgbaImage, imageops};
+use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+use image::{ExtendedColorType, GenericImageView, ImageEncoder, ImageFormat, RgbaImage, imageops};
 use std::collections::HashSet;
 use std::hash::BuildHasher;
 
@@ -74,24 +76,175 @@ impl Tilesets {
             ui_atlas,
         })
     }
+
+    /// Decode the same atlases from memory, for a caller with no filesystem.
+    ///
+    /// A WebAssembly host reads the atlases over the network and gives them
+    /// here, so the appearance stays the one the client renders.
+    pub fn from_bytes(
+        tiles: &[u8],
+        units: &[u8],
+        ui: &[u8],
+        ui_atlas: &[u8],
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            tiles: decode_png(tiles, "tiles.png")?,
+            units: decode_png(units, "units.png")?,
+            ui: decode_png(ui, "ui.png")?,
+            ui_atlas: serde_json::from_slice(ui_atlas)
+                .context("reading the ui_atlas.json manifest")?,
+        })
+    }
 }
 
-/// Render a map (clear weather) with its pre-deployed units to an image.
+fn decode_png(bytes: &[u8], name: &str) -> anyhow::Result<RgbaImage> {
+    Ok(image::load_from_memory_with_format(bytes, ImageFormat::Png)
+        .with_context(|| format!("decoding {name}"))?
+        .to_rgba8())
+}
+
+/// The most colours a PNG palette can hold.
+const PALETTE_LIMIT: usize = 256;
+
+/// Encode a rendered image as PNG bytes.
 ///
-/// Unknown unit ids or country codes are skipped with a warning rather than
-/// aborting the whole render.
-pub fn render_map(
-    map: &AwbwMap,
-    units: &[PredeployedUnit],
-    tilesets: &Tilesets,
-) -> Result<RgbaImage, RenderError> {
-    render_map_with_weather(map, units, tilesets, Weather::Clear)
+/// A render is written once and then read many times, so both encoders below
+/// are set for size rather than for speed, and both write their rows
+/// unfiltered: these images are pixel art with long flat runs, which deflate
+/// reads better on its own than through any filter.
+///
+/// A render that uses few enough colours is written with a palette, which is
+/// most of what makes these files small: a smallmap draws from about a dozen
+/// colours, so its pixels pack four to the byte. A busy board runs past what a
+/// palette can hold — a map with several armies on it reaches five or six
+/// hundred colours — and is written as it was drawn. Whichever is smaller
+/// wins, so the palette can never cost anything.
+pub fn encode_png(image: &RgbaImage) -> anyhow::Result<Vec<u8>> {
+    let truecolor = encode_truecolor(image)?;
+    match encode_indexed(image)? {
+        Some(indexed) if indexed.len() < truecolor.len() => Ok(indexed),
+        _ => Ok(truecolor),
+    }
+}
+
+fn encode_truecolor(image: &RgbaImage) -> anyhow::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    PngEncoder::new_with_quality(&mut bytes, CompressionType::Best, FilterType::NoFilter)
+        .write_image(
+            image.as_raw(),
+            image.width(),
+            image.height(),
+            ExtendedColorType::Rgba8,
+        )
+        .context("encoding the render as PNG")?;
+    Ok(bytes)
+}
+
+/// Write the image with a palette, or `None` when it holds too many colours.
+fn encode_indexed(image: &RgbaImage) -> anyhow::Result<Option<Vec<u8>>> {
+    let Some(palette) = Palette::of(image) else {
+        return Ok(None);
+    };
+
+    let depth = palette.bit_depth();
+    let bits = u32::from(depth as u8);
+    let per_byte = 8 / bits as usize;
+
+    let mut rows = Vec::with_capacity(image.height() as usize * image.width() as usize / per_byte);
+    for row in image.rows() {
+        let start = rows.len();
+        rows.resize(start + (image.width() as usize).div_ceil(per_byte), 0);
+        for (x, pixel) in row.enumerate() {
+            let index = palette.index_of(pixel.0);
+            // Indices pack left to right, most significant bits first.
+            let shift = 8 - bits * (x as u32 % per_byte as u32 + 1);
+            rows[start + x / per_byte] |= index << shift;
+        }
+    }
+
+    let mut bytes = Vec::new();
+    let mut encoder = png::Encoder::new(&mut bytes, image.width(), image.height());
+    encoder.set_color(png::ColorType::Indexed);
+    encoder.set_depth(depth);
+    encoder.set_compression(png::Compression::High);
+    encoder.set_filter(png::Filter::NoFilter);
+    encoder.set_palette(palette.rgb());
+    if let Some(alpha) = palette.alpha() {
+        encoder.set_trns(alpha);
+    }
+    encoder
+        .write_header()
+        .and_then(|mut writer| writer.write_image_data(&rows))
+        .context("encoding the render as an indexed PNG")?;
+
+    Ok(Some(bytes))
+}
+
+/// The distinct colours of an image, in the order they were first seen.
+struct Palette {
+    colors: Vec<[u8; 4]>,
+    /// Where each colour sits in `colors`, keyed by the colour itself.
+    index: std::collections::HashMap<[u8; 4], u8>,
+}
+
+impl Palette {
+    /// `None` when the image holds more colours than a palette can name.
+    fn of(image: &RgbaImage) -> Option<Self> {
+        let mut palette = Self {
+            colors: Vec::new(),
+            index: std::collections::HashMap::new(),
+        };
+        for pixel in image.pixels() {
+            if let std::collections::hash_map::Entry::Vacant(slot) = palette.index.entry(pixel.0) {
+                let next = u8::try_from(palette.colors.len()).ok()?;
+                slot.insert(next);
+                palette.colors.push(pixel.0);
+            }
+        }
+        (palette.colors.len() <= PALETTE_LIMIT).then_some(palette)
+    }
+
+    /// The narrowest depth that can name every colour.
+    fn bit_depth(&self) -> png::BitDepth {
+        match self.colors.len() {
+            0..=2 => png::BitDepth::One,
+            3..=4 => png::BitDepth::Two,
+            5..=16 => png::BitDepth::Four,
+            _ => png::BitDepth::Eight,
+        }
+    }
+
+    fn index_of(&self, color: [u8; 4]) -> u8 {
+        self.index[&color]
+    }
+
+    fn rgb(&self) -> Vec<u8> {
+        self.colors
+            .iter()
+            .flat_map(|color| color[..3].to_vec())
+            .collect()
+    }
+
+    /// The alpha of each entry, or `None` when every colour is opaque.
+    ///
+    /// A render is transparent only where a terrain sprite overhangs the top
+    /// of the board, so most of these come back `None`.
+    fn alpha(&self) -> Option<Vec<u8>> {
+        self.colors
+            .iter()
+            .any(|color| color[3] != u8::MAX)
+            .then(|| self.colors.iter().map(|color| color[3]).collect())
+    }
+}
+
+/// Render a map (clear weather) with the units it deploys to an image.
+pub fn render_map(map: &AwbwMap, tilesets: &Tilesets) -> Result<RgbaImage, RenderError> {
+    render_map_with_weather(map, tilesets, Weather::Clear)
 }
 
 /// Like [`render_map`] but with an explicit [`Weather`] for the terrain tileset.
 pub fn render_map_with_weather(
     map: &AwbwMap,
-    units: &[PredeployedUnit],
     tilesets: &Tilesets,
     weather: Weather,
 ) -> Result<RgbaImage, RenderError> {
@@ -104,34 +257,21 @@ pub fn render_map_with_weather(
 
     render_terrain(&graphical, tilesets, weather, &mut canvas);
 
-    let mut overlays = Vec::with_capacity(units.len());
-    for unit in units {
-        let Some(kind) = Unit::from_awbw_id(unit.unit_id) else {
-            eprintln!("warning: skipping unknown unit id {}", unit.unit_id);
-            continue;
-        };
-        let Some(faction) = PlayerFaction::from_country_code(&unit.country_code) else {
-            eprintln!(
-                "warning: skipping unit with unknown country code {:?}",
-                unit.country_code
-            );
-            continue;
-        };
+    let deployments = map.deployments();
+    let mut overlays = Vec::with_capacity(deployments.len());
+    for (position, deployment) in deployments.iter() {
         // A map's pre-deployed units belong to nobody's turn yet, so they are
         // all drawn ready.
         let origin = draw_unit(
             &mut canvas,
-            kind,
-            faction,
-            unit.unit_x,
-            unit.unit_y,
+            deployment.unit,
+            deployment.faction,
+            u32::from(position.x),
+            u32::from(position.y),
             true,
             tilesets,
         );
-        overlays.push((
-            origin,
-            UnitStatus::from_visual_hp(unit.unit_hp.min(10) as u8),
-        ));
+        overlays.push((origin, UnitStatus::from_visual_hp(deployment.hp.get())));
     }
     for (origin, status) in overlays {
         draw_unit_status(&mut canvas, origin, status, tilesets)?;
@@ -443,6 +583,8 @@ mod tests {
         UNIT_SPRITESHEET_PADDING_X, UNIT_SPRITESHEET_PADDING_Y, UNIT_SPRITESHEET_ROWS, UiAtlasSize,
         UiAtlasSprite,
     };
+    use awbrn_map::{Deployment, Dimensions};
+    use awbrn_types::AwbwTerrain;
 
     /// Synthetic atlases: the tests here compare renders with each other, so
     /// the sprites only have to be distinguishable, not real.
@@ -666,5 +808,104 @@ mod tests {
                 factions: 1
             })
         ));
+    }
+
+    /// A three-tile board of plains, holding one infantry at its middle.
+    fn deployed_map(hp: u8) -> AwbwMap {
+        let mut map = AwbwMap::new(Dimensions::new(3, 3), AwbwTerrain::Plain);
+        map.deploy(
+            Pos::new(1, 1),
+            Deployment {
+                unit: Unit::Infantry,
+                hp: VisualHp::new(hp),
+                faction: PlayerFaction::OrangeStar,
+            },
+        )
+        .expect("the middle tile is on the board and empty");
+        map
+    }
+
+    /// Decode a PNG back to its pixels, and say how it was written.
+    fn decode(png: &[u8]) -> (RgbaImage, png::ColorType, png::BitDepth) {
+        let reader = png::Decoder::new(std::io::Cursor::new(png))
+            .read_info()
+            .unwrap();
+        let color = reader.info().color_type;
+        let depth = reader.info().bit_depth;
+        let image = image::load_from_memory_with_format(png, ImageFormat::Png)
+            .unwrap()
+            .to_rgba8();
+        (image, color, depth)
+    }
+
+    #[test]
+    fn few_colors_are_written_with_a_palette_and_read_back_the_same() {
+        // Sixteen colours: four bits for each pixel.
+        let image = RgbaImage::from_fn(64, 64, |x, y| {
+            image::Rgba([(x as u8 % 4) * 64, (y as u8 % 4) * 64, 0, 255])
+        });
+
+        let (decoded, color, depth) = decode(&encode_png(&image).unwrap());
+
+        assert_eq!(color, png::ColorType::Indexed);
+        assert_eq!(depth, png::BitDepth::Four);
+        assert_eq!(decoded.as_raw(), image.as_raw());
+    }
+
+    #[test]
+    fn a_palette_keeps_the_transparent_pixels_transparent() {
+        // Big enough that the palette pays for the chunks it adds; on a tiny
+        // image the pixels as drawn can still be the smaller of the two.
+        let image = RgbaImage::from_fn(64, 64, |x, _| {
+            if x < 32 {
+                image::Rgba([0, 0, 0, 0])
+            } else {
+                image::Rgba([0, 0, 0, 255])
+            }
+        });
+
+        let (decoded, color, _) = decode(&encode_png(&image).unwrap());
+
+        // Black is both the clear colour and an opaque one, which only a
+        // palette entry can tell apart.
+        assert_eq!(color, png::ColorType::Indexed);
+        assert_eq!(decoded.as_raw(), image.as_raw());
+    }
+
+    #[test]
+    fn too_many_colors_fall_back_to_the_pixels_as_drawn() {
+        // 257 colours, one past what a palette can name.
+        let image = RgbaImage::from_fn(257, 1, |x, _| {
+            image::Rgba([(x >> 8) as u8, (x & 0xff) as u8, 0, 255])
+        });
+
+        let (decoded, color, _) = decode(&encode_png(&image).unwrap());
+
+        assert_eq!(color, png::ColorType::Rgba);
+        assert_eq!(decoded.as_raw(), image.as_raw());
+    }
+
+    #[test]
+    fn a_map_renders_the_units_it_deploys() {
+        let tilesets = test_tilesets();
+        let bare = render_map(
+            &AwbwMap::new(Dimensions::new(3, 3), AwbwTerrain::Plain),
+            &tilesets,
+        )
+        .unwrap();
+        let deployed = render_map(&deployed_map(10), &tilesets).unwrap();
+
+        assert_eq!(deployed.dimensions(), bare.dimensions());
+        assert_ne!(deployed.as_raw(), bare.as_raw());
+    }
+
+    #[test]
+    fn a_damaged_unit_renders_its_health() {
+        let tilesets = test_tilesets();
+
+        assert_ne!(
+            render_map(&deployed_map(4), &tilesets).unwrap().as_raw(),
+            render_map(&deployed_map(10), &tilesets).unwrap().as_raw()
+        );
     }
 }

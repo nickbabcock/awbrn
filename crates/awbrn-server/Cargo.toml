@@ -10,7 +10,9 @@ crate-type = ["cdylib", "rlib"]
 workspace = true
 
 [dependencies]
+anyhow.workspace = true
 awbrn-game = { path = "../awbrn-game", features = ["typescript"] }
+awbrn-image = { path = "../awbrn-image" }
 awbrn-map = { path = "../awbrn-map" }
 awbrn-protocol = { path = "../awbrn-protocol" }
 awbrn-types = { path = "../awbrn-types" }
