@@ -1816,8 +1816,10 @@ mod tests {
             let state = session.state();
             let seat = state
                 .players
-                .seat(&state.turn.active_player)
-                .expect("the active player holds a seat");
+                .seats()
+                .nth(1)
+                .map(|(seat, _)| seat)
+                .expect("the second seat holds the predeployed unit");
             let weights = Weights::DEFAULT;
             let board = Board {
                 state,
@@ -1858,8 +1860,10 @@ mod tests {
         let state = session.state();
         let seat = state
             .players
-            .seat(&state.turn.active_player)
-            .expect("the active player holds a seat");
+            .seats()
+            .nth(1)
+            .map(|(seat, _)| seat)
+            .expect("the second seat holds the predeployed unit");
 
         let field = |contest_decay: f64| {
             let weights = Weights {
@@ -1994,8 +1998,10 @@ mod tests {
         let mut state = amber_valley(false, 1);
         let seat = state
             .players
-            .seat(&state.turn.active_player)
-            .expect("the active player holds a seat");
+            .seats()
+            .nth(1)
+            .map(|(seat, _)| seat)
+            .expect("the second seat holds the predeployed unit");
         // The opening position fields no mech, and a class we hold nothing of
         // is skipped rather than searched for. Give the seat one, so that both
         // fields are built and the two allowances can be compared.

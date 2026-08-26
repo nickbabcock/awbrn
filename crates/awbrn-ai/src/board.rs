@@ -1,17 +1,9 @@
-//! The boards the arena can play on.
+//! The Amber Valley board the arena plays.
 //!
-//! Map 174183, "Close Encounters", is the default arena board. It is a 10 by
-//! 10 two-player board with land only and a mirror under a half turn. It is a
-//! fair mirror, cheap enough that a game costs little, and it holds bases and
-//! neutral cities, because capture and income are the two terms a hand-written
-//! tactics AI most often gets wrong.
-//!
-//! The board is not symmetric in its units, and that is the point. The map
-//! starts one Blue Moon infantry and nothing for Orange Star, because Orange
-//! Star moves first: the extra unit is how the author pays for the first-turn
-//! advantage. [`SEATS`] therefore seats Orange Star first, so the compensation
-//! lands on the side it was written for. The arena still swaps seats, which
-//! swaps the free unit with them.
+//! Map 61748, "Amber Valley", is a two-player board with land, bases, and
+//! neutral cities. It starts one Teal Galaxy infantry. [`SEATS`] seats Pink
+//! Cosmos first and Teal Galaxy second, so the compensation lands on the side
+//! that moves second. The arena still swaps the agents between those seats.
 
 use awbrn_game::{GameSetup, PlayerSetup, state_from_setup};
 use awbrn_map::{AwbrnMap, AwbwMap};
@@ -19,21 +11,15 @@ use awbrn_types::{Co, PlayerFaction};
 use awvm::ruleset::UnitKind;
 use awvm::semantic::State;
 
-const ARENA_MAP: &str = include_str!("../../../assets/maps/174183.json");
 const AMBER_VALLEY_MAP: &str = include_str!("../../../assets/maps/61748.json");
 
 /// The seats the arena plays, in roster order.
 ///
 /// The order matters three times: it is the turn order, it is the index into
 /// the agent list the harness takes, and it decides which side the map's
-/// first-turn compensation lands on. Orange Star moves first and Blue Moon
-/// holds the map's one predeployed unit, which is the pairing the map was
-/// drawn for.
-pub const SEATS: [PlayerFaction; 2] = [PlayerFaction::OrangeStar, PlayerFaction::BlueMoon];
-
-/// The seats for Amber Valley, in roster order.
-pub const AMBER_VALLEY_SEATS: [PlayerFaction; 2] =
-    [PlayerFaction::TealGalaxy, PlayerFaction::PinkCosmos];
+/// first-turn compensation lands on. Pink Cosmos moves first and Teal Galaxy
+/// holds the map's one predeployed unit.
+pub const SEATS: [PlayerFaction; 2] = [PlayerFaction::PinkCosmos, PlayerFaction::TealGalaxy];
 
 /// Funds each seat starts with, on top of what its properties pay.
 ///
@@ -56,12 +42,6 @@ pub const STARTING_FUNDS: u32 = 0;
 /// [`awvm::session::Legal`] never offers it. No agent needs to know.
 pub const BANNED_UNITS: [UnitKind; 2] = [UnitKind::Stealth, UnitKind::BlackBomb];
 
-/// The graphical map used by the arena.
-pub fn arena_map() -> AwbrnMap {
-    let map = AwbwMap::parse_json(ARENA_MAP.as_bytes()).expect("the arena map parses");
-    AwbrnMap::from_map(&map)
-}
-
 /// The graphical Amber Valley map.
 pub fn amber_valley_map() -> AwbrnMap {
     let map =
@@ -75,12 +55,12 @@ pub fn amber_valley_map() -> AwbrnMap {
 /// the harness draws its own entropy. It is here so that a caller cannot build
 /// two setups that differ in a field it did not choose.
 pub fn arena(fog: bool, seed: u64) -> State {
-    state_from_map(arena_map(), &SEATS, fog, seed)
+    state_from_map(amber_valley_map(), &SEATS, fog, seed)
 }
 
 /// The Amber Valley starting position.
 pub fn amber_valley(fog: bool, seed: u64) -> State {
-    state_from_map(amber_valley_map(), &AMBER_VALLEY_SEATS, fog, seed)
+    arena(fog, seed)
 }
 
 fn state_from_map(map: AwbrnMap, seats: &[PlayerFaction; 2], fog: bool, seed: u64) -> State {
@@ -121,17 +101,9 @@ mod tests {
         assert!(matches!(state.match_state, Match::Active { .. }));
     }
 
+    /// The arena map gives its extra infantry to the second seat.
     #[test]
-    fn amber_valley_opens_on_an_active_two_player_match() {
-        let state = amber_valley(false, 1);
-        assert_eq!(state.players.len(), 2);
-        assert_eq!(state.teams.len(), 2);
-        assert!(matches!(state.match_state, Match::Active { .. }));
-    }
-
-    /// The map's compensation for moving second reaches the board.
-    #[test]
-    fn the_second_seat_starts_with_the_extra_unit() {
+    fn arena_starts_the_second_seat_with_the_extra_unit() {
         let state = arena(false, 1);
         let second = state
             .players
@@ -151,13 +123,12 @@ mod tests {
     /// The ban reaches the position, and through it the action space.
     #[test]
     fn no_arena_board_may_build_a_stealth_or_a_black_bomb() {
-        for state in [arena(false, 1), amber_valley(false, 1)] {
-            for kind in BANNED_UNITS {
-                assert!(
-                    state.settings.unit_bans.contains(&kind),
-                    "{kind:?} is banned"
-                );
-            }
+        let state = arena(false, 1);
+        for kind in BANNED_UNITS {
+            assert!(
+                state.settings.unit_bans.contains(&kind),
+                "{kind:?} is banned"
+            );
         }
     }
 
