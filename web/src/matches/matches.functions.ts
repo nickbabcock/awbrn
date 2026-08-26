@@ -17,6 +17,7 @@ import {
   matchHistoryRequestSchema,
   matchMutationRequestSchema,
 } from "./schemas";
+import { rateLimitBindings, requireRateLimit } from "#/rate_limit.ts";
 
 export const listMatchesFn = createServerFn({ method: "GET" })
   .validator(matchBrowseRequestSchema)
@@ -63,6 +64,10 @@ export const createMatchFn = createServerFn({ method: "POST" })
   .validator(matchCreateRequestSchema)
   .handler(async ({ data, context }) => {
     if (!context.session) throw new Error("you must be signed in to create a match");
+    await requireRateLimit(
+      rateLimitBindings().CREATE_MATCH_RATE_LIMITER,
+      `user:${context.session.user.id}`,
+    );
     const result = await createMatch(data, {
       id: context.session.user.id,
       name: context.session.user.name,
@@ -76,6 +81,18 @@ export const mutateMatchFn = createServerFn({ method: "POST" })
   .validator(z.object({ matchId: matchIdSchema, action: matchMutationRequestSchema }))
   .handler(async ({ data, context }) => {
     if (!context.session) throw new Error("you must be signed in to update a lobby");
+    await Promise.all([
+      requireRateLimit(
+        rateLimitBindings().LOBBY_WRITE_RATE_LIMITER,
+        `user:${context.session.user.id}`,
+        10,
+      ),
+      requireRateLimit(
+        rateLimitBindings().LOBBY_WRITE_RATE_LIMITER,
+        `match:${data.matchId}:user:${context.session.user.id}`,
+        10,
+      ),
+    ]);
 
     const { action } = data;
     if (action.action === "updateParticipant") {

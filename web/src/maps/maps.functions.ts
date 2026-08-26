@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { sessionMiddleware } from "#/auth/session.middleware.ts";
 import { awbwMapImportRequestSchema, mapCatalogRequestSchema, mapRefSchema } from "./schemas.ts";
 import { importAwbwMapToCatalog, listCatalogMaps, loadMapRevision } from "./maps.server.ts";
+import { rateLimitBindings, requireRateLimit } from "#/rate_limit.ts";
 
 export const getMapRevisionFn = createServerFn({ method: "GET" })
   .validator(mapRefSchema)
@@ -22,5 +23,9 @@ export const importAwbwMapFn = createServerFn({ method: "POST" })
   .validator(awbwMapImportRequestSchema)
   .handler(async ({ data, context }) => {
     if (!context.session) throw new Error("you must be signed in to import a map");
+    await requireRateLimit(
+      rateLimitBindings().IMPORT_MAP_RATE_LIMITER,
+      `user:${context.session.user.id}`,
+    );
     return importAwbwMapToCatalog(data.sourceMapId);
   });

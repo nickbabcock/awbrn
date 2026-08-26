@@ -21,12 +21,47 @@
         "name": "MATCHES",
         "class_name": "MatchDurableObject",
       },
+      {
+        "name": "AWBW_GATEWAY",
+        "class_name": "AwbwGatewayDurableObject",
+      },
     ],
   },
-  "migrations": [
+  "exports": {
+    "MatchDurableObject": {
+      "type": "durable-object",
+      "storage": "sqlite",
+    },
+    "AwbwGatewayDurableObject": {
+      "type": "durable-object",
+      "storage": "sqlite",
+    },
+  },
+  "ratelimits": [
     {
-      "tag": "v1",
-      "new_sqlite_classes": ["MatchDurableObject"],
+      "name": "CREATE_MATCH_RATE_LIMITER",
+      "namespace_id": "73184201",
+      "simple": { "limit": 5, "period": 60 },
+    },
+    {
+      "name": "IMPORT_MAP_RATE_LIMITER",
+      "namespace_id": "73184202",
+      "simple": { "limit": 2, "period": 60 },
+    },
+    {
+      "name": "LOBBY_WRITE_RATE_LIMITER",
+      "namespace_id": "73184203",
+      "simple": { "limit": 30, "period": 10 },
+    },
+    {
+      "name": "AWBW_ACTOR_RATE_LIMITER",
+      "namespace_id": "73184204",
+      "simple": { "limit": 20, "period": 60 },
+    },
+    {
+      "name": "WS_UPGRADE_RATE_LIMITER",
+      "namespace_id": "73184206",
+      "simple": { "limit": 10, "period": 10 },
     },
   ],
   "r2_buckets": [

@@ -1,8 +1,8 @@
-import { waitUntil } from "cloudflare:workers";
+import { env, waitUntil } from "cloudflare:workers";
 import { parseAwbwUsername } from "./parsers";
 import { awbwMapDataSchema, type AwbwMapData } from "./schemas";
+import { rateLimitBindings, requestActorKey, requireRateLimit } from "#/rate_limit.ts";
 
-const AWBW_BASE_URL = "https://awbw.amarriner.com";
 const AWBW_FETCH_TIMEOUT_MS = 5000;
 const AWBW_EDGE_TTL_SECONDS = 60 * 60 * 24 * 7;
 const AWBW_SUCCESS_CACHE_CONTROL = `public, s-maxage=${AWBW_EDGE_TTL_SECONDS}, max-age=0, must-revalidate`;
@@ -12,7 +12,10 @@ export async function fetchAwbwUsernameResponse(
   request: Request,
   userId: number,
 ): Promise<Response> {
-  return withCachedResponse(request, () => fetchAwbwUsername(userId));
+  return withCachedResponse(request, async () => {
+    await requireAwbwRateLimit(request, "user");
+    return fetchAwbwUsername(userId);
+  });
 }
 
 export async function fetchAwbwUsername(userId: number): Promise<Response> {
@@ -22,9 +25,7 @@ export async function fetchAwbwUsername(userId: number): Promise<Response> {
   }, AWBW_FETCH_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${AWBW_BASE_URL}/profile.php?users_id=${userId}`, {
-      signal: controller.signal,
-    });
+    const response = await fetchThroughGateway("user", userId, controller.signal);
     if (!response.ok) {
       return Response.json(
         { userId, username: null },
@@ -61,14 +62,20 @@ export async function fetchAwbwUsername(userId: number): Promise<Response> {
 }
 
 export async function fetchAwbwMapResponse(request: Request, mapId: number): Promise<Response> {
-  return withCachedResponse(request, () => fetchAwbwMap(mapId));
+  return withCachedResponse(request, async () => {
+    await requireAwbwRateLimit(request, "map");
+    return fetchAwbwMap(mapId);
+  });
 }
 
 export async function fetchAwbwSmallMapResponse(
   request: Request,
   mapId: number,
 ): Promise<Response> {
-  return withCachedResponse(request, () => fetchAwbwSmallMap(mapId));
+  return withCachedResponse(request, async () => {
+    await requireAwbwRateLimit(request, "smallmap");
+    return fetchAwbwSmallMap(mapId);
+  });
 }
 
 export async function fetchAwbwMap(mapId: number): Promise<Response> {
@@ -78,9 +85,7 @@ export async function fetchAwbwMap(mapId: number): Promise<Response> {
   }, AWBW_FETCH_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${AWBW_BASE_URL}/api/map/map_info.php?maps_id=${mapId}`, {
-      signal: controller.signal,
-    });
+    const response = await fetchThroughGateway("map", mapId, controller.signal);
     if (response.status === 404) {
       return createTextResponse("Not Found", { status: 404, cacheable: false });
     }
@@ -115,9 +120,7 @@ export async function fetchAwbwSmallMap(mapId: number): Promise<Response> {
   }, AWBW_FETCH_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${AWBW_BASE_URL}/smallmaps/${mapId}.png`, {
-      signal: controller.signal,
-    });
+    const response = await fetchThroughGateway("smallmap", mapId, controller.signal);
     if (response.status === 404) {
       return createTextResponse("Not Found", { status: 404, cacheable: false });
     }
@@ -155,6 +158,22 @@ export async function fetchAwbwMapData(mapId: number): Promise<AwbwMapData> {
   }
 
   return parsed.data;
+}
+
+type AwbwResourceKind = "map" | "smallmap" | "user";
+
+async function fetchThroughGateway(
+  kind: AwbwResourceKind,
+  id: number,
+  signal: AbortSignal,
+): Promise<Response> {
+  const stub = env.AWBW_GATEWAY.getByName("global");
+  return stub.fetch(`https://awbw-gateway/${kind}/${id}`, { signal });
+}
+
+async function requireAwbwRateLimit(request: Request, kind: AwbwResourceKind): Promise<void> {
+  const bindings = rateLimitBindings();
+  await requireRateLimit(bindings.AWBW_ACTOR_RATE_LIMITER, `${kind}:${requestActorKey(request)}`);
 }
 
 interface ResponseOptions {
