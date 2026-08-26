@@ -17,15 +17,18 @@ use ::awvm::query;
 use ::awvm::random::RandomTape;
 use ::awvm::ruleset::UnitKind;
 use ::awvm::semantic::{
-    AwbwVisibility, CellIdx, Location, Observation, Pos, State, UnitAction, UnitId, observe,
+    AwbwVisibility, CellIdx, Location, Match, Observation, Pos, State, UnitAction, UnitId, observe,
+    observe_into,
 };
 use ::awvm::session::{Order, OrderKind, OrderMask, Session, UnitIdx};
 use ::awvm::transition::{Command, ExecuteOutcome, execute};
 use awbrn_ai::agent::Agent;
 use awbrn_ai::agents::{GreedyAgent, Weights};
 use awbrn_ai::board::amber_valley;
+use awbrn_ai::eval::{EvalWeights, Evaluator};
 use awbrn_ai::harness::{Limits, Record, play};
 use awbrn_ai::rng::Rng;
+use awbrn_ai::threat::ThreatMap;
 
 use super::{awvm, server};
 
@@ -384,6 +387,17 @@ mod tests {
             assert_eq!(run_cycle(&case), isolated);
         }
     }
+
+    #[test]
+    fn greedy_turn_cases_finish_one_turn() {
+        for (fog, weights) in [(false, Weights::THREAT), (true, Weights::SCOUT)] {
+            let mut case = greedy_turn_case(fog, weights, 1);
+            let player = case.session.state().turn.active_player.clone();
+            let commands = run_greedy_turn(&mut case);
+            assert!(commands > 1, "the agent gives unit orders before passing");
+            assert_ne!(case.session.state().turn.active_player, player);
+        }
+    }
 }
 
 /// A session on a played position, with one unit order to descend through.
@@ -475,6 +489,179 @@ pub fn warm_session_case(fog: bool) -> SessionCase {
     case.orders.clear();
     case.session.legal().unit_orders(seat, &mut case.orders);
     case
+}
+
+/// A position and evaluator held outside the measured region.
+#[derive(Debug)]
+pub struct EvaluationCase {
+    pub session: Session,
+    pub seat: ::awvm::semantic::PlayerIdx,
+    pub evaluator: Evaluator,
+}
+
+/// Build an evaluator case at the server-sized match scale.
+pub fn evaluation_case(players: usize, fog: bool, weights: EvalWeights) -> EvaluationCase {
+    let state = server::state(players, fog);
+    let seat = state
+        .player_index(&state.turn.active_player)
+        .expect("the active player has a seat");
+    EvaluationCase {
+        session: Session::new(state),
+        seat,
+        evaluator: Evaluator::new(weights),
+    }
+}
+
+/// Read one position with scratch and session tables already allocated.
+pub fn run_evaluation(case: &mut EvaluationCase) -> f64 {
+    case.evaluator.value_in(&case.session, case.seat)
+}
+
+/// A threat map and the session it reads.
+#[derive(Debug)]
+pub struct ThreatCase {
+    pub session: Session,
+    pub seat: ::awvm::semantic::PlayerIdx,
+    pub cell: CellIdx,
+    pub map: ThreatMap,
+}
+
+/// Build one threat map for one active seat.
+pub fn threat_case(players: usize, fog: bool) -> ThreatCase {
+    let state = server::state(players, fog);
+    let cell = state
+        .board
+        .dimensions()
+        .cell_index(Pos::new(0, 0))
+        .expect("the benchmark board has its first cell");
+    let seat = state
+        .player_index(&state.turn.active_player)
+        .expect("the active player has a seat");
+    ThreatCase {
+        session: Session::new(state),
+        seat,
+        cell,
+        map: ThreatMap::new(),
+    }
+}
+
+/// Build a threat map and read one result so the build remains observable.
+pub fn run_threat_build(case: &mut ThreatCase) -> f64 {
+    case.map.build(&case.session, case.seat);
+    case.map.immediate(case.cell, UnitKind::Tank)
+}
+
+/// One greedy decision with the observation and agent held between calls.
+#[derive(Debug)]
+pub struct GreedyDecisionCase {
+    pub agent: GreedyAgent,
+    pub view: Observation,
+}
+
+/// Advance the fixture without measuring the commands used to reach it.
+pub fn state_after_end_turns(mut state: State, turns: usize) -> State {
+    for _ in 0..turns {
+        let player = state.turn.active_player.clone();
+        state = match execute(&state, Command::EndTurn { player }, &[]) {
+            Ok(ExecuteOutcome::Accepted(execution)) => execution.state,
+            Ok(ExecuteOutcome::Rejected(violation)) => {
+                panic!("benchmark end turn was rejected: {violation:?}")
+            }
+            Err(error) => panic!("benchmark end turn did not execute: {error:?}"),
+        };
+    }
+    state
+}
+
+/// Build one retained agent and one view for a decision at a turn position.
+pub fn greedy_decision_case(
+    fog: bool,
+    weights: Weights,
+    seed: u64,
+    end_turns: usize,
+) -> GreedyDecisionCase {
+    let state = state_after_end_turns(server::state(server::DUEL, fog), end_turns);
+    let player = state.turn.active_player.clone();
+    let view = observe(&AwbwVisibility, &state, &player)
+        .expect("the active player observes the benchmark position");
+    GreedyDecisionCase {
+        agent: GreedyAgent::with_weights(seed, weights),
+        view,
+    }
+}
+
+/// Run one decision while retaining the agent's maps and scratch.
+pub fn run_greedy_act(case: &mut GreedyDecisionCase) -> Option<awbrn_ai::agent::Play> {
+    case.agent.act(&case.view)
+}
+
+/// One agent playing one authoritative turn from a fixed position.
+#[derive(Debug)]
+pub struct GreedyTurnCase {
+    pub agent: GreedyAgent,
+    pub session: Session,
+    pub view: Observation,
+    pub entropy: Rng,
+}
+
+/// Build one complete-turn case with all allocations outside the measurement.
+pub fn greedy_turn_case(fog: bool, weights: Weights, seed: u64) -> GreedyTurnCase {
+    let state = server::state(server::DUEL, fog);
+    let view = observation(&state);
+    GreedyTurnCase {
+        agent: GreedyAgent::with_weights(Rng::mix(seed ^ 0x1), weights),
+        session: Session::new(state),
+        view,
+        entropy: Rng::from_seed(Rng::mix(seed ^ 0x2)),
+    }
+}
+
+/// Play until the active player changes and return accepted commands.
+pub fn run_greedy_turn(case: &mut GreedyTurnCase) -> usize {
+    let starting_player = case.session.state().turn.active_player.clone();
+    let mut commands = 0;
+    while case.session.state().turn.active_player == starting_player
+        && matches!(case.session.state().match_state, Match::Active { .. })
+    {
+        observe_into(
+            &AwbwVisibility,
+            case.session.state(),
+            &starting_player,
+            &mut case.view,
+        )
+        .expect("the active player observes the turn position");
+        let command = case
+            .agent
+            .act(&case.view)
+            .and_then(|play| play.command(&case.session))
+            .unwrap_or_else(|| Command::EndTurn {
+                player: starting_player.clone(),
+            });
+        case.session
+            .apply_command(command, &mut case.entropy, &mut ())
+            .expect("the greedy benchmark command is accepted");
+        commands += 1;
+    }
+    commands
+}
+
+fn without_position(mut weights: EvalWeights) -> EvalWeights {
+    weights.exposure = 0.0;
+    weights.contest = 0.0;
+    weights.front = 0.0;
+    weights
+}
+
+fn exposure_only(mut weights: EvalWeights) -> EvalWeights {
+    weights.exposure = 1.0;
+    weights.contest = 0.0;
+    weights.front = 0.0;
+    weights
+}
+
+fn contest_front_only(mut weights: EvalWeights) -> EvalWeights {
+    weights.exposure = 0.0;
+    weights
 }
 
 const AMBER_VALLEY_MATCH_SEED: u64 = 1;
@@ -671,6 +858,117 @@ pub mod criterion_benches {
         group.finish();
     }
 
+    fn evaluation(c: &mut Criterion) {
+        let standard = EvalWeights::STANDARD;
+        let fog = EvalWeights::FOG;
+        let cases = [
+            (
+                "standard-baseline-duel",
+                evaluation_case(server::DUEL, false, without_position(standard)),
+            ),
+            (
+                "standard-exposure-duel",
+                evaluation_case(server::DUEL, false, exposure_only(standard)),
+            ),
+            (
+                "standard-exposure-six-player",
+                evaluation_case(server::SIX_PLAYER, false, exposure_only(standard)),
+            ),
+            (
+                "standard-contest-front-duel",
+                evaluation_case(server::DUEL, false, contest_front_only(standard)),
+            ),
+            (
+                "standard-all-duel",
+                evaluation_case(server::DUEL, false, standard),
+            ),
+            (
+                "fog-baseline-duel",
+                evaluation_case(server::DUEL, true, without_position(fog)),
+            ),
+            (
+                "fog-exposure-duel",
+                evaluation_case(server::DUEL, true, exposure_only(fog)),
+            ),
+            (
+                "fog-exposure-six-player",
+                evaluation_case(server::SIX_PLAYER, true, exposure_only(fog)),
+            ),
+            (
+                "fog-contest-front-duel",
+                evaluation_case(server::DUEL, true, contest_front_only(fog)),
+            ),
+            ("fog-all-duel", evaluation_case(server::DUEL, true, fog)),
+        ];
+        let mut group = c.benchmark_group("ai-evaluation");
+        for (name, mut case) in cases {
+            group.bench_function(name, |b| {
+                b.iter(|| black_box(run_evaluation(&mut case)));
+            });
+        }
+        group.finish();
+    }
+
+    fn threat_map(c: &mut Criterion) {
+        let cases = [
+            ("duel-fog-off", threat_case(server::DUEL, false)),
+            ("six-player-fog-off", threat_case(server::SIX_PLAYER, false)),
+            ("duel-fog-on", threat_case(server::DUEL, true)),
+            ("six-player-fog-on", threat_case(server::SIX_PLAYER, true)),
+        ];
+        let mut group = c.benchmark_group("ai-evaluation-threat-map");
+        for (name, mut case) in cases {
+            group.bench_function(name, |b| {
+                b.iter(|| black_box(run_threat_build(&mut case)));
+            });
+        }
+        group.finish();
+    }
+
+    fn greedy_act(c: &mut Criterion) {
+        let positions = [("early", 0), ("middle", 14), ("late", 28)];
+        let mut cases = Vec::new();
+        for (position, end_turns) in positions {
+            cases.push((
+                format!("standard-without-threat-{position}"),
+                greedy_decision_case(false, Weights::TIER1, 1, end_turns),
+            ));
+            cases.push((
+                format!("standard-with-threat-{position}"),
+                greedy_decision_case(false, Weights::THREAT, 1, end_turns),
+            ));
+            cases.push((
+                format!("fog-scout-{position}"),
+                greedy_decision_case(true, Weights::SCOUT, 1, end_turns),
+            ));
+        }
+
+        let mut group = c.benchmark_group("ai-greedy-act");
+        for (name, mut case) in cases {
+            group.bench_function(name, |b| {
+                b.iter(|| black_box(run_greedy_act(&mut case)));
+            });
+        }
+        group.finish();
+    }
+
+    fn greedy_turn(c: &mut Criterion) {
+        let mut group = c.benchmark_group("ai-greedy-turn");
+        for (name, fog, weights) in [
+            ("standard-threat", false, Weights::THREAT),
+            ("fog-scout", true, Weights::SCOUT),
+        ] {
+            group.bench_function(name, |b| {
+                b.iter_batched(
+                    || greedy_turn_case(fog, weights, 1),
+                    |mut case| black_box(run_greedy_turn(&mut case)),
+                    BatchSize::SmallInput,
+                );
+            });
+        }
+        group.finish();
+    }
+
     fn matches(c: &mut Criterion) {
         let mut group = c.benchmark_group("ai-match");
         group.bench_function("amber-valley-threat-vs-deny", |b| {
@@ -684,7 +982,17 @@ pub mod criterion_benches {
     }
 
     criterion::criterion_group!(
-        ai_benches, commands, enumerate, resolve, cycle, session, matches
+        ai_benches,
+        commands,
+        enumerate,
+        resolve,
+        cycle,
+        session,
+        evaluation,
+        threat_map,
+        greedy_act,
+        greedy_turn,
+        matches
     );
 }
 

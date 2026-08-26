@@ -924,9 +924,10 @@ where
 
 /// The evaluation weights this run reads.
 fn eval_weights(options: &Options) -> Result<EvalWeights> {
+    let compiled = EvalWeights::for_fog(options.fog);
     match &options.eval_weights {
-        Some(path) => read_eval_weights(path),
-        None => Ok(EvalWeights::DEFAULT),
+        Some(path) => read_eval_weights(path, compiled),
+        None => Ok(compiled),
     }
 }
 
@@ -936,9 +937,9 @@ fn eval_weights(options: &Options) -> Result<EvalWeights> {
 /// the fields it moves, so a sweep over one term of the evaluation reads as
 /// that one term and a rerun after the defaults move still means what it
 /// meant.
-fn read_eval_weights(path: &Path) -> Result<EvalWeights> {
+fn read_eval_weights(path: &Path, compiled: EvalWeights) -> Result<EvalWeights> {
     let fields = read_fields(path)?;
-    merge(EvalWeights::DEFAULT, fields)
+    merge(compiled, fields)
         .with_context(|| format!("reading evaluation weights {}", path.display()))
 }
 
@@ -1507,6 +1508,32 @@ mod tests {
         let error = serde_json::from_str::<Weights>(r#"{"thret":0.125}"#)
             .expect_err("an unknown weight is an error");
         assert!(error.to_string().contains("unknown field `thret`"));
+    }
+
+    #[test]
+    fn evaluation_defaults_follow_the_game_mode() {
+        let standard = Options::parse(["--calibrate"].map(str::to_owned).into_iter())
+            .expect("standard calibration options");
+        assert_eq!(
+            eval_weights(&standard).expect("standard weights"),
+            EvalWeights::STANDARD
+        );
+
+        let fog = Options::parse(["--calibrate", "--fog"].map(str::to_owned).into_iter())
+            .expect("fog calibration options");
+        assert_eq!(eval_weights(&fog).expect("fog weights"), EvalWeights::FOG);
+
+        let overridden = merge(
+            EvalWeights::FOG,
+            serde_json::json!({"contest": 2.0})
+                .as_object()
+                .expect("an object")
+                .clone(),
+        )
+        .expect("the override merges");
+        assert_eq!(overridden.contest, 2.0);
+        assert_eq!(overridden.front, EvalWeights::FOG.front);
+        assert_eq!(overridden.temperature, EvalWeights::FOG.temperature);
     }
 
     #[test]

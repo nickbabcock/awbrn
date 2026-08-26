@@ -27,19 +27,21 @@
 //! [`crate::calibration`], which plays games, samples this function at every
 //! turn boundary, and fits the curve to what actually happened.
 //!
-//! **What it does not read.** Position is absent: a tank in the enemy half and
-//! a tank at home are worth the same here. So are the commander charge, the
-//! fuel and ammunition, and the threat every unit stands under. Those belong in
-//! it, and each one is a term to add and measure against the report the
-//! calibration prints. This is the first version, and the point of the
-//! calibration is that the next one has to prove it is better.
+//! Position enters through three terms that are off until measured: immediate
+//! enemy damage on a unit's tile, production distance to neutral properties,
+//! and the signed production-distance front. Commander charge, fuel and
+//! ammunition remain absent. Each is another term to add and measure against
+//! the report the calibration prints.
 
 use awvm::commander;
 use awvm::ruleset::{self, Terrain, TerrainTrait, UnitKind};
 use awvm::semantic::{
     CAPTURE_REQUIRED_POINTS, Location, Match, Outcome, PlayerIdx, PlayerStatus, State, TeamStatus,
 };
+use awvm::session::Session;
 
+use crate::map::{ContestMap, MAX_DEFICIT};
+use crate::threat::ThreatMap;
 use crate::threat::hostile;
 
 /// The value of a match that is over.
@@ -52,8 +54,8 @@ pub const DECISIVE: f64 = 1.0e9;
 ///
 /// Unlike the agent's weights these are not a ranking. Each one converts
 /// something on the board into the money it stands for, so a reading of 1.0
-/// means "worth exactly its funds" and the defaults below are the honest
-/// first guesses, not a tuned set.
+/// means "worth exactly its funds". The positional terms and temperature have
+/// separate calibrated defaults for standard and fog games.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct EvalWeights {
@@ -132,6 +134,18 @@ pub struct EvalWeights {
     /// capturer can be killed, and the ruleset then puts the property back to
     /// whole.
     pub capture: f64,
+    /// Enemy damage available against a unit on its current tile.
+    ///
+    /// One means one fund immediately at risk removes one fund of army value.
+    pub exposure: f64,
+    /// The prospective share of neutral properties indicated by production
+    /// distance. One prices that share like a property already held.
+    pub contest: f64,
+    /// Army value for each full step across the production-distance front.
+    ///
+    /// One means a unit at the far edge of the bounded front gains its full
+    /// replacement value.
+    pub front: f64,
     /// Funds of advantage worth one logit of win probability.
     ///
     /// The scale of [`Evaluator::win_probability`], and the one weight here
@@ -141,7 +155,7 @@ pub struct EvalWeights {
 }
 
 impl EvalWeights {
-    /// The first guesses, in funds.
+    /// Calibrated weights for a standard game.
     ///
     /// Ten days of income because a played game on these boards runs about
     /// twenty days, so a property taken in the middle pays for about ten more.
@@ -149,16 +163,10 @@ impl EvalWeights {
     /// thousand for a headquarters, which is more than any single property
     /// pays and less than an army.
     ///
-    /// Every one of those is a first guess. The temperature is not: it is the
-    /// only weight here that has been measured. With the corrected Amber
-    /// Valley seating, `arena --calibrate` fits it to 44,600 funds in a
-    /// standard game and 27,500 under fog, over 120 games of each. Thirty
-    /// thousand is about the middle of the two.
-    ///
-    /// The temperature can have a different best value at different points
-    /// in a game. Refit it by day after the seat-order fix before changing
-    /// [`EvalWeights::income_decay`].
-    pub const DEFAULT: Self = Self {
+    /// The positional coefficients and temperature were selected over 240
+    /// games on Amber Valley. Validate them across maps and the ladder before
+    /// treating them as universal constants.
+    pub const STANDARD: Self = Self {
         army: 1.0,
         bank: 0.8,
         income_days: 10.0,
@@ -167,8 +175,28 @@ impl EvalWeights {
         production: 4_000.0,
         hq: 30_000.0,
         capture: 0.6,
-        temperature: 30_000.0,
+        exposure: 1.0,
+        contest: 0.5,
+        front: 1.0,
+        temperature: 27_486.0,
     };
+
+    /// Calibrated weights for a fog game.
+    pub const FOG: Self = Self {
+        exposure: 0.0,
+        contest: 1.0,
+        front: 0.25,
+        temperature: 35_008.0,
+        ..Self::STANDARD
+    };
+
+    /// The historical default name means the standard-game preset.
+    pub const DEFAULT: Self = Self::STANDARD;
+
+    /// The compiled preset for the visibility rules of a position.
+    pub const fn for_fog(fog: bool) -> Self {
+        if fog { Self::FOG } else { Self::STANDARD }
+    }
 }
 
 impl Default for EvalWeights {
@@ -189,9 +217,11 @@ const WHOLE_PROPERTY: u8 = CAPTURE_REQUIRED_POINTS;
 /// whole tournament. The scratch is one entry for each seat and one for each
 /// tile, which is what stops a board walk turning into a walk over the units
 /// for every tile of it.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Evaluator {
     weights: EvalWeights,
+    /// Select a compiled preset from the position before each read.
+    mode_defaults: bool,
     /// What each seat holds, in funds, in seat order.
     strengths: Vec<f64>,
     /// The days of income a property is worth on the day being read, which is
@@ -201,16 +231,32 @@ pub struct Evaluator {
     rates: Vec<f64>,
     /// Who stands on each tile, by cell index.
     occupant: Vec<Option<PlayerIdx>>,
+    threat: ThreatMap,
+    contest: ContestMap,
+}
+
+impl Clone for Evaluator {
+    fn clone(&self) -> Self {
+        // The maps and filled rows are scratch derived from a position. A
+        // clone needs the same evaluator, not stale work from its last read.
+        Self {
+            mode_defaults: self.mode_defaults,
+            ..Self::new(self.weights)
+        }
+    }
 }
 
 impl Evaluator {
     pub const fn new(weights: EvalWeights) -> Self {
         Self {
             weights,
+            mode_defaults: false,
             strengths: Vec::new(),
             days: 0.0,
             rates: Vec::new(),
             occupant: Vec::new(),
+            threat: ThreatMap::new(),
+            contest: ContestMap::new(),
         }
     }
 
@@ -226,25 +272,40 @@ impl Evaluator {
     /// A seat the roster does not hold is worth nothing, because there is
     /// nobody to be ahead.
     pub fn value(&mut self, state: &State, seat: PlayerIdx) -> f64 {
-        let Some(player) = state.players.get(seat.get()) else {
-            return 0.0;
-        };
-        let team = player.team.clone();
-
-        if let Match::Finished { outcome } = &state.match_state {
-            return match outcome {
-                Outcome::Victory { winners, .. } => {
-                    if winners.contains(&team) {
-                        DECISIVE
-                    } else {
-                        -DECISIVE
-                    }
-                }
-                Outcome::Draw { .. } | Outcome::Cancelled { .. } => 0.0,
-            };
+        self.select_mode(state);
+        if let Some(value) = settled_value(state, seat) {
+            return value;
         }
+        if !self.position_enabled() {
+            self.fill(state);
+            return self.value_from_strengths(state, seat);
+        }
+        let session = Session::new(state.clone());
+        self.value_in(&session, seat)
+    }
 
+    /// What the position in `session` is worth to `seat`, in funds.
+    ///
+    /// This entry point reuses the session's movement tables when positional
+    /// terms are enabled. Callers that already own a session should prefer it
+    /// to [`Evaluator::value`].
+    pub fn value_in(&mut self, session: &Session, seat: PlayerIdx) -> f64 {
+        let state = session.state();
+        self.select_mode(state);
+        if let Some(value) = settled_value(state, seat) {
+            return value;
+        }
         self.fill(state);
+        if self.position_enabled() {
+            self.fill_position(session);
+        }
+        self.value_from_strengths(state, seat)
+    }
+
+    /// Turn filled seat strengths into the value seen by one seat.
+    fn value_from_strengths(&self, state: &State, seat: PlayerIdx) -> f64 {
+        let player = &state.players[seat.get()];
+        let team = player.team.clone();
 
         let ours: f64 = state
             .players
@@ -282,7 +343,12 @@ impl Evaluator {
     /// to say where an advantage came from. It is not a score: a strength on
     /// its own says nothing about who is winning.
     pub fn strength(&mut self, state: &State, seat: PlayerIdx) -> f64 {
+        self.select_mode(state);
         self.fill(state);
+        if self.position_enabled() {
+            let session = Session::new(state.clone());
+            self.fill_position(&session);
+        }
         self.strengths.get(seat.get()).copied().unwrap_or(0.0)
     }
 
@@ -330,6 +396,83 @@ impl Evaluator {
         for (seat, player) in state.players.seats() {
             if player.status != PlayerStatus::Active {
                 self.strengths[seat.get()] = 0.0;
+            }
+        }
+    }
+
+    /// Whether this weighting needs either positional map.
+    fn position_enabled(&self) -> bool {
+        self.weights.exposure != 0.0 || self.weights.contest != 0.0 || self.weights.front != 0.0
+    }
+
+    /// Adopt the preset that matches this position when no override was given.
+    fn select_mode(&mut self, state: &State) {
+        if self.mode_defaults {
+            self.weights = EvalWeights::for_fog(state.settings.fog);
+        }
+    }
+
+    /// Apply terms that depend on where assets stand or are likely to land.
+    fn fill_position(&mut self, session: &Session) {
+        let state = session.state();
+        let dimensions = state.board.dimensions();
+        for (seat, player) in state.players.seats() {
+            if player.status != PlayerStatus::Active {
+                continue;
+            }
+
+            if self.weights.exposure != 0.0 {
+                self.threat.build(session, seat);
+                for unit in state.units.iter().filter(|unit| unit.owner == seat) {
+                    let Location::Board { position } = unit.location else {
+                        continue;
+                    };
+                    let Some(cell) = dimensions.cell_index(position) else {
+                        continue;
+                    };
+                    let at_risk = self
+                        .threat
+                        .immediate(cell, unit.kind)
+                        .min(cost(unit.kind) * f64::from(unit.hp) / 100.0);
+                    self.strengths[seat.get()] -= self.weights.exposure * at_risk;
+                }
+            }
+
+            if self.weights.contest == 0.0 && self.weights.front == 0.0 {
+                continue;
+            }
+            self.contest.build(state, seat);
+            if !self.contest.is_built() {
+                continue;
+            }
+
+            if self.weights.contest != 0.0 {
+                for (position, tile) in state.board.iter() {
+                    if tile.owner.is_ownable() && tile.owner.player().is_none() {
+                        let Some(cell) = dimensions.cell_index(position) else {
+                            continue;
+                        };
+                        let deficit = f64::from(self.contest.deficit(usize::from(cell.get())));
+                        let share = 1.0 - deficit / f64::from(MAX_DEFICIT);
+                        self.strengths[seat.get()] +=
+                            self.weights.contest * share * self.property_value(tile.terrain, seat);
+                    }
+                }
+            }
+
+            if self.weights.front != 0.0 {
+                for unit in state.units.iter().filter(|unit| unit.owner == seat) {
+                    let Location::Board { position } = unit.location else {
+                        continue;
+                    };
+                    let Some(cell) = dimensions.cell_index(position) else {
+                        continue;
+                    };
+                    let progress = f64::from(self.contest.front(usize::from(cell.get())))
+                        / f64::from(MAX_DEFICIT);
+                    let army = cost(unit.kind) * f64::from(unit.hp) / 100.0;
+                    self.strengths[seat.get()] += self.weights.front * progress * army;
+                }
             }
         }
     }
@@ -418,7 +561,10 @@ impl Evaluator {
 
 impl Default for Evaluator {
     fn default() -> Self {
-        Self::new(EvalWeights::DEFAULT)
+        Self {
+            mode_defaults: true,
+            ..Self::new(EvalWeights::STANDARD)
+        }
     }
 }
 
@@ -442,6 +588,26 @@ pub fn win_probability(value: f64, temperature: f64) -> f64 {
 /// What one unit costs to replace, in funds.
 fn cost(kind: UnitKind) -> f64 {
     ruleset::profile(kind).cost as f64
+}
+
+/// A value that can be answered without reading any assets on the board.
+fn settled_value(state: &State, seat: PlayerIdx) -> Option<f64> {
+    let Some(player) = state.players.get(seat.get()) else {
+        return Some(0.0);
+    };
+    let Match::Finished { outcome } = &state.match_state else {
+        return None;
+    };
+    Some(match outcome {
+        Outcome::Victory { winners, .. } => {
+            if winners.contains(&player.team) {
+                DECISIVE
+            } else {
+                -DECISIVE
+            }
+        }
+        Outcome::Draw { .. } | Outcome::Cancelled { .. } => 0.0,
+    })
 }
 
 #[cfg(test)]
@@ -488,6 +654,16 @@ mod tests {
         id
     }
 
+    /// The original material terms, isolated from calibrated position terms.
+    fn material_weights() -> EvalWeights {
+        EvalWeights {
+            exposure: 0.0,
+            contest: 0.0,
+            front: 0.0,
+            ..EvalWeights::STANDARD
+        }
+    }
+
     /// What one seat sees is the negative of what the other sees.
     ///
     /// This is the property a minimax search is built on: maximising the value
@@ -523,7 +699,7 @@ mod tests {
     fn each_arena_board_starts_one_infantry_apart() {
         let mut evaluator = Evaluator::new(EvalWeights {
             bank: 0.0,
-            ..EvalWeights::DEFAULT
+            ..material_weights()
         });
         let infantry = cost(UnitKind::Infantry);
 
@@ -549,7 +725,7 @@ mod tests {
             },
         };
 
-        let mut evaluator = Evaluator::default();
+        let mut evaluator = Evaluator::new(material_weights());
         assert_eq!(evaluator.value(&state, first), DECISIVE);
         assert_eq!(evaluator.value(&state, second), -DECISIVE);
     }
@@ -559,7 +735,7 @@ mod tests {
     fn a_property_is_worth_the_days_of_income_it_pays() {
         let mut state = amber_valley(false, 7);
         let (first, _) = seats(&state);
-        let mut evaluator = Evaluator::default();
+        let mut evaluator = Evaluator::new(material_weights());
         let before = evaluator.value(&state, first);
 
         let neutral = state
@@ -595,7 +771,7 @@ mod tests {
     fn an_enemy_on_our_headquarters_costs_us_before_it_lands() {
         let mut state = amber_valley(false, 7);
         let (first, second) = seats(&state);
-        let mut evaluator = Evaluator::default();
+        let mut evaluator = Evaluator::new(material_weights());
         let before = evaluator.value(&state, first);
 
         let hq = headquarters(&state, first);
@@ -632,7 +808,7 @@ mod tests {
     fn capture_progress_with_no_capturer_moves_nothing() {
         let mut state = amber_valley(false, 7);
         let (first, _) = seats(&state);
-        let mut evaluator = Evaluator::default();
+        let mut evaluator = Evaluator::new(material_weights());
         let before = evaluator.value(&state, first);
 
         let hq = headquarters(&state, first);
@@ -646,7 +822,7 @@ mod tests {
     fn an_eliminated_seat_holds_nothing() {
         let mut state = amber_valley(false, 7);
         let (first, second) = seats(&state);
-        let mut evaluator = Evaluator::default();
+        let mut evaluator = Evaluator::new(material_weights());
         let held = evaluator.strength(&state, second);
         assert!(held > 0.0, "a seat at the start holds something");
 
@@ -664,7 +840,7 @@ mod tests {
     fn a_damaged_unit_is_worth_its_health() {
         let mut state = amber_valley(false, 7);
         let (first, _) = seats(&state);
-        let mut evaluator = Evaluator::default();
+        let mut evaluator = Evaluator::new(material_weights());
         let before = evaluator.value(&state, first);
 
         let hq = headquarters(&state, first);
@@ -678,5 +854,99 @@ mod tests {
         state.units.get_mut(id).expect("the soldier was pushed").hp = 50;
         let half = evaluator.value(&state, first);
         assert!((half - before - cost(UnitKind::Infantry) / 2.0).abs() < 1e-9);
+    }
+
+    /// A default evaluator follows the visibility mode of each position.
+    #[test]
+    fn default_weights_follow_fog() {
+        let mut state = amber_valley(false, 7);
+        let (first, _) = seats(&state);
+        let mut evaluator = Evaluator::default();
+
+        evaluator.value(&state, first);
+        assert_eq!(*evaluator.weights(), EvalWeights::STANDARD);
+
+        state.settings.fog = true;
+        evaluator.value(&state, first);
+        assert_eq!(*evaluator.weights(), EvalWeights::FOG);
+    }
+
+    /// Immediate fire reduces the value of the unit standing under it.
+    #[test]
+    fn exposure_discounts_an_army_under_fire() {
+        let mut state = amber_valley(false, 7);
+        let (first, second) = seats(&state);
+        let first_hq = headquarters(&state, first);
+        let target = first_hq.offset(0, 1).expect("ground below the first hq");
+        let attacker = target.offset(1, 0).expect("ground beside the target");
+        soldier(&mut state, first, target);
+        soldier(&mut state, second, attacker);
+
+        let mut safe = Evaluator::new(material_weights());
+        let mut exposed = Evaluator::new(EvalWeights {
+            exposure: 1.0,
+            ..material_weights()
+        });
+        let safe_value = safe.value(&state, first);
+        let exposed_value = exposed.value(&state, first);
+        assert!(
+            exposed_value < safe_value,
+            "enemy fire left the value at {exposed_value}, from {safe_value}"
+        );
+    }
+
+    /// The contest term assigns more neutral value to the nearer side.
+    #[test]
+    fn contest_prices_neutral_properties_before_they_are_taken() {
+        let state = amber_valley(false, 7);
+        let (first, _) = seats(&state);
+        let mut without = Evaluator::new(material_weights());
+        let mut with = Evaluator::new(EvalWeights {
+            contest: 1.0,
+            ..material_weights()
+        });
+        assert!(with.strength(&state, first) > without.strength(&state, first));
+    }
+
+    /// Moving the same unit across the production front raises its value.
+    #[test]
+    fn front_values_an_army_farther_into_hostile_ground() {
+        let mut state = amber_valley(false, 7);
+        let (first, _) = seats(&state);
+        let mut map = ContestMap::new();
+        map.build(&state, first);
+        let dimensions = state.board.dimensions();
+        let (rear, _) = state
+            .board
+            .positions()
+            .filter_map(|position| {
+                let cell = dimensions.cell_index(position)?;
+                Some((position, map.front(usize::from(cell.get()))))
+            })
+            .min_by_key(|(_, front)| *front)
+            .expect("the board has rear ground");
+        let (forward, _) = state
+            .board
+            .positions()
+            .filter_map(|position| {
+                let cell = dimensions.cell_index(position)?;
+                Some((position, map.front(usize::from(cell.get()))))
+            })
+            .max_by_key(|(_, front)| *front)
+            .expect("the board has forward ground");
+
+        let id = soldier(&mut state, first, rear);
+        let mut evaluator = Evaluator::new(EvalWeights {
+            front: 1.0,
+            ..material_weights()
+        });
+        let behind = evaluator.value(&state, first);
+        state
+            .units
+            .get_mut(id)
+            .expect("the soldier was pushed")
+            .location = Location::Board { position: forward };
+        let ahead = evaluator.value(&state, first);
+        assert!(ahead > behind, "forward was {ahead}, behind was {behind}");
     }
 }
