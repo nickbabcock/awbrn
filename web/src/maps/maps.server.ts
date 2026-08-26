@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
 import { and, desc, eq, lt, or, sql } from "drizzle-orm";
 import { fetchAwbwMapData } from "#/awbw/awbw.server.ts";
+import type { AwbwMapData } from "#/awbw/schemas.ts";
 import { mapRevisions, maps, mapSources } from "#/db/global.ts";
 import { generateMapId } from "./map_id.ts";
 import { awbrnMapDocumentSchema, importedMapDocumentSchema } from "./map_document.ts";
@@ -42,9 +43,20 @@ export async function importAwbwMap(sourceMapId: number): Promise<MapRef> {
   const existing = await findAwbwMap(sourceMapId);
   if (existing) return existing;
 
-  const imported = importedMapDocumentSchema.parse(
-    canonicalizeAwbwMap(await fetchAwbwMapData(sourceMapId)),
-  );
+  return storeAwbwMap(sourceMapId, await fetchAwbwMapData(sourceMapId));
+}
+
+/**
+ * Put an AWBW map that is already in hand in the catalog.
+ *
+ * The map is stored as it stands, so the caller decides where the data comes
+ * from: the live AWBW site, or a file held in the repository.
+ */
+export async function storeAwbwMap(sourceMapId: number, data: AwbwMapData): Promise<MapRef> {
+  const existing = await findAwbwMap(sourceMapId);
+  if (existing) return existing;
+
+  const imported = importedMapDocumentSchema.parse(canonicalizeAwbwMap(data));
   const { document } = imported;
   const mapId = generateMapId();
   const now = new Date();
