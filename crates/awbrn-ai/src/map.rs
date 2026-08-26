@@ -124,6 +124,26 @@ impl ContestMap {
         ours.saturating_sub(theirs).min(MAX_DEFICIT)
     }
 
+    /// How many turns nearer this tile is to hostile production than ours.
+    ///
+    /// Positive ground is across the front, toward the enemy. Negative ground
+    /// is behind it, toward our production. The answer is clamped because a
+    /// position term needs to distinguish the front from the rear, not reward
+    /// a unit without limit for crossing an unusually large board.
+    pub fn front(&self, cell: usize) -> i16 {
+        let ours = self.ours.get(cell).copied().unwrap_or(None);
+        let theirs = self.theirs.get(cell).copied().unwrap_or(None);
+        match (ours, theirs) {
+            (Some(ours), Some(theirs)) => {
+                let lead = i32::from(ours) - i32::from(theirs);
+                lead.clamp(-i32::from(MAX_DEFICIT), i32::from(MAX_DEFICIT)) as i16
+            }
+            (None, Some(_)) if self.is_built() => MAX_DEFICIT as i16,
+            (Some(_), None) if self.is_built() => -(MAX_DEFICIT as i16),
+            _ => 0,
+        }
+    }
+
     /// Rebuild the map for the position in front of the agent.
     ///
     /// One search for each side, and neither of them is run while the answer
