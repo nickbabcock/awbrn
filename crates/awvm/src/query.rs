@@ -82,6 +82,32 @@ pub enum QueryError {
     Transition(#[from] ExecuteError),
 }
 
+/// The funds `seat` collects when its turn starts.
+///
+/// `spec/semantics/turn.md` names this `income(S, p)`: the count of the tiles
+/// the seat owns whose terrain carries the `income` trait, times the seat's
+/// effective income per property. `com-tower` and `lab` are ownable and carry
+/// no such trait, so they never pay.
+///
+/// The turn boundary pays this, and `spec/model/phases.md` pays it once more at
+/// match initialization, where the first player's day-one turn starts without a
+/// boundary to run. Both read it here so the two cannot disagree.
+///
+/// `None` reports an income too large for the funds field, which only a
+/// malformed state produces.
+pub fn income(state: &State, seat: PlayerIdx) -> Option<u64> {
+    let properties = state
+        .board
+        .tiles()
+        .filter(|tile| {
+            tile.owner.is_owned_by(seat) && ruleset::terrain_has(tile.terrain, TerrainTrait::Income)
+        })
+        .count();
+    u64::try_from(properties)
+        .ok()?
+        .checked_mul(commander::effective_income_per_property(state, seat))
+}
+
 /// Why the reducer would refuse to act with this unit at all, if it would.
 ///
 /// A greyed-out unit in an interface is a question — *why* — and this answers

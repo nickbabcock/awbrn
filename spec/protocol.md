@@ -61,6 +61,29 @@ A rules rejection uses `status: "rejected"` and contains `violation` plus
 failure uses `status: "error"`, a stable `code`, and a diagnostic `message`.
 Protocol errors are not AWVM violations and do not establish conformance.
 
+## Match opening
+
+`initialize-match` runs the one-time transition from a declarative setup to the
+first actionable turn:
+
+```json
+{"protocol_version":"0.1.0","request_id":"example/opening","operation":"initialize-match","ruleset":{"id":"awbw","revision":"2026-07-10"},"setup":{},"random":[]}
+```
+
+The setup contains settings, map ownership, players, and deployments. It has no
+day, phase, current weather, unit resources, or match status. Only
+`initialize-match` accepts a setup, and it cannot accept an existing state.
+Malformed requests fail with `INVALID_REQUEST`. A setup that cannot decode or
+initialize fails with `INVALID_SETUP`. If the request ruleset differs from
+`setup.ruleset`, the request fails with `RULESET_MISMATCH`.
+The accepted response has the same shape as an accepted `execute` response.
+It contains the state at which the first player can act, including all opening
+events and the number of random tokens consumed.
+
+A sequence fixture can include `setup` and `opening` before `steps`.
+The runner sends its setup through `initialize-match`, checks the opening
+result, and uses the returned state for all command steps.
+
 ## Observation operations
 
 An adapter that advertises `fog-observation-v1`, or any feature whose fixtures

@@ -226,6 +226,7 @@ pub const FEATURES: &[&str] = &[
     "transport-v1",
     "concealment-v1",
     "turn-boundary-v1",
+    "match-opening-v1",
     "turn-hooks-v1",
     "elimination-v1",
 ];
@@ -240,6 +241,18 @@ struct ExecuteRequest {
     ruleset: RulesetRef,
     state: State,
     command: Value,
+    random: Vec<RandomToken>,
+}
+
+#[derive(Deserialize)]
+struct InitializeMatchRequest {
+    #[serde(rename = "protocol_version")]
+    _protocol_version: String,
+    request_id: String,
+    #[serde(rename = "operation")]
+    _operation: String,
+    ruleset: RulesetRef,
+    setup: Value,
     random: Vec<RandomToken>,
 }
 
@@ -365,6 +378,7 @@ pub fn handle(line: &str) -> Response {
             envelope.request_id,
             ResponseBody::Capabilities { features: FEATURES },
         ),
+        "initialize-match" => initialize_match(line, &envelope.request_id),
         "execute" => execute(line, &envelope.request_id),
         "observe" => observe(line, &envelope.request_id),
         "observe-events" => observe_events(line, &envelope.request_id),
@@ -373,6 +387,56 @@ pub fn handle(line: &str) -> Response {
             "UNSUPPORTED_OPERATION",
             envelope.operation,
         ),
+    }
+}
+
+fn initialize_match(line: &str, request_id: &str) -> Response {
+    let request: InitializeMatchRequest = match serde_json::from_str(line) {
+        Ok(value) => value,
+        Err(failure) => {
+            return Response::error(request_id, "INVALID_REQUEST", failure.to_string());
+        }
+    };
+    if !ruleset::supports(&request.ruleset) {
+        return Response::error(
+            request.request_id,
+            "UNSUPPORTED_RULESET",
+            "only awbw/2026-07-10 is implemented",
+        );
+    }
+    let setup: crate::setup::MatchSetup = match serde_json::from_value(request.setup) {
+        Ok(setup) => setup,
+        Err(failure) => {
+            return Response::error(request.request_id, "INVALID_SETUP", failure.to_string());
+        }
+    };
+    if request.ruleset != *setup.ruleset() {
+        return Response::error(
+            request.request_id,
+            "RULESET_MISMATCH",
+            "request ruleset does not equal setup ruleset",
+        );
+    }
+    match transition::initialize_match(setup, &request.random) {
+        Ok(result) => Response::new(
+            request.request_id,
+            ResponseBody::Accepted {
+                state: result.state,
+                events: result.events,
+                random_consumed: result.random_consumed,
+            },
+        ),
+        Err(transition::InitializeError::UnsupportedRuleset) => Response::error(
+            request.request_id,
+            "UNSUPPORTED_RULESET",
+            "only awbw/2026-07-10 is implemented",
+        ),
+        Err(transition::InitializeError::InvalidSetup(failure)) => {
+            Response::error(request.request_id, "INVALID_SETUP", failure.to_string())
+        }
+        Err(transition::InitializeError::InvalidRandom(failure)) => {
+            Response::error(request.request_id, "INVALID_RANDOM", failure.to_string())
+        }
     }
 }
 
@@ -545,6 +609,31 @@ mod tests {
                 "message": "the random tape is missing a token",
             })
         );
+    }
+
+    #[test]
+    fn invalid_setup_board_returns_its_dedicated_protocol_error() {
+        let mut case: Value = serde_json::from_str(include_str!(
+            "../../../spec/fixtures/turn/opening-income-funds-bases.json"
+        ))
+        .unwrap();
+        case["setup"]["board"]["tiles"][0][0]["terrain"] = json!("plain");
+        let request = json!({
+            "protocol_version": PROTOCOL_VERSION,
+            "request_id": "invalid-setup-board",
+            "operation": "initialize-match",
+            "ruleset": case["ruleset"],
+            "setup": case["setup"],
+            "random": case["opening"]["random"],
+        });
+
+        let response = respond(&request);
+
+        assert_eq!(response["status"], "error");
+        assert_eq!(response["code"], "INVALID_SETUP");
+        assert!(response["message"].as_str().is_some_and(|message| {
+            message.contains("carries ownership its terrain plain does not admit")
+        }));
     }
 
     #[test]

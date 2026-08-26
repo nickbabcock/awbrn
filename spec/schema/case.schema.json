@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/nickbabcock/awbrn/master/spec/schema/case.schema.json",
   "title": "AWVM executable conformance case",
-  "description": "A deterministic semantic scenario. Implementations receive only ruleset, initial_state, commands, and random tokens; all expect fields are assertions.",
+  "description": "A deterministic semantic scenario. Implementations receive either a one-time setup or an initial scenario state, plus commands and random tokens; all expect fields are assertions.",
   "oneOf": [{ "$ref": "#/$defs/sequence-case" }, { "$ref": "#/$defs/equivalence-case" }],
   "$defs": {
     "feature-id": {
@@ -40,15 +40,13 @@
     "sequence-case": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "id",
-        "spec_version",
-        "ruleset",
-        "feature",
-        "evidence",
-        "initial_state",
-        "steps"
-      ],
+      "required": ["id", "spec_version", "ruleset", "feature", "evidence", "steps"],
+      "oneOf": [{ "required": ["initial_state"] }, { "required": ["setup", "opening"] }],
+      "dependentRequired": {
+        "opening": ["setup"],
+        "setup": ["opening"],
+        "initial_observations": ["initial_state"]
+      },
       "properties": {
         "id": { "$ref": "common.schema.json#/$defs/id" },
         "spec_version": { "const": "0.1.0" },
@@ -56,8 +54,45 @@
         "feature": { "$ref": "#/$defs/feature-id" },
         "evidence": { "$ref": "#/$defs/evidence" },
         "initial_state": { "$ref": "state.schema.json" },
+        "setup": { "$ref": "match-setup.schema.json" },
+        "opening": { "$ref": "#/$defs/opening" },
         "initial_observations": { "$ref": "#/$defs/observations" },
         "steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/step" } }
+      }
+    },
+    "opening": {
+      "description": "The one-time transition from a match setup to the first actionable turn.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["random", "expect"],
+      "properties": {
+        "random": { "type": "array", "items": { "$ref": "random.schema.json" } },
+        "expect": { "$ref": "#/$defs/opening-result" }
+      }
+    },
+    "opening-result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "state", "events", "random_consumed"],
+      "properties": {
+        "status": { "const": "accepted" },
+        "state": { "$ref": "state.schema.json" },
+        "events": { "type": "array", "items": { "$ref": "event.schema.json" } },
+        "random_consumed": { "type": "integer", "minimum": 0 },
+        "observations": { "$ref": "#/$defs/observations" }
+      }
+    },
+    "accepted-result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "state", "events", "random_consumed"],
+      "properties": {
+        "status": { "const": "accepted" },
+        "state": { "$ref": "state.schema.json" },
+        "events": { "type": "array", "items": { "$ref": "event.schema.json" } },
+        "random_consumed": { "type": "integer", "minimum": 0 },
+        "observations": { "$ref": "#/$defs/observations" },
+        "observed_events": { "$ref": "#/$defs/observed-events-by-recipient" }
       }
     },
     "step": {
@@ -73,19 +108,7 @@
     },
     "step-result": {
       "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["status", "state", "events", "random_consumed"],
-          "properties": {
-            "status": { "const": "accepted" },
-            "state": { "$ref": "state.schema.json" },
-            "events": { "type": "array", "items": { "$ref": "event.schema.json" } },
-            "random_consumed": { "type": "integer", "minimum": 0 },
-            "observations": { "$ref": "#/$defs/observations" },
-            "observed_events": { "$ref": "#/$defs/observed-events-by-recipient" }
-          }
-        },
+        { "$ref": "#/$defs/accepted-result" },
         {
           "type": "object",
           "additionalProperties": false,

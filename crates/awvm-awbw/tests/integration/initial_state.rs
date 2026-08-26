@@ -1,5 +1,6 @@
 use awbrn_map::AwbwMapData;
 use awbw_replay::ReplayParser;
+use awvm::query::income;
 use awvm::semantic::{AwbwVisibility, Observation, State, observe};
 use awvm_awbw::initial_state;
 use highway::HighwayHash;
@@ -28,6 +29,28 @@ fn every_archived_replay_produces_a_valid_round_tripping_observable_state() {
         state
             .validate()
             .unwrap_or_else(|error| panic!("{replay_file} produced invalid state: {error}"));
+        assert_eq!(state.turn.day, 1, "{replay_file} does not open on day one");
+
+        let starting_funds = state.settings.starting_funds;
+        let first = state
+            .players
+            .seat(&state.turn.active_player)
+            .expect("the first player holds a seat");
+        for (seat, player) in state.players.seats() {
+            let collected = if seat == first {
+                income(&state, seat).expect("a recorded board pays an income that fits")
+            } else {
+                0
+            };
+            assert_eq!(
+                player.funds,
+                starting_funds + collected,
+                "{replay_file} opens with player {} holding {} rather than {}",
+                player.id(),
+                player.funds,
+                starting_funds + collected,
+            );
+        }
 
         let wire = serde_json::to_vec(&state).unwrap();
         let decoded: State = serde_json::from_slice(&wire).unwrap();

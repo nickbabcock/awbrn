@@ -243,13 +243,50 @@ impl Run<'_> {
         let steps = case["steps"]
             .as_array()
             .ok_or_else(|| format!("{}: steps is not an array", file.display()))?;
-        let mut state = case["initial_state"].clone();
-        self.literal_observations(
-            case,
-            &state,
-            case.get("initial_observations"),
-            &format!("{}/initial", case["id"].as_str().unwrap_or("case")),
-        )?;
+        let mut state = case.get("initial_state").cloned().unwrap_or(Value::Null);
+        if !state.is_null() {
+            self.literal_observations(
+                case,
+                &state,
+                case.get("initial_observations"),
+                &format!("{}/initial", case["id"].as_str().unwrap_or("case")),
+            )?;
+        }
+        if let Some(opening) = case.get("opening") {
+            let request_id = format!("{}/opening", case["id"].as_str().unwrap_or("case"));
+            let actual = self.peer.exchange(json!({
+                "protocol_version":PROTOCOL_VERSION,"request_id":request_id,
+                "operation":"initialize-match","ruleset":case["ruleset"],
+                "setup":case["setup"],"random":opening["random"]
+            }))?;
+            let expected = &opening["expect"];
+            let comparable = json!({
+                "status":actual["status"],"state":actual["state"],
+                "events":actual["events"],"random_consumed":actual["random_consumed"]
+            });
+            let mut expected_core = expected.clone();
+            if let Some(object) = expected_core.as_object_mut() {
+                object.remove("observations");
+            }
+            if comparable == expected_core {
+                self.summary.pass(&request_id, self.progress);
+                state = actual["state"].clone();
+            } else {
+                self.summary.fail(
+                    format!(
+                        "{request_id}: {}",
+                        first_difference(&expected_core, &comparable, "$")
+                    ),
+                    self.progress,
+                );
+            }
+            self.literal_observations(
+                case,
+                &state,
+                expected.get("observations"),
+                &format!("{request_id}/observation"),
+            )?;
+        }
         for step in steps {
             let request_id = format!(
                 "{}/{}",

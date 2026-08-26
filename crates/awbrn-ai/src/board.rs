@@ -35,11 +35,14 @@ pub const SEATS: [PlayerFaction; 2] = [PlayerFaction::OrangeStar, PlayerFaction:
 pub const AMBER_VALLEY_SEATS: [PlayerFaction; 2] =
     [PlayerFaction::TealGalaxy, PlayerFaction::PinkCosmos];
 
-/// Funds each seat starts with.
+/// Funds each seat starts with, on top of what its properties pay.
 ///
-/// Enough for one infantry on turn one and no more. A larger purse would let
-/// turn one decide a game the arena means to measure over thirty days.
-pub const STARTING_FUNDS: u32 = 1_000;
+/// Zero, which is what AWBW gives a match by default. Turn one is paid for by
+/// day-one income: every seat opens holding one turn of its own properties,
+/// three thousand on this board, and no purse the board did not hand it. An
+/// extra purse would let turn one decide a game the arena means to measure
+/// over thirty days.
+pub const STARTING_FUNDS: u32 = 0;
 
 /// The units no arena board may build.
 ///

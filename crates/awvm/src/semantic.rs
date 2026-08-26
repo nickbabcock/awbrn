@@ -28,6 +28,7 @@ use std::ops::Deref;
 use serde::{Deserialize, Serialize};
 
 use crate::ruleset::{self, TerrainTrait};
+use crate::setup::{MatchSetup, PlayerSetup, UnitDeployment};
 
 pub use grid::{Cell, CellIdx, Dimensions, Grid};
 pub use observe::{
@@ -817,6 +818,71 @@ pub struct State {
     pub match_state: Match,
 }
 
+#[derive(Serialize)]
+struct MatchSetupFields<'a> {
+    ruleset: &'a RulesetRef,
+    settings: &'a Settings,
+    board: BoardRows<'a>,
+    players: &'a [PlayerSetup],
+    deployments: &'a [UnitDeployment],
+}
+
+#[derive(Deserialize)]
+struct MatchSetupWire {
+    ruleset: RulesetRef,
+    settings: Settings,
+    board: BoardRowsWire,
+    players: Vec<PlayerSetup>,
+    deployments: Vec<UnitDeployment>,
+}
+
+impl Serialize for MatchSetup {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let players = Roster::new(
+            self.players
+                .iter()
+                .map(|player| Player::new(player.id.clone(), player.team.clone()))
+                .collect(),
+        )
+        .map_err(serde::ser::Error::custom)?;
+        MatchSetupFields {
+            ruleset: &self.ruleset,
+            settings: &self.settings,
+            board: self
+                .board
+                .to_rows(&players)
+                .map_err(serde::ser::Error::custom)?,
+            players: &self.players,
+            deployments: &self.deployments,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for MatchSetup {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = MatchSetupWire::deserialize(deserializer)?;
+        crate::setup::validate_players(&wire.players, wire.settings.tags)
+            .map_err(serde::de::Error::custom)?;
+        let roster = Roster::new(
+            wire.players
+                .iter()
+                .map(|player| Player::new(player.id.clone(), player.team.clone()))
+                .collect(),
+        )
+        .map_err(serde::de::Error::custom)?;
+        let board = Board::from_rows(wire.board, &roster).map_err(serde::de::Error::custom)?;
+        MatchSetup::new(
+            wire.ruleset,
+            wire.settings,
+            board,
+            wire.players,
+            wire.deployments,
+        )
+        .map_err(serde::de::Error::custom)
+    }
+}
+
 /// The state as the wire spells it, borrowed for writing.
 ///
 /// The board's tiles name their holder by seat, and only the roster turns a
@@ -1156,42 +1222,47 @@ impl State {
 
     /// Tiles: an owner that exists, and mutable fields the terrain admits.
     fn validate_board(&self) -> Result<(), StateInvariant> {
-        for (position, tile) in self.board.rows().flatten() {
-            if let Some(seat) = tile.owner.player()
-                && self.players.get(seat.get()).is_none()
-            {
-                return Err(StateInvariant::TileOwnerOffTheRoster { position, seat });
-            }
-            if tile.owner.is_ownable()
-                != ruleset::terrain_has(tile.terrain, TerrainTrait::Capturable)
-            {
-                return Err(StateInvariant::TileOwnershipDisagreesWithTerrain {
+        validate_board_invariants(&self.board, self.players.len())
+    }
+}
+
+pub(crate) fn validate_board_invariants(
+    board: &Board,
+    player_count: usize,
+) -> Result<(), StateInvariant> {
+    for (position, tile) in board.rows().flatten() {
+        if let Some(seat) = tile.owner.player()
+            && seat.get() >= player_count
+        {
+            return Err(StateInvariant::TileOwnerOffTheRoster { position, seat });
+        }
+        if tile.owner.is_ownable() != ruleset::terrain_has(tile.terrain, TerrainTrait::Capturable) {
+            return Err(StateInvariant::TileOwnershipDisagreesWithTerrain {
+                position,
+                terrain: tile.terrain,
+            });
+        }
+        if tile.capture_points.is_some() && !tile.owner.is_ownable() {
+            return Err(StateInvariant::CapturePointsOnUnownableTile { position });
+        }
+        match (
+            board.destructible_hp(position),
+            ruleset::terrain(tile.terrain).destructible,
+        ) {
+            (Some(hp), Some(profile)) if hp > profile.maximum_hp => {
+                return Err(StateInvariant::DestructibleHpAboveMaximum {
                     position,
-                    terrain: tile.terrain,
+                    hp,
+                    maximum: profile.maximum_hp,
                 });
             }
-            if tile.capture_points.is_some() && !tile.owner.is_ownable() {
-                return Err(StateInvariant::CapturePointsOnUnownableTile { position });
+            (Some(_), None) => {
+                return Err(StateInvariant::DestructibleHpOnIndestructibleTile { position });
             }
-            match (
-                self.board.destructible_hp(position),
-                ruleset::terrain(tile.terrain).destructible,
-            ) {
-                (Some(hp), Some(profile)) if hp > profile.maximum_hp => {
-                    return Err(StateInvariant::DestructibleHpAboveMaximum {
-                        position,
-                        hp,
-                        maximum: profile.maximum_hp,
-                    });
-                }
-                (Some(_), None) => {
-                    return Err(StateInvariant::DestructibleHpOnIndestructibleTile { position });
-                }
-                _ => {}
-            }
+            _ => {}
         }
-        Ok(())
     }
+    Ok(())
 }
 
 /// A relation between two parts of a [`State`] that the specification forbids.

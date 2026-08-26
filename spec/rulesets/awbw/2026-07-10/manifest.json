@@ -210,6 +210,7 @@
     "commander-effective-values-v1.sonja.cop",
     "commander-effective-values-v1.sonja.scop",
     "turn-boundary-v1",
+    "match-opening-v1",
     "turn-hooks-v1",
     "capture-v1",
     "production-v1",

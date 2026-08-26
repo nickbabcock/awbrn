@@ -466,7 +466,9 @@ fn build_infantry_from_owned_base_deducts_funds_and_spawns_unit() {
         .unwrap()
         .1
         .clone();
-    assert_eq!(p1_update.my_funds, Some(0));
+    // The base pays 1,000 of day-one income on top of the starting purse, so
+    // the 1,000 the infantry costs leaves the starting purse behind.
+    assert_eq!(p1_update.my_funds, Some(1000));
     let built = p1_update
         .units_revealed
         .iter()
@@ -477,7 +479,7 @@ fn build_infantry_from_owned_base_deducts_funds_and_spawns_unit() {
     assert_eq!(built.ammo, Some(Unit::Infantry.max_ammo()));
 
     let view = server.player_view(p1()).unwrap();
-    assert_eq!(view.my_funds, 0);
+    assert_eq!(view.my_funds, 1000);
     let built = view
         .units
         .iter()
@@ -565,11 +567,12 @@ fn build_rejects_insufficient_funds() {
         .submit_command(p1(), build_command(base, Unit::Mech))
         .unwrap_err();
 
+    // 1,000 of starting funds and 1,000 of day-one income from the base.
     assert!(matches!(
         err,
         CommandError::InsufficientFunds {
             cost: 3000,
-            available: 1000
+            available: 2000
         }
     ));
 }
@@ -698,9 +701,11 @@ fn build_supports_airport_and_port_domains() {
             .iter()
             .any(|unit| unit.position == port && unit.unit_type == Unit::Lander)
     );
-    // AWVM applies the normative turn-start income hook before the second
-    // build: the airport and port contribute 2,000 funds.
-    assert_eq!(view.my_funds, 5000);
+    // AWVM applies the normative turn-start income hook twice before the
+    // second build, once at match initialization for day one and once at the
+    // boundary that opens day two: the airport and port contribute 2,000 funds
+    // each time.
+    assert_eq!(view.my_funds, 7000);
 }
 
 #[test]
