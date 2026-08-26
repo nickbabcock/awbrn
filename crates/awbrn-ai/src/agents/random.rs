@@ -11,7 +11,7 @@
 use awvm::semantic::Observation;
 use awvm::session::{Order, OrderKind, Session};
 
-use crate::agent::{Agent, Play};
+use crate::agent::{Agent, NodeBudget, Play};
 use crate::rng::Rng;
 
 #[derive(Debug)]
@@ -31,7 +31,7 @@ impl RandomAgent {
 }
 
 impl Agent for RandomAgent {
-    fn act(&mut self, view: &Observation) -> Option<Play> {
+    fn act(&mut self, view: &Observation, _budget: NodeBudget) -> Option<Play> {
         // A projection this player may not act on reports nothing legal, so
         // the session answers the question rather than an error path.
         let session = Session::from_observation(view).ok()?;

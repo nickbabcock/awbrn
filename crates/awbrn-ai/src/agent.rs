@@ -15,7 +15,7 @@ pub trait Agent {
     /// The next play, or `None` to end the turn.
     ///
     /// `view` is what this player knows. It is the only board the agent gets.
-    fn act(&mut self, view: &Observation) -> Option<Play>;
+    fn act(&mut self, view: &Observation, budget: NodeBudget) -> Option<Play>;
 
     /// What the agent saw since the last call.
     ///
@@ -23,6 +23,49 @@ pub trait Agent {
     /// than deriving it again from each observation. An agent that keeps
     /// nothing ignores this.
     fn observe(&mut self, _events: &[ObservedEvent]) {}
+}
+
+/// The maximum number of candidate turn plans an agent may evaluate.
+///
+/// One node is one evaluated leaf. Applying the individual orders in a turn
+/// plan does not spend more nodes. This definition makes a search repeatable
+/// across machines: the same position and budget examine the same number of
+/// candidates, independent of clock speed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct NodeBudget(u32);
+
+impl NodeBudget {
+    pub const ONE: Self = Self(1);
+    pub const FOUR: Self = Self(4);
+    pub const EIGHT: Self = Self(8);
+    pub const SIXTEEN: Self = Self(16);
+
+    /// Make a nonzero node budget.
+    pub const fn new(nodes: u32) -> Option<Self> {
+        if nodes == 0 { None } else { Some(Self(nodes)) }
+    }
+
+    /// The number of candidate turn plans the agent may evaluate.
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+impl Default for NodeBudget {
+    fn default() -> Self {
+        Self::FOUR
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NodeBudget;
+
+    #[test]
+    fn node_budget_is_nonzero() {
+        assert_eq!(NodeBudget::new(0), None);
+        assert_eq!(NodeBudget::new(16), Some(NodeBudget::SIXTEEN));
+    }
 }
 
 /// One play, named the way a player can name it.

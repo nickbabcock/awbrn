@@ -32,7 +32,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
-use awbrn_ai::agent::Agent;
+use awbrn_ai::agent::{Agent, NodeBudget};
 use awbrn_ai::agents::{GreedyAgent, RandomAgent, Weights};
 use awbrn_ai::board::{SEATS, amber_valley_map, arena};
 use awbrn_ai::calibration::Calibration;
@@ -107,13 +107,15 @@ fn dispatch(options: &Options, start: Instant) -> Result<()> {
 }
 
 const USAGE: &str = "\
-usage: arena [--map NAME] [--seed N] [--games N] [--fog] [--day-cap N] [--first NAME] [--second NAME] [--weights FILE] [--second-weights FILE] [--sample DIR] [--ladder DIR] [--round-robin] [--roster NAMES] [--freeze NAME] [--calibrate] [--calibrate-out FILE] [--eval-weights FILE]
+usage: arena [--map NAME] [--seed N] [--games N] [--nodes N] [--fog] [--day-cap N] [--first NAME] [--second NAME] [--weights FILE] [--second-weights FILE] [--sample DIR] [--ladder DIR] [--round-robin] [--roster NAMES] [--freeze NAME] [--calibrate] [--calibrate-out FILE] [--eval-weights FILE]
 
   --map NAME     Map to play. Default amber-valley.
   --seed N       Seed for the tournament. The same seed gives the same result.
                  Default 1.
   --games N      Game pairs to play. Each pair is the same seed played with
                  both seat orders, so the tournament plays 2N games. Default 50.
+  --nodes N      Candidate turn plans each agent may evaluate per decision.
+                 Default 4. Initial comparison points are 1, 4, 8, and 16.
   --fog          Play with fog of war on. Default off.
   --day-cap N    Abandon a game after this many days. Default 35.
   --first NAME   What the agent under test plays: random, a weighting this
@@ -158,6 +160,7 @@ struct Options {
     map: &'static str,
     seed: u64,
     pairs: usize,
+    nodes: NodeBudget,
     fog: bool,
     day_cap: u32,
     first: String,
@@ -185,6 +188,7 @@ impl Options {
             map: "amber-valley",
             seed: 1,
             pairs: 50,
+            nodes: NodeBudget::FOUR,
             fog: false,
             day_cap: Limits::default().days,
             first: "random".to_owned(),
@@ -211,6 +215,10 @@ impl Options {
                 "--map" => options.map = map_name(&value()?)?,
                 "--seed" => options.seed = parse_number(&value()?)?,
                 "--games" => options.pairs = parse_number(&value()?)?,
+                "--nodes" => {
+                    options.nodes = NodeBudget::new(parse_number(&value()?)?)
+                        .ok_or_else(|| "--nodes must be at least 1".to_owned())?;
+                }
                 "--day-cap" => options.day_cap = parse_number(&value()?)?,
                 "--fog" => options.fog = true,
                 "--first" => options.first = agent_spec(&value()?)?,
@@ -275,6 +283,7 @@ impl Options {
 
     const fn limits(&self) -> Limits {
         Limits {
+            nodes: self.nodes,
             days: self.day_cap,
             ..Limits::DEFAULT
         }

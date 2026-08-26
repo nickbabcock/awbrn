@@ -46,7 +46,7 @@ use awvm::semantic::{
 };
 use awvm::session::{Legal, Order, OrderKind, Session, UnitIdx};
 
-use crate::agent::{Agent, Play};
+use crate::agent::{Agent, NodeBudget, Play};
 use crate::map::ContestMap;
 use crate::rng::Rng;
 use crate::threat::{self, ThreatMap};
@@ -886,7 +886,7 @@ fn strike(attacker: UnitKind, defender: UnitKind) -> f64 {
 }
 
 impl Agent for GreedyAgent {
-    fn act(&mut self, view: &Observation) -> Option<Play> {
+    fn act(&mut self, view: &Observation, _budget: NodeBudget) -> Option<Play> {
         // A projection this player may not act on reports nothing legal, so
         // the session answers the question rather than an error path.
         let session = Session::from_observation(view).ok()?;
@@ -1693,8 +1693,8 @@ mod tests {
         }
 
         impl Agent for Checker {
-            fn act(&mut self, view: &Observation) -> Option<Play> {
-                let play = self.inner.act(view);
+            fn act(&mut self, view: &Observation, budget: NodeBudget) -> Option<Play> {
+                let play = self.inner.act(view, budget);
 
                 let Ok(session) = Session::from_observation(view) else {
                     return play;
@@ -1969,7 +1969,7 @@ mod tests {
         let view = observe(&AwbwVisibility, &state, &state.turn.active_player)
             .expect("the active player observes their own position");
         let play = GreedyAgent::from_seed(1)
-            .act(&view)
+            .act(&view, NodeBudget::FOUR)
             .expect("the opening position offers a play");
 
         let OrderKind::Produce(kind) = play.kind() else {
@@ -2135,7 +2135,9 @@ mod tests {
             let Ok(view) = observe(&AwbwVisibility, state, &state.turn.active_player) else {
                 break;
             };
-            let Some(play) = agent.act(&view) else { break };
+            let Some(play) = agent.act(&view, NodeBudget::FOUR) else {
+                break;
+            };
             if play.unit() == Some(guard) {
                 answered = matches!(play.kind(), OrderKind::Attack(_));
             }
@@ -2285,7 +2287,9 @@ mod tests {
                 };
                 // The turn ends with the guard where it stands, which is one
                 // of the two ways of holding the tile.
-                let Some(play) = agent.act(&view) else { break };
+                let Some(play) = agent.act(&view, NodeBudget::FOUR) else {
+                    break;
+                };
                 if play.unit() == Some(guard) && play.destination() != hq {
                     return Some(play.destination());
                 }

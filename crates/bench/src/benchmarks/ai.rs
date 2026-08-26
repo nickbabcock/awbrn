@@ -22,7 +22,7 @@ use ::awvm::semantic::{
 };
 use ::awvm::session::{Order, OrderKind, OrderMask, Session, UnitIdx};
 use ::awvm::transition::{Command, ExecuteOutcome, execute};
-use awbrn_ai::agent::Agent;
+use awbrn_ai::agent::{Agent, NodeBudget};
 use awbrn_ai::agents::{GreedyAgent, Weights};
 use awbrn_ai::board::amber_valley;
 use awbrn_ai::eval::{EvalWeights, Evaluator};
@@ -398,6 +398,17 @@ mod tests {
             assert_ne!(case.session.state().turn.active_player, player);
         }
     }
+
+    #[test]
+    fn search_node_evaluates_one_leaf_and_rewinds() {
+        let mut case = search_node_case();
+        let player = case.session.state().turn.active_player.clone();
+        let depth = case.session.depth();
+
+        assert!(run_search_node(&mut case).is_finite());
+        assert_eq!(case.session.depth(), depth);
+        assert_eq!(case.session.state().turn.active_player, player);
+    }
 }
 
 /// A session on a played position, with one unit order to descend through.
@@ -592,7 +603,7 @@ pub fn greedy_decision_case(
 
 /// Run one decision while retaining the agent's maps and scratch.
 pub fn run_greedy_act(case: &mut GreedyDecisionCase) -> Option<awbrn_ai::agent::Play> {
-    case.agent.act(&case.view)
+    case.agent.act(&case.view, NodeBudget::FOUR)
 }
 
 /// One agent playing one authoritative turn from a fixed position.
@@ -632,7 +643,7 @@ pub fn run_greedy_turn(case: &mut GreedyTurnCase) -> usize {
         .expect("the active player observes the turn position");
         let command = case
             .agent
-            .act(&case.view)
+            .act(&case.view, NodeBudget::FOUR)
             .and_then(|play| play.command(&case.session))
             .unwrap_or_else(|| Command::EndTurn {
                 player: starting_player.clone(),
@@ -643,6 +654,114 @@ pub fn run_greedy_turn(case: &mut GreedyTurnCase) -> usize {
         commands += 1;
     }
     commands
+}
+
+/// One evaluated search leaf with all reusable search state retained.
+#[derive(Debug)]
+pub struct SearchNodeCase {
+    pub session: Session,
+    friendly_plan: Vec<Order>,
+    opponent: GreedyAgent,
+    view: Observation,
+    entropy: Rng,
+    evaluator: Evaluator,
+    friendly_seat: ::awvm::semantic::PlayerIdx,
+}
+
+/// Build one candidate turn plan and return to its root position.
+pub fn search_node_case() -> SearchNodeCase {
+    let state = server::state(server::DUEL, false);
+    let friendly_seat = state
+        .player_index(&state.turn.active_player)
+        .expect("the active player has a seat");
+    let mut session = Session::new(state);
+    let mut view = observation(session.state());
+    let mut friendly = GreedyAgent::with_weights(Rng::mix(1), Weights::THREAT);
+    let mut entropy = Rng::from_seed(Rng::mix(2));
+    let replay_entropy = entropy.clone();
+    let starting_player = session.state().turn.active_player.clone();
+    let mut friendly_plan = Vec::new();
+    let mut root = None;
+
+    while session.state().turn.active_player == starting_player
+        && matches!(session.state().match_state, Match::Active { .. })
+    {
+        observe_into(
+            &AwbwVisibility,
+            session.state(),
+            &starting_player,
+            &mut view,
+        )
+        .expect("the active player observes the candidate turn");
+        let command = friendly
+            .act(&view, NodeBudget::ONE)
+            .and_then(|play| play.command(&session))
+            .unwrap_or_else(|| Command::EndTurn {
+                player: starting_player.clone(),
+            });
+        let order = session
+            .resolve(&command)
+            .expect("the candidate command resolves to an order");
+        let mark = session
+            .apply(order, &mut entropy, &mut ())
+            .expect("the candidate order is accepted");
+        root.get_or_insert(mark);
+        friendly_plan.push(order);
+    }
+    session.rewind(root.expect("a candidate turn contains an end-turn order"));
+
+    SearchNodeCase {
+        view: observation(session.state()),
+        session,
+        friendly_plan,
+        opponent: GreedyAgent::with_weights(Rng::mix(3), Weights::THREAT),
+        entropy: replay_entropy,
+        evaluator: Evaluator::new(EvalWeights::STANDARD),
+        friendly_seat,
+    }
+}
+
+/// Apply one friendly plan, play one greedy reply, evaluate, and rewind.
+///
+/// This entire operation is one search node. The orders inside either turn do
+/// not count as nodes.
+pub fn run_search_node(case: &mut SearchNodeCase) -> f64 {
+    let mut root = None;
+    for order in case.friendly_plan.iter().copied() {
+        let mark = case
+            .session
+            .apply(order, &mut case.entropy, &mut ())
+            .expect("the candidate order is accepted");
+        root.get_or_insert(mark);
+    }
+
+    let opponent_player = case.session.state().turn.active_player.clone();
+    while case.session.state().turn.active_player == opponent_player
+        && matches!(case.session.state().match_state, Match::Active { .. })
+    {
+        observe_into(
+            &AwbwVisibility,
+            case.session.state(),
+            &opponent_player,
+            &mut case.view,
+        )
+        .expect("the opponent observes the reply position");
+        let command = case
+            .opponent
+            .act(&case.view, NodeBudget::ONE)
+            .and_then(|play| play.command(&case.session))
+            .unwrap_or_else(|| Command::EndTurn {
+                player: opponent_player.clone(),
+            });
+        case.session
+            .apply_command(command, &mut case.entropy, &mut ())
+            .expect("the opponent command is accepted");
+    }
+
+    let value = case.evaluator.value_in(&case.session, case.friendly_seat);
+    case.session
+        .rewind(root.expect("the candidate plan contains an order"));
+    value
 }
 
 fn without_position(mut weights: EvalWeights) -> EvalWeights {
@@ -969,6 +1088,18 @@ pub mod criterion_benches {
         group.finish();
     }
 
+    fn search_node(c: &mut Criterion) {
+        let mut group = c.benchmark_group("ai-search-node");
+        group.bench_function("greedy-reply-standard", |b| {
+            b.iter_batched_ref(
+                search_node_case,
+                |case| black_box(run_search_node(case)),
+                BatchSize::SmallInput,
+            );
+        });
+        group.finish();
+    }
+
     fn matches(c: &mut Criterion) {
         let mut group = c.benchmark_group("ai-match");
         group.bench_function("amber-valley-threat-vs-deny", |b| {
@@ -992,6 +1123,7 @@ pub mod criterion_benches {
         threat_map,
         greedy_act,
         greedy_turn,
+        search_node,
         matches
     );
 }
@@ -1156,6 +1288,13 @@ pub mod gungraun_benches {
         run_cycle(&case)
     }
 
+    #[library_benchmark(setup = search_node_case)]
+    #[bench::greedy_reply_standard()]
+    fn search_node(case: SearchNodeCase) -> f64 {
+        let mut case = std::mem::ManuallyDrop::new(case);
+        run_search_node(&mut case)
+    }
+
     fn match_case() -> AmberValleyMatchCase {
         amber_valley_match_case()
     }
@@ -1183,6 +1322,7 @@ pub mod gungraun_benches {
             session_apply_rewind,
             session_apply_rewind_warm,
             complete_cycle,
+            search_node,
             amber_valley_match,
         ]
     );

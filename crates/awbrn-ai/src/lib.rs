@@ -36,7 +36,7 @@ pub mod shape;
 pub mod threat;
 pub mod vision;
 
-pub use agent::{Agent, Play};
+pub use agent::{Agent, NodeBudget, Play};
 pub use calibration::Calibration;
 pub use eval::{EvalWeights, Evaluator};
 pub use harness::{Limits, Record, play, play_measured};
