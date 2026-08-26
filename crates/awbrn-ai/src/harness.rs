@@ -23,7 +23,7 @@ use awvm::semantic::{
 use awvm::session::Session;
 use awvm::transition::{Command, ExecuteOutcome, execute_with};
 
-use crate::agent::Agent;
+use crate::agent::{Agent, NodeBudget};
 use crate::shape::Shape;
 
 type Observer<'a> = &'a mut dyn FnMut(&State, Option<&Command>);
@@ -31,6 +31,8 @@ type Observer<'a> = &'a mut dyn FnMut(&State, Option<&Command>);
 /// What stops a game the agents do not finish.
 #[derive(Clone, Copy, Debug)]
 pub struct Limits {
+    /// Candidate turn plans one decision may evaluate.
+    pub nodes: NodeBudget,
     /// Days the game may last.
     ///
     /// A random agent almost never captures a headquarters, so its games do
@@ -65,6 +67,7 @@ impl Limits {
     /// high enough that an ordinary fog refusal does not end a turn early;
     /// [`Record::refusals`] is what says whether that holds.
     pub const DEFAULT: Self = Self {
+        nodes: NodeBudget::FOUR,
         days: 35,
         refusals: 64,
     };
@@ -276,7 +279,7 @@ fn play_inner<E: Entropy>(
             // ends it too: the true state holds no such route, which a hidden
             // blocker does, and passing is the honest answer.
             match agents[seat.get()]
-                .act(view)
+                .act(view, limits.nodes)
                 .and_then(|play| play.command(session))
             {
                 Some(command) => command,

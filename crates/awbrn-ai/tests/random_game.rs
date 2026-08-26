@@ -5,7 +5,7 @@
 //! invents an id for every unit it cannot own, so a play that survives the
 //! round trip is a play that named its target by tile.
 
-use awbrn_ai::agent::{Agent, Play};
+use awbrn_ai::agent::{Agent, NodeBudget, Play};
 use awbrn_ai::agents::RandomAgent;
 use awbrn_ai::harness::{Limits, Record, play};
 use awbrn_ai::rng::Rng;
@@ -19,6 +19,7 @@ const FIXTURE: &str = include_str!("../../../spec/fixtures/fog/vision-sources-an
 /// A random agent almost never wins, so a game ends at this cap and that is
 /// expected. The cap is what stops the test rather than the game's own end.
 const LIMITS: Limits = Limits {
+    nodes: NodeBudget::FOUR,
     days: 15,
     refusals: 64,
 };
@@ -36,8 +37,8 @@ fn fixture_state() -> State {
 struct Checked(RandomAgent);
 
 impl Agent for Checked {
-    fn act(&mut self, view: &Observation) -> Option<Play> {
-        let play = self.0.act(view)?;
+    fn act(&mut self, view: &Observation, budget: NodeBudget) -> Option<Play> {
+        let play = self.0.act(view, budget)?;
         for named in [play.unit(), play.cargo()].into_iter().flatten() {
             let owned = view.units.iter().any(|unit| {
                 matches!(unit.reference, ObservedUnitRef::Friendly { unit: id } if id == named)
