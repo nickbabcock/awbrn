@@ -376,6 +376,21 @@ export const awbrnTheme = defineTheme({
       },
       ...factionCardVariants,
     },
+
+    // A map on the board is a key on the menu, and the chosen one wears the
+    // cursor: the accent outline with the accent ring inside it, sitting flush
+    // on the board instead of above it.
+    "selectable-card": {
+      base: {
+        ...panel,
+        backgroundColor: "var(--color-background-surface)",
+        boxShadow: "var(--shadow-med)",
+      },
+      "selected:true": {
+        borderColor: "var(--color-accent)",
+        boxShadow: "var(--shadow-inset-selected)",
+      },
+    },
     section: {
       "variant:section": {
         ...panel,

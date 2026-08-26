@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { awbrnMapDocumentSchema } from "#/maps/map_document.ts";
 import { MAP_ID_LENGTH } from "#/maps/map_id.ts";
+import { mapRefSchema } from "#/maps/schemas.ts";
 import { matchIdSchema } from "./match_id.ts";
 
 export const matchSettingsSchema = z.object({
@@ -14,7 +15,7 @@ export const matchCreateRequestSchema = z.object({
     .string()
     .refine((s) => s.trim().length > 0, "match name is required")
     .transform((s) => s.trim()),
-  mapId: z.number().int().positive(),
+  map: mapRefSchema,
   isPrivate: z.boolean(),
   settings: matchSettingsSchema,
 });

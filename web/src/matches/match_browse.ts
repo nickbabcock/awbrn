@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { decodeCursor } from "./cursor";
+import { decodeCursor } from "#/utils/cursor.ts";
 import { matchIdSchema } from "./match_id";
 
 export const MATCH_BROWSE_PAGE_SIZE = 12;

@@ -11,7 +11,7 @@ import {
   renderSmallMapScreenshot,
 } from "#/wasm/awbrn_server.js";
 import { importedMapDocumentSchema } from "./map_document.ts";
-import { mapScreenshotKey } from "./map_screenshot.ts";
+import { mapScreenshotKey, mapScreenshotSize } from "./map_screenshot.ts";
 
 const PNG_SIGNATURE = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -46,6 +46,7 @@ describe("map screenshots", () => {
       width: document.width * 4,
       height: document.height * 4,
     });
+    expect(pngSize(png)).toEqual(mapScreenshotSize("small", document.width, document.height));
   });
 
   it("draws the full map from the atlases the renderer holds", () => {
@@ -64,6 +65,7 @@ describe("map screenshots", () => {
       width: document.width * 16,
       height: (document.height + 1) * 16,
     });
+    expect(pngSize(png)).toEqual(mapScreenshotSize("full", document.width, document.height));
   });
 
   it("says where a picture is kept", () => {

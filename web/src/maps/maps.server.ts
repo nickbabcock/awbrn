@@ -1,12 +1,25 @@
 import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, lt, or, sql } from "drizzle-orm";
 import { fetchAwbwMapData } from "#/awbw/awbw.server.ts";
 import { mapRevisions, maps, mapSources } from "#/db/global.ts";
 import { generateMapId } from "./map_id.ts";
 import { awbrnMapDocumentSchema, importedMapDocumentSchema } from "./map_document.ts";
 import type { AwbrnMapDocument, ImportedMapDocument } from "./map_document.ts";
-import type { MapRef } from "./schemas.ts";
+import type {
+  MapCatalogEntry,
+  MapCatalogRequest,
+  MapCatalogResponse,
+  MapRef,
+  MapSourceKind,
+} from "./schemas.ts";
+import {
+  decodeMapCatalogCursor,
+  encodeMapCatalogCursor,
+  MAP_CATALOG_PAGE_SIZE,
+  mapSearchPattern,
+  normalizeMapSearch,
+} from "./map_catalog.ts";
 import {
   canonicalizeAwbwMap,
   renderFullMapScreenshotPng,
@@ -17,6 +30,7 @@ import {
   MAP_SCREENSHOT_CONTENT_TYPE,
   MAP_SCREENSHOT_KINDS,
   mapScreenshotKey,
+  mapScreenshotPath,
   type MapScreenshotKind,
 } from "./map_screenshot.ts";
 
@@ -154,4 +168,174 @@ async function findAwbwMap(sourceMapId: number): Promise<MapRef | null> {
 
 function contentKey(hash: string): string {
   return `maps/doc/v1/${hash}`;
+}
+
+/**
+ * A page of the catalog, newest map first.
+ *
+ * Every row is a map at its current revision, with the addresses of the two
+ * pictures that revision was drawn into. One extra row is read to learn
+ * whether a page follows this one.
+ */
+export async function listCatalogMaps(request: MapCatalogRequest): Promise<MapCatalogResponse> {
+  const cursor = decodeMapCatalogCursor(request.cursor);
+  const cursorCreatedAt = cursor ? new Date(cursor.createdAt) : null;
+  const afterCursor =
+    cursor && cursorCreatedAt && !Number.isNaN(cursorCreatedAt.getTime())
+      ? or(
+          lt(maps.createdAt, cursorCreatedAt),
+          and(eq(maps.createdAt, cursorCreatedAt), lt(maps.id, cursor.mapId)),
+        )
+      : undefined;
+
+  const search = normalizeMapSearch(request.search);
+  // The pattern escapes the wildcards of `LIKE`, which only counts when the
+  // statement says which character does the escaping.
+  const pattern = search ? mapSearchPattern(search.toLowerCase()) : null;
+  const matchesSearch = pattern
+    ? or(
+        sql`lower(${maps.name}) like ${pattern} escape '\\'`,
+        sql`lower(${maps.author}) like ${pattern} escape '\\'`,
+      )
+    : undefined;
+
+  const rows = await db
+    .select({
+      mapId: maps.id,
+      name: maps.name,
+      author: maps.author,
+      revision: maps.currentRevision,
+      createdAt: maps.createdAt,
+      contentHash: mapRevisions.contentHash,
+      width: mapRevisions.width,
+      height: mapRevisions.height,
+      playerCount: mapRevisions.playerCount,
+      source: mapSources.source,
+      sourceMapId: mapSources.sourceMapId,
+    })
+    .from(maps)
+    .innerJoin(
+      mapRevisions,
+      and(eq(mapRevisions.mapId, maps.id), eq(mapRevisions.revision, maps.currentRevision)),
+    )
+    .leftJoin(mapSources, eq(mapSources.mapId, maps.id))
+    .where(and(afterCursor, matchesSearch))
+    .orderBy(desc(maps.createdAt), desc(maps.id))
+    .limit(MAP_CATALOG_PAGE_SIZE + 1)
+    .all();
+
+  const hasNextPage = rows.length > MAP_CATALOG_PAGE_SIZE;
+  const visibleRows = hasNextPage ? rows.slice(0, MAP_CATALOG_PAGE_SIZE) : rows;
+  const lastVisibleRow = visibleRows[visibleRows.length - 1] ?? null;
+
+  return {
+    maps: visibleRows.map(toCatalogEntry),
+    pageSize: MAP_CATALOG_PAGE_SIZE,
+    hasNextPage,
+    nextCursor:
+      hasNextPage && lastVisibleRow
+        ? encodeMapCatalogCursor({
+            createdAt: lastVisibleRow.createdAt.toISOString(),
+            mapId: lastVisibleRow.mapId,
+          })
+        : null,
+  };
+}
+
+/**
+ * Put an AWBW map in the catalog and report the entry the catalog now holds.
+ *
+ * A map that is already held is returned as it stands, so importing the same
+ * map twice is the same as looking it up.
+ */
+export async function importAwbwMapToCatalog(sourceMapId: number): Promise<MapCatalogEntry> {
+  const ref = await importAwbwMap(sourceMapId);
+  const entry = await findCatalogEntry(ref);
+  if (!entry) throw new Error("the imported map is not in the catalog");
+  return entry;
+}
+
+/** One catalog entry, or null when no such revision is held. */
+export async function findCatalogEntry({
+  mapId,
+  revision,
+}: MapRef): Promise<MapCatalogEntry | null> {
+  const row = await db
+    .select({
+      mapId: maps.id,
+      name: maps.name,
+      author: maps.author,
+      revision: mapRevisions.revision,
+      createdAt: maps.createdAt,
+      contentHash: mapRevisions.contentHash,
+      width: mapRevisions.width,
+      height: mapRevisions.height,
+      playerCount: mapRevisions.playerCount,
+      source: mapSources.source,
+      sourceMapId: mapSources.sourceMapId,
+    })
+    .from(mapRevisions)
+    .innerJoin(maps, eq(maps.id, mapRevisions.mapId))
+    .leftJoin(mapSources, eq(mapSources.mapId, maps.id))
+    .where(and(eq(mapRevisions.mapId, mapId), eq(mapRevisions.revision, revision)))
+    .get();
+
+  return row ? toCatalogEntry(row) : null;
+}
+
+interface CatalogRow {
+  mapId: string;
+  name: string;
+  author: string;
+  revision: number;
+  createdAt: Date;
+  contentHash: string;
+  width: number;
+  height: number;
+  playerCount: number;
+  source: MapSourceKind | null;
+  sourceMapId: number | null;
+}
+
+function toCatalogEntry(row: CatalogRow): MapCatalogEntry {
+  return {
+    mapId: row.mapId,
+    revision: row.revision,
+    name: row.name,
+    author: row.author,
+    playerCount: row.playerCount,
+    width: row.width,
+    height: row.height,
+    origin:
+      row.source && row.sourceMapId !== null
+        ? { kind: row.source, sourceMapId: row.sourceMapId }
+        : null,
+    screenshot: {
+      small: mapScreenshotPath(row.contentHash, "small"),
+      full: mapScreenshotPath(row.contentHash, "full"),
+    },
+    addedAt: row.createdAt.toISOString(),
+  };
+}
+
+/**
+ * The stored picture of a map revision, ready to serve.
+ *
+ * The picture is immutable and its address names the content it was drawn
+ * from, so it is served with a year of cache and an entity tag.
+ */
+export async function readMapScreenshot(
+  contentHash: string,
+  kind: MapScreenshotKind,
+): Promise<Response> {
+  const object = await env.CONTENT.get(mapScreenshotKey(contentHash, kind));
+  if (!object) return new Response("Map picture not found", { status: 404 });
+
+  return new Response(object.body, {
+    headers: {
+      "Content-Type": MAP_SCREENSHOT_CONTENT_TYPE,
+      "Cache-Control": MAP_SCREENSHOT_CACHE_CONTROL,
+      ETag: object.httpEtag,
+    },
+  });
 }

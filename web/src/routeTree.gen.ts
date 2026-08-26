@@ -22,6 +22,7 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiAwbwMapMapIdRouteImport } from './routes/api/awbw/map.$mapId'
 import { Route as ApiAwbwSmallmapMapIdRouteImport } from './routes/api/awbw/smallmap.$mapId'
 import { Route as ApiAwbwUserUserIdRouteImport } from './routes/api/awbw/user.$userId'
+import { Route as ApiMapsImgContentHashKindRouteImport } from './routes/api/maps/img.$contentHash.$kind'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -89,6 +90,12 @@ const ApiAwbwUserUserIdRoute = ApiAwbwUserUserIdRouteImport.update({
   path: '/api/awbw/user/$userId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMapsImgContentHashKindRoute =
+  ApiMapsImgContentHashKindRouteImport.update({
+    id: '/api/maps/img/$contentHash/$kind',
+    path: '/api/maps/img/$contentHash/$kind',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -104,6 +111,7 @@ export interface FileRoutesByFullPath {
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/smallmap/$mapId': typeof ApiAwbwSmallmapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
+  '/api/maps/img/$contentHash/$kind': typeof ApiMapsImgContentHashKindRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -119,6 +127,7 @@ export interface FileRoutesByTo {
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/smallmap/$mapId': typeof ApiAwbwSmallmapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
+  '/api/maps/img/$contentHash/$kind': typeof ApiMapsImgContentHashKindRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -135,6 +144,7 @@ export interface FileRoutesById {
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/smallmap/$mapId': typeof ApiAwbwSmallmapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
+  '/api/maps/img/$contentHash/$kind': typeof ApiMapsImgContentHashKindRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -152,6 +162,7 @@ export interface FileRouteTypes {
     | '/api/awbw/map/$mapId'
     | '/api/awbw/smallmap/$mapId'
     | '/api/awbw/user/$userId'
+    | '/api/maps/img/$contentHash/$kind'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -167,6 +178,7 @@ export interface FileRouteTypes {
     | '/api/awbw/map/$mapId'
     | '/api/awbw/smallmap/$mapId'
     | '/api/awbw/user/$userId'
+    | '/api/maps/img/$contentHash/$kind'
   id:
     | '__root__'
     | '/'
@@ -182,6 +194,7 @@ export interface FileRouteTypes {
     | '/api/awbw/map/$mapId'
     | '/api/awbw/smallmap/$mapId'
     | '/api/awbw/user/$userId'
+    | '/api/maps/img/$contentHash/$kind'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -198,6 +211,7 @@ export interface RootRouteChildren {
   ApiAwbwMapMapIdRoute: typeof ApiAwbwMapMapIdRoute
   ApiAwbwSmallmapMapIdRoute: typeof ApiAwbwSmallmapMapIdRoute
   ApiAwbwUserUserIdRoute: typeof ApiAwbwUserUserIdRoute
+  ApiMapsImgContentHashKindRoute: typeof ApiMapsImgContentHashKindRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -293,6 +307,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAwbwUserUserIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/maps/img/$contentHash/$kind': {
+      id: '/api/maps/img/$contentHash/$kind'
+      path: '/api/maps/img/$contentHash/$kind'
+      fullPath: '/api/maps/img/$contentHash/$kind'
+      preLoaderRoute: typeof ApiMapsImgContentHashKindRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -311,6 +332,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAwbwMapMapIdRoute: ApiAwbwMapMapIdRoute,
   ApiAwbwSmallmapMapIdRoute: ApiAwbwSmallmapMapIdRoute,
   ApiAwbwUserUserIdRoute: ApiAwbwUserUserIdRoute,
+  ApiMapsImgContentHashKindRoute: ApiMapsImgContentHashKindRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

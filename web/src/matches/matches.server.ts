@@ -34,7 +34,7 @@ import {
   encodeMatchBrowseCursor,
 } from "./match_browse";
 import type { AwbrnMapDocument } from "#/maps/map_document.ts";
-import { importAwbwMap, loadMapRevision } from "#/maps/maps.server.ts";
+import { findCatalogEntry, loadMapRevision } from "#/maps/maps.server.ts";
 import { err, ok, type MatchResult } from "./match_protocol";
 import { generateMatchId } from "./match_id";
 import { getMatchStub } from "./match_service";
@@ -86,8 +86,16 @@ export async function createMatch(
   input: MatchCreateRequest,
   creator: MatchViewer,
 ): Promise<MatchResult<MatchCreateResponse>> {
+  // The map must already be in the catalog. A player puts one there by
+  // importing it, which is a separate step with its own report of what went
+  // wrong, so a match never waits on a fetch to another site.
+  const mapRef = input.map;
+  const catalogEntry = await findCatalogEntry(mapRef);
+  if (!catalogEntry) {
+    return err("invalidMap", "the selected map is not in the catalog", 400);
+  }
+
   try {
-    const mapRef = await importAwbwMap(input.mapId);
     const mapDocument = await loadMapRevision(mapRef);
     const maxPlayers = mapDocument.metadata.player_count;
 
