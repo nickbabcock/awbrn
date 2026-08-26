@@ -24,15 +24,17 @@ run = [
 [tasks."build:wasm:bindgen"]
 hide = true
 wait_for = ["build:wasm:compile"]
+usage = 'arg "<rust_package>"'
 run = [
-    'wasm-bindgen --target web ./target/wasm32-unknown-unknown/release/{{arg(name="rust_package")}}.wasm --out-dir ./web/src/wasm'
+    'wasm-bindgen --target web ./target/wasm32-unknown-unknown/release/{{ usage.rust_package }}.wasm --out-dir ./web/src/wasm'
 ]
 
 [tasks."build:wasm:ci:bindgen"]
 hide = true
 wait_for = ["build:wasm:ci:compile"]
+usage = 'arg "<rust_package>"'
 run = [
-    'wasm-bindgen --target web ./target/wasm32-unknown-unknown/ci/{{arg(name="rust_package")}}.wasm --out-dir ./web/src/wasm'
+    'wasm-bindgen --target web ./target/wasm32-unknown-unknown/ci/{{ usage.rust_package }}.wasm --out-dir ./web/src/wasm'
 ]
 
 [tasks."build:wasm"]
@@ -47,8 +49,9 @@ depends = ["build:wasm:ci:compile", "build:wasm:ci:bindgen awbrn_wasm", "build:w
 hide = true
 wait_for = ["build:wasm:bindgen awbrn_wasm", "build:wasm:bindgen awbrn_server", "build:wasm:ci:bindgen awbrn_wasm", "build:wasm:ci:bindgen awbrn_server"]
 dir = "web"
+usage = 'arg "<rust_package>"'
 run = [
-    'wasm-opt --enable-bulk-memory-opt --enable-nontrapping-float-to-int -O2 ./src/wasm/{{arg(name="rust_package")}}_bg.wasm -o ./src/wasm/{{arg(name="rust_package")}}_bg.wasm'
+    'wasm-opt --enable-bulk-memory-opt --enable-nontrapping-float-to-int -O2 ./src/wasm/{{ usage.rust_package }}_bg.wasm -o ./src/wasm/{{ usage.rust_package }}_bg.wasm'
 ]
 
 [tasks."build:web"]
