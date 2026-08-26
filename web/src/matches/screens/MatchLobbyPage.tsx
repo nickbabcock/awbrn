@@ -1,34 +1,52 @@
+/*
+ * THE BRIEFING ROOM
+ *
+ * THESIS: a lobby is a wait, and the two things worth doing during it are
+ *   reading the ground and choosing who commands on it. So the screen is two
+ *   panels that answer those, and the CO board opens inside the seat a player
+ *   just claimed rather than anywhere they would have to go looking for it.
+ * OWN-WORLD: the map arrives as the picture that was drawn at import rather
+ *   than as a live engine surface, so the board reads at native pixels from
+ *   the first paint and the lobby boots no renderer at all.
+ * STORY: a player opens the link, reads the battlefield and what the match
+ *   took away, claims a seat, picks a CO from the board that opens under it
+ *   with the banned faces visibly struck, and readies.
+ */
+
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "#/ui/Button.tsx";
+import { Card } from "@astryxdesign/core/Card";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { Section } from "@astryxdesign/core/Section";
-import { Selector } from "@astryxdesign/core/Selector";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { colorVars, durationVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
+import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Cancel as CancelIcon } from "pixelarticons/react/Cancel";
 import { Check as CheckIcon } from "pixelarticons/react/Check";
 import { Logout as LogoutIcon } from "pixelarticons/react/Logout";
-import { Plus as PlusIcon } from "pixelarticons/react/Plus";
 import { useAppSession } from "#/auth/useAppSession.ts";
-import { mapRevisionQueryOptions } from "#/maps/maps.queries.ts";
+import { coDisplayName } from "#/co_roster.ts";
+import { mapCatalogEntryQueryOptions, mapRevisionQueryOptions } from "#/maps/maps.queries.ts";
+import { mapScreenshotSize } from "#/maps/map_screenshot.ts";
+import { MapPicture } from "#/maps/components/MapPicture.tsx";
 import { CoPortrait } from "#/components/CoPortrait.tsx";
+import { BannedCoList, CoBoard } from "#/components/CoBoard.tsx";
 import {
   DEFAULT_CO_PORTRAIT_KEY,
   getCoPortraitByAwbwId,
-  listCoPortraits,
   loadCoPortraitCatalog,
   type CoPortraitCatalog,
 } from "#/components/co_portraits.ts";
 import { PlayerHeader } from "#/components/PlayerHeader.tsx";
-import { usePreviewRunner } from "#/engine/runtime_context.tsx";
 import { defaultFactionIdForSlot, getFactionById, mapSlotFactionIds } from "#/factions.ts";
-import { MatchMapPreview } from "#/matches/components/MatchMapPreview.tsx";
 import {
   lobbyPollInterval,
   lobbySignature,
@@ -37,21 +55,18 @@ import {
 import { mutateMatchFn } from "#/matches/matches.functions.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
-import type { MatchMutationRequest, MatchSnapshot } from "#/matches/schemas.ts";
+import type {
+  MatchMutationRequest,
+  MatchParticipantSnapshot,
+  MatchSnapshot,
+} from "#/matches/schemas.ts";
+import { TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
 
 /** How long an armed "Confirm leave" stays armed before it disarms itself. */
 const LEAVE_CONFIRM_TIMEOUT_MS = 5_000;
 
-const selectableCoOptions = listCoPortraits().filter(
-  (option) => option.key !== DEFAULT_CO_PORTRAIT_KEY,
-);
-const coSelectorOptions = [
-  { label: "No CO", value: "none" },
-  ...selectableCoOptions.map((option) => ({
-    label: option.displayName,
-    value: String(option.awbwId),
-  })),
-];
+/** How many screen pixels a seat's CO portrait takes in the roster. */
+const SEAT_PORTRAIT_SIZE = 48;
 
 export function MatchLobbyPage({
   matchId,
@@ -62,7 +77,6 @@ export function MatchLobbyPage({
 }) {
   const queryClient = useQueryClient();
   const session = useAppSession();
-  const previewRunner = usePreviewRunner("match-lobby");
   const portraitCatalog = useMemo(() => loadCoPortraitCatalog(), []);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
@@ -94,6 +108,11 @@ export function MatchLobbyPage({
   });
   const mapQuery = useQuery(mapRevisionQueryOptions(match.mapId, match.mapRevision));
   const mapData = mapQuery.data ?? null;
+  // The picture of the board was drawn once, at import, and is keyed by the
+  // content it draws. Reading it here is what lets the lobby show the terrain
+  // without starting an engine to redraw what a PNG already holds.
+  const mapEntryQuery = useQuery(mapCatalogEntryQueryOptions(match.mapId, match.mapRevision));
+  const mapEntry = mapEntryQuery.data ?? null;
   // The map decides which faction each seat holds, so a seat cannot be claimed
   // before the map arrives. Until then the rows show catalog defaults and the
   // claim buttons stay disabled, which keeps the crest and the join in step.
@@ -101,6 +120,7 @@ export function MatchLobbyPage({
     () => (mapData ? mapSlotFactionIds(mapData, match.maxPlayers) : null),
     [mapData, match.maxPlayers],
   );
+  const bannedCoIds = useMemo(() => new Set(match.settings.bannedCoIds), [match.settings]);
   // The origin is unknown while rendering on the server. Resolving it after
   // mount keeps the row itself present in the first paint, so the link the host
   // came for does not appear late and push the panel down.
@@ -200,6 +220,8 @@ export function MatchLobbyPage({
   const sharePath =
     match.isPrivate && match.joinSlug ? `/matches/${match.matchId}?join=${match.joinSlug}` : null;
   const shareUrl = sharePath === null ? null : `${origin}${sharePath}`;
+  const isLocked = pendingAction !== null || match.phase !== "lobby";
+  const mapName = mapData?.metadata.name ?? mapEntry?.name ?? `Map ${match.mapId}`;
 
   return (
     <Section padding={6} variant="transparent">
@@ -217,7 +239,7 @@ export function MatchLobbyPage({
               {match.settings.hotseatEnabled ? <Badge label="Hotseat" variant="blue" /> : null}
             </HStack>
             <Text color="secondary" type="large">
-              Map {match.mapId} · {match.maxPlayers} players ·{" "}
+              {mapName} · {match.maxPlayers} players ·{" "}
               {match.isPrivate ? "Private invite" : "Open lobby"}
             </Text>
           </VStack>
@@ -238,21 +260,35 @@ export function MatchLobbyPage({
           </MetadataList>
         </Grid>
 
-        <Grid align="start" columns={{ minWidth: 300, max: 2, repeat: "fit" }} gap={6}>
-          <Section padding={5} variant="muted">
+        <Grid
+          align="start"
+          columns={{ minWidth: TWO_COLUMN_GRID_MIN_WIDTH, max: 2, repeat: "fit" }}
+          gap={6}
+        >
+          <Card padding={5}>
             <VStack gap={4}>
               <VStack gap={1}>
-                <Text color="accent" type="supporting" weight="bold">
-                  Map
-                </Text>
-                <Heading level={2}>{mapData?.metadata.name ?? `Map ${match.mapId}`}</Heading>
+                <Heading level={2}>{mapName}</Heading>
                 <Text color="secondary" type="supporting">
                   {mapData
                     ? `${mapData.metadata.author} · ${mapData.width} × ${mapData.height}`
-                    : "Preview the terrain before everyone locks in."}
+                    : "Reading the battlefield…"}
                 </Text>
               </VStack>
-              <MatchMapPreview map={mapData} runner={previewRunner} />
+
+              {mapEntry ? (
+                <MapPicture
+                  alt={`The battlefield of ${mapEntry.name}`}
+                  sourceHeight={mapScreenshotSize("full", mapEntry.width, mapEntry.height).height}
+                  sourceWidth={mapScreenshotSize("full", mapEntry.width, mapEntry.height).width}
+                  src={mapEntry.screenshot.full}
+                />
+              ) : (
+                <Section height={280} padding={0} variant="muted" xstyle={styles.pictureWell}>
+                  <Skeleton height="100%" radius="none" />
+                </Section>
+              )}
+
               <MetadataList columns={3} label={{ position: "top" }}>
                 <MetadataListItem label="Layout">
                   {mapData
@@ -266,31 +302,40 @@ export function MatchLobbyPage({
                   {match.settings.startingFunds.toLocaleString()} starting funds
                 </MetadataListItem>
               </MetadataList>
-              {mapQuery.isError ? (
+
+              <VStack gap={2}>
+                <Heading level={3}>Banned COs</Heading>
+                <BannedCoList bannedCoIds={match.settings.bannedCoIds} />
+              </VStack>
+
+              {mapQuery.isError || mapEntryQuery.isError ? (
                 <Banner
                   endContent={
                     <Button
-                      clickAction={() => void mapQuery.refetch()}
-                      isLoading={mapQuery.isFetching}
+                      clickAction={() => {
+                        void mapQuery.refetch();
+                        void mapEntryQuery.refetch();
+                      }}
+                      isLoading={mapQuery.isFetching || mapEntryQuery.isFetching}
                       label="Retry"
                       size="sm"
                       variant="secondary"
                     />
                   }
                   status="warning"
-                  title="Map metadata could not be loaded"
+                  title="The map could not be read"
                 />
               ) : null}
             </VStack>
-          </Section>
+          </Card>
 
-          <Section padding={5} variant="section">
+          <Card padding={5}>
             <VStack gap={4}>
               <VStack gap={1}>
-                <Text color="accent" type="supporting" weight="bold">
-                  Roster
+                <Heading level={2}>Seats</Heading>
+                <Text color="secondary" type="supporting">
+                  {match.participants.length} of {match.maxPlayers} claimed
                 </Text>
-                <Heading level={2}>Choose CO and army look</Heading>
               </VStack>
 
               {/* These messages arrive without the viewer acting, now that the
@@ -314,210 +359,392 @@ export function MatchLobbyPage({
               <VStack gap={3}>
                 {Array.from({ length: match.maxPlayers }, (_, slotIndex) => {
                   const participant = participantsBySlot.get(slotIndex) ?? null;
-                  const isMine = participant?.userId === currentUserId;
                   const slotFactionId = slotFactionIds?.[slotIndex] ?? null;
-                  const fallbackFactionId =
+                  const factionId =
                     participant?.factionId ?? slotFactionId ?? defaultFactionIdForSlot(slotIndex);
-                  const faction = getFactionById(fallbackFactionId);
-                  const isInteractive = isMine && match.phase === "lobby";
-                  const isLocked = pendingAction !== null || match.phase !== "lobby";
 
                   return (
-                    <Section key={slotIndex} padding={0} variant="muted">
-                      <VStack gap={2}>
-                        <PlayerHeader
-                          factionCode={faction?.code ?? "os"}
-                          isFactionLocked={!isInteractive || isLocked}
-                          name={participant ? participant.userName : "Open seat"}
-                          onFactionChange={
-                            participant === null || !isInteractive
-                              ? undefined
-                              : (nextValue) =>
-                                  submitAction(
-                                    {
-                                      action: "updateParticipant",
-                                      slotIndex,
-                                      factionId: nextValue,
-                                      joinSlug,
-                                    },
-                                    "faction",
-                                  )
-                          }
-                        />
-
-                        {participant === null ? (
-                          <Section padding={3} variant="transparent">
-                            <Button
-                              clickAction={() =>
-                                slotFactionId === null
-                                  ? undefined
-                                  : void submitAction(
-                                      {
-                                        action: "join",
-                                        slotIndex,
-                                        factionId: slotFactionId,
-                                        joinSlug,
-                                      },
-                                      `join-${slotIndex}`,
-                                    )
-                              }
-                              icon={<PlusIcon aria-hidden height={14} width={14} />}
-                              isDisabled={
-                                isLocked ||
-                                !session ||
-                                (!match.settings.hotseatEnabled && hasOwnedSeat) ||
-                                slotFactionId === null
-                              }
-                              label="Claim seat"
-                              size="sm"
-                              variant="primary"
-                              width="100%"
-                            />
-                          </Section>
-                        ) : (
-                          <Section padding={3} variant="transparent">
-                            <VStack gap={3}>
-                              <CoSelectionControl
-                                catalog={portraitCatalog}
-                                coId={participant.coId}
-                                disabled={isLocked}
-                                interactive={isInteractive}
-                                onChange={(nextValue) =>
-                                  void submitAction(
-                                    {
-                                      action: "updateParticipant",
-                                      slotIndex,
-                                      coId: nextValue,
-                                      joinSlug,
-                                    },
-                                    "co",
-                                  )
-                                }
-                              />
-                              <Text
-                                color={participant.ready ? "accent" : "secondary"}
-                                type="supporting"
-                                weight="bold"
-                              >
-                                {participant.ready
-                                  ? "Ready"
-                                  : match.phase === "active"
-                                    ? "In match"
-                                    : "Waiting"}
-                              </Text>
-                              {isMine ? (
-                                <HStack gap={2} wrap="wrap">
-                                  <Button
-                                    clickAction={() =>
-                                      submitAction(
-                                        {
-                                          action: "updateParticipant",
-                                          slotIndex,
-                                          ready: !participant.ready,
-                                          joinSlug,
-                                        },
-                                        "ready",
-                                      )
-                                    }
-                                    icon={
-                                      participant.ready ? (
-                                        <CancelIcon aria-hidden height={14} width={14} />
-                                      ) : (
-                                        <CheckIcon aria-hidden height={14} width={14} />
-                                      )
-                                    }
-                                    isDisabled={isLocked}
-                                    label={participant.ready ? "Unready" : "Ready up"}
-                                    size="sm"
-                                    variant="primary"
-                                  />
-                                  {/* Leaving forfeits the seat and cannot be
-                                      undone if someone else claims it, and this
-                                      button sits 8px from Ready on a phone. It
-                                      takes two presses, and the second one says
-                                      what it does. */}
-                                  <Button
-                                    clickAction={() => {
-                                      if (leaveConfirmingSlot !== slotIndex) {
-                                        setLeaveConfirmingSlot(slotIndex);
-                                        return;
-                                      }
-                                      setLeaveConfirmingSlot(null);
-                                      void submitAction({ action: "leave", slotIndex }, "leave");
-                                    }}
-                                    icon={<LogoutIcon aria-hidden />}
-                                    isDisabled={isLocked}
-                                    label={
-                                      leaveConfirmingSlot === slotIndex ? "Confirm leave" : "Leave"
-                                    }
-                                    size="sm"
-                                    variant={
-                                      leaveConfirmingSlot === slotIndex
-                                        ? "destructive"
-                                        : "secondary"
-                                    }
-                                  />
-                                </HStack>
-                              ) : null}
-                            </VStack>
-                          </Section>
-                        )}
-                      </VStack>
-                    </Section>
+                    <SeatCard
+                      bannedCoIds={bannedCoIds}
+                      catalog={portraitCatalog}
+                      isLocked={isLocked}
+                      isMine={participant?.userId === currentUserId && currentUserId !== null}
+                      canClaim={
+                        session !== null &&
+                        slotFactionId !== null &&
+                        (match.settings.hotseatEnabled || !hasOwnedSeat)
+                      }
+                      factionCode={getFactionById(factionId)?.code ?? "os"}
+                      isLeaveConfirming={leaveConfirmingSlot === slotIndex}
+                      key={slotIndex}
+                      onClaim={() =>
+                        slotFactionId === null
+                          ? undefined
+                          : void submitAction(
+                              { action: "join", slotIndex, factionId: slotFactionId, joinSlug },
+                              `join-${slotIndex}`,
+                            )
+                      }
+                      onFactionChange={
+                        participant === null || match.phase !== "lobby"
+                          ? undefined
+                          : (nextValue) =>
+                              submitAction(
+                                {
+                                  action: "updateParticipant",
+                                  slotIndex,
+                                  factionId: nextValue,
+                                  joinSlug,
+                                },
+                                "faction",
+                              )
+                      }
+                      onPickCo={(coId) =>
+                        void submitAction(
+                          { action: "updateParticipant", slotIndex, coId, joinSlug },
+                          "co",
+                        )
+                      }
+                      onLeave={() => {
+                        if (leaveConfirmingSlot !== slotIndex) {
+                          setLeaveConfirmingSlot(slotIndex);
+                          return;
+                        }
+                        setLeaveConfirmingSlot(null);
+                        void submitAction({ action: "leave", slotIndex }, "leave");
+                      }}
+                      onReadyChange={(ready) =>
+                        void submitAction(
+                          { action: "updateParticipant", slotIndex, ready, joinSlug },
+                          "ready",
+                        )
+                      }
+                      participant={participant}
+                      phase={match.phase}
+                      slotIndex={slotIndex}
+                    />
                   );
                 })}
               </VStack>
             </VStack>
-          </Section>
+          </Card>
         </Grid>
       </VStack>
     </Section>
   );
 }
 
-function CoSelectionControl({
+/**
+ * One seat, drawn the same whoever holds it.
+ *
+ * An open seat and a claimed one are the same card with the same parts in the
+ * same places: the army above, the CO and the state beside each other, the
+ * commands at the foot. A roster whose rows change shape as players arrive is
+ * a roster nobody can read at a glance, which is the whole job of this panel.
+ */
+function SeatCard({
+  bannedCoIds,
+  canClaim,
   catalog,
-  coId,
-  disabled,
-  interactive,
-  onChange,
+  factionCode,
+  isLeaveConfirming,
+  isLocked,
+  isMine,
+  onClaim,
+  onFactionChange,
+  onLeave,
+  onPickCo,
+  onReadyChange,
+  participant,
+  phase,
+  slotIndex,
 }: {
+  bannedCoIds: ReadonlySet<number>;
+  canClaim: boolean;
   catalog: CoPortraitCatalog;
-  coId: number | null;
-  disabled: boolean;
-  interactive: boolean;
-  onChange: (nextValue: number | null) => void;
+  factionCode: string;
+  isLeaveConfirming: boolean;
+  isLocked: boolean;
+  isMine: boolean;
+  onClaim: () => void;
+  onFactionChange?: (factionId: number) => void | Promise<void>;
+  onLeave: () => void;
+  onPickCo: (coId: number) => void;
+  onReadyChange: (ready: boolean) => void;
+  participant: MatchParticipantSnapshot | null;
+  phase: MatchSnapshot["phase"];
+  slotIndex: number;
 }) {
-  const selectedPortrait = getCoPortraitByAwbwId(coId);
-  const title = selectedPortrait?.displayName ?? "No CO";
+  const portrait = getCoPortraitByAwbwId(participant?.coId ?? null);
+  const coName = participant === null ? "—" : coDisplayName(participant.coId);
+  const status = seatStatus(participant, phase);
+
+  // The board opens by itself on the seat that has no CO yet, which is the
+  // seat the player just claimed, and closes once they have chosen. After that
+  // it is theirs to open again. Deriving the default from the seat rather than
+  // holding it in state is what makes it open on the claim: the card was
+  // already mounted as an open seat when the player pressed it.
+  const [isBoardOpen, setBoardOpen] = useState<boolean | null>(null);
+  const canPick = isMine && phase === "lobby";
+  const showBoard = canPick && (isBoardOpen ?? participant?.coId == null);
+  const boardRef = useRef<HTMLDivElement>(null);
+
+  // A board that opens below the fold is the same as no board, so it brings
+  // itself to the player rather than waiting to be scrolled to.
+  useEffect(() => {
+    if (showBoard) boardRef.current?.scrollIntoView({ block: "nearest" });
+  }, [showBoard]);
 
   return (
-    <HStack align="center" gap={3} wrap="wrap">
-      <CoPortrait
-        catalog={catalog}
-        coKey={selectedPortrait?.key ?? DEFAULT_CO_PORTRAIT_KEY}
-        fallbackLabel={title}
-      />
-      {interactive ? (
-        <Selector
-          isDisabled={disabled}
-          label="Commanding officer"
-          onChange={(value) => onChange(value === "none" ? null : Number(value))}
-          options={coSelectorOptions}
-          size="sm"
-          value={coId === null ? "none" : String(coId)}
-          width={200}
+    <Section padding={0} variant="muted">
+      <VStack gap={2}>
+        <PlayerHeader
+          factionCode={factionCode}
+          isFactionLocked={!isMine || isLocked}
+          name={participant ? participant.userName : `Seat ${slotIndex + 1} · open`}
+          onFactionChange={isMine ? onFactionChange : undefined}
         />
-      ) : (
-        <Text weight="bold">{title}</Text>
-      )}
-    </HStack>
+
+        <Section padding={3} variant="transparent">
+          <VStack gap={3}>
+            <HStack align="center" gap={3}>
+              <SeatPortrait
+                catalog={catalog}
+                coKey={portrait?.key ?? DEFAULT_CO_PORTRAIT_KEY}
+                coName={coName}
+                isEmpty={participant === null}
+                isOpen={showBoard}
+                onToggle={canPick && !isLocked ? () => setBoardOpen(!showBoard) : undefined}
+              />
+              <VStack gap={0.5} xstyle={styles.seatIdentity}>
+                <Text maxLines={1} weight="bold">
+                  {coName}
+                </Text>
+                <Text color={status.tone} type="label">
+                  {status.label}
+                </Text>
+              </VStack>
+            </HStack>
+
+            {showBoard && participant !== null ? (
+              <VStack gap={2} ref={boardRef}>
+                <Text color="secondary" type="supporting">
+                  {participant.coId === null
+                    ? "Choose the commander for this seat. You cannot ready up until you do."
+                    : "Press another face to change commander. Changing stands you down until you ready again."}
+                </Text>
+                <CoBoard
+                  bannedCoIds={bannedCoIds}
+                  isDisabled={isLocked}
+                  mode="pick"
+                  onPick={(coId) => {
+                    setBoardOpen(false);
+                    onPickCo(coId);
+                  }}
+                  selectedCoId={participant.coId}
+                  size="sm"
+                />
+              </VStack>
+            ) : null}
+
+            {participant === null ? (
+              <Button
+                clickAction={onClaim}
+                isDisabled={isLocked || !canClaim}
+                label="Claim seat"
+                size="sm"
+                variant="primary"
+                width="100%"
+              />
+            ) : isMine ? (
+              <HStack gap={2} wrap="wrap">
+                <Button
+                  clickAction={() => onReadyChange(!participant.ready)}
+                  icon={
+                    participant.ready ? (
+                      <CancelIcon aria-hidden height={14} width={14} />
+                    ) : (
+                      <CheckIcon aria-hidden height={14} width={14} />
+                    )
+                  }
+                  isDisabled={isLocked}
+                  label={participant.ready ? "Unready" : "Ready up"}
+                  size="sm"
+                  variant="primary"
+                />
+                {/* Leaving forfeits the seat and cannot be undone if someone
+                    else claims it, and this button sits 8px from Ready on a
+                    phone. It takes two presses, and the second one says what
+                    it does. */}
+                <Button
+                  clickAction={onLeave}
+                  icon={<LogoutIcon aria-hidden />}
+                  isDisabled={isLocked}
+                  label={isLeaveConfirming ? "Confirm leave" : "Leave"}
+                  size="sm"
+                  variant={isLeaveConfirming ? "destructive" : "secondary"}
+                />
+              </HStack>
+            ) : null}
+          </VStack>
+        </Section>
+      </VStack>
+    </Section>
   );
+}
+
+/**
+ * The face in a seat, and the fastest way to change it.
+ *
+ * On the viewer's own seat the portrait is the key that opens the CO board: a
+ * player who wants a different commander reaches for the face they want to
+ * replace, not for a control beside it. On every other seat it is the same
+ * cell without the behaviour, so the roster still reads as one row repeated.
+ *
+ * It wears the cursor the rest of the system uses for a chosen thing, the
+ * accent outline with the accent ring inside it, while the board it opened is
+ * on screen.
+ */
+function SeatPortrait({
+  catalog,
+  coKey,
+  coName,
+  isEmpty,
+  isOpen,
+  onToggle,
+}: {
+  catalog: CoPortraitCatalog;
+  coKey: string;
+  coName: string;
+  isEmpty: boolean;
+  isOpen: boolean;
+  /** Left out on a seat the viewer cannot change, which makes it a plain cell. */
+  onToggle?: () => void;
+}) {
+  const face = (
+    <CoPortrait
+      catalog={catalog}
+      coKey={coKey}
+      fallbackLabel={coName}
+      hasFrame={false}
+      size={SEAT_PORTRAIT_SIZE}
+    />
+  );
+
+  if (!onToggle) {
+    return (
+      <Section
+        padding={0}
+        variant="muted"
+        xstyle={[styles.seatPortrait, isEmpty && styles.seatPortraitEmpty]}
+      >
+        {face}
+      </Section>
+    );
+  }
+
+  return (
+    // The label is set on the key rather than beside it, because the portrait
+    // inside already names the CO and a key that reads "Change CO, now Andy
+    // Andy" is what happens when both are left to be read.
+    <button
+      aria-expanded={isOpen}
+      aria-label={isOpen ? "Close the CO board" : `Change CO, now ${coName}`}
+      onClick={onToggle}
+      title={isOpen ? "Close the CO board" : "Change CO"}
+      type="button"
+      {...stylex.props(
+        styles.seatPortrait,
+        styles.portraitKey,
+        isOpen && styles.portraitKeyOpen,
+        styles.portraitKeyReducedMotion,
+      )}
+    >
+      {face}
+    </button>
+  );
+}
+
+/** What a seat is doing, in one word the roster can align on. */
+function seatStatus(
+  participant: MatchParticipantSnapshot | null,
+  phase: MatchSnapshot["phase"],
+): { label: string; tone: "accent" | "secondary" } {
+  if (participant === null) return { label: "Open seat", tone: "secondary" };
+  if (participant.ready) return { label: "Ready", tone: "accent" };
+  if (phase === "active") return { label: "In match", tone: "secondary" };
+  return { label: "Waiting", tone: "secondary" };
 }
 
 const styles = stylex.create({
   breakAnywhere: {
     overflowWrap: "anywhere",
+  },
+  // The picture and its placeholder sit in the same recessed well, so the
+  // panel does not change height when the picture lands.
+  pictureWell: {
+    borderRadius: "var(--radius-element)",
+    overflow: "hidden",
+  },
+  seatPortrait: {
+    backgroundColor: colorVars["--color-background-muted"],
+    borderRadius: "var(--radius-element)",
+    flex: "0 0 auto",
+    lineHeight: 0,
+    overflow: "hidden",
+  },
+  // A command in this system is a key on a menu, so the portrait that opens
+  // the CO board is one: the ink outline, the cast shadow, and the 2px it
+  // moves into that shadow when pressed. A control that only appears on hover
+  // is a control nobody knows is there.
+  portraitKey: {
+    borderColor: {
+      default: colorVars["--color-border-emphasized"],
+      ":hover": "var(--color-accent)",
+      ":focus-visible": "var(--color-accent)",
+    },
+    borderStyle: "solid",
+    borderWidth: "var(--border-width)",
+    boxShadow: {
+      default: "var(--shadow-low)",
+      ":active": "none",
+    },
+    cursor: "pointer",
+    display: "block",
+    outline: "none",
+    padding: 0,
+    transform: {
+      default: null,
+      ":active": `translate(${awbrnVars.offsetControlPressed}, ${awbrnVars.offsetControlPressed})`,
+    },
+    transitionDuration: {
+      default: null,
+      ":active": durationVars["--duration-fast-min"],
+    },
+  },
+  // While the board it opened is on screen the key stays down: the accent
+  // outline with the accent ring inside it, flush on the panel rather than
+  // above it, which is the same cursor a chosen map plate wears.
+  portraitKeyOpen: {
+    borderColor: "var(--color-accent)",
+    boxShadow: "var(--shadow-inset-selected)",
+    transform: `translate(${awbrnVars.offsetControlPressed}, ${awbrnVars.offsetControlPressed})`,
+  },
+  // The key still loses its shadow and keeps its accent outline, so the state
+  // is legible without the 2px of travel. Applied last so it wins over both.
+  portraitKeyReducedMotion: {
+    transform: {
+      default: null,
+      "@media (prefers-reduced-motion: reduce)": "none",
+    },
+  },
+  // An open seat shows the same portrait cell the claimed seats show, held
+  // back so the row reads as waiting rather than as a player with no face.
+  seatPortraitEmpty: {
+    opacity: 0.4,
+  },
+  seatIdentity: {
+    minWidth: 0,
   },
 });
 

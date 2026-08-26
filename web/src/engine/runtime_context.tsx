@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
 import { useLocation } from "@tanstack/react-router";
 import { useGameStore } from "./store";
-import { GameRuntimeRegistry, type PreviewRunnerScope } from "./runtime_registry";
+import { GameRuntimeRegistry } from "./runtime_registry";
 
 const GameRuntimeContext = createContext<GameRuntimeRegistry | null>(null);
 
@@ -41,10 +41,6 @@ function useGameRuntimeRegistry(): GameRuntimeRegistry {
   }
 
   return registry;
-}
-
-export function usePreviewRunner(scope: PreviewRunnerScope) {
-  return useGameRuntimeRegistry().getPreviewRunner(scope);
 }
 
 export function useReplayRunner() {

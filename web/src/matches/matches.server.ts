@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { coDisplayName } from "#/co_roster.ts";
 import { matchSettingsSchema } from "./schemas";
 import type {
   MatchBrowseRequest,
@@ -478,6 +479,10 @@ async function updateParticipant(
     ("coId" in action && action.coId !== participant.coId)
   ) {
     nextReady = false;
+  }
+
+  if (nextCoId !== null && match.settings.bannedCoIds.includes(nextCoId)) {
+    return err("participantInvalid", `${coDisplayName(nextCoId)} is banned in this match`, 409);
   }
 
   if (nextReady && nextCoId === null) {

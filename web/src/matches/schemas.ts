@@ -1,13 +1,36 @@
 import { z } from "zod";
+import { coRoster, isKnownCoId } from "#/co_roster.ts";
 import { awbrnMapDocumentSchema } from "#/maps/map_document.ts";
 import { MAP_ID_LENGTH } from "#/maps/map_id.ts";
 import { mapRefSchema } from "#/maps/schemas.ts";
 import { matchIdSchema } from "./match_id.ts";
 
+/**
+ * The COs no seat in the match may take.
+ *
+ * The host sets the list once, when the lobby is opened, and it does not
+ * change after that: a ban that could arrive after a player picked would take
+ * a CO out from under them. Ids are written once each and in ascending order,
+ * so two hosts who ban the same COs store the same setting.
+ *
+ * A ban list that names every CO would leave a lobby nobody can ready in, so
+ * one CO always survives it.
+ */
+export const bannedCoIdsSchema = z
+  .array(z.number().int().positive())
+  .transform((ids) => [...new Set(ids)].filter(isKnownCoId).sort((left, right) => left - right))
+  .refine(
+    (ids) => ids.length < coRoster.length,
+    "at least one CO has to be left for the players to choose",
+  );
+
 export const matchSettingsSchema = z.object({
   fogEnabled: z.boolean(),
   startingFunds: z.number().int().nonnegative(),
   hotseatEnabled: z.boolean().default(false),
+  // Matches created before COs could be banned have no list, and read as a
+  // match where nothing is banned.
+  bannedCoIds: bannedCoIdsSchema.default([]),
 });
 
 export const matchCreateRequestSchema = z.object({

@@ -42,6 +42,7 @@ describe("hotseat schemas", () => {
       fogEnabled: false,
       startingFunds: 1000,
       hotseatEnabled: false,
+      bannedCoIds: [],
     });
   });
 
