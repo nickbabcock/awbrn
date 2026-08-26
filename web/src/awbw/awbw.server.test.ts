@@ -3,6 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const waitUntilMock = vi.hoisted(() => vi.fn());
 
 vi.mock("cloudflare:workers", () => ({
+  env: {
+    AWBW_ACTOR_RATE_LIMITER: { limit: vi.fn().mockResolvedValue({ success: true }) },
+    AWBW_GATEWAY: {
+      getByName: () => ({ fetch: (...args: Parameters<typeof fetch>) => fetch(...args) }),
+    },
+  },
   waitUntil: waitUntilMock,
 }));
 

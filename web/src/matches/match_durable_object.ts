@@ -21,6 +21,7 @@ import { getRequestSession } from "#/auth/auth.server.ts";
 import { ownedSlotIndices, selectOwnedPerspectiveSlot } from "./hotseat.ts";
 import { matchResultRows } from "./match_completion.ts";
 import { uploadMatchReplay } from "./replay_archive.ts";
+import { requireRateLimit } from "#/rate_limit.ts";
 
 interface WebSocketAttachment {
   userId: string;
@@ -62,6 +63,20 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       const session = await getRequestSession(request);
       if (!session) {
         return new Response("Unauthorized", { status: 401 });
+      }
+
+      try {
+        await Promise.all([
+          requireRateLimit(this.env.WS_UPGRADE_RATE_LIMITER, `user:${session.user.id}`, 10),
+          requireRateLimit(
+            this.env.WS_UPGRADE_RATE_LIMITER,
+            `match:${this.ctx.id.toString()}:user:${session.user.id}`,
+            10,
+          ),
+        ]);
+      } catch (response) {
+        if (response instanceof Response) return response;
+        throw response;
       }
 
       const setup = this.readSetupEvent();
