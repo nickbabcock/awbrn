@@ -25,10 +25,12 @@ CREATE TABLE `map_revisions` (
 	`playerCount` integer NOT NULL,
 	`propertySignature` text NOT NULL,
 	`unitSignature` text NOT NULL,
+	`rank` text,
 	`createdAt` integer DEFAULT (unixepoch()) NOT NULL,
 	`lastSeenAt` integer,
 	PRIMARY KEY(`mapId`, `revision`),
-	FOREIGN KEY (`mapId`) REFERENCES `maps`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`mapId`) REFERENCES `maps`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "map_revisions_rank_vocabulary" CHECK("map_revisions"."rank" is null or "map_revisions"."rank" in ('C', 'B', 'A', 'S'))
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `map_revisions_content_unique` ON `map_revisions` (`mapId`,`contentHash`);--> statement-breakpoint
@@ -41,6 +43,16 @@ CREATE TABLE `map_sources` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `map_sources_source_unique` ON `map_sources` (`source`,`sourceMapId`);--> statement-breakpoint
+CREATE TABLE `map_tags` (
+	`mapId` text NOT NULL,
+	`tag` text NOT NULL,
+	`addedAt` integer DEFAULT (unixepoch()) NOT NULL,
+	PRIMARY KEY(`mapId`, `tag`),
+	FOREIGN KEY (`mapId`) REFERENCES `maps`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "map_tags_vocabulary" CHECK("map_tags"."tag" in ('standard', 'fog', 'team', 'ffa', 'high-funds'))
+);
+--> statement-breakpoint
+CREATE INDEX `map_tags_tag_idx` ON `map_tags` (`tag`,`mapId`);--> statement-breakpoint
 CREATE TABLE `maps` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
