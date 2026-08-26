@@ -1002,6 +1002,20 @@
       color: var(--color-on-accent);
     }
 
+    .astryx-selectable-card {
+      border-color: #16181d;
+      border-style: solid;
+      border-width: var(--border-width);
+      border-radius: var(--radius-container);
+      background-color: var(--color-background-surface);
+      box-shadow: var(--shadow-med);
+    }
+
+    .astryx-selectable-card.true {
+      border-color: var(--color-accent);
+      box-shadow: var(--shadow-inset-selected);
+    }
+
     .astryx-dialog {
       border-color: #16181d;
       border-style: solid;

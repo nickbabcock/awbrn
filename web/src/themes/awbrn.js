@@ -802,6 +802,20 @@ export const awbrnTheme = {
         color: "var(--color-on-accent)",
       },
     },
+    "selectable-card": {
+      base: {
+        borderColor: "#16181D",
+        borderStyle: "solid",
+        borderWidth: "var(--border-width)",
+        borderRadius: "var(--radius-container)",
+        backgroundColor: "var(--color-background-surface)",
+        boxShadow: "var(--shadow-med)",
+      },
+      "selected:true": {
+        borderColor: "var(--color-accent)",
+        boxShadow: "var(--shadow-inset-selected)",
+      },
+    },
     dialog: {
       base: {
         borderColor: "#16181D",
