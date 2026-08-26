@@ -1,10 +1,12 @@
 import { betterAuth } from "better-auth/minimal";
+import { admin } from "better-auth/plugins/admin";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import type { Auth, BetterAuthOptions } from "better-auth/types";
 import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "#/db/global.ts";
+import { ac, ADMIN_ROLES, DEFAULT_ROLE, ROLES } from "./access.ts";
 import type { Session } from "./session";
 
 let _auth: Auth<BetterAuthOptions> | undefined;
@@ -25,7 +27,15 @@ const authOptions: BetterAuthOptions = {
   advanced: {
     cookiePrefix: "awbrn",
   },
-  plugins: [tanstackStartCookies()],
+  plugins: [
+    admin({
+      ac,
+      roles: ROLES,
+      defaultRole: DEFAULT_ROLE,
+      adminRoles: ADMIN_ROLES,
+    }),
+    tanstackStartCookies(),
+  ],
 };
 
 export function getAuth(): Auth<BetterAuthOptions> {

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "2920a780-f66d-447c-a0ab-b9d8faaf4458",
+  "id": "a7b25a87-e10d-4e88-816e-dcb0c6c69fc6",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -656,15 +656,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "voidedByUserId": {
-          "name": "voidedByUserId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "reason": {
-          "name": "reason",
+        "publicReason": {
+          "name": "publicReason",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -694,15 +687,6 @@
           "columnsFrom": ["matchId"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "match_voids_voidedByUserId_user_id_fk": {
-          "name": "match_voids_voidedByUserId_user_id_fk",
-          "tableFrom": "match_voids",
-          "tableTo": "user",
-          "columnsFrom": ["voidedByUserId"],
-          "columnsTo": ["id"],
-          "onDelete": "restrict",
           "onUpdate": "no action"
         }
       },
@@ -863,6 +847,108 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "moderation_actions": {
+      "name": "moderation_actions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actorUserId": {
+          "name": "actorUserId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "subjectType": {
+          "name": "subjectType",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "subjectId": {
+          "name": "subjectId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "details": {
+          "name": "details",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "moderation_actions_subject_idx": {
+          "name": "moderation_actions_subject_idx",
+          "columns": ["subjectType", "subjectId", "createdAt"],
+          "isUnique": false
+        },
+        "moderation_actions_actor_idx": {
+          "name": "moderation_actions_actor_idx",
+          "columns": ["actorUserId", "createdAt"],
+          "isUnique": false
+        },
+        "moderation_actions_recent_idx": {
+          "name": "moderation_actions_recent_idx",
+          "columns": ["createdAt"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "moderation_actions_actorUserId_user_id_fk": {
+          "name": "moderation_actions_actorUserId_user_id_fk",
+          "tableFrom": "moderation_actions",
+          "tableTo": "user",
+          "columnsFrom": ["actorUserId"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "moderation_actions_action_vocabulary": {
+          "name": "moderation_actions_action_vocabulary",
+          "value": "\"moderation_actions\".\"action\" in ('map.rank', 'map.retag', 'match.void', 'user.ban', 'user.unban', 'user.set-role')"
+        },
+        "moderation_actions_subject_vocabulary": {
+          "name": "moderation_actions_subject_vocabulary",
+          "value": "\"moderation_actions\".\"subjectType\" in ('map', 'map_revision', 'match', 'user')"
+        }
+      }
+    },
     "session": {
       "name": "session",
       "columns": {
@@ -921,6 +1007,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "impersonatedBy": {
+          "name": "impersonatedBy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         }
       },
@@ -985,6 +1078,35 @@
         "image": {
           "name": "image",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "banned": {
+          "name": "banned",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": false
+        },
+        "banReason": {
+          "name": "banReason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "banExpires": {
+          "name": "banExpires",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

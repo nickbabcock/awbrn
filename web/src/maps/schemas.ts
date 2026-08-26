@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { MAP_SEARCH_MAX_LENGTH } from "./map_catalog.ts";
 import { MAP_ID_LENGTH } from "./map_id.ts";
+import { moderationReasonSchema } from "#/moderation/schemas.ts";
 
 /** External systems that can provide maps. */
 export const MAP_SOURCE_KINDS = ["awbw"] as const;
@@ -119,6 +120,8 @@ export const MAP_RANK_FILTER_LABELS: Record<MapRankFilter, string> = {
 export const mapRankUpdateSchema = z.object({
   map: mapRefSchema,
   rank: mapRankSchema.nullable(),
+  /** Ranking is always a moderator act, so the record always has a reason. */
+  reason: moderationReasonSchema,
 });
 
 export type MapRankUpdate = z.infer<typeof mapRankUpdateSchema>;
@@ -127,6 +130,8 @@ export type MapRankUpdate = z.infer<typeof mapRankUpdateSchema>;
 export const mapTagsUpdateSchema = z.object({
   mapId: mapIdSchema,
   tags: z.array(mapTagSchema).max(MAP_TAGS.length),
+  /** Required of a moderator tagging a map they did not write. */
+  reason: moderationReasonSchema.optional(),
 });
 
 export type MapTagsUpdate = z.infer<typeof mapTagsUpdateSchema>;
@@ -158,6 +163,14 @@ export interface MapCatalogEntry {
   revision: number;
   name: string;
   author: string;
+  /**
+   * Who on this site wrote the map, or null when nobody here did.
+   *
+   * The catalog is the same for every viewer and is cached that way, so the
+   * entry carries the fact and a screen runs `mapTagGrant` against it. What
+   * the viewer may do is never baked into a shared list.
+   */
+  authorUserId: string | null;
   playerCount: number;
   /** The rank of this revision, or null while it is unranked. */
   rank: MapRank | null;

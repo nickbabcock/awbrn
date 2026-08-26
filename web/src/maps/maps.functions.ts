@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { sessionMiddleware } from "#/auth/session.middleware.ts";
+import { actorMiddleware, requirePermission } from "#/auth/permission.middleware.ts";
 import {
   awbwMapImportRequestSchema,
   mapCatalogRequestSchema,
@@ -38,36 +38,56 @@ export const listMapsFn = createServerFn({ method: "GET" })
 /**
  * Put an AWBW map in the catalog.
  *
- * Importing is held behind a session because it spends a fetch to AWBW and a
- * render for every map it adds.
+ * Importing is held behind a permission because it spends a fetch to AWBW and
+ * a render for every map it adds. Every signed-in player holds it; resolving
+ * the actor is also what shuts a banned account out.
  */
 export const importAwbwMapFn = createServerFn({ method: "POST" })
-  .middleware([sessionMiddleware])
+  .middleware([requirePermission({ map: ["import"] })])
   .validator(awbwMapImportRequestSchema)
   .handler(async ({ data, context }) => {
-    if (!context.session) throw new Error("you must be signed in to import a map");
     await requireRateLimit(
       rateLimitBindings().IMPORT_MAP_RATE_LIMITER,
-      `user:${context.session.user.id}`,
+      `user:${context.actor.userId}`,
     );
     return importAwbwMapToCatalog(data.sourceMapId);
   });
 
-/** Rank a map revision, or take away the rank it holds. */
+/**
+ * Rank a map revision, or take away the rank it holds.
+ *
+ * The middleware answers the role, which is the cheap half of the question.
+ * The other half turns on the map: nobody ranks their own work, so
+ * `setMapRevisionRank` loads the author and puts it to `mapRankGrant`.
+ */
 export const setMapRankFn = createServerFn({ method: "POST" })
-  .middleware([sessionMiddleware])
+  .middleware([requirePermission({ map: ["rank"] })])
   .validator(mapRankUpdateSchema)
   .handler(async ({ data, context }) => {
-    if (!context.session) throw new Error("you must be signed in to rank a map");
-    await setMapRevisionRank(data.map, data.rank);
+    await setMapRevisionRank(data.map, data.rank, {
+      actor: context.actor,
+      reason: data.reason,
+    });
     return { rank: data.rank };
   });
 
-/** Replace every tag on a map. */
+/**
+ * Replace every tag on a map.
+ *
+ * The author of a map may tag it and so may a moderator, which is a question
+ * the middleware cannot answer because it turns on the map. `setMapTags`
+ * loads the map and puts it to `mapTagGrant`.
+ */
 export const setMapTagsFn = createServerFn({ method: "POST" })
-  .middleware([sessionMiddleware])
+  .middleware([actorMiddleware])
   .validator(mapTagsUpdateSchema)
   .handler(async ({ data, context }) => {
-    if (!context.session) throw new Error("you must be signed in to tag a map");
-    return { tags: await setMapTags(data.mapId, data.tags) };
+    return {
+      tags: await setMapTags({
+        mapId: data.mapId,
+        tags: data.tags,
+        actor: context.actor,
+        reason: data.reason,
+      }),
+    };
   });
