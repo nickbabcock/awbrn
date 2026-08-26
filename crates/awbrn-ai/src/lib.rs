@@ -13,7 +13,8 @@
 //! [`eval`] scores a position rather than a play, which is what a search needs
 //! to stop on a board it did not play to the end; [`calibration`] is how that
 //! scoring is proved to know anything, by predicting the result of games the
-//! arena already plays. [`vision`] is the one map
+//! arena already plays. [`agents::search`] uses that value for a one-pass
+//! improvement of a complete greedy turn. [`vision`] is the one map
 //! that reads fog as fog: what this player can see now, and what a play would
 //! light. [`rng`] is the seeded
 //! generator that makes a game repeatable, which every measurement of one agent

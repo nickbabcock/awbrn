@@ -33,7 +33,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use awbrn_ai::agent::{Agent, NodeBudget};
-use awbrn_ai::agents::{GreedyAgent, RandomAgent, Weights};
+use awbrn_ai::agents::{GreedyAgent, RandomAgent, SearchAgent, Weights};
 use awbrn_ai::board::{SEATS, amber_valley_map, arena};
 use awbrn_ai::calibration::Calibration;
 use awbrn_ai::eval::{EvalWeights, Evaluator};
@@ -107,7 +107,7 @@ fn dispatch(options: &Options, start: Instant) -> Result<()> {
 }
 
 const USAGE: &str = "\
-usage: arena [--map NAME] [--seed N] [--games N] [--nodes N] [--fog] [--day-cap N] [--first NAME] [--second NAME] [--weights FILE] [--second-weights FILE] [--sample DIR] [--ladder DIR] [--round-robin] [--roster NAMES] [--freeze NAME] [--calibrate] [--calibrate-out FILE] [--eval-weights FILE]
+usage: arena [--map NAME] [--seed N] [--games N] [--nodes N] [--search] [--fog] [--day-cap N] [--first NAME] [--second NAME] [--weights FILE] [--second-weights FILE] [--sample DIR] [--ladder DIR] [--round-robin] [--roster NAMES] [--freeze NAME] [--calibrate] [--calibrate-out FILE] [--eval-weights FILE]
 
   --map NAME     Map to play. Default amber-valley.
   --seed N       Seed for the tournament. The same seed gives the same result.
@@ -116,6 +116,8 @@ usage: arena [--map NAME] [--seed N] [--games N] [--nodes N] [--fog] [--day-cap 
                  both seat orders, so the tournament plays 2N games. Default 50.
   --nodes N      Candidate turn plans each agent may evaluate per decision.
                  Default 4. Initial comparison points are 1, 4, 8, and 16.
+  --search       Improve the first greedy agent with one search pass.
+                 Standard games only.
   --fog          Play with fog of war on. Default off.
   --day-cap N    Abandon a game after this many days. Default 35.
   --first NAME   What the agent under test plays: random, a weighting this
@@ -161,6 +163,7 @@ struct Options {
     seed: u64,
     pairs: usize,
     nodes: NodeBudget,
+    search: bool,
     fog: bool,
     day_cap: u32,
     first: String,
@@ -189,6 +192,7 @@ impl Options {
             seed: 1,
             pairs: 50,
             nodes: NodeBudget::FOUR,
+            search: false,
             fog: false,
             day_cap: Limits::default().days,
             first: "random".to_owned(),
@@ -219,6 +223,7 @@ impl Options {
                     options.nodes = NodeBudget::new(parse_number(&value()?)?)
                         .ok_or_else(|| "--nodes must be at least 1".to_owned())?;
                 }
+                "--search" => options.search = true,
                 "--day-cap" => options.day_cap = parse_number(&value()?)?,
                 "--fog" => options.fog = true,
                 "--first" => options.first = agent_spec(&value()?)?,
@@ -248,6 +253,16 @@ impl Options {
         }
         if options.weights.is_some() && options.first == RANDOM {
             return Err("--weights requires a greedy first agent".to_owned());
+        }
+        if options.search && options.first == RANDOM {
+            return Err("--search requires a greedy first agent".to_owned());
+        }
+        if options.search && options.fog {
+            return Err("--search is not implemented for fog".to_owned());
+        }
+        if options.search && (options.round_robin || options.freeze.is_some() || options.calibrate)
+        {
+            return Err("--search runs one arena pairing".to_owned());
         }
         if options.second_weights.is_some() && options.second == RANDOM {
             return Err("--second-weights requires a greedy second agent".to_owned());
@@ -486,10 +501,11 @@ fn is_path(name: &str) -> bool {
     name.contains(std::path::MAIN_SEPARATOR) || name.ends_with(".json")
 }
 
-fn build(seed: u64, weights: Option<Weights>) -> Box<dyn Agent> {
-    match weights {
-        Some(weights) => Box::new(GreedyAgent::with_weights(seed, weights)),
-        None => Box::new(RandomAgent::from_seed(seed)),
+fn build(seed: u64, weights: Option<Weights>, search: bool) -> Box<dyn Agent> {
+    match (weights, search) {
+        (Some(weights), true) => Box::new(SearchAgent::with_weights(seed, weights)),
+        (Some(weights), false) => Box::new(GreedyAgent::with_weights(seed, weights)),
+        (None, _) => Box::new(RandomAgent::from_seed(seed)),
     }
 }
 
@@ -499,11 +515,12 @@ fn game_setup(
     pair: usize,
     first_weights: Option<Weights>,
     second_weights: Option<Weights>,
+    search: bool,
 ) -> (u64, Rng, Box<dyn Agent>, Box<dyn Agent>) {
     let game = Rng::mix(seed ^ ((pair as u64) << 32));
     let entropy = Rng::from_seed(Rng::mix(game ^ 0x1));
-    let first = build(Rng::mix(game ^ 0x2), first_weights);
-    let second = build(Rng::mix(game ^ 0x3), second_weights);
+    let first = build(Rng::mix(game ^ 0x2), first_weights, search);
+    let second = build(Rng::mix(game ^ 0x3), second_weights, false);
     (game, entropy, first, second)
 }
 
@@ -671,8 +688,13 @@ fn run(
     for pair in 0..options.pairs {
         let mut pair_points = 0.0;
         for under_test_first in [true, false] {
-            let (game, mut entropy, mut first, mut second) =
-                game_setup(options.seed, pair, first_weights, second_weights);
+            let (game, mut entropy, mut first, mut second) = game_setup(
+                options.seed,
+                pair,
+                first_weights,
+                second_weights,
+                options.search,
+            );
 
             // The seat the agent under test sits in. Playing the same seed
             // both ways is what removes the first-player advantage from the
@@ -753,7 +775,7 @@ fn calibrate(
     for pair in 0..options.pairs {
         for under_test_first in [true, false] {
             let (game, mut entropy, mut first, mut second) =
-                game_setup(options.seed, pair, first_weights, second_weights);
+                game_setup(options.seed, pair, first_weights, second_weights, false);
 
             let index = usize::from(!under_test_first);
             let mut agents: [&mut dyn Agent; 2] = if under_test_first {
@@ -998,6 +1020,7 @@ impl Sample {
                 "pair": 0,
                 "seat_order": [options.first, options.second],
                 "fog": options.fog,
+                "search": options.search,
                 "day_cap": options.day_cap,
                 "weights": options.weights,
                 "second_weights": options.second_weights,
@@ -1371,8 +1394,14 @@ fn report(options: &Options, tally: &Tally, elapsed: f64) {
     let (low, high) = paired_interval(&tally.pair_scores);
 
     println!(
-        "{} vs {}   seed {}  fog {}  day cap {}",
-        options.first, options.second, options.seed, options.fog, options.day_cap
+        "{}{} vs {}   seed {}  fog {}  day cap {}  nodes {}",
+        options.first,
+        if options.search { " (search)" } else { "" },
+        options.second,
+        options.seed,
+        options.fog,
+        options.day_cap,
+        options.nodes.get(),
     );
     if let Some(path) = &options.weights {
         println!("first-agent weights     {}", path.display());
