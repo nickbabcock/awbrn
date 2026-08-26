@@ -21,47 +21,27 @@ describe("GameRuntimeRegistry", () => {
     const onDisposeGameState = vi.fn();
     const registry = new GameRuntimeRegistry(() => new TestRunner(), { onDisposeGameState });
     const replayRunner = registry.getReplayRunner();
-    const previewRunner = registry.getPreviewRunner("matches-new");
+    const activeRunner = registry.getActiveMatchRunner();
 
     registry.syncPathname("/");
     registry.syncPathname("/matches/new");
 
     expect(replayRunner.dispose).toHaveBeenCalledTimes(1);
     expect(onDisposeGameState).toHaveBeenCalledTimes(1);
-    expect(previewRunner.dispose).not.toHaveBeenCalled();
+    expect(activeRunner.dispose).not.toHaveBeenCalled();
   });
 
-  it("disposes only the matches-new preview runner when leaving that route", () => {
+  // The lobby draws the map from the picture the import rendered, so no runner
+  // is started for it and the match route is the only one that holds one.
+  it("keeps the active match runner while moving between match routes", () => {
     const registry = new GameRuntimeRegistry(() => new TestRunner());
-    const matchesNewRunner = registry.getPreviewRunner("matches-new");
-    const lobbyRunner = registry.getPreviewRunner("match-lobby");
+    const activeRunner = registry.getActiveMatchRunner();
 
     registry.syncPathname("/matches/new");
     registry.syncPathname("/matches/abc123");
 
-    expect(matchesNewRunner.dispose).toHaveBeenCalledTimes(1);
-    expect(lobbyRunner.dispose).not.toHaveBeenCalled();
-  });
-
-  it("disposes only the match-lobby preview runner when leaving that route", () => {
-    const registry = new GameRuntimeRegistry(() => new TestRunner());
-    const matchesNewRunner = registry.getPreviewRunner("matches-new");
-    const lobbyRunner = registry.getPreviewRunner("match-lobby");
-
-    registry.syncPathname("/matches/abc123");
-    registry.syncPathname("/matches");
-
-    expect(lobbyRunner.dispose).toHaveBeenCalledTimes(1);
-    expect(matchesNewRunner.dispose).not.toHaveBeenCalled();
-  });
-
-  it("uses a separate active match runner and disposes stale lobby preview state", () => {
-    const registry = new GameRuntimeRegistry(() => new TestRunner());
-    const lobbyRunner = registry.getPreviewRunner("match-lobby");
-    const activeRunner = registry.getActiveMatchRunner();
-
-    expect(activeRunner).not.toBe(lobbyRunner);
-    expect(lobbyRunner.dispose).toHaveBeenCalledTimes(1);
+    expect(activeRunner.dispose).not.toHaveBeenCalled();
+    expect(registry.getActiveMatchRunner()).toBe(activeRunner);
   });
 
   it("disposes the active match runner when leaving a match route", () => {

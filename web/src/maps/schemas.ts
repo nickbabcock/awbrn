@@ -55,6 +55,66 @@ export const MAP_TAG_LABELS: Record<MapTag, string> = {
   "high-funds": "High funds",
 };
 
+/**
+ * The player counts the board filters by.
+ *
+ * Four buttons cover every map AWBW holds: the three sizes a match is usually
+ * played at, and one that takes everything above them. The vocabulary is
+ * fixed rather than read off the catalog, so the filter row is the same width
+ * on an empty catalog as on a full one.
+ */
+export const MAP_PLAYER_COUNT_FILTERS = ["2", "3", "4", "5+"] as const;
+
+export const mapPlayerCountFilterSchema = z.enum(MAP_PLAYER_COUNT_FILTERS);
+
+export type MapPlayerCountFilter = z.infer<typeof mapPlayerCountFilterSchema>;
+
+/** The lowest player count `5+` takes. */
+export const MAP_LARGE_PLAYER_COUNT = 5;
+
+/** What a rank filter button is called when it stands for no rank at all. */
+export const MAP_UNRANKED_FILTER = "unranked";
+
+/** A rank the board filters by, or the maps that hold no rank. */
+export const mapRankFilterSchema = z.union([mapRankSchema, z.literal(MAP_UNRANKED_FILTER)]);
+
+export type MapRankFilter = z.infer<typeof mapRankFilterSchema>;
+
+/**
+ * What the board is narrowed to, beyond its search text.
+ *
+ * Every list is read as "any of these", except tags, which are read as "all
+ * of these": adding a tag narrows the board the way adding a player count
+ * widens it, which is what each control looks like it does.
+ */
+export const mapCatalogFilterSchema = z.object({
+  playerCounts: z.array(mapPlayerCountFilterSchema).max(MAP_PLAYER_COUNT_FILTERS.length).optional(),
+  ranks: z
+    .array(mapRankFilterSchema)
+    .max(MAP_RANKS.length + 1)
+    .optional(),
+  tags: z.array(mapTagSchema).max(MAP_TAGS.length).optional(),
+});
+
+export type MapCatalogFilter = z.infer<typeof mapCatalogFilterSchema>;
+
+/** What each player-count button is called on screen. */
+export const MAP_PLAYER_COUNT_FILTER_LABELS: Record<MapPlayerCountFilter, string> = {
+  "2": "2P",
+  "3": "3P",
+  "4": "4P",
+  "5+": "5P+",
+};
+
+/** What each rank button is called on screen. */
+export const MAP_RANK_FILTER_LABELS: Record<MapRankFilter, string> = {
+  S: "S",
+  A: "A",
+  B: "B",
+  C: "C",
+  [MAP_UNRANKED_FILTER]: "Unranked",
+};
+
 /** Give a map revision a rank, or take the rank it holds away. */
 export const mapRankUpdateSchema = z.object({
   map: mapRefSchema,
@@ -72,7 +132,7 @@ export const mapTagsUpdateSchema = z.object({
 export type MapTagsUpdate = z.infer<typeof mapTagsUpdateSchema>;
 
 /** What the catalog is asked for: a page of it, and what to look for. */
-export const mapCatalogRequestSchema = z.object({
+export const mapCatalogRequestSchema = mapCatalogFilterSchema.extend({
   cursor: z.string().min(1).optional(),
   search: z.string().max(MAP_SEARCH_MAX_LENGTH).optional(),
 });

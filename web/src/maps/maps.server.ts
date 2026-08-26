@@ -7,6 +7,7 @@ import { mapRevisions, maps, mapSources, mapTags } from "#/db/global.ts";
 import { generateMapId } from "./map_id.ts";
 import { awbrnMapDocumentSchema, importedMapDocumentSchema } from "./map_document.ts";
 import type { AwbrnMapDocument, ImportedMapDocument } from "./map_document.ts";
+import { catalogFilterConditions } from "./map_catalog_query.ts";
 import type {
   MapCatalogEntry,
   MapCatalogRequest,
@@ -16,7 +17,7 @@ import type {
   MapSourceKind,
   MapTag,
 } from "./schemas.ts";
-import { sortMapTags } from "./map_taxonomy.ts";
+import { normalizeMapCatalogFilters, sortMapTags } from "./map_taxonomy.ts";
 import {
   decodeMapCatalogCursor,
   encodeMapCatalogCursor,
@@ -214,6 +215,8 @@ export async function listCatalogMaps(request: MapCatalogRequest): Promise<MapCa
       )
     : undefined;
 
+  const filters = normalizeMapCatalogFilters(request);
+
   const rows = await db
     .select({
       mapId: maps.id,
@@ -235,7 +238,7 @@ export async function listCatalogMaps(request: MapCatalogRequest): Promise<MapCa
       and(eq(mapRevisions.mapId, maps.id), eq(mapRevisions.revision, maps.currentRevision)),
     )
     .leftJoin(mapSources, eq(mapSources.mapId, maps.id))
-    .where(and(afterCursor, matchesSearch))
+    .where(and(afterCursor, matchesSearch, ...catalogFilterConditions(filters)))
     .orderBy(desc(maps.createdAt), desc(maps.id))
     .limit(MAP_CATALOG_PAGE_SIZE + 1)
     .all();

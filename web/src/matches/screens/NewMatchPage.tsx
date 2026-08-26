@@ -25,6 +25,7 @@ import { AspectRatio } from "@astryxdesign/core/AspectRatio";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Card } from "@astryxdesign/core/Card";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
+import { Divider } from "@astryxdesign/core/Divider";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Grid, GridSpan } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
@@ -44,11 +45,15 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useAppSession } from "#/auth/useAppSession.ts";
 import { Button } from "#/ui/Button.tsx";
 import { RouterTextLink } from "#/ui/astryx-links.tsx";
+import { coRoster } from "#/co_roster.ts";
+import { CoBoard } from "#/components/CoBoard.tsx";
 import { importAwbwMapFn } from "#/maps/maps.functions.ts";
+import { MapFilterBar } from "#/maps/components/MapFilterBar.tsx";
 import { mapCatalogQueryOptions } from "#/maps/maps.queries.ts";
 import { mapKeys } from "#/maps/maps.keys.ts";
 import { mapScreenshotSize } from "#/maps/map_screenshot.ts";
-import type { MapCatalogEntry } from "#/maps/schemas.ts";
+import { countMapCatalogFilters } from "#/maps/map_taxonomy.ts";
+import type { MapCatalogEntry, MapCatalogFilter } from "#/maps/schemas.ts";
 import { createMatchFn } from "#/matches/matches.functions.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
 import { TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
@@ -62,6 +67,12 @@ const LOADING_PLATE_COUNT = 8;
 /** Open slots drawn beside the import panel while the catalog is empty. */
 const OPEN_SLOT_COUNT = 6;
 
+/** A board nothing has been asked of yet. Held still so state stays stable. */
+const NO_MAP_FILTERS: Required<MapCatalogFilter> = { playerCounts: [], ranks: [], tags: [] };
+
+/** A match that takes no CO away. */
+const EMPTY_CO_BANS: ReadonlySet<number> = new Set<number>();
+
 export function NewMatchPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -69,6 +80,7 @@ export function NewMatchPage() {
 
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<Required<MapCatalogFilter>>(NO_MAP_FILTERS);
   const [selectedMap, setSelectedMap] = useState<MapCatalogEntry | null>(null);
 
   const [matchName, setMatchName] = useState("");
@@ -76,6 +88,7 @@ export function NewMatchPage() {
   const [startingFunds, setStartingFunds] = useState(1000);
   const [isPrivate, setIsPrivate] = useState(false);
   const [hotseatEnabled, setHotseatEnabled] = useState(false);
+  const [bannedCoIds, setBannedCoIds] = useState<ReadonlySet<number>>(EMPTY_CO_BANS);
   const [createError, setCreateError] = useState<string | null>(null);
 
   // The name follows the map until the player writes their own.
@@ -97,12 +110,15 @@ export function NewMatchPage() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  const catalogQuery = useInfiniteQuery(mapCatalogQueryOptions(search));
+  const catalogQuery = useInfiniteQuery(mapCatalogQueryOptions(search, filters));
   const catalogMaps = useMemo(
     () => catalogQuery.data?.pages.flatMap((page) => page.maps) ?? [],
     [catalogQuery.data],
   );
-  const isSearching = search.trim().length > 0;
+  const filterCount = countMapCatalogFilters(filters);
+  // The board is narrowed when a search or a filter is on it, which is what
+  // separates "nothing matches" from "the catalog is empty".
+  const isNarrowed = search.trim().length > 0 || filterCount > 0;
 
   const boardPictureSize = useMemo(
     () =>
@@ -161,6 +177,10 @@ export function NewMatchPage() {
       setCreateError("Name the match before it opens.");
       return;
     }
+    if (bannedCoIds.size >= coRoster.length) {
+      setCreateError("Leave at least one CO for the players to choose.");
+      return;
+    }
 
     setCreateError(null);
     try {
@@ -169,7 +189,12 @@ export function NewMatchPage() {
           name: matchName.trim(),
           map: { mapId: selectedMap.mapId, revision: selectedMap.revision },
           isPrivate,
-          settings: { fogEnabled, startingFunds, hotseatEnabled },
+          settings: {
+            fogEnabled,
+            startingFunds,
+            hotseatEnabled,
+            bannedCoIds: [...bannedCoIds],
+          },
         },
       });
       await navigate({ to: "/matches/$matchId", params: { matchId: match.matchId } });
@@ -193,25 +218,22 @@ export function NewMatchPage() {
         </VStack>
 
         <VStack gap={4}>
-          {isBoardEmpty && !isSearching ? null : (
-            <HStack align="end" gap={4} justify="between" wrap="wrap">
-              <TextInput
-                hasClear
-                label="Search the map catalog"
-                onChange={setSearchInput}
-                placeholder="Map name or author"
-                startIcon="search"
-                value={searchInput}
-                width={320}
+          {isBoardEmpty && !isNarrowed ? null : (
+            <Card padding={4}>
+              <MapFilterBar
+                filterCount={filterCount}
+                filters={filters}
+                onFiltersChange={setFilters}
+                onSearchChange={setSearchInput}
+                search={searchInput}
+                summary={boardSummary({
+                  count: catalogMaps.length,
+                  hasMore: catalogQuery.hasNextPage,
+                  isNarrowed,
+                  isPending: catalogQuery.isPending,
+                })}
               />
-              <Text type="label">
-                {catalogQuery.isPending
-                  ? "Reading the catalog"
-                  : `${catalogMaps.length}${catalogQuery.hasNextPage ? "+" : ""} map${
-                      catalogMaps.length === 1 && !catalogQuery.hasNextPage ? "" : "s"
-                    } ${isSearching ? "found" : "held"}`}
-              </Text>
-            </HStack>
+            </Card>
           )}
 
           {catalogQuery.isError ? (
@@ -223,14 +245,14 @@ export function NewMatchPage() {
           ) : null}
 
           <Grid align="start" columns={{ minWidth: 156, max: 5, repeat: "fill" }} gap={4}>
-            {isBoardEmpty && !isSearching ? (
+            {isBoardEmpty && !isNarrowed ? (
               <GridSpan columns={2}>
                 <FirstMapPanel isSignedIn={session !== null} onImported={handleImported} />
               </GridSpan>
             ) : (
               <ImportPlate isSignedIn={session !== null} onImported={handleImported} />
             )}
-            {isBoardEmpty && !isSearching
+            {isBoardEmpty && !isNarrowed
               ? Array.from({ length: OPEN_SLOT_COUNT }, (_, index) => <OpenSlot key={index} />)
               : null}
             {catalogQuery.isPending
@@ -248,12 +270,26 @@ export function NewMatchPage() {
                 ))}
           </Grid>
 
-          {isBoardEmpty && isSearching ? (
+          {isBoardEmpty && isNarrowed ? (
             <EmptyState
-              description={`Nothing in the catalog matches "${search}". Import the map from AWBW and it joins the board.`}
+              actions={
+                filterCount > 0 ? (
+                  <Button
+                    clickAction={() => setFilters(NO_MAP_FILTERS)}
+                    label="Clear filters"
+                    size="sm"
+                    variant="secondary"
+                  />
+                ) : undefined
+              }
+              description={
+                filterCount > 0
+                  ? "No map the catalog holds answers all of it. Widen the filters, or import the map from AWBW and it joins the board."
+                  : `Nothing in the catalog matches "${search}". Import the map from AWBW and it joins the board.`
+              }
               headingLevel={2}
               isCompact
-              title="No map by that name"
+              title={filterCount > 0 ? "No map fits that brief" : "No map by that name"}
             />
           ) : null}
 
@@ -274,6 +310,7 @@ export function NewMatchPage() {
 
         {selectedMap ? (
           <MapBriefing
+            bannedCoIds={bannedCoIds}
             briefingRef={briefingRef}
             createError={createError}
             fogEnabled={fogEnabled}
@@ -285,6 +322,14 @@ export function NewMatchPage() {
             onCreate={handleCreateLobby}
             onFogChange={setFogEnabled}
             onHotseatChange={setHotseatEnabled}
+            onToggleBan={(coId) => {
+              setCreateError(null);
+              setBannedCoIds((banned) => {
+                const next = new Set(banned);
+                if (!next.delete(coId)) next.add(coId);
+                return next;
+              });
+            }}
             onMatchNameChange={(value) => {
               autoMatchNameRef.current = null;
               setMatchName(value);
@@ -488,6 +533,7 @@ function FirstMapPanel({
 }
 
 function MapBriefing({
+  bannedCoIds,
   briefingRef,
   createError,
   fogEnabled,
@@ -502,9 +548,11 @@ function MapBriefing({
   onMatchNameChange,
   onPrivateChange,
   onStartingFundsChange,
+  onToggleBan,
   session,
   startingFunds,
 }: {
+  bannedCoIds: ReadonlySet<number>;
   briefingRef: RefObject<HTMLDivElement | null>;
   createError: string | null;
   fogEnabled: boolean;
@@ -519,6 +567,7 @@ function MapBriefing({
   onMatchNameChange: (value: string) => void;
   onPrivateChange: (value: boolean) => void;
   onStartingFundsChange: (value: number) => void;
+  onToggleBan: (coId: number) => void;
   session: ReturnType<typeof useAppSession>;
   startingFunds: number;
 }) {
@@ -585,35 +634,76 @@ function MapBriefing({
                 value={hotseatEnabled}
               />
             </VStack>
-
-            {session ? (
-              <Text type="label">Host {session.user.name}</Text>
-            ) : (
-              <Text weight="medium">
-                <RouterTextLink search={{ mode: undefined }} to="/auth">
-                  Sign in
-                </RouterTextLink>{" "}
-                to open a lobby.
-              </Text>
-            )}
-
-            {createError ? (
-              <Banner description={createError} status="error" title="The lobby did not open" />
-            ) : null}
-
-            <Button
-              clickAction={onCreate}
-              isDisabled={isCreating || !session}
-              isLoading={isCreating}
-              label="Create lobby"
-              variant="primary"
-              width="100%"
-            />
           </VStack>
         </Grid>
+
+        <Divider />
+
+        <VStack gap={3}>
+          <VStack gap={1}>
+            <Heading level={3}>Banned COs</Heading>
+            <Text color="secondary">
+              {bannedCoIds.size === 0
+                ? "Press a CO to take them out of this match. Every CO is in play until you do."
+                : `${bannedCoIds.size} of ${coRoster.length} COs are out of this match. Nobody can claim a struck CO, and the ban stands for the whole match.`}
+            </Text>
+          </VStack>
+          <CoBoard bannedCoIds={bannedCoIds} mode="ban" onToggleBan={onToggleBan} />
+        </VStack>
+
+        <Divider />
+
+        <VStack gap={4}>
+          {session ? (
+            <Text type="label">Host {session.user.name}</Text>
+          ) : (
+            <Text weight="medium">
+              <RouterTextLink search={{ mode: undefined }} to="/auth">
+                Sign in
+              </RouterTextLink>{" "}
+              to open a lobby.
+            </Text>
+          )}
+
+          {createError ? (
+            <Banner description={createError} status="error" title="The lobby did not open" />
+          ) : null}
+
+          <Button
+            clickAction={onCreate}
+            isDisabled={isCreating || !session}
+            isLoading={isCreating}
+            label="Create lobby"
+            variant="primary"
+            width="100%"
+          />
+        </VStack>
       </VStack>
     </Card>
   );
+}
+
+/**
+ * What the board holds, in the HUD voice.
+ *
+ * A narrowed board says what it found; a whole one says what AWBRN holds,
+ * because those are two different facts and the count alone does not say
+ * which one is on screen.
+ */
+function boardSummary({
+  count,
+  hasMore,
+  isNarrowed,
+  isPending,
+}: {
+  count: number;
+  hasMore: boolean;
+  isNarrowed: boolean;
+  isPending: boolean;
+}): string {
+  if (isPending) return "Reading the catalog";
+  const plural = count === 1 && !hasMore ? "" : "s";
+  return `${count}${hasMore ? "+" : ""} map${plural} ${isNarrowed ? "found" : "held"}`;
 }
 
 /** Shared behavior of the two places a map is imported. */

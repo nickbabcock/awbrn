@@ -8,6 +8,7 @@ import {
   mapTagsUpdateSchema,
 } from "./schemas.ts";
 import {
+  findCatalogEntry,
   importAwbwMapToCatalog,
   listCatalogMaps,
   loadMapRevision,
@@ -19,6 +20,16 @@ import { rateLimitBindings, requireRateLimit } from "#/rate_limit.ts";
 export const getMapRevisionFn = createServerFn({ method: "GET" })
   .validator(mapRefSchema)
   .handler(async ({ data }) => loadMapRevision(data));
+
+/**
+ * One catalog entry, which is where a screen gets a map's pictures.
+ *
+ * A match names a map revision and nothing else, so a screen that wants to
+ * show the board asks for the entry rather than drawing the document.
+ */
+export const getMapCatalogEntryFn = createServerFn({ method: "GET" })
+  .validator(mapRefSchema)
+  .handler(async ({ data }) => findCatalogEntry(data));
 
 export const listMapsFn = createServerFn({ method: "GET" })
   .validator(mapCatalogRequestSchema)

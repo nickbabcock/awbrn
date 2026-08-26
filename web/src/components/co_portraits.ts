@@ -1,4 +1,7 @@
 import { coPortraitAtlas, coPortraitSheetAssetUrl } from "#/engine/asset_manifest.ts";
+import { DEFAULT_CO_PORTRAIT_KEY } from "#/co_roster.ts";
+
+export { DEFAULT_CO_PORTRAIT_KEY };
 
 interface CoPortraitAtlasEntry {
   index: number;
@@ -30,8 +33,6 @@ export interface CoPortraitEntry extends CoPortraitAtlasEntry {
 }
 
 export type CoPortraitCatalog = Map<string, CoPortraitEntry>;
-
-export const DEFAULT_CO_PORTRAIT_KEY = "no-co";
 
 let catalog: CoPortraitCatalog | undefined;
 let catalogByAwbwId: Map<number, CoPortraitEntry> | undefined;
