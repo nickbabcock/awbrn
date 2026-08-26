@@ -14,7 +14,14 @@ const MATCH_WEBSOCKET_PATTERN = new URLPattern({
 });
 
 export default createServerEntry({
-  fetch(request) {
+  async fetch(request) {
+    // A local database starts with no maps, so development fills the catalog
+    // before it answers. The branch is dropped from a production build.
+    if (import.meta.env.DEV) {
+      const { seedDevMaps } = await import("#/maps/dev_seed.server.ts");
+      await seedDevMaps();
+    }
+
     const websocketMatch = MATCH_WEBSOCKET_PATTERN.exec(request.url);
     if (websocketMatch && request.headers.get("Upgrade") === "websocket") {
       const { matchId } = websocketMatch.pathname.groups;
