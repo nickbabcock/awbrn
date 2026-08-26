@@ -37,9 +37,9 @@ pub mod shape;
 pub mod threat;
 pub mod vision;
 
-pub use agent::{Agent, NodeBudget, Play};
+pub use agent::{Agent, MarginalDistribution, NodeBudget, Play, SearchStats};
 pub use calibration::Calibration;
-pub use eval::{EvalWeights, Evaluator};
+pub use eval::{EvalBreakdown, EvalWeights, Evaluator};
 pub use harness::{Limits, Record, play, play_measured};
 pub use map::ContestMap;
 pub use probe::Probe;

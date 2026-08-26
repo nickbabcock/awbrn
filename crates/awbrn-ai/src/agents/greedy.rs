@@ -509,6 +509,11 @@ pub struct GreedyAgent {
     /// walks one flank. The draw is seeded, so a game still repeats.
     rng: Rng,
     weights: Weights,
+    /// Optional unit restriction used while a stratified planner owns only
+    /// one part of the turn.
+    restricted: bool,
+    allowed_units: Vec<awvm::semantic::UnitId>,
+    allow_unitless: bool,
     /// Held across calls so that a turn's enumeration reuses one allocation.
     orders: Vec<Order>,
     /// The pull each tile feels toward the properties worth capturing, one
@@ -553,6 +558,9 @@ impl GreedyAgent {
         Self {
             rng: Rng::from_seed(seed),
             weights,
+            restricted: false,
+            allowed_units: Vec::new(),
+            allow_unitless: true,
             orders: Vec::new(),
             capture_fields: CaptureFields::new(),
             advance_field: Vec::new(),
@@ -568,6 +576,28 @@ impl GreedyAgent {
 
     pub const fn weights(&self) -> &Weights {
         &self.weights
+    }
+
+    /// Select only orders owned by the supplied units.
+    ///
+    /// Unitless actions are independently controlled because production and
+    /// powers belong to the rear stratum rather than to a unit role.
+    pub fn act_for_units(
+        &mut self,
+        view: &Observation,
+        budget: NodeBudget,
+        units: &[awvm::semantic::UnitId],
+        allow_unitless: bool,
+    ) -> Option<Play> {
+        self.restricted = true;
+        self.allowed_units.clear();
+        self.allowed_units.extend_from_slice(units);
+        self.allow_unitless = allow_unitless;
+        let play = self.act(view, budget);
+        self.restricted = false;
+        self.allowed_units.clear();
+        self.allow_unitless = true;
+        play
     }
 }
 
@@ -899,6 +929,9 @@ impl Agent for GreedyAgent {
         let Self {
             rng,
             weights,
+            restricted,
+            allowed_units,
+            allow_unitless,
             orders,
             capture_fields,
             advance_field,
@@ -990,6 +1023,13 @@ impl Agent for GreedyAgent {
         let mut tied = 0u64;
         let mut chosen = None;
         for order in orders.iter().copied() {
+            if *restricted {
+                match session.unit_of(order) {
+                    Some(unit) if allowed_units.contains(&unit) => {}
+                    None if *allow_unitless => {}
+                    _ => continue,
+                }
+            }
             let score = scorer.score(order);
             if score > best {
                 best = score;

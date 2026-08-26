@@ -205,6 +205,28 @@ impl Default for EvalWeights {
     }
 }
 
+/// The score and the requested parts of a position score.
+///
+/// Each part is the change caused by that term. The values are signed from
+/// the view of one seat. The remaining terms are in `other`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EvalBreakdown {
+    /// The complete score.
+    pub score: f64,
+    /// The army term.
+    pub army: f64,
+    /// The income term.
+    pub income: f64,
+    /// The exposure term.
+    pub exposure: f64,
+    /// The contest term.
+    pub contest: f64,
+    /// The front term.
+    pub front: f64,
+    /// Terms not listed above.
+    pub other: f64,
+}
+
 /// The `capture_points` of a property nobody is capturing.
 ///
 /// The count runs down from this to nothing, and the ruleset puts it back here
@@ -300,6 +322,43 @@ impl Evaluator {
             self.fill_position(session);
         }
         self.value_from_strengths(state, seat)
+    }
+
+    /// Read the score and its main term contributions.
+    pub fn breakdown_in(&mut self, session: &Session, seat: PlayerIdx) -> EvalBreakdown {
+        let score = self.value_in(session, seat);
+        let weights = self.weights;
+        let army = self.term_delta(session, seat, weights, |weights| weights.army = 0.0);
+        let income = self.term_delta(session, seat, weights, |weights| {
+            weights.income_days = 0.0;
+        });
+        let exposure = self.term_delta(session, seat, weights, |weights| weights.exposure = 0.0);
+        let contest = self.term_delta(session, seat, weights, |weights| weights.contest = 0.0);
+        let front = self.term_delta(session, seat, weights, |weights| weights.front = 0.0);
+        let other = score - army - income - exposure - contest - front;
+        EvalBreakdown {
+            score,
+            army,
+            income,
+            exposure,
+            contest,
+            front,
+            other,
+        }
+    }
+
+    /// Read the contribution of one term by removing it from the weights.
+    fn term_delta(
+        &self,
+        session: &Session,
+        seat: PlayerIdx,
+        weights: EvalWeights,
+        remove: impl FnOnce(&mut EvalWeights),
+    ) -> f64 {
+        let with_term = Evaluator::new(weights).value_in(session, seat);
+        let mut without_term = weights;
+        remove(&mut without_term);
+        with_term - Evaluator::new(without_term).value_in(session, seat)
     }
 
     /// Turn filled seat strengths into the value seen by one seat.
