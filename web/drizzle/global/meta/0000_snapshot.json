@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1bce9787-85c7-414c-80b2-654c033dc75e",
+  "id": "2920a780-f66d-447c-a0ab-b9d8faaf4458",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -181,6 +181,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "rank": {
+          "name": "rank",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "createdAt": {
           "name": "createdAt",
           "type": "integer",
@@ -227,7 +234,12 @@
         }
       },
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "map_revisions_rank_vocabulary": {
+          "name": "map_revisions_rank_vocabulary",
+          "value": "\"map_revisions\".\"rank\" is null or \"map_revisions\".\"rank\" in ('C', 'B', 'A', 'S')"
+        }
+      }
     },
     "map_sources": {
       "name": "map_sources",
@@ -275,6 +287,64 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
+    },
+    "map_tags": {
+      "name": "map_tags",
+      "columns": {
+        "mapId": {
+          "name": "mapId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tag": {
+          "name": "tag",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "addedAt": {
+          "name": "addedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "map_tags_tag_idx": {
+          "name": "map_tags_tag_idx",
+          "columns": ["tag", "mapId"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "map_tags_mapId_maps_id_fk": {
+          "name": "map_tags_mapId_maps_id_fk",
+          "tableFrom": "map_tags",
+          "tableTo": "maps",
+          "columnsFrom": ["mapId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "map_tags_mapId_tag_pk": {
+          "columns": ["mapId", "tag"],
+          "name": "map_tags_mapId_tag_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "map_tags_vocabulary": {
+          "name": "map_tags_vocabulary",
+          "value": "\"map_tags\".\"tag\" in ('standard', 'fog', 'team', 'ffa', 'high-funds')"
+        }
+      }
     },
     "maps": {
       "name": "maps",

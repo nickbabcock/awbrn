@@ -1,7 +1,19 @@
 import { createServerFn } from "@tanstack/react-start";
 import { sessionMiddleware } from "#/auth/session.middleware.ts";
-import { awbwMapImportRequestSchema, mapCatalogRequestSchema, mapRefSchema } from "./schemas.ts";
-import { importAwbwMapToCatalog, listCatalogMaps, loadMapRevision } from "./maps.server.ts";
+import {
+  awbwMapImportRequestSchema,
+  mapCatalogRequestSchema,
+  mapRankUpdateSchema,
+  mapRefSchema,
+  mapTagsUpdateSchema,
+} from "./schemas.ts";
+import {
+  importAwbwMapToCatalog,
+  listCatalogMaps,
+  loadMapRevision,
+  setMapRevisionRank,
+  setMapTags,
+} from "./maps.server.ts";
 import { rateLimitBindings, requireRateLimit } from "#/rate_limit.ts";
 
 export const getMapRevisionFn = createServerFn({ method: "GET" })
@@ -28,4 +40,23 @@ export const importAwbwMapFn = createServerFn({ method: "POST" })
       `user:${context.session.user.id}`,
     );
     return importAwbwMapToCatalog(data.sourceMapId);
+  });
+
+/** Rank a map revision, or take away the rank it holds. */
+export const setMapRankFn = createServerFn({ method: "POST" })
+  .middleware([sessionMiddleware])
+  .validator(mapRankUpdateSchema)
+  .handler(async ({ data, context }) => {
+    if (!context.session) throw new Error("you must be signed in to rank a map");
+    await setMapRevisionRank(data.map, data.rank);
+    return { rank: data.rank };
+  });
+
+/** Replace every tag on a map. */
+export const setMapTagsFn = createServerFn({ method: "POST" })
+  .middleware([sessionMiddleware])
+  .validator(mapTagsUpdateSchema)
+  .handler(async ({ data, context }) => {
+    if (!context.session) throw new Error("you must be signed in to tag a map");
+    return { tags: await setMapTags(data.mapId, data.tags) };
   });

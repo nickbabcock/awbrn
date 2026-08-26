@@ -17,7 +17,8 @@ import type {
   RankedPool,
   SeatResultReason,
 } from "#/matches/schemas.ts";
-import type { MapSourceKind } from "#/maps/schemas.ts";
+import { MAP_RANKS, MAP_TAGS } from "#/maps/schemas.ts";
+import type { MapRank, MapSourceKind, MapTag } from "#/maps/schemas.ts";
 
 const sqlLiterals = (values: readonly string[]) => sql.raw(values.map((v) => `'${v}'`).join(", "));
 
@@ -263,6 +264,9 @@ export const mapRevisions = sqliteTable(
     propertySignature: text("propertySignature").notNull(),
     unitSignature: text("unitSignature").notNull(),
 
+    /** Quality of this content, from C to S. Null while it is unranked. */
+    rank: text("rank").$type<MapRank>(),
+
     createdAt: integer("createdAt", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
@@ -272,5 +276,33 @@ export const mapRevisions = sqliteTable(
     primaryKey({ columns: [t.mapId, t.revision] }),
     uniqueIndex("map_revisions_content_unique").on(t.mapId, t.contentHash),
     index("map_revisions_signature_idx").on(t.mapId, t.propertySignature),
+    check(
+      "map_revisions_rank_vocabulary",
+      sql`${t.rank} is null or ${t.rank} in (${sqlLiterals(MAP_RANKS)})`,
+    ),
+  ],
+);
+
+/**
+ * How a map plays: one row per tag it carries.
+ *
+ * Tags describe the map and not one of its revisions, so a new revision keeps
+ * them while it loses the rank of the revision before it.
+ */
+export const mapTags = sqliteTable(
+  "map_tags",
+  {
+    mapId: text("mapId")
+      .notNull()
+      .references(() => maps.id, { onDelete: "cascade" }),
+    tag: text("tag").notNull().$type<MapTag>(),
+    addedAt: integer("addedAt", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [
+    primaryKey({ columns: [t.mapId, t.tag] }),
+    index("map_tags_tag_idx").on(t.tag, t.mapId),
+    check("map_tags_vocabulary", sql`${t.tag} in (${sqlLiterals(MAP_TAGS)})`),
   ],
 );

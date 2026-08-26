@@ -1,9 +1,9 @@
 import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
-import { and, desc, eq, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { fetchAwbwMapData } from "#/awbw/awbw.server.ts";
 import type { AwbwMapData } from "#/awbw/schemas.ts";
-import { mapRevisions, maps, mapSources } from "#/db/global.ts";
+import { mapRevisions, maps, mapSources, mapTags } from "#/db/global.ts";
 import { generateMapId } from "./map_id.ts";
 import { awbrnMapDocumentSchema, importedMapDocumentSchema } from "./map_document.ts";
 import type { AwbrnMapDocument, ImportedMapDocument } from "./map_document.ts";
@@ -11,9 +11,12 @@ import type {
   MapCatalogEntry,
   MapCatalogRequest,
   MapCatalogResponse,
+  MapRank,
   MapRef,
   MapSourceKind,
+  MapTag,
 } from "./schemas.ts";
+import { sortMapTags } from "./map_taxonomy.ts";
 import {
   decodeMapCatalogCursor,
   encodeMapCatalogCursor,
@@ -35,7 +38,7 @@ import {
   type MapScreenshotKind,
 } from "./map_screenshot.ts";
 
-const db = drizzle(env.DB, { schema: { maps, mapSources, mapRevisions } });
+const db = drizzle(env.DB, { schema: { maps, mapSources, mapRevisions, mapTags } });
 
 export async function importAwbwMap(sourceMapId: number): Promise<MapRef> {
   if (!Number.isSafeInteger(sourceMapId) || sourceMapId <= 0)
@@ -222,6 +225,7 @@ export async function listCatalogMaps(request: MapCatalogRequest): Promise<MapCa
       width: mapRevisions.width,
       height: mapRevisions.height,
       playerCount: mapRevisions.playerCount,
+      rank: mapRevisions.rank,
       source: mapSources.source,
       sourceMapId: mapSources.sourceMapId,
     })
@@ -239,9 +243,10 @@ export async function listCatalogMaps(request: MapCatalogRequest): Promise<MapCa
   const hasNextPage = rows.length > MAP_CATALOG_PAGE_SIZE;
   const visibleRows = hasNextPage ? rows.slice(0, MAP_CATALOG_PAGE_SIZE) : rows;
   const lastVisibleRow = visibleRows[visibleRows.length - 1] ?? null;
+  const tags = await readMapTags(visibleRows.map((row) => row.mapId));
 
   return {
-    maps: visibleRows.map(toCatalogEntry),
+    maps: visibleRows.map((row) => toCatalogEntry(row, tags.get(row.mapId) ?? [])),
     pageSize: MAP_CATALOG_PAGE_SIZE,
     hasNextPage,
     nextCursor:
@@ -283,6 +288,7 @@ export async function findCatalogEntry({
       width: mapRevisions.width,
       height: mapRevisions.height,
       playerCount: mapRevisions.playerCount,
+      rank: mapRevisions.rank,
       source: mapSources.source,
       sourceMapId: mapSources.sourceMapId,
     })
@@ -292,7 +298,78 @@ export async function findCatalogEntry({
     .where(and(eq(mapRevisions.mapId, mapId), eq(mapRevisions.revision, revision)))
     .get();
 
-  return row ? toCatalogEntry(row) : null;
+  if (!row) return null;
+  const tags = await readMapTags([row.mapId]);
+  return toCatalogEntry(row, tags.get(row.mapId) ?? []);
+}
+
+/**
+ * The tags of every named map, in vocabulary order.
+ *
+ * Maps with no tags are left out of the result, so read it with a default of
+ * an empty list.
+ */
+async function readMapTags(mapIds: readonly string[]): Promise<Map<string, MapTag[]>> {
+  const tags = new Map<string, MapTag[]>();
+  if (mapIds.length === 0) return tags;
+
+  const rows = await db
+    .select({ mapId: mapTags.mapId, tag: mapTags.tag })
+    .from(mapTags)
+    .where(inArray(mapTags.mapId, [...mapIds]))
+    .all();
+
+  for (const row of rows) {
+    const held = tags.get(row.mapId);
+    if (held) held.push(row.tag);
+    else tags.set(row.mapId, [row.tag]);
+  }
+  for (const [mapId, held] of tags) tags.set(mapId, sortMapTags(held));
+  return tags;
+}
+
+/**
+ * Give a map revision a rank, or take away the rank it holds.
+ *
+ * The rank names one revision and not the map, so the next revision of the
+ * map starts unranked however good this one was.
+ */
+export async function setMapRevisionRank(
+  { mapId, revision }: MapRef,
+  rank: MapRank | null,
+): Promise<void> {
+  const updated = await db
+    .update(mapRevisions)
+    .set({ rank })
+    .where(and(eq(mapRevisions.mapId, mapId), eq(mapRevisions.revision, revision)))
+    .returning({ mapId: mapRevisions.mapId })
+    .all();
+  if (updated.length === 0) throw new Error("Map revision not found");
+}
+
+/**
+ * Replace every tag on a map with the tags named here.
+ *
+ * The whole set is written at once, because a tag that is taken off a map and
+ * a tag that is put on it are one change to the player who made it.
+ */
+export async function setMapTags(mapId: string, tags: readonly MapTag[]): Promise<MapTag[]> {
+  const wanted = sortMapTags(tags);
+  const map = await db.select({ id: maps.id }).from(maps).where(eq(maps.id, mapId)).get();
+  if (!map) throw new Error("Map not found");
+
+  const clear = db.delete(mapTags).where(eq(mapTags.mapId, mapId));
+  if (wanted.length === 0) {
+    await clear;
+    return wanted;
+  }
+
+  const now = new Date();
+  await db.batch([
+    clear,
+    db.insert(mapTags).values(wanted.map((tag) => ({ mapId, tag, addedAt: now }))),
+  ]);
+  return wanted;
 }
 
 interface CatalogRow {
@@ -305,17 +382,20 @@ interface CatalogRow {
   width: number;
   height: number;
   playerCount: number;
+  rank: MapRank | null;
   source: MapSourceKind | null;
   sourceMapId: number | null;
 }
 
-function toCatalogEntry(row: CatalogRow): MapCatalogEntry {
+function toCatalogEntry(row: CatalogRow, tags: MapTag[]): MapCatalogEntry {
   return {
     mapId: row.mapId,
     revision: row.revision,
     name: row.name,
     author: row.author,
     playerCount: row.playerCount,
+    rank: row.rank,
+    tags,
     width: row.width,
     height: row.height,
     origin:
