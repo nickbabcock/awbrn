@@ -54,10 +54,29 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { matches, matchParticipants, matchResults, mapSources, user } from "#/db/global.ts";
+import {
+  matches,
+  matchParticipants,
+  matchResults,
+  matchVoids,
+  mapSources,
+  moderationActions,
+  user,
+} from "#/db/global.ts";
+import type { Actor } from "#/auth/actor.ts";
+import { moderationEntry } from "#/moderation/moderation.server.ts";
+import { matchViewAnyGrant } from "./match_authz";
 
 const db = drizzle(env.DB, {
-  schema: { matches, matchParticipants, matchResults, mapSources, user },
+  schema: {
+    matches,
+    matchParticipants,
+    matchResults,
+    matchVoids,
+    mapSources,
+    moderationActions,
+    user,
+  },
 });
 
 const PUBLIC_MATCH_PHASE: MatchPhase = "lobby";
@@ -146,6 +165,7 @@ export async function getMatchSnapshot(
   matchId: string,
   viewerUserId: string | null,
   joinSlug: string | null,
+  viewer: Actor | null = null,
 ): Promise<MatchResult<MatchSnapshot>> {
   const finalized = await finalizeStartingMatchIfNeeded(matchId);
   if (!finalized.ok) {
@@ -157,11 +177,99 @@ export async function getMatchSnapshot(
     return snapshot;
   }
 
-  if (!canViewMatch(snapshot.value, viewerUserId, joinSlug)) {
+  if (!canViewMatch(snapshot.value, viewerUserId, joinSlug, viewer)) {
     return err("matchNotFound", "match not found", 404);
   }
 
   return ok(applyViewerVisibility(snapshot.value, viewerUserId));
+}
+
+export interface VoidMatchInput {
+  matchId: string;
+  /** What the players are told. Kept on the match. */
+  publicReason: string;
+  /** Why the moderator acted. Kept in the log and never shown to them. */
+  reason: string;
+  actor: Actor;
+}
+
+/**
+ * Whether the write lost the race to void a match that another call voided.
+ *
+ * SQLite names the table and the column it refused, which keeps this from
+ * reading a different broken key as a second void.
+ */
+function isDuplicateVoid(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /UNIQUE constraint failed: match_voids\.matchId/i.test(message);
+}
+
+/**
+ * Mark a match as not counting, without changing the result it recorded.
+ *
+ * The seats keep the outcome they earned, because a void is a statement
+ * about the match and not a rewrite of what happened in it. What a void
+ * changes is whether the rating reads the result, which `isRatedResult`
+ * decides.
+ *
+ * The state and its record are written in one batch, so the log cannot end
+ * up missing an act that landed.
+ *
+ * `match_voids` holds one row for each match, so a second void that comes in
+ * while the first is still in flight breaks on the key rather than writing a
+ * second record. The read before the write is there for the message it gives
+ * and not for the rule, which the key holds.
+ */
+export async function voidMatch(input: VoidMatchInput): Promise<MatchResult<{ voidedAt: string }>> {
+  const row = await db
+    .select({ id: matches.id, startedAt: matches.startedAt })
+    .from(matches)
+    .where(eq(matches.id, input.matchId))
+    .get();
+  if (!row) {
+    return err("matchNotFound", "match not found", 404);
+  }
+  if (row.startedAt === null) {
+    return err("matchNotVoidable", "a match that never started cannot be voided", 409);
+  }
+
+  const existing = await db
+    .select({ matchId: matchVoids.matchId })
+    .from(matchVoids)
+    .where(eq(matchVoids.matchId, input.matchId))
+    .get();
+  if (existing) {
+    return err("matchAlreadyVoided", "this match is already voided", 409);
+  }
+
+  const now = new Date();
+  try {
+    await db.batch([
+      db.insert(matchVoids).values({
+        matchId: input.matchId,
+        publicReason: input.publicReason,
+        voidedAt: now,
+      }),
+      db.insert(moderationActions).values(
+        moderationEntry({
+          actor: input.actor,
+          action: "match.void",
+          subjectType: "match",
+          subjectId: input.matchId,
+          reason: input.reason,
+          details: { publicReason: input.publicReason },
+          now,
+        }),
+      ),
+    ]);
+  } catch (error) {
+    if (isDuplicateVoid(error)) {
+      return err("matchAlreadyVoided", "this match is already voided", 409);
+    }
+    throw error;
+  }
+
+  return ok({ voidedAt: now.toISOString() });
 }
 
 export async function listMatches(
@@ -692,7 +800,14 @@ async function loadMatchSnapshot(matchId: string): Promise<MatchResult<MatchSnap
     return settings;
   }
 
-  const participantRows = await queryParticipantRows(matchId);
+  const [participantRows, voidRow] = await Promise.all([
+    queryParticipantRows(matchId),
+    db
+      .select({ publicReason: matchVoids.publicReason, voidedAt: matchVoids.voidedAt })
+      .from(matchVoids)
+      .where(eq(matchVoids.matchId, matchId))
+      .get(),
+  ]);
   return ok({
     matchId: row.id,
     name: row.name,
@@ -710,6 +825,9 @@ async function loadMatchSnapshot(matchId: string): Promise<MatchResult<MatchSnap
     startedAt: row.startedAt === null ? null : row.startedAt.toISOString(),
     completedAt: row.completedAt === null ? null : row.completedAt.toISOString(),
     participants: participantRows.map(toParticipantSnapshot),
+    void: voidRow
+      ? { publicReason: voidRow.publicReason, voidedAt: voidRow.voidedAt.toISOString() }
+      : null,
   });
 }
 
@@ -1031,8 +1149,13 @@ function canViewMatch(
   snapshot: MatchSnapshot,
   viewerUserId: string | null,
   joinSlug: string | null,
+  viewer: Actor | null,
 ): boolean {
   if (!snapshot.isPrivate) {
+    return true;
+  }
+  // Taking part is checked below. This is the grant that reaches past it.
+  if (matchViewAnyGrant(viewer) !== null) {
     return true;
   }
   if (viewerUserId !== null && snapshot.creatorUserId === viewerUserId) {

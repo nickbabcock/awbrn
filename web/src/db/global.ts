@@ -18,6 +18,12 @@ import type {
   SeatResultReason,
 } from "#/matches/schemas.ts";
 import { MAP_RANKS, MAP_TAGS } from "#/maps/schemas.ts";
+import { MODERATION_ACTIONS, MODERATION_SUBJECTS } from "#/moderation/schemas.ts";
+import type {
+  ModerationAction,
+  ModerationDetails,
+  ModerationSubject,
+} from "#/moderation/schemas.ts";
 import type { MapRank, MapSourceKind, MapTag } from "#/maps/schemas.ts";
 
 const sqlLiterals = (values: readonly string[]) => sql.raw(values.map((v) => `'${v}'`).join(", "));
@@ -28,6 +34,18 @@ export const user = sqliteTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: integer("emailVerified", { mode: "boolean" }).notNull(),
   image: text("image"),
+
+  /**
+   * Which roles this user holds, as a comma separated list, or null while
+   * they hold the default. The vocabulary lives in `auth/access.ts` and is
+   * not checked here: the admin plugin writes a list, so a column check that
+   * named one role would reject a user who holds two.
+   */
+  role: text("role"),
+  banned: integer("banned", { mode: "boolean" }).default(false),
+  banReason: text("banReason"),
+  banExpires: integer("banExpires", { mode: "timestamp" }),
+
   createdAt: integer("createdAt", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -49,6 +67,8 @@ export const session = sqliteTable(
     userId: text("userId")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    /** The admin who is acting as this user, while an impersonation runs. */
+    impersonatedBy: text("impersonatedBy"),
   },
   (t) => [index("session_userId_idx").on(t.userId)],
 );
@@ -191,18 +211,22 @@ export const matchResults = sqliteTable(
   ],
 );
 
-/** Records a voided match without changing its result. */
+/**
+ * Records a voided match without changing its result.
+ *
+ * This is the state and not the record of who made it: a void can come from
+ * a moderator or from the server itself, and only the first of those has a
+ * person to name. `moderation_actions` holds the person, the reason they
+ * wrote for the record, and the time.
+ */
 export const matchVoids = sqliteTable(
   "match_voids",
   {
     matchId: text("matchId")
       .primaryKey()
       .references(() => matches.id, { onDelete: "cascade" }),
-    voidedByUserId: text("voidedByUserId")
-      .notNull()
-      .references(() => user.id, { onDelete: "restrict" }),
-    /** Free text for abuse records in the first release. */
-    reason: text("reason").notNull(),
+    /** What the players in the match are told. Free text in the first release. */
+    publicReason: text("publicReason").notNull(),
     voidedAt: integer("voidedAt", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
@@ -304,5 +328,50 @@ export const mapTags = sqliteTable(
     primaryKey({ columns: [t.mapId, t.tag] }),
     index("map_tags_tag_idx").on(t.tag, t.mapId),
     check("map_tags_vocabulary", sql`${t.tag} in (${sqlLiterals(MAP_TAGS)})`),
+  ],
+);
+
+/**
+ * Every act of moderation, appended and never changed.
+ *
+ * This is the record and not the state. A screen that asks whether a match is
+ * void reads `match_voids`; a screen that asks who voided it, when, and why
+ * reads this table. Game code never reads it.
+ *
+ * `subjectId` names a row in whichever table `subjectType` points at, so it
+ * carries no foreign key and can outlive the row it names. That is the price
+ * of one table that answers "everything this moderator did" with a single
+ * index scan instead of a union over one table for each power.
+ */
+export const moderationActions = sqliteTable(
+  "moderation_actions",
+  {
+    id: text("id").primaryKey(),
+    actorUserId: text("actorUserId")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    action: text("action").notNull().$type<ModerationAction>(),
+    subjectType: text("subjectType").notNull().$type<ModerationSubject>(),
+    subjectId: text("subjectId").notNull(),
+    /** Why the moderator acted, for the record. Never shown to the subject. */
+    reason: text("reason").notNull(),
+    /** What changed, such as the tags before and after. */
+    details: text("details", { mode: "json" }).$type<ModerationDetails>(),
+    createdAt: integer("createdAt", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [
+    index("moderation_actions_subject_idx").on(t.subjectType, t.subjectId, t.createdAt),
+    index("moderation_actions_actor_idx").on(t.actorUserId, t.createdAt),
+    index("moderation_actions_recent_idx").on(t.createdAt),
+    check(
+      "moderation_actions_action_vocabulary",
+      sql`${t.action} in (${sqlLiterals(MODERATION_ACTIONS)})`,
+    ),
+    check(
+      "moderation_actions_subject_vocabulary",
+      sql`${t.subjectType} in (${sqlLiterals(MODERATION_SUBJECTS)})`,
+    ),
   ],
 );

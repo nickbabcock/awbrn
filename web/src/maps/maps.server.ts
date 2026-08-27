@@ -3,7 +3,11 @@ import { drizzle } from "drizzle-orm/d1";
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { fetchAwbwMapData } from "#/awbw/awbw.server.ts";
 import type { AwbwMapData } from "#/awbw/schemas.ts";
-import { mapRevisions, maps, mapSources, mapTags } from "#/db/global.ts";
+import type { BatchItem } from "drizzle-orm/batch";
+import type { Actor } from "#/auth/actor.ts";
+import { mapRevisions, maps, mapSources, mapTags, moderationActions } from "#/db/global.ts";
+import { moderationEntry } from "#/moderation/moderation.server.ts";
+import { mapRankGrant, mapTagGrant } from "./map_authz.ts";
 import { generateMapId } from "./map_id.ts";
 import { awbrnMapDocumentSchema, importedMapDocumentSchema } from "./map_document.ts";
 import type { AwbrnMapDocument, ImportedMapDocument } from "./map_document.ts";
@@ -39,7 +43,9 @@ import {
   type MapScreenshotKind,
 } from "./map_screenshot.ts";
 
-const db = drizzle(env.DB, { schema: { maps, mapSources, mapRevisions, mapTags } });
+const db = drizzle(env.DB, {
+  schema: { maps, mapSources, mapRevisions, mapTags, moderationActions },
+});
 
 export async function importAwbwMap(sourceMapId: number): Promise<MapRef> {
   if (!Number.isSafeInteger(sourceMapId) || sourceMapId <= 0)
@@ -222,6 +228,7 @@ export async function listCatalogMaps(request: MapCatalogRequest): Promise<MapCa
       mapId: maps.id,
       name: maps.name,
       author: maps.author,
+      authorUserId: maps.authorUserId,
       revision: maps.currentRevision,
       createdAt: maps.createdAt,
       contentHash: mapRevisions.contentHash,
@@ -285,6 +292,7 @@ export async function findCatalogEntry({
       mapId: maps.id,
       name: maps.name,
       author: maps.author,
+      authorUserId: maps.authorUserId,
       revision: mapRevisions.revision,
       createdAt: maps.createdAt,
       contentHash: mapRevisions.contentHash,
@@ -336,18 +344,54 @@ async function readMapTags(mapIds: readonly string[]): Promise<Map<string, MapTa
  *
  * The rank names one revision and not the map, so the next revision of the
  * map starts unranked however good this one was.
+ *
+ * The caller has been through `requirePermission` for the role, which is
+ * only half the question: nobody ranks a map they wrote, whatever role they
+ * hold. The author comes back with the revision so that `mapRankGrant` gets
+ * asked here, where the write is, and not only where a screen draws a
+ * button.
  */
 export async function setMapRevisionRank(
   { mapId, revision }: MapRef,
   rank: MapRank | null,
+  moderator: { actor: Actor; reason: string },
 ): Promise<void> {
-  const updated = await db
-    .update(mapRevisions)
-    .set({ rank })
+  const before = await db
+    .select({ rank: mapRevisions.rank, authorUserId: maps.authorUserId })
+    .from(mapRevisions)
+    .innerJoin(maps, eq(maps.id, mapRevisions.mapId))
     .where(and(eq(mapRevisions.mapId, mapId), eq(mapRevisions.revision, revision)))
-    .returning({ mapId: mapRevisions.mapId })
-    .all();
-  if (updated.length === 0) throw new Error("Map revision not found");
+    .get();
+  if (!before) throw new Error("Map revision not found");
+
+  if (mapRankGrant({ authorUserId: before.authorUserId }, moderator.actor) === null) {
+    throw new Response("Forbidden", { status: 403 });
+  }
+
+  await db.batch([
+    db
+      .update(mapRevisions)
+      .set({ rank })
+      .where(and(eq(mapRevisions.mapId, mapId), eq(mapRevisions.revision, revision))),
+    db.insert(moderationActions).values(
+      moderationEntry({
+        actor: moderator.actor,
+        action: "map.rank",
+        subjectType: "map_revision",
+        subjectId: `${mapId}:${revision}`,
+        reason: moderator.reason,
+        details: { mapId, revision, before: before.rank, after: rank },
+      }),
+    ),
+  ]);
+}
+
+export interface SetMapTagsInput {
+  mapId: string;
+  tags: readonly MapTag[];
+  actor: Actor;
+  /** Required when the actor is not the author. Kept off the map itself. */
+  reason?: string;
 }
 
 /**
@@ -356,22 +400,51 @@ export async function setMapRevisionRank(
  * The whole set is written at once, because a tag that is taken off a map and
  * a tag that is put on it are one change to the player who made it.
  */
-export async function setMapTags(mapId: string, tags: readonly MapTag[]): Promise<MapTag[]> {
-  const wanted = sortMapTags(tags);
-  const map = await db.select({ id: maps.id }).from(maps).where(eq(maps.id, mapId)).get();
+export async function setMapTags(input: SetMapTagsInput): Promise<MapTag[]> {
+  const { mapId, actor, reason } = input;
+  const wanted = sortMapTags(input.tags);
+  const map = await db
+    .select({ id: maps.id, authorUserId: maps.authorUserId })
+    .from(maps)
+    .where(eq(maps.id, mapId))
+    .get();
   if (!map) throw new Error("Map not found");
 
-  const clear = db.delete(mapTags).where(eq(mapTags.mapId, mapId));
-  if (wanted.length === 0) {
-    await clear;
-    return wanted;
+  const grant = mapTagGrant(map, actor);
+  if (grant === null) throw new Response("Forbidden", { status: 403 });
+  if (grant === "moderator" && reason === undefined) {
+    throw new Error("a moderator tagging a map they do not own must give a reason");
   }
 
+  const before = sortMapTags(
+    (await db.select({ tag: mapTags.tag }).from(mapTags).where(eq(mapTags.mapId, mapId)).all()).map(
+      (row) => row.tag,
+    ),
+  );
+
   const now = new Date();
-  await db.batch([
-    clear,
-    db.insert(mapTags).values(wanted.map((tag) => ({ mapId, tag, addedAt: now }))),
-  ]);
+  const writes: BatchItem<"sqlite">[] = [db.delete(mapTags).where(eq(mapTags.mapId, mapId))];
+  if (wanted.length > 0) {
+    writes.push(db.insert(mapTags).values(wanted.map((tag) => ({ mapId, tag, addedAt: now }))));
+  }
+  // An author tagging their own map is not moderation and is not logged.
+  if (grant === "moderator") {
+    writes.push(
+      db.insert(moderationActions).values(
+        moderationEntry({
+          actor,
+          action: "map.retag",
+          subjectType: "map",
+          subjectId: mapId,
+          reason: reason ?? "",
+          details: { before, after: [...wanted] },
+          now,
+        }),
+      ),
+    );
+  }
+
+  await db.batch(writes as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
   return wanted;
 }
 
@@ -379,6 +452,7 @@ interface CatalogRow {
   mapId: string;
   name: string;
   author: string;
+  authorUserId: string | null;
   revision: number;
   createdAt: Date;
   contentHash: string;
@@ -396,6 +470,7 @@ function toCatalogEntry(row: CatalogRow, tags: MapTag[]): MapCatalogEntry {
     revision: row.revision,
     name: row.name,
     author: row.author,
+    authorUserId: row.authorUserId,
     playerCount: row.playerCount,
     rank: row.rank,
     tags,

@@ -3,6 +3,7 @@ import { coRoster, isKnownCoId } from "#/co_roster.ts";
 import { awbrnMapDocumentSchema } from "#/maps/map_document.ts";
 import { MAP_ID_LENGTH } from "#/maps/map_id.ts";
 import { mapRefSchema } from "#/maps/schemas.ts";
+import { moderationReasonSchema } from "#/moderation/schemas.ts";
 import { matchIdSchema } from "./match_id.ts";
 
 /**
@@ -195,7 +196,26 @@ export interface MatchSnapshot {
   startedAt: string | null;
   completedAt: string | null;
   participants: MatchParticipantSnapshot[];
+  /**
+   * Set when the match does not count, with the reason the players are told.
+   * Who voided it and why they did is in the moderation log, not here.
+   */
+  void: MatchVoidSnapshot | null;
 }
+
+export interface MatchVoidSnapshot {
+  publicReason: string;
+  voidedAt: string;
+}
+
+/** Void a match: one reason for the players, one for the record. */
+export const matchVoidRequestSchema = z.object({
+  matchId: matchIdSchema,
+  publicReason: z.string().trim().min(3).max(200),
+  reason: moderationReasonSchema,
+});
+
+export type MatchVoidRequest = z.infer<typeof matchVoidRequestSchema>;
 
 export interface MatchMutationResponse {
   match: MatchSnapshot;

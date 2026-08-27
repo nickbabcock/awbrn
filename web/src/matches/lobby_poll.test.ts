@@ -42,6 +42,7 @@ function snapshot(overrides: Partial<MatchSnapshot> = {}): MatchSnapshot {
     updatedAt: "2026-08-03T00:00:00.000Z",
     startedAt: null,
     completedAt: null,
+    void: null,
     participants: [
       {
         userId: "u1",

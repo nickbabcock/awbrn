@@ -103,11 +103,9 @@ CREATE INDEX `match_results_user_idx` ON `match_results` (`userId`,`recordedAt`)
 CREATE INDEX `match_results_pool_idx` ON `match_results` (`pool`,`recordedAt`) WHERE "match_results"."pool" is not null;--> statement-breakpoint
 CREATE TABLE `match_voids` (
 	`matchId` text PRIMARY KEY NOT NULL,
-	`voidedByUserId` text NOT NULL,
-	`reason` text NOT NULL,
+	`publicReason` text NOT NULL,
 	`voidedAt` integer DEFAULT (unixepoch()) NOT NULL,
-	FOREIGN KEY (`matchId`) REFERENCES `matches`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`voidedByUserId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict
+	FOREIGN KEY (`matchId`) REFERENCES `matches`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
 CREATE INDEX `match_voids_voidedAt_idx` ON `match_voids` (`voidedAt`);--> statement-breakpoint
@@ -134,6 +132,23 @@ CREATE TABLE `matches` (
 CREATE INDEX `matches_creator_idx` ON `matches` (`creatorUserId`);--> statement-breakpoint
 CREATE INDEX `matches_browse_idx` ON `matches` (`phase`,`isPrivate`,`createdAt`);--> statement-breakpoint
 CREATE UNIQUE INDEX `matches_joinSlug_unique` ON `matches` (`joinSlug`);--> statement-breakpoint
+CREATE TABLE `moderation_actions` (
+	`id` text PRIMARY KEY NOT NULL,
+	`actorUserId` text NOT NULL,
+	`action` text NOT NULL,
+	`subjectType` text NOT NULL,
+	`subjectId` text NOT NULL,
+	`reason` text NOT NULL,
+	`details` text,
+	`createdAt` integer DEFAULT (unixepoch()) NOT NULL,
+	FOREIGN KEY (`actorUserId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "moderation_actions_action_vocabulary" CHECK("moderation_actions"."action" in ('map.rank', 'map.retag', 'match.void', 'user.ban', 'user.unban', 'user.set-role')),
+	CONSTRAINT "moderation_actions_subject_vocabulary" CHECK("moderation_actions"."subjectType" in ('map', 'map_revision', 'match', 'user'))
+);
+--> statement-breakpoint
+CREATE INDEX `moderation_actions_subject_idx` ON `moderation_actions` (`subjectType`,`subjectId`,`createdAt`);--> statement-breakpoint
+CREATE INDEX `moderation_actions_actor_idx` ON `moderation_actions` (`actorUserId`,`createdAt`);--> statement-breakpoint
+CREATE INDEX `moderation_actions_recent_idx` ON `moderation_actions` (`createdAt`);--> statement-breakpoint
 CREATE TABLE `session` (
 	`id` text PRIMARY KEY NOT NULL,
 	`expiresAt` integer NOT NULL,
@@ -143,6 +158,7 @@ CREATE TABLE `session` (
 	`ipAddress` text,
 	`userAgent` text,
 	`userId` text NOT NULL,
+	`impersonatedBy` text,
 	FOREIGN KEY (`userId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
@@ -154,6 +170,10 @@ CREATE TABLE `user` (
 	`email` text NOT NULL,
 	`emailVerified` integer NOT NULL,
 	`image` text,
+	`role` text,
+	`banned` integer DEFAULT false,
+	`banReason` text,
+	`banExpires` integer,
 	`createdAt` integer DEFAULT (unixepoch()) NOT NULL,
 	`updatedAt` integer NOT NULL
 );

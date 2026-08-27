@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { sessionMiddleware } from "#/auth/session.middleware.ts";
+import { optionalActorMiddleware, requirePermission } from "#/auth/permission.middleware.ts";
 import { getFactionById } from "#/factions.ts";
 import { matchIdSchema } from "./match_id.ts";
 import {
@@ -10,12 +11,14 @@ import {
   listMyCompletedMatches,
   listMyMatches,
   mutateMatch,
+  voidMatch,
 } from "./matches.server";
 import {
   matchBrowseRequestSchema,
   matchCreateRequestSchema,
   matchHistoryRequestSchema,
   matchMutationRequestSchema,
+  matchVoidRequestSchema,
 } from "./schemas";
 import { rateLimitBindings, requireRateLimit } from "#/rate_limit.ts";
 
@@ -46,14 +49,21 @@ export const listMyCompletedMatchesFn = createServerFn({ method: "GET" })
     return result.value;
   });
 
+/**
+ * Both middlewares run because they answer different questions. The session
+ * says who the viewer is, which is what decides whether they hold a seat.
+ * The actor says what they may do, and is null for a banned account: a ban
+ * takes away what a role granted without taking away who they are.
+ */
 export const getMatchFn = createServerFn({ method: "GET" })
-  .middleware([sessionMiddleware])
+  .middleware([sessionMiddleware, optionalActorMiddleware])
   .validator(z.object({ matchId: matchIdSchema, joinSlug: z.string().nullish() }))
   .handler(async ({ data, context }) => {
     const result = await getMatchSnapshot(
       data.matchId,
       context.session?.user.id ?? null,
       data.joinSlug ?? null,
+      context.actor,
     );
     if (!result.ok) throw new Error(result.error.message);
     return result.value;
@@ -113,6 +123,27 @@ export const mutateMatchFn = createServerFn({ method: "POST" })
     }
 
     const result = await mutateMatch(data.matchId, context.session.user, action);
+    if (!result.ok) throw new Error(result.error.message);
+    return result.value;
+  });
+
+/**
+ * Mark a match as not counting.
+ *
+ * There is no owner branch here on purpose: a player who could void the
+ * match they lost would hold a way out of every loss, so this is a moderator
+ * act and nothing else.
+ */
+export const voidMatchFn = createServerFn({ method: "POST" })
+  .middleware([requirePermission({ match: ["void"] })])
+  .validator(matchVoidRequestSchema)
+  .handler(async ({ data, context }) => {
+    const result = await voidMatch({
+      matchId: data.matchId,
+      publicReason: data.publicReason,
+      reason: data.reason,
+      actor: context.actor,
+    });
     if (!result.ok) throw new Error(result.error.message);
     return result.value;
   });
