@@ -4,6 +4,8 @@ use awvm::semantic::{CellIdx, Observation, ObservedEvent, UnitId};
 use awvm::session::{Order, OrderKind, Session};
 use awvm::transition::Command;
 
+use crate::eval::EvalBreakdown;
+
 /// One decision, from a position the agent can see.
 ///
 /// The interface steps. It gives one play, takes a fresh observation, and gives
@@ -23,6 +25,137 @@ pub trait Agent {
     /// than deriving it again from each observation. An agent that keeps
     /// nothing ignores this.
     fn observe(&mut self, _events: &[ObservedEvent]) {}
+
+    /// Return search counters when this agent has them.
+    fn search_stats(&self) -> Option<SearchStats> {
+        None
+    }
+}
+
+/// Counters from the one-pass search.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SearchStats {
+    /// Complete candidate plans that reached the evaluator.
+    pub nodes_evaluated: u64,
+    /// Legal alternatives that did not reach the evaluator.
+    pub legal_candidates_rejected: u64,
+    /// Greedy seed plans that the search built.
+    pub seed_plans: u64,
+    /// Seed plans that the search changed.
+    pub changed_seed_plans: u64,
+    /// Changed plans with two non-terminal leaves that were broken down.
+    pub changed_leaf_breakdowns: u64,
+    /// Sum of selected-minus-seed evaluator terms for changed plans.
+    pub changed_leaf_deltas: EvalBreakdown,
+    /// Sum of the same changes under the standard evaluator.
+    pub standard_leaf_deltas: EvalBreakdown,
+    /// Distribution of standard front deltas.
+    pub standard_front_deltas: MarginalDistribution,
+    /// Distribution of standard exposure deltas.
+    pub standard_exposure_deltas: MarginalDistribution,
+}
+
+impl SearchStats {
+    /// Add counters from one search run.
+    pub fn add(&mut self, other: Self) {
+        self.nodes_evaluated += other.nodes_evaluated;
+        self.legal_candidates_rejected += other.legal_candidates_rejected;
+        self.seed_plans += other.seed_plans;
+        self.changed_seed_plans += other.changed_seed_plans;
+        self.changed_leaf_breakdowns += other.changed_leaf_breakdowns;
+        self.changed_leaf_deltas.score += other.changed_leaf_deltas.score;
+        self.changed_leaf_deltas.army += other.changed_leaf_deltas.army;
+        self.changed_leaf_deltas.income += other.changed_leaf_deltas.income;
+        self.changed_leaf_deltas.exposure += other.changed_leaf_deltas.exposure;
+        self.changed_leaf_deltas.contest += other.changed_leaf_deltas.contest;
+        self.changed_leaf_deltas.front += other.changed_leaf_deltas.front;
+        self.changed_leaf_deltas.other += other.changed_leaf_deltas.other;
+        self.standard_leaf_deltas.score += other.standard_leaf_deltas.score;
+        self.standard_leaf_deltas.army += other.standard_leaf_deltas.army;
+        self.standard_leaf_deltas.income += other.standard_leaf_deltas.income;
+        self.standard_leaf_deltas.exposure += other.standard_leaf_deltas.exposure;
+        self.standard_leaf_deltas.contest += other.standard_leaf_deltas.contest;
+        self.standard_leaf_deltas.front += other.standard_leaf_deltas.front;
+        self.standard_leaf_deltas.other += other.standard_leaf_deltas.other;
+        self.standard_front_deltas.add(other.standard_front_deltas);
+        self.standard_exposure_deltas
+            .add(other.standard_exposure_deltas);
+    }
+}
+
+/// A compact distribution of one marginal evaluator term, in funds.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MarginalDistribution {
+    /// Number of recorded changes.
+    pub count: u64,
+    /// Sum of the changes.
+    pub sum: f64,
+    /// Sum of squared changes.
+    pub sum_squared: f64,
+    /// Smallest change.
+    pub min: f64,
+    /// Largest change.
+    pub max: f64,
+    /// Counts in fixed funds ranges from below -50k to at least 20k.
+    pub buckets: [u64; 11],
+}
+
+impl MarginalDistribution {
+    const EDGES: [f64; 10] = [
+        -50_000.0, -20_000.0, -10_000.0, -5_000.0, -2_000.0, 0.0, 2_000.0, 5_000.0, 10_000.0,
+        20_000.0,
+    ];
+
+    /// Make an empty distribution.
+    pub const fn new() -> Self {
+        Self {
+            count: 0,
+            sum: 0.0,
+            sum_squared: 0.0,
+            min: 0.0,
+            max: 0.0,
+            buckets: [0; 11],
+        }
+    }
+
+    /// Record one marginal change.
+    pub fn record(&mut self, value: f64) {
+        let bucket = Self::EDGES
+            .iter()
+            .position(|edge| value < *edge)
+            .unwrap_or(Self::EDGES.len());
+        self.count += 1;
+        self.sum += value;
+        self.sum_squared += value * value;
+        if self.count == 1 {
+            self.min = value;
+            self.max = value;
+        } else {
+            self.min = self.min.min(value);
+            self.max = self.max.max(value);
+        }
+        self.buckets[bucket] += 1;
+    }
+
+    /// Add another distribution.
+    pub fn add(&mut self, other: Self) {
+        if other.count == 0 {
+            return;
+        }
+        if self.count == 0 {
+            self.min = other.min;
+            self.max = other.max;
+        } else {
+            self.min = self.min.min(other.min);
+            self.max = self.max.max(other.max);
+        }
+        self.count += other.count;
+        self.sum += other.sum;
+        self.sum_squared += other.sum_squared;
+        for (left, right) in self.buckets.iter_mut().zip(other.buckets) {
+            *left += right;
+        }
+    }
 }
 
 /// The maximum number of candidate turn plans an agent may evaluate.

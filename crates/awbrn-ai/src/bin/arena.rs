@@ -32,7 +32,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
-use awbrn_ai::agent::{Agent, NodeBudget};
+use awbrn_ai::agent::{Agent, MarginalDistribution, NodeBudget, SearchStats};
 use awbrn_ai::agents::{GreedyAgent, RandomAgent, SearchAgent, Weights};
 use awbrn_ai::board::{SEATS, amber_valley_map, arena};
 use awbrn_ai::calibration::Calibration;
@@ -101,13 +101,22 @@ fn dispatch(options: &Options, start: Instant) -> Result<()> {
         return Ok(());
     }
 
-    let tally = run(options, first, second, options.sample.as_deref())?;
+    let search_eval_weights = search_eval_weights(options)?;
+    let tally = run(
+        options,
+        first,
+        second,
+        options.sample.as_deref(),
+        search_eval_weights,
+        options.search_marginal_cap,
+        options.pair_scores.as_deref(),
+    )?;
     report(options, &tally, start.elapsed().as_secs_f64());
     Ok(())
 }
 
 const USAGE: &str = "\
-usage: arena [--map NAME] [--seed N] [--games N] [--nodes N] [--search] [--fog] [--day-cap N] [--first NAME] [--second NAME] [--weights FILE] [--second-weights FILE] [--sample DIR] [--ladder DIR] [--round-robin] [--roster NAMES] [--freeze NAME] [--calibrate] [--calibrate-out FILE] [--eval-weights FILE]
+usage: arena [--map NAME] [--seed N] [--games N] [--nodes N] [--search] [--search-eval-weights FILE] [--search-marginal-cap N] [--fog] [--day-cap N] [--first NAME] [--second NAME] [--weights FILE] [--second-weights FILE] [--sample DIR] [--ladder DIR] [--round-robin] [--roster NAMES] [--freeze NAME] [--calibrate] [--calibrate-out FILE] [--eval-weights FILE]
 
   --map NAME     Map to play. Default amber-valley.
   --seed N       Seed for the tournament. The same seed gives the same result.
@@ -118,6 +127,14 @@ usage: arena [--map NAME] [--seed N] [--games N] [--nodes N] [--search] [--fog] 
                  Default 4. Initial comparison points are 1, 4, 8, and 16.
   --search       Improve the first greedy agent with one search pass.
                  Standard games only.
+  --search-eval-weights FILE
+                 Evaluation weights for search leaves. This is independent
+                 from the --eval-weights calibration option.
+  --search-marginal-cap N
+                 Clip front and exposure candidate-minus-seed contributions
+                 to plus or minus N funds when ranking search leaves.
+  --pair-scores FILE
+                 Write one seat-swapped pair score per line for pooling runs.
   --fog          Play with fog of war on. Default off.
   --day-cap N    Abandon a game after this many days. Default 35.
   --first NAME   What the agent under test plays: random, a weighting this
@@ -164,6 +181,12 @@ struct Options {
     pairs: usize,
     nodes: NodeBudget,
     search: bool,
+    /// Evaluation weights used only by search leaves.
+    search_eval_weights: Option<PathBuf>,
+    /// Bound positional candidate-minus-seed contributions in search.
+    search_marginal_cap: Option<f64>,
+    /// Pair scores to write for an aggregate bootstrap.
+    pair_scores: Option<PathBuf>,
     fog: bool,
     day_cap: u32,
     first: String,
@@ -193,6 +216,9 @@ impl Options {
             pairs: 50,
             nodes: NodeBudget::FOUR,
             search: false,
+            search_eval_weights: None,
+            search_marginal_cap: None,
+            pair_scores: None,
             fog: false,
             day_cap: Limits::default().days,
             first: "random".to_owned(),
@@ -224,6 +250,17 @@ impl Options {
                         .ok_or_else(|| "--nodes must be at least 1".to_owned())?;
                 }
                 "--search" => options.search = true,
+                "--search-eval-weights" => options.search_eval_weights = Some(value()?.into()),
+                "--search-marginal-cap" => {
+                    let cap: f64 = parse_number(&value()?)?;
+                    if !cap.is_finite() || cap <= 0.0 {
+                        return Err(
+                            "--search-marginal-cap must be a positive finite number".to_owned()
+                        );
+                    }
+                    options.search_marginal_cap = Some(cap);
+                }
+                "--pair-scores" => options.pair_scores = Some(value()?.into()),
                 "--day-cap" => options.day_cap = parse_number(&value()?)?,
                 "--fog" => options.fog = true,
                 "--first" => options.first = agent_spec(&value()?)?,
@@ -259,6 +296,15 @@ impl Options {
         }
         if options.search && options.fog {
             return Err("--search is not implemented for fog".to_owned());
+        }
+        if options.search_eval_weights.is_some() && !options.search {
+            return Err("--search-eval-weights requires --search".to_owned());
+        }
+        if options.search_marginal_cap.is_some() && !options.search {
+            return Err("--search-marginal-cap requires --search".to_owned());
+        }
+        if options.pair_scores.is_some() && (options.round_robin || options.calibrate) {
+            return Err("--pair-scores requires one ordinary arena pairing".to_owned());
         }
         if options.search && (options.round_robin || options.freeze.is_some() || options.calibrate)
         {
@@ -501,9 +547,20 @@ fn is_path(name: &str) -> bool {
     name.contains(std::path::MAIN_SEPARATOR) || name.ends_with(".json")
 }
 
-fn build(seed: u64, weights: Option<Weights>, search: bool) -> Box<dyn Agent> {
+fn build(
+    seed: u64,
+    weights: Option<Weights>,
+    search: bool,
+    search_eval_weights: EvalWeights,
+    search_marginal_cap: Option<f64>,
+) -> Box<dyn Agent> {
     match (weights, search) {
-        (Some(weights), true) => Box::new(SearchAgent::with_weights(seed, weights)),
+        (Some(weights), true) => Box::new(SearchAgent::with_weights_evaluator_and_cap(
+            seed,
+            weights,
+            search_eval_weights,
+            search_marginal_cap,
+        )),
         (Some(weights), false) => Box::new(GreedyAgent::with_weights(seed, weights)),
         (None, _) => Box::new(RandomAgent::from_seed(seed)),
     }
@@ -516,11 +573,25 @@ fn game_setup(
     first_weights: Option<Weights>,
     second_weights: Option<Weights>,
     search: bool,
+    search_eval_weights: EvalWeights,
+    search_marginal_cap: Option<f64>,
 ) -> (u64, Rng, Box<dyn Agent>, Box<dyn Agent>) {
     let game = Rng::mix(seed ^ ((pair as u64) << 32));
     let entropy = Rng::from_seed(Rng::mix(game ^ 0x1));
-    let first = build(Rng::mix(game ^ 0x2), first_weights, search);
-    let second = build(Rng::mix(game ^ 0x3), second_weights, false);
+    let first = build(
+        Rng::mix(game ^ 0x2),
+        first_weights,
+        search,
+        search_eval_weights,
+        search_marginal_cap,
+    );
+    let second = build(
+        Rng::mix(game ^ 0x3),
+        second_weights,
+        false,
+        search_eval_weights,
+        None,
+    );
     (game, entropy, first, second)
 }
 
@@ -572,6 +643,8 @@ struct Tally {
     swept: u32,
     split: u32,
     lost_both: u32,
+    /// Search counters from the agent under test.
+    search: SearchStats,
 }
 
 impl Tally {
@@ -604,6 +677,10 @@ impl Tally {
 
     fn mean_days(&self) -> f64 {
         self.days as f64 / f64::from(self.games().max(1))
+    }
+
+    fn add_search(&mut self, stats: SearchStats) {
+        self.search.add(stats);
     }
 }
 
@@ -679,8 +756,15 @@ fn run(
     first_weights: Option<Weights>,
     second_weights: Option<Weights>,
     sample: Option<&Path>,
+    search_eval_weights: EvalWeights,
+    search_marginal_cap: Option<f64>,
+    pair_scores_path: Option<&Path>,
 ) -> Result<Tally> {
     let mut tally = Tally::default();
+    let mut pair_scores = pair_scores_path
+        .map(|path| File::create(path).with_context(|| format!("creating {}", path.display())))
+        .transpose()?
+        .map(BufWriter::new);
     // One session for the whole tournament. It keeps the board-sized tables it
     // allocated, so a game after the first asks the allocator for nothing.
     let mut session = Session::new(state(options, options.seed));
@@ -694,6 +778,8 @@ fn run(
                 first_weights,
                 second_weights,
                 options.search,
+                search_eval_weights,
+                search_marginal_cap,
             );
 
             // The seat the agent under test sits in. Playing the same seed
@@ -745,9 +831,21 @@ fn run(
                     options.limits(),
                 )
             };
+            if options.search
+                && let Some(stats) = first.search_stats()
+            {
+                tally.add_search(stats);
+            }
             pair_points += score(&mut tally, &record, &teams[seat], seat);
         }
         tally.add_pair(pair_points / 2.0);
+        if let Some(pair_scores) = &mut pair_scores {
+            writeln!(pair_scores, "{:.8}", pair_points / 2.0).context("writing the pair score")?;
+        }
+    }
+
+    if let Some(pair_scores) = &mut pair_scores {
+        pair_scores.flush().context("flushing the pair scores")?;
     }
 
     Ok(tally)
@@ -774,8 +872,15 @@ fn calibrate(
 
     for pair in 0..options.pairs {
         for under_test_first in [true, false] {
-            let (game, mut entropy, mut first, mut second) =
-                game_setup(options.seed, pair, first_weights, second_weights, false);
+            let (game, mut entropy, mut first, mut second) = game_setup(
+                options.seed,
+                pair,
+                first_weights,
+                second_weights,
+                false,
+                EvalWeights::for_fog(options.fog),
+                None,
+            );
 
             let index = usize::from(!under_test_first);
             let mut agents: [&mut dyn Agent; 2] = if under_test_first {
@@ -957,6 +1062,18 @@ where
 fn eval_weights(options: &Options) -> Result<EvalWeights> {
     let compiled = EvalWeights::for_fog(options.fog);
     match &options.eval_weights {
+        Some(path) => read_eval_weights(path, compiled),
+        None => Ok(compiled),
+    }
+}
+
+/// Read the evaluator used by search leaves.
+///
+/// This is separate from [`eval_weights`]. The latter belongs to calibration;
+/// this one belongs to the agent under test.
+fn search_eval_weights(options: &Options) -> Result<EvalWeights> {
+    let compiled = EvalWeights::for_fog(options.fog);
+    match &options.search_eval_weights {
         Some(path) => read_eval_weights(path, compiled),
         None => Ok(compiled),
     }
@@ -1300,7 +1417,15 @@ fn round_robin(options: &Options, ladder: &Ladder) -> Result<Round> {
                 "matchup {played} of {matchups}: {} vs {}",
                 round.names[row], round.names[column]
             );
-            let tally = run(options, field[row], field[column], None)?;
+            let tally = run(
+                options,
+                field[row],
+                field[column],
+                None,
+                search_eval_weights(options)?,
+                None,
+                None,
+            )?;
             let (low, high) = paired_interval(&tally.pair_scores);
             let cell = Cell {
                 score: tally.score(),
@@ -1409,6 +1534,12 @@ fn report(options: &Options, tally: &Tally, elapsed: f64) {
     if let Some(path) = &options.second_weights {
         println!("second-agent weights    {}", path.display());
     }
+    if let Some(path) = &options.search_eval_weights {
+        println!("search evaluator        {}", path.display());
+    }
+    if let Some(cap) = options.search_marginal_cap {
+        println!("search marginal cap     {cap:.0} funds");
+    }
     println!("{} pairs, {games} games, both seat orders", options.pairs);
     println!();
     println!(
@@ -1420,6 +1551,10 @@ fn report(options: &Options, tally: &Tally, elapsed: f64) {
         "pairs swept {}  split {}  lost {}",
         tally.swept, tally.split, tally.lost_both
     );
+    println!(
+        "pair scores             {}",
+        pair_score_counts(&tally.pair_scores)
+    );
     match elo(score) {
         Some(elo) => println!("elo difference           {elo:+.0}"),
         None => println!(
@@ -1429,6 +1564,10 @@ fn report(options: &Options, tally: &Tally, elapsed: f64) {
     println!();
     println!("elapsed                  {elapsed:.3} s");
     println!(
+        "seconds each game        {:.4}",
+        elapsed / f64::from(games.max(1))
+    );
+    println!(
         "commands each second     {:.1}",
         tally.commands as f64 / elapsed
     );
@@ -1437,6 +1576,10 @@ fn report(options: &Options, tally: &Tally, elapsed: f64) {
         tally.refusals,
         tally.refusals as f64 / (tally.commands + tally.refusals) as f64 * 100.0
     );
+
+    if options.search {
+        search_report(tally);
+    }
 
     println!();
     shape_report(tally);
@@ -1450,6 +1593,111 @@ fn report(options: &Options, tally: &Tally, elapsed: f64) {
             tally.abandoned
         );
     }
+}
+
+/// Count the five possible scores of a seat-swapped pair.
+fn pair_score_counts(scores: &[f64]) -> String {
+    let mut counts = [0_u32; 5];
+    for score in scores {
+        let index = (score * 4.0).round() as usize;
+        counts[index] += 1;
+    }
+    format!(
+        "0={} .25={} .5={} .75={} 1={}",
+        counts[0], counts[1], counts[2], counts[3], counts[4]
+    )
+}
+
+/// Print the search work that the paired games performed.
+fn search_report(tally: &Tally) {
+    let stats = tally.search;
+    let plans = stats.seed_plans.max(1);
+    println!();
+    println!("search diagnostics");
+    println!(
+        "  nodes evaluated        {} ({:.2} per seed plan)",
+        stats.nodes_evaluated,
+        stats.nodes_evaluated as f64 / plans as f64
+    );
+    println!(
+        "  legal candidates rejected before leaf evaluation {}",
+        stats.legal_candidates_rejected
+    );
+    println!(
+        "  seed plans changed     {} of {} ({:.2}%)",
+        stats.changed_seed_plans,
+        stats.seed_plans,
+        stats.changed_seed_plans as f64 / plans as f64 * 100.0
+    );
+    if stats.changed_leaf_breakdowns > 0 {
+        let changed = stats.changed_leaf_breakdowns as f64;
+        let delta = stats.changed_leaf_deltas;
+        println!(
+            "  changed leaf deltas    selected minus seed, mean over {} non-terminal changes",
+            stats.changed_leaf_breakdowns
+        );
+        println!(
+            "    score {:.1}  army {:.1}  income {:.1}  exposure {:.1}  contest {:.1}  front {:.1}",
+            delta.score / changed,
+            delta.army / changed,
+            delta.income / changed,
+            delta.exposure / changed,
+            delta.contest / changed,
+            delta.front / changed,
+        );
+    }
+    if stats.standard_front_deltas.count > 0 {
+        let count = stats.standard_front_deltas.count as f64;
+        let delta = stats.standard_leaf_deltas;
+        println!(
+            "  standard leaf deltas  mean over {} non-terminal changes",
+            stats.standard_front_deltas.count
+        );
+        println!(
+            "    score {:.1}  army {:.1}  income {:.1}  exposure {:.1}  contest {:.1}  front {:.1}",
+            delta.score / count,
+            delta.army / count,
+            delta.income / count,
+            delta.exposure / count,
+            delta.contest / count,
+            delta.front / count,
+        );
+        distribution_report("front", &stats.standard_front_deltas);
+        distribution_report("exposure", &stats.standard_exposure_deltas);
+    }
+}
+
+/// Print the shape of one marginal positional-term distribution.
+fn distribution_report(name: &str, distribution: &MarginalDistribution) {
+    let count = distribution.count as f64;
+    let mean = distribution.sum / count;
+    let variance = (distribution.sum_squared / count - mean * mean).max(0.0);
+    const LABELS: [&str; 11] = [
+        "<-50k",
+        "-50..-20k",
+        "-20..-10k",
+        "-10..-5k",
+        "-5..-2k",
+        "-2..0k",
+        "0..2k",
+        "2..5k",
+        "5..10k",
+        "10..20k",
+        ">=20k",
+    ];
+    print!(
+        "    standard {name} distribution mean {:.1} stdev {:.1} min {:.1} max {:.1}",
+        mean,
+        variance.sqrt(),
+        distribution.min,
+        distribution.max,
+    );
+    println!();
+    print!("      bins");
+    for (label, count) in LABELS.iter().zip(distribution.buckets) {
+        print!(" {label}={count}");
+    }
+    println!();
 }
 
 /// What the games were made of, beside who won them.
