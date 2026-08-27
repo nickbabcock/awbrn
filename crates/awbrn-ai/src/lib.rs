@@ -24,6 +24,7 @@
 //! This crate is a sibling of `awbrn-client` and `awbrn-server`, not a layer
 //! under either. All three consume the same core.
 
+pub mod adaptive;
 pub mod agent;
 pub mod agents;
 pub mod board;

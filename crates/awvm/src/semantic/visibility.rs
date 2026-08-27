@@ -279,6 +279,14 @@ impl<'a> AwbwView<'a> {
             .map(|(unit, _)| unit.id)
     }
 
+    /// Whether this view hides any unit that can block movement.
+    pub(crate) fn has_hidden_board_unit(&self) -> bool {
+        self.state
+            .units
+            .iter()
+            .any(|unit| matches!(unit.location, Location::Board { .. }) && !self.unit(unit))
+    }
+
     /// Every friendly unit that can see, with its effective vision already
     /// worked out.
     ///
@@ -387,6 +395,12 @@ impl Viewpoint for AwbwView<'_> {
         if self.holds_seat(Some(unit.owner)) {
             return true;
         }
+        // Standard play discloses every unit except one that explicitly hid.
+        // Test this before terrain ownership, which is not relevant to an
+        // ordinary unit when fog is off.
+        if !self.fog && unit.concealment != Concealment::Hidden {
+            return true;
+        }
         if self.holds_seat(
             self.state
                 .board
@@ -403,9 +417,7 @@ impl Viewpoint for AwbwView<'_> {
                 .iter()
                 .any(|sighting| sighting.position.distance(position) == 1);
         }
-        if !self.fog {
-            return true;
-        }
+        debug_assert!(self.fog);
         match self.vision_level(position) {
             VisionLevel::Full => true,
             VisionLevel::AirOnly => ruleset::profile(unit.kind).domain == Domain::Air,

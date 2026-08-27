@@ -1,13 +1,26 @@
 use bench::benchmarks::{
-    ai::gungraun_benches::ai_benches, awvm::gungraun_benches::awvm_benches,
-    replay::gungraun_benches::replay_benches, server::gungraun_benches::server_benches,
+    adaptive::gungraun_benches::adaptive_benches, ai::gungraun_benches::ai_benches,
+    awvm::gungraun_benches::awvm_benches, replay::gungraun_benches::replay_benches,
+    server::gungraun_benches::server_benches, stratified::gungraun_benches::stratified_benches,
 };
 
 mod instrumented {
-    use super::{ai_benches, awvm_benches, replay_benches, server_benches};
+    use super::{
+        adaptive_benches, ai_benches, awvm_benches, replay_benches, server_benches,
+        stratified_benches,
+    };
     use gungraun::main;
 
-    main!(library_benchmark_groups = [ai_benches, awvm_benches, replay_benches, server_benches]);
+    main!(
+        library_benchmark_groups = [
+            adaptive_benches,
+            ai_benches,
+            awvm_benches,
+            replay_benches,
+            server_benches,
+            stratified_benches
+        ]
+    );
 
     pub fn run() {
         main();
@@ -38,7 +51,14 @@ fn run_once() {
         };
     }
 
-    run_once!(ai_benches, awvm_benches, replay_benches, server_benches,);
+    run_once!(
+        adaptive_benches,
+        ai_benches,
+        awvm_benches,
+        replay_benches,
+        server_benches,
+        stratified_benches,
+    );
 }
 
 fn main() {

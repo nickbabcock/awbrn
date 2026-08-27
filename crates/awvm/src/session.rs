@@ -45,7 +45,9 @@ use crate::query::{
 };
 use crate::random::Entropy;
 use crate::ruleset::{self, UnitKind as UnitKindId};
-use crate::semantic::{CellIdx, Location, Observation, PlayerIdx, Pos, State, UnitAction, UnitId};
+use crate::semantic::{
+    CellIdx, Location, Observation, PlayerIdx, Pos, State, Unit, UnitAction, UnitId,
+};
 use crate::transition::{
     ActiveTurn, Command, ExecuteError, ExecuteOutcome, PreparedDestination, PreparedProductionSite,
     execute_with,
@@ -382,12 +384,8 @@ pub enum Error {
 /// per turn.
 #[derive(Debug, Default)]
 struct Routes {
-    /// The route walk's two vectors, between candidates. They are moved into a
-    /// destination and moved back out rather than lent. A borrowed pair costs
-    /// 4% of a complete enumeration, because the compiler stops seeing two
-    /// independent locals in the walk that fills them.
-    path: Vec<Pos>,
-    entry_costs: Vec<u64>,
+    /// Plausible attacks for one unit, keyed by its reachable firing tiles.
+    attack_index: query::AttackIndex,
     /// What a target walk reports, before an order renames it by tile.
     attacks: Vec<AttackTarget>,
     repairs: Vec<UnitId>,
@@ -412,23 +410,27 @@ struct Reach {
     held: Option<(UnitIdx, u64, MoveField)>,
     /// Board-sized allocations spent fields have handed back.
     scratch: MoveScratch,
-    /// Each seat's board tables, in seat order, and the epoch they were built
-    /// at.
+    /// Each seat's board tables, in seat order, each with the epoch it was
+    /// bound to.
     ///
     /// Opening a turn costs an entry-cost grid per movement class and a
     /// blocking grid, rebuilt over every tile. A single order opens two turns
     /// on one position, [`Session::legal`] to offer it and
     /// [`Session::route_to`] to spell its route, and answering a mask and then
     /// a route used to pay for the same grids twice. Holding them here makes
-    /// the second turn free. The epoch stops them from answering out of a
-    /// position the session has left.
+    /// the second turn free. Each row carries the epoch it was bound to, which
+    /// stops it from answering out of a position the session has left. A row
+    /// is rebound when it is asked for rather than when the position changes,
+    /// so a position nobody reads a seat at costs that seat nothing.
+    /// Entry-cost grids have narrower inputs than blocking, so they can
+    /// continue across an epoch when only units moved.
     ///
     /// One row per seat rather than one row, because a reader of the position
     /// asks about the seats it is not playing: what the enemy threatens is a
     /// search of the enemy's units, under the enemy's commander, and those are
     /// the enemy's tables. A row is built when a seat is first asked about, so
     /// a session nobody asks that of still holds one.
-    tables: (u64, Vec<TurnTables>),
+    tables: Vec<(u64, TurnTables)>,
 }
 
 /// One position, and the memory that answering about it needs.
@@ -447,8 +449,8 @@ pub struct Session {
     /// reducer through one path.
     prior: Vec<(State, u64)>,
     routes: RefCell<Routes>,
-    /// Held apart from [`Session::routes`] because a walk over a field fills
-    /// the route buffers while the field is out.
+    /// Held apart from [`Session::routes`] because a field walk and an action
+    /// query need both scratch stores at the same time.
     reach: RefCell<Reach>,
     /// How many times this session has changed, in either direction. Every
     /// derived thing the session caches is stamped with this, so changing the
@@ -640,28 +642,27 @@ impl Session {
 
     /// The board tables of one seat, for the position the session holds now.
     ///
-    /// Stale tables are dropped rather than reused, because a handle kept from
-    /// another epoch describes a board that has changed under it. See
-    /// [`TurnTables`].
+    /// Blocking tables are dropped after every position change. Entry-cost
+    /// tables continue when their terrain, weather, and commander inputs are
+    /// unchanged. See [`TurnTables`].
     fn turn_tables_for(&self, seat: PlayerIdx) -> TurnTables {
         let mut reach = self.reach.borrow_mut();
-        if reach.tables.0 != self.epoch {
-            // Every seat's row describes the position that has just gone, so
-            // the whole set goes with it rather than one row at a time.
-            reach.tables.1.clear();
-            reach.tables.0 = self.epoch;
-        }
         let row = seat.get();
-        if reach.tables.1.len() <= row {
-            reach.tables.1.resize_with(row + 1, TurnTables::default);
+        if reach.tables.len() <= row {
+            reach
+                .tables
+                .resize_with(row + 1, || (self.epoch, TurnTables::default()));
         }
+        let (bound, tables) = &mut reach.tables[row];
         // A row nobody has shared yet holds nothing at all, which is what a
         // turn that builds and drops its own tables wants. Sharing it is what
-        // this call is asking for.
-        if reach.tables.1[row].is_empty() {
-            reach.tables.1[row].clear();
+        // this call is asking for. A row bound to a position the session has
+        // left is rebound here, which is the only place it is read.
+        if *bound != self.epoch || tables.is_empty() {
+            tables.advance(&self.state, seat);
+            *bound = self.epoch;
         }
-        reach.tables.1[row].clone()
+        tables.clone()
     }
 
     /// One seat's board tables, to search unit after unit of that seat with.
@@ -726,7 +727,7 @@ impl Session {
                 .ok()
                 .flatten()?,
         };
-        // The read fills the route buffers, which live in the other cell.
+        // The read can use action scratch, which lives in the other cell.
         drop(reach);
         let answer = read(&field);
         let (_, geometry) = field.into_parts();
@@ -1086,6 +1087,71 @@ pub struct Legal<'a> {
     turn: Option<ActiveTurn<'a>>,
 }
 
+/// One attack while its legal-enumeration context is still available.
+#[derive(Debug)]
+pub struct AttackCandidate<'a> {
+    pub order: Order,
+    pub attacker: &'a Unit,
+    pub target: AttackTarget,
+    pub target_unit: Option<&'a Unit>,
+    pub forecast: Option<Forecast>,
+}
+
+/// A typed consumer of legal orders.
+///
+/// Attack visitors receive the facts that otherwise have to be recovered
+/// after enumeration. Other orders carry no prepared data that current
+/// consumers use.
+///
+/// A callback must not ask the [`Legal`] it is being visited by anything.
+/// Enumeration holds that instance's search memory for as long as it runs, so
+/// a query made from inside [`LegalVisitor::order`] or
+/// [`LegalVisitor::attack`] panics. Collect what the visit emits, and make the
+/// queries after it returns.
+pub trait LegalVisitor {
+    /// Whether attack forecasts and unit references are required.
+    const ATTACK_CONTEXT: bool = false;
+
+    /// Take one order. Ask the visiting [`Legal`] nothing from here.
+    fn order(&mut self, order: Order);
+
+    /// Take one attack with its context. Ask the visiting [`Legal`] nothing
+    /// from here either.
+    fn attack(&mut self, candidate: AttackCandidate<'_>) {
+        self.order(candidate.order);
+    }
+}
+
+/// The part of a legal action space that a policy wants to visit.
+#[derive(Clone, Copy, Debug)]
+pub struct LegalScope<'a> {
+    /// Units whose orders are included.
+    pub units: &'a [UnitId],
+    /// Whether actions that do not belong to a unit are included.
+    pub unitless: bool,
+}
+
+struct OrderCollector<'a>(&'a mut Vec<Order>);
+
+impl LegalVisitor for OrderCollector<'_> {
+    fn order(&mut self, order: Order) {
+        self.0.push(order);
+    }
+}
+
+struct TargetCollector<'a>(&'a mut Vec<CellIdx>);
+
+impl LegalVisitor for TargetCollector<'_> {
+    fn order(&mut self, order: Order) {
+        match order.kind() {
+            OrderKind::Attack(target) | OrderKind::Repair(target) | OrderKind::Launch(target) => {
+                self.0.push(target);
+            }
+            _ => {}
+        }
+    }
+}
+
 impl<'a> Legal<'a> {
     /// The position these answers are about.
     pub const fn state(&self) -> &'a State {
@@ -1121,11 +1187,10 @@ impl<'a> Legal<'a> {
                 let Some(cell) = dimensions.cell_index(position) else {
                     continue;
                 };
-                let Some(destination) = take_destination(&mut routes, field, position) else {
+                let Some(destination) = field.query_destination(position) else {
                     continue;
                 };
                 let mask = mask_at(&mut routes, &destination, position);
-                give_destination(&mut routes, destination);
                 if !mask.is_empty() {
                     out.push((cell, mask));
                 }
@@ -1140,6 +1205,11 @@ impl<'a> Legal<'a> {
     /// action space. Deciding the masks first and the orders after visits
     /// every destination twice.
     pub fn unit_orders(&self, unit: UnitIdx, out: &mut Vec<Order>) {
+        let mut collector = OrderCollector(out);
+        self.visit_unit_orders(unit, &mut collector);
+    }
+
+    fn visit_unit_orders<V: LegalVisitor>(&self, unit: UnitIdx, visitor: &mut V) {
         let Some(turn) = self.turn.as_ref() else {
             return;
         };
@@ -1155,16 +1225,27 @@ impl<'a> Legal<'a> {
             && let Ok(Ok(active)) = turn.unit(subject.id)
             && active.can_delete().unwrap_or(false)
         {
-            out.push(Order::new(unit, cell, OrderKind::Delete));
+            visitor.order(Order::new(unit, cell, OrderKind::Delete));
         }
         self.session.with_field(turn, unit, |field| {
             let mut routes = self.session.routes.borrow_mut();
+            let mut attack_index = std::mem::take(&mut routes.attack_index);
+            field.prepare_attack_index(&mut attack_index);
             for (position, _) in field.geometry().reach() {
                 let Some(cell) = dimensions.cell_index(position) else {
                     continue;
                 };
-                push_orders_at(state, &mut routes, field, unit, cell, position, out);
+                push_orders_at(
+                    self,
+                    &mut routes,
+                    field,
+                    unit,
+                    cell,
+                    Some(attack_index.targets(cell)),
+                    visitor,
+                );
             }
+            routes.attack_index = attack_index;
         });
     }
 
@@ -1176,13 +1257,10 @@ impl<'a> Legal<'a> {
         let Some(turn) = self.turn.as_ref() else {
             return;
         };
-        let state = &self.session.state;
-        let Some(position) = state.board.dimensions().position_of(dest) else {
-            return;
-        };
         self.session.with_field(turn, unit, |field| {
             let mut routes = self.session.routes.borrow_mut();
-            push_orders_at(state, &mut routes, field, unit, dest, position, out);
+            let mut collector = OrderCollector(out);
+            push_orders_at(self, &mut routes, field, unit, dest, None, &mut collector);
         });
     }
 
@@ -1201,8 +1279,14 @@ impl<'a> Legal<'a> {
         };
         self.session.with_field(turn, unit, |field| {
             let mut routes = self.session.routes.borrow_mut();
-            let Some(destination) = take_destination(&mut routes, field, position) else {
+            let Some(destination) = field.query_destination(position) else {
                 return;
+            };
+            let mut collector = TargetCollector(out);
+            let wrap = match kind {
+                TargetKind::Attack => OrderKind::Attack as fn(CellIdx) -> OrderKind,
+                TargetKind::Repair => OrderKind::Repair,
+                TargetKind::Launch => OrderKind::Launch,
             };
             walk_targets(
                 state,
@@ -1210,10 +1294,9 @@ impl<'a> Legal<'a> {
                 &destination,
                 dest,
                 kind,
-                out,
-                |_, cell| cell,
+                &mut collector,
+                |cell, target| Order::new(unit, cell, wrap(target)),
             );
-            give_destination(&mut routes, destination);
         });
     }
 
@@ -1265,7 +1348,11 @@ impl<'a> Legal<'a> {
         let Some(turn) = self.turn.as_ref() else {
             return;
         };
-        self.walk_unloads(turn, Some(unit), |unload| out.push(unload));
+        self.walk_unloads(
+            turn,
+            |candidate, _| candidate == unit,
+            |unload| out.push(unload),
+        );
     }
 
     /// What the facility on `site` may build, appended to `out`.
@@ -1305,6 +1392,7 @@ impl<'a> Legal<'a> {
         if self.session.uncertain.binary_search(&target).is_ok() {
             return None;
         }
+        crate::benchmark::record_forecast_calculated();
         let state = &self.session.state;
         let dimensions = state.board.dimensions();
         let (from, target) = (
@@ -1332,15 +1420,50 @@ impl<'a> Legal<'a> {
     /// of it. Building it is most of what a search node costs, and a playout
     /// keeps one order and discards the rest.
     pub fn orders(&self, out: &mut Vec<Order>) {
+        let mut collector = OrderCollector(out);
+        self.visit_orders(&mut collector);
+    }
+
+    /// Visit the complete legal action space in the same stable order as
+    /// [`Legal::orders`].
+    ///
+    /// The visitor must not query this [`Legal`] from its callbacks. See
+    /// [`LegalVisitor`].
+    pub fn visit_orders<V: LegalVisitor>(&self, visitor: &mut V) {
         let Some(turn) = self.turn.as_ref() else {
             return;
         };
-        self.push_boundary_orders(out);
-        self.push_production_orders(turn, out);
+        self.visit_boundary_orders(visitor);
+        self.visit_production_orders(turn, visitor);
         for unit in self.ready_units() {
-            self.unit_orders(unit, out);
+            self.visit_unit_orders(unit, visitor);
         }
-        self.push_unload_orders(turn, out);
+        self.visit_unload_orders(turn, visitor);
+    }
+
+    /// Visit legal orders for selected units and optional unitless actions.
+    ///
+    /// The unit restriction is applied before movement fields and targets are
+    /// calculated. Orders keep the same relative order as [`Legal::orders`].
+    /// The visitor must not query this [`Legal`] from its callbacks. See
+    /// [`LegalVisitor`].
+    pub fn visit_scoped<V: LegalVisitor>(&self, scope: LegalScope<'_>, visitor: &mut V) {
+        let Some(turn) = self.turn.as_ref() else {
+            return;
+        };
+        if scope.unitless {
+            self.visit_boundary_orders(visitor);
+            self.visit_production_orders(turn, visitor);
+        }
+        for unit in self.ready_units() {
+            let Some(subject) = self.session.state.units.at(usize::from(unit.get())) else {
+                continue;
+            };
+            if scope.units.contains(&subject.id) {
+                self.visit_unit_orders(unit, visitor);
+            }
+        }
+        self.visit_unload_orders_scoped(turn, scope.units, visitor);
     }
 
     /// Every index that may still act, without collecting them.
@@ -1364,7 +1487,7 @@ impl<'a> Legal<'a> {
     }
 
     /// End of turn, resignation, the tag swap and both power levels.
-    fn push_boundary_orders(&self, orders: &mut Vec<Order>) {
+    fn visit_boundary_orders<V: LegalVisitor>(&self, visitor: &mut V) {
         let state = &self.session.state;
         let player = &state.turn.active_player;
         let candidates = [
@@ -1403,7 +1526,7 @@ impl<'a> Legal<'a> {
         ];
         for (kind, command) in candidates {
             if crate::transition::accepts(state, command).unwrap_or(false) {
-                orders.push(Order::unitless(ORIGIN, kind));
+                visitor.order(Order::unitless(ORIGIN, kind));
             }
         }
     }
@@ -1412,7 +1535,7 @@ impl<'a> Legal<'a> {
     ///
     /// The ownership test comes first because binding a site counts the
     /// player's army, and a board has far more tiles than facilities.
-    fn push_production_orders(&self, turn: &ActiveTurn<'_>, orders: &mut Vec<Order>) {
+    fn visit_production_orders<V: LegalVisitor>(&self, turn: &ActiveTurn<'_>, visitor: &mut V) {
         let state = &self.session.state;
         let seat = turn.seat();
         let dimensions = state.board.dimensions();
@@ -1441,24 +1564,48 @@ impl<'a> Legal<'a> {
             // creates.
             rows.clear();
             rows_at(&site, &mut rows);
-            orders.extend(
-                rows.iter()
-                    .filter(|row| row.affordable)
-                    .filter(|row| site.can_produce(row.kind).unwrap_or(false))
-                    .map(|row| Order::unitless(cell, OrderKind::Produce(row.kind))),
-            );
+            for row in rows
+                .iter()
+                .filter(|row| row.affordable)
+                .filter(|row| site.can_produce(row.kind).unwrap_or(false))
+            {
+                visitor.order(Order::unitless(cell, OrderKind::Produce(row.kind)));
+            }
         }
     }
 
     /// Every cargo a transport of the active player may put down, and where.
-    fn push_unload_orders(&self, turn: &ActiveTurn<'_>, orders: &mut Vec<Order>) {
-        self.walk_unloads(turn, None, |unload| {
-            orders.push(Order::new(
-                unload.transport,
-                unload.destination,
-                OrderKind::Unload(unload.slot),
-            ));
-        });
+    fn visit_unload_orders<V: LegalVisitor>(&self, turn: &ActiveTurn<'_>, visitor: &mut V) {
+        self.walk_unloads(
+            turn,
+            |_, _| true,
+            |unload| {
+                visitor.order(Order::new(
+                    unload.transport,
+                    unload.destination,
+                    OrderKind::Unload(unload.slot),
+                ));
+            },
+        );
+    }
+
+    fn visit_unload_orders_scoped<V: LegalVisitor>(
+        &self,
+        turn: &ActiveTurn<'_>,
+        units: &[UnitId],
+        visitor: &mut V,
+    ) {
+        self.walk_unloads(
+            turn,
+            |_, transport| units.contains(&transport.id),
+            |unload| {
+                visitor.order(Order::new(
+                    unload.transport,
+                    unload.destination,
+                    OrderKind::Unload(unload.slot),
+                ));
+            },
+        );
     }
 
     /// Every unload the active player may give, named the way a menu reads
@@ -1470,7 +1617,7 @@ impl<'a> Legal<'a> {
     fn walk_unloads(
         &self,
         turn: &ActiveTurn<'_>,
-        only: Option<UnitIdx>,
+        mut includes: impl FnMut(UnitIdx, &Unit) -> bool,
         mut found: impl FnMut(Unload),
     ) {
         let state = &self.session.state;
@@ -1486,7 +1633,7 @@ impl<'a> Legal<'a> {
             let Some(transport_index) = u16::try_from(index).ok().map(UnitIdx) else {
                 continue;
             };
-            if only.is_some_and(|wanted| wanted != transport_index) {
+            if !includes(transport_index, transport) {
                 continue;
             }
             let Ok(Ok(bound)) = turn.unload(transport.id) else {
@@ -1528,63 +1675,101 @@ impl<'a> Legal<'a> {
     }
 }
 
-/// Bind one arrival tile, spending the pooled route buffers on it.
-///
-/// `None` means the tile has no route through it, either a teleporter or a
-/// tile outside the field. The buffers go with it, which costs one allocation
-/// on the next candidate and keeps the caller straight-line.
-fn take_destination<'a, 'field, M>(
-    routes: &mut Routes,
-    field: &'field PreparedMoveField<'a, M>,
-    position: Pos,
-) -> Option<PreparedDestination<'a, &'field TurnMaps<'a>>>
-where
-    M: std::borrow::Borrow<TurnMaps<'a>>,
-{
-    let path = std::mem::take(&mut routes.path);
-    let entry_costs = std::mem::take(&mut routes.entry_costs);
-    field.prepare_destination_into(position, path, entry_costs)
-}
-
-/// Take the route buffers back off a spent destination.
-fn give_destination<'a, M>(routes: &mut Routes, destination: PreparedDestination<'a, M>)
-where
-    M: std::borrow::Borrow<TurnMaps<'a>>,
-{
-    (routes.path, routes.entry_costs) = destination.recycle();
-}
-
 /// Every order that ends at one arrival tile, appended to `out`.
 ///
 /// One preparation answers all of them. Splitting the mask from the orders
 /// would prepare the destination twice, and preparing it is thousands of
 /// instructions against the board sweep's few hundred.
-fn push_orders_at<'a, M>(
-    state: &State,
+fn push_orders_at<'a, M, V: LegalVisitor>(
+    legal: &Legal<'a>,
     routes: &mut Routes,
     field: &PreparedMoveField<'a, M>,
     unit: UnitIdx,
     dest: CellIdx,
-    position: Pos,
-    out: &mut Vec<Order>,
+    prepared_attacks: Option<&[AttackTarget]>,
+    visitor: &mut V,
 ) where
     M: std::borrow::Borrow<TurnMaps<'a>>,
 {
-    let Some(destination) = take_destination(routes, field, position) else {
+    let state = legal.state();
+    let Some(position) = state.board.dimensions().position_of(dest) else {
+        return;
+    };
+    let Some(destination) = field.query_destination(position) else {
         return;
     };
     for kind in untargeted_mask(&destination, position).untargeted() {
-        out.push(Order::new(unit, dest, kind));
+        visitor.order(Order::new(unit, dest, kind));
     }
     // No probe first. A list walked in full says by its own length whether
     // the destination had a target of that kind, and each walk refuses early
     // for a unit that cannot do it at all.
+    routes.attacks.clear();
+    let attacks = match prepared_attacks {
+        Some(candidates) => {
+            let mut valid = true;
+            for target in candidates.iter().copied() {
+                crate::benchmark::record_destination_inspected();
+                match destination.can_attack(target) {
+                    Ok(true) => {
+                        routes.attacks.push(target);
+                        match target {
+                            AttackTarget::Unit { .. } => {
+                                crate::benchmark::record_unit_target_found();
+                            }
+                            AttackTarget::Tile { .. } => {
+                                crate::benchmark::record_tile_target_found();
+                            }
+                        }
+                    }
+                    Ok(false) => {}
+                    Err(_) => {
+                        valid = false;
+                        break;
+                    }
+                }
+            }
+            valid
+        }
+        None => query::attack_targets_into::<_, { usize::MAX }>(
+            &destination,
+            &mut routes.attacks,
+            &mut routes.attack_units,
+            &mut routes.attack_tiles,
+        )
+        .is_ok(),
+    };
+    if attacks {
+        for target in routes.attacks.drain(..) {
+            let Some(target_cell) = target_cell(state, target) else {
+                continue;
+            };
+            let order = Order::new(unit, dest, OrderKind::Attack(target_cell));
+            if V::ATTACK_CONTEXT {
+                let attacker = state.units.at(usize::from(unit.get()));
+                let target_unit = match target {
+                    AttackTarget::Unit { unit } => state.units.get(unit),
+                    AttackTarget::Tile { .. } => None,
+                };
+                if let Some(attacker) = attacker {
+                    visitor.attack(AttackCandidate {
+                        order,
+                        attacker,
+                        target,
+                        target_unit,
+                        forecast: legal.forecast(unit, dest, target_cell),
+                    });
+                }
+            } else {
+                visitor.order(order);
+            }
+        }
+    }
     for (kind, wrap) in [
         (
-            TargetKind::Attack,
-            OrderKind::Attack as fn(CellIdx) -> OrderKind,
+            TargetKind::Repair,
+            OrderKind::Repair as fn(CellIdx) -> OrderKind,
         ),
-        (TargetKind::Repair, OrderKind::Repair),
         (TargetKind::Launch, OrderKind::Launch),
     ] {
         walk_targets(
@@ -1593,11 +1778,10 @@ fn push_orders_at<'a, M>(
             &destination,
             dest,
             kind,
-            out,
+            visitor,
             |cell, target| Order::new(unit, cell, wrap(target)),
         );
     }
-    give_destination(routes, destination);
 }
 
 /// Walk one target list of a prepared destination, appending what `name` makes
@@ -1607,14 +1791,14 @@ fn push_orders_at<'a, M>(
 /// a tile, and this is where that becomes the tile an order names. A fault
 /// reads as no targets. Enumeration is an offer, and an offer that cannot be
 /// validated is not one.
-fn walk_targets<'a, M, T>(
+fn walk_targets<'a, M, V: LegalVisitor>(
     state: &State,
     routes: &mut Routes,
     destination: &PreparedDestination<'a, M>,
     dest: CellIdx,
     kind: TargetKind,
-    out: &mut Vec<T>,
-    name: impl Fn(CellIdx, CellIdx) -> T,
+    visitor: &mut V,
+    name: impl Fn(CellIdx, CellIdx) -> Order,
 ) where
     M: std::borrow::Borrow<TurnMaps<'a>>,
 {
@@ -1632,13 +1816,14 @@ fn walk_targets<'a, M, T>(
             {
                 return;
             }
-            out.extend(
-                routes
-                    .attacks
-                    .drain(..)
-                    .filter_map(|target| target_cell(state, target))
-                    .map(|cell| name(dest, cell)),
-            );
+            for order in routes
+                .attacks
+                .drain(..)
+                .filter_map(|target| target_cell(state, target))
+                .map(|cell| name(dest, cell))
+            {
+                visitor.order(order);
+            }
         }
         TargetKind::Repair => {
             routes.repairs.clear();
@@ -1647,13 +1832,14 @@ fn walk_targets<'a, M, T>(
             {
                 return;
             }
-            out.extend(
-                routes
-                    .repairs
-                    .drain(..)
-                    .filter_map(|unit| target_cell(state, AttackTarget::Unit { unit }))
-                    .map(|cell| name(dest, cell)),
-            );
+            for order in routes
+                .repairs
+                .drain(..)
+                .filter_map(|unit| target_cell(state, AttackTarget::Unit { unit }))
+                .map(|cell| name(dest, cell))
+            {
+                visitor.order(order);
+            }
         }
         TargetKind::Launch => {
             routes.launches.clear();
@@ -1662,13 +1848,14 @@ fn walk_targets<'a, M, T>(
             {
                 return;
             }
-            out.extend(
-                routes
-                    .launches
-                    .drain(..)
-                    .filter_map(|position| dimensions.cell_index(position))
-                    .map(|cell| name(dest, cell)),
-            );
+            for order in routes
+                .launches
+                .drain(..)
+                .filter_map(|position| dimensions.cell_index(position))
+                .map(|cell| name(dest, cell))
+            {
+                visitor.order(order);
+            }
         }
     }
 }

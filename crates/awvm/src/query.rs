@@ -43,13 +43,13 @@ use std::cell::OnceCell;
 use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
 
-use crate::combat::Forecast;
+use crate::combat::{self, Forecast};
 use crate::commander::{self, Holdings};
 use crate::event::AttackTarget;
-use crate::ruleset::{self, FireMode, MovementClass, TerrainTrait};
+use crate::ruleset::{self, CommanderKind, FireMode, MovementClass, TerrainTrait};
 use crate::semantic::{
     AwbwView, Grid, Location, Observation, ObservedMatch, ObservedPlayer, PlayerId, PlayerIdx, Pos,
-    State, Unit, UnitId, WeatherKind,
+    PowerState, State, TerrainId, Unit, UnitId, Viewpoint, WeatherKind,
 };
 use crate::transition::{
     ActiveTurn, ExecuteError, PreparedActiveUnit, PreparedDestination, board_position,
@@ -207,9 +207,14 @@ impl MoveScratch {
 struct Arrival {
     /// Movement points spent getting here by that route.
     cost: u16,
-    /// How many tiles the route holds, the origin included. The search knows
-    /// it, and a caller walking the route back can size its vectors from it
-    /// instead of growing them from nothing per destination.
+    /// About how many tiles the route holds, the origin included. This is a
+    /// capacity hint and not an exact length: a later cheaper route to the
+    /// predecessor leaves it stale, and a route longer than a byte saturates.
+    /// A caller walking the route back sizes its vectors from it instead of
+    /// growing them from nothing per destination, and `query_destination`
+    /// hands it to a summarized movement, whose only reader asks whether the
+    /// route is longer than the origin alone. Anything that needs the exact
+    /// length materializes the route.
     depth: u8,
     /// Whether a `move-*` command may name this tile as its destination.
     can_stop: bool,
@@ -322,13 +327,10 @@ const MAXIMUM_BUDGET: u64 = u16::MAX as u64;
 /// tables is most of what opening a turn costs.
 ///
 /// A handle is shared, so a table filled through one copy is visible through
-/// every other. Keeping one is a promise. The tables answer for one position
-/// and one seat, and a holder that reuses them against a different position
-/// hands out answers about a board that is gone. [`Session`] keys its copy by
-/// epoch for that reason: applying an order is the only thing that changes the
-/// active seat, and it advances the epoch too, so no handle survives into
-/// another position or another seat. Anything else that keeps one owes the same
-/// guard.
+/// every other. Blocking answers for one position and cannot cross an epoch.
+/// Entry costs depend on fewer inputs and can cross an epoch through
+/// [`TurnTables::advance`]. A holder must use that operation before it binds a
+/// kept handle to another position.
 ///
 /// [`Session`]: crate::session::Session
 #[derive(Debug, Clone, Default)]
@@ -338,6 +340,7 @@ pub(crate) struct TurnTables {
     /// itself and drops them with the rest of its maps, so a share nobody
     /// asked for costs no allocation.
     shared: Option<Arc<SharedTables>>,
+    entries_for: Option<EntryContext>,
 }
 
 /// The cells a [`TurnTables`] handle shares. [`OnceLock`] rather than the
@@ -346,9 +349,40 @@ pub(crate) struct TurnTables {
 #[derive(Debug, Default)]
 struct SharedTables {
     blocking: OnceLock<Arc<Grid<Blocking>>>,
+    hidden_board_unit: OnceLock<bool>,
+    entries: Arc<EntryTables>,
+}
+
+#[derive(Debug, Default)]
+struct EntryTables {
     /// Entry costs, one map per movement class, each built when a unit of that
     /// class first asks.
     entries: [OnceLock<Arc<Grid<EntryCost>>>; MovementClass::COUNT],
+}
+
+/// The state inputs that can change a player's terrain entry costs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct EntryContext {
+    terrain: Vec<TerrainId>,
+    weather: WeatherKind,
+    commanders: Vec<(CommanderKind, bool)>,
+    power: PowerState,
+}
+
+impl EntryContext {
+    fn of(state: &State, seat: PlayerIdx) -> Option<Self> {
+        let player = state.players.get(seat.get())?;
+        Some(Self {
+            terrain: state.board.iter().map(|(_, tile)| tile.terrain).collect(),
+            weather: state.weather.kind,
+            commanders: player
+                .commanders
+                .iter()
+                .map(|commander| (commander.id, commander.active))
+                .collect(),
+            power: player.power_state.clone(),
+        })
+    }
 }
 
 impl TurnTables {
@@ -357,13 +391,26 @@ impl TurnTables {
         self.shared.is_none()
     }
 
-    /// Forget everything, so the next turn to ask rebuilds it.
+    /// Rebind the tables to a changed position.
     ///
-    /// A holder calls this when the position it kept the tables for is gone.
-    /// Every other handle keeps the old tables, so this is safe to call while
-    /// a turn is open.
-    pub(crate) fn clear(&mut self) {
-        self.shared = Some(Arc::default());
+    /// Occupancy always invalidates the blocking grid. Terrain entry costs
+    /// survive when terrain, weather, and the player's movement rules did not
+    /// change.
+    pub(crate) fn advance(&mut self, state: &State, seat: PlayerIdx) {
+        let entries_for = EntryContext::of(state, seat);
+        let entries = if self.entries_for == entries_for {
+            self.shared
+                .as_ref()
+                .map_or_else(Arc::default, |tables| Arc::clone(&tables.entries))
+        } else {
+            Arc::default()
+        };
+        self.shared = Some(Arc::new(SharedTables {
+            blocking: OnceLock::new(),
+            hidden_board_unit: OnceLock::new(),
+            entries,
+        }));
+        self.entries_for = entries_for;
     }
 }
 
@@ -376,9 +423,9 @@ impl TurnTables {
 /// of units drawn from eight movement classes, so a search that answered for
 /// itself rebuilt the same few tables once per unit.
 ///
-/// Every table here is bound to one `&State` and to one player of it, exactly
-/// as [`AwbwView`] is bound to one team, so none of them can outlive the state
-/// they describe or answer for another one.
+/// Each map view is bound to one `&State` and one player. The shared entry
+/// grids can come from an earlier state only when [`EntryContext`] proves that
+/// all inputs to those grids are unchanged.
 #[derive(Debug)]
 pub(crate) struct TurnMaps<'a> {
     state: &'a State,
@@ -398,6 +445,10 @@ pub(crate) struct TurnMaps<'a> {
     /// tower and property counts of both sides of every strike, and scoring
     /// one attack candidate used to count them from the board twice.
     holdings: OnceCell<Holdings<'a>>,
+    /// Visible board units in stable identifier order.
+    attack_units: OnceCell<Vec<(Unit, Pos)>>,
+    /// Destructible board tiles in board order.
+    attack_tiles: OnceCell<Vec<(Pos, crate::ruleset::UnitKind)>>,
 }
 
 impl<'a> TurnMaps<'a> {
@@ -425,6 +476,8 @@ impl<'a> TurnMaps<'a> {
             tables,
             owned: SharedTables::default(),
             holdings: OnceCell::new(),
+            attack_units: OnceCell::new(),
+            attack_tiles: OnceCell::new(),
         })
     }
 
@@ -439,9 +492,50 @@ impl<'a> TurnMaps<'a> {
         &self.view
     }
 
+    /// Whether this view hides a unit that can interrupt a route.
+    fn has_hidden_board_unit(&self) -> bool {
+        *self
+            .tables()
+            .hidden_board_unit
+            .get_or_init(|| self.view.has_hidden_board_unit())
+    }
+
     /// What every player holds, counted once for the whole turn.
     pub(crate) fn holdings(&self) -> &Holdings<'a> {
         self.holdings.get_or_init(|| Holdings::tally(self.state))
+    }
+
+    fn attack_units(&self) -> &[(Unit, Pos)] {
+        self.attack_units.get_or_init(|| {
+            let mut units: Vec<_> = self
+                .state
+                .units
+                .iter()
+                .filter_map(|unit| {
+                    let Location::Board { position } = unit.location else {
+                        return None;
+                    };
+                    self.view.unit(unit).then_some((*unit, position))
+                })
+                .collect();
+            units.sort_unstable_by_key(|(unit, _)| unit.id);
+            units
+        })
+    }
+
+    fn attack_tiles(&self) -> &[(Pos, crate::ruleset::UnitKind)] {
+        self.attack_tiles.get_or_init(|| {
+            self.state
+                .board
+                .dimensions()
+                .positions()
+                .filter_map(|position| {
+                    ruleset::terrain(self.state.board.tile(position).terrain)
+                        .destructible
+                        .map(|destructible| (position, destructible.target_kind))
+                })
+                .collect()
+        })
     }
 
     /// What each tile denies, worked out once for the whole turn.
@@ -470,7 +564,7 @@ impl<'a> TurnMaps<'a> {
     /// and the weather, and on nothing else about it, so one map serves every
     /// unit of a class.
     fn entry_costs(&self, class: MovementClass) -> &Arc<Grid<EntryCost>> {
-        self.tables().entries[class.index()].get_or_init(|| {
+        self.tables().entries.entries[class.index()].get_or_init(|| {
             Arc::new(Grid::from_fn(self.state.board.dimensions(), |position| {
                 EntryCost::new(entry_cost(
                     self.state,
@@ -671,6 +765,82 @@ where
         &self.field
     }
 
+    /// Prepare plausible attack targets for every reachable firing tile.
+    ///
+    /// Targets drive this index. Direct weapons mark reachable neighbours of
+    /// each target, while indirect weapons mark only their stationary origin.
+    /// The destination validator still makes the authoritative legal decision.
+    pub(crate) fn prepare_attack_index(&self, index: &mut AttackIndex) {
+        let state = self.active.state();
+        let dimensions = state.board.dimensions();
+        index.refill(dimensions.len());
+        crate::benchmark::record_attack_target_call();
+        let Some(attacker) = state.units.get(self.active.unit()) else {
+            return;
+        };
+        let profile = ruleset::profile(attacker.kind);
+        if profile.fire_mode == FireMode::None {
+            crate::benchmark::record_empty_target_search();
+            return;
+        }
+        let origin = self.active.origin();
+        let range = profile.indirect_range.map(|range| {
+            (
+                range.minimum,
+                commander::effective_attack_range(
+                    state,
+                    attacker,
+                    range.maximum,
+                    profile.domain,
+                    FireMode::Indirect,
+                ),
+            )
+        });
+        let mut mark = |target_position: Pos, target: AttackTarget| match range {
+            Some((minimum, maximum)) => {
+                let distance = origin.distance(target_position);
+                if distance >= minimum
+                    && distance <= maximum
+                    && let Some(cell) = dimensions.cell_index(origin)
+                {
+                    index.push(cell, target);
+                }
+            }
+            None => {
+                for position in target_position.orthogonal() {
+                    if self
+                        .field
+                        .arrivals
+                        .get(position)
+                        .is_some_and(Option::is_some)
+                        && let Some(cell) = dimensions.cell_index(position)
+                    {
+                        index.push(cell, target);
+                    }
+                }
+            }
+        };
+
+        let maps = self.maps.borrow();
+        for (unit, position) in maps.attack_units() {
+            if unit.id != attacker.id
+                && combat::select_weapon(attacker.kind, unit.kind, attacker.ammo).is_some()
+            {
+                mark(*position, AttackTarget::Unit { unit: unit.id });
+            }
+        }
+        for (position, target_kind) in maps.attack_tiles() {
+            if combat::select_weapon(attacker.kind, *target_kind, attacker.ammo).is_some() {
+                mark(
+                    *position,
+                    AttackTarget::Tile {
+                        position: *position,
+                    },
+                );
+            }
+        }
+    }
+
     /// Return the field's route to `position`.
     pub fn path_to(&self, position: Pos) -> Option<Vec<Pos>> {
         self.field.path_to(position)
@@ -690,18 +860,12 @@ where
     /// [`PreparedMoveField::prepare_destination`], writing the route into
     /// vectors the caller supplies.
     ///
-    /// Enumerating a turn walks a route for every tile a unit can reach, and
-    /// these two vectors are all that walk allocates. Take them back from a
-    /// spent destination with [`PreparedDestination::recycle`] and a pass
-    /// allocates once instead of once per candidate.
+    /// These vectors let a caller reuse storage when it must materialize many
+    /// routes. Legal enumeration uses route summaries and does not call this
+    /// operation.
     ///
-    /// They are passed by value, not lent. A `&mut` pair costs 4% of a
-    /// complete enumeration, because the walk stops reading as two independent
-    /// locals and the walk is most of the pass.
-    ///
-    /// `None` drops them. It means the tile has no route through it, either a
-    /// teleporter or a tile outside the field, and a caller reusing buffers
-    /// starts the next candidate with empty ones.
+    /// `None` drops them. It means that the tile has no route through it. The
+    /// tile is a teleporter or is outside the field.
     #[inline(always)]
     pub(crate) fn prepare_destination_into<'field>(
         &'field self,
@@ -759,10 +923,67 @@ where
         )
     }
 
+    /// Bind one destination for legal queries without building its route.
+    ///
+    /// The movement field already proves reachability and records path depth.
+    /// Enumeration needs only that depth and the destination. Command spelling
+    /// materializes the route for the selected order.
+    ///
+    /// [`Arrival::depth`] is a capacity hint and not an exact route length, so
+    /// the summarized movement this hands back carries the same approximation.
+    /// `path_len() > 1`, all the enumeration asks of it, still holds, because
+    /// only the origin arrives at depth one. A caller that needs the route's
+    /// true length must materialize the route.
+    pub(crate) fn query_destination<'field>(
+        &'field self,
+        position: Pos,
+    ) -> Option<PreparedDestination<'a, &'field TurnMaps<'a>>> {
+        if self.maps.borrow().has_hidden_board_unit() {
+            return self.prepare_destination(position);
+        }
+        if is_teleporter(self.active.state(), position) {
+            return None;
+        }
+        let arrival = (*self.field.arrivals.get(position)?)?;
+        Some(
+            self.active
+                .movement_summary(position, u16::from(arrival.depth))
+                .prepare_destination_with(self.maps.borrow()),
+        )
+    }
+
     /// Enumerate actions at one destination without validating its path again.
     pub fn actions_at(&self, position: Pos) -> Result<ActionSet, QueryError> {
         self.prepare_destination(position)
             .map_or_else(|| Ok(ActionSet::default()), actions_for_destination)
+    }
+}
+
+/// Plausible attack targets keyed by firing tile.
+#[derive(Debug, Default)]
+pub(crate) struct AttackIndex {
+    rows: Vec<Vec<AttackTarget>>,
+}
+
+impl AttackIndex {
+    fn refill(&mut self, cells: usize) {
+        self.rows.resize_with(cells, Vec::new);
+        for row in &mut self.rows {
+            row.clear();
+        }
+    }
+
+    fn push(&mut self, cell: crate::semantic::CellIdx, target: AttackTarget) {
+        if let Some(row) = self.rows.get_mut(usize::from(cell.get())) {
+            row.push(target);
+        }
+    }
+
+    pub(crate) fn targets(&self, cell: crate::semantic::CellIdx) -> &[AttackTarget] {
+        self.rows
+            .get(usize::from(cell.get()))
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
 }
 
@@ -924,10 +1145,11 @@ pub(crate) fn reachable_with(
                 }
                 *arrival = Some(Arrival {
                     cost: total,
-                    // This is a capacity hint and nothing reads it as a
-                    // length: a later cheaper route to the predecessor leaves
-                    // this stale, and a route longer than a byte saturates.
-                    // Either way the vector it sizes still grows correctly.
+                    // A hint and not a length, as `Arrival::depth` says: a
+                    // later cheaper route to the predecessor leaves this
+                    // stale, and a route longer than a byte saturates. Either
+                    // way the vector it sizes still grows correctly, and a
+                    // tile off the origin still counts more than one.
                     depth: settled.depth.saturating_add(1),
                     can_stop: !blocking.at(cell).stop,
                     from: Some(Approach::of(next, position)),
@@ -1757,12 +1979,14 @@ pub(crate) fn attack_targets_into<'a, M, const LIMIT: usize>(
 where
     M: Borrow<TurnMaps<'a>>,
 {
+    crate::benchmark::record_attack_target_call();
     let movement = destination.movement();
     let state = movement.state();
     let unit = movement.unit();
     let subject = lookup(state, unit)?;
     let profile = ruleset::profile(subject.kind);
     if profile.fire_mode == FireMode::None {
+        crate::benchmark::record_empty_target_search();
         return Ok(());
     }
     let from = movement.plan().destination();
@@ -1808,6 +2032,7 @@ where
             let Some(cell) = dimensions.cell(position) else {
                 continue;
             };
+            crate::benchmark::record_destination_inspected();
             // The index names the occupant whether or not this team sees it,
             // which is what the roster walk did; `can_attack` refuses the
             // ones the team may not fire at.
@@ -1816,6 +2041,7 @@ where
                 && destination.can_attack(AttackTarget::Unit { unit: candidate })?
             {
                 units.push(candidate);
+                crate::benchmark::record_unit_target_found();
                 if units.len() + tiles.len() >= LIMIT {
                     break 'walk;
                 }
@@ -1826,6 +2052,7 @@ where
                 && destination.can_attack(AttackTarget::Tile { position })?
             {
                 tiles.push(position);
+                crate::benchmark::record_tile_target_found();
                 if units.len() + tiles.len() >= LIMIT {
                     break 'walk;
                 }
@@ -1835,6 +2062,10 @@ where
     // The walk finds units in board order; report them by id, so the list does
     // not depend on where the mover stopped.
     units.sort_unstable();
+    crate::benchmark::record_candidate_units_sorted(units.len() as u64);
+    if units.is_empty() && tiles.is_empty() {
+        crate::benchmark::record_empty_target_search();
+    }
     out.extend(units.iter().map(|unit| AttackTarget::Unit { unit: *unit }));
     out.extend(tiles.iter().map(|position| AttackTarget::Tile {
         position: *position,

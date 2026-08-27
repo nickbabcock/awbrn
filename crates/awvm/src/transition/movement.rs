@@ -59,12 +59,23 @@ pub(super) fn available_destination(
 pub(crate) struct MovedUnit<'a> {
     unit_index: usize,
     origin: Pos,
-    path: Vec<Pos>,
-    entry_costs: Vec<u64>,
+    route: Route,
     /// Borrowed from the state this movement was validated against. Cloning it
     /// here allocated a team name for every candidate destination an
     /// enumeration considered.
     actor_team: &'a crate::semantic::TeamId,
+}
+
+#[derive(Clone, Debug)]
+enum Route {
+    Materialized {
+        path: Vec<Pos>,
+        entry_costs: Vec<u64>,
+    },
+    Summary {
+        destination: Pos,
+        length: u16,
+    },
 }
 
 impl<'a> MovedUnit<'a> {
@@ -80,13 +91,23 @@ impl<'a> MovedUnit<'a> {
 
     /// The requested route, origin first.
     pub(crate) fn path(&self) -> &[Pos] {
-        &self.path
+        match &self.route {
+            Route::Materialized { path, .. } => path,
+            Route::Summary { .. } => {
+                panic!("a summarized route cannot be executed")
+            }
+        }
     }
 
     /// Movement points to enter each step of [`MovedUnit::path`]; the first is
     /// always zero.
     pub(crate) fn entry_costs(&self) -> &[u64] {
-        &self.entry_costs
+        match &self.route {
+            Route::Materialized { entry_costs, .. } => entry_costs,
+            Route::Summary { .. } => {
+                panic!("a summarized route cannot be executed")
+            }
+        }
     }
 
     /// The team the mover belongs to, which decides what it can see.
@@ -94,21 +115,26 @@ impl<'a> MovedUnit<'a> {
         self.actor_team
     }
 
-    /// Give the route buffers back, emptied.
-    ///
-    /// Enumeration walks the predecessor chain of every reachable tile, and a
-    /// turn has hundreds of them. Reusing the two vectors keeps that walk from
-    /// allocating once per candidate.
-    pub(crate) fn recycle(mut self) -> (Vec<Pos>, Vec<u64>) {
-        self.path.clear();
-        self.entry_costs.clear();
-        (self.path, self.entry_costs)
-    }
-
     /// The destination the mover asked for, which is not where it ends up if a
     /// hidden unit traps it.
     pub(crate) fn destination(&self) -> Pos {
-        *self.path.last().expect("a validated path has an origin")
+        match &self.route {
+            Route::Materialized { path, .. } => {
+                *path.last().expect("a validated path has an origin")
+            }
+            Route::Summary { destination, .. } => *destination,
+        }
+    }
+
+    pub(crate) fn path_len(&self) -> usize {
+        match &self.route {
+            Route::Materialized { path, .. } => path.len(),
+            Route::Summary { length, .. } => usize::from(*length),
+        }
+    }
+
+    pub(crate) const fn is_summary(&self) -> bool {
+        matches!(self.route, Route::Summary { .. })
     }
 }
 
@@ -245,8 +271,7 @@ pub(crate) fn plan<'a>(
     Ok(MovedUnit {
         unit_index,
         origin,
-        path,
-        entry_costs,
+        route: Route::Materialized { path, entry_costs },
         actor_team,
     })
 }
@@ -270,8 +295,30 @@ pub(super) fn from_field<'a>(
     MovedUnit {
         unit_index: active.unit_index(),
         origin: active.origin(),
-        path,
-        entry_costs,
+        route: Route::Materialized { path, entry_costs },
+        actor_team,
+    }
+}
+
+pub(super) fn summarized<'a>(
+    active: &PreparedActiveUnit<'a>,
+    destination: Pos,
+    length: u16,
+) -> MovedUnit<'a> {
+    let state = active.state();
+    let unit = &state.units[active.unit_index()];
+    let actor_team = &state
+        .players
+        .get(unit.owner.get())
+        .expect("an active unit has a player")
+        .team;
+    MovedUnit {
+        unit_index: active.unit_index(),
+        origin: active.origin(),
+        route: Route::Summary {
+            destination,
+            length,
+        },
         actor_team,
     }
 }
@@ -337,7 +384,7 @@ pub(crate) fn planned_movement_trap_with_view(
     unit_id: UnitId,
     view: &AwbwView<'_>,
 ) -> Option<(usize, Pos, UnitId)> {
-    plan.path
+    plan.path()
         .iter()
         .copied()
         .enumerate()

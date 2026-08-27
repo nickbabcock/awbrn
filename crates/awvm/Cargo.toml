@@ -15,6 +15,7 @@ workspace = true
 
 [features]
 default = []
+benchmark-counters = []
 typescript = ["dep:tsify", "dep:wasm-bindgen"]
 
 [dependencies]

@@ -1,10 +1,13 @@
 //! Measure disagreement and counterfactual coverage in the script portfolio.
 
 use anyhow::Result;
+use awbrn_ai::adaptive::{
+    ENTROPY_SALT, MAX_TURNS, REPLY_SALT, SelectionPolicy, select as adaptive_select,
+};
 use awbrn_ai::agent::{Agent, NodeBudget, Play};
 use awbrn_ai::agents::{
     CaptureMission, CaptureMissionState, GreedyAgent, MissionBook, Script, StratifiedScripts,
-    Stratum, Weights, generate_plan, generate_plans, generate_stratified_plan,
+    Stratum, Weights, generate_plan, generate_plans, generate_stratum_candidates,
 };
 use awbrn_ai::board::arena;
 use awbrn_ai::eval::{EvalBreakdown, EvalWeights, Evaluator};
@@ -21,9 +24,6 @@ use std::time::{Duration, Instant};
 const DEFAULT_GAMES: usize = 20;
 const DEFAULT_ROOTS: usize = 50;
 const DEFAULT_DAYS: u32 = 35;
-const MAX_TURNS: u32 = 1_000;
-const ENTROPY_SALT: u64 = 0x051c_71f7;
-const REPLY_SALT: u64 = 0x072a_94d3;
 const STRATIFIED_CANDIDATE_LIMIT: usize = NodeBudget::SIXTEEN.get() as usize;
 
 fn main() {
@@ -307,6 +307,12 @@ struct SweepPlan {
     plays: Vec<Play>,
 }
 
+impl AsRef<[Play]> for SweepPlan {
+    fn as_ref(&self) -> &[Play] {
+        &self.plays
+    }
+}
+
 #[derive(Clone, Copy)]
 struct HorizonLine {
     score: f64,
@@ -451,157 +457,15 @@ impl StratifiedArenaAgent {
         self.mission_stats
             .add(mission_transitions(&previous_missions, &self.missions));
         let unique = deduplicate_sweep_plans(generated);
-        let friendly = root.view.turn.active_player.clone();
-        let friendly_seat = root.state.players.seat(&friendly)?;
-        let (best_index, baseline_score) = match self.policy {
-            StratifiedArenaPolicy::StandardFour => {
-                let mut evaluator = Evaluator::new(EvalWeights::STANDARD);
-                let mut context = HorizonContext {
-                    root: &root.state,
-                    seed: root.seed,
-                    days: self.days,
-                    friendly_seat,
-                    friendly: &friendly,
-                    evaluator: &mut evaluator,
-                };
-                let lines: Vec<_> = unique
-                    .iter()
-                    .enumerate()
-                    .map(|(index, candidate)| {
-                        (
-                            index,
-                            evaluate_horizon(&mut context, &candidate.plays, Horizon::FourRounds),
-                        )
-                    })
-                    .collect();
-                let baseline_score = lines.first().and_then(|(_, line)| *line)?.score;
-                let best_index = lines
-                    .iter()
-                    .filter_map(|(index, line)| line.map(|line| (*index, line.score)))
-                    .max_by(|left, right| {
-                        left.1
-                            .total_cmp(&right.1)
-                            .then_with(|| right.0.cmp(&left.0))
-                    })
-                    .map(|(index, _)| index)?;
-                (best_index, baseline_score)
-            }
-            StratifiedArenaPolicy::Adaptive => {
-                let mut context_evaluator = Evaluator::new(EvalWeights::STANDARD);
-                let context = HorizonContext {
-                    root: &root.state,
-                    seed: root.seed,
-                    days: self.days,
-                    friendly_seat,
-                    friendly: &friendly,
-                    evaluator: &mut context_evaluator,
-                };
-                let mut standard_evaluator = Evaluator::new(EvalWeights::STANDARD);
-                let mut conservative_evaluator =
-                    Evaluator::new(ExposureFrontArm::Conservative.weights());
-                let four_lines: Vec<_> = unique
-                    .iter()
-                    .map(|candidate| {
-                        evaluate_horizon_both(
-                            &context,
-                            &candidate.plays,
-                            Horizon::FourRounds,
-                            &mut standard_evaluator,
-                            &mut conservative_evaluator,
-                        )
-                    })
-                    .collect();
-                let standard_top = top_two_adaptive(&four_lines, true);
-                let conservative_top = top_two_adaptive(&four_lines, false);
-                let standard_selected = standard_top.first().copied()?;
-                let conservative_selected = conservative_top.first().copied()?;
-                let baseline_score = joint_score(four_lines[0]?);
-                if standard_selected == conservative_selected {
-                    let selected = standard_selected;
-                    let selected_score = joint_score(four_lines[selected]?);
-                    let best_index = if selected_score > baseline_score {
-                        selected
-                    } else {
-                        0
-                    };
-                    (best_index, baseline_score)
-                } else {
-                    let mut extended = standard_top;
-                    for index in conservative_top {
-                        if !extended.contains(&index) {
-                            extended.push(index);
-                        }
-                    }
-                    if !extended.contains(&0) {
-                        extended.push(0);
-                    }
-                    extended.sort_unstable();
-                    let mut standard_evaluator = Evaluator::new(EvalWeights::STANDARD);
-                    let mut conservative_evaluator =
-                        Evaluator::new(ExposureFrontArm::Conservative.weights());
-                    let eight_lines: Vec<_> = extended
-                        .iter()
-                        .map(|index| {
-                            evaluate_horizon_both(
-                                &context,
-                                &unique[*index].plays,
-                                Horizon::EightRounds,
-                                &mut standard_evaluator,
-                                &mut conservative_evaluator,
-                            )
-                        })
-                        .collect();
-                    let best_index = eight_lines
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(position, line)| line.map(|line| (position, line)))
-                        .max_by(|left, right| {
-                            joint_score(left.1)
-                                .total_cmp(&joint_score(right.1))
-                                .then_with(|| right.0.cmp(&left.0))
-                        })
-                        .map(|(position, _)| extended[position])?;
-                    (best_index, baseline_score)
-                }
-            }
+        let selection_policy = match self.policy {
+            StratifiedArenaPolicy::StandardFour => SelectionPolicy::StandardFour,
+            StratifiedArenaPolicy::Adaptive => SelectionPolicy::Adaptive,
         };
-        let selected_score = match self.policy {
-            StratifiedArenaPolicy::StandardFour => {
-                let mut evaluator = Evaluator::new(EvalWeights::STANDARD);
-                let mut context = HorizonContext {
-                    root: &root.state,
-                    seed: root.seed,
-                    days: self.days,
-                    friendly_seat,
-                    friendly: &friendly,
-                    evaluator: &mut evaluator,
-                };
-                evaluate_horizon(&mut context, &unique[best_index].plays, Horizon::FourRounds)?
-                    .score
-            }
-            StratifiedArenaPolicy::Adaptive => {
-                let mut context_evaluator = Evaluator::new(EvalWeights::STANDARD);
-                let context = HorizonContext {
-                    root: &root.state,
-                    seed: root.seed,
-                    days: self.days,
-                    friendly_seat,
-                    friendly: &friendly,
-                    evaluator: &mut context_evaluator,
-                };
-                let mut standard_evaluator = Evaluator::new(EvalWeights::STANDARD);
-                let mut conservative_evaluator =
-                    Evaluator::new(ExposureFrontArm::Conservative.weights());
-                evaluate_horizon_both(
-                    &context,
-                    &unique[best_index].plays,
-                    Horizon::FourRounds,
-                    &mut standard_evaluator,
-                    &mut conservative_evaluator,
-                )
-                .map(joint_score)?
-            }
-        };
+        let selection =
+            adaptive_select(&root.state, &unique, root.seed, self.days, selection_policy)?;
+        let best_index = selection.selected_index;
+        let baseline_score = selection.baseline_score;
+        let selected_score = selection.selected_score;
         let margin = selected_score - baseline_score;
         self.selection_turns += 1;
         self.selection_margin += margin;
@@ -1263,15 +1127,20 @@ impl Coverage {
         let mut selected_candidate = None;
         for stratum in Stratum::ALL {
             let mut best_index = None;
-            for script in Script::ALL {
-                let assignment = current_assignment.with_script(stratum, script);
-                let Some(plays) =
-                    generate_stratified_plan(&root.view, root.seed, &mut root_missions, assignment)
-                else {
-                    continue;
-                };
+            let Some(stratum_candidates) = generate_stratum_candidates(
+                &root.view,
+                root.seed,
+                &mut root_missions,
+                current_assignment,
+                stratum,
+            ) else {
+                continue;
+            };
+            for candidate in stratum_candidates {
+                let assignment = candidate.scripts;
+                let plays = candidate.plays;
                 let stratum_index = stratum_index(stratum);
-                let script_index = script_index(script);
+                let script_index = script_index(assignment.script(stratum));
                 let stats = &mut self.stratified_scripts[stratum_index][script_index];
                 stats.generated += 1;
                 self.stratified_candidates_generated += 1;
@@ -2833,13 +2702,20 @@ fn generate_sweep_plans_with_missions(
 
     for stratum in Stratum::ALL {
         let mut best_index = None;
-        for script in Script::ALL {
-            let assignment = current_assignment.with_script(stratum, script);
-            let Some(plays) =
-                generate_stratified_plan(&root.view, root.seed, &mut *missions, assignment)
-            else {
-                continue;
-            };
+        // A stratum the planner cannot plan drops out of the sweep, so that
+        // the plans the other strata offer still stand.
+        let Some(stratum_candidates) = generate_stratum_candidates(
+            &root.view,
+            root.seed,
+            &mut *missions,
+            current_assignment,
+            stratum,
+        ) else {
+            continue;
+        };
+        for candidate in stratum_candidates {
+            let assignment = candidate.scripts;
+            let plays = candidate.plays;
             generated.push(SweepPlan {
                 plays: plays.clone(),
             });

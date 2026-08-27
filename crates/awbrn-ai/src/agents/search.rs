@@ -300,26 +300,21 @@ impl TurnSearch {
         let mut nodes = 1;
 
         let mut coordinate = 0;
-        'coordinates: while coordinate < best.len() {
+        while coordinate < best.len() {
             let coordinate_plan = best.clone();
             let Some(unit) = coordinate_plan[coordinate].unit() else {
                 coordinate += 1;
                 continue;
             };
-            for alternative in self.alternatives(&coordinate_plan, coordinate, unit) {
-                if nodes >= budget.get() {
-                    break 'coordinates;
-                }
-                if alternative == coordinate_plan[coordinate] {
-                    self.stats.legal_candidates_rejected += 1;
-                    continue;
-                }
-                let Some(candidate_leaf) =
-                    self.evaluate_repaired(&coordinate_plan[..coordinate], alternative)
-                else {
-                    self.stats.legal_candidates_rejected += 1;
-                    continue;
-                };
+            let remaining = budget.get().saturating_sub(nodes);
+            let (candidates, rejected) = self.evaluate_coordinate(
+                &coordinate_plan[..coordinate],
+                coordinate_plan[coordinate],
+                unit,
+                remaining,
+            );
+            self.stats.legal_candidates_rejected += rejected;
+            for candidate_leaf in candidates {
                 let Some(value) = self.rank_score(
                     candidate_leaf.score,
                     candidate_leaf.breakdown,
@@ -435,6 +430,7 @@ impl TurnSearch {
         Some(plan)
     }
 
+    #[cfg(test)]
     fn alternatives(
         &mut self,
         seed: &[Order],
@@ -466,6 +462,77 @@ impl TurnSearch {
         alternatives
     }
 
+    /// Evaluate one coordinate while retaining its applied prefix.
+    fn evaluate_coordinate(
+        &mut self,
+        prefix: &[Order],
+        current: Order,
+        unit: awvm::session::UnitIdx,
+        limit: u32,
+    ) -> (Vec<SearchLeaf>, u64) {
+        if limit == 0 {
+            return (Vec::new(), 0);
+        }
+        let original = self.session.state().clone();
+        let mut entropy = Rng::from_seed(self.entropy_seed);
+        let mut root = None;
+        for order in prefix.iter().copied() {
+            let Ok(mark) = self.session.apply(order, &mut entropy, &mut ()) else {
+                if let Some(mark) = root {
+                    self.session.rewind(mark);
+                }
+                return (Vec::new(), 1);
+            };
+            root.get_or_insert(mark);
+        }
+        let prefix_entropy = entropy.clone();
+        let mut alternatives = Vec::new();
+        self.session.legal().unit_orders(unit, &mut alternatives);
+        let mut rejected = u64::from(alternatives.contains(&current));
+        alternatives.retain(|order| {
+            *order != current
+                && !matches!(
+                    order.kind(),
+                    OrderKind::Delete | OrderKind::Resign | OrderKind::EndTurn
+                )
+        });
+
+        let mut leaves = Vec::new();
+        for alternative in alternatives {
+            if u32::try_from(leaves.len()).unwrap_or(u32::MAX) >= limit {
+                break;
+            }
+            entropy = prefix_entropy.clone();
+            let Ok(branch) = self.session.apply(alternative, &mut entropy, &mut ()) else {
+                rejected += 1;
+                continue;
+            };
+            let mut branch_root = Some(branch);
+            let mut agent = GreedyAgent::with_weights(self.friendly_seed, self.weights);
+            let leaf = self
+                .greedy_turn(&mut agent, &mut entropy, &mut branch_root)
+                .and_then(|suffix| {
+                    let mut plan = prefix.to_vec();
+                    plan.push(alternative);
+                    plan.extend(suffix);
+                    self.greedy_reply(&mut entropy).and_then(|reply| {
+                        debug_assert!(!reply.is_empty(), "each leaf has an opponent reply");
+                        self.leaf(plan)
+                    })
+                });
+            self.session.rewind(branch);
+            match leaf {
+                Some(leaf) => leaves.push(leaf),
+                None => rejected += 1,
+            }
+        }
+        if let Some(mark) = root {
+            self.session.rewind(mark);
+        }
+        debug_assert_eq!(self.session.state(), &original);
+        (leaves, rejected)
+    }
+
     fn evaluate(&mut self, plan: &[Order]) -> Option<SearchLeaf> {
         let original = self.session.state().clone();
         let mut entropy = Rng::from_seed(self.entropy_seed);
@@ -488,48 +555,6 @@ impl TurnSearch {
         let result = self.greedy_reply(&mut entropy).and_then(|reply| {
             debug_assert!(!reply.is_empty(), "each leaf has an opponent reply");
             self.leaf(plan.to_vec())
-        });
-        self.session.rewind(root?);
-        debug_assert_eq!(self.session.state(), &original);
-        result
-    }
-
-    fn evaluate_repaired(&mut self, prefix: &[Order], alternative: Order) -> Option<SearchLeaf> {
-        let original = self.session.state().clone();
-        let mut entropy = Rng::from_seed(self.entropy_seed);
-        let mut root = None;
-        for order in prefix.iter().copied().chain(std::iter::once(alternative)) {
-            match self.session.apply(order, &mut entropy, &mut ()) {
-                Ok(mark) => {
-                    root.get_or_insert(mark);
-                }
-                Err(_) => {
-                    if let Some(mark) = root {
-                        self.session.rewind(mark);
-                    }
-                    debug_assert_eq!(self.session.state(), &original);
-                    return None;
-                }
-            }
-        }
-
-        let mut agent = GreedyAgent::with_weights(self.friendly_seed, self.weights);
-        let suffix = match self.greedy_turn(&mut agent, &mut entropy, &mut root) {
-            Some(suffix) => suffix,
-            None => {
-                if let Some(mark) = root {
-                    self.session.rewind(mark);
-                }
-                debug_assert_eq!(self.session.state(), &original);
-                return None;
-            }
-        };
-        let mut plan = prefix.to_vec();
-        plan.push(alternative);
-        plan.extend(suffix);
-        let result = self.greedy_reply(&mut entropy).and_then(|reply| {
-            debug_assert!(!reply.is_empty(), "each leaf has an opponent reply");
-            self.leaf(plan)
         });
         self.session.rewind(root?);
         debug_assert_eq!(self.session.state(), &original);
@@ -763,18 +788,18 @@ mod tests {
             let Some(unit) = seed[coordinate].unit() else {
                 continue;
             };
-            for alternative in search.alternatives(&seed, coordinate, unit) {
-                if alternative == seed[coordinate] {
-                    continue;
-                }
-                let Some(leaf) = search.evaluate_repaired(&seed[..coordinate], alternative) else {
-                    continue;
-                };
-                assert_eq!(&leaf.plan[..coordinate], &seed[..coordinate]);
-                assert_eq!(leaf.plan[coordinate], alternative);
-                assert_eq!(search.session.state(), &original);
-                return;
-            }
+            let (leaves, _) =
+                search.evaluate_coordinate(&seed[..coordinate], seed[coordinate], unit, 4);
+            // Every branch of a coordinate rewinds to the position the search
+            // came in at, whether or not the coordinate offered a branch.
+            assert_eq!(search.session.state(), &original);
+            let Some(leaf) = leaves.first() else {
+                continue;
+            };
+            assert_eq!(&leaf.plan[..coordinate], &seed[..coordinate]);
+            assert_ne!(leaf.plan[coordinate], seed[coordinate]);
+            assert!(leaf.score.is_finite(), "each leaf has a finite score");
+            return;
         }
         panic!("the fixture offered no repairable alternative");
     }

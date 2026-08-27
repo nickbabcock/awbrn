@@ -631,11 +631,6 @@ where
         self.movement
     }
 
-    /// Drop this destination and give its route buffers back, emptied.
-    pub(crate) fn recycle(self) -> (Vec<Pos>, Vec<u64>) {
-        self.movement.movement.recycle()
-    }
-
     pub(crate) fn view(&self) -> &AwbwView<'a> {
         self.maps.borrow().view()
     }
@@ -653,6 +648,9 @@ where
     }
 
     fn trap(&self) -> Option<(usize, Pos, UnitId)> {
+        if self.movement.plan().is_summary() {
+            return None;
+        }
         *self.trap.get_or_init(|| {
             movement::planned_movement_trap_with_view(
                 self.movement.plan(),
@@ -673,6 +671,22 @@ impl<'a> PreparedActiveUnit<'a> {
             state: self.state,
             unit: self.unit,
             movement: movement::from_field(self, path, entry_costs),
+        }
+    }
+
+    /// Bind a reachable destination without materializing its route.
+    ///
+    /// Legal enumeration needs the destination and whether the unit moved.
+    /// It materializes the selected route later when it spells the command.
+    pub(crate) fn movement_summary(
+        &self,
+        destination: Pos,
+        path_length: u16,
+    ) -> PreparedMovement<'a> {
+        PreparedMovement {
+            state: self.state,
+            unit: self.unit,
+            movement: movement::summarized(self, destination, path_length),
         }
     }
 
