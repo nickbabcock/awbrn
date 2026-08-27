@@ -1,14 +1,17 @@
 import { createServerFn } from "@tanstack/react-start";
 import { actorMiddleware, requirePermission } from "#/auth/permission.middleware.ts";
+import { z } from "zod";
 import {
   awbwMapImportRequestSchema,
   mapCatalogRequestSchema,
+  mapIdSchema,
   mapRankUpdateSchema,
   mapRefSchema,
   mapTagsUpdateSchema,
 } from "./schemas.ts";
 import {
   findCatalogEntry,
+  findCurrentCatalogEntry,
   importAwbwMapToCatalog,
   listCatalogMaps,
   loadMapRevision,
@@ -30,6 +33,19 @@ export const getMapRevisionFn = createServerFn({ method: "GET" })
 export const getMapCatalogEntryFn = createServerFn({ method: "GET" })
   .validator(mapRefSchema)
   .handler(async ({ data }) => findCatalogEntry(data));
+
+/**
+ * One map at the revision the board is listing, which is what a map's own
+ * page is drawn from.
+ *
+ * Nothing about the viewer is read here, so the answer is the same for
+ * everybody and caches that way. What a viewer may do to the map is decided
+ * on the screen by `mapTagGrant` and `mapRankGrant`, from the author this
+ * entry already carries.
+ */
+export const getMapFn = createServerFn({ method: "GET" })
+  .validator(z.object({ mapId: mapIdSchema }))
+  .handler(async ({ data }) => findCurrentCatalogEntry(data.mapId));
 
 export const listMapsFn = createServerFn({ method: "GET" })
   .validator(mapCatalogRequestSchema)

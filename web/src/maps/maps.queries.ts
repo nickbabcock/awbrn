@@ -1,7 +1,7 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { normalizeMapSearch } from "./map_catalog.ts";
 import { normalizeMapCatalogFilters } from "./map_taxonomy.ts";
-import { getMapCatalogEntryFn, getMapRevisionFn, listMapsFn } from "./maps.functions.ts";
+import { getMapCatalogEntryFn, getMapFn, getMapRevisionFn, listMapsFn } from "./maps.functions.ts";
 import { mapKeys } from "./maps.keys.ts";
 import type { MapCatalogFilter } from "./schemas.ts";
 
@@ -19,6 +19,20 @@ export function mapCatalogEntryQueryOptions(mapId: string, revision: number) {
     queryKey: mapKeys.entry(mapId, revision),
     queryFn: () => getMapCatalogEntryFn({ data: { mapId, revision } }),
     staleTime: Infinity,
+  });
+}
+
+/**
+ * One map at the revision the board lists, which is what a map's page reads.
+ *
+ * Unlike a revision, this goes stale: a rank or a tag written from the page
+ * changes it. The screen that writes invalidates it rather than the query
+ * holding it forever.
+ */
+export function mapQueryOptions(mapId: string) {
+  return queryOptions({
+    queryKey: mapKeys.map(mapId),
+    queryFn: () => getMapFn({ data: { mapId } }),
   });
 }
 

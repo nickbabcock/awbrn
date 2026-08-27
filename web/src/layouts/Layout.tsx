@@ -69,6 +69,11 @@ export function Layout({ children }: { children: ReactNode }) {
             }
             label="Matches"
           />
+          <RouterTopNavItem
+            to="/maps"
+            isSelected={pathname === "/maps" || pathname.startsWith("/maps/")}
+            label="Maps"
+          />
           {session ? (
             <>
               <RouterTopNavItem

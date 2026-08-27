@@ -133,6 +133,7 @@ function FilterRow<T extends string>({
         size="sm"
         type="multiple"
         value={[...value]}
+        xstyle={styles.keys}
       >
         {options.map((option) => (
           <ToggleButton key={option} label={labels[option]} value={option} />
@@ -143,6 +144,12 @@ function FilterRow<T extends string>({
 }
 
 const styles = stylex.create({
+  // A row of keys wraps rather than running off the panel. At phone width the
+  // "plays as" row is wider than the screen, and a filter key that cannot be
+  // reached is a filter nobody has.
+  keys: {
+    flexWrap: "wrap",
+  },
   // The reset key lines up with the buttons beside it rather than with the
   // labels above them, so the row still reads as one rule.
   reset: {

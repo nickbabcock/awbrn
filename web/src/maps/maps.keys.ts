@@ -11,6 +11,7 @@ export const mapKeys = {
       normalizeMapSearch(search),
       normalizeMapCatalogFilters(filters),
     ] as const,
+  map: (mapId: string) => [...mapKeys.all, mapId, "current"] as const,
   entry: (mapId: string, revision: number) => [...mapKeys.all, mapId, revision, "entry"] as const,
   revision: (mapId: string, revision: number) => [...mapKeys.all, mapId, revision] as const,
 };

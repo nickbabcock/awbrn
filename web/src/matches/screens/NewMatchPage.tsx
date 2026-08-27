@@ -19,7 +19,7 @@
  *   its provenance.
  */
 
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { AspectRatio } from "@astryxdesign/core/AspectRatio";
 import { Banner } from "@astryxdesign/core/Banner";
@@ -33,8 +33,6 @@ import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList"
 import { MapPicture } from "#/maps/components/MapPicture.tsx";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
 import { Section } from "@astryxdesign/core/Section";
-import { SelectableCard } from "@astryxdesign/core/SelectableCard";
-import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
@@ -49,7 +47,9 @@ import { coRoster } from "#/co_roster.ts";
 import { CoBoard } from "#/components/CoBoard.tsx";
 import { importAwbwMapFn } from "#/maps/maps.functions.ts";
 import { MapFilterBar } from "#/maps/components/MapFilterBar.tsx";
-import { mapCatalogQueryOptions } from "#/maps/maps.queries.ts";
+import { MapLoadingPlate, MapSelectPlate, boardPictureSize } from "#/maps/components/MapPlate.tsx";
+import { MAP_BOARD_COLUMNS, MAP_BOARD_LOADING_PLATES, mapBoardSummary } from "#/maps/map_board.ts";
+import { mapCatalogQueryOptions, mapQueryOptions } from "#/maps/maps.queries.ts";
 import { mapKeys } from "#/maps/maps.keys.ts";
 import { mapScreenshotSize } from "#/maps/map_screenshot.ts";
 import { countMapCatalogFilters } from "#/maps/map_taxonomy.ts";
@@ -61,9 +61,6 @@ import { TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
 /** How long the board waits after a keystroke before it searches. */
 const SEARCH_DEBOUNCE_MS = 250;
 
-/** Plates drawn while the first page of the board is still on its way. */
-const LOADING_PLATE_COUNT = 8;
-
 /** Open slots drawn beside the import panel while the catalog is empty. */
 const OPEN_SLOT_COUNT = 6;
 
@@ -73,7 +70,7 @@ const NO_MAP_FILTERS: Required<MapCatalogFilter> = { playerCounts: [], ranks: []
 /** A match that takes no CO away. */
 const EMPTY_CO_BANS: ReadonlySet<number> = new Set<number>();
 
-export function NewMatchPage() {
+export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const session = useAppSession();
@@ -120,20 +117,28 @@ export function NewMatchPage() {
   // separates "nothing matches" from "the catalog is empty".
   const isNarrowed = search.trim().length > 0 || filterCount > 0;
 
-  const boardPictureSize = useMemo(
-    () =>
-      catalogMaps.reduce(
-        (largest, map) => {
-          const picture = mapScreenshotSize("small", map.width, map.height);
-          return {
-            width: Math.max(largest.width, picture.width),
-            height: Math.max(largest.height, picture.height),
-          };
-        },
-        { width: 1, height: 1 },
-      ),
-    [catalogMaps],
-  );
+  const boardPicture = useMemo(() => boardPictureSize(catalogMaps), [catalogMaps]);
+
+  // A map chosen on its own page arrives in the address. It is read on its
+  // own rather than waited for on the board, because the board is paged and
+  // the map may be twenty plates down it.
+  const chosenMapQuery = useQuery({
+    ...mapQueryOptions(chosenMapId ?? ""),
+    enabled: chosenMapId !== undefined,
+  });
+  const handedOverMap = chosenMapQuery.data ?? null;
+
+  useEffect(() => {
+    if (!handedOverMap || selectedMap !== null) return;
+    setSelectedMap(handedOverMap);
+    if (!matchName.trim()) {
+      autoMatchNameRef.current = handedOverMap.name;
+      setMatchName(handedOverMap.name);
+    }
+    // The map was chosen on the last screen, so the briefing is what this
+    // screen is for; the board above it is still there to change the choice.
+    revealBriefingRef.current = true;
+  }, [handedOverMap, matchName, selectedMap]);
 
   const createMatchMutation = useMutation({
     mutationFn: createMatchFn,
@@ -226,7 +231,7 @@ export function NewMatchPage() {
                 onFiltersChange={setFilters}
                 onSearchChange={setSearchInput}
                 search={searchInput}
-                summary={boardSummary({
+                summary={mapBoardSummary({
                   count: catalogMaps.length,
                   hasMore: catalogQuery.hasNextPage,
                   isNarrowed,
@@ -244,7 +249,7 @@ export function NewMatchPage() {
             />
           ) : null}
 
-          <Grid align="start" columns={{ minWidth: 156, max: 5, repeat: "fill" }} gap={4}>
+          <Grid columns={MAP_BOARD_COLUMNS} gap={4}>
             {isBoardEmpty && !isNarrowed ? (
               <GridSpan columns={2}>
                 <FirstMapPanel isSignedIn={session !== null} onImported={handleImported} />
@@ -256,12 +261,12 @@ export function NewMatchPage() {
               ? Array.from({ length: OPEN_SLOT_COUNT }, (_, index) => <OpenSlot key={index} />)
               : null}
             {catalogQuery.isPending
-              ? Array.from({ length: LOADING_PLATE_COUNT }, (_, index) => (
-                  <LoadingPlate index={index} key={index} />
+              ? Array.from({ length: MAP_BOARD_LOADING_PLATES }, (_, index) => (
+                  <MapLoadingPlate index={index} key={index} />
                 ))
               : catalogMaps.map((map) => (
-                  <MapPlate
-                    boardPictureSize={boardPictureSize}
+                  <MapSelectPlate
+                    boardPicture={boardPicture}
                     isSelected={selectedMap?.mapId === map.mapId}
                     key={map.mapId}
                     map={map}
@@ -349,63 +354,6 @@ export function NewMatchPage() {
         ) : null}
       </VStack>
     </Section>
-  );
-}
-
-function MapPlate({
-  boardPictureSize,
-  isSelected,
-  map,
-  onSelect,
-}: {
-  /** The largest picture on this board, which sets the multiple for all of them. */
-  boardPictureSize: { width: number; height: number };
-  isSelected: boolean;
-  map: MapCatalogEntry;
-  onSelect: (map: MapCatalogEntry) => void;
-}) {
-  const picture = mapScreenshotSize("small", map.width, map.height);
-
-  return (
-    <SelectableCard
-      isSelected={isSelected}
-      label={`${map.name} by ${map.author}, ${map.playerCount} players, ${map.width} by ${map.height}`}
-      onChange={() => onSelect(map)}
-      padding={2}
-    >
-      <VStack gap={2}>
-        <MapPicture
-          alt=""
-          ratio={1}
-          scaleFrom={boardPictureSize}
-          sourceHeight={picture.height}
-          sourceWidth={picture.width}
-          src={map.screenshot.small}
-        />
-        <VStack gap={0.5}>
-          <Text maxLines={1} weight="bold">
-            {map.name}
-          </Text>
-          <Text maxLines={1} type="label">
-            {map.playerCount}P · {map.width}×{map.height}
-          </Text>
-        </VStack>
-      </VStack>
-    </SelectableCard>
-  );
-}
-
-function LoadingPlate({ index }: { index: number }) {
-  return (
-    <Card padding={2}>
-      <VStack gap={2}>
-        <AspectRatio ratio={1} xstyle={styles.plateWell}>
-          <Skeleton index={index} radius="none" />
-        </AspectRatio>
-        <Skeleton height={16} index={index} radius={0} />
-        <Skeleton height={12} index={index} radius={0} width="60%" />
-      </VStack>
-    </Card>
   );
 }
 
@@ -681,29 +629,6 @@ function MapBriefing({
       </VStack>
     </Card>
   );
-}
-
-/**
- * What the board holds, in the HUD voice.
- *
- * A narrowed board says what it found; a whole one says what AWBRN holds,
- * because those are two different facts and the count alone does not say
- * which one is on screen.
- */
-function boardSummary({
-  count,
-  hasMore,
-  isNarrowed,
-  isPending,
-}: {
-  count: number;
-  hasMore: boolean;
-  isNarrowed: boolean;
-  isPending: boolean;
-}): string {
-  if (isPending) return "Reading the catalog";
-  const plural = count === 1 && !hasMore ? "" : "s";
-  return `${count}${hasMore ? "+" : ""} map${plural} ${isNarrowed ? "found" : "held"}`;
 }
 
 /** Shared behavior of the two places a map is imported. */
