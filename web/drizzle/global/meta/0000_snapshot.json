@@ -28,6 +28,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "issuer": {
+          "name": "issuer",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "userId": {
           "name": "userId",
           "type": "text",
@@ -105,6 +112,11 @@
           "name": "account_userId_idx",
           "columns": ["userId"],
           "isUnique": false
+        },
+        "account_issuer_accountId_uidx": {
+          "name": "account_issuer_accountId_uidx",
+          "columns": ["issuer", "accountId"],
+          "isUnique": true
         }
       },
       "foreignKeys": {

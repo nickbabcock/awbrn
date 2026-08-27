@@ -2,6 +2,7 @@ CREATE TABLE `account` (
 	`id` text PRIMARY KEY NOT NULL,
 	`accountId` text NOT NULL,
 	`providerId` text NOT NULL,
+	`issuer` text NOT NULL,
 	`userId` text NOT NULL,
 	`accessToken` text,
 	`refreshToken` text,
@@ -16,6 +17,7 @@ CREATE TABLE `account` (
 );
 --> statement-breakpoint
 CREATE INDEX `account_userId_idx` ON `account` (`userId`);--> statement-breakpoint
+CREATE UNIQUE INDEX `account_issuer_accountId_uidx` ON `account` (`issuer`,`accountId`);--> statement-breakpoint
 CREATE TABLE `map_revisions` (
 	`mapId` text NOT NULL,
 	`revision` integer NOT NULL,

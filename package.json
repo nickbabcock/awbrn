@@ -12,10 +12,10 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "ajv": "8.17.1",
-    "oxfmt": "0.41.0",
-    "oxlint": "1.41.0",
+    "ajv": "8.20.0",
+    "oxfmt": "0.65.0",
+    "oxlint": "1.80.0",
     "typescript": "catalog:"
   },
-  "packageManager": "pnpm@10.28.1"
+  "packageManager": "pnpm@12.0.0"
 }
