@@ -1,12 +1,15 @@
 packages:
   - web
 
+minimumReleaseAge: 1440
+minimumReleaseAgeStrict: true
+
 catalog:
   '@types/node': 24.12.2
   typescript: 7.0.2
 
-onlyBuiltDependencies:
-  - '@astryxdesign/cli'
-  - '@astryxdesign/core'
-  - esbuild
-  - workerd
+allowBuilds:
+  '@astryxdesign/cli': true
+  '@astryxdesign/core': true
+  esbuild: true
+  workerd: true
