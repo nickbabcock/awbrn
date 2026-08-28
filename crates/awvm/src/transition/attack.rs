@@ -696,7 +696,7 @@ impl<'a> DestinationAction<'a> for Attack {
         let ai = plan.unit_index();
         let attacker = &state.units[ai];
 
-        let (prepared_target, available_destination) = if plan.path().len() > 1 {
+        let (prepared_target, available_destination) = if plan.path_len() > 1 {
             match ruleset::profile(attacker.kind).fire_mode {
                 FireMode::Indirect => {
                     return Err(violation(Violation::ActionNotSupported {

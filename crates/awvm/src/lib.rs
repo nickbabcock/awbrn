@@ -56,6 +56,7 @@
 //! schema, replay format, or presentation system. Adapters from replay or ECS
 //! identifiers belong in the crates that consume this one.
 
+pub mod benchmark;
 pub mod calculator;
 pub mod combat;
 pub mod commander;
@@ -87,8 +88,8 @@ pub mod prelude {
         Visibility, observe, observe_events, observe_transition,
     };
     pub use crate::session::{
-        Error as SessionError, Legal, Mark, Order, OrderKind, OrderMask, Production, Session, Sink,
-        TargetKind, UnitIdx, Unload,
+        AttackCandidate, Error as SessionError, Legal, LegalScope, LegalVisitor, Mark, Order,
+        OrderKind, OrderMask, Production, Session, Sink, TargetKind, UnitIdx, Unload,
     };
     pub use crate::transition::{
         Command, ExecuteError, ExecuteOutcome, Execution, execute, execute_with,

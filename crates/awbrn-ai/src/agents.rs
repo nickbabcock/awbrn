@@ -24,4 +24,7 @@ pub use greedy::{GreedyAgent, Weights};
 pub use portfolio::{Script, ScriptPlan, generate_plan, generate_plans};
 pub use random::RandomAgent;
 pub use search::{SearchAgent, SearchAudit, audit};
-pub use stratified::{StratifiedScripts, Stratum, generate_stratified_plan};
+pub use stratified::{
+    StratifiedPlan, StratifiedScripts, Stratum, generate_stratified_candidates,
+    generate_stratified_plan, generate_stratum_candidates,
+};

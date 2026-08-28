@@ -44,7 +44,9 @@ use awvm::ruleset::{self, MovementClass, Terrain, TerrainTrait, UnitKind};
 use awvm::semantic::{
     CellIdx, Location, Observation, PlayerIdx, Pos, State, Tile, TileOwner, Unit,
 };
-use awvm::session::{Legal, Order, OrderKind, Session, UnitIdx};
+use awvm::session::{
+    AttackCandidate, LegalScope, LegalVisitor, Order, OrderKind, Session, UnitIdx,
+};
 
 use crate::agent::{Agent, NodeBudget, Play};
 use crate::map::ContestMap;
@@ -509,13 +511,6 @@ pub struct GreedyAgent {
     /// walks one flank. The draw is seeded, so a game still repeats.
     rng: Rng,
     weights: Weights,
-    /// Optional unit restriction used while a stratified planner owns only
-    /// one part of the turn.
-    restricted: bool,
-    allowed_units: Vec<awvm::semantic::UnitId>,
-    allow_unitless: bool,
-    /// Held across calls so that a turn's enumeration reuses one allocation.
-    orders: Vec<Order>,
     /// The pull each tile feels toward the properties worth capturing, one
     /// field for each movement class that can capture, and the pull it feels
     /// toward the enemy. One entry for each tile of the board, rebuilt once
@@ -558,10 +553,6 @@ impl GreedyAgent {
         Self {
             rng: Rng::from_seed(seed),
             weights,
-            restricted: false,
-            allowed_units: Vec::new(),
-            allow_unitless: true,
-            orders: Vec::new(),
             capture_fields: CaptureFields::new(),
             advance_field: Vec::new(),
             hold_field: Vec::new(),
@@ -589,15 +580,9 @@ impl GreedyAgent {
         units: &[awvm::semantic::UnitId],
         allow_unitless: bool,
     ) -> Option<Play> {
-        self.restricted = true;
-        self.allowed_units.clear();
-        self.allowed_units.extend_from_slice(units);
-        self.allow_unitless = allow_unitless;
-        let play = self.act(view, budget);
-        self.restricted = false;
-        self.allowed_units.clear();
-        self.allow_unitless = true;
-        play
+        let _ = budget;
+        let session = Session::from_observation(view).ok()?;
+        self.act_in_session_for_units(&session, units, allow_unitless)
     }
 }
 
@@ -923,16 +908,51 @@ impl Agent for GreedyAgent {
         if !session.is_commandable() {
             return None;
         }
+        self.act_in_session(&session)
+    }
+}
+
+impl GreedyAgent {
+    /// Select a play from a session that already contains the policy's view.
+    ///
+    /// Rollouts use this entry point when the authoritative position discloses
+    /// all facts that this policy reads. It avoids an observation projection
+    /// and a second session for each simulated command.
+    pub(crate) fn act_in_session(&mut self, session: &Session) -> Option<Play> {
+        self.act_in_session_scoped(session, None)
+    }
+
+    /// Select a play for part of a turn from an existing session.
+    pub(crate) fn act_in_session_for_units(
+        &mut self,
+        session: &Session,
+        units: &[awvm::semantic::UnitId],
+        allow_unitless: bool,
+    ) -> Option<Play> {
+        self.act_in_session_scoped(
+            session,
+            Some(LegalScope {
+                units,
+                unitless: allow_unitless,
+            }),
+        )
+    }
+
+    fn act_in_session_scoped(
+        &mut self,
+        session: &Session,
+        scope: Option<LegalScope<'_>>,
+    ) -> Option<Play> {
+        if !session.is_commandable() {
+            return None;
+        }
+        awvm::benchmark::record_greedy_action();
         let state = session.state();
         let seat = state.players.seat(&state.turn.active_player)?;
 
         let Self {
             rng,
             weights,
-            restricted,
-            allowed_units,
-            allow_unitless,
-            orders,
             capture_fields,
             advance_field,
             hold_field,
@@ -959,7 +979,7 @@ impl Agent for GreedyAgent {
         } else {
             contest.forget();
         }
-        capture_fields.build(&session, &board, decay, occupant, contest);
+        capture_fields.build(session, &board, decay, occupant, contest);
         board.advance_field(advance_field, decay);
         // A term priced at nothing decides nothing, so the field it reads is
         // not built. That is what keeps every weighting below `defend` at the
@@ -973,7 +993,7 @@ impl Agent for GreedyAgent {
         // is what keeps the threatless weighting at the throughput it was
         // measured at, and it is what makes the two a comparison of one term.
         if weights.threat != 0.0 {
-            threat.build(&session, seat);
+            threat.build(session, seat);
         }
         // A table priced at nothing decides nothing, so a weighting without
         // this term never pays to build one.
@@ -999,13 +1019,8 @@ impl Agent for GreedyAgent {
             vision.forget();
         }
 
-        orders.clear();
-        session.legal().orders(orders);
-
-        let legal = session.legal();
         let scorer = Scorer {
             board: &board,
-            legal: &legal,
             capture_fields,
             advance_field,
             hold_field,
@@ -1016,36 +1031,21 @@ impl Agent for GreedyAgent {
             shortfall: board.capturer_shortfall(occupant),
         };
 
-        // The best play, with ties drawn uniformly: a running count of how
-        // many orders have shared the best score so far is a reservoir over
-        // exactly those orders.
-        let mut best = 0.0;
-        let mut tied = 0u64;
-        let mut chosen = None;
-        for order in orders.iter().copied() {
-            if *restricted {
-                match session.unit_of(order) {
-                    Some(unit) if allowed_units.contains(&unit) => {}
-                    None if *allow_unitless => {}
-                    _ => continue,
-                }
-            }
-            let score = scorer.score(order);
-            if score > best {
-                best = score;
-                tied = 1;
-                chosen = Some(order);
-            } else if score == best && chosen.is_some() {
-                tied += 1;
-                if rng.below(tied) == 0 {
-                    chosen = Some(order);
-                }
-            }
+        let mut visitor = GreedyVisitor {
+            scorer,
+            rng,
+            best: 0.0,
+            tied: 0,
+            chosen: None,
+        };
+        match scope {
+            Some(scope) => session.legal().visit_scoped(scope, &mut visitor),
+            None => session.legal().visit_orders(&mut visitor),
         }
 
         // Nothing scores above zero when every unit has acted and nothing is
         // left worth doing, which is what ends the turn.
-        Play::from_order(&session, chosen?)
+        Play::from_order(session, visitor.chosen?)
     }
 }
 
@@ -1385,9 +1385,45 @@ fn capture_value(weights: &Weights, weight: f64, points: u8, progress: u8) -> f6
 }
 
 /// Everything one play is scored against.
+struct GreedyVisitor<'a> {
+    scorer: Scorer<'a>,
+    rng: &'a mut Rng,
+    best: f64,
+    tied: u64,
+    chosen: Option<Order>,
+}
+
+impl GreedyVisitor<'_> {
+    fn consider(&mut self, order: Order, forecast: Option<&Forecast>) {
+        let score = self.scorer.score(order, forecast);
+        if score > self.best {
+            self.best = score;
+            self.tied = 1;
+            self.chosen = Some(order);
+        } else if score == self.best && self.chosen.is_some() {
+            self.tied += 1;
+            if self.rng.below(self.tied) == 0 {
+                self.chosen = Some(order);
+            }
+        }
+    }
+}
+
+impl LegalVisitor for GreedyVisitor<'_> {
+    const ATTACK_CONTEXT: bool = true;
+
+    fn order(&mut self, order: Order) {
+        self.consider(order, None);
+    }
+
+    fn attack(&mut self, candidate: AttackCandidate<'_>) {
+        self.consider(candidate.order, candidate.forecast.as_ref());
+    }
+}
+
+/// Everything one play is scored against.
 struct Scorer<'a> {
     board: &'a Board<'a>,
-    legal: &'a Legal<'a>,
     capture_fields: &'a CaptureFields,
     advance_field: &'a [f64],
     hold_field: &'a [f64],
@@ -1415,10 +1451,10 @@ impl Scorer<'_> {
     /// What one order is worth. Zero is the floor: an order worth nothing is
     /// one the agent would rather not give, and a turn ends when every order
     /// left is worth nothing.
-    fn score(&self, order: Order) -> f64 {
+    fn score(&self, order: Order, forecast: Option<&Forecast>) -> f64 {
         match order.kind() {
             OrderKind::Capture => self.capture(order) + self.sight(order),
-            OrderKind::Attack(target) => self.attack(order, target),
+            OrderKind::Attack(target) => self.attack(order, target, forecast),
             OrderKind::Wait | OrderKind::Unload(_) => self.arrival(order) + self.sight(order),
             // Both cost a unit from the roster and give its health to another,
             // so both are scored as the arrival less what the count is worth.
@@ -1468,7 +1504,7 @@ impl Scorer<'_> {
     }
 
     /// An exchange, priced in funds and in units.
-    fn attack(&self, order: Order, target: CellIdx) -> f64 {
+    fn attack(&self, order: Order, target: CellIdx, forecast: Option<&Forecast>) -> f64 {
         let Some(index) = order.unit() else {
             return 0.0;
         };
@@ -1477,7 +1513,7 @@ impl Scorer<'_> {
         };
         let weights = self.weights();
 
-        let Some(forecast) = self.legal.forecast(index, order.destination(), target) else {
+        let Some(forecast) = forecast else {
             // A fogged defender has no exact health, so there is nothing to
             // forecast against. A strike is still usually worth making, and
             // this says so without pretending to know how much.
@@ -1506,7 +1542,7 @@ impl Scorer<'_> {
         if taken * 100.0 >= f64::from(forecast.attacker_hp) {
             score -= weights.unit_count;
         }
-        score += self.denial(target, defender, &forecast);
+        score += self.denial(target, defender, forecast);
         // The pull of the tile, and not the arrival: a strike is not charged
         // for what the tile it fires from is exposed to. The forecast above
         // already prices the reply, and charging the exposure on top prices

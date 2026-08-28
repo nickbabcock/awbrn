@@ -16,7 +16,7 @@ awbrn-map = { path = "../awbrn-map" }
 awbrn-server = { path = "../awbrn-server" }
 awbrn-types = { path = "../awbrn-types" }
 awbw-replay = { path = "../awbw-replay" }
-awvm = { path = "../awvm" }
+awvm = { path = "../awvm", features = ["benchmark-counters"] }
 criterion = { workspace = true }
 serde_json.workspace = true
 

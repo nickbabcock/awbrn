@@ -1,6 +1,6 @@
 //! Deterministic unit roles for stratified turn planning.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use awvm::commander;
 use awvm::ruleset::{self, TerrainTrait};
@@ -96,15 +96,17 @@ impl MissionBook {
         if !session.is_commandable() {
             return;
         }
+        let orders = legal_orders_by_unit(&session);
+        self.update_in_session(&session, &orders);
+    }
+
+    fn update_in_session(&mut self, session: &Session, orders: &UnitOrders) {
         let state = session.state();
         let Some(friendly) = state.players.seat(&state.turn.active_player) else {
             return;
         };
         let day = state.turn.day;
-        let threatened = threatened_objectives(&session, friendly);
-        let mut all_orders = Vec::new();
-        session.legal().orders(&mut all_orders);
-        let orders = orders_by_unit(&session, all_orders);
+        let threatened = threatened_objectives(session, friendly);
 
         for mission in &mut self.capture {
             if !mission.state.is_active() {
@@ -129,8 +131,9 @@ impl MissionBook {
                 mission.state = CaptureMissionState::Complete;
             } else if !capturable_by(state, friendly, mission.property) {
                 mission.state = CaptureMissionState::Invalid;
-            } else if orders
-                .get(&mission.unit)
+            } else if session
+                .index_of(mission.unit)
+                .and_then(|unit| orders.get(usize::from(unit.get())))
                 .is_some_and(|candidates| attacks_threat(candidates, &threatened))
             {
                 mission.state = CaptureMissionState::SuspendedByEmergency;
@@ -148,7 +151,7 @@ impl MissionBook {
         }
 
         self.capture.retain(|mission| mission.state.is_active());
-        self.assign_uncommitted(&session, friendly, day);
+        self.assign_uncommitted(session, friendly, day);
     }
 
     fn assign_uncommitted(&mut self, session: &Session, friendly: PlayerIdx, day: u64) {
@@ -290,48 +293,59 @@ pub fn classify_with_missions(
     view: &Observation,
     missions: &mut MissionBook,
 ) -> Vec<RoleAssignment> {
-    missions.update(view);
     let Ok(session) = Session::from_observation(view) else {
         return Vec::new();
     };
     if !session.is_commandable() {
         return Vec::new();
     }
+    classify_in_session(&session, missions)
+}
+
+/// Classify the active player's units from an existing policy session.
+pub(crate) fn classify_in_session(
+    session: &Session,
+    missions: &mut MissionBook,
+) -> Vec<RoleAssignment> {
+    if !session.is_commandable() {
+        return Vec::new();
+    }
+    let orders_by_unit = legal_orders_by_unit(session);
+    missions.update_in_session(session, &orders_by_unit);
     let state = session.state();
     let Some(friendly) = state.players.seat(&state.turn.active_player) else {
         return Vec::new();
     };
 
-    let mut orders = Vec::new();
-    session.legal().orders(&mut orders);
-    let orders_by_unit = orders_by_unit(&session, orders);
     let loaded = state.units.loaded_transports();
-    let threatened = threatened_objectives(&session, friendly);
-    let loading = loading_units(&session, &orders_by_unit);
-    let assigned: HashSet<_> = missions
+    let threatened = threatened_objectives(session, friendly);
+    let loading = loading_units(session, &orders_by_unit);
+    let mut assigned = vec![false; state.units.len()];
+    for mission in missions
         .capture
         .iter()
         .filter(|mission| mission.state.is_active())
-        .map(|mission| mission.unit)
-        .collect();
+    {
+        if let Some(unit) = session.index_of(mission.unit) {
+            assigned[usize::from(unit.get())] = true;
+        }
+    }
 
     state
         .units
         .iter()
-        .filter(|unit| unit.owner == friendly)
-        .map(|unit| RoleAssignment {
+        .enumerate()
+        .filter(|(_, unit)| unit.owner == friendly)
+        .map(|(index, unit)| RoleAssignment {
             unit: unit.id,
             role: role_of(
-                &session,
+                session,
                 unit,
-                orders_by_unit
-                    .get(&unit.id)
-                    .map(Vec::as_slice)
-                    .unwrap_or(&[]),
+                orders_by_unit.get(index).map(Vec::as_slice).unwrap_or(&[]),
                 &loaded,
-                &loading,
+                loading.get(index).copied().unwrap_or(false),
                 &threatened,
-                &assigned,
+                assigned.get(index).copied().unwrap_or(false),
             ),
         })
         .collect()
@@ -342,9 +356,9 @@ fn role_of(
     unit: &awvm::semantic::Unit,
     orders: &[Order],
     loaded: &HashSet<UnitId, impl std::hash::BuildHasher>,
-    loading: &HashSet<UnitId>,
+    loading: bool,
     threatened: &HashSet<awvm::semantic::CellIdx>,
-    assigned: &HashSet<UnitId>,
+    assigned: bool,
 ) -> UnitRole {
     let profile = ruleset::profile(unit.kind);
     let attacks = || {
@@ -362,7 +376,7 @@ fn role_of(
     }
     if matches!(unit.location, Location::Cargo { .. })
         || loaded.contains(&unit.id)
-        || loading.contains(&unit.id)
+        || loading
         || orders
             .iter()
             .any(|order| matches!(order.kind(), OrderKind::Load | OrderKind::Unload(_)))
@@ -376,7 +390,7 @@ fn role_of(
             UnitRole::ImmediateDirectTactical
         };
     }
-    if profile.can_capture && assigned.contains(&unit.id) {
+    if profile.can_capture && assigned {
         return UnitRole::AssignedCapturer;
     }
     if profile.transport.is_some() || profile.supply.is_some() || profile.repair.is_some() {
@@ -427,28 +441,36 @@ fn property_priority(state: &awvm::semantic::State, position: Pos) -> u8 {
     }
 }
 
-fn orders_by_unit(session: &Session, orders: Vec<Order>) -> HashMap<UnitId, Vec<Order>> {
-    let mut grouped = HashMap::<UnitId, Vec<Order>>::new();
+type UnitOrders = Vec<Vec<Order>>;
+
+fn legal_orders_by_unit(session: &Session) -> UnitOrders {
+    let mut orders = Vec::new();
+    session.legal().orders(&mut orders);
+    let mut grouped = vec![Vec::new(); session.state().units.len()];
     for order in orders {
-        if let Some(unit) = session.unit_of(order) {
-            grouped.entry(unit).or_default().push(order);
+        if let Some(unit) = order.unit()
+            && let Some(row) = grouped.get_mut(usize::from(unit.get()))
+        {
+            row.push(order);
         }
     }
     grouped
 }
 
 /// Units participating in a legal load bind the cargo and carrier together.
-fn loading_units(session: &Session, orders: &HashMap<UnitId, Vec<Order>>) -> HashSet<UnitId> {
-    let mut loading = HashSet::new();
-    for (cargo, candidates) in orders {
+fn loading_units(session: &Session, orders: &UnitOrders) -> Vec<bool> {
+    let mut loading = vec![false; session.state().units.len()];
+    for (cargo, candidates) in orders.iter().enumerate() {
         for order in candidates {
             if order.kind() != OrderKind::Load {
                 continue;
             }
-            loading.insert(*cargo);
+            loading[cargo] = true;
             let destination = order.destination();
-            if let Some(transport) = unit_on_cell(session, destination) {
-                loading.insert(transport);
+            if let Some(transport) = unit_on_cell(session, destination)
+                && let Some(index) = session.index_of(transport)
+            {
+                loading[usize::from(index.get())] = true;
             }
         }
     }

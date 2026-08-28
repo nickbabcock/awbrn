@@ -64,6 +64,122 @@ fn all_orders(legal: &Legal<'_>) -> Vec<Order> {
     out
 }
 
+#[derive(Default)]
+struct TypedCollector {
+    orders: Vec<Order>,
+    attacks: usize,
+}
+
+impl LegalVisitor for TypedCollector {
+    const ATTACK_CONTEXT: bool = true;
+
+    fn order(&mut self, order: Order) {
+        self.orders.push(order);
+    }
+
+    fn attack(&mut self, candidate: AttackCandidate<'_>) {
+        assert!(matches!(candidate.order.kind(), OrderKind::Attack(_)));
+        assert!(candidate.order.unit().is_some());
+        self.attacks += 1;
+        self.orders.push(candidate.order);
+    }
+}
+
+#[test]
+fn typed_visitation_preserves_the_complete_order_stream() {
+    let mut positions = 0;
+    let mut attacks = 0;
+    for state in corpus() {
+        let session = Session::new(state);
+        let legal = session.legal();
+        let expected = all_orders(&legal);
+        let mut visitor = TypedCollector::default();
+        legal.visit_orders(&mut visitor);
+        assert_eq!(visitor.orders, expected);
+        positions += 1;
+        attacks += visitor.attacks;
+    }
+    assert!(positions > 100, "the fixture corpus must contain positions");
+    assert!(attacks > 0, "the fixture corpus must contain legal attacks");
+}
+
+#[test]
+fn scoped_visitation_matches_filtering_the_complete_stream() {
+    let mut positions = 0;
+    for state in corpus() {
+        let session = Session::new(state);
+        let legal = session.legal();
+        let selected: Vec<_> = seats(&legal)
+            .into_iter()
+            .step_by(2)
+            .map(|unit| unit_id(session.state(), unit))
+            .collect();
+        for unitless in [false, true] {
+            let expected: Vec<_> = all_orders(&legal)
+                .into_iter()
+                .filter(|order| match order.unit() {
+                    Some(unit) => selected.contains(&unit_id(session.state(), unit)),
+                    None => unitless,
+                })
+                .collect();
+            let mut visitor = TypedCollector::default();
+            legal.visit_scoped(
+                LegalScope {
+                    units: &selected,
+                    unitless,
+                },
+                &mut visitor,
+            );
+            assert_eq!(visitor.orders, expected);
+        }
+        positions += 1;
+    }
+    assert!(positions > 100, "the fixture corpus must contain positions");
+}
+
+#[test]
+fn target_oriented_attacks_match_destination_queries() {
+    let mut units = 0;
+    for state in corpus() {
+        let session = Session::new(state);
+        let legal = session.legal();
+        for unit in seats(&legal) {
+            let mut expected = Vec::new();
+            if legal.can_delete(unit) {
+                let subject = session
+                    .state()
+                    .units
+                    .at(usize::from(unit.get()))
+                    .expect("a legal unit exists");
+                let Location::Board { position } = subject.location else {
+                    continue;
+                };
+                let cell = session
+                    .state()
+                    .board
+                    .dimensions()
+                    .cell_index(position)
+                    .expect("a board unit has a cell");
+                expected.push(Order::new(unit, cell, OrderKind::Delete));
+            }
+            let mut destinations = Vec::new();
+            legal.field(unit, |field| {
+                destinations.extend(field.reach().filter_map(|(position, _)| {
+                    session.state().board.dimensions().cell_index(position)
+                }));
+            });
+            for destination in destinations {
+                legal.orders_at(unit, destination, &mut expected);
+            }
+            let mut actual = Vec::new();
+            legal.unit_orders(unit, &mut actual);
+            assert_eq!(actual, expected);
+            units += 1;
+        }
+    }
+    assert!(units > 100, "the fixture corpus must contain legal units");
+}
+
 fn unit_id(state: &State, seat: UnitIdx) -> UnitId {
     state
         .units

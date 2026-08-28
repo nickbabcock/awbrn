@@ -1,6 +1,7 @@
 [tools]
 "github:pnpm/pnpm" = { version = "12.0.0" }
 "node" = { version = "24.14.1" }
+"github:gungraun/gungraun" = { version = "0.19.4", matching = "gungraun-runner" }
 "github:rustwasm/wasm-bindgen" = { version = "0.2.118", extract_all = "true" }
 "github:WebAssembly/binaryen" = { version = "version_125", extract_all = "true" }
 
@@ -163,3 +164,7 @@ run = [
     "rustup target add wasm32-wasip1",
     "cargo bench -p bench --bench awbrn-bench-criterion --target wasm32-wasip1",
 ]
+
+[tasks."bench:gungraun"]
+description = "Run native Callgrind benchmarks"
+run = "cargo bench -p bench --bench awbrn-bench-gungraun --"

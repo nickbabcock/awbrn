@@ -52,8 +52,11 @@
 
 use awvm::combat::{self, Side};
 use awvm::query::{MoveScratch, Sweep};
-use awvm::ruleset::{self, Domain, FireMode, UnitKind};
-use awvm::semantic::{CellIdx, Dimensions, Location, PlayerIdx, Pos, State, Unit};
+use awvm::ruleset::{self, CommanderKind, Domain, FireMode, UnitKind};
+use awvm::semantic::{
+    CellIdx, Dimensions, Location, PlayerIdx, Pos, PowerState, State, TeamId, TerrainId, Unit,
+    UnitId, WeatherKind,
+};
 use awvm::session::Session;
 
 /// Terrain defense runs from no stars to four, so a row holds five columns.
@@ -107,6 +110,36 @@ pub struct ThreatMap {
     stops: Vec<Pos>,
     /// The grids and buckets every search after the first one reuses.
     scratch: MoveScratch,
+    context: Option<ThreatContext>,
+    occupancy: Vec<Option<UnitId>>,
+    cached: Vec<CachedThreat>,
+    collecting: [Vec<CellIdx>; 2],
+    dependencies: Vec<CellIdx>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ThreatContext {
+    seat: PlayerIdx,
+    fog: bool,
+    terrain: Vec<TerrainId>,
+    weather: WeatherKind,
+    players: Vec<PlayerThreatContext>,
+    fog_units: Vec<Unit>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PlayerThreatContext {
+    team: TeamId,
+    commanders: Vec<(CommanderKind, bool)>,
+    power: PowerState,
+}
+
+#[derive(Debug)]
+struct CachedThreat {
+    unit: Unit,
+    table: DamageTable,
+    dependencies: Vec<CellIdx>,
+    layers: [Vec<CellIdx>; 2],
 }
 
 /// Empty `buffer` to `len` zeroes, reusing what it already holds.
@@ -142,6 +175,11 @@ impl ThreatMap {
             stars: Vec::new(),
             stops: Vec::new(),
             scratch: MoveScratch::new(),
+            context: None,
+            occupancy: Vec::new(),
+            cached: Vec::new(),
+            collecting: [const { Vec::new() }; 2],
+            dependencies: Vec::new(),
         }
     }
 
@@ -158,6 +196,13 @@ impl ThreatMap {
         let state = session.state();
         self.dimensions = state.board.dimensions();
         let cells = self.dimensions.len();
+
+        let context = ThreatContext::of(state, seat);
+        let occupancy = occupancy(state);
+        let changed_occupancy = changed_cells(&self.occupancy, &occupancy, &self.dimensions);
+        if self.context.as_ref() != Some(&context) {
+            self.cached.clear();
+        }
 
         let rows = cells * UnitKind::COUNT;
         // The rows themselves are not emptied. Only their stamps say what this
@@ -209,6 +254,7 @@ impl ThreatMap {
             sweeps[row] = session.sweep(other);
         }
 
+        let mut previous = std::mem::take(&mut self.cached);
         for unit in state.units.iter() {
             let Location::Board { position } = unit.location else {
                 continue;
@@ -216,8 +262,40 @@ impl ThreatMap {
             let Some(Some(sweep)) = sweeps.get(unit.owner.get()) else {
                 continue;
             };
-            self.add(sweep, unit, position);
+            let reusable = previous
+                .iter()
+                .position(|cached| cached.unit.id == unit.id)
+                .filter(|index| {
+                    let cached = &previous[*index];
+                    cached.unit == *unit
+                        && !cached
+                            .dependencies
+                            .iter()
+                            .any(|cell| changed_occupancy.contains(cell))
+                });
+            if let Some(index) = reusable {
+                self.cached.push(previous.swap_remove(index));
+                continue;
+            }
+
+            for layer in &mut self.collecting {
+                layer.clear();
+            }
+            let table = DamageTable::of(unit);
+            let dependencies = self.add(sweep, unit, position, &table);
+            self.cached.push(CachedThreat {
+                unit: *unit,
+                table,
+                dependencies,
+                layers: [
+                    std::mem::take(&mut self.collecting[0]),
+                    std::mem::take(&mut self.collecting[1]),
+                ],
+            });
         }
+        self.write_cached();
+        self.context = Some(context);
+        self.occupancy = occupancy;
     }
 
     /// The funds an enemy could take off a whole unit of `kind` standing on
@@ -250,16 +328,21 @@ impl ThreatMap {
     }
 
     /// Add one enemy unit's threat to both layers.
-    fn add(&mut self, sweep: &Sweep<'_>, unit: &Unit, position: Pos) {
+    fn add(
+        &mut self,
+        sweep: &Sweep<'_>,
+        unit: &Unit,
+        position: Pos,
+        table: &DamageTable,
+    ) -> Vec<CellIdx> {
         let profile = ruleset::profile(unit.kind);
         // A unit with no weapon threatens nothing, and neither does one with
         // no health left to fire with.
         if profile.fire_mode == FireMode::None || unit.hp == 0 {
-            return;
+            return Vec::new();
         }
-        let table = DamageTable::of(unit);
         if table.is_empty() {
-            return;
+            return Vec::new();
         }
 
         match profile.fire_mode {
@@ -271,7 +354,7 @@ impl ThreatMap {
                 for index in 0..self.stops.len() {
                     let stop = self.stops[index];
                     for target in stop.orthogonal() {
-                        self.mark(&table, target, Layer::Immediate);
+                        self.mark(target, Layer::Immediate);
                     }
                 }
             }
@@ -283,7 +366,7 @@ impl ThreatMap {
                     maximum: 1,
                 });
                 self.serial += 1;
-                self.ring(&table, position, range, Layer::Immediate);
+                self.ring(position, range, Layer::Immediate);
 
                 self.collect_stops(sweep, unit);
                 self.serial += 1;
@@ -295,11 +378,12 @@ impl ThreatMap {
                     if stop == position {
                         continue;
                     }
-                    self.ring(&table, stop, range, Layer::Deferred);
+                    self.ring(stop, range, Layer::Deferred);
                 }
             }
             FireMode::None => {}
         }
+        std::mem::take(&mut self.dependencies)
     }
 
     /// Every tile `unit` can come to rest on, its own tile included.
@@ -308,22 +392,27 @@ impl ThreatMap {
     /// makes the search read tables that are already built.
     fn collect_stops(&mut self, sweep: &Sweep<'_>, unit: &Unit) {
         self.stops.clear();
+        self.dependencies.clear();
         let Ok(field) = sweep.reachable_into(unit.id, &mut self.scratch) else {
+            self.dependencies.extend(
+                self.dimensions
+                    .positions()
+                    .filter_map(|position| self.dimensions.cell_index(position)),
+            );
             return;
         };
         self.stops
             .extend(field.destinations().map(|(position, _)| position));
+        self.dependencies.extend(
+            field
+                .reach()
+                .filter_map(|(position, _)| self.dimensions.cell_index(position)),
+        );
         field.recycle(&mut self.scratch);
     }
 
     /// Add the row to every tile in the range ring around `center`.
-    fn ring(
-        &mut self,
-        table: &DamageTable,
-        center: Pos,
-        range: ruleset::AttackRange,
-        layer: Layer,
-    ) {
+    fn ring(&mut self, center: Pos, range: ruleset::AttackRange, layer: Layer) {
         let reach = i16::try_from(range.maximum).unwrap_or(i16::MAX);
         for dy in -reach..=reach {
             let span = reach - dy.abs();
@@ -334,13 +423,13 @@ impl ThreatMap {
                 if center.distance(target) < range.minimum {
                     continue;
                 }
-                self.mark(table, target, layer);
+                self.mark(target, layer);
             }
         }
     }
 
     /// Add the attacker's row to one tile, at most once for this attacker.
-    fn mark(&mut self, table: &DamageTable, target: Pos, layer: Layer) {
+    fn mark(&mut self, target: Pos, layer: Layer) {
         let Some(cell) = self.dimensions.cell_index(target) else {
             return;
         };
@@ -350,29 +439,102 @@ impl ThreatMap {
         }
         self.stamp[index] = self.serial;
 
-        let stars = usize::from(self.stars[index]);
-        let row = index * UnitKind::COUNT;
-        let generation = self.generation;
-        let fresh = self.written[layer.index()][index] != generation;
-        self.written[layer.index()][index] = generation;
-        let out = match layer {
-            Layer::Immediate => &mut self.immediate,
-            Layer::Deferred => &mut self.deferred,
-        };
-        let out = &mut out[row..row + UnitKind::COUNT];
-        if fresh {
-            // Whatever this row held is an earlier build's answer about this
-            // tile, so the first attacker of this build replaces it rather
-            // than adding to it.
-            for (kind, value) in out.iter_mut().enumerate() {
-                *value = table.funds[kind][stars];
-            }
-        } else {
-            for (kind, value) in out.iter_mut().enumerate() {
-                *value += table.funds[kind][stars];
+        self.collecting[layer.index()].push(cell);
+    }
+
+    /// Write cached unit contributions in roster order.
+    ///
+    /// This repeats the old floating-point addition order. Reusing a unit
+    /// therefore cannot change a tie through a different rounding sequence.
+    fn write_cached(&mut self) {
+        for cached in &self.cached {
+            let table = &cached.table;
+            for layer in [Layer::Immediate, Layer::Deferred] {
+                for cell in &cached.layers[layer.index()] {
+                    let index = usize::from(cell.get());
+                    let row = index * UnitKind::COUNT;
+                    let stars = usize::from(self.stars[index]);
+                    let generation = self.generation;
+                    let fresh = self.written[layer.index()][index] != generation;
+                    self.written[layer.index()][index] = generation;
+                    let out = match layer {
+                        Layer::Immediate => &mut self.immediate,
+                        Layer::Deferred => &mut self.deferred,
+                    };
+                    let out = &mut out[row..row + UnitKind::COUNT];
+                    if fresh {
+                        for (kind, value) in out.iter_mut().enumerate() {
+                            *value = table.funds[kind][stars];
+                        }
+                    } else {
+                        for (kind, value) in out.iter_mut().enumerate() {
+                            *value += table.funds[kind][stars];
+                        }
+                    }
+                }
             }
         }
     }
+}
+
+impl ThreatContext {
+    fn of(state: &State, seat: PlayerIdx) -> Self {
+        Self {
+            seat,
+            fog: state.settings.fog,
+            terrain: state.board.iter().map(|(_, tile)| tile.terrain).collect(),
+            weather: state.weather.kind,
+            players: state
+                .players
+                .seats()
+                .map(|(_, player)| PlayerThreatContext {
+                    team: player.team.clone(),
+                    commanders: player
+                        .commanders
+                        .iter()
+                        .map(|commander| (commander.id, commander.active))
+                        .collect(),
+                    power: player.power_state.clone(),
+                })
+                .collect(),
+            // Fog visibility depends on the full unit roster. Use the simple
+            // safe invalidation rule there. The profiled rollout has fog off.
+            fog_units: if state.settings.fog {
+                state.units.iter().copied().collect()
+            } else {
+                Vec::new()
+            },
+        }
+    }
+}
+
+fn occupancy(state: &State) -> Vec<Option<UnitId>> {
+    let dimensions = state.board.dimensions();
+    let mut occupied = vec![None; dimensions.len()];
+    for unit in state.units.iter() {
+        let Location::Board { position } = unit.location else {
+            continue;
+        };
+        if let Some(cell) = dimensions.cell_index(position) {
+            occupied[usize::from(cell.get())] = Some(unit.id);
+        }
+    }
+    occupied
+}
+
+fn changed_cells(
+    previous: &[Option<UnitId>],
+    current: &[Option<UnitId>],
+    dimensions: &Dimensions,
+) -> Vec<CellIdx> {
+    previous
+        .iter()
+        .zip(current)
+        .enumerate()
+        .filter(|(_, (previous, current))| previous != current)
+        .filter_map(|(index, _)| u16::try_from(index).ok().map(CellIdx::from_raw))
+        .filter(|cell| dimensions.position_of(*cell).is_some())
+        .collect()
 }
 
 /// The terrain defense of one tile, clamped to the table the rows carry.
@@ -424,6 +586,7 @@ pub fn hostile(state: &State, seat: PlayerIdx, other: PlayerIdx) -> bool {
 /// The columns are the terrain stars the defender stands in. A row is written
 /// once for each enemy unit and read once for every tile it threatens, which
 /// is what makes the rows cheap next to the search that finds those tiles.
+#[derive(Debug)]
 struct DamageTable {
     funds: [[f32; STAR_LEVELS]; UnitKind::COUNT],
     /// Whether any entry is above zero. An attacker that can hurt nothing on
@@ -491,7 +654,7 @@ impl DamageTable {
 mod tests {
     use super::*;
     use crate::board::arena;
-    use awvm::semantic::{Concealment, UnitAction, UnitId};
+    use awvm::semantic::{Concealment, UnitAction};
 
     /// A seat off a real roster. [`PlayerIdx`] has no public constructor, on
     /// purpose: one built out of thin air is only correct against the roster
@@ -673,6 +836,38 @@ mod tests {
             carried > 0,
             "every build read zero everywhere, so this proves nothing"
         );
+    }
+
+    /// An unchanged unit keeps the contribution buffers made for it.
+    #[test]
+    fn an_unchanged_unit_reuses_its_cached_contribution() {
+        let (state, ours, _) = one_enemy(UnitKind::Tank);
+        let session = Session::new(state);
+        let mut map = ThreatMap::new();
+        map.build(&session, ours);
+        let before = map.cached[0].layers[Layer::Immediate.index()].as_ptr();
+
+        map.build(&session, ours);
+
+        let after = map.cached[0].layers[Layer::Immediate.index()].as_ptr();
+        assert_eq!(
+            before, after,
+            "an unchanged unit must keep its contribution"
+        );
+
+        let mut fresh = ThreatMap::new();
+        fresh.build(&session, ours);
+        let dimensions = session.state().board.dimensions();
+        for position in dimensions.positions() {
+            let cell = dimensions.cell_index(position).expect("a board position");
+            for defender in UnitKind::ALL {
+                assert_eq!(
+                    map.immediate(cell, defender),
+                    fresh.immediate(cell, defender)
+                );
+                assert_eq!(map.deferred(cell, defender), fresh.deferred(cell, defender));
+            }
+        }
     }
 
     /// A direct unit moves and fires in one turn, so its threat is the tiles
