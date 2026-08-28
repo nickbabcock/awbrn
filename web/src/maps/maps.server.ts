@@ -315,6 +315,44 @@ export async function findCatalogEntry({
 }
 
 /**
+ * One map at the revision the catalog is showing, or null when it holds none.
+ *
+ * A map's own page is addressed by the map and not by one of its revisions,
+ * because a player linking to a map means the map. `currentRevision` is the
+ * one the board lists, so the page and the board never disagree.
+ */
+export async function findCurrentCatalogEntry(mapId: string): Promise<MapCatalogEntry | null> {
+  const row = await db
+    .select({
+      mapId: maps.id,
+      name: maps.name,
+      author: maps.author,
+      authorUserId: maps.authorUserId,
+      revision: maps.currentRevision,
+      createdAt: maps.createdAt,
+      contentHash: mapRevisions.contentHash,
+      width: mapRevisions.width,
+      height: mapRevisions.height,
+      playerCount: mapRevisions.playerCount,
+      rank: mapRevisions.rank,
+      source: mapSources.source,
+      sourceMapId: mapSources.sourceMapId,
+    })
+    .from(maps)
+    .innerJoin(
+      mapRevisions,
+      and(eq(mapRevisions.mapId, maps.id), eq(mapRevisions.revision, maps.currentRevision)),
+    )
+    .leftJoin(mapSources, eq(mapSources.mapId, maps.id))
+    .where(eq(maps.id, mapId))
+    .get();
+
+  if (!row) return null;
+  const tags = await readMapTags([row.mapId]);
+  return toCatalogEntry(row, tags.get(row.mapId) ?? []);
+}
+
+/**
  * The tags of every named map, in vocabulary order.
  *
  * Maps with no tags are left out of the result, so read it with a default of

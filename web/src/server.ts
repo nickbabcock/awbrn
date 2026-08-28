@@ -16,11 +16,14 @@ const MATCH_WEBSOCKET_PATTERN = new URLPattern({
 
 export default createServerEntry({
   async fetch(request) {
-    // A local database starts with no maps, so development fills the catalog
-    // before it answers. The branch is dropped from a production build.
+    // A local database starts with no maps and nobody to be, so development
+    // fills the catalog and the cast before it answers. The branch is dropped
+    // from a production build.
     if (import.meta.env.DEV) {
-      const { seedDevMaps } = await import("#/maps/dev_seed.server.ts");
-      await seedDevMaps();
+      const { seedDevAccounts } = await import("#/auth/dev_seed.server.ts");
+      const { attributeDevMaps, seedDevMaps } = await import("#/maps/dev_seed.server.ts");
+      const [accounts] = await Promise.all([seedDevAccounts(), seedDevMaps()]);
+      await attributeDevMaps(accounts);
     }
 
     const websocketMatch = MATCH_WEBSOCKET_PATTERN.exec(request.url);

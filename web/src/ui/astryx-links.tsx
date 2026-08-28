@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { durationVars } from "@astryxdesign/core/theme/tokens.stylex";
 import { Link as AstryxLink, type LinkProps as AstryxLinkProps } from "@astryxdesign/core/Link";
+import { ClickableCard, type ClickableCardProps } from "@astryxdesign/core/ClickableCard";
 import { ListItem, type ListItemProps } from "@astryxdesign/core/List";
 import {
   TopNavHeading,
@@ -88,7 +89,47 @@ const AstryxTopNavHeadingLinkHost = forwardRef<HTMLAnchorElement, AstryxTopNavHe
 
 export const RouterTopNavHeading = createLink(AstryxTopNavHeadingLinkHost);
 
+type AstryxClickableCardLinkHostProps = Omit<ClickableCardProps, "href" | "ref"> & {
+  href?: string;
+};
+
+/**
+ * A whole panel that opens a screen, with the press this system gives a key.
+ *
+ * The theme raises the panel; the press has to be stated here, because the
+ * component library sets the pressed state at a specificity a theme layer
+ * cannot reach. This is the same arrangement `ui/Button.tsx` already lives
+ * with.
+ */
+const AstryxClickableCardLinkHost = forwardRef<HTMLDivElement, AstryxClickableCardLinkHostProps>(
+  function AstryxClickableCardLinkHost({ xstyle, ...props }, ref) {
+    return (
+      <ClickableCard
+        {...props}
+        ref={ref}
+        xstyle={[styles.clickableCard, styles.reducedMotion, xstyle]}
+      />
+    );
+  },
+);
+
+export const RouterClickableCard = createLink(AstryxClickableCardLinkHost);
+
 const styles = stylex.create({
+  clickableCard: {
+    boxShadow: {
+      default: null,
+      ":active": "none",
+    },
+    transform: {
+      default: null,
+      ":active": `translate(${awbrnVars.offsetControlPressed}, ${awbrnVars.offsetControlPressed})`,
+    },
+    transitionDuration: {
+      default: null,
+      ":active": durationVars["--duration-fast-min"],
+    },
+  },
   topNavItem: {
     boxShadow: {
       default: null,

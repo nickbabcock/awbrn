@@ -391,6 +391,16 @@ export const awbrnTheme = defineTheme({
         boxShadow: "var(--shadow-inset-selected)",
       },
     },
+    // A map plate on the catalog board is a menu key that opens a screen, so
+    // it is the same raised panel as a selectable card. It goes down into its
+    // own shadow when pressed, which is the one gesture this system has.
+    "clickable-card": {
+      base: {
+        ...panel,
+        backgroundColor: "var(--color-background-surface)",
+        boxShadow: "var(--shadow-med)",
+      },
+    },
     section: {
       "variant:section": {
         ...panel,
@@ -572,6 +582,16 @@ export const awbrnTheme = defineTheme({
       },
     },
     "number-input": {
+      base: {
+        backgroundColor: "#fffdf7",
+        border: `2px solid ${INK}`,
+        borderRadius: "var(--radius-element)",
+        boxShadow: `inset 2px 2px 0 0 rgba(22, 24, 29, 0.12)`,
+      },
+    },
+    // A moderator writes the reason for a judgement here, so it sinks into the
+    // panel exactly as the one-line fields beside it do.
+    textarea: {
       base: {
         backgroundColor: "#fffdf7",
         border: `2px solid ${INK}`,
