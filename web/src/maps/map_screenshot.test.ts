@@ -1,7 +1,5 @@
-/// <reference types="node" />
-
+import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
 import map178597 from "../../../assets/maps/178597.json";
 import { awbwMapDataSchema } from "#/awbw/schemas.ts";
 import {
@@ -10,13 +8,19 @@ import {
   MapRenderer,
   renderSmallMapScreenshot,
 } from "#/wasm/awbrn_server.js";
+import serverWasmModule from "#/wasm/awbrn_server_bg.wasm";
 import { importedMapDocumentSchema } from "./map_document.ts";
 import { mapScreenshotKey, mapScreenshotSize } from "./map_screenshot.ts";
 
 const PNG_SIGNATURE = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-function readAsset(path: string): Uint8Array {
-  return new Uint8Array(readFileSync(new URL(`../../../${path}`, import.meta.url)));
+async function readAsset(url: string): Promise<Uint8Array> {
+  const response = await env.ASSETS.fetch(new URL(url, "http://localhost"));
+  if (!response.ok) {
+    throw new Error(`the test could not read ${url} (${response.status})`);
+  }
+
+  return new Uint8Array(await response.arrayBuffer());
 }
 
 /** Width and height, as the PNG header states them. */
@@ -27,7 +31,7 @@ function pngSize(png: Uint8Array): { width: number; height: number } {
 
 describe("map screenshots", () => {
   initSync({
-    module: readFileSync(new URL("../wasm/awbrn_server_bg.wasm", import.meta.url)),
+    module: serverWasmModule,
   });
 
   /** The map an import would have stored. */
@@ -49,13 +53,14 @@ describe("map screenshots", () => {
     expect(pngSize(png)).toEqual(mapScreenshotSize("small", document.width, document.height));
   });
 
-  it("draws the full map from the atlases the renderer holds", () => {
-    using renderer = new MapRenderer(
-      readAsset("assets/textures/tiles.png"),
-      readAsset("assets/textures/units.png"),
-      readAsset("assets/textures/ui.png"),
-      readAsset("assets/data/ui_atlas.json"),
-    );
+  it("draws the full map from the atlases the renderer holds", async () => {
+    const [tiles, units, ui, uiAtlas] = await Promise.all([
+      readAsset("/textures/tiles.png"),
+      readAsset("/textures/units.png"),
+      readAsset("/textures/ui.png"),
+      readAsset("/data/ui_atlas.json"),
+    ]);
+    using renderer = new MapRenderer(tiles, units, ui, uiAtlas);
 
     const png = renderer.renderFull(document);
 

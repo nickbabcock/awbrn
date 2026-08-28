@@ -219,7 +219,7 @@ describe("SharedCanvasInputReader.waitForEvents", () => {
     const reader = new SharedCanvasInputReader(config);
 
     const waitPromise = reader.waitForEvents();
-    writer.enqueueBlur(1);
+    setTimeout(() => writer.enqueueBlur(1), 0);
     await waitPromise;
 
     const drained: SharedCanvasDecodedEvent[] = [];
@@ -238,11 +238,13 @@ describe("SharedCanvasInputReader.waitForEvents", () => {
 
   it("resolves when signal is aborted while waiting", async () => {
     const config = createTestConfig(8);
+    const writer = new SharedCanvasInputWriter(config);
     const reader = new SharedCanvasInputReader(config);
     const controller = new AbortController();
 
     const waitPromise = reader.waitForEvents(controller.signal);
     controller.abort();
+    writer.enqueueBlur(1);
     await waitPromise;
   });
 });
