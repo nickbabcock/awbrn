@@ -6,17 +6,14 @@
  * wrongly or counts tags wrongly fails here rather than on the board.
  */
 
-import { DatabaseSync } from "node:sqlite";
-import { readFileSync } from "node:fs";
+import { env } from "cloudflare:workers";
 import { and, desc, eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/sqlite-proxy";
+import { drizzle } from "drizzle-orm/d1";
 import { beforeAll, describe, expect, it } from "vitest";
-import { mapRevisions, maps } from "#/db/global.ts";
+import { mapRevisions, mapTags, maps } from "#/db/global.ts";
 import { catalogFilterConditions } from "./map_catalog_query.ts";
 import { normalizeMapCatalogFilters } from "./map_taxonomy.ts";
 import type { MapCatalogFilter } from "./schemas.ts";
-
-const MIGRATION = new URL("../../drizzle/global/0000_initial.sql", import.meta.url);
 
 /** The maps the scratch catalog holds, one per shape worth filtering for. */
 const SEED = [
@@ -26,7 +23,6 @@ const SEED = [
   { id: "dddddddddddd", name: "Grand Melee", players: 6, rank: "B", tags: ["ffa", "high-funds"] },
 ] as const;
 
-let sqlite: DatabaseSync;
 let db: ReturnType<typeof drizzle>;
 
 /** The map names a filter set leaves on the board, newest first. */
@@ -44,39 +40,44 @@ function boardFor(filters: MapCatalogFilter): Promise<string[]> {
     .then((rows) => rows.map((row) => row.name));
 }
 
-beforeAll(() => {
-  sqlite = new DatabaseSync(":memory:");
-  // The migration is written as one file of statements separated by Drizzle's
-  // own breakpoint marker.
-  for (const statement of readFileSync(MIGRATION, "utf8").split("--> statement-breakpoint")) {
-    if (statement.trim().length > 0) sqlite.exec(statement);
-  }
+beforeAll(async () => {
+  db = drizzle(env.DB);
 
-  db = drizzle(async (query, params) => {
-    const rows = sqlite.prepare(query).all(...(params as never[]));
-    return { rows: rows.map((row) => Object.values(row as object)) };
-  });
-
-  const now = Date.now();
-  for (const [index, map] of SEED.entries()) {
-    sqlite
-      .prepare(
-        "insert into maps (id, name, author, currentRevision, createdAt, updatedAt) values (?, ?, ?, 1, ?, ?)",
-      )
-      .run(map.id, map.name, "Bamboozle", now + index, now + index);
-    sqlite
-      .prepare(
-        `insert into map_revisions
-           (mapId, revision, contentHash, width, height, playerCount, propertySignature, unitSignature, rank, createdAt, lastSeenAt)
-         values (?, 1, ?, 20, 20, ?, '', '', ?, ?, ?)`,
-      )
-      .run(map.id, `hash-${map.id}`, map.players, map.rank, now, now);
-    for (const tag of map.tags) {
-      sqlite
-        .prepare("insert into map_tags (mapId, tag, addedAt) values (?, ?, ?)")
-        .run(map.id, tag, now);
-    }
-  }
+  const now = new Date();
+  await db.insert(maps).values(
+    SEED.map((map, index) => ({
+      id: map.id,
+      name: map.name,
+      author: "Bamboozle",
+      currentRevision: 1,
+      createdAt: new Date(now.getTime() + index),
+      updatedAt: new Date(now.getTime() + index),
+    })),
+  );
+  await db.insert(mapRevisions).values(
+    SEED.map((map) => ({
+      mapId: map.id,
+      revision: 1,
+      contentHash: `hash-${map.id}`,
+      width: 20,
+      height: 20,
+      playerCount: map.players,
+      propertySignature: "",
+      unitSignature: "",
+      rank: map.rank,
+      createdAt: now,
+      lastSeenAt: now,
+    })),
+  );
+  await db.insert(mapTags).values(
+    SEED.flatMap((map) =>
+      map.tags.map((tag) => ({
+        mapId: map.id,
+        tag,
+        addedAt: now,
+      })),
+    ),
+  );
 });
 
 describe("map catalog filter conditions", () => {

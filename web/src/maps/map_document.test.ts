@@ -1,16 +1,16 @@
 /// <reference types="node" />
 
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
 import map162795 from "../../../assets/maps/162795.json";
 import map178597 from "../../../assets/maps/178597.json";
 import { awbwMapDataSchema } from "#/awbw/schemas.ts";
 import { importAwbwMapDocument, initSync, WasmMatch } from "#/wasm/awbrn_server.js";
+import serverWasmModule from "#/wasm/awbrn_server_bg.wasm";
 import { importedMapDocumentSchema } from "./map_document.ts";
 
 describe("awbrn map documents", () => {
   initSync({
-    module: readFileSync(new URL("../wasm/awbrn_server_bg.wasm", import.meta.url)),
+    module: serverWasmModule,
   });
 
   it.each([
