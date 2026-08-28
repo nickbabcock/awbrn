@@ -2,7 +2,10 @@ use crate::{CommandError, GameCommand, PlayerId};
 
 /// One accepted command and the entropy it consumed.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 pub struct StoredActionEvent {
+    /// The slot that submitted the command. Serialized as a plain number.
+    #[cfg_attr(feature = "typescript", tsify(type = "number"))]
     pub player: PlayerId,
     pub command: GameCommand,
     pub random: Vec<awvm::random::RandomToken>,

@@ -8,7 +8,7 @@ use awbrn_map::{
 use awbrn_types::{AwbwTerrain, FactionCode, PlayerFaction, Unit, VisualHp};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tsify::Tsify;
+use tsify::{Ts, Tsify};
 use wasm_bindgen::prelude::*;
 
 use crate::subscriber::LoggingConfig;
@@ -19,7 +19,6 @@ use awbrn_types::{AwbwCoId, Co, CoExt};
 use awvm::semantic::ObservedTransition;
 
 #[derive(Debug, Clone, Copy, Tsify, Serialize, Deserialize, PartialEq, Eq)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "lowercase")]
 pub enum LogLevel {
     Error,
@@ -42,7 +41,6 @@ impl From<LogLevel> for tracing::Level {
 }
 
 #[derive(Debug, Clone, Copy, Tsify, Serialize, Deserialize)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct LoggingOptions {
     pub level: LogLevel,
@@ -55,16 +53,21 @@ pub struct LoggingOptions {
 }
 
 #[wasm_bindgen(js_name = initLogging)]
-pub fn init_logging(options: LoggingOptions) {
+pub fn init_logging(options: Ts<LoggingOptions>) -> Result<(), JsError> {
+    let options = read_input("options", options)?;
     crate::console_writer::init_logging(LoggingConfig {
         max_level: options.level.into(),
         span_durations: options.span_durations,
     });
+    Ok(())
 }
 
 /// Normalize and hash an upstream AWBW payload using the canonical Rust map implementation.
 #[wasm_bindgen(js_name = importAwbwMapDocument)]
-pub fn import_awbw_map_document(map_data: AwbwMapDataWire) -> Result<ImportedMapDocument, JsError> {
+pub fn import_awbw_map_document(
+    map_data: Ts<AwbwMapDataWire>,
+) -> Result<Ts<ImportedMapDocument>, JsError> {
+    let map_data = read_input("mapData", map_data)?;
     let source = AwbwMapData::from(map_data);
     let document = ValidatedMapDocument::try_from(&source)
         .map_err(|error| invalid_input("map", error.to_string()))?;
@@ -75,7 +78,8 @@ pub fn import_awbw_map_document(map_data: AwbwMapDataWire) -> Result<ImportedMap
         content_hash: digests.content_hash.to_string(),
         property_signature: digests.property_signature.to_string(),
         unit_signature: digests.unit_signature.to_string(),
-    })
+    }
+    .into_ts()?)
 }
 
 /// Draws map screenshots, holding the decoded sprite atlases.
@@ -103,7 +107,8 @@ impl MapRenderer {
 
     /// Draw a map at its starting position and return the PNG bytes.
     #[wasm_bindgen(js_name = renderFull)]
-    pub fn render_full(&self, document: AwbrnMapDocumentWire) -> Result<Vec<u8>, JsError> {
+    pub fn render_full(&self, document: Ts<AwbrnMapDocumentWire>) -> Result<Vec<u8>, JsError> {
+        let document = read_input("document", document)?;
         crate::map_image::full_screenshot(&self.tilesets, &validated_map(document)?)
             .map_err(render_error)
     }
@@ -114,7 +119,8 @@ impl MapRenderer {
 /// Four pixels for each tile, terrain only, from a fixed palette. No atlas is
 /// read, which is why this is a free function and not a [`MapRenderer`] method.
 #[wasm_bindgen(js_name = renderSmallMapScreenshot)]
-pub fn render_small_map_screenshot(document: AwbrnMapDocumentWire) -> Result<Vec<u8>, JsError> {
+pub fn render_small_map_screenshot(document: Ts<AwbrnMapDocumentWire>) -> Result<Vec<u8>, JsError> {
+    let document = read_input("document", document)?;
     crate::map_image::small_screenshot(&validated_map(document)?).map_err(render_error)
 }
 
@@ -123,7 +129,6 @@ fn validated_map(document: AwbrnMapDocumentWire) -> Result<ValidatedMapDocument,
 }
 
 #[derive(Debug, Tsify, Serialize)]
-#[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportedMapDocument {
     pub document: AwbrnMapDocumentWire,
@@ -133,7 +138,6 @@ pub struct ImportedMapDocument {
 }
 
 #[derive(Debug, Tsify, Serialize, Deserialize)]
-#[tsify(from_wasm_abi)]
 pub struct AwbwMapDataWire {
     #[serde(rename = "Name")]
     pub name: String,
@@ -155,7 +159,6 @@ pub struct AwbwMapDataWire {
 }
 
 #[derive(Debug, Tsify, Serialize, Deserialize)]
-#[tsify(from_wasm_abi, into_wasm_abi)]
 pub struct PredeployedUnitWire {
     #[serde(rename = "Unit ID")]
     pub unit_id: u32,
@@ -170,7 +173,6 @@ pub struct PredeployedUnitWire {
 }
 
 #[derive(Debug, Tsify, Serialize, Deserialize)]
-#[tsify(from_wasm_abi, into_wasm_abi)]
 pub struct AwbrnMapDocumentWire {
     pub map_format: u32,
     pub width: u32,
@@ -181,7 +183,6 @@ pub struct AwbrnMapDocumentWire {
 }
 
 #[derive(Debug, Tsify, Serialize, Deserialize)]
-#[tsify(from_wasm_abi, into_wasm_abi)]
 pub struct AwbrnMapUnitWire {
     pub position: [u8; 2],
     pub unit: String,
@@ -190,7 +191,6 @@ pub struct AwbrnMapUnitWire {
 }
 
 #[derive(Debug, Tsify, Serialize, Deserialize)]
-#[tsify(from_wasm_abi, into_wasm_abi)]
 pub struct AwbrnMapMetadataWire {
     pub name: String,
     pub author: String,
@@ -336,7 +336,8 @@ pub struct WasmMatch {
 #[wasm_bindgen]
 impl WasmMatch {
     #[wasm_bindgen(constructor)]
-    pub fn new(setup: MatchSetupInput) -> Result<Self, JsError> {
+    pub fn new(setup: Ts<MatchSetupInput>) -> Result<Self, JsError> {
+        let setup = read_input("setup", setup)?;
         let fog_enabled = setup.fog_enabled;
         let setup: GameSetup = setup
             .try_into()
@@ -350,15 +351,18 @@ impl WasmMatch {
 
     #[wasm_bindgen(js_name = reconstructFromEvents)]
     pub fn reconstruct_from_events(
-        setup: MatchSetupInput,
-        events: JsValue,
+        setup: Ts<MatchSetupInput>,
+        events: Vec<Ts<StoredActionEvent>>,
     ) -> Result<Self, JsError> {
+        let setup = read_input("setup", setup)?;
         let fog_enabled = setup.fog_enabled;
         let setup: GameSetup = setup
             .try_into()
             .map_err(|reason| invalid_input("setup", reason))?;
-        let events: Vec<crate::StoredActionEvent> = serde_wasm_bindgen::from_value(events)
-            .map_err(|error| invalid_input("events", error.to_string()))?;
+        let events = events
+            .into_iter()
+            .map(|event| read_input("events", event))
+            .collect::<Result<Vec<crate::StoredActionEvent>, _>>()?;
         let server = crate::reconstruct_from_events(setup, &events).map_err(replay_error)?;
         Ok(Self {
             server,
@@ -371,8 +375,9 @@ impl WasmMatch {
     pub fn process_action(
         &mut self,
         player_slot: u8,
-        action: JsValue,
-    ) -> Result<WasmActionResponse, JsError> {
+        command: Ts<crate::GameCommand>,
+    ) -> Result<Ts<WasmActionResponse>, JsError> {
+        let command = read_input("command", command)?;
         if !self.server.has_player(crate::PlayerId(player_slot)) {
             return Err(invalid_input(
                 "player_slot",
@@ -380,7 +385,6 @@ impl WasmMatch {
             ));
         }
 
-        let command = parse_action(action)?;
         let stored_command = command.clone();
 
         let player = crate::PlayerId(player_slot);
@@ -443,7 +447,7 @@ impl WasmMatch {
             })
             .collect();
 
-        Ok(WasmActionResponse {
+        let response = WasmActionResponse {
             player_messages_by_slot,
             stored_action_event: StoredActionEvent {
                 player,
@@ -451,17 +455,23 @@ impl WasmMatch {
                 random: self.server.last_random().to_vec(),
             },
             spectator_message,
-        })
+        };
+
+        Ok(response.into_ts()?)
     }
 
     /// Return results for a finished non-cancelled match.
     #[wasm_bindgen(js_name = matchResults)]
-    pub fn match_results(&self) -> Option<crate::MatchResults> {
-        self.server.results()
+    pub fn match_results(&self) -> Result<Option<Ts<crate::MatchResults>>, JsError> {
+        self.server
+            .results()
+            .map(|results| results.into_ts())
+            .transpose()
+            .map_err(write_error)
     }
 
     #[wasm_bindgen(js_name = playerGameState)]
-    pub fn player_game_state(&mut self, player_slot: u8) -> Result<MatchGameState, JsError> {
+    pub fn player_game_state(&mut self, player_slot: u8) -> Result<Ts<MatchGameState>, JsError> {
         let player = crate::PlayerId(player_slot);
         if !self.server.has_player(player) {
             return Err(invalid_input(
@@ -476,11 +486,13 @@ impl WasmMatch {
         let observation = self.server.player_observation(player).ok_or_else(|| {
             invalid_input("player_slot", format!("unknown player slot {player_slot}"))
         })?;
-        Ok(player_game_state(&view, player_slot, observation))
+        player_game_state(&view, player_slot, observation)
+            .into_ts()
+            .map_err(write_error)
     }
 
     #[wasm_bindgen(js_name = spectatorGameState)]
-    pub fn spectator_game_state(&mut self) -> Result<SpectatorGameStateResponse, JsError> {
+    pub fn spectator_game_state(&mut self) -> Result<Ts<SpectatorGameStateResponse>, JsError> {
         let game_state = if self.fog_enabled {
             None
         } else {
@@ -491,7 +503,9 @@ impl WasmMatch {
                     .expect("a live match has a spectator observation"),
             ))
         };
-        Ok(SpectatorGameStateResponse { game_state })
+        SpectatorGameStateResponse { game_state }
+            .into_ts()
+            .map_err(write_error)
     }
 
     pub fn player_view(&mut self, player_slot: u8) -> Result<JsValue, JsError> {
@@ -530,25 +544,15 @@ where
 }
 
 #[derive(Debug, Tsify, Serialize)]
-#[tsify(into_wasm_abi, hashmap_as_object)]
+#[tsify(hashmap_as_object)]
 #[serde(rename_all = "camelCase")]
 pub struct WasmActionResponse {
     pub player_messages_by_slot: BTreeMap<String, PlayerUpdateMessage>,
-    #[tsify(type = "unknown")]
     pub stored_action_event: StoredActionEvent,
     pub spectator_message: SpectatorMessage,
 }
 
-fn parse_action(action: JsValue) -> Result<crate::GameCommand, JsError> {
-    if let Some(action_str) = action.as_string() {
-        serde_json::from_str(&action_str).map_err(|e| invalid_input("action", e.to_string()))
-    } else {
-        serde_wasm_bindgen::from_value(action).map_err(|e| invalid_input("action", e.to_string()))
-    }
-}
-
 #[derive(Debug, Tsify, Serialize)]
-#[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct SpectatorGameStateResponse {
     #[tsify(type = "MatchGameState | null")]
@@ -556,7 +560,7 @@ pub struct SpectatorGameStateResponse {
 }
 
 #[derive(Debug, Tsify, Serialize)]
-#[tsify(into_wasm_abi, hashmap_as_object)]
+#[tsify(hashmap_as_object)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchGameState {
     #[tsify(type = "number | null")]
@@ -575,7 +579,6 @@ pub struct MatchGameState {
 }
 
 #[derive(Debug, Tsify, Serialize, Clone)]
-#[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct PublicPlayerState {
     pub slot_index: u8,
@@ -583,7 +586,6 @@ pub struct PublicPlayerState {
 }
 
 #[derive(Debug, Tsify, Serialize)]
-#[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct WireVisibleUnit {
     pub id: u64,
@@ -605,7 +607,6 @@ pub struct WireVisibleUnit {
 }
 
 #[derive(Debug, Tsify, Serialize)]
-#[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct WireVisibleTerrain {
     pub position: WirePosition,
@@ -614,7 +615,6 @@ pub struct WireVisibleTerrain {
 }
 
 #[derive(Debug, Tsify, Serialize)]
-#[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct WirePosition {
     pub x: u8,
@@ -622,7 +622,6 @@ pub struct WirePosition {
 }
 
 #[derive(Debug, Tsify, Serialize)]
-#[tsify(into_wasm_abi)]
 #[serde(
     tag = "type",
     rename_all = "camelCase",
@@ -639,7 +638,6 @@ pub enum SpectatorMessage {
 }
 
 #[derive(Debug, Tsify, Serialize)]
-#[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerUpdateMessage {
     #[serde(rename = "type")]
@@ -665,7 +663,6 @@ pub struct PlayerUpdateMessage {
 }
 
 #[derive(Debug, Tsify, Serialize)]
-#[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct UnitMovedMessage {
     pub id: u64,
@@ -675,7 +672,6 @@ pub struct UnitMovedMessage {
 }
 
 #[derive(Debug, Tsify, Serialize)]
-#[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct CombatEventMessage {
     pub attacker_id: u64,
@@ -687,7 +683,6 @@ pub struct CombatEventMessage {
 }
 
 #[derive(Debug, Tsify, Serialize)]
-#[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct TurnChangeMessage {
     pub new_active_player_slot: u8,
@@ -696,7 +691,6 @@ pub struct TurnChangeMessage {
 }
 
 #[derive(Debug, Tsify, Serialize)]
-#[tsify(into_wasm_abi)]
 #[serde(
     tag = "type",
     rename_all = "camelCase",
@@ -889,7 +883,6 @@ fn serialized_value<T: Serialize>(value: &T) -> Value {
 }
 
 #[derive(Debug, Tsify, Deserialize)]
-#[tsify(from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchSetupInput {
     pub map: AwbrnMapDocumentWire,
@@ -902,7 +895,6 @@ pub struct MatchSetupInput {
 }
 
 #[derive(Debug, Tsify, Deserialize)]
-#[tsify(from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerSetupInput {
     pub faction_id: u8,
@@ -949,6 +941,31 @@ impl TryFrom<MatchSetupInput> for GameSetup {
             rng_seed: value.rng_seed.unwrap_or(0),
         })
     }
+}
+
+/// Read one argument JavaScript passed, or report what was wrong with it.
+///
+/// Every value that crosses the boundary comes from a dynamic language, so a
+/// caller can hand over anything at all. `Ts` keeps that a plain rejection:
+/// `tsify`'s own `from_wasm_abi` conversion throws out of the argument list
+/// instead, which leaks the memory it had already taken and leaves a match
+/// object borrowed.
+fn read_input<T>(field: &'static str, value: Ts<T>) -> Result<T, JsError>
+where
+    T: Tsify + serde::de::DeserializeOwned,
+    <T as Tsify>::JsType: Clone,
+{
+    value
+        .to_rust()
+        .map_err(|error| invalid_input(field, error.to_string()))
+}
+
+/// Report a value the engine could not put into JavaScript.
+///
+/// Nothing a caller does causes this: the value is the engine's own, so a
+/// failure here is a bug in what it wrote rather than in what it was given.
+fn write_error(error: tsify::Error) -> JsError {
+    js_error("internal", error.to_string(), 500, json!({}))
 }
 
 fn invalid_input(field: &'static str, reason: String) -> JsError {

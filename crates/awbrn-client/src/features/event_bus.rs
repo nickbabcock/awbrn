@@ -33,7 +33,6 @@ impl<T: Send + Sync + 'static> EventSink<T> {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct NewDay {
     pub day: u32,
@@ -41,7 +40,6 @@ pub struct NewDay {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct UnitMoved {
     pub unit_id: u32,
@@ -53,7 +51,6 @@ pub struct UnitMoved {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct UnitBuilt {
     pub unit_id: u32,
@@ -65,7 +62,6 @@ pub struct UnitBuilt {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct TileSelected {
     pub x: u8,
@@ -76,7 +72,6 @@ pub struct TileSelected {
 /// A unit carried by the unit on the hovered tile.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct HoveredCargoUnit {
     pub unit: awvm::ruleset::UnitKind,
@@ -96,7 +91,6 @@ pub struct HoveredCargoUnit {
 /// other weapon spends rounds that can run out.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub enum AmmoDisplay {
     /// The unit has no weapon, so the readout shows no ammunition at all.
@@ -123,7 +117,6 @@ impl AmmoDisplay {
 /// The visible unit on the hovered tile.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct HoveredUnit {
     pub unit: awvm::ruleset::UnitKind,
@@ -142,7 +135,6 @@ pub struct HoveredUnit {
 /// Information the presentation can show for one hovered board tile.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct HoveredTile {
     pub x: u8,
@@ -165,7 +157,6 @@ pub struct HoveredTile {
 /// The current hovered tile. `tile: None` clears the presentation readout.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct TileHoverChanged {
     pub tile: Option<HoveredTile>,
@@ -173,7 +164,6 @@ pub struct TileHoverChanged {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct ProductionSite {
     pub x: u8,
@@ -183,7 +173,6 @@ pub struct ProductionSite {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct ProductionOption {
     pub unit: awvm::ruleset::UnitKind,
@@ -198,7 +187,6 @@ pub struct ProductionOption {
 /// `site: None` tells presentation clients to close any open menu.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct ProductionOptionsChanged {
     pub site: Option<ProductionSite>,
@@ -211,7 +199,6 @@ pub struct ProductionOptionsChanged {
 /// own observation. The interface never decides what a unit may do.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct UnitActionOption {
     /// The label the source game uses for this order.
@@ -246,7 +233,6 @@ impl UnitActionOption {
 /// equals `high` whenever no commander in the exchange grants luck.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct DamageBracket {
     pub low: u16,
@@ -261,7 +247,6 @@ pub struct DamageBracket {
 /// way rather than as two separate rolls.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct AttackForecast {
     pub target: ForecastTarget,
@@ -286,7 +271,6 @@ pub struct AttackForecast {
 /// this is identity for a readout, not the tile inspector.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct UnitBadge {
     pub unit: awvm::ruleset::UnitKind,
@@ -299,7 +283,6 @@ pub struct UnitBadge {
 /// What an attack is aimed at, as the order names it.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(
     tag = "type",
     rename_all = "camelCase",
@@ -320,7 +303,6 @@ pub enum ForecastTarget {
 /// The command represented by one entry in the unit order menu.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum UnitOrder {
     Move {
@@ -338,7 +320,6 @@ pub enum UnitOrder {
 /// `destination: None` tells presentation clients to close any open menu.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct UnitActionsChanged {
     #[cfg_attr(
@@ -361,7 +342,6 @@ pub struct UnitActionsChanged {
 /// authoritative on the server.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct MoveCommandRequested {
     pub unit_id: u32,
@@ -373,7 +353,6 @@ pub struct MoveCommandRequested {
 /// A standalone free-unload intent chosen on the live board.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct UnloadCommandRequested {
     pub transport_id: u32,
@@ -385,7 +364,6 @@ pub struct UnloadCommandRequested {
 /// A voluntary unit-removal intent chosen on the live board.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteUnitCommandRequested {
     pub unit_id: u32,
@@ -393,7 +371,6 @@ pub struct DeleteUnitCommandRequested {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct MapDimensions {
     pub width: f32,
@@ -402,7 +379,6 @@ pub struct MapDimensions {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct ReplayLoadedPlayer {
     pub player_id: u32,
@@ -420,7 +396,6 @@ pub struct ReplayLoadedPlayer {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct ReplayLoaded {
     pub game_id: u32,
@@ -433,7 +408,6 @@ pub struct ReplayLoaded {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerRosterStats {
     pub funds: Option<u32>,
@@ -451,7 +425,6 @@ pub struct PlayerRosterStats {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerRosterEntry {
     pub player_id: u32,
@@ -484,7 +457,6 @@ pub struct PlayerRosterEntry {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerRosterSnapshot {
     pub match_id: u32,

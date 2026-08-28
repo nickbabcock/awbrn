@@ -4,8 +4,10 @@ import { drizzle as drizzleD1 } from "drizzle-orm/d1";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { and, asc, count, eq, isNull } from "drizzle-orm";
 import { WasmMatch } from "#/wasm/awbrn_server.js";
+import type { GameCommand, StoredActionEvent } from "#/wasm/awbrn_server.js";
 import {
   initialMatchConnectionMessages,
+  matchClockMessage,
   normalizeCaughtError,
   ok,
   type MatchGameState,
@@ -23,13 +25,22 @@ import { matchResultRows } from "./match_completion.ts";
 import { uploadMatchReplay } from "./replay_archive.ts";
 import { requireRateLimit } from "#/rate_limit.ts";
 import { getMatchmakerStub } from "#/matchmaking/matchmaker_service.ts";
+import {
+  advanceClockProgress,
+  commandEndsTurn,
+  readClockProgress,
+  startClockProgress,
+} from "./match_clock.ts";
+import type { ClockAction, ClockProgress, MatchClockState } from "./match_clock.ts";
 
 interface WebSocketAttachment {
   userId: string;
   slotIndex: number | null;
 }
 
-type MatchEvent = { kind: "setup"; payload: MatchSetup } | { kind: "action"; payload: unknown };
+type MatchEvent =
+  | { kind: "setup"; payload: MatchSetup }
+  | { kind: "action"; payload: StoredActionEvent };
 
 function parseMatchEvent(row: { kind: string; payload: unknown }): MatchEvent | null {
   switch (row.kind) {
@@ -38,18 +49,93 @@ function parseMatchEvent(row: { kind: string; payload: unknown }): MatchEvent | 
       return result.success ? { kind: "setup", payload: result.data } : null;
     }
     case "action":
-      return { kind: "action", payload: row.payload };
+      // The engine wrote the row and reads it back, so it is taken at its
+      // word. What the durable object reads out of it is guarded where it is
+      // read, in `clockActionFromPayload`.
+      return { kind: "action", payload: row.payload as StoredActionEvent };
     default:
       return null;
   }
 }
 
+/** The clock's reading of one recorded action, or null for a row it cannot read. */
+function clockActionFromPayload(payload: unknown, at: number): ClockAction | null {
+  const event = payload as Partial<StoredActionEvent> | null | undefined;
+  const command = event?.command;
+  if (typeof event?.player !== "number" || command === undefined) {
+    return null;
+  }
+  return { slotIndex: event.player, endsTurn: commandEndsTurn(command), at };
+}
+
 /** Retry delay for an unwritten result. */
 const RESULT_ALARM_DELAY_MS = 10_000;
+
+/** The first delay after a failed settle, which the platform's own retry starts at. */
+const RETRY_BASE_MS = 2_000;
+
+/** The longest a match waits to be looked at again after a failed settle. */
+const MAX_RETRY_DELAY_MS = 5 * 60_000;
+
+/**
+ * How many times the platform retries an alarm handler that throws.
+ *
+ * It backs off from two seconds and then gives the alarm up for good, so the
+ * last attempt is the last chance to leave one armed.
+ */
+const PLATFORM_ALARM_RETRIES = 6;
+
+/** Marks the global database as holding this match's result. */
+const RESULTS_RECORDED_KEY = "resultsRecorded";
+
+/** Wakes left for a ranked matchmaker that has not taken the wake yet. */
+const MATCHMAKER_WAKE_KEY = "matchmakerWake";
+
+/** How many times a refused ranked matchmaker wake is sent again. */
+const MATCHMAKER_WAKE_ATTEMPTS = 6;
+
+/**
+ * Settles that failed in a row, which the retry delay is read from.
+ *
+ * It is kept in the durable object's own storage rather than in memory or in
+ * the event log: the count has to survive the eviction or reset that a failure
+ * may itself cause, and it is how the match is being run rather than anything
+ * that happened in it.
+ */
+const SETTLE_FAILURES_KEY = "settleFailures";
+
+/**
+ * How long to wait before looking at a match that would not settle.
+ *
+ * The delay doubles with each failure. A deadline that has already passed is
+ * what woke the alarm in the first place, so waking on it again would be a
+ * loop that never backs off and never gets anywhere.
+ */
+function retryDelayMs(failures: number): number {
+  return Math.min(RETRY_BASE_MS * 2 ** Math.max(0, failures - 1), MAX_RETRY_DELAY_MS);
+}
+
+/** Where a settle was reached from, which decides what a failure may do. */
+interface SettleContext {
+  /** True when the durable object woke on its own alarm. */
+  fromAlarm: boolean;
+  /** Retries the platform has already made of that alarm. */
+  retryCount: number;
+}
 
 export class MatchDurableObject extends DurableObject<CloudflareBindings> {
   private readonly db: DrizzleSqliteDODatabase;
   private wasmMatch: WasmMatch | null = null;
+  /** Memo of the derived clock. `undefined` until a turn boundary is read. */
+  private clock: MatchClockState | null | undefined = undefined;
+  /**
+   * The clock's running total over the action log.
+   *
+   * Built once from the log and carried forward action by action, so a match
+   * that has been played for hours does not re-read its whole history on every
+   * message.
+   */
+  private clockProgress: ClockProgress | undefined = undefined;
 
   constructor(ctx: DurableObjectState, env: CloudflareBindings) {
     super(ctx, env);
@@ -86,8 +172,10 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       }
 
       const response = this.handleWebSocketUpgrade(session.user.id, setup);
-      // Retry result writes because the event log is durable.
-      this.ctx.waitUntil(this.recordResultInBackground(setup));
+      // Settle in the background because the event log is durable: an
+      // unwritten result is retried, and a clock that ran out while the match
+      // was asleep is enforced before anyone plays on.
+      this.ctx.waitUntil(this.settle(setup, { fromAlarm: false, retryCount: 0 }));
       return response;
     }
     return new Response("Not found", { status: 404 });
@@ -115,33 +203,56 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       return;
     }
 
+    if (isTimeoutCommand(command)) {
+      // The clock belongs to the host. A seat that wants out resigns instead.
+      sendJson(ws, { type: "error", message: "only the server may time a seat out" });
+      return;
+    }
+
+    const setup = this.readSetupEvent();
+    if (!setup) {
+      sendJson(ws, { type: "error", message: "match not initialized" });
+      return;
+    }
+
     try {
-      const response = game.process_action(slotIndex, command);
+      // A seat cannot play on past its own deadline, however late the alarm
+      // that should have removed it is.
+      if (this.enforceClock(setup).includes(slotIndex)) {
+        sendJson(ws, { type: "error", message: "your clock ran out" });
+        await this.armAlarm(setup);
+        return;
+      }
+
+      // The engine validates the command it is given; the cast marks the edge
+      // where a websocket message stops being untrusted text.
+      const response = game.process_action(slotIndex, command as GameCommand);
       try {
         this.appendEvent({ kind: "action", payload: response.storedActionEvent });
       } catch (error) {
         this.restoreGameFromPersistedEvents();
         throw error;
       }
-      const setup = this.readSetupEvent();
-      if (!setup) {
-        throw new Error("match setup disappeared after processing an action");
-      }
       this.broadcastActionResponse(response, setup, game);
+      this.broadcastClock(setup, game);
       await this.recordResultInBackground(setup);
+      await this.armAlarm(setup);
     } catch (error) {
       const failure = normalizeCaughtError(error);
       sendJson(ws, { type: "error", message: failure.error.message });
     }
   }
 
-  /** Retry a terminal result write after a database failure. */
-  async alarm(): Promise<void> {
+  /** Time out a seat whose clock ran out, and retry an unwritten result. */
+  async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
     const setup = this.readSetupEvent();
     if (!setup) {
       return;
     }
-    await this.recordResultIfFinished(setup);
+    await this.settle(setup, {
+      fromAlarm: true,
+      retryCount: alarmInfo?.retryCount ?? 0,
+    });
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
@@ -162,6 +273,7 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
 
       this.wasmMatch = new WasmMatch(setup);
       this.appendEvent({ kind: "setup", payload: setup });
+      await this.armAlarm(setup);
 
       return ok({ matchId, joinSlug: null });
     } catch (error) {
@@ -215,6 +327,10 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     )) {
       sendJson(server, message);
     }
+    const clock = this.clockState(setup, game);
+    if (clock) {
+      sendJson(server, matchClockMessage(clock));
+    }
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -253,6 +369,9 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
 
   private restoreGameFromPersistedEvents(): void {
     this.wasmMatch = null;
+    this.clock = undefined;
+    // An append that failed may have left the running total ahead of the log.
+    this.clockProgress = undefined;
     try {
       this.loadGame();
     } catch (error) {
@@ -304,6 +423,226 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     }
   }
 
+  /**
+   * Bring the match up to date and set the next alarm.
+   *
+   * The alarm has one use at a time: a running match wakes on its clock, and a
+   * finished one wakes to retry a result the global database has not taken
+   * yet. Both are settled here so neither can overwrite the other's alarm.
+   */
+  private async settle(setup: MatchSetup, context: SettleContext): Promise<void> {
+    let failed = false;
+
+    try {
+      this.enforceClock(setup);
+    } catch (error) {
+      failed = true;
+      console.error("Failed to enforce the match clock:", error);
+    }
+
+    try {
+      await this.recordResultIfFinished(setup);
+    } catch (error) {
+      failed = true;
+      console.error("Failed to record match results:", error);
+    }
+
+    const failures = await this.recordSettleFailures(failed);
+
+    try {
+      await this.armAlarm(setup, failures);
+    } catch (error) {
+      // Scheduling is what failed, so this object has nothing left to retry
+      // with: the platform's own alarm retry is holding the match's clock. It
+      // gives up after `PLATFORM_ALARM_RETRIES`, and the next player to open
+      // the match arms the alarm again on connect.
+      console.error("Failed to set the next match alarm:", error);
+      if (context.fromAlarm && context.retryCount + 1 < PLATFORM_ALARM_RETRIES) {
+        throw error;
+      }
+    }
+  }
+
+  /** Count this settle, and report how many have failed in a row. */
+  private async recordSettleFailures(failed: boolean): Promise<number> {
+    const previous = (await this.ctx.storage.get<number>(SETTLE_FAILURES_KEY)) ?? 0;
+    if (!failed) {
+      if (previous !== 0) {
+        await this.ctx.storage.delete(SETTLE_FAILURES_KEY);
+      }
+      return 0;
+    }
+
+    const failures = previous + 1;
+    await this.ctx.storage.put(SETTLE_FAILURES_KEY, failures);
+    return failures;
+  }
+
+  /**
+   * Remove every seat whose clock ran out, and report which those were.
+   *
+   * More than one can be waiting when the match slept through several
+   * deadlines, so this runs until a seat is left with time on it or the match
+   * ends. The loop is bounded by the roster: a seat is removed each pass.
+   */
+  private enforceClock(setup: MatchSetup): number[] {
+    const timedOut: number[] = [];
+    const game = this.loadGame();
+    if (game === null) {
+      return timedOut;
+    }
+
+    for (let pass = 0; pass <= setup.players.length; pass += 1) {
+      if (game.matchResults()) {
+        return timedOut;
+      }
+      const clock = this.clockState(setup, game);
+      if (clock === null || Date.now() < clock.deadlineAt) {
+        return timedOut;
+      }
+
+      const response = game.process_action(clock.activeSlot, { type: "timeout" });
+      try {
+        this.appendEvent({ kind: "action", payload: response.storedActionEvent });
+      } catch (error) {
+        this.restoreGameFromPersistedEvents();
+        throw error;
+      }
+      timedOut.push(clock.activeSlot);
+      this.broadcastActionResponse(response, setup, game);
+      this.broadcastClock(setup, game);
+    }
+
+    return timedOut;
+  }
+
+  /** Wake for the next deadline, for the next result retry, or to try again. */
+  private async armAlarm(setup: MatchSetup, failures = 0): Promise<void> {
+    let wakeAt: number | null;
+    try {
+      wakeAt = await this.nextWakeAt(setup, failures);
+    } catch (error) {
+      // A wake time that cannot be read is still a wake: the match is looked
+      // at again rather than left asleep with a clock running on it.
+      console.error("Failed to read the next match wake time:", error);
+      wakeAt = Date.now() + retryDelayMs(failures + 1);
+    }
+    // Most actions leave the deadline where it was, so the alarm is read
+    // before it is written and an unchanged one costs nothing.
+    if ((await this.ctx.storage.getAlarm()) === wakeAt) {
+      return;
+    }
+    if (wakeAt === null) {
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+    await this.ctx.storage.setAlarm(wakeAt);
+  }
+
+  private async nextWakeAt(setup: MatchSetup, failures: number): Promise<number | null> {
+    if (failures > 0) {
+      return Date.now() + retryDelayMs(failures);
+    }
+    const game = this.loadGame();
+    if (game === null) {
+      return null;
+    }
+    if (game.matchResults()) {
+      const [recorded, wakesLeft] = await Promise.all([
+        this.ctx.storage.get<boolean>(RESULTS_RECORDED_KEY),
+        this.ctx.storage.get<number>(MATCHMAKER_WAKE_KEY),
+      ]);
+      const settled = recorded === true && (wakesLeft ?? 0) <= 0;
+      return settled ? null : Date.now() + RESULT_ALARM_DELAY_MS;
+    }
+    return this.clockState(setup, game)?.deadlineAt ?? null;
+  }
+
+  /**
+   * The clock as the recorded actions leave it, or null when it cannot be read.
+   *
+   * The event log is all a match durably holds, so the clock is read back from
+   * it rather than kept beside it. The answer only changes at a turn boundary,
+   * which is what the memo below tracks.
+   */
+  private clockState(setup: MatchSetup, game: WasmMatch): MatchClockState | null {
+    if (this.clock !== undefined) {
+      return this.clock;
+    }
+    this.clock = this.computeClockState(setup, game);
+    return this.clock;
+  }
+
+  private computeClockState(setup: MatchSetup, game: WasmMatch): MatchClockState | null {
+    const progress = this.clockProgressState(setup);
+    if (progress === undefined) {
+      return null;
+    }
+    let activeSlot: number;
+    try {
+      // Any seat reports the same active player; slot zero always exists.
+      activeSlot = game.playerGameState(0).activePlayerSlot;
+    } catch (error) {
+      console.error("Failed to read the active seat for the match clock:", error);
+      return null;
+    }
+    return readClockProgress(progress, activeSlot);
+  }
+
+  /** The running total, replayed from the log the first time it is asked for. */
+  private clockProgressState(setup: MatchSetup): ClockProgress | undefined {
+    if (this.clockProgress !== undefined) {
+      return this.clockProgress;
+    }
+    const startedAt = this.readMatchStartedAt();
+    if (startedAt === null) {
+      // The match has no setup event yet, so nothing is memoized: the first
+      // turn opens when that event is written.
+      return undefined;
+    }
+    const progress = startClockProgress(setup.clock, startedAt, setup.players.length);
+    for (const action of this.readClockActions()) {
+      advanceClockProgress(progress, action);
+    }
+    this.clockProgress = progress;
+    return progress;
+  }
+
+  /** Tell everyone watching how much time the seats have left. */
+  private broadcastClock(setup: MatchSetup, game: WasmMatch): void {
+    const clock = this.clockState(setup, game);
+    if (clock === null) {
+      return;
+    }
+    for (const target of this.ctx.getWebSockets()) {
+      try {
+        sendJson(target, matchClockMessage(clock));
+      } catch {
+        // Ignore closed connections.
+      }
+    }
+  }
+
+  /** When the setup event was written, which is when the first turn opened. */
+  private readMatchStartedAt(): number | null {
+    const row = this.db.select().from(matchEventsTable).where(eq(matchEventsTable.seq, 1)).get();
+    return row ? row.createdAt.getTime() : null;
+  }
+
+  private readClockActions(): ClockAction[] {
+    const rows = this.db
+      .select({ payload: matchEventsTable.payload, createdAt: matchEventsTable.createdAt })
+      .from(matchEventsTable)
+      .where(eq(matchEventsTable.kind, "action"))
+      .orderBy(asc(matchEventsTable.seq))
+      .all();
+
+    return rows.flatMap((row) => {
+      const action = clockActionFromPayload(row.payload, row.createdAt.getTime());
+      return action === null ? [] : [action];
+    });
+  }
+
   /** Persist terminal results. Throws on failure so the alarm can retry. */
   private async recordResultIfFinished(setup: MatchSetup): Promise<void> {
     const game = this.loadGame();
@@ -311,34 +650,59 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     if (!results) {
       return;
     }
-
-    const rows = matchResultRows(setup, results);
-    if (rows.length === 0) {
+    if ((await this.ctx.storage.get<boolean>(RESULTS_RECORDED_KEY)) === true) {
+      await this.resumeRankedMatchmaking(setup, false);
       return;
     }
 
-    await this.ctx.storage.setAlarm(Date.now() + RESULT_ALARM_DELAY_MS);
-
-    const db = drizzleD1(this.env.DB);
-    const now = new Date();
-    await uploadMatchReplay(this.env.CONTENT, setup, this.readActionEvents());
-    await db.batch([
-      db.insert(matchResults).values(rows).onConflictDoNothing(),
-      db
-        .update(matches)
-        .set({ phase: "completed", completedAt: now, updatedAt: now })
-        .where(and(eq(matches.id, setup.matchId), isNull(matches.completedAt))),
-    ]);
-    if (setup.pool != null && setup.season != null) {
-      this.ctx.waitUntil(
-        getMatchmakerStub(this.env.MATCHMAKERS, setup.season, setup.pool)
-          .kick(setup.pool, setup.season)
-          .catch((error: unknown) => {
-            console.error("Failed to resume ranked matchmaking:", error);
-          }),
-      );
+    const rows = matchResultRows(setup, results);
+    if (rows.length > 0) {
+      const db = drizzleD1(this.env.DB);
+      const now = new Date();
+      await uploadMatchReplay(this.env.CONTENT, setup, this.readActionEvents());
+      await db.batch([
+        db.insert(matchResults).values(rows).onConflictDoNothing(),
+        db
+          .update(matches)
+          .set({ phase: "completed", completedAt: now, updatedAt: now })
+          .where(and(eq(matches.id, setup.matchId), isNull(matches.completedAt))),
+      ]);
     }
-    await this.ctx.storage.deleteAlarm();
+
+    // A match with nothing to write is recorded too, so it stops being retried.
+    await this.ctx.storage.put(RESULTS_RECORDED_KEY, true);
+    await this.resumeRankedMatchmaking(setup, true);
+  }
+
+  /**
+   * Wake the pool's matchmaker so the seats this match freed are paired again.
+   *
+   * The count of wakes left is written to storage before a wake is sent, and
+   * it is deleted only when the matchmaker takes one. The match keeps its
+   * alarm while wakes are left, so a refused wake is sent again instead of
+   * being lost with the recorded result. The kick is safe to repeat.
+   */
+  private async resumeRankedMatchmaking(setup: MatchSetup, first: boolean): Promise<void> {
+    const { pool, season } = setup;
+    if (pool == null || season == null) {
+      return;
+    }
+    const wakesLeft = first
+      ? MATCHMAKER_WAKE_ATTEMPTS
+      : ((await this.ctx.storage.get<number>(MATCHMAKER_WAKE_KEY)) ?? 0);
+    if (wakesLeft <= 0) {
+      return;
+    }
+
+    await this.ctx.storage.put(MATCHMAKER_WAKE_KEY, wakesLeft - 1);
+    this.ctx.waitUntil(
+      getMatchmakerStub(this.env.MATCHMAKERS, season, pool)
+        .kick(pool, season)
+        .then(() => this.ctx.storage.delete(MATCHMAKER_WAKE_KEY))
+        .catch((error: unknown) => {
+          console.error("Failed to resume ranked matchmaking:", error);
+        }),
+    );
   }
 
   /** Persist a result without reporting database errors to the player. */
@@ -356,22 +720,40 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
   }
 
   private appendEvent(event: MatchEvent): void {
+    const createdAt = new Date();
     this.db
       .insert(matchEventsTable)
       .values({
         kind: event.kind,
         payload: event.payload,
-        createdAt: new Date(),
+        createdAt,
       })
       .run();
+
+    // A seat can lose its turn to an action that does not say so, by routing
+    // itself, so any recorded event can move the clock and the memo is dropped
+    // for all of them. The running total behind it takes the new action rather
+    // than being dropped, which is what keeps the log off the hot path.
+    this.clock = undefined;
+    if (event.kind === "action" && this.clockProgress) {
+      const action = clockActionFromPayload(event.payload, createdAt.getTime());
+      if (action === null) {
+        this.clockProgress = undefined;
+      } else {
+        advanceClockProgress(this.clockProgress, action);
+      }
+    }
   }
 
-  private readActionEvents(): unknown[] {
+  private readActionEvents(): StoredActionEvent[] {
     const rows = this.db.select().from(matchEventsTable).orderBy(asc(matchEventsTable.seq)).all();
 
     return rows
       .map(parseMatchEvent)
-      .filter((event): event is { kind: "action"; payload: unknown } => event?.kind === "action")
+      .filter(
+        (event): event is { kind: "action"; payload: StoredActionEvent } =>
+          event?.kind === "action",
+      )
       .map((event) => event.payload);
   }
 }
@@ -396,6 +778,15 @@ function deserializeAttachment(ws: WebSocket): WebSocketAttachment {
     userId: typeof value?.userId === "string" ? value.userId : "unknown",
     slotIndex: typeof value?.slotIndex === "number" ? value.slotIndex : null,
   };
+}
+
+function isTimeoutCommand(command: unknown): boolean {
+  return (
+    typeof command === "object" &&
+    command !== null &&
+    "type" in command &&
+    command.type === "timeout"
+  );
 }
 
 function sendJson(ws: WebSocket, message: unknown): void {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { coRoster } from "#/co_roster.ts";
-import { bannedCoIdsSchema, matchSettingsSchema } from "./schemas.ts";
+import { bannedCoIdsSchema, defaultMatchClock, matchSettingsSchema } from "./schemas.ts";
 
 const [first, second, third] = coRoster;
 
@@ -23,8 +23,12 @@ describe("CO bans", () => {
 
   it("reads a match created before COs could be banned as banning none", () => {
     expect(
-      matchSettingsSchema.parse({ fogEnabled: true, startingFunds: 0, hotseatEnabled: true })
-        .bannedCoIds,
+      matchSettingsSchema.parse({
+        fogEnabled: true,
+        startingFunds: 0,
+        hotseatEnabled: true,
+        clock: defaultMatchClock,
+      }).bannedCoIds,
     ).toEqual([]);
   });
 });

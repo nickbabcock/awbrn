@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MatchCommand, MatchWebSocketMessage } from "./match_protocol.ts";
+import type { MatchWebSocketMessage, PlayerCommand } from "./match_protocol.ts";
 
 export type MatchWebSocketStatus = "connecting" | "connected" | "disconnected" | "error";
 
 export interface MatchWebSocket {
   status: MatchWebSocketStatus;
   /** Returns whether the command was written to an open socket. */
-  sendMessage: (message: MatchCommand) => boolean;
+  sendMessage: (message: PlayerCommand) => boolean;
   /**
    * Retry immediately instead of waiting out the backoff, which reaches 30
    * seconds. A player who can see the connection is down should not have to
@@ -90,7 +90,7 @@ export function useMatchWebSocket(
     };
   }, [connect]);
 
-  const sendMessage = useCallback((message: MatchCommand) => {
+  const sendMessage = useCallback((message: PlayerCommand) => {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(message));

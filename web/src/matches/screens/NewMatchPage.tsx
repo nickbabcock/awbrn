@@ -54,8 +54,10 @@ import { mapKeys } from "#/maps/maps.keys.ts";
 import { mapScreenshotSize } from "#/maps/map_screenshot.ts";
 import { countMapCatalogFilters } from "#/maps/map_taxonomy.ts";
 import type { MapCatalogEntry, MapCatalogFilter } from "#/maps/schemas.ts";
+import { defaultMatchClock, type MatchClock } from "../schemas.ts";
 import { createMatchFn } from "#/matches/matches.functions.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
+import { ClockSettings, validateClock } from "#/matches/components/ClockSettings.tsx";
 import { TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
 
 /** How long the board waits after a keystroke before it searches. */
@@ -85,6 +87,7 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
   const [startingFunds, setStartingFunds] = useState(1000);
   const [isPrivate, setIsPrivate] = useState(false);
   const [hotseatEnabled, setHotseatEnabled] = useState(false);
+  const [clock, setClock] = useState<MatchClock>(defaultMatchClock);
   const [bannedCoIds, setBannedCoIds] = useState<ReadonlySet<number>>(EMPTY_CO_BANS);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -186,6 +189,11 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
       setCreateError("Leave at least one CO for the players to choose.");
       return;
     }
+    const clockError = validateClock(clock);
+    if (clockError) {
+      setCreateError(clockError);
+      return;
+    }
 
     setCreateError(null);
     try {
@@ -199,6 +207,7 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
             startingFunds,
             hotseatEnabled,
             bannedCoIds: [...bannedCoIds],
+            clock,
           },
         },
       });
@@ -317,6 +326,7 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
           <MapBriefing
             bannedCoIds={bannedCoIds}
             briefingRef={briefingRef}
+            clock={clock}
             createError={createError}
             fogEnabled={fogEnabled}
             hotseatEnabled={hotseatEnabled}
@@ -325,6 +335,7 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
             map={selectedMap}
             matchName={matchName}
             onCreate={handleCreateLobby}
+            onClockChange={setClock}
             onFogChange={setFogEnabled}
             onHotseatChange={setHotseatEnabled}
             onToggleBan={(coId) => {
@@ -483,6 +494,7 @@ function FirstMapPanel({
 function MapBriefing({
   bannedCoIds,
   briefingRef,
+  clock,
   createError,
   fogEnabled,
   hotseatEnabled,
@@ -490,6 +502,7 @@ function MapBriefing({
   isPrivate,
   map,
   matchName,
+  onClockChange,
   onCreate,
   onFogChange,
   onHotseatChange,
@@ -502,6 +515,7 @@ function MapBriefing({
 }: {
   bannedCoIds: ReadonlySet<number>;
   briefingRef: RefObject<HTMLDivElement | null>;
+  clock: MatchClock;
   createError: string | null;
   fogEnabled: boolean;
   hotseatEnabled: boolean;
@@ -509,6 +523,7 @@ function MapBriefing({
   isPrivate: boolean;
   map: MapCatalogEntry;
   matchName: string;
+  onClockChange: (clock: MatchClock) => void;
   onCreate: () => void | Promise<void>;
   onFogChange: (value: boolean) => void;
   onHotseatChange: (value: boolean) => void;
@@ -598,6 +613,10 @@ function MapBriefing({
           </VStack>
           <CoBoard bannedCoIds={bannedCoIds} mode="ban" onToggleBan={onToggleBan} />
         </VStack>
+
+        <Divider />
+
+        <ClockSettings clock={clock} onChange={onClockChange} />
 
         <Divider />
 

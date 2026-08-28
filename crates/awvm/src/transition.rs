@@ -135,6 +135,10 @@ pub enum Command {
     Resign {
         player: PlayerId,
     },
+    /// The seat ran out of clock. The host issues this, never the player.
+    Timeout {
+        player: PlayerId,
+    },
     /// A `type` this adapter does not implement. Reaching the reducer with one
     /// is [`ExecuteError::UnsupportedCommand`], not a rules violation.
     #[serde(other)]
@@ -162,7 +166,8 @@ impl Command {
             | Self::ActivatePower { player, .. }
             | Self::Tag { player }
             | Self::EndTurn { player }
-            | Self::Resign { player } => Some(player),
+            | Self::Resign { player }
+            | Self::Timeout { player } => Some(player),
             Self::Unsupported => None,
         }
     }
@@ -859,6 +864,11 @@ fn prepare(state: &State, command: Command) -> Result<PreparedCommandKind<'_>, R
         Command::Resign { player } => turn::prepare_boundary(
             ActiveTurn::opened(state, &player)?,
             turn::BoundaryCommand::Resign,
+        )
+        .map(PreparedCommandKind::Boundary),
+        Command::Timeout { player } => turn::prepare_boundary(
+            ActiveTurn::opened(state, &player)?,
+            turn::BoundaryCommand::Timeout,
         )
         .map(PreparedCommandKind::Boundary),
         Command::Unsupported => Err(ReducerError::UnsupportedCommand),
@@ -2594,6 +2604,63 @@ mod tests {
                     }
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn timeout_command_removes_the_seat_that_ran_out_of_clock() {
+        let case: Value = serde_json::from_str(include_str!(
+            "../../../spec/fixtures/elimination/resign-ends-match.json"
+        ))
+        .unwrap();
+        let state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
+
+        let result = execute(
+            &state,
+            Command::Timeout {
+                player: "red".into(),
+            },
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(
+            result
+                .state
+                .find_player(&PlayerId::from("red"))
+                .unwrap()
+                .status,
+            PlayerStatus::TimedOut
+        );
+        assert!(matches!(result.state.match_state, Match::Finished { .. }));
+        assert_eq!(
+            result.events[result.events.len() - 1],
+            Event::MatchCompleted {
+                outcome: Outcome::Victory {
+                    winners: vec![crate::semantic::TeamId::from("blue-team")],
+                    reason: VictoryReason::Timeout,
+                },
+            }
+        );
+    }
+
+    /// The clock is the host's to run, so the seat cannot spend its own turn
+    /// timing itself out.
+    #[test]
+    fn timeout_is_not_an_order_a_player_may_choose() {
+        let case: Value = serde_json::from_str(include_str!(
+            "../../../spec/fixtures/elimination/resign-ends-match.json"
+        ))
+        .unwrap();
+        let state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
+        let session = crate::session::Session::new(state);
+        let mut orders = Vec::new();
+        session.legal().orders(&mut orders);
+
+        assert!(
+            !orders
+                .iter()
+                .any(|order| order.kind() == crate::session::OrderKind::Timeout)
         );
     }
 

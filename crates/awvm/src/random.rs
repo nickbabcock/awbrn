@@ -19,6 +19,7 @@ use crate::semantic::WeatherKind;
 /// The tag and payload are separate keys on the wire — `{"type": …, "value": …}`
 /// — which is serde's adjacent tagging.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
 #[serde(tag = "type", content = "value", rename_all = "kebab-case")]
 pub enum RandomToken {
     CombatGoodLuck(i64),

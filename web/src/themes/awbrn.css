@@ -1267,6 +1267,33 @@
       image-rendering: pixelated;
     }
 
+    .astryx-segmented-control {
+      background-color: var(--color-background-muted);
+      border: 2px solid #16181d;
+      border-radius: var(--radius-element);
+      box-shadow: inset 2px 2px 0 0 rgba(22, 24, 29, 0.12);
+      gap: var(--spacing-1);
+      padding: var(--spacing-1);
+      --_segmented-control-radius: var(--radius-element);
+      --_segmented-control-padding: var(--spacing-1);
+    }
+
+    .astryx-segmented-control-item {
+      font-family: var(--font-family-code);
+      font-size: var(--font-size-sm);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      border: 2px solid transparent;
+      border-radius: var(--radius-element);
+      box-shadow: none;
+      color: var(--color-text-secondary);
+    }
+
+    .astryx-segmented-control-item.selected {
+      border: 2px solid #16181d;
+      color: var(--color-text-primary);
+    }
+
     .astryx-text-input {
       background-color: #fffdf7;
       border: 2px solid #16181d;

@@ -31,9 +31,15 @@ import type { LiveMatchPlayer } from "#/engine/worker_module.ts";
 import { getFactionByCode, getFactionById } from "#/factions.ts";
 import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
 import { useMatchWebSocket, type MatchWebSocketStatus } from "#/matches/match_websocket.ts";
-import type { InitialBoardMessage, MatchWebSocketMessage } from "#/matches/match_protocol.ts";
+import type {
+  InitialBoardMessage,
+  MatchClockMessage,
+  MatchWebSocketMessage,
+} from "#/matches/match_protocol.ts";
+import { clockPressure, formatClockDuration, seatRemainingMs } from "#/matches/match_clock.ts";
+import { SeatClock, useClockNow } from "#/matches/components/SeatClock.tsx";
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
-import type { MatchParticipantSnapshot } from "#/matches/schemas.ts";
+import type { MatchClock, MatchParticipantSnapshot } from "#/matches/schemas.ts";
 import {
   BATTLE_CALCULATOR_SHEET_MEDIA,
   BattleCalculator,
@@ -131,6 +137,8 @@ export function MatchActivePage({
   const [viewerSlotIndex, setViewerSlotIndex] = useState<number | null | undefined>(undefined);
   const [spectatorFogActive, setSpectatorFogActive] = useState<boolean | null>(null);
   const [activePlayerSlot, setActivePlayerSlot] = useState<number | null>(null);
+  // Null until the server sends the first clock message.
+  const [clock, setClock] = useState<MatchClockMessage | null>(null);
   const [isEndingTurn, setIsEndingTurn] = useState(false);
   const [activatingPower, setActivatingPower] = useState<ActivatablePowerLevel>();
   const isEndingTurnRef = useRef(false);
@@ -186,6 +194,10 @@ export function MatchActivePage({
         }
         case "spectatorNotice": {
           setSpectatorFogActive(message.fogActive);
+          return;
+        }
+        case "clock": {
+          setClock(message);
           return;
         }
         case "playerUpdate": {
@@ -330,6 +342,15 @@ export function MatchActivePage({
     [runner],
   );
 
+  // The seat spending its bank is the only one that can run out while the page
+  // is open, so it sets how often every readout redraws.
+  const runningRemaining = clock === null ? null : Math.max(0, clock.deadlineAt - Date.now());
+  const now = useClockNow(runningRemaining);
+  const viewerRemainingMs =
+    clock === null || viewerSlotIndex === null || viewerSlotIndex === undefined
+      ? null
+      : seatRemainingMs(clock, viewerSlotIndex, now);
+
   return (
     <Section padding={6} variant="transparent">
       <VStack gap={6}>
@@ -370,8 +391,10 @@ export function MatchActivePage({
             status={status}
             activePlayerSlot={activePlayerSlot}
             isEndingTurn={isEndingTurn}
+            matchClock={match.settings.clock}
             viewerFactionCode={viewerArmy?.entry.displayFactionCode ?? null}
             viewerFunds={viewerArmy?.entry.stats.funds ?? null}
+            viewerRemainingMs={viewerRemainingMs}
             viewerSlotIndex={viewerSlotIndex}
           />
 
@@ -387,6 +410,19 @@ export function MatchActivePage({
                     <RosterRow
                       isActive={army.isActive}
                       activatingPower={activatingPower}
+                      clock={
+                        clock === null ? undefined : (
+                          <SeatClock
+                            clock={match.settings.clock}
+                            expiresAt={
+                              army.entry.playerId === clock.activeSlot ? clock.deadlineAt : null
+                            }
+                            isRunning={army.entry.playerId === clock.activeSlot}
+                            name={army.name}
+                            remaining={seatRemainingMs(clock, army.entry.playerId, now)}
+                          />
+                        )
+                      }
                       isViewer={viewerSlotIndex === army.entry.playerId}
                       key={army.entry.playerId}
                       name={army.name}
@@ -434,6 +470,7 @@ function ActiveMatchBoard({
   initialBoard,
   isEndingTurn,
   match,
+  matchClock,
   onBoardError,
   onBuildUnit,
   onEndTurn,
@@ -446,6 +483,7 @@ function ActiveMatchBoard({
   status,
   viewerFactionCode,
   viewerFunds,
+  viewerRemainingMs,
   viewerSlotIndex,
 }: {
   activePlayerSlot: number | null;
@@ -463,8 +501,11 @@ function ActiveMatchBoard({
   reconnect: () => void;
   runner: GameRunner;
   status: MatchWebSocketStatus;
+  matchClock: MatchClock;
   viewerFactionCode: string | null;
   viewerFunds: number | null;
+  /** What the viewer's own bank holds, or null when they hold no seat. */
+  viewerRemainingMs: number | null;
   viewerSlotIndex: number | null | undefined;
 }) {
   const {
@@ -730,8 +771,13 @@ function ActiveMatchBoard({
             </Text>
           </HStack>
         </HStack>
-        {/* Every control the strip offers, and nothing that only reports. */}
-        <HStack align="center" gap={2} wrap="wrap">
+        {/* Every control the strip offers, and the one reading that belongs to
+            a control: how much of the viewer's own bank the open turn is
+            spending, beside the key that stops it spending. */}
+        <HStack align="center" gap={3} wrap="wrap">
+          {isViewerTurn && viewerRemainingMs !== null ? (
+            <TurnClockNotice openingMs={matchClock.initialMs} remaining={viewerRemainingMs} />
+          ) : null}
           {/* While the board holds the screen this strip is behind it, and the
               way back out is the key on the board itself. */}
           <Button
@@ -760,6 +806,31 @@ function ActiveMatchBoard({
         </HStack>
       </HStack>
     </Card>
+  );
+}
+
+/**
+ * The viewer's own bank, on the strip, once it is worth acting on.
+ *
+ * The roster already reports every army's clock, this one included, so a
+ * healthy bank has nothing to add here and says nothing. What the roster
+ * cannot do is put the warning against the key that answers it, so the line
+ * appears when the bank turns short and names what to do about it.
+ */
+function TurnClockNotice({ openingMs, remaining }: { openingMs: number; remaining: number }) {
+  const pressure = clockPressure(remaining, openingMs);
+  if (pressure === "steady") return null;
+  const span = formatClockDuration(remaining);
+
+  return (
+    <HStack
+      align="center"
+      xstyle={[styles.turnClock, pressure === "critical" && styles.turnClockCritical]}
+    >
+      <Text as="p" color="inherit" hasTabularNumbers type="supporting">
+        {pressure === "critical" ? `End your turn — ${span} left` : `${span} left on your clock`}
+      </Text>
+    </HStack>
   );
 }
 
@@ -844,6 +915,17 @@ function statusVariant(status: MatchWebSocketStatus): "success" | "warning" | "e
 }
 
 const styles = stylex.create({
+  // The reading sits on the strip with no chrome of its own. Its color is the
+  // whole signal, so it moves through the game's own low supply and damage
+  // rather than through a severity scale, and it never blinks: the system has
+  // one gesture and this is not it.
+  turnClock: {
+    flex: "0 0 auto",
+    color: colorVars["--color-warning"],
+  },
+  turnClockCritical: {
+    color: colorVars["--color-error"],
+  },
   // One column until the rail and a board wide enough to read both fit; two
   // from there. The board takes the width its height allows and the rail stays
   // against it, so a wide window puts the spare space around the pair instead

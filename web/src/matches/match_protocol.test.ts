@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import type { MatchSetup } from "./schemas.ts";
+import { defaultMatchClock, type MatchSetup } from "./schemas.ts";
 import {
   initialMatchConnectionMessages,
   type ActivatePowerCommand,
@@ -45,6 +45,7 @@ const setup: MatchSetup = {
   ],
   fogEnabled: false,
   startingFunds: 1000,
+  clock: defaultMatchClock,
   creatorUserId: "user_1",
 };
 
@@ -169,7 +170,9 @@ describe("wasm action responses", () => {
   it("keeps route-ready websocket messages typed", () => {
     const response: WasmActionResponse = {
       storedActionEvent: {
+        player: 0,
         command: { type: "endTurn" },
+        random: [],
       },
       playerMessagesBySlot: {
         "0": {

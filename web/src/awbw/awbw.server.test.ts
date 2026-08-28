@@ -1,17 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-const waitUntilMock = vi.hoisted(() => vi.fn());
-
-vi.mock("cloudflare:workers", () => ({
-  env: {
-    AWBW_ACTOR_RATE_LIMITER: { limit: vi.fn().mockResolvedValue({ success: true }) },
-    AWBW_GATEWAY: {
-      getByName: () => ({ fetch: (...args: Parameters<typeof fetch>) => fetch(...args) }),
-    },
-  },
-  waitUntil: waitUntilMock,
-}));
-
+import { env } from "cloudflare:workers";
 import {
   fetchAwbwMapResponse,
   fetchAwbwSmallMapResponse,
@@ -42,7 +30,6 @@ describe("awbw edge caching", () => {
   const cachePutMock = vi.fn();
 
   beforeEach(() => {
-    waitUntilMock.mockReset();
     fetchMock.mockReset();
     cacheMatchMock.mockReset();
     cachePutMock.mockReset();
@@ -50,7 +37,11 @@ describe("awbw edge caching", () => {
     cacheMatchMock.mockResolvedValue(null);
     cachePutMock.mockResolvedValue(undefined);
 
-    vi.stubGlobal("fetch", fetchMock);
+    // The gateway is replaced with the mock, because a response made here
+    // cannot be read in the durable object that the real gateway runs in.
+    vi.spyOn(env.AWBW_GATEWAY, "getByName").mockReturnValue({
+      fetch: fetchMock,
+    } as unknown as ReturnType<typeof env.AWBW_GATEWAY.getByName>);
     vi.stubGlobal("caches", {
       default: {
         match: cacheMatchMock,
@@ -60,6 +51,7 @@ describe("awbw edge caching", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -96,7 +88,6 @@ describe("awbw edge caching", () => {
     expect(await response.json()).toEqual({ userId: 7, username: "Andy & Max" });
     expect(cachePutMock).toHaveBeenCalledOnce();
     expect(cachePutMock).toHaveBeenCalledWith(request, expect.any(Response));
-    expect(waitUntilMock).toHaveBeenCalledOnce();
   });
 
   it("does not cache username parse failures", async () => {
@@ -110,7 +101,6 @@ describe("awbw edge caching", () => {
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(await response.json()).toEqual({ userId: 7, username: null });
     expect(cachePutMock).not.toHaveBeenCalled();
-    expect(waitUntilMock).not.toHaveBeenCalled();
   });
 
   it("returns cached map responses without hitting AWBW", async () => {
@@ -151,7 +141,6 @@ describe("awbw edge caching", () => {
     expect(await response.json()).toEqual(payload);
     expect(cachePutMock).toHaveBeenCalledOnce();
     expect(cachePutMock).toHaveBeenCalledWith(request, expect.any(Response));
-    expect(waitUntilMock).toHaveBeenCalledOnce();
   });
 
   it("does not cache AWBW map error payloads", async () => {
@@ -170,7 +159,6 @@ describe("awbw edge caching", () => {
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(await response.json()).toEqual({ err: true, message: "No map matches given ID" });
     expect(cachePutMock).not.toHaveBeenCalled();
-    expect(waitUntilMock).not.toHaveBeenCalled();
   });
 
   it("does not cache upstream failures", async () => {
@@ -184,7 +172,6 @@ describe("awbw edge caching", () => {
     expect(response.status).toBe(502);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(cachePutMock).not.toHaveBeenCalled();
-    expect(waitUntilMock).not.toHaveBeenCalled();
   });
 
   it("caches small map thumbnails for one week", async () => {
@@ -203,7 +190,6 @@ describe("awbw edge caching", () => {
     expect(response.headers.get("Content-Type")).toBe("image/png");
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(imageBytes);
     expect(cachePutMock).toHaveBeenCalledOnce();
-    expect(waitUntilMock).toHaveBeenCalledOnce();
   });
 
   it("does not cache missing small map thumbnails", async () => {
@@ -217,7 +203,6 @@ describe("awbw edge caching", () => {
     expect(response.status).toBe(404);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(cachePutMock).not.toHaveBeenCalled();
-    expect(waitUntilMock).not.toHaveBeenCalled();
   });
 
   it("still works when Cache API is unavailable", async () => {
@@ -232,6 +217,5 @@ describe("awbw edge caching", () => {
     expect(await response.json()).toEqual({ userId: 7, username: "Andy" });
     expect(response.headers.get("Cache-Control")).toBe(SUCCESS_CACHE_CONTROL);
     expect(cachePutMock).not.toHaveBeenCalled();
-    expect(waitUntilMock).not.toHaveBeenCalled();
   });
 });

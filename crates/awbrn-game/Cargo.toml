@@ -8,7 +8,7 @@ workspace = true
 
 [features]
 default = []
-typescript = ["dep:tsify", "dep:wasm-bindgen"]
+typescript = ["dep:tsify", "dep:wasm-bindgen", "awvm/typescript"]
 
 [dependencies]
 awbrn-map.path = "../awbrn-map"

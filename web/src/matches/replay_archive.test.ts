@@ -10,7 +10,7 @@ import {
   parseMatchReplay,
   uploadMatchReplay,
 } from "./replay_archive";
-import type { MatchSetup } from "./schemas";
+import { defaultMatchClock, type MatchSetup } from "./schemas";
 
 const setup = {
   matchId: "abc123def456g",
@@ -27,6 +27,7 @@ const setup = {
   players: [],
   fogEnabled: false,
   startingFunds: 0,
+  clock: defaultMatchClock,
   creatorUserId: "user-1",
 } satisfies MatchSetup;
 

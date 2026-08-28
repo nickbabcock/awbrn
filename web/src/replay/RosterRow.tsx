@@ -104,6 +104,7 @@ function Readout({ icon, label, value }: { icon: ReactNode; label: string; value
  */
 export function RosterRow({
   activatingPower,
+  clock,
   isActive,
   isViewer = false,
   name,
@@ -113,6 +114,11 @@ export function RosterRow({
   portraitCatalog,
 }: {
   activatingPower?: ActivatablePowerLevel;
+  /**
+   * What the match clock leaves this army, when the match runs on one. A
+   * replay has no clock and passes nothing, and the row closes over the slot.
+   */
+  clock?: ReactNode;
   isActive: boolean;
   /** Marks the army the viewer is playing. A reviewer plays none of them. */
   isViewer?: boolean;
@@ -171,14 +177,20 @@ export function RosterRow({
           </HStack>
         </HStack>
 
-        {/* The team runs down the trailing edge rather than trailing the name.
-            Teams are read as a column — who is with whom — and a name of any
-            length now shortens without ever pushing that column around. */}
-        {team ? (
-          <Text maxLines={1} type="label" xstyle={styles.keep}>
-            {team}
-          </Text>
-        ) : null}
+        {/* The team and the clock run down the trailing edge rather than
+            trailing the name. Both are read as a column — who is with whom,
+            and who is about to run out — and a name of any length now shortens
+            without ever pushing those columns around. Time sits beside the
+            army whose turn it measures, because a bank is a fact about a seat
+            and not about the match. */}
+        <HStack align="center" gap={2} xstyle={styles.keep}>
+          {team ? (
+            <Text maxLines={1} type="label">
+              {team}
+            </Text>
+          ) : null}
+          {clock}
+        </HStack>
       </HStack>
 
       <PowerMeter

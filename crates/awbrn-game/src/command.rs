@@ -47,6 +47,11 @@ pub enum GameCommand {
     ActivatePower { level: PowerLevel },
     /// End the current player's turn.
     EndTurn,
+    /// Remove the current player because their clock ran out.
+    ///
+    /// The host issues this when the match clock expires. A player cannot send
+    /// it: the match durable object rejects it on the player websocket.
+    Timeout,
 }
 
 #[cfg(test)]

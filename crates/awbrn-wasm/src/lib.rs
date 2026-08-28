@@ -20,6 +20,7 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
+use tsify::Ts;
 use wasm_bindgen::prelude::*;
 use web_sys::OffscreenCanvas;
 
@@ -35,7 +36,6 @@ use bevy::asset::io::{AssetSourceBuilder, wasm::HttpWasmAssetReader};
 
 /// Discriminated union of all game events sent to JavaScript.
 #[derive(Debug, Serialize, tsify::Tsify)]
-#[tsify(into_wasm_abi)]
 #[serde(tag = "type")]
 pub enum GameEvent {
     NewDay(NewDay),
@@ -74,7 +74,6 @@ impl WasmCallback {
 }
 
 #[derive(Resource, Copy, Clone, Debug, Deserialize, Serialize, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct CanvasDisplay {
     width: f32,
@@ -83,7 +82,6 @@ pub struct CanvasDisplay {
 }
 
 #[derive(Resource, Copy, Clone, Debug, Deserialize, Serialize, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct CanvasSize {
     width: f32,
@@ -92,14 +90,12 @@ pub struct CanvasSize {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct MouseButtonEvent {
     button: i16,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct GameAssetConfig {
     static_asset_urls: BTreeMap<String, String>,
@@ -160,10 +156,15 @@ impl BevyApp {
     #[wasm_bindgen(constructor)]
     pub fn new(
         canvas: web_sys::OffscreenCanvas,
-        display: CanvasDisplay,
-        asset_config: GameAssetConfig,
+        display: Ts<CanvasDisplay>,
+        asset_config: Ts<GameAssetConfig>,
         event_callback: Option<GameEventCallback>,
-    ) -> Self {
+    ) -> Result<Self, JsError> {
+        // JavaScript can hand over anything, so every value it passes is read
+        // rather than assumed: a bad one is reported to the caller instead of
+        // being thrown out of the argument list, which leaks what it took.
+        let display = display.to_rust()?;
+        let asset_config = asset_config.to_rust()?;
         let mut app = App::new();
         register_awbw_asset_source(&mut app);
 
@@ -232,7 +233,7 @@ impl BevyApp {
 
         app.insert_non_send(canvas);
 
-        BevyApp { app }
+        Ok(BevyApp { app })
     }
 
     #[wasm_bindgen]
@@ -248,7 +249,8 @@ impl BevyApp {
     }
 
     #[wasm_bindgen]
-    pub fn resize(&mut self, size: CanvasSize) {
+    pub fn resize(&mut self, size: Ts<CanvasSize>) -> Result<(), JsError> {
+        let size = size.to_rust()?;
         let world = self.app.world_mut();
         let scale_factor = size.scale_factor;
 
@@ -276,6 +278,7 @@ impl BevyApp {
         }
 
         // TODO: do we send a WindowResized event here?
+        Ok(())
     }
 
     #[wasm_bindgen]
@@ -344,29 +347,33 @@ impl BevyApp {
     }
 
     #[wasm_bindgen]
-    pub fn handle_mouse_down(&mut self, event: MouseButtonEvent) {
+    pub fn handle_mouse_down(&mut self, event: Ts<MouseButtonEvent>) -> Result<(), JsError> {
+        let event = event.to_rust()?;
         let world = self.app.world_mut();
         let Some(window) = primary_window_entity(world) else {
-            return;
+            return Ok(());
         };
         let _ = world.write_message(MouseButtonInput {
             button: mouse_button_from_web(event.button),
             state: ButtonState::Pressed,
             window,
         });
+        Ok(())
     }
 
     #[wasm_bindgen]
-    pub fn handle_mouse_up(&mut self, event: MouseButtonEvent) {
+    pub fn handle_mouse_up(&mut self, event: Ts<MouseButtonEvent>) -> Result<(), JsError> {
+        let event = event.to_rust()?;
         let world = self.app.world_mut();
         let Some(window) = primary_window_entity(world) else {
-            return;
+            return Ok(());
         };
         let _ = world.write_message(MouseButtonInput {
             button: mouse_button_from_web(event.button),
             state: ButtonState::Released,
             window,
         });
+        Ok(())
     }
 
     #[wasm_bindgen]

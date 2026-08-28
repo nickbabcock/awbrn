@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 /// client currently sources them from a 32-bit identifier space.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
-#[cfg_attr(target_family = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum PostMoveAction {
     /// Attack a target at the given position.

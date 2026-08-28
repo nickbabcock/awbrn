@@ -573,6 +573,33 @@ export const awbrnTheme = defineTheme({
     },
 
     // -- Fields: recessed, the way an input box sinks into a menu ----------
+    // A run of keys sunk into the panel the way a field is, so the chosen unit
+    // reads as the key standing proud of the track around it.
+    "segmented-control": {
+      base: {
+        backgroundColor: "var(--color-background-muted)",
+        border: `2px solid ${INK}`,
+        borderRadius: "var(--radius-element)",
+        boxShadow: `inset 2px 2px 0 0 rgba(22, 24, 29, 0.12)`,
+        gap: "var(--spacing-1)",
+        padding: "var(--spacing-1)",
+      },
+    },
+    "segmented-control-item": {
+      base: {
+        ...hudLabel,
+        border: "2px solid transparent",
+        borderRadius: "var(--radius-element)",
+        boxShadow: "none",
+        color: "var(--color-text-secondary)",
+      },
+      // The chosen unit is a key standing proud of the track: the system's
+      // outline, in ink, and the full-strength voice the others give up.
+      selected: {
+        border: `2px solid ${INK}`,
+        color: "var(--color-text-primary)",
+      },
+    },
     "text-input": {
       base: {
         backgroundColor: "#fffdf7",

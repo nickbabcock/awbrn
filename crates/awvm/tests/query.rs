@@ -875,6 +875,7 @@ fn offered(state: &State, command: &Command, relative: &str) -> Option<&'static 
         | Command::Tag { .. }
         | Command::EndTurn { .. }
         | Command::Resign { .. }
+        | Command::Timeout { .. }
         | Command::Unsupported => None,
     }
 }

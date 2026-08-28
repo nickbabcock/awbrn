@@ -15,6 +15,7 @@ import { formatMyMatchPhaseLabel, myMatchActionLabel } from "#/matches/my_matche
 import { myMatchesQueryOptions } from "#/matches/matches.queries.ts";
 import { TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
 import { formatRelativeTime } from "#/utils/time.ts";
+import { formatClockSummary } from "#/matches/match_clock.ts";
 
 export function MyMatchesPage() {
   const { data } = useSuspenseQuery(myMatchesQueryOptions());
@@ -86,6 +87,7 @@ function MyMatchRow({ loadedAt, match }: { loadedAt: string; match: MyMatchSumma
     match.isPrivate ? "Private" : "Public",
     match.settings.fogEnabled ? "Fog on" : "Fog off",
     `${match.settings.startingFunds.toLocaleString()} funds`,
+    formatClockSummary(match.settings.clock),
   ].join(" · ");
 
   return (

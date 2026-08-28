@@ -7,6 +7,10 @@ import {
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import { defineProject } from "vitest/config";
 
+// The worker requires this secret, so a checkout with no .dev.vars (CI, for
+// example) gets a test value instead of a warning about the missing one.
+process.env.AUTH_SECRET ??= "test-auth-secret";
+
 export default defineProject(async () => {
   const migrations = await readD1Migrations(path.join(import.meta.dirname, "drizzle/global"));
   const assets = await buildPagesASSETSBinding(path.join(import.meta.dirname, "../assets"));

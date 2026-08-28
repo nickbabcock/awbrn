@@ -25,6 +25,38 @@ export const bannedCoIdsSchema = z
     "at least one CO has to be left for the players to choose",
   );
 
+const MINUTE_MS = 60_000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
+
+/** The longest bank or increment a host may set. */
+export const MAX_CLOCK_MS = 30 * DAY_MS;
+
+/**
+ * The clock every new match runs on, in milliseconds.
+ *
+ * Each seat holds a bank that counts down only while its own turn is open.
+ * Ending a turn adds `incrementMs` to what is left, up to `maxBankMs`. A seat
+ * whose bank reaches zero is removed from the match, which is what stops a
+ * match from running forever.
+ */
+export const matchClockSchema = z
+  .object({
+    initialMs: z.number().int().min(MINUTE_MS).max(MAX_CLOCK_MS),
+    incrementMs: z.number().int().nonnegative().max(MAX_CLOCK_MS),
+    maxBankMs: z.number().int().min(MINUTE_MS).max(MAX_CLOCK_MS),
+  })
+  .refine(
+    (clock) => clock.maxBankMs >= clock.initialMs,
+    "the bank ceiling cannot be below the starting time",
+  );
+
+/** What a host gets when they do not touch the clock: 7 days, +2 a turn. */
+export const defaultMatchClock: MatchClock = {
+  initialMs: 7 * DAY_MS,
+  incrementMs: 2 * DAY_MS,
+  maxBankMs: 7 * DAY_MS,
+};
+
 export const matchSettingsSchema = z.object({
   fogEnabled: z.boolean(),
   startingFunds: z.number().int().nonnegative(),
@@ -32,6 +64,8 @@ export const matchSettingsSchema = z.object({
   // Matches created before COs could be banned have no list, and read as a
   // match where nothing is banned.
   bannedCoIds: bannedCoIdsSchema.default([]),
+  // Every match runs on a clock, so the settings always name one.
+  clock: matchClockSchema,
 });
 
 export const matchCreateRequestSchema = z.object({
@@ -124,6 +158,7 @@ export type MatchOutcome = (typeof matchOutcomes)[number];
 export type MatchSeatStatus = (typeof matchSeatStatuses)[number];
 export type RankedPool = (typeof rankedPools)[number];
 export type PairingStatus = (typeof pairingStatuses)[number];
+export type MatchClock = z.infer<typeof matchClockSchema>;
 export type MatchSettings = z.infer<typeof matchSettingsSchema>;
 export type MatchCreateRequest = z.infer<typeof matchCreateRequestSchema>;
 export type MatchBrowseRequest = z.infer<typeof matchBrowseRequestSchema>;
@@ -260,6 +295,7 @@ export const matchSetupSchema = z.object({
   creatorUserId: z.string(),
   pool: rankedPoolSchema.nullable().default(null),
   season: z.number().int().positive().nullable().default(null),
+  clock: matchClockSchema,
 });
 
 export type MatchSetupPlayer = z.infer<typeof matchSetupPlayerSchema>;

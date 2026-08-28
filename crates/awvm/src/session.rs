@@ -124,6 +124,8 @@ pub enum OrderKind {
     Tag,
     /// Leave the match.
     Resign,
+    /// Leave the match because the clock ran out.
+    Timeout,
     /// Activate a commander power.
     Power(PowerLevel),
 }
@@ -829,6 +831,7 @@ impl Session {
             }
             Command::EndTurn { .. } => Ok(Order::unitless(ORIGIN, OrderKind::EndTurn)),
             Command::Resign { .. } => Ok(Order::unitless(ORIGIN, OrderKind::Resign)),
+            Command::Timeout { .. } => Ok(Order::unitless(ORIGIN, OrderKind::Timeout)),
             Command::Tag { .. } => Ok(Order::unitless(ORIGIN, OrderKind::Tag)),
             Command::ActivatePower { level, .. } => {
                 Ok(Order::unitless(ORIGIN, OrderKind::Power(*level)))
@@ -858,6 +861,7 @@ impl Session {
         match order.kind {
             OrderKind::EndTurn => return Ok(Command::EndTurn { player }),
             OrderKind::Resign => return Ok(Command::Resign { player }),
+            OrderKind::Timeout => return Ok(Command::Timeout { player }),
             OrderKind::Tag => return Ok(Command::Tag { player }),
             OrderKind::Power(level) => return Ok(Command::ActivatePower { player, level }),
             OrderKind::Produce(kind) => {
