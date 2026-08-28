@@ -5,16 +5,20 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { matchOutcomes } from "#/matches/schemas.ts";
+import { rankedPools } from "#/matches/schemas.ts";
+import { pairingStatuses } from "#/matches/schemas.ts";
 import type {
   MatchOutcome,
   MatchPhase,
   MatchSettings,
   RankedPool,
+  PairingStatus,
   SeatResultReason,
 } from "#/matches/schemas.ts";
 import { MAP_RANKS, MAP_TAGS } from "#/maps/schemas.ts";
@@ -137,6 +141,8 @@ export const matches = sqliteTable(
     updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
     startedAt: integer("startedAt", { mode: "timestamp" }),
     completedAt: integer("completedAt", { mode: "timestamp" }),
+    pool: text("pool").$type<RankedPool>(),
+    season: integer("season").references(() => seasons.number, { onDelete: "restrict" }),
   },
   (t) => [
     foreignKey({
@@ -146,6 +152,17 @@ export const matches = sqliteTable(
     index("matches_creator_idx").on(t.creatorUserId),
     index("matches_browse_idx").on(t.phase, t.isPrivate, t.createdAt),
     uniqueIndex("matches_joinSlug_unique").on(t.joinSlug),
+    index("matches_ranked_active_idx")
+      .on(t.pool, t.phase)
+      .where(sql`${t.pool} is not null`),
+    check(
+      "matches_ranked_identity_complete",
+      sql`(${t.pool} is null and ${t.season} is null) or (${t.pool} is not null and ${t.season} is not null)`,
+    ),
+    check(
+      "matches_pool_vocabulary",
+      sql`${t.pool} is null or ${t.pool} in (${sqlLiterals(rankedPools)})`,
+    ),
   ],
 );
 
@@ -169,6 +186,7 @@ export const matchParticipants = sqliteTable(
     primaryKey({ columns: [t.matchId, t.slotIndex] }),
     index("match_participants_match_idx").on(t.matchId),
     index("match_participants_match_user_idx").on(t.matchId, t.userId),
+    index("match_participants_user_match_idx").on(t.userId, t.matchId),
   ],
 );
 
@@ -332,6 +350,127 @@ export const mapTags = sqliteTable(
     primaryKey({ columns: [t.mapId, t.tag] }),
     index("map_tags_tag_idx").on(t.tag, t.mapId),
     check("map_tags_vocabulary", sql`${t.tag} in (${sqlLiterals(MAP_TAGS)})`),
+  ],
+);
+
+/** One ranked-play season. */
+export const seasons = sqliteTable(
+  "seasons",
+  {
+    number: integer("number").primaryKey(),
+    startsAt: integer("startsAt", { mode: "timestamp" }).notNull(),
+    endsAt: integer("endsAt", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [check("seasons_dates_ordered", sql`${t.startsAt} < ${t.endsAt}`)],
+);
+
+/** The curated maps that a ranked pool may select for a season. */
+export const rankedMaps = sqliteTable(
+  "ranked_maps",
+  {
+    season: integer("season")
+      .notNull()
+      .references(() => seasons.number, { onDelete: "restrict" }),
+    pool: text("pool").notNull().$type<RankedPool>(),
+    mapId: text("mapId")
+      .notNull()
+      .references(() => maps.id, { onDelete: "restrict" }),
+    addedAt: integer("addedAt", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [
+    primaryKey({ columns: [t.season, t.pool, t.mapId] }),
+    index("ranked_maps_pool_idx").on(t.season, t.pool),
+    check("ranked_maps_pool_vocabulary", sql`${t.pool} in (${sqlLiterals(rankedPools)})`),
+  ],
+);
+
+/** A persistent request for ranked matches in one pool. */
+export const seeks = sqliteTable(
+  "seeks",
+  {
+    userId: text("userId")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    pool: text("pool").notNull().$type<RankedPool>(),
+    generation: text("generation").notNull(),
+    maxActiveMatches: integer("maxActiveMatches").notNull(),
+    createdAt: integer("createdAt", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.pool] }),
+    index("seeks_pool_created_idx").on(t.pool, t.createdAt),
+    check("seeks_pool_vocabulary", sql`${t.pool} in (${sqlLiterals(rankedPools)})`),
+    check(
+      "seeks_active_match_limit",
+      sql`typeof(${t.maxActiveMatches}) = 'integer' and ${t.maxActiveMatches} between 1 and 5`,
+    ),
+  ],
+);
+
+/** The current Glicko-2 state for one user in one ranked pool. */
+export const ratings = sqliteTable(
+  "ratings",
+  {
+    userId: text("userId")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    pool: text("pool").notNull().$type<RankedPool>(),
+    rating: real("rating").notNull().default(1500),
+    deviation: real("deviation").notNull().default(350),
+    volatility: real("volatility").notNull().default(0.06),
+    lastRatedAt: integer("lastRatedAt", { mode: "timestamp" }),
+    ratedMatches: integer("ratedMatches").notNull().default(0),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.pool] }),
+    index("ratings_pool_rating_idx").on(t.pool, t.rating),
+    check("ratings_pool_vocabulary", sql`${t.pool} in (${sqlLiterals(rankedPools)})`),
+    check("ratings_deviation_positive", sql`${t.deviation} > 0`),
+    check("ratings_volatility_positive", sql`${t.volatility} > 0`),
+    check("ratings_match_count_nonnegative", sql`${t.ratedMatches} >= 0`),
+  ],
+);
+
+/** The durable audit record for a ranked pairing and its confirmation. */
+export const pairings = sqliteTable(
+  "pairings",
+  {
+    id: text("id").primaryKey(),
+    matchId: text("matchId")
+      .notNull()
+      .unique()
+      .references(() => matches.id, { onDelete: "restrict" }),
+    pool: text("pool").notNull().$type<RankedPool>(),
+    season: integer("season")
+      .notNull()
+      .references(() => seasons.number, { onDelete: "restrict" }),
+    userOneId: text("userOneId")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    userTwoId: text("userTwoId")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    userOneSeekGeneration: text("userOneSeekGeneration").notNull(),
+    userTwoSeekGeneration: text("userTwoSeekGeneration").notNull(),
+    status: text("status").notNull().$type<PairingStatus>(),
+    createdAt: integer("createdAt", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    deadlineAt: integer("deadlineAt", { mode: "timestamp" }).notNull(),
+    resolvedAt: integer("resolvedAt", { mode: "timestamp" }),
+  },
+  (t) => [
+    index("pairings_pending_deadline_idx")
+      .on(t.pool, t.season, t.deadlineAt)
+      .where(sql`${t.status} = 'pending'`),
+    index("pairings_users_idx").on(t.pool, t.userOneId, t.userTwoId, t.createdAt),
+    check("pairings_users_ordered", sql`${t.userOneId} < ${t.userTwoId}`),
+    check("pairings_pool_vocabulary", sql`${t.pool} in (${sqlLiterals(rankedPools)})`),
+    check("pairings_status_vocabulary", sql`${t.status} in (${sqlLiterals(pairingStatuses)})`),
   ],
 );
 

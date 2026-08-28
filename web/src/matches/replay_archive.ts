@@ -19,7 +19,7 @@ export const matchReplaySchema = z.object({
   actions: z.array(z.unknown()),
 });
 
-export type MatchReplay = z.infer<typeof matchReplaySchema>;
+export type MatchReplay = z.input<typeof matchReplaySchema>;
 
 export function matchReplayKey(matchId: string): string {
   return `replays/${matchId}.json`;

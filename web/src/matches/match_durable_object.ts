@@ -22,6 +22,7 @@ import { ownedSlotIndices, selectOwnedPerspectiveSlot } from "./hotseat.ts";
 import { matchResultRows } from "./match_completion.ts";
 import { uploadMatchReplay } from "./replay_archive.ts";
 import { requireRateLimit } from "#/rate_limit.ts";
+import { getMatchmakerStub } from "#/matchmaking/matchmaker_service.ts";
 
 interface WebSocketAttachment {
   userId: string;
@@ -328,6 +329,15 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
         .set({ phase: "completed", completedAt: now, updatedAt: now })
         .where(and(eq(matches.id, setup.matchId), isNull(matches.completedAt))),
     ]);
+    if (setup.pool != null && setup.season != null) {
+      this.ctx.waitUntil(
+        getMatchmakerStub(this.env.MATCHMAKERS, setup.season, setup.pool)
+          .kick(setup.pool, setup.season)
+          .catch((error: unknown) => {
+            console.error("Failed to resume ranked matchmaking:", error);
+          }),
+      );
+    }
     await this.ctx.storage.deleteAlarm();
   }
 

@@ -83,6 +83,7 @@ CREATE TABLE `match_participants` (
 --> statement-breakpoint
 CREATE INDEX `match_participants_match_idx` ON `match_participants` (`matchId`);--> statement-breakpoint
 CREATE INDEX `match_participants_match_user_idx` ON `match_participants` (`matchId`,`userId`);--> statement-breakpoint
+CREATE INDEX `match_participants_user_match_idx` ON `match_participants` (`userId`,`matchId`);--> statement-breakpoint
 CREATE TABLE `match_results` (
 	`matchId` text NOT NULL,
 	`slotIndex` integer NOT NULL,
@@ -126,14 +127,20 @@ CREATE TABLE `matches` (
 	`updatedAt` integer NOT NULL,
 	`startedAt` integer,
 	`completedAt` integer,
+	`pool` text,
+	`season` integer,
 	FOREIGN KEY (`creatorUserId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`mapId`) REFERENCES `maps`(`id`) ON UPDATE no action ON DELETE restrict,
-	FOREIGN KEY (`mapId`,`mapRevision`) REFERENCES `map_revisions`(`mapId`,`revision`) ON UPDATE no action ON DELETE restrict
+	FOREIGN KEY (`season`) REFERENCES `seasons`(`number`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`mapId`,`mapRevision`) REFERENCES `map_revisions`(`mapId`,`revision`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "matches_ranked_identity_complete" CHECK(("matches"."pool" is null and "matches"."season" is null) or ("matches"."pool" is not null and "matches"."season" is not null)),
+	CONSTRAINT "matches_pool_vocabulary" CHECK("matches"."pool" is null or "matches"."pool" in ('async', 'fog_async', 'live', 'fog_live'))
 );
 --> statement-breakpoint
 CREATE INDEX `matches_creator_idx` ON `matches` (`creatorUserId`);--> statement-breakpoint
 CREATE INDEX `matches_browse_idx` ON `matches` (`phase`,`isPrivate`,`createdAt`);--> statement-breakpoint
 CREATE UNIQUE INDEX `matches_joinSlug_unique` ON `matches` (`joinSlug`);--> statement-breakpoint
+CREATE INDEX `matches_ranked_active_idx` ON `matches` (`pool`,`phase`) WHERE "matches"."pool" is not null;--> statement-breakpoint
 CREATE TABLE `moderation_actions` (
 	`id` text PRIMARY KEY NOT NULL,
 	`actorUserId` text NOT NULL,
@@ -151,6 +158,80 @@ CREATE TABLE `moderation_actions` (
 CREATE INDEX `moderation_actions_subject_idx` ON `moderation_actions` (`subjectType`,`subjectId`,`createdAt`);--> statement-breakpoint
 CREATE INDEX `moderation_actions_actor_idx` ON `moderation_actions` (`actorUserId`,`createdAt`);--> statement-breakpoint
 CREATE INDEX `moderation_actions_recent_idx` ON `moderation_actions` (`createdAt`);--> statement-breakpoint
+CREATE TABLE `pairings` (
+	`id` text PRIMARY KEY NOT NULL,
+	`matchId` text NOT NULL,
+	`pool` text NOT NULL,
+	`season` integer NOT NULL,
+	`userOneId` text NOT NULL,
+	`userTwoId` text NOT NULL,
+	`userOneSeekGeneration` text NOT NULL,
+	`userTwoSeekGeneration` text NOT NULL,
+	`status` text NOT NULL,
+	`createdAt` integer DEFAULT (unixepoch()) NOT NULL,
+	`deadlineAt` integer NOT NULL,
+	`resolvedAt` integer,
+	FOREIGN KEY (`matchId`) REFERENCES `matches`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`season`) REFERENCES `seasons`(`number`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`userOneId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`userTwoId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "pairings_users_ordered" CHECK("pairings"."userOneId" < "pairings"."userTwoId"),
+	CONSTRAINT "pairings_pool_vocabulary" CHECK("pairings"."pool" in ('async', 'fog_async', 'live', 'fog_live')),
+	CONSTRAINT "pairings_status_vocabulary" CHECK("pairings"."status" in ('pending', 'confirmed', 'expired', 'refused'))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `pairings_matchId_unique` ON `pairings` (`matchId`);--> statement-breakpoint
+CREATE INDEX `pairings_pending_deadline_idx` ON `pairings` (`pool`,`season`,`deadlineAt`) WHERE "pairings"."status" = 'pending';--> statement-breakpoint
+CREATE INDEX `pairings_users_idx` ON `pairings` (`pool`,`userOneId`,`userTwoId`,`createdAt`);--> statement-breakpoint
+CREATE TABLE `ranked_maps` (
+	`season` integer NOT NULL,
+	`pool` text NOT NULL,
+	`mapId` text NOT NULL,
+	`addedAt` integer DEFAULT (unixepoch()) NOT NULL,
+	PRIMARY KEY(`season`, `pool`, `mapId`),
+	FOREIGN KEY (`season`) REFERENCES `seasons`(`number`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`mapId`) REFERENCES `maps`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ranked_maps_pool_vocabulary" CHECK("ranked_maps"."pool" in ('async', 'fog_async', 'live', 'fog_live'))
+);
+--> statement-breakpoint
+CREATE INDEX `ranked_maps_pool_idx` ON `ranked_maps` (`season`,`pool`);--> statement-breakpoint
+CREATE TABLE `ratings` (
+	`userId` text NOT NULL,
+	`pool` text NOT NULL,
+	`rating` real DEFAULT 1500 NOT NULL,
+	`deviation` real DEFAULT 350 NOT NULL,
+	`volatility` real DEFAULT 0.06 NOT NULL,
+	`lastRatedAt` integer,
+	`ratedMatches` integer DEFAULT 0 NOT NULL,
+	PRIMARY KEY(`userId`, `pool`),
+	FOREIGN KEY (`userId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "ratings_pool_vocabulary" CHECK("ratings"."pool" in ('async', 'fog_async', 'live', 'fog_live')),
+	CONSTRAINT "ratings_deviation_positive" CHECK("ratings"."deviation" > 0),
+	CONSTRAINT "ratings_volatility_positive" CHECK("ratings"."volatility" > 0),
+	CONSTRAINT "ratings_match_count_nonnegative" CHECK("ratings"."ratedMatches" >= 0)
+);
+--> statement-breakpoint
+CREATE INDEX `ratings_pool_rating_idx` ON `ratings` (`pool`,`rating`);--> statement-breakpoint
+CREATE TABLE `seasons` (
+	`number` integer PRIMARY KEY NOT NULL,
+	`startsAt` integer NOT NULL,
+	`endsAt` integer NOT NULL,
+	CONSTRAINT "seasons_dates_ordered" CHECK("seasons"."startsAt" < "seasons"."endsAt")
+);
+--> statement-breakpoint
+CREATE TABLE `seeks` (
+	`userId` text NOT NULL,
+	`pool` text NOT NULL,
+	`generation` text NOT NULL,
+	`maxActiveMatches` integer NOT NULL,
+	`createdAt` integer DEFAULT (unixepoch()) NOT NULL,
+	PRIMARY KEY(`userId`, `pool`),
+	FOREIGN KEY (`userId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "seeks_pool_vocabulary" CHECK("seeks"."pool" in ('async', 'fog_async', 'live', 'fog_live')),
+	CONSTRAINT "seeks_active_match_limit" CHECK(typeof("seeks"."maxActiveMatches") = 'integer' and "seeks"."maxActiveMatches" between 1 and 5)
+);
+--> statement-breakpoint
+CREATE INDEX `seeks_pool_created_idx` ON `seeks` (`pool`,`createdAt`);--> statement-breakpoint
 CREATE TABLE `session` (
 	`id` text PRIMARY KEY NOT NULL,
 	`expiresAt` integer NOT NULL,

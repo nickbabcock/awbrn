@@ -3,6 +3,7 @@ import type { MatchPhase } from "./schemas";
 export const ONGOING_MATCH_PHASES = [
   "draft",
   "lobby",
+  "pending",
   "starting",
   "active",
 ] as const satisfies readonly MatchPhase[];
@@ -11,9 +12,10 @@ const phaseRank: Record<MatchPhase, number> = {
   active: 0,
   starting: 1,
   lobby: 2,
-  draft: 3,
-  completed: 4,
-  cancelled: 5,
+  pending: 3,
+  draft: 4,
+  completed: 5,
+  cancelled: 6,
 };
 
 export function myMatchPhaseRank(phase: MatchPhase): number {
@@ -28,6 +30,8 @@ export function formatMyMatchPhaseLabel(phase: MatchPhase): string {
       return "Starting";
     case "lobby":
       return "Lobby";
+    case "pending":
+      return "Awaiting Confirmation";
     case "draft":
       return "Draft";
     case "completed":
@@ -46,6 +50,8 @@ export function myMatchActionLabel(phase: MatchPhase): string {
     case "lobby":
     case "draft":
       return "Open Lobby";
+    case "pending":
+      return "Confirm Match";
     case "completed":
       return "View Match";
     case "cancelled":
