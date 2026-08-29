@@ -1,9 +1,10 @@
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
 import { MatchDurableObject } from "#/matches/match_durable_object.ts";
 import { AwbwGatewayDurableObject } from "#/awbw/awbw_gateway.ts";
+import { MatchmakerDurableObject } from "#/matchmaking/matchmaker_durable_object.ts";
 import { getMatchStub } from "#/matches/match_service.ts";
 
-export { AwbwGatewayDurableObject, MatchDurableObject };
+export { AwbwGatewayDurableObject, MatchDurableObject, MatchmakerDurableObject };
 
 const crossOriginIsolationHeaders = {
   "Cross-Origin-Embedder-Policy": "require-corp",

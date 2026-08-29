@@ -704,7 +704,7 @@ async function tryStartMatch(matchId: string): Promise<MatchResult<void>> {
   return finalizeStartingMatchIfNeeded(matchId);
 }
 
-async function finalizeStartingMatchIfNeeded(matchId: string): Promise<MatchResult<void>> {
+export async function finalizeStartingMatchIfNeeded(matchId: string): Promise<MatchResult<void>> {
   const row = await queryMatchRow(matchId);
   if (!row) {
     return err("matchNotFound", "match not found", 404);
@@ -779,6 +779,8 @@ async function buildMatchSetup(row: NonNullable<MatchRow>): Promise<MatchResult<
     fogEnabled: settings.value.fogEnabled,
     startingFunds: settings.value.startingFunds,
     creatorUserId: row.creatorUserId,
+    pool: row.pool,
+    season: row.season,
     players: participantRows.map((participant) => ({
       userId: participant.userId,
       factionId: participant.factionId,
@@ -849,6 +851,8 @@ async function queryMatchRow(matchId: string) {
       updatedAt: matches.updatedAt,
       startedAt: matches.startedAt,
       completedAt: matches.completedAt,
+      pool: matches.pool,
+      season: matches.season,
     })
     .from(matches)
     .innerJoin(user, eq(user.id, matches.creatorUserId))
@@ -1174,9 +1178,17 @@ function applyViewerVisibility(
   snapshot: MatchSnapshot,
   viewerUserId: string | null,
 ): MatchSnapshot {
+  const hideRankedCommanders =
+    snapshot.phase === "pending" &&
+    !snapshot.participants.every((participant) => participant.ready);
   return {
     ...snapshot,
     joinSlug: viewerUserId === snapshot.creatorUserId ? snapshot.joinSlug : null,
+    participants: hideRankedCommanders
+      ? snapshot.participants.map((participant) =>
+          participant.userId === viewerUserId ? participant : { ...participant, coId: null },
+        )
+      : snapshot.participants,
   };
 }
 

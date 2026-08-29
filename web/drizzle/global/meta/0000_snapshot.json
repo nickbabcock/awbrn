@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a7b25a87-e10d-4e88-816e-dcb0c6c69fc6",
+  "id": "e08736e3-3ab0-4f04-9f64-3fb336d88c9c",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -504,6 +504,11 @@
           "name": "match_participants_match_user_idx",
           "columns": ["matchId", "userId"],
           "isUnique": false
+        },
+        "match_participants_user_match_idx": {
+          "name": "match_participants_user_match_idx",
+          "columns": ["userId", "matchId"],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -807,6 +812,20 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "pool": {
+          "name": "pool",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "season": {
+          "name": "season",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -824,6 +843,12 @@
           "name": "matches_joinSlug_unique",
           "columns": ["joinSlug"],
           "isUnique": true
+        },
+        "matches_ranked_active_idx": {
+          "name": "matches_ranked_active_idx",
+          "columns": ["pool", "phase"],
+          "isUnique": false,
+          "where": "\"matches\".\"pool\" is not null"
         }
       },
       "foreignKeys": {
@@ -845,6 +870,15 @@
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
+        "matches_season_seasons_number_fk": {
+          "name": "matches_season_seasons_number_fk",
+          "tableFrom": "matches",
+          "tableTo": "seasons",
+          "columnsFrom": ["season"],
+          "columnsTo": ["number"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
         "matches_mapId_mapRevision_map_revisions_mapId_revision_fk": {
           "name": "matches_mapId_mapRevision_map_revisions_mapId_revision_fk",
           "tableFrom": "matches",
@@ -857,7 +891,16 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "matches_ranked_identity_complete": {
+          "name": "matches_ranked_identity_complete",
+          "value": "(\"matches\".\"pool\" is null and \"matches\".\"season\" is null) or (\"matches\".\"pool\" is not null and \"matches\".\"season\" is not null)"
+        },
+        "matches_pool_vocabulary": {
+          "name": "matches_pool_vocabulary",
+          "value": "\"matches\".\"pool\" is null or \"matches\".\"pool\" in ('async', 'fog_async', 'live', 'fog_live')"
+        }
+      }
     },
     "moderation_actions": {
       "name": "moderation_actions",
@@ -958,6 +1001,455 @@
         "moderation_actions_subject_vocabulary": {
           "name": "moderation_actions_subject_vocabulary",
           "value": "\"moderation_actions\".\"subjectType\" in ('map', 'map_revision', 'match', 'user')"
+        }
+      }
+    },
+    "pairings": {
+      "name": "pairings",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "matchId": {
+          "name": "matchId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pool": {
+          "name": "pool",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "season": {
+          "name": "season",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userOneId": {
+          "name": "userOneId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userTwoId": {
+          "name": "userTwoId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userOneSeekGeneration": {
+          "name": "userOneSeekGeneration",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userTwoSeekGeneration": {
+          "name": "userTwoSeekGeneration",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        },
+        "deadlineAt": {
+          "name": "deadlineAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resolvedAt": {
+          "name": "resolvedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "pairings_matchId_unique": {
+          "name": "pairings_matchId_unique",
+          "columns": ["matchId"],
+          "isUnique": true
+        },
+        "pairings_pending_deadline_idx": {
+          "name": "pairings_pending_deadline_idx",
+          "columns": ["pool", "season", "deadlineAt"],
+          "isUnique": false,
+          "where": "\"pairings\".\"status\" = 'pending'"
+        },
+        "pairings_users_idx": {
+          "name": "pairings_users_idx",
+          "columns": ["pool", "userOneId", "userTwoId", "createdAt"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "pairings_matchId_matches_id_fk": {
+          "name": "pairings_matchId_matches_id_fk",
+          "tableFrom": "pairings",
+          "tableTo": "matches",
+          "columnsFrom": ["matchId"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "pairings_season_seasons_number_fk": {
+          "name": "pairings_season_seasons_number_fk",
+          "tableFrom": "pairings",
+          "tableTo": "seasons",
+          "columnsFrom": ["season"],
+          "columnsTo": ["number"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "pairings_userOneId_user_id_fk": {
+          "name": "pairings_userOneId_user_id_fk",
+          "tableFrom": "pairings",
+          "tableTo": "user",
+          "columnsFrom": ["userOneId"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "pairings_userTwoId_user_id_fk": {
+          "name": "pairings_userTwoId_user_id_fk",
+          "tableFrom": "pairings",
+          "tableTo": "user",
+          "columnsFrom": ["userTwoId"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "pairings_users_ordered": {
+          "name": "pairings_users_ordered",
+          "value": "\"pairings\".\"userOneId\" < \"pairings\".\"userTwoId\""
+        },
+        "pairings_pool_vocabulary": {
+          "name": "pairings_pool_vocabulary",
+          "value": "\"pairings\".\"pool\" in ('async', 'fog_async', 'live', 'fog_live')"
+        },
+        "pairings_status_vocabulary": {
+          "name": "pairings_status_vocabulary",
+          "value": "\"pairings\".\"status\" in ('pending', 'confirmed', 'expired', 'refused')"
+        }
+      }
+    },
+    "ranked_maps": {
+      "name": "ranked_maps",
+      "columns": {
+        "season": {
+          "name": "season",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pool": {
+          "name": "pool",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mapId": {
+          "name": "mapId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "addedAt": {
+          "name": "addedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "ranked_maps_pool_idx": {
+          "name": "ranked_maps_pool_idx",
+          "columns": ["season", "pool"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "ranked_maps_season_seasons_number_fk": {
+          "name": "ranked_maps_season_seasons_number_fk",
+          "tableFrom": "ranked_maps",
+          "tableTo": "seasons",
+          "columnsFrom": ["season"],
+          "columnsTo": ["number"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "ranked_maps_mapId_maps_id_fk": {
+          "name": "ranked_maps_mapId_maps_id_fk",
+          "tableFrom": "ranked_maps",
+          "tableTo": "maps",
+          "columnsFrom": ["mapId"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "ranked_maps_season_pool_mapId_pk": {
+          "columns": ["season", "pool", "mapId"],
+          "name": "ranked_maps_season_pool_mapId_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ranked_maps_pool_vocabulary": {
+          "name": "ranked_maps_pool_vocabulary",
+          "value": "\"ranked_maps\".\"pool\" in ('async', 'fog_async', 'live', 'fog_live')"
+        }
+      }
+    },
+    "ratings": {
+      "name": "ratings",
+      "columns": {
+        "userId": {
+          "name": "userId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pool": {
+          "name": "pool",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rating": {
+          "name": "rating",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1500
+        },
+        "deviation": {
+          "name": "deviation",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 350
+        },
+        "volatility": {
+          "name": "volatility",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0.06
+        },
+        "lastRatedAt": {
+          "name": "lastRatedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ratedMatches": {
+          "name": "ratedMatches",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "ratings_pool_rating_idx": {
+          "name": "ratings_pool_rating_idx",
+          "columns": ["pool", "rating"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "ratings_userId_user_id_fk": {
+          "name": "ratings_userId_user_id_fk",
+          "tableFrom": "ratings",
+          "tableTo": "user",
+          "columnsFrom": ["userId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "ratings_userId_pool_pk": {
+          "columns": ["userId", "pool"],
+          "name": "ratings_userId_pool_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ratings_pool_vocabulary": {
+          "name": "ratings_pool_vocabulary",
+          "value": "\"ratings\".\"pool\" in ('async', 'fog_async', 'live', 'fog_live')"
+        },
+        "ratings_deviation_positive": {
+          "name": "ratings_deviation_positive",
+          "value": "\"ratings\".\"deviation\" > 0"
+        },
+        "ratings_volatility_positive": {
+          "name": "ratings_volatility_positive",
+          "value": "\"ratings\".\"volatility\" > 0"
+        },
+        "ratings_match_count_nonnegative": {
+          "name": "ratings_match_count_nonnegative",
+          "value": "\"ratings\".\"ratedMatches\" >= 0"
+        }
+      }
+    },
+    "seasons": {
+      "name": "seasons",
+      "columns": {
+        "number": {
+          "name": "number",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "startsAt": {
+          "name": "startsAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "endsAt": {
+          "name": "endsAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "seasons_dates_ordered": {
+          "name": "seasons_dates_ordered",
+          "value": "\"seasons\".\"startsAt\" < \"seasons\".\"endsAt\""
+        }
+      }
+    },
+    "seeks": {
+      "name": "seeks",
+      "columns": {
+        "userId": {
+          "name": "userId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pool": {
+          "name": "pool",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "generation": {
+          "name": "generation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "maxActiveMatches": {
+          "name": "maxActiveMatches",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "seeks_pool_created_idx": {
+          "name": "seeks_pool_created_idx",
+          "columns": ["pool", "createdAt"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "seeks_userId_user_id_fk": {
+          "name": "seeks_userId_user_id_fk",
+          "tableFrom": "seeks",
+          "tableTo": "user",
+          "columnsFrom": ["userId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "seeks_userId_pool_pk": {
+          "columns": ["userId", "pool"],
+          "name": "seeks_userId_pool_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "seeks_pool_vocabulary": {
+          "name": "seeks_pool_vocabulary",
+          "value": "\"seeks\".\"pool\" in ('async', 'fog_async', 'live', 'fog_live')"
+        },
+        "seeks_active_match_limit": {
+          "name": "seeks_active_match_limit",
+          "value": "typeof(\"seeks\".\"maxActiveMatches\") = 'integer' and \"seeks\".\"maxActiveMatches\" between 1 and 5"
         }
       }
     },

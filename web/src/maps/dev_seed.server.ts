@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
 import { and, eq, isNull } from "drizzle-orm";
 import { awbwMapDataSchema } from "#/awbw/schemas.ts";
-import { maps, mapSources } from "#/db/global.ts";
+import { maps, mapSources, rankedMaps, seasons } from "#/db/global.ts";
 import { storeAwbwMap } from "./maps.server.ts";
 
 /**
@@ -31,6 +31,17 @@ const DEV_SEED_MAPS: Record<number, () => Promise<{ default: unknown }>> = {
   168602: () => import("../../../assets/maps/168602.json"),
 };
 
+/** The development season that holds the seeded ranked map. */
+const DEV_SEASON_NUMBER = 1;
+
+function developmentSeason(now: Date): { startsAt: Date; endsAt: Date } {
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth();
+  const startsAt = new Date(Date.UTC(year, month < 6 ? 0 : 6, 1));
+  const endsAt = new Date(Date.UTC(year + (month < 6 ? 0 : 1), month < 6 ? 6 : 0, 1));
+  return { startsAt, endsAt };
+}
+
 let seeded: Promise<void> | null = null;
 
 /**
@@ -57,6 +68,35 @@ async function runSeed(): Promise<void> {
     const { mapId } = await storeAwbwMap(Number(sourceMapId), data);
     console.log(`[dev-seed] map ${sourceMapId} is in the catalog as ${mapId}`);
   }
+
+  await seedDevRankedMap();
+}
+
+/** Put Amber Valley in the development standard async pool. */
+async function seedDevRankedMap(): Promise<void> {
+  const db = drizzle(env.DB, { schema: { maps, mapSources, rankedMaps, seasons } });
+  const amberValley = await db
+    .select({ mapId: mapSources.mapId })
+    .from(mapSources)
+    .where(and(eq(mapSources.source, "awbw"), eq(mapSources.sourceMapId, 61748)))
+    .get();
+  if (!amberValley) {
+    throw new Error("Amber Valley is not in the map catalog");
+  }
+
+  const now = new Date();
+  const { startsAt, endsAt } = developmentSeason(now);
+  await db.batch([
+    db.insert(seasons).values({ number: DEV_SEASON_NUMBER, startsAt, endsAt }).onConflictDoUpdate({
+      target: seasons.number,
+      set: { startsAt, endsAt },
+    }),
+    db
+      .insert(rankedMaps)
+      .values({ season: DEV_SEASON_NUMBER, pool: "async", mapId: amberValley.mapId, addedAt: now })
+      .onConflictDoNothing(),
+  ]);
+  console.log(`[dev-seed] ranked pool async includes Amber Valley for season ${DEV_SEASON_NUMBER}`);
 }
 
 /**

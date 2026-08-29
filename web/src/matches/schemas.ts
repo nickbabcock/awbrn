@@ -70,7 +70,20 @@ export const matchMutationRequestSchema = z.discriminatedUnion("action", [
   }),
 ]);
 
-export type MatchPhase = "draft" | "lobby" | "starting" | "active" | "completed" | "cancelled";
+export const rankedConfirmationRequestSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("selectCommander"), coId: z.number().int().positive() }),
+  z.object({ action: z.literal("ready") }),
+  z.object({ action: z.literal("refuse") }),
+]);
+
+export type MatchPhase =
+  | "draft"
+  | "lobby"
+  | "pending"
+  | "starting"
+  | "active"
+  | "completed"
+  | "cancelled";
 
 /** Engine reasons for a seat elimination or match ending. */
 export const seatResultReasons = [
@@ -101,15 +114,22 @@ export const rankedPools = ["async", "fog_async", "live", "fog_live"] as const;
 
 export const rankedPoolSchema = z.enum(rankedPools);
 
+/** The recorded outcome of a ranked confirmation window. */
+export const pairingStatuses = ["pending", "confirmed", "expired", "refused"] as const;
+
+export const pairingStatusSchema = z.enum(pairingStatuses);
+
 export type SeatResultReason = (typeof seatResultReasons)[number];
 export type MatchOutcome = (typeof matchOutcomes)[number];
 export type MatchSeatStatus = (typeof matchSeatStatuses)[number];
 export type RankedPool = (typeof rankedPools)[number];
+export type PairingStatus = (typeof pairingStatuses)[number];
 export type MatchSettings = z.infer<typeof matchSettingsSchema>;
 export type MatchCreateRequest = z.infer<typeof matchCreateRequestSchema>;
 export type MatchBrowseRequest = z.infer<typeof matchBrowseRequestSchema>;
 export type MatchHistoryRequest = z.infer<typeof matchHistoryRequestSchema>;
 export type MatchMutationRequest = z.infer<typeof matchMutationRequestSchema>;
+export type RankedConfirmationRequest = z.infer<typeof rankedConfirmationRequestSchema>;
 
 export interface MatchCreateResponse {
   matchId: string;
@@ -238,10 +258,12 @@ export const matchSetupSchema = z.object({
   fogEnabled: z.boolean(),
   startingFunds: z.number().int().nonnegative(),
   creatorUserId: z.string(),
+  pool: rankedPoolSchema.nullable().default(null),
+  season: z.number().int().positive().nullable().default(null),
 });
 
 export type MatchSetupPlayer = z.infer<typeof matchSetupPlayerSchema>;
-export type MatchSetup = z.infer<typeof matchSetupSchema>;
+export type MatchSetup = z.input<typeof matchSetupSchema>;
 
 /** One seat in a finished match, with the result recorded for it. */
 export interface MatchHistorySeat {

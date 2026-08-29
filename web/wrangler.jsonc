@@ -25,6 +25,10 @@
         "name": "AWBW_GATEWAY",
         "class_name": "AwbwGatewayDurableObject",
       },
+      {
+        "name": "MATCHMAKERS",
+        "class_name": "MatchmakerDurableObject",
+      },
     ],
   },
   "exports": {
@@ -33,6 +37,10 @@
       "storage": "sqlite",
     },
     "AwbwGatewayDurableObject": {
+      "type": "durable-object",
+      "storage": "sqlite",
+    },
+    "MatchmakerDurableObject": {
       "type": "durable-object",
       "storage": "sqlite",
     },

@@ -69,6 +69,11 @@ describe("match completion", () => {
     expect(rows.map((row) => row.slotIndex)).toEqual([0, 1]);
   });
 
+  it("copies a ranked pool into every result row", () => {
+    const rankedSetup = { ...setup(["alice", "bob"]), pool: "async" as const, season: 1 };
+    expect(matchResultRows(rankedSetup, rout).map((row) => row.pool)).toEqual(["async", "async"]);
+  });
+
   it("drops a seat the setup does not hold, because a row needs a user", () => {
     expect(matchResultRows(setup(["alice"]), rout)).toHaveLength(1);
   });

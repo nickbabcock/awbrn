@@ -10,15 +10,16 @@ import type { MatchPhase } from "./schemas.ts";
 
 describe("my matches phases", () => {
   it("defines the ongoing match phases", () => {
-    expect(ONGOING_MATCH_PHASES).toEqual(["draft", "lobby", "starting", "active"]);
+    expect(ONGOING_MATCH_PHASES).toEqual(["draft", "lobby", "pending", "starting", "active"]);
   });
 
   it("orders active work before setup phases", () => {
-    const phases: MatchPhase[] = ["draft", "lobby", "starting", "active"];
+    const phases: MatchPhase[] = ["draft", "lobby", "pending", "starting", "active"];
     expect(phases.sort((a, b) => myMatchPhaseRank(a) - myMatchPhaseRank(b))).toEqual([
       "active",
       "starting",
       "lobby",
+      "pending",
       "draft",
     ]);
   });
@@ -28,6 +29,7 @@ describe("my matches phases", () => {
     expect(myMatchActionLabel("active")).toBe("Open Match");
     expect(myMatchActionLabel("starting")).toBe("View Starting Match");
     expect(myMatchActionLabel("lobby")).toBe("Open Lobby");
+    expect(myMatchActionLabel("pending")).toBe("Confirm Match");
   });
 });
 

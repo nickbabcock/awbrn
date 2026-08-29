@@ -148,6 +148,7 @@ function phaseBadgeVariant(
       return "error";
     case "draft":
     case "lobby":
+    case "pending":
       return "warning";
     case "completed":
       return "neutral";

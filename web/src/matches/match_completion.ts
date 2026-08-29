@@ -27,7 +27,7 @@ export function matchResultRows(setup: MatchSetup, results: MatchResults): Match
         outcome: seat.outcome,
         placement: seat.placement,
         reason: seat.reason ?? null,
-        pool: null,
+        pool: setup.pool ?? null,
       },
     ];
   });
