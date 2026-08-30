@@ -1059,6 +1059,32 @@ export const awbrnTheme = {
         imageRendering: "pixelated",
       },
     },
+    "segmented-control": {
+      base: {
+        backgroundColor: "var(--color-background-muted)",
+        border: "2px solid #16181D",
+        borderRadius: "var(--radius-element)",
+        boxShadow: "inset 2px 2px 0 0 rgba(22, 24, 29, 0.12)",
+        gap: "var(--spacing-1)",
+        padding: "var(--spacing-1)",
+      },
+    },
+    "segmented-control-item": {
+      base: {
+        fontFamily: "var(--font-family-code)",
+        fontSize: "var(--font-size-sm)",
+        letterSpacing: "0.06em",
+        textTransform: "uppercase",
+        border: "2px solid transparent",
+        borderRadius: "var(--radius-element)",
+        boxShadow: "none",
+        color: "var(--color-text-secondary)",
+      },
+      selected: {
+        border: "2px solid #16181D",
+        color: "var(--color-text-primary)",
+      },
+    },
     "text-input": {
       base: {
         backgroundColor: "#fffdf7",

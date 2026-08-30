@@ -16,7 +16,7 @@ import type {
   MoveCommandRequested,
   UnloadCommandRequested,
 } from "#/wasm/awbrn_wasm.js";
-import type { MatchCommand } from "#/matches/match_protocol.ts";
+import type { PlayerCommand } from "#/matches/match_protocol.ts";
 import type { LiveMatchPlayer } from "./worker_module";
 import { gameAssetConfig } from "./asset_manifest";
 import { useGameStore } from "./store";
@@ -32,7 +32,7 @@ export class GameRunner implements CanvasCourierController {
   private createGamePromise: Promise<GameInstance> | undefined;
   private game: GameInstance | undefined;
   private pendingLiveTransitions: ObservedTransition[] = [];
-  private liveCommandHandler: ((command: MatchCommand) => void) | undefined;
+  private liveCommandHandler: ((command: PlayerCommand) => void) | undefined;
   private rawWorker: Worker | undefined;
   private surfaceVersion = 0;
   private readonly transport = new CanvasCourierTransport();
@@ -120,7 +120,7 @@ export class GameRunner implements CanvasCourierController {
     return this.battleCatalogPromise;
   }
 
-  setLiveCommandHandler(handler: ((command: MatchCommand) => void) | undefined): void {
+  setLiveCommandHandler(handler: ((command: PlayerCommand) => void) | undefined): void {
     this.liveCommandHandler = handler;
   }
 

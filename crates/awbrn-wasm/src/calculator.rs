@@ -23,6 +23,7 @@ use awvm::combat::{DamageRange, Weapon};
 use awvm::commander::PowerLevel;
 use awvm::ruleset::{self, CommanderKind, Domain, Terrain, UnitKind, WeatherKind};
 use serde::{Deserialize, Serialize};
+use tsify::{Ts, Tsify};
 use wasm_bindgen::prelude::*;
 
 /// Damage at both ends of its luck, in percentage points of a whole unit.
@@ -31,7 +32,6 @@ use wasm_bindgen::prelude::*;
 /// against the same target are a bare kill and an overkill, and the difference
 /// is the reason to send something cheaper at one of them.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct BattleBracket {
     pub low: u16,
@@ -49,7 +49,6 @@ impl From<DamageRange> for BattleBracket {
 
 /// Funds at both ends of the damage they were priced from.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct FundsBracket {
     pub low: u64,
@@ -71,7 +70,6 @@ impl From<FundsRange> for FundsBracket {
 /// reply — and `high` its best. The two ends are not independently reachable
 /// and must not be recombined.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct NetFundsBracket {
     pub low: i64,
@@ -89,7 +87,6 @@ impl From<NetFunds> for NetFundsBracket {
 
 /// Everything one army brings to the exchange that is not the unit.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct BattleSide {
     /// `null` fights under the ruleset's neutral commander, which is what
@@ -107,7 +104,6 @@ pub struct BattleSide {
 
 /// One unit in the exchange, and the ground under it.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct BattleFighter {
     pub unit: UnitKind,
@@ -120,7 +116,6 @@ pub struct BattleFighter {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct BattleRequestWire {
     pub attacker: BattleSide,
@@ -135,7 +130,6 @@ pub struct BattleRequestWire {
 /// Battleship is owed the answer "nothing it holds can reach it", and a row
 /// that silently vanished would look like the calculator had failed.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "kebab-case")]
 pub enum BattleImpossible {
     /// Nothing this attacker holds has a damage entry against the target.
@@ -155,7 +149,6 @@ impl From<Unscorable> for BattleImpossible {
 
 /// One target, and what the exchange with it costs both sides.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct BattleRow {
     pub target: BattleFighter,
@@ -168,7 +161,6 @@ pub struct BattleRow {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct BattleResult {
     /// Which weapon fires. A unit out of shells falls back to its secondary,
@@ -197,7 +189,6 @@ pub struct BattleResult {
 
 /// What the target answers with from one of the healths it may be left in.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct BattleCounterStep {
     /// The health in points the target is left standing at, at the top of the
@@ -207,7 +198,6 @@ pub struct BattleCounterStep {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "kebab-case")]
 pub enum BattleWeapon {
     /// The magazine weapon: shells, missiles, torpedoes.
@@ -226,7 +216,6 @@ impl From<Weapon> for BattleWeapon {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct BattleReportWire {
     /// What the attacker is worth at the health it is fighting at.
@@ -236,7 +225,6 @@ pub struct BattleReportWire {
 
 /// The calculator error category a caller can handle without parsing text.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "kebab-case")]
 pub enum BattleCalculatorErrorKind {
     Health,
@@ -247,7 +235,6 @@ pub enum BattleCalculatorErrorKind {
 
 /// A calculator failure with a stable category and a readable explanation.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct BattleCalculatorError {
     pub kind: BattleCalculatorErrorKind,
@@ -256,7 +243,6 @@ pub struct BattleCalculatorError {
 
 /// A forecast result that keeps expected calculator failures in the data path.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum BattleForecastResponse {
     Success { report: BattleReportWire },
@@ -283,7 +269,17 @@ impl From<CalculatorError> for BattleCalculatorError {
 /// Every number comes back from `awvm::calculator`, which lowers the request
 /// into a state and puts it to the same reducer a real order goes through.
 #[wasm_bindgen]
-pub fn battle_forecast(request: BattleRequestWire) -> BattleForecastResponse {
+pub fn battle_forecast(
+    request: Ts<BattleRequestWire>,
+) -> Result<Ts<BattleForecastResponse>, JsError> {
+    // The worker is called from JavaScript, which can pass anything at all, so
+    // a request that does not read is reported rather than thrown out of the
+    // argument list, which would leak what it had already taken.
+    Ok(forecast(request.to_rust()?).into_ts()?)
+}
+
+/// Score the request. The wire edge above is what JavaScript reaches.
+fn forecast(request: BattleRequestWire) -> BattleForecastResponse {
     let report = calculator::forecast(&BattleRequest {
         // The engagement is scored under clear skies whatever the board is
         // under. No commander in this ruleset gates a firepower or defense rule
@@ -375,7 +371,6 @@ fn fighter(wire: BattleFighter) -> Fighter {
 
 /// One unit kind, as a picker needs it.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogUnit {
     pub unit: UnitKind,
@@ -394,7 +389,6 @@ pub struct CatalogUnit {
 /// Mirrored rather than re-exported because the ruleset's own domain type is
 /// internal to the rules and carries no TypeScript declaration.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "kebab-case")]
 pub enum CatalogDomain {
     Ground,
@@ -414,7 +408,6 @@ impl From<Domain> for CatalogDomain {
 
 /// One terrain, with the defense it grants and the tile the board draws for it.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogTerrain {
     pub terrain: Terrain,
@@ -428,7 +421,6 @@ pub struct CatalogTerrain {
 
 /// One commander, keyed the way the portrait sheet keys its art.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogCommander {
     pub commander: CommanderKind,
@@ -436,7 +428,6 @@ pub struct CatalogCommander {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, tsify::Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct BattleCatalog {
     pub units: Vec<CatalogUnit>,
@@ -450,7 +441,13 @@ pub struct BattleCatalog {
 /// alternative was three hand-written tables in TypeScript that would silently
 /// disagree with the ruleset the first time a cost changed.
 #[wasm_bindgen]
-pub fn battle_catalog() -> BattleCatalog {
+pub fn battle_catalog() -> Result<Ts<BattleCatalog>, JsError> {
+    Ok(catalog().into_ts()?)
+}
+
+/// Read the pickers off the ruleset. The wire edge above is what JavaScript
+/// reaches.
+fn catalog() -> BattleCatalog {
     BattleCatalog {
         units: UnitKind::ALL
             .into_iter()
@@ -590,7 +587,7 @@ mod tests {
 
     #[test]
     fn battle_catalog_contains_every_offered_terrain() {
-        let catalog = battle_catalog();
+        let catalog = catalog();
 
         assert!(!catalog.units.is_empty());
         assert!(!catalog.terrains.is_empty());
@@ -649,7 +646,7 @@ mod tests {
             .as_ref()
             .expect("the ruleset pairing must have an engagement");
 
-        let response = battle_forecast(BattleRequestWire {
+        let response = forecast(BattleRequestWire {
             attacker,
             attacking_unit,
             defender,
@@ -682,7 +679,7 @@ mod tests {
             properties: 0,
             com_towers: 0,
         };
-        let response = battle_forecast(BattleRequestWire {
+        let response = forecast(BattleRequestWire {
             attacker: side,
             attacking_unit: BattleFighter {
                 unit: UnitKind::Infantry,

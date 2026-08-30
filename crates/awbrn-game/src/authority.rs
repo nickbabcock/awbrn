@@ -319,6 +319,7 @@ fn commands(
             level: *level,
         }),
         GameCommand::EndTurn => one(Command::EndTurn { player }),
+        GameCommand::Timeout => one(Command::Timeout { player }),
         GameCommand::DeleteUnit { unit_id } => one(Command::DeleteUnit {
             player,
             unit: command_unit_id(unit_id.0)?,

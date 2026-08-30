@@ -13,6 +13,7 @@ import type {
   WireVisibleTerrain,
   WireVisibleUnit,
 } from "#/wasm/awbrn_server.js";
+import type { MatchClockState } from "./match_clock.ts";
 import type { MatchSetup } from "./schemas.ts";
 
 export interface MatchError {
@@ -62,10 +63,34 @@ export interface ErrorMessage {
   message: string;
 }
 
-/** A player command sent over the live-match websocket. */
+/**
+ * How much time the seats have left, in milliseconds.
+ *
+ * Sent when a client connects and after every action, so a client counts down
+ * from the server's numbers instead of keeping a clock of its own.
+ */
+export interface MatchClockMessage {
+  type: "clock";
+  activeSlot: number;
+  /** When the active seat runs out, as a unix timestamp in milliseconds. */
+  deadlineAt: number;
+  /** Time left for each seat, by slot index. */
+  banksMs: Record<number, number>;
+}
+
+/** Every command the engine accepts, whoever submits it. */
 export type MatchCommand = WasmGameCommand;
-export type ActivatePowerCommand = Extract<MatchCommand, { type: "activatePower" }>;
-export type EndTurnCommand = Extract<MatchCommand, { type: "endTurn" }>;
+
+/**
+ * A command a seat may send over the live-match websocket.
+ *
+ * The clock belongs to the host, so `timeout` is not among them: a seat that
+ * wants out resigns. The match durable object rejects one on the player
+ * websocket as well, because a websocket carries whatever the far end writes.
+ */
+export type PlayerCommand = Exclude<MatchCommand, { type: "timeout" }>;
+export type ActivatePowerCommand = Extract<PlayerCommand, { type: "activatePower" }>;
+export type EndTurnCommand = Extract<PlayerCommand, { type: "endTurn" }>;
 
 export type UnitMoved = UnitMovedMessage;
 export type TurnChange = TurnChangeMessage;
@@ -81,9 +106,19 @@ export type MatchWebSocketMessage =
   | ErrorMessage
   | PlayerUpdateMessage
   | SpectatorNoticeMessage
-  | SpectatorStateMessage;
+  | SpectatorStateMessage
+  | MatchClockMessage;
 
 export type WasmActionResponse = GeneratedWasmActionResponse;
+
+export function matchClockMessage(clock: MatchClockState): MatchClockMessage {
+  return {
+    type: "clock",
+    activeSlot: clock.activeSlot,
+    deadlineAt: clock.deadlineAt,
+    banksMs: clock.banksMs,
+  };
+}
 
 export function ok<T>(value: T): MatchSuccess<T> {
   return { ok: true, value };

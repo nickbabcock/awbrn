@@ -44,7 +44,6 @@ pub struct SeatResult {
 
 /// Results for all seats in slot order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Tsify)]
-#[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchResults {
     pub seats: Vec<SeatResult>,

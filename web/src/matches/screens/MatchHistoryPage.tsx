@@ -31,6 +31,7 @@ import { Button } from "#/ui/Button.tsx";
 import { RouterButton, RouterTextLink } from "#/ui/astryx-links.tsx";
 import { Thumbnail } from "#/ui/Thumbnail.tsx";
 import { MATCH_REPORT_MEDIA_SIZE, TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
+import { formatClockSummary } from "#/matches/match_clock.ts";
 
 const dateFormat = new Intl.DateTimeFormat(undefined, {
   day: "numeric",
@@ -175,6 +176,7 @@ function AfterActionReport({
     `Map ${entry.mapId}`,
     entry.settings.fogEnabled ? "Fog on" : "Fog off",
     `${entry.settings.startingFunds.toLocaleString()} funds`,
+    formatClockSummary(entry.settings.clock),
     entry.isPrivate ? "Private" : null,
   ].filter((detail): detail is string => detail !== null);
 

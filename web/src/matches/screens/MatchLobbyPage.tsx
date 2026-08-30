@@ -61,6 +61,7 @@ import type {
   MatchSnapshot,
 } from "#/matches/schemas.ts";
 import { TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
+import { formatClockSummary } from "#/matches/match_clock.ts";
 
 /** How long an armed "Confirm leave" stays armed before it disarms itself. */
 const LEAVE_CONFIRM_TIMEOUT_MS = 5_000;
@@ -248,6 +249,9 @@ export function MatchLobbyPage({
             <MetadataListItem label="Match rules">
               {match.settings.fogEnabled ? "Fog on" : "Fog off"} ·{" "}
               {match.settings.startingFunds.toLocaleString()} funds
+            </MetadataListItem>
+            <MetadataListItem label="Clock">
+              {formatClockSummary(match.settings.clock)}
             </MetadataListItem>
             {shareUrl ? (
               <MetadataListItem label="Private join link">

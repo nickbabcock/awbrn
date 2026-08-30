@@ -5335,7 +5335,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
 dependencies = [
  "rustix 1.1.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5539,9 +5539,9 @@ dependencies = [
 
 [[package]]
 name = "tsify"
-version = "0.5.6"
+version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ec5505497c87f1c050b4392d3f11b49a04537fcb9dc0da57bc0af168a6331f2"
+checksum = "ea3af6b48c5c5624f7eb3c2f578d1335fadac433321980cae0063e8eb0acaa44"
 dependencies = [
  "serde",
  "serde-wasm-bindgen",
@@ -5551,9 +5551,9 @@ dependencies = [
 
 [[package]]
 name = "tsify-macros"
-version = "0.5.5"
+version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a324606929ad11628a19206d7853807481dcaecd6c08be70a235930b8241955"
+checksum = "ef1e2e93369379d0a527c7d6632b58c55d52db7a106d8afbde3b354f3a57a9f1"
 dependencies = [
  "proc-macro2",
  "quote",

@@ -781,6 +781,7 @@ async function buildMatchSetup(row: NonNullable<MatchRow>): Promise<MatchResult<
     creatorUserId: row.creatorUserId,
     pool: row.pool,
     season: row.season,
+    clock: settings.value.clock,
     players: participantRows.map((participant) => ({
       userId: participant.userId,
       factionId: participant.factionId,

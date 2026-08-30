@@ -1473,6 +1473,7 @@ impl Scorer<'_> {
             // what is hunting.
             OrderKind::Delete
             | OrderKind::Resign
+            | OrderKind::Timeout
             | OrderKind::EndTurn
             | OrderKind::Tag
             | OrderKind::Explode

@@ -95,6 +95,18 @@ pub(crate) enum BoundaryCommand {
     EndTurn,
     Tag,
     Resign,
+    Timeout,
+}
+
+impl BoundaryCommand {
+    /// The reason a boundary removes the seat that crossed it, if it does.
+    const fn exit_reason(self) -> Option<VictoryReason> {
+        match self {
+            Self::Resign => Some(VictoryReason::Resignation),
+            Self::Timeout => Some(VictoryReason::Timeout),
+            Self::EndTurn | Self::Tag => None,
+        }
+    }
 }
 
 /// The player a turn-start hook runs for — `spec/semantics/turn-hooks.md` calls
@@ -179,15 +191,8 @@ pub(super) fn execute_prepared_boundary(
     if command == BoundaryCommand::Tag {
         swap_commanders(&mut next, seat, player, &mut events)?;
     }
-    if command == BoundaryCommand::Resign
-        && eliminate_player(
-            &mut next,
-            player,
-            VictoryReason::Resignation,
-            None,
-            None,
-            &mut events,
-        )?
+    if let Some(reason) = command.exit_reason()
+        && eliminate_player(&mut next, player, reason, None, None, &mut events)?
     {
         return Ok(Execution {
             state: next,

@@ -13,6 +13,7 @@ import { RouterButton, RouterListItem } from "#/ui/astryx-links.tsx";
 import { matchesBrowseQueryOptions } from "#/matches/matches.queries.ts";
 import type { MatchBrowseSummary } from "#/matches/schemas.ts";
 import { formatRelativeTime } from "#/utils/time.ts";
+import { formatClockSummary } from "#/matches/match_clock.ts";
 
 export function MatchesBrowsePage() {
   const browseQuery = useSuspenseInfiniteQuery(matchesBrowseQueryOptions());
@@ -109,6 +110,7 @@ function LobbyRow({
     `Map ${lobby.mapId}`,
     lobby.settings.fogEnabled ? "Fog on" : "Fog off",
     `${lobby.settings.startingFunds.toLocaleString()} funds`,
+    formatClockSummary(lobby.settings.clock),
   ].join(" · ");
   const joined =
     lobby.joinedPlayerNames.length > 0

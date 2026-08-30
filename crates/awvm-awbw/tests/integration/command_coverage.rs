@@ -162,6 +162,7 @@ fn command_kind(command: &Command) -> &'static str {
         Command::Tag { .. } => "Tag",
         Command::EndTurn { .. } => "EndTurn",
         Command::Resign { .. } => "Resign",
+        Command::Timeout { .. } => "Timeout",
         Command::Unsupported => "Unsupported",
     }
 }

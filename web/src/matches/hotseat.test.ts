@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { ownedSlotIndices, selectOwnedPerspectiveSlot } from "./hotseat.ts";
-import { matchMutationRequestSchema, matchSettingsSchema, type MatchSetup } from "./schemas.ts";
+import {
+  defaultMatchClock,
+  matchMutationRequestSchema,
+  matchSettingsSchema,
+  type MatchSetup,
+} from "./schemas.ts";
 
 const setup = {
   players: [{ userId: "alice" }, { userId: "bob" }, { userId: "alice" }, { userId: "carol" }],
@@ -38,11 +43,18 @@ describe("hotseat perspective selection", () => {
 
 describe("hotseat schemas", () => {
   it("keeps existing match settings non-hotseat by default", () => {
-    expect(matchSettingsSchema.parse({ fogEnabled: false, startingFunds: 1000 })).toEqual({
+    expect(
+      matchSettingsSchema.parse({
+        fogEnabled: false,
+        startingFunds: 1000,
+        clock: defaultMatchClock,
+      }),
+    ).toEqual({
       fogEnabled: false,
       startingFunds: 1000,
       hotseatEnabled: false,
       bannedCoIds: [],
+      clock: defaultMatchClock,
     });
   });
 

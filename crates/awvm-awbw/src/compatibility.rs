@@ -232,7 +232,8 @@ fn candidate_plan(state: &State, command: &Command) -> Result<CandidatePlan, Str
         | Command::ActivatePower { .. }
         | Command::Tag { .. }
         | Command::EndTurn { .. }
-        | Command::Resign { .. } => (Vec::new(), false),
+        | Command::Resign { .. }
+        | Command::Timeout { .. } => (Vec::new(), false),
         Command::MoveWait { .. }
         | Command::DeleteUnit { .. }
         | Command::MoveHide { .. }

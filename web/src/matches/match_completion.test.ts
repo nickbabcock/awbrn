@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MatchResults } from "#/wasm/awbrn_server.js";
 import { matchResultRows } from "./match_completion.ts";
 import { placementMatchesOutcome, reasonMatchesOutcome } from "./match_results.ts";
-import type { MatchSetup } from "./schemas.ts";
+import { defaultMatchClock, type MatchSetup } from "./schemas.ts";
 
 function setup(userIds: string[]): MatchSetup {
   return {
@@ -12,6 +12,7 @@ function setup(userIds: string[]): MatchSetup {
     map: {} as MatchSetup["map"],
     fogEnabled: false,
     startingFunds: 0,
+    clock: defaultMatchClock,
     creatorUserId: userIds[0]!,
     players: userIds.map((userId, index) => ({
       userId,
