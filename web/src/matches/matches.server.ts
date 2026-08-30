@@ -61,11 +61,13 @@ import {
   matchVoids,
   mapSources,
   moderationActions,
+  pairings,
   user,
 } from "#/db/global.ts";
 import type { Actor } from "#/auth/actor.ts";
 import { moderationEntry } from "#/moderation/moderation.server.ts";
 import { matchViewAnyGrant } from "./match_authz";
+import { applyViewerVisibility } from "./match_visibility.ts";
 
 const db = drizzle(env.DB, {
   schema: {
@@ -803,13 +805,22 @@ async function loadMatchSnapshot(matchId: string): Promise<MatchResult<MatchSnap
     return settings;
   }
 
-  const [participantRows, voidRow] = await Promise.all([
+  const [participantRows, voidRow, pairingRow] = await Promise.all([
     queryParticipantRows(matchId),
     db
       .select({ publicReason: matchVoids.publicReason, voidedAt: matchVoids.voidedAt })
       .from(matchVoids)
       .where(eq(matchVoids.matchId, matchId))
       .get(),
+    // Only a ranked pairing has a confirmation window, so this row is absent
+    // for every match a player made themselves.
+    row.phase === "pending"
+      ? db
+          .select({ deadlineAt: pairings.deadlineAt })
+          .from(pairings)
+          .where(eq(pairings.matchId, matchId))
+          .get()
+      : Promise.resolve(undefined),
   ]);
   return ok({
     matchId: row.id,
@@ -828,6 +839,7 @@ async function loadMatchSnapshot(matchId: string): Promise<MatchResult<MatchSnap
     startedAt: row.startedAt === null ? null : row.startedAt.toISOString(),
     completedAt: row.completedAt === null ? null : row.completedAt.toISOString(),
     participants: participantRows.map(toParticipantSnapshot),
+    confirmationDeadlineAt: pairingRow?.deadlineAt.toISOString() ?? null,
     void: voidRow
       ? { publicReason: voidRow.publicReason, voidedAt: voidRow.voidedAt.toISOString() }
       : null,
@@ -1173,24 +1185,6 @@ function canViewMatch(
     return true;
   }
   return snapshot.joinSlug !== null && snapshot.joinSlug === joinSlug;
-}
-
-function applyViewerVisibility(
-  snapshot: MatchSnapshot,
-  viewerUserId: string | null,
-): MatchSnapshot {
-  const hideRankedCommanders =
-    snapshot.phase === "pending" &&
-    !snapshot.participants.every((participant) => participant.ready);
-  return {
-    ...snapshot,
-    joinSlug: viewerUserId === snapshot.creatorUserId ? snapshot.joinSlug : null,
-    participants: hideRankedCommanders
-      ? snapshot.participants.map((participant) =>
-          participant.userId === viewerUserId ? participant : { ...participant, coId: null },
-        )
-      : snapshot.participants,
-  };
 }
 
 function mutationJoinSlug(action: MatchMutationRequest): string | null {

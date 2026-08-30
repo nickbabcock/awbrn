@@ -15,14 +15,28 @@ import {
   importAwbwMapToCatalog,
   listCatalogMaps,
   loadMapRevision,
+  mapSlotFactionIds,
   setMapRevisionRank,
   setMapTags,
 } from "./maps.server.ts";
 import { rateLimitBindings, requireRateLimit } from "#/rate_limit.ts";
 
+/**
+ * One map revision, with the faction each of its seats starts with.
+ *
+ * The seat factions travel with the document because only the server can read
+ * them: the rule lives in the map crate, behind the same wasm the engine runs
+ * on. A screen that shows a seat's crest reads them rather than deciding.
+ */
 export const getMapRevisionFn = createServerFn({ method: "GET" })
   .validator(mapRefSchema)
-  .handler(async ({ data }) => loadMapRevision(data));
+  .handler(async ({ data }) => {
+    const document = await loadMapRevision(data);
+    return {
+      ...document,
+      slotFactionIds: mapSlotFactionIds(document),
+    };
+  });
 
 /**
  * One catalog entry, which is where a screen gets a map's pictures.

@@ -252,6 +252,11 @@ export interface MatchSnapshot {
   completedAt: string | null;
   participants: MatchParticipantSnapshot[];
   /**
+   * When the ranked confirmation window closes. Set only while the match is
+   * pending, because no other phase has one.
+   */
+  confirmationDeadlineAt: string | null;
+  /**
    * Set when the match does not count, with the reason the players are told.
    * Who voided it and why they did is in the moderation log, not here.
    */

@@ -149,20 +149,72 @@ impl AwbwMap {
         Legend(self)
     }
 
+    /// The distinct player factions this map holds, in the order the game lists
+    /// factions.
+    ///
+    /// A property and a predeployed unit name a faction the same way, so both
+    /// are read: a map can start a unit for a faction that owns no property.
+    /// Neutral tiles name nobody and are skipped.
+    pub fn factions(&self) -> Vec<PlayerFaction> {
+        let mut factions: Vec<PlayerFaction> = self
+            .terrain
+            .cells()
+            .filter_map(|terrain| match terrain {
+                AwbwTerrain::Property(property) => match property.faction() {
+                    Faction::Player(faction) => Some(faction),
+                    Faction::Neutral => None,
+                },
+                _ => None,
+            })
+            .chain(
+                self.deployments
+                    .iter()
+                    .map(|(_, deployment)| deployment.faction),
+            )
+            .collect();
+        factions.sort_unstable();
+        factions.dedup();
+        factions
+    }
+
+    /// The faction each of `slot_count` seats starts with.
+    ///
+    /// A seat's faction decides which of the map's properties it owns, so no
+    /// two seats can share one. A map that names fewer factions than it has
+    /// seats takes the remainder from the factions it does not use, in the same
+    /// order.
+    pub fn slot_factions(&self, slot_count: usize) -> Vec<PlayerFaction> {
+        let mut factions = self.factions();
+        factions.truncate(slot_count);
+
+        for metadata in PLAYER_FACTION_METADATA {
+            if factions.len() >= slot_count {
+                break;
+            }
+            if !factions.contains(&metadata.faction()) {
+                factions.push(metadata.faction());
+            }
+        }
+        factions
+    }
+
     /// Collapse this map's player factions onto the canonical (AWBW-id) faction
-    /// order in first-appearance order, so the map uses its minimal set (e.g. a
-    /// 1v1 becomes Orange Star / Blue Moon). Neutral tiles are unchanged. The
-    /// canonical order is taken from [`PLAYER_FACTION_METADATA`], which lists every
-    /// player faction exactly once, so each distinct faction keeps its own slot.
+    /// order, so the map uses its minimal set (e.g. a 1v1 becomes Orange Star /
+    /// Blue Moon). Neutral tiles are unchanged.
+    ///
+    /// The factions keep their order relative to one another: the map's
+    /// first-listed faction becomes Orange Star, its second becomes Blue Moon,
+    /// and so on down [`PLAYER_FACTION_METADATA`], which lists every player
+    /// faction exactly once and so gives each distinct faction its own slot.
     pub fn collapse_factions(&self) -> AwbwMap {
-        // `seen` records distinct player factions in first-appearance order; a
-        // faction's slot in `seen` indexes its canonical replacement.
-        let mut seen: Vec<PlayerFaction> = Vec::new();
-        let mut canonical = |old: PlayerFaction| {
-            let slot = seen.iter().position(|f| *f == old).unwrap_or_else(|| {
-                seen.push(old);
-                seen.len() - 1
-            });
+        // A faction's place in this list indexes its canonical replacement, so
+        // the list is the map's factions in the order the game lists them.
+        let present = self.factions();
+        let canonical = |old: PlayerFaction| {
+            let slot = present
+                .iter()
+                .position(|faction| *faction == old)
+                .expect("every faction on the map is one the map holds");
             PLAYER_FACTION_METADATA[slot].faction()
         };
 
@@ -494,8 +546,93 @@ mod tests {
         let map = AwbwMap::parse_txt("95,167").unwrap();
         let collapsed = map.collapse_factions();
 
-        // First-seen faction -> Orange Star (HQ 'i'), second -> Blue Moon (HQ 'o').
+        // Black Hole is listed before Teal Galaxy, so it takes Orange Star
+        // (HQ 'i') and Teal Galaxy takes Blue Moon (HQ 'o').
         assert_eq!(collapsed.awbw().to_string(), "io");
+    }
+
+    #[test]
+    fn collapse_factions_keeps_the_factions_in_order() {
+        // The same two HQs the other way about. Reading order is not faction
+        // order: Black Hole is still listed first, so it still takes Orange
+        // Star, and the tile it sits on is the second one.
+        let map = AwbwMap::parse_txt("167,95").unwrap();
+
+        assert_eq!(map.collapse_factions().awbw().to_string(), "oi");
+    }
+
+    #[test]
+    fn factions_reads_properties_and_units() {
+        // A Teal Galaxy HQ (167) and a plain plain (1), with an Orange Star
+        // unit standing on the plain: the unit names a faction that owns no
+        // property, and the pair comes back in the order the game lists them.
+        let mut map = AwbwMap::parse_txt("167,1").unwrap();
+        map.deploy(
+            Pos::new(1, 0),
+            Deployment {
+                unit: awbrn_types::Unit::Infantry,
+                hp: awbrn_types::VisualHp::new(10),
+                faction: PlayerFaction::OrangeStar,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            map.factions(),
+            vec![PlayerFaction::OrangeStar, PlayerFaction::TealGalaxy]
+        );
+    }
+
+    #[test]
+    fn factions_ignores_neutral_property() {
+        // 34 is a neutral city and 42 an Orange Star HQ: only one of them
+        // names a faction.
+        let map = AwbwMap::parse_txt("34,42").unwrap();
+
+        assert_eq!(map.factions(), vec![PlayerFaction::OrangeStar]);
+    }
+
+    #[test]
+    fn slot_factions_stops_at_the_seat_count() {
+        // Four HQs on a map that seats two: the seats take the first two
+        // factions the game lists, not the first two the map draws.
+        let map = AwbwMap::parse_txt("42,47,52,57").unwrap();
+
+        assert_eq!(
+            map.slot_factions(2),
+            vec![PlayerFaction::OrangeStar, PlayerFaction::BlueMoon]
+        );
+    }
+
+    #[test]
+    fn slot_factions_gives_every_seat_its_own_faction() {
+        // An Orange Star HQ (42) and a Green Earth HQ (52) on a map that seats
+        // four. The two seats the map does not name take the factions it
+        // leaves free, so no two seats hold one faction.
+        let map = AwbwMap::parse_txt("42,52").unwrap();
+
+        assert_eq!(
+            map.slot_factions(4),
+            vec![
+                PlayerFaction::OrangeStar,
+                PlayerFaction::GreenEarth,
+                PlayerFaction::BlueMoon,
+                PlayerFaction::YellowComet,
+            ]
+        );
+    }
+
+    #[test]
+    fn slot_factions_fills_the_seats_a_map_does_not_name() {
+        // One Cobalt Ice HQ (152) for a map that seats two: the second seat
+        // takes the first faction the map leaves free.
+        let map = AwbwMap::parse_txt("152").unwrap();
+
+        assert_eq!(
+            map.slot_factions(2),
+            vec![PlayerFaction::CobaltIce, PlayerFaction::OrangeStar]
+        );
+        assert_eq!(map.slot_factions(1), vec![PlayerFaction::CobaltIce]);
     }
 
     #[test]

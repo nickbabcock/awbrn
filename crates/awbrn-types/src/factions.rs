@@ -26,6 +26,25 @@ pub enum PlayerFaction {
     YellowComet,
 }
 
+/// Factions order the way the game lists them: Orange Star first, Umber Wilds
+/// last. That order is the ascending faction id, which is why it is the key
+/// here.
+///
+/// The order cannot be derived. The variants are declared alphabetically, so a
+/// derived `Ord` would sort Acid Rain first and Yellow Comet last, which is a
+/// list no screen wants.
+impl Ord for PlayerFaction {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.id().cmp(&other.id())
+    }
+}
+
+impl PartialOrd for PlayerFaction {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlayerFactionMetadata {
     faction: PlayerFaction,
@@ -253,8 +272,22 @@ impl Faction {
 
 #[cfg(test)]
 mod tests {
-    use super::{FactionCode, PlayerFaction};
+    use super::{FactionCode, PLAYER_FACTION_METADATA, PlayerFaction};
     use strum::VariantArray;
+
+    #[test]
+    fn sorting_gives_the_order_the_game_lists() {
+        let mut sorted = PlayerFaction::VARIANTS.to_vec();
+        sorted.sort();
+
+        let listed: Vec<PlayerFaction> = PLAYER_FACTION_METADATA
+            .iter()
+            .map(|metadata| metadata.faction())
+            .collect();
+        assert_eq!(sorted, listed);
+        assert_eq!(sorted.first(), Some(&PlayerFaction::OrangeStar));
+        assert_eq!(sorted.last(), Some(&PlayerFaction::UmberWilds));
+    }
 
     #[test]
     fn awbw_id_round_trips_for_all_factions() {

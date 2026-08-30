@@ -1,6 +1,7 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
 import { AppShell } from "@astryxdesign/core/AppShell";
+import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "#/ui/Button.tsx";
 import { HStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
@@ -11,6 +12,8 @@ import { authClient } from "#/auth/client.ts";
 import { authKeys } from "#/auth/auth.keys.ts";
 import { useAppSession } from "#/auth/useAppSession.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
+import { rankedKeys } from "#/matchmaking/matchmaking.keys.ts";
+import { rankedOverviewQueryOptions } from "#/matchmaking/matchmaking.queries.ts";
 import { RouterButton, RouterTopNavHeading, RouterTopNavItem } from "#/ui/astryx-links.tsx";
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -19,6 +22,11 @@ export function Layout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const queryClient = useQueryClient();
+  // The badge is the only announcement a pairing gets. It reports pairings
+  // that are waiting for this player, and nothing about the pool.
+  const { data: ranked } = useQuery({ ...rankedOverviewQueryOptions(), enabled: session !== null });
+  const pendingPairings =
+    ranked?.pools.reduce((total, pool) => total + pool.pending.length, 0) ?? 0;
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
 
@@ -39,6 +47,7 @@ export function Layout({ children }: { children: ReactNode }) {
       }
 
       queryClient.removeQueries({ queryKey: matchKeys.mine() });
+      queryClient.removeQueries({ queryKey: rankedKeys.all });
       queryClient.removeQueries({ queryKey: matchKeys.completed() });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: authKeys.all }),
@@ -76,6 +85,20 @@ export function Layout({ children }: { children: ReactNode }) {
           />
           {session ? (
             <>
+              <RouterTopNavItem
+                to="/ranked"
+                isSelected={pathname === "/ranked"}
+                label={
+                  pendingPairings > 0
+                    ? `Ranked, ${pendingPairings === 1 ? "1 pairing needs" : `${pendingPairings} pairings need`} you`
+                    : "Ranked"
+                }
+              >
+                <HStack align="center" gap={1}>
+                  <Text type="inherit">Ranked</Text>
+                  {pendingPairings > 0 ? <Badge label={pendingPairings} variant="warning" /> : null}
+                </HStack>
+              </RouterTopNavItem>
               <RouterTopNavItem
                 to="/my/matches"
                 isSelected={pathname === "/my/matches"}

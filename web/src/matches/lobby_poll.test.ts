@@ -30,6 +30,7 @@ function snapshot(overrides: Partial<MatchSnapshot> = {}): MatchSnapshot {
     matchId: "m1",
     name: "Foreign Invasion",
     phase: "lobby",
+    confirmationDeadlineAt: null,
     creatorUserId: "u1",
     creatorName: "Nick",
     mapId: "000000162795",

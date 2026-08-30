@@ -75,7 +75,12 @@ async function runSeed(): Promise<Map<string, string>> {
     ids.set(account.email, id);
     // The role is written every time rather than only at creation, so an
     // account whose role was changed by hand comes back to what it says here.
-    await db().update(user).set({ role: account.role }).where(eq(user.id, id));
+    //
+    // The address is marked verified with it. Signing up never verifies one,
+    // and nothing here can send the mail that would, so a seeded account would
+    // otherwise be refused by every rule that asks for a verified address —
+    // ranked seeking among them.
+    await db().update(user).set({ role: account.role, emailVerified: true }).where(eq(user.id, id));
   }
 
   if (ids.size > 0) {

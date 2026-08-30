@@ -2,10 +2,21 @@ import { and, eq, gt, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { env } from "cloudflare:workers";
 import { isKnownCoId } from "#/co_roster.ts";
-import { matchParticipants, matches, pairings, seasons, seeks, user } from "#/db/global.ts";
-import { mapSlotFactionIds } from "#/factions.ts";
-import { loadMapRevision } from "#/maps/maps.server.ts";
+import {
+  maps,
+  matchParticipants,
+  matches,
+  pairings,
+  rankedMaps,
+  ratings,
+  seasons,
+  seeks,
+  user,
+} from "#/db/global.ts";
+import type { RawCol, RawRow } from "#/db/raw_sql.ts";
+import { loadMapRevision, mapSlotFactionIds } from "#/maps/maps.server.ts";
 import { generateMatchId } from "#/matches/match_id.ts";
+import { defaultMatchClock } from "#/matches/schemas.ts";
 import type { RankedPool } from "#/matches/schemas.ts";
 import type { RankedConfirmationRequest } from "#/matches/schemas.ts";
 import { finalizeStartingMatchIfNeeded } from "#/matches/matches.server.ts";
@@ -24,25 +35,26 @@ import { getMatchmakerStub } from "./matchmaker_service.ts";
 const CANDIDATE_LIMIT = 200;
 const CONFIRMATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-interface CandidateRow {
-  userId: string;
-  pool: RankedPool;
-  generation: string;
-  createdAt: number;
-  maxActiveMatches: number;
+type SeekColumns = typeof seeks.$inferSelect;
+type RatingColumns = typeof ratings.$inferSelect;
+type PairingColumns = typeof pairings.$inferSelect;
+
+interface CandidateRow extends RawRow<
+  SeekColumns,
+  "userId" | "pool" | "generation" | "createdAt" | "maxActiveMatches"
+> {
+  /** Counted by the query, not stored. */
   activeMatches: number;
-  rating: number | null;
-  deviation: number | null;
+  /** Null until the user has a rating in the pool, because of the outer join. */
+  rating: RawCol<RatingColumns, "rating"> | null;
+  deviation: RawCol<RatingColumns, "deviation"> | null;
 }
 
-interface ActivePairRow {
-  userOneId: string;
-  userTwoId: string;
-}
+type ActivePairRow = RawRow<PairingColumns, "userOneId" | "userTwoId">;
 
-interface RankedMapRow {
-  mapId: string;
-  revision: number;
+interface RankedMapRow extends RawRow<typeof rankedMaps.$inferSelect, "mapId"> {
+  /** `maps.currentRevision`, under the name the query gives it. */
+  revision: RawCol<typeof maps.$inferSelect, "currentRevision">;
 }
 
 export interface SeekSnapshot {
@@ -326,7 +338,7 @@ export async function runMatchmakingPass(
   for (const selectedPair of selected) {
     const map = mapResult.results[randomIndex(mapResult.results.length)]!;
     const mapDocument = await loadMapRevision({ mapId: map.mapId, revision: map.revision });
-    const factions = mapSlotFactionIds(mapDocument, 2);
+    const factions = mapSlotFactionIds(mapDocument);
     const pair =
       crypto.getRandomValues(new Uint8Array(1))[0]! % 2 === 0
         ? [selectedPair.first, selectedPair.second]
@@ -342,6 +354,10 @@ export async function runMatchmakingPass(
       startingFunds: 1000,
       hotseatEnabled: false,
       bannedCoIds: [],
+      // Settings without a clock do not parse, so a pairing made without one
+      // cannot be read back. The ranked pools take the same clock a host gets
+      // by default until the ranked clock values are decided.
+      clock: defaultMatchClock,
     });
 
     const results = await database.batch([
@@ -440,6 +456,36 @@ export async function expirePendingPairings(
 ): Promise<number> {
   const seconds = Math.floor(now.getTime() / 1000);
   const results = await database.batch([
+    // A player who let the window close is a player who has stopped looking.
+    // Their seek stops with it, because the next pairing would take another
+    // opponent out of the pool for 24 hours to reach the same end. The player
+    // starts the seek again themselves. A player who declined made a choice
+    // and keeps their seek; only silence pauses it.
+    //
+    // This runs before the pairing rows leave the pending status, which is
+    // what makes the select above find them.
+    database
+      .prepare(`
+      DELETE FROM seeks
+      WHERE EXISTS (
+        SELECT 1
+        FROM pairings p
+        JOIN match_participants mp ON mp.matchId = p.matchId
+        WHERE p.status = 'pending'
+          AND p.deadlineAt <= ?
+          AND mp.ready = 0
+          AND mp.userId = seeks.userId
+          AND p.pool = seeks.pool
+          -- A seek started again after this pairing is a new seek. The
+          -- generation tells the two apart, so an expired window only stops
+          -- the seek which it came from.
+          AND seeks.generation = CASE
+            WHEN seeks.userId = p.userOneId THEN p.userOneSeekGeneration
+            ELSE p.userTwoSeekGeneration
+          END
+      )
+    `)
+      .bind(seconds),
     database
       .prepare(`
       INSERT INTO match_voids (matchId, publicReason, voidedAt)
@@ -466,7 +512,7 @@ export async function expirePendingPairings(
     `)
       .bind(seconds, seconds),
   ]);
-  return results[2]?.meta.changes ?? 0;
+  return results[3]?.meta.changes ?? 0;
 }
 
 export async function nextPairingDeadline(
@@ -479,7 +525,7 @@ export async function nextPairingDeadline(
       "SELECT MIN(deadlineAt) AS deadlineAt FROM pairings WHERE pool = ? AND season = ? AND status = 'pending'",
     )
     .bind(pool, season)
-    .first<{ deadlineAt: number | null }>();
+    .first<{ deadlineAt: RawCol<PairingColumns, "deadlineAt"> | null }>();
   return row?.deadlineAt == null ? null : row.deadlineAt * 1000;
 }
 
@@ -499,7 +545,7 @@ export async function nextSeekWidening(
       LIMIT ?
     `)
     .bind(pool, nowSeconds - 24 * 60 * 60, nowSeconds, CANDIDATE_LIMIT)
-    .all<{ createdAt: number }>();
+    .all<RawRow<SeekColumns, "createdAt">>();
   let next: number | null = null;
   for (const row of result.results) {
     const ageHours = Math.floor((nowSeconds - row.createdAt) / (60 * 60));
