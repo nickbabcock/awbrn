@@ -27,22 +27,33 @@
 pub mod adaptive;
 pub mod agent;
 pub mod agents;
+pub mod baseline;
 pub mod board;
 pub mod calibration;
 pub mod eval;
+mod fingerprint;
 pub mod harness;
 pub mod map;
+pub mod mission;
 pub mod probe;
 pub mod rng;
 pub mod shape;
 pub mod threat;
 pub mod vision;
 
-pub use agent::{Agent, MarginalDistribution, NodeBudget, Play, SearchStats};
+pub use agent::{Agent, AgentTiming, MarginalDistribution, NodeBudget, Play, SearchStats};
+pub use agents::{
+    GreedyAttackBreakdown, GreedyScoreBreakdown, ScoredOrder, ScoredOrders, StrategicAgent,
+    order_candidate_id,
+};
+pub use baseline::{BaselineAgent, BaselineConfig, IDENTIFIER as BASELINE_IDENTIFIER, TieBreak};
 pub use calibration::Calibration;
 pub use eval::{EvalBreakdown, EvalWeights, Evaluator};
-pub use harness::{Limits, Record, play, play_measured};
+pub use harness::{
+    Limits, Record, TurnResult, play, play_measured, run_agent_turn, run_agent_turn_unmeasured,
+};
 pub use map::ContestMap;
+pub use mission::{DecisionTrace, TraceError, TurnEndReason};
 pub use probe::Probe;
 pub use rng::Rng;
 pub use shape::{SeatShape, Shape};

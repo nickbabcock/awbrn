@@ -412,27 +412,24 @@ struct Reach {
     held: Option<(UnitIdx, u64, MoveField)>,
     /// Board-sized allocations spent fields have handed back.
     scratch: MoveScratch,
-    /// Each seat's board tables, in seat order, each with the epoch it was
-    /// bound to.
+    /// Each seat's board tables, in seat order, and the current epoch.
     ///
     /// Opening a turn costs an entry-cost grid per movement class and a
     /// blocking grid, rebuilt over every tile. A single order opens two turns
     /// on one position, [`Session::legal`] to offer it and
     /// [`Session::route_to`] to spell its route, and answering a mask and then
     /// a route used to pay for the same grids twice. Holding them here makes
-    /// the second turn free. Each row carries the epoch it was bound to, which
-    /// stops it from answering out of a position the session has left. A row
-    /// is rebound when it is asked for rather than when the position changes,
-    /// so a position nobody reads a seat at costs that seat nothing.
-    /// Entry-cost grids have narrower inputs than blocking, so they can
-    /// continue across an epoch when only units moved.
+    /// the second turn free. The epoch stops them from answering out of a
+    /// position the session has left. Entry-cost grids have narrower inputs
+    /// than blocking, so they can continue across an epoch when only units
+    /// moved.
     ///
     /// One row per seat rather than one row, because a reader of the position
     /// asks about the seats it is not playing: what the enemy threatens is a
     /// search of the enemy's units, under the enemy's commander, and those are
     /// the enemy's tables. A row is built when a seat is first asked about, so
     /// a session nobody asks that of still holds one.
-    tables: Vec<(u64, TurnTables)>,
+    tables: (u64, Vec<TurnTables>),
 }
 
 /// One position, and the memory that answering about it needs.
@@ -649,22 +646,26 @@ impl Session {
     /// unchanged. See [`TurnTables`].
     fn turn_tables_for(&self, seat: PlayerIdx) -> TurnTables {
         let mut reach = self.reach.borrow_mut();
-        let row = seat.get();
-        if reach.tables.len() <= row {
-            reach
-                .tables
-                .resize_with(row + 1, || (self.epoch, TurnTables::default()));
+        if reach.tables.0 != self.epoch {
+            for (other, _) in self.state.players.seats() {
+                if let Some(tables) = reach.tables.1.get_mut(other.get()) {
+                    tables.advance(&self.state, other);
+                }
+            }
+            reach.tables.0 = self.epoch;
         }
-        let (bound, tables) = &mut reach.tables[row];
+        let row = seat.get();
+        if reach.tables.1.len() <= row {
+            reach.tables.1.resize_with(row + 1, TurnTables::default);
+        }
         // A row nobody has shared yet holds nothing at all, which is what a
         // turn that builds and drops its own tables wants. Sharing it is what
-        // this call is asking for. A row bound to a position the session has
-        // left is rebound here, which is the only place it is read.
-        if *bound != self.epoch || tables.is_empty() {
-            tables.advance(&self.state, seat);
-            *bound = self.epoch;
+        // this call is asking for.
+        if reach.tables.1[row].is_empty() {
+            reach.tables.1[row].clear();
+            reach.tables.1[row].advance(&self.state, seat);
         }
-        tables.clone()
+        reach.tables.1[row].clone()
     }
 
     /// One seat's board tables, to search unit after unit of that seat with.

@@ -12,6 +12,7 @@ pub mod classifier;
 pub mod portfolio;
 pub mod random;
 pub mod search;
+pub mod strategic;
 pub mod stratified;
 
 pub mod greedy;
@@ -20,10 +21,14 @@ pub use classifier::{
     CaptureMission, CaptureMissionState, MissionBook, RoleAssignment, UnitRole, classify,
     classify_with_missions,
 };
-pub use greedy::{GreedyAgent, Weights};
+pub use greedy::{
+    GreedyAgent, GreedyAttackBreakdown, GreedyScoreBreakdown, ScoredOrder, ScoredOrders, Weights,
+    order_candidate_id,
+};
 pub use portfolio::{Script, ScriptPlan, generate_plan, generate_plans};
 pub use random::RandomAgent;
 pub use search::{SearchAgent, SearchAudit, audit};
+pub use strategic::StrategicAgent;
 pub use stratified::{
     StratifiedPlan, StratifiedScripts, Stratum, generate_stratified_candidates,
     generate_stratified_plan, generate_stratum_candidates,

@@ -28,6 +28,16 @@ impl Rng {
         }
     }
 
+    /// Return the complete generator state.
+    pub const fn state(&self) -> u64 {
+        self.state
+    }
+
+    /// Restore a state returned by [`Rng::state`].
+    pub const fn set_state(&mut self, state: u64) {
+        self.state = state;
+    }
+
     pub const fn next_u64(&mut self) -> u64 {
         self.state ^= self.state << 13;
         self.state ^= self.state >> 7;
@@ -90,6 +100,16 @@ mod tests {
         for _ in 0..64 {
             assert_eq!(first.next_u64(), second.next_u64());
         }
+    }
+
+    #[test]
+    fn a_saved_state_replays_the_same_suffix() {
+        let mut rng = Rng::from_seed(7);
+        let _ = rng.next_u64();
+        let state = rng.state();
+        let expected = [rng.next_u64(), rng.next_u64(), rng.next_u64()];
+        rng.set_state(state);
+        assert_eq!([rng.next_u64(), rng.next_u64(), rng.next_u64()], expected);
     }
 
     #[test]
