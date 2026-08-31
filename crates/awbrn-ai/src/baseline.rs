@@ -40,12 +40,24 @@ pub struct BaselineConfig {
 /// Stable baseline identifier.
 pub const IDENTIFIER: &str = "greedy-baseline-v1";
 
+/// Stable production identifier.
+pub const PRODUCTION_IDENTIFIER: &str = "greedy-capturer-shortfall-50-v1";
+
 impl BaselineConfig {
     /// The only baseline configuration used for comparisons.
     pub const LOCKED: Self = Self {
         identifier: IDENTIFIER,
         agent: BaselineAgent::Greedy,
         weights: Weights::BASELINE,
+        node_budget: NodeBudget::FOUR,
+        tie_break: TieBreak::SeededReservoir,
+    };
+
+    /// The promoted production configuration.
+    pub const PRODUCTION: Self = Self {
+        identifier: PRODUCTION_IDENTIFIER,
+        agent: BaselineAgent::Greedy,
+        weights: Weights::CAPTURER_SHORTFALL_50,
         node_budget: NodeBudget::FOUR,
         tie_break: TieBreak::SeededReservoir,
     };
@@ -91,13 +103,34 @@ impl Default for BaselineConfig {
     }
 }
 
-/// Build the baseline-backed strategic agent.
+/// Return the locked production configuration fingerprint.
+pub fn production_configuration_fingerprint() -> String {
+    let config = BaselineConfig::PRODUCTION;
+    let bytes = serde_json::to_vec(&(
+        config.identifier,
+        "delegate-only",
+        config.identifier,
+        config.weights,
+        config.node_budget,
+        "seeded-reservoir",
+    ))
+    .expect("production configuration serializes");
+    format!("{:016x}", runtime_hash(&bytes))
+}
+
+fn runtime_hash(bytes: &[u8]) -> u64 {
+    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x1000_0000_01b3;
+    bytes.iter().fold(OFFSET, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(PRIME)
+    })
+}
+
+/// Build the production strategic agent.
 ///
-/// The strategic agent delegates to the locked baseline. The separate public
-/// name identifies the strategic interface while the behavior remains equal
-/// to the baseline.
+/// The strategic agent delegates to the promoted production configuration.
 pub const fn production_agent(seed: u64) -> StrategicAgent {
-    StrategicAgent::from_seed(seed)
+    StrategicAgent::with_config(seed, BaselineConfig::PRODUCTION)
 }
 
 #[cfg(test)]
@@ -123,5 +156,11 @@ mod tests {
             ..BaselineConfig::LOCKED
         };
         assert_ne!(BaselineConfig::LOCKED.fingerprint(), changed.fingerprint());
+    }
+
+    #[test]
+    fn the_production_configuration_has_a_stable_fingerprint() {
+        assert_eq!(BaselineConfig::PRODUCTION.identifier, PRODUCTION_IDENTIFIER);
+        assert_eq!(production_configuration_fingerprint(), "81496db7e594d1bc");
     }
 }

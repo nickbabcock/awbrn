@@ -398,6 +398,12 @@ impl Weights {
         ..Self::ARMY
     };
 
+    /// The promoted standard-game production preset.
+    pub const CAPTURER_SHORTFALL_50: Self = Self {
+        capturer_shortfall: 50.0,
+        ..Self::BASELINE
+    };
+
     /// The counter table and the cover half of the vision term. **Fog only.**
     ///
     /// A unit that ends its move in the woods or on a reef is one the enemy
@@ -469,7 +475,7 @@ impl Weights {
     /// add one term to it and neither adds anything to the other, so each of
     /// them is measured against `veil` and not against the name above it in
     /// this list.
-    pub const PRESETS: [(&'static str, Self); 11] = [
+    pub const PRESETS: [(&'static str, Self); 12] = [
         ("default", Self::DEFAULT),
         ("tier1", Self::TIER1),
         ("threat", Self::THREAT),
@@ -477,6 +483,7 @@ impl Weights {
         ("defend", Self::DEFEND),
         ("army", Self::ARMY),
         ("counter", Self::COUNTER),
+        ("capturer-shortfall-50", Self::CAPTURER_SHORTFALL_50),
         ("baseline", Self::BASELINE),
         ("veil", Self::VEIL),
         ("scout", Self::SCOUT),

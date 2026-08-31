@@ -636,9 +636,13 @@ dependencies = [
  "awbrn-types",
  "awbw-replay",
  "awvm",
+ "awvm-awbw",
  "criterion",
  "gungraun",
+ "serde",
  "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
