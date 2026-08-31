@@ -46,7 +46,10 @@ pub use agents::{
     GreedyAttackBreakdown, GreedyScoreBreakdown, ScoredOrder, ScoredOrders, StrategicAgent,
     order_candidate_id,
 };
-pub use baseline::{BaselineAgent, BaselineConfig, IDENTIFIER as BASELINE_IDENTIFIER, TieBreak};
+pub use baseline::{
+    BaselineAgent, BaselineConfig, IDENTIFIER as BASELINE_IDENTIFIER, PRODUCTION_IDENTIFIER,
+    TieBreak, production_agent, production_configuration_fingerprint,
+};
 pub use calibration::Calibration;
 pub use eval::{EvalBreakdown, EvalWeights, Evaluator};
 pub use harness::{

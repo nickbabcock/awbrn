@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "game_id": 1507289,
+  "map_id": 143619,
+  "replay_sha256": "4d17ff9b4be0ceff4e71672105ec3bfc12e3afde2fcd2599aa0fb8533b86e62f",
+  "map_sha256": "8dd8327e794d36a35f6f23c045d1a0e57eb76b35e0d464792f9d3f4e009b6c05",
+  "replay_scope": "actions through the day-15 player-2 boundary",
+  "map_dimensions": [25, 19],
+  "visibility": "standard",
+  "fog_disabled": true,
+  "day_boundary_identities": {
+    "player_one": "day-15-player-1",
+    "player_two": "day-15-player-2"
+  },
+  "day_15_player_one": {
+    "active_player": "3691303",
+    "active_units": 39,
+    "enemy_units": 43,
+    "total_units": 82,
+    "active_funds": 25300,
+    "state_fingerprint": "58409208302f6630"
+  },
+  "day_15_player_two": {
+    "active_player": "3588610",
+    "active_units": 34,
+    "enemy_units": 42,
+    "total_units": 76,
+    "active_funds": 31000,
+    "state_fingerprint": "4d4bb5464ea27600"
+  }
+}

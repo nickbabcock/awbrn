@@ -1,5 +1,7 @@
 //! AWVM command and turn-enumeration costs at the scale of a real match.
 //!
+//! [`late_game`] measures complete turns on fixed replay positions.
+//!
 //! Small specification fixtures hide the state clone that each accepted
 //! command creates. The command cases use 20x20 boards with a full deployment
 //! so the clone has the size that an opponent search pays for each node.
@@ -12,6 +14,8 @@
 //! The cycle cases keep execute, observation, reification, and action
 //! enumeration separate. This identifies the stage that controls the cost of
 //! one search node. Fog-on and fog-off cases use the same board and command.
+
+pub mod late_game;
 
 use ::awvm::query;
 use ::awvm::random::RandomTape;
