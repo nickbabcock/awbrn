@@ -198,6 +198,43 @@ impl AwbwMap {
         factions
     }
 
+    /// Return this map with each player faction replaced by `map_faction`.
+    ///
+    /// Neutral terrain is unchanged. Use this method when a manifest gives an
+    /// explicit source faction order; [`Self::collapse_factions`] is for the
+    /// map's own faction order.
+    ///
+    /// `map_faction` runs for each owned property tile and each deployment in
+    /// an order this method does not specify, so it must give the same result
+    /// for the same faction and must not depend on the call order or on state
+    /// it changes.
+    pub fn map_factions(
+        &self,
+        mut map_faction: impl FnMut(PlayerFaction) -> PlayerFaction,
+    ) -> AwbwMap {
+        let terrain = Grid::from_cells(
+            self.dimensions(),
+            self.terrain
+                .cells()
+                .map(|terrain| match terrain {
+                    AwbwTerrain::Property(property) => match property.faction() {
+                        Faction::Player(old) => AwbwTerrain::Property(
+                            property.with_owner(Faction::Player(map_faction(old))),
+                        ),
+                        Faction::Neutral => *terrain,
+                    },
+                    _ => *terrain,
+                })
+                .collect(),
+        )
+        .expect("a remapped grid keeps its shape");
+
+        AwbwMap {
+            terrain,
+            deployments: self.deployments.map_factions(map_faction),
+        }
+    }
+
     /// Collapse this map's player factions onto the canonical (AWBW-id) faction
     /// order, so the map uses its minimal set (e.g. a 1v1 becomes Orange Star /
     /// Blue Moon). Neutral tiles are unchanged.
@@ -218,27 +255,7 @@ impl AwbwMap {
             PLAYER_FACTION_METADATA[slot].faction()
         };
 
-        let terrain = Grid::from_cells(
-            self.dimensions(),
-            self.terrain
-                .cells()
-                .map(|terrain| match terrain {
-                    AwbwTerrain::Property(property) => match property.faction() {
-                        Faction::Player(old) => AwbwTerrain::Property(
-                            property.with_owner(Faction::Player(canonical(old))),
-                        ),
-                        Faction::Neutral => *terrain,
-                    },
-                    _ => *terrain,
-                })
-                .collect(),
-        )
-        .expect("a remapped grid keeps its shape");
-
-        AwbwMap {
-            terrain,
-            deployments: self.deployments.map_factions(canonical),
-        }
+        self.map_factions(canonical)
     }
 
     /// The units that the map places before the first turn.

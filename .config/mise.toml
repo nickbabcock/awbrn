@@ -168,3 +168,8 @@ run = [
 [tasks."bench:gungraun"]
 description = "Run native Callgrind benchmarks"
 run = "cargo bench -p bench --bench awbrn-bench-gungraun --"
+
+[tasks."ai:diagnose"]
+description = "Run the complete deterministic AI diagnostic pipeline"
+usage = 'arg "manifest" help="Experiment manifest"; arg "output" help="Artifact directory"'
+run = 'cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- run --manifest "{{ usage.manifest }}" --output "{{ usage.output }}"'

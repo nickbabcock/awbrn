@@ -393,7 +393,30 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 name = "awbrn-ai"
 version = "0.1.0"
 dependencies = [
+ "awbrn-game",
+ "awbrn-map",
+ "awbrn-types",
+ "awvm",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "awbrn-ai-diagnostic-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "awbrn-ai-diagnostics"
+version = "0.1.0"
+dependencies = [
  "anyhow",
+ "awbrn-ai",
+ "awbrn-ai-diagnostic-types",
  "awbrn-game",
  "awbrn-image",
  "awbrn-map",
