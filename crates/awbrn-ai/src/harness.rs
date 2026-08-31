@@ -9,24 +9,212 @@
 //! thousand throwaway games from a seeded tape, and keeps one [`Session`]
 //! across all of them.
 //!
-//! **Events are not delivered.** [`Agent::observe`] exists and nothing calls
-//! it. Delivering the events correctly costs one `observe_events` for each
-//! player for each command, and that cost lands inside the number the
-//! throughput measurement compares against `ai-cycle-complete`. No agent keeps
-//! a belief about hidden units yet, so no agent needs them. The first agent
-//! that does is what pays for the wiring.
+//! Accepted events are delivered to the active agent. The authority owns the
+//! state and projects each transition before the agent receives it.
+
+use std::time::Instant;
 
 use awvm::random::Entropy;
 use awvm::semantic::{
-    AwbwVisibility, Match, Observation, Outcome, State, TeamId, observe, observe_into,
+    AwbwVisibility, Match, Observation, Outcome, PlayerId, State, TeamId, observe, observe_events,
+    observe_into,
 };
 use awvm::session::Session;
 use awvm::transition::{Command, ExecuteOutcome, execute_with};
 
 use crate::agent::{Agent, NodeBudget};
+use crate::fingerprint::{FNV1A_OFFSET_BASIS, FNV1A_PRIME};
+use crate::mission::TurnEndReason;
 use crate::shape::Shape;
 
 type Observer<'a> = &'a mut dyn FnMut(&State, Option<&Command>);
+
+fn next_command_fingerprint(current: u64, command: &Command) -> u64 {
+    let mut hash = current;
+    for byte in serde_json::to_vec(command).expect("commands serialize") {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(FNV1A_PRIME);
+    }
+    (hash ^ 0xff).wrapping_mul(FNV1A_PRIME)
+}
+
+/// The result of running one agent turn.
+#[derive(Clone, Debug)]
+pub struct TurnResult {
+    /// The state after the accepted end-turn command.
+    pub state: State,
+    /// The player whose turn was run.
+    pub active_player: PlayerId,
+    /// Commands accepted during the turn.
+    pub commands: Vec<Command>,
+    /// Decision duration for each call to `act`.
+    pub decision_nanos: Vec<u64>,
+    /// Time from `start_turn` to the first command.
+    pub first_command_nanos: u64,
+    /// Time from `start_turn` to the accepted end-turn command.
+    pub total_nanos: u64,
+    /// Lifecycle timing counters for this turn.
+    pub timing: crate::agent::AgentTiming,
+    /// Number of rejected commands.
+    pub rejected_commands: u32,
+    /// Number of plays that could not become commands.
+    pub unrealizable_plays: u32,
+    /// Whether the accepted end-turn command completed the turn.
+    pub completed: bool,
+    /// Fingerprint of accepted commands.
+    pub command_fingerprint: u64,
+}
+
+/// Run exactly one agent turn through the authority lifecycle.
+///
+/// The match-level caller must call [`Agent::start_match`] once before it uses
+/// this function for the turns in a match.
+pub fn run_agent_turn<E: Entropy>(
+    state: State,
+    agent: &mut dyn Agent,
+    entropy: &mut E,
+    node_budget: NodeBudget,
+) -> TurnResult {
+    run_agent_turn_inner(state, agent, entropy, node_budget, true)
+}
+
+/// Run one turn without reading the clock.
+pub fn run_agent_turn_unmeasured<E: Entropy>(
+    state: State,
+    agent: &mut dyn Agent,
+    entropy: &mut E,
+    node_budget: NodeBudget,
+) -> TurnResult {
+    run_agent_turn_inner(state, agent, entropy, node_budget, false)
+}
+
+fn run_agent_turn_inner<E: Entropy>(
+    state: State,
+    agent: &mut dyn Agent,
+    entropy: &mut E,
+    node_budget: NodeBudget,
+    measure: bool,
+) -> TurnResult {
+    const REFUSAL_LIMIT: u32 = 64;
+
+    let mut session = Session::new(state);
+    let active_player = session.state().turn.active_player.clone();
+    let mut view = observe(&AwbwVisibility, session.state(), &active_player)
+        .expect("the active player can observe the position they act on");
+    let timing_before = agent.timing().unwrap_or_default();
+    let turn_started = measure.then(Instant::now);
+    agent.start_turn(&view);
+    let mut commands = Vec::new();
+    let mut decision_nanos = Vec::new();
+    let mut first_command_nanos = None;
+    let mut rejected_commands: u32 = 0;
+    let mut unrealizable_plays: u32 = 0;
+    let mut refusals_in_a_row = 0;
+    let mut command_fingerprint = FNV1A_OFFSET_BASIS;
+
+    loop {
+        let decision_started = measure.then(Instant::now);
+        let (command, reason) = if refusals_in_a_row >= REFUSAL_LIMIT {
+            (
+                Command::EndTurn {
+                    player: active_player.clone(),
+                },
+                TurnEndReason::RefusalLimit,
+            )
+        } else {
+            match agent.act(&view, node_budget) {
+                None => (
+                    Command::EndTurn {
+                        player: active_player.clone(),
+                    },
+                    TurnEndReason::AgentPass,
+                ),
+                Some(play) => match play.command(&session) {
+                    None => {
+                        unrealizable_plays = unrealizable_plays.saturating_add(1);
+                        (
+                            Command::EndTurn {
+                                player: active_player.clone(),
+                            },
+                            TurnEndReason::UnrealizablePlay,
+                        )
+                    }
+                    Some(command) => {
+                        let reason = if matches!(command, Command::EndTurn { .. }) {
+                            TurnEndReason::ExplicitEndTurn
+                        } else {
+                            TurnEndReason::AgentPass
+                        };
+                        (command, reason)
+                    }
+                },
+            }
+        };
+        decision_nanos.push(
+            decision_started
+                .map(|started| started.elapsed().as_nanos().try_into().unwrap_or(u64::MAX))
+                .unwrap_or(0),
+        );
+        if first_command_nanos.is_none()
+            && let Some(started) = turn_started
+        {
+            first_command_nanos = Some(started.elapsed().as_nanos().try_into().unwrap_or(u64::MAX));
+        }
+
+        let ends_turn = matches!(command, Command::EndTurn { .. });
+        agent.classify_command(&view, &command);
+        let accepted_command = command.clone();
+        match execute_with(session.state(), command, entropy) {
+            Ok(ExecuteOutcome::Accepted(execution)) => {
+                let observed_events = observe_events(
+                    &AwbwVisibility,
+                    session.state(),
+                    &execution.state,
+                    &execution.events,
+                    &active_player,
+                )
+                .expect("the active player can observe the accepted transition");
+                agent.observe(&observed_events);
+                command_fingerprint =
+                    next_command_fingerprint(command_fingerprint, &accepted_command);
+                commands.push(accepted_command);
+                session.reset(execution.state);
+                if ends_turn {
+                    agent
+                        .finalize_trace(reason)
+                        .expect("the agent finalizes its turn trace");
+                    agent.clear_trace();
+                    break;
+                }
+                observe_into(&AwbwVisibility, session.state(), &active_player, &mut view)
+                    .expect("the active player can observe the refreshed position");
+                agent.refresh(&view);
+                refusals_in_a_row = 0;
+            }
+            Ok(ExecuteOutcome::Rejected(_)) => {
+                rejected_commands = rejected_commands.saturating_add(1);
+                refusals_in_a_row = refusals_in_a_row.saturating_add(1);
+            }
+            Err(error) => panic!("the reducer failed on a generated command: {error:?}"),
+        }
+    }
+
+    TurnResult {
+        state: session.state().clone(),
+        active_player,
+        commands,
+        decision_nanos,
+        first_command_nanos: first_command_nanos.unwrap_or(0),
+        total_nanos: turn_started
+            .map(|started| started.elapsed().as_nanos().try_into().unwrap_or(u64::MAX))
+            .unwrap_or(0),
+        timing: agent.timing().unwrap_or_default().since(timing_before),
+        rejected_commands,
+        unrealizable_plays,
+        completed: true,
+        command_fingerprint,
+    }
+}
 
 /// What stops a game the agents do not finish.
 #[derive(Clone, Copy, Debug)]
@@ -115,6 +303,10 @@ pub struct Record {
     /// Counting the shape costs about 7% of the command rate, and [`play`] is
     /// what the throughput measurement runs.
     pub shape: Shape,
+    /// Fingerprint of accepted commands by seat when measured or observed.
+    ///
+    /// Empty for an unmeasured game without an observer.
+    pub command_fingerprints: Vec<u64>,
 }
 
 impl Record {
@@ -214,6 +406,9 @@ fn play_inner<E: Entropy>(
     let mut state = state;
     state.settings.day_limit = Some(u64::from(limits.days));
     session.reset(state);
+    for agent in agents.iter_mut() {
+        agent.start_match();
+    }
     if let Some(observer) = observer.as_mut() {
         observer(session.state(), None);
     }
@@ -223,6 +418,13 @@ fn play_inner<E: Entropy>(
     let mut commands = 0;
     let mut refusals = 0;
     let mut refusals_in_a_row = 0;
+    let mut started_turn: Option<(PlayerId, u64, usize)> = None;
+    let track_command_fingerprints = measure || observer.is_some();
+    let mut command_fingerprints = if track_command_fingerprints {
+        vec![FNV1A_OFFSET_BASIS; agents.len()]
+    } else {
+        Vec::new()
+    };
     let mut shape = if measure {
         Shape::new(session.state().players.len())
     } else {
@@ -244,6 +446,7 @@ fn play_inner<E: Entropy>(
                 refusals,
                 units: session.state().units.iter().count(),
                 shape,
+                command_fingerprints,
             };
         }
 
@@ -257,33 +460,48 @@ fn play_inner<E: Entropy>(
             player: player.clone(),
         };
 
-        let command = if refusals_in_a_row >= limits.refusals {
+        // Refresh the active view before every decision, including a forced
+        // refusal-limit end. This keeps lifecycle callbacks authoritative.
+        let view = match &mut projection {
+            Some(view) => {
+                observe_into(&AwbwVisibility, session.state(), &player, view)
+                    .expect("the active player can observe the position they act on");
+                view
+            }
+            None => projection.insert(
+                observe(&AwbwVisibility, session.state(), &player)
+                    .expect("the active player can observe the position they act on"),
+            ),
+        };
+        let turn_key = (
+            player.clone(),
+            session.state().turn.day,
+            session.state().turn.position,
+        );
+        if started_turn.as_ref() != Some(&turn_key) {
+            agents[seat.get()].start_turn(view);
+            started_turn = Some(turn_key);
+        }
+        let (command, reason) = if refusals_in_a_row >= limits.refusals {
             refusals_in_a_row = 0;
-            end_turn()
+            (end_turn(), TurnEndReason::RefusalLimit)
         } else {
-            // One observation is projected over and over. A match projects the
-            // same board once for every command, and the vectors the first
-            // projection allocated fit every one after it.
-            let view = match &mut projection {
-                Some(view) => {
-                    observe_into(&AwbwVisibility, session.state(), &player, view)
-                        .expect("the active player can observe the position they act on");
-                    view
-                }
-                None => projection.insert(
-                    observe(&AwbwVisibility, session.state(), &player)
-                        .expect("the active player can observe the position they act on"),
-                ),
-            };
             // A `None` from the agent ends the turn. A `None` from the play
             // ends it too: the true state holds no such route, which a hidden
             // blocker does, and passing is the honest answer.
-            match agents[seat.get()]
-                .act(view, limits.nodes)
-                .and_then(|play| play.command(session))
-            {
-                Some(command) => command,
-                None => end_turn(),
+            match agents[seat.get()].act(view, limits.nodes) {
+                None => (end_turn(), TurnEndReason::AgentPass),
+                Some(play) => match play.command(session) {
+                    None => (end_turn(), TurnEndReason::UnrealizablePlay),
+                    Some(command) => {
+                        let reason = if matches!(command, Command::EndTurn { .. }) {
+                            TurnEndReason::ExplicitEndTurn
+                        } else {
+                            TurnEndReason::AgentPass
+                        };
+                        (command, reason)
+                    }
+                },
             }
         };
 
@@ -291,10 +509,27 @@ fn play_inner<E: Entropy>(
         // nothing, and an agent that ends its own turn must count the same as
         // one the harness ends for it.
         let ends_turn = matches!(command, Command::EndTurn { .. });
+        agents[seat.get()].classify_command(view, &command);
 
         let observed_command = observer.is_some().then(|| command.clone());
+        let accepted_command = command.clone();
         match execute_with(session.state(), command, entropy) {
             Ok(ExecuteOutcome::Accepted(execution)) => {
+                let observed_events = observe_events(
+                    &AwbwVisibility,
+                    session.state(),
+                    &execution.state,
+                    &execution.events,
+                    &player,
+                )
+                .expect("the active player can observe the accepted transition");
+                agents[seat.get()].observe(&observed_events);
+                if track_command_fingerprints {
+                    command_fingerprints[seat.get()] = next_command_fingerprint(
+                        command_fingerprints[seat.get()],
+                        &accepted_command,
+                    );
+                }
                 if measure {
                     // The state the command ran against is the only one that
                     // still holds the units it removed, so the count comes
@@ -302,6 +537,25 @@ fn play_inner<E: Entropy>(
                     shape.observe(session.state(), &execution.events);
                 }
                 session.reset(execution.state);
+                if !ends_turn {
+                    let view = match &mut projection {
+                        Some(view) => {
+                            observe_into(&AwbwVisibility, session.state(), &player, view)
+                                .expect("the active player can observe the refreshed position");
+                            view
+                        }
+                        None => projection.insert(
+                            observe(&AwbwVisibility, session.state(), &player)
+                                .expect("the active player can observe the refreshed position"),
+                        ),
+                    };
+                    agents[seat.get()].refresh(view);
+                } else {
+                    agents[seat.get()]
+                        .finalize_trace(reason)
+                        .expect("the agent finalizes its turn trace");
+                    agents[seat.get()].clear_trace();
+                }
                 if measure && ends_turn {
                     shape.sample_turn(session.state(), seat);
                 }
@@ -367,5 +621,6 @@ mod tests {
         assert_eq!(record.days, LIMITS.days);
         // Two seats, so a day is two player turns.
         assert_eq!(record.turns, LIMITS.days * 2);
+        assert!(record.command_fingerprints.is_empty());
     }
 }

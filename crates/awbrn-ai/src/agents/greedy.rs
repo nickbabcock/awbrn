@@ -60,7 +60,7 @@ use crate::vision::{Needs, VisionMap};
 /// them mean anything. They are listed in the order of the priorities the
 /// agent plays to, and a field below is smaller than the field above it by
 /// enough that no sum of the lower ones outranks a single higher one.
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Weights {
     /// A headquarters, once a unit is standing on it. Completing this capture
@@ -544,6 +544,64 @@ pub struct GreedyAgent {
     threat: ThreatMap,
 }
 
+/// The score and typed production terms for one legal order.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScoredOrder {
+    /// Stable identity for the order in this position.
+    pub candidate_id: u64,
+    /// The legal order.
+    pub order: Order,
+    /// The exact score used by the production selector.
+    pub score: f64,
+    /// The capture contribution inside `score`.
+    pub capture: f64,
+    /// The named production terms.
+    pub breakdown: GreedyScoreBreakdown,
+}
+
+/// Scores from one legal-order pass.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ScoredOrders {
+    candidates: Vec<ScoredOrder>,
+}
+
+impl ScoredOrders {
+    /// Return candidates in stable legal visitation order.
+    pub fn candidates(&self) -> &[ScoredOrder] {
+        &self.candidates
+    }
+}
+
+/// The production score of one legal order and its named terms.
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct GreedyScoreBreakdown {
+    /// The exact production score.
+    pub total: f64,
+    /// The capture contribution inside `total`.
+    pub capture: f64,
+    /// The named terms of an attack, when the order is an attack.
+    pub attack: Option<GreedyAttackBreakdown>,
+}
+
+/// The named terms of the production attack score.
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct GreedyAttackBreakdown {
+    /// Funds-weighted damage exchange.
+    pub exchange: f64,
+    /// Bonus for guaranteed target removal.
+    pub guaranteed_removal: f64,
+    /// Penalty for guaranteed attacker loss.
+    pub attacker_loss: f64,
+    /// Value of denying a capture.
+    pub capture_denial: f64,
+    /// Value of the target tile.
+    pub pull: f64,
+    /// Value of newly seen tiles.
+    pub sight: f64,
+    /// Sum of all named terms.
+    pub total: f64,
+}
+
 impl GreedyAgent {
     pub const fn from_seed(seed: u64) -> Self {
         Self::with_weights(seed, Weights::BASELINE)
@@ -565,6 +623,11 @@ impl GreedyAgent {
         }
     }
 
+    /// Return the tie-break generator state.
+    pub const fn tie_break_state(&self) -> u64 {
+        self.rng.state()
+    }
+
     pub const fn weights(&self) -> &Weights {
         &self.weights
     }
@@ -583,6 +646,12 @@ impl GreedyAgent {
         let _ = budget;
         let session = Session::from_observation(view).ok()?;
         self.act_in_session_for_units(&session, units, allow_unitless)
+    }
+
+    /// Score the visible legal orders without changing the tie-break stream.
+    pub fn scored_orders(&mut self, view: &Observation) -> Option<ScoredOrders> {
+        let session = Session::from_observation(view).ok()?;
+        Some(self.score_in_session(&session))
     }
 }
 
@@ -919,7 +988,7 @@ impl GreedyAgent {
     /// all facts that this policy reads. It avoids an observation projection
     /// and a second session for each simulated command.
     pub(crate) fn act_in_session(&mut self, session: &Session) -> Option<Play> {
-        self.act_in_session_scoped(session, None)
+        self.act_in_session_scoped(session, None, None, true)
     }
 
     /// Select a play for part of a turn from an existing session.
@@ -935,13 +1004,54 @@ impl GreedyAgent {
                 units,
                 unitless: allow_unitless,
             }),
+            None,
+            true,
         )
+    }
+
+    /// Score every legal order without consuming the tie-break stream.
+    pub(crate) fn score_in_session(&mut self, session: &Session) -> ScoredOrders {
+        let mut candidates = Vec::new();
+        self.act_in_session_scoped(session, None, Some(&mut candidates), false);
+        ScoredOrders { candidates }
+    }
+
+    /// Return a stable identity for a legal order.
+    pub fn order_candidate_id(order: Order) -> u64 {
+        let unit = order.unit().map_or(u16::MAX, |unit| unit.get());
+        let kind = match order.kind() {
+            OrderKind::Wait => 1,
+            OrderKind::Capture => 2,
+            OrderKind::Supply => 3,
+            OrderKind::Hide => 4,
+            OrderKind::Reveal => 5,
+            OrderKind::Explode => 6,
+            OrderKind::Join => 7,
+            OrderKind::Load => 8,
+            OrderKind::Attack(target) => 0x10000 + u64::from(target.get()),
+            OrderKind::Repair(target) => 0x20000 + u64::from(target.get()),
+            OrderKind::Launch(target) => 0x30000 + u64::from(target.get()),
+            OrderKind::Delete => 9,
+            OrderKind::Produce(kind) => 0x40000 + u64::from(kind as u8),
+            OrderKind::Unload(slot) => 0x50000 + u64::from(slot),
+            OrderKind::EndTurn => 10,
+            OrderKind::Tag => 11,
+            OrderKind::Resign => 12,
+            OrderKind::Timeout => 13,
+            OrderKind::Power(level) => match level {
+                awvm::commander::PowerLevel::Cop => 14,
+                awvm::commander::PowerLevel::Scop => 15,
+            },
+        };
+        (u64::from(unit) << 48) | (u64::from(order.destination().get()) << 32) | kind
     }
 
     fn act_in_session_scoped(
         &mut self,
         session: &Session,
         scope: Option<LegalScope<'_>>,
+        scored: Option<&mut Vec<ScoredOrder>>,
+        select: bool,
     ) -> Option<Play> {
         if !session.is_commandable() {
             return None;
@@ -1034,6 +1144,8 @@ impl GreedyAgent {
         let mut visitor = GreedyVisitor {
             scorer,
             rng,
+            scored,
+            select,
             best: 0.0,
             tied: 0,
             chosen: None,
@@ -1047,6 +1159,11 @@ impl GreedyAgent {
         // left worth doing, which is what ends the turn.
         Play::from_order(session, visitor.chosen?)
     }
+}
+
+/// Return the stable identity used for one scored order.
+pub fn order_candidate_id(order: Order) -> u64 {
+    GreedyAgent::order_candidate_id(order)
 }
 
 /// The board as the scoring reads it, with the seat that is asking.
@@ -1388,6 +1505,8 @@ fn capture_value(weights: &Weights, weight: f64, points: u8, progress: u8) -> f6
 struct GreedyVisitor<'a> {
     scorer: Scorer<'a>,
     rng: &'a mut Rng,
+    scored: Option<&'a mut Vec<ScoredOrder>>,
+    select: bool,
     best: f64,
     tied: u64,
     chosen: Option<Order>,
@@ -1395,15 +1514,27 @@ struct GreedyVisitor<'a> {
 
 impl GreedyVisitor<'_> {
     fn consider(&mut self, order: Order, forecast: Option<&Forecast>) {
-        let score = self.scorer.score(order, forecast);
-        if score > self.best {
-            self.best = score;
-            self.tied = 1;
-            self.chosen = Some(order);
-        } else if score == self.best && self.chosen.is_some() {
-            self.tied += 1;
-            if self.rng.below(self.tied) == 0 {
+        let breakdown = self.scorer.score_breakdown(order, forecast);
+        if let Some(scored) = self.scored.as_deref_mut() {
+            scored.push(ScoredOrder {
+                candidate_id: GreedyAgent::order_candidate_id(order),
+                order,
+                score: breakdown.total,
+                capture: breakdown.capture,
+                breakdown,
+            });
+        }
+        if self.select {
+            let score = breakdown.total;
+            if score > self.best {
+                self.best = score;
+                self.tied = 1;
                 self.chosen = Some(order);
+            } else if score == self.best && self.chosen.is_some() {
+                self.tied += 1;
+                if self.rng.below(self.tied) == 0 {
+                    self.chosen = Some(order);
+                }
             }
         }
     }
@@ -1448,13 +1579,19 @@ impl Scorer<'_> {
         self.board.state.units.at(usize::from(*index))
     }
 
-    /// What one order is worth. Zero is the floor: an order worth nothing is
-    /// one the agent would rather not give, and a turn ends when every order
-    /// left is worth nothing.
-    fn score(&self, order: Order, forecast: Option<&Forecast>) -> f64 {
-        match order.kind() {
-            OrderKind::Capture => self.capture(order) + self.sight(order),
-            OrderKind::Attack(target) => self.attack(order, target, forecast),
+    fn score_breakdown(&self, order: Order, forecast: Option<&Forecast>) -> GreedyScoreBreakdown {
+        let mut capture = 0.0;
+        let mut attack = None;
+        let total = match order.kind() {
+            OrderKind::Capture => {
+                capture = self.capture(order);
+                capture + self.sight(order)
+            }
+            OrderKind::Attack(target) => {
+                let breakdown = self.attack_breakdown(order, target, forecast);
+                attack = Some(breakdown);
+                breakdown.total
+            }
             OrderKind::Wait | OrderKind::Unload(_) => self.arrival(order) + self.sight(order),
             // Both cost a unit from the roster and give its health to another,
             // so both are scored as the arrival less what the count is worth.
@@ -1481,6 +1618,11 @@ impl Scorer<'_> {
             | OrderKind::Reveal
             | OrderKind::Repair(_)
             | OrderKind::Launch(_) => 0.0,
+        };
+        GreedyScoreBreakdown {
+            total,
+            capture,
+            attack,
         }
     }
 
@@ -1504,13 +1646,18 @@ impl Scorer<'_> {
         )
     }
 
-    /// An exchange, priced in funds and in units.
-    fn attack(&self, order: Order, target: CellIdx, forecast: Option<&Forecast>) -> f64 {
+    fn attack_breakdown(
+        &self,
+        order: Order,
+        target: CellIdx,
+        forecast: Option<&Forecast>,
+    ) -> GreedyAttackBreakdown {
+        let mut parts = GreedyAttackBreakdown::default();
         let Some(index) = order.unit() else {
-            return 0.0;
+            return parts;
         };
         let (Some(attacker), Some(defender)) = (self.unit(index), self.unit_at(target)) else {
-            return 0.0;
+            return parts;
         };
         let weights = self.weights();
 
@@ -1518,9 +1665,11 @@ impl Scorer<'_> {
             // A fogged defender has no exact health, so there is nothing to
             // forecast against. A strike is still usually worth making, and
             // this says so without pretending to know how much.
-            return weights.blind_attack * weights.funds * cost(defender.kind)
-                + self.pull(order)
-                + self.sight(order);
+            parts.exchange = weights.blind_attack * weights.funds * cost(defender.kind);
+            parts.pull = self.pull(order);
+            parts.sight = self.sight(order);
+            parts.total = parts.exchange + parts.pull + parts.sight;
+            return parts;
         };
 
         let mean = |low: u16, high: u16| f64::from(low + high) / 2.0;
@@ -1534,23 +1683,31 @@ impl Scorer<'_> {
             })
             .unwrap_or(0.0);
 
-        let mut score = weights.funds * (dealt * cost(defender.kind) - taken * cost(attacker.kind));
+        parts.exchange =
+            weights.funds * (dealt * cost(defender.kind) - taken * cost(attacker.kind));
+        let mut score = parts.exchange;
         // A kill is worth the count as well as the funds, and only the worst
         // roll proves one. The best roll destroying it is a hope.
         if f64::from(forecast.attack.low) >= f64::from(forecast.target_hp) {
+            parts.guaranteed_removal = weights.unit_count;
             score += weights.unit_count;
         }
         if taken * 100.0 >= f64::from(forecast.attacker_hp) {
+            parts.attacker_loss = -weights.unit_count;
             score -= weights.unit_count;
         }
-        score += self.denial(target, defender, forecast);
+        parts.capture_denial = self.denial(target, defender, forecast);
+        score += parts.capture_denial;
         // The pull of the tile, and not the arrival: a strike is not charged
         // for what the tile it fires from is exposed to. The forecast above
         // already prices the reply, and charging the exposure on top prices
         // the same exchange twice. The arena is plain about it — the more of
         // the exposure an attack pays, the worse the agent plays, and it is
         // worst at the whole of it.
-        score + self.pull(order) + self.sight(order)
+        parts.pull = self.pull(order);
+        parts.sight = self.sight(order);
+        parts.total = score + parts.pull + parts.sight;
+        parts
     }
 
     /// What stopping this defender's capture is worth.

@@ -3,8 +3,10 @@
 use awvm::semantic::{CellIdx, Observation, ObservedEvent, UnitId};
 use awvm::session::{Order, OrderKind, Session};
 use awvm::transition::Command;
+use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 
 use crate::eval::EvalBreakdown;
+use crate::mission::{DecisionTrace, TraceError, TurnEndReason};
 
 /// One decision, from a position the agent can see.
 ///
@@ -26,9 +28,72 @@ pub trait Agent {
     /// nothing ignores this.
     fn observe(&mut self, _events: &[ObservedEvent]) {}
 
+    /// Reset state at the start of a match.
+    fn start_match(&mut self) {}
+
+    /// Start or reconcile the active turn.
+    fn start_turn(&mut self, _view: &Observation) {}
+
+    /// Refresh state after an accepted command.
+    fn refresh(&mut self, _view: &Observation) {}
+
+    /// Classify the selected command.
+    fn classify_command(&mut self, _view: &Observation, _command: &Command) {}
+
+    /// Finalize the current decision trace.
+    fn finalize_trace(&mut self, _reason: TurnEndReason) -> Result<(), TraceError> {
+        Ok(())
+    }
+
+    /// Return the finalized decision trace, if any.
+    fn trace(&self) -> Option<&DecisionTrace> {
+        None
+    }
+
+    /// Clear turn-local state.
+    fn clear_trace(&mut self) {}
+
+    /// Return lifecycle timing counters.
+    fn timing(&self) -> Option<AgentTiming> {
+        None
+    }
+
     /// Return search counters when this agent has them.
     fn search_stats(&self) -> Option<SearchStats> {
         None
+    }
+}
+
+/// Timing counters for lifecycle work.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AgentTiming {
+    /// Time spent constructing a turn plan.
+    pub plan_construction_nanos: u64,
+    /// Time spent refreshing a turn plan.
+    pub plan_refresh_nanos: u64,
+    /// Time spent selecting a baseline command.
+    pub baseline_selection_nanos: u64,
+    /// Time spent recording trace data.
+    pub trace_recording_nanos: u64,
+}
+
+impl AgentTiming {
+    /// Return the counters added since `before`.
+    pub const fn since(self, before: Self) -> Self {
+        Self {
+            plan_construction_nanos: self
+                .plan_construction_nanos
+                .saturating_sub(before.plan_construction_nanos),
+            plan_refresh_nanos: self
+                .plan_refresh_nanos
+                .saturating_sub(before.plan_refresh_nanos),
+            baseline_selection_nanos: self
+                .baseline_selection_nanos
+                .saturating_sub(before.baseline_selection_nanos),
+            trace_recording_nanos: self
+                .trace_recording_nanos
+                .saturating_sub(before.trace_recording_nanos),
+        }
     }
 }
 
@@ -164,7 +229,7 @@ impl MarginalDistribution {
 /// plan does not spend more nodes. This definition makes a search repeatable
 /// across machines: the same position and budget examine the same number of
 /// candidates, independent of clock speed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct NodeBudget(u32);
 
 impl NodeBudget {
@@ -190,6 +255,16 @@ impl Default for NodeBudget {
     }
 }
 
+impl<'de> Deserialize<'de> for NodeBudget {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let nodes = u32::deserialize(deserializer)?;
+        Self::new(nodes).ok_or_else(|| D::Error::custom("node budget must be nonzero"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::NodeBudget;
@@ -198,6 +273,15 @@ mod tests {
     fn node_budget_is_nonzero() {
         assert_eq!(NodeBudget::new(0), None);
         assert_eq!(NodeBudget::new(16), Some(NodeBudget::SIXTEEN));
+    }
+
+    #[test]
+    fn node_budget_deserialization_rejects_zero() {
+        serde_json::from_str::<NodeBudget>("0").expect_err("zero budget must fail");
+        assert_eq!(
+            serde_json::from_str::<NodeBudget>("16").expect("nonzero budget"),
+            NodeBudget::SIXTEEN
+        );
     }
 }
 

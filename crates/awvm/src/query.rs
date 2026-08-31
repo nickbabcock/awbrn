@@ -391,6 +391,12 @@ impl TurnTables {
         self.shared.is_none()
     }
 
+    /// Forget the tables, so the next query rebuilds them.
+    pub(crate) fn clear(&mut self) {
+        self.shared = Some(Arc::default());
+        self.entries_for = None;
+    }
+
     /// Rebind the tables to a changed position.
     ///
     /// Occupancy always invalidates the blocking grid. Terrain entry costs
