@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "maps": [
+    {
+      "awbw_id": 61748,
+      "name": "Amber Valley",
+      "source": "61748.json",
+      "source_fingerprint": "1c39d916a5fc2287",
+      "normalized_fingerprint": "6f2236eae04d7b52",
+      "original_factions": ["pc", "tg"]
+    },
+    {
+      "awbw_id": 67945,
+      "name": "1vs1 Stalingrad",
+      "source": "67945.json",
+      "source_fingerprint": "f811fa06a6f19b1e",
+      "normalized_fingerprint": "f811fa06a6f19b1e",
+      "original_factions": ["os", "bm"]
+    },
+    {
+      "awbw_id": 67073,
+      "name": "1vs1 Normandie",
+      "source": "67073.json",
+      "source_fingerprint": "deecf6a2360c5c3e",
+      "normalized_fingerprint": "340849e43090fda2",
+      "original_factions": ["yc", "bd"]
+    },
+    {
+      "awbw_id": 73021,
+      "name": "Beach Nation Vacation",
+      "source": "73021.json",
+      "source_fingerprint": "3b46f7380db912c1",
+      "normalized_fingerprint": "1cdb3c3c9594d2d9",
+      "original_factions": ["bd", "rf"]
+    }
+  ]
+}

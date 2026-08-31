@@ -131,6 +131,8 @@ jobs:
     - uses: jdx/mise-action@v4
     - name: Build assets
       run: mise run assets
+    - name: Run diagnostics visual tests
+      run: cargo test --locked -p awbrn-ai-diagnostics --all-targets -- --ignored
     - name: Ensure no git diff
       run: git diff --exit-code
 

@@ -27,9 +27,17 @@ use crate::fingerprint::{FNV1A_OFFSET_BASIS, FNV1A_PRIME};
 use crate::mission::TurnEndReason;
 use crate::shape::Shape;
 
-type Observer<'a> = &'a mut dyn FnMut(&State, Option<&Command>);
+type Observer<'a, Error> = &'a mut dyn FnMut(&State, Option<&Command>) -> Result<(), Error>;
 
-fn next_command_fingerprint(current: u64, command: &Command) -> u64 {
+fn elapsed_nanos(started: Instant) -> u64 {
+    started.elapsed().as_nanos().try_into().unwrap_or(u64::MAX)
+}
+
+/// Fold one command into a running FNV-1a fingerprint.
+///
+/// Anything that fingerprints a command stream uses this, so a stream recorded
+/// by one caller can be compared with a stream recorded by another.
+pub fn next_command_fingerprint(current: u64, command: &Command) -> u64 {
     let mut hash = current;
     for byte in serde_json::to_vec(command).expect("commands serialize") {
         hash ^= u64::from(byte);
@@ -150,15 +158,11 @@ fn run_agent_turn_inner<E: Entropy>(
                 },
             }
         };
-        decision_nanos.push(
-            decision_started
-                .map(|started| started.elapsed().as_nanos().try_into().unwrap_or(u64::MAX))
-                .unwrap_or(0),
-        );
+        decision_nanos.push(decision_started.map(elapsed_nanos).unwrap_or(0));
         if first_command_nanos.is_none()
             && let Some(started) = turn_started
         {
-            first_command_nanos = Some(started.elapsed().as_nanos().try_into().unwrap_or(u64::MAX));
+            first_command_nanos = Some(elapsed_nanos(started));
         }
 
         let ends_turn = matches!(command, Command::EndTurn { .. });
@@ -205,9 +209,7 @@ fn run_agent_turn_inner<E: Entropy>(
         commands,
         decision_nanos,
         first_command_nanos: first_command_nanos.unwrap_or(0),
-        total_nanos: turn_started
-            .map(|started| started.elapsed().as_nanos().try_into().unwrap_or(u64::MAX))
-            .unwrap_or(0),
+        total_nanos: turn_started.map(elapsed_nanos).unwrap_or(0),
         timing: agent.timing().unwrap_or_default().since(timing_before),
         rejected_commands,
         unrealizable_plays,
@@ -340,7 +342,8 @@ pub fn play<E: Entropy>(
     entropy: &mut E,
     limits: Limits,
 ) -> Record {
-    play_inner(state, session, agents, entropy, limits, None, false)
+    play_inner::<E, std::convert::Infallible>(state, session, agents, entropy, limits, None, false)
+        .expect("the event-free harness does not fail")
 }
 
 /// Play one game and count what it was made of.
@@ -357,7 +360,8 @@ pub fn play_measured<E: Entropy>(
     entropy: &mut E,
     limits: Limits,
 ) -> Record {
-    play_inner(state, session, agents, entropy, limits, None, true)
+    play_inner::<E, std::convert::Infallible>(state, session, agents, entropy, limits, None, true)
+        .expect("the event-free harness does not fail")
 }
 
 /// Play one game and report its initial state and each accepted command.
@@ -374,6 +378,31 @@ pub fn play_observed<E: Entropy>(
     limits: Limits,
     mut observer: impl FnMut(&State, Option<&Command>),
 ) -> Record {
+    let mut observer = |state: &State, command: Option<&Command>| {
+        observer(state, command);
+        Ok(())
+    };
+    play_inner::<E, std::convert::Infallible>(
+        state,
+        session,
+        agents,
+        entropy,
+        limits,
+        Some(&mut observer),
+        true,
+    )
+    .expect("the event-free harness does not fail")
+}
+
+/// Play one game with a fallible observer.
+pub fn play_observed_fallible<E: Entropy, Error>(
+    state: State,
+    session: &mut Session,
+    agents: &mut [&mut dyn Agent],
+    entropy: &mut E,
+    limits: Limits,
+    mut observer: impl FnMut(&State, Option<&Command>) -> Result<(), Error>,
+) -> Result<Record, Error> {
     play_inner(
         state,
         session,
@@ -385,15 +414,15 @@ pub fn play_observed<E: Entropy>(
     )
 }
 
-fn play_inner<E: Entropy>(
+fn play_inner<E: Entropy, Error>(
     state: State,
     session: &mut Session,
     agents: &mut [&mut dyn Agent],
     entropy: &mut E,
     limits: Limits,
-    mut observer: Option<Observer<'_>>,
+    mut observer: Option<Observer<'_, Error>>,
     measure: bool,
-) -> Record {
+) -> Result<Record, Error> {
     assert!(
         state.players.len() <= agents.len(),
         "the roster seats {} players and {} agents were given",
@@ -410,7 +439,7 @@ fn play_inner<E: Entropy>(
         agent.start_match();
     }
     if let Some(observer) = observer.as_mut() {
-        observer(session.state(), None);
+        observer(session.state(), None)?;
     }
 
     let mut projection: Option<Observation> = None;
@@ -438,7 +467,7 @@ fn play_inner<E: Entropy>(
         };
         let day = u32::try_from(session.state().turn.day).unwrap_or(u32::MAX);
         if outcome.is_some() || day > limits.days {
-            return Record {
+            return Ok(Record {
                 outcome,
                 turns,
                 days: day,
@@ -447,7 +476,7 @@ fn play_inner<E: Entropy>(
                 units: session.state().units.iter().count(),
                 shape,
                 command_fingerprints,
-            };
+            });
         }
 
         let player = session.state().turn.active_player.clone();
@@ -560,7 +589,7 @@ fn play_inner<E: Entropy>(
                     shape.sample_turn(session.state(), seat);
                 }
                 if let Some(observer) = observer.as_mut() {
-                    observer(session.state(), observed_command.as_ref());
+                    observer(session.state(), observed_command.as_ref())?;
                 }
                 commands += 1;
                 refusals_in_a_row = 0;

@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "run_id": "diagnostic-smoke-example",
+  "mode": "diagnostic",
+  "telemetry": "enabled",
+  "source_revision": "working-tree",
+  "dirty_worktree": false,
+  "executable_fingerprint": "example-executable",
+  "configuration_fingerprint": "example-configuration",
+  "maps": [
+    {
+      "map_id": 61748,
+      "name": "Amber Valley",
+      "source": "61748.json",
+      "source_fingerprint": "1c39d916a5fc2287",
+      "normalized_fingerprint": "6f2236eae04d7b52"
+    },
+    {
+      "map_id": 67945,
+      "name": "1vs1 Stalingrad",
+      "source": "67945.json",
+      "source_fingerprint": "f811fa06a6f19b1e",
+      "normalized_fingerprint": "f811fa06a6f19b1e"
+    }
+  ],
+  "seed_derivation": {
+    "run_seed": 401,
+    "algorithm": "baseline-game-seed-v1",
+    "pair_index_domain": "0..1"
+  },
+  "limits": {
+    "day_limit": 35,
+    "node_budget": 4,
+    "refusal_limit": 64
+  },
+  "agents": [
+    {
+      "identifier": "greedy-capturer-shortfall-50-v1",
+      "configuration_fingerprint": "0870d15a51f93e13",
+      "executable_fingerprint": "awbrn-ai-strategic-v1"
+    },
+    {
+      "identifier": "greedy-baseline-v1",
+      "configuration_fingerprint": "79aa8a6e0491065f",
+      "executable_fingerprint": "awbrn-ai-strategic-v1"
+    }
+  ],
+  "capture_policy": {
+    "selection": {
+      "kind": "explicit-pairs",
+      "pairs": [
+        {
+          "map_id": 67945,
+          "run_seed": 401,
+          "pair_index": 0,
+          "seat_order": "agent-first"
+        }
+      ]
+    },
+    "frame_policy": {
+      "kind": "every-turn"
+    }
+  },
+  "annotations": "findings.md",
+  "expected": {
+    "command": {},
+    "event_log": null,
+    "derived_tables": []
+  },
+  "pairs": [
+    {"map_id": 67945, "run_seed": 401, "pair_index": 0}
+  ]
+}

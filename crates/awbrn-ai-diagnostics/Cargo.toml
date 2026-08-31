@@ -1,5 +1,5 @@
 [package]
-name = "awbrn-ai"
+name = "awbrn-ai-diagnostics"
 version = "0.1.0"
 edition = "2024"
 publish = false
@@ -7,16 +7,15 @@ publish = false
 [lints]
 workspace = true
 
-# The opponent runs headless self-play. Keep rendering and native diagnostic
-# dependencies out of this crate so it can compile for wasm32.
-
 [dependencies]
+anyhow.workspace = true
+awbrn-ai = { path = "../awbrn-ai" }
+awbrn-ai-diagnostic-types = { path = "../awbrn-ai-diagnostic-types" }
 awbrn-game = { path = "../awbrn-game" }
+awbrn-image = { path = "../awbrn-image" }
 awbrn-map = { path = "../awbrn-map" }
 awbrn-types = { path = "../awbrn-types" }
 awvm = { path = "../awvm" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-
-[dev-dependencies]

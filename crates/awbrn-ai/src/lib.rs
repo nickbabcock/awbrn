@@ -30,6 +30,7 @@ pub mod agents;
 pub mod baseline;
 pub mod board;
 pub mod calibration;
+pub mod diagnostic;
 pub mod eval;
 mod fingerprint;
 pub mod harness;
@@ -52,8 +53,10 @@ pub use baseline::{
 };
 pub use calibration::Calibration;
 pub use eval::{EvalBreakdown, EvalWeights, Evaluator};
+pub use fingerprint::FNV1A_OFFSET_BASIS;
 pub use harness::{
-    Limits, Record, TurnResult, play, play_measured, run_agent_turn, run_agent_turn_unmeasured,
+    Limits, Record, TurnResult, next_command_fingerprint, play, play_measured, play_observed,
+    play_observed_fallible, run_agent_turn, run_agent_turn_unmeasured,
 };
 pub use map::ContestMap;
 pub use mission::{DecisionTrace, TraceError, TurnEndReason};

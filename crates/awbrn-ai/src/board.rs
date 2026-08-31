@@ -64,6 +64,16 @@ pub fn amber_valley(fog: bool, seed: u64) -> State {
 }
 
 fn state_from_map(map: AwbrnMap, seats: &[PlayerFaction; 2], fog: bool, seed: u64) -> State {
+    try_state_from_map(map, seats, fog, seed).expect("the board setup is valid")
+}
+
+/// Build a deterministic two-seat state from a normalized map.
+pub fn try_state_from_map(
+    map: AwbrnMap,
+    seats: &[PlayerFaction; 2],
+    fog: bool,
+    seed: u64,
+) -> Result<State, awbrn_game::SetupError> {
     let setup = GameSetup {
         map,
         players: seats
@@ -83,9 +93,9 @@ fn state_from_map(map: AwbrnMap, seats: &[PlayerFaction; 2], fog: bool, seed: u6
         fog_enabled: fog,
         rng_seed: seed,
     };
-    let mut state = state_from_setup(&setup).expect("the arena setup is valid");
+    let mut state = state_from_setup(&setup)?;
     state.settings.unit_bans = BANNED_UNITS.to_vec();
-    state
+    Ok(state)
 }
 
 #[cfg(test)]

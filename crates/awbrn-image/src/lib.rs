@@ -575,20 +575,30 @@ fn plain_backdrop_tile(tiles: &RgbaImage, weather: Weather) -> RgbaImage {
         .to_image()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Test fixtures for callers that render without the production atlases.
+///
+/// This module is public so other crates in the workspace can build a
+/// renderable [`Tilesets`] in their own tests. It is not part of the supported
+/// API and carries no stability promise.
+#[doc(hidden)]
+pub mod fixtures {
+    use super::Tilesets;
     use awbrn_content::{
-        TERRAIN_SPRITE_HEIGHT, TILESHEET_COLUMNS, TILESHEET_ROWS, UNIT_SPRITESHEET_COLUMNS,
-        UNIT_SPRITESHEET_PADDING_X, UNIT_SPRITESHEET_PADDING_Y, UNIT_SPRITESHEET_ROWS, UiAtlasSize,
+        TERRAIN_SPRITE_HEIGHT, TILE_SIZE, TILESHEET_COLUMNS, TILESHEET_ROWS, UNIT_SPRITE_HEIGHT,
+        UNIT_SPRITE_WIDTH, UNIT_SPRITESHEET_COLUMNS, UNIT_SPRITESHEET_PADDING_X,
+        UNIT_SPRITESHEET_PADDING_Y, UNIT_SPRITESHEET_ROWS, UiAtlasManifest, UiAtlasSize,
         UiAtlasSprite,
     };
-    use awbrn_map::{Deployment, Dimensions};
-    use awbrn_types::AwbwTerrain;
+    use image::RgbaImage;
 
-    /// Synthetic atlases: the tests here compare renders with each other, so
-    /// the sprites only have to be distinguishable, not real.
-    fn test_tilesets() -> Tilesets {
+    /// Synthetic atlases, sized from the sheet geometry the real atlases use.
+    ///
+    /// A test that renders compares one render with another, so the sprites only
+    /// have to be distinguishable, not real. Use this instead of the production
+    /// atlases wherever a test does not check how the game looks: the generated
+    /// `assets/textures` files are not in the repository, so a test that reads
+    /// them cannot run from a fresh clone.
+    pub fn tilesets() -> Tilesets {
         fn pixel(x: u32, y: u32, salt: u32) -> image::Rgba<u8> {
             let cell_x = x / 8;
             let cell_y = y / 8;
@@ -642,6 +652,13 @@ mod tests {
             },
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use awbrn_map::{Deployment, Dimensions};
+    use awbrn_types::AwbwTerrain;
 
     /// A two-player state whose second player owns a loaded APC.
     fn fixture() -> (State, AwbrnMap, [PlayerFaction; 2]) {
@@ -745,7 +762,7 @@ mod tests {
     #[test]
     fn the_authoritative_render_follows_the_state_weather() {
         let (mut state, map, factions) = fixture();
-        let tilesets = test_tilesets();
+        let tilesets = fixtures::tilesets();
 
         let clear = render_state(&map, &state, &factions, &tilesets).unwrap();
         state.weather.kind = Weather::Snow;
@@ -757,7 +774,7 @@ mod tests {
     #[test]
     fn a_spent_unit_of_the_active_player_renders_tinted() {
         let (mut state, map, factions) = fixture();
-        let tilesets = test_tilesets();
+        let tilesets = fixtures::tilesets();
         let ready = render_state(&map, &state, &factions, &tilesets).unwrap();
 
         // The fixture's first unit belongs to the player whose turn it is.
@@ -799,7 +816,7 @@ mod tests {
     #[test]
     fn a_roster_without_a_faction_for_every_seat_is_an_error() {
         let (state, map, _) = fixture();
-        let tilesets = test_tilesets();
+        let tilesets = fixtures::tilesets();
 
         assert!(matches!(
             render_state(&map, &state, &[PlayerFaction::OrangeStar], &tilesets),
@@ -887,7 +904,7 @@ mod tests {
 
     #[test]
     fn a_map_renders_the_units_it_deploys() {
-        let tilesets = test_tilesets();
+        let tilesets = fixtures::tilesets();
         let bare = render_map(
             &AwbwMap::new(Dimensions::new(3, 3), AwbwTerrain::Plain),
             &tilesets,
@@ -901,7 +918,7 @@ mod tests {
 
     #[test]
     fn a_damaged_unit_renders_its_health() {
-        let tilesets = test_tilesets();
+        let tilesets = fixtures::tilesets();
 
         assert_ne!(
             render_map(&deployed_map(4), &tilesets).unwrap().as_raw(),
