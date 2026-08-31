@@ -3,6 +3,7 @@ import {
   importAwbwMapDocument,
   initSync,
   MapRenderer,
+  mapSlotFactions,
   renderSmallMapScreenshot,
 } from "#/wasm/awbrn_server.js";
 import type {
@@ -20,6 +21,19 @@ initSync({ module: serverWasmModule });
 
 export function canonicalizeAwbwMap(source: AwbwMapDataWire): ImportedMapDocument {
   return importAwbwMapDocument(source);
+}
+
+/**
+ * The faction each of a map's seats starts with, as faction codes.
+ *
+ * The map decides this, not the seat: a seat's faction is which of the map's
+ * properties it owns. The rule lives in the map crate, so a seat is given the
+ * same faction here as the engine gives it when the match opens. How many
+ * seats there are is the map's own player count, so the answer is as long as
+ * the match that map opens.
+ */
+export function mapSlotFactionCodes(document: AwbrnMapDocumentWire): string[] {
+  return mapSlotFactions(document);
 }
 
 /**

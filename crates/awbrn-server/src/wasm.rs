@@ -124,6 +124,26 @@ pub fn render_small_map_screenshot(document: Ts<AwbrnMapDocumentWire>) -> Result
     crate::map_image::small_screenshot(&validated_map(document)?).map_err(render_error)
 }
 
+/// The faction each of a map's seats starts with, as faction codes.
+///
+/// A seat's faction decides which of the map's properties it owns, so the seats
+/// take the factions the map itself names, in the order the game lists
+/// factions. A map that names fewer factions than it has seats takes the
+/// remainder from the factions it leaves free. What a player chooses to look
+/// like is a depiction and does not change these.
+///
+/// The seat count is the one the document names, so the answer is as long as
+/// the match that map opens.
+#[wasm_bindgen(js_name = mapSlotFactions)]
+pub fn map_slot_factions(document: Ts<AwbrnMapDocumentWire>) -> Result<Vec<String>, JsError> {
+    let document = read_input("document", document)?;
+    Ok(validated_map(document)?
+        .slot_factions()
+        .into_iter()
+        .map(|faction| FactionCode::from(faction).as_str().to_owned())
+        .collect())
+}
+
 fn validated_map(document: AwbrnMapDocumentWire) -> Result<ValidatedMapDocument, JsError> {
     ValidatedMapDocument::try_from(document).map_err(|error| invalid_input("map", error))
 }

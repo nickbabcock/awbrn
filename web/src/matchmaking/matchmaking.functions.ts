@@ -6,6 +6,7 @@ import { rankedConfirmationRequestSchema, rankedPoolSchema } from "#/matches/sch
 import { rateLimitBindings, requireRateLimit } from "#/rate_limit.ts";
 import { DEFAULT_MAX_ACTIVE_MATCHES, HARD_MAX_ACTIVE_MATCHES } from "./matchmaking.ts";
 import { listSeeks, startSeek, stopSeek, updateRankedConfirmation } from "./matchmaking.server.ts";
+import { rankedOverview, rankedStandings } from "./ranked_overview.server.ts";
 
 const seekRequestSchema = z.object({
   pool: rankedPoolSchema,
@@ -53,4 +54,18 @@ export const updateRankedConfirmationFn = createServerFn({ method: "POST" })
     if (!context.session) throw new Response("Unauthorized", { status: 401 });
     await updateRankedConfirmation(data.matchId, context.session.user.id, data.action);
     return { updated: true };
+  });
+
+export const rankedOverviewFn = createServerFn({ method: "GET" })
+  .middleware([sessionMiddleware])
+  .handler(async ({ context }) => {
+    if (!context.session) throw new Response("Unauthorized", { status: 401 });
+    return rankedOverview(context.session.user.id);
+  });
+
+export const rankedStandingsFn = createServerFn({ method: "GET" })
+  .middleware([sessionMiddleware])
+  .validator(z.object({ pool: rankedPoolSchema }))
+  .handler(async ({ data, context }) => {
+    return rankedStandings(data.pool, context.session?.user.id ?? null);
   });

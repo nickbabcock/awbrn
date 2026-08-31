@@ -9,6 +9,7 @@ import { mapRevisions, maps, mapSources, mapTags, moderationActions } from "#/db
 import { moderationEntry } from "#/moderation/moderation.server.ts";
 import { mapRankGrant, mapTagGrant } from "./map_authz.ts";
 import { generateMapId } from "./map_id.ts";
+import { getFactionByCode } from "#/factions.ts";
 import { awbrnMapDocumentSchema, importedMapDocumentSchema } from "./map_document.ts";
 import type { AwbrnMapDocument, ImportedMapDocument } from "./map_document.ts";
 import { catalogFilterConditions } from "./map_catalog_query.ts";
@@ -31,6 +32,7 @@ import {
 } from "./map_catalog.ts";
 import {
   canonicalizeAwbwMap,
+  mapSlotFactionCodes,
   renderFullMapScreenshotPng,
   renderSmallMapScreenshotPng,
 } from "#/server_wasm.ts";
@@ -153,6 +155,22 @@ async function storeMapScreenshot(
       cause: error,
     });
   }
+}
+
+/**
+ * The faction each of a map's seats starts with.
+ *
+ * The map crate decides this and the ids come from the generated catalog, so
+ * nothing here names a faction. There are as many as the map has seats: a seat
+ * the map does not name takes a faction the map leaves free, which is what
+ * keeps every seat on its own faction.
+ */
+export function mapSlotFactionIds(document: AwbrnMapDocument): number[] {
+  return mapSlotFactionCodes(document).map((code) => {
+    const faction = getFactionByCode(code);
+    if (!faction) throw new Error(`the map names a faction the catalog does not hold: ${code}`);
+    return faction.id;
+  });
 }
 
 export async function loadMapRevision({ mapId, revision }: MapRef) {

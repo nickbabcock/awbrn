@@ -46,7 +46,7 @@ import {
   type CoPortraitCatalog,
 } from "#/components/co_portraits.ts";
 import { PlayerHeader } from "#/components/PlayerHeader.tsx";
-import { defaultFactionIdForSlot, getFactionById, mapSlotFactionIds } from "#/factions.ts";
+import { defaultFactionIdForSlot, getFactionById } from "#/factions.ts";
 import {
   lobbyPollInterval,
   lobbySignature,
@@ -117,10 +117,7 @@ export function MatchLobbyPage({
   // The map decides which faction each seat holds, so a seat cannot be claimed
   // before the map arrives. Until then the rows show catalog defaults and the
   // claim buttons stay disabled, which keeps the crest and the join in step.
-  const slotFactionIds = useMemo(
-    () => (mapData ? mapSlotFactionIds(mapData, match.maxPlayers) : null),
-    [mapData, match.maxPlayers],
-  );
+  const slotFactionIds = mapData?.slotFactionIds ?? null;
   const bannedCoIds = useMemo(() => new Set(match.settings.bannedCoIds), [match.settings]);
   // The origin is unknown while rendering on the server. Resolving it after
   // mount keeps the row itself present in the first paint, so the link the host

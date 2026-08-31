@@ -1,6 +1,6 @@
 use crate::deployment::{Deployment, Deployments, MAX_UNIT_HP};
 use crate::{AwbwMap, AwbwMapData, MapError, PredeployedUnit};
-use awbrn_types::{AwbwTerrain, FactionCode, Unit, VisualHp};
+use awbrn_types::{AwbwTerrain, FactionCode, PlayerFaction, Unit, VisualHp};
 use awvm::semantic::{Dimensions, Pos};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -218,6 +218,16 @@ impl ValidatedMapDocument {
 
     pub fn metadata(&self) -> &AwbrnMapMetadata {
         &self.metadata
+    }
+
+    /// The faction each of the document's seats starts with.
+    ///
+    /// How many seats a map has is what the document says it has, and a map on
+    /// its own does not know: the board is terrain and units, and the count is
+    /// metadata beside it. That is why [`AwbwMap::slot_factions`] is told and
+    /// this is not.
+    pub fn slot_factions(&self) -> Vec<PlayerFaction> {
+        self.map.slot_factions(self.metadata.player_count as usize)
     }
 
     /// The document as its wire shape.

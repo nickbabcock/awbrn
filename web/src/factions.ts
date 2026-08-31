@@ -1,5 +1,4 @@
 import factionsData from "../../assets/data/factions.json";
-import type { AwbrnMapDocument } from "#/maps/map_document.ts";
 
 export interface FactionCatalogEntry {
   id: number;
@@ -21,58 +20,12 @@ export function getFactionByCode(factionCode: string): FactionCatalogEntry | nul
   return factionByCode.get(factionCode) ?? null;
 }
 
+/**
+ * A crest for a seat whose map has not arrived yet.
+ *
+ * This is a placeholder and not a seat's faction: the map decides that, and
+ * the server reads it out of the map crate. See `mapSlotFactionIds`.
+ */
 export function defaultFactionIdForSlot(slotIndex: number): number {
   return factions[slotIndex % factions.length]?.id ?? factions[0]?.id ?? 1;
-}
-
-/**
- * The faction which owns each AWBW property terrain id.
- *
- * Generated from `AwbwTerrain` by `cargo xtask-assets factions`, so it stays in
- * step with the terrain ids the server accepts.
- */
-const propertyOwnerByTerrainId = new Map(
-  Object.entries(factionsData.propertyOwners).map(([terrainId, factionId]) => [
-    Number(terrainId),
-    factionId,
-  ]),
-);
-
-/**
- * Return the faction each of a match's player slots starts with.
- *
- * AWBW maps keep their original army colors in their property terrain ids, so a
- * two-player map is not necessarily Orange Star against Blue Moon. Slot order
- * follows AWBW's faction order, which is also the catalog order.
- *
- * A slot faction decides which map properties the seat owns, so no two slots can
- * share one. A map which names fewer factions than it has seats takes the
- * remainder from the catalog. The faction a player later selects is a depiction
- * only and does not change these.
- */
-export function mapSlotFactionIds(map: AwbrnMapDocument, slotCount: number): number[] {
-  const presentFactionIds = new Set<number>();
-  for (const terrainId of map.terrain) {
-    const factionId = propertyOwnerByTerrainId.get(terrainId);
-    if (factionId !== undefined) presentFactionIds.add(factionId);
-  }
-  for (const unit of map.units) {
-    const faction = getFactionByCode(unit.faction);
-    if (faction) presentFactionIds.add(faction.id);
-  }
-
-  const slotFactionIds = factions
-    .filter((faction) => presentFactionIds.has(faction.id))
-    .slice(0, slotCount)
-    .map((faction) => faction.id);
-
-  const taken = new Set(slotFactionIds);
-  for (const faction of factions) {
-    if (slotFactionIds.length >= slotCount) break;
-    if (taken.has(faction.id)) continue;
-    taken.add(faction.id);
-    slotFactionIds.push(faction.id);
-  }
-
-  return slotFactionIds;
 }

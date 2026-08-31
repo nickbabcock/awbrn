@@ -23,8 +23,10 @@ export default createServerEntry({
     if (import.meta.env.DEV) {
       const { seedDevAccounts } = await import("#/auth/dev_seed.server.ts");
       const { attributeDevMaps, seedDevMaps } = await import("#/maps/dev_seed.server.ts");
+      const { seedDevRankedSeeks } = await import("#/matchmaking/dev_seed.server.ts");
       const [accounts] = await Promise.all([seedDevAccounts(), seedDevMaps()]);
       await attributeDevMaps(accounts);
+      await seedDevRankedSeeks(accounts);
     }
 
     const websocketMatch = MATCH_WEBSOCKET_PATTERN.exec(request.url);
