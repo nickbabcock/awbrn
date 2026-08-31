@@ -5,6 +5,7 @@ import { optionalActorMiddleware, requirePermission } from "#/auth/permission.mi
 import { getFactionById } from "#/factions.ts";
 import { matchIdSchema } from "./match_id.ts";
 import {
+  countMatchesAwaitingViewer,
   createMatch,
   getMatchSnapshot,
   listMatches,
@@ -35,6 +36,16 @@ export const listMyMatchesFn = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     if (!context.session) throw new Response("Unauthorized", { status: 401 });
     const result = await listMyMatches(context.session.user.id);
+    if (!result.ok) throw new Error(result.error.message);
+    return result.value;
+  });
+
+/** The count the nav badge reads: how many matches are waiting on the viewer. */
+export const matchesAwaitingViewerFn = createServerFn({ method: "GET" })
+  .middleware([sessionMiddleware])
+  .handler(async ({ context }) => {
+    if (!context.session) throw new Response("Unauthorized", { status: 401 });
+    const result = await countMatchesAwaitingViewer(context.session.user.id);
     if (!result.ok) throw new Error(result.error.message);
     return result.value;
   });

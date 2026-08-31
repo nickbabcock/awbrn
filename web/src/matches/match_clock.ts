@@ -162,6 +162,18 @@ export function remainingMs(state: MatchClockState, now: number): number {
  * A seven day bank does not need its minutes, and a seat with two minutes left
  * does not want to read them as a fraction of a day.
  */
+/**
+ * What a list says about the time left on a turn.
+ *
+ * A deadline is only enforced when the match wakes, so one that has passed is
+ * an ordinary state a list has to be able to report. It is named rather than
+ * counted down to nothing, which would read as a turn with no time left and a
+ * clock that had stopped.
+ */
+export function formatTurnRemaining(remainingMs: number): string {
+  return remainingMs <= 0 ? "Overdue" : `${formatClockDuration(remainingMs)} left`;
+}
+
 export function formatClockDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   const days = Math.floor(totalSeconds / 86_400);

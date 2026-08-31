@@ -24,9 +24,14 @@ export interface MatchmakingPair {
   second: MatchmakingCandidate;
 }
 
+/** Compare user IDs with SQLite's default binary text ordering. */
+export function compareUserIds(firstUserId: string, secondUserId: string): number {
+  return firstUserId < secondUserId ? -1 : firstUserId > secondUserId ? 1 : 0;
+}
+
 /** Canonical key for a pair of distinct users. */
 export function userPairKey(firstUserId: string, secondUserId: string): string {
-  return firstUserId < secondUserId
+  return compareUserIds(firstUserId, secondUserId) < 0
     ? `${firstUserId}\u0000${secondUserId}`
     : `${secondUserId}\u0000${firstUserId}`;
 }
@@ -84,7 +89,7 @@ export function selectMatchmakingPairs(
   const remaining = [...candidates].sort(
     (left, right) =>
       left.createdAt.getTime() - right.createdAt.getTime() ||
-      left.userId.localeCompare(right.userId),
+      compareUserIds(left.userId, right.userId),
   );
   const pairs: MatchmakingPair[] = [];
 
@@ -108,7 +113,7 @@ export function selectMatchmakingPairs(
         (difference === bestDifference &&
           (candidate.createdAt.getTime() < best.createdAt.getTime() ||
             (candidate.createdAt.getTime() === best.createdAt.getTime() &&
-              candidate.userId.localeCompare(best.userId) < 0)))
+              compareUserIds(candidate.userId, best.userId) < 0)))
       ) {
         bestIndex = index;
       }

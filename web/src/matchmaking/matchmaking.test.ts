@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   acceptedRatingDifference,
   candidatesAreCompatible,
+  compareUserIds,
   selectMatchmakingPairs,
   type MatchmakingCandidate,
   userPairKey,
@@ -27,6 +28,12 @@ function candidate(
 }
 
 describe("ranked matchmaking", () => {
+  it("orders mixed-case user IDs like SQLite", () => {
+    expect(
+      compareUserIds("WxWZltjaxMfMrUuBJEEKBZdrthurEfOr", "e1mH41G4J0HyoxVop1UhE81WSKfeQzqK"),
+    ).toBe(-1);
+  });
+
   it("uses both rating deviations in the initial range", () => {
     const first = candidate("a", { deviation: 70 });
     const second = candidate("b", { deviation: 80 });

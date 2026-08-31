@@ -142,6 +142,19 @@ export const matches = sqliteTable(
     updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
     startedAt: integer("startedAt", { mode: "timestamp" }),
     completedAt: integer("completedAt", { mode: "timestamp" }),
+
+    /**
+     * The seat on the move, or null while no turn is open.
+     *
+     * Whose turn it is belongs to the match durable object, which derives it
+     * from its event log. This column is the durable object's report of it,
+     * written at each turn boundary, because a badge that counts the matches
+     * waiting on a player is a query over every match and cannot wake one
+     * durable object for each.
+     */
+    activeSlotIndex: integer("activeSlotIndex"),
+    /** When the active seat runs out. Written with `activeSlotIndex`. */
+    turnDeadlineAt: integer("turnDeadlineAt", { mode: "timestamp" }),
     pool: text("pool").$type<RankedPool>(),
     season: integer("season").references(() => seasons.number, { onDelete: "restrict" }),
   },
@@ -156,6 +169,9 @@ export const matches = sqliteTable(
     index("matches_ranked_active_idx")
       .on(t.pool, t.phase)
       .where(sql`${t.pool} is not null`),
+    index("matches_active_turn_idx")
+      .on(t.activeSlotIndex)
+      .where(sql`${t.phase} = 'active' and ${t.activeSlotIndex} is not null`),
     check(
       "matches_ranked_identity_complete",
       sql`(${t.pool} is null and ${t.season} is null) or (${t.pool} is not null and ${t.season} is not null)`,

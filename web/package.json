@@ -9,7 +9,9 @@
   },
   "scripts": {
     "cf-typegen": "wrangler types worker-configuration.d.ts --env-interface CloudflareBindings",
+    "db:generate": "drizzle-kit generate",
     "db:generate-do": "drizzle-kit generate --config drizzle-do.config.ts",
+    "db:generate-player": "drizzle-kit generate --config drizzle-player.config.ts",
     "dev": "vite dev",
     "build": "pnpm run theme:build && pnpm run cf-typegen && vite build && tsc -b",
     "preview": "vite preview",

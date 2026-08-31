@@ -848,6 +848,20 @@
           "notNull": false,
           "autoincrement": false
         },
+        "activeSlotIndex": {
+          "name": "activeSlotIndex",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "turnDeadlineAt": {
+          "name": "turnDeadlineAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "pool": {
           "name": "pool",
           "type": "text",
@@ -884,6 +898,12 @@
           "columns": ["pool", "phase"],
           "isUnique": false,
           "where": "\"matches\".\"pool\" is not null"
+        },
+        "matches_active_turn_idx": {
+          "name": "matches_active_turn_idx",
+          "columns": ["activeSlotIndex"],
+          "isUnique": false,
+          "where": "\"matches\".\"phase\" = 'active' and \"matches\".\"activeSlotIndex\" is not null"
         }
       },
       "foreignKeys": {

@@ -263,11 +263,20 @@ export interface MyMatchSummary {
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
+  /** The seat on the move, or null while no turn is open. */
+  activeSlotIndex: number | null;
+  /** When the active seat runs out, or null with no open turn. */
+  turnDeadlineAt: string | null;
   viewerParticipants: MyMatchParticipantSummary[];
 }
 
 export interface MyMatchesResponse {
   matches: MyMatchSummary[];
+}
+
+/** How many of the viewer's matches are waiting on them to act. */
+export interface MatchesAwaitingResponse {
+  awaiting: number;
 }
 
 export interface MatchParticipantSnapshot {

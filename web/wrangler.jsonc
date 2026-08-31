@@ -1,14 +1,16 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "awbrn-web",
-  "compatibility_date": "2025-09-24",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_date": "2026-08-25",
   "main": "src/server.ts",
   "vars": {
     "AUTH_URL": "http://localhost:5173",
   },
   "secrets": {
-    "required": ["AUTH_SECRET"],
+    // The VAPID pair signs push notifications, and the subject is how a push
+    // service reaches whoever sent them. Without them the site still runs and
+    // only the notifications to a player with no tab open are given up.
+    "required": ["AUTH_SECRET", "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT"],
   },
   // The renderer that draws a map screenshot reads the sprite atlases through
   // this binding, so it reads the same files the browser is served.
@@ -29,6 +31,10 @@
         "name": "MATCHMAKERS",
         "class_name": "MatchmakerDurableObject",
       },
+      {
+        "name": "PLAYERS",
+        "class_name": "PlayerDurableObject",
+      },
     ],
   },
   "exports": {
@@ -41,6 +47,10 @@
       "storage": "sqlite",
     },
     "MatchmakerDurableObject": {
+      "type": "durable-object",
+      "storage": "sqlite",
+    },
+    "PlayerDurableObject": {
       "type": "durable-object",
       "storage": "sqlite",
     },
@@ -70,6 +80,11 @@
       "name": "WS_UPGRADE_RATE_LIMITER",
       "namespace_id": "73184206",
       "simple": { "limit": 10, "period": 10 },
+    },
+    {
+      "name": "PUSH_SUBSCRIBE_RATE_LIMITER",
+      "namespace_id": "73184207",
+      "simple": { "limit": 10, "period": 60 },
     },
   ],
   "r2_buckets": [

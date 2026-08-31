@@ -1,4 +1,4 @@
-import type { MatchPhase } from "./schemas";
+import type { MatchPhase, MyMatchSummary } from "./schemas";
 
 export const ONGOING_MATCH_PHASES = [
   "draft",
@@ -38,6 +38,33 @@ export function formatMyMatchPhaseLabel(phase: MatchPhase): string {
       return "Complete";
     case "cancelled":
       return "Cancelled";
+  }
+}
+
+/**
+ * True when the match is waiting on the viewer rather than on anyone else.
+ *
+ * The nav badge counts these matches and the page marks them, and both read
+ * the same rule from here so a player never reads a count of one and a page
+ * with nothing on it.
+ */
+export function needsViewerAction(match: MyMatchSummary): boolean {
+  switch (match.phase) {
+    case "active":
+      return (
+        match.activeSlotIndex !== null &&
+        match.viewerParticipants.some(
+          (participant) => participant.slotIndex === match.activeSlotIndex,
+        )
+      );
+    case "pending":
+      return match.viewerParticipants.some((participant) => !participant.ready);
+    case "lobby":
+      return match.viewerParticipants.some(
+        (participant) => !participant.ready || participant.coId === null,
+      );
+    default:
+      return false;
   }
 }
 

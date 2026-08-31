@@ -32,6 +32,8 @@ import {
   startClockProgress,
 } from "./match_clock.ts";
 import type { ClockAction, ClockProgress, MatchClockState } from "./match_clock.ts";
+import { turnFromClock, turnPublicationUpdate, type PublishedTurn } from "./turn_publication.ts";
+import { getPlayerStubFrom } from "#/players/player_service.ts";
 
 interface WebSocketAttachment {
   userId: string;
@@ -111,6 +113,9 @@ const PLATFORM_ALARM_RETRIES = 6;
 /** Marks the global database as holding this match's result. */
 const RESULTS_RECORDED_KEY = "resultsRecorded";
 
+/** The turn the global database was last told this match is on. */
+const TURN_PUBLISHED_KEY = "turnPublished";
+
 /** Wakes left for a ranked matchmaker that has not taken the wake yet. */
 const MATCHMAKER_WAKE_KEY = "matchmakerWake";
 
@@ -159,6 +164,14 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
    * message.
    */
   private clockProgress: ClockProgress | undefined = undefined;
+  /**
+   * The publishes made so far, chained end to end.
+   *
+   * A durable object runs one turn of its own code at a time, so the chain is
+   * all the ordering a publish needs: two of them cannot read the last
+   * published turn, decide, and write over each other.
+   */
+  private publishing: Promise<void> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: CloudflareBindings) {
     super(ctx, env);
@@ -259,6 +272,16 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       this.broadcastActionResponse(response, setup, game);
       this.broadcastClock(setup, game);
       this.playPendingAiTurns(setup, game);
+      // The badge that counts a player's waiting matches reads the global
+      // database, and nothing here waits on that read, so the publish stays
+      // off the path the acting player is timed on. A publish that fails is
+      // made again by the next settle, so the error is reported and not thrown
+      // into the websocket message context.
+      this.ctx.waitUntil(
+        this.publishTurnState(setup).catch((error: unknown) => {
+          console.error("Failed to publish the match turn:", error);
+        }),
+      );
       await this.recordResultInBackground(setup);
       await this.armAlarm(setup);
     } catch (error) {
@@ -279,10 +302,6 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     });
   }
 
-  async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
-    ws.close(code, reason);
-  }
-
   async webSocketError(_ws: WebSocket, error: unknown): Promise<void> {
     console.error("WebSocket error in match DO:", error);
   }
@@ -301,6 +320,13 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       // Playing it now is what stops its clock running down to a timeout
       // while everyone waits for a board that was never going to change.
       this.playPendingAiTurns(setup, this.wasmMatch);
+      // The opening turn is published as the match starts, and a publish that
+      // fails is made again by the next settle rather than failing the start.
+      this.ctx.waitUntil(
+        this.publishTurnState(setup).catch((error: unknown) => {
+          console.error("Failed to publish the opening match turn:", error);
+        }),
+      );
       await this.armAlarm(setup);
 
       return ok({ matchId, joinSlug: null });
@@ -483,6 +509,13 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     } catch (error) {
       failed = true;
       console.error("Failed to record match results:", error);
+    }
+
+    try {
+      await this.publishTurnState(setup);
+    } catch (error) {
+      failed = true;
+      console.error("Failed to publish the match turn:", error);
     }
 
     const failures = await this.recordSettleFailures(failed);
@@ -736,6 +769,100 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     });
   }
 
+  /**
+   * Tell the global database which seat this match is waiting on.
+   *
+   * The write is made only at a turn boundary: the turn is compared against
+   * the last one published, and an action that leaves the same seat on the
+   * move costs nothing. The published turn is recorded after the update lands,
+   * so a publish that failed is made again by the next settle.
+   */
+  private async publishTurnState(setup: MatchSetup): Promise<void> {
+    const publish = this.publishing.then(async () => {
+      const game = this.loadGame();
+      if (game === null) {
+        return;
+      }
+      const turn = turnFromClock(this.clockState(setup, game), Boolean(game.matchResults()));
+      const published = await this.ctx.storage.get<PublishedTurn>(TURN_PUBLISHED_KEY);
+      const update = turnPublicationUpdate(turn, published);
+      if (update === null) {
+        return;
+      }
+
+      const db = drizzleD1(this.env.DB);
+      const [row] = await db
+        .update(matches)
+        .set({
+          activeSlotIndex: update.activeSlotIndex,
+          turnDeadlineAt: update.turnDeadlineAt === null ? null : new Date(update.turnDeadlineAt),
+        })
+        .where(eq(matches.id, setup.matchId))
+        // The name travels with the write because it is what a notification
+        // has to say, and reading it here costs nothing over a second query.
+        .returning({ name: matches.name });
+      await this.ctx.storage.put(TURN_PUBLISHED_KEY, update);
+      // Only now, with the count this announcement sends players to re-read
+      // already written, so nobody can be told to look at a stale row.
+      await this.announceTurnChange(setup, published ?? null, update, row?.name ?? "your match");
+    });
+
+    // A failed publish must not leave every publish after it refusing to run,
+    // so the chain carries the ordering and the caller carries the error.
+    this.publishing = publish.catch(() => {});
+    await publish;
+  }
+
+  /**
+   * Tell the players whose turn just started, or just ended, that it did.
+   *
+   * A player is reached through their own durable object rather than through
+   * this one, because the player waiting on a match is by definition not
+   * connected to it. The announcement is best effort: it is what saves a
+   * player a wait, and the count it sends them to read is already written, so
+   * one that does not arrive costs a refresh and never correctness.
+   */
+  private async announceTurnChange(
+    setup: MatchSetup,
+    previous: PublishedTurn | null,
+    update: PublishedTurn,
+    matchName: string,
+  ): Promise<void> {
+    const startedSlot = update.activeSlotIndex;
+    const endedSlot = previous?.activeSlotIndex ?? null;
+    const startedUserId = slotUserId(setup, startedSlot);
+    const endedUserId = slotUserId(setup, endedSlot);
+
+    const notifications: Promise<void>[] = [];
+    if (startedUserId !== null) {
+      notifications.push(
+        getPlayerStubFrom(this.env.PLAYERS, startedUserId).notify({
+          type: "turnStarted",
+          matchId: setup.matchId,
+          matchName,
+          deadlineAt: update.turnDeadlineAt,
+        }),
+      );
+    }
+    // A hotseat match hands one player the seat they just left, and they are
+    // told the turn started rather than told both things about themselves.
+    if (endedUserId !== null && endedUserId !== startedUserId) {
+      notifications.push(
+        getPlayerStubFrom(this.env.PLAYERS, endedUserId).notify({
+          type: "turnEnded",
+          matchId: setup.matchId,
+        }),
+      );
+    }
+
+    const settled = await Promise.allSettled(notifications);
+    for (const result of settled) {
+      if (result.status === "rejected") {
+        console.error("Failed to announce a turn change to a player:", result.reason);
+      }
+    }
+  }
+
   /** Persist terminal results. Throws on failure so the alarm can retry. */
   private async recordResultIfFinished(setup: MatchSetup): Promise<void> {
     const game = this.loadGame();
@@ -757,7 +884,15 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
         db.insert(matchResults).values(rows).onConflictDoNothing(),
         db
           .update(matches)
-          .set({ phase: "completed", completedAt: now, updatedAt: now })
+          .set({
+            phase: "completed",
+            completedAt: now,
+            updatedAt: now,
+            // The match stops counting as one waiting on a player in the same
+            // write that ends it. `publishTurnState` records that it has.
+            activeSlotIndex: null,
+            turnDeadlineAt: null,
+          })
           .where(and(eq(matches.id, setup.matchId), isNull(matches.completedAt))),
       ]);
     }
@@ -863,6 +998,14 @@ function extractMatchId(setup: unknown): string {
   }
 
   return "unknown";
+}
+
+/** Who holds a seat, or null for no seat and for one nobody holds. */
+function slotUserId(setup: MatchSetup, slotIndex: number | null): string | null {
+  if (slotIndex === null) {
+    return null;
+  }
+  return setup.players[slotIndex]?.userId ?? null;
 }
 
 function deserializeAttachment(ws: WebSocket): WebSocketAttachment {
