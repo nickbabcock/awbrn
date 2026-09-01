@@ -11,10 +11,12 @@ use serde_json::{Value, json};
 use tsify::{Ts, Tsify};
 use wasm_bindgen::prelude::*;
 
+use crate::ai::AiSeat;
 use crate::subscriber::LoggingConfig;
 use crate::view::{VisibleTerrain, VisibleUnit};
 use crate::{CaptureEvent, PlayerUpdate, PlayerView, SpectatorView};
 use crate::{GameServer, GameSetup, PlayerSetup, StoredActionEvent};
+use awbrn_ai::{AiProfile, AiTier};
 use awbrn_types::{AwbwCoId, Co, CoExt};
 use awvm::semantic::ObservedTransition;
 
@@ -80,6 +82,85 @@ pub fn import_awbw_map_document(
         unit_signature: digests.unit_signature.to_string(),
     }
     .into_ts()?)
+}
+
+/// How hard an opponent is, as a player reads it.
+#[derive(Debug, Clone, Copy, Tsify, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AiTierWire {
+    Easy,
+    Standard,
+    Hard,
+}
+
+impl From<AiTier> for AiTierWire {
+    fn from(tier: AiTier) -> Self {
+        match tier {
+            AiTier::Easy => Self::Easy,
+            AiTier::Standard => Self::Standard,
+            AiTier::Hard => Self::Hard,
+        }
+    }
+}
+
+/// One opponent a match may seat.
+#[derive(Debug, Tsify, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiProfileWire {
+    /// What a match stores. A screen shows the label instead.
+    pub id: String,
+    pub tier: AiTierWire,
+    pub label: String,
+    pub blurb: String,
+}
+
+/// The roster, as one value the boundary can carry.
+#[derive(Debug, Tsify, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiProfileRoster {
+    pub profiles: Vec<AiProfileWire>,
+}
+
+/// One turn the server played, as the host has to write it down and send it.
+#[derive(Debug, Tsify, Serialize)]
+#[tsify(hashmap_as_object)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmAiTurnResponse {
+    /// Every accepted command, in the order it was accepted.
+    pub actions: Vec<WasmActionResponse>,
+}
+
+/// Every opponent a match may seat, easiest first.
+///
+/// The roster is the engine's, so a screen that offers an opponent and a match
+/// that records one cannot drift apart.
+#[wasm_bindgen(js_name = aiProfiles)]
+pub fn ai_profiles() -> Result<Ts<AiProfileRoster>, JsError> {
+    let profiles = awbrn_ai::AI_CURRENT_PROFILES
+        .iter()
+        .map(|profile| AiProfileWire {
+            id: profile.id.to_owned(),
+            tier: profile.tier.into(),
+            label: profile.label.to_owned(),
+            blurb: profile.blurb.to_owned(),
+        })
+        .collect::<Vec<_>>();
+    AiProfileRoster { profiles }.into_ts().map_err(write_error)
+}
+
+/// The opponent seated in each slot, or a rejection naming the one that is not
+/// an opponent this build knows.
+fn seated_opponents(setup: &MatchSetupInput) -> Result<Vec<Option<&'static AiProfile>>, JsError> {
+    setup
+        .players
+        .iter()
+        .map(|player| match player.ai_profile_id.as_deref() {
+            None => Ok(None),
+            Some(id) => awbrn_ai::profile(id)
+                .map(Some)
+                .ok_or_else(|| invalid_input("setup", format!("unknown AI profile {id}"))),
+        })
+        .collect()
 }
 
 /// Draws map screenshots, holding the decoded sprite atlases.
@@ -351,6 +432,12 @@ impl TryFrom<AwbrnMapUnitWire> for AwbrnMapUnit {
 pub struct WasmMatch {
     server: GameServer,
     fog_enabled: bool,
+    /// The opponent seated in each slot, by slot index. `None` is a person.
+    seats: Vec<Option<&'static AiProfile>>,
+    /// What the match is seeded with, which is where a seat's own seed comes
+    /// from. Holding it here is what lets a seat play the same way after the
+    /// match is rebuilt from its log.
+    rng_seed: u64,
 }
 
 #[wasm_bindgen]
@@ -359,13 +446,17 @@ impl WasmMatch {
     pub fn new(setup: Ts<MatchSetupInput>) -> Result<Self, JsError> {
         let setup = read_input("setup", setup)?;
         let fog_enabled = setup.fog_enabled;
+        let seats = seated_opponents(&setup)?;
         let setup: GameSetup = setup
             .try_into()
             .map_err(|reason| invalid_input("setup", reason))?;
+        let rng_seed = setup.rng_seed;
         let server = GameServer::new(setup).map_err(setup_error)?;
         Ok(Self {
             server,
             fog_enabled,
+            seats,
+            rng_seed,
         })
     }
 
@@ -376,9 +467,11 @@ impl WasmMatch {
     ) -> Result<Self, JsError> {
         let setup = read_input("setup", setup)?;
         let fog_enabled = setup.fog_enabled;
+        let seats = seated_opponents(&setup)?;
         let setup: GameSetup = setup
             .try_into()
             .map_err(|reason| invalid_input("setup", reason))?;
+        let rng_seed = setup.rng_seed;
         let events = events
             .into_iter()
             .map(|event| read_input("events", event))
@@ -387,6 +480,8 @@ impl WasmMatch {
         Ok(Self {
             server,
             fog_enabled,
+            seats,
+            rng_seed,
         })
     }
 
@@ -398,21 +493,105 @@ impl WasmMatch {
         command: Ts<crate::GameCommand>,
     ) -> Result<Ts<WasmActionResponse>, JsError> {
         let command = read_input("command", command)?;
-        if !self.server.has_player(crate::PlayerId(player_slot)) {
+        let player = crate::PlayerId(player_slot);
+        if !self.server.has_player(player) {
             return Err(invalid_input(
                 "player_slot",
                 format!("unknown player slot {player_slot}"),
             ));
         }
 
-        let stored_command = command.clone();
+        let response = self.apply(player, command).map_err(command_error)?;
+        Ok(response.into_ts()?)
+    }
 
+    /// The seat the server owes a turn, or `None` when it owes none.
+    ///
+    /// A match owes a turn when it is still running and the seat whose turn is
+    /// open is one the server plays. The host asks after every accepted
+    /// command, so this answers the whole question rather than handing back a
+    /// slot and a phase to be read together.
+    #[wasm_bindgen(js_name = pendingAiSlot)]
+    pub fn pending_ai_slot(&self) -> Option<u8> {
+        let player = self.server.active_player()?;
+        self.profile_for(player).map(|_| player.0)
+    }
+
+    /// Play one whole turn for a seat the server holds.
+    ///
+    /// Every command the seat gets accepted is returned in the order it was
+    /// accepted, each carrying the same websocket messages and replay event a
+    /// person's command carries. The host writes them down and sends them on
+    /// exactly as it does its own, which is what keeps a match with an
+    /// opponent in it a match like any other.
+    ///
+    /// A refused command is not returned: the seat is told and decides again,
+    /// because a play chosen against what a seat can see may be refused by the
+    /// board it cannot, and that is an answer rather than a fault.
+    #[wasm_bindgen(js_name = runAiTurn)]
+    pub fn run_ai_turn(&mut self, player_slot: u8) -> Result<Ts<WasmAiTurnResponse>, JsError> {
         let player = crate::PlayerId(player_slot);
+        if !self.server.has_player(player) {
+            return Err(invalid_input(
+                "player_slot",
+                format!("unknown player slot {player_slot}"),
+            ));
+        }
+        let Some(profile) = self.profile_for(player) else {
+            return Err(invalid_input(
+                "player_slot",
+                format!("slot {player_slot} is not played by the server"),
+            ));
+        };
+        if self.server.active_player() != Some(player) {
+            return Err(invalid_input(
+                "player_slot",
+                format!("slot {player_slot} is not the seat whose turn is open"),
+            ));
+        }
 
-        let result = self
-            .server
-            .submit_command(player, command)
-            .map_err(command_error)?;
+        let seed = profile.turn_seed(
+            self.rng_seed,
+            usize::from(player_slot),
+            self.server.state().turn.day,
+        );
+        let mut seat = AiSeat::new(player, profile, seed);
+        seat.begin_turn(&self.server);
+
+        let mut actions = Vec::new();
+        while let Some(command) = seat.next_command(&self.server) {
+            match self.apply(player, command) {
+                Ok(response) => {
+                    actions.push(response);
+                    seat.accepted(&self.server);
+                }
+                Err(error) => {
+                    tracing::debug!(slot = player_slot, %error, "a played seat had a command refused");
+                    seat.refused();
+                }
+            }
+        }
+
+        Ok(WasmAiTurnResponse { actions }.into_ts()?)
+    }
+
+    /// The opponent seated in one slot.
+    fn profile_for(&self, player: crate::PlayerId) -> Option<&'static AiProfile> {
+        self.seats.get(usize::from(player.0)).copied().flatten()
+    }
+
+    /// Submit one command and build everything the host sends on because of it.
+    ///
+    /// The one place a command reaches the authority, so a seat the server
+    /// plays and a seat a person plays leave the same record and produce the
+    /// same messages.
+    fn apply(
+        &mut self,
+        player: crate::PlayerId,
+        command: crate::GameCommand,
+    ) -> Result<WasmActionResponse, crate::CommandError> {
+        let stored_command = command.clone();
+        let result = self.server.submit_command(player, command)?;
         let typed_transitions = result
             .observed_transitions
             .into_iter()
@@ -467,7 +646,7 @@ impl WasmMatch {
             })
             .collect();
 
-        let response = WasmActionResponse {
+        Ok(WasmActionResponse {
             player_messages_by_slot,
             stored_action_event: StoredActionEvent {
                 player,
@@ -475,9 +654,7 @@ impl WasmMatch {
                 random: self.server.last_random().to_vec(),
             },
             spectator_message,
-        };
-
-        Ok(response.into_ts()?)
+        })
     }
 
     /// Return results for a finished non-cancelled match.
@@ -922,6 +1099,13 @@ pub struct PlayerSetupInput {
     pub team: Option<NonZeroU8>,
     pub starting_funds: u32,
     pub co_id: u32,
+    /// The opponent the server plays this seat as, or absent for a person.
+    ///
+    /// A profile identifier and not a difficulty word, so a match records
+    /// which opponent it was against rather than a name whose meaning moves.
+    #[serde(default)]
+    #[tsify(optional, type = "string | null")]
+    pub ai_profile_id: Option<String>,
 }
 
 impl PlayerSetupInput {

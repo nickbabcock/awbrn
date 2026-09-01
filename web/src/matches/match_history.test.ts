@@ -14,6 +14,7 @@ function seat(overrides: Partial<MatchHistorySeat> = {}): MatchHistorySeat {
   return {
     slotIndex: 0,
     userId: "user-1",
+    aiProfileId: null,
     userName: "Andy",
     factionId: 1,
     coId: null,

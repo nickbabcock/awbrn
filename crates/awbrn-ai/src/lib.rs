@@ -10,6 +10,9 @@
 //! returns. [`agents`] holds the implementations. [`map`] is what the board
 //! says before anybody plays on it. [`probe`] is what a commander is worth,
 //! measured off the ruleset's own calculator rather than restated as a rule.
+//! [`profile`] is the opponent a match seats: a versioned name for one
+//! configuration, so a finished match records which opponent it was against
+//! rather than a difficulty word whose meaning moves.
 //! [`eval`] scores a position rather than a play, which is what a search needs
 //! to stop on a board it did not play to the end; [`calibration`] is how that
 //! scoring is proved to know anything, by predicting the result of games the
@@ -37,6 +40,7 @@ pub mod harness;
 pub mod map;
 pub mod mission;
 pub mod probe;
+pub mod profile;
 pub mod rng;
 pub mod shape;
 pub mod threat;
@@ -61,6 +65,10 @@ pub use harness::{
 pub use map::ContestMap;
 pub use mission::{DecisionTrace, TraceError, TurnEndReason};
 pub use probe::Probe;
+pub use profile::{
+    AiImplementation, AiProfile, AiTier, CURRENT_PROFILES as AI_CURRENT_PROFILES, EASY, HARD,
+    PROFILES as AI_PROFILES, STANDARD, profile, profile_for_tier,
+};
 pub use rng::Rng;
 pub use shape::{SeatShape, Shape};
 pub use threat::ThreatMap;

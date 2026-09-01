@@ -58,6 +58,8 @@ import { defaultMatchClock, type MatchClock } from "../schemas.ts";
 import { createMatchFn } from "#/matches/matches.functions.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
 import { ClockSettings, validateClock } from "#/matches/components/ClockSettings.tsx";
+import { NO_AI_SEATS, SeatRoster } from "#/matches/components/SeatRoster.tsx";
+import type { AiProfileId } from "#/matches/schemas.ts";
 import { TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
 
 /** How long the board waits after a keystroke before it searches. */
@@ -89,6 +91,8 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
   const [hotseatEnabled, setHotseatEnabled] = useState(false);
   const [clock, setClock] = useState<MatchClock>(defaultMatchClock);
   const [bannedCoIds, setBannedCoIds] = useState<ReadonlySet<number>>(EMPTY_CO_BANS);
+  // The opponent in each seat, by slot index. A seat with no entry is open.
+  const [aiSeats, setAiSeats] = useState<ReadonlyMap<number, AiProfileId>>(NO_AI_SEATS);
   const [createError, setCreateError] = useState<string | null>(null);
 
   // The name follows the map until the player writes their own.
@@ -156,6 +160,9 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
   function handleSelectMap(map: MapCatalogEntry): void {
     setSelectedMap(map);
     setCreateError(null);
+    // The roster is about one map's seats. Another map has its own, and
+    // carrying a seat over would put an opponent in a slot nobody chose.
+    setAiSeats(NO_AI_SEATS);
     revealBriefingRef.current = true;
     if (!matchName.trim() || matchName === autoMatchNameRef.current) {
       autoMatchNameRef.current = map.name;
@@ -189,6 +196,10 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
       setCreateError("Leave at least one CO for the players to choose.");
       return;
     }
+    if (aiSeats.size >= selectedMap.playerCount) {
+      setCreateError("Leave a seat open for yourself.");
+      return;
+    }
     const clockError = validateClock(clock);
     if (clockError) {
       setCreateError(clockError);
@@ -209,6 +220,7 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
             bannedCoIds: [...bannedCoIds],
             clock,
           },
+          aiSeats: [...aiSeats].map(([slotIndex, profileId]) => ({ slotIndex, profileId })),
         },
       });
       await navigate({ to: "/matches/$matchId", params: { matchId: match.matchId } });
@@ -324,6 +336,7 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
 
         {selectedMap ? (
           <MapBriefing
+            aiSeats={aiSeats}
             bannedCoIds={bannedCoIds}
             briefingRef={briefingRef}
             clock={clock}
@@ -334,6 +347,10 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
             isPrivate={isPrivate}
             map={selectedMap}
             matchName={matchName}
+            onAiSeatsChange={(seats) => {
+              setCreateError(null);
+              setAiSeats(seats);
+            }}
             onCreate={handleCreateLobby}
             onClockChange={setClock}
             onFogChange={setFogEnabled}
@@ -492,6 +509,7 @@ function FirstMapPanel({
 }
 
 function MapBriefing({
+  aiSeats,
   bannedCoIds,
   briefingRef,
   clock,
@@ -502,6 +520,7 @@ function MapBriefing({
   isPrivate,
   map,
   matchName,
+  onAiSeatsChange,
   onClockChange,
   onCreate,
   onFogChange,
@@ -513,6 +532,7 @@ function MapBriefing({
   session,
   startingFunds,
 }: {
+  aiSeats: ReadonlyMap<number, AiProfileId>;
   bannedCoIds: ReadonlySet<number>;
   briefingRef: RefObject<HTMLDivElement | null>;
   clock: MatchClock;
@@ -523,6 +543,7 @@ function MapBriefing({
   isPrivate: boolean;
   map: MapCatalogEntry;
   matchName: string;
+  onAiSeatsChange: (aiSeats: ReadonlyMap<number, AiProfileId>) => void;
   onClockChange: (clock: MatchClock) => void;
   onCreate: () => void | Promise<void>;
   onFogChange: (value: boolean) => void;
@@ -599,6 +620,10 @@ function MapBriefing({
             </VStack>
           </VStack>
         </Grid>
+
+        <Divider />
+
+        <SeatRoster aiSeats={aiSeats} onChange={onAiSeatsChange} playerCount={map.playerCount} />
 
         <Divider />
 

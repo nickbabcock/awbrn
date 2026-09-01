@@ -47,6 +47,7 @@ function snapshot(overrides: Partial<MatchSnapshot> = {}): MatchSnapshot {
     participants: [
       {
         userId: "u1",
+        aiProfileId: null,
         userName: "Nick",
         slotIndex: 0,
         factionId: 1,

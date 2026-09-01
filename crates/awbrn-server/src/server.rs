@@ -91,6 +91,33 @@ impl GameServer {
         view::build_player_view(&self.authority, &mut self.unit_ids, player)
     }
 
+    /// The seat whose turn is open, or `None` once the match is over.
+    ///
+    /// The host asks this to find out whether it owes a turn to a seat it
+    /// plays itself. A finished match owes nobody a turn, which is why the
+    /// answer is one value rather than a slot and a phase the caller has to
+    /// read together.
+    pub fn active_player(&self) -> Option<PlayerId> {
+        let state = self.authority.state();
+        if matches!(state.match_state, awvm::semantic::Match::Finished { .. }) {
+            return None;
+        }
+        let active = &state.turn.active_player;
+        self.authority
+            .players()
+            .find(|player| self.authority.player(*player) == *active)
+    }
+
+    /// The authoritative position.
+    ///
+    /// For a host that has to spell a command against the true board, which a
+    /// server-played seat does. A recipient's own board is
+    /// [`Self::player_observation`], and nothing that answers a client may
+    /// read this one.
+    pub fn state(&self) -> &awvm::semantic::State {
+        self.authority.state()
+    }
+
     /// Get the typed recipient-safe state used by presentation clients.
     pub fn player_observation(&self, player: PlayerId) -> Option<Observation> {
         let recipient = self.authority.player(player);

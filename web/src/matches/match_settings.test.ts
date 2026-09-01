@@ -69,3 +69,49 @@ describe("match clock settings", () => {
     ).toBe(true);
   });
 });
+
+describe("seats a match is made with", () => {
+  const request = {
+    name: "Riverside Duel",
+    map: validMap,
+    isPrivate: false,
+    settings: { fogEnabled: false, startingFunds: 0, clock: defaultMatchClock },
+  };
+
+  it("opens a lobby of people when the host seats nobody", () => {
+    const parsed = matchCreateRequestSchema.parse(request);
+    expect(parsed.aiSeats).toEqual([]);
+  });
+
+  it("takes the opponents the host seated", () => {
+    const parsed = matchCreateRequestSchema.parse({
+      ...request,
+      aiSeats: [{ slotIndex: 1, profileId: "ai-hard-v1" }],
+    });
+    expect(parsed.aiSeats).toEqual([{ slotIndex: 1, profileId: "ai-hard-v1" }]);
+  });
+
+  it("refuses an opponent this build has no profile for", () => {
+    const parsed = matchCreateRequestSchema.safeParse({
+      ...request,
+      aiSeats: [{ slotIndex: 1, profileId: "ai-unbeatable-v9" }],
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  /**
+   * Two opponents in one seat is a lobby that cannot be built, and the insert
+   * would fail on the seat's own primary key. Saying so here is a message the
+   * host can read.
+   */
+  it("refuses two opponents in the same seat", () => {
+    const parsed = matchCreateRequestSchema.safeParse({
+      ...request,
+      aiSeats: [
+        { slotIndex: 1, profileId: "ai-easy-v1" },
+        { slotIndex: 1, profileId: "ai-hard-v1" },
+      ],
+    });
+    expect(parsed.success).toBe(false);
+  });
+});

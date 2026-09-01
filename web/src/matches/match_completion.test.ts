@@ -38,6 +38,15 @@ const rout: MatchResults = {
   ],
 };
 
+/** One person against one opponent the server plays. */
+function aiSetup(): MatchSetup {
+  const base = setup(["alice", "unused"]);
+  return {
+    ...base,
+    players: [base.players[0]!, { ...base.players[1]!, userId: null, aiProfileId: "ai-hard-v1" }],
+  };
+}
+
 describe("match completion", () => {
   it("writes one row for each seat, named by the user in that slot", () => {
     expect(matchResultRows(setup(["alice", "bob"]), rout)).toEqual([
@@ -45,6 +54,7 @@ describe("match completion", () => {
         matchId: "match-1",
         slotIndex: 0,
         userId: "alice",
+        aiProfileId: null,
         teamId: "player-0",
         outcome: "win",
         placement: 1,
@@ -55,6 +65,7 @@ describe("match completion", () => {
         matchId: "match-1",
         slotIndex: 1,
         userId: "bob",
+        aiProfileId: null,
         teamId: "player-1",
         outcome: "loss",
         placement: 2,
@@ -77,6 +88,22 @@ describe("match completion", () => {
 
   it("drops a seat the setup does not hold, because a row needs a user", () => {
     expect(matchResultRows(setup(["alice"]), rout)).toHaveLength(1);
+  });
+
+  it("records a seat the server played, holding a profile where a user would be", () => {
+    const rows = matchResultRows(aiSetup(), rout);
+    expect(rows.map((row) => row.userId)).toEqual(["alice", null]);
+    expect(rows.map((row) => row.aiProfileId)).toEqual([null, "ai-hard-v1"]);
+  });
+
+  /**
+   * A rating is between people. A match the server took a seat in happened and
+   * is recorded, but it is not one anybody's rating moves on, whatever the
+   * match was opened as.
+   */
+  it("takes the pool off a match the server played a seat in", () => {
+    const ranked = { ...aiSetup(), pool: "async" as const, season: 1 };
+    expect(matchResultRows(ranked, rout).map((row) => row.pool)).toEqual([null, null]);
   });
 
   it("writes rows the result table accepts", () => {

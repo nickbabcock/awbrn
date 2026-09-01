@@ -1,6 +1,9 @@
 use awbrn_map::Pos;
 pub use awbrn_protocol::PostMoveAction;
 pub use awvm::commander::PowerLevel;
+use awvm::event::AttackTarget;
+use awvm::semantic::{Location, State, UnitId};
+use awvm::transition::Command;
 
 use crate::unit_id::ServerUnitId;
 
@@ -52,6 +55,127 @@ pub enum GameCommand {
     /// The host issues this when the match clock expires. A player cannot send
     /// it: the match durable object rejects it on the player websocket.
     Timeout,
+}
+
+/// A command AWVM accepts that has no wire spelling.
+///
+/// The wire vocabulary is what a client may send, and it is smaller than the
+/// reducer's own. A command outside it never came from a client, so this is a
+/// fault in whatever built it rather than a rules violation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnmappedCommand {
+    /// The command's variant, for a message a person reads.
+    pub command: &'static str,
+}
+
+impl std::fmt::Display for UnmappedCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} has no wire command", self.command)
+    }
+}
+
+impl std::error::Error for UnmappedCommand {}
+
+/// The wire command one AWVM command is, read against the position it acts on.
+///
+/// The inverse of the expansion the authority does when it accepts a wire
+/// command. It exists for a seat that decides in AWVM's own vocabulary — an AI
+/// — and has to leave the same record in the log a person's seat leaves, so a
+/// match with an AI in it replays through the one path every match replays
+/// through.
+///
+/// `state` is the position the command was chosen against, which is where an
+/// attack on a unit reads back as the tile that unit stands on. A command that
+/// names a target no longer there reads as a tile, which is what the authority
+/// makes of that command anyway.
+pub fn game_command(command: &Command, state: &State) -> Result<GameCommand, UnmappedCommand> {
+    let unmapped = |command: &'static str| Err(UnmappedCommand { command });
+    let moved = |unit: &UnitId, path: &[Pos], action: PostMoveAction| GameCommand::MoveUnit {
+        unit_id: ServerUnitId(u64::from(unit.get())),
+        path: path.to_vec(),
+        action: Some(action),
+    };
+
+    Ok(match command {
+        Command::MoveWait { unit, path, .. } => moved(unit, path, PostMoveAction::Wait),
+        Command::MoveCapture { unit, path, .. } => moved(unit, path, PostMoveAction::Capture),
+        Command::MoveSupply { unit, path, .. } => moved(unit, path, PostMoveAction::Supply),
+        Command::MoveHide { unit, path, .. } => moved(unit, path, PostMoveAction::Hide),
+        Command::MoveReveal { unit, path, .. } => moved(unit, path, PostMoveAction::Unhide),
+        Command::MoveExplode { unit, path, .. } => moved(unit, path, PostMoveAction::Explode),
+        Command::MoveLaunch {
+            unit, path, target, ..
+        } => moved(unit, path, PostMoveAction::Launch { target: *target }),
+        Command::MoveJoin {
+            unit, path, target, ..
+        } => moved(
+            unit,
+            path,
+            PostMoveAction::Join {
+                target_id: u64::from(target.get()),
+            },
+        ),
+        Command::MoveRepair {
+            unit, path, target, ..
+        } => moved(
+            unit,
+            path,
+            PostMoveAction::Repair {
+                target_id: u64::from(target.get()),
+            },
+        ),
+        Command::MoveLoad {
+            unit,
+            path,
+            transport,
+            ..
+        } => moved(
+            unit,
+            path,
+            PostMoveAction::Load {
+                transport_id: u64::from(transport.get()),
+            },
+        ),
+        Command::MoveAttack {
+            unit, path, target, ..
+        } => {
+            // The wire names the tile fired on. The authority reads the unit
+            // standing there back out of it, so a target that has since left
+            // the board spells as the tile it occupied, which is the same
+            // command the authority would have built from that tile.
+            let position = match target {
+                AttackTarget::Tile { position } => *position,
+                AttackTarget::Unit { unit } => match state.units.get(*unit).map(|u| &u.location) {
+                    Some(&Location::Board { position }) => position,
+                    _ => return unmapped("an attack on a unit that is not on the board"),
+                },
+            };
+            moved(unit, path, PostMoveAction::Attack { target: position })
+        }
+        Command::Unload {
+            transport,
+            cargo,
+            destination,
+            ..
+        } => GameCommand::Unload {
+            transport_id: ServerUnitId(u64::from(transport.get())),
+            cargo_id: ServerUnitId(u64::from(cargo.get())),
+            position: *destination,
+        },
+        Command::DeleteUnit { unit, .. } => GameCommand::DeleteUnit {
+            unit_id: ServerUnitId(u64::from(unit.get())),
+        },
+        Command::ProduceUnit { position, kind, .. } => GameCommand::Build {
+            position: *position,
+            unit_type: *kind,
+        },
+        Command::ActivatePower { level, .. } => GameCommand::ActivatePower { level: *level },
+        Command::EndTurn { .. } => GameCommand::EndTurn,
+        Command::Timeout { .. } => GameCommand::Timeout,
+        Command::Tag { .. } => return unmapped("a commander tag"),
+        Command::Resign { .. } => return unmapped("a resignation"),
+        Command::Unsupported => return unmapped("an unsupported command"),
+    })
 }
 
 #[cfg(test)]
