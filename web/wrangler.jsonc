@@ -10,7 +10,7 @@
     // The VAPID pair signs push notifications, and the subject is how a push
     // service reaches whoever sent them. Without them the site still runs and
     // only the notifications to a player with no tab open are given up.
-    "required": ["AUTH_SECRET", "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT"],
+    "required": ["AUTH_SECRET"],
   },
   // The renderer that draws a map screenshot reads the sprite atlases through
   // this binding, so it reads the same files the browser is served.

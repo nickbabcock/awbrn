@@ -6,7 +6,13 @@ import migrations from "../../drizzle/player/migrations";
 import { pendingTurnsTable, pushSubscriptionsTable } from "#/db/player.ts";
 import { getRequestSession } from "#/auth/auth.server.ts";
 import { requireRateLimit } from "#/rate_limit.ts";
-import { sendWebPush, type PushSubscription, type VapidKeys } from "./web_push.ts";
+import {
+  readVapidKeys,
+  sendWebPush,
+  type PushSubscription,
+  type VapidEnvironment,
+  type VapidKeys,
+} from "./web_push.ts";
 import {
   buildTurnDigest,
   parsePlayerClientMessage,
@@ -356,13 +362,7 @@ export class PlayerDurableObject extends DurableObject<CloudflareBindings> {
    * up. That is what lets development run without the keys.
    */
   private vapidKeys(): VapidKeys | null {
-    const publicKey = this.env.VAPID_PUBLIC_KEY;
-    const privateKey = this.env.VAPID_PRIVATE_KEY;
-    const subject = this.env.VAPID_SUBJECT;
-    if (!publicKey || !privateKey || !subject) {
-      return null;
-    }
-    return { publicKey, privateKey, subject };
+    return readVapidKeys(this.env as VapidEnvironment);
   }
 }
 

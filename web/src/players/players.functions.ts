@@ -4,6 +4,7 @@ import { sessionMiddleware } from "#/auth/session.middleware.ts";
 import { requireRateLimit } from "#/rate_limit.ts";
 import { getPlayerStub } from "./player_service.ts";
 import { pushSubscriptionSchema, pushUnsubscribeSchema } from "./schemas.ts";
+import { readVapidKeys, type VapidEnvironment } from "./web_push.ts";
 
 /**
  * What a browser needs before it can subscribe.
@@ -13,7 +14,7 @@ import { pushSubscriptionSchema, pushUnsubscribeSchema } from "./schemas.ts";
  * page offers nothing rather than failing.
  */
 export const pushConfigFn = createServerFn({ method: "GET" }).handler(() => {
-  return { publicKey: env.VAPID_PUBLIC_KEY || null };
+  return { publicKey: readVapidKeys(env as VapidEnvironment)?.publicKey ?? null };
 });
 
 export const subscribePushFn = createServerFn({ method: "POST" })

@@ -28,6 +28,22 @@ export interface VapidKeys {
   subject: string;
 }
 
+export interface VapidEnvironment {
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  VAPID_SUBJECT?: string;
+}
+
+export function readVapidKeys(environment: VapidEnvironment): VapidKeys | null {
+  const publicKey = environment.VAPID_PUBLIC_KEY;
+  const privateKey = environment.VAPID_PRIVATE_KEY;
+  const subject = environment.VAPID_SUBJECT;
+  if (!publicKey || !privateKey || !subject) {
+    return null;
+  }
+  return { publicKey, privateKey, subject };
+}
+
 /** How long a push service should hold a message for a browser that is away. */
 export const DEFAULT_PUSH_TTL_SECONDS = 24 * 60 * 60;
 
