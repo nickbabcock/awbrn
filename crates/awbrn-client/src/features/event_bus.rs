@@ -265,6 +265,26 @@ pub struct AttackForecast {
     pub may_destroy: bool,
 }
 
+/// The exchange the pointer is currently aimed at.
+///
+/// It is the same arithmetic the destination menu prints, shown one step
+/// earlier: a player choosing a target is choosing between exchanges, and the
+/// choice is made while the crosshair is on the target rather than after the
+/// unit has been committed to a firing tile. `forecast: None` tells
+/// presentation clients that nothing is aimed at and the readout has nothing
+/// to say.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[serde(rename_all = "camelCase")]
+pub struct AttackPreviewChanged {
+    #[cfg_attr(target_family = "wasm", tsify(optional))]
+    pub forecast: Option<AttackForecast>,
+    /// The unit that would fire, so the readout can name the exchange from the
+    /// seat the player is sitting in.
+    #[cfg_attr(target_family = "wasm", tsify(optional))]
+    pub attacker: Option<UnitBadge>,
+}
+
 /// A unit as the menu draws and names it.
 ///
 /// Enough to put a sprite, an army and a health beside a number, and no more:
