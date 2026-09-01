@@ -229,6 +229,12 @@ export class GameRunner implements CanvasCourierController {
         this.handleDeleteUnitCommandRequest(event);
         break;
       }
+      case "AttackPreviewChanged": {
+        useGameStore
+          .getState()
+          .actions.setAttackPreview(event.forecast === undefined ? null : event);
+        break;
+      }
       case "UnitActionsChanged": {
         useGameStore
           .getState()

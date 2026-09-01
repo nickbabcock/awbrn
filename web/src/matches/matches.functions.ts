@@ -1,7 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { sessionMiddleware } from "#/auth/session.middleware.ts";
-import { optionalActorMiddleware, requirePermission } from "#/auth/permission.middleware.ts";
+import {
+  actorMiddleware,
+  optionalActorMiddleware,
+  requirePermission,
+} from "#/auth/permission.middleware.ts";
 import { getFactionById } from "#/factions.ts";
 import { matchIdSchema } from "./match_id.ts";
 import {
@@ -70,7 +74,7 @@ export const getMatchFn = createServerFn({ method: "GET" })
   });
 
 export const createMatchFn = createServerFn({ method: "POST" })
-  .middleware([sessionMiddleware])
+  .middleware([sessionMiddleware, actorMiddleware])
   .validator(matchCreateRequestSchema)
   .handler(async ({ data, context }) => {
     if (!context.session) throw new Error("you must be signed in to create a match");
@@ -79,7 +83,7 @@ export const createMatchFn = createServerFn({ method: "POST" })
       `user:${context.session.user.id}`,
     );
     const result = await createMatch(data, {
-      id: context.session.user.id,
+      id: context.actor.userId,
       name: context.session.user.name,
     });
     if (!result.ok) throw new Error(result.error.message);

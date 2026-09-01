@@ -133,6 +133,15 @@ export async function createMatch(
   input: MatchCreateRequest,
   creator: MatchViewer,
 ): Promise<MatchResult<MatchCreateResponse>> {
+  const creatorExists = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.id, creator.id))
+    .get();
+  if (!creatorExists) {
+    return err("notAuthenticated", "your account is not available; sign in again", 401);
+  }
+
   // The map must already be in the catalog. A player puts one there by
   // importing it, which is a separate step with its own report of what went
   // wrong, so a match never waits on a fetch to another site.

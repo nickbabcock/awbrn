@@ -45,6 +45,7 @@ import {
   BattleCalculator,
 } from "#/matches/components/BattleCalculator.tsx";
 import { BuildMenu } from "#/matches/components/BuildMenu.tsx";
+import { AttackPreview } from "#/matches/components/AttackPreview.tsx";
 import { UnitActionMenu } from "#/matches/components/UnitActionMenu.tsx";
 import { RosterList, RosterRow } from "#/replay/RosterRow.tsx";
 import type { ActivatablePowerLevel } from "#/replay/power_meter.ts";
@@ -719,6 +720,11 @@ function ActiveMatchBoard({
             viewerSlotIndex={viewerSlotIndex ?? null}
           />
         ) : null}
+
+        {/* What the shot being aimed would cost, in the frame the order menu
+            will arrive in. It stands beside the target rather than in a corner,
+            and it takes no press: the shot is fired through it. */}
+        <AttackPreview surfaceRef={surfaceRef} />
 
         {/* The terrain window stands on the battlefield, the way the game's own
             does, so reading a tile costs the page no height. */}

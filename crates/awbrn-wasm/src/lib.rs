@@ -1,9 +1,10 @@
 use awbrn_client::{
-    AwbrnPlugin, DeleteUnitCommandRequested, EventSink, LiveMatchPlayer, MapAssetPathResolver,
-    MapDimensions, MoveCommandRequested, NewDay, PendingGameStart, PendingLiveMatch,
-    PendingLiveTransitions, PendingMatchMap, PlayerRosterSnapshot, ProductionOptionsChanged,
-    ReplayLoaded, ReplayToLoad, StaticAssetPathResolver, TileHoverChanged, TileSelected,
-    UnitActionsChanged, UnitBuilt, UnitMoved, UnloadCommandRequested, core::coords::LogicalPx,
+    AttackPreviewChanged, AwbrnPlugin, DeleteUnitCommandRequested, EventSink, LiveMatchPlayer,
+    MapAssetPathResolver, MapDimensions, MoveCommandRequested, NewDay, PendingGameStart,
+    PendingLiveMatch, PendingLiveTransitions, PendingMatchMap, PlayerRosterSnapshot,
+    ProductionOptionsChanged, ReplayLoaded, ReplayToLoad, StaticAssetPathResolver,
+    TileHoverChanged, TileSelected, UnitActionsChanged, UnitBuilt, UnitMoved,
+    UnloadCommandRequested, core::coords::LogicalPx,
 };
 use awbrn_map::ValidatedMapDocument;
 use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
@@ -48,6 +49,7 @@ pub enum GameEvent {
     UnloadCommandRequested(UnloadCommandRequested),
     DeleteUnitCommandRequested(DeleteUnitCommandRequested),
     UnitActionsChanged(UnitActionsChanged),
+    AttackPreviewChanged(AttackPreviewChanged),
     MapDimensions(MapDimensions),
     ReplayLoaded(ReplayLoaded),
     PlayerRosterUpdated(PlayerRosterSnapshot),
@@ -226,6 +228,7 @@ impl BevyApp {
             wasm_sink!(UnloadCommandRequested, UnloadCommandRequested);
             wasm_sink!(DeleteUnitCommandRequested, DeleteUnitCommandRequested);
             wasm_sink!(UnitActionsChanged, UnitActionsChanged);
+            wasm_sink!(AttackPreviewChanged, AttackPreviewChanged);
             wasm_sink!(MapDimensions, MapDimensions);
             wasm_sink!(ReplayLoaded, ReplayLoaded);
             wasm_sink!(PlayerRosterUpdated, PlayerRosterSnapshot);

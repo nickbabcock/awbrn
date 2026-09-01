@@ -4,13 +4,14 @@ use crate::core::coords::{TILE_SIZE, position_to_world_translation};
 use crate::core::{AppState, GameMode, RenderLayer, SpriteSize};
 use crate::features::camera::{CameraScale, FocusBoardOn};
 use crate::features::event_bus::{
-    AttackForecast, DamageBracket, DeleteUnitCommandRequested, EventSink, ForecastTarget,
-    MoveCommandRequested, PostMoveAction, ProductionOption, ProductionOptionsChanged,
-    ProductionSite, UnitActionOption, UnitActionsChanged, UnitBadge, UnitOrder,
-    UnloadCommandRequested,
+    AttackForecast, AttackPreviewChanged, DamageBracket, DeleteUnitCommandRequested, EventSink,
+    ForecastTarget, MoveCommandRequested, PostMoveAction, ProductionOption,
+    ProductionOptionsChanged, ProductionSite, UnitActionOption, UnitActionsChanged, UnitBadge,
+    UnitOrder, UnloadCommandRequested,
 };
 use crate::features::input::{
-    BoardProjection, DragOwner, PointerGesture, PointerGestureKind, PointerSet, ReturnToTouchFloor,
+    BoardProjection, DragOwner, PointerGesture, PointerGestureKind, PointerIsCoarse, PointerSet,
+    ReturnToTouchFloor,
 };
 use crate::render::UiAtlas;
 use crate::render::course_arrow::{COURSE_ARROW_SPRITE_SIZE, build_course_arrow_spawns};
@@ -117,6 +118,26 @@ pub enum PlayUiPhase {
     DestinationSelected,
     /// A command has been sent and the server has not yet answered.
     AwaitingServer,
+}
+
+/// A target the player has already answered for, waiting to be fired on.
+///
+/// Aiming and firing are two separate answers on a touch screen and one answer
+/// with a mouse, but both end here: the destination is proposed the ordinary
+/// way, and the menu that would ask which order to give commits the attack
+/// instead of drawing itself.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PendingAttackConfirmation(pub Option<Pos>);
+
+/// The exchange presentation was last told about, so an unchanged aim is not
+/// re-sent every frame.
+///
+/// The firing unit is kept beside the forecast because the two can move apart:
+/// a different unit can offer the same exchange, and the readout names the unit.
+#[derive(Resource, Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct EmittedAttackPreview {
+    forecast: Option<AttackForecast>,
+    attacker: Option<UnitBadge>,
 }
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -689,6 +710,7 @@ pub(crate) fn handle_play_pointer_gestures(
     mut policy: PointerPolicy<'_>,
     unit_selection: PlayUnitSelectionParams<'_, '_>,
     production_options: ProductionOptionsParams<'_>,
+    mut confirmation: ResMut<PendingAttackConfirmation>,
     mut selection: PlaySelectionState<'_>,
 ) {
     for gesture in gestures.read() {
@@ -697,6 +719,7 @@ pub(crate) fn handle_play_pointer_gestures(
                 handle_tap(
                     gesture,
                     projection.world_at(gesture.viewport),
+                    &mut confirmation,
                     &mut policy,
                     &unit_selection,
                     &production_options,
@@ -728,6 +751,7 @@ pub(crate) fn handle_play_pointer_gestures(
 fn handle_tap(
     gesture: &PointerGesture,
     world: Option<Vec2>,
+    confirmation: &mut PendingAttackConfirmation,
     policy: &mut PointerPolicy<'_>,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
     production_options: &ProductionOptionsParams<'_>,
@@ -755,6 +779,12 @@ fn handle_tap(
                 policy.floor.write(ReturnToTouchFloor);
                 return;
             }
+            // A pointer that is already aimed at this target has asked the
+            // question and shown what the exchange costs. The press answers it.
+            // A finger has no hover to ask with, so its first tap aims and the
+            // second one fires: the crosshair and the forecast come up in
+            // between, which is the same conversation a mouse has by moving.
+            let was_aimed = selection.proposed_path.attack_intent == Some(tapped);
             selection.proposed_path.attack_intent = Some(tapped);
             if selection.proposed_path.path.last() != Some(&approach) {
                 selection.proposed_path.path = selection
@@ -764,6 +794,10 @@ fn handle_tap(
                     .and_then(|field| field_path(field, approach))
                     .unwrap_or_default();
             }
+            if gesture.coarse && !was_aimed {
+                return;
+            }
+            confirmation.0 = Some(tapped);
             let proposed_path = selection.proposed_path.path.clone();
             confirm_selected_destination(approach, &proposed_path, unit_selection, selection);
             return;
@@ -1083,12 +1117,19 @@ pub(crate) fn clear_selection_on_escape(
 pub(crate) fn update_proposed_move_path(
     projection: BoardProjection<'_, '_>,
     keys: Res<ButtonInput<KeyCode>>,
+    coarse: Res<PointerIsCoarse>,
     hover: HoverState<'_>,
     mut proposed: ResMut<ProposedMovePath>,
 ) {
     // A drag draws its own route. Hover would otherwise overwrite it every
     // frame, and on a touch device there is no cursor to overwrite it with.
     if *hover.phase != PlayUiPhase::UnitSelected || *hover.owner == DragOwner::Unit {
+        return;
+    }
+    // A touch session has no cursor. The one the window reports is wherever the
+    // last finger left it, and reading it here would wipe the aim a tap just
+    // took, one frame after the tap took it.
+    if coarse.0 {
         return;
     }
     let Some(selected_unit) = hover.selected.0 else {
@@ -1459,6 +1500,67 @@ pub(crate) fn sync_attack_target_reticle(
     ));
 }
 
+/// What the crosshair costs, sent while the crosshair is up.
+///
+/// The reticle says a shot is available and the red glass says where from; this
+/// says what the shot is worth. Without it the only way to read the exchange is
+/// to commit the unit to a firing tile first, which is the one step in the
+/// decision that cannot be taken back.
+pub(crate) fn emit_attack_preview(
+    selected: Res<SelectedUnit>,
+    proposed: Res<ProposedMovePath>,
+    phase: Res<PlayUiPhase>,
+    unit_selection: PlayUnitSelectionParams<'_, '_>,
+    sink: Option<Res<EventSink<AttackPreviewChanged>>>,
+    mut emitted: ResMut<EmittedAttackPreview>,
+) {
+    let Some(sink) = sink.as_deref() else {
+        return;
+    };
+    // Reifying the projection is the expensive half of a forecast, so the aim
+    // is only priced when the aim moves.
+    if !(proposed.is_changed() || selected.is_changed() || phase.is_changed()) {
+        return;
+    }
+
+    let forecast = aimed_forecast(&selected, &proposed, &phase, &unit_selection);
+    let attacker = selected
+        .0
+        .filter(|_| forecast.is_some())
+        .and_then(|selected| unit_badge(selected.entity, &unit_selection));
+    if emitted.forecast == forecast && emitted.attacker == attacker {
+        return;
+    }
+    emitted.forecast = forecast.clone();
+    emitted.attacker = attacker.clone();
+    sink.emit(AttackPreviewChanged { forecast, attacker });
+}
+
+/// The exchange the current aim would open, if it is aimed at anything.
+///
+/// The firing tile is the end of the route already on screen, which is the tile
+/// the shot would be taken from. Asking from anywhere else would price an
+/// attack the player is not being offered.
+fn aimed_forecast(
+    selected: &SelectedUnit,
+    proposed: &ProposedMovePath,
+    phase: &PlayUiPhase,
+    unit_selection: &PlayUnitSelectionParams<'_, '_>,
+) -> Option<AttackForecast> {
+    if *phase != PlayUiPhase::UnitSelected {
+        return None;
+    }
+    let target = proposed.attack_intent?;
+    let selected = selected.0?;
+    let approach = proposed.path.last().copied().unwrap_or(selected.origin);
+    let (session, index) = unit_session(selected.entity, unit_selection)?;
+    let dimensions = session.state().board.dimensions();
+    let from = dimensions.cell_index(approach)?;
+    let target_cell = dimensions.cell_index(target)?;
+    let forecast = session.legal().forecast(index, from, target_cell)?;
+    describe_forecast(forecast, target, unit_selection)
+}
+
 fn apply_attack_target_reticle_pose(elapsed_seconds: f32, transform: &mut Transform) {
     let rotation = elapsed_seconds * std::f32::consts::TAU * TARGET_RETICLE_ROTATIONS_PER_SECOND;
     let pulse = (elapsed_seconds * std::f32::consts::TAU * TARGET_RETICLE_PULSES_PER_SECOND).sin();
@@ -1660,11 +1762,17 @@ pub(crate) fn emit_unit_actions(
     pending: Res<PendingMoveDestination>,
     unit_selection: PlayUnitSelectionParams<'_, '_>,
     actions: UnitActionParams<'_>,
+    mut confirmation: ResMut<PendingAttackConfirmation>,
+    mut chosen: MessageWriter<UnitActionChosen>,
     mut offered: ResMut<OfferedActions>,
 ) {
     if !pending.is_changed() {
         return;
     }
+    // The answer belongs to the proposal that arrived with it. Taking it here
+    // rather than on the way out means a proposal that turns out to have no
+    // attack on it cannot fire the next one.
+    let confirmed_target = confirmation.0.take();
 
     let Some(pending) = pending.0.as_ref() else {
         offered.0.clear();
@@ -1775,6 +1883,19 @@ pub(crate) fn emit_unit_actions(
             )
         })
     });
+
+    // A target picked on the board is a whole order: which unit, from where,
+    // at what. The menu would have exactly one row on it, already answered, so
+    // the order goes instead of the menu. `handle_unit_action_chosen` runs
+    // earlier in the frame, so it reads this on the next one, and presentation
+    // is never told about a menu it would have to close again.
+    if let (Some(target), Some(index)) = (confirmed_target, preselected)
+        && attack_intent == Some(target)
+    {
+        offered.0 = options;
+        chosen.write(UnitActionChosen { index });
+        return;
+    }
 
     offered.0 = options.clone();
     sink.emit(UnitActionsChanged {
@@ -2220,6 +2341,8 @@ impl Plugin for PlayPlugin {
             .init_resource::<SelectedMoveField>()
             .init_resource::<AttackTargets>()
             .init_resource::<PendingMoveDestination>()
+            .init_resource::<PendingAttackConfirmation>()
+            .init_resource::<EmittedAttackPreview>()
             .init_resource::<ProposedMovePath>()
             .init_resource::<PlayUiPhase>()
             .init_resource::<OfferedActions>()
@@ -2247,6 +2370,7 @@ impl Plugin for PlayPlugin {
                     clear_selection_on_escape,
                     clear_invalid_selection,
                     emit_unit_actions,
+                    emit_attack_preview,
                     sync_move_range_highlights,
                     sync_attack_target_highlights,
                     sync_destination_ghost,
@@ -2302,6 +2426,7 @@ mod tests {
         app.init_resource::<StrongIdMap<AwbwUnitId>>();
         app.init_resource::<ButtonInput<KeyCode>>();
         app.init_resource::<DragOwner>();
+        app.init_resource::<PointerIsCoarse>();
         app.init_resource::<TestNextUnitId>();
         app.insert_resource(TestObservationSync);
         app.init_resource::<CameraScale>();
@@ -2458,6 +2583,18 @@ mod tests {
 
     fn click_tile(app: &mut App, position: Pos) {
         send(app, PointerGestureKind::Tap, Some(position));
+    }
+
+    /// A tap from a pointer that may or may not be a finger.
+    fn tap_tile(app: &mut App, position: Pos, coarse: bool) {
+        sync_test_observation(app);
+        app.world_mut().resource_mut::<PointerIsCoarse>().0 = coarse;
+        let mut tap = gesture(PointerGestureKind::Tap, Some(position));
+        tap.coarse = coarse;
+        app.world_mut()
+            .resource_mut::<Messages<PointerGesture>>()
+            .write(tap);
+        app.update();
     }
 
     #[test]
@@ -2930,6 +3067,213 @@ mod tests {
             &mut app.world_mut().resource_mut::<ProposedMovePath>(),
         );
         assert_eq!(app.world().resource::<ProposedMovePath>().path, path);
+    }
+
+    /// A finger has no hover, so its first tap aims and its second one fires.
+    #[test]
+    fn a_finger_aims_before_it_fires() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 5, 3);
+        // Above the touch floor, where a tap is allowed to commit at all.
+        app.world_mut()
+            .resource_mut::<CameraScale>()
+            .set_clamped(3.0, 0.2);
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+
+        let origin = Pos::new(0, 1);
+        let target = Pos::new(3, 1);
+        spawn_unit(
+            &mut app,
+            origin,
+            awbrn_types::Unit::Tank,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+        spawn_unit(
+            &mut app,
+            target,
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::BlueMoon,
+            true,
+            Some(99),
+        );
+
+        tap_tile(&mut app, origin, true);
+        tap_tile(&mut app, target, true);
+
+        assert_eq!(
+            app.world().resource::<ProposedMovePath>().attack_intent,
+            Some(target),
+            "the first tap aims, which is what raises the reticle and the forecast"
+        );
+        assert_eq!(
+            *app.world().resource::<PlayUiPhase>(),
+            PlayUiPhase::UnitSelected,
+            "aiming commits nothing"
+        );
+
+        tap_tile(&mut app, target, true);
+
+        assert_eq!(
+            app.world().resource::<PendingAttackConfirmation>().0,
+            None,
+            "the confirmation was consumed by the pass that offers the orders"
+        );
+        assert_eq!(
+            app.world()
+                .resource::<PendingMoveDestination>()
+                .0
+                .as_ref()
+                .map(|pending| pending.attack_intent),
+            Some(Some(target)),
+        );
+    }
+
+    /// A press on a target the pointer is already aimed at fires: the crosshair
+    /// asked the question and the forecast answered it.
+    #[test]
+    fn a_confirmed_target_commits_without_a_menu() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 5, 3);
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+
+        let menus = Arc::new(Mutex::new(Vec::new()));
+        let menus_by_sink = Arc::clone(&menus);
+        app.world_mut()
+            .insert_resource(EventSink::<UnitActionsChanged>::new(move |event| {
+                menus_by_sink.lock().unwrap().push(event);
+            }));
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let commands_by_sink = Arc::clone(&commands);
+        app.world_mut()
+            .insert_resource(EventSink::<MoveCommandRequested>::new(move |event| {
+                commands_by_sink.lock().unwrap().push(event);
+            }));
+
+        let origin = Pos::new(0, 1);
+        let target = Pos::new(3, 1);
+        spawn_unit(
+            &mut app,
+            origin,
+            awbrn_types::Unit::Tank,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+        spawn_unit(
+            &mut app,
+            target,
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::BlueMoon,
+            true,
+            Some(99),
+        );
+
+        click_tile(&mut app, origin);
+        click_tile(&mut app, target);
+
+        assert!(
+            menus
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|menu| menu.destination.is_none()),
+            "the order goes instead of a menu the player has already answered"
+        );
+        let offered = app.world().resource::<OfferedActions>().0.clone();
+        assert!(
+            offered.iter().all(|option| matches!(
+                option.action,
+                UnitOrder::Move {
+                    action: PostMoveAction::Attack { .. }
+                }
+            )),
+            "the only order on offer is the attack that was aimed"
+        );
+
+        // The choice is read on the next frame, which is where the order is
+        // sent and the board starts waiting on the server.
+        app.update();
+        let commands = commands.lock().unwrap();
+        let command = commands.last().expect("the aimed attack was sent");
+        assert_eq!(
+            command.action,
+            PostMoveAction::Attack { target },
+            "the order fires on the target the crosshair was on"
+        );
+        assert_eq!(
+            *app.world().resource::<PlayUiPhase>(),
+            PlayUiPhase::AwaitingServer
+        );
+    }
+
+    /// The forecast is what the crosshair is worth, and it arrives with it.
+    #[test]
+    fn aiming_prices_the_exchange() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 5, 3);
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+
+        let previews = Arc::new(Mutex::new(Vec::new()));
+        let previews_by_sink = Arc::clone(&previews);
+        app.world_mut()
+            .insert_resource(EventSink::<AttackPreviewChanged>::new(move |event| {
+                previews_by_sink.lock().unwrap().push(event);
+            }));
+
+        let origin = Pos::new(0, 1);
+        let target = Pos::new(3, 1);
+        spawn_unit(
+            &mut app,
+            origin,
+            awbrn_types::Unit::Tank,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+        spawn_unit(
+            &mut app,
+            target,
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::BlueMoon,
+            true,
+            Some(99),
+        );
+
+        click_tile(&mut app, origin);
+        assert!(
+            previews.lock().unwrap().is_empty(),
+            "a selection with nothing aimed at has nothing to price"
+        );
+
+        // Aim the way a hovering cursor does, without pressing anything.
+        {
+            let mut proposed = app.world_mut().resource_mut::<ProposedMovePath>();
+            proposed.path = vec![origin, Pos::new(1, 1), Pos::new(2, 1)];
+            proposed.attack_intent = Some(target);
+        };
+        app.update();
+
+        let previews = previews.lock().unwrap();
+        let forecast = previews
+            .last()
+            .expect("aiming prices the exchange")
+            .forecast
+            .as_ref()
+            .expect("a tank can answer for what it would do to an infantry");
+        assert!(forecast.damage.low > 0);
+        assert!(matches!(&forecast.target, ForecastTarget::Unit { unit, .. }
+                if *unit == awvm::ruleset::UnitKind::Infantry));
     }
 
     #[test]

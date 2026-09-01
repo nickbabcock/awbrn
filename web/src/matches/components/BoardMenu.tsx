@@ -12,6 +12,7 @@ import {
   typographyVars,
 } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
+import type { StyleXStyles } from "@stylexjs/stylex";
 import {
   useCallback,
   useEffect,
@@ -21,6 +22,7 @@ import {
   useState,
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { boardMenuLayout } from "./boardMenuLayout.stylex.ts";
@@ -90,11 +92,8 @@ export function BoardMenuShell(props: BoardMenuShellProps) {
 /**
  * The menu drawn on the battlefield, beside the tile it belongs to.
  *
- * It positions itself inside the element it is rendered into — the board frame,
- * which must be a positioned box. Living inside the board rather than over the
- * page is what makes it behave like a window the game itself opened: it travels
- * with the board, it never covers the roster, and it cannot be stranded off
- * screen.
+ * It is a board panel that takes a keyboard and a press: the frame and the
+ * placement are the panel's, and what is added here is the way out of it.
  */
 function BoardAnchoredMenu({
   anchor,
@@ -105,43 +104,6 @@ function BoardAnchoredMenu({
   onRestoreFocus,
 }: BoardMenuShellProps) {
   const menuRef = useRef<HTMLElement>(null);
-  const [frame, setFrame] = useState<{ left: number; maxHeight: number; top: number } | null>(null);
-
-  // Placement runs before paint, so the menu is never seen at the raw press
-  // point and then moved.
-  useLayoutEffect(() => {
-    const menu = menuRef.current;
-    // The menu positions itself inside the element it was rendered into, which
-    // is the board frame. Reading it from the DOM rather than from a ref keeps
-    // the placement correct on the very first commit, before a parent ref has
-    // been attached.
-    const surface = menu?.parentElement;
-    if (!menu || !surface) return;
-
-    const place = () => {
-      const bounds = surface.getBoundingClientRect();
-      const menuBounds = menu.getBoundingClientRect();
-      const next = placeOnBoard(anchor, bounds, menuBounds);
-      // The observer watches the menu, and the frame decides the menu's size,
-      // so a placement that lands where the last one did must return the same
-      // object or the two feed each other a re-render per tick.
-      setFrame((previous) =>
-        previous &&
-        previous.left === next.left &&
-        previous.top === next.top &&
-        previous.maxHeight === next.maxHeight
-          ? previous
-          : next,
-      );
-    };
-
-    place();
-    const observer = new ResizeObserver(place);
-    observer.observe(surface);
-    observer.observe(menu);
-
-    return () => observer.disconnect();
-  }, [anchor]);
 
   // A press anywhere else closes the menu. Presses on the board already reach
   // the engine, which answers with its own decision about what is selected.
@@ -157,11 +119,101 @@ function BoardAnchoredMenu({
   }, [onDismiss]);
 
   return (
+    <BoardAnchoredPanel
+      anchor={anchor}
+      inlineSize={inlineSize}
+      label={label}
+      ref={menuRef}
+      role="dialog"
+    >
+      <MenuKeyboardScope onDismiss={onDismiss} onRestoreFocus={onRestoreFocus} takesCursor>
+        {children({ isSheet: false, spriteScale: 1, takesCursor: true })}
+      </MenuKeyboardScope>
+    </BoardAnchoredPanel>
+  );
+}
+
+export interface BoardAnchoredPanelProps {
+  /** Where on the board the panel belongs, in surface pixels. */
+  anchor: { x: number; y: number } | null;
+  children: ReactNode;
+  inlineSize?: string;
+  /** Names the panel for assistive technology. */
+  label?: string;
+  ref?: RefObject<HTMLElement | null>;
+  /** What the panel is. A panel that only reports something is nothing. */
+  role?: string;
+  xstyle?: StyleXStyles;
+}
+
+/**
+ * The window the board opens beside a tile: the frame, and where it sits.
+ *
+ * It positions itself inside the element it is rendered into — the board frame,
+ * which must be a positioned box. Living inside the board rather than over the
+ * page is what makes it behave like a window the game itself opened: it travels
+ * with the board, it never covers the roster, and it cannot be stranded off
+ * screen.
+ *
+ * The menu is one thing drawn this way and the attack forecast is another, so
+ * the frame is its own component. What is inside it decides whether it takes a
+ * keyboard, a press, or neither.
+ */
+export function BoardAnchoredPanel({
+  anchor,
+  children,
+  inlineSize,
+  label,
+  ref,
+  role,
+  xstyle,
+}: BoardAnchoredPanelProps) {
+  const fallbackRef = useRef<HTMLElement>(null);
+  const panelRef = ref ?? fallbackRef;
+  const [frame, setFrame] = useState<{ left: number; maxHeight: number; top: number } | null>(null);
+
+  // Placement runs before paint, so the panel is never seen at the raw press
+  // point and then moved.
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    // The panel positions itself inside the element it was rendered into, which
+    // is the board frame. Reading it from the DOM rather than from a ref keeps
+    // the placement correct on the very first commit, before a parent ref has
+    // been attached.
+    const surface = panel?.parentElement;
+    if (!panel || !surface) return;
+
+    const place = () => {
+      const bounds = surface.getBoundingClientRect();
+      const panelBounds = panel.getBoundingClientRect();
+      const next = placeOnBoard(anchor, bounds, panelBounds);
+      // The observer watches the panel, and the frame decides the panel's size,
+      // so a placement that lands where the last one did must return the same
+      // object or the two feed each other a re-render per tick.
+      setFrame((previous) =>
+        previous &&
+        previous.left === next.left &&
+        previous.top === next.top &&
+        previous.maxHeight === next.maxHeight
+          ? previous
+          : next,
+      );
+    };
+
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(surface);
+    observer.observe(panel);
+
+    return () => observer.disconnect();
+  }, [anchor, panelRef]);
+
+  return (
     <VStack
       aria-label={label}
       gap={0}
-      role="dialog"
-      // The menu is measured at its natural size on the first pass, so it is
+      role={role}
+      // The panel is measured at its natural size on the first pass, so it is
       // held out of view until the frame it must fit inside is known.
       style={{
         ...(inlineSize ? { inlineSize } : {}),
@@ -169,12 +221,10 @@ function BoardAnchoredMenu({
           ? { insetBlockStart: frame.top, insetInlineStart: frame.left, maxHeight: frame.maxHeight }
           : { opacity: 0 }),
       }}
-      ref={menuRef}
-      xstyle={styles.boardMenu}
+      ref={panelRef}
+      xstyle={[styles.boardMenu, xstyle]}
     >
-      <MenuKeyboardScope onDismiss={onDismiss} onRestoreFocus={onRestoreFocus} takesCursor>
-        {children({ isSheet: false, spriteScale: 1, takesCursor: true })}
-      </MenuKeyboardScope>
+      {children}
     </VStack>
   );
 }
