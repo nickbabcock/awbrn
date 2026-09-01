@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e08736e3-3ab0-4f04-9f64-3fb336d88c9c",
+  "id": "ea56caf3-a17d-4404-9708-a5dd1cf3d0ff",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -448,7 +448,14 @@
           "name": "userId",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "aiProfileId": {
+          "name": "aiProfileId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "slotIndex": {
@@ -538,7 +545,16 @@
         }
       },
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "match_participants_one_occupant": {
+          "name": "match_participants_one_occupant",
+          "value": "(\"match_participants\".\"userId\" is null) <> (\"match_participants\".\"aiProfileId\" is null)"
+        },
+        "match_participants_ai_vocabulary": {
+          "name": "match_participants_ai_vocabulary",
+          "value": "\"match_participants\".\"aiProfileId\" is null or \"match_participants\".\"aiProfileId\" in ('ai-easy-v1', 'ai-standard-v1', 'ai-hard-v1')"
+        }
+      }
     },
     "match_results": {
       "name": "match_results",
@@ -561,7 +577,14 @@
           "name": "userId",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "aiProfileId": {
+          "name": "aiProfileId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "teamId": {
@@ -656,6 +679,18 @@
         "match_results_outcome_vocabulary": {
           "name": "match_results_outcome_vocabulary",
           "value": "\"match_results\".\"outcome\" in ('win', 'loss', 'draw')"
+        },
+        "match_results_one_occupant": {
+          "name": "match_results_one_occupant",
+          "value": "(\"match_results\".\"userId\" is null) <> (\"match_results\".\"aiProfileId\" is null)"
+        },
+        "match_results_ai_vocabulary": {
+          "name": "match_results_ai_vocabulary",
+          "value": "\"match_results\".\"aiProfileId\" is null or \"match_results\".\"aiProfileId\" in ('ai-easy-v1', 'ai-standard-v1', 'ai-hard-v1')"
+        },
+        "match_results_ai_is_never_ranked": {
+          "name": "match_results_ai_is_never_ranked",
+          "value": "\"match_results\".\"aiProfileId\" is null or \"match_results\".\"pool\" is null"
         },
         "match_results_reason_null_only_for_standing_win": {
           "name": "match_results_reason_null_only_for_standing_win",

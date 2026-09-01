@@ -1,7 +1,9 @@
 import { env } from "cloudflare:workers";
-import { coDisplayName } from "#/co_roster.ts";
+import { coDisplayName, coRoster } from "#/co_roster.ts";
 import { matchSettingsSchema } from "./schemas";
+import { aiSeatName } from "./ai_profiles.ts";
 import type {
+  AiProfileId,
   MatchBrowseRequest,
   MatchBrowseResponse,
   MatchBrowseSummary,
@@ -35,7 +37,7 @@ import {
   encodeMatchBrowseCursor,
 } from "./match_browse";
 import type { AwbrnMapDocument } from "#/maps/map_document.ts";
-import { findCatalogEntry, loadMapRevision } from "#/maps/maps.server.ts";
+import { findCatalogEntry, loadMapRevision, mapSlotFactionIds } from "#/maps/maps.server.ts";
 import { err, ok, type MatchResult } from "./match_protocol";
 import { generateMatchId } from "./match_id";
 import { getMatchStub } from "./match_service";
@@ -104,6 +106,29 @@ type MatchBrowseRow = Awaited<ReturnType<typeof queryBrowseRows>>[number];
 type MyMatchRow = Awaited<ReturnType<typeof queryMyMatchRows>>[number];
 type MatchHistoryRow = Awaited<ReturnType<typeof queryMatchHistoryRows>>[number];
 
+/**
+ * The commander a seat the server plays takes.
+ *
+ * Nobody is going to choose one, and a seat with no CO never readies, so the
+ * match chooses. Derived from the match id and the seat rather than drawn at
+ * random, so the same lobby always seats the same commanders and two
+ * opponents in one match rarely share one.
+ *
+ * A ban list the host set is a ban on every seat, this one included.
+ */
+function chooseAiCo(bannedCoIds: readonly number[], matchId: string, slotIndex: number): number {
+  const banned = new Set(bannedCoIds);
+  const allowed = coRoster.filter((co) => !banned.has(co.awbwId));
+  // The ban list always leaves one CO standing, which the settings schema
+  // enforces, so this is never an empty roster.
+  const pool = allowed.length > 0 ? allowed : coRoster;
+  let hash = 2166136261;
+  for (const character of `${matchId}:${slotIndex}`) {
+    hash = Math.imul(hash ^ character.charCodeAt(0), 16777619) >>> 0;
+  }
+  return pool[hash % pool.length]!.awbwId;
+}
+
 export async function createMatch(
   input: MatchCreateRequest,
   creator: MatchViewer,
@@ -125,28 +150,62 @@ export async function createMatch(
       return err("invalidMap", "selected map has an invalid player count", 400);
     }
 
+    const aiSeats = input.aiSeats;
+    if (aiSeats.some((seat) => seat.slotIndex >= maxPlayers)) {
+      return err("invalidSlot", "a seat is outside the map's player count", 400);
+    }
+    // A lobby of opponents is a match nobody is in. The host has to take a
+    // seat, and leaving one free is what lets them.
+    if (aiSeats.length >= maxPlayers) {
+      return err("invalidSlot", "leave a seat for yourself", 400);
+    }
+
+    const seatFactions = mapSlotFactionIds(mapDocument);
+
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const matchId = generateMatchId();
       const joinSlug = input.isPrivate ? generateOpaqueToken(18) : null;
       const now = new Date();
 
-      const result = await db
-        .insert(matches)
-        .values({
-          id: matchId,
-          name: input.name,
-          phase: PUBLIC_MATCH_PHASE,
-          creatorUserId: creator.id,
-          mapId: mapRef.mapId,
-          mapRevision: mapRef.revision,
-          maxPlayers,
-          isPrivate: input.isPrivate,
-          joinSlug,
-          settings: input.settings,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
+      const matchInsert = db.insert(matches).values({
+        id: matchId,
+        name: input.name,
+        phase: PUBLIC_MATCH_PHASE,
+        creatorUserId: creator.id,
+        mapId: mapRef.mapId,
+        mapRevision: mapRef.revision,
+        maxPlayers,
+        isPrivate: input.isPrivate,
+        joinSlug,
+        settings: input.settings,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      // Ready with a CO already chosen: nobody is going to ready these seats
+      // up, and a lobby that cannot reach every seat ready never starts.
+      const seatInsert =
+        aiSeats.length > 0
+          ? db.insert(matchParticipants).values(
+              aiSeats.map((seat) => ({
+                matchId,
+                userId: null,
+                aiProfileId: seat.profileId,
+                slotIndex: seat.slotIndex,
+                factionId: seatFactions[seat.slotIndex] ?? 0,
+                coId: chooseAiCo(input.settings.bannedCoIds, matchId, seat.slotIndex),
+                ready: true,
+                joinedAt: now,
+                updatedAt: now,
+              })),
+            )
+          : null;
+
+      // The match and its seats land together. A seat write that failed on its
+      // own would leave a lobby short of the opponents it was created with.
+      const [result] = seatInsert
+        ? await db.batch([matchInsert, seatInsert])
+        : await db.batch([matchInsert]);
 
       if (result.meta.changes === 1) {
         return ok({ matchId, joinSlug });
@@ -285,11 +344,12 @@ export async function listMatches(
   const participantNamesByMatchId = new Map<string, string[]>();
 
   for (const participant of participantRows) {
+    const name = seatDisplayName(participant.userName, participant.aiProfileId);
     const current = participantNamesByMatchId.get(participant.matchId);
     if (current) {
-      current.push(participant.userName);
+      current.push(name);
     } else {
-      participantNamesByMatchId.set(participant.matchId, [participant.userName]);
+      participantNamesByMatchId.set(participant.matchId, [name]);
     }
   }
   const browseMatches: MatchBrowseSummary[] = [];
@@ -495,6 +555,10 @@ async function insertParticipant(
         .select({
           matchId: matches.id,
           userId: sql<string>`${viewer.id}`.as("userId"),
+          // A person's seat holds no opponent. Named rather than left out:
+          // an insert built from a select fills the table's columns in
+          // declaration order, so every one of them has to be here.
+          aiProfileId: sql<null>`NULL`.as("aiProfileId"),
           slotIndex: sql<number>`${slotIndex}`.as("slotIndex"),
           factionId: sql<number>`${factionId}`.as("factionId"),
           coId: sql<null>`NULL`.as("coId"),
@@ -786,6 +850,7 @@ async function buildMatchSetup(row: NonNullable<MatchRow>): Promise<MatchResult<
     clock: settings.value.clock,
     players: participantRows.map((participant) => ({
       userId: participant.userId,
+      aiProfileId: participant.aiProfileId,
       factionId: participant.factionId,
       team: null,
       startingFunds: settings.value.startingFunds,
@@ -874,23 +939,28 @@ async function queryMatchRow(matchId: string) {
 }
 
 async function queryParticipantRows(matchId: string) {
-  return db
-    .select({
-      matchId: matchParticipants.matchId,
-      userId: matchParticipants.userId,
-      userName: user.name,
-      slotIndex: matchParticipants.slotIndex,
-      factionId: matchParticipants.factionId,
-      coId: matchParticipants.coId,
-      ready: matchParticipants.ready,
-      joinedAt: matchParticipants.joinedAt,
-      updatedAt: matchParticipants.updatedAt,
-    })
-    .from(matchParticipants)
-    .innerJoin(user, eq(user.id, matchParticipants.userId))
-    .where(eq(matchParticipants.matchId, matchId))
-    .orderBy(asc(matchParticipants.slotIndex))
-    .all();
+  return (
+    db
+      .select({
+        matchId: matchParticipants.matchId,
+        userId: matchParticipants.userId,
+        aiProfileId: matchParticipants.aiProfileId,
+        userName: user.name,
+        slotIndex: matchParticipants.slotIndex,
+        factionId: matchParticipants.factionId,
+        coId: matchParticipants.coId,
+        ready: matchParticipants.ready,
+        joinedAt: matchParticipants.joinedAt,
+        updatedAt: matchParticipants.updatedAt,
+      })
+      .from(matchParticipants)
+      // Left, because a seat the server plays has no user row to join to and
+      // dropping it would leave a full lobby looking half empty.
+      .leftJoin(user, eq(user.id, matchParticipants.userId))
+      .where(eq(matchParticipants.matchId, matchId))
+      .orderBy(asc(matchParticipants.slotIndex))
+      .all()
+  );
 }
 
 async function queryBrowseRows(cursor: { createdAt: string; matchId: string } | null) {
@@ -914,7 +984,8 @@ async function queryBrowseRows(cursor: { createdAt: string; matchId: string } | 
       mapId: matches.mapId,
       mapRevision: matches.mapRevision,
       maxPlayers: matches.maxPlayers,
-      participantCount: count(matchParticipants.userId),
+      // Seats, not people: a seat the server plays fills the lobby too.
+      participantCount: count(matchParticipants.slotIndex),
       settings: matches.settings,
       createdAt: matches.createdAt,
     })
@@ -932,7 +1003,7 @@ async function queryBrowseRows(cursor: { createdAt: string; matchId: string } | 
       matches.settings,
       matches.createdAt,
     )
-    .having(gt(matches.maxPlayers, count(matchParticipants.userId)))
+    .having(gt(matches.maxPlayers, count(matchParticipants.slotIndex)))
     .orderBy(desc(matches.createdAt), desc(matches.id))
     .limit(MATCH_BROWSE_PAGE_SIZE + 1)
     .all();
@@ -947,10 +1018,11 @@ async function queryBrowseParticipantRows(matchIds: readonly string[]) {
     .select({
       matchId: matchParticipants.matchId,
       userName: user.name,
+      aiProfileId: matchParticipants.aiProfileId,
       slotIndex: matchParticipants.slotIndex,
     })
     .from(matchParticipants)
-    .innerJoin(user, eq(user.id, matchParticipants.userId))
+    .leftJoin(user, eq(user.id, matchParticipants.userId))
     .where(inArray(matchParticipants.matchId, matchIds))
     .orderBy(asc(matchParticipants.matchId), asc(matchParticipants.slotIndex))
     .all();
@@ -1019,6 +1091,7 @@ async function queryMatchHistoryRows(matchIds: string[]) {
       completedAt: matches.completedAt,
       seatSlotIndex: matchParticipants.slotIndex,
       seatUserId: matchParticipants.userId,
+      seatAiProfileId: matchParticipants.aiProfileId,
       seatUserName: user.name,
       seatFactionId: matchParticipants.factionId,
       seatCoId: matchParticipants.coId,
@@ -1028,7 +1101,7 @@ async function queryMatchHistoryRows(matchIds: string[]) {
     })
     .from(matches)
     .innerJoin(matchParticipants, eq(matchParticipants.matchId, matches.id))
-    .innerJoin(user, eq(user.id, matchParticipants.userId))
+    .leftJoin(user, eq(user.id, matchParticipants.userId))
     .leftJoin(mapSources, and(eq(mapSources.mapId, matches.mapId), eq(mapSources.source, "awbw")))
     .leftJoin(
       matchResults,
@@ -1057,10 +1130,21 @@ function parseMatchSettingsValue(value: unknown): MatchResult<MatchSettings> {
   }
 }
 
+/**
+ * What a seat is called on a screen.
+ *
+ * A person's name, or the opponent's. Every seat has one, so nothing that
+ * draws a lobby has to hold a blank.
+ */
+function seatDisplayName(userName: string | null, aiProfileId: AiProfileId | null): string {
+  return userName ?? (aiProfileId === null ? "Unknown" : aiSeatName(aiProfileId));
+}
+
 function toParticipantSnapshot(row: MatchParticipantRow): MatchParticipantSnapshot {
   return {
     userId: row.userId,
-    userName: row.userName,
+    aiProfileId: row.aiProfileId,
+    userName: seatDisplayName(row.userName, row.aiProfileId),
     slotIndex: row.slotIndex,
     factionId: row.factionId,
     coId: row.coId,
@@ -1135,7 +1219,8 @@ function toMatchHistoryEntry(
   const seats: MatchHistorySeat[] = rows.map((seatRow) => ({
     slotIndex: seatRow.seatSlotIndex,
     userId: seatRow.seatUserId,
-    userName: seatRow.seatUserName,
+    aiProfileId: seatRow.seatAiProfileId,
+    userName: seatDisplayName(seatRow.seatUserName, seatRow.seatAiProfileId),
     factionId: seatRow.seatFactionId,
     coId: seatRow.seatCoId,
     outcome: seatRow.seatOutcome,

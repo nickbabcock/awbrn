@@ -57,6 +57,35 @@ export const defaultMatchClock: MatchClock = {
   maxBankMs: 7 * DAY_MS,
 };
 
+/**
+ * The opponents a match may seat, easiest first.
+ *
+ * These are the engine's own profile identifiers and not difficulty words. A
+ * retuned tier mints the next version rather than changing what an old record
+ * means, so a finished match always says which opponent it was against.
+ * `ai_profiles.test.ts` holds this list to the engine roster.
+ */
+export const aiProfileIds = ["ai-easy-v1", "ai-standard-v1", "ai-hard-v1"] as const;
+
+export const aiProfileIdSchema = z.enum(aiProfileIds);
+
+export type AiProfileId = (typeof aiProfileIds)[number];
+
+/**
+ * Who holds a seat.
+ *
+ * A seat is held by an occupant, and a person is one kind of occupant. Saying
+ * it this way is what keeps a rating, a ban and a moderation record about
+ * people: a query that means "a person" names `userId` and an opponent has
+ * none, rather than every such query having to remember to exclude one.
+ */
+export const seatOccupantSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("human"), userId: z.string().min(1) }),
+  z.object({ kind: z.literal("ai"), profileId: aiProfileIdSchema }),
+]);
+
+export type SeatOccupant = z.infer<typeof seatOccupantSchema>;
+
 export const matchSettingsSchema = z.object({
   fogEnabled: z.boolean(),
   startingFunds: z.number().int().nonnegative(),
@@ -68,15 +97,33 @@ export const matchSettingsSchema = z.object({
   clock: matchClockSchema,
 });
 
-export const matchCreateRequestSchema = z.object({
-  name: z
-    .string()
-    .refine((s) => s.trim().length > 0, "match name is required")
-    .transform((s) => s.trim()),
-  map: mapRefSchema,
-  isPrivate: z.boolean(),
-  settings: matchSettingsSchema,
+/**
+ * A seat the host fills as the match is made.
+ *
+ * Only an opponent can be seated here. A person claims a seat themselves, in
+ * the lobby, which is the one place a seat learns whose it is.
+ */
+export const matchCreateSeatSchema = z.object({
+  slotIndex: z.number().int().nonnegative(),
+  profileId: aiProfileIdSchema,
 });
+
+export const matchCreateRequestSchema = z
+  .object({
+    name: z
+      .string()
+      .refine((s) => s.trim().length > 0, "match name is required")
+      .transform((s) => s.trim()),
+    map: mapRefSchema,
+    isPrivate: z.boolean(),
+    settings: matchSettingsSchema,
+    /** Seats the server plays. Absent means a lobby of people. */
+    aiSeats: z.array(matchCreateSeatSchema).default([]),
+  })
+  .refine(
+    (input) => new Set(input.aiSeats.map((seat) => seat.slotIndex)).size === input.aiSeats.length,
+    "a seat can only be filled once",
+  );
 
 export const matchBrowseRequestSchema = z.object({
   cursor: z.string().min(1).optional(),
@@ -224,7 +271,10 @@ export interface MyMatchesResponse {
 }
 
 export interface MatchParticipantSnapshot {
-  userId: string;
+  /** Null when the server plays this seat. */
+  userId: string | null;
+  aiProfileId: AiProfileId | null;
+  /** The person's name, or the opponent's label. Always something to show. */
   userName: string;
   slotIndex: number;
   factionId: number;
@@ -282,7 +332,15 @@ export interface MatchMutationResponse {
 }
 
 export const matchSetupPlayerSchema = z.object({
-  userId: z.string(),
+  /**
+   * The person holding this seat, or null when the server plays it.
+   *
+   * The engine reads `aiProfileId` to decide which seats it owes turns to, so
+   * these two are how a match knows the difference rather than a flag beside
+   * them that could disagree.
+   */
+  userId: z.string().nullable().default(null),
+  aiProfileId: aiProfileIdSchema.nullable().default(null),
   factionId: z.number().int(),
   team: z.null(),
   startingFunds: z.number().int().nonnegative(),
@@ -309,7 +367,9 @@ export type MatchSetup = z.input<typeof matchSetupSchema>;
 /** One seat in a finished match, with the result recorded for it. */
 export interface MatchHistorySeat {
   slotIndex: number;
-  userId: string;
+  /** Null when the server played this seat. */
+  userId: string | null;
+  aiProfileId: AiProfileId | null;
   userName: string;
   factionId: number;
   coId: number | null;

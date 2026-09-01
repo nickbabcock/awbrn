@@ -298,7 +298,7 @@ fn command_error(command: &Command, violation: awvm::violation::Violation) -> Co
     }
 }
 
-fn commands(
+pub(crate) fn commands(
     player: ServerPlayerId,
     command: &GameCommand,
     state: &State,
@@ -500,4 +500,162 @@ impl awvm::random::Entropy for GameRng {
 
 fn player_id(player: ServerPlayerId) -> PlayerId {
     crate::semantic_player_id(usize::from(player.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::command::{PowerLevel, game_command};
+    use crate::setup::PlayerSetup;
+    use awbrn_map::Dimensions;
+    use awbrn_types::{Co, GraphicalTerrain};
+
+    fn state() -> State {
+        crate::state_from_setup(&GameSetup {
+            map: AwbrnMap::new(Dimensions::new(5, 3), GraphicalTerrain::Plain),
+            players: vec![
+                PlayerSetup {
+                    faction: PlayerFaction::OrangeStar,
+                    team: None,
+                    starting_funds: 1000,
+                    co: Co::Andy,
+                },
+                PlayerSetup {
+                    faction: PlayerFaction::BlueMoon,
+                    team: None,
+                    starting_funds: 1000,
+                    co: Co::Andy,
+                },
+            ],
+            fog_enabled: false,
+            rng_seed: 1,
+        })
+        .expect("the setup is valid")
+    }
+
+    fn moved(action: PostMoveAction) -> GameCommand {
+        GameCommand::MoveUnit {
+            unit_id: ServerUnitId(3),
+            path: vec![Pos::new(1, 1), Pos::new(2, 1)],
+            action: Some(action),
+        }
+    }
+
+    /// The wire vocabulary and AWVM's own have to agree in both directions.
+    ///
+    /// A seat the server plays decides in AWVM's vocabulary and has to leave a
+    /// wire command in the log. If the two ever stop being inverses, that seat
+    /// records a match that replays into a different position, and nothing
+    /// about the match as it was played would look wrong at the time.
+    #[test]
+    fn every_wire_command_survives_the_round_trip() {
+        let state = state();
+        let wire = [
+            moved(PostMoveAction::Wait),
+            moved(PostMoveAction::Capture),
+            moved(PostMoveAction::Supply),
+            moved(PostMoveAction::Hide),
+            moved(PostMoveAction::Unhide),
+            moved(PostMoveAction::Explode),
+            moved(PostMoveAction::Join { target_id: 9 }),
+            moved(PostMoveAction::Repair { target_id: 9 }),
+            moved(PostMoveAction::Load { transport_id: 9 }),
+            moved(PostMoveAction::Launch {
+                target: Pos::new(4, 2),
+            }),
+            // No unit stands there, so this is the tile reading, which is the
+            // one the authority itself builds from an empty tile.
+            moved(PostMoveAction::Attack {
+                target: Pos::new(4, 2),
+            }),
+            GameCommand::Unload {
+                transport_id: ServerUnitId(3),
+                cargo_id: ServerUnitId(4),
+                position: Pos::new(2, 2),
+            },
+            GameCommand::DeleteUnit {
+                unit_id: ServerUnitId(3),
+            },
+            GameCommand::Build {
+                position: Pos::new(0, 0),
+                unit_type: awbrn_types::Unit::Infantry,
+            },
+            GameCommand::ActivatePower {
+                level: PowerLevel::Cop,
+            },
+            GameCommand::EndTurn,
+            GameCommand::Timeout,
+        ];
+
+        for command in wire {
+            let expanded = commands(ServerPlayerId(0), &command, &state)
+                .unwrap_or_else(|error| panic!("{command:?} does not expand: {error}"));
+            let [single] = expanded.as_slice() else {
+                panic!("{command:?} expands to {} commands", expanded.len());
+            };
+            let round_tripped = game_command(single, &state)
+                .unwrap_or_else(|error| panic!("{single:?} has no wire form: {error}"));
+            assert_eq!(round_tripped, command);
+        }
+    }
+
+    /// The one wire command that is two AWVM commands. It reads back as the
+    /// pair a client sends today rather than as the shape it replaced.
+    #[test]
+    fn a_move_that_unloads_reads_back_as_the_two_commands_it_is() {
+        let state = state();
+        let expanded = commands(
+            ServerPlayerId(0),
+            &GameCommand::MoveUnit {
+                unit_id: ServerUnitId(3),
+                path: vec![Pos::new(1, 1)],
+                action: Some(PostMoveAction::Unload {
+                    cargo_id: 7,
+                    position: Pos::new(2, 1),
+                }),
+            },
+            &state,
+        )
+        .expect("the command expands");
+
+        let wire: Vec<_> = expanded
+            .iter()
+            .map(|command| game_command(command, &state).expect("each half has a wire form"))
+            .collect();
+
+        assert_eq!(
+            wire,
+            vec![
+                GameCommand::MoveUnit {
+                    unit_id: ServerUnitId(3),
+                    path: vec![Pos::new(1, 1)],
+                    action: Some(PostMoveAction::Wait),
+                },
+                GameCommand::Unload {
+                    transport_id: ServerUnitId(3),
+                    cargo_id: ServerUnitId(7),
+                    position: Pos::new(2, 1),
+                },
+            ]
+        );
+    }
+
+    /// A command outside the wire vocabulary is a fault in the caller, and
+    /// saying so is better than inventing a wire spelling for it.
+    #[test]
+    fn a_command_no_client_can_send_has_no_wire_form() {
+        let state = state();
+        let player = crate::semantic_player_id(0);
+        for command in [
+            Command::Tag {
+                player: player.clone(),
+            },
+            Command::Resign {
+                player: player.clone(),
+            },
+            Command::Unsupported,
+        ] {
+            assert!(game_command(&command, &state).is_err(), "{command:?}");
+        }
+    }
 }

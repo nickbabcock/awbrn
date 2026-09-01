@@ -32,6 +32,8 @@ export class GameRunner implements CanvasCourierController {
   private createGamePromise: Promise<GameInstance> | undefined;
   private game: GameInstance | undefined;
   private pendingLiveTransitions: ObservedTransition[] = [];
+  /** Keep live updates behind the first match snapshot. */
+  private liveBaselinePending = true;
   private liveCommandHandler: ((command: PlayerCommand) => void) | undefined;
   private rawWorker: Worker | undefined;
   private surfaceVersion = 0;
@@ -70,8 +72,11 @@ export class GameRunner implements CanvasCourierController {
   }
 
   async loadMatchMap(map: AwbrnMapDocument): Promise<void> {
+    this.liveBaselinePending = true;
     const game = await this.requireGame();
     await game.loadMatchMap(map);
+    await this.applyPendingLiveTransitions(game);
+    this.liveBaselinePending = false;
   }
 
   async loadLiveMatch(
@@ -79,12 +84,15 @@ export class GameRunner implements CanvasCourierController {
     players: LiveMatchPlayer[],
     observation: unknown,
   ): Promise<void> {
+    this.liveBaselinePending = true;
     const game = await this.requireGame();
     await game.loadLiveMatch(map, players, observation);
+    await this.applyPendingLiveTransitions(game);
+    this.liveBaselinePending = false;
   }
 
   async applyLiveTransition(transition: ObservedTransition): Promise<void> {
-    if (!this.game && !this.createGamePromise) {
+    if (this.liveBaselinePending || (!this.game && !this.createGamePromise)) {
       this.pendingLiveTransitions.push(transition);
       return;
     }
@@ -132,6 +140,7 @@ export class GameRunner implements CanvasCourierController {
     this.transport.dispose();
     this.game = undefined;
     this.pendingLiveTransitions = [];
+    this.liveBaselinePending = true;
     this.createGamePromise = undefined;
     this.transferredCanvas = undefined;
     this.worker = undefined;
@@ -158,13 +167,8 @@ export class GameRunner implements CanvasCourierController {
             this.handleGameEvent(event);
           }),
         )
-        .then(async (game) => {
+        .then((game) => {
           this.game = game;
-          const pendingTransitions = this.pendingLiveTransitions;
-          this.pendingLiveTransitions = [];
-          for (const transition of pendingTransitions) {
-            await game.applyLiveTransition(transition);
-          }
           return game;
         })
         .catch((error) => {
@@ -174,6 +178,16 @@ export class GameRunner implements CanvasCourierController {
     }
 
     return this.createGamePromise;
+  }
+
+  private async applyPendingLiveTransitions(game: GameInstance): Promise<void> {
+    while (this.pendingLiveTransitions.length > 0) {
+      const pendingTransitions = this.pendingLiveTransitions;
+      this.pendingLiveTransitions = [];
+      for (const transition of pendingTransitions) {
+        await game.applyLiveTransition(transition);
+      }
+    }
   }
 
   private handleGameEvent(event: GameEvent): void {

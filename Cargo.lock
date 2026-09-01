@@ -550,6 +550,7 @@ name = "awbrn-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "awbrn-ai",
  "awbrn-game",
  "awbrn-image",
  "awbrn-map",

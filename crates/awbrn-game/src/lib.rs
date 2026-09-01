@@ -11,7 +11,7 @@ mod unit_id;
 
 pub use authority::{AcceptedTransition, Authority};
 pub use awbrn_map::AwbrnMap;
-pub use command::{GameCommand, PostMoveAction, PowerLevel};
+pub use command::{GameCommand, PostMoveAction, PowerLevel, UnmappedCommand, game_command};
 pub use error::CommandError;
 pub use player::PlayerId;
 pub use replay::{ReplayEventError, StoredActionEvent};

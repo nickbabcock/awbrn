@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
+awbrn-ai = { path = "../awbrn-ai" }
 awbrn-game = { path = "../awbrn-game", features = ["typescript"] }
 awbrn-image = { path = "../awbrn-image" }
 awbrn-map = { path = "../awbrn-map" }
@@ -25,4 +26,5 @@ tsify.workspace = true
 wasm-bindgen.workspace = true
 
 [dev-dependencies]
+awbrn-ai = { path = "../awbrn-ai" }
 insta.workspace = true

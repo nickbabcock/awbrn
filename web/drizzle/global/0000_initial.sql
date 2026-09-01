@@ -69,7 +69,8 @@ CREATE TABLE `maps` (
 CREATE INDEX `maps_author_idx` ON `maps` (`authorUserId`);--> statement-breakpoint
 CREATE TABLE `match_participants` (
 	`matchId` text NOT NULL,
-	`userId` text NOT NULL,
+	`userId` text,
+	`aiProfileId` text,
 	`slotIndex` integer NOT NULL,
 	`factionId` integer NOT NULL,
 	`coId` integer,
@@ -78,7 +79,9 @@ CREATE TABLE `match_participants` (
 	`updatedAt` integer NOT NULL,
 	PRIMARY KEY(`matchId`, `slotIndex`),
 	FOREIGN KEY (`matchId`) REFERENCES `matches`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`userId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict
+	FOREIGN KEY (`userId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "match_participants_one_occupant" CHECK(("match_participants"."userId" is null) <> ("match_participants"."aiProfileId" is null)),
+	CONSTRAINT "match_participants_ai_vocabulary" CHECK("match_participants"."aiProfileId" is null or "match_participants"."aiProfileId" in ('ai-easy-v1', 'ai-standard-v1', 'ai-hard-v1'))
 );
 --> statement-breakpoint
 CREATE INDEX `match_participants_match_idx` ON `match_participants` (`matchId`);--> statement-breakpoint
@@ -87,7 +90,8 @@ CREATE INDEX `match_participants_user_match_idx` ON `match_participants` (`userI
 CREATE TABLE `match_results` (
 	`matchId` text NOT NULL,
 	`slotIndex` integer NOT NULL,
-	`userId` text NOT NULL,
+	`userId` text,
+	`aiProfileId` text,
 	`teamId` text,
 	`outcome` text NOT NULL,
 	`placement` integer NOT NULL,
@@ -99,6 +103,9 @@ CREATE TABLE `match_results` (
 	FOREIGN KEY (`userId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "match_results_placement_matches_outcome" CHECK(typeof("match_results"."placement") = 'integer' and "match_results"."placement" >= 1 and ("match_results"."placement" = 1) = ("match_results"."outcome" in ('win', 'draw'))),
 	CONSTRAINT "match_results_outcome_vocabulary" CHECK("match_results"."outcome" in ('win', 'loss', 'draw')),
+	CONSTRAINT "match_results_one_occupant" CHECK(("match_results"."userId" is null) <> ("match_results"."aiProfileId" is null)),
+	CONSTRAINT "match_results_ai_vocabulary" CHECK("match_results"."aiProfileId" is null or "match_results"."aiProfileId" in ('ai-easy-v1', 'ai-standard-v1', 'ai-hard-v1')),
+	CONSTRAINT "match_results_ai_is_never_ranked" CHECK("match_results"."aiProfileId" is null or "match_results"."pool" is null),
 	CONSTRAINT "match_results_reason_null_only_for_standing_win" CHECK("match_results"."reason" is not null or "match_results"."outcome" = 'win')
 );
 --> statement-breakpoint

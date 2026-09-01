@@ -11,6 +11,7 @@ function participant(
 ): MatchParticipantSnapshot {
   return {
     userId,
+    aiProfileId: null,
     userName: userId === VIEWER ? "Andy" : "Sami",
     slotIndex: userId === VIEWER ? 0 : 1,
     factionId: 1,

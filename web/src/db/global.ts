@@ -10,10 +10,11 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
-import { matchOutcomes } from "#/matches/schemas.ts";
+import { aiProfileIds, matchOutcomes } from "#/matches/schemas.ts";
 import { rankedPools } from "#/matches/schemas.ts";
 import { pairingStatuses } from "#/matches/schemas.ts";
 import type {
+  AiProfileId,
   MatchOutcome,
   MatchPhase,
   MatchSettings,
@@ -166,15 +167,30 @@ export const matches = sqliteTable(
   ],
 );
 
+/**
+ * One seat of a match, and who holds it.
+ *
+ * A seat carries a `userId` or an `aiProfileId`, never both and never neither.
+ * That is what makes the occupant a fact of the row rather than a convention
+ * the queries have to keep: everything that means "a person" already asks for
+ * `userId`, and a seat the server plays does not have one.
+ */
 export const matchParticipants = sqliteTable(
   "match_participants",
   {
     matchId: text("matchId")
       .notNull()
       .references(() => matches.id, { onDelete: "cascade" }),
-    userId: text("userId")
-      .notNull()
-      .references(() => user.id, { onDelete: "restrict" }),
+    /** The person holding this seat. Null when the server plays it. */
+    userId: text("userId").references(() => user.id, { onDelete: "restrict" }),
+    /**
+     * The opponent the server plays this seat as. Null when a person holds it.
+     *
+     * A versioned engine profile id and not a difficulty word, so a finished
+     * match records which opponent it was against even after the tier that
+     * offered it is retuned.
+     */
+    aiProfileId: text("aiProfileId").$type<AiProfileId>(),
     slotIndex: integer("slotIndex").notNull(),
     factionId: integer("factionId").notNull(),
     coId: integer("coId"),
@@ -187,6 +203,14 @@ export const matchParticipants = sqliteTable(
     index("match_participants_match_idx").on(t.matchId),
     index("match_participants_match_user_idx").on(t.matchId, t.userId),
     index("match_participants_user_match_idx").on(t.userId, t.matchId),
+    check(
+      "match_participants_one_occupant",
+      sql`(${t.userId} is null) <> (${t.aiProfileId} is null)`,
+    ),
+    check(
+      "match_participants_ai_vocabulary",
+      sql`${t.aiProfileId} is null or ${t.aiProfileId} in (${sqlLiterals(aiProfileIds)})`,
+    ),
   ],
 );
 
@@ -194,6 +218,11 @@ export const matchParticipants = sqliteTable(
  * One authoritative result row per seat. `reason` stores an elimination cause
  * or match ending. A null reason means a standing winner. `outcome` is the
  * team result, `placement` is the final rank, and `pool` marks ranked play.
+ *
+ * A seat the server played is recorded like any other, holding an
+ * `aiProfileId` where a person's seat holds a `userId`. The match happened and
+ * the record says so; what it never carries is a pool, because a rating is
+ * between people.
  */
 export const matchResults = sqliteTable(
   "match_results",
@@ -202,9 +231,10 @@ export const matchResults = sqliteTable(
       .notNull()
       .references(() => matches.id, { onDelete: "cascade" }),
     slotIndex: integer("slotIndex").notNull(),
-    userId: text("userId")
-      .notNull()
-      .references(() => user.id, { onDelete: "restrict" }),
+    /** The person who held this seat. Null when the server played it. */
+    userId: text("userId").references(() => user.id, { onDelete: "restrict" }),
+    /** The opponent that held it. Null when a person did. */
+    aiProfileId: text("aiProfileId").$type<AiProfileId>(),
     teamId: text("teamId"),
     outcome: text("outcome").notNull().$type<MatchOutcome>(),
     placement: integer("placement").notNull(),
@@ -226,6 +256,14 @@ export const matchResults = sqliteTable(
       sql`typeof(${t.placement}) = 'integer' and ${t.placement} >= 1 and (${t.placement} = 1) = (${t.outcome} in ('win', 'draw'))`,
     ),
     check("match_results_outcome_vocabulary", sql`${t.outcome} in (${sqlLiterals(matchOutcomes)})`),
+    check("match_results_one_occupant", sql`(${t.userId} is null) <> (${t.aiProfileId} is null)`),
+    check(
+      "match_results_ai_vocabulary",
+      sql`${t.aiProfileId} is null or ${t.aiProfileId} in (${sqlLiterals(aiProfileIds)})`,
+    ),
+    // A match the server took a seat in is not ranked, so it never carries a
+    // pool. Ratings are between people.
+    check("match_results_ai_is_never_ranked", sql`${t.aiProfileId} is null or ${t.pool} is null`),
     check(
       "match_results_reason_null_only_for_standing_win",
       sql`${t.reason} is not null or ${t.outcome} = 'win'`,

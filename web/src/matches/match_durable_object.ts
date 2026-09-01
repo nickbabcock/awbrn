@@ -68,6 +68,29 @@ function clockActionFromPayload(payload: unknown, at: number): ClockAction | nul
   return { slotIndex: event.player, endsTurn: commandEndsTurn(command), at };
 }
 
+/**
+ * Turns the server plays for its own seats in one wake.
+ *
+ * A drain almost always ends at a person: a lobby keeps a seat for its host,
+ * so the turn comes back within one lap of the table. The bound is for the
+ * match that has lost its last person to an elimination and is now the server
+ * playing itself, which is a match that has to finish without spending one
+ * invocation's whole budget doing it. What is left over is picked up on the
+ * next wake, which `nextWakeAt` asks for.
+ */
+const MAX_AI_TURNS_PER_WAKE = 16;
+
+/**
+ * How long a match waits before playing the turns it could not fit in one wake.
+ *
+ * A delay rather than an immediate wake, because the same wake is what a match
+ * gets when a seat could not take its turn at all. Waking on that at once
+ * would spend an invocation on every failure as fast as the platform allowed;
+ * waking in a couple of seconds finishes an unattended endgame at a pace
+ * nobody is waiting on and turns a stuck seat into a slow poll.
+ */
+const AI_TURN_ALARM_DELAY_MS = 2_000;
+
 /** Retry delay for an unwritten result. */
 const RESULT_ALARM_DELAY_MS = 10_000;
 
@@ -235,6 +258,7 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       }
       this.broadcastActionResponse(response, setup, game);
       this.broadcastClock(setup, game);
+      this.playPendingAiTurns(setup, game);
       await this.recordResultInBackground(setup);
       await this.armAlarm(setup);
     } catch (error) {
@@ -273,6 +297,10 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
 
       this.wasmMatch = new WasmMatch(setup);
       this.appendEvent({ kind: "setup", payload: setup });
+      // A match whose first seat is the server's opens on that seat's turn.
+      // Playing it now is what stops its clock running down to a timeout
+      // while everyone waits for a board that was never going to change.
+      this.playPendingAiTurns(setup, this.wasmMatch);
       await this.armAlarm(setup);
 
       return ok({ matchId, joinSlug: null });
@@ -441,6 +469,16 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     }
 
     try {
+      const game = this.loadGame();
+      if (game !== null) {
+        this.playPendingAiTurns(setup, game);
+      }
+    } catch (error) {
+      failed = true;
+      console.error("Failed to play the server's seats:", error);
+    }
+
+    try {
       await this.recordResultIfFinished(setup);
     } catch (error) {
       failed = true;
@@ -516,6 +554,55 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     return timedOut;
   }
 
+  /**
+   * Play every turn the server owes its own seats, and send them on.
+   *
+   * Each command an opponent gets accepted is written down and broadcast the
+   * way a person's is, because it is the same command through the same
+   * authority. A person watching sees the turn play out rather than finding
+   * the board already changed.
+   *
+   * Returns true when a turn is still owed, which is the bound being reached
+   * rather than anything having gone wrong.
+   */
+  private playPendingAiTurns(setup: MatchSetup, game: WasmMatch): boolean {
+    for (let turn = 0; turn < MAX_AI_TURNS_PER_WAKE; turn += 1) {
+      const slot = game.pendingAiSlot();
+      if (slot === undefined) {
+        return false;
+      }
+
+      let actions;
+      try {
+        actions = game.runAiTurn(slot).actions;
+      } catch (error) {
+        // The seat could not take its turn. Leaving the match on that seat is
+        // better than leaving it on a board nobody agreed to: the turn is
+        // owed, the next wake asks for it again, and the seat's own clock is
+        // what ends a match that never gets it.
+        console.error("Failed to play a server-held seat:", {
+          matchId: setup.matchId,
+          slot,
+          error,
+        });
+        return false;
+      }
+
+      for (const action of actions) {
+        try {
+          this.appendEvent({ kind: "action", payload: action.storedActionEvent });
+        } catch (error) {
+          this.restoreGameFromPersistedEvents();
+          throw error;
+        }
+        this.broadcastActionResponse(action, setup, game);
+      }
+      this.broadcastClock(setup, game);
+    }
+
+    return game.pendingAiSlot() !== undefined;
+  }
+
   /** Wake for the next deadline, for the next result retry, or to try again. */
   private async armAlarm(setup: MatchSetup, failures = 0): Promise<void> {
     let wakeAt: number | null;
@@ -554,6 +641,12 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       ]);
       const settled = recorded === true && (wakesLeft ?? 0) <= 0;
       return settled ? null : Date.now() + RESULT_ALARM_DELAY_MS;
+    }
+    // A turn the server still owes is a turn nobody is going to ask for, so
+    // the match asks itself rather than waiting on a person who may not be
+    // in it any more.
+    if (game.pendingAiSlot() !== undefined) {
+      return Date.now() + AI_TURN_ALARM_DELAY_MS;
     }
     return this.clockState(setup, game)?.deadlineAt ?? null;
   }
