@@ -65,6 +65,13 @@ pub struct EvalWeights {
     /// weight and not a constant so that a sweep can say otherwise: an army
     /// on the board is not quite the same asset as the money that bought it.
     pub army: f64,
+    /// One fielded unit, independent of its price and health.
+    ///
+    /// Units are actions, screens, blockers, and capture threats. Replacement
+    /// cost alone does not price those uses: one medium tank and several cheap
+    /// units can have similar material value but very different board control.
+    /// The shipped presets leave this term at zero until it is calibrated.
+    pub unit_count: f64,
     /// A point of funds in hand.
     ///
     /// Below one on purpose. Money that is still in the bank has not been
@@ -168,6 +175,7 @@ impl EvalWeights {
     /// treating them as universal constants.
     pub const STANDARD: Self = Self {
         army: 1.0,
+        unit_count: 0.0,
         bank: 0.8,
         income_days: 10.0,
         income_decay: 1.0,
@@ -437,10 +445,13 @@ impl Evaluator {
             self.strengths[seat.get()] += self.weights.bank * player.funds as f64;
         }
 
-        // Cargo counts. A unit inside a transport is a unit that was paid for
-        // and that will be put down somewhere.
+        // A cargo unit keeps its material value, but it has no fielded action
+        // until it leaves the transport.
         for unit in state.units.iter() {
             if let Some(strength) = self.strengths.get_mut(unit.owner.get()) {
+                if matches!(unit.location, Location::Board { .. }) {
+                    *strength += self.weights.unit_count;
+                }
                 *strength += self.weights.army * cost(unit.kind) * f64::from(unit.hp) / 100.0;
             }
         }
@@ -697,11 +708,11 @@ mod tests {
     }
 
     /// A soldier of `seat`, standing on `position`.
-    fn soldier(state: &mut State, seat: PlayerIdx, position: Pos) -> UnitId {
+    fn field_unit(state: &mut State, seat: PlayerIdx, position: Pos, kind: UnitKind) -> UnitId {
         let id = UnitId::from(9_000 + state.units.len() as u32);
         state.units.push(Unit {
             id,
-            kind: UnitKind::Infantry,
+            kind,
             owner: seat,
             hp: 100,
             fuel: 99,
@@ -713,9 +724,14 @@ mod tests {
         id
     }
 
+    fn soldier(state: &mut State, seat: PlayerIdx, position: Pos) -> UnitId {
+        field_unit(state, seat, position, UnitKind::Infantry)
+    }
+
     /// The original material terms, isolated from calibrated position terms.
     fn material_weights() -> EvalWeights {
         EvalWeights {
+            unit_count: 0.0,
             exposure: 0.0,
             contest: 0.0,
             front: 0.0,
@@ -769,6 +785,88 @@ mod tests {
             (value + infantry).abs() < 1e-9,
             "Amber Valley starts the second seat one infantry up, and the value read {value}"
         );
+    }
+
+    #[test]
+    fn unit_count_prices_one_more_fielded_action() {
+        let mut state = arena(false, 7);
+        let (first, _) = seats(&state);
+        let weights = EvalWeights {
+            army: 0.0,
+            bank: 0.0,
+            unit_count: 1_500.0,
+            income_days: 0.0,
+            plurality: 0.0,
+            production: 0.0,
+            hq: 0.0,
+            capture: 0.0,
+            ..material_weights()
+        };
+        let mut evaluator = Evaluator::new(weights);
+        let before = evaluator.strength(&state, first);
+        let headquarters = headquarters(&state, first);
+        soldier(&mut state, first, headquarters);
+        let after = evaluator.strength(&state, first);
+
+        assert_eq!(after - before, weights.unit_count);
+    }
+
+    #[test]
+    fn unit_count_remains_separate_from_the_army_breakdown() {
+        let mut state = arena(false, 7);
+        let (first, _) = seats(&state);
+        let weights = EvalWeights {
+            army: 2.0,
+            bank: 0.0,
+            unit_count: 1_500.0,
+            income_days: 0.0,
+            plurality: 0.0,
+            production: 0.0,
+            hq: 0.0,
+            capture: 0.0,
+            ..material_weights()
+        };
+        let headquarters = headquarters(&state, first);
+        soldier(&mut state, first, headquarters);
+        soldier(&mut state, first, headquarters);
+        let session = Session::new(state);
+        let breakdown = Evaluator::new(weights).breakdown_in(&session, first);
+
+        assert_eq!(breakdown.army, weights.army * cost(UnitKind::Infantry));
+        assert_eq!(breakdown.other, weights.unit_count);
+        assert_eq!(breakdown.score, breakdown.army + breakdown.other);
+    }
+
+    #[test]
+    fn cargo_keeps_material_value_but_not_fielded_unit_count() {
+        let mut state = arena(false, 7);
+        let (first, _) = seats(&state);
+        let position = headquarters(&state, first);
+        let id = soldier(&mut state, first, position);
+        let weights = EvalWeights {
+            army: 0.0,
+            bank: 0.0,
+            unit_count: 1_500.0,
+            income_days: 0.0,
+            plurality: 0.0,
+            production: 0.0,
+            hq: 0.0,
+            capture: 0.0,
+            ..material_weights()
+        };
+        let mut evaluator = Evaluator::new(weights);
+        let fielded = evaluator.strength(&state, first);
+        state
+            .units
+            .get_mut(id)
+            .expect("the soldier was pushed")
+            .location = Location::Cargo {
+            transport: UnitId::new(9_999),
+            slot: 0,
+        };
+        let cargo = evaluator.strength(&state, first);
+
+        assert_eq!(fielded - cargo, weights.unit_count);
     }
 
     /// A match that is over is worth the result and nothing else.
@@ -952,6 +1050,41 @@ mod tests {
             exposed_value < safe_value,
             "enemy fire left the value at {exposed_value}, from {safe_value}"
         );
+    }
+
+    #[test]
+    fn a_medium_tank_in_counterattack_range_loses_leaf_value() {
+        let mut state = amber_valley(false, 7);
+        let (first, second) = seats(&state);
+        let first_hq = headquarters(&state, first);
+        let exposed_tile = first_hq.offset(0, 1).expect("ground below the first hq");
+        let counterattacker = exposed_tile
+            .offset(1, 0)
+            .expect("ground beside the exposed tile");
+        let medium_tank = field_unit(&mut state, first, exposed_tile, UnitKind::MdTank);
+        let safe_tile = headquarters(&state, second);
+        let enemy_tank = field_unit(&mut state, second, safe_tile, UnitKind::MdTank);
+
+        let mut evaluator = Evaluator::new(EvalWeights {
+            contest: 0.0,
+            front: 0.0,
+            ..EvalWeights::STANDARD
+        });
+        let safe = evaluator.value(&state, first);
+        state
+            .units
+            .get_mut(enemy_tank)
+            .expect("the counterattacker exists")
+            .location = Location::Board {
+            position: counterattacker,
+        };
+        let exposed = evaluator.value(&state, first);
+
+        assert!(
+            exposed < safe,
+            "counterattack exposure must reduce leaf value"
+        );
+        assert!(state.units.get(medium_tank).is_some());
     }
 
     /// The contest term assigns more neutral value to the nearer side.

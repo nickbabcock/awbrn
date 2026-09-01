@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "run_id": "diagnostic-smoke-plan",
+  "candidate": {"kind": "strategic", "configuration": "production"},
+  "baseline": {"kind": "strategic", "configuration": "locked"},
+  "maps": [61748],
+  "run_seed": 901,
+  "pairs_per_map": 2,
+  "limits": {"day_limit": 2, "node_budget": 1, "refusal_limit": 8},
+  "telemetry": "enabled",
+  "capture_policy": {"selection": {"kind": "all"}, "frame_policy": {"kind": "disabled"}},
+  "analyses": ["outcome-features", "review", "verification"],
+  "annotations": "small end-to-end diagnostic smoke plan"
+}

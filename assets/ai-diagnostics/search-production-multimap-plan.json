@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "run_id": "search-production-multimap-evaluation",
+  "candidate": {
+    "kind": "search",
+    "identifier": "search-production-v1",
+    "preset": "production",
+    "node_budget": 16
+  },
+  "baseline": {
+    "kind": "strategic",
+    "configuration": "locked"
+  },
+  "maps": [61748, 67945, 67073, 73021],
+  "run_seed": 701,
+  "pairs_per_map": 13,
+  "limits": {"day_limit": 35, "node_budget": 16, "refusal_limit": 64},
+  "telemetry": "enabled",
+  "capture_policy": {"selection": {"kind": "all"}, "frame_policy": {"kind": "disabled"}},
+  "analyses": ["outcome-features", "review", "verification"],
+  "annotations": "search candidate versus locked baseline; keep experimental until paired evidence supports promotion"
+}

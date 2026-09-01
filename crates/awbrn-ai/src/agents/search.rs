@@ -1,15 +1,15 @@
 //! One-pass improvement of a complete greedy turn.
 //!
-//! The greedy turn is the seed. The search changes one unit order at a time,
-//! repairs the rest of the friendly turn greedily, plays a fresh greedy reply,
-//! and evaluates the resulting position. One complete evaluated candidate is
-//! one node.
+//! The greedy turn is the seed. The search changes one unit or production
+//! order at a time, repairs the rest of the friendly turn greedily, plays a
+//! fresh greedy reply, and evaluates the resulting position. One complete
+//! evaluated candidate is one node.
 
 use awvm::random::Entropy;
 use awvm::semantic::{
     AwbwVisibility, Match, Observation, PlayerId, PlayerIdx, State, UnitId, observe_into,
 };
-use awvm::session::{Mark, Order, OrderKind, Session};
+use awvm::session::{LegalScope, LegalVisitor, Mark, Order, OrderKind, Session, UnitIdx};
 use awvm::transition::Command;
 
 use crate::agent::{Agent, MarginalDistribution, NodeBudget, Play, SearchStats};
@@ -23,7 +23,9 @@ pub struct SearchAgent {
     seed: u64,
     weights: Weights,
     search_eval_weights: EvalWeights,
+    node_budget: Option<NodeBudget>,
     marginal_cap: Option<f64>,
+    fallback: GreedyAgent,
     plan: Vec<Play>,
     next: usize,
     turn: Option<(PlayerId, u64)>,
@@ -136,32 +138,13 @@ pub fn audit(
 
 impl SearchAgent {
     pub const fn from_seed(seed: u64) -> Self {
-        Self::with_weights(seed, Weights::DEFAULT)
-    }
-
-    pub const fn with_weights(seed: u64, weights: Weights) -> Self {
-        Self::with_weights_and_evaluator(seed, weights, EvalWeights::STANDARD)
-    }
-
-    pub const fn with_weights_and_evaluator(
-        seed: u64,
-        weights: Weights,
-        search_eval_weights: EvalWeights,
-    ) -> Self {
-        Self::with_weights_evaluator_and_cap(seed, weights, search_eval_weights, None)
-    }
-
-    pub const fn with_weights_evaluator_and_cap(
-        seed: u64,
-        weights: Weights,
-        search_eval_weights: EvalWeights,
-        marginal_cap: Option<f64>,
-    ) -> Self {
         Self {
             seed,
-            weights,
-            search_eval_weights,
-            marginal_cap,
+            weights: Weights::DEFAULT,
+            search_eval_weights: EvalWeights::STANDARD,
+            node_budget: None,
+            marginal_cap: None,
+            fallback: GreedyAgent::with_weights(seed, Weights::DEFAULT),
             plan: Vec::new(),
             next: 0,
             turn: None,
@@ -195,6 +178,31 @@ impl SearchAgent {
         }
     }
 
+    /// Use the specified policy weights.
+    pub fn with_weights(mut self, weights: Weights) -> Self {
+        self.weights = weights;
+        self.fallback = GreedyAgent::with_weights(self.seed, weights);
+        self
+    }
+
+    /// Use the specified position evaluator weights.
+    pub const fn with_evaluator_weights(mut self, weights: EvalWeights) -> Self {
+        self.search_eval_weights = weights;
+        self
+    }
+
+    /// Limit the marginal score that can select a changed plan.
+    pub const fn with_marginal_cap(mut self, marginal_cap: f64) -> Self {
+        self.marginal_cap = Some(marginal_cap);
+        self
+    }
+
+    /// Use a fixed node budget instead of the caller's budget.
+    pub const fn with_node_budget(mut self, node_budget: NodeBudget) -> Self {
+        self.node_budget = Some(node_budget);
+        self
+    }
+
     fn build_plan(&mut self, view: &Observation, budget: NodeBudget) -> Option<()> {
         let mut search = TurnSearch::new(
             view,
@@ -214,12 +222,13 @@ impl SearchAgent {
 
 impl Agent for SearchAgent {
     fn act(&mut self, view: &Observation, budget: NodeBudget) -> Option<Play> {
+        let budget = self.node_budget.unwrap_or(budget);
         let turn = (view.turn.active_player.clone(), view.turn.day);
         if self.turn.as_ref() == Some(&turn) && self.next >= self.plan.len() {
             return None;
         }
-        if self.turn.as_ref() != Some(&turn) {
-            self.build_plan(view, budget)?;
+        if self.turn.as_ref() != Some(&turn) && self.build_plan(view, budget).is_none() {
+            return self.fallback.act(view, budget);
         }
         let play = self.plan.get(self.next).copied()?;
         self.next += 1;
@@ -302,16 +311,25 @@ impl TurnSearch {
         let mut coordinate = 0;
         while coordinate < best.len() {
             let coordinate_plan = best.clone();
-            let Some(unit) = coordinate_plan[coordinate].unit() else {
+            if !search_coordinate(coordinate_plan[coordinate]) {
                 coordinate += 1;
                 continue;
-            };
+            }
             let remaining = budget.get().saturating_sub(nodes);
+            let coordinates_left = u32::try_from(
+                coordinate_plan[coordinate..]
+                    .iter()
+                    .filter(|order| search_coordinate(**order))
+                    .count(),
+            )
+            .unwrap_or(u32::MAX)
+            .max(1);
+            let coordinate_limit = remaining.div_ceil(coordinates_left).max(1);
             let (candidates, rejected) = self.evaluate_coordinate(
                 &coordinate_plan[..coordinate],
                 coordinate_plan[coordinate],
-                unit,
-                remaining,
+                coordinate_plan[coordinate].unit(),
+                coordinate_limit.min(remaining),
             );
             self.stats.legal_candidates_rejected += rejected;
             for candidate_leaf in candidates {
@@ -435,7 +453,7 @@ impl TurnSearch {
         &mut self,
         seed: &[Order],
         coordinate: usize,
-        unit: awvm::session::UnitIdx,
+        unit: Option<UnitIdx>,
     ) -> Vec<Order> {
         let mut entropy = Rng::from_seed(self.entropy_seed);
         let mut root = None;
@@ -448,13 +466,10 @@ impl TurnSearch {
             };
             root.get_or_insert(mark);
         }
-        let mut alternatives = Vec::new();
-        self.session.legal().unit_orders(unit, &mut alternatives);
+        let mut alternatives = self.coordinate_orders(unit);
         alternatives.retain(|order| {
-            !matches!(
-                order.kind(),
-                OrderKind::Delete | OrderKind::Resign | OrderKind::EndTurn
-            )
+            !matches!(order.kind(), OrderKind::Delete | OrderKind::Resign)
+                && (unit.is_none() || order.kind() != OrderKind::EndTurn)
         });
         if let Some(mark) = root {
             self.session.rewind(mark);
@@ -467,7 +482,7 @@ impl TurnSearch {
         &mut self,
         prefix: &[Order],
         current: Order,
-        unit: awvm::session::UnitIdx,
+        unit: Option<UnitIdx>,
         limit: u32,
     ) -> (Vec<SearchLeaf>, u64) {
         if limit == 0 {
@@ -486,15 +501,12 @@ impl TurnSearch {
             root.get_or_insert(mark);
         }
         let prefix_entropy = entropy.clone();
-        let mut alternatives = Vec::new();
-        self.session.legal().unit_orders(unit, &mut alternatives);
+        let mut alternatives = self.coordinate_orders(unit);
         let mut rejected = u64::from(alternatives.contains(&current));
         alternatives.retain(|order| {
             *order != current
-                && !matches!(
-                    order.kind(),
-                    OrderKind::Delete | OrderKind::Resign | OrderKind::EndTurn
-                )
+                && !matches!(order.kind(), OrderKind::Delete | OrderKind::Resign)
+                && (unit.is_none() || order.kind() != OrderKind::EndTurn)
         });
 
         let mut leaves = Vec::new();
@@ -531,6 +543,48 @@ impl TurnSearch {
         }
         debug_assert_eq!(self.session.state(), &original);
         (leaves, rejected)
+    }
+
+    /// Orders that can replace one coordinate of a turn plan.
+    ///
+    /// A unit coordinate keeps ownership with that unit. A unitless
+    /// coordinate can change a production order or end the turn. The explicit
+    /// end-turn alternative is the price of saving funds for a later turn.
+    fn coordinate_orders(&self, unit: Option<UnitIdx>) -> Vec<Order> {
+        if let Some(unit) = unit {
+            let mut alternatives = Vec::new();
+            self.session.legal().unit_orders(unit, &mut alternatives);
+            return alternatives;
+        }
+
+        struct UnitlessCollector<'a>(&'a mut Vec<Order>);
+
+        impl LegalVisitor for UnitlessCollector<'_> {
+            fn order(&mut self, order: Order) {
+                if matches!(order.kind(), OrderKind::Produce(_) | OrderKind::EndTurn) {
+                    self.0.push(order);
+                }
+            }
+        }
+
+        let mut alternatives = Vec::new();
+        self.session.legal().visit_scoped(
+            LegalScope {
+                units: &[],
+                unitless: true,
+            },
+            &mut UnitlessCollector(&mut alternatives),
+        );
+        if !alternatives
+            .iter()
+            .any(|order| matches!(order.kind(), OrderKind::EndTurn))
+        {
+            alternatives.push(Order::unitless(
+                awvm::semantic::CellIdx::from_raw(0),
+                OrderKind::EndTurn,
+            ));
+        }
+        alternatives
     }
 
     fn evaluate(&mut self, plan: &[Order]) -> Option<SearchLeaf> {
@@ -687,6 +741,10 @@ impl TurnSearch {
     }
 }
 
+fn search_coordinate(order: Order) -> bool {
+    order.unit().is_some() || matches!(order.kind(), OrderKind::Produce(_))
+}
+
 fn add_breakdown_delta(total: &mut EvalBreakdown, seed: EvalBreakdown, selected: EvalBreakdown) {
     total.score += selected.score - seed.score;
     total.army += selected.army - seed.army;
@@ -753,10 +811,7 @@ mod tests {
         let mut alternatives = 0;
 
         for coordinate in 0..seed.len() {
-            let Some(unit) = seed[coordinate].unit() else {
-                continue;
-            };
-            for alternative in search.alternatives(&seed, coordinate, unit) {
+            for alternative in search.alternatives(&seed, coordinate, seed[coordinate].unit()) {
                 alternatives += 1;
                 if alternative == seed[coordinate] {
                     continue;
@@ -785,11 +840,12 @@ mod tests {
         let original = search.session.state().clone();
 
         for coordinate in 0..seed.len() {
-            let Some(unit) = seed[coordinate].unit() else {
-                continue;
-            };
-            let (leaves, _) =
-                search.evaluate_coordinate(&seed[..coordinate], seed[coordinate], unit, 4);
+            let (leaves, _) = search.evaluate_coordinate(
+                &seed[..coordinate],
+                seed[coordinate],
+                seed[coordinate].unit(),
+                4,
+            );
             // Every branch of a coordinate rewinds to the position the search
             // came in at, whether or not the coordinate offered a branch.
             assert_eq!(search.session.state(), &original);
@@ -802,5 +858,51 @@ mod tests {
             return;
         }
         panic!("the fixture offered no repairable alternative");
+    }
+
+    #[test]
+    fn production_coordinates_can_build_another_kind_or_save() {
+        let view = view();
+        let mut search = TurnSearch::new(
+            &view,
+            19,
+            Weights::CAPTURER_SHORTFALL_50,
+            EvalWeights::STANDARD,
+            None,
+        )
+        .expect("search opens");
+        let seed = search.greedy_seed().expect("greedy makes a turn");
+        let coordinate = seed
+            .iter()
+            .position(|order| matches!(order.kind(), OrderKind::Produce(_)))
+            .expect("the seed builds a unit");
+        let alternatives = search.alternatives(&seed, coordinate, None);
+
+        assert!(
+            alternatives
+                .iter()
+                .any(|order| matches!(order.kind(), OrderKind::EndTurn)),
+            "production must be compared with saving the funds: {alternatives:?}"
+        );
+        assert!(
+            alternatives.iter().any(|order| {
+                matches!(order.kind(), OrderKind::Produce(_)) && *order != seed[coordinate]
+            }),
+            "production must be compared with another legal build"
+        );
+    }
+
+    #[test]
+    fn fog_uses_the_promoted_greedy_policy() {
+        let state = arena(true, 1);
+        let view = observe(&AwbwVisibility, &state, &state.turn.active_player)
+            .expect("the active player observes the arena");
+        let mut search = SearchAgent::from_seed(29).with_weights(Weights::CAPTURER_SHORTFALL_50);
+        let mut greedy = GreedyAgent::with_weights(29, Weights::CAPTURER_SHORTFALL_50);
+
+        assert_eq!(
+            search.act(&view, NodeBudget::SIXTEEN),
+            greedy.act(&view, NodeBudget::SIXTEEN)
+        );
     }
 }

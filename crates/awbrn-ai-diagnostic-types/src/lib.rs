@@ -481,6 +481,15 @@ pub struct AgentIdentity {
     pub executable_fingerprint: String,
 }
 
+/// A non-map file that affects a diagnostic run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReferencedArtifact {
+    /// The path as written relative to the plan.
+    pub path: String,
+    /// The content fingerprint used for identity.
+    pub fingerprint: String,
+}
+
 /// Expected output fingerprints used by a reducer or review runner.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExpectedFingerprints {
@@ -506,12 +515,16 @@ pub struct RunManifest {
     pub telemetry: TelemetryMode,
     pub source_revision: String,
     pub dirty_worktree: bool,
+    pub source_fingerprint: String,
     pub executable_fingerprint: String,
     pub configuration_fingerprint: String,
     pub maps: Vec<MapIdentity>,
     pub seed_derivation: SeedDerivation,
     pub limits: RunLimits,
     pub agents: Vec<AgentIdentity>,
+    /// Model and weight files resolved before execution.
+    #[serde(default)]
+    pub referenced_artifacts: Vec<ReferencedArtifact>,
     /// Event log path relative to the manifest. Review defaults to events.jsonl.
     #[serde(default)]
     pub event_log: Option<String>,
@@ -540,6 +553,9 @@ impl RunManifest {
         if self.source_revision.is_empty() {
             return Err("run manifest has no source revision".into());
         }
+        if self.source_fingerprint.is_empty() {
+            return Err("run manifest has no source fingerprint".into());
+        }
         if self.executable_fingerprint.is_empty() || self.configuration_fingerprint.is_empty() {
             return Err(
                 "run manifest is missing an executable or configuration fingerprint".into(),
@@ -567,6 +583,25 @@ impl RunManifest {
         }
         if self.agents.len() < 2 {
             return Err("run manifest needs at least two agents".into());
+        }
+        for artifact in &self.referenced_artifacts {
+            if artifact.path.is_empty() || artifact.fingerprint.is_empty() {
+                return Err("run manifest has an incomplete referenced artifact".into());
+            }
+            let path = std::path::Path::new(&artifact.path);
+            if path.is_absolute()
+                || path.components().any(|component| {
+                    matches!(
+                        component,
+                        std::path::Component::CurDir | std::path::Component::ParentDir
+                    )
+                })
+            {
+                return Err(format!(
+                    "run manifest has an unsafe referenced artifact path {:?}",
+                    artifact.path
+                ));
+            }
         }
         if self.agents.iter().any(|agent| {
             agent.identifier.is_empty()
@@ -675,6 +710,7 @@ mod tests {
             telemetry: TelemetryMode::Enabled,
             source_revision: "revision".into(),
             dirty_worktree: false,
+            source_fingerprint: "source".into(),
             executable_fingerprint: "executable".into(),
             configuration_fingerprint: "configuration".into(),
             maps: vec![MapIdentity {
@@ -706,6 +742,7 @@ mod tests {
                     executable_fingerprint: "two-exe".into(),
                 },
             ],
+            referenced_artifacts: Vec::new(),
             event_log: None,
             capture_policy: CapturePolicy::default(),
             annotations: None,

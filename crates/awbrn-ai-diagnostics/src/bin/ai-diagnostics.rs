@@ -2,8 +2,10 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use awbrn_ai_diagnostic_types::RunManifest;
 use awbrn_ai_diagnostics::{
-    read_manifest, reanalyse_event_log_with_manifest, run_diagnostic, run_review, verify_artifact,
+    AnalysisStage, analyze_event_log, read_manifest, reanalyse_event_log_with_manifest,
+    resolve_event_log_path, run_plan, run_review, verify_artifact,
 };
 
 fn main() -> ExitCode {
@@ -15,6 +17,7 @@ fn main() -> ExitCode {
     match command {
         "run" => run(&arguments[1..]),
         "analyze" => analyze(&arguments[1..]),
+        "features" | "feature-analysis" => features(&arguments[1..]),
         "review" => review(&arguments[1..]),
         "verify" => verify(&arguments[1..]),
         _ => {
@@ -25,20 +28,35 @@ fn main() -> ExitCode {
 }
 
 fn run(arguments: &[String]) -> ExitCode {
-    let (manifest, output) = match required_paths(arguments, "run") {
-        Ok(paths) => paths,
-        Err(code) => return code,
+    const USAGE: &str = "usage: ai-diagnostics run --plan experiment.json --output target/run";
+    let options = match parse_options(arguments, &["--plan", "--output"]) {
+        Ok(options) => options,
+        Err(message) => return invalid_arguments(&message, USAGE),
     };
-    match run_diagnostic(manifest, output) {
+    let (Some(plan), Some(output)) = (options.get("--plan"), options.get("--output")) else {
+        return invalid_arguments("run needs --plan and --output", USAGE);
+    };
+    match run_plan(plan, output) {
         Ok(summary) => {
             println!(
-                "completed {} ({} matches, {} event rows, {} frames, review {})",
+                "completed {} ({} matches, {} valid pairs)",
                 summary.tournament.output.display(),
                 summary.tournament.matches,
-                summary.verification.event_rows,
-                summary.review.frames,
-                summary.review.output.display(),
+                summary.tournament.reduction.coverage.valid,
             );
+            if let Some(features) = summary.feature_analysis {
+                println!("  outcome features: {}", features.output.display());
+            }
+            if let Some(review) = summary.review {
+                println!(
+                    "  review: {} ({} frames)",
+                    review.output.display(),
+                    review.frames
+                );
+            }
+            if let Some(verification) = summary.verification {
+                println!("  verification: {:?}", verification.reduction);
+            }
             ExitCode::SUCCESS
         }
         Err(error) => report_error("run", error),
@@ -46,44 +64,187 @@ fn run(arguments: &[String]) -> ExitCode {
 }
 
 fn analyze(arguments: &[String]) -> ExitCode {
-    const USAGE: &str = "usage: ai-diagnostics analyze --manifest run.json --events events.jsonl --output target/reanalysis";
-    let options = match parse_options(arguments, &["--manifest", "--events", "--output"]) {
+    const USAGE: &str =
+        "usage: ai-diagnostics analyze --run target/run [--analysis outcome-features]";
+    let options = match parse_options(arguments, &["--run", "--analysis"]) {
         Ok(options) => options,
         Err(message) => return invalid_arguments(&message, USAGE),
     };
-    let (Some(manifest_path), Some(events), Some(output)) = (
-        options.get("--manifest"),
-        options.get("--events"),
-        options.get("--output"),
-    ) else {
-        return invalid_arguments("analyze needs --manifest, --events, and --output", USAGE);
+    let Some(run) = options.get("--run") else {
+        return invalid_arguments("analyze needs --run", USAGE);
     };
-    let output = PathBuf::from(output);
-    let result = read_manifest(manifest_path)
+    let analyses = match options.get("--analysis").map_or_else(
+        || Ok(vec![AnalysisStage::OutcomeFeatures]),
+        |value| parse_analyses(value),
+    ) {
+        Ok(analyses) => analyses,
+        Err(message) => return invalid_arguments(&message, USAGE),
+    };
+    let run = PathBuf::from(run);
+    let result = read_manifest(run.join("manifest.json"))
         .map_err(|error| error.to_string())
         .and_then(|manifest| {
-            reanalyse_event_log_with_manifest(events, &output, &manifest)
+            resolve_event_log_path(&run, &manifest)
                 .map_err(|error| error.to_string())
+                .and_then(|events| analyze_stages(&run, &events, &manifest, &analyses))
         });
     match result {
-        Ok(summary) => {
-            println!(
-                "analysed {} event rows into {}",
-                summary.event_rows,
-                output.display()
-            );
+        Ok(outputs) => {
+            for output in outputs {
+                println!("analysed {output}");
+            }
             ExitCode::SUCCESS
         }
         Err(error) => report_error("analyze", error),
     }
 }
 
-fn review(arguments: &[String]) -> ExitCode {
-    let (manifest, output) = match required_paths(arguments, "review") {
-        Ok(paths) => paths,
-        Err(code) => return code,
+fn parse_analyses(value: &str) -> Result<Vec<AnalysisStage>, String> {
+    let mut stages = Vec::new();
+    for name in value
+        .split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    {
+        let stage = match name {
+            "outcome-features" => AnalysisStage::OutcomeFeatures,
+            "review" => AnalysisStage::Review,
+            "verification" => AnalysisStage::Verification,
+            other => return Err(format!("unknown analysis stage {other:?}")),
+        };
+        if stages.contains(&stage) {
+            return Err(format!("analysis stage {name:?} is given more than once"));
+        }
+        stages.push(stage);
+    }
+    if stages.is_empty() {
+        return Err("--analysis needs at least one stage".into());
+    }
+    Ok(stages)
+}
+
+fn analyze_stages(
+    run: &std::path::Path,
+    events: &std::path::Path,
+    manifest: &RunManifest,
+    analyses: &[AnalysisStage],
+) -> Result<Vec<String>, String> {
+    let mut outputs = Vec::new();
+    if analyses
+        .iter()
+        .any(|stage| !matches!(stage, AnalysisStage::Verification))
+    {
+        let rebuilt = reanalyse_event_log_with_manifest(events, run, manifest)
+            .map_err(|error| error.to_string())?;
+        outputs.push(format!(
+            "{} ({} event rows, {} matches)",
+            run.display(),
+            rebuilt.event_rows,
+            rebuilt.matches
+        ));
+    }
+    for stage in analyses {
+        match stage {
+            AnalysisStage::OutcomeFeatures => {
+                let summary = analyze_event_log(events, run.join("feature-analysis"))
+                    .map_err(|error| error.to_string())?;
+                if !summary.report.sufficient_corpus {
+                    eprintln!(
+                        "warning: {} matches with rows; collect at least {} for the planned corpus",
+                        summary.report.matches_with_rows, summary.report.minimum_matches
+                    );
+                }
+                outputs.push(format!(
+                    "{} ({} matches, {} turn rows)",
+                    summary.output.display(),
+                    summary.extraction.matches_with_rows,
+                    summary.extraction.rows.len()
+                ));
+            }
+            AnalysisStage::Review => {
+                let summary = run_review(run.join("manifest.json"), run.join("review"))
+                    .map_err(|error| error.to_string())?;
+                outputs.push(format!(
+                    "{} ({} frames)",
+                    summary.output.display(),
+                    summary.frames
+                ));
+            }
+            AnalysisStage::Verification => {
+                let summary = verify_artifact(run.join("manifest.json"), run)
+                    .map_err(|error| error.to_string())?;
+                outputs.push(format!(
+                    "{} ({:?})",
+                    summary.output.display(),
+                    summary.reduction
+                ));
+            }
+        }
+    }
+    Ok(outputs)
+}
+
+fn features(arguments: &[String]) -> ExitCode {
+    const USAGE: &str =
+        "usage: ai-diagnostics features --states states.jsonl --output target/features";
+    let options = match parse_options(arguments, &["--states", "--events", "--output"]) {
+        Ok(options) => options,
+        Err(message) => return invalid_arguments(&message, USAGE),
     };
-    match run_review(manifest, output) {
+    if options.contains_key("--states") && options.contains_key("--events") {
+        return invalid_arguments("features accepts only one input path", USAGE);
+    }
+    let input = options.get("--states").or_else(|| options.get("--events"));
+    let Some((input, output)) = input.zip(options.get("--output")) else {
+        return invalid_arguments("features needs --states (or --events) and --output", USAGE);
+    };
+    match analyze_event_log(input, output) {
+        Ok(summary) => {
+            println!(
+                "analysed {} event rows into {} ({} matches, {} turn rows)",
+                summary.extraction.event_rows,
+                summary.output.display(),
+                summary.extraction.matches_with_rows,
+                summary.extraction.rows.len(),
+            );
+            for mode in &summary.report.modes {
+                println!(
+                    "  {:?}: reduced CV log loss {:.4} [{:.4}, {:.4}], baseline {:.4}, selected {}",
+                    mode.mode,
+                    mode.model.cross_validation.log_loss.mean,
+                    mode.model.cross_validation.log_loss.ci95_low,
+                    mode.model.cross_validation.log_loss.ci95_high,
+                    mode.model.cross_validation.baseline_log_loss.mean,
+                    mode.model
+                        .weights
+                        .iter()
+                        .filter(|weight| weight.selected)
+                        .count(),
+                );
+            }
+            if !summary.report.sufficient_corpus {
+                eprintln!(
+                    "warning: {} matches with rows; collect at least {} for the planned corpus",
+                    summary.report.matches_with_rows, summary.report.minimum_matches
+                );
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => report_error("features", error),
+    }
+}
+
+fn review(arguments: &[String]) -> ExitCode {
+    const USAGE: &str = "usage: ai-diagnostics review --output target/run";
+    let options = match parse_options(arguments, &["--output"]) {
+        Ok(options) => options,
+        Err(message) => return invalid_arguments(&message, USAGE),
+    };
+    let Some(output) = options.get("--output") else {
+        return invalid_arguments("review needs --output", USAGE);
+    };
+    let output = PathBuf::from(output);
+    match run_review(output.join("manifest.json"), output.join("review")) {
         Ok(summary) => {
             println!(
                 "published {} ({} maps, {} pairs, {} frames)",
@@ -99,9 +260,8 @@ fn review(arguments: &[String]) -> ExitCode {
 }
 
 fn verify(arguments: &[String]) -> ExitCode {
-    const USAGE: &str =
-        "usage: ai-diagnostics verify [--manifest run.json] --output target/experiment";
-    let options = match parse_options(arguments, &["--manifest", "--output"]) {
+    const USAGE: &str = "usage: ai-diagnostics verify --output target/run";
+    let options = match parse_options(arguments, &["--output"]) {
         Ok(options) => options,
         Err(message) => return invalid_arguments(&message, USAGE),
     };
@@ -109,11 +269,7 @@ fn verify(arguments: &[String]) -> ExitCode {
         return invalid_arguments("verify needs --output", USAGE);
     };
     let output = PathBuf::from(output);
-    let manifest = options
-        .get("--manifest")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| output.join("manifest.json"));
-    match verify_artifact(manifest, &output) {
+    match verify_artifact(output.join("manifest.json"), &output) {
         Ok(summary) => {
             println!(
                 "verified {} ({} event rows, {} matches, {:?})",
@@ -126,21 +282,6 @@ fn verify(arguments: &[String]) -> ExitCode {
         }
         Err(error) => report_error("verify", error),
     }
-}
-
-fn required_paths(arguments: &[String], command: &str) -> Result<(PathBuf, PathBuf), ExitCode> {
-    let usage =
-        format!("usage: ai-diagnostics {command} --manifest run.json --output target/experiment");
-    let options = parse_options(arguments, &["--manifest", "--output"])
-        .map_err(|message| invalid_arguments(&message, &usage))?;
-    let (Some(manifest), Some(output)) = (options.get("--manifest"), options.get("--output"))
-    else {
-        return Err(invalid_arguments(
-            &format!("{command} needs --manifest and --output"),
-            &usage,
-        ));
-    };
-    Ok((PathBuf::from(manifest), PathBuf::from(output)))
 }
 
 /// Read `--name value` pairs and refuse anything else.
@@ -182,6 +323,34 @@ fn report_error(command: &str, error: impl std::fmt::Display) -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage:\n  ai-diagnostics run --manifest experiment.json --output target/experiment\n  ai-diagnostics analyze --manifest run.json --events events.jsonl --output target/reanalysis\n  ai-diagnostics review --manifest run.json --output target/review\n  ai-diagnostics verify [--manifest run.json] --output target/experiment"
+        "usage:\n  ai-diagnostics run --plan experiment.json --output target/run\n  ai-diagnostics analyze --run target/run [--analysis outcome-features,review,verification]\n  ai-diagnostics features --states states.jsonl --output target/features\n  ai-diagnostics review --output target/run\n  ai-diagnostics verify --output target/run"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn analysis_names_are_registered_and_repeatable() {
+        let stages = parse_analyses("outcome-features,verification").expect("stages parse");
+        assert_eq!(
+            stages,
+            vec![AnalysisStage::OutcomeFeatures, AnalysisStage::Verification]
+        );
+        parse_analyses("unknown").unwrap_err();
+        parse_analyses("review,review").unwrap_err();
+    }
+
+    #[test]
+    fn option_parser_rejects_unknown_and_duplicate_arguments() {
+        let arguments = vec![
+            "--run".into(),
+            "target/run".into(),
+            "--run".into(),
+            "other".into(),
+        ];
+        parse_options(&arguments, &["--run"]).unwrap_err();
+        parse_options(&["--bad".into(), "value".into()], &["--run"]).unwrap_err();
+    }
 }

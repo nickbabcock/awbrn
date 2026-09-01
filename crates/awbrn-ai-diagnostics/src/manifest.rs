@@ -14,6 +14,8 @@ pub enum ManifestError {
     Schema(#[from] RunManifestError),
     #[error("existing manifest does not match the requested run")]
     Mismatch,
+    #[error("existing manifest source fingerprint does not match the requested run")]
+    SourceMismatch,
     #[error("manifest path is not safe: {0}")]
     UnsafePath(String),
 }
@@ -41,6 +43,9 @@ pub fn write_or_validate_manifest(
     let path = path.as_ref();
     if path.exists() {
         let existing = read_manifest(path)?;
+        if existing.source_fingerprint != manifest.source_fingerprint {
+            return Err(ManifestError::SourceMismatch);
+        }
         if existing != *manifest {
             return Err(ManifestError::Mismatch);
         }

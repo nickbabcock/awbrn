@@ -2,10 +2,14 @@
 
 pub mod capture;
 pub mod events;
+pub mod feature_analysis;
+pub mod learned;
 pub mod manifest;
 pub mod map_registry;
 pub mod pipeline;
+pub mod plan;
 pub mod review;
+pub mod tactical;
 pub mod tournament;
 pub mod verify;
 
@@ -16,6 +20,14 @@ pub use events::{
     reanalyse_event_log_with_manifest, row_for_state, verify_expected_fingerprints,
     write_derived_outputs,
 };
+pub use feature_analysis::{
+    AblationReport, CollinearityReport, CrossValidationReport, DatasetMetrics, FEATURE_NAMES,
+    FeatureAnalysisError, FeatureAnalysisReport, FeatureAnalysisSummary, FeatureExtraction,
+    FeatureMode, FeatureRow, FeatureVector, FeatureWeight, MapTurnRangeReport, MetricSummary,
+    ModeAnalysisReport, ModelReport, PairMetric, ReducedEvaluator, TurnRange, TurnRangeReport,
+    analyze_event_log, extract_feature_rows, fit_feature_analysis, observable_features,
+};
+pub use learned::{LEARNED_EXECUTABLE_FINGERPRINT, LearnedFactory};
 pub use manifest::{
     ManifestError, read_manifest, resolve_event_log_path, write_manifest,
     write_or_validate_manifest,
@@ -23,10 +35,18 @@ pub use manifest::{
 pub use map_registry::{
     CANONICAL_SEATS, MapManifest, MapManifestEntry, MapRegistry, MapRegistryError, RegisteredMap,
 };
-pub use pipeline::{DiagnosticError, DiagnosticSummary, run_diagnostic};
+pub use pipeline::{DiagnosticError, DiagnosticSummary, PlanRunSummary, run_diagnostic, run_plan};
+pub use plan::{
+    AgentSpec, AnalysisStage, EXPERIMENT_PLAN_SCHEMA_VERSION, ExperimentPlan, MaterializedPlan,
+    PlanError, TacticalMode, read_plan,
+};
 pub use review::{ReviewError, ReviewSummary, run_review, run_review_with_tilesets};
+pub use tactical::{
+    TACTICAL_EXECUTABLE_FINGERPRINT, TacticalFactory, TacticalRerank, TacticalRerankMode,
+};
 pub use tournament::{
-    AgentFactory, STRATEGIC_EXECUTABLE_FINGERPRINT, StrategicFactory, TournamentError,
-    TournamentSummary, run_manifest, run_paired_tournament,
+    AgentFactory, MatchPerformance, SEARCH_EXECUTABLE_FINGERPRINT,
+    STRATEGIC_EXECUTABLE_FINGERPRINT, SearchFactory, StrategicFactory, TournamentError,
+    TournamentPerformance, TournamentSummary, run_manifest, run_paired_tournament,
 };
 pub use verify::{VerificationSummary, VerifyError, verify_artifact};
