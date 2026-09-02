@@ -94,7 +94,11 @@ Three simultaneous fields are only legible if they differ in **form**, not only
 in hue. PRODUCT.md forbids hue carrying meaning alone, so this is a requirement.
 
 - **Movement is the only fill.** Cyan glass, unchanged. It is the only field
-  that is a region a unit can stand in.
+  that is a region a unit moves in. It covers everywhere the unit can _get to_,
+  not only the tiles it can come to rest on: an ally in the way is walked
+  through, and cutting that ally's tile out would draw it as a wall. This is
+  the set the selection has always painted, and the two must agree, because a
+  unit cannot change shape when the seat changes.
 - **Fire is a solid outline** in `{colors.damage-red}`, traced on the boundary of
   the threat envelope. Outline lies over the movement glass without burying it.
 - **Vision is a dashed outline** in `{colors.low-supply-amber}`. A dashed line is
@@ -104,10 +108,35 @@ in hue. PRODUCT.md forbids hue carrying meaning alone, so this is a requirement.
   plus the bracket reticle, exactly as the attack brief settles. Red marks
   _who_, cyan marks _where_.
 
-Directs draw their fire outline around `movement` union `reach`. Indirects draw
+Directs draw their fire outline around the tiles the unit can _stop_ on, union
+`reach`. A shot comes from a standstill, so a tile the unit only passes over is
+not a firing position, which is why the movement glass and the band are
+measured from different sets. Indirects draw
 the `min..=max` band around their **current** position, and the parent brief's
 rule stands: propose a destination other than the origin and the ring vanishes,
 because the unit just gave up its shot.
+
+**The outline is for a unit whose targets the board cannot mark.** Commanding a
+unit already marks every enemy it can reach, on the enemies themselves; the
+envelope over that says it twice and spends red on a region, when red in this
+language names _who_ and cyan names _where_. So a commanded unit gets no
+outline. A unit the player cannot command has no marked targets, which is why
+the envelope exists there at all.
+
+A route held open is not an exception. Only a commanded unit can hold one, and
+the band a direct would draw around the ghost is the four tiles beside it, which
+the player reads off the ghost itself. An outline around what is already on
+screen is a second copy of the question, not an answer.
+
+What a route does owe is on the marks, not on the band: they still stand for
+everywhere the unit could have gone, so at `DestinationSelected` they claim
+targets the proposed route cannot reach. For an indirect that is the sharper
+failure — the marks say "you can shoot these" over a route that forfeits the
+shot. **The marks should narrow to the destination once one is proposed**, and
+for an indirect that means going out entirely. That is where the parent brief's
+"the ring vanishes because the unit gave up its shot" rule belongs: in the
+language that names targets, not in a second envelope on the ground. It is owed
+by the attack surface and is not built.
 
 ### Vision, drawn true
 
@@ -115,14 +144,33 @@ This is where the design stops matching AWBW and starts beating it. AWBW's flat
 yellow circle is wrong on most maps: it claims sight into terrain that conceals,
 and it does not shrink under rain.
 
+**The field is painted only in a match with fog.** Sight decides nothing where
+nothing is hidden: every tile is already seen by everyone, so a third field over
+a standard map answers a question the lobby settled before the first turn. The
+readout's Sight line goes with it, leaving two lines, because a line that names a
+field the board is not painting is exactly the legend this design refuses to
+ship. AWVM still answers for sight either way — fog decides whether sight
+matters, not how far a unit sees — so this is a decision about paint and about
+nothing else.
+
 - **The ring shrinks under rain** and the readout shows the reduced number, so
   the player watches sight collapse when the weather turns.
   `semantic/visibility.rs` computes `(vision + bonus + rain).max(1)`.
 - **The ring grows on a mountain** for units with `elevated_vision`.
 - **Blind tiles inside the ring are marked.** Concealing terrain within sight
-  range but outside the adjacency rule takes a small hatch inside the amber
+  range but outside the adjacency rule takes a stipple inside the amber
   boundary. These are the tiles the unit is looking at and cannot see into. A
   flat yellow circle claims them; this one does not.
+- **The boundary encloses the blind tiles rather than cutting around them.**
+  The ring is traced around everything the sight reaches, revealed and
+  concealed together. Tracing the revealed tiles alone punches a hole in the
+  ring at every wood, and a hole says the unit is not looking there — the exact
+  opposite of the truth. The ring says how far the unit watches; the mark
+  inside says where watching stops paying.
+- **The mark is a dot screen, not a hatch.** The danger zone claims the
+  diagonal hatch, and two textures that mean different things cannot be the
+  same texture. The screen door is also the era's own mark for "obscured", so
+  it reads before anything explains it.
 - Commanders that see through cover (`reveals_concealing`) simply have no blind
   tiles, and the absence is the information.
 
