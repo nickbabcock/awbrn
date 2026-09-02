@@ -10,10 +10,11 @@ pub use awbrn_bevy::world::{CurrentWeather, FriendlyFactions, ViewerVisibility};
 pub use camera::CameraScale;
 pub use event_bus::{
     DeleteUnitCommandRequested, EventSink, HoveredCargoUnit, HoveredTile, HoveredUnit,
-    MapDimensions, MoveCommandRequested, NewDay, PlayerRosterEntry, PlayerRosterSnapshot,
-    PlayerRosterStats, PostMoveAction, ProductionOption, ProductionOptionsChanged, ProductionSite,
-    ReplayLoaded, ReplayLoadedPlayer, TileHoverChanged, TileSelected, UnitActionOption,
-    UnitActionsChanged, UnitBuilt, UnitMoved, UnitOrder, UnloadCommandRequested,
+    InspectedUnitReadout, MapDimensions, MoveCommandRequested, NewDay, PlayerRosterEntry,
+    PlayerRosterSnapshot, PlayerRosterStats, PostMoveAction, ProductionOption,
+    ProductionOptionsChanged, ProductionSite, ReplayLoaded, ReplayLoadedPlayer, TileHoverChanged,
+    TileSelected, UnitActionOption, UnitActionsChanged, UnitBuilt, UnitInspectionChanged,
+    UnitMoved, UnitOrder, UnloadCommandRequested,
 };
 pub use input::{SelectedTile, TileCursor};
 

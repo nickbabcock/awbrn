@@ -18,7 +18,9 @@ use awvm::combat::DamageRange;
 use awvm::conformance::fixture_documents;
 use awvm::prelude::*;
 use awvm::query::{self, can_act};
-use awvm::semantic::{CellIdx, KnownReason, Location, Reason, Roster, RulesetRevision, UnitAction};
+use awvm::semantic::{
+    CellIdx, KnownReason, Location, Reason, Roster, RulesetRevision, UnitAction, Viewpoint,
+};
 use serde_json::Value;
 
 fn corpus() -> Vec<(String, Value)> {
@@ -1402,5 +1404,81 @@ fn travel_agrees_with_reachable_in_the_other_direction() {
         exact > 0,
         "no single-unit board was found, so the equality above never ran and \
          the direction of the search is untested"
+    );
+}
+
+/// `vision` against the projection, over the whole corpus.
+///
+/// The query exists so an interface can draw one unit's sight without writing
+/// a second copy of the fog rules. That claim is only worth having while the
+/// two agree, so this puts every unit of every fixture to both.
+///
+/// The relation is containment and not equality, and deliberately so. A team
+/// sees a tile for reasons that belong to no single unit: it holds the
+/// property, the terrain is always visible, or another unit stands closer. So
+/// every tile one unit reports must be visible to its owner, while the owner
+/// sees tiles no single unit accounts for.
+#[test]
+fn vision_agrees_with_the_projection_it_is_drawn_from() {
+    let mut checked = 0;
+    let mut with_blind = 0;
+    for (name, document) in corpus() {
+        let Some(value) = document.get("initial_state") else {
+            continue;
+        };
+        let Ok(state) = serde_json::from_value::<State>(value.clone()) else {
+            continue;
+        };
+        if !state.settings.fog {
+            continue;
+        }
+
+        for unit in state.units.iter() {
+            let Location::Board { position } = unit.location else {
+                continue;
+            };
+            let Ok(field) = query::vision(&state, unit.id) else {
+                continue;
+            };
+            assert_eq!(
+                field.origin, position,
+                "{name}: sight is measured from where the unit stands"
+            );
+            assert!(
+                field.seen.contains(&position),
+                "{name}: a unit sees the tile it stands on"
+            );
+
+            let team = state.players[unit.owner.get()].team.clone();
+            let view = AwbwVisibility.view(&state, &team);
+
+            for position in &field.seen {
+                assert!(
+                    view.position(*position),
+                    "{name}: unit {} reports seeing {position:?}, which its own \
+                     team's viewpoint hides",
+                    unit.id
+                );
+            }
+            for position in &field.blind {
+                assert!(
+                    !field.seen.contains(position),
+                    "{name}: {position:?} cannot be both revealed and concealed"
+                );
+                assert!(
+                    position.distance(field.origin) <= field.sight,
+                    "{name}: a blind tile is one inside the reach, not beyond it"
+                );
+            }
+            checked += 1;
+            with_blind += usize::from(!field.blind.is_empty());
+        }
+    }
+
+    assert!(checked > 0, "the corpus offered no fog units to check");
+    assert!(
+        with_blind > 0,
+        "no unit looked into terrain that conceals, so the half of the answer \
+         that a plain radius gets wrong was never exercised"
     );
 }

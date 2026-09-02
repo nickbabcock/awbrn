@@ -213,6 +213,10 @@ export class GameRunner implements CanvasCourierController {
           .actions.setProductionOptions(event.site === undefined ? null : event);
         break;
       }
+      case "UnitInspectionChanged": {
+        useGameStore.getState().actions.setInspectedUnit(event.unit ?? null);
+        break;
+      }
       case "TileHoverChanged": {
         useGameStore.getState().actions.setHoveredTile(event.tile ?? null);
         break;

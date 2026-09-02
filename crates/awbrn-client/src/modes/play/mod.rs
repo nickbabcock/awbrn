@@ -26,12 +26,14 @@ use awbrn_types::UnitExt;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
+pub mod inspect;
+
 use crate::loading::{LiveMatchBootstrap, PendingLiveTransitions};
 use crate::modes::replay::presentation::{LiveTransitionCommand, ReplayAdvanceLock};
 
-const MOVE_RANGE_GLASS_COLOR: Color = Color::srgba(0.18, 0.82, 0.9, 0.28);
-const MOVE_RANGE_GLASS_LIGHT_EDGE: Color = Color::srgba(0.82, 1.0, 1.0, 0.82);
-const MOVE_RANGE_GLASS_DARK_EDGE: Color = Color::srgba(0.02, 0.34, 0.42, 0.72);
+pub(crate) const MOVE_RANGE_GLASS_COLOR: Color = Color::srgba(0.18, 0.82, 0.9, 0.28);
+pub(crate) const MOVE_RANGE_GLASS_LIGHT_EDGE: Color = Color::srgba(0.82, 1.0, 1.0, 0.82);
+pub(crate) const MOVE_RANGE_GLASS_DARK_EDGE: Color = Color::srgba(0.02, 0.34, 0.42, 0.72);
 const MOVE_RANGE_EDGE_WIDTH: f32 = 1.0;
 const PROPOSED_PATH_COLOR: Color = Color::srgba(0.88, 1.0, 0.96, 0.96);
 const ATTACK_TARGET_GLASS_COLOR: Color = Color::srgba(0.92, 0.08, 0.12, 0.38);
@@ -171,6 +173,7 @@ pub(crate) struct PlaySelectionState<'w> {
     pending_destination: ResMut<'w, PendingMoveDestination>,
     proposed_path: ResMut<'w, ProposedMovePath>,
     phase: ResMut<'w, PlayUiPhase>,
+    inspected: ResMut<'w, inspect::InspectedUnit>,
 }
 
 type UnitSelectionQueryItem<'a> = (
@@ -885,12 +888,20 @@ fn handle_tap(
 
     let Ok(unit_entity) = unit_selection.board_index.unit_entity(tapped) else {
         close_production_options(production_options.sink.as_deref());
+        selection.inspected.0 = None;
         return;
     };
-    if unit_entity.is_some() {
+    // A unit the player may not move is still a unit they may read. This is
+    // the whole of inspection's entry: the tap they already make, on the units
+    // that until now answered nothing, and it commits no order on any path.
+    if let Some(entity) = unit_entity {
         close_production_options(production_options.sink.as_deref());
+        // Reading the same unit twice lets go of it, which is the only way a
+        // finger has to dismiss a field it did not want.
+        selection.inspected.0 = (selection.inspected.0 != Some(entity)).then_some(entity);
         return;
     }
+    selection.inspected.0 = None;
 
     emit_production_options(
         tapped,
@@ -2347,6 +2358,9 @@ impl Plugin for PlayPlugin {
             .init_resource::<PlayUiPhase>()
             .init_resource::<OfferedActions>()
             .init_resource::<CommittedCommand>()
+            .init_resource::<inspect::InspectedUnit>()
+            .init_resource::<inspect::InspectionFields>()
+            .init_resource::<inspect::EmittedInspection>()
             .init_resource::<ReplayAdvanceLock>()
             .add_message::<UnitActionChosen>()
             .add_message::<UnitActionDismissed>()
@@ -2379,13 +2393,29 @@ impl Plugin for PlayPlugin {
                     sync_attack_target_reticle
                         .run_if(resource_exists::<crate::render::UiAtlasResource>),
                     animate_attack_target_reticle.run_if(resource_exists::<Time>),
+                    // The subject follows the selection before the fields are
+                    // worked out, so a unit picked up this frame is reported on
+                    // in the same frame rather than one behind.
+                    (
+                        inspect::follow_selection,
+                        inspect::clear_missing_inspection,
+                        inspect::update_inspection_fields,
+                        inspect::sync_inspection_move_glass,
+                        inspect::sync_fire_outline,
+                        inspect::sync_vision_outline,
+                        inspect::emit_inspection_readout,
+                    )
+                        .chain(),
                     apply_pending_live_transition,
                 )
                     .chain()
                     .in_set(PointerSet::Consume)
                     .run_if(in_state(GameMode::Game).and_then(in_state(AppState::InGame))),
             )
-            .add_systems(OnExit(GameMode::Game), cleanup_play_selection);
+            .add_systems(
+                OnExit(GameMode::Game),
+                (cleanup_play_selection, inspect::cleanup_inspection),
+            );
     }
 }
 
@@ -2595,6 +2625,178 @@ mod tests {
             .resource_mut::<Messages<PointerGesture>>()
             .write(tap);
         app.update();
+    }
+
+    /// The enemy a player taps is the enemy the board reports on.
+    ///
+    /// This is the whole entry point of inspection: the tap a curious player
+    /// already makes, on the units that until now answered nothing.
+    #[test]
+    fn tapping_an_enemy_unit_reads_it() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 8, 8);
+        let enemy = spawn_unit(
+            &mut app,
+            Pos::new(4, 4),
+            awbrn_types::Unit::Artillery,
+            PlayerFaction::BlueMoon,
+            false,
+            None,
+        );
+        app.update();
+
+        click_tile(&mut app, Pos::new(4, 4));
+
+        assert_eq!(
+            app.world().resource::<inspect::InspectedUnit>().0,
+            Some(enemy),
+            "tapping an enemy should read it"
+        );
+        // Reading a unit must never pick it up, because a selection is the one
+        // thing on this board that can reach a command.
+        assert!(app.world().resource::<SelectedUnit>().0.is_none());
+        assert_eq!(*app.world().resource::<PlayUiPhase>(), PlayUiPhase::Idle);
+    }
+
+    /// A finger has no second gesture, so the same tap lets go.
+    #[test]
+    fn tapping_the_same_unit_twice_stops_reading_it() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 8, 8);
+        spawn_unit(
+            &mut app,
+            Pos::new(4, 4),
+            awbrn_types::Unit::Artillery,
+            PlayerFaction::BlueMoon,
+            false,
+            None,
+        );
+        app.update();
+
+        click_tile(&mut app, Pos::new(4, 4));
+        click_tile(&mut app, Pos::new(4, 4));
+
+        assert_eq!(app.world().resource::<inspect::InspectedUnit>().0, None);
+    }
+
+    /// An inspected enemy gets all three fields, and the indirect's band is
+    /// measured from where it stands rather than from where it could go.
+    #[test]
+    fn reading_an_indirect_reports_its_band_and_its_sight() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 12, 12);
+        spawn_unit(
+            &mut app,
+            Pos::new(5, 5),
+            awbrn_types::Unit::Artillery,
+            PlayerFaction::BlueMoon,
+            false,
+            None,
+        );
+        app.update();
+        click_tile(&mut app, Pos::new(5, 5));
+
+        let fields = app.world().resource::<inspect::InspectionFields>();
+        let readout = fields.readout.expect("a read unit reports its numbers");
+        assert_eq!(readout.range, Some((2, 3)), "artillery fires two to three");
+
+        // The band is a diamond around the origin. A tile one step away is
+        // inside the minimum and therefore outside the band.
+        assert!(fields.fire.contains(&Pos::new(5, 2)));
+        assert!(!fields.fire.contains(&Pos::new(5, 4)));
+        assert!(!fields.fire.contains(&Pos::new(5, 1)));
+
+        assert!(
+            fields.vision.contains(&Pos::new(5, 5)),
+            "a unit sees itself"
+        );
+        assert!(
+            !fields.movement.is_empty(),
+            "an enemy still reports a reach"
+        );
+    }
+
+    /// A direct carries its reach with it, so its band grows out of the tiles
+    /// it can stop on rather than out of the one it holds.
+    #[test]
+    fn reading_a_direct_measures_its_band_from_everywhere_it_could_go() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 12, 12);
+        spawn_unit(
+            &mut app,
+            Pos::new(5, 5),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::BlueMoon,
+            false,
+            None,
+        );
+        app.update();
+        click_tile(&mut app, Pos::new(5, 5));
+
+        let fields = app.world().resource::<inspect::InspectionFields>();
+        assert_eq!(fields.readout.expect("numbers").range, Some((1, 1)));
+        // Infantry walk three, so a tile four away is reachable by a shot and
+        // not by a step.
+        assert!(fields.fire.contains(&Pos::new(5, 1)));
+        assert!(!fields.movement.contains(&Pos::new(5, 1)));
+    }
+
+    /// Commanding a unit is a way of reading it, so the two subjects agree and
+    /// the movement glass is drawn once.
+    #[test]
+    fn selecting_a_unit_reads_it_and_keeps_one_movement_field() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 8, 8);
+        let friendly = spawn_unit(
+            &mut app,
+            Pos::new(2, 2),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            true,
+            None,
+        );
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+        app.update();
+
+        click_tile(&mut app, Pos::new(2, 2));
+
+        assert_eq!(
+            app.world().resource::<inspect::InspectedUnit>().0,
+            Some(friendly)
+        );
+        assert!(
+            app.world()
+                .resource::<inspect::InspectionFields>()
+                .movement_drawn_by_selection,
+            "the selection owns the glass when it holds the same unit"
+        );
+    }
+
+    /// Letting go of a unit stops reporting on it. A field painted under no
+    /// unit is a field the player cannot dismiss.
+    #[test]
+    fn tapping_open_ground_stops_reading() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 8, 8);
+        spawn_unit(
+            &mut app,
+            Pos::new(4, 4),
+            awbrn_types::Unit::Artillery,
+            PlayerFaction::BlueMoon,
+            false,
+            None,
+        );
+        app.update();
+
+        click_tile(&mut app, Pos::new(4, 4));
+        click_tile(&mut app, Pos::new(0, 0));
+
+        assert_eq!(app.world().resource::<inspect::InspectedUnit>().0, None);
+        let fields = app.world().resource::<inspect::InspectionFields>();
+        assert!(fields.fire.is_empty() && fields.vision.is_empty());
     }
 
     #[test]

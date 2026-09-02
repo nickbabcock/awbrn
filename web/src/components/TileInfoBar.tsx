@@ -12,7 +12,12 @@ import {
 } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useRef, useState, type RefObject, type SVGProps } from "react";
-import type { HoveredCargoUnit, HoveredTile, HoveredUnit } from "#/wasm/awbrn_wasm.js";
+import type {
+  HoveredCargoUnit,
+  HoveredTile,
+  HoveredUnit,
+  InspectedUnitReadout,
+} from "#/wasm/awbrn_wasm.js";
 import {
   terrainSpriteStyle,
   uiAtlasSpriteStyle,
@@ -67,6 +72,7 @@ const CARGO_SPRITE_LIMIT = 4;
  */
 export function TileInfoBar() {
   const tile = useGameStore((state) => state.hoveredTile);
+  const inspected = useGameStore((state) => state.inspectedUnit);
   const isCoarsePointer = useMediaQuery(COARSE_POINTER_MEDIA);
   const windowRef = useRef<HTMLDivElement>(null);
   const dock = useReadoutDock(windowRef);
@@ -86,12 +92,13 @@ export function TileInfoBar() {
     >
       {tile === null ? (
         <Text type="label" xstyle={styles.hintText}>
-          Tap a tile
+          Tap a unit to read it
         </Text>
       ) : (
         <>
           <TerrainLines tile={tile} />
           {tile.unit === undefined ? null : <UnitLines unit={tile.unit} />}
+          {inspected === null ? null : <ReachLines reach={inspected} />}
         </>
       )}
     </VStack>
@@ -196,6 +203,151 @@ function UnitLines({ unit }: { unit: HoveredUnit }) {
       </VStack>
       <Cargo units={unit.loadedUnits} />
     </HStack>
+  );
+}
+
+/**
+ * How far the unit being read moves, shoots, and sees.
+ *
+ * The three lines are the legend for the three fields painted on the board, and
+ * each carries the mark its field is drawn with: a filled square for the
+ * movement glass, a solid outline for the firing band, a dashed outline for
+ * sight. A player who cannot separate the fields by colour separates them here
+ * by form, and the same marks tell them which field is which on the board.
+ *
+ * They are also the answer on their own. "How far does a Rocket move" is
+ * usually the whole question, and a player who only wanted the number should
+ * not have to read a field of colour to get it.
+ */
+function ReachLines({ reach }: { reach: InspectedUnitReadout }) {
+  const band =
+    reach.rangeMinimum === undefined || reach.rangeMaximum === undefined
+      ? undefined
+      : reach.rangeMinimum === reach.rangeMaximum
+        ? `${reach.rangeMaximum}`
+        : `${reach.rangeMinimum}–${reach.rangeMaximum}`;
+
+  return (
+    <VStack
+      aria-label={`${reach.name} reach`}
+      gap={0}
+      xstyle={[styles.line, styles.unitLine, styles.reach]}
+    >
+      <ReachLine
+        label="Move"
+        mark="glass"
+        reading={`Moves ${reach.movement}`}
+        value={`${reach.movement}`}
+      />
+      <ReachLine
+        label="Range"
+        mark="band"
+        reading={band === undefined ? "No weapon that reaches" : `Fires ${band}`}
+        value={band ?? "—"}
+      />
+      <ReachLine
+        label="Sight"
+        mark="sight"
+        modified={reach.sightModified}
+        reading={
+          reach.sightModified
+            ? `Sees ${reach.sight}, changed by the weather or the ground`
+            : `Sees ${reach.sight}`
+        }
+        value={`${reach.sight}`}
+      />
+    </VStack>
+  );
+}
+
+/**
+ * One reading, with the mark of the field it names.
+ *
+ * A value the weather or the terrain has moved off its base is marked rather
+ * than explained. The mark is small and the spoken reading carries the reason,
+ * because a sentence in a window this size would cost the board a row.
+ */
+function ReachLine({
+  label,
+  mark,
+  modified = false,
+  reading,
+  value,
+}: {
+  label: string;
+  mark: FieldMark;
+  /** Whether the weather or the ground has moved this value off its base. */
+  modified?: boolean;
+  /** What the line says to a reader who cannot see it. */
+  reading: string;
+  value: string;
+}) {
+  return (
+    <HStack align="center" aria-label={reading} gap={1} role="img" xstyle={styles.statLine}>
+      <FieldGlyph mark={mark} />
+      <Text aria-hidden="true" type="label" xstyle={styles.reachLabel}>
+        {label}
+      </Text>
+      <Text
+        aria-hidden="true"
+        hasTabularNumbers
+        type="label"
+        xstyle={[styles.readout, styles.reachValue]}
+      >
+        {value}
+        {modified ? "*" : ""}
+      </Text>
+    </HStack>
+  );
+}
+
+/** Which of the three fields a mark stands for. */
+type FieldMark = "glass" | "band" | "sight";
+
+/** The colour a mark wears, matching the field it names on the board. */
+function glyphColor(mark: FieldMark) {
+  switch (mark) {
+    case "band":
+      return styles.glyphBand;
+    case "glass":
+      return styles.glyphGlass;
+    case "sight":
+      return styles.glyphSight;
+  }
+}
+
+/**
+ * The mark a field is drawn with, at the size of a line of the HUD face.
+ *
+ * These are the board's own forms rather than three coloured dots: the fill,
+ * the solid outline, and the dashed outline are exactly what the tiles wear,
+ * so the legend teaches the board and the board teaches the legend.
+ */
+function FieldGlyph({ mark }: { mark: FieldMark }) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      height="10"
+      viewBox="0 0 10 10"
+      width="10"
+      {...stylex.props(styles.glyph, glyphColor(mark))}
+    >
+      {mark === "glass" ? (
+        <rect fill="currentColor" height="8" width="8" x="1" y="1" />
+      ) : (
+        <rect
+          fill="none"
+          height="8"
+          stroke="currentColor"
+          strokeDasharray={mark === "sight" ? "2 1.5" : undefined}
+          strokeWidth="2"
+          width="8"
+          x="1"
+          y="1"
+        />
+      )}
+    </svg>
   );
 }
 
@@ -467,6 +619,35 @@ const styles = stylex.create({
   // changes a decision, so it is the one number that changes colour.
   critical: {
     color: colorVars["--color-text-red"],
+  },
+  // The three readings divide from the stock above them with the same soft
+  // rule the blocks already use, and never with a second outline.
+  reach: {
+    alignItems: "stretch",
+  },
+  reachLabel: {
+    flex: "0 0 auto",
+    color: colorVars["--color-text-secondary"],
+  },
+  // The number sits at the end of the line so the column of digits lines up
+  // under itself, whatever the label beside it is called.
+  reachValue: {
+    marginInlineStart: "auto",
+  },
+  glyph: {
+    display: "block",
+    flex: "0 0 auto",
+  },
+  // Each mark wears its own field's colour, so the legend and the board agree
+  // on both counts: the same form and the same hue.
+  glyphGlass: {
+    color: colorVars["--color-icon-cyan"],
+  },
+  glyphBand: {
+    color: colorVars["--color-icon-red"],
+  },
+  glyphSight: {
+    color: colorVars["--color-icon-yellow"],
   },
   stars: {
     flex: "0 0 auto",
