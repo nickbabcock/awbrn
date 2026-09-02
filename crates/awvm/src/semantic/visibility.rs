@@ -88,7 +88,7 @@ pub struct AwbwView<'a> {
     /// Resolved on first use rather than up front. A reducer builds a view to
     /// ask whether one tile is occupied by something it can see, and in a match
     /// without fog or hidden units that answer never consults a sighting.
-    sightings: OnceCell<Vec<Sighting>>,
+    sightings: OnceCell<Vec<UnitSight>>,
     /// What this team perceives standing on each tile. Resolved on first use
     /// for the same reason as `sightings`.
     occupancy: OnceCell<Grid<Occupant>>,
@@ -119,16 +119,101 @@ const RESOLVED: u8 = 1;
 const DISCLOSED: u8 = 2;
 const HOSTILE: u8 = 4;
 
-/// A friendly unit on the board, with its vision already resolved.
-#[derive(Clone, Copy, Debug)]
-struct Sighting {
-    position: Pos,
+/// A unit on the board, with its vision already resolved.
+///
+/// The board projection resolves one of these for every friendly unit. An
+/// interface that draws a single unit's vision asks for the same value, which
+/// is why [`unit_sight`] is public and the calculation has one home.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UnitSight {
+    /// Where the unit stands. Sight is measured from here.
+    pub position: Pos,
     /// Effective vision after the commander, terrain bonus and weather, floored
     /// at one tile.
-    sight: u64,
+    pub sight: u64,
     /// Whether this unit sees into concealing terrain, which lifts the target
     /// terrain's own vision limit.
-    reveals_concealing: bool,
+    pub reveals_concealing: bool,
+}
+
+/// How well a viewer sees one tile.
+#[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq)]
+pub enum VisionLevel {
+    /// Nothing on the tile is seen.
+    None,
+    /// The tile is in range, but it conceals: only an air unit is spotted
+    /// there.
+    AirOnly,
+    /// Anything standing on the tile is seen.
+    Full,
+}
+
+/// The vision one board unit has, or `None` where it has none to give.
+///
+/// A unit inside a transport and a unit off the board both see nothing. The
+/// weather applies here rather than at the tile, because rain shortens the
+/// sight of the viewer and does not hide the tile from everyone equally.
+pub fn unit_sight(state: &State, unit: &Unit) -> Option<UnitSight> {
+    let Location::Board { position } = unit.location else {
+        return None;
+    };
+    let profile = ruleset::profile(unit.kind);
+    let rain = -i64::from(matches!(state.weather.kind, WeatherKind::Rain));
+    let bonus = if profile.elevated_vision {
+        ruleset::terrain(state.board.tile(position).terrain)
+            .vision_bonus
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let vision = commander::effective_vision(state, unit, profile.vision, profile.domain);
+    Some(UnitSight {
+        position,
+        sight: (vision + bonus + rain).max(1) as u64,
+        reveals_concealing: commander::reveals_concealing_terrain(state, unit),
+    })
+}
+
+/// What one viewer alone reveals of the tile at `position`.
+///
+/// This answers for that viewer and nothing else. Whether the team sees the
+/// tile for some other reason — it holds the property, the terrain is always
+/// visible, or a second unit stands closer — is [`AwbwView`]'s question, and
+/// asking this one instead gives a smaller answer rather than a wrong one.
+pub fn sight_of(state: &State, sight: &UnitSight, position: Pos) -> VisionLevel {
+    if !state.board.contains(position) {
+        return VisionLevel::None;
+    }
+    let terrain = ruleset::terrain(state.board.tile(position).terrain);
+    if terrain.has(TerrainTrait::Teleporter) {
+        return VisionLevel::None;
+    }
+    sighting_level(sight, terrain, position)
+}
+
+/// [`sight_of`] against a terrain the caller has already resolved.
+///
+/// The per-tile loop in [`AwbwView::vision_level`] resolves the terrain once
+/// and then asks about every sighting, so it takes this entry rather than
+/// paying for the same lookup per unit.
+fn sighting_level(
+    sight: &UnitSight,
+    terrain: &ruleset::TerrainProfile,
+    position: Pos,
+) -> VisionLevel {
+    let distance = sight.position.distance(position);
+    if distance > sight.sight {
+        return VisionLevel::None;
+    }
+    if sight.reveals_concealing
+        || terrain
+            .vision_limit
+            .is_none_or(|limit| distance <= limit as u64)
+    {
+        VisionLevel::Full
+    } else {
+        VisionLevel::AirOnly
+    }
 }
 
 impl<'a> AwbwView<'a> {
@@ -294,34 +379,14 @@ impl<'a> AwbwView<'a> {
     /// weather — none of which vary by the tile being asked about. Resolving
     /// them here rather than inside the per-tile loop is what takes the board
     /// projection off an O(tiles x units) path through the commander tables.
-    fn sightings(&self) -> &[Sighting] {
+    fn sightings(&self) -> &[UnitSight] {
         self.sightings.get_or_init(|| {
             let state = self.state;
-            let rain = -i64::from(matches!(state.weather.kind, WeatherKind::Rain));
             state
                 .units
                 .iter()
                 .filter(|unit| self.teammates.contains(&unit.owner))
-                .filter_map(|unit| {
-                    let Location::Board { position } = unit.location else {
-                        return None;
-                    };
-                    let profile = ruleset::profile(unit.kind);
-                    let bonus = if profile.elevated_vision {
-                        ruleset::terrain(state.board.tile(position).terrain)
-                            .vision_bonus
-                            .unwrap_or(0)
-                    } else {
-                        0
-                    };
-                    let vision =
-                        commander::effective_vision(state, unit, profile.vision, profile.domain);
-                    Some(Sighting {
-                        position,
-                        sight: (vision + bonus + rain).max(1) as u64,
-                        reveals_concealing: commander::reveals_concealing_terrain(state, unit),
-                    })
-                })
+                .filter_map(|unit| unit_sight(state, unit))
                 .collect()
         })
     }
@@ -351,30 +416,10 @@ impl<'a> AwbwView<'a> {
         }
         let mut level = VisionLevel::None;
         for sighting in self.sightings() {
-            let distance = sighting.position.distance(position);
-            if distance > sighting.sight {
-                continue;
-            }
-            let contribution = if sighting.reveals_concealing
-                || target_terrain
-                    .vision_limit
-                    .is_none_or(|limit| distance <= limit as u64)
-            {
-                VisionLevel::Full
-            } else {
-                VisionLevel::AirOnly
-            };
-            level = level.max(contribution);
+            level = level.max(sighting_level(sighting, target_terrain, position));
         }
         level
     }
-}
-
-#[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq)]
-enum VisionLevel {
-    None,
-    AirOnly,
-    Full,
 }
 
 impl Viewpoint for AwbwView<'_> {

@@ -38,6 +38,7 @@
 //! None of this is authoritative. A server still executes the command it
 //! receives; this exists so a client can offer commands the server will take.
 
+use crate::semantic;
 use std::borrow::Borrow;
 use std::cell::OnceCell;
 use std::collections::HashSet;
@@ -1027,6 +1028,68 @@ impl<'a> ActiveTurn<'a> {
 /// cannot see stays in the field, because `spec/semantics/movement.md` keeps
 /// hidden occupancy out of validation and resolves it as a trap during
 /// execution instead. Removing it would leak the hidden unit.
+/// What one unit sees, and what stays hidden inside its reach.
+///
+/// [`reachable`] answers where a unit can go; this answers what it can watch.
+/// The two together are what an interface needs to explain a unit without
+/// restating a rule of its own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VisionField {
+    /// Where the unit stands. Sight is measured from here.
+    pub origin: Pos,
+    /// How far the unit sees, after its commander, the terrain under it and
+    /// the weather.
+    pub sight: u64,
+    /// Tiles the unit reveals, in map order. `origin` is one of them.
+    pub seen: Vec<Pos>,
+    /// Tiles inside the unit's reach that still conceal a ground unit, in map
+    /// order.
+    ///
+    /// These are the tiles the unit is looking at and cannot see into, and
+    /// they are the half of a vision display that a plain radius gets wrong.
+    pub blind: Vec<Pos>,
+}
+
+/// The tiles `unit` sees of `state`.
+///
+/// Answered for the unit alone. A tile its team sees for some other reason —
+/// it holds the property, the terrain is always visible, or a second unit
+/// stands closer — is not reported here, because the question is what this
+/// unit contributes and not what the team already knows.
+///
+/// Reported whether or not the match has fog. Fog decides whether sight
+/// matters, not how far a unit sees, and an interface that offers to explain a
+/// unit should not change its answer with a lobby setting.
+pub fn vision(state: &State, unit: UnitId) -> Result<VisionField, QueryError> {
+    let subject = lookup(state, unit)?;
+    let sight = semantic::unit_sight(state, subject).ok_or(QueryError::UnitNotOnBoard(unit))?;
+
+    let mut field = VisionField {
+        origin: sight.position,
+        sight: sight.sight,
+        seen: Vec::new(),
+        blind: Vec::new(),
+    };
+    // The reach is a diamond, so the walk is bounded by the sight rather than
+    // by the board. A Recon on a 30x30 map looks at 41 tiles, not 900.
+    let radius = i16::try_from(sight.sight).unwrap_or(i16::MAX);
+    for dy in -radius..=radius {
+        let span = radius - dy.abs();
+        for dx in -span..=span {
+            let Some(position) = sight.position.offset(dx, dy) else {
+                continue;
+            };
+            match semantic::sight_of(state, &sight, position) {
+                semantic::VisionLevel::Full => field.seen.push(position),
+                semantic::VisionLevel::AirOnly => field.blind.push(position),
+                semantic::VisionLevel::None => {}
+            }
+        }
+    }
+    // The walk runs row by row, so both lists are already in map order.
+    Ok(field)
+}
+
 pub fn reachable(state: &State, unit: UnitId) -> Result<MoveField, QueryError> {
     reachable_into(state, unit, &mut MoveScratch::default())
 }

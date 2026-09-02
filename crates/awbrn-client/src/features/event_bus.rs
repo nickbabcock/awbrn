@@ -154,6 +154,40 @@ pub struct HoveredTile {
     pub unit: Option<HoveredUnit>,
 }
 
+/// What the board is reporting about a unit the player is reading.
+///
+/// `unit: None` clears the readout's three lines. The numbers arrive with the
+/// paint they describe, so the legend on screen cannot name a value the board
+/// is not drawing.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[serde(rename_all = "camelCase")]
+pub struct UnitInspectionChanged {
+    pub unit: Option<InspectedUnitReadout>,
+}
+
+/// The three answers a unit gives about itself.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[serde(rename_all = "camelCase")]
+pub struct InspectedUnitReadout {
+    pub name: String,
+    pub faction_code: String,
+    /// Movement points, after fuel and the commander.
+    pub movement: u32,
+    /// The lowest tile of the firing band, absent for a unit with no weapon.
+    pub range_minimum: Option<u32>,
+    /// The highest tile of the firing band, absent for a unit with no weapon.
+    pub range_maximum: Option<u32>,
+    /// Effective sight, after the commander, the terrain and the weather.
+    pub sight: u32,
+    /// Whether the weather or the terrain has moved the sight off its base.
+    ///
+    /// The readout marks a moved value rather than explaining it, so a player
+    /// watching rain arrive can see what it cost without reading a sentence.
+    pub sight_modified: bool,
+}
+
 /// The current hovered tile. `tile: None` clears the presentation readout.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]

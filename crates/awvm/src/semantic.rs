@@ -37,7 +37,9 @@ pub use observe::{
     ObservedUnitHp, ObservedUnitRef, PublicCommander, Relation, TileVisibility, observe,
     observe_events, observe_into, observe_transition,
 };
-pub use visibility::{AwbwView, AwbwVisibility, Viewpoint, Visibility};
+pub use visibility::{
+    AwbwView, AwbwVisibility, UnitSight, Viewpoint, Visibility, VisionLevel, sight_of, unit_sight,
+};
 
 /// A board coordinate.
 ///
