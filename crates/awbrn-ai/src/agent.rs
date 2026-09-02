@@ -62,6 +62,11 @@ pub trait Agent {
     fn search_stats(&self) -> Option<SearchStats> {
         None
     }
+
+    /// Return wall-clock decision samples when the agent records them.
+    fn search_decision_times_nanos(&self) -> Option<Vec<u64>> {
+        None
+    }
 }
 
 /// Timing counters for lifecycle work.
@@ -98,7 +103,7 @@ impl AgentTiming {
 }
 
 /// Counters from the one-pass search.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct SearchStats {
     /// Complete candidate plans that reached the evaluator.
     pub nodes_evaluated: u64,
@@ -118,6 +123,8 @@ pub struct SearchStats {
     pub standard_front_deltas: MarginalDistribution,
     /// Distribution of standard exposure deltas.
     pub standard_exposure_deltas: MarginalDistribution,
+    /// Search coverage measurements.
+    pub coverage: SearchCoverage,
 }
 
 impl SearchStats {
@@ -145,11 +152,113 @@ impl SearchStats {
         self.standard_front_deltas.add(other.standard_front_deltas);
         self.standard_exposure_deltas
             .add(other.standard_exposure_deltas);
+        self.coverage.add(other.coverage);
+    }
+}
+
+/// Coverage for one searchable coordinate, aggregated over decisions.
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct SearchCoordinateCoverage {
+    /// The order position in the complete turn plan.
+    pub coordinate: usize,
+    /// Decisions that had this searchable coordinate.
+    pub searchable_decisions: u64,
+    /// Decisions that visited this coordinate.
+    pub visited_decisions: u64,
+    /// Legal alternatives enumerated for this coordinate.
+    pub alternatives_generated: u64,
+    /// Alternatives that did not reach the evaluator.
+    pub alternatives_rejected: u64,
+    /// Complete alternatives that reached the evaluator.
+    pub alternatives_evaluated: u64,
+}
+
+/// Deterministic coverage measurements for the one-pass search.
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct SearchCoverage {
+    /// Search decisions with a complete greedy seed.
+    pub decisions: u64,
+    /// Searchable coordinate occurrences in those decisions.
+    pub searchable_coordinates: u64,
+    /// Searchable coordinate occurrences that received a visit.
+    pub visited_searchable_coordinates: u64,
+    /// Searchable coordinate occurrences in the final quartile.
+    pub final_quartile_searchable_coordinates: u64,
+    /// Final-quartile coordinate occurrences that received a visit.
+    pub visited_final_quartile_coordinates: u64,
+    /// Decisions that used all nodes before their final searchable coordinate.
+    pub decisions_exhausted_before_final_coordinate: u64,
+    /// Seed plans made by the search.
+    pub seed_plans: u64,
+    /// Seed plans changed by the search.
+    pub changed_seed_plans: u64,
+    /// Nodes requested by the search.
+    pub nodes_requested: u64,
+    /// Nodes used by the search.
+    pub nodes_used: u64,
+    /// First visited coordinate in this aggregate.
+    pub first_visited_coordinate: Option<usize>,
+    /// Last visited coordinate in this aggregate.
+    pub last_visited_coordinate: Option<usize>,
+    /// Coordinate visits grouped by round-robin pass.
+    pub coordinate_visits_by_pass: Vec<u64>,
+    /// Per-coordinate counters.
+    pub coordinates: Vec<SearchCoordinateCoverage>,
+}
+
+impl SearchCoverage {
+    /// Add one search coverage aggregate.
+    pub fn add(&mut self, other: Self) {
+        self.decisions += other.decisions;
+        self.searchable_coordinates += other.searchable_coordinates;
+        self.visited_searchable_coordinates += other.visited_searchable_coordinates;
+        self.final_quartile_searchable_coordinates += other.final_quartile_searchable_coordinates;
+        self.visited_final_quartile_coordinates += other.visited_final_quartile_coordinates;
+        self.decisions_exhausted_before_final_coordinate +=
+            other.decisions_exhausted_before_final_coordinate;
+        self.seed_plans += other.seed_plans;
+        self.changed_seed_plans += other.changed_seed_plans;
+        self.nodes_requested += other.nodes_requested;
+        self.nodes_used += other.nodes_used;
+        if self.first_visited_coordinate.is_none() {
+            self.first_visited_coordinate = other.first_visited_coordinate;
+        }
+        self.last_visited_coordinate = other
+            .last_visited_coordinate
+            .or(self.last_visited_coordinate);
+        if self.coordinate_visits_by_pass.len() < other.coordinate_visits_by_pass.len() {
+            self.coordinate_visits_by_pass
+                .resize(other.coordinate_visits_by_pass.len(), 0);
+        }
+        for (left, right) in self
+            .coordinate_visits_by_pass
+            .iter_mut()
+            .zip(other.coordinate_visits_by_pass)
+        {
+            *left += right;
+        }
+        for coordinate in other.coordinates {
+            let Some(existing) = self
+                .coordinates
+                .iter_mut()
+                .find(|existing| existing.coordinate == coordinate.coordinate)
+            else {
+                self.coordinates.push(coordinate);
+                continue;
+            };
+            existing.searchable_decisions += coordinate.searchable_decisions;
+            existing.visited_decisions += coordinate.visited_decisions;
+            existing.alternatives_generated += coordinate.alternatives_generated;
+            existing.alternatives_rejected += coordinate.alternatives_rejected;
+            existing.alternatives_evaluated += coordinate.alternatives_evaluated;
+        }
+        self.coordinates
+            .sort_by_key(|coordinate| coordinate.coordinate);
     }
 }
 
 /// A compact distribution of one marginal evaluator term, in funds.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct MarginalDistribution {
     /// Number of recorded changes.
     pub count: u64,

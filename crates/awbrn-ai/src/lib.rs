@@ -46,7 +46,10 @@ pub mod shape;
 pub mod threat;
 pub mod vision;
 
-pub use agent::{Agent, AgentTiming, MarginalDistribution, NodeBudget, Play, SearchStats};
+pub use agent::{
+    Agent, AgentTiming, MarginalDistribution, NodeBudget, Play, SearchCoordinateCoverage,
+    SearchCoverage, SearchStats,
+};
 pub use agents::{
     GreedyAttackBreakdown, GreedyScoreBreakdown, ScoredOrder, ScoredOrders, StrategicAgent,
     order_candidate_id,

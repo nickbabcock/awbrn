@@ -7,8 +7,8 @@ use std::time::Instant;
 
 use awbrn_ai::EvalWeights;
 use awbrn_ai::FNV1A_OFFSET_BASIS;
-use awbrn_ai::agent::{Agent, NodeBudget};
-use awbrn_ai::agents::{SearchAgent, StrategicAgent, Weights};
+use awbrn_ai::agent::{Agent, NodeBudget, SearchStats};
+use awbrn_ai::agents::{SearchAgent, SearchAllocator, StrategicAgent, Weights};
 use awbrn_ai::baseline::BaselineConfig;
 use awbrn_ai::harness::{Limits, next_command_fingerprint, play_observed_fallible};
 use awbrn_ai::rng::Rng;
@@ -80,22 +80,72 @@ pub struct SearchFactory {
     weights: Weights,
     eval_weights: EvalWeights,
     node_budget: NodeBudget,
+    allocator: SearchAllocator,
 }
 
 /// The executable identity for the reply-search implementation.
 pub const SEARCH_EXECUTABLE_FINGERPRINT: &str = "awbrn-ai-search-v1";
 
 impl SearchFactory {
-    /// Create a factory from the complete search configuration it will run.
+    /// Create a factory from the search configuration it will run.
+    ///
+    /// The configuration fingerprint uses the identifier, weights, evaluator
+    /// weights, and node budget. It does not include the allocator.
     pub fn new(
         identifier: &str,
         weights: Weights,
         eval_weights: EvalWeights,
         node_budget: NodeBudget,
     ) -> Self {
+        Self::from_identity(
+            identifier,
+            weights,
+            eval_weights,
+            node_budget,
+            SearchAllocator::SequentialQuota,
+            Self::configuration_fingerprint(identifier, weights, eval_weights, node_budget),
+        )
+    }
+
+    /// Create a search factory with an explicit allocator.
+    ///
+    /// The allocator is not part of the configuration fingerprint.
+    pub fn new_with_allocator(
+        identifier: &str,
+        weights: Weights,
+        eval_weights: EvalWeights,
+        node_budget: NodeBudget,
+        allocator: SearchAllocator,
+    ) -> Self {
+        Self::from_identity(
+            identifier,
+            weights,
+            eval_weights,
+            node_budget,
+            allocator,
+            Self::configuration_fingerprint(identifier, weights, eval_weights, node_budget),
+        )
+    }
+
+    fn configuration_fingerprint(
+        identifier: &str,
+        weights: Weights,
+        eval_weights: EvalWeights,
+        node_budget: NodeBudget,
+    ) -> String {
         let bytes = serde_json::to_vec(&(identifier, weights, eval_weights, node_budget))
             .expect("search configuration serializes");
-        let fingerprint = fingerprint_bytes(&bytes);
+        fingerprint_bytes(&bytes)
+    }
+
+    fn from_identity(
+        identifier: &str,
+        weights: Weights,
+        eval_weights: EvalWeights,
+        node_budget: NodeBudget,
+        allocator: SearchAllocator,
+        fingerprint: String,
+    ) -> Self {
         Self {
             identity: AgentIdentity {
                 identifier: identifier.to_owned(),
@@ -105,6 +155,7 @@ impl SearchFactory {
             weights,
             eval_weights,
             node_budget,
+            allocator,
         }
     }
 }
@@ -119,7 +170,8 @@ impl AgentFactory for SearchFactory {
             SearchAgent::from_seed(seed)
                 .with_weights(self.weights)
                 .with_evaluator_weights(self.eval_weights)
-                .with_node_budget(self.node_budget),
+                .with_node_budget(self.node_budget)
+                .with_allocator(self.allocator),
         )
     }
 }
@@ -169,6 +221,67 @@ pub struct MatchPerformance {
     #[serde(default)]
     pub unrealizable_plays: u64,
     pub outcome: String,
+    /// Search counters for the candidate, when it is a search agent.
+    #[serde(default)]
+    pub candidate_search_stats: Option<SearchStats>,
+    /// Search counters for the baseline, when it is a search agent.
+    #[serde(default)]
+    pub baseline_search_stats: Option<SearchStats>,
+    /// Candidate search decision times in nanoseconds.
+    #[serde(default)]
+    pub candidate_decision_times_nanos: Vec<u64>,
+    /// Baseline search decision times in nanoseconds.
+    #[serde(default)]
+    pub baseline_decision_times_nanos: Vec<u64>,
+}
+
+/// Return the latest record for each match ID.
+pub(crate) fn latest_match_records(records: &[MatchPerformance]) -> Vec<&MatchPerformance> {
+    let mut latest = BTreeMap::<&str, &MatchPerformance>::new();
+    for record in records {
+        if latest
+            .get(record.match_id.as_str())
+            .is_none_or(|existing| record.attempt > existing.attempt)
+        {
+            latest.insert(record.match_id.as_str(), record);
+        }
+    }
+    latest.into_values().collect()
+}
+
+/// Version of the derived search coverage artifact.
+pub const SEARCH_COVERAGE_SCHEMA_VERSION: u16 = 1;
+
+/// A search coverage row for one completed match attempt.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SearchCoverageMatch {
+    /// Stable match identity.
+    pub match_id: String,
+    /// Registered map identity.
+    pub map_id: u32,
+    /// Seat order used by the match.
+    pub seat_order: SeatOrderVariant,
+    /// Event-log attempt number.
+    pub attempt: u32,
+    /// Candidate search counters.
+    pub candidate: Option<SearchStats>,
+    /// Baseline search counters.
+    pub baseline: Option<SearchStats>,
+}
+
+/// Machine-readable search coverage derived from match performance rows.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SearchCoverageArtifact {
+    /// Artifact schema version.
+    pub schema_version: u16,
+    /// Source manifest configuration identity.
+    pub configuration_fingerprint: String,
+    /// Active match rows in stable order.
+    pub matches: Vec<SearchCoverageMatch>,
+    /// Aggregate candidate counters.
+    pub candidate: SearchStats,
+    /// Aggregate baseline counters.
+    pub baseline: SearchStats,
 }
 
 /// Errors from map validation, match execution, or diagnostic persistence.
@@ -273,6 +386,7 @@ pub fn run_paired_tournament(
         output.join("performance.json"),
         serde_json::to_vec_pretty(&performance)?,
     )?;
+    write_search_coverage(&output, manifest, &performance)?;
     Ok(TournamentSummary {
         output,
         matches: observations.len(),
@@ -283,6 +397,47 @@ pub fn run_paired_tournament(
         reduction,
         performance,
     })
+}
+
+fn write_search_coverage(
+    output: &Path,
+    manifest: &RunManifest,
+    performance: &TournamentPerformance,
+) -> Result<(), TournamentError> {
+    let latest = latest_match_records(&performance.match_records);
+    let mut candidate = SearchStats::default();
+    let mut baseline = SearchStats::default();
+    let matches = latest
+        .into_iter()
+        .map(|record| {
+            if let Some(stats) = &record.candidate_search_stats {
+                candidate.add(stats.clone());
+            }
+            if let Some(stats) = &record.baseline_search_stats {
+                baseline.add(stats.clone());
+            }
+            SearchCoverageMatch {
+                match_id: record.match_id.clone(),
+                map_id: record.map_id,
+                seat_order: record.seat_order,
+                attempt: record.attempt,
+                candidate: record.candidate_search_stats.clone(),
+                baseline: record.baseline_search_stats.clone(),
+            }
+        })
+        .collect();
+    let artifact = SearchCoverageArtifact {
+        schema_version: SEARCH_COVERAGE_SCHEMA_VERSION,
+        configuration_fingerprint: manifest.configuration_fingerprint.clone(),
+        matches,
+        candidate,
+        baseline,
+    };
+    fs::write(
+        output.join("search-coverage.json"),
+        serde_json::to_vec_pretty(&artifact)?,
+    )?;
+    Ok(())
 }
 
 /// Load a manifest and its fixed map suite, then run the paired tournament.
@@ -417,6 +572,11 @@ fn run_match(
     // the authority for every derived output. Stop the run instead of turning
     // an I/O failure into a match-level result the caller can discard.
     let record = result?;
+    let candidate_search_stats = candidate.search_stats();
+    let baseline_search_stats = baseline.search_stats();
+    let candidate_decision_times_nanos =
+        candidate.search_decision_times_nanos().unwrap_or_default();
+    let baseline_decision_times_nanos = baseline.search_decision_times_nanos().unwrap_or_default();
     Ok(MatchPerformance {
         match_id: metadata.match_id,
         attempt,
@@ -434,21 +594,16 @@ fn run_match(
         refusals: record.refusals,
         unrealizable_plays: record.unrealizable_plays,
         outcome: outcome_name(record.outcome.as_ref()).into(),
+        candidate_search_stats,
+        baseline_search_stats,
+        candidate_decision_times_nanos,
+        baseline_decision_times_nanos,
     })
 }
 
 impl TournamentPerformance {
     fn from_matches(matches: Vec<MatchPerformance>, wall_clock_nanos: u64) -> Self {
-        let mut latest = BTreeMap::<&str, &MatchPerformance>::new();
-        for record in &matches {
-            let replace = latest
-                .get(record.match_id.as_str())
-                .is_none_or(|existing| record.attempt > existing.attempt);
-            if replace {
-                latest.insert(record.match_id.as_str(), record);
-            }
-        }
-        let active = latest.values().copied().collect::<Vec<_>>();
+        let active = latest_match_records(&matches);
         let total_match_nanos = active
             .iter()
             .map(|record| record.elapsed_nanos)
@@ -569,6 +724,50 @@ mod tests {
     }
 
     #[test]
+    fn allocator_does_not_change_configuration_fingerprint() {
+        let default_allocator = SearchFactory::new(
+            "search-sweep",
+            BaselineConfig::PRODUCTION.weights,
+            EvalWeights::STANDARD,
+            NodeBudget::FOUR,
+        );
+        let sequential_quota = SearchFactory::new_with_allocator(
+            "search-sweep",
+            BaselineConfig::PRODUCTION.weights,
+            EvalWeights::STANDARD,
+            NodeBudget::FOUR,
+            SearchAllocator::SequentialQuota,
+        );
+        let round_robin = SearchFactory::new_with_allocator(
+            "search-sweep",
+            BaselineConfig::PRODUCTION.weights,
+            EvalWeights::STANDARD,
+            NodeBudget::FOUR,
+            SearchAllocator::RoundRobin,
+        );
+        assert_eq!(
+            default_allocator.identity().configuration_fingerprint,
+            sequential_quota.identity().configuration_fingerprint,
+        );
+        assert_eq!(
+            sequential_quota.identity().configuration_fingerprint,
+            round_robin.identity().configuration_fingerprint
+        );
+
+        let larger_budget = SearchFactory::new_with_allocator(
+            "search-sweep",
+            BaselineConfig::PRODUCTION.weights,
+            EvalWeights::STANDARD,
+            NodeBudget::SIXTEEN,
+            SearchAllocator::SequentialQuota,
+        );
+        assert_ne!(
+            sequential_quota.identity().configuration_fingerprint,
+            larger_budget.identity().configuration_fingerprint
+        );
+    }
+
+    #[test]
     fn performance_uses_latest_attempt_and_keeps_audit_rows() {
         let old = MatchPerformance {
             match_id: "match-a".into(),
@@ -583,6 +782,10 @@ mod tests {
             refusals: 2,
             unrealizable_plays: 3,
             outcome: "incomplete".into(),
+            candidate_search_stats: None,
+            baseline_search_stats: None,
+            candidate_decision_times_nanos: Vec::new(),
+            baseline_decision_times_nanos: Vec::new(),
         };
         let retry = MatchPerformance {
             match_id: "match-a".into(),
@@ -597,6 +800,10 @@ mod tests {
             refusals: 1,
             unrealizable_plays: 2,
             outcome: "victory".into(),
+            candidate_search_stats: None,
+            baseline_search_stats: None,
+            candidate_decision_times_nanos: Vec::new(),
+            baseline_decision_times_nanos: Vec::new(),
         };
         let other = MatchPerformance {
             match_id: "match-b".into(),
@@ -611,6 +818,10 @@ mod tests {
             refusals: 1,
             unrealizable_plays: 0,
             outcome: "draw".into(),
+            candidate_search_stats: None,
+            baseline_search_stats: None,
+            candidate_decision_times_nanos: Vec::new(),
+            baseline_decision_times_nanos: Vec::new(),
         };
 
         let performance = TournamentPerformance::from_matches(vec![old, retry, other], 99);
