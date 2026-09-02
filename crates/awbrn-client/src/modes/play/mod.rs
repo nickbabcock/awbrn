@@ -2443,6 +2443,18 @@ mod tests {
     #[derive(Resource)]
     struct TestObservationSync;
 
+    /// Whether the match the test observation describes has fog.
+    ///
+    /// Off by default, because most of what these tests exercise has nothing
+    /// to do with sight. The tests that do read a unit's sight turn it on,
+    /// which is also the only condition under which the board paints it.
+    #[derive(Resource, Default)]
+    struct TestFog(bool);
+
+    fn set_fog(app: &mut App) {
+        app.insert_resource(TestFog(true));
+    }
+
     fn play_test_app() -> App {
         let mut app = App::new();
         app.add_plugins(bevy::state::app::StatesPlugin);
@@ -2458,6 +2470,7 @@ mod tests {
         app.init_resource::<DragOwner>();
         app.init_resource::<PointerIsCoarse>();
         app.init_resource::<TestNextUnitId>();
+        app.init_resource::<TestFog>();
         app.insert_resource(TestObservationSync);
         app.init_resource::<CameraScale>();
         app.add_message::<FocusBoardOn>();
@@ -2530,7 +2543,8 @@ mod tests {
         let value = serde_json::json!({
             "ruleset": { "id": "awbw", "revision": "2026-07-10" },
             "settings": {
-                "fog": false, "income_per_property": 1000, "starting_funds": 0,
+                "fog": app.world().resource::<TestFog>().0,
+                "income_per_property": 1000, "starting_funds": 0,
                 "powers": "disabled", "tags": false, "weather": "clear",
                 "lab_units": [], "unit_bans": [], "commander_bans": { "lead": [], "backup": [] },
                 "capture_limit": null, "day_limit": null, "unit_limit": null
@@ -2684,12 +2698,23 @@ mod tests {
     #[test]
     fn reading_an_indirect_reports_its_band_and_its_sight() {
         let mut app = play_test_app();
+        set_fog(&mut app);
         set_plain_map(&mut app, 12, 12);
         spawn_unit(
             &mut app,
             Pos::new(5, 5),
             awbrn_types::Unit::Artillery,
             PlayerFaction::BlueMoon,
+            false,
+            None,
+        );
+        // An enemy under fog is only there to be read while something of ours
+        // is watching it.
+        spawn_unit(
+            &mut app,
+            Pos::new(5, 4),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
             false,
             None,
         );
@@ -2772,6 +2797,251 @@ mod tests {
                 .resource::<inspect::InspectionFields>()
                 .movement_drawn_by_selection,
             "the selection owns the glass when it holds the same unit"
+        );
+    }
+
+    /// A route held open moves the question. Sight is answered from the tile
+    /// under the ghost, because what a move uncovers is the reason to weigh it.
+    #[test]
+    fn proposing_a_destination_moves_the_sight_onto_the_ghost() {
+        let mut app = play_test_app();
+        set_fog(&mut app);
+        set_plain_map(&mut app, 12, 12);
+        spawn_unit(
+            &mut app,
+            Pos::new(2, 2),
+            awbrn_types::Unit::Artillery,
+            PlayerFaction::OrangeStar,
+            true,
+            None,
+        );
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+        app.update();
+
+        click_tile(&mut app, Pos::new(2, 2));
+        click_tile(&mut app, Pos::new(2, 5));
+
+        let fields = app.world().resource::<inspect::InspectionFields>();
+        assert_eq!(fields.origin, Some(Pos::new(2, 2)));
+        assert_eq!(fields.vantage, Some(Pos::new(2, 5)));
+        assert!(
+            fields.vision.contains(&Pos::new(2, 6)),
+            "the ring travels with the ghost"
+        );
+        assert!(
+            !fields.vision.contains(&Pos::new(2, 1)),
+            "and leaves the tile the unit is standing on"
+        );
+        assert!(
+            fields.fire.is_empty(),
+            "a commanded unit leaves the band to the targets the board marks"
+        );
+    }
+
+    /// Opening a route does not bring the band back. The tiles a direct would
+    /// threaten from the ghost are the four beside it, which the player reads
+    /// off the ghost; an outline around what is already on screen is a second
+    /// copy of the question rather than an answer to it.
+    #[test]
+    fn a_route_held_open_does_not_bring_a_commanded_bands_outline_back() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 12, 12);
+        spawn_unit(
+            &mut app,
+            Pos::new(2, 2),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            true,
+            None,
+        );
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+        app.update();
+
+        click_tile(&mut app, Pos::new(2, 2));
+        click_tile(&mut app, Pos::new(2, 3));
+
+        let fields = app.world().resource::<inspect::InspectionFields>();
+        assert_eq!(
+            *app.world().resource::<PlayUiPhase>(),
+            PlayUiPhase::DestinationSelected
+        );
+        assert!(fields.fire.is_empty());
+        assert_eq!(
+            fields.readout.expect("numbers").range,
+            Some((1, 1)),
+            "the reading still answers how far it fires"
+        );
+    }
+
+    /// An ally in the way is walked through, not walked around. Cutting its
+    /// tile out of the field would draw it as a wall, and the shot the unit
+    /// cannot take from there is a separate question from the step it can.
+    #[test]
+    fn an_ally_in_the_way_stays_inside_the_movement_field() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 12, 12);
+        spawn_unit(
+            &mut app,
+            Pos::new(2, 2),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            false,
+            None,
+        );
+        // Three steps out, which is the whole walk, so the tiles past it are
+        // reachable only by standing on it.
+        let ally = Pos::new(2, 5);
+        spawn_unit(
+            &mut app,
+            ally,
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            false,
+            None,
+        );
+        app.update();
+        click_tile(&mut app, Pos::new(2, 2));
+
+        let fields = app.world().resource::<inspect::InspectionFields>();
+        assert!(
+            fields.movement.contains(&ally),
+            "the walk goes through an ally rather than stopping at one"
+        );
+        assert!(
+            fields.fire.contains(&ally),
+            "and the tile is reachable by a shot from the step before it"
+        );
+        assert!(
+            !fields.fire.contains(&Pos::new(2, 6)),
+            "but a shot comes from a standstill, and the unit cannot stand on \
+             its ally"
+        );
+    }
+
+    /// Commanding a unit marks every enemy it can reach, on the enemies
+    /// themselves. The envelope would say the same thing again on the ground,
+    /// and spend red on a region when red here names who rather than where.
+    #[test]
+    fn commanding_a_unit_leaves_its_band_to_the_targets_the_board_marks() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 12, 12);
+        spawn_unit(
+            &mut app,
+            Pos::new(2, 2),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            true,
+            None,
+        );
+        spawn_unit(
+            &mut app,
+            Pos::new(2, 4),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::BlueMoon,
+            false,
+            None,
+        );
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+        app.update();
+
+        click_tile(&mut app, Pos::new(2, 2));
+
+        assert!(
+            app.world()
+                .resource::<AttackTargets>()
+                .approaches
+                .contains_key(&Pos::new(2, 4)),
+            "the enemy it can reach is marked"
+        );
+        let fields = app.world().resource::<inspect::InspectionFields>();
+        assert!(fields.fire.is_empty(), "so the ground is left alone");
+        assert_eq!(
+            fields.readout.expect("numbers").range,
+            Some((1, 1)),
+            "the reading still answers how far it fires"
+        );
+    }
+
+    /// Sight is only a fact where something can be hidden. Without fog the
+    /// board paints no ring and the readout names no sight, so the legend and
+    /// the board go on agreeing.
+    #[test]
+    fn a_match_without_fog_reads_a_unit_without_its_sight() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 12, 12);
+        spawn_unit(
+            &mut app,
+            Pos::new(5, 5),
+            awbrn_types::Unit::Artillery,
+            PlayerFaction::BlueMoon,
+            false,
+            None,
+        );
+        app.update();
+        click_tile(&mut app, Pos::new(5, 5));
+
+        let fields = app.world().resource::<inspect::InspectionFields>();
+        let readout = fields
+            .readout
+            .expect("a read unit still reports its numbers");
+        assert_eq!(readout.sight, None, "nothing is hidden, so nothing is seen");
+        assert!(fields.vision.is_empty() && fields.blind.is_empty());
+        assert_eq!(
+            readout.range,
+            Some((2, 3)),
+            "the other two answers are untouched"
+        );
+        assert!(!fields.fire.is_empty() && !fields.movement.is_empty());
+    }
+
+    /// A wood a unit is looking straight at is inside its sight, not outside
+    /// it. The ring says how far the unit watches; the mark inside says where
+    /// watching stops paying.
+    #[test]
+    fn concealing_terrain_stays_inside_the_ring_it_is_marked_in() {
+        let mut app = play_test_app();
+        set_fog(&mut app);
+        set_plain_map(&mut app, 12, 12);
+        // Infantry see two tiles, and a wood is only seen into from next to
+        // it, so a wood two steps out is inside the reach and still hides.
+        let wood = Pos::new(7, 5);
+        app.world_mut()
+            .resource_mut::<GameMap>()
+            .set_terrain(wood, GraphicalTerrain::Wood);
+        initialize_terrain_semantic_world(app.world_mut());
+        spawn_unit(
+            &mut app,
+            Pos::new(5, 5),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            false,
+            None,
+        );
+        app.update();
+        click_tile(&mut app, Pos::new(5, 5));
+
+        let fields = app.world().resource::<inspect::InspectionFields>();
+        assert!(
+            fields.blind.contains(&wood),
+            "a wood at the edge of the reach conceals a ground unit"
+        );
+        assert!(
+            !fields.vision.contains(&wood),
+            "and is therefore not revealed"
+        );
+        assert!(
+            fields.sight_reach().contains(&wood),
+            "but the ring encloses it: cutting it out would say the unit is not \
+             looking there at all"
         );
     }
 

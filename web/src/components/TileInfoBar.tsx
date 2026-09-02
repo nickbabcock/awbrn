@@ -218,6 +218,12 @@ function UnitLines({ unit }: { unit: HoveredUnit }) {
  * They are also the answer on their own. "How far does a Rocket move" is
  * usually the whole question, and a player who only wanted the number should
  * not have to read a field of colour to get it.
+ *
+ * The block names the unit it answers for, which the two blocks above it never
+ * have to do. Those report the tile under the pointer; this one reports the
+ * unit the board is painting, and the pointer wanders off that unit the moment
+ * a player asks what is next to it. Unnamed, three numbers would sit under the
+ * heading of whatever tile the pointer had reached and read as facts about it.
  */
 function ReachLines({ reach }: { reach: InspectedUnitReadout }) {
   const band =
@@ -226,36 +232,57 @@ function ReachLines({ reach }: { reach: InspectedUnitReadout }) {
       : reach.rangeMinimum === reach.rangeMaximum
         ? `${reach.rangeMaximum}`
         : `${reach.rangeMinimum}–${reach.rangeMaximum}`;
+  const sight = reach.sight;
+  const sightShift =
+    sight === undefined || sight.tiles === sight.base
+      ? undefined
+      : sight.tiles > sight.base
+        ? "up"
+        : "down";
 
   return (
-    <VStack
-      aria-label={`${reach.name} reach`}
-      gap={0}
-      xstyle={[styles.line, styles.unitLine, styles.reach]}
-    >
+    <VStack gap={0} xstyle={[styles.line, styles.unitLine, styles.reach]}>
+      <HStack align="center" gap={2}>
+        <Icon
+          aria-hidden="true"
+          icon={SpriteImage}
+          style={unitSpriteStyle(reach.unit, reach.factionCode) ?? undefined}
+          xstyle={styles.sprite}
+        />
+        <Text type="label" xstyle={[styles.readout, styles.name]}>
+          {reach.name}
+        </Text>
+      </HStack>
       <ReachLine
         label="Move"
         mark="glass"
-        reading={`Moves ${reach.movement}`}
+        reading={`${reach.name} moves ${reach.movement}`}
         value={`${reach.movement}`}
       />
       <ReachLine
         label="Range"
         mark="band"
-        reading={band === undefined ? "No weapon that reaches" : `Fires ${band}`}
+        reading={band === undefined ? `${reach.name} has no weapon that reaches` : `Fires ${band}`}
         value={band ?? "—"}
       />
-      <ReachLine
-        label="Sight"
-        mark="sight"
-        modified={reach.sightModified}
-        reading={
-          reach.sightModified
-            ? `Sees ${reach.sight}, changed by the weather or the ground`
-            : `Sees ${reach.sight}`
-        }
-        value={`${reach.sight}`}
-      />
+      {/* Sight is only a fact where something can be hidden. On a map without
+          fog the board paints no ring, so the line that would be its legend
+          does not stand here naming a field that is not there. */}
+      {sight === undefined ? null : (
+        <ReachLine
+          label="Sight"
+          mark="sight"
+          reading={
+            sightShift === undefined
+              ? `Sees ${sight.tiles}`
+              : sightShift === "up"
+                ? `Sees ${sight.tiles}, raised from ${sight.base} by the ground it stands on`
+                : `Sees ${sight.tiles}, cut from ${sight.base} by the weather`
+          }
+          shift={sightShift}
+          value={`${sight.tiles}`}
+        />
+      )}
     </VStack>
   );
 }
@@ -265,21 +292,23 @@ function ReachLines({ reach }: { reach: InspectedUnitReadout }) {
  *
  * A value the weather or the terrain has moved off its base is marked rather
  * than explained. The mark is small and the spoken reading carries the reason,
- * because a sentence in a window this size would cost the board a row.
+ * because a sentence in a window this size would cost the board a row. It
+ * stands to the left of the number rather than after it, so the column of
+ * digits keeps its edge whether a value is on its base or not.
  */
 function ReachLine({
   label,
   mark,
-  modified = false,
   reading,
+  shift,
   value,
 }: {
   label: string;
   mark: FieldMark;
-  /** Whether the weather or the ground has moved this value off its base. */
-  modified?: boolean;
   /** What the line says to a reader who cannot see it. */
   reading: string;
+  /** Which way the weather or the ground has moved this value off its base. */
+  shift?: ShiftDirection;
   value: string;
 }) {
   return (
@@ -288,16 +317,41 @@ function ReachLine({
       <Text aria-hidden="true" type="label" xstyle={styles.reachLabel}>
         {label}
       </Text>
-      <Text
-        aria-hidden="true"
-        hasTabularNumbers
-        type="label"
-        xstyle={[styles.readout, styles.reachValue]}
-      >
-        {value}
-        {modified ? "*" : ""}
-      </Text>
+      <HStack align="center" gap={1} xstyle={styles.reachAnswer}>
+        {shift === undefined ? null : <ShiftMark direction={shift} />}
+        <Text aria-hidden="true" hasTabularNumbers type="label" xstyle={styles.readout}>
+          {value}
+        </Text>
+      </HStack>
     </HStack>
+  );
+}
+
+/** Which way a reading has moved off the value the unit carries by default. */
+type ShiftDirection = "down" | "up";
+
+/**
+ * The mark on a reading the board has moved off its base.
+ *
+ * It wears the colour of the line it sits on rather than a colour of its own,
+ * because the three hues in this window already spend themselves naming the
+ * three fields, and a fourth would read as a fourth field. The direction is
+ * what carries the meaning: rain closing a Recon's eyes and a mountain opening
+ * them are opposite facts, and a player watching the weather turn should see
+ * which one happened without reading the number twice.
+ */
+function ShiftMark({ direction }: { direction: ShiftDirection }) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      height="8"
+      viewBox="0 0 8 8"
+      width="8"
+      {...stylex.props(styles.glyph, styles.glyphSight)}
+    >
+      <path d={direction === "up" ? "M4 1 L7 6 H1 Z" : "M4 7 L1 2 H7 Z"} fill="currentColor" />
+    </svg>
   );
 }
 
@@ -629,9 +683,12 @@ const styles = stylex.create({
     flex: "0 0 auto",
     color: colorVars["--color-text-secondary"],
   },
-  // The number sits at the end of the line so the column of digits lines up
-  // under itself, whatever the label beside it is called.
-  reachValue: {
+  // The answer sits at the end of the line so the column of digits lines up
+  // under itself, whatever the label beside it is called. Any mark on the
+  // reading travels inside that group, ahead of the number, so it moves the
+  // mark into the line rather than moving the digits out of the column.
+  reachAnswer: {
+    flex: "0 0 auto",
     marginInlineStart: "auto",
   },
   glyph: {
