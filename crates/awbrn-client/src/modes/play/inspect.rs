@@ -23,9 +23,11 @@ use bevy::prelude::*;
 use crate::core::coords::{TILE_SIZE, position_to_world_translation};
 use crate::core::{RenderLayer, SpriteSize};
 
-use crate::features::event_bus::{EventSink, InspectedUnitReadout, UnitInspectionChanged};
+use crate::features::event_bus::{
+    EventSink, InspectedSight, InspectedUnitReadout, UnitInspectionChanged,
+};
 
-use super::{PlayUnitSelectionParams, SelectedUnit};
+use super::{PendingMoveDestination, PlayUnitSelectionParams, SelectedUnit};
 
 /// Outlines share the movement field's layer and separate by their own depth,
 /// so the three fields stack in one predictable order.
@@ -53,13 +55,25 @@ pub struct InspectedUnit(pub Option<Entity>);
 pub struct InspectionFields {
     /// Where the unit stands, absent when nothing is inspected.
     pub origin: Option<Pos>,
+    /// The tile the unit is being read *from*.
+    ///
+    /// The same as `origin` until the player proposes a move, and the proposed
+    /// destination afterwards. Movement is asked of the tile a unit is on;
+    /// sight and fire are asked of the tile it would be on, because that is
+    /// the question a player holding a route open is actually asking.
+    pub vantage: Option<Pos>,
     /// Everywhere the unit could move to.
     pub movement: HashSet<Pos>,
     /// Everywhere the unit could put a shot.
     pub fire: HashSet<Pos>,
-    /// Everywhere the unit reveals.
+    /// Everywhere the unit reveals. Empty in a match without fog.
     pub vision: HashSet<Pos>,
-    /// Tiles inside the vision that still conceal a ground unit.
+    /// Tiles the unit's sight reaches that still conceal a ground unit.
+    ///
+    /// These belong to the sight field and are drawn inside its boundary, not
+    /// outside it. A wood a unit is looking straight at is a tile it is
+    /// watching and cannot see into, and cutting it out of the ring would say
+    /// the opposite: that the unit is not looking there at all.
     pub blind: HashSet<Pos>,
     /// The same three answers as numbers, for the readout.
     pub readout: Option<InspectionReadout>,
@@ -73,8 +87,20 @@ pub struct InspectionFields {
 }
 
 impl InspectionFields {
+    /// Everywhere the unit's sight reaches: what it reveals, and what it
+    /// watches without seeing into.
+    ///
+    /// This is the region the amber boundary is traced around. The two sets
+    /// are kept apart because they are marked differently inside the ring, and
+    /// joined here because the ring is one claim about how far the unit
+    /// watches.
+    pub fn sight_reach(&self) -> HashSet<Pos> {
+        self.vision.union(&self.blind).copied().collect()
+    }
+
     fn clear(&mut self) {
         self.origin = None;
+        self.vantage = None;
         self.movement.clear();
         self.fire.clear();
         self.vision.clear();
@@ -95,13 +121,8 @@ pub struct InspectionReadout {
     pub movement: u32,
     /// The firing band, absent for a unit with no weapon that reaches.
     pub range: Option<(u32, u32)>,
-    /// Effective sight, after the commander, the terrain and the weather.
-    pub sight: u32,
-    /// The unit's sight before the weather and the terrain moved it.
-    ///
-    /// The readout marks a sight that has been moved off its base value, so a
-    /// player watching rain arrive can see what it cost them.
-    pub base_sight: u32,
+    /// What the unit sees, absent in a match without fog.
+    pub sight: Option<InspectedSight>,
 }
 
 #[derive(SystemParam)]
@@ -119,11 +140,12 @@ pub(crate) struct InspectionParams<'w, 's> {
 pub(crate) fn update_inspection_fields(
     inspected: Res<InspectedUnit>,
     selected: Res<SelectedUnit>,
+    pending: Res<PendingMoveDestination>,
     unit_selection: PlayUnitSelectionParams<'_, '_>,
     params: InspectionParams<'_, '_>,
     mut fields: ResMut<InspectionFields>,
 ) {
-    if !inspected.is_changed() && !selected.is_changed() {
+    if !inspected.is_changed() && !selected.is_changed() && !pending.is_changed() {
         return;
     }
 
@@ -141,11 +163,28 @@ pub(crate) fn update_inspection_fields(
         .ok()
         .map(|position| position.position())
     {
+        // A route held open moves the subject without moving the unit. The
+        // fields follow the ghost, because a player weighing a destination is
+        // asking what they will see and hit from there rather than from here.
+        let vantage = pending
+            .0
+            .as_ref()
+            .filter(|proposal| proposal.unit == entity)
+            .map_or(origin, |proposal| proposal.destination);
         next.origin = Some(origin);
+        next.vantage = Some(vantage);
         next.movement_drawn_by_selection = selected
             .0
             .is_some_and(|selection| selection.entity == entity);
-        collect_fields(entity, origin, &unit_selection, &params, &mut next);
+        collect_fields(
+            entity,
+            origin,
+            vantage,
+            next.movement_drawn_by_selection,
+            &unit_selection,
+            &params,
+            &mut next,
+        );
     }
 
     if *fields != next {
@@ -161,6 +200,8 @@ pub(crate) fn update_inspection_fields(
 fn collect_fields(
     entity: Entity,
     origin: Pos,
+    vantage: Pos,
+    commanded: bool,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
     params: &InspectionParams<'_, '_>,
     into: &mut InspectionFields,
@@ -183,19 +224,39 @@ fn collect_fields(
     // selection's own field answers only for the seat whose turn it is, which
     // is exactly the unit an inspection does not need help with.
     let mut movement_points = 0;
+    // Where the unit can stop, kept apart from where it can get to. A shot is
+    // fired from a standstill, so the firing band is measured from the first
+    // and never from the second.
+    let mut stops: Vec<Pos> = Vec::new();
     if let Ok(field) = awvm::query::reachable(state, unit_id) {
         movement_points = u32::try_from(field.budget()).unwrap_or(u32::MAX);
-        for (position, _) in field.destinations() {
+        // The glass covers everywhere the unit can get to, which is more than
+        // the tiles it can come to rest on: an ally in the way is something a
+        // unit walks through. Painting only the resting places cuts that
+        // ally's tile out of the field and draws it as a wall, which is what
+        // an impassable tile looks like and is the opposite of the truth. It
+        // is also the set the selection has always painted, and the two must
+        // agree — a unit cannot change shape when the seat changes.
+        for (position, _) in field.reach() {
             if position != origin {
                 into.movement.insert(position);
             }
         }
+        stops.extend(field.destinations().map(|(position, _)| position));
     }
 
-    // Sight, and the tiles inside it that still hide a ground unit.
-    let mut sight = 0;
-    if let Ok(vision) = awvm::query::vision(state, unit_id) {
-        sight = u32::try_from(vision.sight).unwrap_or(u32::MAX);
+    // Sight, and the tiles inside it that still hide a ground unit. Asked of
+    // the vantage rather than of the unit, because the ground under a unit
+    // that climbs to see is part of the answer.
+    // Only in a match that has fog. On a map where nothing is hidden, sight
+    // decides nothing: every tile is already seen by everyone, so a third
+    // field painted over the board would be answering a question the match
+    // settled before the first turn.
+    let mut sight = None;
+    if state.settings.fog
+        && let Ok(vision) = awvm::query::vision_from(state, unit_id, vantage)
+    {
+        sight = Some(u32::try_from(vision.sight).unwrap_or(u32::MAX));
         into.vision.extend(vision.seen);
         into.blind.extend(vision.blind);
     }
@@ -208,29 +269,53 @@ fn collect_fields(
     let range = (maximum > 0).then_some((minimum, maximum));
 
     if let Some((minimum, maximum)) = range {
-        if minimum > 1 {
-            // An indirect fires from where it stands, so its band is measured
-            // from the origin and nowhere else. A player who walks it forward
-            // watches the band go, which is the rule drawn rather than
-            // explained.
-            collect_band(origin, minimum, maximum, &state.board, into);
-        } else {
-            // A direct carries its reach with it, so the band is measured from
-            // every tile it could stop on as well as the one it holds.
-            let mut sources: Vec<Pos> = into.movement.iter().copied().collect();
-            sources.push(origin);
-            for source in sources {
-                collect_band(source, minimum, maximum, &state.board, into);
-            }
+        for source in band_sources(minimum, commanded, origin, &stops) {
+            collect_band(source, minimum, maximum, &state.board, into);
         }
     }
 
     into.readout = Some(InspectionReadout {
         movement: movement_points,
         range,
-        sight,
-        base_sight: kind.base_vision(),
+        sight: sight.map(|tiles| InspectedSight {
+            tiles,
+            base: kind.base_vision(),
+        }),
     });
+}
+
+/// The tiles a unit's firing band is measured from, or nothing where the band
+/// is not the player's answer.
+///
+/// The band answers for a unit whose targets the board cannot mark. Commanding
+/// a unit marks every enemy it can reach, on the enemies themselves, which is
+/// the same question answered on the units instead of on the ground. Drawing
+/// the envelope over that says it twice, and spends red on a region when red
+/// in this language names *who* and cyan names *where*. A unit the player
+/// cannot command has no marked targets, so there the envelope is the only
+/// answer there is.
+///
+/// A route held open changes nothing here. Only a commanded unit can hold one,
+/// and the band a direct would draw around the ghost is the four tiles beside
+/// it — which the player reads off the ghost itself. An outline drawn around
+/// what is already on screen is not an answer, it is a second copy of the
+/// question.
+fn band_sources(minimum: u32, commanded: bool, origin: Pos, stops: &[Pos]) -> Vec<Pos> {
+    if commanded {
+        return Vec::new();
+    }
+    if minimum > 1 {
+        // An indirect fires from where it stands, so its band is measured from
+        // the origin and nowhere else.
+        return vec![origin];
+    }
+    // A direct carries its reach with it, so the band is measured from every
+    // tile it could stop on as well as the one it holds.
+    let mut sources = stops.to_vec();
+    if !sources.contains(&origin) {
+        sources.push(origin);
+    }
+    sources
 }
 
 /// The unit standing at `position` in `state`, named by that state's own id.
@@ -385,6 +470,30 @@ const FIRE_OUTLINE_COLOR: Color = Color::srgba(0.92, 0.08, 0.12, 0.85);
 /// Sight, in the amber the interface already spends on a low supply.
 const VISION_OUTLINE_COLOR: Color = Color::srgba(0.98, 0.74, 0.09, 0.88);
 const OUTLINE_WIDTH: f32 = 1.0;
+/// The ink every field boundary is drawn on.
+///
+/// The board underneath is pixel art in every hue the tileset owns, and a
+/// coloured hairline laid straight onto it disappears — amber over grass, red
+/// over a road, and either one over the cyan glass the movement field already
+/// put there. Sprite art has always solved this by outlining a shape in dark
+/// ink before colouring it, so the fields do the same: a boundary reads against
+/// the map rather than against luck.
+const OUTLINE_CASING_COLOR: Color = Color::srgba(0.05, 0.06, 0.08, 0.6);
+/// How far the casing stands out past its line, across both axes. Half a world
+/// unit a side, which is the one pixel the art itself would have used.
+const OUTLINE_CASING_BLEED: f32 = 1.0;
+/// The stipple that marks a tile a unit is watching and cannot see into.
+///
+/// A dot screen, not the diagonal hatch: the danger zone claims the hatch, and
+/// two textures that mean different things must not be the same texture. The
+/// screen door is also what sprite art has always used for "obscured", so it
+/// says what it means before anything explains it.
+const BLIND_STIPPLE_COLOR: Color = Color::srgba(0.98, 0.74, 0.09, 0.72);
+/// How big each dot of the stipple is, in world units.
+const BLIND_DOT: f32 = 2.0;
+/// The pitch of the dot lattice. Four dots to a tile edge, laid on every other
+/// crossing, which is the checker the era's own screen doors used.
+const BLIND_DOT_PITCH: f32 = 4.0;
 /// How long each dash of the vision outline is, in world units.
 ///
 /// A tile divides into three dashes and two gaps, which keeps the rhythm the
@@ -395,6 +504,37 @@ const VISION_DASH: f32 = TILE_SIZE / 5.0;
 /// Where the outlines sit: above the movement glass and below the units, so a
 /// field never covers the sprite it describes.
 const OUTLINE_Z: f32 = 0.02;
+/// How far under its own line a casing sits.
+const CASING_Z: f32 = 0.005;
+
+/// Draw one segment of a field boundary, on its casing.
+///
+/// Both fields go through here, so neither can be given the casing and the
+/// other left without it — which would read as one field being drawn more
+/// carefully than the other rather than as two fields that differ in form.
+fn spawn_segment<C: Component + Clone>(
+    commands: &mut Commands,
+    marker: C,
+    color: Color,
+    size: Vec2,
+    translation: Vec3,
+) {
+    commands.spawn((
+        marker.clone(),
+        Sprite::from_color(
+            OUTLINE_CASING_COLOR,
+            size + Vec2::splat(OUTLINE_CASING_BLEED),
+        ),
+        OUTLINE_SPRITE_SIZE,
+        Transform::from_translation(translation - Vec3::Z * CASING_Z),
+    ));
+    commands.spawn((
+        marker,
+        Sprite::from_color(color, size),
+        OUTLINE_SPRITE_SIZE,
+        Transform::from_translation(translation),
+    ));
+}
 
 /// The four sides of `tile` that face out of `field`.
 ///
@@ -459,12 +599,13 @@ pub(crate) fn sync_fire_outline(
             } else {
                 Vec2::new(OUTLINE_WIDTH, TILE_SIZE)
             };
-            commands.spawn((
+            spawn_segment(
+                &mut commands,
                 InspectionFireOutline,
-                Sprite::from_color(FIRE_OUTLINE_COLOR, size),
-                OUTLINE_SPRITE_SIZE,
-                Transform::from_translation(center + edge_offset(index)),
-            ));
+                FIRE_OUTLINE_COLOR,
+                size,
+                center + edge_offset(index),
+            );
         }
     }
 }
@@ -489,11 +630,19 @@ pub(crate) fn sync_vision_outline(
         commands.entity(entity).try_despawn();
     }
 
-    let mut tiles: Vec<Pos> = fields.vision.iter().copied().collect();
+    // The boundary is drawn around everything the unit's sight reaches, which
+    // is the tiles it reveals *and* the tiles inside that reach which conceal.
+    // Tracing the revealed tiles alone punched a hole in the ring at every
+    // wood, and a hole reads as "not looking there" when the truth is the
+    // opposite: the unit is looking straight at it and cannot see in. The ring
+    // says how far the unit watches; the stipple inside says where watching
+    // stops paying.
+    let reach = fields.sight_reach();
+    let mut tiles: Vec<Pos> = reach.iter().copied().collect();
     tiles.sort();
     for tile in tiles {
         let center = position_to_world_translation(&OUTLINE_SPRITE_SIZE, tile, &game_map);
-        for index in boundary_edges(tile, &fields.vision) {
+        for index in boundary_edges(tile, &reach) {
             let offset = edge_offset(index);
             let horizontal = edge_is_horizontal(index);
             // Three dashes to a tile, with a gap between each pair.
@@ -509,15 +658,52 @@ pub(crate) fn sync_vision_outline(
                 } else {
                     Vec3::new(0.0, along, 0.0)
                 };
-                commands.spawn((
+                spawn_segment(
+                    &mut commands,
                     InspectionVisionOutline,
-                    Sprite::from_color(VISION_OUTLINE_COLOR, size),
-                    OUTLINE_SPRITE_SIZE,
-                    Transform::from_translation(center + offset + slide),
-                ));
+                    VISION_OUTLINE_COLOR,
+                    size,
+                    center + offset + slide,
+                );
             }
         }
     }
+
+    // The tiles the unit is watching and cannot see into. They carry the same
+    // marker as the ring around them, so the whole sight field is raised and
+    // cleared as one thing.
+    let mut blind: Vec<Pos> = fields.blind.iter().copied().collect();
+    blind.sort();
+    for tile in blind {
+        let center = position_to_world_translation(&OUTLINE_SPRITE_SIZE, tile, &game_map);
+        for (column, row) in stipple_lattice() {
+            spawn_segment(
+                &mut commands,
+                InspectionVisionOutline,
+                BLIND_STIPPLE_COLOR,
+                Vec2::splat(BLIND_DOT),
+                center + Vec3::new(column, row, OUTLINE_Z),
+            );
+        }
+    }
+}
+
+/// Where the dots of one tile's stipple sit, relative to the middle of it.
+///
+/// Every other crossing of a four-by-four lattice, which puts the dots on the
+/// diagonal and leaves the terrain underneath readable between them. A tile
+/// the player cannot still identify is a tile the mark has taken rather than
+/// annotated.
+fn stipple_lattice() -> impl Iterator<Item = (f32, f32)> {
+    let first = -1.5 * BLIND_DOT_PITCH;
+    (0..4).flat_map(move |column| {
+        (0..4).filter_map(move |row| {
+            ((column + row) % 2 == 0).then_some((
+                first + column as f32 * BLIND_DOT_PITCH,
+                first + row as f32 * BLIND_DOT_PITCH,
+            ))
+        })
+    })
 }
 
 /// The cyan glass that says where a unit can go.
@@ -609,13 +795,13 @@ pub(crate) fn emit_inspection_readout(
         .and_then(|(entity, values)| {
             let (unit, faction, ..) = unit_selection.units.get(entity).ok()?;
             Some(InspectedUnitReadout {
+                unit: unit.0,
                 name: unit.0.name().to_string(),
                 faction_code: faction.0.country_code().to_string(),
                 movement: values.movement,
                 range_minimum: values.range.map(|(minimum, _)| minimum),
                 range_maximum: values.range.map(|(_, maximum)| maximum),
                 sight: values.sight,
-                sight_modified: values.sight != values.base_sight,
             })
         });
 

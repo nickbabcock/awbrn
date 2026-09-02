@@ -39,6 +39,7 @@ pub use observe::{
 };
 pub use visibility::{
     AwbwView, AwbwVisibility, UnitSight, Viewpoint, Visibility, VisionLevel, sight_of, unit_sight,
+    unit_sight_at,
 };
 
 /// A board coordinate.

@@ -1482,3 +1482,98 @@ fn vision_agrees_with_the_projection_it_is_drawn_from() {
          that a plain radius gets wrong was never exercised"
     );
 }
+
+/// `vision_from` against `vision`, over the whole corpus.
+///
+/// The pair exists so an interface can show what a proposed move uncovers
+/// before the move is made. That is only worth having while asking about the
+/// tile a unit already stands on gives back exactly the answer `vision` gives,
+/// and while asking about any other tile actually moves the field rather than
+/// sliding one answer across the board.
+///
+/// The last third is the reason the tile is a parameter at all: a unit that
+/// climbs to see is a different unit on a mountain, and a walk that ends on
+/// one has to say so.
+#[test]
+fn vision_from_answers_for_the_tile_it_is_given() {
+    let mut recentred = 0;
+    let mut lifted = 0;
+    for (name, document) in corpus() {
+        let Some(value) = document.get("initial_state") else {
+            continue;
+        };
+        let Ok(state) = serde_json::from_value::<State>(value.clone()) else {
+            continue;
+        };
+
+        // The two tiles an elevated unit is compared across, found once per
+        // board so the comparison is between grounds and not between boards.
+        let raised = state.board.positions().find(|position| {
+            awvm::ruleset::terrain(state.board.tile(*position).terrain)
+                .vision_bonus
+                .is_some_and(|bonus| bonus > 0)
+        });
+        let flat = state.board.positions().find(|position| {
+            awvm::ruleset::terrain(state.board.tile(*position).terrain)
+                .vision_bonus
+                .is_none_or(|bonus| bonus == 0)
+        });
+
+        for unit in state.units.iter() {
+            let Location::Board { position } = unit.location else {
+                continue;
+            };
+            let Ok(here) = query::vision(&state, unit.id) else {
+                continue;
+            };
+            assert_eq!(
+                query::vision_from(&state, unit.id, position).ok(),
+                Some(here.clone()),
+                "{name}: asking about the tile a unit stands on is the same question"
+            );
+
+            // A teleporter is never visible, not even to a unit standing on
+            // it, so it is the one destination that answers with nothing.
+            let step = position
+                .offset(1, 0)
+                .filter(|position| state.board.contains(*position))
+                .filter(|position| !is_teleporter(&state, *position));
+            if let Some(step) = step {
+                let there = query::vision_from(&state, unit.id, step)
+                    .expect("a board tile is a tile a unit can be asked about");
+                assert_eq!(
+                    there.origin, step,
+                    "{name}: the field is measured from the tile it was asked about"
+                );
+                assert!(
+                    there.seen.contains(&step),
+                    "{name}: a unit sees the tile it would stand on"
+                );
+                recentred += 1;
+            }
+
+            if !awvm::ruleset::profile(unit.kind).elevated_vision {
+                continue;
+            }
+            let (Some(raised), Some(flat)) = (raised, flat) else {
+                continue;
+            };
+            let high = query::vision_from(&state, unit.id, raised).expect("a board tile");
+            let low = query::vision_from(&state, unit.id, flat).expect("a board tile");
+            assert!(
+                high.sight > low.sight,
+                "{name}: unit {} climbs to see, so the ground under it belongs to \
+                 the answer",
+                unit.id
+            );
+            lifted += 1;
+        }
+    }
+
+    assert!(recentred > 0, "no field was ever asked about a second tile");
+    assert!(
+        lifted > 0,
+        "no unit that climbs to see was ever put on high ground, so the reason \
+         the tile is a parameter was never exercised"
+    );
+}

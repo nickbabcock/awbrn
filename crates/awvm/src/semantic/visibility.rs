@@ -157,6 +157,22 @@ pub fn unit_sight(state: &State, unit: &Unit) -> Option<UnitSight> {
     let Location::Board { position } = unit.location else {
         return None;
     };
+    unit_sight_at(state, unit, position)
+}
+
+/// The vision `unit` would have standing at `position`.
+///
+/// Sight is not a property of the unit alone: rain shortens it, and a mountain
+/// lengthens it for a unit that climbs to see. An interface that shows what a
+/// move uncovers has to ask about the destination rather than the tile the
+/// unit still stands on, so the tile is a parameter here and [`unit_sight`]
+/// passes the one the unit is on.
+///
+/// A unit that is not on the board sees nothing, wherever it is asked about.
+pub fn unit_sight_at(state: &State, unit: &Unit, position: Pos) -> Option<UnitSight> {
+    if !matches!(unit.location, Location::Board { .. }) || !state.board.contains(position) {
+        return None;
+    }
     let profile = ruleset::profile(unit.kind);
     let rain = -i64::from(matches!(state.weather.kind, WeatherKind::Rain));
     let bonus = if profile.elevated_vision {

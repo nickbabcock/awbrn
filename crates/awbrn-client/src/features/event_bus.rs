@@ -171,6 +171,10 @@ pub struct UnitInspectionChanged {
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
 #[serde(rename_all = "camelCase")]
 pub struct InspectedUnitReadout {
+    /// The kind of unit, so the block can lead with the same art the board is
+    /// drawing it in. The window names its subject in every block, and this
+    /// block's subject is the only one the pointer is not already resting on.
+    pub unit: awvm::ruleset::UnitKind,
     pub name: String,
     pub faction_code: String,
     /// Movement points, after fuel and the commander.
@@ -179,13 +183,30 @@ pub struct InspectedUnitReadout {
     pub range_minimum: Option<u32>,
     /// The highest tile of the firing band, absent for a unit with no weapon.
     pub range_maximum: Option<u32>,
-    /// Effective sight, after the commander, the terrain and the weather.
-    pub sight: u32,
-    /// Whether the weather or the terrain has moved the sight off its base.
+    /// What the unit sees, absent in a match without fog.
     ///
-    /// The readout marks a moved value rather than explaining it, so a player
-    /// watching rain arrive can see what it cost without reading a sentence.
-    pub sight_modified: bool,
+    /// Sight decides nothing on a map where nothing is hidden, so the board
+    /// does not paint it there and the readout does not name it. The line and
+    /// the field arrive and leave together, which is what lets the line be
+    /// read as the field's legend rather than as a second opinion.
+    pub sight: Option<InspectedSight>,
+}
+
+/// How far a unit sees, against how far its kind sees before anything moves it.
+///
+/// The base travels with the effective value rather than being reduced to a
+/// flag, because rain cutting a Recon's sight and a mountain raising it are
+/// opposite facts. The readout marks the difference rather than explaining it,
+/// so a player watching the weather turn sees what it cost without reading a
+/// sentence.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[serde(rename_all = "camelCase")]
+pub struct InspectedSight {
+    /// Effective sight, after the commander, the terrain and the weather.
+    pub tiles: u32,
+    /// What this kind of unit sees before any of that.
+    pub base: u32,
 }
 
 /// The current hovered tile. `tile: None` clears the presentation readout.

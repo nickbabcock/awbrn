@@ -12,7 +12,7 @@ mod ui_atlas;
 pub use awbrn_plugin::AwbrnPlugin;
 pub use features::event_bus::{
     AttackPreviewChanged, DeleteUnitCommandRequested, EventSink, HoveredCargoUnit, HoveredTile,
-    HoveredUnit, InspectedUnitReadout, MapDimensions, MoveCommandRequested, NewDay,
+    HoveredUnit, InspectedSight, InspectedUnitReadout, MapDimensions, MoveCommandRequested, NewDay,
     PlayerRosterEntry, PlayerRosterSnapshot, PlayerRosterStats, PostMoveAction, ProductionOption,
     ProductionOptionsChanged, ProductionSite, ReplayLoaded, ReplayLoadedPlayer, TileHoverChanged,
     TileSelected, UnitActionOption, UnitActionsChanged, UnitBuilt, UnitInspectionChanged,

@@ -1063,7 +1063,28 @@ pub struct VisionField {
 pub fn vision(state: &State, unit: UnitId) -> Result<VisionField, QueryError> {
     let subject = lookup(state, unit)?;
     let sight = semantic::unit_sight(state, subject).ok_or(QueryError::UnitNotOnBoard(unit))?;
+    Ok(walk_sight(state, sight))
+}
 
+/// The tiles `unit` would see standing at `from`.
+///
+/// The same answer as [`vision`], asked of a tile the unit has not reached
+/// yet. Sight changes with the ground under a unit that climbs to see, so a
+/// caller showing what a proposed move uncovers cannot take the unit's current
+/// answer and slide it across the board.
+///
+/// The rest of the state is read as it stands. Nothing else moves with the
+/// unit, which is exactly the question: what this move uncovers of the board
+/// as it is now.
+pub fn vision_from(state: &State, unit: UnitId, from: Pos) -> Result<VisionField, QueryError> {
+    let subject = lookup(state, unit)?;
+    let sight =
+        semantic::unit_sight_at(state, subject, from).ok_or(QueryError::UnitNotOnBoard(unit))?;
+    Ok(walk_sight(state, sight))
+}
+
+/// Walk everything one resolved sighting reaches.
+fn walk_sight(state: &State, sight: semantic::UnitSight) -> VisionField {
     let mut field = VisionField {
         origin: sight.position,
         sight: sight.sight,
@@ -1087,7 +1108,7 @@ pub fn vision(state: &State, unit: UnitId) -> Result<VisionField, QueryError> {
         }
     }
     // The walk runs row by row, so both lists are already in map order.
-    Ok(field)
+    field
 }
 
 pub fn reachable(state: &State, unit: UnitId) -> Result<MoveField, QueryError> {
