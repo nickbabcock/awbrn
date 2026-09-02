@@ -57,6 +57,15 @@ pub struct CaptureProgress(u8);
 impl CaptureProgress {
     pub const REQUIRED: u8 = awvm::semantic::CAPTURE_REQUIRED_POINTS;
 
+    /// Convert the authoritative remaining points into completed progress.
+    pub const fn from_remaining_points(points: u8) -> Option<Self> {
+        if points > 0 && points < Self::REQUIRED {
+            Some(Self(Self::REQUIRED - points))
+        } else {
+            None
+        }
+    }
+
     pub const fn new(value: u8) -> Option<Self> {
         if value < Self::REQUIRED {
             Some(Self(value))
@@ -236,6 +245,24 @@ mod tests {
         assert_eq!(
             CaptureProgress::from_post_action_points(i32::from(u16::MAX) + 1),
             CaptureResolution::Completed
+        );
+    }
+
+    #[test]
+    fn remaining_capture_points_become_completed_progress() {
+        assert_eq!(CaptureProgress::from_remaining_points(20), None);
+        assert_eq!(CaptureProgress::from_remaining_points(0), None);
+        assert_eq!(
+            CaptureProgress::from_remaining_points(15),
+            CaptureProgress::new(5)
+        );
+        assert_eq!(
+            CaptureProgress::from_remaining_points(10),
+            CaptureProgress::new(10)
+        );
+        assert_eq!(
+            CaptureProgress::from_remaining_points(1),
+            CaptureProgress::new(19)
         );
     }
 }

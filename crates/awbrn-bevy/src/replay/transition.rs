@@ -565,8 +565,8 @@ fn sync_capture_progress(
     world: &mut World,
     capture_points: &HashMap<Pos, u8>,
 ) -> Result<(), TransitionApplyError> {
-    // Capture progress belongs to the tile in AWVM. Match it to the occupying
-    // board unit after tile synchronization.
+    // AWVM stores points that the property still owes. The ECS component stores
+    // points already paid, because capture actions add unit HP to it.
     let positions: Vec<(Entity, Pos)> = {
         let mut query = world.query_filtered::<(Entity, &MapPosition), With<Unit>>();
         query
@@ -577,7 +577,7 @@ fn sync_capture_progress(
     for (entity, position) in positions {
         let mut entity = world.entity_mut(entity);
         if let Some(points) = capture_points.get(&position).copied()
-            && let Some(progress) = CaptureProgress::new(points)
+            && let Some(progress) = CaptureProgress::from_remaining_points(points)
         {
             entity.insert(progress);
         } else {
@@ -616,4 +616,31 @@ pub enum TransitionApplyError {
     MissingResource(&'static str),
     #[error("{0} exceeds the ECS presentation domain")]
     OutOfRange(&'static str),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sync_capture_progress_counts_down_from_the_authoritative_value() {
+        let mut world = World::new();
+        let position = Pos::new(0, 0);
+        let unit = world
+            .spawn((
+                MapPosition::from(position),
+                Unit(awbrn_types::Unit::Infantry),
+            ))
+            .id();
+        let capture_points = HashMap::from([(position, 15)]);
+
+        sync_capture_progress(&mut world, &capture_points).unwrap();
+
+        assert_eq!(
+            world
+                .get::<CaptureProgress>(unit)
+                .map(|progress| progress.value()),
+            Some(5)
+        );
+    }
 }

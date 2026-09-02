@@ -1,6 +1,5 @@
 ---
 source: crates/awbrn-client/tests/replay_semantic_snapshots.rs
-assertion_line: 64
 expression: rows
 ---
 [
@@ -134,13 +133,13 @@ expression: rows
     "action_index": 362,
     "day": 12,
     "action_kind": "End",
-    "checksum": "0xda8bb99e0e1375cc4b4714e206e0d2ab92bb291408aa24ff51a422f54cca77fc"
+    "checksum": "0xa756059f973838a910a3fc0821099792425deb1b0b38d9d367c04fa7b62d54fe"
   },
   {
     "action_index": 388,
     "day": 12,
     "action_kind": "End",
-    "checksum": "0x0cba52715f293a7c1f291faffe9878368edb5b96cab40684379c38487c47451d"
+    "checksum": "0x5d1a48eba29d5370a307f1c56852e27ce0ae5c6baaada2285419ed5f012b6958"
   },
   {
     "action_index": 420,
@@ -158,13 +157,13 @@ expression: rows
     "action_index": 476,
     "day": 14,
     "action_kind": "End",
-    "checksum": "0x3eb4c009528948d9651400e4b11a243b4f7f7b331e8544ef79411f29807c53bf"
+    "checksum": "0x3583a5db43fb154ef3505ceaf29f662b82fbc944852dfec8ce32790eb928ded6"
   },
   {
     "action_index": 496,
     "day": 14,
     "action_kind": "Tag",
-    "checksum": "0x3b5413fdbbc5ff103bc8cd2bd9523babfd0dfd23fbc4e1c4136c652dbebee797"
+    "checksum": "0x7c541f1a4206e57a8664a3a159087ba960932d13d886f530b10d93805640c931"
   },
   {
     "action_index": 528,
