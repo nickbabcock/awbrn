@@ -37,7 +37,7 @@ pub enum AiImplementation {
     Random,
     /// Scores every legal play and takes the best.
     Greedy,
-    /// Plans a turn against the promoted production configuration.
+    /// Uses the configured strategic baseline.
     Strategic,
 }
 
@@ -83,7 +83,7 @@ pub const HARD: AiProfile = AiProfile {
     id: "ai-hard-v1",
     tier: AiTier::Hard,
     label: "Hard",
-    blurb: "Plans a whole turn against the promoted weighting. It punishes a thin front.",
+    blurb: "Scores the promoted weighting and punishes a thin front.",
     implementation: AiImplementation::Strategic,
     config: BaselineConfig::PRODUCTION,
 };

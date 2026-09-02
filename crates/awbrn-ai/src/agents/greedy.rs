@@ -1522,14 +1522,15 @@ struct GreedyVisitor<'a> {
 impl GreedyVisitor<'_> {
     fn consider(&mut self, order: Order, forecast: Option<&Forecast>) {
         let breakdown = self.scorer.score_breakdown(order, forecast);
+        let scored_order = ScoredOrder {
+            candidate_id: GreedyAgent::order_candidate_id(order),
+            order,
+            score: breakdown.total,
+            capture: breakdown.capture,
+            breakdown,
+        };
         if let Some(scored) = self.scored.as_deref_mut() {
-            scored.push(ScoredOrder {
-                candidate_id: GreedyAgent::order_candidate_id(order),
-                order,
-                score: breakdown.total,
-                capture: breakdown.capture,
-                breakdown,
-            });
+            scored.push(scored_order);
         }
         if self.select {
             let score = breakdown.total;

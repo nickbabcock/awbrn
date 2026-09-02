@@ -42,7 +42,7 @@ export const aiProfileDisplays: readonly AiProfileDisplay[] = [
     id: "ai-hard-v1",
     tier: "hard",
     label: "Hard",
-    blurb: "Plans a whole turn against the promoted weighting. It punishes a thin front.",
+    blurb: "Scores the promoted weighting and punishes a thin front.",
   },
 ];
 

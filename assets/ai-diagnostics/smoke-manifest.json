@@ -5,6 +5,7 @@
   "telemetry": "enabled",
   "source_revision": "working-tree",
   "dirty_worktree": false,
+  "source_fingerprint": "example-source",
   "executable_fingerprint": "example-executable",
   "configuration_fingerprint": "example-configuration",
   "maps": [

@@ -2,13 +2,16 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use awbrn_ai::baseline::BaselineConfig;
+use awbrn_ai::{EvalWeights, NodeBudget, baseline::BaselineConfig};
 use awbrn_ai_diagnostic_types::{FramePolicy, Invalidation, RunManifest, fingerprint_bytes};
 use awbrn_ai_diagnostics::{
-    MapRegistry, StrategicFactory, TournamentError, read_event_log, read_manifest,
-    reanalyse_event_log_with_manifest, run_diagnostic, run_paired_tournament,
-    run_review_with_tilesets, verify_artifact, verify_expected_fingerprints, write_manifest,
+    AgentFactory, AgentSpec, AnalysisStage, ExperimentPlan, MapRegistry, PlanError, SearchFactory,
+    StrategicFactory, TacticalMode, TournamentError, extract_feature_rows, read_event_log,
+    read_manifest, read_plan, reanalyse_event_log_with_manifest, run_diagnostic,
+    run_paired_tournament, run_plan, run_review_with_tilesets, verify_artifact,
+    verify_expected_fingerprints, write_manifest, write_or_validate_manifest,
 };
+use serde_json::json;
 
 fn temporary_directory() -> PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -19,6 +22,46 @@ fn temporary_directory() -> PathBuf {
     ));
     fs::create_dir(&path).expect("the test directory is unused");
     path
+}
+
+fn search_candidate() -> SearchFactory {
+    SearchFactory::new(
+        "search-production-v1",
+        BaselineConfig::PRODUCTION.weights,
+        EvalWeights::STANDARD,
+        NodeBudget::SIXTEEN,
+    )
+}
+
+fn experiment_plan(run_id: &str, candidate: AgentSpec) -> ExperimentPlan {
+    ExperimentPlan {
+        schema_version: awbrn_ai_diagnostics::EXPERIMENT_PLAN_SCHEMA_VERSION,
+        run_id: run_id.into(),
+        candidate,
+        baseline: AgentSpec::Strategic {
+            configuration: "locked".into(),
+        },
+        maps: vec![61748],
+        run_seed: 1,
+        pairs_per_map: 1,
+        limits: awbrn_ai_diagnostic_types::RunLimits {
+            day_limit: 1,
+            node_budget: 1,
+            refusal_limit: 1,
+        },
+        telemetry: awbrn_ai_diagnostic_types::TelemetryMode::Enabled,
+        capture_policy: Default::default(),
+        analyses: Vec::new(),
+        annotations: None,
+    }
+}
+
+#[test]
+fn search_candidate_identity_is_stable() {
+    assert_eq!(
+        search_candidate().identity().configuration_fingerprint,
+        "1fa0910ff8a578c3"
+    );
 }
 
 #[test]
@@ -33,11 +76,25 @@ fn the_raw_event_log_rebuilds_match_and_reduction_outputs() {
     let run = root.join("run");
     run_paired_tournament(&manifest, &registry, &candidate, &baseline, &run)
         .expect("the paired run completes");
+    let first_performance =
+        fs::read(run.join("performance.json")).expect("the first performance output exists");
+    let first_performance: awbrn_ai_diagnostics::TournamentPerformance =
+        serde_json::from_slice(&first_performance).expect("the first performance output reads");
     let first_events = fs::read(run.join("events.jsonl")).expect("the event log exists");
     let first_matches = fs::read(run.join("matches.jsonl")).expect("the match rows exist");
     fs::remove_file(run.join("matches.jsonl")).expect("the disposable match rows remove");
-    run_paired_tournament(&manifest, &registry, &candidate, &baseline, &run)
+    let resumed = run_paired_tournament(&manifest, &registry, &candidate, &baseline, &run)
         .expect("the paired run resumes without replaying complete matches");
+    assert_eq!(resumed.performance.matches, first_performance.matches);
+    assert_eq!(
+        resumed.performance.total_commands,
+        first_performance.total_commands
+    );
+    assert_eq!(
+        resumed.performance.match_records,
+        first_performance.match_records
+    );
+    assert!(resumed.performance.wall_clock_nanos >= first_performance.wall_clock_nanos);
     assert_eq!(
         first_events,
         fs::read(run.join("events.jsonl")).expect("the resumed event log exists")
@@ -47,6 +104,17 @@ fn the_raw_event_log_rebuilds_match_and_reduction_outputs() {
         fs::read(run.join("matches.jsonl")).expect("the match rows are rebuilt")
     );
     let events = read_event_log(run.join("events.jsonl")).expect("the event log reads");
+    let features = extract_feature_rows(&events).expect("turn features extract");
+    assert_eq!(features.matches, 2);
+    assert_eq!(features.matches_with_rows, 2);
+    assert!(!features.rows.is_empty());
+    assert!(features.rows.iter().all(|row| row.turn_index > 0));
+    assert!(
+        features
+            .rows
+            .iter()
+            .all(|row| row.active_seat != row.just_acted_seat)
+    );
     let mut expected = manifest.clone();
     expected.expected.event_log = Some(fingerprint_bytes(&first_events));
     expected.expected.command = events
@@ -104,6 +172,308 @@ fn the_raw_event_log_rebuilds_match_and_reduction_outputs() {
     let index = fs::read_to_string(review.join("index.html")).expect("the review index exists");
     assert!(index.contains("Captured frames"));
     assert!(index.contains("frame-0000-start.png"));
+    fs::remove_dir_all(root).expect("the test directory removes");
+}
+
+#[test]
+fn an_experiment_plan_resolves_a_candidate_and_materializes_coverage() {
+    let registry = MapRegistry::load_checked_in().expect("the fixed maps load");
+    let mut plan = experiment_plan(
+        "plan-test",
+        AgentSpec::Search {
+            identifier: "search-test".into(),
+            preset: "production".into(),
+            node_budget: 1,
+        },
+    );
+    plan.run_seed = 7;
+    plan.pairs_per_map = 2;
+    let materialized = plan
+        .materialize("assets/ai-diagnostics/plan.json", &registry)
+        .expect("the experiment plan materializes");
+    assert_eq!(materialized.manifest.maps.len(), 1);
+    assert_eq!(materialized.manifest.pairs.len(), 2);
+    assert!(!materialized.manifest.source_revision.is_empty());
+    assert!(!materialized.manifest.source_fingerprint.is_empty());
+    assert_eq!(materialized.candidate.identity().identifier, "search-test");
+    assert_eq!(
+        materialized.baseline.identity().identifier,
+        "greedy-baseline-v1"
+    );
+}
+
+#[test]
+fn plan_round_trip_and_diagnostics_only_tactical_identity_are_stable() {
+    let mut plan = experiment_plan(
+        "tactical-plan-test",
+        AgentSpec::TacticalRerank {
+            identifier: "tactical-test".into(),
+            configuration: "locked".into(),
+            top_k: 3,
+            mode: TacticalMode::Collateral,
+            penalty_percent: 100,
+        },
+    );
+    plan.run_seed = 8;
+    let bytes = serde_json::to_vec(&plan).expect("the plan serializes");
+    assert_eq!(
+        serde_json::from_slice::<ExperimentPlan>(&bytes).unwrap(),
+        plan
+    );
+    let registry = MapRegistry::load_checked_in().expect("the fixed maps load");
+    let materialized = plan
+        .materialize("assets/ai-diagnostics/plan.json", &registry)
+        .expect("the tactical plan materializes");
+    assert_eq!(
+        materialized.candidate.identity().executable_fingerprint,
+        awbrn_ai_diagnostics::TACTICAL_EXECUTABLE_FINGERPRINT
+    );
+    assert_ne!(
+        materialized.candidate.identity().configuration_fingerprint,
+        materialized.baseline.identity().configuration_fingerprint
+    );
+}
+
+#[test]
+fn plan_rejects_unsafe_model_paths_before_file_access() {
+    let plan = experiment_plan(
+        "unsafe-model-plan",
+        AgentSpec::LearnedRerank {
+            model: PathBuf::from("../model.json"),
+            baseline_configuration: "locked".into(),
+            top_k: 1,
+        },
+    );
+    let registry = MapRegistry::load_checked_in().expect("the fixed maps load");
+    let error = plan
+        .materialize("assets/ai-diagnostics/plan.json", &registry)
+        .expect_err("unsafe model paths are refused");
+    assert!(matches!(error, PlanError::Configuration(message) if message.contains("safe")));
+}
+
+#[test]
+fn plan_rejects_removed_provenance_overrides() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../assets/ai-diagnostics/smoke-plan.json");
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&fs::read(path).expect("the smoke plan reads"))
+            .expect("the smoke plan JSON reads");
+    value["source_revision"] = json!("override");
+    value["dirty_worktree"] = json!(false);
+    let error = serde_json::from_value::<ExperimentPlan>(value)
+        .expect_err("removed provenance overrides are refused");
+    assert!(error.to_string().contains("unknown field"));
+}
+
+#[test]
+fn plan_rejects_a_learned_model_with_an_insufficient_corpus() {
+    let root = temporary_directory();
+    let model_path = root.join("model.json");
+    let metric = json!({
+        "rows": 1,
+        "groups": 1,
+        "log_loss": 0.5,
+        "brier_score": 0.25,
+        "accuracy": 1.0,
+        "baseline_probability": 0.5,
+        "baseline_log_loss": 0.693,
+        "baseline_brier_score": 0.25,
+        "baseline_accuracy": 0.5
+    });
+    let summary = json!({
+        "samples": 1,
+        "mean": 0.5,
+        "stddev": 0.0,
+        "ci95_low": 0.5,
+        "ci95_high": 0.5
+    });
+    let model = json!({
+        "feature_names": awbrn_ai_diagnostics::FEATURE_NAMES,
+        "intercept": 0.0,
+        "weights": [],
+        "reduced_intercept": 0.0,
+        "reduced_weights": [{
+            "name": "turn_index",
+            "coefficient": 0.0,
+            "odds_ratio": 1.0,
+            "selected": true
+        }],
+        "l2_penalty": 0.1,
+        "iterations": 1,
+        "converged": true,
+        "reduced_converged": true,
+        "fit_metrics": metric,
+        "cross_validation": {
+            "repeats": 1,
+            "requested_folds": 2,
+            "folds": 2,
+            "evaluations": 2,
+            "rows": 1,
+            "groups": 1,
+            "log_loss": summary,
+            "brier_score": summary,
+            "accuracy": summary,
+            "baseline_log_loss": summary,
+            "baseline_brier_score": summary,
+            "baseline_accuracy": summary
+        },
+        "full_cross_validation": null,
+        "selection_rule": "test"
+    });
+    let report = json!({
+        "schema_version": awbrn_ai_diagnostics::feature_analysis::FEATURE_ANALYSIS_SCHEMA_VERSION,
+        "event_rows": 1,
+        "matches": 1,
+        "matches_with_rows": 1,
+        "skipped_draws": 0,
+        "skipped_incomplete": 0,
+        "rows": 1,
+        "minimum_matches": 100,
+        "sufficient_corpus": false,
+        "corpus_fingerprint": "corpus",
+        "modes": [{
+            "mode": "fog-visible",
+            "rows": 1,
+            "matches": 1,
+            "validation_groups": 1,
+            "model": model,
+            "ablations": [],
+            "turn_ranges": [],
+            "map_turn_ranges": [],
+            "collinearity": []
+        }]
+    });
+    fs::write(
+        &model_path,
+        serde_json::to_vec(&report).expect("the learned report serializes"),
+    )
+    .expect("the learned report writes");
+    let mut plan = experiment_plan(
+        "insufficient-learned-plan",
+        AgentSpec::LearnedRerank {
+            model: PathBuf::from("model.json"),
+            baseline_configuration: "locked".into(),
+            top_k: 1,
+        },
+    );
+    plan.run_seed = 10;
+    let registry = MapRegistry::load_checked_in().expect("the fixed maps load");
+    let error = plan
+        .materialize(root.join("plan.json"), &registry)
+        .expect_err("an insufficient learned corpus is refused");
+    assert!(error.to_string().contains("corpus is insufficient"));
+    fs::remove_dir_all(root).expect("the test directory removes");
+}
+
+#[test]
+fn the_checked_in_search_plan_is_runnable() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../assets/ai-diagnostics/search-production-multimap-plan.json");
+    let plan = read_plan(&path).expect("the checked-in experiment plan reads");
+    let registry = MapRegistry::load_checked_in().expect("the fixed maps load");
+    let materialized = plan
+        .materialize(&path, &registry)
+        .expect("the checked-in experiment plan materializes");
+    assert_eq!(materialized.manifest.maps.len(), 4);
+    assert_eq!(materialized.manifest.pairs.len(), 52);
+    assert_eq!(materialized.analyses.len(), 3);
+}
+
+#[test]
+fn the_checked_in_smoke_plan_runs_the_full_pipeline() {
+    let plan_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../assets/ai-diagnostics/smoke-plan.json");
+    let output = temporary_directory();
+    let summary = run_plan(&plan_path, &output).expect("the checked-in smoke plan runs");
+    assert_eq!(summary.tournament.performance.matches, 4);
+    assert!(summary.feature_analysis.is_some());
+    assert!(summary.review.is_some());
+    assert!(summary.verification.is_some());
+    fs::remove_dir_all(output).expect("the smoke output removes");
+}
+
+#[test]
+fn a_changed_plan_cannot_resume_an_existing_manifest() {
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../assets/ai-diagnostics/smoke-plan.json");
+    let mut plan = read_plan(&source).expect("the smoke plan reads");
+    let root = temporary_directory();
+    let plan_path = root.join("plan.json");
+    fs::write(
+        &plan_path,
+        serde_json::to_vec_pretty(&plan).expect("the plan serializes"),
+    )
+    .expect("the plan writes");
+    let output = root.join("run");
+    run_plan(&plan_path, &output).expect("the initial plan runs");
+    let manifest = fs::read(output.join("manifest.json")).expect("the manifest reads");
+
+    plan.run_seed += 1;
+    fs::write(
+        &plan_path,
+        serde_json::to_vec_pretty(&plan).expect("the changed plan serializes"),
+    )
+    .expect("the changed plan writes");
+    let error = run_plan(&plan_path, &output).expect_err("a changed plan cannot resume");
+    assert!(error.to_string().contains("existing manifest"));
+    assert_eq!(manifest, fs::read(output.join("manifest.json")).unwrap());
+    fs::remove_dir_all(root).expect("the changed-plan output removes");
+}
+
+#[test]
+fn a_changed_source_fingerprint_cannot_resume_an_existing_manifest() {
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../assets/ai-diagnostics/smoke-manifest.json");
+    let manifest: RunManifest = read_manifest(&source).expect("the smoke manifest reads");
+    let root = temporary_directory();
+    let path = root.join("manifest.json");
+    write_manifest(&manifest, &path).expect("the manifest writes");
+
+    let mut changed = manifest;
+    changed.source_fingerprint = "changed-source".into();
+    let error = write_or_validate_manifest(&changed, &path)
+        .expect_err("a changed source fingerprint cannot resume");
+    assert!(error.to_string().contains("source fingerprint"));
+    fs::remove_dir_all(root).expect("the test directory removes");
+}
+
+#[test]
+fn the_generic_plan_runs_requested_analysis_stages() {
+    let root = temporary_directory();
+    let mut plan = experiment_plan(
+        "generic-pipeline-test",
+        AgentSpec::Strategic {
+            configuration: "production".into(),
+        },
+    );
+    plan.run_seed = 402;
+    plan.pairs_per_map = 2;
+    plan.limits = awbrn_ai_diagnostic_types::RunLimits {
+        day_limit: 35,
+        node_budget: 4,
+        refusal_limit: 64,
+    };
+    plan.analyses = vec![
+        AnalysisStage::OutcomeFeatures,
+        AnalysisStage::Review,
+        AnalysisStage::Verification,
+    ];
+    let plan_path = root.join("plan.json");
+    fs::write(
+        &plan_path,
+        serde_json::to_vec_pretty(&plan).expect("the test plan serializes"),
+    )
+    .expect("the test plan writes");
+    let output = root.join("run");
+    let summary = run_plan(&plan_path, &output).expect("the generic plan runs");
+    assert!(summary.feature_analysis.is_some());
+    assert!(summary.review.is_some());
+    assert!(summary.verification.is_some());
+    assert!(
+        output
+            .join("feature-analysis/feature-analysis.json")
+            .exists()
+    );
     fs::remove_dir_all(root).expect("the test directory removes");
 }
 

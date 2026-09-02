@@ -289,6 +289,11 @@ pub struct Record {
     /// share makes a measured rate pessimistic. Under fog a refusal is the
     /// honest answer to a hidden blocker, not a fault.
     pub refusals: u64,
+    /// Plays that could not be resolved against the authoritative state.
+    ///
+    /// This is separate from reducer refusals. It usually means that fog hid
+    /// a blocker or target between the offer and the authority check.
+    pub unrealizable_plays: u64,
     /// Units on the board when the game stopped.
     ///
     /// This is the first thing to read when a measured rate and a modeled rate
@@ -446,6 +451,7 @@ fn play_inner<E: Entropy, Error>(
     let mut turns = 0;
     let mut commands = 0;
     let mut refusals = 0;
+    let mut unrealizable_plays = 0;
     let mut refusals_in_a_row = 0;
     let mut started_turn: Option<(PlayerId, u64, usize)> = None;
     let track_command_fingerprints = measure || observer.is_some();
@@ -473,6 +479,7 @@ fn play_inner<E: Entropy, Error>(
                 days: day,
                 commands,
                 refusals,
+                unrealizable_plays,
                 units: session.state().units.iter().count(),
                 shape,
                 command_fingerprints,
@@ -521,7 +528,10 @@ fn play_inner<E: Entropy, Error>(
             match agents[seat.get()].act(view, limits.nodes) {
                 None => (end_turn(), TurnEndReason::AgentPass),
                 Some(play) => match play.command(session) {
-                    None => (end_turn(), TurnEndReason::UnrealizablePlay),
+                    None => {
+                        unrealizable_plays += 1;
+                        (end_turn(), TurnEndReason::UnrealizablePlay)
+                    }
                     Some(command) => {
                         let reason = if matches!(command, Command::EndTurn { .. }) {
                             TurnEndReason::ExplicitEndTurn

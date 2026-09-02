@@ -171,5 +171,10 @@ run = "cargo bench -p bench --bench awbrn-bench-gungraun --"
 
 [tasks."ai:diagnose"]
 description = "Run the complete deterministic AI diagnostic pipeline"
-usage = 'arg "manifest" help="Experiment manifest"; arg "output" help="Artifact directory"'
-run = 'cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- run --manifest "{{ usage.manifest }}" --output "{{ usage.output }}"'
+usage = 'arg "plan" help="User-authored experiment plan"; arg "output" help="Artifact directory"'
+run = 'cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- run --plan "{{ usage.plan }}" --output "{{ usage.output }}"'
+
+[tasks."ai:features"]
+description = "Fit a grouped feature model from a states.jsonl artifact"
+usage = 'arg "states" help="Raw or derived states.jsonl"; arg "output" help="Feature analysis directory"'
+run = 'cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- features --states "{{ usage.states }}" --output "{{ usage.output }}"'

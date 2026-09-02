@@ -1,7 +1,7 @@
 //! The baseline-backed strategic agent.
 //!
 //! This agent has a separate identity and configuration. It delegates choices
-//! to the locked greedy baseline and supports the common agent lifecycle.
+//! to the greedy baseline and supports the common agent lifecycle.
 
 use awvm::semantic::{Observation, ObservedEvent};
 
@@ -11,7 +11,7 @@ use crate::mission::{DecisionTrace, TraceError, TurnEndReason};
 
 use super::GreedyAgent;
 
-/// A strategic agent backed by the locked greedy baseline.
+/// A strategic agent backed by a greedy baseline.
 #[derive(Debug)]
 pub struct StrategicAgent {
     config: BaselineConfig,
