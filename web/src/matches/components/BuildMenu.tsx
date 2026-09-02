@@ -15,6 +15,7 @@ import { uiAtlasSpriteStyle, unitSpriteStyle } from "#/components/game_sprites.t
 import {
   BoardMenuShell,
   boardMenuStyles,
+  followPointerCursor,
   type BoardMenuPresentation,
 } from "#/matches/components/BoardMenu.tsx";
 import { boardMenuLayout } from "#/matches/components/boardMenuLayout.stylex.ts";
@@ -228,7 +229,7 @@ function BuildRow({
       onFocus={() => onPreview(option.cost)}
       // The cursor follows the pointer rather than doubling it: entering a row
       // moves the one cursor there, so hover and keyboard never light two rows.
-      onPointerEnter={(event) => event.currentTarget.focus({ preventScroll: true })}
+      onPointerMove={followPointerCursor}
       title={isEnabled ? undefined : title}
       type="button"
       {...stylex.props(

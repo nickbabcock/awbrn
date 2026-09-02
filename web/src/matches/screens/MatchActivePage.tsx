@@ -1,4 +1,5 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
+import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "#/ui/Button.tsx";
@@ -48,6 +49,8 @@ import { BuildMenu } from "#/matches/components/BuildMenu.tsx";
 import { AttackPreview } from "#/matches/components/AttackPreview.tsx";
 import { UnitActionMenu } from "#/matches/components/UnitActionMenu.tsx";
 import { RosterList, RosterRow } from "#/replay/RosterRow.tsx";
+import { canActivatePower } from "#/replay/power_meter.ts";
+import { describeTurnResidue } from "#/matches/turn_residue.ts";
 import type { ActivatablePowerLevel } from "#/replay/power_meter.ts";
 import type {
   PlayerRosterEntry,
@@ -288,9 +291,17 @@ export function MatchActivePage({
     ],
   );
 
+  const turnReadiness = useGameStore((state) => state.turnReadiness);
+  const isPowerReady =
+    viewerArmy !== undefined &&
+    (canActivatePower(viewerArmy.entry, "cop") || canActivatePower(viewerArmy.entry, "scop"));
+  const turnResidue = describeTurnResidue(turnReadiness, isPowerReady);
+  const [isConfirmingEndTurn, setIsConfirmingEndTurn] = useState(false);
+
   const handleEndTurn = useCallback(() => {
     if (
       isEndingTurnRef.current ||
+      turnReadiness === undefined ||
       status !== "connected" ||
       viewerSlotIndex === null ||
       viewerSlotIndex === undefined ||
@@ -314,8 +325,42 @@ export function MatchActivePage({
     sendMessage,
     setProductionOptions,
     status,
+    turnReadiness,
     viewerSlotIndex,
   ]);
+
+  /**
+   * Put the question, unless there is nothing to ask about.
+   *
+   * Both the button and the board's chord come through here, so the board never
+   * ends a turn the button would have asked about first.
+   */
+  const requestEndTurn = useCallback(() => {
+    if (turnReadiness === undefined) {
+      return;
+    }
+    if (turnResidue === null) {
+      handleEndTurn();
+      return;
+    }
+    setIsConfirmingEndTurn(true);
+  }, [handleEndTurn, turnReadiness, turnResidue]);
+
+  // The board keeps moving under an open question — a power activated from the
+  // meter, a unit spent from the board. A question with nothing left to ask
+  // about is one the player has already answered.
+  useEffect(() => {
+    if (turnReadiness === undefined || turnResidue === null) {
+      setIsConfirmingEndTurn(false);
+    }
+  }, [turnReadiness, turnResidue]);
+
+  const requestEndTurnRef = useRef(requestEndTurn);
+  requestEndTurnRef.current = requestEndTurn;
+  useEffect(() => {
+    runner.setEndTurnRequestHandler(() => requestEndTurnRef.current());
+    return () => runner.setEndTurnRequestHandler(undefined);
+  }, [runner]);
 
   const handleBuildUnit = useCallback(
     (unit: UnitKind, x: number, y: number) => {
@@ -385,7 +430,9 @@ export function MatchActivePage({
             match={match}
             onBoardError={setBoardError}
             onBuildUnit={handleBuildUnit}
-            onEndTurn={handleEndTurn}
+            onEndTurn={requestEndTurn}
+            isTurnReadinessKnown={turnReadiness !== undefined}
+            isTurnSpent={turnResidue === null}
             players={livePlayers}
             productionOptions={productionOptions}
             unitActions={unitActions}
@@ -458,6 +505,24 @@ export function MatchActivePage({
           )}
         </Grid>
       </VStack>
+
+      {/* The one move in the game that cannot be taken back, and the only one
+          the page asks about. It asks only when the turn has something left in
+          it, so the question is never a habit. */}
+      <AlertDialog
+        actionLabel="End turn"
+        actionVariant="primary"
+        cancelLabel="Keep playing"
+        description={turnResidue ?? ""}
+        isActionLoading={isEndingTurn}
+        isOpen={isConfirmingEndTurn}
+        onAction={() => {
+          setIsConfirmingEndTurn(false);
+          handleEndTurn();
+        }}
+        onOpenChange={setIsConfirmingEndTurn}
+        title="End your turn?"
+      />
     </Section>
   );
 }
@@ -473,6 +538,8 @@ function ActiveMatchBoard({
   day,
   initialBoard,
   isEndingTurn,
+  isTurnReadinessKnown,
+  isTurnSpent,
   match,
   matchClock,
   onBoardError,
@@ -494,6 +561,8 @@ function ActiveMatchBoard({
   day: number | null;
   initialBoard: InitialBoardMessage | null;
   isEndingTurn: boolean;
+  isTurnReadinessKnown: boolean;
+  isTurnSpent: boolean;
   match: { mapId: string; maxPlayers: number; name: string; settings: { fogEnabled: boolean } };
   onBoardError: (message: string | null) => void;
   onBuildUnit: (unit: UnitKind, x: number, y: number) => void;
@@ -536,9 +605,10 @@ function ActiveMatchBoard({
   const isCalculatorCompact = useMediaQuery(BATTLE_CALCULATOR_SHEET_MEDIA);
   const productionSite = productionOptions?.site;
 
-  // The last press on the board, so the menu can open where the player pointed
-  // and in the shape the input they used expects. A press is only kept for as
-  // long as it can still plausibly be the one that opened a menu.
+  // The last press on the board, so the menu opens in the shape the input the
+  // player used expects, and beside the press on a board too old to say where
+  // the tile is. A press is only kept for as long as it can still plausibly be
+  // the one that opened a menu.
   useEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
@@ -641,7 +711,11 @@ function ActiveMatchBoard({
       ? "Reconnect to the match before ending your turn."
       : !isViewerTurn
         ? "You can end the turn when your army is active."
-        : undefined;
+        : !isTurnReadinessKnown
+          ? "Waiting for the board to report turn readiness."
+          : isTurnSpent
+            ? "Nothing left to do this turn (Ctrl+Enter)."
+            : "Ctrl+Enter";
   const buildBlockedReason =
     status !== "connected" ? "Reconnect to the match to send this order." : undefined;
 
@@ -677,7 +751,7 @@ function ActiveMatchBoard({
             in a strip under the board that a phone would have to scroll to. */}
         {productionOptions === null || productionSite === undefined ? null : (
           <BuildMenu
-            anchor={press}
+            anchor={productionOptions.anchor ?? press}
             disabledReason={buildBlockedReason}
             factionCode={viewerFactionCode ?? "os"}
             funds={viewerFunds ?? null}
@@ -696,7 +770,7 @@ function ActiveMatchBoard({
             reconsidered before it becomes real. */}
         {unitActions === null || unitActions.destination === undefined ? null : (
           <UnitActionMenu
-            anchor={press}
+            anchor={unitActions.anchor ?? press}
             attacker={unitActions.attacker ?? undefined}
             destination={unitActions.destination}
             disabledReason={buildBlockedReason}
@@ -804,12 +878,15 @@ function ActiveMatchBoard({
           {isPlayer ? (
             <Button
               clickAction={onEndTurn}
-              isDisabled={status !== "connected" || !isViewerTurn}
+              isDisabled={status !== "connected" || !isViewerTurn || !isTurnReadinessKnown}
               isLoading={isEndingTurn}
               label="End turn"
               size="sm"
               tooltip={endTurnTooltip}
-              variant="primary"
+              // Ending the turn is the primary thing to do only once there is
+              // nothing else: a board with units still to move has its primary
+              // action out on the board, not on the strip.
+              variant={isTurnSpent && isViewerTurn ? "primary" : "secondary"}
             />
           ) : null}
         </HStack>

@@ -1,4 +1,6 @@
-use crate::core::coords::{LogicalPx, TILE_SIZE, map_position_to_world_translation};
+use crate::core::coords::{
+    LogicalPx, TILE_SIZE, map_position_to_world_translation, position_to_world_translation,
+};
 use crate::core::{RenderLayer, SpriteSize};
 use crate::features::event_bus::{
     AmmoDisplay, EventSink, HoveredCargoUnit, HoveredTile, HoveredUnit, TileHoverChanged,
@@ -124,11 +126,13 @@ fn reset_pointer_state(
     mut owner: ResMut<DragOwner>,
     mut inspected: ResMut<InspectedTile>,
     mut hovered: ResMut<HoveredTileState>,
+    mut keyboard_cursor: ResMut<KeyboardCursor>,
 ) {
     state.primary = None;
     *owner = DragOwner::Camera;
     inspected.0 = None;
     *hovered = HoveredTileState::default();
+    keyboard_cursor.0 = None;
 }
 
 /// Who owns the drag currently in flight.
@@ -150,6 +154,27 @@ pub enum DragOwner {
 /// session even while a trackpad is also attached.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct PointerIsCoarse(pub bool);
+
+/// The tile the keyboard is steering, while the keyboard is steering one.
+///
+/// The board has one cursor and two ways to move it, so the two answers cannot
+/// both be live. This one wins while it is set, and the mouse takes the cursor
+/// back the moment it moves: a player who reaches for the mouse is never left
+/// fighting a cursor they cannot see.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct KeyboardCursor(pub Option<Pos>);
+
+/// Give the cursor back to the pointer as soon as the pointer moves.
+pub(crate) fn release_keyboard_cursor_to_pointer(
+    mut moves: MessageReader<CursorMoved>,
+    mut touches: MessageReader<TouchInput>,
+    mut cursor: ResMut<KeyboardCursor>,
+) {
+    let pointer_moved = moves.read().count() > 0 || touches.read().count() > 0;
+    if pointer_moved && cursor.0.is_some() {
+        cursor.0 = None;
+    }
+}
 
 /// A tap landed on a board drawn too small to commit to.
 ///
@@ -175,11 +200,24 @@ pub(crate) fn update_tile_cursor(
     windows: Query<&Window>,
     camera_q: Query<(&Camera, &GlobalTransform)>,
     game_map: Res<GameMap>,
+    keyboard_cursor: Res<KeyboardCursor>,
     mut cursor_q: Query<(&mut Transform, &mut Visibility), With<TileCursor>>,
 ) {
     let Ok((mut transform, mut visibility)) = cursor_q.single_mut() else {
         return;
     };
+
+    // The keyboard names a tile rather than a point, so it needs none of the
+    // projection below. It is also the only cursor a player steering with the
+    // keyboard can see, so it is drawn even while the mouse sits off the board.
+    if let Some(tile) = keyboard_cursor.0 {
+        let center = position_to_world_translation(&TILE_CORE_SPRITE_SIZE, tile, game_map.as_ref());
+        transform.translation.x = center.x;
+        transform.translation.y = center.y;
+        transform.translation.z = TILE_CORE_SPRITE_SIZE.z_index as f32;
+        *visibility = Visibility::Visible;
+        return;
+    }
 
     let Ok(window) = windows.single() else {
         *visibility = Visibility::Hidden;
@@ -439,7 +477,7 @@ fn hover_payload(key: &HoverKey) -> Option<HoveredTile> {
 
 /// Report the tile under the mouse when its visible information changes.
 fn emit_tile_hover_changed(
-    projection: BoardProjection<'_, '_>,
+    cursor: BoardCursor<'_, '_>,
     info: HoverInfo<'_, '_>,
     coarse: Res<PointerIsCoarse>,
     inspected: Res<InspectedTile>,
@@ -448,10 +486,10 @@ fn emit_tile_hover_changed(
 ) {
     // A touch session has no cursor to read, and the one it reports is wherever
     // the last finger happened to leave it.
-    let position = if coarse.0 {
+    let position = if coarse.0 && !cursor.keyboard_steers() {
         inspected.0
     } else {
-        projection.cursor_tile()
+        cursor.tile()
     };
 
     // The scratch buffer is written every frame and nothing observes this
@@ -506,10 +544,50 @@ impl BoardProjection<'_, '_> {
             .map(|map_position| map_position.position())
     }
 
+    /// Where the middle of a tile sits on the canvas, in the same logical
+    /// pixels a pointer event reports.
+    ///
+    /// This is `tile_at` run backwards, and it is what lets a menu open beside
+    /// the tile it is about rather than beside the press that opened it.
+    pub(crate) fn tile_viewport(&self, tile: Pos) -> Option<Vec2> {
+        let (camera, transform) = self.cameras.single().ok()?;
+        let world = crate::core::coords::position_to_world_translation(
+            &TILE_CORE_SPRITE_SIZE,
+            tile,
+            self.game_map.as_ref(),
+        );
+        camera
+            .world_to_viewport(transform, Vec3::new(world.x, world.y, 0.0))
+            .ok()
+    }
+
     /// The tile under the mouse cursor, when there is one over the board.
-    pub(crate) fn cursor_tile(&self) -> Option<Pos> {
+    pub(crate) fn pointer_tile(&self) -> Option<Pos> {
         let cursor = self.windows.single().ok()?.cursor_position()?;
         self.tile_at(cursor)
+    }
+}
+
+/// The one tile the board is pointing at, from the two cursors that can name it.
+///
+/// The keyboard's answer is kept apart from the projection because a system that
+/// moves the cursor must hold it mutably, and a system that only reads where the
+/// board is pointing must not stop it.
+#[derive(SystemParam)]
+pub(crate) struct BoardCursor<'w, 's> {
+    projection: BoardProjection<'w, 's>,
+    keyboard: Res<'w, KeyboardCursor>,
+}
+
+impl BoardCursor<'_, '_> {
+    /// The tile the player is pointing at, by whichever cursor is steering.
+    pub(crate) fn tile(&self) -> Option<Pos> {
+        self.keyboard.0.or_else(|| self.projection.pointer_tile())
+    }
+
+    /// Whether the keyboard, rather than a pointer, holds the cursor.
+    pub(crate) fn keyboard_steers(&self) -> bool {
+        self.keyboard.0.is_some()
     }
 }
 
@@ -773,6 +851,7 @@ impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PointerState>();
         app.init_resource::<PointerIsCoarse>();
+        app.init_resource::<KeyboardCursor>();
         app.init_resource::<DragOwner>();
         app.init_resource::<HoveredTileState>();
         app.init_resource::<InspectedTile>();
@@ -792,7 +871,11 @@ impl Plugin for InputPlugin {
         );
         app.add_systems(
             Update,
-            (recognize_pointer_gestures, track_inspected_tile)
+            (
+                release_keyboard_cursor_to_pointer,
+                recognize_pointer_gestures,
+                track_inspected_tile,
+            )
                 .chain()
                 .in_set(PointerSet::Recognize),
         );
@@ -837,6 +920,7 @@ mod tests {
         app.init_resource::<CurrentWeather>();
         app.init_resource::<ViewerVisibility>();
         app.init_resource::<FriendlyFactions>();
+        app.init_resource::<KeyboardCursor>();
 
         for x in 0..2 {
             let position = Pos::new(x, 0);
@@ -889,6 +973,34 @@ mod tests {
                 Fuel(50),
             ))
             .id()
+    }
+
+    /// The mouse takes the cursor back the moment it moves.
+    ///
+    /// Without this a player who steered with the keyboard and then reached for
+    /// the mouse would be moving a cursor the board was not reading.
+    #[test]
+    fn a_moving_pointer_takes_the_cursor_back_from_the_keyboard() {
+        let mut app = App::new();
+        app.add_message::<CursorMoved>();
+        app.add_message::<TouchInput>();
+        app.insert_resource(KeyboardCursor(Some(Pos::new(1, 1))));
+        app.add_systems(Update, release_keyboard_cursor_to_pointer);
+
+        app.update();
+        assert_eq!(
+            app.world().resource::<KeyboardCursor>().0,
+            Some(Pos::new(1, 1)),
+            "a still pointer takes nothing"
+        );
+
+        app.world_mut().write_message(CursorMoved {
+            window: Entity::PLACEHOLDER,
+            position: Vec2::new(10.0, 10.0),
+            delta: None,
+        });
+        app.update();
+        assert_eq!(app.world().resource::<KeyboardCursor>().0, None);
     }
 
     /// What the readout would report for `position`, without a camera.

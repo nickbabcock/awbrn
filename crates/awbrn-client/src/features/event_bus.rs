@@ -238,6 +238,47 @@ pub struct ProductionOption {
     pub affordable: bool,
 }
 
+/// What the player still has in hand this turn.
+///
+/// Ending a turn is the one move that cannot be taken back, so the page asks
+/// before spending it. This is what makes the question worth asking rather than
+/// a habit to click through: it names what is being left behind.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[serde(rename_all = "camelCase")]
+pub struct TurnReadinessChanged {
+    /// Units of the viewer's that have not acted yet.
+    pub idle_units: u32,
+    /// Properties the viewer could still build from.
+    pub free_sites: u32,
+}
+
+/// The player asked, from the board, to end the turn.
+///
+/// The board never ends one itself. It reports the key and what was still in
+/// hand when it was pressed; the page asks the question and sends the command.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[serde(rename_all = "camelCase")]
+pub struct EndTurnRequested {
+    pub idle_units: u32,
+    pub free_sites: u32,
+}
+
+/// Where a menu belongs on the canvas, in the logical pixels a pointer event
+/// reports.
+///
+/// A menu belongs beside the tile it is about, not beside whatever opened it.
+/// With a pointer the two are the same place; from the keyboard there is no
+/// press at all, and the last one may be a whole turn old.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenPoint {
+    pub x: i32,
+    pub y: i32,
+}
+
 /// The production menu implied by the current board selection.
 /// `site: None` tells presentation clients to close any open menu.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -246,6 +287,9 @@ pub struct ProductionOption {
 pub struct ProductionOptionsChanged {
     pub site: Option<ProductionSite>,
     pub options: Vec<ProductionOption>,
+    /// Where the site is on the canvas, when the board can say.
+    #[cfg_attr(target_family = "wasm", tsify(optional))]
+    pub anchor: Option<ScreenPoint>,
 }
 
 /// One order on the destination menu.
@@ -410,6 +454,9 @@ pub struct UnitActionsChanged {
     /// forecasts names it once at the head rather than on each row.
     #[cfg_attr(target_family = "wasm", tsify(optional))]
     pub attacker: Option<UnitBadge>,
+    /// Where the destination is on the canvas, when the board can say.
+    #[cfg_attr(target_family = "wasm", tsify(optional))]
+    pub anchor: Option<ScreenPoint>,
 }
 
 /// An atomic move-and-act intent chosen on the live board. The browser forwards

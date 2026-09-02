@@ -80,6 +80,9 @@ export class CanvasCourierTransport {
     surface.canvas.addEventListener(
       "keydown",
       (event) => {
+        if (boardOwnsKey(event)) {
+          event.preventDefault();
+        }
         this.inputQueue.writer.enqueueKeyboard(event);
       },
       listenerOptions,
@@ -238,5 +241,32 @@ export class CanvasCourierTransport {
       },
       { once: true, signal: this.attachmentAbortController?.signal },
     );
+  }
+}
+
+/**
+ * Keys the board answers, so the page must not answer them first.
+ *
+ * The arrows scroll a page, Space scrolls it further, Backspace used to leave
+ * it, and Tab walks the focus off the board. Each of those is a key the board
+ * is listening for while it has the focus, so the page default is stopped.
+ *
+ * Shift+Tab is the exception, and deliberately so: it stays the way out of the
+ * board for a player moving through the page by keyboard. `Q` cycles units
+ * backwards for anyone who wanted the other meaning.
+ */
+export function boardOwnsKey(event: Pick<KeyboardEvent, "key" | "shiftKey">): boolean {
+  switch (event.key) {
+    case "ArrowUp":
+    case "ArrowDown":
+    case "ArrowLeft":
+    case "ArrowRight":
+    case " ":
+    case "Backspace":
+      return true;
+    case "Tab":
+      return !event.shiftKey;
+    default:
+      return false;
   }
 }

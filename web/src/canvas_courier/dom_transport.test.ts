@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canvasPhysicalSize } from "./dom_transport";
+import { boardOwnsKey, canvasPhysicalSize } from "./dom_transport";
 
 describe("canvasPhysicalSize", () => {
   it("uses a plausible device-pixel content box", () => {
@@ -24,5 +24,24 @@ describe("canvasPhysicalSize", () => {
       height: 521,
       scaleFactor: 2,
     });
+  });
+});
+
+describe("boardOwnsKey", () => {
+  it("keeps the keys the board plays with away from the page", () => {
+    for (const key of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "Backspace"]) {
+      expect(boardOwnsKey({ key, shiftKey: false })).toBe(true);
+    }
+    expect(boardOwnsKey({ key: "Tab", shiftKey: false })).toBe(true);
+  });
+
+  it("leaves Shift+Tab as the way out of the board", () => {
+    expect(boardOwnsKey({ key: "Tab", shiftKey: true })).toBe(false);
+  });
+
+  it("leaves every other key to the page", () => {
+    for (const key of ["q", "e", "Enter", "Escape", "F5", "a"]) {
+      expect(boardOwnsKey({ key, shiftKey: false })).toBe(false);
+    }
   });
 });

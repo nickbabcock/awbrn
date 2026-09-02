@@ -12,6 +12,7 @@ import type {
   BattleForecastResponse,
   BattleRequestWire,
   DeleteUnitCommandRequested,
+  EndTurnRequested,
   GameEvent,
   MoveCommandRequested,
   UnloadCommandRequested,
@@ -35,6 +36,7 @@ export class GameRunner implements CanvasCourierController {
   /** Keep live updates behind the first match snapshot. */
   private liveBaselinePending = true;
   private liveCommandHandler: ((command: PlayerCommand) => void) | undefined;
+  private endTurnRequestHandler: ((request: EndTurnRequested) => void) | undefined;
   private rawWorker: Worker | undefined;
   private surfaceVersion = 0;
   private readonly transport = new CanvasCourierTransport();
@@ -132,11 +134,22 @@ export class GameRunner implements CanvasCourierController {
     this.liveCommandHandler = handler;
   }
 
+  /**
+   * Who is asked when the board asks to end the turn.
+   *
+   * The board never ends one. It asks, and the page decides whether the
+   * question needs putting to the player first.
+   */
+  setEndTurnRequestHandler(handler: ((request: EndTurnRequested) => void) | undefined): void {
+    this.endTurnRequestHandler = handler;
+  }
+
   dispose(): void {
     this.surfaceVersion += 1;
     this.activeSurface = undefined;
     this.battleCatalogPromise = undefined;
     this.liveCommandHandler = undefined;
+    this.endTurnRequestHandler = undefined;
     this.transport.dispose();
     this.game = undefined;
     this.pendingLiveTransitions = [];
@@ -237,6 +250,14 @@ export class GameRunner implements CanvasCourierController {
         useGameStore
           .getState()
           .actions.setAttackPreview(event.forecast === undefined ? null : event);
+        break;
+      }
+      case "TurnReadinessChanged": {
+        useGameStore.getState().actions.setTurnReadiness(event);
+        break;
+      }
+      case "EndTurnRequested": {
+        this.endTurnRequestHandler?.(event);
         break;
       }
       case "UnitActionsChanged": {
