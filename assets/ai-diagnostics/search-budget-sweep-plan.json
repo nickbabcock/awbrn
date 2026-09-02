@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "run_id": "search-budget-sweep",
+  "maps": [61748, 67945, 67073, 73021],
+  "tuning_run_seeds": [701],
+  "evaluation_run_seeds": [1701],
+  "pairs_per_map": 1,
+  "limits": {
+    "day_limit": 8,
+    "node_budget": 256,
+    "refusal_limit": 16
+  },
+  "thresholds": {
+    "minimum_complete_pairs_per_map": 1,
+    "minimum_material_pair_point_improvement": 0.05,
+    "required_pair_level_uncertainty_bound": 0.5,
+    "maximum_median_decision_nanos": 5000000000,
+    "maximum_p95_decision_nanos": 15000000000,
+    "maximum_allocation_regression": 0.25
+  },
+  "annotations": "Search allocator and budget coverage experiment"
+}

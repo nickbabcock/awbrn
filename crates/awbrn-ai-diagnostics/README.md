@@ -20,6 +20,20 @@ Use the checked-in small plan for a smoke run. Use
 learned, and tactical agents are diagnostics candidates. They are not player
 profiles.
 
+## Run a search budget sweep
+
+```text
+cargo run -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
+  search-sweep --plan assets/ai-diagnostics/search-budget-sweep-plan.json \
+  --output target/ai-search-sweep
+```
+
+The search budget sweep holds the evaluator, maps, seeds, and reply policy fixed.
+It compares sequential-quota and round-robin allocation at 4, 16, 64, and 256
+nodes. It uses separate tuning and evaluation seed sets. The output contains
+`search-coverage-matrix.json`, `budget-sweep.json`, `scenario-reachability.json`,
+and `search-sweep-decision.json` with a Markdown rendering beside the JSON record.
+
 ## Analyze and resume
 
 ```text

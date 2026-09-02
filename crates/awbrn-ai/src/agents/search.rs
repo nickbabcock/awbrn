@@ -12,10 +12,21 @@ use awvm::semantic::{
 use awvm::session::{LegalScope, LegalVisitor, Mark, Order, OrderKind, Session, UnitIdx};
 use awvm::transition::Command;
 
-use crate::agent::{Agent, MarginalDistribution, NodeBudget, Play, SearchStats};
-use crate::agents::{GreedyAgent, Weights};
+use crate::agent::{Agent, NodeBudget, Play, SearchCoordinateCoverage, SearchStats};
+use crate::agents::{GreedyAgent, Weights, order_candidate_id};
 use crate::eval::{EvalBreakdown, EvalWeights, Evaluator};
 use crate::rng::Rng;
+
+/// Allocation strategy for coordinate search.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SearchAllocator {
+    /// Allocate a sequential quota to each remaining coordinate.
+    #[default]
+    SequentialQuota,
+    /// Allocate one candidate to each coordinate before a second pass.
+    RoundRobin,
+}
 
 /// A greedy agent with one coordinate-descent pass over its complete turn.
 #[derive(Debug)]
@@ -24,12 +35,15 @@ pub struct SearchAgent {
     weights: Weights,
     search_eval_weights: EvalWeights,
     node_budget: Option<NodeBudget>,
+    allocator: SearchAllocator,
     marginal_cap: Option<f64>,
     fallback: GreedyAgent,
     plan: Vec<Play>,
     next: usize,
     turn: Option<(PlayerId, u64)>,
     stats: SearchStats,
+    timing: crate::agent::AgentTiming,
+    decision_times_nanos: Vec<u64>,
 }
 
 /// One search choice and the two leaf positions it compared.
@@ -67,6 +81,55 @@ pub struct SearchAudit {
     pub selected_breakdown: EvalBreakdown,
     /// Every order that changed between the two plans.
     pub changes: Vec<OrderChange>,
+    /// Complete candidates that reached the evaluator.
+    pub evaluated_candidates: Vec<SearchCandidateEvaluation>,
+    /// Search coverage for this decision.
+    pub coverage: SearchDecisionCoverage,
+}
+
+/// One complete candidate that reached the search evaluator.
+#[derive(Clone, Debug)]
+pub struct SearchCandidateEvaluation {
+    /// Complete candidate plan.
+    pub plan: Vec<Order>,
+    /// Candidate score.
+    pub score: f64,
+    /// Candidate score breakdown.
+    pub breakdown: EvalBreakdown,
+}
+
+/// Coverage and visit order for one search decision.
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct SearchDecisionCoverage {
+    /// Allocator used by the search.
+    pub allocator: SearchAllocator,
+    /// Requested node budget.
+    pub nodes_requested: u32,
+    /// Nodes used by the search.
+    pub nodes_used: u32,
+    /// Searchable coordinates in seed-plan order.
+    pub searchable_coordinates: Vec<usize>,
+    /// Coordinates that received a visit.
+    pub visited_coordinates: Vec<usize>,
+    /// Coordinate visits grouped by pass.
+    pub coordinate_visits_by_pass: Vec<Vec<usize>>,
+    /// Alternative visits grouped by pass.
+    pub alternative_visits_by_pass: Vec<Vec<SearchAlternativeVisit>>,
+    /// True when the node limit stopped the search before its last coordinate.
+    pub exhausted_before_final_coordinate: bool,
+    /// Alternative counters for visited coordinates.
+    pub coordinates: Vec<SearchCoordinateCoverage>,
+}
+
+/// One alternative attempted at a coordinate during a search pass.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct SearchAlternativeVisit {
+    /// Coordinate that supplied the alternative.
+    pub coordinate: usize,
+    /// Zero-based position in the coordinate's filtered alternatives.
+    pub alternative_index: usize,
+    /// Stable identity of the alternative order.
+    pub candidate_id: u64,
 }
 
 /// One unit order that changed in a search choice.
@@ -90,9 +153,45 @@ pub fn audit(
     search_eval_weights: EvalWeights,
     budget: NodeBudget,
 ) -> Option<SearchAudit> {
-    let mut search = TurnSearch::new(view, seed, weights, search_eval_weights, None)?;
+    audit_with_allocator(
+        view,
+        seed,
+        weights,
+        search_eval_weights,
+        budget,
+        SearchAllocator::SequentialQuota,
+    )
+}
+
+/// Audit one search decision with an explicit allocator.
+pub fn audit_with_allocator(
+    view: &Observation,
+    seed: u64,
+    weights: Weights,
+    search_eval_weights: EvalWeights,
+    budget: NodeBudget,
+    allocator: SearchAllocator,
+) -> Option<SearchAudit> {
+    let mut search =
+        TurnSearch::new_with_allocator(view, seed, weights, search_eval_weights, None, allocator)?;
+    search.capture_evaluated_candidates = true;
     let root = search.session.state().clone();
     let result = search.search_orders(budget)?;
+    let evaluated_candidates = search
+        .evaluated_candidates
+        .clone()
+        .into_iter()
+        .filter_map(|candidate| {
+            let state = search.line_state(&candidate.plan)?;
+            let breakdown =
+                TurnSearch::state_breakdown(&state, &search.friendly, search_eval_weights)?;
+            Some(SearchCandidateEvaluation {
+                plan: candidate.plan,
+                score: candidate.score,
+                breakdown,
+            })
+        })
+        .collect();
     let friendly = search.friendly.clone();
     let friendly_seat = search.session.state().players.seat(&friendly)?;
     let seed_state = search.line_state(&result.seed)?;
@@ -133,48 +232,27 @@ pub fn audit(
         seed_breakdown,
         selected_breakdown,
         changes,
+        evaluated_candidates,
+        coverage: search.last_decision_coverage.clone()?,
     })
 }
 
 impl SearchAgent {
-    pub const fn from_seed(seed: u64) -> Self {
+    pub fn from_seed(seed: u64) -> Self {
         Self {
             seed,
             weights: Weights::DEFAULT,
             search_eval_weights: EvalWeights::STANDARD,
             node_budget: None,
+            allocator: SearchAllocator::SequentialQuota,
             marginal_cap: None,
             fallback: GreedyAgent::with_weights(seed, Weights::DEFAULT),
             plan: Vec::new(),
             next: 0,
             turn: None,
-            stats: SearchStats {
-                nodes_evaluated: 0,
-                legal_candidates_rejected: 0,
-                seed_plans: 0,
-                changed_seed_plans: 0,
-                changed_leaf_breakdowns: 0,
-                changed_leaf_deltas: EvalBreakdown {
-                    score: 0.0,
-                    army: 0.0,
-                    income: 0.0,
-                    exposure: 0.0,
-                    contest: 0.0,
-                    front: 0.0,
-                    other: 0.0,
-                },
-                standard_leaf_deltas: EvalBreakdown {
-                    score: 0.0,
-                    army: 0.0,
-                    income: 0.0,
-                    exposure: 0.0,
-                    contest: 0.0,
-                    front: 0.0,
-                    other: 0.0,
-                },
-                standard_front_deltas: MarginalDistribution::new(),
-                standard_exposure_deltas: MarginalDistribution::new(),
-            },
+            stats: SearchStats::default(),
+            timing: crate::agent::AgentTiming::default(),
+            decision_times_nanos: Vec::new(),
         }
     }
 
@@ -203,15 +281,27 @@ impl SearchAgent {
         self
     }
 
+    /// Use a deterministic coordinate allocator.
+    pub const fn with_allocator(mut self, allocator: SearchAllocator) -> Self {
+        self.allocator = allocator;
+        self
+    }
+
     fn build_plan(&mut self, view: &Observation, budget: NodeBudget) -> Option<()> {
-        let mut search = TurnSearch::new(
+        let started = std::time::Instant::now();
+        let mut search = TurnSearch::new_with_allocator(
             view,
             self.seed,
             self.weights,
             self.search_eval_weights,
             self.marginal_cap,
+            self.allocator,
         )?;
         let plan = search.improve(budget);
+        let elapsed = started.elapsed().as_nanos().try_into().unwrap_or(u64::MAX);
+        self.timing.plan_construction_nanos =
+            self.timing.plan_construction_nanos.saturating_add(elapsed);
+        self.decision_times_nanos.push(elapsed);
         self.stats.add(search.stats);
         self.plan = plan?;
         self.next = 0;
@@ -236,7 +326,21 @@ impl Agent for SearchAgent {
     }
 
     fn search_stats(&self) -> Option<SearchStats> {
-        Some(self.stats)
+        Some(self.stats.clone())
+    }
+
+    fn search_decision_times_nanos(&self) -> Option<Vec<u64>> {
+        Some(self.decision_times_nanos.clone())
+    }
+
+    fn timing(&self) -> Option<crate::agent::AgentTiming> {
+        Some(self.timing)
+    }
+
+    fn start_match(&mut self) {
+        self.timing = crate::agent::AgentTiming::default();
+        self.stats = SearchStats::default();
+        self.decision_times_nanos.clear();
     }
 }
 
@@ -250,7 +354,11 @@ struct TurnSearch {
     weights: Weights,
     evaluator: Evaluator,
     marginal_cap: Option<f64>,
+    allocator: SearchAllocator,
     stats: SearchStats,
+    last_decision_coverage: Option<SearchDecisionCoverage>,
+    capture_evaluated_candidates: bool,
+    evaluated_candidates: Vec<SearchLeaf>,
 }
 
 struct SearchResult {
@@ -260,19 +368,53 @@ struct SearchResult {
     selected_score: f64,
 }
 
+#[derive(Clone)]
 struct SearchLeaf {
     score: f64,
     breakdown: Option<EvalBreakdown>,
     plan: Vec<Order>,
 }
 
+struct CoordinateEvaluation {
+    leaves: Vec<SearchLeaf>,
+    rejected: u64,
+    generated: u64,
+    consumed: usize,
+    attempted_alternatives: Vec<(usize, u64)>,
+}
+
+struct CoordinateSearchResult {
+    consumed: usize,
+    attempted_alternatives: Vec<(usize, u64)>,
+    best_changed: bool,
+}
+
 impl TurnSearch {
+    #[cfg(test)]
     fn new(
         view: &Observation,
         seed: u64,
         weights: Weights,
         search_eval_weights: EvalWeights,
         marginal_cap: Option<f64>,
+    ) -> Option<Self> {
+        Self::new_with_allocator(
+            view,
+            seed,
+            weights,
+            search_eval_weights,
+            marginal_cap,
+            SearchAllocator::SequentialQuota,
+        )
+    }
+
+    fn new_with_allocator(
+        view: &Observation,
+        seed: u64,
+        weights: Weights,
+        search_eval_weights: EvalWeights,
+        marginal_cap: Option<f64>,
+        allocator: SearchAllocator,
     ) -> Option<Self> {
         let session = Session::from_observation(view).ok()?;
         if !session.is_commandable() || session.state().settings.fog {
@@ -288,7 +430,11 @@ impl TurnSearch {
             weights,
             evaluator: Evaluator::new(search_eval_weights),
             marginal_cap,
+            allocator,
             stats: SearchStats::default(),
+            last_decision_coverage: None,
+            capture_evaluated_candidates: false,
+            evaluated_candidates: Vec::new(),
         })
     }
 
@@ -301,58 +447,62 @@ impl TurnSearch {
         let seed = self.greedy_seed()?;
         self.stats.seed_plans += 1;
         let seed_leaf = self.evaluate(&seed)?;
+        if self.capture_evaluated_candidates {
+            self.evaluated_candidates.push(seed_leaf.clone());
+        }
         self.stats.nodes_evaluated += 1;
         let seed_breakdown = seed_leaf.breakdown;
         let seed_score = self.rank_score(seed_leaf.score, seed_breakdown, seed_breakdown)?;
         let mut best_value = seed_score;
         let mut best = seed.clone();
         let mut nodes = 1;
-
-        let mut coordinate = 0;
-        while coordinate < best.len() {
-            let coordinate_plan = best.clone();
-            if !search_coordinate(coordinate_plan[coordinate]) {
-                coordinate += 1;
-                continue;
-            }
-            let remaining = budget.get().saturating_sub(nodes);
-            let coordinates_left = u32::try_from(
-                coordinate_plan[coordinate..]
-                    .iter()
-                    .filter(|order| search_coordinate(**order))
-                    .count(),
-            )
-            .unwrap_or(u32::MAX)
-            .max(1);
-            let coordinate_limit = remaining.div_ceil(coordinates_left).max(1);
-            let (candidates, rejected) = self.evaluate_coordinate(
-                &coordinate_plan[..coordinate],
-                coordinate_plan[coordinate],
-                coordinate_plan[coordinate].unit(),
-                coordinate_limit.min(remaining),
-            );
-            self.stats.legal_candidates_rejected += rejected;
-            for candidate_leaf in candidates {
-                let Some(value) = self.rank_score(
-                    candidate_leaf.score,
-                    candidate_leaf.breakdown,
-                    seed_breakdown,
-                ) else {
-                    self.stats.legal_candidates_rejected += 1;
-                    continue;
-                };
-                self.stats.nodes_evaluated += 1;
-                nodes += 1;
-                if value > best_value {
-                    best_value = value;
-                    best = candidate_leaf.plan;
-                }
-            }
-            coordinate += 1;
+        let searchable_coordinates = best
+            .iter()
+            .enumerate()
+            .filter_map(|(coordinate, order)| search_coordinate(*order).then_some(coordinate))
+            .collect::<Vec<_>>();
+        let final_quartile_start = final_quartile_start(searchable_coordinates.len());
+        let mut decision_coverage = SearchDecisionCoverage {
+            allocator: self.allocator,
+            nodes_requested: budget.get(),
+            nodes_used: 1,
+            searchable_coordinates: searchable_coordinates.clone(),
+            visited_coordinates: Vec::new(),
+            coordinate_visits_by_pass: Vec::new(),
+            alternative_visits_by_pass: Vec::new(),
+            exhausted_before_final_coordinate: false,
+            coordinates: Vec::new(),
+        };
+        self.record_search_start(&searchable_coordinates, final_quartile_start, budget);
+        match self.allocator {
+            SearchAllocator::SequentialQuota => self.search_front_loaded(
+                budget,
+                &mut nodes,
+                &mut best,
+                &mut best_value,
+                seed_breakdown,
+                &mut decision_coverage,
+            ),
+            SearchAllocator::RoundRobin => self.search_round_robin(
+                budget,
+                &mut nodes,
+                &mut best,
+                &mut best_value,
+                seed_breakdown,
+                &mut decision_coverage,
+            ),
         }
+        decision_coverage.nodes_used = nodes;
+        decision_coverage.exhausted_before_final_coordinate = nodes >= budget.get()
+            && searchable_coordinates
+                .last()
+                .is_some_and(|last| !decision_coverage.visited_coordinates.contains(last));
+        self.record_search_end(&decision_coverage);
+        self.last_decision_coverage = Some(decision_coverage);
 
         if best != seed {
             self.stats.changed_seed_plans += 1;
+            self.stats.coverage.changed_seed_plans += 1;
             let search_eval_weights = self.search_eval_weights();
             if let (Some(seed_state), Some(selected_state)) =
                 (self.line_state(&seed), self.line_state(&best))
@@ -404,6 +554,299 @@ impl TurnSearch {
             seed_score,
             selected_score: best_value,
         })
+    }
+
+    fn record_search_start(
+        &mut self,
+        searchable: &[usize],
+        final_quartile_start: usize,
+        budget: NodeBudget,
+    ) {
+        self.stats.coverage.decisions += 1;
+        self.stats.coverage.seed_plans += 1;
+        self.stats.coverage.searchable_coordinates += searchable.len() as u64;
+        self.stats.coverage.final_quartile_searchable_coordinates +=
+            searchable.len().saturating_sub(final_quartile_start) as u64;
+        self.stats.coverage.nodes_requested += u64::from(budget.get());
+    }
+
+    fn record_search_end(&mut self, coverage: &SearchDecisionCoverage) {
+        self.stats.coverage.nodes_used += u64::from(coverage.nodes_used);
+        if coverage.exhausted_before_final_coordinate {
+            self.stats
+                .coverage
+                .decisions_exhausted_before_final_coordinate += 1;
+        }
+        for (index, coordinate) in coverage.searchable_coordinates.iter().enumerate() {
+            let visited = coverage.visited_coordinates.contains(coordinate);
+            let is_final_quartile =
+                index >= final_quartile_start(coverage.searchable_coordinates.len());
+            {
+                let entry = self.coordinate_coverage(*coordinate);
+                entry.searchable_decisions += 1;
+                if visited {
+                    entry.visited_decisions += 1;
+                }
+            }
+            if visited {
+                self.stats.coverage.visited_searchable_coordinates += 1;
+                if is_final_quartile {
+                    self.stats.coverage.visited_final_quartile_coordinates += 1;
+                }
+            }
+        }
+        if let Some(first) = coverage.visited_coordinates.first().copied() {
+            if self.stats.coverage.first_visited_coordinate.is_none() {
+                self.stats.coverage.first_visited_coordinate = Some(first);
+            }
+            self.stats.coverage.last_visited_coordinate = Some(
+                coverage
+                    .visited_coordinates
+                    .last()
+                    .copied()
+                    .unwrap_or(first),
+            );
+        }
+        if self.stats.coverage.coordinate_visits_by_pass.len()
+            < coverage.coordinate_visits_by_pass.len()
+        {
+            self.stats
+                .coverage
+                .coordinate_visits_by_pass
+                .resize(coverage.coordinate_visits_by_pass.len(), 0);
+        }
+        for (total, visits) in self
+            .stats
+            .coverage
+            .coordinate_visits_by_pass
+            .iter_mut()
+            .zip(&coverage.coordinate_visits_by_pass)
+        {
+            *total += visits.len() as u64;
+        }
+    }
+
+    fn coordinate_coverage(&mut self, coordinate: usize) -> &mut SearchCoordinateCoverage {
+        if let Some(index) = self
+            .stats
+            .coverage
+            .coordinates
+            .iter()
+            .position(|entry| entry.coordinate == coordinate)
+        {
+            return &mut self.stats.coverage.coordinates[index];
+        }
+        self.stats
+            .coverage
+            .coordinates
+            .push(SearchCoordinateCoverage {
+                coordinate,
+                ..SearchCoordinateCoverage::default()
+            });
+        let index = self.stats.coverage.coordinates.len() - 1;
+        &mut self.stats.coverage.coordinates[index]
+    }
+
+    fn search_front_loaded(
+        &mut self,
+        budget: NodeBudget,
+        nodes: &mut u32,
+        best: &mut Vec<Order>,
+        best_value: &mut f64,
+        seed_breakdown: Option<EvalBreakdown>,
+        coverage: &mut SearchDecisionCoverage,
+    ) {
+        let mut coordinate = 0;
+        while coordinate < best.len() {
+            let coordinate_plan = best.clone();
+            if !search_coordinate(coordinate_plan[coordinate]) {
+                coordinate += 1;
+                continue;
+            }
+            let remaining = budget.get().saturating_sub(*nodes);
+            let coordinates_left = u32::try_from(
+                coordinate_plan[coordinate..]
+                    .iter()
+                    .filter(|order| search_coordinate(**order))
+                    .count(),
+            )
+            .unwrap_or(u32::MAX)
+            .max(1);
+            let coordinate_limit = remaining.div_ceil(coordinates_left).max(1);
+            if remaining > 0 {
+                self.visit_coordinate(coverage, coordinate, 0);
+            }
+            self.evaluate_and_select(
+                &coordinate_plan[..coordinate],
+                coordinate_plan[coordinate],
+                coordinate_plan[coordinate].unit(),
+                coordinate_limit.min(remaining),
+                0,
+                nodes,
+                best,
+                best_value,
+                seed_breakdown,
+                coverage,
+            );
+            coordinate += 1;
+        }
+    }
+
+    fn search_round_robin(
+        &mut self,
+        budget: NodeBudget,
+        nodes: &mut u32,
+        best: &mut Vec<Order>,
+        best_value: &mut f64,
+        seed_breakdown: Option<EvalBreakdown>,
+        coverage: &mut SearchDecisionCoverage,
+    ) {
+        let mut cursors = Vec::new();
+        let mut pass = 0;
+        while *nodes < budget.get() {
+            let mut visited = false;
+            for coordinate in coverage.searchable_coordinates.clone() {
+                if *nodes >= budget.get() || coordinate >= best.len() {
+                    break;
+                }
+                let coordinate_plan = best.clone();
+                if !search_coordinate(coordinate_plan[coordinate]) {
+                    continue;
+                }
+                let cursor = cursors.get(coordinate).copied().unwrap_or_default();
+                let result = self.evaluate_and_select(
+                    &coordinate_plan[..coordinate],
+                    coordinate_plan[coordinate],
+                    coordinate_plan[coordinate].unit(),
+                    1,
+                    cursor,
+                    nodes,
+                    best,
+                    best_value,
+                    seed_breakdown,
+                    coverage,
+                );
+                if result.consumed == 0 {
+                    continue;
+                }
+                if result.best_changed {
+                    for cursor in cursors.iter_mut().skip(coordinate.saturating_add(1)) {
+                        *cursor = 0;
+                    }
+                }
+                visited = true;
+                if cursors.len() <= coordinate {
+                    cursors.resize(coordinate + 1, 0);
+                }
+                cursors[coordinate] = cursor.saturating_add(result.consumed);
+                self.visit_coordinate(coverage, coordinate, pass);
+                if coverage.alternative_visits_by_pass.len() <= pass {
+                    coverage
+                        .alternative_visits_by_pass
+                        .resize_with(pass + 1, Vec::new);
+                }
+                coverage.alternative_visits_by_pass[pass].extend(
+                    result.attempted_alternatives.into_iter().map(
+                        |(alternative_index, candidate_id)| SearchAlternativeVisit {
+                            coordinate,
+                            alternative_index,
+                            candidate_id,
+                        },
+                    ),
+                );
+            }
+            if !visited {
+                break;
+            }
+            pass += 1;
+        }
+    }
+
+    fn visit_coordinate(
+        &self,
+        coverage: &mut SearchDecisionCoverage,
+        coordinate: usize,
+        pass: usize,
+    ) {
+        coverage.visited_coordinates.push(coordinate);
+        if coverage.coordinate_visits_by_pass.len() <= pass {
+            coverage
+                .coordinate_visits_by_pass
+                .resize_with(pass + 1, Vec::new);
+        }
+        coverage.coordinate_visits_by_pass[pass].push(coordinate);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn evaluate_and_select(
+        &mut self,
+        prefix: &[Order],
+        current: Order,
+        unit: Option<UnitIdx>,
+        limit: u32,
+        cursor: usize,
+        nodes: &mut u32,
+        best: &mut Vec<Order>,
+        best_value: &mut f64,
+        seed_breakdown: Option<EvalBreakdown>,
+        decision_coverage: &mut SearchDecisionCoverage,
+    ) -> CoordinateSearchResult {
+        let result = self.evaluate_coordinate(prefix, current, unit, cursor, limit);
+        self.stats.legal_candidates_rejected += result.rejected;
+        let coordinate = prefix.len();
+        let aggregate = self.coordinate_coverage(coordinate);
+        if cursor == 0 {
+            aggregate.alternatives_generated += result.generated;
+        }
+        aggregate.alternatives_rejected += result.rejected;
+        aggregate.alternatives_evaluated += result.leaves.len() as u64;
+        if let Some(existing) = decision_coverage
+            .coordinates
+            .iter_mut()
+            .find(|entry| entry.coordinate == coordinate)
+        {
+            if cursor == 0 {
+                existing.alternatives_generated += result.generated;
+            }
+            existing.alternatives_rejected += result.rejected;
+            existing.alternatives_evaluated += result.leaves.len() as u64;
+        } else {
+            decision_coverage
+                .coordinates
+                .push(SearchCoordinateCoverage {
+                    coordinate,
+                    alternatives_generated: if cursor == 0 { result.generated } else { 0 },
+                    alternatives_rejected: result.rejected,
+                    alternatives_evaluated: result.leaves.len() as u64,
+                    ..SearchCoordinateCoverage::default()
+                });
+        }
+        let mut best_changed = false;
+        for candidate_leaf in result.leaves {
+            if self.capture_evaluated_candidates {
+                self.evaluated_candidates.push(candidate_leaf.clone());
+            }
+            self.stats.nodes_evaluated += 1;
+            *nodes += 1;
+            let Some(value) = self.rank_score(
+                candidate_leaf.score,
+                candidate_leaf.breakdown,
+                seed_breakdown,
+            ) else {
+                self.stats.legal_candidates_rejected += 1;
+                continue;
+            };
+            if value > *best_value {
+                *best_value = value;
+                *best = candidate_leaf.plan;
+                best_changed = true;
+            }
+        }
+        CoordinateSearchResult {
+            consumed: result.consumed,
+            attempted_alternatives: result.attempted_alternatives,
+            best_changed,
+        }
     }
 
     fn greedy_seed(&mut self) -> Option<Vec<Order>> {
@@ -483,10 +926,17 @@ impl TurnSearch {
         prefix: &[Order],
         current: Order,
         unit: Option<UnitIdx>,
+        cursor: usize,
         limit: u32,
-    ) -> (Vec<SearchLeaf>, u64) {
+    ) -> CoordinateEvaluation {
         if limit == 0 {
-            return (Vec::new(), 0);
+            return CoordinateEvaluation {
+                leaves: Vec::new(),
+                rejected: 0,
+                generated: 0,
+                consumed: 0,
+                attempted_alternatives: Vec::new(),
+            };
         }
         let original = self.session.state().clone();
         let mut entropy = Rng::from_seed(self.entropy_seed);
@@ -496,24 +946,35 @@ impl TurnSearch {
                 if let Some(mark) = root {
                     self.session.rewind(mark);
                 }
-                return (Vec::new(), 1);
+                return CoordinateEvaluation {
+                    leaves: Vec::new(),
+                    rejected: 1,
+                    generated: 0,
+                    consumed: 0,
+                    attempted_alternatives: Vec::new(),
+                };
             };
             root.get_or_insert(mark);
         }
         let prefix_entropy = entropy.clone();
         let mut alternatives = self.coordinate_orders(unit);
-        let mut rejected = u64::from(alternatives.contains(&current));
+        let mut rejected = 0;
         alternatives.retain(|order| {
             *order != current
                 && !matches!(order.kind(), OrderKind::Delete | OrderKind::Resign)
                 && (unit.is_none() || order.kind() != OrderKind::EndTurn)
         });
+        let generated = alternatives.len() as u64;
 
         let mut leaves = Vec::new();
-        for alternative in alternatives {
-            if u32::try_from(leaves.len()).unwrap_or(u32::MAX) >= limit {
+        let mut consumed = 0;
+        let mut attempted_alternatives = Vec::new();
+        for (alternative_index, alternative) in alternatives.into_iter().enumerate().skip(cursor) {
+            if u32::try_from(consumed).unwrap_or(u32::MAX) >= limit {
                 break;
             }
+            consumed += 1;
+            attempted_alternatives.push((alternative_index, order_candidate_id(alternative)));
             entropy = prefix_entropy.clone();
             let Ok(branch) = self.session.apply(alternative, &mut entropy, &mut ()) else {
                 rejected += 1;
@@ -528,7 +989,7 @@ impl TurnSearch {
                     plan.push(alternative);
                     plan.extend(suffix);
                     self.greedy_reply(&mut entropy).and_then(|reply| {
-                        debug_assert!(!reply.is_empty(), "each leaf has an opponent reply");
+                        let _ = reply;
                         self.leaf(plan)
                     })
                 });
@@ -542,7 +1003,13 @@ impl TurnSearch {
             self.session.rewind(mark);
         }
         debug_assert_eq!(self.session.state(), &original);
-        (leaves, rejected)
+        CoordinateEvaluation {
+            leaves,
+            rejected,
+            generated,
+            consumed,
+            attempted_alternatives,
+        }
     }
 
     /// Orders that can replace one coordinate of a turn plan.
@@ -607,7 +1074,7 @@ impl TurnSearch {
         }
 
         let result = self.greedy_reply(&mut entropy).and_then(|reply| {
-            debug_assert!(!reply.is_empty(), "each leaf has an opponent reply");
+            let _ = reply;
             self.leaf(plan.to_vec())
         });
         self.session.rewind(root?);
@@ -745,6 +1212,10 @@ fn search_coordinate(order: Order) -> bool {
     order.unit().is_some() || matches!(order.kind(), OrderKind::Produce(_))
 }
 
+fn final_quartile_start(coordinate_count: usize) -> usize {
+    coordinate_count.saturating_sub(coordinate_count.div_ceil(4))
+}
+
 fn add_breakdown_delta(total: &mut EvalBreakdown, seed: EvalBreakdown, selected: EvalBreakdown) {
     total.score += selected.score - seed.score;
     total.army += selected.army - seed.army;
@@ -801,6 +1272,75 @@ mod tests {
     }
 
     #[test]
+    fn round_robin_visits_each_available_coordinate_once_before_a_second_pass() {
+        let view = view();
+        let audit = audit_with_allocator(
+            &view,
+            23,
+            Weights::THREAT,
+            EvalWeights::STANDARD,
+            NodeBudget::SIXTEEN,
+            SearchAllocator::RoundRobin,
+        )
+        .expect("the search audit is available");
+        assert_eq!(audit.coverage.allocator, SearchAllocator::RoundRobin);
+        assert!(audit.coverage.nodes_used <= NodeBudget::SIXTEEN.get());
+        if let Some(first_pass) = audit.coverage.coordinate_visits_by_pass.first() {
+            let mut unique = first_pass.clone();
+            unique.sort_unstable();
+            unique.dedup();
+            assert_eq!(unique, *first_pass);
+            assert_eq!(unique, audit.coverage.searchable_coordinates);
+        }
+        let serialized = serde_json::to_vec(&audit.coverage).expect("coverage serializes");
+        let deserialized: SearchDecisionCoverage =
+            serde_json::from_slice(&serialized).expect("coverage deserializes");
+        assert_eq!(deserialized, audit.coverage);
+    }
+
+    #[test]
+    fn round_robin_evaluates_distinct_alternatives_on_later_passes() {
+        let view = view();
+        let audit = audit_with_allocator(
+            &view,
+            23,
+            Weights::THREAT,
+            EvalWeights::STANDARD,
+            NodeBudget::new(64).expect("the node budget is valid"),
+            SearchAllocator::RoundRobin,
+        )
+        .expect("the search audit is available");
+        let mut candidates = std::collections::BTreeSet::new();
+        let mut later_pass = false;
+        for (pass, visits) in audit.coverage.alternative_visits_by_pass.iter().enumerate() {
+            later_pass |= pass > 0 && !visits.is_empty();
+            for visit in visits {
+                assert!(
+                    candidates.insert((visit.coordinate, visit.candidate_id)),
+                    "round-robin repeated candidate {visit:?}"
+                );
+            }
+        }
+        assert!(
+            later_pass,
+            "the fixture must reach a later round-robin pass"
+        );
+    }
+
+    #[test]
+    fn search_stats_report_the_requested_and_used_nodes() {
+        let view = view();
+        let mut agent = SearchAgent::from_seed(31)
+            .with_allocator(SearchAllocator::RoundRobin)
+            .with_node_budget(NodeBudget::FOUR);
+        let _ = agent.act(&view, NodeBudget::SIXTEEN);
+        let stats = agent.search_stats().expect("search stats are available");
+        assert_eq!(stats.coverage.nodes_requested, 4);
+        assert!(stats.coverage.nodes_used <= 4);
+        assert_eq!(stats.coverage.decisions, 1);
+    }
+
+    #[test]
     fn evaluated_candidates_are_legal_and_rewind_exactly() {
         let view = view();
         let mut search = TurnSearch::new(&view, 13, Weights::THREAT, EvalWeights::STANDARD, None)
@@ -840,16 +1380,17 @@ mod tests {
         let original = search.session.state().clone();
 
         for coordinate in 0..seed.len() {
-            let (leaves, _) = search.evaluate_coordinate(
+            let result = search.evaluate_coordinate(
                 &seed[..coordinate],
                 seed[coordinate],
                 seed[coordinate].unit(),
+                0,
                 4,
             );
             // Every branch of a coordinate rewinds to the position the search
             // came in at, whether or not the coordinate offered a branch.
             assert_eq!(search.session.state(), &original);
-            let Some(leaf) = leaves.first() else {
+            let Some(leaf) = result.leaves.first() else {
                 continue;
             };
             assert_eq!(&leaf.plan[..coordinate], &seed[..coordinate]);

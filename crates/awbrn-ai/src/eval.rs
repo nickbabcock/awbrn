@@ -217,7 +217,7 @@ impl Default for EvalWeights {
 ///
 /// Each part is the change caused by that term. The values are signed from
 /// the view of one seat. The remaining terms are in `other`.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct EvalBreakdown {
     /// The complete score.
     pub score: f64,

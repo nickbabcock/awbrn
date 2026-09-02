@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use awbrn_ai_diagnostic_types::RunManifest;
 use awbrn_ai_diagnostics::{
     AnalysisStage, analyze_event_log, read_manifest, reanalyse_event_log_with_manifest,
-    resolve_event_log_path, run_plan, run_review, verify_artifact,
+    resolve_event_log_path, run_plan, run_review, run_search_sweep, verify_artifact,
 };
 
 fn main() -> ExitCode {
@@ -16,6 +16,7 @@ fn main() -> ExitCode {
     };
     match command {
         "run" => run(&arguments[1..]),
+        "search-sweep" => search_sweep(&arguments[1..]),
         "analyze" => analyze(&arguments[1..]),
         "features" | "feature-analysis" => features(&arguments[1..]),
         "review" => review(&arguments[1..]),
@@ -24,6 +25,28 @@ fn main() -> ExitCode {
             usage();
             ExitCode::from(2)
         }
+    }
+}
+
+fn search_sweep(arguments: &[String]) -> ExitCode {
+    const USAGE: &str = "usage: ai-diagnostics search-sweep --plan search-budget-sweep-plan.json --output target/search-sweep";
+    let options = match parse_options(arguments, &["--plan", "--output"]) {
+        Ok(options) => options,
+        Err(message) => return invalid_arguments(&message, USAGE),
+    };
+    let (Some(plan), Some(output)) = (options.get("--plan"), options.get("--output")) else {
+        return invalid_arguments("search-sweep needs --plan and --output", USAGE);
+    };
+    match run_search_sweep(plan, output) {
+        Ok(summary) => {
+            println!(
+                "completed Search sweep {} ({})",
+                summary.output.display(),
+                summary.decision.search_coverage_decision
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => report_error("search-sweep", error),
     }
 }
 
@@ -323,7 +346,7 @@ fn report_error(command: &str, error: impl std::fmt::Display) -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage:\n  ai-diagnostics run --plan experiment.json --output target/run\n  ai-diagnostics analyze --run target/run [--analysis outcome-features,review,verification]\n  ai-diagnostics features --states states.jsonl --output target/features\n  ai-diagnostics review --output target/run\n  ai-diagnostics verify --output target/run"
+        "usage:\n  ai-diagnostics search-sweep --plan search-budget-sweep-plan.json --output target/search-sweep\n  ai-diagnostics run --plan experiment.json --output target/run\n  ai-diagnostics analyze --run target/run [--analysis outcome-features,review,verification]\n  ai-diagnostics features --states states.jsonl --output target/features\n  ai-diagnostics review --output target/run\n  ai-diagnostics verify --output target/run"
     );
 }
 

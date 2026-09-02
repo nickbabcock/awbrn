@@ -27,7 +27,10 @@ pub use greedy::{
 };
 pub use portfolio::{Script, ScriptPlan, generate_plan, generate_plans};
 pub use random::RandomAgent;
-pub use search::{SearchAgent, SearchAudit, audit};
+pub use search::{
+    SearchAgent, SearchAllocator, SearchAlternativeVisit, SearchAudit, SearchCandidateEvaluation,
+    SearchDecisionCoverage, audit, audit_with_allocator,
+};
 pub use strategic::StrategicAgent;
 pub use stratified::{
     StratifiedPlan, StratifiedScripts, Stratum, generate_stratified_candidates,
