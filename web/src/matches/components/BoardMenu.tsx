@@ -13,6 +13,7 @@ import {
 } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import type { StyleXStyles } from "@stylexjs/stylex";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import {
   useCallback,
   useEffect,
@@ -423,6 +424,25 @@ function placeOnBoard(
     maxHeight,
     top: Math.min(Math.max(preferredTop, BOARD_MENU_INSET), limitTop),
   };
+}
+
+/**
+ * Move the menu's one cursor to the row under the pointer.
+ *
+ * Bound to pointer movement rather than to entering the row. A menu opens
+ * wherever the board says it belongs, which is under whatever the mouse was
+ * last left on, and `pointerenter` fires for a row that merely appears beneath
+ * a parked pointer. That took the cursor off the order the menu opened on and
+ * put it on whichever row happened to land under the mouse — on a menu pushed
+ * up off the bottom edge, often the last one, which is Delete. A player who had
+ * not touched the mouse then had Enter aimed at deleting the unit.
+ *
+ * Movement is what a player using the pointer does to reach a row, so nothing
+ * is lost by asking for it.
+ */
+export function followPointerCursor(event: ReactPointerEvent<HTMLButtonElement>) {
+  if (document.activeElement === event.currentTarget) return;
+  event.currentTarget.focus({ preventScroll: true });
 }
 
 export const boardMenuStyles = stylex.create({

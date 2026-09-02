@@ -5,6 +5,7 @@ import type {
   ProductionOptionsChanged,
   HoveredTile,
   InspectedUnitReadout,
+  TurnReadinessChanged,
   UnitActionsChanged,
 } from "#/wasm/awbrn_wasm.js";
 
@@ -14,6 +15,7 @@ interface GameState {
   productionOptions: ProductionOptionsChanged | null;
   hoveredTile: HoveredTile | null;
   /** The orders offered at a proposed destination, or null when none is. */
+  turnReadiness: TurnReadinessChanged | undefined;
   unitActions: UnitActionsChanged | null;
   /** What the pointer is aimed at costs both sides, or null when it aims at nothing. */
   attackPreview: AttackPreviewChanged | null;
@@ -26,6 +28,7 @@ interface GameActions {
   setPlayerRoster: (playerRoster: PlayerRosterSnapshot | null) => void;
   setProductionOptions: (productionOptions: ProductionOptionsChanged | null) => void;
   setHoveredTile: (hoveredTile: HoveredTile | null) => void;
+  setTurnReadiness: (turnReadiness: TurnReadinessChanged | undefined) => void;
   setUnitActions: (unitActions: UnitActionsChanged | null) => void;
   setAttackPreview: (attackPreview: AttackPreviewChanged | null) => void;
   setInspectedUnit: (inspectedUnit: InspectedUnitReadout | null) => void;
@@ -37,6 +40,7 @@ export const useGameStore = create<GameState & { actions: GameActions }>((set) =
   playerRoster: null,
   productionOptions: null,
   hoveredTile: null,
+  turnReadiness: undefined,
   unitActions: null,
   attackPreview: null,
   inspectedUnit: null,
@@ -45,6 +49,7 @@ export const useGameStore = create<GameState & { actions: GameActions }>((set) =
     setPlayerRoster: (playerRoster) => set({ playerRoster }),
     setProductionOptions: (productionOptions) => set({ productionOptions }),
     setHoveredTile: (hoveredTile) => set({ hoveredTile }),
+    setTurnReadiness: (turnReadiness) => set({ turnReadiness }),
     setUnitActions: (unitActions) => set({ unitActions }),
     setAttackPreview: (attackPreview) => set({ attackPreview }),
     setInspectedUnit: (inspectedUnit) => set({ inspectedUnit }),
@@ -54,6 +59,7 @@ export const useGameStore = create<GameState & { actions: GameActions }>((set) =
         playerRoster: null,
         productionOptions: null,
         hoveredTile: null,
+        turnReadiness: undefined,
         unitActions: null,
         attackPreview: null,
         inspectedUnit: null,

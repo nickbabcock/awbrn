@@ -1,10 +1,11 @@
 use awbrn_client::{
-    AttackPreviewChanged, AwbrnPlugin, DeleteUnitCommandRequested, EventSink, LiveMatchPlayer,
-    MapAssetPathResolver, MapDimensions, MoveCommandRequested, NewDay, PendingGameStart,
-    PendingLiveMatch, PendingLiveTransitions, PendingMatchMap, PlayerRosterSnapshot,
-    ProductionOptionsChanged, ReplayLoaded, ReplayToLoad, StaticAssetPathResolver,
-    TileHoverChanged, TileSelected, UnitActionsChanged, UnitBuilt, UnitInspectionChanged,
-    UnitMoved, UnloadCommandRequested, core::coords::LogicalPx,
+    AttackPreviewChanged, AwbrnPlugin, DeleteUnitCommandRequested, EndTurnRequested, EventSink,
+    LiveMatchPlayer, MapAssetPathResolver, MapDimensions, MoveCommandRequested, NewDay,
+    PendingGameStart, PendingLiveMatch, PendingLiveTransitions, PendingMatchMap,
+    PlayerRosterSnapshot, ProductionOptionsChanged, ReplayLoaded, ReplayToLoad,
+    StaticAssetPathResolver, TileHoverChanged, TileSelected, TurnReadinessChanged,
+    UnitActionsChanged, UnitBuilt, UnitInspectionChanged, UnitMoved, UnloadCommandRequested,
+    core::coords::LogicalPx,
 };
 use awbrn_map::ValidatedMapDocument;
 use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
@@ -49,6 +50,8 @@ pub enum GameEvent {
     UnloadCommandRequested(UnloadCommandRequested),
     DeleteUnitCommandRequested(DeleteUnitCommandRequested),
     UnitActionsChanged(UnitActionsChanged),
+    TurnReadinessChanged(TurnReadinessChanged),
+    EndTurnRequested(EndTurnRequested),
     UnitInspectionChanged(UnitInspectionChanged),
     AttackPreviewChanged(AttackPreviewChanged),
     MapDimensions(MapDimensions),
@@ -229,6 +232,8 @@ impl BevyApp {
             wasm_sink!(UnloadCommandRequested, UnloadCommandRequested);
             wasm_sink!(DeleteUnitCommandRequested, DeleteUnitCommandRequested);
             wasm_sink!(UnitActionsChanged, UnitActionsChanged);
+            wasm_sink!(TurnReadinessChanged, TurnReadinessChanged);
+            wasm_sink!(EndTurnRequested, EndTurnRequested);
             wasm_sink!(UnitInspectionChanged, UnitInspectionChanged);
             wasm_sink!(AttackPreviewChanged, AttackPreviewChanged);
             wasm_sink!(MapDimensions, MapDimensions);

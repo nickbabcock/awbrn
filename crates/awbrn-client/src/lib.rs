@@ -11,12 +11,13 @@ mod ui_atlas;
 
 pub use awbrn_plugin::AwbrnPlugin;
 pub use features::event_bus::{
-    AttackPreviewChanged, DeleteUnitCommandRequested, EventSink, HoveredCargoUnit, HoveredTile,
-    HoveredUnit, InspectedSight, InspectedUnitReadout, MapDimensions, MoveCommandRequested, NewDay,
-    PlayerRosterEntry, PlayerRosterSnapshot, PlayerRosterStats, PostMoveAction, ProductionOption,
-    ProductionOptionsChanged, ProductionSite, ReplayLoaded, ReplayLoadedPlayer, TileHoverChanged,
-    TileSelected, UnitActionOption, UnitActionsChanged, UnitBuilt, UnitInspectionChanged,
-    UnitMoved, UnitOrder, UnloadCommandRequested,
+    AttackPreviewChanged, DeleteUnitCommandRequested, EndTurnRequested, EventSink,
+    HoveredCargoUnit, HoveredTile, HoveredUnit, InspectedUnitReadout, MapDimensions,
+    MoveCommandRequested, NewDay, PlayerRosterEntry, PlayerRosterSnapshot, PlayerRosterStats,
+    PostMoveAction, ProductionOption, ProductionOptionsChanged, ProductionSite, ReplayLoaded,
+    ReplayLoadedPlayer, ScreenPoint, TileHoverChanged, TileSelected, TurnReadinessChanged,
+    UnitActionOption, UnitActionsChanged, UnitBuilt, UnitInspectionChanged, UnitMoved, UnitOrder,
+    UnloadCommandRequested,
 };
 pub use json_plugin::*;
 pub use loading::{

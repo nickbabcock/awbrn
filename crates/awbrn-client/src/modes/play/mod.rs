@@ -6,12 +6,12 @@ use crate::features::camera::{CameraScale, FocusBoardOn};
 use crate::features::event_bus::{
     AttackForecast, AttackPreviewChanged, DamageBracket, DeleteUnitCommandRequested, EventSink,
     ForecastTarget, MoveCommandRequested, PostMoveAction, ProductionOption,
-    ProductionOptionsChanged, ProductionSite, UnitActionOption, UnitActionsChanged, UnitBadge,
-    UnitOrder, UnloadCommandRequested,
+    ProductionOptionsChanged, ProductionSite, ScreenPoint, TurnReadinessChanged, UnitActionOption,
+    UnitActionsChanged, UnitBadge, UnitOrder, UnloadCommandRequested,
 };
 use crate::features::input::{
-    BoardProjection, DragOwner, PointerGesture, PointerGestureKind, PointerIsCoarse, PointerSet,
-    ReturnToTouchFloor,
+    BoardCursor, BoardProjection, DragOwner, PointerGesture, PointerGestureKind, PointerIsCoarse,
+    PointerSet, ReturnToTouchFloor,
 };
 use crate::render::UiAtlas;
 use crate::render::course_arrow::{COURSE_ARROW_SPRITE_SIZE, build_course_arrow_spawns};
@@ -27,6 +27,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 pub mod inspect;
+mod keyboard;
 
 use crate::loading::{LiveMatchBootstrap, PendingLiveTransitions};
 use crate::modes::replay::presentation::{LiveTransitionCommand, ReplayAdvanceLock};
@@ -36,6 +37,12 @@ pub(crate) const MOVE_RANGE_GLASS_LIGHT_EDGE: Color = Color::srgba(0.82, 1.0, 1.
 pub(crate) const MOVE_RANGE_GLASS_DARK_EDGE: Color = Color::srgba(0.02, 0.34, 0.42, 0.72);
 const MOVE_RANGE_EDGE_WIDTH: f32 = 1.0;
 const PROPOSED_PATH_COLOR: Color = Color::srgba(0.88, 1.0, 0.96, 0.96);
+/// The base under the cursor has something to build. Gold rather than the
+/// range's cyan or a target's red: it is neither a place a unit may go nor one
+/// it may fire on, and reading it as either would be worse than not seeing it.
+const BUILD_SITE_GLASS_COLOR: Color = Color::srgba(1.0, 0.78, 0.16, 0.30);
+const BUILD_SITE_GLASS_LIGHT_EDGE: Color = Color::srgba(1.0, 0.95, 0.74, 0.86);
+const BUILD_SITE_GLASS_DARK_EDGE: Color = Color::srgba(0.4, 0.26, 0.0, 0.78);
 const ATTACK_TARGET_GLASS_COLOR: Color = Color::srgba(0.92, 0.08, 0.12, 0.38);
 const ATTACK_TARGET_GLASS_LIGHT_EDGE: Color = Color::srgba(1.0, 0.64, 0.66, 0.88);
 const ATTACK_TARGET_GLASS_DARK_EDGE: Color = Color::srgba(0.42, 0.01, 0.03, 0.82);
@@ -140,6 +147,221 @@ pub struct PendingAttackConfirmation(pub Option<Pos>);
 pub(crate) struct EmittedAttackPreview {
     forecast: Option<AttackForecast>,
     attacker: Option<UnitBadge>,
+}
+
+/// Every property this player could still build from, in reading order.
+///
+/// Walked once per observation rather than once per question: the answer only
+/// changes when the board does, and both the unit cycle and the highlight ask
+/// it. A site offering nothing the player can pay for is left out — what it can
+/// build is not a thing they can do this turn.
+#[derive(Resource, Debug, Clone, Default, PartialEq, Eq)]
+pub struct BuildableSites {
+    pub tiles: Vec<Pos>,
+}
+
+#[derive(SystemParam)]
+pub(crate) struct BuildableSitesParams<'w> {
+    observations: Option<Res<'w, awbrn_bevy::replay::RecipientObservations>>,
+    viewpoint: Option<Res<'w, awbrn_bevy::replay::ReplayViewpoint>>,
+    sites: ResMut<'w, BuildableSites>,
+}
+
+/// Ask the rules which of this player's properties can still build.
+///
+/// Everything that disqualifies a site — a tile that is not theirs, an occupied
+/// one, the unit limit, the wrong phase — the reducer already refuses, so this
+/// asks it rather than restating it. One session answers for the whole board.
+pub(crate) fn refresh_buildable_sites(mut params: BuildableSitesParams<'_>) {
+    let observations_changed = params
+        .observations
+        .as_ref()
+        .is_some_and(DetectChanges::is_changed);
+    let viewpoint_changed = params
+        .viewpoint
+        .as_ref()
+        .is_some_and(DetectChanges::is_changed);
+    if !observations_changed && !viewpoint_changed {
+        return;
+    }
+
+    let tiles = scan_buildable_sites(params.observations.as_deref(), params.viewpoint.as_deref());
+    // Written through the comparison so an observation that changed something
+    // else does not respawn the highlight.
+    if params.sites.tiles != tiles {
+        params.sites.tiles = tiles;
+    }
+}
+
+fn scan_buildable_sites(
+    observations: Option<&awbrn_bevy::replay::RecipientObservations>,
+    viewpoint: Option<&awbrn_bevy::replay::ReplayViewpoint>,
+) -> Vec<Pos> {
+    let (Some(observations), Some(viewpoint)) = (observations, viewpoint) else {
+        return Vec::new();
+    };
+    let awbrn_bevy::replay::ReplayViewpoint::Player(player) = viewpoint else {
+        return Vec::new();
+    };
+    let Some(observation) = observations.for_player(*player) else {
+        return Vec::new();
+    };
+    // The same gate the build order itself opens behind. Asking after every
+    // property out of turn would be work with one answer.
+    if observation.turn.active_player != observation.recipient
+        || observation.turn.phase != awvm::semantic::Phase::UnitAction
+    {
+        return Vec::new();
+    }
+    let Ok(session) = awvm::session::Session::from_observation(observation) else {
+        return Vec::new();
+    };
+
+    let dimensions = session.state().board.dimensions();
+    let legal = session.legal();
+    let mut rows = Vec::new();
+    // The board walks row by row, so the sites come out in reading order.
+    let mut sites = Vec::new();
+    for position in dimensions.positions() {
+        let Some(tile) = observation.board.get(position) else {
+            continue;
+        };
+        if !tile.owner.is_owned_by(&observation.recipient) {
+            continue;
+        }
+        let Some(cell) = dimensions.cell_index(position) else {
+            continue;
+        };
+        rows.clear();
+        legal.production_options(cell, &mut rows);
+        if rows.iter().any(|row| row.affordable) {
+            sites.push(position);
+        }
+    }
+    sites
+}
+
+/// The readiness the page was last told about, so an unchanged turn is not
+/// re-sent every frame.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct EmittedTurnReadiness(Option<TurnReadinessChanged>);
+
+/// What the player still has in hand: units that have not acted, and the
+/// properties they could still build from.
+///
+/// The unit half counts what the cycle would walk to rather than what the rules
+/// would accept there, which is the same promise the cycle makes: a unit that
+/// has not acted is one the player has not spent.
+fn turn_readiness(
+    unit_selection: &PlayUnitSelectionParams<'_, '_>,
+    sites: &BuildableSites,
+) -> TurnReadinessChanged {
+    let idle_units = unit_selection
+        .units
+        .iter()
+        .filter(|(_, faction, _, _, is_active, is_carried, has_cargo)| {
+            unit_is_selectable(
+                **faction,
+                *is_active,
+                *is_carried,
+                *has_cargo,
+                &unit_selection.friendly_factions,
+            )
+        })
+        .count();
+    TurnReadinessChanged {
+        idle_units: idle_units as u32,
+        free_sites: sites.tiles.len() as u32,
+    }
+}
+
+/// Tell the page what is still in hand, when it changes.
+pub(crate) fn emit_turn_readiness(
+    unit_selection: PlayUnitSelectionParams<'_, '_>,
+    sites: Res<BuildableSites>,
+    mut emitted: ResMut<EmittedTurnReadiness>,
+    sink: Option<Res<EventSink<TurnReadinessChanged>>>,
+) {
+    let Some(sink) = sink.as_deref() else {
+        return;
+    };
+    let readiness = turn_readiness(&unit_selection, &sites);
+    if emitted.0 == Some(readiness) {
+        return;
+    }
+    emitted.0 = Some(readiness);
+    sink.emit(readiness);
+}
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuildableSiteHighlight;
+
+/// Light the base under the cursor when there is something to build on it.
+///
+/// A unit says what it can do by showing its range. A base said nothing at all,
+/// so the only way to learn that one was still free was to open its order and
+/// find out. This is the same answer given before the question.
+pub(crate) fn sync_buildable_site_highlight(
+    mut commands: Commands,
+    cursor: BoardCursor<'_, '_>,
+    sites: Res<BuildableSites>,
+    phase: Res<PlayUiPhase>,
+    game_map: Res<GameMap>,
+    highlights: Query<Entity, With<BuildableSiteHighlight>>,
+    mut lit: Local<Option<Pos>>,
+) {
+    // With a unit in hand the board is answering about where it goes. A base
+    // lit under that conversation would be offering a second one.
+    let target = (*phase == PlayUiPhase::Idle)
+        .then(|| cursor.tile())
+        .flatten()
+        .filter(|tile| sites.tiles.contains(tile));
+
+    if target == *lit && !sites.is_changed() {
+        return;
+    }
+    *lit = target;
+
+    for entity in &highlights {
+        commands.entity(entity).try_despawn();
+    }
+    let Some(tile) = target else {
+        return;
+    };
+
+    let center = position_to_world_translation(&MOVE_RANGE_SPRITE_SIZE, tile, &game_map);
+    commands.spawn((
+        BuildableSiteHighlight,
+        Sprite::from_color(BUILD_SITE_GLASS_COLOR, Vec2::splat(TILE_SIZE)),
+        MOVE_RANGE_SPRITE_SIZE,
+        Transform::from_translation(center),
+    ));
+    let half = (TILE_SIZE - MOVE_RANGE_EDGE_WIDTH) * 0.5;
+    let edges = [
+        (Vec3::new(0.0, half, 0.01), true, true),
+        (Vec3::new(-half, 0.0, 0.01), false, true),
+        (Vec3::new(0.0, -half, 0.01), true, false),
+        (Vec3::new(half, 0.0, 0.01), false, false),
+    ];
+    for (offset, horizontal, is_light) in edges {
+        let size = if horizontal {
+            Vec2::new(TILE_SIZE, MOVE_RANGE_EDGE_WIDTH)
+        } else {
+            Vec2::new(MOVE_RANGE_EDGE_WIDTH, TILE_SIZE)
+        };
+        commands.spawn((
+            BuildableSiteHighlight,
+            Sprite::from_color(
+                if is_light {
+                    BUILD_SITE_GLASS_LIGHT_EDGE
+                } else {
+                    BUILD_SITE_GLASS_DARK_EDGE
+                },
+                size,
+            ),
+            Transform::from_translation(center + offset),
+        ));
+    }
 }
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -259,10 +481,11 @@ pub(crate) struct HoverState<'w> {
 }
 
 #[derive(SystemParam)]
-pub(crate) struct UnitActionParams<'w> {
+pub(crate) struct UnitActionParams<'w, 's> {
     observations: Option<Res<'w, awbrn_bevy::replay::RecipientObservations>>,
     viewpoint: Option<Res<'w, awbrn_bevy::replay::ReplayViewpoint>>,
     sink: Option<Res<'w, EventSink<UnitActionsChanged>>>,
+    projection: BoardProjection<'w, 's>,
 }
 
 #[derive(SystemParam)]
@@ -719,9 +942,16 @@ pub(crate) fn handle_play_pointer_gestures(
     for gesture in gestures.read() {
         match gesture.kind {
             PointerGestureKind::Tap => {
+                let Some(tapped) = gesture.tile else {
+                    continue;
+                };
                 handle_tap(
-                    gesture,
-                    projection.world_at(gesture.viewport),
+                    TileAnswer {
+                        tile: tapped,
+                        world: projection.world_at(gesture.viewport),
+                        coarse: gesture.coarse,
+                    },
+                    &projection,
                     &mut confirmation,
                     &mut policy,
                     &unit_selection,
@@ -751,18 +981,38 @@ pub(crate) fn handle_play_pointer_gestures(
     }
 }
 
+/// A tile the player named, and how exactly they named it.
+///
+/// `world` is where the press actually landed, which is what lets a near miss
+/// resolve onto the tile it was reaching for. Only a pointer can miss: the
+/// keyboard names a tile exactly and passes none.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct TileAnswer {
+    pub(crate) tile: Pos,
+    pub(crate) world: Option<Vec2>,
+    pub(crate) coarse: bool,
+}
+
+/// Answer a tile the player named, however they named it.
+///
+/// A tap, and the keyboard's confirm, are the same answer about the same tile,
+/// so they are the same code. `world` is where the press actually landed, which
+/// only a pointer can miss with; the keyboard names a tile exactly and passes
+/// none.
 fn handle_tap(
-    gesture: &PointerGesture,
-    world: Option<Vec2>,
+    answer: TileAnswer,
+    projection: &BoardProjection<'_, '_>,
     confirmation: &mut PendingAttackConfirmation,
     policy: &mut PointerPolicy<'_>,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
     production_options: &ProductionOptionsParams<'_>,
     selection: &mut PlaySelectionState<'_>,
 ) {
-    let Some(tapped) = gesture.tile else {
-        return;
-    };
+    let TileAnswer {
+        tile: tapped,
+        world,
+        coarse,
+    } = answer;
 
     if *selection.phase == PlayUiPhase::AwaitingServer {
         return;
@@ -778,7 +1028,7 @@ fn handle_tap(
             &selection.attack_targets,
             selection.move_field.0.as_ref(),
         ) {
-            if gesture.coarse && policy.camera_scale.is_below_touch_floor() {
+            if coarse && policy.camera_scale.is_below_touch_floor() {
                 policy.floor.write(ReturnToTouchFloor);
                 return;
             }
@@ -797,7 +1047,7 @@ fn handle_tap(
                     .and_then(|field| field_path(field, approach))
                     .unwrap_or_default();
             }
-            if gesture.coarse && !was_aimed {
+            if coarse && !was_aimed {
                 return;
             }
             confirmation.0 = Some(tapped);
@@ -833,7 +1083,7 @@ fn handle_tap(
             // A tile too small to hit is a tile too small to commit to. The
             // selection survives and the board comes back up to a size the
             // finger can work at.
-            if gesture.coarse && policy.camera_scale.is_below_touch_floor() {
+            if coarse && policy.camera_scale.is_below_touch_floor() {
                 policy.floor.write(ReturnToTouchFloor);
                 return;
             }
@@ -847,7 +1097,7 @@ fn handle_tap(
         if let Some(selectable) = selectable_unit_at(tapped, unit_selection) {
             let origin = selectable.origin;
             select_unit(selectable, unit_selection, selection);
-            if gesture.coarse {
+            if coarse {
                 // The selection already holds the range it just walked, so the
                 // frame reads it rather than walking the field a second time.
                 frame_selection(
@@ -875,7 +1125,7 @@ fn handle_tap(
         close_production_options(production_options.sink.as_deref());
         let origin = selectable.origin;
         select_unit(selectable, unit_selection, selection);
-        if gesture.coarse {
+        if coarse {
             frame_selection(
                 origin,
                 &selection.move_range.tiles,
@@ -905,6 +1155,7 @@ fn handle_tap(
 
     emit_production_options(
         tapped,
+        projection,
         production_options.observations.as_deref(),
         production_options.viewpoint.as_deref(),
         production_options.sink.as_deref(),
@@ -1030,12 +1281,14 @@ fn close_production_options(sink: Option<&EventSink<ProductionOptionsChanged>>) 
         sink.emit(ProductionOptionsChanged {
             site: None,
             options: Vec::new(),
+            anchor: None,
         });
     }
 }
 
 fn emit_production_options(
     position: Pos,
+    projection: &BoardProjection<'_, '_>,
     observations: Option<&awbrn_bevy::replay::RecipientObservations>,
     viewpoint: Option<&awbrn_bevy::replay::ReplayViewpoint>,
     sink: Option<&EventSink<ProductionOptionsChanged>>,
@@ -1097,6 +1350,7 @@ fn emit_production_options(
             facility: tile.terrain,
         }),
         options,
+        anchor: screen_anchor(projection, position),
     });
 }
 
@@ -1126,7 +1380,7 @@ pub(crate) fn clear_selection_on_escape(
 }
 
 pub(crate) fn update_proposed_move_path(
-    projection: BoardProjection<'_, '_>,
+    cursor: BoardCursor<'_, '_>,
     keys: Res<ButtonInput<KeyCode>>,
     coarse: Res<PointerIsCoarse>,
     hover: HoverState<'_>,
@@ -1139,8 +1393,9 @@ pub(crate) fn update_proposed_move_path(
     }
     // A touch session has no cursor. The one the window reports is wherever the
     // last finger left it, and reading it here would wipe the aim a tap just
-    // took, one frame after the tap took it.
-    if coarse.0 {
+    // took, one frame after the tap took it. A keyboard cursor is not that: it
+    // is exactly where the player put it, whatever pointer the session has seen.
+    if coarse.0 && !cursor.keyboard_steers() {
         return;
     }
     let Some(selected_unit) = hover.selected.0 else {
@@ -1166,7 +1421,7 @@ pub(crate) fn update_proposed_move_path(
         proposed.drawn_path = proposed.path.iter().copied().skip(1).collect();
     }
 
-    let hovered = projection.cursor_tile();
+    let hovered = cursor.tile();
 
     if hovered == proposed.hovered && !shift_started && !undo {
         return;
@@ -1753,6 +2008,17 @@ pub enum CommittedKind {
 #[derive(Resource, Debug, Clone, Default, PartialEq, Eq)]
 pub struct CommittedCommand(pub Option<CommittedSnapshot>);
 
+/// Where a menu about this tile belongs on the canvas.
+///
+/// Rounded to whole pixels, because that is the resolution a menu is placed at
+/// and it keeps the event comparable.
+fn screen_anchor(projection: &BoardProjection<'_, '_>, tile: Pos) -> Option<ScreenPoint> {
+    projection.tile_viewport(tile).map(|viewport| ScreenPoint {
+        x: viewport.x.round() as i32,
+        y: viewport.y.round() as i32,
+    })
+}
+
 fn close_unit_actions(sink: Option<&EventSink<UnitActionsChanged>>) {
     if let Some(sink) = sink {
         sink.emit(UnitActionsChanged {
@@ -1760,6 +2026,7 @@ fn close_unit_actions(sink: Option<&EventSink<UnitActionsChanged>>) {
             options: Vec::new(),
             preselected: None,
             attacker: None,
+            anchor: None,
         });
     }
 }
@@ -1772,7 +2039,7 @@ fn close_unit_actions(sink: Option<&EventSink<UnitActionsChanged>>) {
 pub(crate) fn emit_unit_actions(
     pending: Res<PendingMoveDestination>,
     unit_selection: PlayUnitSelectionParams<'_, '_>,
-    actions: UnitActionParams<'_>,
+    actions: UnitActionParams<'_, '_>,
     mut confirmation: ResMut<PendingAttackConfirmation>,
     mut chosen: MessageWriter<UnitActionChosen>,
     mut offered: ResMut<OfferedActions>,
@@ -1914,6 +2181,7 @@ pub(crate) fn emit_unit_actions(
         options,
         preselected,
         attacker: unit_badge(pending.unit, &unit_selection),
+        anchor: screen_anchor(&actions.projection, pending.destination),
     });
 }
 
@@ -2174,7 +2442,7 @@ pub(crate) fn handle_unit_action_chosen(
     mut chosen: MessageReader<UnitActionChosen>,
     offered: Res<OfferedActions>,
     unit_selection: PlayUnitSelectionParams<'_, '_>,
-    actions: UnitActionParams<'_>,
+    actions: UnitActionParams<'_, '_>,
     command_sinks: UnitCommandSinks<'_>,
     mut committed: ResMut<CommittedCommand>,
     mut selection: PlaySelectionState<'_>,
@@ -2356,6 +2624,8 @@ impl Plugin for PlayPlugin {
             .init_resource::<EmittedAttackPreview>()
             .init_resource::<ProposedMovePath>()
             .init_resource::<PlayUiPhase>()
+            .init_resource::<BuildableSites>()
+            .init_resource::<EmittedTurnReadiness>()
             .init_resource::<OfferedActions>()
             .init_resource::<CommittedCommand>()
             .init_resource::<inspect::InspectedUnit>()
@@ -2377,6 +2647,13 @@ impl Plugin for PlayPlugin {
                 Update,
                 (
                     handle_unit_action_dismissed,
+                    // What can still be built is settled before a key can walk
+                    // to it and before the board can light it.
+                    refresh_buildable_sites,
+                    // The cursor moves before the route follows it, so a key
+                    // press draws its step in the frame it was pressed in.
+                    keyboard::handle_play_keyboard,
+                    keyboard::follow_keyboard_cursor,
                     update_proposed_move_path,
                     handle_play_pointer_gestures.after(update_proposed_move_path),
                     handle_unit_action_chosen,
@@ -2385,8 +2662,11 @@ impl Plugin for PlayPlugin {
                     clear_invalid_selection,
                     emit_unit_actions,
                     emit_attack_preview,
-                    sync_move_range_highlights,
-                    sync_attack_target_highlights,
+                    (
+                        sync_move_range_highlights,
+                        sync_buildable_site_highlight,
+                        sync_attack_target_highlights,
+                    ),
                     sync_destination_ghost,
                     sync_proposed_path_arrows
                         .run_if(resource_exists::<crate::render::UiAtlasResource>),
@@ -2406,6 +2686,7 @@ impl Plugin for PlayPlugin {
                         inspect::emit_inspection_readout,
                     )
                         .chain(),
+                    emit_turn_readiness,
                     apply_pending_live_transition,
                 )
                     .chain()
@@ -2422,6 +2703,7 @@ impl Plugin for PlayPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::features::event_bus::EndTurnRequested;
     use crate::loading::LiveMatchPlayer;
     use crate::modes::replay::presentation::{DeferredTransitions, ReplayFollowupCommand};
     use crate::render::animation::UnitPathAnimation;
@@ -2467,6 +2749,8 @@ mod tests {
         app.init_resource::<FriendlyFactions>();
         app.init_resource::<StrongIdMap<AwbwUnitId>>();
         app.init_resource::<ButtonInput<KeyCode>>();
+        app.init_resource::<crate::features::input::KeyboardCursor>();
+        app.add_message::<bevy::input::keyboard::KeyboardInput>();
         app.init_resource::<DragOwner>();
         app.init_resource::<PointerIsCoarse>();
         app.init_resource::<TestNextUnitId>();
@@ -5062,6 +5346,368 @@ mod tests {
                 .tiles
                 .get(&Pos::new(2, 1)),
             Some(&2)
+        );
+    }
+
+    /// Steer the board with a key, the way the page forwards one.
+    fn press_key(app: &mut App, key_code: KeyCode) {
+        press_key_repeat(app, key_code, false);
+    }
+
+    fn press_key_repeat(app: &mut App, key_code: KeyCode, repeat: bool) {
+        use bevy::input::keyboard::{Key, KeyboardInput, NativeKey};
+
+        sync_test_observation(app);
+        app.world_mut().write_message(KeyboardInput {
+            key_code,
+            logical_key: Key::Unidentified(NativeKey::Unidentified),
+            state: bevy::input::ButtonState::Pressed,
+            text: None,
+            repeat,
+            window: Entity::PLACEHOLDER,
+        });
+        app.update();
+    }
+
+    fn keyboard_cursor(app: &App) -> Option<Pos> {
+        app.world()
+            .resource::<crate::features::input::KeyboardCursor>()
+            .0
+    }
+
+    fn keyboard_board(width: u8, height: u8) -> App {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, width, height);
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+        app
+    }
+
+    /// The arrows walk the cursor, and the board holds it at its own edge.
+    #[test]
+    fn arrow_keys_walk_the_cursor_within_the_board() {
+        let mut app = keyboard_board(5, 5);
+        spawn_unit(
+            &mut app,
+            Pos::new(0, 0),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+
+        // Nothing has been pointed at yet, so the cursor starts in the middle.
+        press_key(&mut app, KeyCode::ArrowRight);
+        assert_eq!(keyboard_cursor(&app), Some(Pos::new(3, 2)));
+
+        press_key(&mut app, KeyCode::KeyW);
+        press_key(&mut app, KeyCode::ArrowUp);
+        assert_eq!(keyboard_cursor(&app), Some(Pos::new(3, 0)));
+
+        // The top edge is an edge, not a wrap.
+        press_key(&mut app, KeyCode::ArrowUp);
+        assert_eq!(keyboard_cursor(&app), Some(Pos::new(3, 0)));
+    }
+
+    /// Tab picks up the next unit that can still act, and wraps.
+    #[test]
+    fn tab_cycles_the_units_that_can_still_act() {
+        let mut app = keyboard_board(6, 6);
+        let first = spawn_unit(
+            &mut app,
+            Pos::new(1, 1),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+        let second = spawn_unit(
+            &mut app,
+            Pos::new(4, 3),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+        // Neither of these may be given an order, so neither is offered.
+        spawn_unit(
+            &mut app,
+            Pos::new(2, 0),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            false,
+            Some(99),
+        );
+        spawn_unit(
+            &mut app,
+            Pos::new(0, 3),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::BlueMoon,
+            true,
+            Some(99),
+        );
+
+        press_key(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.world().resource::<SelectedUnit>().0.map(|s| s.entity),
+            Some(first)
+        );
+        assert_eq!(keyboard_cursor(&app), Some(Pos::new(1, 1)));
+        assert_eq!(
+            *app.world().resource::<PlayUiPhase>(),
+            PlayUiPhase::UnitSelected
+        );
+
+        press_key(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.world().resource::<SelectedUnit>().0.map(|s| s.entity),
+            Some(second)
+        );
+
+        press_key(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.world().resource::<SelectedUnit>().0.map(|s| s.entity),
+            Some(first),
+            "the cycle wraps"
+        );
+
+        press_key(&mut app, KeyCode::KeyQ);
+        assert_eq!(
+            app.world().resource::<SelectedUnit>().0.map(|s| s.entity),
+            Some(second),
+            "and walks backwards"
+        );
+    }
+
+    /// The walk stops on a base that can still build, and Enter opens it.
+    ///
+    /// A turn is spent on production as much as on movement, so a cycle that
+    /// only knew about units would walk the player past half of what they have
+    /// left to do.
+    #[test]
+    fn tab_stops_on_a_base_that_can_still_build() {
+        let fixture = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../spec/fixtures/commander/hachi-scop.json"),
+        )
+        .unwrap();
+        let mut fixture: serde_json::Value = serde_json::from_str(&fixture).unwrap();
+        let state = &mut fixture["initial_state"];
+        state["board"]["tiles"][0][0]["owner"] = serde_json::json!("0");
+        state["players"][0]["id"] = serde_json::json!("0");
+        state["turn"]["active_player"] = serde_json::json!("0");
+        state["turn"]["order"][0] = serde_json::json!("0");
+        let state: State = serde_json::from_value(state.clone()).unwrap();
+        let recipient = state.players[0].id().clone();
+        let observation = observe(&AwbwVisibility, &state, &recipient).unwrap();
+
+        let mut app = play_test_app();
+        app.world_mut().remove_resource::<TestObservationSync>();
+        set_plain_map(&mut app, 1, 1);
+        let mut observations = awbrn_bevy::replay::RecipientObservations::default();
+        observations.set(vec![observation]);
+        app.world_mut().insert_resource(observations);
+        app.world_mut()
+            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
+                awbrn_types::AwbwGamePlayerId::new(0),
+            ));
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let received_by_sink = std::sync::Arc::clone(&received);
+        app.world_mut()
+            .insert_resource(EventSink::<ProductionOptionsChanged>::new(move |event| {
+                received_by_sink.lock().unwrap().push(event);
+            }));
+
+        press_key(&mut app, KeyCode::Tab);
+        assert_eq!(keyboard_cursor(&app), Some(Pos::new(0, 0)));
+        assert_eq!(
+            *app.world().resource::<PlayUiPhase>(),
+            PlayUiPhase::Idle,
+            "a base takes the cursor without taking a unit in hand"
+        );
+        assert!(
+            received
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|event| event.site.is_none()),
+            "walking past a base does not open the order that would take the keyboard"
+        );
+
+        press_key(&mut app, KeyCode::Enter);
+        let received = received.lock().unwrap();
+        let event = received.last().expect("production event");
+        assert_eq!(
+            event.site.as_ref().unwrap().facility,
+            awvm::ruleset::Terrain::City
+        );
+    }
+
+    /// The board says a base is free before the player has to ask it.
+    #[test]
+    fn a_base_that_can_build_lights_under_the_cursor() {
+        let mut app = keyboard_board(4, 4);
+        app.world_mut().resource_mut::<BuildableSites>().tiles = vec![Pos::new(2, 1)];
+
+        app.world_mut()
+            .resource_mut::<crate::features::input::KeyboardCursor>()
+            .0 = Some(Pos::new(2, 1));
+        app.update();
+        assert!(
+            app.world_mut()
+                .query_filtered::<Entity, With<BuildableSiteHighlight>>()
+                .iter(app.world())
+                .count()
+                > 0,
+            "a free base under the cursor is lit"
+        );
+
+        app.world_mut()
+            .resource_mut::<crate::features::input::KeyboardCursor>()
+            .0 = Some(Pos::new(0, 3));
+        app.update();
+        assert_eq!(
+            app.world_mut()
+                .query_filtered::<Entity, With<BuildableSiteHighlight>>()
+                .iter(app.world())
+                .count(),
+            0,
+            "and open ground is not"
+        );
+    }
+
+    /// The chord asks; it never ends the turn itself.
+    #[test]
+    fn ctrl_enter_asks_the_page_to_end_the_turn() {
+        let mut app = keyboard_board(5, 5);
+        spawn_unit(
+            &mut app,
+            Pos::new(1, 1),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let received_by_sink = std::sync::Arc::clone(&received);
+        app.world_mut()
+            .insert_resource(EventSink::<EndTurnRequested>::new(move |event| {
+                received_by_sink.lock().unwrap().push(event);
+            }));
+
+        // Enter on its own answers the tile under the cursor, as it always does.
+        press_key(&mut app, KeyCode::Enter);
+        assert!(received.lock().unwrap().is_empty());
+
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::ControlLeft);
+        press_key(&mut app, KeyCode::Enter);
+
+        let received = received.lock().unwrap();
+        assert_eq!(
+            received.as_slice(),
+            [EndTurnRequested {
+                idle_units: 1,
+                free_sites: 0,
+            }],
+            "the ask carries what the turn still has in hand"
+        );
+    }
+
+    /// Shift+Tab is the page's, not the board's.
+    #[test]
+    fn shift_tab_leaves_the_board_alone() {
+        let mut app = keyboard_board(5, 5);
+        spawn_unit(
+            &mut app,
+            Pos::new(1, 1),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::ShiftLeft);
+        press_key(&mut app, KeyCode::Tab);
+
+        assert_eq!(app.world().resource::<SelectedUnit>().0, None);
+    }
+
+    /// Walking to a tile and confirming proposes exactly that destination.
+    #[test]
+    fn arrows_route_the_selected_unit_and_enter_confirms_it() {
+        let mut app = keyboard_board(6, 6);
+        let unit = spawn_unit(
+            &mut app,
+            Pos::new(2, 2),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+
+        press_key(&mut app, KeyCode::Tab);
+        press_key(&mut app, KeyCode::ArrowRight);
+        assert_eq!(keyboard_cursor(&app), Some(Pos::new(3, 2)));
+        assert_eq!(
+            app.world().resource::<ProposedMovePath>().path,
+            vec![Pos::new(2, 2), Pos::new(3, 2)]
+        );
+
+        press_key(&mut app, KeyCode::Enter);
+        let pending = app
+            .world()
+            .resource::<PendingMoveDestination>()
+            .0
+            .clone()
+            .expect("a destination was proposed");
+        assert_eq!(pending.unit, unit);
+        assert_eq!(pending.destination, Pos::new(3, 2));
+        assert_eq!(
+            *app.world().resource::<PlayUiPhase>(),
+            PlayUiPhase::DestinationSelected
+        );
+
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Escape);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<PlayUiPhase>(),
+            PlayUiPhase::UnitSelected,
+            "escape steps back one stage, as it does for a pointer"
+        );
+    }
+
+    /// A held key walks the cursor; it never gives the order twice.
+    #[test]
+    fn a_held_confirm_commits_once() {
+        let mut app = keyboard_board(6, 6);
+        spawn_unit(
+            &mut app,
+            Pos::new(2, 2),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+
+        press_key(&mut app, KeyCode::Tab);
+        press_key(&mut app, KeyCode::ArrowRight);
+        press_key_repeat(&mut app, KeyCode::ArrowRight, true);
+        assert_eq!(keyboard_cursor(&app), Some(Pos::new(4, 2)));
+
+        press_key(&mut app, KeyCode::Enter);
+        press_key_repeat(&mut app, KeyCode::Enter, true);
+        assert_eq!(
+            *app.world().resource::<PlayUiPhase>(),
+            PlayUiPhase::DestinationSelected,
+            "the repeat did not answer the menu's tile as well"
         );
     }
 }
