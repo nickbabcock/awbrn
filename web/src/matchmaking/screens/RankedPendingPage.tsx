@@ -104,6 +104,7 @@ export function RankedPendingPage({
         queryClient.invalidateQueries({ queryKey: detailQueryOptions.queryKey }),
         queryClient.invalidateQueries({ queryKey: rankedKeys.overview() }),
         queryClient.invalidateQueries({ queryKey: matchKeys.mine() }),
+        queryClient.invalidateQueries({ queryKey: matchKeys.awaiting() }),
       ]);
       if (action.action === "refuse") {
         await queryClient.invalidateQueries({ queryKey: rankedOverviewQueryOptions().queryKey });

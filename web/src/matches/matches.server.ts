@@ -20,6 +20,7 @@ import type {
   MatchHistoryRequest,
   MatchHistoryResponse,
   MatchHistorySeat,
+  MatchesAwaitingResponse,
   MyMatchesResponse,
   MyMatchSummary,
 } from "./schemas";
@@ -46,12 +47,14 @@ import {
   and,
   asc,
   count,
+  countDistinct,
   desc,
   eq,
   exists,
   gt,
   inArray,
   isNotNull,
+  isNull,
   lt,
   or,
   sql,
@@ -86,6 +89,7 @@ const db = drizzle(env.DB, {
 const PUBLIC_MATCH_PHASE: MatchPhase = "lobby";
 const STARTING_MATCH_PHASE: MatchPhase = "starting";
 const ACTIVE_MATCH_PHASE: MatchPhase = "active";
+const PENDING_MATCH_PHASE: MatchPhase = "pending";
 
 interface MatchViewer {
   id: string;
@@ -402,6 +406,53 @@ export async function listMyMatches(viewerUserId: string): Promise<MatchResult<M
   }
 
   return ok({ matches: myMatches });
+}
+
+/**
+ * How many of the viewer's matches are waiting on them.
+ *
+ * The count is read from the seats rather than from the matches, so it rides
+ * `match_participants_user_match_idx` and reads only the rows the viewer
+ * holds. A hotseat match the viewer holds two seats in is one match waiting on
+ * them and is counted once, which is what `countDistinct` is here for.
+ */
+export async function countMatchesAwaitingViewer(
+  viewerUserId: string,
+): Promise<MatchResult<MatchesAwaitingResponse>> {
+  try {
+    const row = await db
+      .select({ awaiting: countDistinct(matches.id) })
+      .from(matchParticipants)
+      .innerJoin(matches, eq(matches.id, matchParticipants.matchId))
+      .where(
+        and(
+          eq(matchParticipants.userId, viewerUserId),
+          or(
+            // The seat is on the move.
+            and(
+              eq(matches.phase, ACTIVE_MATCH_PHASE),
+              eq(matches.activeSlotIndex, matchParticipants.slotIndex),
+            ),
+            // A ranked pairing the seat has not confirmed.
+            and(eq(matches.phase, PENDING_MATCH_PHASE), eq(matchParticipants.ready, false)),
+            // A lobby the seat has not finished setting up.
+            and(
+              eq(matches.phase, PUBLIC_MATCH_PHASE),
+              or(eq(matchParticipants.ready, false), isNull(matchParticipants.coId)),
+            ),
+          ),
+        ),
+      )
+      .get();
+
+    return ok({ awaiting: Number(row?.awaiting ?? 0) });
+  } catch (error) {
+    return err(
+      "matchQueryFailed",
+      error instanceof Error ? error.message : "failed to count waiting matches",
+      502,
+    );
+  }
 }
 
 /**
@@ -1057,6 +1108,8 @@ async function queryMyMatchRows(viewerUserId: string) {
       createdAt: matches.createdAt,
       updatedAt: matches.updatedAt,
       startedAt: matches.startedAt,
+      activeSlotIndex: matches.activeSlotIndex,
+      turnDeadlineAt: matches.turnDeadlineAt,
       viewerSlotIndex: matchParticipants.slotIndex,
       viewerFactionId: matchParticipants.factionId,
       viewerCoId: matchParticipants.coId,
@@ -1072,6 +1125,14 @@ async function queryMyMatchRows(viewerUserId: string) {
     )
     .where(inArray(matches.phase, ONGOING_MATCH_PHASES))
     .orderBy(
+      // A match that is waiting on the viewer is what they came to the page
+      // for, whatever phase it is in, so it sorts above the rest.
+      sql`CASE
+        WHEN ${matches.phase} = 'active' AND ${matches.activeSlotIndex} = ${matchParticipants.slotIndex} THEN 0
+        WHEN ${matches.phase} = 'pending' AND ${matchParticipants.ready} = 0 THEN 0
+        WHEN ${matches.phase} = 'lobby' AND (${matchParticipants.ready} = 0 OR ${matchParticipants.coId} IS NULL) THEN 0
+        ELSE 1
+      END`,
       sql`CASE ${matches.phase}
         WHEN 'active' THEN 0
         WHEN 'starting' THEN 1
@@ -1204,6 +1265,8 @@ function toMyMatchSummary(rows: MyMatchRow[], settings: MatchSettings): MyMatchS
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     startedAt: row.startedAt === null ? null : row.startedAt.toISOString(),
+    activeSlotIndex: row.activeSlotIndex,
+    turnDeadlineAt: row.turnDeadlineAt === null ? null : row.turnDeadlineAt.toISOString(),
     viewerParticipants: rows
       .map((viewerRow) => ({
         slotIndex: viewerRow.viewerSlotIndex,

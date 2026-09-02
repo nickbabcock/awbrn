@@ -134,6 +134,8 @@ CREATE TABLE `matches` (
 	`updatedAt` integer NOT NULL,
 	`startedAt` integer,
 	`completedAt` integer,
+	`activeSlotIndex` integer,
+	`turnDeadlineAt` integer,
 	`pool` text,
 	`season` integer,
 	FOREIGN KEY (`creatorUserId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
@@ -148,6 +150,7 @@ CREATE INDEX `matches_creator_idx` ON `matches` (`creatorUserId`);--> statement-
 CREATE INDEX `matches_browse_idx` ON `matches` (`phase`,`isPrivate`,`createdAt`);--> statement-breakpoint
 CREATE UNIQUE INDEX `matches_joinSlug_unique` ON `matches` (`joinSlug`);--> statement-breakpoint
 CREATE INDEX `matches_ranked_active_idx` ON `matches` (`pool`,`phase`) WHERE "matches"."pool" is not null;--> statement-breakpoint
+CREATE INDEX `matches_active_turn_idx` ON `matches` (`activeSlotIndex`) WHERE "matches"."phase" = 'active' and "matches"."activeSlotIndex" is not null;--> statement-breakpoint
 CREATE TABLE `moderation_actions` (
 	`id` text PRIMARY KEY NOT NULL,
 	`actorUserId` text NOT NULL,

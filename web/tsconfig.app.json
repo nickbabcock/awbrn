@@ -18,6 +18,11 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* drizzle-kit writes each durable object's migration bundle as .js, and it
+       is used as generated rather than transcribed into a .ts that would go
+       stale the next time a migration is added. */
+    "allowJs": true,
+
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,
@@ -25,5 +30,5 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src", "test", "drizzle/match"]
+  "include": ["src", "test", "drizzle/match", "drizzle/player"]
 }

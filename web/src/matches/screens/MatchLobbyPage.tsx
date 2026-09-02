@@ -199,6 +199,7 @@ export function MatchLobbyPage({
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: matchKeys.browse() }),
         queryClient.invalidateQueries({ queryKey: matchKeys.mine() }),
+        queryClient.invalidateQueries({ queryKey: matchKeys.awaiting() }),
       ]);
     },
   });

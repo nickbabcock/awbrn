@@ -1,4 +1,5 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@astryxdesign/core/Badge";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Grid } from "@astryxdesign/core/Grid";
@@ -11,15 +12,24 @@ import { getCoPortraitByAwbwId } from "#/components/co_portraits.ts";
 import { getFactionById } from "#/factions.ts";
 import { RouterButton, RouterListItem } from "#/ui/astryx-links.tsx";
 import type { MatchPhase, MyMatchSummary } from "#/matches/schemas.ts";
-import { formatMyMatchPhaseLabel, myMatchActionLabel } from "#/matches/my_matches.ts";
+import {
+  formatMyMatchPhaseLabel,
+  myMatchActionLabel,
+  needsViewerAction,
+} from "#/matches/my_matches.ts";
 import { myMatchesQueryOptions } from "#/matches/matches.queries.ts";
 import { TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
 import { formatRelativeTime } from "#/utils/time.ts";
-import { formatClockSummary } from "#/matches/match_clock.ts";
+import { clockTickMs, formatClockSummary, formatTurnRemaining } from "#/matches/match_clock.ts";
 
 export function MyMatchesPage() {
   const { data } = useSuspenseQuery(myMatchesQueryOptions());
   const { loadedAt, matches } = data;
+  // The turn deadlines are read against a clock that is running, not against
+  // the moment the page loaded. A page left open used to hold whatever the
+  // countdown said when it arrived.
+  const deadlines = useMemo(() => turnDeadlines(matches), [matches]);
+  const now = useCountdownNow(deadlines);
 
   return (
     <Section padding={6} variant="transparent">
@@ -71,7 +81,7 @@ export function MyMatchesPage() {
             }
           >
             {matches.map((match) => (
-              <MyMatchRow key={match.matchId} loadedAt={loadedAt} match={match} />
+              <MyMatchRow key={match.matchId} loadedAt={loadedAt} match={match} now={now} />
             ))}
           </List>
         )}
@@ -80,7 +90,58 @@ export function MyMatchesPage() {
   );
 }
 
-function MyMatchRow({ loadedAt, match }: { loadedAt: string; match: MyMatchSummary }) {
+/** Every turn deadline the page is counting down, soonest first. */
+function turnDeadlines(matches: MyMatchSummary[]): number[] {
+  return matches
+    .filter((match) => match.phase === "active" && needsViewerAction(match))
+    .map((match) => (match.turnDeadlineAt === null ? null : Date.parse(match.turnDeadlineAt)))
+    .filter((deadline): deadline is number => deadline !== null)
+    .sort((left, right) => left - right);
+}
+
+/**
+ * A clock for the page, redrawn only as often as the nearest deadline needs.
+ *
+ * A list of correspondence matches with days on them costs one redraw a minute
+ * rather than one a second, and a turn in its last hour still ticks.
+ */
+function useCountdownNow(deadlines: number[]): number {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    // Only a deadline still ahead has anything left to count: one that has
+    // passed reads "Overdue" and stays there, so redrawing for it would be a
+    // timer that never stopped and never changed anything. The soonest one
+    // still ahead is taken rather than the soonest of all, so a turn that is
+    // running does not stop ticking behind one that has already run out.
+    const next = deadlines.find((deadline) => deadline > now);
+    if (next === undefined) return;
+    // Each redraw schedules the next one rather than running on a fixed
+    // interval, so the rate tightens on its own as the deadline comes closer.
+    const timer = setTimeout(() => setNow(Date.now()), clockTickMs(next - now));
+    return () => clearTimeout(timer);
+  }, [deadlines, now]);
+
+  return now;
+}
+
+function MyMatchRow({
+  loadedAt,
+  match,
+  now,
+}: {
+  loadedAt: string;
+  match: MyMatchSummary;
+  now: number;
+}) {
+  const isWaiting = needsViewerAction(match);
+  // How long the viewer has left, which is what stops a match being lost to a
+  // clock nobody was watching. Only an open turn has a deadline to report, and
+  // one that has already run out says so rather than reading as no time left.
+  const remaining =
+    isWaiting && match.phase === "active" && match.turnDeadlineAt !== null
+      ? formatTurnRemaining(Date.parse(match.turnDeadlineAt) - now)
+      : null;
   const details = [
     `Host ${match.creatorName}`,
     `Map ${match.mapId}`,
@@ -116,6 +177,11 @@ function MyMatchRow({ loadedAt, match }: { loadedAt: string; match: MyMatchSumma
           <Text type="supporting" weight="bold">
             {match.participantCount} / {match.maxPlayers} seats
           </Text>
+          {remaining ? (
+            <Text type="supporting" weight="bold">
+              {remaining}
+            </Text>
+          ) : null}
           <Text color="secondary" type="supporting">
             {formatRelativeTime(match.updatedAt, Date.parse(loadedAt))} ·{" "}
             {myMatchActionLabel(match.phase)}
@@ -129,6 +195,9 @@ function MyMatchRow({ loadedAt, match }: { loadedAt: string; match: MyMatchSumma
             label={formatMyMatchPhaseLabel(match.phase)}
             variant={phaseBadgeVariant(match.phase)}
           />
+          {isWaiting ? (
+            <Badge label={match.phase === "active" ? "Your turn" : "Needs you"} variant="warning" />
+          ) : null}
           {match.settings.hotseatEnabled ? <Badge label="Hotseat" variant="blue" /> : null}
         </HStack>
       }

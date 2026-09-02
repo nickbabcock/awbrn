@@ -140,6 +140,9 @@ export function MatchActivePage({
   const [activePlayerSlot, setActivePlayerSlot] = useState<number | null>(null);
   // Null until the server sends the first clock message.
   const [clock, setClock] = useState<MatchClockMessage | null>(null);
+  // The nav badge counts the matches waiting on this player, and the server
+  // publishes the seat on the move a moment after the action that moved it.
+  // The tab that made the move does not wait for the poll to read it back.
   const [isEndingTurn, setIsEndingTurn] = useState(false);
   const [activatingPower, setActivatingPower] = useState<ActivatablePowerLevel>();
   const isEndingTurnRef = useRef(false);

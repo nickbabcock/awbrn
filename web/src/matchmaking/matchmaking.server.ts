@@ -26,6 +26,7 @@ import {
   HARD_MAX_ACTIVE_MATCHES,
   INITIAL_DEVIATION,
   INITIAL_RATING,
+  compareUserIds,
   selectMatchmakingPairs,
   userPairKey,
   type MatchmakingCandidate,
@@ -347,7 +348,7 @@ export async function runMatchmakingPass(
     const pairingId = nanoid();
     const deadlineAt = new Date(now.getTime() + CONFIRMATION_WINDOW_MS);
     const canonical = [selectedPair.first, selectedPair.second].sort((a, b) =>
-      a.userId.localeCompare(b.userId),
+      compareUserIds(a.userId, b.userId),
     );
     const settings = JSON.stringify({
       fogEnabled: pool === "fog_async" || pool === "fog_live",

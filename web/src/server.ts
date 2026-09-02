@@ -2,9 +2,17 @@ import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
 import { MatchDurableObject } from "#/matches/match_durable_object.ts";
 import { AwbwGatewayDurableObject } from "#/awbw/awbw_gateway.ts";
 import { MatchmakerDurableObject } from "#/matchmaking/matchmaker_durable_object.ts";
+import { PlayerDurableObject } from "#/players/player_durable_object.ts";
 import { getMatchStub } from "#/matches/match_service.ts";
+import { getPlayerStub } from "#/players/player_service.ts";
+import { getRequestSession } from "#/auth/auth.server.ts";
 
-export { AwbwGatewayDurableObject, MatchDurableObject, MatchmakerDurableObject };
+export {
+  AwbwGatewayDurableObject,
+  MatchDurableObject,
+  MatchmakerDurableObject,
+  PlayerDurableObject,
+};
 
 const crossOriginIsolationHeaders = {
   "Cross-Origin-Embedder-Policy": "require-corp",
@@ -13,6 +21,16 @@ const crossOriginIsolationHeaders = {
 
 const MATCH_WEBSOCKET_PATTERN = new URLPattern({
   pathname: "/api/matches/:matchId/ws",
+});
+
+/**
+ * The one socket a signed-in player holds wherever they are on the site.
+ *
+ * There is no id in the path: the object is named after the session this
+ * worker has just checked, so a player can only ever reach their own.
+ */
+const PLAYER_WEBSOCKET_PATTERN = new URLPattern({
+  pathname: "/api/player/ws",
 });
 
 export default createServerEntry({
@@ -27,6 +45,20 @@ export default createServerEntry({
       const [accounts] = await Promise.all([seedDevAccounts(), seedDevMaps()]);
       await attributeDevMaps(accounts);
       await seedDevRankedSeeks(accounts);
+    }
+
+    if (
+      PLAYER_WEBSOCKET_PATTERN.test(request.url) &&
+      request.headers.get("Upgrade") === "websocket"
+    ) {
+      const session = await getRequestSession(request);
+      if (!session) {
+        return new Response("Unauthorized", {
+          status: 401,
+          headers: crossOriginIsolationHeaders,
+        });
+      }
+      return getPlayerStub(session.user.id).fetch(request);
     }
 
     const websocketMatch = MATCH_WEBSOCKET_PATTERN.exec(request.url);

@@ -9,6 +9,7 @@ import {
   formatClockCountdown,
   formatClockDuration,
   formatClockSummary,
+  formatTurnRemaining,
   isBankUncapped,
   remainingMs,
   seatRemainingMs,
@@ -273,5 +274,20 @@ describe("what one seat has left", () => {
   it("floors a seat that ran out, and a seat nobody recorded", () => {
     expect(seatRemainingMs(state, 1, START + 9 * DAY)).toBe(0);
     expect(seatRemainingMs(state, 7, START)).toBe(0);
+  });
+});
+
+describe("formatTurnRemaining", () => {
+  it("reads out the time a seat has left", () => {
+    expect(formatTurnRemaining(90_000)).toBe("1m 30s left");
+    expect(formatTurnRemaining(2 * 86_400_000)).toBe("2d left");
+  });
+
+  it("names a deadline that has passed instead of counting it to nothing", () => {
+    // The clock is only enforced when the match wakes, so a turn is regularly
+    // read after its deadline and must not report as one with time left.
+    expect(formatTurnRemaining(0)).toBe("Overdue");
+    expect(formatTurnRemaining(-1)).toBe("Overdue");
+    expect(formatTurnRemaining(-5 * 86_400_000)).toBe("Overdue");
   });
 });
