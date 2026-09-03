@@ -31,7 +31,7 @@ use crate::tournament::{
 /// The search sweep plan schema.
 pub const SEARCH_SWEEP_PLAN_SCHEMA_VERSION: u16 = 1;
 /// The search sweep artifact schema.
-pub const SEARCH_SWEEP_ARTIFACT_SCHEMA_VERSION: u16 = 1;
+pub const SEARCH_SWEEP_ARTIFACT_SCHEMA_VERSION: u16 = 2;
 /// The budgets required by the search sweep matrix.
 pub const SEARCH_SWEEP_BUDGETS: [u32; 4] = [4, 16, 64, 256];
 
@@ -1360,7 +1360,62 @@ fn render_decision(
     text.push_str("\n## Next experiment\n\n");
     text.push_str(&decision.next_experiment);
     text.push('\n');
+    text.push_str("\n## Scenario audit\n\n");
+    text.push_str(
+        "The `unblock-and-produce` fixture records the named score terms for each plan.\n\n",
+    );
+    for audit in &decision.scenario_audits {
+        text.push_str(&format!(
+            "### {} / {} / {}\n\n",
+            audit.scenario,
+            allocator_name(audit.allocator),
+            audit.node_budget
+        ));
+        text.push_str(&format!(
+            "Primary cause: `{}`. Required candidate evaluated: `{}`.\n\n",
+            audit.primary_cause, audit.required_candidate_evaluated
+        ));
+        text.push_str(
+            "| Plan | Score | Army | Unit count | Bank | Income | Plurality | Production | HQ | Capture | Exposure | Contest | Front |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n",
+        );
+        render_scenario_breakdown_row(&mut text, "seed", audit.seed_score, &audit.seed_breakdown);
+        render_scenario_breakdown_row(
+            &mut text,
+            "selected",
+            audit.selected_score,
+            &audit.selected_breakdown,
+        );
+        if let Some(breakdown) = audit.required_candidate_breakdown.as_ref()
+            && let Some(score) = audit.required_candidate_score
+        {
+            render_scenario_breakdown_row(&mut text, "required", score, breakdown);
+        }
+        text.push('\n');
+    }
     text
+}
+
+fn render_scenario_breakdown_row(
+    text: &mut String,
+    plan: &str,
+    score: f64,
+    breakdown: &EvalBreakdown,
+) {
+    let terms = breakdown.terms();
+    text.push_str(&format!(
+        "| {plan} | {score:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} |\n",
+        terms.army,
+        terms.unit_count,
+        terms.bank,
+        terms.income,
+        terms.plurality,
+        terms.production,
+        terms.hq,
+        terms.capture,
+        terms.exposure,
+        terms.contest,
+        terms.front,
+    ));
 }
 
 fn cell_summary(cell: &SearchSweepCellReport) -> SearchSweepCellSummary {

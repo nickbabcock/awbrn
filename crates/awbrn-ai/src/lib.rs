@@ -59,7 +59,11 @@ pub use baseline::{
     TieBreak, production_agent, production_configuration_fingerprint,
 };
 pub use calibration::Calibration;
-pub use eval::{EvalBreakdown, EvalWeights, Evaluator};
+pub use eval::{
+    EVAL_WEIGHT_TERMS, EvalArmyRelativeShares, EvalBreakdown, EvalBreakdownContext, EvalPreset,
+    EvalRawFeatures, EvalScoreDelta, EvalTerminalReason, EvalTerms, EvalWeightKind, EvalWeightTerm,
+    EvalWeights, Evaluator, MIRROR_TOLERANCE, RESIDUAL_TOLERANCE,
+};
 pub use fingerprint::FNV1A_OFFSET_BASIS;
 pub use harness::{
     Limits, Record, TurnResult, next_command_fingerprint, play, play_measured, play_observed,

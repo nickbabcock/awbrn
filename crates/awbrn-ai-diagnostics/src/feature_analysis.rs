@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use crate::events::{EventKind, EventLogError, EventRow, latest_attempt_rows, read_event_log};
 
 /// The feature-analysis output schema.
-pub const FEATURE_ANALYSIS_SCHEMA_VERSION: u16 = 4;
+pub const FEATURE_ANALYSIS_SCHEMA_VERSION: u16 = 5;
 
 fn default_converged() -> bool {
     true
