@@ -51,6 +51,15 @@ impl RecipientObservations {
             .find(|observation| parse_player_id(observation.recipient.as_str()) == Some(player))
     }
 
+    /// Every projection held, in the order they were stored.
+    ///
+    /// A viewer with a seat reads their own and no other. A viewer without one
+    /// has no projection to call theirs, so what they can be told has to be
+    /// gathered across all of them.
+    pub fn all(&self) -> &[Observation] {
+        &self.0
+    }
+
     /// The single projection a live client holds, if that is all there is.
     ///
     /// A live match sends only the recipient's own view, so there is nothing

@@ -16,7 +16,7 @@ use std::collections::HashSet;
 use awbrn_bevy::MapPosition;
 use awbrn_bevy::world::{GameMap, Unit};
 use awbrn_map::Pos;
-use awbrn_types::UnitExt;
+use awbrn_types::{AwbwGamePlayerId, UnitExt};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
@@ -145,7 +145,26 @@ pub(crate) fn update_inspection_fields(
     params: InspectionParams<'_, '_>,
     mut fields: ResMut<InspectionFields>,
 ) {
-    if !inspected.is_changed() && !selected.is_changed() && !pending.is_changed() {
+    // The subject moving is one reason to recompute; the match moving under a
+    // held subject is the other. A commander power that lengthens a range, a
+    // weather turn that closes an eye, a unit that arrives or dies — all of it
+    // reaches the client as a new projection, so a changed projection is the
+    // one signal that catches every rule change without naming any of them.
+    // Otherwise a power would leave the last answer painted, and a painted
+    // answer is one a player trusts.
+    let projection_changed = unit_selection
+        .observations
+        .as_ref()
+        .is_some_and(DetectChanges::is_changed)
+        || unit_selection
+            .viewpoint
+            .as_ref()
+            .is_some_and(DetectChanges::is_changed);
+    if !inspected.is_changed()
+        && !selected.is_changed()
+        && !pending.is_changed()
+        && !projection_changed
+    {
         return;
     }
 
@@ -206,19 +225,12 @@ fn collect_fields(
     params: &InspectionParams<'_, '_>,
     into: &mut InspectionFields,
 ) {
-    // The session is opened on whatever unit the viewer can command, because
-    // reifying the projection is what gives a state to ask about at all. Which
-    // unit that was does not matter here: the questions below name the subject
-    // by its own id.
-    let Some(session) = viewer_session(unit_selection) else {
+    // A projection gives every enemy a synthetic id, so the board's own id can
+    // only ever name a friendly unit. The tile is what both sides agree on.
+    let Some((session, unit_id)) = session_reading(origin, unit_selection) else {
         return;
     };
     let state = session.state();
-    // A projection gives every enemy a synthetic id, so the board's own id can
-    // only ever name a friendly unit. The tile is what both sides agree on.
-    let Some(unit_id) = unit_id_at(state, origin) else {
-        return;
-    };
 
     // Movement, from the search that answers for a unit of any seat. The
     // selection's own field answers only for the seat whose turn it is, which
@@ -318,44 +330,88 @@ fn band_sources(minimum: u32, commanded: bool, origin: Pos, stops: &[Pos]) -> Ve
     sources
 }
 
-/// The unit standing at `position` in `state`, named by that state's own id.
+/// The unit standing at `position` in `state`.
 ///
 /// An observation discloses the id of a friendly unit and withholds the id of
 /// an enemy, replacing it with a synthetic one. A caller that needs to ask
 /// about an enemy therefore cannot carry an id in from the board, and asks by
 /// tile instead.
-fn unit_id_at(state: &awvm::semantic::State, position: Pos) -> Option<awvm::semantic::UnitId> {
-    state
-        .units
-        .iter()
-        .find(|unit| {
-            matches!(
-                unit.location,
-                awvm::semantic::Location::Board { position: at } if at == position
-            )
-        })
-        .map(|unit| unit.id)
+fn unit_at(state: &awvm::semantic::State, position: Pos) -> Option<&awvm::semantic::Unit> {
+    state.units.iter().find(|unit| {
+        matches!(
+            unit.location,
+            awvm::semantic::Location::Board { position: at } if at == position
+        )
+    })
 }
 
-/// A session over the viewer's own projection.
+/// The projection to read the unit at `position` from, and that unit's id in
+/// it.
 ///
-/// Any unit the viewer can reify opens the same state, so this takes the first
-/// one that answers rather than asking for a particular unit. Reifying is the
-/// cost here, and it is paid once per inspection.
-fn viewer_session(
+/// A viewer holding a seat reads their own projection and no other. What the
+/// opponent knows is not theirs to see, and a unit their fog hides is a unit
+/// they may not ask about — the projection enforces both by simply not
+/// describing it.
+///
+/// A viewer holding no seat has no projection to call their own. A spectator
+/// and a replay stepping through without a player locked in are outside the
+/// match rather than inside it, and nothing is being kept from them. So the
+/// answer comes from the projection of the unit's own commander, which is the
+/// one view that describes the unit fully instead of as a silhouette. Any
+/// other view would report an enemy's movement as the guess an opponent is
+/// allowed to make rather than as the fact the unit itself knows.
+///
+/// Reifying is the cost here, and a seated viewer still pays it once. A viewer
+/// without a seat pays it once per player the match holds, and only on the tap
+/// that changes the subject.
+/// The player whose eyes the board is currently being watched through.
+///
+/// A replay following the turn is a seat that changes hands rather than no
+/// seat at all: the board it draws is fogged to whoever is playing, and a
+/// reading that answered past that fog would contradict the picture around it.
+fn seated_player(unit_selection: &PlayUnitSelectionParams<'_, '_>) -> Option<AwbwGamePlayerId> {
+    match unit_selection.viewpoint.as_deref()? {
+        awbrn_bevy::replay::ReplayViewpoint::Player(player) => Some(*player),
+        awbrn_bevy::replay::ReplayViewpoint::ActivePlayer => {
+            unit_selection.replay_state.as_deref()?.active_player_id
+        }
+        awbrn_bevy::replay::ReplayViewpoint::Spectator => None,
+    }
+}
+
+fn session_reading(
+    position: Pos,
     unit_selection: &PlayUnitSelectionParams<'_, '_>,
-) -> Option<awvm::session::Session> {
-    let (Some(observations), Some(viewpoint)) = (
-        unit_selection.observations.as_deref(),
-        unit_selection.viewpoint.as_deref(),
-    ) else {
-        return None;
-    };
-    let awbrn_bevy::replay::ReplayViewpoint::Player(player) = viewpoint else {
-        return None;
-    };
-    let observation = observations.for_player(*player)?;
-    awvm::session::Session::from_observation(observation).ok()
+) -> Option<(awvm::session::Session, awvm::semantic::UnitId)> {
+    let observations = unit_selection.observations.as_deref()?;
+
+    if let Some(player) = seated_player(unit_selection) {
+        let observation = observations.for_player(player)?;
+        let session = awvm::session::Session::from_observation(observation).ok()?;
+        let unit = unit_at(session.state(), position)?.id;
+        return Some((session, unit));
+    }
+
+    // A projection that only sees the unit is still an answer, and on a map
+    // without fog it is the same answer. It is taken as the fallback so that a
+    // unit whose own commander has no projection here — a live match sends one
+    // view and one only — is still read rather than passed over.
+    let mut seen_by_another = None;
+    for observation in observations.all() {
+        let Ok(session) = awvm::session::Session::from_observation(observation) else {
+            continue;
+        };
+        let state = session.state();
+        let Some(unit) = unit_at(state, position) else {
+            continue;
+        };
+        let (id, owner) = (unit.id, unit.owner);
+        if state.players.seat(&observation.recipient) == Some(owner) {
+            return Some((session, id));
+        }
+        seen_by_another.get_or_insert((session, id));
+    }
+    seen_by_another
 }
 
 /// Add every tile between `minimum` and `maximum` steps of `from`.
@@ -423,6 +479,70 @@ pub(crate) fn follow_selection(selected: Res<SelectedUnit>, mut inspected: ResMu
     }
 }
 
+/// The turn the inspection was opened in.
+///
+/// Held rather than read off the board each frame because the clearing is
+/// wanted on the change and not on the value: a reading opened on day three
+/// stays up for the rest of day three.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct InspectionTurn(Option<(u32, Option<AwbwGamePlayerId>)>);
+
+/// Put a reading down when the turn passes.
+///
+/// Every number in the readout is a fact about a board that has just been
+/// replaced. Fuel burned, a unit moved out of the band, a power ended, and the
+/// unit the player was reading may not even be theirs to see any more. The
+/// fields do recompute, but a field that reappears under a new turn without
+/// being asked for is a claim the player never made, and the first thing they
+/// do on their own turn is look somewhere else.
+pub(crate) fn clear_inspection_on_turn_boundary(
+    replay_state: Option<Res<awbrn_bevy::replay::ReplayState>>,
+    mut turn: ResMut<InspectionTurn>,
+    mut inspected: ResMut<InspectedUnit>,
+) {
+    let Some(replay_state) = replay_state else {
+        return;
+    };
+    let now = (replay_state.day, replay_state.active_player_id);
+    if turn.0 == Some(now) {
+        return;
+    }
+    // The first turn the client ever sees is not a boundary. Clearing there
+    // would drop the reading a player opened while the match was loading.
+    let opened = turn.0.is_some();
+    turn.0 = Some(now);
+    if opened && inspected.0.is_some() {
+        inspected.0 = None;
+    }
+}
+
+/// Read the unit under a tap while a replay is being stepped through.
+///
+/// Playback has no selection and no orders, so the tap that commands a unit in
+/// a live match is free here, and it does the one thing left to do with a
+/// unit: report on it. The gesture is the same one, on the same units, with
+/// the same second tap letting go, so a player who learned the board in a
+/// match already knows this.
+pub(crate) fn read_unit_under_replay_tap(
+    mut clicks: MessageReader<crate::features::input::TileClicked>,
+    board_index: Res<awbrn_bevy::world::BoardIndex>,
+    mut inspected: ResMut<InspectedUnit>,
+) {
+    let Some(click) = clicks.read().last().copied() else {
+        return;
+    };
+    let entity = board_index.unit_entity(click.position).ok().flatten();
+    let next = match entity {
+        // Reading the same unit twice lets go of it, which is the only way a
+        // finger has to dismiss a field it did not want.
+        Some(entity) => (inspected.0 != Some(entity)).then_some(entity),
+        None => None,
+    };
+    if inspected.0 != next {
+        inspected.0 = next;
+    }
+}
+
 /// Stop reporting on a unit that has left the board.
 pub(crate) fn clear_missing_inspection(
     mut inspected: ResMut<InspectedUnit>,
@@ -435,24 +555,42 @@ pub(crate) fn clear_missing_inspection(
     }
 }
 
+/// Everything the three fields are painted out of.
+///
+/// Held together because they are raised and cleared as one thing: a board
+/// showing one field of a reading that is over would be reporting on nothing.
+#[derive(SystemParam)]
+pub(crate) struct PaintedFields<'w, 's> {
+    move_glass: Query<'w, 's, Entity, With<InspectionMoveGlass>>,
+    fire: Query<'w, 's, Entity, With<InspectionFireOutline>>,
+    vision: Query<'w, 's, Entity, With<InspectionVisionOutline>>,
+}
+
+impl PaintedFields<'_, '_> {
+    fn iter(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.move_glass
+            .iter()
+            .chain(self.fire.iter())
+            .chain(self.vision.iter())
+    }
+}
+
 pub(crate) fn cleanup_inspection(
     mut commands: Commands,
     mut inspected: ResMut<InspectedUnit>,
     mut fields: ResMut<InspectionFields>,
     mut emitted: ResMut<EmittedInspection>,
-    move_glass: Query<Entity, With<InspectionMoveGlass>>,
-    fire_outlines: Query<Entity, With<InspectionFireOutline>>,
-    vision_outlines: Query<Entity, With<InspectionVisionOutline>>,
+    mut turn: ResMut<InspectionTurn>,
+    painted: PaintedFields<'_, '_>,
 ) {
     inspected.0 = None;
     fields.clear();
     emitted.0 = None;
+    // The next match starts on its own first turn rather than on a boundary
+    // out of the last one.
+    *turn = InspectionTurn::default();
 
-    for entity in move_glass
-        .iter()
-        .chain(fire_outlines.iter())
-        .chain(vision_outlines.iter())
-    {
+    for entity in painted.iter() {
         commands.entity(entity).try_despawn();
     }
 }
@@ -810,4 +948,68 @@ pub(crate) fn emit_inspection_readout(
     }
     emitted.0 = readout.clone();
     sink.emit(UnitInspectionChanged { unit: readout });
+}
+
+/// Reading a unit, wherever a board is on screen.
+///
+/// This is its own plugin rather than part of the play mode because the
+/// question it answers outlives the seat. A live player, a player watching an
+/// opponent's turn, a spectator with no seat at all, and a replay being
+/// stepped through are all looking at the same board and asking the same thing
+/// of it. Registered beside the play mode, whose selection it follows, and
+/// after it, so a unit picked up this frame is reported on in the same frame
+/// rather than one behind.
+#[derive(Debug)]
+pub struct InspectionPlugin;
+
+/// Whether a board is on screen at all.
+///
+/// Named rather than composed out of state conditions because the two modes
+/// that show a board are the whole of the answer, and a condition that reads
+/// as a list of modes says what it means.
+fn a_board_is_on_screen(mode: Option<Res<State<crate::core::GameMode>>>) -> bool {
+    mode.is_some_and(|mode| {
+        matches!(
+            **mode,
+            crate::core::GameMode::Game | crate::core::GameMode::Replay
+        )
+    })
+}
+
+impl Plugin for InspectionPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<InspectedUnit>()
+            .init_resource::<InspectionFields>()
+            .init_resource::<EmittedInspection>()
+            .init_resource::<InspectionTurn>()
+            .add_systems(
+                Update,
+                (
+                    // The turn is settled first, so a boundary that lands in
+                    // the same frame as a tap loses to the tap rather than
+                    // wiping it.
+                    clear_inspection_on_turn_boundary,
+                    follow_selection,
+                    read_unit_under_replay_tap.run_if(in_state(crate::core::GameMode::Replay)),
+                    clear_missing_inspection,
+                    update_inspection_fields,
+                    sync_inspection_move_glass,
+                    sync_fire_outline,
+                    sync_vision_outline,
+                    emit_inspection_readout,
+                )
+                    .chain()
+                    .in_set(crate::features::input::PointerSet::Consume)
+                    // After the gesture that changes the subject, in either
+                    // mode, and after the state a live match just received, so
+                    // one frame carries the tap and the answer to it.
+                    .after(super::handle_play_pointer_gestures)
+                    .after(super::apply_pending_live_transition)
+                    .after(crate::features::input::handle_tile_clicks)
+                    .run_if(a_board_is_on_screen)
+                    .run_if(in_state(crate::core::AppState::InGame)),
+            )
+            .add_systems(OnExit(crate::core::GameMode::Game), cleanup_inspection)
+            .add_systems(OnExit(crate::core::GameMode::Replay), cleanup_inspection);
+    }
 }

@@ -426,6 +426,8 @@ pub(crate) struct PlayUnitSelectionParams<'w, 's> {
     graphical_hp: Query<'w, 's, &'static GraphicalHp, With<Unit>>,
     observations: Option<Res<'w, awbrn_bevy::replay::RecipientObservations>>,
     viewpoint: Option<Res<'w, awbrn_bevy::replay::ReplayViewpoint>>,
+    /// Which player a viewpoint that follows the turn is currently on.
+    replay_state: Option<Res<'w, awbrn_bevy::replay::ReplayState>>,
 }
 
 #[derive(SystemParam)]
@@ -1655,20 +1657,43 @@ pub(crate) fn sync_move_range_highlights(
     }
 }
 
+/// Mark the enemies the selected unit can shoot.
+///
+/// The marks stand for everywhere the unit could have gone until the player
+/// proposes a route, and from that moment they are wrong: they name enemies
+/// the destination cannot reach, and for an indirect they name every enemy
+/// over a move that forfeits the shot outright. So once a destination is held
+/// open the marks narrow to it, and an indirect's marks go out entirely,
+/// because that is the truth about the move on the table.
+///
+/// The narrowing happens on the enemies and nowhere else. The tiles a direct
+/// would threaten from the ghost are the four beside it, which the player
+/// already reads off the ghost, and painting them would answer a question with
+/// a copy of itself.
 pub(crate) fn sync_attack_target_highlights(
     mut commands: Commands,
     game_map: Res<GameMap>,
     targets: Res<AttackTargets>,
+    pending: Res<PendingMoveDestination>,
     highlights: Query<Entity, With<AttackTargetHighlight>>,
 ) {
-    if !targets.is_changed() {
+    if !targets.is_changed() && !pending.is_changed() {
         return;
     }
     for entity in &highlights {
         commands.entity(entity).try_despawn();
     }
 
-    let mut positions: Vec<_> = targets.approaches.keys().copied().collect();
+    let destination = pending.0.as_ref().map(|proposal| proposal.destination);
+    let mut positions: Vec<_> = targets
+        .approaches
+        .iter()
+        .filter(|(_, approaches)| match destination {
+            Some(destination) => approaches.contains(&destination),
+            None => true,
+        })
+        .map(|(target, _)| *target)
+        .collect();
     positions.sort();
     for position in positions {
         let center = position_to_world_translation(&ATTACK_TARGET_SPRITE_SIZE, position, &game_map);
@@ -2628,9 +2653,6 @@ impl Plugin for PlayPlugin {
             .init_resource::<EmittedTurnReadiness>()
             .init_resource::<OfferedActions>()
             .init_resource::<CommittedCommand>()
-            .init_resource::<inspect::InspectedUnit>()
-            .init_resource::<inspect::InspectionFields>()
-            .init_resource::<inspect::EmittedInspection>()
             .init_resource::<ReplayAdvanceLock>()
             .add_message::<UnitActionChosen>()
             .add_message::<UnitActionDismissed>()
@@ -2673,19 +2695,6 @@ impl Plugin for PlayPlugin {
                     sync_attack_target_reticle
                         .run_if(resource_exists::<crate::render::UiAtlasResource>),
                     animate_attack_target_reticle.run_if(resource_exists::<Time>),
-                    // The subject follows the selection before the fields are
-                    // worked out, so a unit picked up this frame is reported on
-                    // in the same frame rather than one behind.
-                    (
-                        inspect::follow_selection,
-                        inspect::clear_missing_inspection,
-                        inspect::update_inspection_fields,
-                        inspect::sync_inspection_move_glass,
-                        inspect::sync_fire_outline,
-                        inspect::sync_vision_outline,
-                        inspect::emit_inspection_readout,
-                    )
-                        .chain(),
                     emit_turn_readiness,
                     apply_pending_live_transition,
                 )
@@ -2693,10 +2702,7 @@ impl Plugin for PlayPlugin {
                     .in_set(PointerSet::Consume)
                     .run_if(in_state(GameMode::Game).and_then(in_state(AppState::InGame))),
             )
-            .add_systems(
-                OnExit(GameMode::Game),
-                (cleanup_play_selection, inspect::cleanup_inspection),
-            );
+            .add_systems(OnExit(GameMode::Game), cleanup_play_selection);
     }
 }
 
@@ -2738,11 +2744,24 @@ mod tests {
     }
 
     fn play_test_app() -> App {
+        test_app(GameMode::Game)
+    }
+
+    /// A board being stepped through rather than played.
+    ///
+    /// The play mode's own systems all stand down here, which is the point:
+    /// what is left is the board, the tap, and the reading.
+    fn replay_test_app() -> App {
+        test_app(GameMode::Replay)
+    }
+
+    fn test_app(mode: GameMode) -> App {
         let mut app = App::new();
         app.add_plugins(bevy::state::app::StatesPlugin);
         app.insert_state(AppState::InGame);
-        app.insert_state(GameMode::Game);
+        app.insert_state(mode);
         app.add_message::<PointerGesture>();
+        app.add_message::<crate::features::input::TileClicked>();
         app.add_message::<ReturnToTouchFloor>();
         app.init_resource::<BoardIndex>();
         app.init_resource::<GameMap>();
@@ -2758,7 +2777,7 @@ mod tests {
         app.insert_resource(TestObservationSync);
         app.init_resource::<CameraScale>();
         app.add_message::<FocusBoardOn>();
-        app.add_plugins(PlayPlugin);
+        app.add_plugins((PlayPlugin, inspect::InspectionPlugin));
         app
     }
 
@@ -2850,14 +2869,28 @@ mod tests {
         });
         let state: State =
             serde_json::from_value(value).expect("test ECS should form an AWVM state");
-        let observation = observe(&AwbwVisibility, &state, state.players[0].id()).unwrap();
-        let mut observations = awbrn_bevy::replay::RecipientObservations::default();
-        observations.set(vec![observation]);
-        app.world_mut().insert_resource(observations);
-        app.world_mut()
-            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
-                awbrn_types::AwbwGamePlayerId::new(0),
-            ));
+        // One projection per seat, the way an archive holds them. A live match
+        // sends only its own, and every test that speaks for a seated player
+        // reads only its own, so holding both changes nothing there and is
+        // what lets a test take no seat at all.
+        let observations: Vec<_> = state
+            .players
+            .seats()
+            .map(|(_, player)| observe(&AwbwVisibility, &state, player.id()).unwrap())
+            .collect();
+        let mut recipients = awbrn_bevy::replay::RecipientObservations::default();
+        recipients.set(observations);
+        app.world_mut().insert_resource(recipients);
+        // A test that has taken a seat of its own keeps it.
+        if !app
+            .world()
+            .contains_resource::<awbrn_bevy::replay::ReplayViewpoint>()
+        {
+            app.world_mut()
+                .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Player(
+                    awbrn_types::AwbwGamePlayerId::new(0),
+                ));
+        }
     }
 
     /// Drag a unit from where it stands to a tile, the way a finger would.
@@ -3351,6 +3384,370 @@ mod tests {
         assert_eq!(app.world().resource::<inspect::InspectedUnit>().0, None);
         let fields = app.world().resource::<inspect::InspectionFields>();
         assert!(fields.fire.is_empty() && fields.vision.is_empty());
+    }
+
+    /// Following the turn is a seat that changes hands, not a seat given up.
+    ///
+    /// The board a replay draws on this viewpoint is fogged to whoever is
+    /// playing, so a reading that answered past that fog would contradict the
+    /// picture around it.
+    #[test]
+    fn a_replay_following_the_turn_reads_as_the_player_it_follows() {
+        let mut app = play_test_app();
+        set_fog(&mut app);
+        set_plain_map(&mut app, 12, 12);
+        spawn_unit(
+            &mut app,
+            Pos::new(9, 9),
+            awbrn_types::Unit::Artillery,
+            PlayerFaction::BlueMoon,
+            false,
+            None,
+        );
+        spawn_unit(
+            &mut app,
+            Pos::new(0, 0),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            false,
+            None,
+        );
+        app.world_mut()
+            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::ActivePlayer);
+        app.world_mut()
+            .insert_resource(awbrn_bevy::replay::ReplayState {
+                active_player_id: Some(awbrn_types::AwbwGamePlayerId::new(0)),
+                ..Default::default()
+            });
+        app.update();
+
+        click_tile(&mut app, Pos::new(9, 9));
+
+        assert!(
+            app.world()
+                .resource::<inspect::InspectionFields>()
+                .readout
+                .is_none(),
+            "the fog of the seat being followed still holds"
+        );
+    }
+
+    /// A viewer with no seat reads a unit out of that unit's own projection.
+    ///
+    /// Under fog a seated player is told nothing about an enemy their own
+    /// units are not watching, and that limit is the fog working. A spectator
+    /// is outside the match and nothing is being kept from them, so the answer
+    /// comes from the commander who owns the unit — the one view that
+    /// describes it fully rather than as a silhouette.
+    #[test]
+    fn a_spectator_reads_an_enemy_no_seated_player_could_see() {
+        let mut app = play_test_app();
+        set_fog(&mut app);
+        set_plain_map(&mut app, 12, 12);
+        spawn_unit(
+            &mut app,
+            Pos::new(9, 9),
+            awbrn_types::Unit::Artillery,
+            PlayerFaction::BlueMoon,
+            false,
+            None,
+        );
+        // Far from anything of ours, so the seated player's own projection
+        // does not carry it at all.
+        spawn_unit(
+            &mut app,
+            Pos::new(0, 0),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            false,
+            None,
+        );
+        app.world_mut()
+            .insert_resource(awbrn_bevy::replay::ReplayViewpoint::Spectator);
+        app.update();
+
+        click_tile(&mut app, Pos::new(9, 9));
+
+        let fields = app.world().resource::<inspect::InspectionFields>();
+        let readout = fields
+            .readout
+            .expect("a spectator's tap still reports numbers");
+        assert_eq!(readout.range, Some((2, 3)));
+        assert!(
+            fields.vision.contains(&Pos::new(9, 9)),
+            "and the unit's own sight, which only its commander knows"
+        );
+        assert!(!fields.movement.is_empty());
+    }
+
+    /// A seat still reads only what its own projection carries.
+    ///
+    /// The spectator's reach must not become a way for a player to ask what
+    /// their opponent knows, so the same board answers nothing from a seat the
+    /// fog has kept the unit from.
+    #[test]
+    fn a_seated_player_reads_nothing_the_fog_keeps_from_them() {
+        let mut app = play_test_app();
+        set_fog(&mut app);
+        set_plain_map(&mut app, 12, 12);
+        spawn_unit(
+            &mut app,
+            Pos::new(9, 9),
+            awbrn_types::Unit::Artillery,
+            PlayerFaction::BlueMoon,
+            false,
+            None,
+        );
+        spawn_unit(
+            &mut app,
+            Pos::new(0, 0),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::OrangeStar,
+            false,
+            None,
+        );
+        app.update();
+
+        click_tile(&mut app, Pos::new(9, 9));
+
+        let fields = app.world().resource::<inspect::InspectionFields>();
+        assert!(fields.readout.is_none());
+        assert!(fields.fire.is_empty() && fields.vision.is_empty());
+    }
+
+    /// Playback has no orders, so the tap that commands a unit reads it.
+    #[test]
+    fn a_tap_during_playback_reads_the_unit_under_it() {
+        let mut app = replay_test_app();
+        set_plain_map(&mut app, 12, 12);
+        let artillery = spawn_unit(
+            &mut app,
+            Pos::new(5, 5),
+            awbrn_types::Unit::Artillery,
+            PlayerFaction::BlueMoon,
+            false,
+            None,
+        );
+        app.update();
+
+        tap_in_playback(&mut app, Pos::new(5, 5));
+        assert_eq!(
+            app.world().resource::<inspect::InspectedUnit>().0,
+            Some(artillery)
+        );
+        let fields = app.world().resource::<inspect::InspectionFields>();
+        assert_eq!(
+            fields.readout.expect("playback reports numbers too").range,
+            Some((2, 3))
+        );
+
+        // The same tap lets go, exactly as it does in a match.
+        tap_in_playback(&mut app, Pos::new(5, 5));
+        assert_eq!(app.world().resource::<inspect::InspectedUnit>().0, None);
+
+        // And the play mode never wakes: playback has no selection to make.
+        assert!(app.world().resource::<SelectedUnit>().0.is_none());
+    }
+
+    /// A rule that moves under a held reading repaints it.
+    ///
+    /// Every rule change — a commander power lengthening a range, weather
+    /// closing an eye, fuel spent down to a shorter reach — arrives as a new
+    /// projection, so a changed projection is the one signal that catches all
+    /// of them. A stale field is worse than none, because a player trusts a
+    /// painted answer.
+    #[test]
+    fn a_rule_moving_under_a_held_reading_repaints_it() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 12, 12);
+        let artillery = spawn_unit(
+            &mut app,
+            Pos::new(5, 5),
+            awbrn_types::Unit::Artillery,
+            PlayerFaction::BlueMoon,
+            false,
+            None,
+        );
+        app.update();
+
+        click_tile(&mut app, Pos::new(5, 5));
+        assert_eq!(
+            app.world()
+                .resource::<inspect::InspectionFields>()
+                .readout
+                .expect("numbers")
+                .movement,
+            5
+        );
+
+        app.world_mut()
+            .entity_mut(artillery)
+            .insert(awbrn_bevy::world::Fuel(1));
+        sync_test_observation(&mut app);
+        app.update();
+
+        assert_eq!(
+            app.world()
+                .resource::<inspect::InspectionFields>()
+                .readout
+                .expect("numbers")
+                .movement,
+            1,
+            "the reading follows the rules rather than the tap that opened it"
+        );
+    }
+
+    /// The turn passing puts a reading down.
+    ///
+    /// Every number in it describes a board that has just been replaced, and a
+    /// field that comes back under a new turn is a claim the player never
+    /// made.
+    #[test]
+    fn the_turn_passing_puts_a_reading_down() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 8, 8);
+        spawn_unit(
+            &mut app,
+            Pos::new(4, 4),
+            awbrn_types::Unit::Artillery,
+            PlayerFaction::BlueMoon,
+            false,
+            None,
+        );
+        app.world_mut()
+            .insert_resource(awbrn_bevy::replay::ReplayState::default());
+        app.update();
+
+        click_tile(&mut app, Pos::new(4, 4));
+        assert!(app.world().resource::<inspect::InspectedUnit>().0.is_some());
+
+        app.world_mut()
+            .resource_mut::<awbrn_bevy::replay::ReplayState>()
+            .day = 2;
+        app.update();
+
+        assert_eq!(app.world().resource::<inspect::InspectedUnit>().0, None);
+        let fields = app.world().resource::<inspect::InspectionFields>();
+        assert!(fields.fire.is_empty() && fields.movement.is_empty());
+    }
+
+    /// A route narrows the marks to what the destination can reach.
+    ///
+    /// The marks stand for everywhere the unit could have gone. Held over a
+    /// proposed route they name enemies it can no longer touch, which is the
+    /// board saying a shot is available that is not.
+    #[test]
+    fn a_route_narrows_the_marks_to_the_destination() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 8, 3);
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+        spawn_unit(
+            &mut app,
+            Pos::new(0, 1),
+            awbrn_types::Unit::Tank,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+        let near = Pos::new(2, 1);
+        let far = Pos::new(4, 1);
+        for position in [near, far] {
+            spawn_unit(
+                &mut app,
+                position,
+                awbrn_types::Unit::Infantry,
+                PlayerFaction::BlueMoon,
+                true,
+                Some(99),
+            );
+        }
+
+        click_tile(&mut app, Pos::new(0, 1));
+        assert_eq!(
+            marked_targets(&mut app),
+            2,
+            "both are in reach to begin with"
+        );
+
+        // One step, onto a tile beside the near enemy and nowhere near the
+        // far one.
+        click_tile(&mut app, Pos::new(1, 1));
+        assert_eq!(
+            *app.world().resource::<PlayUiPhase>(),
+            PlayUiPhase::DestinationSelected
+        );
+        assert_eq!(
+            marked_targets(&mut app),
+            1,
+            "the far one is no longer a shot"
+        );
+        assert_eq!(
+            app.world().resource::<AttackTargets>().approaches.len(),
+            2,
+            "the narrowing is on the paint; what the unit could reach is unchanged"
+        );
+    }
+
+    /// An indirect that moves gives up its shot, so its marks go out.
+    #[test]
+    fn a_route_takes_every_mark_off_an_indirect() {
+        let mut app = play_test_app();
+        set_plain_map(&mut app, 8, 8);
+        app.world_mut()
+            .resource_mut::<FriendlyFactions>()
+            .0
+            .insert(PlayerFaction::OrangeStar);
+        spawn_unit(
+            &mut app,
+            Pos::new(2, 2),
+            awbrn_types::Unit::Artillery,
+            PlayerFaction::OrangeStar,
+            true,
+            Some(99),
+        );
+        spawn_unit(
+            &mut app,
+            Pos::new(2, 4),
+            awbrn_types::Unit::Infantry,
+            PlayerFaction::BlueMoon,
+            true,
+            Some(99),
+        );
+
+        click_tile(&mut app, Pos::new(2, 2));
+        assert_eq!(marked_targets(&mut app), 1);
+
+        click_tile(&mut app, Pos::new(2, 3));
+        assert_eq!(
+            marked_targets(&mut app),
+            0,
+            "an indirect fires from a standstill, and this one has moved"
+        );
+    }
+
+    /// How many enemies the board is marking, counted off the paint itself.
+    ///
+    /// One target spawns a red fill and its four glass edges.
+    fn marked_targets(app: &mut App) -> usize {
+        let marks = app
+            .world_mut()
+            .query_filtered::<Entity, With<AttackTargetHighlight>>()
+            .iter(app.world())
+            .count();
+        assert_eq!(marks % 5, 0, "each mark is a fill and four edges");
+        marks / 5
+    }
+
+    /// A tap on the board while a replay is being stepped through.
+    fn tap_in_playback(app: &mut App, position: Pos) {
+        sync_test_observation(app);
+        app.world_mut()
+            .resource_mut::<Messages<crate::features::input::TileClicked>>()
+            .write(crate::features::input::TileClicked { position });
+        app.update();
     }
 
     #[test]
