@@ -5,7 +5,7 @@ use awvm::session::{Order, OrderKind, Session};
 use awvm::transition::Command;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 
-use crate::eval::EvalBreakdown;
+use crate::eval::EvalScoreDelta;
 use crate::mission::{DecisionTrace, TraceError, TurnEndReason};
 
 /// One decision, from a position the agent can see.
@@ -116,9 +116,9 @@ pub struct SearchStats {
     /// Changed plans with two non-terminal leaves that were broken down.
     pub changed_leaf_breakdowns: u64,
     /// Sum of selected-minus-seed evaluator terms for changed plans.
-    pub changed_leaf_deltas: EvalBreakdown,
+    pub changed_leaf_deltas: EvalScoreDelta,
     /// Sum of the same changes under the standard evaluator.
-    pub standard_leaf_deltas: EvalBreakdown,
+    pub standard_leaf_deltas: EvalScoreDelta,
     /// Distribution of standard front deltas.
     pub standard_front_deltas: MarginalDistribution,
     /// Distribution of standard exposure deltas.
@@ -135,20 +135,10 @@ impl SearchStats {
         self.seed_plans += other.seed_plans;
         self.changed_seed_plans += other.changed_seed_plans;
         self.changed_leaf_breakdowns += other.changed_leaf_breakdowns;
-        self.changed_leaf_deltas.score += other.changed_leaf_deltas.score;
-        self.changed_leaf_deltas.army += other.changed_leaf_deltas.army;
-        self.changed_leaf_deltas.income += other.changed_leaf_deltas.income;
-        self.changed_leaf_deltas.exposure += other.changed_leaf_deltas.exposure;
-        self.changed_leaf_deltas.contest += other.changed_leaf_deltas.contest;
-        self.changed_leaf_deltas.front += other.changed_leaf_deltas.front;
-        self.changed_leaf_deltas.other += other.changed_leaf_deltas.other;
-        self.standard_leaf_deltas.score += other.standard_leaf_deltas.score;
-        self.standard_leaf_deltas.army += other.standard_leaf_deltas.army;
-        self.standard_leaf_deltas.income += other.standard_leaf_deltas.income;
-        self.standard_leaf_deltas.exposure += other.standard_leaf_deltas.exposure;
-        self.standard_leaf_deltas.contest += other.standard_leaf_deltas.contest;
-        self.standard_leaf_deltas.front += other.standard_leaf_deltas.front;
-        self.standard_leaf_deltas.other += other.standard_leaf_deltas.other;
+        self.changed_leaf_deltas
+            .add_assign(other.changed_leaf_deltas);
+        self.standard_leaf_deltas
+            .add_assign(other.standard_leaf_deltas);
         self.standard_front_deltas.add(other.standard_front_deltas);
         self.standard_exposure_deltas
             .add(other.standard_exposure_deltas);

@@ -515,11 +515,9 @@ impl TurnSearch {
                     (seed_breakdown, selected_breakdown)
                 {
                     self.stats.changed_leaf_breakdowns += 1;
-                    add_breakdown_delta(
-                        &mut self.stats.changed_leaf_deltas,
-                        seed_breakdown,
-                        selected_breakdown,
-                    );
+                    self.stats
+                        .changed_leaf_deltas
+                        .add_difference(seed_breakdown, selected_breakdown);
                 }
                 let standard = if search_eval_weights == EvalWeights::STANDARD {
                     (seed_breakdown, selected_breakdown)
@@ -534,11 +532,9 @@ impl TurnSearch {
                     )
                 };
                 if let (Some(seed_breakdown), Some(selected_breakdown)) = standard {
-                    add_breakdown_delta(
-                        &mut self.stats.standard_leaf_deltas,
-                        seed_breakdown,
-                        selected_breakdown,
-                    );
+                    self.stats
+                        .standard_leaf_deltas
+                        .add_difference(seed_breakdown, selected_breakdown);
                     self.stats
                         .standard_front_deltas
                         .record(selected_breakdown.front - seed_breakdown.front);
@@ -1083,6 +1079,11 @@ impl TurnSearch {
     }
 
     fn leaf(&mut self, plan: Vec<Order>) -> Option<SearchLeaf> {
+        debug_assert!(
+            matches!(self.session.state().match_state, Match::Finished { .. })
+                || self.session.state().turn.active_player == self.friendly,
+            "search leaves must be read after the complete opponent reply"
+        );
         let seat = self.session.state().players.seat(&self.friendly)?;
         let value = self.evaluator.value_in(&self.session, seat);
         let breakdown = self
@@ -1214,16 +1215,6 @@ fn search_coordinate(order: Order) -> bool {
 
 fn final_quartile_start(coordinate_count: usize) -> usize {
     coordinate_count.saturating_sub(coordinate_count.div_ceil(4))
-}
-
-fn add_breakdown_delta(total: &mut EvalBreakdown, seed: EvalBreakdown, selected: EvalBreakdown) {
-    total.score += selected.score - seed.score;
-    total.army += selected.army - seed.army;
-    total.income += selected.income - seed.income;
-    total.exposure += selected.exposure - seed.exposure;
-    total.contest += selected.contest - seed.contest;
-    total.front += selected.front - seed.front;
-    total.other += selected.other - seed.other;
 }
 
 #[cfg(test)]

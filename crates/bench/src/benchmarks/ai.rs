@@ -532,6 +532,11 @@ pub fn run_evaluation(case: &mut EvaluationCase) -> f64 {
     case.evaluator.value_in(&case.session, case.seat)
 }
 
+/// Read one position and all named score terms.
+pub fn run_evaluation_breakdown(case: &mut EvaluationCase) -> f64 {
+    case.evaluator.breakdown_in(&case.session, case.seat).score
+}
+
 /// A threat map and the session it reads.
 #[derive(Debug)]
 pub struct ThreatCase {
@@ -1027,6 +1032,28 @@ pub mod criterion_benches {
         for (name, mut case) in cases {
             group.bench_function(name, |b| {
                 b.iter(|| black_box(run_evaluation(&mut case)));
+            });
+        }
+        group.finish();
+
+        let cases = [
+            (
+                "standard-breakdown-duel",
+                evaluation_case(server::DUEL, false, standard),
+            ),
+            (
+                "standard-breakdown-six-player",
+                evaluation_case(server::SIX_PLAYER, false, standard),
+            ),
+            (
+                "fog-breakdown-duel",
+                evaluation_case(server::DUEL, true, fog),
+            ),
+        ];
+        let mut group = c.benchmark_group("ai-evaluation-breakdown");
+        for (name, mut case) in cases {
+            group.bench_function(name, |b| {
+                b.iter(|| black_box(run_evaluation_breakdown(&mut case)));
             });
         }
         group.finish();

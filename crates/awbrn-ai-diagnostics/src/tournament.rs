@@ -250,7 +250,7 @@ pub(crate) fn latest_match_records(records: &[MatchPerformance]) -> Vec<&MatchPe
 }
 
 /// Version of the derived search coverage artifact.
-pub const SEARCH_COVERAGE_SCHEMA_VERSION: u16 = 1;
+pub const SEARCH_COVERAGE_SCHEMA_VERSION: u16 = 2;
 
 /// A search coverage row for one completed match attempt.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
