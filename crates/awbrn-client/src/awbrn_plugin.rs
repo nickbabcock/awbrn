@@ -86,6 +86,8 @@ impl Plugin for AwbrnPlugin {
             crate::render::RenderPlugin,
             crate::modes::replay::ReplayPlugin,
             crate::modes::play::PlayPlugin,
+            // After the play mode, whose selection a reading follows.
+            crate::modes::play::inspect::InspectionPlugin,
         ));
 
         // Cross-plugin OnEnter(Complete) scheduling
