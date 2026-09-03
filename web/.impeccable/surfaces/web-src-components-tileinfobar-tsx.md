@@ -53,6 +53,10 @@ worth touching.
   tapping enemies is useless.
 - On the opponent's turn and in spectator mode, **every** unit is uncommandable,
   so the entire board is inert.
+
+_(This section records the board as it stood when the brief was written. Slice
+1 has since shipped.)_
+
 - Vision is not visualizable at all. `ViewerVisibility` reports the _result_ of
   fog, which tiles are dark, and never which unit produces the sight.
 - The indirect fire ring and the enemy threat glass are specified in the attack
@@ -81,6 +85,14 @@ One new resource, `InspectedUnit(Option<Entity>)`, sits orthogonal to
 Not-your-turn, spectator, and replay all fall out for free: every unit is
 uncommandable there, so every unit is inspectable. Replay, currently the more
 finished surface, gets the whole feature at no additional cost.
+
+**Which projection answers depends on the seat, not on the unit.** A player
+holding a seat reads their own projection and no other: what the opponent knows
+is not theirs to see, and a unit their fog hides answers nothing. A viewer
+holding no seat — a spectator, a replay with no player locked in — has no
+projection to call their own and nothing is being kept from them, so the answer
+comes from the projection of the unit's own commander, the one view that
+describes the unit fully rather than as a silhouette.
 
 **Why not AWBW's cycle.** AWBW rotates one unit through movement, then range,
 then vision, on repeated clicks. That control is unlabeled, modal, and serial: a
@@ -132,11 +144,12 @@ What a route does owe is on the marks, not on the band: they still stand for
 everywhere the unit could have gone, so at `DestinationSelected` they claim
 targets the proposed route cannot reach. For an indirect that is the sharper
 failure — the marks say "you can shoot these" over a route that forfeits the
-shot. **The marks should narrow to the destination once one is proposed**, and
-for an indirect that means going out entirely. That is where the parent brief's
-"the ring vanishes because the unit gave up its shot" rule belongs: in the
-language that names targets, not in a second envelope on the ground. It is owed
-by the attack surface and is not built.
+shot. **The marks narrow to the destination once one is proposed**, and for an
+indirect that means going out entirely. That is where the parent brief's "the
+ring vanishes because the unit gave up its shot" rule belongs: in the language
+that names targets, not in a second envelope on the ground. The narrowing
+happens on the enemies and nowhere else: no band is drawn around the ghost, for
+the reason above.
 
 ### Vision, drawn true
 
@@ -310,16 +323,22 @@ field muted by the player; and a turn boundary, which clears the inspection.
 - **Open:** whether inspecting a loaded transport lets the player read its cargo
   from the transport's tile, which answers "what could this unload into". Leaning
   yes, out of slice 1.
-- **Open:** whether a commander power that changes range or vision mid-turn
-  repaints an open inspection. Leaning yes, and cheap, since the fields are
-  recomputed per tap.
+- **Settled:** a commander power that changes range or vision mid-turn repaints
+  an open reading. Every rule change reaches the client as a new projection, so
+  a changed projection is the one signal that catches powers, weather, and
+  spent fuel without naming any of them. A stale field is worse than none,
+  because a player trusts a painted answer.
+- **Settled:** a turn boundary puts the reading down. Every number in it
+  describes a board that has just been replaced, and a field that comes back
+  under a new turn is a claim the player never made.
 
 ## Slices
 
-1. **Inspection as a subject.** `InspectedUnit`, tap any unit anywhere, the
-   three fields simultaneously, the readout's three lines read-only, on every
-   seat and in replay. This alone answers the original question and subsumes the
-   attack brief's unbuilt slices.
+1. **Inspection as a subject.** ✅ Built. `InspectedUnit`, tap any unit
+   anywhere, the three fields simultaneously, the readout's three lines
+   read-only, on every seat and in replay, with the marks narrowing to a
+   proposed destination. This alone answers the original question and subsumes
+   the attack brief's unbuilt slices.
 2. **The lines become controls, and vision becomes true.** Per-field muting with
    session persistence; blind tiles, weather-reduced sight, elevation bonus.
 3. **The danger zone.** Board toggle, hatched, unit-kind-aware, fog-labeled.
