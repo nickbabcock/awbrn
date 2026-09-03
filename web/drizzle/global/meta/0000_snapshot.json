@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ea56caf3-a17d-4404-9708-a5dd1cf3d0ff",
+  "id": "be06f1e6-2b22-4aee-b883-24928905cac5",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -629,6 +629,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(unixepoch())"
+        },
+        "ratedAt": {
+          "name": "ratedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -636,6 +643,12 @@
           "name": "match_results_user_idx",
           "columns": ["userId", "recordedAt"],
           "isUnique": false
+        },
+        "match_results_unrated_idx": {
+          "name": "match_results_unrated_idx",
+          "columns": ["pool", "recordedAt"],
+          "isUnique": false,
+          "where": "\"match_results\".\"pool\" is not null and \"match_results\".\"ratedAt\" is null"
         },
         "match_results_pool_idx": {
           "name": "match_results_pool_idx",
@@ -691,6 +704,10 @@
         "match_results_ai_is_never_ranked": {
           "name": "match_results_ai_is_never_ranked",
           "value": "\"match_results\".\"aiProfileId\" is null or \"match_results\".\"pool\" is null"
+        },
+        "match_results_rated_is_pooled": {
+          "name": "match_results_rated_is_pooled",
+          "value": "\"match_results\".\"ratedAt\" is null or \"match_results\".\"pool\" is not null"
         },
         "match_results_reason_null_only_for_standing_win": {
           "name": "match_results_reason_null_only_for_standing_win",
@@ -1295,6 +1312,159 @@
         }
       }
     },
+    "rating_updates": {
+      "name": "rating_updates",
+      "columns": {
+        "matchId": {
+          "name": "matchId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userId": {
+          "name": "userId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pool": {
+          "name": "pool",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "season": {
+          "name": "season",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ratingBefore": {
+          "name": "ratingBefore",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ratingAfter": {
+          "name": "ratingAfter",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deviationBefore": {
+          "name": "deviationBefore",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deviationAfter": {
+          "name": "deviationAfter",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "volatilityBefore": {
+          "name": "volatilityBefore",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "volatilityAfter": {
+          "name": "volatilityAfter",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "opponentRating": {
+          "name": "opponentRating",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "opponentDeviation": {
+          "name": "opponentDeviation",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "score": {
+          "name": "score",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "appliedAt": {
+          "name": "appliedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "rating_updates_user_idx": {
+          "name": "rating_updates_user_idx",
+          "columns": ["userId", "pool", "appliedAt"],
+          "isUnique": false
+        },
+        "rating_updates_season_idx": {
+          "name": "rating_updates_season_idx",
+          "columns": ["season", "pool", "userId"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "rating_updates_matchId_matches_id_fk": {
+          "name": "rating_updates_matchId_matches_id_fk",
+          "tableFrom": "rating_updates",
+          "tableTo": "matches",
+          "columnsFrom": ["matchId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "rating_updates_userId_user_id_fk": {
+          "name": "rating_updates_userId_user_id_fk",
+          "tableFrom": "rating_updates",
+          "tableTo": "user",
+          "columnsFrom": ["userId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "rating_updates_matchId_userId_pk": {
+          "columns": ["matchId", "userId"],
+          "name": "rating_updates_matchId_userId_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "rating_updates_pool_vocabulary": {
+          "name": "rating_updates_pool_vocabulary",
+          "value": "\"rating_updates\".\"pool\" in ('async', 'fog_async', 'live', 'fog_live')"
+        },
+        "rating_updates_score_vocabulary": {
+          "name": "rating_updates_score_vocabulary",
+          "value": "\"rating_updates\".\"score\" in (0, 0.5, 1)"
+        }
+      }
+    },
     "ratings": {
       "name": "ratings",
       "columns": {
@@ -1393,6 +1563,189 @@
         "ratings_match_count_nonnegative": {
           "name": "ratings_match_count_nonnegative",
           "value": "\"ratings\".\"ratedMatches\" >= 0"
+        }
+      }
+    },
+    "season_captures": {
+      "name": "season_captures",
+      "columns": {
+        "season": {
+          "name": "season",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pool": {
+          "name": "pool",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "placeCount": {
+          "name": "placeCount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "capturedAt": {
+          "name": "capturedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "season_captures_season_seasons_number_fk": {
+          "name": "season_captures_season_seasons_number_fk",
+          "tableFrom": "season_captures",
+          "tableTo": "seasons",
+          "columnsFrom": ["season"],
+          "columnsTo": ["number"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "season_captures_season_pool_pk": {
+          "columns": ["season", "pool"],
+          "name": "season_captures_season_pool_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "season_captures_pool_vocabulary": {
+          "name": "season_captures_pool_vocabulary",
+          "value": "\"season_captures\".\"pool\" in ('async', 'fog_async', 'live', 'fog_live')"
+        },
+        "season_captures_place_count_nonnegative": {
+          "name": "season_captures_place_count_nonnegative",
+          "value": "\"season_captures\".\"placeCount\" >= 0"
+        }
+      }
+    },
+    "season_standings": {
+      "name": "season_standings",
+      "columns": {
+        "season": {
+          "name": "season",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pool": {
+          "name": "pool",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rank": {
+          "name": "rank",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userId": {
+          "name": "userId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rating": {
+          "name": "rating",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deviation": {
+          "name": "deviation",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ratedMatches": {
+          "name": "ratedMatches",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "seasonMatches": {
+          "name": "seasonMatches",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "capturedAt": {
+          "name": "capturedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "season_standings_rank_idx": {
+          "name": "season_standings_rank_idx",
+          "columns": ["season", "pool", "rank"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "season_standings_season_seasons_number_fk": {
+          "name": "season_standings_season_seasons_number_fk",
+          "tableFrom": "season_standings",
+          "tableTo": "seasons",
+          "columnsFrom": ["season"],
+          "columnsTo": ["number"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "season_standings_userId_user_id_fk": {
+          "name": "season_standings_userId_user_id_fk",
+          "tableFrom": "season_standings",
+          "tableTo": "user",
+          "columnsFrom": ["userId"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "season_standings_season_pool_userId_pk": {
+          "columns": ["season", "pool", "userId"],
+          "name": "season_standings_season_pool_userId_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "season_standings_pool_vocabulary": {
+          "name": "season_standings_pool_vocabulary",
+          "value": "\"season_standings\".\"pool\" in ('async', 'fog_async', 'live', 'fog_live')"
+        },
+        "season_standings_rank_positive": {
+          "name": "season_standings_rank_positive",
+          "value": "\"season_standings\".\"rank\" >= 1"
         }
       }
     },

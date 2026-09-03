@@ -4,8 +4,10 @@ import {
   MAXIMUM_DEVIATION,
   capacityHelperLine,
   formatRating,
+  isListedOnLadder,
   isProvisional,
   isRankedPoolOpen,
+  ladderScore,
   readTimeDeviation,
   seekStatusLine,
   seekWaitPhase,
@@ -198,5 +200,43 @@ describe("formatCompactDuration", () => {
     expect(formatCompactDuration(14 * 3_600_000 + 2 * 60_000)).toBe("14h 02m");
     expect(formatCompactDuration(3 * 86_400_000 + 4 * 3_600_000)).toBe("3d 4h");
     expect(formatCompactDuration(-5)).toBe("0s");
+  });
+});
+
+describe("the ladder place", () => {
+  it("keeps a rating which is only a season old", () => {
+    // 90 days at deviation 50 is what the limit is set to.
+    const eightyDays = readTimeDeviation(
+      { deviation: 50, lastRatedAt: new Date(0) },
+      new Date(80 * 24 * 60 * 60 * 1000),
+      false,
+    );
+    expect(isListedOnLadder(eightyDays)).toBe(true);
+  });
+
+  it("drops a rating which is older than a season", () => {
+    const hundredDays = readTimeDeviation(
+      { deviation: 50, lastRatedAt: new Date(0) },
+      new Date(100 * 24 * 60 * 60 * 1000),
+      false,
+    );
+    expect(isListedOnLadder(hundredDays)).toBe(false);
+  });
+
+  it("keeps a player who is above the field above it while they slide", () => {
+    // The idle leader is 300 points clear, and a month away costs less.
+    const idleLeader = ladderScore(2000, 130);
+    const activeChaser = ladderScore(1700, 50);
+    expect(idleLeader).toBeGreaterThan(activeChaser);
+  });
+
+  it("lets an active player pass an idle one they are close to", () => {
+    const idle = ladderScore(1720, 200);
+    const active = ladderScore(1700, 50);
+    expect(active).toBeGreaterThan(idle);
+  });
+
+  it("counts nothing against a rating nobody doubts", () => {
+    expect(ladderScore(1800, 0)).toBe(1800);
   });
 });

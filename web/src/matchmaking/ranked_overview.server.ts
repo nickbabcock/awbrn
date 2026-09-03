@@ -7,7 +7,7 @@
  * seeks, opponents waiting, or players in a season.
  */
 
-import { and, asc, desc, eq, exists, gt, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { alias } from "drizzle-orm/sqlite-core";
 import { env } from "cloudflare:workers";
@@ -29,7 +29,8 @@ import {
   isRankedPoolOpen,
   readTimeDeviation,
 } from "./ranked_display.ts";
-import { DEFAULT_MAX_ACTIVE_MATCHES } from "./matchmaking.ts";
+import { DEFAULT_MAX_ACTIVE_MATCHES, INITIAL_RATING } from "./matchmaking.ts";
+import { readLadder } from "./ratings.server.ts";
 import { activeSeasonNumber } from "./matchmaking.server.ts";
 
 /** The number of rows the standings panel reads. */
@@ -274,11 +275,44 @@ export async function rankedStandings(
 ): Promise<RankedStandings> {
   if (!rankedPools.includes(pool)) throw new Error("unknown ranked pool");
 
+  /*
+   * The whole pool is read and then cut down, rather than being cut down by
+   * the database. The order is `ladderScore`, which needs the deviation that
+   * time has grown, and that growth is worked out here and not in SQL. Cutting
+   * the rows down first would drop players the order was going to lift.
+   */
+  const ladder = await readLadder(env.DB, pool, now);
+  const entries: StandingsEntry[] = ladder.slice(0, STANDINGS_LIMIT).map((row, index) => ({
+    rank: index + 1,
+    userId: row.userId,
+    name: row.name,
+    rating: row.rating,
+    ratedMatches: row.ratedMatches,
+    isViewer: row.userId === viewerUserId,
+  }));
+
+  if (viewerUserId === null || entries.some((entry) => entry.isViewer)) {
+    return { pool, entries, viewer: null };
+  }
+
+  // The viewer holds a place further down the ladder than the panel lists.
+  const placed = ladder.find((row) => row.userId === viewerUserId);
+  if (placed) {
+    return {
+      pool,
+      entries,
+      viewer: {
+        rating: placed.rating,
+        ratedMatches: placed.ratedMatches,
+        isProvisional: isProvisional(placed.deviation),
+      },
+    };
+  }
+
+  // The viewer holds no place: they are new, or they have been away too long.
   const database = drizzle(env.DB, { schema: { matchParticipants, matches, ratings, user } });
-  const rows = await database
+  const own = await database
     .select({
-      userId: ratings.userId,
-      name: user.name,
       rating: ratings.rating,
       deviation: ratings.deviation,
       ratedMatches: ratings.ratedMatches,
@@ -299,36 +333,18 @@ export async function rankedStandings(
       ).mapWith(Boolean),
     })
     .from(ratings)
-    .innerJoin(user, eq(user.id, ratings.userId))
-    .where(and(eq(ratings.pool, pool), gt(ratings.ratedMatches, 0)))
-    .orderBy(desc(ratings.rating), asc(user.name))
-    .limit(STANDINGS_LIMIT);
+    .where(and(eq(ratings.userId, viewerUserId), eq(ratings.pool, pool)))
+    .get();
 
-  const listed: StandingsEntry[] = [];
-  let viewer: RankedStandings["viewer"] = null;
-
-  for (const row of rows) {
-    const deviation = readTimeDeviation(row, now, row.inProgress);
-    const isViewer = row.userId === viewerUserId;
-    if (isProvisional(deviation)) {
-      if (isViewer) {
-        viewer = { rating: row.rating, ratedMatches: row.ratedMatches, isProvisional: true };
-      }
-      continue;
-    }
-    listed.push({
-      rank: listed.length + 1,
-      userId: row.userId,
-      name: row.name,
-      rating: row.rating,
-      ratedMatches: row.ratedMatches,
-      isViewer,
-    });
-  }
-
-  if (viewer === null && viewerUserId !== null && !listed.some((entry) => entry.isViewer)) {
-    viewer = { rating: 1500, ratedMatches: 0, isProvisional: true };
-  }
-
-  return { pool, entries: listed, viewer };
+  return {
+    pool,
+    entries,
+    viewer: own
+      ? {
+          rating: own.rating,
+          ratedMatches: own.ratedMatches,
+          isProvisional: isProvisional(readTimeDeviation(own, now, own.inProgress)),
+        }
+      : { rating: INITIAL_RATING, ratedMatches: 0, isProvisional: true },
+  };
 }

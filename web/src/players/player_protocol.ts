@@ -6,6 +6,8 @@
  * one re-reads the counts it shows, which is why nothing here carries a count.
  */
 
+import type { RankedPool } from "#/matches/schemas.ts";
+
 /** A turn has opened for this player. Worth interrupting them for. */
 export interface TurnStartedNotification {
   type: "turnStarted";
@@ -21,7 +23,26 @@ export interface TurnEndedNotification {
   matchId: string;
 }
 
-export type PlayerNotification = TurnStartedNotification | TurnEndedNotification;
+/**
+ * A rated match has moved this player's rating.
+ *
+ * The rating is applied after the match ends, by the durable object which owns
+ * the pool, so the report of a match a player is reading can be open before
+ * the number moves. This lets that page fill the number in rather than ask
+ * again for it. It carries no push: a rating is not worth waking a phone for.
+ */
+export interface RatingChangedNotification {
+  type: "ratingChanged";
+  matchId: string;
+  pool: RankedPool;
+  ratingBefore: number;
+  ratingAfter: number;
+}
+
+export type PlayerNotification =
+  | TurnStartedNotification
+  | TurnEndedNotification
+  | RatingChangedNotification;
 
 /** The opening frame, so a tab knows the socket is live and not merely open. */
 export interface PlayerReadyMessage {

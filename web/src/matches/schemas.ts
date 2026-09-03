@@ -386,6 +386,15 @@ export interface MatchHistorySeat {
   outcome: MatchOutcome | null;
   placement: number | null;
   reason: SeatResultReason | null;
+  /**
+   * What the match did to this seat's rating.
+   *
+   * Null on an unranked match, and null on a ranked one until the pool's
+   * rating writer reaches the result. The report tells those two apart with
+   * the entry's `pool`.
+   */
+  ratingBefore: number | null;
+  ratingAfter: number | null;
 }
 
 /** One finished match, as the viewer's own after action report. */
@@ -401,6 +410,8 @@ export interface MatchHistoryEntry {
   completedAt: string;
   /** Every seat the viewer held. More than one means a hotseat match. */
   viewerSlotIndexes: number[];
+  /** The ranked pool this match was played in, or null when it was not ranked. */
+  pool: RankedPool | null;
   seats: MatchHistorySeat[];
   /** False when the archive is missing, so the page never offers a dead file. */
   hasReplay: boolean;

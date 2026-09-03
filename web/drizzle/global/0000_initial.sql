@@ -98,6 +98,7 @@ CREATE TABLE `match_results` (
 	`reason` text,
 	`pool` text,
 	`recordedAt` integer DEFAULT (unixepoch()) NOT NULL,
+	`ratedAt` integer,
 	PRIMARY KEY(`matchId`, `slotIndex`),
 	FOREIGN KEY (`matchId`) REFERENCES `matches`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`userId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
@@ -106,10 +107,12 @@ CREATE TABLE `match_results` (
 	CONSTRAINT "match_results_one_occupant" CHECK(("match_results"."userId" is null) <> ("match_results"."aiProfileId" is null)),
 	CONSTRAINT "match_results_ai_vocabulary" CHECK("match_results"."aiProfileId" is null or "match_results"."aiProfileId" in ('ai-easy-v1', 'ai-standard-v1', 'ai-hard-v1')),
 	CONSTRAINT "match_results_ai_is_never_ranked" CHECK("match_results"."aiProfileId" is null or "match_results"."pool" is null),
+	CONSTRAINT "match_results_rated_is_pooled" CHECK("match_results"."ratedAt" is null or "match_results"."pool" is not null),
 	CONSTRAINT "match_results_reason_null_only_for_standing_win" CHECK("match_results"."reason" is not null or "match_results"."outcome" = 'win')
 );
 --> statement-breakpoint
 CREATE INDEX `match_results_user_idx` ON `match_results` (`userId`,`recordedAt`);--> statement-breakpoint
+CREATE INDEX `match_results_unrated_idx` ON `match_results` (`pool`,`recordedAt`) WHERE "match_results"."pool" is not null and "match_results"."ratedAt" is null;--> statement-breakpoint
 CREATE INDEX `match_results_pool_idx` ON `match_results` (`pool`,`recordedAt`) WHERE "match_results"."pool" is not null;--> statement-breakpoint
 CREATE TABLE `match_voids` (
 	`matchId` text PRIMARY KEY NOT NULL,
@@ -205,6 +208,30 @@ CREATE TABLE `ranked_maps` (
 );
 --> statement-breakpoint
 CREATE INDEX `ranked_maps_pool_idx` ON `ranked_maps` (`season`,`pool`);--> statement-breakpoint
+CREATE TABLE `rating_updates` (
+	`matchId` text NOT NULL,
+	`userId` text NOT NULL,
+	`pool` text NOT NULL,
+	`season` integer NOT NULL,
+	`ratingBefore` real NOT NULL,
+	`ratingAfter` real NOT NULL,
+	`deviationBefore` real NOT NULL,
+	`deviationAfter` real NOT NULL,
+	`volatilityBefore` real NOT NULL,
+	`volatilityAfter` real NOT NULL,
+	`opponentRating` real NOT NULL,
+	`opponentDeviation` real NOT NULL,
+	`score` real NOT NULL,
+	`appliedAt` integer DEFAULT (unixepoch()) NOT NULL,
+	PRIMARY KEY(`matchId`, `userId`),
+	FOREIGN KEY (`matchId`) REFERENCES `matches`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`userId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "rating_updates_pool_vocabulary" CHECK("rating_updates"."pool" in ('async', 'fog_async', 'live', 'fog_live')),
+	CONSTRAINT "rating_updates_score_vocabulary" CHECK("rating_updates"."score" in (0, 0.5, 1))
+);
+--> statement-breakpoint
+CREATE INDEX `rating_updates_user_idx` ON `rating_updates` (`userId`,`pool`,`appliedAt`);--> statement-breakpoint
+CREATE INDEX `rating_updates_season_idx` ON `rating_updates` (`season`,`pool`,`userId`);--> statement-breakpoint
 CREATE TABLE `ratings` (
 	`userId` text NOT NULL,
 	`pool` text NOT NULL,
@@ -222,6 +249,36 @@ CREATE TABLE `ratings` (
 );
 --> statement-breakpoint
 CREATE INDEX `ratings_pool_rating_idx` ON `ratings` (`pool`,`rating`);--> statement-breakpoint
+CREATE TABLE `season_captures` (
+	`season` integer NOT NULL,
+	`pool` text NOT NULL,
+	`placeCount` integer NOT NULL,
+	`capturedAt` integer DEFAULT (unixepoch()) NOT NULL,
+	PRIMARY KEY(`season`, `pool`),
+	FOREIGN KEY (`season`) REFERENCES `seasons`(`number`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "season_captures_pool_vocabulary" CHECK("season_captures"."pool" in ('async', 'fog_async', 'live', 'fog_live')),
+	CONSTRAINT "season_captures_place_count_nonnegative" CHECK("season_captures"."placeCount" >= 0)
+);
+--> statement-breakpoint
+CREATE TABLE `season_standings` (
+	`season` integer NOT NULL,
+	`pool` text NOT NULL,
+	`rank` integer NOT NULL,
+	`userId` text NOT NULL,
+	`name` text NOT NULL,
+	`rating` real NOT NULL,
+	`deviation` real NOT NULL,
+	`ratedMatches` integer NOT NULL,
+	`seasonMatches` integer NOT NULL,
+	`capturedAt` integer DEFAULT (unixepoch()) NOT NULL,
+	PRIMARY KEY(`season`, `pool`, `userId`),
+	FOREIGN KEY (`season`) REFERENCES `seasons`(`number`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`userId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "season_standings_pool_vocabulary" CHECK("season_standings"."pool" in ('async', 'fog_async', 'live', 'fog_live')),
+	CONSTRAINT "season_standings_rank_positive" CHECK("season_standings"."rank" >= 1)
+);
+--> statement-breakpoint
+CREATE INDEX `season_standings_rank_idx` ON `season_standings` (`season`,`pool`,`rank`);--> statement-breakpoint
 CREATE TABLE `seasons` (
 	`number` integer PRIMARY KEY NOT NULL,
 	`startsAt` integer NOT NULL,

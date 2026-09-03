@@ -25,6 +25,7 @@ import { matchResultRows } from "./match_completion.ts";
 import { uploadMatchReplay } from "./replay_archive.ts";
 import { requireRateLimit } from "#/rate_limit.ts";
 import { getMatchmakerStub } from "#/matchmaking/matchmaker_service.ts";
+import { getRatingsStub } from "#/matchmaking/ratings_service.ts";
 import {
   advanceClockProgress,
   commandEndsTurn,
@@ -118,6 +119,9 @@ const TURN_PUBLISHED_KEY = "turnPublished";
 
 /** Wakes left for a ranked matchmaker that has not taken the wake yet. */
 const MATCHMAKER_WAKE_KEY = "matchmakerWake";
+
+/** How many wakes the pool's rating writer still owes. */
+const RATINGS_WAKE_KEY = "ratingsWake";
 
 /** How many times a refused ranked matchmaker wake is sent again. */
 const MATCHMAKER_WAKE_ATTEMPTS = 6;
@@ -668,11 +672,12 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       return null;
     }
     if (game.matchResults()) {
-      const [recorded, wakesLeft] = await Promise.all([
+      const [recorded, matchmakerWakes, ratingWakes] = await Promise.all([
         this.ctx.storage.get<boolean>(RESULTS_RECORDED_KEY),
         this.ctx.storage.get<number>(MATCHMAKER_WAKE_KEY),
+        this.ctx.storage.get<number>(RATINGS_WAKE_KEY),
       ]);
-      const settled = recorded === true && (wakesLeft ?? 0) <= 0;
+      const settled = recorded === true && (matchmakerWakes ?? 0) <= 0 && (ratingWakes ?? 0) <= 0;
       return settled ? null : Date.now() + RESULT_ALARM_DELAY_MS;
     }
     // A turn the server still owes is a turn nobody is going to ask for, so
@@ -872,6 +877,7 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     }
     if ((await this.ctx.storage.get<boolean>(RESULTS_RECORDED_KEY)) === true) {
       await this.resumeRankedMatchmaking(setup, false);
+      await this.wakeRatingWriter(setup, false);
       return;
     }
 
@@ -900,6 +906,39 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     // A match with nothing to write is recorded too, so it stops being retried.
     await this.ctx.storage.put(RESULTS_RECORDED_KEY, true);
     await this.resumeRankedMatchmaking(setup, true);
+    await this.wakeRatingWriter(setup, true);
+  }
+
+  /**
+   * Wake the pool's rating writer so the result this match wrote is rated.
+   *
+   * The wake is counted and retried the way the matchmaker's is, for the same
+   * reason: a refused wake must be sent again rather than lost. Nothing is
+   * carried in it. The rating writer reads `match_results` for the work, so a
+   * wake which never lands only delays the rating until the next match of the
+   * pool ends.
+   */
+  private async wakeRatingWriter(setup: MatchSetup, first: boolean): Promise<void> {
+    const { pool } = setup;
+    if (pool == null) {
+      return;
+    }
+    const wakesLeft = first
+      ? MATCHMAKER_WAKE_ATTEMPTS
+      : ((await this.ctx.storage.get<number>(RATINGS_WAKE_KEY)) ?? 0);
+    if (wakesLeft <= 0) {
+      return;
+    }
+
+    await this.ctx.storage.put(RATINGS_WAKE_KEY, wakesLeft - 1);
+    this.ctx.waitUntil(
+      getRatingsStub(this.env.RATINGS, pool)
+        .kick(pool)
+        .then(() => this.ctx.storage.delete(RATINGS_WAKE_KEY))
+        .catch((error: unknown) => {
+          console.error("Failed to wake the ranked rating writer:", error);
+        }),
+    );
   }
 
   /**
