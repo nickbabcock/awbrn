@@ -154,7 +154,65 @@ impl From<awvm_awbw::RecordedAdapter> for ReplayTimeline {
     }
 }
 
+/// Where an archive stood at one boundary.
+///
+/// The board is not here. This is what the controls read to label a moment
+/// and to find where a turn begins, so a whole archive's worth of it stays
+/// smaller than a single board would be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReplayBoundary {
+    pub day: u32,
+    /// The seat holding the turn here, or `None` once the game is over.
+    pub active_player: Option<u32>,
+}
+
 impl ReplayTimeline {
+    /// Replay the whole archive once, recording the turn each boundary falls
+    /// in.
+    ///
+    /// The pass runs on a timeline of its own, so the position the viewer is
+    /// reading never moves. Days and seats come from the projections AWVM
+    /// produces rather than from reading the archived actions, because what
+    /// counts as a turn is a rule and the archive does not hold the rules.
+    pub fn outline(&self, archive: &ReplayArchive) -> Result<Vec<ReplayBoundary>, String> {
+        let mut scratch = self.rewound()?;
+        let opening = scratch
+            .initial_observations()?
+            .first()
+            .map(|observation| boundary(&observation.turn))
+            .unwrap_or(ReplayBoundary {
+                day: 1,
+                active_player: None,
+            });
+
+        let mut boundaries = Vec::with_capacity(archive.len() + 1);
+        boundaries.push(opening);
+        for index in 0..archive.len() {
+            let observed = scratch.advance(archive, index)?;
+            let boundary = observed
+                .first()
+                .map(|transition| boundary(&transition.post.turn))
+                .unwrap_or(opening);
+            boundaries.push(boundary);
+        }
+        Ok(boundaries)
+    }
+
+    /// A copy of this timeline standing before its first action.
+    fn rewound(&self) -> Result<Self, String> {
+        match self {
+            Self::Awbw { initial, .. } => Ok(Self::Awbw {
+                initial: initial.clone(),
+                current: initial.clone(),
+                checkpoints: BTreeMap::new(),
+            }),
+            Self::Awbrn { setup, .. } => Ok(Self::Awbrn {
+                setup: setup.clone(),
+                current: Box::new(Authority::new(setup).map_err(|error| error.to_string())?),
+            }),
+        }
+    }
+
     pub fn initial_observations(&self) -> Result<Vec<Observation>, String> {
         match self {
             Self::Awbw { initial, .. } => observe_awbw_state(initial),
@@ -277,6 +335,13 @@ impl ReplayTimeline {
             observations = self.advance(archive, index)?;
         }
         Ok(observations)
+    }
+}
+
+fn boundary(turn: &awvm::semantic::Turn) -> ReplayBoundary {
+    ReplayBoundary {
+        day: u32::try_from(turn.day).unwrap_or(u32::MAX),
+        active_player: turn.active_player.as_str().parse().ok(),
     }
 }
 

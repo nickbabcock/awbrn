@@ -34,6 +34,30 @@ fn seed_initial_observations(world: &mut World) {
     refresh_viewer_visibility(world);
 }
 
+/// Record the turn every boundary of the archive falls in.
+///
+/// One replay of the whole archive, paid once when it is loaded, is what makes
+/// crossing a game by turns as cheap as reading it by actions. Without it a
+/// jump would have to replay the archive to find out where it was going.
+fn build_replay_outline(world: &mut World) {
+    let boundaries = world
+        .get_resource::<ReplayTransitionSource>()
+        .zip(world.get_resource::<LoadedReplay>())
+        .map(|(source, replay)| source.outline(&replay.0));
+    match boundaries {
+        Some(Ok(boundaries)) => {
+            world.insert_resource(crate::modes::replay::timeline::ReplayOutline(boundaries));
+        }
+        Some(Err(error)) => {
+            error!("Could not read the archive's turns: {error}");
+            world.init_resource::<crate::modes::replay::timeline::ReplayOutline>();
+        }
+        None => {
+            world.init_resource::<crate::modes::replay::timeline::ReplayOutline>();
+        }
+    }
+}
+
 pub fn initialize_replay_semantic_world_for_client(world: &mut World) {
     let is_awbrn = world
         .get_resource::<LoadedReplay>()
@@ -57,6 +81,7 @@ pub fn initialize_replay_semantic_world_for_client(world: &mut World) {
         source.set_initial_terrain_knowledge(initial_terrain_knowledge);
     }
     seed_initial_observations(world);
+    build_replay_outline(world);
 
     if let Some(replay) = world
         .get_resource::<LoadedReplay>()

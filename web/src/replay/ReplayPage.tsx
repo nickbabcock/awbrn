@@ -1,4 +1,3 @@
-import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Card } from "@astryxdesign/core/Card";
 import { Center } from "@astryxdesign/core/Center";
@@ -16,7 +15,9 @@ import { resolveAwbwUsername } from "#/awbw/api.ts";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
 import { loadCoPortraitCatalog, type CoPortraitCatalog } from "#/components/co_portraits.ts";
 import { BoardFullscreenExit, GameFullscreenButton } from "#/components/GameFullscreen.tsx";
+import { StepControls } from "#/components/StepControls.tsx";
 import { TileInfoBar } from "#/components/TileInfoBar.tsx";
+import type { GameRunner } from "#/engine/game_runner.ts";
 import { useReplayRunner } from "#/engine/runtime_context.tsx";
 import { useGameActions, useGameStore } from "#/engine/store.ts";
 import { getFactionByCode } from "#/factions.ts";
@@ -30,8 +31,8 @@ import {
 import { RosterList, RosterRow } from "./RosterRow";
 
 export function ReplayPage() {
-  const currentDay = useGameStore((state) => state.currentDay);
   const playerRoster = useGameStore((state) => state.playerRoster);
+  const replayPosition = useGameStore((state) => state.replayPosition);
   const gameActions = useGameActions();
   const [portraitCatalog] = useState<CoPortraitCatalog>(() => loadCoPortraitCatalog());
   const [playerNames, setPlayerNames] = useState<Record<number, string>>({});
@@ -120,6 +121,28 @@ export function ReplayPage() {
     }
   }
 
+  /**
+   * Walk the archive.
+   *
+   * Every step goes to the engine, which holds the archive and is the only
+   * thing that can say what the board looked like at a boundary. The page
+   * hears where it landed through the position it reports back.
+   */
+  function stepReplay(step: (runner: GameRunner) => Promise<void>) {
+    if (!runner) return;
+    void step(runner).catch((error) => {
+      setReplayError(error instanceof Error ? error.message : "The replay could not be stepped.");
+      console.error("Error stepping the replay:", error);
+    });
+  }
+
+  const turnHolder =
+    replayPosition?.activePlayerId === null || replayPosition === null
+      ? null
+      : (playerRoster?.players.find(
+          (player) => player.playerId === replayPosition.activePlayerId,
+        ) ?? null);
+
   const replayLoader = (
     <FileInput
       accept=".zip,.json"
@@ -207,7 +230,6 @@ export function ReplayPage() {
             xstyle={styles.boardHud}
           >
             <HStack align="center" gap={2} wrap="wrap">
-              <Badge label={`Day ${currentDay}`} variant="info" />
               {playerRoster ? (
                 <Text type="supporting">
                   Game {playerRoster.matchId} · Map {playerRoster.mapId}
@@ -238,6 +260,35 @@ export function ReplayPage() {
               ) : null}
             </HStack>
           </HStack>
+
+          {/* The archive is walked from under the board it is drawn on, so the
+              keys are beside the thing they move. The day and the seat live
+              here rather than in the status line above: they are what a step
+              changes, and saying them twice would leave a reader checking
+              which of the two had moved. */}
+          {playerRoster && replayPosition ? (
+            <VStack gap={0} paddingBlock={2} paddingInline={3} xstyle={styles.stepControls}>
+              <StepControls
+                canStepBack={replayPosition.index > 0}
+                canStepForward={replayPosition.index < replayPosition.total}
+                canStepTurnBack={replayPosition.previousTurnIndex !== null}
+                canStepTurnForward={replayPosition.nextTurnIndex !== null}
+                day={replayPosition.day}
+                isAtLatest={replayPosition.index >= replayPosition.total}
+                latestLabel="End"
+                onSeekLatest={() => stepReplay((runner) => runner.replaySeekEnd())}
+                onSeekStart={() => stepReplay((runner) => runner.replaySeek(0))}
+                onStep={(delta) => stepReplay((runner) => runner.replayStep(delta))}
+                onTurnStep={(delta) => stepReplay((runner) => runner.replayStepTurn(delta))}
+                position={{ index: replayPosition.index, total: replayPosition.total }}
+                turnHolder={
+                  turnHolder === null
+                    ? null
+                    : (playerNames[turnHolder.userId] ?? `Player ${turnHolder.turnOrder}`)
+                }
+              />
+            </VStack>
+          ) : null}
         </Card>
 
         {/* The armies need no visible title: the board names the battle, and
@@ -357,6 +408,14 @@ const styles = stylex.create({
     inset: 0,
     padding: spacingVars["--spacing-4"],
     backgroundColor: colorVars["--color-background-muted"],
+  },
+  // The keys sit under the status line and share its ground, separated from
+  // it by the same rule the line is separated from the board by.
+  stepControls: {
+    borderTopWidth: borderVars["--border-width"],
+    borderTopStyle: "solid",
+    borderTopColor: colorVars["--color-border"],
+    backgroundColor: colorVars["--color-background-surface"],
   },
   boardHud: {
     borderTopWidth: borderVars["--border-width"],

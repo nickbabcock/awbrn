@@ -4,6 +4,7 @@ import { mapCatalogEntryQueryOptions, mapRevisionQueryOptions } from "#/maps/map
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
 import { MatchActivePage } from "#/matches/screens/MatchActivePage.tsx";
 import { MatchLobbyPage } from "#/matches/screens/MatchLobbyPage.tsx";
+import { MatchReplayPage } from "#/matches/screens/MatchReplayPage.tsx";
 import { RankedPendingPage } from "#/matchmaking/screens/RankedPendingPage.tsx";
 
 type MatchSearch = {
@@ -55,6 +56,12 @@ function MatchRouteComponent() {
     // The slug travels with the viewer: a private match stays unreadable to a
     // non-participant without it, and the invite link is the only way in.
     return <MatchActivePage joinSlug={joinSlug} matchId={matchId} />;
+  }
+
+  if (match.phase === "completed") {
+    // A match keeps its address after it ends. What was a board to play on
+    // becomes a board to read, which is the same match at the same link.
+    return <MatchReplayPage joinSlug={joinSlug} matchId={matchId} />;
   }
   return <MatchLobbyPage matchId={matchId} joinSlug={joinSlug} />;
 }
