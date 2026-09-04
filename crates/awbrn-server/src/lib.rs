@@ -5,6 +5,7 @@ pub mod map_image;
 mod player;
 pub mod replay;
 pub mod results;
+pub mod review;
 pub mod server;
 mod state;
 #[cfg(any(target_family = "wasm", test))]
@@ -23,8 +24,9 @@ pub use awbrn_types::Co;
 pub use player::PlayerRegistry;
 pub use replay::{ReplayError, reconstruct_from_events};
 pub use results::{MatchResults, SeatOutcome, SeatResult, SeatResultReason};
+pub use review::{Boundary, MatchReview};
 pub use server::GameServer;
 pub use state::ServerGameState;
 pub use view::{CaptureEvent, CommandResult, PlayerUpdate, PlayerView, SpectatorView};
 #[cfg(target_family = "wasm")]
-pub use wasm::{LogLevel, LoggingOptions, WasmMatch, init_logging};
+pub use wasm::{LogLevel, LoggingOptions, WasmMatch, WasmMatchReview, init_logging};

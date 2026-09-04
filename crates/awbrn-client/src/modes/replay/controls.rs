@@ -1,10 +1,9 @@
+use crate::features::event_bus::{EventSink, ReplayViewpointChanged};
 use crate::loading::LoadedReplay;
 use crate::modes::replay::navigation::action_requires_path_animation;
-use crate::modes::replay::presentation::{
-    ReplayAdvanceLock, ReplayRewindCommand, ReplayTurnCommand,
-};
+use crate::modes::replay::presentation::{ReplayAdvanceLock, ReplaySeekCommand, ReplayTurnCommand};
 use crate::modes::replay::state::ReplayControlState;
-use awbrn_bevy::replay::ReplayState;
+use awbrn_bevy::replay::{ReplayState, ReplayViewpoint};
 use bevy::input::{ButtonState, keyboard::KeyboardInput};
 use bevy::prelude::*;
 
@@ -13,6 +12,13 @@ pub(crate) enum ReplayAdvanceResult {
     Advanced,
     AdvancedWithLock,
     Exhausted,
+}
+
+impl ReplayAdvanceResult {
+    /// Whether the action being presented holds the archive until it is done.
+    pub(crate) fn is_locked(self) -> bool {
+        matches!(self, Self::AdvancedWithLock)
+    }
 }
 
 pub(crate) fn advance_replay_action(
@@ -69,7 +75,7 @@ pub(crate) fn handle_replay_controls(
                     continue;
                 }
 
-                commands.queue(ReplayRewindCommand {
+                commands.queue(ReplaySeekCommand {
                     target_index: replay_state.next_action_index - 1,
                 });
                 replay_control.suppress_exhausted_repeat = false;
@@ -137,6 +143,53 @@ pub(crate) fn handle_replay_controls(
             _ => {}
         }
     }
+}
+
+/// Set whose eyes the archive is watched through.
+///
+/// The keys above are one way in and the page's own control is another, so the
+/// resource is what both write to and this reports what it holds. A page that
+/// drew the control from its own copy would show the wrong seat the moment a
+/// key was pressed on the board.
+pub fn set_replay_viewpoint(
+    world: &mut World,
+    player_id: Option<awbrn_types::AwbwGamePlayerId>,
+    follows_active_player: bool,
+) {
+    let next = match (player_id, follows_active_player) {
+        (_, true) => ReplayViewpoint::ActivePlayer,
+        (Some(player), false) => ReplayViewpoint::Player(player),
+        (None, false) => ReplayViewpoint::Spectator,
+    };
+    world.resource_mut::<ReplayViewpoint>().set_if_neq(next);
+}
+
+/// Tell the page which seat the board is drawn for.
+///
+/// A followed viewpoint changes seat without the viewpoint itself changing, so
+/// the turn is watched as well: the seat being reported is the one the board is
+/// actually showing, not the rule that chose it.
+pub fn emit_replay_viewpoint(
+    sink: Option<Res<EventSink<ReplayViewpointChanged>>>,
+    viewpoint: Option<Res<ReplayViewpoint>>,
+    replay_state: Option<Res<ReplayState>>,
+) {
+    let (Some(sink), Some(viewpoint)) = (sink, viewpoint) else {
+        return;
+    };
+
+    let (player_id, follows_active_player) = match viewpoint.as_ref() {
+        ReplayViewpoint::Spectator => (None, false),
+        ReplayViewpoint::ActivePlayer => {
+            (replay_state.and_then(|state| state.active_player_id), true)
+        }
+        ReplayViewpoint::Player(player) => (Some(*player), false),
+    };
+
+    sink.emit(ReplayViewpointChanged {
+        player_id: player_id.map(|player| player.as_u32()),
+        follows_active_player,
+    });
 }
 
 #[cfg(test)]

@@ -20,7 +20,11 @@ use crate::player::PlayerId as ServerPlayerId;
 use crate::unit_id::ServerUnitId;
 use crate::{GameSetup, SetupError, faction_players, state_from_setup};
 
-#[derive(Debug)]
+/// Cloning an authority copies the whole position, including the recording of
+/// the entropy it has drawn. A clone therefore plays on exactly as the
+/// original would, which is what lets a caller keep a position it can come
+/// back to instead of replaying a match from its first action.
+#[derive(Clone, Debug)]
 pub struct Authority {
     state: State,
     entropy: Recording<GameRng>,

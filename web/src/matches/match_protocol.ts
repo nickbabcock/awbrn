@@ -2,7 +2,11 @@ import type { AwbrnMapDocument } from "#/maps/map_document.ts";
 import type {
   CombatEventMessage,
   GameCommand as WasmGameCommand,
+  MatchReviewBoundary,
+  MatchReviewOutline,
+  MatchReviewState,
   MatchGameState as WasmMatchGameState,
+  MatchResults,
   ObservedTransition,
   PlayerUpdateMessage as WasmPlayerUpdateMessage,
   PublicPlayerState as WasmPublicPlayerState,
@@ -40,6 +44,8 @@ export type VisibleUnit = WireVisibleUnit;
 export type VisibleTerrain = WireVisibleTerrain;
 export type MatchGameState = WasmMatchGameState;
 export type LiveTransition = ObservedTransition;
+/** What the engine decided for every seat, once a match is over. */
+export type { MatchResults, SeatResult } from "#/wasm/awbrn_server.js";
 
 export interface InitialBoardMessage {
   type: "initialBoard";
@@ -56,6 +62,76 @@ export interface ConnectedMessage {
 
 export interface AckMessage {
   type: "ack";
+}
+
+/**
+ * A viewer asking for every boundary the match can be read at.
+ *
+ * The answer carries no board, so it is asked for once and holds for the rest
+ * of the match: what arrives after it are the actions the viewer watches
+ * happen.
+ */
+export interface ReviewOutlineRequest {
+  type: "reviewOutline";
+}
+
+/** A viewer asking to be shown one boundary of the match. */
+export interface ReviewSeekRequest {
+  type: "reviewSeek";
+  /**
+   * How many actions had been taken, so `0` opens the match, and `null` is
+   * the match as it stands.
+   *
+   * The end of a match that is still being played is a moving target, so a
+   * viewer coming back to it names it rather than counting to it: a number
+   * that was the end when the viewer read it may be an action behind by the
+   * time the question arrives.
+   */
+  index: number | null;
+}
+
+/**
+ * What a viewer may ask about a match's past.
+ *
+ * Neither of these is an order, so both are open to somebody watching as well
+ * as to somebody playing. Neither names an action either: a viewer asks for a
+ * moment and is answered with the board they are entitled to see at it, which
+ * is what keeps a fogged match's history hidden while it is still being
+ * played.
+ */
+export type ReviewRequest = ReviewOutlineRequest | ReviewSeekRequest;
+
+export type ReviewBoundary = MatchReviewBoundary;
+
+export interface ReviewOutlineMessage extends MatchReviewOutline {
+  type: "reviewOutline";
+}
+
+export interface ReviewStateMessage extends MatchReviewState {
+  type: "reviewState";
+}
+
+/** Whether a websocket message from a viewer is a question about the past. */
+export function asReviewRequest(message: unknown): ReviewRequest | null {
+  if (typeof message !== "object" || message === null || !("type" in message)) {
+    return null;
+  }
+  if (message.type === "reviewOutline") {
+    return { type: "reviewOutline" };
+  }
+  if (message.type === "reviewSeek" && "index" in message) {
+    if (message.index === null) {
+      return { type: "reviewSeek", index: null };
+    }
+    if (
+      typeof message.index === "number" &&
+      Number.isInteger(message.index) &&
+      message.index >= 0
+    ) {
+      return { type: "reviewSeek", index: message.index };
+    }
+  }
+  return null;
 }
 
 export interface ErrorMessage {
@@ -104,6 +180,23 @@ export type PlayerUpdateMessage = WasmPlayerUpdateMessage;
 export type SpectatorNoticeMessage = Extract<SpectatorMessage, { type: "spectatorNotice" }>;
 export type SpectatorStateMessage = Extract<SpectatorMessage, { type: "spectatorState" }>;
 
+/**
+ * The match is over, with what the engine decided for every seat.
+ *
+ * This is announced once, at the moment the result is recorded, so a player
+ * watching the board learns the match ended from the match itself rather than
+ * from the absence of anything happening next. It carries no rating: a rating
+ * is applied after the match, by the pool that owns it, and reaches the player
+ * on their own socket.
+ *
+ * The results are public. Everything a fogged match was hiding is decided by
+ * the time this is sent, so a spectator is told the same as a player.
+ */
+export interface MatchOverMessage {
+  type: "matchOver";
+  results: MatchResults;
+}
+
 export type MatchWebSocketMessage =
   | InitialBoardMessage
   | ConnectedMessage
@@ -112,6 +205,9 @@ export type MatchWebSocketMessage =
   | PlayerUpdateMessage
   | SpectatorNoticeMessage
   | SpectatorStateMessage
+  | ReviewOutlineMessage
+  | ReviewStateMessage
+  | MatchOverMessage
   | MatchClockMessage;
 
 export type WasmActionResponse = GeneratedWasmActionResponse;

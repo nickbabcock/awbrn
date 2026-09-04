@@ -1,12 +1,15 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { defaultMatchClock, type MatchSetup } from "./schemas.ts";
 import {
+  asReviewRequest,
   initialMatchConnectionMessages,
   type ActivatePowerCommand,
   type EndTurnCommand,
   type ResignCommand,
   type LiveTransition,
   type MatchGameState,
+  type MatchOverMessage,
+  type MatchWebSocketMessage,
   type WasmActionResponse,
 } from "./match_protocol.ts";
 
@@ -228,5 +231,68 @@ describe("wasm action responses", () => {
       type: "spectatorNotice",
       fogActive: true,
     });
+  });
+});
+
+describe("questions about a match's past", () => {
+  it("reads a request for the outline", () => {
+    expect(asReviewRequest({ type: "reviewOutline" })).toEqual({ type: "reviewOutline" });
+  });
+
+  it("reads a request for one boundary", () => {
+    expect(asReviewRequest({ type: "reviewSeek", index: 12 })).toEqual({
+      type: "reviewSeek",
+      index: 12,
+    });
+  });
+
+  it("reads a request for the match as it stands", () => {
+    expect(asReviewRequest({ type: "reviewSeek", index: null })).toEqual({
+      type: "reviewSeek",
+      index: null,
+    });
+  });
+
+  it("refuses a boundary that is not a count of actions", () => {
+    // A websocket carries whatever the far end writes, and the count reaches
+    // the engine as an index into the log.
+    for (const index of [-1, 1.5, Number.NaN, "3", undefined]) {
+      expect(asReviewRequest({ type: "reviewSeek", index })).toBeNull();
+    }
+  });
+
+  it("leaves every order alone", () => {
+    expect(asReviewRequest({ type: "endTurn" })).toBeNull();
+    expect(
+      asReviewRequest({ type: "build", position: { x: 1, y: 1 }, unit_type: "infantry" }),
+    ).toBeNull();
+    expect(asReviewRequest(null)).toBeNull();
+    expect(asReviewRequest("reviewOutline")).toBeNull();
+  });
+});
+
+describe("the end of a match", () => {
+  it("carries every seat's result to whoever is watching", () => {
+    const message: MatchOverMessage = {
+      type: "matchOver",
+      results: {
+        seats: [
+          { slotIndex: 0, teamId: "0", outcome: "win", placement: 1, status: "active" },
+          {
+            slotIndex: 1,
+            teamId: "1",
+            outcome: "loss",
+            placement: 2,
+            reason: "resignation",
+            status: "resigned",
+          },
+        ],
+      },
+    };
+
+    // The result reaches the page over the same socket the match was played
+    // on, so it has to be one of the messages that socket carries.
+    expectTypeOf(message).toMatchTypeOf<MatchWebSocketMessage>();
+    expect(message.results.seats.map((seat) => seat.outcome)).toEqual(["win", "loss"]);
   });
 });

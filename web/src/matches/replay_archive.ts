@@ -52,12 +52,42 @@ export function matchReplayFileName(matchId: string): string {
 }
 
 /**
+ * Read a served archive as the bytes the engine parses.
+ *
+ * The engine holds the only reader an archive has, and it reads the file
+ * rather than a decoded copy of it, so the bytes go across untouched. Decoding
+ * them here to hand over an object would mean re-encoding them on the other
+ * side, and the archive of a long match is the largest thing the page loads.
+ *
+ * A file that is not an archive at all is still worth catching here, where
+ * there is a page to say so on: `parseMatchReplay` reads the same bytes when
+ * the engine refuses them, so the reader is told which of the two went wrong.
+ */
+export async function fetchMatchReplayBytes(
+  matchId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<Uint8Array> {
+  const response = await fetchImpl(matchReplayPath(matchId));
+  if (!response.ok) {
+    throw new Error(replayFetchFailure(response.status));
+  }
+
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+/** Why a served archive could not be read, in the reader's own terms. */
+export function replayFetchFailure(status: number): string {
+  return status === 404
+    ? "this match has no stored replay"
+    : `the replay could not be read (${status})`;
+}
+
+/**
  * Read a served archive and check it.
  *
  * This is the step playback starts from: it turns the file into a `MatchSetup`
  * the engine can be started with and the action log to feed it, both measured
- * against the schemas the server wrote them with. Nothing plays a stored
- * archive back yet, so today only the download uses the file.
+ * against the schemas the server wrote them with.
  */
 export async function fetchMatchReplay(
   matchId: string,
@@ -65,11 +95,7 @@ export async function fetchMatchReplay(
 ): Promise<MatchReplay> {
   const response = await fetchImpl(matchReplayPath(matchId));
   if (!response.ok) {
-    throw new Error(
-      response.status === 404
-        ? "this match has no stored replay"
-        : `the replay could not be read (${response.status})`,
-    );
+    throw new Error(replayFetchFailure(response.status));
   }
 
   return parseMatchReplay(await response.json());

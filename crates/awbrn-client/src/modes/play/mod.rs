@@ -28,6 +28,7 @@ use bevy::prelude::*;
 
 pub mod inspect;
 mod keyboard;
+pub mod review;
 
 use crate::loading::{LiveMatchBootstrap, PendingLiveTransitions};
 use crate::modes::replay::presentation::{LiveTransitionCommand, ReplayAdvanceLock};
@@ -2654,16 +2655,48 @@ impl Plugin for PlayPlugin {
             .init_resource::<OfferedActions>()
             .init_resource::<CommittedCommand>()
             .init_resource::<ReplayAdvanceLock>()
+            .init_resource::<review::BoardReview>()
+            .init_resource::<review::PendingReviewTransition>()
+            .add_message::<review::BoardReviewEntered>()
+            .add_message::<review::BoardReviewExited>()
             .add_message::<UnitActionChosen>()
             .add_message::<UnitActionDismissed>()
             .add_message::<PendingCommandRejected>()
+            // Whether the board is being read or played is settled before
+            // anything reads the board, so no frame is half of each. The
+            // selection goes on the frame the reading starts, cleared by the
+            // play systems' own cleanup before those systems stop running: a
+            // unit left lit up would be lit up on a board it is no longer on.
+            .add_systems(
+                Update,
+                (
+                    review::handle_board_review_entered,
+                    review::handle_board_review_exited,
+                    cleanup_play_selection.run_if(review::board_review_started),
+                )
+                    .chain()
+                    .before(PointerSet::Claim)
+                    .run_if(in_state(GameMode::Game).and_then(in_state(AppState::InGame))),
+            )
+            .add_systems(
+                Update,
+                review::apply_pending_review_transition
+                    .in_set(PointerSet::Consume)
+                    .run_if(
+                        in_state(GameMode::Game)
+                            .and_then(in_state(AppState::InGame))
+                            .and_then(review::board_is_under_review),
+                    ),
+            )
             // A drag is claimed before anything can act on it, so the camera
             // never pans a unit and a unit never rides a pan.
             .add_systems(
                 Update,
-                claim_unit_drag
-                    .in_set(PointerSet::Claim)
-                    .run_if(in_state(GameMode::Game).and_then(in_state(AppState::InGame))),
+                claim_unit_drag.in_set(PointerSet::Claim).run_if(
+                    in_state(GameMode::Game)
+                        .and_then(in_state(AppState::InGame))
+                        .and_then(not(review::board_is_under_review)),
+                ),
             )
             .add_systems(
                 Update,
@@ -2700,7 +2733,14 @@ impl Plugin for PlayPlugin {
                 )
                     .chain()
                     .in_set(PointerSet::Consume)
-                    .run_if(in_state(GameMode::Game).and_then(in_state(AppState::InGame))),
+                    // A board under review is a board the match has moved on
+                    // from. Nothing may be selected on it, and the live match
+                    // waits at the edge rather than landing on top of it.
+                    .run_if(
+                        in_state(GameMode::Game)
+                            .and_then(in_state(AppState::InGame))
+                            .and_then(not(review::board_is_under_review)),
+                    ),
             )
             .add_systems(OnExit(GameMode::Game), cleanup_play_selection);
     }
