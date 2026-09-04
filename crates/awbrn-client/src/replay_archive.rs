@@ -2,27 +2,42 @@ use std::collections::BTreeMap;
 use std::num::NonZeroU8;
 
 use awbrn_game::{Authority, GameSetup, PlayerSetup, StoredActionEvent};
-use awbrn_map::{AwbrnMap, AwbwMap, AwbwMapData};
+use awbrn_map::{AwbrnMap, ValidatedMapDocument};
 use awbrn_types::{AwbwCoId, Co, CoExt, PlayerFaction};
 use awvm::semantic::{Observation, ObservedTransition};
 use serde::Deserialize;
 
+/// One seat, as the server archived it.
+///
+/// A seat is held by a person or by the server, so `userId` and `aiProfileId`
+/// are both optional and the archive can name either one.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AwbrnReplayPlayer {
-    pub user_id: String,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub ai_profile_id: Option<String>,
     pub faction_id: u8,
     pub team: Option<NonZeroU8>,
     pub starting_funds: u32,
     pub co_id: u32,
 }
 
+/// The setup a match started from, as the server archived it.
+///
+/// The fields the archive holds beyond these ones - who made the match, the
+/// pool it counted for, the clock it ran on - say how the match was played
+/// rather than what board it was played on, so playback does not read them.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AwbrnReplaySetup {
     pub match_id: String,
-    pub map_id: u32,
-    pub map: AwbwMapData,
+    /// The AWBRN map identifier, which is a string and not an AWBW number.
+    pub map_id: String,
+    pub revision: u32,
+    /// The map itself, so playback needs no map from the catalog.
+    pub map: ValidatedMapDocument,
     pub players: Vec<AwbrnReplayPlayer>,
     pub fog_enabled: bool,
     pub starting_funds: u32,
@@ -52,7 +67,6 @@ impl AwbrnReplayFile {
     }
 
     pub fn game_setup(&self) -> Result<GameSetup, String> {
-        let map = AwbwMap::try_from(&self.setup.map).map_err(|error| error.to_string())?;
         let players = self
             .setup
             .players
@@ -72,7 +86,8 @@ impl AwbrnReplayFile {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(GameSetup {
-            map: AwbrnMap::from_map(&map),
+            // The map carries its own starting units.
+            map: AwbrnMap::from_map(self.setup.map.map()),
             players,
             fog_enabled: self.setup.fog_enabled,
             rng_seed: self.setup.rng_seed.unwrap_or(0),
@@ -82,7 +97,9 @@ impl AwbrnReplayFile {
 
 pub enum ReplayArchive {
     Awbw(awbw_replay::AwbwReplay),
-    Awbrn(AwbrnReplayFile),
+    /// Boxed: the file holds the map it was played on, so it dwarfs the other
+    /// variant.
+    Awbrn(Box<AwbrnReplayFile>),
 }
 
 impl std::fmt::Debug for ReplayArchive {
@@ -99,7 +116,7 @@ impl ReplayArchive {
             .find(|byte| !byte.is_ascii_whitespace())
             == Some(b'{')
         {
-            return AwbrnReplayFile::parse(data).map(Self::Awbrn);
+            return AwbrnReplayFile::parse(data).map(Box::new).map(Self::Awbrn);
         }
         awbw_replay::ReplayParser::new()
             .parse(data)
@@ -299,10 +316,13 @@ fn observe_awbw_state(adapter: &awvm_awbw::RecordedAdapter) -> Result<Vec<Observ
 #[cfg(test)]
 mod tests {
     use super::*;
+    use awbrn_map::{AwbrnMapDocument, AwbrnMapMetadata, AwbwMap, AwbwMapData};
     use serde_json::json;
 
+    /// The archive as the server writes it: a stored AWBRN map document, and
+    /// a string map identifier rather than an AWBW number.
     fn replay_json(version: u32) -> Vec<u8> {
-        let map: serde_json::Value = serde_json::from_slice(
+        let awbw: AwbwMapData = serde_json::from_slice(
             &std::fs::read(
                 std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                     .join("../../assets/maps/162795.json"),
@@ -310,19 +330,46 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
+        let map = AwbwMap::try_from(&awbw).unwrap();
+        let document = AwbrnMapDocument::from_awbw_map(
+            &map,
+            AwbrnMapMetadata {
+                name: awbw.name.clone(),
+                author: awbw.author.clone(),
+                player_count: awbw.player_count,
+            },
+        );
         serde_json::to_vec(&json!({
             "version": version,
             "setup": {
-                "matchId": "0123456789abcdef",
-                "mapId": 162795,
-                "map": map,
+                "matchId": "x9lw2qab0jlf",
+                "mapId": "000000000001",
+                "revision": 1,
+                "map": document,
                 "players": [
-                    { "userId": "one", "factionId": 1, "team": null, "startingFunds": 0, "coId": 1 },
-                    { "userId": "two", "factionId": 2, "team": null, "startingFunds": 0, "coId": 2 }
+                    {
+                        "userId": "one",
+                        "aiProfileId": null,
+                        "factionId": 1,
+                        "team": null,
+                        "startingFunds": 0,
+                        "coId": 1
+                    },
+                    {
+                        "userId": null,
+                        "aiProfileId": "scout",
+                        "factionId": 2,
+                        "team": null,
+                        "startingFunds": 0,
+                        "coId": 2
+                    }
                 ],
                 "fogEnabled": false,
                 "startingFunds": 0,
-                "creatorUserId": "one"
+                "creatorUserId": "one",
+                "pool": null,
+                "season": null,
+                "clock": { "initialMs": 604800000, "incrementMs": 172800000, "maxBankMs": 604800000 }
             },
             "actions": []
         }))
@@ -335,7 +382,8 @@ mod tests {
         let ReplayArchive::Awbrn(replay) = replay else {
             panic!("JSON replay should use the AWBRN adapter");
         };
-        assert_eq!(replay.setup.map_id, 162795);
+        assert_eq!(replay.setup.match_id, "x9lw2qab0jlf");
+        assert_eq!(replay.setup.map_id, "000000000001");
         assert_eq!(replay.actions.len(), 0);
         assert_eq!(replay.game_setup().unwrap().players.len(), 2);
     }
