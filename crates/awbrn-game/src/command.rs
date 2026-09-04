@@ -50,6 +50,14 @@ pub enum GameCommand {
     ActivatePower { level: PowerLevel },
     /// End the current player's turn.
     EndTurn,
+    /// Give the match up and leave it.
+    ///
+    /// The one order a seat may send while another seat holds the turn. What
+    /// it does to the board is the same either way — the seat is eliminated
+    /// and its holdings are disposed of — but only a resignation on the
+    /// player's own turn hands the turn on, because only that one crosses a
+    /// turn boundary.
+    Resign,
     /// Remove the current player because their clock ran out.
     ///
     /// The host issues this when the match clock expires. A player cannot send
@@ -173,7 +181,7 @@ pub fn game_command(command: &Command, state: &State) -> Result<GameCommand, Unm
         Command::EndTurn { .. } => GameCommand::EndTurn,
         Command::Timeout { .. } => GameCommand::Timeout,
         Command::Tag { .. } => return unmapped("a commander tag"),
-        Command::Resign { .. } => return unmapped("a resignation"),
+        Command::Resign { .. } => GameCommand::Resign,
         Command::Unsupported => return unmapped("an unsupported command"),
     })
 }

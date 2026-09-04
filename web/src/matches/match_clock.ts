@@ -12,6 +12,13 @@ export interface ClockAction {
   slotIndex: number;
   /** True for the commands that close a turn: `endTurn` and `timeout`. */
   endsTurn: boolean;
+  /**
+   * True when the seat left the match.
+   *
+   * A resignation is the one order a seat may send while another seat holds
+   * the turn, so it is the one action that does not say whose turn is open.
+   */
+  leavesMatch: boolean;
   /** When the durable object recorded the action, in milliseconds. */
   at: number;
 }
@@ -31,6 +38,11 @@ export interface MatchClockState {
 /** The commands that close a turn, and so settle a seat's bank. */
 export function commandEndsTurn(command: GameCommand): boolean {
   return command.type === "endTurn" || command.type === "timeout";
+}
+
+/** The command that takes a seat out of the match on its own terms. */
+export function commandLeavesMatch(command: GameCommand): boolean {
+  return command.type === "resign";
 }
 
 /**
@@ -95,6 +107,19 @@ function settle(progress: ClockProgress, slotIndex: number, closedAt: number): v
 
 /** Charge the clock for one recorded action. `action` must be the next one. */
 export function advanceClockProgress(progress: ClockProgress, action: ClockAction): void {
+  // A seat that leaves the match neither opens a turn nor closes one, because
+  // it may leave while another seat holds the turn. The seat that resigns on
+  // its own turn hands play on the way a seat that routs itself does, and the
+  // handover below charges it up to the moment it left; a seat that resigns on
+  // anybody else's turn is not the open turn's business at all, and the clock
+  // it is not spending must not move.
+  if (action.leavesMatch) {
+    if (progress.openSlot === action.slotIndex) {
+      progress.lastActionAt = action.at;
+    }
+    return;
+  }
+
   // A seat can lose its turn without a command that says so, by routing itself
   // on its own turn. The engine passes play on at that action, so the seat is
   // charged up to it and no further.

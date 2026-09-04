@@ -347,6 +347,92 @@ impl From<Violation> for ReducerError {
     }
 }
 
+/// Why a host took a seat out of a match it is running.
+///
+/// Neither cause is a rules decision. AWVM models no clock and no seat
+/// occupancy, so *when* a player may leave — and whether they may leave off
+/// their own turn — is hosting policy, the way the size of a time bank is.
+/// `spec/semantics/elimination.md` fixes the rest: whatever the host decides,
+/// the seat leaves through the one elimination procedure and produces the
+/// state and events a routed seat produces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Withdrawal {
+    /// The player gave the match up.
+    Resignation,
+    /// The host's clock ran out on the player.
+    Timeout,
+}
+
+impl Withdrawal {
+    const fn reason(self) -> ruleset::VictoryReason {
+        match self {
+            Self::Resignation => ruleset::VictoryReason::Resignation,
+            Self::Timeout => ruleset::VictoryReason::Timeout,
+        }
+    }
+
+    fn command(self, player: PlayerId) -> Command {
+        match self {
+            Self::Resignation => Command::Resign { player },
+            Self::Timeout => Command::Timeout { player },
+        }
+    }
+}
+
+/// Take a player out of the match, on or off their own turn.
+///
+/// The adapter operation of `spec/semantics/elimination.md`, which is where a
+/// host-decided exit belongs: the command surface carries the on-turn
+/// resignation AWBW itself records, and this carries every exit a host decides
+/// for itself. A player holding the turn leaves through their cause's boundary
+/// command, so the turn is handed on exactly as an ordinary end of turn hands
+/// it on. A player who is not holding the turn leaves without touching
+/// `S.turn` at all: no `phase-changed`, no `turn-selected`, no `day-advanced`,
+/// and the same elimination cascade either way.
+///
+/// Rejections are the answers a host needs and no more: a finished match, and
+/// a seat whose run is already over.
+pub fn withdraw(
+    state: &State,
+    player: &PlayerId,
+    cause: Withdrawal,
+    random: &[RandomToken],
+) -> Result<ExecuteOutcome, ExecuteError> {
+    withdraw_with(state, player, cause, &mut RandomTape::new(random))
+}
+
+/// [`withdraw`], asking `entropy` for each value the successor's turn-start
+/// reaches, which is what an authority rolling its own dice wants.
+pub fn withdraw_with(
+    state: &State,
+    player: &PlayerId,
+    cause: Withdrawal,
+    entropy: &mut impl Entropy,
+) -> Result<ExecuteOutcome, ExecuteError> {
+    if state.turn.active_player == *player {
+        return execute_with(state, cause.command(player.clone()), entropy);
+    }
+    // An off-turn withdrawal opens no turn, so it reaches nothing that draws.
+    let _ = entropy;
+    outcome(elimination::withdraw_inactive(
+        state,
+        player,
+        cause.reason(),
+    ))
+}
+
+/// Read a reducer result as the outcome a caller outside the reducer sees.
+fn outcome(result: Result<Execution, ReducerError>) -> Result<ExecuteOutcome, ExecuteError> {
+    match result {
+        Ok(execution) => Ok(ExecuteOutcome::Accepted(execution)),
+        Err(ReducerError::Violation(violation)) => Ok(ExecuteOutcome::Rejected(violation)),
+        Err(ReducerError::UnsupportedCommand) => Err(ExecuteError::UnsupportedCommand),
+        Err(ReducerError::UnsupportedRuleset) => Err(ExecuteError::UnsupportedRuleset),
+        Err(ReducerError::InvalidState(error)) => Err(ExecuteError::InvalidState(error)),
+        Err(ReducerError::InvalidRandom(error)) => Err(ExecuteError::InvalidRandom(error)),
+    }
+}
+
 /// Evaluate one command against a recorded tape.
 ///
 /// This is the protocol's entry point and the one a fixture or a replay wants:
@@ -375,14 +461,7 @@ pub fn execute_with(
     entropy: &mut impl Entropy,
 ) -> Result<ExecuteOutcome, ExecuteError> {
     let mut draws = Draws::new(entropy);
-    match reduce(state, command, &mut draws) {
-        Ok(execution) => Ok(ExecuteOutcome::Accepted(execution)),
-        Err(ReducerError::Violation(violation)) => Ok(ExecuteOutcome::Rejected(violation)),
-        Err(ReducerError::UnsupportedCommand) => Err(ExecuteError::UnsupportedCommand),
-        Err(ReducerError::UnsupportedRuleset) => Err(ExecuteError::UnsupportedRuleset),
-        Err(ReducerError::InvalidState(error)) => Err(ExecuteError::InvalidState(error)),
-        Err(ReducerError::InvalidRandom(error)) => Err(ExecuteError::InvalidRandom(error)),
-    }
+    outcome(reduce(state, command, &mut draws))
 }
 
 /// Open a match against a recorded tape.
@@ -2708,6 +2787,111 @@ mod tests {
                     },
                 },
             ]
+        );
+    }
+    /// The host's own exit, off the leaving player's turn: the seat goes and
+    /// the turn it was not holding stays exactly where it was.
+    #[test]
+    fn withdrawal_off_turn_leaves_the_turn_alone() {
+        let case: Value = serde_json::from_str(include_str!(
+            "../../../spec/fixtures/elimination/resign-cascade-continues.json"
+        ))
+        .unwrap();
+        let state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
+
+        let ExecuteOutcome::Accepted(execution) = withdraw(
+            &state,
+            &PlayerId::from("blue"),
+            Withdrawal::Resignation,
+            &[],
+        )
+        .unwrap() else {
+            panic!("an active seat may leave off its own turn");
+        };
+
+        assert_eq!(
+            execution
+                .state
+                .find_player(&PlayerId::from("blue"))
+                .unwrap()
+                .status,
+            PlayerStatus::Resigned
+        );
+        assert_eq!(execution.state.turn, state.turn);
+        assert!(matches!(execution.state.match_state, Match::Active { .. }));
+        assert!(
+            !execution.events.iter().any(|event| matches!(
+                event,
+                Event::PhaseChanged { .. } | Event::TurnSelected { .. } | Event::DayAdvanced { .. }
+            )),
+            "an off-turn withdrawal crosses no turn boundary: {:?}",
+            execution.events
+        );
+        assert_eq!(
+            execution.events[0],
+            Event::PlayerStatusChanged {
+                player: PlayerId::from("blue"),
+                from: PlayerStatus::Active,
+                to: PlayerStatus::Resigned,
+                reason: KnownReason::Resignation.into(),
+            }
+        );
+    }
+
+    /// A seat that leaves while holding the turn hands the turn on, which is
+    /// the resignation the command surface already carries.
+    #[test]
+    fn withdrawal_on_turn_is_the_resign_command() {
+        let case: Value = serde_json::from_str(include_str!(
+            "../../../spec/fixtures/elimination/resign-cascade-continues.json"
+        ))
+        .unwrap();
+        let state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
+
+        let withdrawn =
+            withdraw(&state, &PlayerId::from("red"), Withdrawal::Resignation, &[]).unwrap();
+        let resigned = super::execute(
+            &state,
+            Command::Resign {
+                player: PlayerId::from("red"),
+            },
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(withdrawn, resigned);
+    }
+
+    /// The last exit is the one that counts. A seat cannot leave twice, and a
+    /// host asking it to is told so rather than eliminating a player again.
+    #[test]
+    fn a_seat_that_already_left_cannot_withdraw() {
+        let case: Value = serde_json::from_str(include_str!(
+            "../../../spec/fixtures/elimination/resign-cascade-continues.json"
+        ))
+        .unwrap();
+        let state: State = serde_json::from_value(case["initial_state"].clone()).unwrap();
+        let ExecuteOutcome::Accepted(execution) = withdraw(
+            &state,
+            &PlayerId::from("blue"),
+            Withdrawal::Resignation,
+            &[],
+        )
+        .unwrap() else {
+            panic!("the first withdrawal is accepted");
+        };
+
+        assert_eq!(
+            withdraw(
+                &execution.state,
+                &PlayerId::from("blue"),
+                Withdrawal::Resignation,
+                &[],
+            )
+            .unwrap(),
+            ExecuteOutcome::Rejected(Violation::NotActivePlayer {
+                player: PlayerId::from("blue"),
+            })
         );
     }
 }

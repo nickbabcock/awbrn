@@ -87,10 +87,15 @@ export type MatchCommand = WasmGameCommand;
  * The clock belongs to the host, so `timeout` is not among them: a seat that
  * wants out resigns. The match durable object rejects one on the player
  * websocket as well, because a websocket carries whatever the far end writes.
+ *
+ * Every command but `resign` is an order the seat holding the turn gives. A
+ * seat may resign on anybody's turn, which is why it is the one command the
+ * page offers a player who is not on the move.
  */
 export type PlayerCommand = Exclude<MatchCommand, { type: "timeout" }>;
 export type ActivatePowerCommand = Extract<PlayerCommand, { type: "activatePower" }>;
 export type EndTurnCommand = Extract<PlayerCommand, { type: "endTurn" }>;
+export type ResignCommand = Extract<PlayerCommand, { type: "resign" }>;
 
 export type UnitMoved = UnitMovedMessage;
 export type TurnChange = TurnChangeMessage;

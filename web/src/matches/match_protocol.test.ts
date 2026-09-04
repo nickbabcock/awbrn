@@ -4,6 +4,7 @@ import {
   initialMatchConnectionMessages,
   type ActivatePowerCommand,
   type EndTurnCommand,
+  type ResignCommand,
   type LiveTransition,
   type MatchGameState,
   type WasmActionResponse,
@@ -19,6 +20,10 @@ describe("live match commands", () => {
 
   it("uses the server's tagged end-turn command", () => {
     expectTypeOf<EndTurnCommand>().toEqualTypeOf<{ type: "endTurn" }>();
+  });
+
+  it("lets a seat resign over the same socket it plays on", () => {
+    expectTypeOf<ResignCommand>().toEqualTypeOf<{ type: "resign" }>();
   });
 });
 

@@ -30,7 +30,7 @@ const clock: MatchClock = {
 };
 
 function endTurn(slotIndex: number, at: number): ClockAction {
-  return { slotIndex, endsTurn: true, at };
+  return { slotIndex, endsTurn: true, leavesMatch: false, at };
 }
 
 describe("match clock", () => {
@@ -70,7 +70,7 @@ describe("match clock", () => {
   it("charges only the seat whose turn was open", () => {
     const actions = [
       endTurn(0, START + 3 * DAY),
-      { slotIndex: 1, endsTurn: false, at: START + 4 * DAY },
+      { slotIndex: 1, endsTurn: false, leavesMatch: false, at: START + 4 * DAY },
       endTurn(1, START + 5 * DAY),
     ];
 
@@ -118,8 +118,8 @@ describe("match clock", () => {
     // Slot zero deletes its last unit two days in, which passes play on with
     // no end turn command of its own. Slot one then plays for a day.
     const actions: ClockAction[] = [
-      { slotIndex: 0, endsTurn: false, at: START + 2 * DAY },
-      { slotIndex: 1, endsTurn: false, at: START + 2 * DAY + 12 * HOUR },
+      { slotIndex: 0, endsTurn: false, leavesMatch: false, at: START + 2 * DAY },
+      { slotIndex: 1, endsTurn: false, leavesMatch: false, at: START + 2 * DAY + 12 * HOUR },
       endTurn(1, START + 3 * DAY),
     ];
 
@@ -131,12 +131,49 @@ describe("match clock", () => {
   });
 
   it("settles a seat that routed itself as the last recorded action", () => {
-    const actions: ClockAction[] = [{ slotIndex: 0, endsTurn: false, at: START + 2 * DAY }];
+    const actions: ClockAction[] = [
+      { slotIndex: 0, endsTurn: false, leavesMatch: false, at: START + 2 * DAY },
+    ];
 
     // The engine has already passed play to slot one.
     const state = computeMatchClock(clock, START, actions, 1, 2);
 
     expect(state.banksMs[0]).toBe(7 * DAY);
+    expect(state.turnStartedAt).toBe(START + 2 * DAY);
+    expect(state.deadlineAt).toBe(START + 2 * DAY + 7 * DAY);
+  });
+
+  it("charges nobody for a seat that resigns on another seat's turn", () => {
+    // Slot one gives the match up two days into slot zero's turn. The turn it
+    // is not playing is untouched: slot zero keeps the whole bank it opened
+    // with and the deadline it opened with.
+    const resign: ClockAction = {
+      slotIndex: 1,
+      endsTurn: false,
+      leavesMatch: true,
+      at: START + 2 * DAY,
+    };
+
+    const state = computeMatchClock(clock, START, [resign], 0, 3);
+
+    expect(state.banksMs[0]).toBe(7 * DAY);
+    expect(state.turnStartedAt).toBe(START);
+    expect(state.deadlineAt).toBe(START + 7 * DAY);
+  });
+
+  it("charges a seat that resigns on its own turn up to the moment it left", () => {
+    // Slot zero plays for a day, gives up a day later, and the seat that
+    // inherits the board starts its clock at the resignation rather than at
+    // the last order the leaving seat gave.
+    const actions: ClockAction[] = [
+      { slotIndex: 0, endsTurn: false, leavesMatch: false, at: START + DAY },
+      { slotIndex: 0, endsTurn: false, leavesMatch: true, at: START + 2 * DAY },
+    ];
+
+    // The engine has already passed play to slot one.
+    const state = computeMatchClock(clock, START, actions, 1, 2);
+
+    expect(state.banksMs[0]).toBe(7 * DAY - 2 * DAY + 2 * DAY);
     expect(state.turnStartedAt).toBe(START + 2 * DAY);
     expect(state.deadlineAt).toBe(START + 2 * DAY + 7 * DAY);
   });
@@ -152,7 +189,7 @@ describe("match clock", () => {
     const actions = [
       endTurn(0, START + 2 * DAY),
       endTurn(1, START + 3 * DAY),
-      { slotIndex: 0, endsTurn: false, at: START + 4 * DAY },
+      { slotIndex: 0, endsTurn: false, leavesMatch: false, at: START + 4 * DAY },
       endTurn(0, START + 5 * DAY),
       endTurn(1, START + 12 * DAY),
     ];

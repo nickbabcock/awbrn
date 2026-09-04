@@ -19,6 +19,7 @@ import {
   typeScaleVars,
 } from "@astryxdesign/core/theme/tokens.stylex";
 import { Calculator as CalculatorIcon } from "pixelarticons/react/Calculator";
+import { MenuSquare as MatchMenuIcon } from "pixelarticons/react/MenuSquare";
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
@@ -46,6 +47,7 @@ import {
   BattleCalculator,
 } from "#/matches/components/BattleCalculator.tsx";
 import { BuildMenu } from "#/matches/components/BuildMenu.tsx";
+import { MatchMenu } from "#/matches/components/MatchMenu.tsx";
 import { AttackPreview } from "#/matches/components/AttackPreview.tsx";
 import { UnitActionMenu } from "#/matches/components/UnitActionMenu.tsx";
 import { RosterList, RosterRow } from "#/replay/RosterRow.tsx";
@@ -87,6 +89,13 @@ interface BoardPress {
  * order becomes a sheet on the bottom edge whatever pressed the board.
  */
 const BUILD_SHEET_MEDIA = "(max-width: 767px)";
+
+/**
+ * A device whose primary input is a finger. The board's own menus read this
+ * from the press that opened them; a menu opened from the strip has no press
+ * on the board to read, so it asks the device instead.
+ */
+const COARSE_POINTER_MEDIA = "(pointer: coarse)";
 
 /**
  * Below this width the board gives up the page inset and runs to both edges.
@@ -147,12 +156,18 @@ export function MatchActivePage({
   // publishes the seat on the move a moment after the action that moved it.
   // The tab that made the move does not wait for the poll to read it back.
   const [isEndingTurn, setIsEndingTurn] = useState(false);
+  const [isResigning, setIsResigning] = useState(false);
   const [activatingPower, setActivatingPower] = useState<ActivatablePowerLevel>();
   const isEndingTurnRef = useRef(false);
+  const isResigningRef = useRef(false);
   const isActivatingPowerRef = useRef(false);
   const finishEndingTurn = useCallback(() => {
     isEndingTurnRef.current = false;
     setIsEndingTurn(false);
+  }, []);
+  const finishResigning = useCallback(() => {
+    isResigningRef.current = false;
+    setIsResigning(false);
   }, []);
   const finishActivatingPower = useCallback(() => {
     isActivatingPowerRef.current = false;
@@ -183,6 +198,7 @@ export function MatchActivePage({
           // turn with this frame and not with a player update, so the end turn
           // command must stop here too.
           finishEndingTurn();
+          finishResigning();
           finishActivatingPower();
           setViewerSlotIndex(message.slotIndex);
           // The notice arrives before this frame and only ever for a spectator,
@@ -194,6 +210,7 @@ export function MatchActivePage({
         }
         case "error": {
           finishEndingTurn();
+          finishResigning();
           finishActivatingPower();
           setMatchError(message.message);
           restoreAfterRefusal();
@@ -227,7 +244,7 @@ export function MatchActivePage({
         }
       }
     },
-    [finishActivatingPower, finishEndingTurn, restoreAfterRefusal, runner],
+    [finishActivatingPower, finishEndingTurn, finishResigning, restoreAfterRefusal, runner],
   );
   const { reconnect, sendMessage, status } = useMatchWebSocket(matchId, handleMatchMessage);
 
@@ -252,12 +269,22 @@ export function MatchActivePage({
     }
   }, [activatingPower, finishActivatingPower, viewerArmy?.entry.activePower]);
 
+  // A seat resigns while any seat holds the turn, so the updates that follow
+  // the order speak for other players as often as for this one. The order is
+  // done when the board says this army has left, and not before.
+  useEffect(() => {
+    if (isResigning && viewerArmy?.entry.eliminated === true) {
+      finishResigning();
+    }
+  }, [finishResigning, isResigning, viewerArmy?.entry.eliminated]);
+
   useEffect(() => {
     if (status !== "connected") {
       finishEndingTurn();
+      finishResigning();
       finishActivatingPower();
     }
-  }, [finishActivatingPower, finishEndingTurn, status]);
+  }, [finishActivatingPower, finishEndingTurn, finishResigning, status]);
 
   const handleActivatePower = useCallback(
     (level: ActivatablePowerLevel) => {
@@ -290,6 +317,35 @@ export function MatchActivePage({
       viewerSlotIndex,
     ],
   );
+
+  /**
+   * Give the match up, from wherever the player is standing in it.
+   *
+   * The one order a seat may send while another seat holds the turn, so it
+   * asks nothing of the clock and nothing of the board: whoever is playing
+   * keeps playing, and this army leaves. The menu has already asked the
+   * question, so this sends the order.
+   */
+  const handleResign = useCallback(() => {
+    if (
+      isResigningRef.current ||
+      status !== "connected" ||
+      viewerSlotIndex === null ||
+      viewerSlotIndex === undefined
+    ) {
+      return;
+    }
+
+    isResigningRef.current = true;
+    setIsResigning(true);
+    setMatchError(null);
+    if (!sendMessage({ type: "resign" })) {
+      finishResigning();
+      setMatchError("The match could not be resigned because the connection is not open.");
+      return;
+    }
+    setProductionOptions(null);
+  }, [finishResigning, sendMessage, setProductionOptions, status, viewerSlotIndex]);
 
   const turnReadiness = useGameStore((state) => state.turnReadiness);
   const isPowerReady =
@@ -431,6 +487,9 @@ export function MatchActivePage({
             onBoardError={setBoardError}
             onBuildUnit={handleBuildUnit}
             onEndTurn={requestEndTurn}
+            onResign={handleResign}
+            isResigning={isResigning}
+            isViewerOut={viewerArmy?.entry.eliminated ?? false}
             isTurnReadinessKnown={turnReadiness !== undefined}
             isTurnSpent={turnResidue === null}
             players={livePlayers}
@@ -538,13 +597,16 @@ function ActiveMatchBoard({
   day,
   initialBoard,
   isEndingTurn,
+  isResigning,
   isTurnReadinessKnown,
   isTurnSpent,
+  isViewerOut,
   match,
   matchClock,
   onBoardError,
   onBuildUnit,
   onEndTurn,
+  onResign,
   players,
   playerRoster,
   productionOptions,
@@ -561,12 +623,17 @@ function ActiveMatchBoard({
   day: number | null;
   initialBoard: InitialBoardMessage | null;
   isEndingTurn: boolean;
+  /** True while the viewer's resignation is on its way to the server. */
+  isResigning: boolean;
   isTurnReadinessKnown: boolean;
   isTurnSpent: boolean;
+  /** True once the viewer's own army has left the match. */
+  isViewerOut: boolean;
   match: { mapId: string; maxPlayers: number; name: string; settings: { fogEnabled: boolean } };
   onBoardError: (message: string | null) => void;
   onBuildUnit: (unit: UnitKind, x: number, y: number) => void;
   onEndTurn: () => void;
+  onResign: () => void;
   players: LiveMatchPlayer[];
   playerRoster: PlayerRosterSnapshot | null;
   productionOptions: ProductionOptionsChanged | null;
@@ -599,10 +666,13 @@ function ActiveMatchBoard({
   const pressRef = useRef<BoardPress | null>(null);
   const [press, setPress] = useState<BoardPress | null>(null);
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
+  const [isMatchMenuOpen, setIsMatchMenuOpen] = useState(false);
+  const dismissMatchMenu = useCallback(() => setIsMatchMenuOpen(false), []);
   // The calculator's own breakpoint. It is not the build menu's: a sheet under
   // a thumb is one question, and a panel that outgrows the board frame is
   // another.
   const isCalculatorCompact = useMediaQuery(BATTLE_CALCULATOR_SHEET_MEDIA);
+  const isCoarsePointer = useMediaQuery(COARSE_POINTER_MEDIA);
   const productionSite = productionOptions?.site;
 
   // The last press on the board, so the menu opens in the shape the input the
@@ -718,6 +788,10 @@ function ActiveMatchBoard({
             : "Ctrl+Enter";
   const buildBlockedReason =
     status !== "connected" ? "Reconnect to the match to send this order." : undefined;
+  // A resignation is not an order to the board, so it says what it needs in its
+  // own words rather than borrowing the board's.
+  const matchBlockedReason =
+    status !== "connected" ? "Reconnect to the match before resigning." : undefined;
 
   return (
     <Card padding={0} variant="muted" xstyle={styles.boardPanel}>
@@ -798,6 +872,27 @@ function ActiveMatchBoard({
           />
         ) : null}
 
+        {/* What the player can do to the match rather than to a unit in it.
+            It opens in the middle of the board because the strip it was opened
+            from names no tile, and it is the same window every other order is
+            chosen from. */}
+        {isMatchMenuOpen ? (
+          <MatchMenu
+            day={day}
+            disabledReason={matchBlockedReason}
+            isEnabled={matchBlockedReason === undefined}
+            onDismiss={dismissMatchMenu}
+            onResign={() => {
+              // The server is authoritative and answers on the socket, so the
+              // menu closes on the order the way the production menu does.
+              setIsMatchMenuOpen(false);
+              onResign();
+            }}
+            onRestoreFocus={focus}
+            presentation={isCoarsePointer || isCompactViewport ? "sheet" : "board"}
+          />
+        ) : null}
+
         {/* What the shot being aimed would cost, in the frame the order menu
             will arrive in. It stands beside the target rather than in a corner,
             and it takes no press: the shot is fired through it. */}
@@ -875,7 +970,24 @@ function ActiveMatchBoard({
           {status === "disconnected" || status === "error" ? (
             <Button clickAction={reconnect} label="Reconnect" size="sm" variant="secondary" />
           ) : null}
-          {isPlayer ? (
+          {/* Match commands stand apart from the board's own orders: a key
+              that opens a menu, so nothing that ends a match is ever one press
+              away from the key that ends a turn. A seat that has already left
+              has no match commands, so the key goes with them. */}
+          {isPlayer && !isViewerOut ? (
+            <Button
+              clickAction={() => setIsMatchMenuOpen(true)}
+              icon={<MatchMenuIcon aria-hidden height={16} width={16} />}
+              isDisabled={isMatchMenuOpen || isResigning}
+              isLoading={isResigning}
+              label="Match"
+              size="sm"
+              variant="secondary"
+            />
+          ) : null}
+          {/* A seat that has left the match will never be on the move again,
+              so the key that would hand its turn on goes with it. */}
+          {isPlayer && !isViewerOut ? (
             <Button
               clickAction={onEndTurn}
               isDisabled={status !== "connected" || !isViewerTurn || !isTurnReadinessKnown}
