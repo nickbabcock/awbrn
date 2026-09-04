@@ -11,14 +11,19 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
-use std::io::BufWriter;
+use std::io::{BufRead, BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 
-use awbrn_ai::{ContestMap, ThreatMap};
+use awbrn_ai::{
+    ContestMap, ProducerUsabilityCounts, ProducerUsabilityCountsReport, ProducerUsabilityExtractor,
+    ThreatMap,
+};
 use awbrn_ai_diagnostic_types::{PairKey, SeatOrderVariant};
 use awvm::commander;
 use awvm::ruleset::{self, TerrainTrait};
-use awvm::semantic::{AwbwVisibility, Location, Match, Outcome, PlayerIdx, State, observe};
+use awvm::semantic::{
+    AwbwVisibility, Location, Match, Observation, Outcome, PlayerIdx, State, TeamId, observe,
+};
 use awvm::session::Session;
 use awvm::transition::Command;
 use serde::{Deserialize, Serialize};
@@ -26,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use crate::events::{EventKind, EventLogError, EventRow, latest_attempt_rows, read_event_log};
 
 /// The feature-analysis output schema.
-pub const FEATURE_ANALYSIS_SCHEMA_VERSION: u16 = 5;
+pub const FEATURE_ANALYSIS_SCHEMA_VERSION: u16 = 6;
 
 fn default_converged() -> bool {
     true
@@ -128,6 +133,24 @@ pub struct FeatureRow {
     pub active_seat: u8,
     pub winner: bool,
     pub features: FeatureVector,
+    /// Producer counts in roster seat order.
+    #[serde(default)]
+    pub producer_counts: Vec<ProducerUsabilityCounts>,
+    /// Producer counts for the friendly team.
+    #[serde(default)]
+    pub friendly_producer_counts: ProducerUsabilityCounts,
+    /// Producer counts for the strongest hostile team used by this row.
+    #[serde(default)]
+    pub strongest_hostile_producer_counts: ProducerUsabilityCounts,
+    /// Friendly known capacity minus hostile known capacity.
+    #[serde(default)]
+    pub producer_known_capacity_delta: i64,
+    /// Unknown friendly producer occupations in fog-visible extraction.
+    #[serde(default)]
+    pub friendly_unknown_producer_count: u32,
+    /// Unknown hostile producer occupations in fog-visible extraction.
+    #[serde(default)]
+    pub hostile_unknown_producer_count: u32,
 }
 
 /// Feature rows and extraction coverage.
@@ -411,7 +434,7 @@ pub fn analyze_event_log(
     let report = fit_feature_analysis(&extraction)?;
     let output = output.as_ref().to_owned();
     fs::create_dir_all(&output)?;
-    write_feature_rows(&output.join("features.jsonl"), &extraction.rows)?;
+    write_feature_rows(output.join("features.jsonl"), &extraction.rows)?;
     fs::write(
         output.join("feature-analysis.json"),
         serde_json::to_vec_pretty(&report)?,
@@ -425,6 +448,20 @@ pub fn analyze_event_log(
 
 /// Derive two labelled rows from each completed turn in the newest attempts.
 pub fn extract_feature_rows(rows: &[EventRow]) -> Result<FeatureExtraction, FeatureAnalysisError> {
+    extract_feature_rows_inner(rows, true)
+}
+
+/// Derive the legacy feature rows without producer classification.
+pub(crate) fn extract_feature_rows_without_producer(
+    rows: &[EventRow],
+) -> Result<FeatureExtraction, FeatureAnalysisError> {
+    extract_feature_rows_inner(rows, false)
+}
+
+fn extract_feature_rows_inner(
+    rows: &[EventRow],
+    include_producer: bool,
+) -> Result<FeatureExtraction, FeatureAnalysisError> {
     let latest = latest_attempt_rows(rows);
     let mut grouped = BTreeMap::<String, Vec<EventRow>>::new();
     for row in latest {
@@ -440,6 +477,7 @@ pub fn extract_feature_rows(rows: &[EventRow]) -> Result<FeatureExtraction, Feat
         skipped_incomplete: 0,
         corpus_fingerprint: "event-rows".into(),
     };
+    let mut producer_extractor = include_producer.then(ProducerUsabilityExtractor::new);
 
     for (match_id, match_rows) in grouped {
         let Some(terminal) = match_rows
@@ -470,11 +508,25 @@ pub fn extract_feature_rows(rows: &[EventRow]) -> Result<FeatureExtraction, Feat
             let Some(authoritative_rival) = rival_seat(&row.state, perspective) else {
                 continue;
             };
-            let visible_state = visible_state(&row.state, perspective)?;
+            let view = visible_observation(&row.state, perspective)?;
+            let visible_session = Session::from_observation(&view).map_err(|error| {
+                FeatureAnalysisError::Data(format!("fog reification failed: {error}"))
+            })?;
+            let visible_state = visible_session.state();
+            let (authoritative_producers, fog_producers) =
+                if let Some(extractor) = producer_extractor.as_mut() {
+                    let authoritative = extractor.state_counts(&row.state);
+                    let fog = extractor
+                        .observation_counts_with_session(&view, &visible_session)
+                        .map_err(|error| FeatureAnalysisError::Data(error.to_string()))?;
+                    (Some(authoritative), Some(fog))
+                } else {
+                    (None, None)
+                };
             let Some(visible_perspective) = visible_state.players.seat(player) else {
                 continue;
             };
-            let Some(visible_rival) = rival_seat(&visible_state, visible_perspective) else {
+            let Some(visible_rival) = rival_seat(visible_state, visible_perspective) else {
                 continue;
             };
             let team = &row.state.player(perspective).team;
@@ -488,7 +540,7 @@ pub fn extract_feature_rows(rows: &[EventRow]) -> Result<FeatureExtraction, Feat
                 ),
                 (
                     FeatureMode::FogVisible,
-                    &visible_state,
+                    visible_state,
                     visible_perspective,
                     visible_rival,
                 ),
@@ -496,6 +548,18 @@ pub fn extract_feature_rows(rows: &[EventRow]) -> Result<FeatureExtraction, Feat
             for (mode, state, perspective, rival) in states {
                 let own = raw_features(state, perspective);
                 let other = raw_features(state, rival);
+                let friendly_team = &state.player(perspective).team;
+                let hostile_team = &state.player(rival).team;
+                let (producer_counts, friendly_producers, hostile_producers) = match mode {
+                    FeatureMode::Authoritative => producer_fields(
+                        authoritative_producers.as_ref(),
+                        friendly_team,
+                        hostile_team,
+                    ),
+                    FeatureMode::FogVisible => {
+                        producer_fields(fog_producers.as_ref(), friendly_team, hostile_team)
+                    }
+                };
                 extraction.rows.push(FeatureRow {
                     schema_version: FEATURE_ANALYSIS_SCHEMA_VERSION,
                     mode,
@@ -516,6 +580,13 @@ pub fn extract_feature_rows(rows: &[EventRow]) -> Result<FeatureExtraction, Feat
                         .unwrap_or(u8::MAX),
                     winner: winners.contains(team),
                     features: own.delta(other, turn_index),
+                    producer_counts,
+                    friendly_producer_counts: friendly_producers,
+                    strongest_hostile_producer_counts: hostile_producers,
+                    producer_known_capacity_delta: i64::from(friendly_producers.known_capacity())
+                        - i64::from(hostile_producers.known_capacity()),
+                    friendly_unknown_producer_count: friendly_producers.unknown,
+                    hostile_unknown_producer_count: hostile_producers.unknown,
                 });
                 match_row_count += 1;
             }
@@ -534,6 +605,54 @@ pub fn extract_feature_rows(rows: &[EventRow]) -> Result<FeatureExtraction, Feat
     Ok(extraction)
 }
 
+fn producer_fields(
+    report: Option<&ProducerUsabilityCountsReport>,
+    friendly_team: &TeamId,
+    hostile_team: &TeamId,
+) -> (
+    Vec<ProducerUsabilityCounts>,
+    ProducerUsabilityCounts,
+    ProducerUsabilityCounts,
+) {
+    let Some(report) = report else {
+        return (
+            Vec::new(),
+            ProducerUsabilityCounts::default(),
+            ProducerUsabilityCounts::default(),
+        );
+    };
+    let friendly = report.counts_for_team(friendly_team);
+    let hostile = strongest_hostile_producers(report, friendly_team)
+        .unwrap_or_else(|| report.counts_for_team(hostile_team));
+    (report.counts_by_seat.clone(), friendly, hostile)
+}
+
+fn strongest_hostile_producers(
+    report: &ProducerUsabilityCountsReport,
+    friendly_team: &TeamId,
+) -> Option<ProducerUsabilityCounts> {
+    let mut by_team = BTreeMap::<TeamId, ProducerUsabilityCounts>::new();
+    for (seat, team) in report.teams.iter().enumerate() {
+        if team == friendly_team {
+            continue;
+        }
+        if let Some(counts) = report.counts_by_seat.get(seat) {
+            by_team.entry(team.clone()).or_default().add_assign(*counts);
+        }
+    }
+    by_team.into_values().max_by_key(|counts| {
+        (
+            counts.known_capacity(),
+            counts.open
+                + counts.releasable
+                + counts.friendly_blocked
+                + counts.hostile_blocked
+                + counts.disabled
+                + counts.unknown,
+        )
+    })
+}
+
 /// Return features from a state that is already restricted to one player's
 /// knowledge. This is useful for offline policy experiments.
 pub fn observable_features(
@@ -545,12 +664,12 @@ pub fn observable_features(
     Some(raw_features(state, perspective).delta(raw_features(state, rival), turn_index))
 }
 
-fn visible_state(state: &State, perspective: PlayerIdx) -> Result<State, FeatureAnalysisError> {
-    let view = observe(&AwbwVisibility, state, state.player_id(perspective))
-        .map_err(|error| FeatureAnalysisError::Data(format!("fog projection failed: {error}")))?;
-    Session::from_observation(&view)
-        .map(|session| session.state().clone())
-        .map_err(|error| FeatureAnalysisError::Data(format!("fog reification failed: {error}")))
+fn visible_observation(
+    state: &State,
+    perspective: PlayerIdx,
+) -> Result<Observation, FeatureAnalysisError> {
+    observe(&AwbwVisibility, state, state.player_id(perspective))
+        .map_err(|error| FeatureAnalysisError::Data(format!("fog projection failed: {error}")))
 }
 
 /// Fit all state views with repeated grouped validation and ablations.
@@ -693,14 +812,71 @@ fn fit_mode_analysis(
     })
 }
 
-fn write_feature_rows(path: &Path, rows: &[FeatureRow]) -> Result<(), FeatureAnalysisError> {
+/// Write the completed-turn feature corpus as deterministic JSONL.
+pub fn write_feature_rows(
+    path: impl AsRef<Path>,
+    rows: &[FeatureRow],
+) -> Result<(), FeatureAnalysisError> {
+    let path = path.as_ref();
     let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
     for row in rows {
         serde_json::to_writer(&mut writer, row)?;
         std::io::Write::write_all(&mut writer, b"\n")?;
     }
+    std::io::Write::flush(&mut writer)?;
     Ok(())
+}
+
+/// Read completed-turn feature rows and reject incompatible schemas.
+pub fn read_feature_rows(path: impl AsRef<Path>) -> Result<Vec<FeatureRow>, FeatureAnalysisError> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    let mut rows = Vec::new();
+    for (line_number, line) in reader.lines().enumerate() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let row: FeatureRow = serde_json::from_str(&line)?;
+        if row.schema_version != FEATURE_ANALYSIS_SCHEMA_VERSION {
+            return Err(FeatureAnalysisError::Data(format!(
+                "feature row {} uses schema {}, expected {}",
+                line_number + 1,
+                row.schema_version,
+                FEATURE_ANALYSIS_SCHEMA_VERSION
+            )));
+        }
+        rows.push(row);
+    }
+    Ok(rows)
+}
+
+/// Rebuild extraction coverage from a validated feature-row artifact.
+pub(crate) fn feature_extraction_from_rows(
+    event_rows: &[EventRow],
+    rows: Vec<FeatureRow>,
+    corpus_fingerprint: String,
+) -> FeatureExtraction {
+    let latest = latest_attempt_rows(event_rows);
+    let match_ids = latest
+        .iter()
+        .map(|row| row.match_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let matches_with_rows = rows
+        .iter()
+        .map(|row| row.match_id.as_str())
+        .collect::<BTreeSet<_>>()
+        .len();
+    FeatureExtraction {
+        rows,
+        event_rows: event_rows.len(),
+        matches: match_ids.len(),
+        matches_with_rows,
+        skipped_draws: 0,
+        skipped_incomplete: 0,
+        corpus_fingerprint,
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -1757,6 +1933,12 @@ mod tests {
                             material_delta: material,
                             ..FeatureVector::default()
                         },
+                        producer_counts: Vec::new(),
+                        friendly_producer_counts: ProducerUsabilityCounts::default(),
+                        strongest_hostile_producer_counts: ProducerUsabilityCounts::default(),
+                        producer_known_capacity_delta: 0,
+                        friendly_unknown_producer_count: 0,
+                        hostile_unknown_producer_count: 0,
                     });
                 }
             }
@@ -1789,6 +1971,26 @@ mod tests {
             assert!(mode.model.cross_validation.log_loss.mean < std::f64::consts::LN_2);
             assert_eq!(mode.model.cross_validation.groups, 30);
         }
+    }
+
+    #[test]
+    fn feature_row_reader_rejects_the_previous_schema() {
+        let mut row = synthetic_extraction().rows.remove(0);
+        row.schema_version = FEATURE_ANALYSIS_SCHEMA_VERSION - 1;
+        let path = std::env::temp_dir().join(format!(
+            "awbrn-feature-row-schema-{}-{}.jsonl",
+            std::process::id(),
+            row.match_id
+        ));
+        std::fs::write(
+            &path,
+            serde_json::to_string(&row).expect("the row serializes") + "\n",
+        )
+        .expect("the row writes");
+        let result = read_feature_rows(&path);
+        let _ = std::fs::remove_file(&path);
+        let error = result.expect_err("the earlier row schema must be rejected");
+        assert!(error.to_string().contains("expected 6"));
     }
 
     #[test]

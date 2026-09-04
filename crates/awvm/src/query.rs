@@ -185,6 +185,10 @@ pub struct MoveScratch {
     grids: Vec<Grid<Option<Arrival>>>,
     /// Dial's buckets, cleared and resized rather than rebuilt.
     buckets: Vec<Vec<Pos>>,
+    /// Costs used by the early-exit movement probe.
+    probe_costs: Vec<u16>,
+    /// Dial's buckets used by the early-exit movement probe.
+    probe_buckets: Vec<Vec<Pos>>,
 }
 
 impl MoveScratch {
@@ -193,6 +197,8 @@ impl MoveScratch {
         Self {
             grids: Vec::new(),
             buckets: Vec::new(),
+            probe_costs: Vec::new(),
+            probe_buckets: Vec::new(),
         }
     }
 }
@@ -1259,6 +1265,98 @@ pub(crate) fn reachable_with(
     })
 }
 
+/// Test whether a unit has one legal resting tile away from its origin.
+///
+/// This uses the same turn maps as [`reachable_with`] but stops when it finds
+/// a usable destination. It does not build a [`MoveField`].
+fn can_leave_with(
+    state: &State,
+    unit: UnitId,
+    maps: &TurnMaps<'_>,
+    scratch: &mut MoveScratch,
+) -> Result<bool, QueryError> {
+    let subject = lookup(state, unit)?;
+    let Location::Board { position: origin } = subject.location else {
+        return Err(QueryError::UnitNotOnBoard(unit));
+    };
+    debug_assert_eq!(subject.owner, maps.seat);
+
+    let profile = ruleset::profile(subject.kind);
+    let allowance = commander::effective_move(state, subject, profile.movement, profile.domain);
+    let budget = allowance.min(subject.fuel).min(MAXIMUM_BUDGET);
+    let entry = maps.entry_costs(profile.movement_class);
+    let blocking = maps.blocking();
+    let dimensions = state.board.dimensions();
+
+    let (probe_costs, probe_buckets) = (&mut scratch.probe_costs, &mut scratch.probe_buckets);
+    probe_costs.resize(dimensions.len(), u16::MAX);
+    probe_costs.fill(u16::MAX);
+    let bucket_count = usize::try_from(budget)
+        .ok()
+        .and_then(|budget| budget.checked_add(1))
+        .expect("the ruleset movement allowance and zero bucket fit usize");
+    if probe_buckets.len() < bucket_count {
+        probe_buckets.resize_with(bucket_count, Vec::new);
+    }
+    let buckets = &mut probe_buckets[..bucket_count];
+    for bucket in buckets.iter_mut() {
+        bucket.clear();
+    }
+    let origin_cell = dimensions
+        .cell_index(origin)
+        .expect("a board unit has an origin cell");
+    probe_costs[usize::from(origin_cell.get())] = 0;
+    buckets[0].push(origin);
+
+    for current_cost in 0..bucket_count {
+        while let Some(position) = buckets[current_cost].pop() {
+            let Some(current_cell) = dimensions.cell(position) else {
+                continue;
+            };
+            let Some(current_index) = dimensions.cell_index(position) else {
+                continue;
+            };
+            let settled = probe_costs[usize::from(current_index.get())];
+            if usize::from(settled) != current_cost {
+                continue;
+            }
+            if position != origin && blocking.at(current_cell).route {
+                continue;
+            }
+            for next in position.orthogonal() {
+                let Some(cell) = dimensions.cell(next) else {
+                    continue;
+                };
+                let Some(cost) = entry.at(cell).points() else {
+                    continue;
+                };
+                let Some(total) = u64::from(settled)
+                    .checked_add(u64::from(cost))
+                    .filter(|total| *total <= budget)
+                else {
+                    continue;
+                };
+                let total = u16::try_from(total).expect("movement cost fits in a probe cell");
+                let index = usize::from(
+                    dimensions
+                        .cell_index(next)
+                        .expect("a board neighbor has a cell index")
+                        .get(),
+                );
+                if probe_costs[index] <= total {
+                    continue;
+                }
+                if next != origin && !blocking.at(cell).stop {
+                    return Ok(true);
+                }
+                probe_costs[index] = total;
+                buckets[usize::from(total)].push(next);
+            }
+        }
+    }
+    Ok(false)
+}
+
 /// One seat's board tables, held across a search of many of its units.
 ///
 /// [`reachable_into`] answers about one unit and opens the tables that answer
@@ -1279,6 +1377,11 @@ pub struct Sweep<'a> {
 }
 
 impl<'a> Sweep<'a> {
+    /// Open one seat's movement maps for a state.
+    pub fn open(state: &'a State, seat: PlayerIdx) -> Option<Self> {
+        TurnMaps::for_seat(state, seat).map(Self::with_maps)
+    }
+
     /// Lend a turn's maps to a sweep. The opener vouches for the position and
     /// the seat, exactly as [`TurnMaps::with_tables`] asks.
     pub(crate) const fn with_maps(maps: TurnMaps<'a>) -> Self {
@@ -1310,6 +1413,23 @@ impl<'a> Sweep<'a> {
             });
         }
         reachable_with(self.maps.state, unit, &self.maps, scratch)
+    }
+
+    /// Test whether one unit can leave its current tile.
+    pub fn can_leave_into(
+        &self,
+        unit: UnitId,
+        scratch: &mut MoveScratch,
+    ) -> Result<bool, QueryError> {
+        let owner = lookup(self.maps.state, unit)?.owner;
+        if owner != self.maps.seat {
+            return Err(QueryError::WrongSeat {
+                unit,
+                owner,
+                seat: self.maps.seat,
+            });
+        }
+        can_leave_with(self.maps.state, unit, &self.maps, scratch)
     }
 }
 

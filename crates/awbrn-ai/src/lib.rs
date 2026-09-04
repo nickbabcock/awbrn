@@ -40,6 +40,7 @@ pub mod harness;
 pub mod map;
 pub mod mission;
 pub mod probe;
+pub mod producer;
 pub mod profile;
 pub mod rng;
 pub mod shape;
@@ -72,6 +73,13 @@ pub use harness::{
 pub use map::ContestMap;
 pub use mission::{DecisionTrace, TraceError, TurnEndReason};
 pub use probe::Probe;
+pub use producer::{
+    ProducerUsability, ProducerUsabilityCounts, ProducerUsabilityCountsReport,
+    ProducerUsabilityError, ProducerUsabilityExtractor, ProducerUsabilityMode,
+    ProducerUsabilityRecord, ProducerUsabilityReport, ProducerUsabilityRule,
+    classify_producer_counts_in_observation, classify_producers, classify_producers_in_observation,
+    classify_producers_in_observation_with_session,
+};
 pub use profile::{
     AiImplementation, AiProfile, AiTier, CURRENT_PROFILES as AI_CURRENT_PROFILES, EASY, HARD,
     PROFILES as AI_PROFILES, STANDARD, profile, profile_for_tier,

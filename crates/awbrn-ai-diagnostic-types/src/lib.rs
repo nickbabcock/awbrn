@@ -518,6 +518,12 @@ pub struct RunManifest {
     pub source_fingerprint: String,
     pub executable_fingerprint: String,
     pub configuration_fingerprint: String,
+    /// Fingerprint of the user-authored experiment plan.
+    #[serde(default)]
+    pub experiment_plan_fingerprint: String,
+    /// Materialized producer-usability settings for exact reanalysis.
+    #[serde(default)]
+    pub producer_usability_plan: Option<serde_json::Value>,
     pub maps: Vec<MapIdentity>,
     pub seed_derivation: SeedDerivation,
     pub limits: RunLimits,
@@ -713,6 +719,8 @@ mod tests {
             source_fingerprint: "source".into(),
             executable_fingerprint: "executable".into(),
             configuration_fingerprint: "configuration".into(),
+            experiment_plan_fingerprint: String::new(),
+            producer_usability_plan: None,
             maps: vec![MapIdentity {
                 map_id: 1,
                 name: "map".into(),

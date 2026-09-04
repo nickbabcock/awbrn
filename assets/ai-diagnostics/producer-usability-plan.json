@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "run_id": "producer-usability-v1",
+  "candidate": {"kind": "strategic", "configuration": "production"},
+  "baseline": {"kind": "strategic", "configuration": "production"},
+  "maps": [61748, 67945, 67073, 73021],
+  "run_seed": 1202,
+  "pairs_per_map": 2,
+  "limits": {"day_limit": 2, "node_budget": 1, "refusal_limit": 8},
+  "telemetry": "enabled",
+  "capture_policy": {"selection": {"kind": "all"}, "frame_policy": {"kind": "disabled"}},
+  "analyses": ["outcome-features", "producer-usability", "verification"],
+  "producer_usability": {
+    "experiment_id": "producer-usability-v1",
+    "scenario_fixtures": [
+      "empty-producer",
+      "unblock-and-produce",
+      "matched-friendly-blocked",
+      "hostile-blocked",
+      "fog-hidden-occupation"
+    ],
+    "performance_fixtures": ["arena", "amber-valley", "late-game"],
+    "sample_count": 100,
+    "thresholds": {
+      "maximum_median_relative_change": 0.05,
+      "maximum_p95_relative_change": 0.05,
+      "required_search_decision_changes": 0
+    }
+  },
+  "annotations": "Producer-usability diagnostics; behavior neutral"
+}

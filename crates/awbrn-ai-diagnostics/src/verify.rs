@@ -35,6 +35,8 @@ pub enum VerifyError {
     Json(#[from] serde_json::Error),
     #[error("verification I/O failed: {0}")]
     Io(#[from] std::io::Error),
+    #[error("verification producer artifact error: {0}")]
+    Producer(#[from] crate::producer_diagnostics::ProducerUsabilityDiagnosticError),
     #[error("verification failed: {0}")]
     Invalid(String),
 }
@@ -92,6 +94,9 @@ pub fn verify_artifact(
         ));
     }
     verify_expected_fingerprints(&manifest, &event_path, &output)?;
+    if manifest.producer_usability_plan.is_some() {
+        crate::producer_diagnostics::verify_producer_usability_artifacts(&manifest, &output)?;
+    }
 
     Ok(VerificationSummary {
         output,

@@ -13,7 +13,7 @@ cargo run -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
 
 The run always writes the manifest, append-only event log, match rows,
 reduction, and performance output. The plan can also request outcome features,
-review, and verification.
+producer usability, review, and verification.
 
 Use the checked-in small plan for a smoke run. Use
 `search-production-multimap-plan.json` for the saved search experiment. Search,
@@ -38,6 +38,7 @@ and `search-sweep-decision.json` with a Markdown rendering beside the JSON recor
 
 ```text
 ai-diagnostics analyze --run target/ai-smoke --analysis outcome-features
+ai-diagnostics analyze --run target/ai-smoke --analysis producer-usability
 ai-diagnostics review --output target/ai-smoke
 ai-diagnostics verify --output target/ai-smoke
 ```
@@ -58,6 +59,21 @@ views. It reports early, middle, and late turns, grouped pair-level validation,
 map-level intervals, the corpus fingerprint, and the exact reduced model.
 Threat features are post-hoc in the authoritative view. Only fog-visible
 features can support a live policy.
+
+Producer usability is a diagnostics-only stage. Add
+`"producer-usability"` to a plan's `analyses` and provide its
+`producer_usability` fixture and threshold settings. Both sides of this plan
+must use the same accepted agent configuration. The decision record uses the
+separate labels `production-property-count-v1` and `producer-usability-v1` for
+the diagnostic comparison.
+
+The manifest stores the materialized producer plan. Reanalysis loads those
+settings from the manifest. The stage writes scenario, performance, behavior,
+and decision artifacts. It also keeps a disabled-control event log and checks
+command and event fingerprints against the enabled run. It does not change
+evaluator scores, candidate generation, greedy repair, search, or selected
+commands. The producer fields in `feature-analysis/features.jsonl` are the
+corpus-level record and are reused by the producer stage.
 
 Model files are resolved as safe paths relative to the plan. Their content,
 not their path, enters the agent identity. A non-converged or insufficient

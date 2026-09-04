@@ -5,7 +5,8 @@ use std::process::ExitCode;
 use awbrn_ai_diagnostic_types::RunManifest;
 use awbrn_ai_diagnostics::{
     AnalysisStage, analyze_event_log, read_manifest, reanalyse_event_log_with_manifest,
-    resolve_event_log_path, run_plan, run_review, run_search_sweep, verify_artifact,
+    resolve_event_log_path, run_plan, run_producer_usability_diagnostics_from_manifest, run_review,
+    run_search_sweep, verify_artifact,
 };
 
 fn main() -> ExitCode {
@@ -70,6 +71,9 @@ fn run(arguments: &[String]) -> ExitCode {
             if let Some(features) = summary.feature_analysis {
                 println!("  outcome features: {}", features.output.display());
             }
+            if let Some(producers) = summary.producer_usability {
+                println!("  producer usability: {}", producers.output.display());
+            }
             if let Some(review) = summary.review {
                 println!(
                     "  review: {} ({} frames)",
@@ -87,8 +91,7 @@ fn run(arguments: &[String]) -> ExitCode {
 }
 
 fn analyze(arguments: &[String]) -> ExitCode {
-    const USAGE: &str =
-        "usage: ai-diagnostics analyze --run target/run [--analysis outcome-features]";
+    const USAGE: &str = "usage: ai-diagnostics analyze --run target/run [--analysis outcome-features,producer-usability]";
     let options = match parse_options(arguments, &["--run", "--analysis"]) {
         Ok(options) => options,
         Err(message) => return invalid_arguments(&message, USAGE),
@@ -131,6 +134,7 @@ fn parse_analyses(value: &str) -> Result<Vec<AnalysisStage>, String> {
     {
         let stage = match name {
             "outcome-features" => AnalysisStage::OutcomeFeatures,
+            "producer-usability" => AnalysisStage::ProducerUsability,
             "review" => AnalysisStage::Review,
             "verification" => AnalysisStage::Verification,
             other => return Err(format!("unknown analysis stage {other:?}")),
@@ -166,7 +170,15 @@ fn analyze_stages(
             rebuilt.matches
         ));
     }
-    for stage in analyses {
+    for stage in [
+        AnalysisStage::OutcomeFeatures,
+        AnalysisStage::ProducerUsability,
+        AnalysisStage::Review,
+        AnalysisStage::Verification,
+    ]
+    .iter()
+    .filter(|stage| analyses.contains(stage))
+    {
         match stage {
             AnalysisStage::OutcomeFeatures => {
                 let summary = analyze_event_log(events, run.join("feature-analysis"))
@@ -182,6 +194,17 @@ fn analyze_stages(
                     summary.output.display(),
                     summary.extraction.matches_with_rows,
                     summary.extraction.rows.len()
+                ));
+            }
+            AnalysisStage::ProducerUsability => {
+                let summary =
+                    run_producer_usability_diagnostics_from_manifest(manifest, events, run)
+                        .map_err(|error| error.to_string())?;
+                outputs.push(format!(
+                    "{} ({} scenarios, {})",
+                    summary.output.display(),
+                    summary.scenarios.scenarios.len(),
+                    summary.decision.decision
                 ));
             }
             AnalysisStage::Review => {
@@ -346,7 +369,7 @@ fn report_error(command: &str, error: impl std::fmt::Display) -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage:\n  ai-diagnostics search-sweep --plan search-budget-sweep-plan.json --output target/search-sweep\n  ai-diagnostics run --plan experiment.json --output target/run\n  ai-diagnostics analyze --run target/run [--analysis outcome-features,review,verification]\n  ai-diagnostics features --states states.jsonl --output target/features\n  ai-diagnostics review --output target/run\n  ai-diagnostics verify --output target/run"
+        "usage:\n  ai-diagnostics search-sweep --plan search-budget-sweep-plan.json --output target/search-sweep\n  ai-diagnostics run --plan experiment.json --output target/run\n  ai-diagnostics analyze --run target/run [--analysis outcome-features,producer-usability,review,verification]\n  ai-diagnostics features --states states.jsonl --output target/features\n  ai-diagnostics review --output target/run\n  ai-diagnostics verify --output target/run"
     );
 }
 
@@ -356,10 +379,15 @@ mod tests {
 
     #[test]
     fn analysis_names_are_registered_and_repeatable() {
-        let stages = parse_analyses("outcome-features,verification").expect("stages parse");
+        let stages = parse_analyses("outcome-features,producer-usability,verification")
+            .expect("stages parse");
         assert_eq!(
             stages,
-            vec![AnalysisStage::OutcomeFeatures, AnalysisStage::Verification]
+            vec![
+                AnalysisStage::OutcomeFeatures,
+                AnalysisStage::ProducerUsability,
+                AnalysisStage::Verification
+            ]
         );
         parse_analyses("unknown").unwrap_err();
         parse_analyses("review,review").unwrap_err();

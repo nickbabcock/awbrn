@@ -14,8 +14,10 @@ awbrn-ai-diagnostic-types = { path = "../awbrn-ai-diagnostic-types" }
 awbrn-game = { path = "../awbrn-game" }
 awbrn-image = { path = "../awbrn-image" }
 awbrn-map = { path = "../awbrn-map" }
+awbw-replay = { path = "../awbw-replay" }
 awbrn-types = { path = "../awbrn-types" }
 awvm = { path = "../awvm" }
+awvm-awbw = { path = "../awvm-awbw" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

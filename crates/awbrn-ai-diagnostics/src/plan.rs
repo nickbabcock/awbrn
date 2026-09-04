@@ -19,6 +19,7 @@ use crate::feature_analysis::{
     FEATURE_ANALYSIS_SCHEMA_VERSION, FEATURE_NAMES, FeatureAnalysisReport, FeatureMode,
 };
 use crate::map_registry::MapRegistry;
+use crate::producer_diagnostics::ProducerUsabilityPlan;
 use crate::tactical::{TacticalFactory, TacticalRerank, TacticalRerankMode};
 use crate::tournament::{AgentFactory, SearchFactory, StrategicFactory};
 
@@ -66,6 +67,7 @@ pub enum TacticalMode {
 #[serde(rename_all = "kebab-case")]
 pub enum AnalysisStage {
     OutcomeFeatures,
+    ProducerUsability,
     Review,
     Verification,
 }
@@ -88,6 +90,9 @@ pub struct ExperimentPlan {
     pub capture_policy: CapturePolicy,
     #[serde(default)]
     pub analyses: Vec<AnalysisStage>,
+    /// Fixture and threshold configuration for producer usability analysis.
+    #[serde(default)]
+    pub producer_usability: Option<ProducerUsabilityPlan>,
     #[serde(default)]
     pub annotations: Option<String>,
 }
@@ -98,6 +103,7 @@ pub struct MaterializedPlan {
     pub candidate: Box<dyn AgentFactory>,
     pub baseline: Box<dyn AgentFactory>,
     pub analyses: Vec<AnalysisStage>,
+    pub producer_usability: Option<ProducerUsabilityPlan>,
 }
 
 impl fmt::Debug for MaterializedPlan {
@@ -175,6 +181,30 @@ impl ExperimentPlan {
                 "experiment plan repeats an analysis stage".into(),
             ));
         }
+        if self.analyses.contains(&AnalysisStage::ProducerUsability)
+            && self.candidate != self.baseline
+        {
+            return Err(PlanError::Configuration(
+                "producer usability requires the same agent configuration on both sides".into(),
+            ));
+        }
+        if self.analyses.contains(&AnalysisStage::ProducerUsability)
+            && self.producer_usability.is_none()
+        {
+            return Err(PlanError::Configuration(
+                "producer usability needs materialized plan settings".into(),
+            ));
+        }
+        if let Some(producer_usability) = &self.producer_usability {
+            producer_usability
+                .validate()
+                .map_err(PlanError::Configuration)?;
+            if !self.analyses.contains(&AnalysisStage::ProducerUsability) {
+                return Err(PlanError::Configuration(
+                    "producer usability settings need the producer-usability analysis stage".into(),
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -213,6 +243,7 @@ impl ExperimentPlan {
             })
             .collect::<Vec<_>>();
         let source = source_provenance(plan_path.as_ref())?;
+        let experiment_plan_fingerprint = fingerprint_bytes(&serde_json::to_vec(self)?);
         let configuration_bytes = serde_json::to_vec(&(
             candidate.identity(),
             baseline.identity(),
@@ -224,6 +255,7 @@ impl ExperimentPlan {
             self.telemetry,
             &self.capture_policy,
             &self.analyses,
+            &self.producer_usability,
             &source.fingerprint,
             artifacts
                 .iter()
@@ -246,6 +278,12 @@ impl ExperimentPlan {
                 baseline.identity().executable_fingerprint
             ),
             configuration_fingerprint,
+            experiment_plan_fingerprint,
+            producer_usability_plan: self
+                .producer_usability
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()?,
             maps,
             seed_derivation: SeedDerivation {
                 run_seed: self.run_seed,
@@ -267,6 +305,7 @@ impl ExperimentPlan {
             candidate,
             baseline,
             analyses: self.analyses.clone(),
+            producer_usability: self.producer_usability.clone(),
         })
     }
 }
