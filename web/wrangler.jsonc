@@ -35,6 +35,10 @@
         "name": "PLAYERS",
         "class_name": "PlayerDurableObject",
       },
+      {
+        "name": "RATINGS",
+        "class_name": "RatingsDurableObject",
+      },
     ],
   },
   "exports": {
@@ -51,6 +55,10 @@
       "storage": "sqlite",
     },
     "PlayerDurableObject": {
+      "type": "durable-object",
+      "storage": "sqlite",
+    },
+    "RatingsDurableObject": {
       "type": "durable-object",
       "storage": "sqlite",
     },

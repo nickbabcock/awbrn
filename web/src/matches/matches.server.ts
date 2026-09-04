@@ -67,6 +67,7 @@ import {
   mapSources,
   moderationActions,
   pairings,
+  ratingUpdates,
   user,
 } from "#/db/global.ts";
 import type { Actor } from "#/auth/actor.ts";
@@ -82,6 +83,7 @@ const db = drizzle(env.DB, {
     matchVoids,
     mapSources,
     moderationActions,
+    ratingUpdates,
     user,
   },
 });
@@ -1168,6 +1170,9 @@ async function queryMatchHistoryRows(matchIds: string[]) {
       seatOutcome: matchResults.outcome,
       seatPlacement: matchResults.placement,
       seatReason: matchResults.reason,
+      pool: matches.pool,
+      seatRatingBefore: ratingUpdates.ratingBefore,
+      seatRatingAfter: ratingUpdates.ratingAfter,
     })
     .from(matches)
     .innerJoin(matchParticipants, eq(matchParticipants.matchId, matches.id))
@@ -1178,6 +1183,13 @@ async function queryMatchHistoryRows(matchIds: string[]) {
       and(
         eq(matchResults.matchId, matchParticipants.matchId),
         eq(matchResults.slotIndex, matchParticipants.slotIndex),
+      ),
+    )
+    .leftJoin(
+      ratingUpdates,
+      and(
+        eq(ratingUpdates.matchId, matchParticipants.matchId),
+        eq(ratingUpdates.userId, matchParticipants.userId),
       ),
     )
     .where(inArray(matches.id, matchIds))
@@ -1298,6 +1310,8 @@ function toMatchHistoryEntry(
     outcome: seatRow.seatOutcome,
     placement: seatRow.seatPlacement,
     reason: seatRow.seatReason,
+    ratingBefore: seatRow.seatRatingBefore,
+    ratingAfter: seatRow.seatRatingAfter,
   }));
 
   return {
@@ -1314,6 +1328,7 @@ function toMatchHistoryEntry(
     viewerSlotIndexes: seats
       .filter((seat) => seat.userId === viewerUserId)
       .map((seat) => seat.slotIndex),
+    pool: row.pool,
     seats,
     hasReplay,
   };

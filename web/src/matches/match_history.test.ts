@@ -3,6 +3,7 @@ import {
   decodeMatchHistoryCursor,
   encodeMatchHistoryCursor,
   formatMatchDuration,
+  formatRatingChange,
   formatSeatResultReason,
   formatVerdict,
   opposingSeats,
@@ -21,6 +22,8 @@ function seat(overrides: Partial<MatchHistorySeat> = {}): MatchHistorySeat {
     outcome: null,
     placement: null,
     reason: null,
+    ratingBefore: null,
+    ratingAfter: null,
     ...overrides,
   };
 }
@@ -132,5 +135,29 @@ describe("opposingSeats", () => {
   it("is empty when the viewer held every seat", () => {
     const seats = [seat({ slotIndex: 0 }), seat({ slotIndex: 1 })];
     expect(opposingSeats(seats, [0, 1])).toEqual([]);
+  });
+});
+
+describe("formatRatingChange", () => {
+  it("says nothing about an unranked match", () => {
+    expect(formatRatingChange(seat({ ratingBefore: 1500, ratingAfter: 1520 }), null)).toBeNull();
+  });
+
+  it("reports a rise, a fall, and a rating which did not move", () => {
+    const pool = "async" as const;
+    expect(formatRatingChange(seat({ ratingBefore: 1487.2, ratingAfter: 1512.4 }), pool)).toBe(
+      "1487 → 1512 (+25)",
+    );
+    expect(formatRatingChange(seat({ ratingBefore: 1600.4, ratingAfter: 1588.1 }), pool)).toBe(
+      "1600 → 1588 (-12)",
+    );
+    expect(formatRatingChange(seat({ ratingBefore: 1500, ratingAfter: 1500 }), pool)).toBe(
+      "1500 → 1500 (+0)",
+    );
+  });
+
+  it("waits for a ranked match the rating writer has not reached", () => {
+    expect(formatRatingChange(seat(), "async")).toBe("Rating pending");
+    expect(formatRatingChange(undefined, "async")).toBe("Rating pending");
   });
 });

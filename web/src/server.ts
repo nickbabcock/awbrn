@@ -3,6 +3,7 @@ import { MatchDurableObject } from "#/matches/match_durable_object.ts";
 import { AwbwGatewayDurableObject } from "#/awbw/awbw_gateway.ts";
 import { MatchmakerDurableObject } from "#/matchmaking/matchmaker_durable_object.ts";
 import { PlayerDurableObject } from "#/players/player_durable_object.ts";
+import { RatingsDurableObject } from "#/matchmaking/ratings_durable_object.ts";
 import { getMatchStub } from "#/matches/match_service.ts";
 import { getPlayerStub } from "#/players/player_service.ts";
 import { getRequestSession } from "#/auth/auth.server.ts";
@@ -12,6 +13,7 @@ export {
   MatchDurableObject,
   MatchmakerDurableObject,
   PlayerDurableObject,
+  RatingsDurableObject,
 };
 
 const crossOriginIsolationHeaders = {

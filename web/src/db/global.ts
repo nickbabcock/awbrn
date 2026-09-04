@@ -259,10 +259,22 @@ export const matchResults = sqliteTable(
     recordedAt: integer("recordedAt", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
+    /**
+     * When the rating pass read this row. Null while it still has to.
+     *
+     * This is the queue the ratings durable object reads, and it is what stops
+     * one result moving a rating twice. The stamp and the rating are written
+     * together, so a pass which stops halfway leaves neither.
+     */
+    ratedAt: integer("ratedAt", { mode: "timestamp" }),
   },
   (t) => [
     primaryKey({ columns: [t.matchId, t.slotIndex] }),
     index("match_results_user_idx").on(t.userId, t.recordedAt),
+    // The rating pass asks for one pool's unrated results and nothing else.
+    index("match_results_unrated_idx")
+      .on(t.pool, t.recordedAt)
+      .where(sql`${t.pool} is not null and ${t.ratedAt} is null`),
     index("match_results_pool_idx")
       .on(t.pool, t.recordedAt)
       .where(sql`${t.pool} is not null`),
@@ -280,6 +292,9 @@ export const matchResults = sqliteTable(
     // A match the server took a seat in is not ranked, so it never carries a
     // pool. Ratings are between people.
     check("match_results_ai_is_never_ranked", sql`${t.aiProfileId} is null or ${t.pool} is null`),
+    // Only a pooled result goes to the rating pass, so only a pooled result
+    // can carry the stamp which says the pass took it.
+    check("match_results_rated_is_pooled", sql`${t.ratedAt} is null or ${t.pool} is not null`),
     check(
       "match_results_reason_null_only_for_standing_win",
       sql`${t.reason} is not null or ${t.outcome} = 'win'`,
@@ -486,6 +501,123 @@ export const ratings = sqliteTable(
     check("ratings_deviation_positive", sql`${t.deviation} > 0`),
     check("ratings_volatility_positive", sql`${t.volatility} > 0`),
     check("ratings_match_count_nonnegative", sql`${t.ratedMatches} >= 0`),
+  ],
+);
+
+/**
+ * What one match did to one player's rating.
+ *
+ * The row is written with the rating it describes, so it is both the record a
+ * player reads after a match and the proof that the match was counted. It also
+ * keeps the inputs, which means a rating can be worked out again from the
+ * start after the Glicko constants change.
+ */
+export const ratingUpdates = sqliteTable(
+  "rating_updates",
+  {
+    matchId: text("matchId")
+      .notNull()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    userId: text("userId")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    pool: text("pool").notNull().$type<RankedPool>(),
+    season: integer("season").notNull(),
+    ratingBefore: real("ratingBefore").notNull(),
+    ratingAfter: real("ratingAfter").notNull(),
+    /** The deviation the pass used, after the growth for time away. */
+    deviationBefore: real("deviationBefore").notNull(),
+    deviationAfter: real("deviationAfter").notNull(),
+    volatilityBefore: real("volatilityBefore").notNull(),
+    volatilityAfter: real("volatilityAfter").notNull(),
+    /** The opponent's rating and deviation as the pass read them. */
+    opponentRating: real("opponentRating").notNull(),
+    opponentDeviation: real("opponentDeviation").notNull(),
+    /** 1 for a win, 0.5 for a draw, 0 for a loss. */
+    score: real("score").notNull(),
+    appliedAt: integer("appliedAt", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [
+    primaryKey({ columns: [t.matchId, t.userId] }),
+    index("rating_updates_user_idx").on(t.userId, t.pool, t.appliedAt),
+    index("rating_updates_season_idx").on(t.season, t.pool, t.userId),
+    check("rating_updates_pool_vocabulary", sql`${t.pool} in (${sqlLiterals(rankedPools)})`),
+    check("rating_updates_score_vocabulary", sql`${t.score} in (0, 0.5, 1)`),
+  ],
+);
+
+/**
+ * That a season's ladder has been frozen.
+ *
+ * This is separate from the rows because a season can close with nobody on the
+ * ladder, and the freeze still happened. Without a row of its own, an empty
+ * season would look unfrozen on every wake and be worked out again forever.
+ */
+export const seasonCaptures = sqliteTable(
+  "season_captures",
+  {
+    season: integer("season")
+      .notNull()
+      .references(() => seasons.number, { onDelete: "restrict" }),
+    pool: text("pool").notNull().$type<RankedPool>(),
+    /** How many places the frozen ladder holds. It can be none. */
+    placeCount: integer("placeCount").notNull(),
+    capturedAt: integer("capturedAt", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [
+    primaryKey({ columns: [t.season, t.pool] }),
+    check("season_captures_pool_vocabulary", sql`${t.pool} in (${sqlLiterals(rankedPools)})`),
+    check("season_captures_place_count_nonnegative", sql`${t.placeCount} >= 0`),
+  ],
+);
+
+/**
+ * The ladder as it stood when a season closed.
+ *
+ * A rating carries across seasons, so this is a record of where the ladder
+ * reached and not a competition which reset. The rows are written once, after
+ * the last match of the season is rated, and are not written again.
+ *
+ * Every value the ladder shows is frozen here, the grown deviation and the
+ * rank included. The live ladder works both of those out from the clock, and a
+ * frozen row read against a later clock would report a season which slowly
+ * emptied.
+ */
+export const seasonStandings = sqliteTable(
+  "season_standings",
+  {
+    season: integer("season")
+      .notNull()
+      .references(() => seasons.number, { onDelete: "restrict" }),
+    pool: text("pool").notNull().$type<RankedPool>(),
+    rank: integer("rank").notNull(),
+    /*
+     * The record outlives the account, the way `match_results` does. A cascade
+     * here would let one account closing renumber everybody below it.
+     */
+    userId: text("userId")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    /** The name as it read at capture, so a later rename cannot edit history. */
+    name: text("name").notNull(),
+    rating: real("rating").notNull(),
+    deviation: real("deviation").notNull(),
+    ratedMatches: integer("ratedMatches").notNull(),
+    /** Rated matches in this season, which is what makes the row seasonal. */
+    seasonMatches: integer("seasonMatches").notNull(),
+    capturedAt: integer("capturedAt", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [
+    primaryKey({ columns: [t.season, t.pool, t.userId] }),
+    index("season_standings_rank_idx").on(t.season, t.pool, t.rank),
+    check("season_standings_pool_vocabulary", sql`${t.pool} in (${sqlLiterals(rankedPools)})`),
+    check("season_standings_rank_positive", sql`${t.rank} >= 1`),
   ],
 );
 

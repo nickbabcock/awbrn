@@ -18,6 +18,7 @@ import { FactionLogo } from "#/components/FactionLogo.tsx";
 import { getFactionById } from "#/factions.ts";
 import {
   formatMatchDuration,
+  formatRatingChange,
   formatSeatResultReason,
   formatVerdict,
   opposingSeats,
@@ -25,12 +26,18 @@ import {
 } from "#/matches/match_history.ts";
 import { myCompletedMatchesQueryOptions } from "#/matches/matches.queries.ts";
 import { matchReplayDownloadPath } from "#/matches/replay_archive.ts";
-import type { MatchHistoryEntry, MatchHistorySeat, MatchOutcome } from "#/matches/schemas.ts";
+import type {
+  MatchHistoryEntry,
+  MatchHistorySeat,
+  MatchOutcome,
+  RankedPool,
+} from "#/matches/schemas.ts";
 import { awbrnVars, matchHistoryVars } from "#/themes/awbrnTokens.stylex.ts";
 import { Button } from "#/ui/Button.tsx";
 import { RouterButton, RouterTextLink } from "#/ui/astryx-links.tsx";
 import { Thumbnail } from "#/ui/Thumbnail.tsx";
 import { MATCH_REPORT_MEDIA_SIZE, TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
+import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
 import { formatClockSummary } from "#/matches/match_clock.ts";
 
 const dateFormat = new Intl.DateTimeFormat(undefined, {
@@ -221,7 +228,7 @@ function AfterActionReport({
         </HStack>
 
         <VStack align="end" gap={2} xstyle={styles.verdictColumn}>
-          <Verdict isHotseat={isHotseat} outcome={outcome} seats={viewerSeats} />
+          <Verdict isHotseat={isHotseat} outcome={outcome} pool={entry.pool} seats={viewerSeats} />
           {entry.hasReplay ? (
             <Button
               as="a"
@@ -326,10 +333,12 @@ function SeatMark({
 function Verdict({
   isHotseat,
   outcome,
+  pool,
   seats,
 }: {
   isHotseat: boolean;
   outcome: MatchOutcome | null;
+  pool: RankedPool | null;
   seats: readonly MatchHistorySeat[];
 }) {
   if (isHotseat) {
@@ -348,6 +357,7 @@ function Verdict({
   }
 
   const seat = seats[0];
+  const ratingChange = formatRatingChange(seat, pool);
   return (
     <VStack align="end" gap={0.5}>
       <Text type="label" xstyle={[styles.verdict, verdictStyle(outcome)]}>
@@ -356,6 +366,11 @@ function Verdict({
       <Text color="secondary" type="label">
         {formatSeatResultReason(outcome, seat?.reason ?? null)}
       </Text>
+      {ratingChange === null ? null : (
+        <Text color="secondary" type="label">
+          {ratingChange}
+        </Text>
+      )}
     </VStack>
   );
 }
@@ -380,7 +395,7 @@ const styles = stylex.create({
   pageTitle: {
     fontSize: {
       default: null,
-      "@media (max-width: 640px)": `clamp(${matchHistoryVars.titleMinimumSize}, ${matchHistoryVars.titleFluidSize}, ${matchHistoryVars.titleMaximumSize})`,
+      [rosterLayout.stackedMedia]: `clamp(${matchHistoryVars.titleMinimumSize}, ${matchHistoryVars.titleFluidSize}, ${matchHistoryVars.titleMaximumSize})`,
     },
   },
   // Once the armies stack, the separator takes its own line; left at the end of
@@ -388,7 +403,7 @@ const styles = stylex.create({
   versus: {
     flexBasis: {
       default: "auto",
-      "@media (max-width: 640px)": "100%",
+      [rosterLayout.stackedMedia]: "100%",
     },
   },
   report: {

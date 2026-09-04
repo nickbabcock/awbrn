@@ -3,8 +3,8 @@
  *
  * The hub describes the viewer and nothing else, so the checks here watch the
  * two places that rule is easy to break: the opponent stays hidden while a
- * pairing waits for confirmation, and the standings leave out a player whose
- * rating is still provisional.
+ * pairing waits for confirmation, and the standings order players by what is
+ * known about them rather than by the rating alone.
  */
 
 import { env } from "cloudflare:workers";
@@ -190,7 +190,8 @@ describe("rankedStandings", () => {
           INSERT INTO ratings (userId, pool, rating, deviation, volatility, lastRatedAt, ratedMatches)
           VALUES ('rival', 'async', 1700, 55, 0.06, ?, 30)
         `).bind(seconds(OPENED_AT)),
-      // A deviation above the provisional bound keeps a player unlisted.
+      // Above the provisional bound, so the rating still reads with a
+      // question mark, but well inside the bound which holds a ladder place.
       env.DB.prepare(`
           INSERT INTO ratings (userId, pool, rating, deviation, volatility, lastRatedAt, ratedMatches)
           VALUES ('newcomer', 'async', 1540, 200, 0.06, ?, 2)
@@ -198,9 +199,12 @@ describe("rankedStandings", () => {
     ]);
   });
 
-  it("ranks the confirmed players and leaves the provisional one out", async () => {
+  it("orders the ladder by the rating, less what is not known about it", async () => {
     const standings = await rankedStandings("async", "newcomer", NOW);
 
+    // The newcomer is 80 points behind the viewer on rating and 140 behind
+    // once the deviation is counted, so an unsure rating sits below a settled
+    // one rather than being left out of the ladder.
     expect(standings.entries).toEqual([
       { rank: 1, userId: "rival", name: "Rival", rating: 1700, ratedMatches: 30, isViewer: false },
       {
@@ -211,13 +215,32 @@ describe("rankedStandings", () => {
         ratedMatches: 12,
         isViewer: false,
       },
+      {
+        rank: 3,
+        userId: "newcomer",
+        name: "Newcomer",
+        rating: 1540,
+        ratedMatches: 2,
+        isViewer: true,
+      },
     ]);
+    expect(standings.viewer).toBeNull();
+  });
+
+  it("leaves out a rating older than a season, and reports it to its owner", async () => {
+    await env.DB.prepare("UPDATE ratings SET lastRatedAt = ? WHERE userId = 'newcomer'")
+      .bind(seconds(new Date(NOW.getTime() - 120 * 24 * 60 * 60 * 1000)))
+      .run();
+
+    const standings = await rankedStandings("async", "newcomer", NOW);
+
+    expect(standings.entries.map((entry) => entry.userId)).toEqual(["rival", "viewer"]);
     expect(standings.viewer).toEqual({ rating: 1540, ratedMatches: 2, isProvisional: true });
   });
 
   it("marks the viewer in the list", async () => {
     const standings = await rankedStandings("async", "viewer", NOW);
-    expect(standings.entries.map((entry) => entry.isViewer)).toEqual([false, true]);
+    expect(standings.entries.map((entry) => entry.isViewer)).toEqual([false, true, false]);
     expect(standings.viewer).toBeNull();
   });
 
@@ -234,6 +257,6 @@ describe("rankedStandings", () => {
     ]);
 
     const standings = await rankedStandings("async", "viewer", NOW);
-    expect(standings.entries.map((entry) => entry.userId)).toEqual(["rival", "viewer"]);
+    expect(standings.entries.map((entry) => entry.userId)).toEqual(["rival", "viewer", "newcomer"]);
   });
 });

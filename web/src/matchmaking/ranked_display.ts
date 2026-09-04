@@ -16,8 +16,44 @@
 import type { RankedPool } from "#/matches/schemas.ts";
 import { HARD_MAX_ACTIVE_MATCHES } from "./matchmaking.ts";
 
-/** The rating deviation above which a rating is not yet trusted. */
+/**
+ * The rating deviation above which a rating is not yet trusted.
+ *
+ * This governs how a rating reads, and nothing else. It puts the question mark
+ * on a rating and it tells the hub the viewer is still finding their level.
+ * Whether a player holds a place on the ladder is `LADDER_DEVIATION_LIMIT`,
+ * and how far a rating moves is Glicko-2 alone.
+ */
 export const PROVISIONAL_DEVIATION = 150;
+
+/**
+ * The deviation above which a rating is too old to hold a ladder place.
+ *
+ * A player leaves the ladder a season after their last rated match, not a
+ * season after the calendar turns. Removal is measured from the player's own
+ * last match, so the ladder is never empty on the first day of a season and
+ * players leave it one at a time.
+ *
+ * With `DEVIATION_GROWTH_PER_PERIOD`, a settled rating (deviation 50) reaches
+ * this limit after about 90 days without a rated match. 150 is 30 days, 300 is
+ * 131 days, and 350 is the 180 days that returns a rating to unrated.
+ */
+export const LADDER_DEVIATION_LIMIT = 250;
+
+/**
+ * How heavily the ladder counts uncertainty against a rating.
+ *
+ * The ladder is ordered by `rating - weight * deviation` and not by the rating
+ * alone, so a player who stops playing slides down it instead of holding their
+ * place until they vanish from it. A player far above the field stays near the
+ * top while they slide, which is the honest report: the rating is still the
+ * best guess at their strength, and it is only less certain than it was.
+ *
+ * A weight of 1 is about one place for each month away, at the spread this
+ * ladder has. Glickman's own conservative estimate uses 2, which is correct
+ * for a lower bound but drops an idle leader below the field within weeks.
+ */
+export const LADDER_DEVIATION_WEIGHT = 1;
 
 /** The rating deviation given to a player with no rated match. */
 export const MAXIMUM_DEVIATION = 350;
@@ -104,6 +140,21 @@ export function readTimeDeviation(
 
 export function isProvisional(deviation: number): boolean {
   return deviation > PROVISIONAL_DEVIATION;
+}
+
+/** Whether a rating is recent enough to hold a place on the ladder. */
+export function isListedOnLadder(deviation: number): boolean {
+  return deviation <= LADDER_DEVIATION_LIMIT;
+}
+
+/**
+ * What the ladder sorts by: the rating, less what is not known about it.
+ *
+ * The deviation must be the one time has grown, so that a rating which nobody
+ * has tested lately gives up its place slowly.
+ */
+export function ladderScore(rating: number, deviation: number): number {
+  return rating - LADDER_DEVIATION_WEIGHT * deviation;
 }
 
 /** A rating for display. A provisional rating carries a question mark. */

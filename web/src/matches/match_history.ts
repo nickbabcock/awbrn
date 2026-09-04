@@ -1,7 +1,13 @@
 import { z } from "zod";
 import { decodeCursor } from "#/utils/cursor.ts";
 import { matchIdSchema } from "./match_id";
-import type { MatchOutcome, MatchPhase, MatchHistorySeat, SeatResultReason } from "./schemas";
+import type {
+  MatchOutcome,
+  MatchPhase,
+  MatchHistorySeat,
+  RankedPool,
+  SeatResultReason,
+} from "./schemas";
 
 /** Finished matches are the only ones this record holds. */
 export const COMPLETED_MATCH_PHASE: MatchPhase = "completed";
@@ -59,6 +65,29 @@ export function formatVerdict(outcome: MatchOutcome | null): string {
     case null:
       return "No result";
   }
+}
+
+/**
+ * What the match did to the viewer's rating, in one line.
+ *
+ * An unranked match has no line at all. A ranked match which the pool's rating
+ * writer has not reached says so rather than showing nothing, because the
+ * report can be open before the rating moves.
+ */
+export function formatRatingChange(
+  seat: { ratingBefore: number | null; ratingAfter: number | null } | undefined,
+  pool: RankedPool | null,
+): string | null {
+  if (pool === null) return null;
+  if (!seat || seat.ratingBefore === null || seat.ratingAfter === null) {
+    return "Rating pending";
+  }
+
+  const before = Math.round(seat.ratingBefore);
+  const after = Math.round(seat.ratingAfter);
+  const change = after - before;
+  const sign = change >= 0 ? "+" : "-";
+  return `${before} → ${after} (${sign}${Math.abs(change)})`;
 }
 
 /**
