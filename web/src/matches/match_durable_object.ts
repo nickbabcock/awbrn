@@ -28,6 +28,7 @@ import { getMatchmakerStub } from "#/matchmaking/matchmaker_service.ts";
 import {
   advanceClockProgress,
   commandEndsTurn,
+  commandLeavesMatch,
   readClockProgress,
   startClockProgress,
 } from "./match_clock.ts";
@@ -67,7 +68,12 @@ function clockActionFromPayload(payload: unknown, at: number): ClockAction | nul
   if (typeof event?.player !== "number" || command === undefined) {
     return null;
   }
-  return { slotIndex: event.player, endsTurn: commandEndsTurn(command), at };
+  return {
+    slotIndex: event.player,
+    endsTurn: commandEndsTurn(command),
+    leavesMatch: commandLeavesMatch(command),
+    at,
+  };
 }
 
 /**

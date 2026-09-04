@@ -9,7 +9,10 @@ use awvm::event::{AttackTarget, Event};
 use awvm::random::{RandomToken, Recording};
 use awvm::ruleset::profile;
 use awvm::semantic::{Concealment, Location, PlayerId, Pos, State, Unit, UnitAction, UnitId};
-use awvm::transition::{Command, ExecuteError, ExecuteOutcome, execute, execute_with};
+use awvm::transition::{
+    Command, ExecuteError, ExecuteOutcome, Withdrawal, execute, execute_with, withdraw,
+    withdraw_with,
+};
 
 use crate::command::{GameCommand, PostMoveAction};
 use crate::error::CommandError;
@@ -73,6 +76,14 @@ impl Authority {
         player: ServerPlayerId,
         command: &GameCommand,
     ) -> Result<AcceptedTransition, CommandError> {
+        if let Some(cause) = withdrawal(command) {
+            let tape_start = self.entropy.tokens().len();
+            let leaving = player_id(player);
+            let outcome = withdraw_with(&self.state, &leaving, cause, &mut self.entropy);
+            let transition = self.accept(outcome, &leaving)?;
+            self.last_random = self.entropy.tokens()[tape_start..].to_vec();
+            return Ok(transition);
+        }
         let commands = commands(player, command, &self.state)?;
         let tape_start = self.entropy.tokens().len();
         let entropy_before = self.entropy.clone();
@@ -117,6 +128,27 @@ impl Authority {
         command: &GameCommand,
         random: &[RandomToken],
     ) -> Result<AcceptedTransition, CommandError> {
+        if let Some(cause) = withdrawal(command) {
+            let leaving = player_id(player);
+            let outcome = withdraw(&self.state, &leaving, cause, random);
+            // A recorded withdrawal must read the whole tape it was given, the
+            // same as any other recorded command. Nothing has touched the state
+            // yet, so a short read stops before the seat leaves.
+            if let Ok(ExecuteOutcome::Accepted(execution)) = &outcome
+                && execution.random_consumed != random.len()
+            {
+                return Err(CommandError::InvalidAction {
+                    reason: format!(
+                        "recorded command consumed {} of {} random tokens",
+                        execution.random_consumed,
+                        random.len()
+                    ),
+                });
+            }
+            let transition = self.accept(outcome, &leaving)?;
+            self.last_random = random.to_vec();
+            return Ok(transition);
+        }
         let commands = commands(player, command, &self.state)?;
         let mut consumed = 0;
         let mut prior = None;
@@ -159,6 +191,36 @@ impl Authority {
             prior: prior.expect("every server command lowers to at least one AWVM command"),
             events,
         })
+    }
+
+    /// Take the outcome of a host-decided exit, and keep the state it left.
+    ///
+    /// A withdrawal is one transition rather than a sequence, so there is no
+    /// half-applied state to roll back: either the seat left or nothing
+    /// happened. The rejection is reported against the resignation the seat
+    /// asked for, which is the command a player would have sent to leave on
+    /// their own turn.
+    fn accept(
+        &mut self,
+        outcome: Result<ExecuteOutcome, ExecuteError>,
+        leaving: &PlayerId,
+    ) -> Result<AcceptedTransition, CommandError> {
+        match outcome {
+            Ok(ExecuteOutcome::Accepted(execution)) => {
+                let prior = std::mem::replace(&mut self.state, execution.state);
+                Ok(AcceptedTransition {
+                    prior,
+                    events: execution.events,
+                })
+            }
+            Ok(ExecuteOutcome::Rejected(violation)) => Err(command_error(
+                &Command::Resign {
+                    player: leaving.clone(),
+                },
+                violation,
+            )),
+            Err(error) => Err(execute_error(error)),
+        }
     }
 
     pub fn spawn_unit(
@@ -298,6 +360,23 @@ fn command_error(command: &Command, violation: awvm::violation::Violation) -> Co
     }
 }
 
+/// The exit a wire command asks the host to make, when it asks for one.
+///
+/// Resignation is the one order a seat may send that AWVM's command surface
+/// does not always carry. AWBW records a resignation only from the player
+/// holding the turn, so that is what `Command::Resign` spells; AWBRN lets a
+/// seat give a match up whenever it wants to, which is hosting policy in the
+/// way a time bank is. It therefore goes through the adapter operation of
+/// `spec/semantics/elimination.md` rather than through a widened ruleset. On
+/// the leaving player's own turn the two are the same transition, and the
+/// adapter is the one that says so.
+fn withdrawal(command: &GameCommand) -> Option<Withdrawal> {
+    match command {
+        GameCommand::Resign => Some(Withdrawal::Resignation),
+        _ => None,
+    }
+}
+
 pub(crate) fn commands(
     player: ServerPlayerId,
     command: &GameCommand,
@@ -319,6 +398,10 @@ pub(crate) fn commands(
             level: *level,
         }),
         GameCommand::EndTurn => one(Command::EndTurn { player }),
+        // The resignation AWBW itself records: the one a player sends while
+        // holding the turn. A seat leaving on any other turn never reaches
+        // here, because the host applies it through the adapter instead.
+        GameCommand::Resign => one(Command::Resign { player }),
         GameCommand::Timeout => one(Command::Timeout { player }),
         GameCommand::DeleteUnit { unit_id } => one(Command::DeleteUnit {
             player,
@@ -584,6 +667,7 @@ mod tests {
                 level: PowerLevel::Cop,
             },
             GameCommand::EndTurn,
+            GameCommand::Resign,
             GameCommand::Timeout,
         ];
 
@@ -648,9 +732,6 @@ mod tests {
         let player = crate::semantic_player_id(0);
         for command in [
             Command::Tag {
-                player: player.clone(),
-            },
-            Command::Resign {
                 player: player.clone(),
             },
             Command::Unsupported,

@@ -3216,3 +3216,81 @@ fn a_free_for_all_ranks_its_losers_by_when_they_fell() {
         );
     }
 }
+
+/// A seat that gives the match up on its own turn hands the turn on, exactly
+/// as ending the turn hands it on.
+#[test]
+fn resigning_on_your_own_turn_passes_play_to_the_next_seat() {
+    let mut server = GameServer::new(three_player_setup(5, 5)).unwrap();
+
+    server.submit_command(p1(), GameCommand::Resign).unwrap();
+
+    assert_eq!(server.active_player(), Some(p2()));
+    assert!(server.results().is_none());
+}
+
+/// The order a seat may send while another seat holds the turn. The board is
+/// the leaving seat's to give up whenever they want to; the turn is not theirs
+/// to touch, and it stays where it was.
+#[test]
+fn resigning_off_your_own_turn_leaves_the_turn_where_it_was() {
+    let mut server = GameServer::new(three_player_setup(5, 5)).unwrap();
+    server.spawn_unit(
+        Pos::new(2, 2),
+        awbrn_types::Unit::Infantry,
+        PlayerFaction::BlueMoon,
+    );
+
+    server.submit_command(p2(), GameCommand::Resign).unwrap();
+
+    assert_eq!(server.active_player(), Some(p1()));
+    assert!(server.results().is_none());
+    // The cascade ran: what the leaving seat held is off the board, whoever
+    // held the turn while it left.
+    assert!(
+        server
+            .player_view(p1())
+            .expect("the seat holding the turn still has a view")
+            .units
+            .iter()
+            .all(|visible| visible.faction != PlayerFaction::BlueMoon)
+    );
+}
+
+/// A seat cannot leave twice, and a host that asks is told rather than
+/// eliminating a player a second time.
+#[test]
+fn a_seat_that_has_already_resigned_cannot_resign_again() {
+    let mut server = GameServer::new(three_player_setup(5, 5)).unwrap();
+    server.submit_command(p2(), GameCommand::Resign).unwrap();
+
+    assert!(matches!(
+        server.submit_command(p2(), GameCommand::Resign),
+        Err(CommandError::NotYourTurn)
+    ));
+}
+
+/// The last seat standing wins by the leaving seat's resignation, and the
+/// record says so on both sides — through the live match and through a replay
+/// of the stored orders.
+#[test]
+fn an_off_turn_resignation_ends_a_two_player_match() {
+    let setup = two_player_setup(5, 5);
+    let mut server = GameServer::new(setup.clone()).unwrap();
+    let mut events = Vec::new();
+
+    submit_and_store(&mut server, &mut events, p2(), GameCommand::Resign);
+
+    let live = server.results().expect("a resigned match has a result");
+    assert_eq!(live.seats[0].outcome, SeatOutcome::Win);
+    assert_eq!(live.seats[0].reason, None);
+    assert_eq!(live.seats[1].outcome, SeatOutcome::Loss);
+    assert_eq!(live.seats[1].status, PlayerStatus::Resigned);
+    assert_eq!(
+        live.seats[1].reason,
+        Some(SeatResultReason::Victory(VictoryReason::Resignation))
+    );
+
+    let replayed = reconstruct_from_events(setup, &events).unwrap();
+    assert_eq!(replayed.results(), Some(live));
+}

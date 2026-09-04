@@ -348,6 +348,10 @@ ordinary turn end carries. Out-of-turn resignation is consequently rejected by
 `NOT_ACTIVE_PLAYER` rather than specified; if AWBW is later shown to accept it,
 that is a new behavior revision, not a reinterpretation of this one.
 
+A host that wishes to let a player leave outside their own turn does so as an
+adapter rather than as a command; "Host-initiated resignation" below fixes the
+state and events it must produce.
+
 Validation never mutates state and requests no random token.
 
 ### Execution
@@ -463,6 +467,37 @@ A timeout that eliminates the active player during their own `turn-start` — a
 host policy that boots on the boundary rather than during `unit-action` — takes
 the rout-during-`turn-start` resumption above verbatim, since that section is
 written on the elimination, not on the cause.
+
+### Host-initiated resignation
+
+The adapter is written on a timeout because the clock is the exit AWVM cannot
+see. The procedure it runs, however, is written on the elimination and not on
+the cause, and a host may reach it with `resignation` for the same reason it
+reaches it with `timeout`: *when* a seat may leave a hosted match is a hosting
+policy, in the same way the size of a time bank is. A host that lets a player
+give the match up outside their own turn — a courtesy the command surface does
+not carry, because AWBW's recorded corpus does not evidence it — takes exactly
+the two branches above with `cause = "resignation"`:
+
+- **The leaving player holds the turn.** The host applies the `resign`
+  execution of this document unchanged. This is the ordinary command and needs
+  no adapter.
+- **The leaving player does not hold the turn.** The host runs
+  `eliminate(S, e, "resignation", null)` and nothing else. `S.turn` is
+  untouched: no `phase-changed`, `turn-selected`, or `day-advanced` is emitted,
+  and the procedure's own events are the whole transition.
+
+This adds no behavior to the ruleset and no command to the surface. `resign`
+still returns `NOT_ACTIVE_PLAYER` for an out-of-turn submission, because the
+command spells what AWBW records; a wider exit is the host's, and the state it
+produces was already admissible — `resigned` is the status step 1 gives that
+cause, and `resignation` is already a member of the `victory` reason
+vocabulary. An implementation that offers no such exit is unaffected.
+
+The one thing a host MUST NOT do is reach this branch for a player whose
+`status` is not `active`. A seat's run ends once, and a second elimination
+would emit a second `player-status-changed` from a status the first left
+behind.
 
 ### Conformance
 

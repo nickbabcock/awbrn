@@ -158,3 +158,51 @@ pub(crate) fn eliminate_player(
     }
     Ok(false)
 }
+
+/// Remove a player the host has taken out of the match, off their own turn.
+///
+/// The off-turn branch of the adapter contract in `spec/semantics/elimination.md`:
+/// `S.turn` is untouched, no `phase-changed`, `turn-selected`, or
+/// `day-advanced` is emitted, and the elimination procedure's own events are
+/// the whole transition. The on-turn branch is the boundary command the cause
+/// already has, so this is only reached for a player who does not hold the
+/// turn.
+///
+/// The cause is the host's to decide. AWVM models neither a clock nor a lobby,
+/// so *when* a seat may leave is a hosting policy in the same way the size of
+/// a time bank is; what the specification fixes, and what this implements, is
+/// the shape of the state and the events that leaving produces.
+pub(super) fn withdraw_inactive(
+    state: &State,
+    player: &PlayerId,
+    cause: VictoryReason,
+) -> Result<Execution, ReducerError> {
+    if !ruleset::supports(&state.ruleset) {
+        return Err(ReducerError::UnsupportedRuleset);
+    }
+    if matches!(state.match_state, Match::Finished { .. }) {
+        return Err(violation(Violation::MatchFinished));
+    }
+    let Some(seat) = state.player_index(player) else {
+        return Err(ReducerError::InvalidState(InvalidStateError::from(
+            "the withdrawing player is not on the roster",
+        )));
+    };
+    // A seat that already left cannot leave again. `NOT_ACTIVE_PLAYER` reads
+    // here as the status it names: a player whose run is over is not an active
+    // player, whoever holds the turn.
+    if state.player(seat).status != PlayerStatus::Active {
+        return Err(violation(Violation::NotActivePlayer {
+            player: player.clone(),
+        }));
+    }
+
+    let mut next = state.clone();
+    let mut events = Vec::new();
+    eliminate_player(&mut next, player, cause, None, None, &mut events)?;
+    Ok(Execution {
+        state: next,
+        events,
+        random_consumed: 0,
+    })
+}
