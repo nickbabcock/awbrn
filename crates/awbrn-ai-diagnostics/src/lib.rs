@@ -8,6 +8,7 @@ pub mod manifest;
 pub mod map_registry;
 pub mod pipeline;
 pub mod plan;
+pub mod producer_diagnostics;
 pub mod review;
 pub mod search_sweep;
 pub mod tactical;
@@ -17,7 +18,8 @@ pub mod verify;
 pub use capture::{VisualCapture, VisualCaptureIdentity};
 pub use events::{
     EventKind, EventLogError, EventLogWriter, EventMetadata, EventRow, MatchEventRow,
-    ReanalysisSummary, observations_from_event_log, read_event_log, reanalyse_event_log,
+    ReanalysisSummary, command_stream_changes, command_stream_fingerprint,
+    event_stream_fingerprint, observations_from_event_log, read_event_log, reanalyse_event_log,
     reanalyse_event_log_with_manifest, row_for_state, verify_expected_fingerprints,
     write_derived_outputs,
 };
@@ -27,6 +29,7 @@ pub use feature_analysis::{
     FeatureMode, FeatureRow, FeatureVector, FeatureWeight, MapTurnRangeReport, MetricSummary,
     ModeAnalysisReport, ModelReport, PairMetric, ReducedEvaluator, TurnRange, TurnRangeReport,
     analyze_event_log, extract_feature_rows, fit_feature_analysis, observable_features,
+    read_feature_rows, write_feature_rows,
 };
 pub use learned::{LEARNED_EXECUTABLE_FINGERPRINT, LearnedFactory};
 pub use manifest::{
@@ -40,6 +43,18 @@ pub use pipeline::{DiagnosticError, DiagnosticSummary, PlanRunSummary, run_diagn
 pub use plan::{
     AgentSpec, AnalysisStage, EXPERIMENT_PLAN_SCHEMA_VERSION, ExperimentPlan, MaterializedPlan,
     PlanError, TacticalMode, read_plan,
+};
+pub use producer_diagnostics::{
+    MAX_PRODUCER_MEDIAN_RELATIVE_CHANGE, MAX_PRODUCER_P95_RELATIVE_CHANGE,
+    PRODUCER_BASELINE_IDENTIFIER, PRODUCER_CANDIDATE_IDENTIFIER,
+    PRODUCER_DIAGNOSTIC_SCHEMA_VERSION, PRODUCER_EXPERIMENT_ID, ProducerFeatureRowCoverage,
+    ProducerUsabilityBehaviorArtifact, ProducerUsabilityCost, ProducerUsabilityDecision,
+    ProducerUsabilityDiagnosticError, ProducerUsabilityPerformance,
+    ProducerUsabilityPerformanceArtifact, ProducerUsabilityPlan, ProducerUsabilityRecommendations,
+    ProducerUsabilityScenarioArtifact, ProducerUsabilityScenarioResult,
+    ProducerUsabilityScenarioSummary, ProducerUsabilitySummary, ProducerUsabilityThresholds,
+    run_producer_usability_diagnostics, run_producer_usability_diagnostics_from_manifest,
+    run_producer_usability_diagnostics_with_plan,
 };
 pub use review::{ReviewError, ReviewSummary, run_review, run_review_with_tilesets};
 pub use search_sweep::{

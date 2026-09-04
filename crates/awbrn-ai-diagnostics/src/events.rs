@@ -263,6 +263,100 @@ pub fn read_event_log(path: impl AsRef<Path>) -> Result<Vec<EventRow>, EventLogE
     Ok(rows)
 }
 
+/// Return a fingerprint of accepted commands, without run metadata.
+pub fn command_stream_fingerprint(rows: &[EventRow]) -> String {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for row in rows.iter().filter(|row| row.command.is_some()) {
+        let bytes = serde_json::to_vec(&(
+            &row.match_id,
+            row.attempt,
+            &row.pair,
+            row.match_seed,
+            row.seat_order,
+            row.turn_index,
+            row.command_index,
+            &row.command,
+        ))
+        .expect("command fingerprint input serializes");
+        hash = update_fingerprint(hash, &bytes);
+        hash = update_fingerprint(hash, b"\n");
+    }
+    format!("{hash:016x}")
+}
+
+/// Return a fingerprint of gameplay events, without run metadata.
+pub fn event_stream_fingerprint(rows: &[EventRow]) -> String {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for row in rows {
+        let bytes = serde_json::to_vec(&(
+            &row.match_id,
+            row.attempt,
+            &row.pair,
+            row.match_seed,
+            row.seat_order,
+            row.event_kind,
+            row.day,
+            &row.active_player,
+            row.turn_index,
+            row.command_index,
+            &row.command,
+            row.command_fingerprint,
+            &row.invalidation,
+            &row.state,
+        ))
+        .expect("event fingerprint input serializes");
+        hash = update_fingerprint(hash, &bytes);
+        hash = update_fingerprint(hash, b"\n");
+    }
+    format!("{hash:016x}")
+}
+
+/// Count command differences between two gameplay event streams.
+pub fn command_stream_changes(left: &[EventRow], right: &[EventRow]) -> u64 {
+    let mut left = left.iter().filter(|row| row.command.is_some());
+    let mut right = right.iter().filter(|row| row.command.is_some());
+    let mut differences = 0_u64;
+    loop {
+        match (left.next(), right.next()) {
+            (Some(left), Some(right)) => {
+                if command_signature(left) != command_signature(right) {
+                    differences = differences.saturating_add(1);
+                }
+            }
+            (Some(_), None) | (None, Some(_)) => {
+                differences = differences.saturating_add(1);
+                differences =
+                    differences.saturating_add(u64::try_from(left.count()).unwrap_or(u64::MAX));
+                differences =
+                    differences.saturating_add(u64::try_from(right.count()).unwrap_or(u64::MAX));
+                return differences;
+            }
+            (None, None) => return differences,
+        }
+    }
+}
+
+fn command_signature(row: &EventRow) -> Vec<u8> {
+    serde_json::to_vec(&(
+        &row.match_id,
+        row.attempt,
+        &row.pair,
+        row.match_seed,
+        row.seat_order,
+        row.turn_index,
+        row.command_index,
+        &row.command,
+    ))
+    .expect("command fingerprint input serializes")
+}
+
+fn update_fingerprint(mut hash: u64, bytes: &[u8]) -> u64 {
+    for byte in bytes {
+        hash = (hash ^ u64::from(*byte)).wrapping_mul(0x1000_0000_01b3);
+    }
+    hash
+}
+
 /// Write stable derived tables from the raw event log.
 pub fn reanalyse_event_log(
     events: impl AsRef<Path>,

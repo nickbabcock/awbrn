@@ -642,6 +642,7 @@ fn experiment_plan(
         telemetry: TelemetryMode::Enabled,
         capture_policy: Default::default(),
         analyses: Vec::new(),
+        producer_usability: None,
         annotations: plan.annotations.clone(),
     }
 }

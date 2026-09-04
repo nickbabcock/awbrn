@@ -5,11 +5,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use awbrn_ai::{EvalWeights, NodeBudget, baseline::BaselineConfig};
 use awbrn_ai_diagnostic_types::{FramePolicy, Invalidation, RunManifest, fingerprint_bytes};
 use awbrn_ai_diagnostics::{
-    AgentFactory, AgentSpec, AnalysisStage, ExperimentPlan, MapRegistry, PlanError, SearchFactory,
-    StrategicFactory, TacticalMode, TournamentError, extract_feature_rows, read_event_log,
+    AgentFactory, AgentSpec, AnalysisStage, ExperimentPlan, MapRegistry, PlanError,
+    ProducerUsabilityPlan, SearchFactory, StrategicFactory, TacticalMode, TournamentError,
+    command_stream_fingerprint, event_stream_fingerprint, extract_feature_rows, read_event_log,
     read_manifest, read_plan, reanalyse_event_log_with_manifest, run_diagnostic,
-    run_paired_tournament, run_plan, run_review_with_tilesets, verify_artifact,
-    verify_expected_fingerprints, write_manifest, write_or_validate_manifest,
+    run_paired_tournament, run_plan, run_producer_usability_diagnostics_from_manifest,
+    run_review_with_tilesets, verify_artifact, verify_expected_fingerprints, write_manifest,
+    write_or_validate_manifest,
 };
 use serde_json::json;
 
@@ -52,6 +54,7 @@ fn experiment_plan(run_id: &str, candidate: AgentSpec) -> ExperimentPlan {
         telemetry: awbrn_ai_diagnostic_types::TelemetryMode::Enabled,
         capture_policy: Default::default(),
         analyses: Vec::new(),
+        producer_usability: None,
         annotations: None,
     }
 }
@@ -475,6 +478,95 @@ fn the_generic_plan_runs_requested_analysis_stages() {
             .exists()
     );
     fs::remove_dir_all(root).expect("the test directory removes");
+}
+
+#[test]
+fn producer_stage_keeps_gameplay_neutral_against_a_disabled_control() {
+    let root = temporary_directory();
+    let mut enabled = experiment_plan(
+        "producer-enabled",
+        AgentSpec::Strategic {
+            configuration: "production".into(),
+        },
+    );
+    enabled.baseline = enabled.candidate.clone();
+    enabled.analyses = vec![AnalysisStage::ProducerUsability];
+    enabled.producer_usability = Some(ProducerUsabilityPlan::default());
+    if let Some(plan) = enabled.producer_usability.as_mut() {
+        plan.performance_fixtures = vec!["late-game".into(), "arena".into(), "amber-valley".into()];
+        plan.thresholds.maximum_median_relative_change = 0.07;
+    }
+    let expected_producer_plan = enabled.producer_usability.clone().unwrap();
+    assert_eq!(
+        expected_producer_plan.experiment_id,
+        awbrn_ai_diagnostics::PRODUCER_EXPERIMENT_ID
+    );
+    let enabled_plan = root.join("enabled-plan.json");
+    fs::write(
+        &enabled_plan,
+        serde_json::to_vec_pretty(&enabled).expect("the enabled plan serializes"),
+    )
+    .expect("the enabled plan writes");
+    let enabled_output = root.join("enabled");
+    let enabled_summary = run_plan(&enabled_plan, &enabled_output).expect("the enabled plan runs");
+    assert!(enabled_summary.producer_usability.is_some());
+    let enabled_manifest =
+        read_manifest(enabled_output.join("manifest.json")).expect("the enabled manifest reads");
+    assert_eq!(
+        enabled_manifest.producer_usability_plan,
+        Some(serde_json::to_value(&expected_producer_plan).expect("the producer plan serializes"))
+    );
+    assert_eq!(
+        enabled_manifest.experiment_plan_fingerprint,
+        fingerprint_bytes(&serde_json::to_vec(&enabled).expect("the enabled plan serializes"))
+    );
+    let reanalysed = run_producer_usability_diagnostics_from_manifest(
+        &enabled_manifest,
+        enabled_output.join("events.jsonl"),
+        &enabled_output,
+    )
+    .expect("the materialized producer plan reanalyses");
+    assert_eq!(
+        reanalysed.decision.thresholds,
+        expected_producer_plan.thresholds
+    );
+    assert_eq!(
+        reanalysed.decision.experiment_id,
+        awbrn_ai_diagnostics::PRODUCER_EXPERIMENT_ID
+    );
+
+    let mut disabled = enabled;
+    disabled.run_id = "producer-disabled".into();
+    disabled.analyses.clear();
+    disabled.producer_usability = None;
+    let disabled_plan = root.join("disabled-plan.json");
+    fs::write(
+        &disabled_plan,
+        serde_json::to_vec_pretty(&disabled).expect("the disabled plan serializes"),
+    )
+    .expect("the disabled plan writes");
+    let disabled_output = root.join("disabled");
+    run_plan(&disabled_plan, &disabled_output).expect("the disabled plan runs");
+
+    let enabled_events =
+        read_event_log(enabled_output.join("events.jsonl")).expect("the enabled event log reads");
+    let disabled_events =
+        read_event_log(disabled_output.join("events.jsonl")).expect("the disabled event log reads");
+    assert_eq!(
+        command_stream_fingerprint(&enabled_events),
+        command_stream_fingerprint(&disabled_events)
+    );
+    assert_eq!(
+        event_stream_fingerprint(&enabled_events),
+        event_stream_fingerprint(&disabled_events)
+    );
+    let behavior: awbrn_ai_diagnostics::ProducerUsabilityBehaviorArtifact = serde_json::from_slice(
+        &fs::read(enabled_output.join("producer-usability-behavior.json"))
+            .expect("the behavior artifact exists"),
+    )
+    .expect("the behavior artifact reads");
+    assert!(behavior.passed);
+    fs::remove_dir_all(root).expect("the producer outputs remove");
 }
 
 #[test]
