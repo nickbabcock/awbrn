@@ -9,7 +9,11 @@ use awbrn_types::{PlayerFaction, Unit};
 use awvm::semantic::{AwbwVisibility, Observation, observe};
 
 /// Authoritative game server driven by AWVM.
-#[derive(Debug)]
+///
+/// A clone is a position a caller can return to. It copies the recipient ID
+/// allocators as well as the board, so a unit an opponent was shown keeps the
+/// opaque ID it was shown under.
+#[derive(Clone, Debug)]
 pub struct GameServer {
     authority: Authority,
     unit_ids: view::RecipientUnitIds,

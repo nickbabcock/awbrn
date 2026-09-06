@@ -1,4 +1,4 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
@@ -23,25 +23,33 @@ import { MenuSquare as MatchMenuIcon } from "pixelarticons/react/MenuSquare";
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
-import { getCoPortraitByAwbwId, loadCoPortraitCatalog } from "#/components/co_portraits.ts";
+import { loadCoPortraitCatalog } from "#/components/co_portraits.ts";
 import { BoardFullscreenExit, GameFullscreenButton } from "#/components/GameFullscreen.tsx";
 import { TileInfoBar } from "#/components/TileInfoBar.tsx";
 import { useActiveMatchRunner } from "#/engine/runtime_context.tsx";
 import type { GameRunner } from "#/engine/game_runner.ts";
 import { useGameActions, useGameStore } from "#/engine/store.ts";
 import type { LiveMatchPlayer } from "#/engine/worker_module.ts";
-import { getFactionByCode, getFactionById } from "#/factions.ts";
+import { getFactionByCode } from "#/factions.ts";
 import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
 import { useMatchWebSocket, type MatchWebSocketStatus } from "#/matches/match_websocket.ts";
 import type {
   InitialBoardMessage,
+  MatchResults,
+  LiveTransition,
   MatchClockMessage,
   MatchWebSocketMessage,
+  ReviewBoundary,
 } from "#/matches/match_protocol.ts";
+import { nextTurnStart, previousTurnStart, stepTarget } from "#/matches/match_review.ts";
+import { StepControls } from "#/components/StepControls.tsx";
 import { clockPressure, formatClockDuration, seatRemainingMs } from "#/matches/match_clock.ts";
 import { SeatClock, useClockNow } from "#/matches/components/SeatClock.tsx";
+import { buildArmies } from "#/matches/match_armies.ts";
+import { matchKeys } from "#/matches/matches.keys.ts";
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
-import type { MatchClock, MatchParticipantSnapshot } from "#/matches/schemas.ts";
+import { MatchOverDialog } from "#/matches/components/MatchOverDialog.tsx";
+import type { MatchClock } from "#/matches/schemas.ts";
 import {
   BATTLE_CALCULATOR_SHEET_MEDIA,
   BattleCalculator,
@@ -55,26 +63,11 @@ import { canActivatePower } from "#/replay/power_meter.ts";
 import { describeTurnResidue } from "#/matches/turn_residue.ts";
 import type { ActivatablePowerLevel } from "#/replay/power_meter.ts";
 import type {
-  PlayerRosterEntry,
   PlayerRosterSnapshot,
   ProductionOptionsChanged,
   UnitActionsChanged,
   UnitKind,
 } from "#/wasm/awbrn_wasm.js";
-
-/**
- * A seat, and whatever the engine currently knows about it.
- *
- * The seats are known from the match record before the board is running, so the
- * armies list is built from the record and the engine's statistics are merged in
- * as they arrive. The list therefore never starts empty and never reflows.
- */
-interface MatchArmy {
-  entry: PlayerRosterEntry;
-  hasLiveStats: boolean;
-  isActive: boolean;
-  name: string;
-}
 
 /** The press that opened a menu: where it landed, and what pressed. */
 interface BoardPress {
@@ -117,6 +110,9 @@ const BOARD_BLEED_MEDIA = "@media (max-width: 767px)";
  */
 const BOARD_PRESS_MAX_AGE_MS = 2000;
 
+/** Said when a question about the past could not be put to the host at all. */
+const REVIEW_UNREACHABLE = "The match could not be read because the connection is not open.";
+
 export function MatchActivePage({
   joinSlug = null,
   matchId,
@@ -125,12 +121,14 @@ export function MatchActivePage({
   matchId: string;
 }) {
   const { data: match } = useSuspenseQuery(matchDetailQueryOptions(matchId, joinSlug));
+  const queryClient = useQueryClient();
   const portraitCatalog = useMemo(() => loadCoPortraitCatalog(), []);
   const runner = useActiveMatchRunner();
   const playerRoster = useGameStore((state) => state.playerRoster);
   const productionOptions = useGameStore((state) => state.productionOptions);
   const unitActions = useGameStore((state) => state.unitActions);
   const setProductionOptions = useGameStore((state) => state.actions.setProductionOptions);
+  const setUnitActions = useGameStore((state) => state.actions.setUnitActions);
   const livePlayers = useMemo<LiveMatchPlayer[]>(
     () =>
       match.participants.map((participant) => ({
@@ -143,12 +141,44 @@ export function MatchActivePage({
     () => buildArmies(match.participants, playerRoster),
     [match.participants, playerRoster],
   );
+  // Reading an earlier moment of the match. The board is the engine's either
+  // way; what changes is who says what goes on it. While the viewer is
+  // reading, every position comes from the host, because only the host holds
+  // the log an earlier board is rebuilt from — and only the host can rebuild
+  // it without showing the viewer more than the fog allows.
+  const [reviewOutline, setReviewOutline] = useState<ReviewBoundary[] | null>(null);
+  const [reviewPosition, setReviewPosition] = useState<{ index: number; total: number } | null>(
+    null,
+  );
+  const [isReviewing, setIsReviewing] = useState(false);
+  const [isReviewBusy, setIsReviewBusy] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  /** True while the answer on its way back is the one that ends the reading. */
+  const returningToLiveRef = useRef(false);
+  /**
+   * A turn step asked for before the outline arrived.
+   *
+   * Where a turn begins is a fact about the whole match, and the outline is
+   * what holds it. A viewer who reaches for a turn before anything has been
+   * asked of the host gets the outline fetched under them and the step taken
+   * when it lands, rather than a key that does nothing the first time.
+   */
+  const pendingStepRef = useRef<{ kind: "action" | "turn"; delta: number } | null>(null);
+  /** What the engine has been told, read from inside callbacks and effects. */
+  const isReviewingRef = useRef(false);
   const [initialBoard, setInitialBoard] = useState<InitialBoardMessage | null>(null);
   const [matchError, setMatchError] = useState<string | null>(null);
   const [boardError, setBoardError] = useState<string | null>(null);
   // `undefined` until the server says which seat, if any, this viewer holds.
   const [viewerSlotIndex, setViewerSlotIndex] = useState<number | null | undefined>(undefined);
   const [spectatorFogActive, setSpectatorFogActive] = useState<boolean | null>(null);
+  /**
+   * How the match ended, once it has. Held rather than acted on: the result is
+   * read over the board that produced it, and the page becomes a replay only
+   * when the player says they are done looking at it.
+   */
+  const [matchResults, setMatchResults] = useState<MatchResults | null>(null);
+  const [isResultOpen, setIsResultOpen] = useState(false);
   const [activePlayerSlot, setActivePlayerSlot] = useState<number | null>(null);
   // Null until the server sends the first clock message.
   const [clock, setClock] = useState<MatchClockMessage | null>(null);
@@ -212,12 +242,27 @@ export function MatchActivePage({
           finishEndingTurn();
           finishResigning();
           finishActivatingPower();
+          // A question about the past that was refused leaves the board where
+          // it is. The keys come back rather than staying pressed.
+          setIsReviewBusy(false);
+          returningToLiveRef.current = false;
           setMatchError(message.message);
           restoreAfterRefusal();
           return;
         }
         case "spectatorNotice": {
           setSpectatorFogActive(message.fogActive);
+          return;
+        }
+        case "matchOver": {
+          // Nothing is invalidated here. Re-reading the match would flip its
+          // phase and swap this page for the replay under the player, which is
+          // the jump the result is meant to replace.
+          finishEndingTurn();
+          finishResigning();
+          finishActivatingPower();
+          setMatchResults(message.results);
+          setIsResultOpen(true);
           return;
         }
         case "clock": {
@@ -230,6 +275,53 @@ export function MatchActivePage({
           void runner.applyLiveTransition(message.transition).catch((error) => {
             console.error("Error applying live player transition:", error);
           });
+          return;
+        }
+        case "reviewOutline": {
+          setReviewOutline(message.boundaries);
+          return;
+        }
+        case "reviewState": {
+          setIsReviewBusy(false);
+          if (message.observation === null) {
+            // A fogged match has no public board, so somebody holding no seat
+            // in it has no earlier board to be shown either.
+            returningToLiveRef.current = false;
+            setReviewError("A fogged match can only be read back by the seats playing it.");
+            return;
+          }
+
+          if (returningToLiveRef.current) {
+            returningToLiveRef.current = false;
+            isReviewingRef.current = false;
+            setIsReviewing(false);
+            setReviewPosition(null);
+            // The board is handed back first, which drops the transitions
+            // held at the edge, and the match as it stands is put on it
+            // second. Anything the match does after this answer arrives the
+            // ordinary way.
+            void runner
+              .exitBoardReview()
+              .then(() =>
+                runner.applyLiveTransition({
+                  post: message.observation,
+                  events: [],
+                } as LiveTransition),
+              )
+              .catch((error) => {
+                console.error("Error returning to the live match:", error);
+                setReviewError("The live board could not be restored. Reconnect to catch up.");
+              });
+            return;
+          }
+
+          setReviewPosition({ index: message.index, total: message.latestIndex });
+          void runner
+            .applyReviewState(message.transition ?? { post: message.observation, events: [] })
+            .catch((error) => {
+              console.error("Error showing a reviewed position:", error);
+              setReviewError("That moment of the match could not be shown.");
+            });
           return;
         }
         case "spectatorState": {
@@ -447,6 +539,132 @@ export function MatchActivePage({
     [runner],
   );
 
+  /**
+   * Where the viewer is standing, counted in actions taken.
+   *
+   * Null until the match has said how long it is, which it is only asked once
+   * somebody reaches for an earlier moment.
+   */
+  const currentReviewIndex =
+    reviewPosition?.index ?? (reviewOutline === null ? null : reviewOutline.length - 1);
+
+  /**
+   * Take the board out of play.
+   *
+   * Orders are spelled against the units on the board, and the units on a
+   * board being read moved long ago. So the menus close, the engine stops
+   * taking orders, and the live match waits at the edge until the viewer comes
+   * back to it.
+   */
+  const beginReview = useCallback(() => {
+    if (isReviewingRef.current) return;
+    isReviewingRef.current = true;
+    setIsReviewing(true);
+    setProductionOptions(null);
+    setUnitActions(null);
+    void runner.enterBoardReview().catch((error) => {
+      console.error("Error taking the board out of play:", error);
+    });
+  }, [runner, setProductionOptions, setUnitActions]);
+
+  /** Ask for one boundary, and report whether the question got out. */
+  const requestReviewSeek = useCallback(
+    (index: number | null) => {
+      setReviewError(null);
+      if (!sendMessage({ type: "reviewSeek", index })) {
+        setReviewError(REVIEW_UNREACHABLE);
+        return false;
+      }
+      setIsReviewBusy(true);
+      return true;
+    },
+    [sendMessage],
+  );
+
+  /**
+   * Step by actions or by turns.
+   *
+   * A step needs to know where it is starting from, and a viewer who has asked
+   * the match nothing yet does not know how long it is. The step is held until
+   * the outline answers that, so the first press does what every later one
+   * does rather than nothing.
+   */
+  const requestStep = useCallback(
+    (kind: "action" | "turn", delta: number) => {
+      beginReview();
+      const boundaries = reviewOutline;
+      if (boundaries === null || currentReviewIndex === null) {
+        // A step held for an outline that was never asked for would wait for
+        // an answer nothing is coming back with, under a key that stays busy.
+        if (!sendMessage({ type: "reviewOutline" })) {
+          setReviewError(REVIEW_UNREACHABLE);
+          return;
+        }
+        pendingStepRef.current = { kind, delta };
+        setIsReviewBusy(true);
+        return;
+      }
+
+      const target = stepTarget(boundaries, currentReviewIndex, kind, delta);
+      if (target === null) {
+        setIsReviewBusy(false);
+        return;
+      }
+      requestReviewSeek(target);
+    },
+    [beginReview, currentReviewIndex, requestReviewSeek, reviewOutline, sendMessage],
+  );
+
+  // A step that was waiting on the outline, taken now that it has one.
+  useEffect(() => {
+    const pending = pendingStepRef.current;
+    if (pending === null || reviewOutline === null) return;
+    pendingStepRef.current = null;
+
+    const target = stepTarget(
+      reviewOutline,
+      reviewPosition?.index ?? reviewOutline.length - 1,
+      pending.kind,
+      pending.delta,
+    );
+    if (target === null) {
+      setIsReviewBusy(false);
+      return;
+    }
+    requestReviewSeek(target);
+  }, [requestReviewSeek, reviewOutline, reviewPosition]);
+
+  /** Come back to the match as it stands. */
+  const returnToLiveMatch = useCallback(() => {
+    if (!isReviewingRef.current) return;
+    // The end of a match still being played moves, so it is named rather than
+    // counted to: an index that was the end a moment ago may be behind by the
+    // time the question arrives. The board is only marked as coming back once
+    // the question is away: a mark left standing over a question that never
+    // left would read the next answer as this one's.
+    returningToLiveRef.current = requestReviewSeek(null);
+  }, [requestReviewSeek]);
+
+  // A connection that dropped took the reading with it: what the viewer was
+  // shown came from the host, and the board is rebuilt from the snapshot the
+  // next connection opens with.
+  useEffect(() => {
+    if (status === "connected") return;
+    isReviewingRef.current = false;
+    returningToLiveRef.current = false;
+    pendingStepRef.current = null;
+    setIsReviewing(false);
+    setIsReviewBusy(false);
+    setReviewPosition(null);
+    setReviewOutline(null);
+    // The engine is told as well as the page. A board left under review holds
+    // the live match at the edge, so the next connection's own board would
+    // wait there rather than being played on.
+    void runner.exitBoardReview().catch((error: unknown) => {
+      console.error("Error giving the board back after a dropped connection:", error);
+    });
+  }, [runner, status]);
+
   // The seat spending its bank is the only one that can run out while the page
   // is open, so it sets how often every readout redraws.
   const runningRemaining = clock === null ? null : Math.max(0, clock.deadlineAt - Date.now());
@@ -460,6 +678,9 @@ export function MatchActivePage({
     <Section padding={6} variant="transparent">
       <VStack gap={6}>
         {matchError ? <Banner description={matchError} status="error" title="Match error" /> : null}
+        {reviewError ? (
+          <Banner description={reviewError} status="error" title="The match could not be read" />
+        ) : null}
         {boardError ? (
           <Banner description={boardError} status="error" title="The board could not be loaded." />
         ) : null}
@@ -483,6 +704,41 @@ export function MatchActivePage({
           <ActiveMatchBoard
             day={playerRoster?.day ?? null}
             initialBoard={initialBoard}
+            review={
+              // A fogged match has no board a watcher may read, so it offers
+              // them no controls for reading one either.
+              spectatorFogActive === true
+                ? null
+                : {
+                    canStepBack: isReviewing
+                      ? (reviewPosition?.index ?? 1) > 0
+                      : // A match nobody has played yet has nothing behind it.
+                        reviewOutline === null || reviewOutline.length > 1,
+                    canStepForward:
+                      isReviewing &&
+                      (reviewPosition === null || reviewPosition.index < reviewPosition.total),
+                    canStepTurnBack:
+                      reviewOutline === null || currentReviewIndex === null
+                        ? !isReviewing
+                        : previousTurnStart(reviewOutline, currentReviewIndex) !== null,
+                    canStepTurnForward:
+                      isReviewing &&
+                      (reviewOutline === null ||
+                        currentReviewIndex === null ||
+                        nextTurnStart(reviewOutline, currentReviewIndex) !== null),
+                    isBusy: isReviewBusy || status !== "connected",
+                    isReviewing,
+                    onSeekLatest: returnToLiveMatch,
+                    onSeekStart: () => {
+                      beginReview();
+                      requestReviewSeek(0);
+                    },
+                    onStep: (delta: number) => requestStep("action", delta),
+                    onTurnStep: (delta: number) => requestStep("turn", delta),
+                    position: isReviewing ? reviewPosition : null,
+                    turnHolder: armies.find((army) => army.isActive)?.name ?? null,
+                  }
+            }
             match={match}
             onBoardError={setBoardError}
             onBuildUnit={handleBuildUnit}
@@ -582,6 +838,27 @@ export function MatchActivePage({
         onOpenChange={setIsConfirmingEndTurn}
         title="End your turn?"
       />
+
+      {/* How the match ended, over the board it ended on. Watching the replay
+          is what re-reads the match, and the phase it comes back with is what
+          hands this page over to the review one. */}
+      {matchResults ? (
+        <MatchOverDialog
+          armies={armies}
+          isOpen={isResultOpen}
+          matchId={matchId}
+          onOpenChange={setIsResultOpen}
+          onWatchReplay={() => {
+            setIsResultOpen(false);
+            void queryClient.invalidateQueries({
+              queryKey: matchKeys.detail(matchId, joinSlug),
+            });
+          }}
+          portraitCatalog={portraitCatalog}
+          results={matchResults}
+          viewerSlotIndex={viewerSlotIndex ?? null}
+        />
+      ) : null}
     </Section>
   );
 }
@@ -592,10 +869,33 @@ export function MatchActivePage({
  * Day, map, and connection belong to the board rather than to the page, so they
  * stay in the same viewport as the thing they describe at every width.
  */
+/**
+ * The keys that walk a match, and everything they need to draw themselves.
+ *
+ * Null for a viewer with nothing to walk: a fogged match keeps its history
+ * from anybody holding no seat in it.
+ */
+interface BoardReviewControls {
+  /** True while the board is showing a moment the match has moved on from. */
+  isReviewing: boolean;
+  isBusy: boolean;
+  position: { index: number; total: number } | null;
+  canStepBack: boolean;
+  canStepForward: boolean;
+  canStepTurnBack: boolean;
+  canStepTurnForward: boolean;
+  turnHolder: string | null;
+  onSeekStart: () => void;
+  onStep: (delta: number) => void;
+  onTurnStep: (delta: number) => void;
+  onSeekLatest: () => void;
+}
+
 function ActiveMatchBoard({
   activePlayerSlot,
   day,
   initialBoard,
+  review,
   isEndingTurn,
   isResigning,
   isTurnReadinessKnown,
@@ -636,6 +936,7 @@ function ActiveMatchBoard({
   onResign: () => void;
   players: LiveMatchPlayer[];
   playerRoster: PlayerRosterSnapshot | null;
+  review: BoardReviewControls | null;
   productionOptions: ProductionOptionsChanged | null;
   unitActions: UnitActionsChanged | null;
   reconnect: () => void;
@@ -923,6 +1224,10 @@ function ActiveMatchBoard({
         <HStack align="center" as="output" gap={3} wrap="wrap" xstyle={styles.hudReadout}>
           {/* Before the engine reports, there is no day to report. */}
           {day === null ? null : <Badge label={`Day ${day}`} variant="info" />}
+          {/* The day beside it is the day of the moment being read, not of the
+              match, so the strip says which of the two a reader is looking
+              at. */}
+          {review?.isReviewing ? <Badge label="Reading back" variant="warning" /> : null}
           {/* The match names itself here rather than in a display heading above
               the board. A player inside a match already knows which match they
               are in, and on a phone that heading cost more board than the name
@@ -990,11 +1295,16 @@ function ActiveMatchBoard({
           {isPlayer && !isViewerOut ? (
             <Button
               clickAction={onEndTurn}
-              isDisabled={status !== "connected" || !isViewerTurn || !isTurnReadinessKnown}
+              isDisabled={
+                status !== "connected" ||
+                !isViewerTurn ||
+                !isTurnReadinessKnown ||
+                review?.isReviewing === true
+              }
               isLoading={isEndingTurn}
               label="End turn"
               size="sm"
-              tooltip={endTurnTooltip}
+              tooltip={review?.isReviewing === true ? "Return to live to play on" : endTurnTooltip}
               // Ending the turn is the primary thing to do only once there is
               // nothing else: a board with units still to move has its primary
               // action out on the board, not on the strip.
@@ -1003,6 +1313,31 @@ function ActiveMatchBoard({
           ) : null}
         </HStack>
       </HStack>
+
+      {/* The match is walked from under the board it is drawn on, so the keys
+          are beside the thing they move. They sit below the strip rather than
+          in it: the strip says what the match is, and these change which
+          moment of it is on the board. */}
+      {review === null ? null : (
+        <VStack gap={0} paddingBlock={2} paddingInline={3} xstyle={styles.stepControls}>
+          <StepControls
+            canStepBack={review.canStepBack}
+            canStepForward={review.canStepForward}
+            canStepTurnBack={review.canStepTurnBack}
+            canStepTurnForward={review.canStepTurnForward}
+            day={day ?? 1}
+            isAtLatest={!review.isReviewing}
+            isBusy={review.isBusy}
+            latestLabel="Live"
+            onSeekLatest={review.onSeekLatest}
+            onSeekStart={review.onSeekStart}
+            onStep={review.onStep}
+            onTurnStep={review.onTurnStep}
+            position={review.position}
+            turnHolder={review.turnHolder}
+          />
+        </VStack>
+      )}
     </Card>
   );
 }
@@ -1030,68 +1365,6 @@ function TurnClockNotice({ openingMs, remaining }: { openingMs: number; remainin
       </Text>
     </HStack>
   );
-}
-
-function buildArmies(
-  participants: MatchParticipantSnapshot[],
-  playerRoster: PlayerRosterSnapshot | null,
-): MatchArmy[] {
-  const liveEntries = new Map(
-    (playerRoster?.players ?? []).map((player) => [player.playerId, player]),
-  );
-
-  return participants.map((participant, index) => {
-    const liveEntry = liveEntries.get(participant.slotIndex);
-
-    return {
-      entry: liveEntry ?? seatEntry(participant, index),
-      hasLiveStats: liveEntry !== undefined,
-      isActive: playerRoster?.activePlayerId === participant.slotIndex,
-      name: participant.userName,
-    };
-  });
-}
-
-/**
- * A seat as the match record describes it, with every statistic still unknown.
- * The readouts render their own "--" until the engine reports real values.
- */
-function seatEntry(participant: MatchParticipantSnapshot, index: number): PlayerRosterEntry {
-  const faction = getFactionById(participant.factionId);
-  const factionCode = faction?.code ?? "os";
-  const factionName = faction?.displayName ?? "Orange Star";
-  const portrait = getCoPortraitByAwbwId(participant.coId);
-
-  return {
-    playerId: participant.slotIndex,
-    userId: 0,
-    turnOrder: index,
-    team: undefined,
-    eliminated: false,
-    actualFactionCode: factionCode,
-    actualFactionName: factionName,
-    displayFactionCode: factionCode,
-    displayFactionName: factionName,
-    factionCode,
-    factionName,
-    coKey: portrait?.key,
-    coName: portrait?.displayName,
-    tagCoKey: undefined,
-    tagCoName: undefined,
-    powerCharge: undefined,
-    copCost: undefined,
-    scopCost: undefined,
-    powerStarCharge: undefined,
-    activePower: undefined,
-    stats: {
-      funds: undefined,
-      income: undefined,
-      unitCount: undefined,
-      unitValue: undefined,
-      properties: undefined,
-      comTowers: undefined,
-    },
-  };
 }
 
 /**
@@ -1206,6 +1479,14 @@ const styles = stylex.create({
     height: "100%",
     imageRendering: "pixelated",
     outline: "none",
+  },
+  // The keys sit under the status strip and share its ground, separated from
+  // it by the same rule the strip is separated from the board by.
+  stepControls: {
+    borderTopWidth: borderVars["--border-width"],
+    borderTopStyle: "solid",
+    borderTopColor: colorVars["--color-border"],
+    backgroundColor: colorVars["--color-background-surface"],
   },
   boardHud: {
     borderTopWidth: borderVars["--border-width"],

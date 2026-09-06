@@ -15,9 +15,9 @@ pub use features::event_bus::{
     HoveredCargoUnit, HoveredTile, HoveredUnit, InspectedUnitReadout, MapDimensions,
     MoveCommandRequested, NewDay, PlayerRosterEntry, PlayerRosterSnapshot, PlayerRosterStats,
     PostMoveAction, ProductionOption, ProductionOptionsChanged, ProductionSite, ReplayLoaded,
-    ReplayLoadedPlayer, ScreenPoint, TileHoverChanged, TileSelected, TurnReadinessChanged,
-    UnitActionOption, UnitActionsChanged, UnitBuilt, UnitInspectionChanged, UnitMoved, UnitOrder,
-    UnloadCommandRequested,
+    ReplayLoadedPlayer, ReplayPositionChanged, ReplayViewpointChanged, ScreenPoint,
+    TileHoverChanged, TileSelected, TurnReadinessChanged, UnitActionOption, UnitActionsChanged,
+    UnitBuilt, UnitInspectionChanged, UnitMoved, UnitOrder, UnloadCommandRequested,
 };
 pub use json_plugin::*;
 pub use loading::{

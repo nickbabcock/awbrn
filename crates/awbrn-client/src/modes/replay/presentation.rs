@@ -53,6 +53,14 @@ impl ReplayTransitionSource {
         self.timeline.initial_observations()
     }
 
+    /// The turn every boundary of the archive falls in.
+    pub(crate) fn outline(
+        &self,
+        archive: &crate::replay_archive::ReplayArchive,
+    ) -> Result<Vec<crate::replay_archive::ReplayBoundary>, String> {
+        self.timeline.outline(archive)
+    }
+
     fn rebuild_to(
         &mut self,
         replay: &crate::replay_archive::ReplayArchive,
@@ -89,6 +97,12 @@ impl ReplayAdvanceLock {
     fn activate_recipient(&mut self, entity: Entity, transition: ObservedTransition) {
         self.active_entity = Some(entity);
         self.deferred_transitions = Some(DeferredTransitions::Recipient(Box::new(transition)));
+    }
+
+    /// Hold the board for an animation nothing is going to run.
+    #[cfg(test)]
+    pub(crate) fn hold_for_test(&mut self, entity: Entity) {
+        self.active_entity = Some(entity);
     }
 
     pub fn active_entity(&self) -> Option<Entity> {
@@ -176,15 +190,19 @@ impl Command for ReplayTurnCommand {
     }
 }
 
-/// Restore one stable replay action boundary without presenting the actions
+/// Stand at one stable replay action boundary without presenting the actions
 /// used to calculate it. The adapter is rebuilt in local memory first; only
 /// the final projections are committed to the ECS.
+///
+/// The boundary may be behind the viewer or ahead of them. Either way it is
+/// arrived at rather than played through, which is what separates a jump from
+/// the step-by-step reading the archive is otherwise presented by.
 #[derive(Debug)]
-pub struct ReplayRewindCommand {
+pub struct ReplaySeekCommand {
     pub target_index: u32,
 }
 
-impl Command for ReplayRewindCommand {
+impl Command for ReplaySeekCommand {
     type Out = ();
 
     fn apply(self, world: &mut World) {

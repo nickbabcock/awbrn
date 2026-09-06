@@ -10,7 +10,7 @@ use awbrn_client::loading::apply_replay_building_overrides;
 use awbrn_client::modes::replay::bootstrap::initialize_replay_semantic_world_for_client;
 use awbrn_client::modes::replay::navigation::PendingCourseArrows;
 use awbrn_client::modes::replay::presentation::{
-    ReplayAdvanceLock, ReplayFollowupCommand, ReplayRewindCommand, ReplayTransitionFailed,
+    ReplayAdvanceLock, ReplayFollowupCommand, ReplaySeekCommand, ReplayTransitionFailed,
     ReplayTransitionSource, ReplayTurnCommand,
 };
 use awbrn_client::render::animation::UnitPathAnimation;
@@ -174,7 +174,7 @@ fn rewind_to_start_restores_every_players_opening_power_meter() {
     let opening_meters = app.world().resource::<PlayerPowerMeters>().clone();
 
     apply_settled_action(&mut app, &replay, 0);
-    ReplayRewindCommand { target_index: 0 }.apply(app.world_mut());
+    ReplaySeekCommand { target_index: 0 }.apply(app.world_mut());
 
     let restored_meters = app.world().resource::<PlayerPowerMeters>();
     for player in &replay.games.first().unwrap().players {
@@ -211,11 +211,11 @@ fn rewind_emits_one_new_day_only_when_the_day_changes() {
     assert!(app.world().resource::<ReplayState>().day > 1);
     app.world_mut().resource_mut::<ObservedDays>().0.clear();
 
-    ReplayRewindCommand { target_index: 0 }.apply(app.world_mut());
+    ReplaySeekCommand { target_index: 0 }.apply(app.world_mut());
 
     assert_eq!(app.world().resource::<ObservedDays>().0, vec![1]);
     app.world_mut().resource_mut::<ObservedDays>().0.clear();
-    ReplayRewindCommand { target_index: 0 }.apply(app.world_mut());
+    ReplaySeekCommand { target_index: 0 }.apply(app.world_mut());
     assert!(app.world().resource::<ObservedDays>().0.is_empty());
 }
 
@@ -233,7 +233,7 @@ fn rewind_apply_failure_does_not_commit_the_cursor_or_clear_failure() {
     app.insert_resource(ReplayPlayerRegistry::default());
     app.insert_resource(ReplayTransitionFailed);
 
-    ReplayRewindCommand { target_index: 1 }.apply(app.world_mut());
+    ReplaySeekCommand { target_index: 1 }.apply(app.world_mut());
 
     assert_eq!(
         app.world().resource::<ReplayState>().next_action_index,
@@ -261,7 +261,7 @@ fn rewind_atomically_matches_direct_playback_and_keeps_the_adapter_aligned() {
     for index in 0..FURTHEST {
         apply_settled_action(&mut rewound, &replay, index);
     }
-    ReplayRewindCommand {
+    ReplaySeekCommand {
         target_index: TARGET as u32,
     }
     .apply(rewound.world_mut());
@@ -297,7 +297,7 @@ fn rewind_atomically_matches_direct_playback_and_keeps_the_adapter_aligned() {
     // Boundary zero takes a projection of the initial adapter rather than the
     // post-state of an action, so exercise that separate path too.
     let mut initial = replay_test_app(&replay, &map_data);
-    ReplayRewindCommand { target_index: 0 }.apply(rewound.world_mut());
+    ReplaySeekCommand { target_index: 0 }.apply(rewound.world_mut());
     assert_eq!(
         semantic_snapshot(&mut rewound),
         semantic_snapshot(&mut initial)

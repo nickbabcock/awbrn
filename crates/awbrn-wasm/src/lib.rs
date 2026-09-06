@@ -2,10 +2,10 @@ use awbrn_client::{
     AttackPreviewChanged, AwbrnPlugin, DeleteUnitCommandRequested, EndTurnRequested, EventSink,
     LiveMatchPlayer, MapAssetPathResolver, MapDimensions, MoveCommandRequested, NewDay,
     PendingGameStart, PendingLiveMatch, PendingLiveTransitions, PendingMatchMap,
-    PlayerRosterSnapshot, ProductionOptionsChanged, ReplayLoaded, ReplayToLoad,
-    StaticAssetPathResolver, TileHoverChanged, TileSelected, TurnReadinessChanged,
-    UnitActionsChanged, UnitBuilt, UnitInspectionChanged, UnitMoved, UnloadCommandRequested,
-    core::coords::LogicalPx,
+    PlayerRosterSnapshot, ProductionOptionsChanged, ReplayLoaded, ReplayPositionChanged,
+    ReplayToLoad, ReplayViewpointChanged, StaticAssetPathResolver, TileHoverChanged, TileSelected,
+    TurnReadinessChanged, UnitActionsChanged, UnitBuilt, UnitInspectionChanged, UnitMoved,
+    UnloadCommandRequested, core::coords::LogicalPx,
 };
 use awbrn_map::ValidatedMapDocument;
 use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
@@ -56,6 +56,8 @@ pub enum GameEvent {
     AttackPreviewChanged(AttackPreviewChanged),
     MapDimensions(MapDimensions),
     ReplayLoaded(ReplayLoaded),
+    ReplayPositionChanged(ReplayPositionChanged),
+    ReplayViewpointChanged(ReplayViewpointChanged),
     PlayerRosterUpdated(PlayerRosterSnapshot),
 }
 
@@ -238,6 +240,8 @@ impl BevyApp {
             wasm_sink!(AttackPreviewChanged, AttackPreviewChanged);
             wasm_sink!(MapDimensions, MapDimensions);
             wasm_sink!(ReplayLoaded, ReplayLoaded);
+            wasm_sink!(ReplayPositionChanged, ReplayPositionChanged);
+            wasm_sink!(ReplayViewpointChanged, ReplayViewpointChanged);
             wasm_sink!(PlayerRosterUpdated, PlayerRosterSnapshot);
         }
 
@@ -575,6 +579,103 @@ impl BevyApp {
         self.app
             .world_mut()
             .write_message(awbrn_client::modes::play::PendingCommandRejected);
+    }
+
+    /// Read an earlier moment of the match instead of playing on it.
+    ///
+    /// The board stops taking orders and the live match waits at the edge.
+    /// Nothing is shown until a position arrives through
+    /// [`Self::apply_review_state`], because only the host can say what an
+    /// earlier board looked like to this viewer.
+    #[wasm_bindgen]
+    pub fn enter_board_review(&mut self) {
+        self.app
+            .world_mut()
+            .write_message(awbrn_client::modes::play::review::BoardReviewEntered);
+    }
+
+    /// Come back to the match as it stands.
+    #[wasm_bindgen]
+    pub fn exit_board_review(&mut self) {
+        self.app
+            .world_mut()
+            .write_message(awbrn_client::modes::play::review::BoardReviewExited);
+    }
+
+    /// Show a position the host answered a review request with.
+    ///
+    /// Only the newest is shown. A viewer holding a step key down asks faster
+    /// than the host answers, and every answer is a whole board.
+    #[wasm_bindgen]
+    pub fn apply_review_state(&mut self, transition: JsValue) -> Result<(), JsError> {
+        let transition =
+            serde_wasm_bindgen::from_value::<awvm::semantic::ObservedTransition>(transition)
+                .map_err(|error| JsError::new(&format!("Invalid review state: {error}")))?;
+        // An answer that arrives after the viewer has come back to the live
+        // match is dropped. Holding it would show a position the viewer left
+        // the next time they read the match.
+        if self
+            .app
+            .world()
+            .resource::<awbrn_client::modes::play::review::BoardReview>()
+            .is_active()
+        {
+            self.app
+                .world_mut()
+                .resource_mut::<awbrn_client::modes::play::review::PendingReviewTransition>()
+                .0 = Some(transition);
+        }
+        Ok(())
+    }
+
+    /// Step through the loaded archive by actions.
+    #[wasm_bindgen]
+    pub fn replay_step(&mut self, delta: i32) {
+        self.navigate_replay(awbrn_client::modes::replay::timeline::ReplayTarget::Action(
+            delta,
+        ));
+    }
+
+    /// Step through the loaded archive by whole turns.
+    #[wasm_bindgen]
+    pub fn replay_step_turn(&mut self, delta: i32) {
+        self.navigate_replay(awbrn_client::modes::replay::timeline::ReplayTarget::Turn(
+            delta,
+        ));
+    }
+
+    /// Watch the archive through one seat's eyes, or through none.
+    ///
+    /// `player_id` is the seat, and `follows_active_player` puts the view on
+    /// whoever holds the turn instead of holding it to a seat. A finished match
+    /// is the one time every seat can be looked through, which is what makes a
+    /// fogged game worth reading again.
+    #[wasm_bindgen]
+    pub fn set_replay_viewpoint(&mut self, player_id: Option<u32>, follows_active_player: bool) {
+        awbrn_client::modes::replay::controls::set_replay_viewpoint(
+            self.app.world_mut(),
+            player_id.map(awbrn_types::AwbwGamePlayerId::new),
+            follows_active_player,
+        );
+    }
+
+    /// Stand at one boundary of the loaded archive.
+    #[wasm_bindgen]
+    pub fn replay_seek(&mut self, index: u32) {
+        self.navigate_replay(awbrn_client::modes::replay::timeline::ReplayTarget::Boundary(index));
+    }
+
+    /// Stand at the end of the loaded archive.
+    #[wasm_bindgen]
+    pub fn replay_seek_end(&mut self) {
+        self.navigate_replay(awbrn_client::modes::replay::timeline::ReplayTarget::End);
+    }
+
+    fn navigate_replay(&mut self, target: awbrn_client::modes::replay::timeline::ReplayTarget) {
+        self.app
+            .world_mut()
+            .write_message(awbrn_client::modes::replay::timeline::ReplayNavigate { target });
+        self.app.update();
     }
 }
 

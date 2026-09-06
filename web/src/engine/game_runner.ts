@@ -63,9 +63,33 @@ export class GameRunner implements CanvasCourierController {
     });
   }
 
-  async loadReplay(file: File | FileSystemFileHandle): Promise<void> {
+  /**
+   * Put an archive on the board.
+   *
+   * `isCurrent` is asked again once the game is ready, because the wait for it
+   * is long enough for the page to have moved on. One runner serves every
+   * match a viewer walks through, so an archive that arrives after the viewer
+   * has left would be loaded over the one they are reading now.
+   */
+  async loadReplay(
+    source: File | FileSystemFileHandle | Uint8Array,
+    isCurrent?: () => boolean,
+  ): Promise<void> {
     const game = await this.requireGame();
-    await game.newReplay(file);
+    if (isCurrent && !isCurrent()) return;
+    await game.newReplay(source);
+  }
+
+  /**
+   * Watch a loaded archive through one seat's eyes, or through none.
+   *
+   * `playerId` is the seat and `followsActivePlayer` puts the view on whoever
+   * holds the turn. What each seat could see is already held beside the board,
+   * so a change here re-selects a projection rather than replaying anything.
+   */
+  async setReplayViewpoint(playerId: number | null, followsActivePlayer: boolean): Promise<void> {
+    const game = await this.requireGame();
+    await game.setReplayViewpoint(playerId, followsActivePlayer);
   }
 
   async loadMapPreview(mapId: number): Promise<void> {
@@ -213,6 +237,19 @@ export class GameRunner implements CanvasCourierController {
         break;
       }
       case "ReplayLoaded": {
+        useGameStore.getState().actions.setReplayPosition(null);
+        // A new archive is watched from outside it until somebody picks a
+        // seat, and the seat the last archive was watched from is not one this
+        // archive need have.
+        useGameStore.getState().actions.setReplayViewpoint(null);
+        break;
+      }
+      case "ReplayViewpointChanged": {
+        useGameStore.getState().actions.setReplayViewpoint(event);
+        break;
+      }
+      case "ReplayPositionChanged": {
+        useGameStore.getState().actions.setReplayPosition(event);
         break;
       }
       case "PlayerRosterUpdated": {
@@ -317,6 +354,56 @@ export class GameRunner implements CanvasCourierController {
   async chooseUnitAction(index: number): Promise<void> {
     const game = await this.requireGame();
     await game.chooseUnitAction(index);
+  }
+
+  /**
+   * Read an earlier moment of the match instead of playing on it.
+   *
+   * The board stops taking orders and the live match waits at the edge, so
+   * what the viewer is reading is not written over while they read it.
+   * Nothing moves until a position arrives through
+   * {@link applyReviewState}: only the host can say what an earlier board
+   * looked like to this viewer.
+   */
+  async enterBoardReview(): Promise<void> {
+    const game = await this.requireGame();
+    await game.enterBoardReview();
+  }
+
+  /** Come back to the match as it stands, catching up on what it did. */
+  async exitBoardReview(): Promise<void> {
+    const game = await this.requireGame();
+    await game.exitBoardReview();
+  }
+
+  /** Show a position the host answered a review request with. */
+  async applyReviewState(transition: unknown): Promise<void> {
+    const game = await this.requireGame();
+    await game.applyReviewState(transition);
+  }
+
+  /** Step through the loaded archive by actions. */
+  async replayStep(delta: number): Promise<void> {
+    const game = await this.requireGame();
+    await game.replayStep(delta);
+  }
+
+  /** Step through the loaded archive by whole turns. */
+  async replayStepTurn(delta: number): Promise<void> {
+    const game = await this.requireGame();
+    await game.replayStepTurn(delta);
+  }
+
+  /** Stand at one boundary of the loaded archive. */
+  async replaySeek(index: number): Promise<void> {
+    const game = await this.requireGame();
+    await game.replaySeek(index);
+  }
+
+  /** Stand at the end of the loaded archive. */
+  async replaySeekEnd(): Promise<void> {
+    const game = await this.requireGame();
+    await game.replaySeekEnd();
   }
 
   /** Dismiss the destination menu, stepping back to the selected unit. */

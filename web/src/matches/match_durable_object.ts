@@ -3,9 +3,10 @@ import { drizzle, DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { and, asc, count, eq, isNull } from "drizzle-orm";
-import { WasmMatch } from "#/wasm/awbrn_server.js";
-import type { GameCommand, StoredActionEvent } from "#/wasm/awbrn_server.js";
+import { WasmMatch, WasmMatchReview } from "#/wasm/awbrn_server.js";
+import type { GameCommand, MatchResults, StoredActionEvent } from "#/wasm/awbrn_server.js";
 import {
+  asReviewRequest,
   initialMatchConnectionMessages,
   matchClockMessage,
   normalizeCaughtError,
@@ -16,6 +17,7 @@ import {
 } from "./match_protocol";
 import { matchSetupSchema } from "./schemas";
 import type { MatchCreateResponse, MatchSetup } from "./schemas";
+import type { ReviewRequest } from "./match_protocol";
 import migrations from "../../drizzle/match/migrations";
 import { matchEventsTable } from "#/db/match.ts";
 import { matchResults, matches } from "#/db/global.ts";
@@ -164,6 +166,18 @@ interface SettleContext {
 export class MatchDurableObject extends DurableObject<CloudflareBindings> {
   private readonly db: DrizzleSqliteDODatabase;
   private wasmMatch: WasmMatch | null = null;
+  /**
+   * A second reading of the match, standing wherever a viewer last asked to
+   * read it.
+   *
+   * One cursor serves every viewer. The position it holds is the true board,
+   * which each answer is projected from for the viewer who asked, so two
+   * people reading different moments never see each other's view and never
+   * cost more than the boundaries between them. It is built the first time
+   * somebody asks to read the past and is not built at all for a match nobody
+   * does.
+   */
+  private review: WasmMatchReview | null = null;
   /** Memo of the derived clock. `undefined` until a turn boundary is read. */
   private clock: MatchClockState | null | undefined = undefined;
   /**
@@ -241,6 +255,19 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
       command = JSON.parse(text);
     } catch {
       sendJson(ws, { type: "error", message: "invalid message" });
+      return;
+    }
+
+    // A question about the match's past is not an order, so it is open to
+    // somebody watching as well as to somebody playing.
+    const reviewRequest = asReviewRequest(command);
+    if (reviewRequest) {
+      const reviewSetup = this.readSetupEvent();
+      if (!reviewSetup) {
+        sendJson(ws, { type: "error", message: "match not initialized" });
+        return;
+      }
+      this.handleReviewRequest(ws, reviewRequest, reviewSetup, slotIndex);
       return;
     }
 
@@ -405,6 +432,62 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
     return selectOwnedPerspectiveSlot(ownedSlots, activePlayerSlot, this.readActionEvents());
   }
 
+  /**
+   * Answer one viewer's question about the match's past.
+   *
+   * The board that comes back is projected for the seat that asked, and for
+   * nobody when a fogged match is asked by somebody holding no seat: such a
+   * match has no public board, and answering with a seat's own would hand a
+   * watcher what that seat can see.
+   */
+  private handleReviewRequest(
+    ws: WebSocket,
+    request: ReviewRequest,
+    setup: MatchSetup,
+    slotIndex: number | null,
+  ): void {
+    const review = this.loadReview(setup);
+    if (review === null) {
+      sendJson(ws, { type: "error", message: "this match cannot be reviewed" });
+      return;
+    }
+
+    try {
+      if (request.type === "reviewOutline") {
+        sendJson(ws, { type: "reviewOutline", ...review.outline() });
+        return;
+      }
+      const latest = review.latestIndex();
+      const index = request.index === null ? latest : Math.min(request.index, latest);
+      sendJson(ws, { type: "reviewState", ...review.seek(index, slotIndex) });
+    } catch (error) {
+      // A cursor that could not answer is a cursor that may have stopped
+      // part-way through a rebuild. Drop it rather than answering the next
+      // question from a position nothing put it in.
+      this.review = null;
+      const failure = normalizeCaughtError(error);
+      console.error("Failed to answer a match review request:", {
+        matchId: setup.matchId,
+        request,
+        error: failure.error,
+      });
+      sendJson(ws, { type: "error", message: failure.error.message });
+    }
+  }
+
+  private loadReview(setup: MatchSetup): WasmMatchReview | null {
+    if (this.review !== null) {
+      return this.review;
+    }
+    try {
+      this.review = new WasmMatchReview(setup, this.readActionEvents());
+      return this.review;
+    } catch (error) {
+      console.error("Failed to open the match for review:", error);
+      return null;
+    }
+  }
+
   private readSetupEvent(): MatchSetup | null {
     const row = this.db.select().from(matchEventsTable).where(eq(matchEventsTable.seq, 1)).get();
     if (!row) {
@@ -434,6 +517,9 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
   private restoreGameFromPersistedEvents(): void {
     this.wasmMatch = null;
     this.clock = undefined;
+    // The cursor may have taken an action the log did not keep. It is built
+    // again from the log by the next viewer who asks to read the match.
+    this.review = null;
     // An append that failed may have left the running total ahead of the log.
     this.clockProgress = undefined;
     try {
@@ -911,6 +997,14 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
 
     // A match with nothing to write is recorded too, so it stops being retried.
     await this.ctx.storage.put(RESULTS_RECORDED_KEY, true);
+
+    // Announced once the match is durably over, and not before: the page
+    // answers this by re-reading a record that has to already say the match
+    // ended and by fetching an archive that has to already be stored. A write
+    // that failed throws above this and is retried, so a retry announces the
+    // end once rather than again. A socket that is not open to hear it loses
+    // nothing, because the record is what the page reads when it comes back.
+    this.broadcastMatchOver(results);
     await this.resumeRankedMatchmaking(setup, true);
     await this.wakeRatingWriter(setup, true);
   }
@@ -979,6 +1073,17 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
   }
 
   /** Persist a result without reporting database errors to the player. */
+  /** Tell every open socket the match is over and how it ended. */
+  private broadcastMatchOver(results: MatchResults): void {
+    for (const target of this.ctx.getWebSockets()) {
+      try {
+        sendJson(target, { type: "matchOver", results });
+      } catch {
+        // Ignore closed connections.
+      }
+    }
+  }
+
   private async recordResultInBackground(setup: MatchSetup): Promise<void> {
     try {
       await this.recordResultIfFinished(setup);
@@ -1002,6 +1107,19 @@ export class MatchDurableObject extends DurableObject<CloudflareBindings> {
         createdAt,
       })
       .run();
+
+    // A viewer reading an earlier turn stays where they are reading; only the
+    // end of their cursor's log moves. A cursor that cannot take the action is
+    // dropped and built again by the next viewer, because a cursor that has
+    // missed an action would answer for a match that never happened.
+    if (event.kind === "action" && this.review !== null) {
+      try {
+        this.review.append(event.payload);
+      } catch (error) {
+        console.error("Failed to record an action for review:", error);
+        this.review = null;
+      }
+    }
 
     // A seat can lose its turn to an action that does not say so, by routing
     // itself, so any recorded event can move the clock and the memo is dropped

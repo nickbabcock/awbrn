@@ -30,7 +30,8 @@ export interface LiveMatchPlayer {
 }
 
 export interface GameInstance {
-  newReplay: (file: File | FileSystemFileHandle) => Promise<void>;
+  newReplay: (source: File | FileSystemFileHandle | Uint8Array) => Promise<void>;
+  setReplayViewpoint: (playerId: number | null, followsActivePlayer: boolean) => Promise<void>;
   loadMapPreview: (mapId: number) => Promise<void>;
   loadMatchMap: (map: AwbrnMapDocument) => Promise<void>;
   loadLiveMatch: (
@@ -43,6 +44,28 @@ export interface GameInstance {
   chooseUnitAction: (index: number) => Promise<void>;
   dismissUnitAction: () => Promise<void>;
   rejectPendingCommand: () => Promise<void>;
+  enterBoardReview: () => Promise<void>;
+  exitBoardReview: () => Promise<void>;
+  applyReviewState: (transition: unknown) => Promise<void>;
+  replayStep: (delta: number) => Promise<void>;
+  replayStepTurn: (delta: number) => Promise<void>;
+  replaySeek: (index: number) => Promise<void>;
+  replaySeekEnd: () => Promise<void>;
+}
+
+/**
+ * The bytes of an archive, whichever way it arrived.
+ *
+ * A file the reader picked and a file the page fetched are the same archive to
+ * the engine, so the difference is settled here rather than in a second entry
+ * point beside the first.
+ */
+async function replayBytes(source: File | FileSystemFileHandle | Uint8Array): Promise<Uint8Array> {
+  if (source instanceof Uint8Array) {
+    return source;
+  }
+  const file = source instanceof FileSystemFileHandle ? await source.getFile() : source;
+  return new Uint8Array(await file.arrayBuffer());
 }
 
 class WorkerInputBridge {
@@ -187,11 +210,11 @@ export const createGame = async (
   requestAnimationFrame(update);
 
   return proxy<GameInstance>({
-    newReplay: async (file: File | FileSystemFileHandle) => {
-      const fileHandle = file instanceof FileSystemFileHandle ? await file.getFile() : file;
-      const fileData = await fileHandle.arrayBuffer();
-      const fileBuffer = new Uint8Array(fileData);
-      app.new_replay(fileBuffer);
+    newReplay: async (source: File | FileSystemFileHandle | Uint8Array) => {
+      app.new_replay(await replayBytes(source));
+    },
+    setReplayViewpoint: async (playerId: number | null, followsActivePlayer: boolean) => {
+      app.set_replay_viewpoint(playerId ?? undefined, followsActivePlayer);
     },
     loadMapPreview: async (mapId: number) => {
       app.preview_map(mapId);
@@ -223,6 +246,29 @@ export const createGame = async (
     rejectPendingCommand: async () => {
       app.reject_pending_command();
       app.update();
+    },
+    enterBoardReview: async () => {
+      app.enter_board_review();
+      app.update();
+    },
+    exitBoardReview: async () => {
+      app.exit_board_review();
+      app.update();
+    },
+    applyReviewState: async (transition: unknown) => {
+      app.apply_review_state(transition);
+    },
+    replayStep: async (delta: number) => {
+      app.replay_step(delta);
+    },
+    replayStepTurn: async (delta: number) => {
+      app.replay_step_turn(delta);
+    },
+    replaySeek: async (index: number) => {
+      app.replay_seek(index);
+    },
+    replaySeekEnd: async () => {
+      app.replay_seek_end();
     },
   });
 };

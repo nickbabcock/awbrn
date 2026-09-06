@@ -726,6 +726,149 @@ impl WasmMatch {
     }
 }
 
+/// Where a match stood at one boundary, as a viewer's controls read it.
+#[derive(Debug, Tsify, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchReviewBoundary {
+    pub day: u32,
+    /// The seat that took the action reaching this boundary. Absent at the
+    /// opening, where no action has been taken.
+    #[tsify(type = "number | null")]
+    pub acting_slot: Option<u8>,
+    /// The seat holding the turn here, absent once the match is over.
+    #[tsify(type = "number | null")]
+    pub active_slot: Option<u8>,
+}
+
+/// Every boundary a match can be read at, opening included.
+///
+/// This is what turn-by-turn navigation is spelled against, so it carries no
+/// board: a whole match's outline stays smaller than one board would be.
+#[derive(Debug, Tsify, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchReviewOutline {
+    pub boundaries: Vec<MatchReviewBoundary>,
+}
+
+/// The board at one boundary, as one viewer is entitled to see it.
+#[derive(Debug, Tsify, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchReviewState {
+    pub index: usize,
+    /// The end of the log, so a viewer knows how far the match has gone on
+    /// while they were reading an earlier part of it.
+    pub latest_index: usize,
+    /// Absent when the match shows this viewer nothing, which is what a
+    /// fogged match shows somebody who holds no seat in it.
+    #[tsify(type = "Observation | null")]
+    pub observation: Option<awvm::semantic::Observation>,
+    /// The action that reached this boundary, present only when the viewer
+    /// stepped onto it one action at a time. It is what lets the step be
+    /// watched rather than merely arrived at.
+    #[tsify(type = "ObservedTransition | null")]
+    pub transition: Option<ObservedTransition>,
+}
+
+/// A match a viewer may move around inside.
+///
+/// Held apart from the match being played. The board a viewer reads at an
+/// earlier boundary is built by replaying the log to that point and projecting
+/// it for them, so nothing a viewer is not entitled to see is ever sent, and
+/// the match itself is never moved off the position it is being played at.
+#[wasm_bindgen]
+#[derive(Debug)]
+pub struct WasmMatchReview {
+    review: crate::MatchReview,
+}
+
+#[wasm_bindgen]
+impl WasmMatchReview {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        setup: Ts<MatchSetupInput>,
+        events: Vec<Ts<StoredActionEvent>>,
+    ) -> Result<Self, JsError> {
+        let setup = read_input("setup", setup)?;
+        let setup: GameSetup = setup
+            .try_into()
+            .map_err(|reason| invalid_input("setup", reason))?;
+        let events = events
+            .into_iter()
+            .map(|event| read_input("events", event))
+            .collect::<Result<Vec<crate::StoredActionEvent>, _>>()?;
+        Ok(Self {
+            review: crate::MatchReview::new(setup, events).map_err(replay_error)?,
+        })
+    }
+
+    /// Record an action the match has just accepted, leaving the cursor where
+    /// the viewer left it.
+    pub fn append(&mut self, event: Ts<StoredActionEvent>) -> Result<(), JsError> {
+        let event = read_input("event", event)?;
+        self.review.append(event).map_err(replay_error)
+    }
+
+    /// The end of the log.
+    #[wasm_bindgen(js_name = latestIndex)]
+    pub fn latest_index(&self) -> usize {
+        self.review.latest_index()
+    }
+
+    pub fn outline(&self) -> Result<Ts<MatchReviewOutline>, JsError> {
+        MatchReviewOutline {
+            boundaries: self
+                .review
+                .outline()
+                .iter()
+                .map(|boundary| MatchReviewBoundary {
+                    day: u32::try_from(boundary.day).unwrap_or(u32::MAX),
+                    acting_slot: boundary.acting_slot,
+                    active_slot: boundary.active_slot,
+                })
+                .collect(),
+        }
+        .into_ts()
+        .map_err(write_error)
+    }
+
+    /// Move to a boundary and report the board there.
+    ///
+    /// `viewer_slot` is the seat asking. A viewer who holds no seat is shown
+    /// the public board, which a fogged match does not have.
+    pub fn seek(
+        &mut self,
+        index: usize,
+        viewer_slot: Option<u8>,
+    ) -> Result<Ts<MatchReviewState>, JsError> {
+        let viewer = viewer_slot.map(crate::PlayerId);
+        if let Some(player) = viewer
+            && self.review.recipient(Some(player)).is_none()
+        {
+            return Err(invalid_input(
+                "viewer_slot",
+                format!("unknown player slot {}", player.0),
+            ));
+        }
+
+        let observed = self.review.seek(index).map_err(replay_error)?;
+        let transition = observed
+            .as_deref()
+            .zip(self.review.recipient(viewer))
+            .and_then(|(observed, recipient)| {
+                crate::review::transition_for(observed, recipient).cloned()
+            });
+
+        MatchReviewState {
+            index: self.review.index(),
+            latest_index: self.review.latest_index(),
+            observation: self.review.observation(viewer),
+            transition,
+        }
+        .into_ts()
+        .map_err(write_error)
+    }
+}
+
 const WASM_ERROR_PREFIX: &str = "AWBRN_MATCH_ERROR:";
 
 #[derive(Serialize)]

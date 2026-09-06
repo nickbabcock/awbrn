@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  fetchMatchReplayBytes,
   getMatchReplayResponse,
   isMatchReplayDownload,
   matchReplayFileName,
@@ -95,6 +96,34 @@ describe("parseMatchReplay", () => {
       /not a valid AWBRN archive/,
     );
     expect(() => parseMatchReplay("nope")).toThrow(/not a valid AWBRN archive/);
+  });
+});
+
+describe("fetchMatchReplayBytes", () => {
+  it("hands the served bytes over untouched", async () => {
+    const body = JSON.stringify({ version: 1, setup, actions: [] });
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(body));
+
+    const bytes = await fetchMatchReplayBytes(setup.matchId, fetchImpl as unknown as typeof fetch);
+
+    expect(fetchImpl).toHaveBeenCalledWith(matchReplayPath(setup.matchId));
+    expect(new TextDecoder().decode(bytes)).toBe(body);
+  });
+
+  it("says a match with no stored archive has none", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 404 }));
+
+    await expect(
+      fetchMatchReplayBytes(setup.matchId, fetchImpl as unknown as typeof fetch),
+    ).rejects.toThrow(/no stored replay/);
+  });
+
+  it("reports any other refusal with its status", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 503 }));
+
+    await expect(
+      fetchMatchReplayBytes(setup.matchId, fetchImpl as unknown as typeof fetch),
+    ).rejects.toThrow(/\(503\)/);
   });
 });
 

@@ -38,6 +38,47 @@ pub struct NewDay {
     pub day: u32,
 }
 
+/// Where the viewer is standing in an archive, and what is beside them.
+///
+/// Everything the controls need to draw themselves: which steps are still
+/// available, and what the moment being read is called.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[serde(rename_all = "camelCase")]
+pub struct ReplayPositionChanged {
+    /// How many actions have been played, so `0` opens the archive.
+    pub index: u32,
+    pub total: u32,
+    pub day: u32,
+    /// The seat holding the turn, absent once the game is over.
+    #[cfg_attr(target_family = "wasm", tsify(type = "number | null"))]
+    pub active_player_id: Option<u32>,
+    /// Where a step back by a whole turn lands, absent in the first turn.
+    #[cfg_attr(target_family = "wasm", tsify(type = "number | null"))]
+    pub previous_turn_index: Option<u32>,
+    /// Where a step on by a whole turn lands, absent in the last turn.
+    #[cfg_attr(target_family = "wasm", tsify(type = "number | null"))]
+    pub next_turn_index: Option<u32>,
+}
+
+/// Whose eyes the archive is being watched through.
+///
+/// The two fields are one state between them. A viewer who follows the turn
+/// has a seat at every moment but is not held to one, so the seat is reported
+/// with the following rather than instead of it: the controls need the seat to
+/// say who is being watched, and the flag to say which control is pressed.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
+#[serde(rename_all = "camelCase")]
+pub struct ReplayViewpointChanged {
+    /// The seat the board is drawn for, absent while watching every seat at
+    /// once and while the followed turn belongs to nobody.
+    #[cfg_attr(target_family = "wasm", tsify(type = "number | null"))]
+    pub player_id: Option<u32>,
+    /// Whether the seat moves with the turn instead of staying where it was put.
+    pub follows_active_player: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
 #[serde(rename_all = "camelCase")]

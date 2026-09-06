@@ -56,7 +56,7 @@ struct SeatExit {
 }
 
 /// Exit causes and order keyed by slot.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct SeatExits {
     exits: HashMap<u8, SeatExit>,
     next_order: u32,
