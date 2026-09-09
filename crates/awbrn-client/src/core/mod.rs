@@ -115,6 +115,8 @@ pub enum GameMode {
     None,
     Replay,
     Game,
+    /// A board that is being drawn on rather than played.
+    Editor,
 }
 
 #[derive(bevy::state::state::SubStates, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]

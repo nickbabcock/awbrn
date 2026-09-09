@@ -8,6 +8,8 @@ workspace = true
 
 [features]
 bevy = ["dep:bevy"]
+# Generated TypeScript declarations for the editor wire types.
+typescript = ["dep:tsify", "dep:wasm-bindgen", "awvm/typescript", "awbrn-types/typescript"]
 
 [dependencies]
 awbrn-types.path = "../awbrn-types"
@@ -17,6 +19,8 @@ jiff.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+tsify = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
 
 [dev-dependencies]
 insta.workspace = true

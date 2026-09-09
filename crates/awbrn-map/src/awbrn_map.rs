@@ -44,17 +44,14 @@ impl AwbrnMap {
         }
     }
 
+    /// Whether a shore drawn against this neighbour is drawn against land.
+    ///
+    /// A tile off the edge of the board is water, so a coast at the edge is
+    /// drawn as a coast. The rule for the tiles that are on the board is
+    /// [`AwbwTerrain::is_shore_land`], which the editor reads as well, so the
+    /// picture and the map document name the same land.
     fn is_land(terrain: Option<AwbwTerrain>) -> bool {
-        !matches!(
-            terrain,
-            None | Some(
-                AwbwTerrain::Bridge(_)
-                    | AwbwTerrain::River(_)
-                    | AwbwTerrain::Reef
-                    | AwbwTerrain::Sea
-                    | AwbwTerrain::Shoal(_)
-            )
-        )
+        terrain.is_some_and(|terrain| terrain.is_shore_land())
     }
 
     /// Determine the sea direction based on neighboring tiles
@@ -235,6 +232,14 @@ impl AwbrnMap {
         SeaDirection::Sea
     }
 
+    /// The shoal the client draws at `position`.
+    ///
+    /// The map document records the same land in a `ShoalType`, which is read
+    /// back out of this with `ShoalType::from_direction`.
+    pub fn shoal_direction(map: &AwbwMap, position: Pos) -> ShoalDirection {
+        Self::determine_shoal_direction(&Self::get_nearby_tiles(map, position))
+    }
+
     /// Determine the shoal direction based on neighboring tiles
     fn determine_shoal_direction(nearby: &NearbyTiles) -> ShoalDirection {
         let is_shoal = |terrain: Option<AwbwTerrain>| -> bool {
@@ -398,10 +403,7 @@ impl AwbrnMap {
                     let nearby = Self::get_nearby_tiles(map, pos);
                     GraphicalTerrain::Sea(Self::determine_sea_direction(&nearby))
                 }
-                AwbwTerrain::Shoal(_) => {
-                    let nearby = Self::get_nearby_tiles(map, pos);
-                    GraphicalTerrain::Shoal(Self::determine_shoal_direction(&nearby))
-                }
+                AwbwTerrain::Shoal(_) => GraphicalTerrain::Shoal(Self::shoal_direction(map, pos)),
                 AwbwTerrain::Reef => GraphicalTerrain::Reef,
                 AwbwTerrain::Property(property) => GraphicalTerrain::Property(property),
                 AwbwTerrain::Pipe(pipe_type) => GraphicalTerrain::Pipe(pipe_type),

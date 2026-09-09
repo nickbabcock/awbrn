@@ -145,6 +145,8 @@ pub enum DragOwner {
     #[default]
     Camera,
     Unit,
+    /// The editor is drawing with the drag, so the board must hold still.
+    Brush,
 }
 
 /// Whether the player is using a finger rather than a mouse.
@@ -900,6 +902,7 @@ impl Plugin for InputPlugin {
         app.add_systems(OnExit(crate::core::AppState::InGame), reset_pointer_state);
         app.add_systems(OnExit(crate::core::GameMode::Game), reset_pointer_state);
         app.add_systems(OnExit(crate::core::GameMode::Replay), reset_pointer_state);
+        app.add_systems(OnExit(crate::core::GameMode::Editor), reset_pointer_state);
     }
 }
 
