@@ -50,3 +50,7 @@ export function useReplayRunner() {
 export function useActiveMatchRunner() {
   return useGameRuntimeRegistry().getActiveMatchRunner();
 }
+
+export function useMapEditorRunner() {
+  return useGameRuntimeRegistry().getMapEditorRunner();
+}

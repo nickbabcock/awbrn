@@ -21,7 +21,10 @@ pub use features::event_bus::{
 };
 pub use json_plugin::*;
 pub use loading::{
-    LiveMatchPlayer, MapAssetPathResolver, PendingGameStart, PendingLiveMatch,
+    LiveMatchPlayer, MapAssetPathResolver, PendingEditorMap, PendingGameStart, PendingLiveMatch,
     PendingLiveTransitions, PendingMatchMap, ReplayToLoad, StaticAssetPathResolver,
+};
+pub use modes::editor::{
+    EditorArmy, EditorCommand, EditorCommandQueue, EditorSession, EditorStateChanged,
 };
 pub use ui_atlas::*;

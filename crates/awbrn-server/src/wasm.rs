@@ -195,6 +195,29 @@ impl MapRenderer {
     }
 }
 
+/// Check a map written here, and hash it the way an imported map is hashed.
+///
+/// A map from the editor arrives as a document rather than as an AWBW payload,
+/// so it needs no normalizing. It still needs the same three digests: the
+/// content hash names its pictures and its stored document, and the two
+/// signatures are what a replay is matched against later.
+#[wasm_bindgen(js_name = canonicalizeMapDocument)]
+pub fn canonicalize_map_document(
+    document: Ts<AwbrnMapDocumentWire>,
+) -> Result<Ts<ImportedMapDocument>, JsError> {
+    let document = read_input("document", document)?;
+    let document = validated_map(document)?;
+    let digests = document.digests();
+
+    Ok(ImportedMapDocument {
+        document: document.into(),
+        content_hash: digests.content_hash.to_string(),
+        property_signature: digests.property_signature.to_string(),
+        unit_signature: digests.unit_signature.to_string(),
+    }
+    .into_ts()?)
+}
+
 /// Draw a map as a smallmap and return the PNG bytes.
 ///
 /// Four pixels for each tile, terrain only, from a fixed palette. No atlas is

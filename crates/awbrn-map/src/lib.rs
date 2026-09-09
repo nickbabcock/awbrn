@@ -1,19 +1,26 @@
 mod awbrn_map;
 mod awbw_map;
 mod deployment;
+pub mod editor;
 mod map_document;
 mod map_error;
+pub mod rules;
 mod terrain_knowledge;
 pub mod xy;
 
 pub use awbrn_map::AwbrnMap;
 pub use awbw_map::{AwbwMap, AwbwMapData, AwbwSymbols, Legend, LosslessSymbols, PredeployedUnit};
 pub use deployment::{Deployment, Deployments};
+pub use editor::{
+    ArmyRoster, BoardChanges, Brush, Connection, Isometry, MapEditor, ResizeAnchor, Symmetry,
+    TerrainChange, UnitChange,
+};
 pub use map_document::{
     AwbrnMapDocument, AwbrnMapMetadata, AwbrnMapUnit, MAP_FORMAT, MAX_DIMENSION, MapDigest,
     MapDigests, ValidatedMapDocument,
 };
 pub use map_error::MapError;
+pub use rules::{DEFAULT_INCOME_PER_PROPERTY, semantic_terrain};
 pub use terrain_knowledge::TerrainKnowledge;
 
 /// The board coordinate, the board shape, and the table keyed by them.

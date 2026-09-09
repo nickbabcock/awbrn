@@ -14,6 +14,7 @@ interface RuntimeRegistryOptions {
 }
 
 const MATCH_LOBBY_PATH_PATTERN = /^\/matches\/[^/]+$/;
+const MAP_EDITOR_PATH_PATTERN = /^\/maps\/(new$|[^/]+\/edit$)/;
 
 function isReplayPath(pathname: string): boolean {
   return pathname === "/";
@@ -23,9 +24,19 @@ function isMatchLobbyPath(pathname: string): boolean {
   return pathname !== "/matches/new" && MATCH_LOBBY_PATH_PATTERN.test(pathname);
 }
 
+/**
+ * The two addresses the editor is open at: a blank board, and a map's own edit
+ * screen. Both hold one runner, so moving between them keeps the engine warm
+ * and forking a map does not pay for a second one.
+ */
+function isMapEditorPath(pathname: string): boolean {
+  return MAP_EDITOR_PATH_PATTERN.test(pathname);
+}
+
 export class GameRuntimeRegistry<TRunner extends RunnerLike = GameRunner> {
   private activeMatchRunner: TRunner | undefined;
   private currentPathname: string | undefined;
+  private mapEditorRunner: TRunner | undefined;
   private replayRunner: TRunner | undefined;
 
   constructor(
@@ -43,6 +54,11 @@ export class GameRuntimeRegistry<TRunner extends RunnerLike = GameRunner> {
     return this.activeMatchRunner;
   }
 
+  getMapEditorRunner(): TRunner {
+    this.mapEditorRunner ??= this.createRunner();
+    return this.mapEditorRunner;
+  }
+
   syncPathname(pathname: string): void {
     const previousPathname = this.currentPathname;
     this.currentPathname = pathname;
@@ -58,11 +74,26 @@ export class GameRuntimeRegistry<TRunner extends RunnerLike = GameRunner> {
     if (isMatchLobbyPath(previousPathname) && !isMatchLobbyPath(pathname)) {
       this.disposeActiveMatchRunner();
     }
+
+    if (isMapEditorPath(previousPathname) && !isMapEditorPath(pathname)) {
+      this.disposeMapEditorRunner();
+    }
   }
 
   disposeAll(): void {
     this.disposeActiveMatchRunner();
+    this.disposeMapEditorRunner();
     this.disposeReplayRunner();
+  }
+
+  private disposeMapEditorRunner(): void {
+    if (!this.mapEditorRunner) {
+      return;
+    }
+
+    this.mapEditorRunner.dispose();
+    this.mapEditorRunner = undefined;
+    this.options.onDisposeGameState?.();
   }
 
   private disposeReplayRunner(): void {

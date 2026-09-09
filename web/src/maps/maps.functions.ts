@@ -7,6 +7,7 @@ import {
   mapIdSchema,
   mapRankUpdateSchema,
   mapRefSchema,
+  mapSaveRequestSchema,
   mapTagsUpdateSchema,
 } from "./schemas.ts";
 import {
@@ -16,6 +17,7 @@ import {
   listCatalogMaps,
   loadMapRevision,
   mapSlotFactionIds,
+  saveEditedMap,
   setMapRevisionRank,
   setMapTags,
 } from "./maps.server.ts";
@@ -120,4 +122,26 @@ export const setMapTagsFn = createServerFn({ method: "POST" })
         reason: data.reason,
       }),
     };
+  });
+
+/**
+ * Keep a map the editor drew.
+ *
+ * The board arrives as a document and is checked here rather than believed:
+ * `saveEditedMap` puts it through the same validation and the same hashing an
+ * imported map goes through. Whether it may be written over an existing map is
+ * decided there too, from the author the map already names.
+ *
+ * It shares the import limiter because it spends the same thing an import
+ * does: two renders and a write for each map that reaches the catalog.
+ */
+export const saveMapFn = createServerFn({ method: "POST" })
+  .middleware([requirePermission({ map: ["write"] })])
+  .validator(mapSaveRequestSchema)
+  .handler(async ({ data, context }) => {
+    await requireRateLimit(
+      rateLimitBindings().IMPORT_MAP_RATE_LIMITER,
+      `user:${context.actor.userId}`,
+    );
+    return saveEditedMap(data, context.actor);
   });

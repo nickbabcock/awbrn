@@ -31,6 +31,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
 import { ArrowLeft as ArrowLeftIcon } from "pixelarticons/react/ArrowLeft";
 import { useActor } from "#/auth/useActor.ts";
+import { mapEditGrant } from "#/maps/map_authz.ts";
 import { MapCurationPanel } from "#/maps/components/MapCurationPanel.tsx";
 import { MapJudgementRecord } from "#/maps/components/MapJudgementRecord.tsx";
 import { MapPicture } from "#/maps/components/MapPicture.tsx";
@@ -74,7 +75,7 @@ export function MapPage({ mapId }: { mapId: string }) {
 
         {mapQuery.data ? (
           <>
-            <MapRecord map={mapQuery.data} />
+            <MapRecord canEdit={mapEditGrant(mapQuery.data, actor) !== null} map={mapQuery.data} />
             <MapCurationPanel actor={actor} map={mapQuery.data} />
             <MapJudgementRecord actor={actor} map={mapQuery.data} />
           </>
@@ -84,7 +85,7 @@ export function MapPage({ mapId }: { mapId: string }) {
   );
 }
 
-function MapRecord({ map }: { map: MapCatalogEntry }) {
+function MapRecord({ canEdit, map }: { canEdit: boolean; map: MapCatalogEntry }) {
   const picture = mapScreenshotSize("full", map.width, map.height);
 
   return (
@@ -167,6 +168,35 @@ function MapRecord({ map }: { map: MapCatalogEntry }) {
               />
               <Text color="secondary" type="supporting">
                 Opens the create screen with this battlefield already chosen.
+              </Text>
+            </VStack>
+
+            {/* A map somebody else wrote is forked rather than edited: the
+                board opens as it stands and is kept as a map of the player's
+                own. The author of a map gets the other door, which writes
+                another revision of the map they already have. */}
+            <VStack gap={2}>
+              {canEdit ? (
+                <RouterButton
+                  label="Edit this map"
+                  params={{ mapId: map.mapId }}
+                  to="/maps/$mapId/edit"
+                  variant="secondary"
+                  width="100%"
+                />
+              ) : (
+                <RouterButton
+                  label="Fork this map"
+                  search={{ from: map.mapId }}
+                  to="/maps/new"
+                  variant="secondary"
+                  width="100%"
+                />
+              )}
+              <Text color="secondary" type="supporting">
+                {canEdit
+                  ? "Opens the drafting table on this board. Saving writes a new revision."
+                  : "Opens the drafting table on this board, and keeps what you draw as a map of your own."}
               </Text>
             </VStack>
           </VStack>
