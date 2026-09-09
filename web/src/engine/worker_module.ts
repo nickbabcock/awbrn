@@ -1,12 +1,14 @@
 import init, {
   battle_catalog,
   battle_forecast,
+  editorPalette,
   type BattleCatalog,
   type BattleForecastResponse,
   type BattleRequestWire,
   type CanvasDisplay,
   BevyApp,
 } from "#/wasm/awbrn_wasm.js";
+import type { EditorCommand, EditorPalette } from "#/wasm/awbrn_wasm.js";
 import type { ObservedTransition } from "#/wasm/awbrn_server.js";
 import wasmPath from "#/wasm/awbrn_wasm_bg.wasm?url";
 import { proxy } from "comlink";
@@ -51,6 +53,10 @@ export interface GameInstance {
   replayStepTurn: (delta: number) => Promise<void>;
   replaySeek: (index: number) => Promise<void>;
   replaySeekEnd: () => Promise<void>;
+  openEditor: (map: AwbrnMapDocument) => Promise<void>;
+  openBlankEditor: (width: number, height: number) => Promise<void>;
+  editorCommand: (command: EditorCommand) => Promise<void>;
+  readEditorDocument: (name: string, author: string) => Promise<AwbrnMapDocument>;
 }
 
 /**
@@ -189,6 +195,19 @@ export const loadBattleCatalog = async (): Promise<BattleCatalog> => {
   return battle_catalog();
 };
 
+/**
+ * Every brush the editor can load, with the tile each one draws.
+ *
+ * A top-level export for the same reason the battle catalog is one: the
+ * palette is a fact about the game and not about a board, so it answers before
+ * a map is open. The buildings and the units come in the colours of the army
+ * that is named, because that is what the picker has to show.
+ */
+export const loadEditorPalette = async (factionCode: string | null): Promise<EditorPalette> => {
+  await initialized;
+  return editorPalette(factionCode);
+};
+
 export const createGame = async (
   canvas: OffscreenCanvas,
   display: CanvasDisplay,
@@ -270,5 +289,16 @@ export const createGame = async (
     replaySeekEnd: async () => {
       app.replay_seek_end();
     },
+    openEditor: async (map: AwbrnMapDocument) => {
+      app.open_editor(map);
+    },
+    openBlankEditor: async (width: number, height: number) => {
+      app.open_blank_editor(width, height);
+    },
+    editorCommand: async (command: EditorCommand) => {
+      app.editor_command(command);
+    },
+    readEditorDocument: async (name: string, author: string) =>
+      app.editor_document(name, author) as AwbrnMapDocument,
   });
 };
