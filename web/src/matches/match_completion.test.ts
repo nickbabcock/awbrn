@@ -43,7 +43,7 @@ function aiSetup(): MatchSetup {
   const base = setup(["alice", "unused"]);
   return {
     ...base,
-    players: [base.players[0]!, { ...base.players[1]!, userId: null, aiProfileId: "ai-hard-v1" }],
+    players: [base.players[0]!, { ...base.players[1]!, userId: null, aiProfileId: "ai-hard-v2" }],
   };
 }
 
@@ -93,7 +93,7 @@ describe("match completion", () => {
   it("records a seat the server played, holding a profile where a user would be", () => {
     const rows = matchResultRows(aiSetup(), rout);
     expect(rows.map((row) => row.userId)).toEqual(["alice", null]);
-    expect(rows.map((row) => row.aiProfileId)).toEqual([null, "ai-hard-v1"]);
+    expect(rows.map((row) => row.aiProfileId)).toEqual([null, "ai-hard-v2"]);
   });
 
   /**

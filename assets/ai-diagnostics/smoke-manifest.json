@@ -36,8 +36,8 @@
   },
   "agents": [
     {
-      "identifier": "greedy-capturer-shortfall-50-v1",
-      "configuration_fingerprint": "0870d15a51f93e13",
+      "identifier": "greedy-capturer-shortfall-50-generic-tactical-v2",
+      "configuration_fingerprint": "af672904643d966c",
       "executable_fingerprint": "awbrn-ai-strategic-v1"
     },
     {

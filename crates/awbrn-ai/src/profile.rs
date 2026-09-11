@@ -80,10 +80,10 @@ pub const STANDARD: AiProfile = AiProfile {
 
 /// The opponent seated for [`AiTier::Hard`].
 pub const HARD: AiProfile = AiProfile {
-    id: "ai-hard-v1",
+    id: "ai-hard-v2",
     tier: AiTier::Hard,
     label: "Hard",
-    blurb: "Scores the promoted weighting and punishes a thin front.",
+    blurb: "Uses generic threat reduction and residual reply exposure to punish a thin front.",
     implementation: AiImplementation::Strategic,
     config: BaselineConfig::PRODUCTION,
 };
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn a_stored_identifier_resolves() {
-        assert_eq!(profile("ai-hard-v1"), Some(&HARD));
+        assert_eq!(profile("ai-hard-v2"), Some(&HARD));
         assert_eq!(profile("ai-nonesuch"), None);
     }
 
@@ -195,7 +195,7 @@ mod tests {
     fn identifiers_are_locked() {
         assert_eq!(
             PROFILES.map(|profile| profile.id),
-            ["ai-easy-v1", "ai-standard-v1", "ai-hard-v1"]
+            ["ai-easy-v1", "ai-standard-v1", "ai-hard-v2"]
         );
     }
 

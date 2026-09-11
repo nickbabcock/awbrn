@@ -39,10 +39,10 @@ export const aiProfileDisplays: readonly AiProfileDisplay[] = [
     blurb: "Scores every play and takes the best one. It captures, builds, and trades.",
   },
   {
-    id: "ai-hard-v1",
+    id: "ai-hard-v2",
     tier: "hard",
     label: "Hard",
-    blurb: "Scores the promoted weighting and punishes a thin front.",
+    blurb: "Uses generic threat reduction and residual reply exposure to punish a thin front.",
   },
 ];
 

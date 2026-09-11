@@ -233,7 +233,7 @@ describe("applyPendingRatings", () => {
     await env.DB.batch([
       insertMatch("match-1"),
       insertResult("match-1", 0, "alpha", "win", { pool: null }),
-      insertResult("match-1", 1, null, "loss", { pool: null, aiProfileId: "ai-hard-v1" }),
+      insertResult("match-1", 1, null, "loss", { pool: null, aiProfileId: "ai-hard-v2" }),
     ]);
 
     const { applied } = await applyPendingRatings(env.DB, "async", NOW);

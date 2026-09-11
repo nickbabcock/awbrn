@@ -66,7 +66,7 @@ fn production_identity_and_configuration_are_locked() {
     assert_eq!(BaselineConfig::LOCKED.identifier, "greedy-baseline-v1");
     assert_eq!(BaselineConfig::LOCKED.fingerprint(), "79aa8a6e0491065f");
     assert_eq!(BaselineConfig::PRODUCTION.identifier, PRODUCTION_IDENTIFIER);
-    assert_eq!(production_configuration_fingerprint(), "81496db7e594d1bc");
+    assert_eq!(production_configuration_fingerprint(), "5678b134f226cacc");
     assert_eq!(
         production_agent(7).config(),
         BaselineConfig::PRODUCTION,
@@ -85,6 +85,9 @@ fn production_matches_its_locked_regression_fingerprints_against_baseline() {
     assert_ne!(baseline_second.1, production_second.1);
     assert_eq!(fingerprint(&baseline_first.1), 17_699_916_440_832_964_813);
     assert_eq!(fingerprint(&baseline_second.1), 5_902_654_325_709_691_999);
-    assert_eq!(fingerprint(&production_first.1), 3_799_485_981_112_380_887);
-    assert_eq!(fingerprint(&production_second.1), 4_695_877_162_590_766_318);
+    assert_eq!(fingerprint(&production_first.1), 2_808_536_800_085_030_627);
+    assert_eq!(
+        fingerprint(&production_second.1),
+        14_427_752_061_776_380_085
+    );
 }
