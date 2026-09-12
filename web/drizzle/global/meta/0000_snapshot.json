@@ -552,7 +552,7 @@
         },
         "match_participants_ai_vocabulary": {
           "name": "match_participants_ai_vocabulary",
-          "value": "\"match_participants\".\"aiProfileId\" is null or \"match_participants\".\"aiProfileId\" in ('ai-easy-v1', 'ai-standard-v1', 'ai-hard-v1')"
+          "value": "\"match_participants\".\"aiProfileId\" is null or \"match_participants\".\"aiProfileId\" in ('ai-easy-v1', 'ai-standard-v1', 'ai-hard-v2')"
         }
       }
     },
@@ -699,7 +699,7 @@
         },
         "match_results_ai_vocabulary": {
           "name": "match_results_ai_vocabulary",
-          "value": "\"match_results\".\"aiProfileId\" is null or \"match_results\".\"aiProfileId\" in ('ai-easy-v1', 'ai-standard-v1', 'ai-hard-v1')"
+          "value": "\"match_results\".\"aiProfileId\" is null or \"match_results\".\"aiProfileId\" in ('ai-easy-v1', 'ai-standard-v1', 'ai-hard-v2')"
         },
         "match_results_ai_is_never_ranked": {
           "name": "match_results_ai_is_never_ranked",

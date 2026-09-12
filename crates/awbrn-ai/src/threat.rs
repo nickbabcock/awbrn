@@ -304,6 +304,11 @@ impl ThreatMap {
         self.read(Layer::Immediate, cell, kind)
     }
 
+    /// Return the immediate threat supplied by one enemy unit.
+    pub fn immediate_contribution(&self, unit: UnitId, cell: CellIdx, kind: UnitKind) -> f64 {
+        self.contribution(Layer::Immediate, unit, cell, kind)
+    }
+
     /// The same for the turn after that, from the firing positions an
     /// indirect unit must first walk to.
     ///
@@ -311,6 +316,18 @@ impl ThreatMap {
     /// both adds them, and discounts this one.
     pub fn deferred(&self, cell: CellIdx, kind: UnitKind) -> f64 {
         self.read(Layer::Deferred, cell, kind)
+    }
+
+    fn contribution(&self, layer: Layer, unit: UnitId, cell: CellIdx, kind: UnitKind) -> f64 {
+        let Some(cached) = self.cached.iter().find(|cached| cached.unit.id == unit) else {
+            return 0.0;
+        };
+        if !cached.layers[layer.index()].contains(&cell) {
+            return 0.0;
+        }
+        let index = usize::from(cell.get());
+        let stars = usize::from(self.stars.get(index).copied().unwrap_or_default());
+        f64::from(cached.table.funds[kind.index()][stars])
     }
 
     /// One tile's row of one layer, or zero where this build wrote nothing.

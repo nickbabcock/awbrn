@@ -10,6 +10,8 @@ use crate::rng::Rng;
 pub enum BaselineAgent {
     /// Score one legal play at a time.
     Greedy,
+    /// Score one legal play at a time with generic tactical corrections.
+    GreedyGenericTactical,
 }
 
 /// The tie rule used by the greedy baseline.
@@ -41,7 +43,7 @@ pub struct BaselineConfig {
 pub const IDENTIFIER: &str = "greedy-baseline-v1";
 
 /// Stable production identifier.
-pub const PRODUCTION_IDENTIFIER: &str = "greedy-capturer-shortfall-50-v1";
+pub const PRODUCTION_IDENTIFIER: &str = "greedy-capturer-shortfall-50-generic-tactical-v2";
 
 impl BaselineConfig {
     /// The only baseline configuration used for comparisons.
@@ -56,7 +58,7 @@ impl BaselineConfig {
     /// The promoted production configuration.
     pub const PRODUCTION: Self = Self {
         identifier: PRODUCTION_IDENTIFIER,
-        agent: BaselineAgent::Greedy,
+        agent: BaselineAgent::GreedyGenericTactical,
         weights: Weights::CAPTURER_SHORTFALL_50,
         node_budget: NodeBudget::FOUR,
         tie_break: TieBreak::SeededReservoir,
@@ -72,6 +74,9 @@ impl BaselineConfig {
     pub const fn build_greedy(self, seed: u64) -> GreedyAgent {
         match self.agent {
             BaselineAgent::Greedy => GreedyAgent::with_weights(seed, self.weights),
+            BaselineAgent::GreedyGenericTactical => {
+                GreedyAgent::with_generic_tactical_policy(seed, self.weights)
+            }
         }
     }
 
@@ -161,6 +166,6 @@ mod tests {
     #[test]
     fn the_production_configuration_has_a_stable_fingerprint() {
         assert_eq!(BaselineConfig::PRODUCTION.identifier, PRODUCTION_IDENTIFIER);
-        assert_eq!(production_configuration_fingerprint(), "81496db7e594d1bc");
+        assert_eq!(production_configuration_fingerprint(), "5678b134f226cacc");
     }
 }

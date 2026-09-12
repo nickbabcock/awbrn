@@ -54,6 +54,11 @@ use crate::rng::Rng;
 use crate::threat::{self, ThreatMap};
 use crate::vision::{Needs, VisionMap};
 
+/// The minimum funds that make saving the final production opportunity useful.
+const LATE_SAVE_MIN_FUNDS: u64 = 10_000;
+/// The score of a useful save at the day limit.
+const LATE_SAVE_SCORE: f64 = 100_000.0;
+
 /// What each objective is worth, in one place.
 ///
 /// Every field is a score rather than a quantity, and only the ratios between
@@ -511,6 +516,43 @@ impl Default for Weights {
     }
 }
 
+/// Optional generic tactical corrections used by a promoted weighting.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TacticalPolicy {
+    /// Do not reward an attack for moving when its forecast loses the attacker.
+    suppress_attack_pull_on_loss: bool,
+    /// Keep a losing attack when its capture denial covers the unit loss.
+    preserve_denial_sacrifice: bool,
+    /// Price immediate enemy threat after a surviving attack.
+    price_attack_reply_exposure: bool,
+    /// Minimum replacement-cost ratio before reply exposure is priced.
+    price_attack_reply_exposure_min_ratio: f64,
+    /// Reward damage that removes threat from other friendly units.
+    target_threat_reduction: bool,
+    /// Prefer saving high funds at the final production opportunity.
+    preserve_late_save: bool,
+}
+
+impl TacticalPolicy {
+    const DEFAULT: Self = Self {
+        suppress_attack_pull_on_loss: false,
+        preserve_denial_sacrifice: false,
+        price_attack_reply_exposure: false,
+        price_attack_reply_exposure_min_ratio: 0.0,
+        target_threat_reduction: false,
+        preserve_late_save: false,
+    };
+
+    const GENERIC: Self = Self {
+        suppress_attack_pull_on_loss: true,
+        preserve_denial_sacrifice: true,
+        price_attack_reply_exposure: true,
+        price_attack_reply_exposure_min_ratio: 1.0,
+        target_threat_reduction: true,
+        preserve_late_save: true,
+    };
+}
+
 #[derive(Debug)]
 pub struct GreedyAgent {
     /// Ties are common — a mirror board answers the same score from two
@@ -518,6 +560,7 @@ pub struct GreedyAgent {
     /// walks one flank. The draw is seeded, so a game still repeats.
     rng: Rng,
     weights: Weights,
+    policy: TacticalPolicy,
     /// The pull each tile feels toward the properties worth capturing, one
     /// field for each movement class that can capture, and the pull it feels
     /// toward the enemy. One entry for each tile of the board, rebuilt once
@@ -601,6 +644,12 @@ pub struct GreedyAttackBreakdown {
     pub attacker_loss: f64,
     /// Value of denying a capture.
     pub capture_denial: f64,
+    /// Penalty for residual immediate threat after an attack.
+    pub reply_exposure: f64,
+    /// Value of reducing the target's threat to other friendly units.
+    pub target_threat_reduction: f64,
+    /// Immediate threat at the attack destination.
+    pub immediate_reply_threat: f64,
     /// Value of the target tile.
     pub pull: f64,
     /// Value of newly seen tiles.
@@ -618,6 +667,7 @@ impl GreedyAgent {
         Self {
             rng: Rng::from_seed(seed),
             weights,
+            policy: TacticalPolicy::DEFAULT,
             capture_fields: CaptureFields::new(),
             advance_field: Vec::new(),
             hold_field: Vec::new(),
@@ -628,6 +678,13 @@ impl GreedyAgent {
             vision: VisionMap::new(),
             threat: ThreatMap::new(),
         }
+    }
+
+    /// Build the weighting with generic tactical corrections enabled.
+    pub const fn with_generic_tactical_policy(seed: u64, weights: Weights) -> Self {
+        let mut agent = Self::with_weights(seed, weights);
+        agent.policy = TacticalPolicy::GENERIC;
+        agent
     }
 
     /// Return the tie-break generator state.
@@ -1070,6 +1127,7 @@ impl GreedyAgent {
         let Self {
             rng,
             weights,
+            policy,
             capture_fields,
             advance_field,
             hold_field,
@@ -1146,6 +1204,7 @@ impl GreedyAgent {
             vision,
             threat,
             shortfall: board.capturer_shortfall(occupant),
+            policy: *policy,
         };
 
         let mut visitor = GreedyVisitor {
@@ -1156,6 +1215,8 @@ impl GreedyAgent {
             best: 0.0,
             tied: 0,
             chosen: None,
+            preserve_denial_sacrifice: policy.preserve_denial_sacrifice,
+            denial_sacrifice: None,
         };
         match scope {
             Some(scope) => session.legal().visit_scoped(scope, &mut visitor),
@@ -1164,7 +1225,15 @@ impl GreedyAgent {
 
         // Nothing scores above zero when every unit has acted and nothing is
         // left worth doing, which is what ends the turn.
-        Play::from_order(session, visitor.chosen?)
+        let chosen = match (visitor.chosen, visitor.denial_sacrifice) {
+            (Some(order), Some(sacrifice)) if matches!(order.kind(), OrderKind::Wait) => {
+                Some(sacrifice.order)
+            }
+            (Some(order), _) => Some(order),
+            (None, Some(sacrifice)) => Some(sacrifice.order),
+            (None, None) => None,
+        };
+        Play::from_order(session, chosen?)
     }
 }
 
@@ -1517,6 +1586,17 @@ struct GreedyVisitor<'a> {
     best: f64,
     tied: u64,
     chosen: Option<Order>,
+    preserve_denial_sacrifice: bool,
+    denial_sacrifice: Option<DenialSacrifice>,
+}
+
+/// A losing attack that delays an enemy capture by enough to cover its unit
+/// loss.
+#[derive(Clone, Copy)]
+struct DenialSacrifice {
+    order: Order,
+    score: f64,
+    denial: f64,
 }
 
 impl GreedyVisitor<'_> {
@@ -1533,6 +1613,24 @@ impl GreedyVisitor<'_> {
             scored.push(scored_order);
         }
         if self.select {
+            if self.preserve_denial_sacrifice
+                && let Some(attack) = breakdown.attack
+                && attack.attacker_loss < 0.0
+                && attack.capture_denial >= -attack.attacker_loss
+            {
+                let replacement = self.denial_sacrifice.is_none_or(|current| {
+                    attack.capture_denial > current.denial
+                        || (attack.capture_denial == current.denial
+                            && breakdown.total > current.score)
+                });
+                if replacement {
+                    self.denial_sacrifice = Some(DenialSacrifice {
+                        order,
+                        score: breakdown.total,
+                        denial: attack.capture_denial,
+                    });
+                }
+            }
             let score = breakdown.total;
             if score > self.best {
                 self.best = score;
@@ -1571,6 +1669,7 @@ struct Scorer<'a> {
     vision: &'a VisionMap,
     threat: &'a ThreatMap,
     shortfall: f64,
+    policy: TacticalPolicy,
 }
 
 impl Scorer<'_> {
@@ -1619,18 +1718,35 @@ impl Scorer<'_> {
             OrderKind::Delete
             | OrderKind::Resign
             | OrderKind::Timeout
-            | OrderKind::EndTurn
             | OrderKind::Tag
             | OrderKind::Explode
             | OrderKind::Hide
             | OrderKind::Reveal
             | OrderKind::Repair(_)
             | OrderKind::Launch(_) => 0.0,
+            OrderKind::EndTurn => self.late_save_score(),
         };
         GreedyScoreBreakdown {
             total,
             capture,
             attack,
+        }
+    }
+
+    fn late_save_score(&self) -> f64 {
+        let Some(day_limit) = self.board.state.settings.day_limit else {
+            return 0.0;
+        };
+        let Some(player) = self.board.state.players.get(self.board.seat.get()) else {
+            return 0.0;
+        };
+        if self.policy.preserve_late_save
+            && self.board.state.turn.day.saturating_add(1) >= day_limit
+            && player.funds >= LATE_SAVE_MIN_FUNDS
+        {
+            LATE_SAVE_SCORE
+        } else {
+            0.0
         }
     }
 
@@ -1668,6 +1784,8 @@ impl Scorer<'_> {
             return parts;
         };
         let weights = self.weights();
+        let reply_threat = self.threat.immediate(order.destination(), attacker.kind);
+        parts.immediate_reply_threat = reply_threat;
 
         let Some(forecast) = forecast else {
             // A fogged defender has no exact health, so there is nothing to
@@ -1681,9 +1799,14 @@ impl Scorer<'_> {
         };
 
         let mean = |low: u16, high: u16| f64::from(low + high) / 2.0;
-        let dealt = mean(forecast.attack.low, forecast.attack.high)
-            .min(f64::from(forecast.target_hp))
-            / 100.0;
+        let target_hp = f64::from(forecast.target_hp);
+        let dealt_damage = mean(forecast.attack.low, forecast.attack.high).min(target_hp);
+        let damage_fraction = if target_hp > 0.0 {
+            (dealt_damage / target_hp).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let dealt = dealt_damage / 100.0;
         let taken = forecast
             .counter
             .map(|counter| {
@@ -1700,22 +1823,75 @@ impl Scorer<'_> {
             parts.guaranteed_removal = weights.unit_count;
             score += weights.unit_count;
         }
-        if taken * 100.0 >= f64::from(forecast.attacker_hp) {
+        let attacker_is_lost = taken * 100.0 >= f64::from(forecast.attacker_hp);
+        if attacker_is_lost {
             parts.attacker_loss = -weights.unit_count;
             score -= weights.unit_count;
         }
         parts.capture_denial = self.denial(target, defender, forecast);
         score += parts.capture_denial;
+        parts.target_threat_reduction =
+            self.target_threat_reduction_score(attacker, defender, damage_fraction);
+        score += parts.target_threat_reduction;
+        let exposure_threat = if self.policy.target_threat_reduction {
+            let target_reply_threat =
+                self.threat
+                    .immediate_contribution(defender.id, order.destination(), attacker.kind);
+            (reply_threat - target_reply_threat * damage_fraction).max(0.0)
+        } else {
+            reply_threat
+        };
+        if self.policy.price_attack_reply_exposure
+            && !attacker_is_lost
+            && exposure_threat
+                >= cost(attacker.kind) * self.policy.price_attack_reply_exposure_min_ratio
+        {
+            parts.reply_exposure = -weights.threat * exposure_threat;
+            score += parts.reply_exposure;
+        }
         // The pull of the tile, and not the arrival: a strike is not charged
         // for what the tile it fires from is exposed to. The forecast above
         // already prices the reply, and charging the exposure on top prices
         // the same exchange twice. The arena is plain about it — the more of
         // the exposure an attack pays, the worse the agent plays, and it is
         // worst at the whole of it.
-        parts.pull = self.pull(order);
+        parts.pull = if attacker_is_lost && self.policy.suppress_attack_pull_on_loss {
+            0.0
+        } else {
+            self.pull(order)
+        };
         parts.sight = self.sight(order);
         parts.total = score + parts.pull + parts.sight;
         parts
+    }
+
+    /// Return the value of reducing one target's threat to other friendly
+    /// units.
+    fn target_threat_reduction_score(
+        &self,
+        attacker: &Unit,
+        defender: &Unit,
+        damage_fraction: f64,
+    ) -> f64 {
+        if !self.policy.target_threat_reduction || damage_fraction <= 0.0 {
+            return 0.0;
+        }
+        let mut threat = 0.0;
+        for unit in self.board.state.units.iter() {
+            if unit.owner != self.board.seat || unit.id == attacker.id {
+                continue;
+            }
+            let Location::Board { position } = unit.location else {
+                continue;
+            };
+            let Some(cell) = self.board.state.board.dimensions().cell_index(position) else {
+                continue;
+            };
+            threat += self
+                .threat
+                .immediate_contribution(defender.id, cell, unit.kind);
+        }
+        self.weights().threat * threat * damage_fraction
     }
 
     /// What stopping this defender's capture is worth.

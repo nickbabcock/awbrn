@@ -162,7 +162,7 @@ fn a_seat_plays_the_same_way_from_the_same_seed() {
     let play_once = || {
         let mut server = GameServer::new(setup.clone()).expect("the setup is valid");
         let mut events = Vec::new();
-        play_ai_turn(&mut server, &mut events, p1(), "ai-hard-v1", 99)
+        play_ai_turn(&mut server, &mut events, p1(), "ai-hard-v2", 99)
     };
 
     assert_eq!(play_once(), play_once());

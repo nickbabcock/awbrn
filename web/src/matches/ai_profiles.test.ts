@@ -23,7 +23,7 @@ describe("the opponent roster", () => {
 
   it("names every seat something a person can read", () => {
     expect(aiSeatName("ai-easy-v1")).toBe("Easy CPU");
-    expect(aiSeatName("ai-hard-v1")).toBe("Hard CPU");
+    expect(aiSeatName("ai-hard-v2")).toBe("Hard CPU");
   });
 
   it("does not resolve an opponent it has no profile for", () => {
