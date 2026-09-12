@@ -34,6 +34,8 @@ pub enum TurnEndReason {
     UnrealizablePlay,
     /// The harness ended the turn after too many rejected offers.
     RefusalLimit,
+    /// An accepted command finished the match.
+    MatchFinished,
 }
 
 /// Short name for a turn completion reason.

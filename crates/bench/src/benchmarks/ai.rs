@@ -825,6 +825,7 @@ pub fn play_amber_valley_match(case: AmberValleyMatchCase) -> Record {
         &mut entropy,
         Limits::DEFAULT,
     )
+    .expect("benchmark match executes")
 }
 
 pub fn run_amber_valley_match(case: AmberValleyMatchCase) -> u64 {

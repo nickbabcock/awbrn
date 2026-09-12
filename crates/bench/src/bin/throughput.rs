@@ -174,6 +174,7 @@ fn one_game(options: &Options, session: &mut Session, game: u64) -> Record {
             ..Limits::DEFAULT
         },
     )
+    .expect("benchmark match executes")
 }
 
 fn report(options: &Options, records: &[Record], elapsed: f64) {

@@ -221,7 +221,8 @@ fn run(case: &mut LateGameCase) -> TurnResult {
         case.agent.as_mut(),
         &mut case.entropy,
         case.node_budget,
-    );
+    )
+    .expect("benchmark turn executes");
     assert!(result.completed, "late-game benchmark turn completes");
     assert_eq!(result.rejected_commands, 0, "all commands are accepted");
     assert_eq!(result.unrealizable_plays, 0, "all plays are realizable");

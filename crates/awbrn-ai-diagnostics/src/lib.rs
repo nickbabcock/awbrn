@@ -68,9 +68,9 @@ pub use tactical::{
     TACTICAL_EXECUTABLE_FINGERPRINT, TacticalFactory, TacticalRerank, TacticalRerankMode,
 };
 pub use tournament::{
-    AgentFactory, MatchPerformance, SEARCH_COVERAGE_SCHEMA_VERSION, SEARCH_EXECUTABLE_FINGERPRINT,
-    STRATEGIC_EXECUTABLE_FINGERPRINT, SearchCoverageArtifact, SearchCoverageMatch, SearchFactory,
-    StrategicFactory, TournamentError, TournamentPerformance, TournamentSummary, run_manifest,
-    run_paired_tournament,
+    AgentFactory, CompleteTurnTiming, MatchPerformance, SEARCH_COVERAGE_SCHEMA_VERSION,
+    SEARCH_EXECUTABLE_FINGERPRINT, STRATEGIC_EXECUTABLE_FINGERPRINT, SearchCoverageArtifact,
+    SearchCoverageMatch, SearchFactory, StrategicFactory, TournamentError, TournamentPerformance,
+    TournamentSummary, run_manifest, run_paired_tournament,
 };
 pub use verify::{VerificationSummary, VerifyError, verify_artifact};
