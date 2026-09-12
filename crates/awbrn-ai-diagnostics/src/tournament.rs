@@ -10,7 +10,7 @@ use awbrn_ai::FNV1A_OFFSET_BASIS;
 use awbrn_ai::agent::{Agent, NodeBudget, SearchStats};
 use awbrn_ai::agents::{SearchAgent, SearchAllocator, StrategicAgent, Weights};
 use awbrn_ai::baseline::BaselineConfig;
-use awbrn_ai::harness::{Limits, next_command_fingerprint, play_observed_fallible};
+use awbrn_ai::harness::{Limits, RefusalTrace, next_command_fingerprint, play_observed_fallible};
 use awbrn_ai::rng::Rng;
 use awbrn_ai_diagnostic_types::{
     AgentIdentity, PairKey, Reduction, RunLimits, RunManifest, RunManifestError, SeatOrderVariant,
@@ -197,8 +197,41 @@ pub struct TournamentPerformance {
     pub total_invalid_commands: u64,
     #[serde(default)]
     pub total_refusals: u64,
+    /// Commands rejected by deterministic preflight.
+    #[serde(default)]
+    pub total_preflight_rejections: u64,
     #[serde(default)]
     pub total_unrealizable_plays: u64,
+    /// Invalid decisions made by the candidate agent.
+    #[serde(default)]
+    pub candidate_invalid_commands: u64,
+    /// Invalid decisions made by the baseline agent.
+    #[serde(default)]
+    pub baseline_invalid_commands: u64,
+    /// Candidate configuration fingerprint.
+    #[serde(default)]
+    pub candidate_configuration_fingerprint: String,
+    /// Baseline configuration fingerprint.
+    #[serde(default)]
+    pub baseline_configuration_fingerprint: String,
+    /// Candidate commands rejected by deterministic preflight.
+    #[serde(default)]
+    pub candidate_preflight_rejections: u64,
+    /// Baseline commands rejected by deterministic preflight.
+    #[serde(default)]
+    pub baseline_preflight_rejections: u64,
+    /// Candidate complete-turn timing.
+    #[serde(default)]
+    pub candidate_complete_turn_timing: CompleteTurnTiming,
+    /// Baseline complete-turn timing.
+    #[serde(default)]
+    pub baseline_complete_turn_timing: CompleteTurnTiming,
+    /// Unrealizable plays made by the candidate agent.
+    #[serde(default)]
+    pub candidate_unrealizable_plays: u64,
+    /// Unrealizable plays made by the baseline agent.
+    #[serde(default)]
+    pub baseline_unrealizable_plays: u64,
     pub matches_by_seat_order: BTreeMap<String, usize>,
     pub match_records: Vec<MatchPerformance>,
 }
@@ -210,16 +243,52 @@ pub struct MatchPerformance {
     #[serde(default)]
     pub attempt: u32,
     pub map_id: u32,
+    /// Pair identity shared by both seat orders.
+    #[serde(default = "default_pair_key")]
+    pub pair: PairKey,
     pub seat_order: SeatOrderVariant,
     pub elapsed_nanos: u64,
+    /// Candidate complete accepted-turn durations.
+    #[serde(default)]
+    pub candidate_complete_turn_times_nanos: Vec<u64>,
+    /// Baseline complete accepted-turn durations.
+    #[serde(default)]
+    pub baseline_complete_turn_times_nanos: Vec<u64>,
     pub turns: u32,
     pub days: u32,
     pub commands: u64,
     pub invalid_commands: u64,
     #[serde(default)]
     pub refusals: u64,
+    /// Commands rejected by deterministic preflight.
+    #[serde(default)]
+    pub preflight_rejections: u64,
     #[serde(default)]
     pub unrealizable_plays: u64,
+    /// Invalid decisions made by the candidate agent.
+    #[serde(default)]
+    pub candidate_invalid_commands: u64,
+    /// Invalid decisions made by the baseline agent.
+    #[serde(default)]
+    pub baseline_invalid_commands: u64,
+    /// Candidate configuration fingerprint.
+    #[serde(default)]
+    pub candidate_configuration_fingerprint: String,
+    /// Baseline configuration fingerprint.
+    #[serde(default)]
+    pub baseline_configuration_fingerprint: String,
+    /// Candidate commands rejected by deterministic preflight.
+    #[serde(default)]
+    pub candidate_preflight_rejections: u64,
+    /// Baseline commands rejected by deterministic preflight.
+    #[serde(default)]
+    pub baseline_preflight_rejections: u64,
+    /// Unrealizable plays made by the candidate agent.
+    #[serde(default)]
+    pub candidate_unrealizable_plays: u64,
+    /// Unrealizable plays made by the baseline agent.
+    #[serde(default)]
+    pub baseline_unrealizable_plays: u64,
     pub outcome: String,
     /// Search counters for the candidate, when it is a search agent.
     #[serde(default)]
@@ -233,6 +302,28 @@ pub struct MatchPerformance {
     /// Baseline search decision times in nanoseconds.
     #[serde(default)]
     pub baseline_decision_times_nanos: Vec<u64>,
+    /// Reducer refusals with optional agent traces.
+    #[serde(default)]
+    pub refusal_traces: Vec<RefusalTrace>,
+}
+
+/// Summary of complete accepted turns for one agent.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct CompleteTurnTiming {
+    /// Number of samples.
+    pub samples: usize,
+    /// Median duration in nanoseconds.
+    pub median_nanos: u64,
+    /// 95th percentile duration in nanoseconds.
+    pub p95_nanos: u64,
+    /// Mean duration in nanoseconds.
+    pub mean_nanos: u64,
+    /// Maximum duration in nanoseconds.
+    pub maximum_nanos: u64,
+}
+
+fn default_pair_key() -> PairKey {
+    PairKey::new(0, 0, 0)
 }
 
 /// Return the latest record for each match ID.
@@ -522,6 +613,9 @@ fn run_match(
     let state = map.state(match_seed)?;
     let mut session = Session::new(state.clone());
     let mut entropy = Rng::from_seed(BaselineConfig::LOCKED.entropy_seed(match_seed));
+    let candidate_configuration_fingerprint =
+        candidate.identity().configuration_fingerprint.clone();
+    let baseline_configuration_fingerprint = baseline.identity().configuration_fingerprint.clone();
     let candidate_seed = BaselineConfig::LOCKED.agent_seed(match_seed, 0);
     let baseline_seed = BaselineConfig::LOCKED.agent_seed(match_seed, 1);
     let mut candidate = candidate.create(candidate_seed);
@@ -577,27 +671,91 @@ fn run_match(
     let candidate_decision_times_nanos =
         candidate.search_decision_times_nanos().unwrap_or_default();
     let baseline_decision_times_nanos = baseline.search_decision_times_nanos().unwrap_or_default();
+    let (candidate_seat, baseline_seat) = match seat_order {
+        SeatOrderVariant::AgentFirst => (0, 1),
+        SeatOrderVariant::BaselineFirst => (1, 0),
+    };
+    let candidate_refusals = record
+        .refusals_by_seat
+        .get(candidate_seat)
+        .copied()
+        .unwrap_or_default();
+    let candidate_preflight_rejections = record
+        .preflight_rejections_by_seat
+        .get(candidate_seat)
+        .copied()
+        .unwrap_or_default();
+    let baseline_refusals = record
+        .refusals_by_seat
+        .get(baseline_seat)
+        .copied()
+        .unwrap_or_default();
+    let baseline_preflight_rejections = record
+        .preflight_rejections_by_seat
+        .get(baseline_seat)
+        .copied()
+        .unwrap_or_default();
+    let candidate_complete_turn_times_nanos = record
+        .complete_turn_times_by_seat
+        .get(candidate_seat)
+        .cloned()
+        .unwrap_or_default();
+    let baseline_complete_turn_times_nanos = record
+        .complete_turn_times_by_seat
+        .get(baseline_seat)
+        .cloned()
+        .unwrap_or_default();
+    let candidate_unrealizable_plays = record
+        .unrealizable_plays_by_seat
+        .get(candidate_seat)
+        .copied()
+        .unwrap_or_default();
+    let baseline_unrealizable_plays = record
+        .unrealizable_plays_by_seat
+        .get(baseline_seat)
+        .copied()
+        .unwrap_or_default();
     Ok(MatchPerformance {
         match_id: metadata.match_id,
         attempt,
         map_id: pair.map_id,
+        pair: pair.clone(),
         seat_order,
         elapsed_nanos: match_started
             .elapsed()
             .as_nanos()
             .try_into()
             .unwrap_or(u64::MAX),
+        candidate_complete_turn_times_nanos,
+        baseline_complete_turn_times_nanos,
         turns: record.turns,
         days: record.days,
         commands: record.commands,
-        invalid_commands: record.refusals.saturating_add(record.unrealizable_plays),
+        invalid_commands: record
+            .refusals
+            .saturating_add(record.preflight_rejections)
+            .saturating_add(record.unrealizable_plays),
         refusals: record.refusals,
+        preflight_rejections: record.preflight_rejections,
         unrealizable_plays: record.unrealizable_plays,
+        candidate_invalid_commands: candidate_refusals
+            .saturating_add(candidate_preflight_rejections)
+            .saturating_add(candidate_unrealizable_plays),
+        baseline_invalid_commands: baseline_refusals
+            .saturating_add(baseline_preflight_rejections)
+            .saturating_add(baseline_unrealizable_plays),
+        candidate_configuration_fingerprint,
+        baseline_configuration_fingerprint,
+        candidate_preflight_rejections,
+        baseline_preflight_rejections,
+        candidate_unrealizable_plays,
+        baseline_unrealizable_plays,
         outcome: outcome_name(record.outcome.as_ref()).into(),
         candidate_search_stats,
         baseline_search_stats,
         candidate_decision_times_nanos,
         baseline_decision_times_nanos,
+        refusal_traces: record.refusal_traces,
     })
 }
 
@@ -611,7 +769,53 @@ impl TournamentPerformance {
         let total_commands = active.iter().map(|record| record.commands).sum();
         let total_invalid_commands = active.iter().map(|record| record.invalid_commands).sum();
         let total_refusals = active.iter().map(|record| record.refusals).sum();
+        let total_preflight_rejections = active
+            .iter()
+            .map(|record| record.preflight_rejections)
+            .sum();
         let total_unrealizable_plays = active.iter().map(|record| record.unrealizable_plays).sum();
+        let candidate_invalid_commands = active
+            .iter()
+            .map(|record| record.candidate_invalid_commands)
+            .sum();
+        let baseline_invalid_commands = active
+            .iter()
+            .map(|record| record.baseline_invalid_commands)
+            .sum();
+        let candidate_preflight_rejections = active
+            .iter()
+            .map(|record| record.candidate_preflight_rejections)
+            .sum();
+        let baseline_preflight_rejections = active
+            .iter()
+            .map(|record| record.baseline_preflight_rejections)
+            .sum();
+        let candidate_unrealizable_plays = active
+            .iter()
+            .map(|record| record.candidate_unrealizable_plays)
+            .sum();
+        let baseline_unrealizable_plays = active
+            .iter()
+            .map(|record| record.baseline_unrealizable_plays)
+            .sum();
+        let candidate_complete_turn_timing = summarize_complete_turns(
+            active
+                .iter()
+                .flat_map(|record| record.candidate_complete_turn_times_nanos.iter().copied()),
+        );
+        let baseline_complete_turn_timing = summarize_complete_turns(
+            active
+                .iter()
+                .flat_map(|record| record.baseline_complete_turn_times_nanos.iter().copied()),
+        );
+        let candidate_configuration_fingerprint = active
+            .first()
+            .map(|record| record.candidate_configuration_fingerprint.clone())
+            .unwrap_or_default();
+        let baseline_configuration_fingerprint = active
+            .first()
+            .map(|record| record.baseline_configuration_fingerprint.clone())
+            .unwrap_or_default();
         let mut matches_by_seat_order = BTreeMap::new();
         for record in &active {
             *matches_by_seat_order
@@ -631,10 +835,47 @@ impl TournamentPerformance {
             total_commands,
             total_invalid_commands,
             total_refusals,
+            total_preflight_rejections,
             total_unrealizable_plays,
+            candidate_invalid_commands,
+            baseline_invalid_commands,
+            candidate_configuration_fingerprint,
+            baseline_configuration_fingerprint,
+            candidate_preflight_rejections,
+            baseline_preflight_rejections,
+            candidate_complete_turn_timing,
+            baseline_complete_turn_timing,
+            candidate_unrealizable_plays,
+            baseline_unrealizable_plays,
             matches_by_seat_order,
             match_records: matches,
         }
+    }
+}
+
+pub(crate) fn summarize_complete_turns<I>(samples: I) -> CompleteTurnTiming
+where
+    I: IntoIterator<Item = u64>,
+{
+    let mut ordered = samples.into_iter().collect::<Vec<_>>();
+    ordered.sort_unstable();
+    if ordered.is_empty() {
+        return CompleteTurnTiming::default();
+    }
+    let sum = ordered.iter().copied().map(u128::from).sum::<u128>();
+    let p95_index = ((ordered.len() as f64 * 0.95).ceil() as usize).saturating_sub(1);
+    let middle = ordered.len() / 2;
+    let median_nanos = if ordered.len() % 2 == 0 {
+        (u128::from(ordered[middle - 1]) + u128::from(ordered[middle])) / 2
+    } else {
+        u128::from(ordered[middle])
+    };
+    CompleteTurnTiming {
+        samples: ordered.len(),
+        median_nanos: median_nanos.try_into().unwrap_or(u64::MAX),
+        p95_nanos: ordered[p95_index],
+        mean_nanos: (sum / ordered.len() as u128).try_into().unwrap_or(u64::MAX),
+        maximum_nanos: *ordered.last().expect("complete-turn samples are not empty"),
     }
 }
 
@@ -773,55 +1014,94 @@ mod tests {
             match_id: "match-a".into(),
             attempt: 0,
             map_id: 1,
+            pair: PairKey::new(1, 7, 0),
             seat_order: SeatOrderVariant::AgentFirst,
             elapsed_nanos: 100,
+            candidate_complete_turn_times_nanos: Vec::new(),
+            baseline_complete_turn_times_nanos: Vec::new(),
             turns: 4,
             days: 4,
             commands: 10,
             invalid_commands: 5,
             refusals: 2,
+            preflight_rejections: 0,
             unrealizable_plays: 3,
+            candidate_invalid_commands: 0,
+            baseline_invalid_commands: 0,
+            candidate_configuration_fingerprint: "candidate".into(),
+            baseline_configuration_fingerprint: "baseline".into(),
+            candidate_preflight_rejections: 0,
+            baseline_preflight_rejections: 0,
+            candidate_unrealizable_plays: 0,
+            baseline_unrealizable_plays: 0,
             outcome: "incomplete".into(),
             candidate_search_stats: None,
             baseline_search_stats: None,
             candidate_decision_times_nanos: Vec::new(),
             baseline_decision_times_nanos: Vec::new(),
+            refusal_traces: Vec::new(),
         };
         let retry = MatchPerformance {
             match_id: "match-a".into(),
             attempt: 1,
             map_id: 1,
+            pair: PairKey::new(1, 7, 0),
             seat_order: SeatOrderVariant::AgentFirst,
             elapsed_nanos: 20,
+            candidate_complete_turn_times_nanos: vec![30, 10, 20],
+            baseline_complete_turn_times_nanos: vec![40, 50],
             turns: 2,
             days: 2,
             commands: 4,
             invalid_commands: 3,
             refusals: 1,
+            preflight_rejections: 1,
             unrealizable_plays: 2,
+            candidate_invalid_commands: 1,
+            baseline_invalid_commands: 2,
+            candidate_configuration_fingerprint: "candidate".into(),
+            baseline_configuration_fingerprint: "baseline".into(),
+            candidate_preflight_rejections: 1,
+            baseline_preflight_rejections: 0,
+            candidate_unrealizable_plays: 1,
+            baseline_unrealizable_plays: 1,
             outcome: "victory".into(),
             candidate_search_stats: None,
             baseline_search_stats: None,
             candidate_decision_times_nanos: Vec::new(),
             baseline_decision_times_nanos: Vec::new(),
+            refusal_traces: Vec::new(),
         };
         let other = MatchPerformance {
             match_id: "match-b".into(),
             attempt: 0,
             map_id: 1,
+            pair: PairKey::new(1, 7, 1),
             seat_order: SeatOrderVariant::BaselineFirst,
             elapsed_nanos: 30,
+            candidate_complete_turn_times_nanos: vec![60],
+            baseline_complete_turn_times_nanos: vec![70, 80],
             turns: 3,
             days: 3,
             commands: 6,
             invalid_commands: 1,
             refusals: 1,
+            preflight_rejections: 0,
             unrealizable_plays: 0,
+            candidate_invalid_commands: 1,
+            baseline_invalid_commands: 0,
+            candidate_configuration_fingerprint: "candidate".into(),
+            baseline_configuration_fingerprint: "baseline".into(),
+            candidate_preflight_rejections: 0,
+            baseline_preflight_rejections: 0,
+            candidate_unrealizable_plays: 0,
+            baseline_unrealizable_plays: 0,
             outcome: "draw".into(),
             candidate_search_stats: None,
             baseline_search_stats: None,
             candidate_decision_times_nanos: Vec::new(),
             baseline_decision_times_nanos: Vec::new(),
+            refusal_traces: Vec::new(),
         };
 
         let performance = TournamentPerformance::from_matches(vec![old, retry, other], 99);
@@ -830,7 +1110,21 @@ mod tests {
         assert_eq!(performance.total_commands, 10);
         assert_eq!(performance.total_invalid_commands, 4);
         assert_eq!(performance.total_refusals, 2);
+        assert_eq!(performance.total_preflight_rejections, 1);
         assert_eq!(performance.total_unrealizable_plays, 2);
+        assert_eq!(performance.candidate_invalid_commands, 2);
+        assert_eq!(performance.baseline_invalid_commands, 2);
+        assert_eq!(performance.candidate_preflight_rejections, 1);
+        assert_eq!(performance.baseline_preflight_rejections, 0);
+        assert_eq!(performance.candidate_complete_turn_timing.samples, 4);
+        assert_eq!(performance.candidate_complete_turn_timing.median_nanos, 25);
+        assert_eq!(performance.candidate_complete_turn_timing.p95_nanos, 60);
+        assert_eq!(performance.baseline_complete_turn_timing.samples, 4);
+        assert_eq!(performance.baseline_complete_turn_timing.p95_nanos, 80);
+        assert_eq!(performance.candidate_configuration_fingerprint, "candidate");
+        assert_eq!(performance.baseline_configuration_fingerprint, "baseline");
+        assert_eq!(performance.candidate_unrealizable_plays, 1);
+        assert_eq!(performance.baseline_unrealizable_plays, 1);
         assert_eq!(performance.match_records.len(), 3);
         assert_eq!(performance.wall_clock_nanos, 99);
     }

@@ -3,7 +3,7 @@
 //! This agent has a separate identity and configuration. It delegates choices
 //! to the greedy baseline and supports the common agent lifecycle.
 
-use awvm::semantic::{Observation, ObservedEvent};
+use awvm::semantic::{Observation, ObservedEvent, State};
 
 use crate::agent::{Agent, AgentTiming, NodeBudget, Play, SearchStats};
 use crate::baseline::BaselineConfig;
@@ -92,7 +92,36 @@ impl Agent for StrategicAgent {
     }
 
     fn start_match(&mut self) {
+        self.baseline.start_match();
         self.clear_trace();
+    }
+
+    fn start_turn(&mut self, view: &Observation) {
+        self.baseline.start_turn(view);
+    }
+
+    fn refresh(&mut self, view: &Observation) {
+        self.baseline.refresh(view);
+    }
+
+    fn planned_state(&self) -> Option<State> {
+        self.baseline.planned_state()
+    }
+
+    fn planned_command(&self) -> Option<awvm::transition::Command> {
+        self.baseline.planned_command()
+    }
+
+    fn reject(&mut self, view: &Observation) {
+        self.baseline.reject(view);
+    }
+
+    fn requires_command_preflight(&self) -> bool {
+        self.baseline.requires_command_preflight()
+    }
+
+    fn classify_command(&mut self, view: &Observation, command: &awvm::transition::Command) {
+        self.baseline.classify_command(view, command);
     }
 
     fn finalize_trace(&mut self, reason: TurnEndReason) -> Result<(), TraceError> {

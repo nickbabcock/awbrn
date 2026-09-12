@@ -338,9 +338,22 @@ impl Agent for SearchAgent {
     }
 
     fn start_match(&mut self) {
+        self.plan.clear();
+        self.next = 0;
+        self.turn = None;
         self.timing = crate::agent::AgentTiming::default();
         self.stats = SearchStats::default();
         self.decision_times_nanos.clear();
+    }
+
+    fn reject(&mut self, _view: &Observation) {
+        self.plan.clear();
+        self.next = 0;
+        self.turn = None;
+    }
+
+    fn requires_command_preflight(&self) -> bool {
+        true
     }
 }
 

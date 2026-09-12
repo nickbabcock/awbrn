@@ -21,6 +21,7 @@ use awvm::semantic::{
 };
 use awvm::session::Session;
 use awvm::transition::{Command, ExecuteOutcome, execute_with};
+use awvm::violation::Violation;
 
 use crate::agent::{Agent, NodeBudget};
 use crate::fingerprint::{FNV1A_OFFSET_BASIS, FNV1A_PRIME};
@@ -31,6 +32,17 @@ type Observer<'a, Error> = &'a mut dyn FnMut(&State, Option<&Command>) -> Result
 
 fn elapsed_nanos(started: Instant) -> u64 {
     started.elapsed().as_nanos().try_into().unwrap_or(u64::MAX)
+}
+
+fn command_preflight(agent: &dyn Agent, state: &State, command: &Command) -> Option<Violation> {
+    if !agent.requires_command_preflight() {
+        return None;
+    }
+    match awvm::transition::validate(state, command.clone()) {
+        Ok(Ok(())) => None,
+        Ok(Err(violation)) => Some(violation),
+        Err(error) => panic!("command preflight failed: {error:?}"),
+    }
 }
 
 /// Fold one command into a running FNV-1a fingerprint.
@@ -65,7 +77,12 @@ pub struct TurnResult {
     pub timing: crate::agent::AgentTiming,
     /// Number of rejected commands.
     pub rejected_commands: u32,
+    /// Number of planned commands rejected before execution.
+    pub preflight_rejections: u32,
     /// Number of plays that could not become commands.
+    ///
+    /// This field remains for compatibility. New rejections use
+    /// `preflight_rejections`.
     pub unrealizable_plays: u32,
     /// Whether the accepted end-turn command completed the turn.
     pub completed: bool,
@@ -116,12 +133,27 @@ fn run_agent_turn_inner<E: Entropy>(
     let mut decision_nanos = Vec::new();
     let mut first_command_nanos = None;
     let mut rejected_commands: u32 = 0;
-    let mut unrealizable_plays: u32 = 0;
+    let mut preflight_rejections: u32 = 0;
+    let unrealizable_plays: u32 = 0;
     let mut refusals_in_a_row = 0;
     let mut command_fingerprint = FNV1A_OFFSET_BASIS;
+    let completed;
 
     loop {
+        // A command can finish the match part way through a turn: the last
+        // enemy unit falls, or a headquarters changes hands. The reducer
+        // refuses every command after that, end-turn included, so a loop that
+        // keeps asking never leaves.
+        if matches!(session.state().match_state, Match::Finished { .. }) {
+            agent
+                .finalize_trace(TurnEndReason::AgentPass)
+                .expect("the agent finalizes its turn trace");
+            agent.clear_trace();
+            completed = false;
+            break;
+        }
         let decision_started = measure.then(Instant::now);
+        let mut unrealizable_play = false;
         let (command, reason) = if refusals_in_a_row >= REFUSAL_LIMIT {
             (
                 Command::EndTurn {
@@ -139,7 +171,7 @@ fn run_agent_turn_inner<E: Entropy>(
                 ),
                 Some(play) => match play.command(&session) {
                     None => {
-                        unrealizable_plays = unrealizable_plays.saturating_add(1);
+                        unrealizable_play = true;
                         (
                             Command::EndTurn {
                                 player: active_player.clone(),
@@ -165,9 +197,22 @@ fn run_agent_turn_inner<E: Entropy>(
             first_command_nanos = Some(elapsed_nanos(started));
         }
 
+        if unrealizable_play {
+            preflight_rejections = preflight_rejections.saturating_add(1);
+            refusals_in_a_row = refusals_in_a_row.saturating_add(1);
+            agent.reject(&view);
+            continue;
+        }
+
         let ends_turn = matches!(command, Command::EndTurn { .. });
-        agent.classify_command(&view, &command);
         let accepted_command = command.clone();
+        if command_preflight(agent, session.state(), &command).is_some() {
+            preflight_rejections = preflight_rejections.saturating_add(1);
+            refusals_in_a_row = refusals_in_a_row.saturating_add(1);
+            agent.reject(&view);
+            continue;
+        }
+        agent.classify_command(&view, &command);
         match execute_with(session.state(), command, entropy) {
             Ok(ExecuteOutcome::Accepted(execution)) => {
                 let observed_events = observe_events(
@@ -183,11 +228,13 @@ fn run_agent_turn_inner<E: Entropy>(
                     next_command_fingerprint(command_fingerprint, &accepted_command);
                 commands.push(accepted_command);
                 session.reset(execution.state);
-                if ends_turn {
+                let match_finished = matches!(session.state().match_state, Match::Finished { .. });
+                if ends_turn || match_finished {
                     agent
                         .finalize_trace(reason)
                         .expect("the agent finalizes its turn trace");
                     agent.clear_trace();
+                    completed = ends_turn;
                     break;
                 }
                 observe_into(&AwbwVisibility, session.state(), &active_player, &mut view)
@@ -198,6 +245,7 @@ fn run_agent_turn_inner<E: Entropy>(
             Ok(ExecuteOutcome::Rejected(_)) => {
                 rejected_commands = rejected_commands.saturating_add(1);
                 refusals_in_a_row = refusals_in_a_row.saturating_add(1);
+                agent.reject(&view);
             }
             Err(error) => panic!("the reducer failed on a generated command: {error:?}"),
         }
@@ -212,8 +260,9 @@ fn run_agent_turn_inner<E: Entropy>(
         total_nanos: turn_started.map(elapsed_nanos).unwrap_or(0),
         timing: agent.timing().unwrap_or_default().since(timing_before),
         rejected_commands,
+        preflight_rejections,
         unrealizable_plays,
-        completed: true,
+        completed,
         command_fingerprint,
     }
 }
@@ -289,11 +338,20 @@ pub struct Record {
     /// share makes a measured rate pessimistic. Under fog a refusal is the
     /// honest answer to a hidden blocker, not a fault.
     pub refusals: u64,
-    /// Plays that could not be resolved against the authoritative state.
+    /// Planned commands rejected before reducer execution.
+    pub preflight_rejections: u64,
+    /// Legacy count of plays that could not be resolved.
     ///
-    /// This is separate from reducer refusals. It usually means that fog hid
-    /// a blocker or target between the offer and the authority check.
+    /// New runs report these in `preflight_rejections`.
     pub unrealizable_plays: u64,
+    /// Rejected commands by roster seat.
+    pub refusals_by_seat: Vec<u64>,
+    /// Preflight rejections by roster seat.
+    pub preflight_rejections_by_seat: Vec<u64>,
+    /// Unrealizable plays by roster seat.
+    pub unrealizable_plays_by_seat: Vec<u64>,
+    /// Commands refused by the reducer.
+    pub refusal_traces: Vec<RefusalTrace>,
     /// Units on the board when the game stopped.
     ///
     /// This is the first thing to read when a measured rate and a modeled rate
@@ -314,6 +372,25 @@ pub struct Record {
     ///
     /// Empty for an unmeasured game without an observer.
     pub command_fingerprints: Vec<u64>,
+    /// Complete accepted-turn durations by roster seat, in nanoseconds.
+    pub complete_turn_times_by_seat: Vec<Vec<u64>>,
+}
+
+/// One command refused by the reducer.
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct RefusalTrace {
+    /// The state used to make the plan, when the agent provides it.
+    pub planned_state: State,
+    /// The command used by the plan, when the agent provides it.
+    pub planned_command: Command,
+    /// The authoritative state used for execution.
+    pub executed_state: State,
+    /// The command sent to the reducer.
+    pub command: Command,
+    /// The reducer violation.
+    pub violation: Violation,
+    /// Commands accepted earlier in the same turn.
+    pub preceding_commands: Vec<Command>,
 }
 
 impl Record {
@@ -451,9 +528,17 @@ fn play_inner<E: Entropy, Error>(
     let mut turns = 0;
     let mut commands = 0;
     let mut refusals = 0;
-    let mut unrealizable_plays = 0;
+    let mut preflight_rejections = 0;
+    let unrealizable_plays = 0;
+    let mut refusals_by_seat = vec![0_u64; agents.len()];
+    let mut preflight_rejections_by_seat = vec![0_u64; agents.len()];
+    let unrealizable_plays_by_seat = vec![0_u64; agents.len()];
     let mut refusals_in_a_row = 0;
     let mut started_turn: Option<(PlayerId, u64, usize)> = None;
+    let mut turn_started_at: Option<Instant> = None;
+    let mut complete_turn_times_by_seat = vec![Vec::new(); agents.len()];
+    let mut turn_commands = Vec::new();
+    let mut refusal_traces = Vec::new();
     let track_command_fingerprints = measure || observer.is_some();
     let mut command_fingerprints = if track_command_fingerprints {
         vec![FNV1A_OFFSET_BASIS; agents.len()]
@@ -479,10 +564,16 @@ fn play_inner<E: Entropy, Error>(
                 days: day,
                 commands,
                 refusals,
+                preflight_rejections,
                 unrealizable_plays,
+                refusals_by_seat,
+                preflight_rejections_by_seat,
+                unrealizable_plays_by_seat,
+                refusal_traces,
                 units: session.state().units.iter().count(),
                 shape,
                 command_fingerprints,
+                complete_turn_times_by_seat,
             });
         }
 
@@ -515,21 +606,23 @@ fn play_inner<E: Entropy, Error>(
             session.state().turn.position,
         );
         if started_turn.as_ref() != Some(&turn_key) {
+            turn_commands.clear();
+            turn_started_at = measure.then(Instant::now);
             agents[seat.get()].start_turn(view);
             started_turn = Some(turn_key);
         }
+        let mut unrealizable_play = false;
         let (command, reason) = if refusals_in_a_row >= limits.refusals {
             refusals_in_a_row = 0;
             (end_turn(), TurnEndReason::RefusalLimit)
         } else {
             // A `None` from the agent ends the turn. A `None` from the play
-            // ends it too: the true state holds no such route, which a hidden
-            // blocker does, and passing is the honest answer.
+            // discards the stale plan and asks the agent for a new one.
             match agents[seat.get()].act(view, limits.nodes) {
                 None => (end_turn(), TurnEndReason::AgentPass),
                 Some(play) => match play.command(session) {
                     None => {
-                        unrealizable_plays += 1;
+                        unrealizable_play = true;
                         (end_turn(), TurnEndReason::UnrealizablePlay)
                     }
                     Some(command) => {
@@ -544,14 +637,29 @@ fn play_inner<E: Entropy, Error>(
             }
         };
 
+        if unrealizable_play {
+            preflight_rejections += 1;
+            preflight_rejections_by_seat[seat.get()] += 1;
+            refusals_in_a_row += 1;
+            agents[seat.get()].reject(view);
+            continue;
+        }
+
         // Only an accepted end turn raises the count: a refused one changes
         // nothing, and an agent that ends its own turn must count the same as
         // one the harness ends for it.
         let ends_turn = matches!(command, Command::EndTurn { .. });
-        agents[seat.get()].classify_command(view, &command);
 
         let observed_command = observer.is_some().then(|| command.clone());
         let accepted_command = command.clone();
+        if command_preflight(&*agents[seat.get()], session.state(), &command).is_some() {
+            preflight_rejections += 1;
+            preflight_rejections_by_seat[seat.get()] += 1;
+            refusals_in_a_row += 1;
+            agents[seat.get()].reject(view);
+            continue;
+        }
+        agents[seat.get()].classify_command(view, &command);
         match execute_with(session.state(), command, entropy) {
             Ok(ExecuteOutcome::Accepted(execution)) => {
                 let observed_events = observe_events(
@@ -576,7 +684,8 @@ fn play_inner<E: Entropy, Error>(
                     shape.observe(session.state(), &execution.events);
                 }
                 session.reset(execution.state);
-                if !ends_turn {
+                let match_finished = matches!(session.state().match_state, Match::Finished { .. });
+                if !ends_turn && !match_finished {
                     let view = match &mut projection {
                         Some(view) => {
                             observe_into(&AwbwVisibility, session.state(), &player, view)
@@ -595,20 +704,38 @@ fn play_inner<E: Entropy, Error>(
                         .expect("the agent finalizes its turn trace");
                     agents[seat.get()].clear_trace();
                 }
+                if ends_turn && let Some(started) = turn_started_at.take() {
+                    complete_turn_times_by_seat[seat.get()].push(elapsed_nanos(started));
+                }
                 if measure && ends_turn {
                     shape.sample_turn(session.state(), seat);
                 }
                 if let Some(observer) = observer.as_mut() {
                     observer(session.state(), observed_command.as_ref())?;
                 }
+                turn_commands.push(accepted_command);
                 commands += 1;
                 refusals_in_a_row = 0;
                 if ends_turn {
                     turns += 1;
                 }
             }
-            Ok(ExecuteOutcome::Rejected(_)) => {
+            Ok(ExecuteOutcome::Rejected(violation)) => {
+                refusal_traces.push(RefusalTrace {
+                    planned_state: agents[seat.get()]
+                        .planned_state()
+                        .unwrap_or_else(|| session.state().clone()),
+                    planned_command: agents[seat.get()]
+                        .planned_command()
+                        .unwrap_or_else(|| accepted_command.clone()),
+                    executed_state: session.state().clone(),
+                    command: accepted_command,
+                    violation,
+                    preceding_commands: turn_commands.clone(),
+                });
+                agents[seat.get()].reject(view);
                 refusals += 1;
+                refusals_by_seat[seat.get()] += 1;
                 refusals_in_a_row += 1;
             }
             Err(error) => panic!("the reducer failed on a generated command: {error:?}"),
@@ -619,9 +746,150 @@ fn play_inner<E: Entropy, Error>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::Play;
     use crate::agents::RandomAgent;
     use crate::board::arena;
     use crate::rng::Rng;
+    use awvm::semantic::{CellIdx, UnitId, UnitKindId};
+    use awvm::session::OrderKind;
+
+    struct StalePlayAgent {
+        offer_stale_play: bool,
+        rejections: u32,
+    }
+
+    impl Agent for StalePlayAgent {
+        fn act(&mut self, _view: &Observation, _budget: NodeBudget) -> Option<Play> {
+            if self.offer_stale_play {
+                self.offer_stale_play = false;
+                Some(Play::new(
+                    UnitId::new(u32::MAX),
+                    CellIdx::from_raw(0),
+                    OrderKind::Wait,
+                ))
+            } else {
+                None
+            }
+        }
+
+        fn reject(&mut self, _view: &Observation) {
+            self.rejections += 1;
+        }
+    }
+
+    #[test]
+    fn a_stale_plan_is_replaced_before_reducer_execution() {
+        let mut session = Session::new(arena(false, 1));
+        let mut entropy = Rng::from_seed(2);
+        let mut stale = StalePlayAgent {
+            offer_stale_play: true,
+            rejections: 0,
+        };
+        let mut random = RandomAgent::from_seed(3);
+        let mut agents: [&mut dyn Agent; 2] = [&mut stale, &mut random];
+
+        let record = play(
+            arena(false, 1),
+            &mut session,
+            &mut agents,
+            &mut entropy,
+            Limits {
+                days: 1,
+                ..Limits::DEFAULT
+            },
+        );
+
+        assert_eq!(stale.rejections, 1);
+        assert_eq!(record.preflight_rejections, 1);
+        assert_eq!(record.preflight_rejections_by_seat[0], 1);
+        assert_eq!(record.unrealizable_plays, 0);
+        assert_eq!(record.refusals, 0);
+    }
+
+    struct InvalidProductionAgent {
+        offered: bool,
+        rejections: u32,
+    }
+
+    impl Agent for InvalidProductionAgent {
+        fn act(&mut self, _view: &Observation, _budget: NodeBudget) -> Option<Play> {
+            if self.offered {
+                self.offered = false;
+                Some(Play::unitless(
+                    CellIdx::from_raw(0),
+                    OrderKind::Produce(UnitKindId::Infantry),
+                ))
+            } else {
+                None
+            }
+        }
+
+        fn reject(&mut self, _view: &Observation) {
+            self.rejections += 1;
+        }
+    }
+
+    #[test]
+    fn a_command_is_preflighted_before_the_reducer() {
+        let mut session = Session::new(arena(false, 1));
+        let mut entropy = Rng::from_seed(2);
+        let mut invalid = InvalidProductionAgent {
+            offered: true,
+            rejections: 0,
+        };
+        let mut random = RandomAgent::from_seed(3);
+        let mut agents: [&mut dyn Agent; 2] = [&mut invalid, &mut random];
+
+        let record = play(
+            arena(false, 1),
+            &mut session,
+            &mut agents,
+            &mut entropy,
+            Limits {
+                days: 1,
+                ..Limits::DEFAULT
+            },
+        );
+
+        assert_eq!(invalid.rejections, 1);
+        assert_eq!(record.preflight_rejections, 1);
+        assert_eq!(record.refusals, 0);
+    }
+
+    struct CaptureVictoryAgent {
+        calls: u32,
+    }
+
+    impl Agent for CaptureVictoryAgent {
+        fn act(&mut self, _view: &Observation, _budget: NodeBudget) -> Option<Play> {
+            self.calls += 1;
+            Some(Play::new(
+                UnitId::new(0),
+                CellIdx::from_raw(0),
+                OrderKind::Capture,
+            ))
+        }
+    }
+
+    #[test]
+    fn a_match_ending_command_stops_the_turn_loop() {
+        let fixture: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../spec/fixtures/capture/capture-hq-victory.json"
+        ))
+        .expect("capture victory fixture decodes");
+        let state: State = serde_json::from_value(fixture["initial_state"].clone())
+            .expect("capture victory state decodes");
+        let mut agent = CaptureVictoryAgent { calls: 0 };
+        let mut entropy = Rng::from_seed(2);
+        let result = run_agent_turn(state, &mut agent, &mut entropy, NodeBudget::FOUR);
+
+        assert!(!result.completed);
+        assert_eq!(agent.calls, 1);
+        assert_eq!(result.commands.len(), 1);
+        assert!(matches!(result.state.match_state, Match::Finished { .. }));
+        assert_eq!(result.rejected_commands, 0);
+        assert_eq!(result.preflight_rejections, 0);
+    }
 
     /// The cap decides the game, and it decides it on the day it names.
     ///

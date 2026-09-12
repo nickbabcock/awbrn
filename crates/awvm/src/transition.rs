@@ -535,9 +535,14 @@ pub(crate) fn prepare_active_unit<'a>(
 /// draws. [`crate::session::Legal`] asks this about the orders that belong to
 /// no unit and no destination, where there is no cheaper question.
 pub(crate) fn accepts(state: &State, command: Command) -> Result<bool, ExecuteError> {
+    Ok(validate(state, command)?.is_ok())
+}
+
+/// Check a command without changing state or drawing random values.
+pub fn validate(state: &State, command: Command) -> Result<Result<(), Violation>, ExecuteError> {
     match prepare(state, command) {
-        Ok(_) => Ok(true),
-        Err(ReducerError::Violation(_)) => Ok(false),
+        Ok(_) => Ok(Ok(())),
+        Err(ReducerError::Violation(violation)) => Ok(Err(violation)),
         Err(error) => Err(execute_error(error)),
     }
 }
@@ -1826,6 +1831,18 @@ mod tests {
                 unit: UnitId::new(0)
             })
         );
+    }
+
+    #[test]
+    fn validation_is_non_mutating_and_has_no_random_input() {
+        let state = movement_state(3);
+        let before = state.clone();
+        let command = Command::EndTurn {
+            player: PlayerId::from("red"),
+        };
+
+        assert_eq!(validate(&state, command), Ok(Ok(())));
+        assert_eq!(state, before);
     }
 
     fn direct_combat_state(width: usize) -> State {

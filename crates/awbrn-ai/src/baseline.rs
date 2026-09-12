@@ -10,6 +10,8 @@ use crate::rng::Rng;
 pub enum BaselineAgent {
     /// Score one legal play at a time.
     Greedy,
+    /// Score one legal play at a time with the release controls.
+    Release,
 }
 
 /// The tie rule used by the greedy baseline.
@@ -56,7 +58,7 @@ impl BaselineConfig {
     /// The promoted production configuration.
     pub const PRODUCTION: Self = Self {
         identifier: PRODUCTION_IDENTIFIER,
-        agent: BaselineAgent::Greedy,
+        agent: BaselineAgent::Release,
         weights: Weights::CAPTURER_SHORTFALL_50,
         node_budget: NodeBudget::FOUR,
         tie_break: TieBreak::SeededReservoir,
@@ -72,6 +74,7 @@ impl BaselineConfig {
     pub const fn build_greedy(self, seed: u64) -> GreedyAgent {
         match self.agent {
             BaselineAgent::Greedy => GreedyAgent::with_weights(seed, self.weights),
+            BaselineAgent::Release => GreedyAgent::with_release_controls(seed, self.weights),
         }
     }
 
@@ -108,7 +111,7 @@ pub fn production_configuration_fingerprint() -> String {
     let config = BaselineConfig::PRODUCTION;
     let bytes = serde_json::to_vec(&(
         config.identifier,
-        "delegate-only",
+        config.agent,
         config.identifier,
         config.weights,
         config.node_budget,
@@ -161,6 +164,6 @@ mod tests {
     #[test]
     fn the_production_configuration_has_a_stable_fingerprint() {
         assert_eq!(BaselineConfig::PRODUCTION.identifier, PRODUCTION_IDENTIFIER);
-        assert_eq!(production_configuration_fingerprint(), "81496db7e594d1bc");
+        assert_eq!(production_configuration_fingerprint(), "bba8b535b579b3dd");
     }
 }

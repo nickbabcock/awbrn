@@ -518,6 +518,10 @@ pub struct GreedyAgent {
     /// walks one flank. The draw is seeded, so a game still repeats.
     rng: Rng,
     weights: Weights,
+    /// Penalize an attack that leaves its attacker under immediate threat.
+    release_reply_exposure: bool,
+    /// End the turn when saving funds is the best late-game action.
+    release_late_save: bool,
     /// The pull each tile feels toward the properties worth capturing, one
     /// field for each movement class that can capture, and the pull it feels
     /// toward the enemy. One entry for each tile of the board, rebuilt once
@@ -618,6 +622,8 @@ impl GreedyAgent {
         Self {
             rng: Rng::from_seed(seed),
             weights,
+            release_reply_exposure: false,
+            release_late_save: false,
             capture_fields: CaptureFields::new(),
             advance_field: Vec::new(),
             hold_field: Vec::new(),
@@ -628,6 +634,14 @@ impl GreedyAgent {
             vision: VisionMap::new(),
             threat: ThreatMap::new(),
         }
+    }
+
+    /// Build the promoted production policy.
+    pub const fn with_release_controls(seed: u64, weights: Weights) -> Self {
+        let mut agent = Self::with_weights(seed, weights);
+        agent.release_reply_exposure = true;
+        agent.release_late_save = true;
+        agent
     }
 
     /// Return the tie-break generator state.
@@ -1070,6 +1084,8 @@ impl GreedyAgent {
         let Self {
             rng,
             weights,
+            release_reply_exposure,
+            release_late_save,
             capture_fields,
             advance_field,
             hold_field,
@@ -1138,6 +1154,8 @@ impl GreedyAgent {
 
         let scorer = Scorer {
             board: &board,
+            release_reply_exposure: *release_reply_exposure,
+            release_late_save: *release_late_save,
             capture_fields,
             advance_field,
             hold_field,
@@ -1563,6 +1581,8 @@ impl LegalVisitor for GreedyVisitor<'_> {
 /// Everything one play is scored against.
 struct Scorer<'a> {
     board: &'a Board<'a>,
+    release_reply_exposure: bool,
+    release_late_save: bool,
     capture_fields: &'a CaptureFields,
     advance_field: &'a [f64],
     hold_field: &'a [f64],
@@ -1625,12 +1645,38 @@ impl Scorer<'_> {
             | OrderKind::Hide
             | OrderKind::Reveal
             | OrderKind::Repair(_)
-            | OrderKind::Launch(_) => 0.0,
+            | OrderKind::Launch(_) => {
+                if matches!(order.kind(), OrderKind::EndTurn) {
+                    self.late_save_score()
+                } else {
+                    0.0
+                }
+            }
         };
         GreedyScoreBreakdown {
             total,
             capture,
             attack,
+        }
+    }
+
+    fn late_save_score(&self) -> f64 {
+        const MINIMUM_FUNDS: u64 = 10_000;
+        const LATE_SAVE_SCORE: f64 = 100_000.0;
+
+        let Some(day_limit) = self.board.state.settings.day_limit else {
+            return 0.0;
+        };
+        let Some(player) = self.board.state.players.get(self.board.seat.get()) else {
+            return 0.0;
+        };
+        if self.release_late_save
+            && self.board.state.turn.day.saturating_add(1) >= day_limit
+            && player.funds >= MINIMUM_FUNDS
+        {
+            LATE_SAVE_SCORE
+        } else {
+            0.0
         }
     }
 
@@ -1706,6 +1752,9 @@ impl Scorer<'_> {
         }
         parts.capture_denial = self.denial(target, defender, forecast);
         score += parts.capture_denial;
+        if self.release_reply_exposure {
+            score -= weights.threat * self.threat.immediate(order.destination(), attacker.kind);
+        }
         // The pull of the tile, and not the arrival: a strike is not charged
         // for what the tile it fires from is exposed to. The forecast above
         // already prices the reply, and charging the exposure on top prices
