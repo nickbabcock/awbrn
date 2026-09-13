@@ -1,6 +1,6 @@
 //! What an agent is asked, and how its answer becomes a command.
 
-use awvm::semantic::{CellIdx, Observation, ObservedEvent, UnitId};
+use awvm::semantic::{CellIdx, Observation, ObservedEvent, State, UnitId};
 use awvm::session::{Order, OrderKind, Session};
 use awvm::transition::Command;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
@@ -36,6 +36,24 @@ pub trait Agent {
 
     /// Refresh state after an accepted command.
     fn refresh(&mut self, _view: &Observation) {}
+
+    /// Return the state used to make the current plan, when available.
+    fn planned_state(&self) -> Option<State> {
+        None
+    }
+
+    /// Return the command used by the current plan, when available.
+    fn planned_command(&self) -> Option<Command> {
+        None
+    }
+
+    /// Discard the current plan after a rejection.
+    fn reject(&mut self, _view: &Observation) {}
+
+    /// Return true when the harness should preflight commands for this agent.
+    fn requires_command_preflight(&self) -> bool {
+        true
+    }
 
     /// Classify the selected command.
     fn classify_command(&mut self, _view: &Observation, _command: &Command) {}
@@ -472,9 +490,8 @@ impl Play {
     ///
     /// `authority` is a session on the true state, so the route and the attack
     /// target come from the board the reducer will validate against. A play
-    /// built from a projection can still be refused here — a hidden unit can
-    /// block the route the agent counted on — and a refusal is the answer, not
-    /// a fault.
+    /// built from a projection can become stale here. The harness discards
+    /// that play and asks the agent for a replacement.
     ///
     /// `None` when the true state holds no such unit or no such route.
     pub fn command(&self, authority: &Session) -> Option<Command> {

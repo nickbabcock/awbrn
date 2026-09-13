@@ -1529,8 +1529,11 @@ impl<'a> Legal<'a> {
                 },
             ),
         ];
+        // These orders belong to no unit and no destination, so there is no
+        // cheaper question than validation. A malformed question counts as a
+        // refusal.
         for (kind, command) in candidates {
-            if crate::transition::accepts(state, command).unwrap_or(false) {
+            if matches!(crate::transition::validate(state, command), Ok(Ok(()))) {
                 visitor.order(Order::unitless(ORIGIN, kind));
             }
         }

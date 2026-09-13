@@ -2179,6 +2179,7 @@ mod tests {
                 &mut entropy,
                 crate::harness::Limits::DEFAULT,
             )
+            .expect("test game executes")
         };
 
         assert!(
@@ -2881,7 +2882,8 @@ mod tests {
                     days: 20,
                     ..Limits::default()
                 },
-            );
+            )
+            .expect("test game executes");
             let end = session.state();
             format!(
                 "{:?} {} {:?}",
@@ -2929,7 +2931,8 @@ mod tests {
                     days: 20,
                     ..Limits::default()
                 },
-            );
+            )
+            .expect("test game executes");
             let end = session.state();
             format!(
                 "{:?} {} {:?}",

@@ -113,7 +113,7 @@ pub fn production_configuration_fingerprint() -> String {
     let config = BaselineConfig::PRODUCTION;
     let bytes = serde_json::to_vec(&(
         config.identifier,
-        "delegate-only",
+        config.agent,
         config.identifier,
         config.weights,
         config.node_budget,
@@ -166,6 +166,6 @@ mod tests {
     #[test]
     fn the_production_configuration_has_a_stable_fingerprint() {
         assert_eq!(BaselineConfig::PRODUCTION.identifier, PRODUCTION_IDENTIFIER);
-        assert_eq!(production_configuration_fingerprint(), "5678b134f226cacc");
+        assert_eq!(production_configuration_fingerprint(), "992c47dd6c7609c0");
     }
 }

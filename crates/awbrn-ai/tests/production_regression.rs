@@ -57,7 +57,8 @@ fn play_match(production: bool, production_first: bool) -> (Record, Vec<Command>
         &mut entropy,
         Limits::DEFAULT,
         &mut observer,
-    );
+    )
+    .expect("regression match executes");
     (record, commands)
 }
 
@@ -66,7 +67,7 @@ fn production_identity_and_configuration_are_locked() {
     assert_eq!(BaselineConfig::LOCKED.identifier, "greedy-baseline-v1");
     assert_eq!(BaselineConfig::LOCKED.fingerprint(), "79aa8a6e0491065f");
     assert_eq!(BaselineConfig::PRODUCTION.identifier, PRODUCTION_IDENTIFIER);
-    assert_eq!(production_configuration_fingerprint(), "5678b134f226cacc");
+    assert_eq!(production_configuration_fingerprint(), "992c47dd6c7609c0");
     assert_eq!(
         production_agent(7).config(),
         BaselineConfig::PRODUCTION,

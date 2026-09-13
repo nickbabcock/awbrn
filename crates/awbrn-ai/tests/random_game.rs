@@ -63,6 +63,7 @@ fn game(seed: u64) -> Record {
         &mut entropy,
         LIMITS,
     )
+    .expect("test game executes")
 }
 
 #[test]
