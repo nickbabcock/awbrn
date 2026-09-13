@@ -5,9 +5,9 @@ import { fetchAwbwMapData } from "#/awbw/awbw.server.ts";
 import type { AwbwMapData } from "#/awbw/schemas.ts";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { Actor } from "#/auth/actor.ts";
-import { mapRevisions, maps, mapSources, mapTags, moderationActions } from "#/db/global.ts";
+import { mapRevisions, maps, mapSources, mapTags, moderationActions, user } from "#/db/global.ts";
 import { moderationEntry } from "#/moderation/moderation.server.ts";
-import { mapRankGrant, mapTagGrant } from "./map_authz.ts";
+import { mapEditGrant, mapRankGrant, mapTagGrant } from "./map_authz.ts";
 import { generateMapId } from "./map_id.ts";
 import { getFactionByCode } from "#/factions.ts";
 import { awbrnMapDocumentSchema, importedMapDocumentSchema } from "./map_document.ts";
@@ -20,6 +20,8 @@ import type {
   MapRank,
   MapRef,
   MapSourceKind,
+  MapSaveRequest,
+  MapSaveResult,
   MapTag,
 } from "./schemas.ts";
 import { normalizeMapCatalogFilters, sortMapTags } from "./map_taxonomy.ts";
@@ -32,6 +34,7 @@ import {
 } from "./map_catalog.ts";
 import {
   canonicalizeAwbwMap,
+  canonicalizeMapDocument,
   mapSlotFactionCodes,
   renderFullMapScreenshotPng,
   renderSmallMapScreenshotPng,
@@ -46,7 +49,7 @@ import {
 } from "./map_screenshot.ts";
 
 const db = drizzle(env.DB, {
-  schema: { maps, mapSources, mapRevisions, mapTags, moderationActions },
+  schema: { maps, mapSources, mapRevisions, mapTags, moderationActions, user },
 });
 
 export async function importAwbwMap(sourceMapId: number): Promise<MapRef> {
@@ -114,6 +117,166 @@ export async function storeAwbwMap(sourceMapId: number, data: AwbwMapData): Prom
     if (raced) return raced;
     throw error;
   }
+}
+
+/**
+ * Keep a map a player drew, as a new map or as another revision of one.
+ *
+ * A revision is content, so writing one is what an edit produces: the rank the
+ * old revision earned stays with the old revision, and the new one starts
+ * unranked. The map itself keeps its identity, its author, and its tags.
+ *
+ * A board that comes back the same as the revision already held writes
+ * nothing. Saving twice is then the same as saving once, which is what a
+ * player who presses save again after a failed request needs it to be.
+ */
+export async function saveEditedMap(request: MapSaveRequest, actor: Actor): Promise<MapSaveResult> {
+  const imported = importedMapDocumentSchema.parse(
+    canonicalizeMapDocument({ ...request.document, metadata: { ...request.document.metadata } }),
+  );
+  const { document } = imported;
+  const now = new Date();
+  const author = await mapAuthorName(actor);
+
+  if (request.mapId === undefined) {
+    const mapId = generateMapId();
+    await storeMapRevisionContent(imported);
+    await db.batch([
+      db.insert(maps).values({
+        id: mapId,
+        name: request.name,
+        author,
+        authorUserId: actor.userId,
+        currentRevision: 1,
+        createdAt: now,
+        updatedAt: now,
+      }),
+      db.insert(mapRevisions).values(
+        revisionValues({
+          mapId,
+          revision: 1,
+          imported,
+          playerCount: document.metadata.player_count,
+          now,
+        }),
+      ),
+    ]);
+    return { mapId, revision: 1, written: true };
+  }
+
+  const held = await db
+    .select({
+      mapId: maps.id,
+      authorUserId: maps.authorUserId,
+      currentRevision: maps.currentRevision,
+      contentHash: mapRevisions.contentHash,
+    })
+    .from(maps)
+    .innerJoin(
+      mapRevisions,
+      and(eq(mapRevisions.mapId, maps.id), eq(mapRevisions.revision, maps.currentRevision)),
+    )
+    .where(eq(maps.id, request.mapId))
+    .get();
+  if (!held) throw new Error("Map not found");
+  if (mapEditGrant(held, actor) === null) throw new Response("Forbidden", { status: 403 });
+
+  if (held.contentHash === imported.contentHash) {
+    // The name can still have changed, and that is not content.
+    await db
+      .update(maps)
+      .set({ name: request.name, updatedAt: now })
+      .where(eq(maps.id, request.mapId));
+    return { mapId: request.mapId, revision: held.currentRevision, written: false };
+  }
+
+  const revision = held.currentRevision + 1;
+  await storeMapRevisionContent(imported);
+  await db.batch([
+    db.insert(mapRevisions).values(
+      revisionValues({
+        mapId: request.mapId,
+        revision,
+        imported,
+        playerCount: document.metadata.player_count,
+        now,
+      }),
+    ),
+    db
+      .update(maps)
+      .set({ name: request.name, currentRevision: revision, updatedAt: now })
+      .where(eq(maps.id, request.mapId)),
+  ]);
+
+  return { mapId: request.mapId, revision, written: true };
+}
+
+/**
+ * The name a map is credited to.
+ *
+ * It is read from the account and not from the document, because the document
+ * is written in the browser: a player could otherwise sign somebody else's
+ * name to a map. The account name that is missing falls back to the map id of
+ * nobody, which no screen shows, so an unnamed account credits "Unknown".
+ */
+async function mapAuthorName(actor: Actor): Promise<string> {
+  const row = await db
+    .select({ name: user.name })
+    .from(user)
+    .where(eq(user.id, actor.userId))
+    .get();
+  const name = row?.name?.trim();
+  return name && name.length > 0 ? name : "Unknown";
+}
+
+/** The row one revision is recorded as. */
+function revisionValues({
+  imported,
+  mapId,
+  now,
+  playerCount,
+  revision,
+}: {
+  imported: ImportedMapDocument;
+  mapId: string;
+  now: Date;
+  playerCount: number;
+  revision: number;
+}) {
+  return {
+    mapId,
+    revision,
+    contentHash: imported.contentHash,
+    width: imported.document.width,
+    height: imported.document.height,
+    playerCount,
+    propertySignature: imported.propertySignature,
+    unitSignature: imported.unitSignature,
+    createdAt: now,
+    lastSeenAt: now,
+  };
+}
+
+/**
+ * Put the document and both of its pictures in the bucket.
+ *
+ * Everything here is keyed by the content hash, so writing the same board
+ * twice writes the same bytes to the same places. The database is only touched
+ * once this has finished, which is what makes a failed save safe to retry.
+ */
+async function storeMapRevisionContent(imported: ImportedMapDocument): Promise<void> {
+  const { document } = imported;
+  await env.CONTENT.put(
+    contentKey(imported.contentHash),
+    JSON.stringify({
+      width: document.width,
+      height: document.height,
+      terrain: document.terrain,
+      units: document.units,
+    }),
+    { httpMetadata: { contentType: "application/json" } },
+  );
+  await storeMapScreenshots(imported);
 }
 
 /** How each picture of a map is drawn. */

@@ -70,6 +70,14 @@ pub struct PendingGameStart(pub u32);
 #[derive(Debug, Resource)]
 pub struct PendingMatchMap(pub ValidatedMapDocument);
 
+/// A map handed to the editor, before the assets it is drawn with are loaded.
+#[derive(Debug, Resource)]
+pub struct PendingEditorMap(pub awbrn_map::AwbwMap);
+
+/// The same map, once loading has begun. The editor takes it from here.
+#[derive(Debug, Resource)]
+pub struct LoadedEditorMap(pub awbrn_map::AwbwMap);
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LiveMatchPlayer {
@@ -307,6 +315,36 @@ pub(crate) fn detect_pending_live_match(
     info!("Started loading active match from typed observation");
 }
 
+/// Starts the editor on the map the browser handed over.
+///
+/// There is no map asset to fetch: the board arrived with the command. Only the
+/// atlases are waited for, which is what `check_editor_assets_loaded` does.
+pub(crate) fn detect_pending_editor_map(
+    mut commands: Commands,
+    pending: Res<PendingEditorMap>,
+    mut transitions: LoadingTransitions,
+    asset_loader: ClientAssetLoader,
+) {
+    commands.insert_resource(LoadedEditorMap(pending.0.clone()));
+    commands.remove_resource::<PendingEditorMap>();
+    commands.insert_resource(asset_loader.load_pending_ui_atlas());
+
+    transitions.begin_loading(GameMode::Editor);
+    info!("Started the map editor");
+}
+
+pub(crate) fn check_editor_assets_loaded(
+    pending_ui: Res<PendingUiAtlas>,
+    ui_atlas_assets: Res<Assets<UiAtlasAsset>>,
+    mut next_state: ResMut<NextState<LoadingState>>,
+) {
+    if ui_atlas_assets.get(&pending_ui.atlas).is_none() {
+        return;
+    }
+
+    next_state.set(LoadingState::Complete);
+}
+
 pub(crate) fn check_assets_loaded(
     mut commands: Commands,
     map_handle: Res<MapAssetHandle>,
@@ -510,6 +548,9 @@ impl Plugin for LoadingPlugin {
                 (
                     check_assets_loaded.run_if(resource_exists::<MapAssetHandle>),
                     check_match_map_loaded.run_if(resource_exists::<PendingLoadedMatchMap>),
+                    check_editor_assets_loaded
+                        .run_if(resource_exists::<LoadedEditorMap>)
+                        .run_if(resource_exists::<PendingUiAtlas>),
                 )
                     .run_if(in_state(LoadingState::LoadingAssets)),
             )
@@ -520,6 +561,7 @@ impl Plugin for LoadingPlugin {
                     detect_pending_game_start.run_if(resource_exists::<PendingGameStart>),
                     detect_pending_match_map.run_if(resource_exists::<PendingMatchMap>),
                     detect_pending_live_match.run_if(resource_exists::<PendingLiveMatch>),
+                    detect_pending_editor_map.run_if(resource_exists::<PendingEditorMap>),
                     emit_pending_replay_loaded_event
                         .run_if(resource_exists::<PendingReplayLoadedEvent>),
                 ),

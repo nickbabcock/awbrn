@@ -359,6 +359,23 @@ impl AwbwTerrain {
         )
     }
 
+    /// Whether a shore drawn beside this terrain is drawn against land.
+    ///
+    /// A bridge, a river, a reef, the sea and a shoal are all water where a
+    /// coastline is concerned, whatever a unit that stands on them can do.
+    /// This is not [`AwbwTerrain::is_land`], which answers the movement
+    /// question: that rule calls a bridge, a reef and a shoal land.
+    pub const fn is_shore_land(&self) -> bool {
+        !matches!(
+            self,
+            AwbwTerrain::Bridge(_)
+                | AwbwTerrain::River(_)
+                | AwbwTerrain::Reef
+                | AwbwTerrain::Sea
+                | AwbwTerrain::Shoal(_)
+        )
+    }
+
     /// Check if terrain can be occupied by naval units
     pub fn is_sea(&self) -> bool {
         matches!(
