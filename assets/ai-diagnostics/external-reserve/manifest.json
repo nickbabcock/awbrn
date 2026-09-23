@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "purpose": "external_validation",
+  "maps": [
+    {
+      "awbw_id": 65213,
+      "name": "1vs1 Verdun",
+      "author": "wyj_0081",
+      "player_count": 2,
+      "width": 17,
+      "height": 17,
+      "published_date": "2015-06-15 03:19:24",
+      "rank": "S-Rank",
+      "mode": "Fog of War",
+      "categories": [
+        "S-Rank",
+        "Hall of Fame",
+        "Fog of War",
+        "Live Play"
+      ],
+      "map_page": "https://awbw.amarriner.com/prevmaps.php?maps_id=65213",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=65213",
+      "source": "maps/65213.json",
+      "source_sha256": "455d9e29dfaf8482e2208324d71b8529600eb94108401e4d7b3a3d7840945d2b",
+      "original_factions": [
+        "js",
+        "pc"
+      ],
+      "deployment_count": 1,
+      "source_fingerprint": "786e7001edffe3ee",
+      "normalized_fingerprint": "37ef6576c1e8e71b",
+      "split": "external_validation",
+      "used_for_candidate_selection": false,
+      "used_for_outcome_matches": true,
+      "fog": true
+    }
+  ]
+}

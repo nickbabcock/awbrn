@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "maps": [
+    {
+      "awbw_id": 75796,
+      "name": "1vs1 Chosin Reservoir",
+      "source": "maps/75796.json",
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "source_fingerprint": "da8f5a3166decacc",
+      "normalized_fingerprint": "da8f5a3166decacc",
+      "fog": true
+    },
+    {
+      "awbw_id": 176149,
+      "name": "Cabin Fever (DMC 71)",
+      "source": "maps/176149.json",
+      "original_factions": [
+        "os",
+        "bh"
+      ],
+      "source_fingerprint": "900e9373b02fc5b4",
+      "normalized_fingerprint": "68c6dd817cf93f66",
+      "fog": true
+    },
+    {
+      "awbw_id": 80008,
+      "name": "Goldfish Princess",
+      "source": "maps/80008.json",
+      "original_factions": [
+        "ge",
+        "bd"
+      ],
+      "source_fingerprint": "88a21b308ca0b2aa",
+      "normalized_fingerprint": "47e72418c21ee527",
+      "fog": true
+    },
+    {
+      "awbw_id": 170819,
+      "name": "Greener Greens",
+      "source": "maps/170819.json",
+      "original_factions": [
+        "ge",
+        "yc"
+      ],
+      "source_fingerprint": "96f683812980af61",
+      "normalized_fingerprint": "c74a9cdc7745a2a3",
+      "fog": true
+    },
+    {
+      "awbw_id": 166637,
+      "name": "Quota Iota Redux",
+      "source": "maps/166637.json",
+      "original_factions": [
+        "rf",
+        "bd"
+      ],
+      "source_fingerprint": "4f613ed691626a90",
+      "normalized_fingerprint": "0c12c0bde06baf65",
+      "fog": true
+    },
+    {
+      "awbw_id": 143354,
+      "name": "Settles as Still Water v3",
+      "source": "maps/143354.json",
+      "original_factions": [
+        "tg",
+        "pl"
+      ],
+      "source_fingerprint": "f90a19d5721f7967",
+      "normalized_fingerprint": "ada18859e9af2462",
+      "fog": true
+    },
+    {
+      "awbw_id": 144739,
+      "name": "Stitch Monster v2",
+      "source": "maps/144739.json",
+      "original_factions": [
+        "tg",
+        "pl"
+      ],
+      "source_fingerprint": "395a795a6a5f0809",
+      "normalized_fingerprint": "cebcd3a20696f284",
+      "fog": true
+    }
+  ]
+}

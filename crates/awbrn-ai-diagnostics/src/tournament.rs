@@ -12,6 +12,7 @@ use awbrn_ai::agents::{SearchAgent, SearchAllocator, StrategicAgent, Weights};
 use awbrn_ai::baseline::BaselineConfig;
 use awbrn_ai::harness::{Limits, RefusalTrace, next_command_fingerprint, play_observed_fallible};
 use awbrn_ai::rng::Rng;
+use awbrn_ai::{AiProfile, profile};
 use awbrn_ai_diagnostic_types::{
     AgentIdentity, PairKey, Reduction, RunLimits, RunManifest, RunManifestError, SeatOrderVariant,
     fingerprint_bytes,
@@ -48,6 +49,43 @@ pub struct StrategicFactory {
 
 /// The executable identity for the strategic agent implementation.
 pub const STRATEGIC_EXECUTABLE_FINGERPRINT: &str = "awbrn-ai-strategic-v1";
+
+/// The executable identity for a versioned game profile.
+pub const AI_PROFILE_EXECUTABLE_FINGERPRINT: &str = "awbrn-ai-versioned-profile-v1";
+
+/// A factory for one versioned game profile.
+#[derive(Clone, Debug)]
+pub struct AiProfileFactory {
+    profile: AiProfile,
+    identity: AgentIdentity,
+}
+
+impl AiProfileFactory {
+    /// Create a factory for a profile stored in match records.
+    pub fn new(profile_id: &str) -> Result<Self, String> {
+        let profile = profile(profile_id)
+            .copied()
+            .ok_or_else(|| format!("unknown AI profile {profile_id}"))?;
+        Ok(Self {
+            profile,
+            identity: AgentIdentity {
+                identifier: profile.id.to_owned(),
+                configuration_fingerprint: profile.configuration_fingerprint(),
+                executable_fingerprint: AI_PROFILE_EXECUTABLE_FINGERPRINT.into(),
+            },
+        })
+    }
+}
+
+impl AgentFactory for AiProfileFactory {
+    fn identity(&self) -> &AgentIdentity {
+        &self.identity
+    }
+
+    fn create(&self, seed: u64) -> Box<dyn Agent> {
+        self.profile.agent(seed)
+    }
+}
 
 impl StrategicFactory {
     /// Create a factory from the configuration it will run.

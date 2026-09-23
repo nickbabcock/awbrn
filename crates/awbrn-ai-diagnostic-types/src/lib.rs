@@ -455,6 +455,13 @@ pub struct MapIdentity {
     pub source: String,
     pub source_fingerprint: String,
     pub normalized_fingerprint: String,
+    /// Whether matches on this map use fog of war.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub fog: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 /// The derivation inputs for match seeds.
@@ -727,6 +734,7 @@ mod tests {
                 source: "map.json".into(),
                 source_fingerprint: "source".into(),
                 normalized_fingerprint: "normalized".into(),
+                fog: false,
             }],
             seed_derivation: SeedDerivation {
                 run_seed: 1,
@@ -771,6 +779,22 @@ mod tests {
                 .expect("manifest fingerprints")
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn standard_map_identity_keeps_legacy_json_shape() {
+        let value = serde_json::to_value(&manifest().maps[0]).expect("map identity serializes");
+        assert!(value.get("fog").is_none());
+
+        let parsed: MapIdentity = serde_json::from_value(serde_json::json!({
+            "map_id": 1,
+            "name": "map",
+            "source": "map.json",
+            "source_fingerprint": "source",
+            "normalized_fingerprint": "normalized"
+        }))
+        .expect("the previous map identity shape parses");
+        assert!(!parsed.fog);
     }
 
     #[test]

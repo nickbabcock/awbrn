@@ -20,6 +20,9 @@ pub struct MapManifestEntry {
     pub name: String,
     pub source: String,
     pub original_factions: [String; 2],
+    /// Whether matches on this map use fog of war.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub fog: bool,
     #[serde(default)]
     pub source_fingerprint: Option<String>,
     #[serde(default)]
@@ -113,6 +116,8 @@ pub struct RegisteredMap {
     pub original_factions: [PlayerFaction; 2],
     pub source: AwbwMap,
     pub normalized: AwbwMap,
+    /// Whether matches on this map use fog of war.
+    pub fog: bool,
     pub properties: Vec<MapPropertyRecord>,
     pub deployments: Vec<MapDeploymentRecord>,
     pub source_fingerprint: String,
@@ -198,6 +203,7 @@ impl RegisteredMap {
             original_factions,
             source,
             normalized,
+            fog: entry.fog,
             properties,
             deployments,
             source_fingerprint,
@@ -212,7 +218,7 @@ impl RegisteredMap {
         let state = awbrn_ai::board::try_state_from_map(
             AwbrnMap::from_map(&self.normalized),
             &CANONICAL_SEATS,
-            false,
+            self.fog,
             seed,
         )
         .map_err(|error| MapRegistryError::Map(error.to_string()))?;
@@ -293,6 +299,10 @@ impl RegisteredMap {
         }
         Ok(())
     }
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 /// A deterministic registry loaded from a manifest.
@@ -591,6 +601,50 @@ mod tests {
             ]
         );
         assert!(registry.iter().all(|map| map.validate_setup().is_ok()));
+        assert!(registry.iter().all(|map| !map.fog));
+        for map in registry.iter() {
+            assert!(
+                !map.state(7)
+                    .expect("the standard map makes a state")
+                    .settings
+                    .fog
+            );
+        }
+    }
+
+    #[test]
+    fn map_manifest_fog_setting_reaches_the_match_state() {
+        use awvm::semantic::{AwbwVisibility, observe};
+
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/ai-diagnostics/external-reserve/manifest.json");
+        let registry = MapRegistry::load_path(path).expect("the external reserve map loads");
+        let map = registry.get(65213).expect("the reserve map is registered");
+        assert!(map.fog);
+        let state = map.state(7).expect("the map makes a match state");
+        assert!(state.settings.fog);
+        let view = observe(&AwbwVisibility, &state, &state.turn.active_player)
+            .expect("the first seat observes its state");
+        assert!(view.settings.fog);
+        assert!(view.units.len() < state.units.len());
+    }
+
+    #[test]
+    fn checked_in_fog_holdout_manifest_matches_the_recorded_split() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/ai-diagnostics/global-league-pool/fog-holdout-manifest.json");
+        let registry = MapRegistry::load_path(path).expect("the Fog holdout maps load");
+        let ids = registry.iter().map(|map| map.id).collect::<Vec<_>>();
+
+        assert_eq!(
+            ids,
+            vec![75796, 176149, 80008, 170819, 166637, 143354, 144739]
+        );
+        for map in registry.iter() {
+            assert!(map.fog, "map {} is a Fog holdout", map.id);
+            map.validate_setup().expect("the Fog map setup is valid");
+            assert!(map.state(7).expect("the map builds a state").settings.fog);
+        }
     }
 
     #[test]

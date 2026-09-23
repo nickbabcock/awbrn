@@ -1,0 +1,1235 @@
+{
+  "schema_version": 1,
+  "source_listing": {
+    "kind": "user_supplied_awbw_global_league_search_snapshot",
+    "sha256": "b1bf27a1f6276b54d12e4568d564d93c36181b1749be9c89e556e9cce5afd381",
+    "card_count": 42
+  },
+  "selection": {
+    "holdout_hash_label": "awbrn-global-league-holdout-v1",
+    "holdout_method": "Choose the lowest SHA-256 ranks in each fixed mode, rank, and area bucket. Rank each map with SHA-256(\"awbrn-global-league-holdout-v1:<awbw_id>\").",
+    "area_buckets": "small means width * height <= 420 tiles; large means more than 420 tiles.",
+    "prior_research_exclusions": [
+      61748,
+      67073,
+      67945,
+      73021,
+      96502,
+      143619,
+      146471
+    ],
+    "prior_research_overlap_in_pool": [
+      67945
+    ],
+    "development_count": 21,
+    "untouched_holdout_count": 21,
+    "holdout_bucket_counts": {
+      "Standard": {
+        "S-Rank": {
+          "small": 3,
+          "large": 0
+        },
+        "A-Rank": {
+          "small": 2,
+          "large": 2
+        }
+      },
+      "Fog of War": {
+        "S-Rank": {
+          "small": 0,
+          "large": 1
+        },
+        "A-Rank": {
+          "small": 3,
+          "large": 3
+        }
+      },
+      "High Funds": {
+        "S-Rank": {
+          "small": 0,
+          "large": 2
+        },
+        "A-Rank": {
+          "small": 1,
+          "large": 4
+        }
+      }
+    }
+  },
+  "maps": [
+    {
+      "awbw_id": 140000,
+      "name": "140000 Ways to Die",
+      "author": "androider",
+      "creator": "androider",
+      "player_count": 2,
+      "width": 21,
+      "height": 19,
+      "mode": "Standard",
+      "rank": "S-Rank",
+      "categories": [
+        "S-Rank",
+        "Global League",
+        "Base Light",
+        "Live Play",
+        "Standard"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "yc",
+        "gs"
+      ],
+      "predeployed_unit_count": 1,
+      "source": "maps/140000.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=140000",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=140000",
+      "source_fingerprint": "99a7fe30865b0d6f",
+      "normalized_fingerprint": "4ec66a43beaed472"
+    },
+    {
+      "awbw_id": 75796,
+      "name": "1vs1 Chosin Reservoir",
+      "author": "wyj_0081",
+      "creator": "wyj_0081",
+      "player_count": 2,
+      "width": 29,
+      "height": 23,
+      "mode": "Fog of War",
+      "rank": "S-Rank",
+      "categories": [
+        "S-Rank",
+        "Global League",
+        "Hall of Fame",
+        "Fog of War"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "predeployed_unit_count": 1,
+      "source": "maps/75796.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=75796",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=75796",
+      "source_fingerprint": "da8f5a3166decacc",
+      "normalized_fingerprint": "da8f5a3166decacc"
+    },
+    {
+      "awbw_id": 67945,
+      "name": "1vs1 Stalingrad",
+      "author": "wyj_0081",
+      "creator": "wyj_0081",
+      "player_count": 2,
+      "width": 21,
+      "height": 21,
+      "mode": "Fog of War",
+      "rank": "S-Rank",
+      "categories": [
+        "S-Rank",
+        "Global League",
+        "Hall of Fame",
+        "Fog of War"
+      ],
+      "split": "development",
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "predeployed_unit_count": 1,
+      "source": "maps/67945.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=67945",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=67945",
+      "source_fingerprint": "f811fa06a6f19b1e",
+      "normalized_fingerprint": "f811fa06a6f19b1e"
+    },
+    {
+      "awbw_id": 159501,
+      "name": "A Dance With Magnums",
+      "author": "soul4rent",
+      "creator": "soul4rent",
+      "player_count": 2,
+      "width": 22,
+      "height": 18,
+      "mode": "Standard",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Standard"
+      ],
+      "split": "development",
+      "original_factions": [
+        "bm",
+        "bd"
+      ],
+      "predeployed_unit_count": 3,
+      "source": "maps/159501.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=159501",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=159501",
+      "source_fingerprint": "2b8d4284296c231e",
+      "normalized_fingerprint": "468e93b2f80861e5"
+    },
+    {
+      "awbw_id": 77060,
+      "name": "A Hope Forlorn",
+      "author": "Voice of Akasha",
+      "creator": "voice of akasha",
+      "player_count": 2,
+      "width": 23,
+      "height": 19,
+      "mode": "Standard",
+      "rank": "S-Rank",
+      "categories": [
+        "S-Rank",
+        "Global League",
+        "Hall of Fame",
+        "Standard"
+      ],
+      "split": "development",
+      "original_factions": [
+        "rf",
+        "ci"
+      ],
+      "predeployed_unit_count": 1,
+      "source": "maps/77060.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=77060",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=77060",
+      "source_fingerprint": "0f48924c21dd4304",
+      "normalized_fingerprint": "192154c6a9d8ed6a"
+    },
+    {
+      "awbw_id": 172238,
+      "name": "Aliens in the cupboard (DMC 55)",
+      "author": "DrNasty",
+      "creator": "drnasty",
+      "player_count": 2,
+      "width": 22,
+      "height": 18,
+      "mode": "High Funds",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "High Funds"
+      ],
+      "split": "development",
+      "original_factions": [
+        "ge",
+        "bh"
+      ],
+      "predeployed_unit_count": 9,
+      "source": "maps/172238.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=172238",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=172238",
+      "source_fingerprint": "c572de84d989eb07",
+      "normalized_fingerprint": "5ac166a34e1f6ff2"
+    },
+    {
+      "awbw_id": 182023,
+      "name": "All I See Are Triangles",
+      "author": "Banana Basket",
+      "creator": "banana basket",
+      "player_count": 2,
+      "width": 26,
+      "height": 20,
+      "mode": "High Funds",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "High Funds",
+        "Live Play"
+      ],
+      "split": "development",
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "predeployed_unit_count": 3,
+      "source": "maps/182023.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=182023",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=182023",
+      "source_fingerprint": "575bdb64fceba9c4",
+      "normalized_fingerprint": "575bdb64fceba9c4"
+    },
+    {
+      "awbw_id": 69201,
+      "name": "Beads on a String",
+      "author": "Everdan",
+      "creator": "everdan",
+      "player_count": 2,
+      "width": 21,
+      "height": 16,
+      "mode": "Standard",
+      "rank": "S-Rank",
+      "categories": [
+        "S-Rank",
+        "Global League",
+        "Standard"
+      ],
+      "split": "development",
+      "original_factions": [
+        "rf",
+        "tg"
+      ],
+      "predeployed_unit_count": 1,
+      "source": "maps/69201.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=69201",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=69201",
+      "source_fingerprint": "78d34ca7d5ca147a",
+      "normalized_fingerprint": "68b8938e6ee7f518"
+    },
+    {
+      "awbw_id": 170934,
+      "name": "BL Go Brrr",
+      "author": "GorillaH",
+      "creator": "gorillah",
+      "player_count": 2,
+      "width": 23,
+      "height": 17,
+      "mode": "Standard",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Base Light",
+        "Live Play",
+        "Standard"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "gs",
+        "tg"
+      ],
+      "predeployed_unit_count": 1,
+      "source": "maps/170934.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=170934",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=170934",
+      "source_fingerprint": "63744228128e00fe",
+      "normalized_fingerprint": "b37eadeec73d0f35"
+    },
+    {
+      "awbw_id": 143661,
+      "name": "BlackBoat Confrontation v2",
+      "author": "StarFlash251",
+      "creator": "starflash251",
+      "player_count": 2,
+      "width": 23,
+      "height": 19,
+      "mode": "Fog of War",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Fog of War"
+      ],
+      "split": "development",
+      "original_factions": [
+        "ab",
+        "ci"
+      ],
+      "predeployed_unit_count": 9,
+      "source": "maps/143661.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=143661",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=143661",
+      "source_fingerprint": "67fed4f5d96771d1",
+      "normalized_fingerprint": "b117a167aa3fbdea"
+    },
+    {
+      "awbw_id": 176149,
+      "name": "Cabin Fever (DMC 71)",
+      "author": "DrNasty",
+      "creator": "drnasty",
+      "player_count": 2,
+      "width": 20,
+      "height": 19,
+      "mode": "Fog of War",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Fog of War"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "os",
+        "bh"
+      ],
+      "predeployed_unit_count": 3,
+      "source": "maps/176149.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=176149",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=176149",
+      "source_fingerprint": "900e9373b02fc5b4",
+      "normalized_fingerprint": "68c6dd817cf93f66"
+    },
+    {
+      "awbw_id": 175434,
+      "name": "Cathedral of the Dead",
+      "author": "DrNasty",
+      "creator": "drnasty",
+      "player_count": 2,
+      "width": 20,
+      "height": 17,
+      "mode": "Fog of War",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Fog of War",
+        "Live Play"
+      ],
+      "split": "development",
+      "original_factions": [
+        "bh",
+        "ci"
+      ],
+      "predeployed_unit_count": 3,
+      "source": "maps/175434.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=175434",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=175434",
+      "source_fingerprint": "f211c54acb029491",
+      "normalized_fingerprint": "ec19f22670541757"
+    },
+    {
+      "awbw_id": 171596,
+      "name": "Designed Desires",
+      "author": "ThisMetaIs",
+      "creator": "thismetais",
+      "player_count": 2,
+      "width": 19,
+      "height": 19,
+      "mode": "Standard",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Base Light",
+        "Live Play",
+        "Standard"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "os",
+        "bh"
+      ],
+      "predeployed_unit_count": 1,
+      "source": "maps/171596.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=171596",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=171596",
+      "source_fingerprint": "28da23d112381a26",
+      "normalized_fingerprint": "28b2ac65a9f0a3fa"
+    },
+    {
+      "awbw_id": 132144,
+      "name": "Dragon Blood Reboiled",
+      "author": "Operation Mechstorm",
+      "creator": "operation mechstorm",
+      "player_count": 2,
+      "width": 31,
+      "height": 18,
+      "mode": "High Funds",
+      "rank": "S-Rank",
+      "categories": [
+        "S-Rank",
+        "Global League",
+        "High Funds",
+        "Live Play"
+      ],
+      "split": "development",
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "predeployed_unit_count": 5,
+      "source": "maps/132144.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=132144",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=132144",
+      "source_fingerprint": "4740ab78b3bf2320",
+      "normalized_fingerprint": "4740ab78b3bf2320"
+    },
+    {
+      "awbw_id": 180298,
+      "name": "Eternity, Served Cold",
+      "author": "Spritemare",
+      "creator": "spritemare",
+      "player_count": 2,
+      "width": 21,
+      "height": 19,
+      "mode": "Standard",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Mixed Base",
+        "Standard"
+      ],
+      "split": "development",
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "predeployed_unit_count": 10,
+      "source": "maps/180298.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=180298",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=180298",
+      "source_fingerprint": "19673ce2b631d353",
+      "normalized_fingerprint": "19673ce2b631d353"
+    },
+    {
+      "awbw_id": 160882,
+      "name": "Eye Of The Vortex (HF)",
+      "author": "GorillaH",
+      "creator": "gorillah",
+      "player_count": 2,
+      "width": 29,
+      "height": 21,
+      "mode": "High Funds",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Heavy Naval",
+        "High Funds"
+      ],
+      "split": "development",
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "predeployed_unit_count": 5,
+      "source": "maps/160882.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=160882",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=160882",
+      "source_fingerprint": "c5520ed60e86cf14",
+      "normalized_fingerprint": "c5520ed60e86cf14"
+    },
+    {
+      "awbw_id": 181570,
+      "name": "French Shuffle",
+      "author": "ArgentEbel",
+      "creator": "argentebel",
+      "player_count": 2,
+      "width": 25,
+      "height": 17,
+      "mode": "High Funds",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "High Funds",
+        "Live Play",
+        "Mixed Base"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "pl",
+        "ne"
+      ],
+      "predeployed_unit_count": 4,
+      "source": "maps/181570.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=181570",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=181570",
+      "source_fingerprint": "855f03ca01f226bf",
+      "normalized_fingerprint": "10538b59feb8e595"
+    },
+    {
+      "awbw_id": 126428,
+      "name": "Ft. Fantasy",
+      "author": "StarFlash250",
+      "creator": "starflash250",
+      "player_count": 2,
+      "width": 19,
+      "height": 19,
+      "mode": "Standard",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Live Play",
+        "Standard"
+      ],
+      "split": "development",
+      "original_factions": [
+        "ab",
+        "pl"
+      ],
+      "predeployed_unit_count": 5,
+      "source": "maps/126428.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=126428",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=126428",
+      "source_fingerprint": "9b525b172744388b",
+      "normalized_fingerprint": "8376c257b505c15d"
+    },
+    {
+      "awbw_id": 177963,
+      "name": "Furia",
+      "author": "DrNasty",
+      "creator": "drnasty",
+      "player_count": 2,
+      "width": 22,
+      "height": 24,
+      "mode": "High Funds",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "High Funds",
+        "Mixed Base"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "os",
+        "bh"
+      ],
+      "predeployed_unit_count": 4,
+      "source": "maps/177963.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=177963",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=177963",
+      "source_fingerprint": "3dcf0a1b8db7c2ef",
+      "normalized_fingerprint": "1dd65310671fc6dd"
+    },
+    {
+      "awbw_id": 80008,
+      "name": "Goldfish Princess",
+      "author": "Sami-YXL",
+      "creator": "sami-yxl",
+      "player_count": 2,
+      "width": 19,
+      "height": 19,
+      "mode": "Fog of War",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Fog of War"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "ge",
+        "bd"
+      ],
+      "predeployed_unit_count": 3,
+      "source": "maps/80008.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=80008",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=80008",
+      "source_fingerprint": "88a21b308ca0b2aa",
+      "normalized_fingerprint": "47e72418c21ee527"
+    },
+    {
+      "awbw_id": 170819,
+      "name": "Greener Greens",
+      "author": "ShinyDeagle",
+      "creator": "shinydeagle",
+      "player_count": 2,
+      "width": 17,
+      "height": 19,
+      "mode": "Fog of War",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Fog of War",
+        "Live Play"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "ge",
+        "yc"
+      ],
+      "predeployed_unit_count": 3,
+      "source": "maps/170819.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=170819",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=170819",
+      "source_fingerprint": "96f683812980af61",
+      "normalized_fingerprint": "c74a9cdc7745a2a3"
+    },
+    {
+      "awbw_id": 146797,
+      "name": "Inland Viking",
+      "author": "Bum II",
+      "creator": "bum ii",
+      "player_count": 2,
+      "width": 27,
+      "height": 23,
+      "mode": "Standard",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Mixed Base",
+        "Standard"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "os",
+        "yc"
+      ],
+      "predeployed_unit_count": 4,
+      "source": "maps/146797.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=146797",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=146797",
+      "source_fingerprint": "de60d500f7142b99",
+      "normalized_fingerprint": "9c7eefac13ed9420"
+    },
+    {
+      "awbw_id": 142984,
+      "name": "Intelligent System v2",
+      "author": "Kantbei",
+      "creator": "kantbei",
+      "player_count": 2,
+      "width": 19,
+      "height": 19,
+      "mode": "Fog of War",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Hall of Fame",
+        "Base Light",
+        "Fog of War",
+        "Live Play"
+      ],
+      "split": "development",
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "predeployed_unit_count": 3,
+      "source": "maps/142984.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=142984",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=142984",
+      "source_fingerprint": "a30d4c3f23174f33",
+      "normalized_fingerprint": "a30d4c3f23174f33"
+    },
+    {
+      "awbw_id": 173362,
+      "name": "Jungle Hijinxs",
+      "author": "GorillaH",
+      "creator": "gorillah",
+      "player_count": 2,
+      "width": 21,
+      "height": 17,
+      "mode": "High Funds",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "High Funds",
+        "Live Play"
+      ],
+      "split": "development",
+      "original_factions": [
+        "bd",
+        "ar"
+      ],
+      "predeployed_unit_count": 9,
+      "source": "maps/173362.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=173362",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=173362",
+      "source_fingerprint": "7419c64d249a6162",
+      "normalized_fingerprint": "bfeeda4caeceaad8"
+    },
+    {
+      "awbw_id": 180231,
+      "name": "Lemon Squeezy",
+      "author": "androider",
+      "creator": "androider",
+      "player_count": 2,
+      "width": 22,
+      "height": 18,
+      "mode": "Fog of War",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Fog of War"
+      ],
+      "split": "development",
+      "original_factions": [
+        "yc",
+        "ci"
+      ],
+      "predeployed_unit_count": 5,
+      "source": "maps/180231.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=180231",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=180231",
+      "source_fingerprint": "3fb9197e071078c5",
+      "normalized_fingerprint": "7f29f3bdc7857942"
+    },
+    {
+      "awbw_id": 178780,
+      "name": "Like A Moth To A Flame",
+      "author": "GorillaH",
+      "creator": "gorillah",
+      "player_count": 2,
+      "width": 24,
+      "height": 20,
+      "mode": "Fog of War",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Fog of War"
+      ],
+      "split": "development",
+      "original_factions": [
+        "gs",
+        "ab"
+      ],
+      "predeployed_unit_count": 7,
+      "source": "maps/178780.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=178780",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=178780",
+      "source_fingerprint": "61612d1d582d1bd7",
+      "normalized_fingerprint": "2e33d4ba2059d4b0"
+    },
+    {
+      "awbw_id": 128505,
+      "name": "Malachite Trail",
+      "author": "Airob94m",
+      "creator": "airob94m",
+      "player_count": 2,
+      "width": 30,
+      "height": 21,
+      "mode": "High Funds",
+      "rank": "S-Rank",
+      "categories": [
+        "S-Rank",
+        "Global League",
+        "Hall of Fame",
+        "High Funds",
+        "Mixed Base"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "tg",
+        "wn"
+      ],
+      "predeployed_unit_count": 4,
+      "source": "maps/128505.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=128505",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=128505",
+      "source_fingerprint": "cfbbbfe396c167bd",
+      "normalized_fingerprint": "df5bb5e6f184457b"
+    },
+    {
+      "awbw_id": 123858,
+      "name": "Misery",
+      "author": "Clownpiece",
+      "creator": "clownpiece",
+      "player_count": 2,
+      "width": 21,
+      "height": 17,
+      "mode": "Standard",
+      "rank": "S-Rank",
+      "categories": [
+        "S-Rank",
+        "Global League",
+        "Live Play",
+        "Mixed Base",
+        "Standard"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "os",
+        "bh"
+      ],
+      "predeployed_unit_count": 2,
+      "source": "maps/123858.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=123858",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=123858",
+      "source_fingerprint": "5643c3448d97adf1",
+      "normalized_fingerprint": "9dd5c209be619199"
+    },
+    {
+      "awbw_id": 169069,
+      "name": "Only Pain To Gain",
+      "author": "GorillaH",
+      "creator": "gorillah",
+      "player_count": 2,
+      "width": 27,
+      "height": 21,
+      "mode": "High Funds",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "High Funds",
+        "Mixed Base"
+      ],
+      "split": "development",
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "predeployed_unit_count": 11,
+      "source": "maps/169069.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=169069",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=169069",
+      "source_fingerprint": "1bc14339e60aecdf",
+      "normalized_fingerprint": "1bc14339e60aecdf"
+    },
+    {
+      "awbw_id": 173170,
+      "name": "Phobies",
+      "author": "GorillaH",
+      "creator": "gorillah",
+      "player_count": 2,
+      "width": 22,
+      "height": 21,
+      "mode": "Standard",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Live Play",
+        "Standard"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "predeployed_unit_count": 3,
+      "source": "maps/173170.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=173170",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=173170",
+      "source_fingerprint": "cc1d5fb712eea863",
+      "normalized_fingerprint": "cc1d5fb712eea863"
+    },
+    {
+      "awbw_id": 166637,
+      "name": "Quota Iota Redux",
+      "author": "Bum",
+      "creator": "bum",
+      "player_count": 2,
+      "width": 22,
+      "height": 20,
+      "mode": "Fog of War",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Fog of War",
+        "Live Play"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "rf",
+        "bd"
+      ],
+      "predeployed_unit_count": 3,
+      "source": "maps/166637.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=166637",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=166637",
+      "source_fingerprint": "4f613ed691626a90",
+      "normalized_fingerprint": "0c12c0bde06baf65"
+    },
+    {
+      "awbw_id": 173471,
+      "name": "Rhinoplast Reno",
+      "author": "Bum",
+      "creator": "bum",
+      "player_count": 2,
+      "width": 23,
+      "height": 22,
+      "mode": "High Funds",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "High Funds"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "os",
+        "tg"
+      ],
+      "predeployed_unit_count": 5,
+      "source": "maps/173471.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=173471",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=173471",
+      "source_fingerprint": "a1e2c092664604b5",
+      "normalized_fingerprint": "e47d9c30ea9c2498"
+    },
+    {
+      "awbw_id": 172231,
+      "name": "Sandtrap",
+      "author": "Bum X",
+      "creator": "bum x",
+      "player_count": 2,
+      "width": 18,
+      "height": 18,
+      "mode": "High Funds",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "High Funds",
+        "Live Play"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "bd",
+        "ab"
+      ],
+      "predeployed_unit_count": 3,
+      "source": "maps/172231.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=172231",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=172231",
+      "source_fingerprint": "80ed3729b3f323e4",
+      "normalized_fingerprint": "756e7ffeaf6c0b51"
+    },
+    {
+      "awbw_id": 143354,
+      "name": "Settles as Still Water v3",
+      "author": "Kantbei",
+      "creator": "kantbei",
+      "player_count": 2,
+      "width": 25,
+      "height": 18,
+      "mode": "Fog of War",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Fog of War"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "tg",
+        "pl"
+      ],
+      "predeployed_unit_count": 5,
+      "source": "maps/143354.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=143354",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=143354",
+      "source_fingerprint": "f90a19d5721f7967",
+      "normalized_fingerprint": "ada18859e9af2462"
+    },
+    {
+      "awbw_id": 165694,
+      "name": "Silverado",
+      "author": "Bum IX",
+      "creator": "bum ix",
+      "player_count": 2,
+      "width": 20,
+      "height": 24,
+      "mode": "High Funds",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "High Funds"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "aa",
+        "ne"
+      ],
+      "predeployed_unit_count": 3,
+      "source": "maps/165694.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=165694",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=165694",
+      "source_fingerprint": "59d7ee5bc4b9c317",
+      "normalized_fingerprint": "7f30a267ecb702f5"
+    },
+    {
+      "awbw_id": 144739,
+      "name": "Stitch Monster v2",
+      "author": "StarFlash251",
+      "creator": "starflash251",
+      "player_count": 2,
+      "width": 24,
+      "height": 18,
+      "mode": "Fog of War",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Fog of War"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "tg",
+        "pl"
+      ],
+      "predeployed_unit_count": 7,
+      "source": "maps/144739.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=144739",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=144739",
+      "source_fingerprint": "395a795a6a5f0809",
+      "normalized_fingerprint": "cebcd3a20696f284"
+    },
+    {
+      "awbw_id": 134930,
+      "name": "Swiss Banking",
+      "author": "Bum",
+      "creator": "bum",
+      "player_count": 2,
+      "width": 24,
+      "height": 17,
+      "mode": "Standard",
+      "rank": "S-Rank",
+      "categories": [
+        "S-Rank",
+        "Global League",
+        "Base Light",
+        "Live Play",
+        "Standard"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "ab",
+        "pl"
+      ],
+      "predeployed_unit_count": 3,
+      "source": "maps/134930.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=134930",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=134930",
+      "source_fingerprint": "5c75d6fce88b8fa7",
+      "normalized_fingerprint": "ba4c59eb8e677aca"
+    },
+    {
+      "awbw_id": 166541,
+      "name": "The Final Cut",
+      "author": "Brothermacsac",
+      "creator": "brothermacsac",
+      "player_count": 2,
+      "width": 21,
+      "height": 17,
+      "mode": "Fog of War",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Fog of War",
+        "Live Play"
+      ],
+      "split": "development",
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "predeployed_unit_count": 1,
+      "source": "maps/166541.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=166541",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=166541",
+      "source_fingerprint": "5474e8be745b5d38",
+      "normalized_fingerprint": "5474e8be745b5d38"
+    },
+    {
+      "awbw_id": 166877,
+      "name": "Throne Of Skulls",
+      "author": "GorillaH",
+      "creator": "gorillah",
+      "player_count": 2,
+      "width": 23,
+      "height": 17,
+      "mode": "Standard",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Standard"
+      ],
+      "split": "development",
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "predeployed_unit_count": 1,
+      "source": "maps/166877.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=166877",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=166877",
+      "source_fingerprint": "5a7fd890124cf453",
+      "normalized_fingerprint": "5a7fd890124cf453"
+    },
+    {
+      "awbw_id": 169382,
+      "name": "Unhealthy Obsession",
+      "author": "GorillaH",
+      "creator": "gorillah",
+      "player_count": 2,
+      "width": 24,
+      "height": 21,
+      "mode": "High Funds",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "High Funds",
+        "Live Play"
+      ],
+      "split": "development",
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "predeployed_unit_count": 5,
+      "source": "maps/169382.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=169382",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=169382",
+      "source_fingerprint": "3085b0150bd64696",
+      "normalized_fingerprint": "3085b0150bd64696"
+    },
+    {
+      "awbw_id": 82657,
+      "name": "Viridia Aqua",
+      "author": "Voice of Akasha",
+      "creator": "voice of akasha",
+      "player_count": 2,
+      "width": 28,
+      "height": 17,
+      "mode": "High Funds",
+      "rank": "S-Rank",
+      "categories": [
+        "S-Rank",
+        "Global League",
+        "Hall of Fame",
+        "Heavy Naval",
+        "High Funds",
+        "Mixed Base"
+      ],
+      "split": "untouched_holdout",
+      "original_factions": [
+        "ge",
+        "ab"
+      ],
+      "predeployed_unit_count": 4,
+      "source": "maps/82657.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=82657",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=82657",
+      "source_fingerprint": "a8bf17b805df368c",
+      "normalized_fingerprint": "b0d533c8b4285889"
+    },
+    {
+      "awbw_id": 133665,
+      "name": "Walls Are Closing In",
+      "author": "Havetts93",
+      "creator": "havetts93",
+      "player_count": 2,
+      "width": 25,
+      "height": 21,
+      "mode": "Standard",
+      "rank": "A-Rank",
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Mixed Base",
+        "Standard"
+      ],
+      "split": "development",
+      "original_factions": [
+        "ab",
+        "aa"
+      ],
+      "predeployed_unit_count": 6,
+      "source": "maps/133665.json",
+      "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=133665",
+      "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=133665",
+      "source_fingerprint": "d96fc641de97d956",
+      "normalized_fingerprint": "99e0de8c1d9e87cd"
+    }
+  ]
+}
