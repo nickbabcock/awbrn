@@ -1,6 +1,8 @@
 //! Release controls for the promoted AI profile.
 
 use awbrn_ai::agent::{Agent, NodeBudget};
+use awbrn_ai::agents::StrategicAgent;
+use awbrn_ai::baseline::BaselineConfig;
 use awbrn_ai::harness::{Limits, TurnResult, play_observed, run_agent_turn};
 use awbrn_ai::rng::Rng;
 use awbrn_ai::{HARD, STANDARD};
@@ -125,7 +127,7 @@ fn reply_exposure_control_avoids_the_known_losing_attack() {
 }
 
 #[test]
-fn promoted_profile_completes_a_legal_match_in_both_seat_orders() {
+fn current_hard_profile_completes_a_legal_match_in_both_seat_orders() {
     for candidate_first in [true, false] {
         let seed = 0x303 + u64::from(!candidate_first);
         let state = awbrn_ai::board::arena(false, seed);
@@ -163,6 +165,105 @@ fn promoted_profile_completes_a_legal_match_in_both_seat_orders() {
                 .complete_turn_times_by_seat
                 .iter()
                 .all(|times| !times.is_empty())
+        );
+        assert!(
+            record
+                .complete_turn_times_by_seat
+                .iter()
+                .flatten()
+                .all(|nanos| *nanos <= MAX_COMPLETE_TURN_NANOS),
+            "candidate-first={candidate_first} exceeded the complete-turn budget"
+        );
+    }
+}
+
+#[test]
+fn hard_standard_match_matches_the_unchanged_production_configuration() {
+    for candidate_first in [true, false] {
+        let seed = 0x321 + u64::from(!candidate_first);
+        let state = awbrn_ai::board::arena(false, seed);
+
+        let run = |use_current_profile: bool| {
+            let mut session = Session::new(state.clone());
+            let mut entropy = Rng::from_seed(seed ^ 0x9e37_79b9);
+            let mut hard: Box<dyn Agent> = if use_current_profile {
+                HARD.agent(seed ^ 0x2)
+            } else {
+                Box::new(StrategicAgent::with_config(
+                    seed ^ 0x2,
+                    BaselineConfig::PRODUCTION,
+                ))
+            };
+            let mut opponent = STANDARD.agent(seed ^ 0x3);
+            let mut agents: [&mut dyn Agent; 2] = if candidate_first {
+                [&mut *hard, &mut *opponent]
+            } else {
+                [&mut *opponent, &mut *hard]
+            };
+            play_observed(
+                state.clone(),
+                &mut session,
+                &mut agents,
+                &mut entropy,
+                Limits::DEFAULT,
+                |_, _| {},
+            )
+            .expect("standard parity match executes")
+        };
+
+        let current = run(true);
+        let production = run(false);
+
+        assert_eq!(current.outcome, production.outcome);
+        assert_eq!(current.turns, production.turns);
+        assert_eq!(current.days, production.days);
+        assert_eq!(current.commands, production.commands);
+        assert_eq!(current.refusals, production.refusals);
+        assert_eq!(
+            current.preflight_rejections,
+            production.preflight_rejections
+        );
+        assert_eq!(current.unrealizable_plays, production.unrealizable_plays);
+        assert_eq!(
+            current.command_fingerprints,
+            production.command_fingerprints
+        );
+    }
+}
+
+#[test]
+fn current_hard_profile_completes_a_legal_fog_match_in_both_seat_orders() {
+    for candidate_first in [true, false] {
+        let seed = 0x311 + u64::from(!candidate_first);
+        let state = awbrn_ai::board::arena(true, seed);
+        let mut session = Session::new(state.clone());
+        let mut entropy = Rng::from_seed(seed ^ 0x9e37_79b9);
+        let mut candidate = HARD.agent(seed ^ 0x2);
+        let mut baseline = STANDARD.agent(seed ^ 0x3);
+        let mut agents: [&mut dyn Agent; 2] = if candidate_first {
+            [&mut *candidate, &mut *baseline]
+        } else {
+            [&mut *baseline, &mut *candidate]
+        };
+        let record = play_observed(
+            state,
+            &mut session,
+            &mut agents,
+            &mut entropy,
+            Limits::DEFAULT,
+            |_, _| {},
+        )
+        .expect("fog release match executes");
+
+        assert!(!record.abandoned(), "candidate-first={candidate_first}");
+        assert_eq!(record.refusals, 0, "candidate-first={candidate_first}");
+        assert_eq!(
+            record.preflight_rejections, 0,
+            "candidate-first={candidate_first}"
+        );
+        assert_eq!(
+            record.unrealizable_plays, 0,
+            "candidate-first={candidate_first}"
         );
         assert!(
             record

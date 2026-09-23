@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "run_id": "hard-v2-current-vs-old-production-external-fog-65213-migration-20260923",
+  "candidate": {
+    "kind": "ai-profile",
+    "profile_id": "ai-hard-v2"
+  },
+  "baseline": {
+    "kind": "strategic",
+    "configuration": "production"
+  },
+  "maps": [65213],
+  "run_seed": 2026092307,
+  "pairs_per_map": 8,
+  "limits": {
+    "day_limit": 35,
+    "node_budget": 4,
+    "refusal_limit": 64
+  },
+  "telemetry": "enabled",
+  "capture_policy": {
+    "selection": {
+      "kind": "all"
+    },
+    "frame_policy": {
+      "kind": "disabled"
+    }
+  },
+  "analyses": [],
+  "annotations": "Migration check. Candidate is current ai-hard-v2. Baseline is the former production configuration from the unreleased ai-hard-v2 snapshot. Use the same map, seed, and seat orders as the historical snapshot comparison."
+}

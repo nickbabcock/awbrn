@@ -5,7 +5,7 @@
 //! not hold. So every test here ends the same way: reconstruct the match from
 //! its stored events and compare.
 
-use awbrn_ai::{HARD, STANDARD, profile};
+use awbrn_ai::{AiTier, HARD, STANDARD, profile, profile_for_tier};
 use awbrn_map::{AwbrnMap, Dimensions, Pos};
 use awbrn_server::{
     AiSeat, Co, GameCommand, GameServer, GameSetup, PlayerId, PlayerSetup, StoredActionEvent,
@@ -166,6 +166,22 @@ fn a_seat_plays_the_same_way_from_the_same_seed() {
     };
 
     assert_eq!(play_once(), play_once());
+}
+
+#[test]
+fn current_hard_tier_seats_v2_and_plays_in_fog() {
+    let current = profile_for_tier(AiTier::Hard);
+    assert_eq!(current.id, "ai-hard-v2");
+    assert_eq!(profile("ai-hard-v2"), Some(&HARD));
+
+    let mut setup = contested_setup();
+    setup.fog_enabled = true;
+    let mut server = GameServer::new(setup).expect("the setup is valid");
+    let mut events = Vec::new();
+    let played = play_ai_turn(&mut server, &mut events, p1(), current.id, 99);
+
+    assert_eq!(played.last(), Some(&GameCommand::EndTurn));
+    assert!(!events.is_empty());
 }
 
 #[test]

@@ -21,7 +21,7 @@ use crate::feature_analysis::{
 use crate::map_registry::MapRegistry;
 use crate::producer_diagnostics::ProducerUsabilityPlan;
 use crate::tactical::{TacticalFactory, TacticalRerank, TacticalRerankMode};
-use crate::tournament::{AgentFactory, SearchFactory, StrategicFactory};
+use crate::tournament::{AgentFactory, AiProfileFactory, SearchFactory, StrategicFactory};
 
 /// The current experiment plan schema.
 pub const EXPERIMENT_PLAN_SCHEMA_VERSION: u16 = 1;
@@ -30,6 +30,8 @@ pub const EXPERIMENT_PLAN_SCHEMA_VERSION: u16 = 1;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum AgentSpec {
+    /// A versioned opponent profile stored in match records.
+    AiProfile { profile_id: String },
     /// A production or locked strategic configuration.
     Strategic { configuration: String },
     /// A search configuration built from a named weight preset.
@@ -231,6 +233,7 @@ impl ExperimentPlan {
                     source: map.source_path.clone(),
                     source_fingerprint: map.source_fingerprint.clone(),
                     normalized_fingerprint: map.normalized_fingerprint.clone(),
+                    fog: map.fog,
                 })
             })
             .collect::<Result<Vec<_>, PlanError>>()?;
@@ -316,6 +319,10 @@ impl AgentSpec {
         plan_path: &Path,
     ) -> Result<(Box<dyn AgentFactory>, Vec<ReferencedArtifact>), PlanError> {
         match self {
+            Self::AiProfile { profile_id } => Ok((
+                Box::new(AiProfileFactory::new(profile_id).map_err(PlanError::Configuration)?),
+                Vec::new(),
+            )),
             Self::Strategic { configuration } => {
                 if configuration.is_empty() {
                     return Err(PlanError::Configuration(
@@ -620,4 +627,38 @@ fn validate_learned_model(
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ai_profile_plan_resolves_the_current_hard_profile() {
+        let spec = AgentSpec::AiProfile {
+            profile_id: "ai-hard-v2".into(),
+        };
+        let (factory, artifacts) = spec
+            .materialize(Path::new("/tmp/profile-plan.json"))
+            .expect("the current profile resolves");
+
+        assert!(artifacts.is_empty());
+        assert_eq!(factory.identity().identifier, "ai-hard-v2");
+        assert!(!factory.identity().configuration_fingerprint.is_empty());
+        assert_eq!(
+            factory.identity().executable_fingerprint,
+            crate::tournament::AI_PROFILE_EXECUTABLE_FINGERPRINT
+        );
+    }
+
+    #[test]
+    fn ai_profile_plan_rejects_unknown_identifiers() {
+        let spec = AgentSpec::AiProfile {
+            profile_id: "ai-hard-v99".into(),
+        };
+        assert!(
+            spec.materialize(Path::new("/tmp/profile-plan.json"))
+                .is_err()
+        );
+    }
 }

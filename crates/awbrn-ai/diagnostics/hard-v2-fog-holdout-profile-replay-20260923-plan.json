@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "run_id": "hard-v2-profile-fog-holdout-replay-20260923",
+  "candidate": {
+    "kind": "ai-profile",
+    "profile_id": "ai-hard-v2"
+  },
+  "baseline": {
+    "kind": "strategic",
+    "configuration": "production"
+  },
+  "maps": [
+    75796,
+    176149,
+    80008,
+    170819,
+    166637,
+    143354,
+    144739
+  ],
+  "run_seed": 2026092306,
+  "pairs_per_map": 8,
+  "limits": {
+    "day_limit": 35,
+    "node_budget": 4,
+    "refusal_limit": 64
+  },
+  "telemetry": "enabled",
+  "capture_policy": {
+    "selection": {
+      "kind": "all"
+    },
+    "frame_policy": {
+      "kind": "disabled"
+    }
+  },
+  "analyses": [],
+  "annotations": "Replay the previously evaluated Fog holdout keys with the current ai-hard-v2 profile and the unchanged production StrategicFactory. This checks the fixed-config fold-in against the original conceal=2 candidate. Do not treat this replay as a fresh holdout or use it to tune an agent."
+}
