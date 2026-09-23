@@ -42,7 +42,7 @@ export const aiProfileDisplays: readonly AiProfileDisplay[] = [
     id: "ai-hard-v2",
     tier: "hard",
     label: "Hard",
-    blurb: "Uses generic threat reduction and residual reply exposure to punish a thin front.",
+    blurb: "Uses production scoring. In fog, values positions hidden from enemy sight.",
   },
 ];
 
