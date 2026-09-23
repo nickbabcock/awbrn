@@ -36,7 +36,8 @@ fn game(fog: bool, seed: u64, seat: usize) -> (Record, TeamId) {
         &mut agents,
         &mut entropy,
         Limits::DEFAULT,
-    );
+    )
+    .expect("test game executes");
     (record, team)
 }
 

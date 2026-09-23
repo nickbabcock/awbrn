@@ -1,0 +1,1655 @@
+{
+  "ruleset": {
+    "id": "awbw",
+    "revision": "2026-07-10"
+  },
+  "settings": {
+    "fog": false,
+    "income_per_property": 1000,
+    "starting_funds": 0,
+    "powers": "enabled",
+    "tags": false,
+    "weather": "clear",
+    "lab_units": [],
+    "unit_bans": [
+      "stealth",
+      "black-bomb"
+    ],
+    "commander_bans": {
+      "lead": [],
+      "backup": []
+    },
+    "capture_limit": null,
+    "day_limit": 8,
+    "unit_limit": null
+  },
+  "board": {
+    "width": 20,
+    "height": 20,
+    "tiles": [
+      [
+        {
+          "terrain": "reef"
+        },
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "reef"
+        },
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "pipe"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "sea"
+        }
+      ],
+      [
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "airport",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "pipe"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "reef"
+        }
+      ],
+      [
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "city",
+          "owner": "1",
+          "capture_points": 20
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 10
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "sea"
+        }
+      ],
+      [
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "base",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "base",
+          "owner": "1",
+          "capture_points": 20
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "sea"
+        }
+      ],
+      [
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "base",
+          "owner": "1",
+          "capture_points": 20
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 10
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "shoal"
+        }
+      ],
+      [
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "city",
+          "owner": "1",
+          "capture_points": 20
+        },
+        {
+          "terrain": "plain"
+        }
+      ],
+      [
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "hq",
+          "owner": "1",
+          "capture_points": 20
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        }
+      ],
+      [
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "mountain"
+        }
+      ],
+      [
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "wood"
+        }
+      ],
+      [
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "city",
+          "owner": "0",
+          "capture_points": 20
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        }
+      ],
+      [
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        }
+      ],
+      [
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        }
+      ],
+      [
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "wood"
+        }
+      ],
+      [
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "hq",
+          "owner": "0",
+          "capture_points": 20
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "city",
+          "owner": "0",
+          "capture_points": 20
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "mountain"
+        }
+      ],
+      [
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "city",
+          "owner": "0",
+          "capture_points": 20
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "mountain"
+        }
+      ],
+      [
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "city",
+          "owner": "0",
+          "capture_points": 20
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "base",
+          "owner": "0",
+          "capture_points": 20
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        }
+      ],
+      [
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "base",
+          "owner": "0",
+          "capture_points": 20
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "base",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "road"
+        }
+      ],
+      [
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 10
+        },
+        {
+          "terrain": "shoal"
+        }
+      ],
+      [
+        {
+          "terrain": "reef"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "pipe"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "city",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "airport",
+          "owner": null,
+          "capture_points": 20
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "wood"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "sea"
+        }
+      ],
+      [
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "pipe"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "plain"
+        },
+        {
+          "terrain": "missile-silo",
+          "silo": "spent"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "road"
+        },
+        {
+          "terrain": "mountain"
+        },
+        {
+          "terrain": "shoal"
+        },
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "reef"
+        },
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "sea"
+        },
+        {
+          "terrain": "reef"
+        }
+      ]
+    ]
+  },
+  "teams": [
+    {
+      "id": "player-0",
+      "status": "active"
+    },
+    {
+      "id": "player-1",
+      "status": "active"
+    }
+  ],
+  "players": [
+    {
+      "id": "0",
+      "team": "player-0",
+      "funds": 4000,
+      "status": "active",
+      "commanders": [
+        {
+          "id": "andy",
+          "active": true,
+          "power_charge": 4350,
+          "power_uses": 0
+        }
+      ],
+      "power_state": {
+        "type": "none"
+      }
+    },
+    {
+      "id": "1",
+      "team": "player-1",
+      "funds": 5000,
+      "status": "active",
+      "commanders": [
+        {
+          "id": "andy",
+          "active": true,
+          "power_charge": 2700,
+          "power_uses": 0
+        }
+      ],
+      "power_state": {
+        "type": "none"
+      }
+    }
+  ],
+  "turn": {
+    "day": 6,
+    "active_player": "1",
+    "phase": "unit-action",
+    "order": [
+      "0",
+      "1"
+    ],
+    "position": 1
+  },
+  "weather": {
+    "kind": "clear",
+    "remaining_turns": 0
+  },
+  "units": [
+    {
+      "id": 1,
+      "kind": "infantry",
+      "owner": "1",
+      "hp": 100,
+      "fuel": 95,
+      "ammo": 0,
+      "action": "ready",
+      "concealment": "exposed",
+      "location": {
+        "type": "board",
+        "position": [
+          5,
+          2
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "infantry",
+      "owner": "0",
+      "hp": 100,
+      "fuel": 97,
+      "ammo": 0,
+      "action": "spent",
+      "concealment": "exposed",
+      "location": {
+        "type": "board",
+        "position": [
+          4,
+          16
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "infantry",
+      "owner": "0",
+      "hp": 100,
+      "fuel": 94,
+      "ammo": 0,
+      "action": "spent",
+      "concealment": "exposed",
+      "location": {
+        "type": "board",
+        "position": [
+          15,
+          9
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "infantry",
+      "owner": "1",
+      "hp": 100,
+      "fuel": 96,
+      "ammo": 0,
+      "action": "ready",
+      "concealment": "exposed",
+      "location": {
+        "type": "board",
+        "position": [
+          18,
+          2
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "tank",
+      "owner": "1",
+      "hp": 88,
+      "fuel": 61,
+      "ammo": 7,
+      "action": "ready",
+      "concealment": "exposed",
+      "location": {
+        "type": "board",
+        "position": [
+          4,
+          9
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "tank",
+      "owner": "0",
+      "hp": 100,
+      "fuel": 67,
+      "ammo": 9,
+      "action": "spent",
+      "concealment": "exposed",
+      "location": {
+        "type": "board",
+        "position": [
+          4,
+          15
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "mech",
+      "owner": "1",
+      "hp": 100,
+      "fuel": 68,
+      "ammo": 3,
+      "action": "ready",
+      "concealment": "exposed",
+      "location": {
+        "type": "board",
+        "position": [
+          16,
+          4
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "kind": "infantry",
+      "owner": "0",
+      "hp": 100,
+      "fuel": 96,
+      "ammo": 0,
+      "action": "spent",
+      "concealment": "exposed",
+      "location": {
+        "type": "board",
+        "position": [
+          18,
+          17
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "kind": "infantry",
+      "owner": "0",
+      "hp": 100,
+      "fuel": 97,
+      "ammo": 0,
+      "action": "spent",
+      "concealment": "exposed",
+      "location": {
+        "type": "board",
+        "position": [
+          3,
+          17
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "kind": "tank",
+      "owner": "1",
+      "hp": 100,
+      "fuel": 70,
+      "ammo": 9,
+      "action": "ready",
+      "concealment": "exposed",
+      "location": {
+        "type": "board",
+        "position": [
+          2,
+          4
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "kind": "infantry",
+      "owner": "1",
+      "hp": 100,
+      "fuel": 99,
+      "ammo": 0,
+      "action": "ready",
+      "concealment": "exposed",
+      "location": {
+        "type": "board",
+        "position": [
+          17,
+          3
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "kind": "mech",
+      "owner": "0",
+      "hp": 100,
+      "fuel": 70,
+      "ammo": 3,
+      "action": "spent",
+      "concealment": "exposed",
+      "location": {
+        "type": "board",
+        "position": [
+          17,
+          15
+        ]
+      }
+    },
+    {
+      "id": 14,
+      "kind": "mech",
+      "owner": "0",
+      "hp": 100,
+      "fuel": 70,
+      "ammo": 3,
+      "action": "spent",
+      "concealment": "exposed",
+      "location": {
+        "type": "board",
+        "position": [
+          2,
+          16
+        ]
+      }
+    }
+  ],
+  "next_unit_id": 15,
+  "match": {
+    "status": "active",
+    "draw_offers": []
+  }
+}

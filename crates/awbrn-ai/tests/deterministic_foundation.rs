@@ -23,11 +23,13 @@ fn run_baseline(strategic: bool) -> Record {
         let mut second = StrategicAgent::from_seed(Rng::mix(14));
         let mut agents: [&mut dyn Agent; 2] = [&mut first, &mut second];
         play_measured(state, &mut session, &mut agents, &mut entropy, LIMITS)
+            .expect("test game executes")
     } else {
         let mut first = BaselineConfig::LOCKED.build_greedy(Rng::mix(13));
         let mut second = BaselineConfig::LOCKED.build_greedy(Rng::mix(14));
         let mut agents: [&mut dyn Agent; 2] = [&mut first, &mut second];
         play_measured(state, &mut session, &mut agents, &mut entropy, LIMITS)
+            .expect("test game executes")
     }
 }
 
@@ -168,7 +170,8 @@ impl Agent for LifecycleRecorder {
 fn one_turn_harness_preserves_match_scoped_agent_state() {
     let mut agent = LifecycleRecorder::default();
     let mut entropy = Rng::from_seed(23);
-    let result = run_agent_turn(arena(false, 29), &mut agent, &mut entropy, NodeBudget::FOUR);
+    let result = run_agent_turn(arena(false, 29), &mut agent, &mut entropy, NodeBudget::FOUR)
+        .expect("test turn executes");
 
     assert!(result.completed);
     assert_eq!(result.commands.len(), 1);

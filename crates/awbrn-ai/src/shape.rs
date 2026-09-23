@@ -201,6 +201,7 @@ mod tests {
             &mut entropy,
             Limits::DEFAULT,
         )
+        .expect("test game executes")
     }
 
     /// Every turn the harness counts is a turn one seat is sampled on.
