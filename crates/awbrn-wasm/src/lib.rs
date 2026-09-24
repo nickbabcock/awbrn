@@ -1,14 +1,16 @@
 use awbrn_client::{
-    AttackPreviewChanged, AwbrnPlugin, DeleteUnitCommandRequested, EndTurnRequested, EventSink,
+    AttackPreviewChanged, AwbrnPlugin, DeleteUnitCommandRequested, EditorCommand,
+    EditorCommandQueue, EditorSession, EditorStateChanged, EndTurnRequested, EventSink,
     LiveMatchPlayer, MapAssetPathResolver, MapDimensions, MoveCommandRequested, NewDay,
-    PendingGameStart, PendingLiveMatch, PendingLiveTransitions, PendingMatchMap,
+    PendingEditorMap, PendingGameStart, PendingLiveMatch, PendingLiveTransitions, PendingMatchMap,
     PlayerRosterSnapshot, ProductionOptionsChanged, ReplayLoaded, ReplayPositionChanged,
     ReplayToLoad, ReplayViewpointChanged, StaticAssetPathResolver, TileHoverChanged, TileSelected,
     TurnReadinessChanged, UnitActionsChanged, UnitBuilt, UnitInspectionChanged, UnitMoved,
     UnloadCommandRequested, core::coords::LogicalPx,
 };
-use awbrn_map::ValidatedMapDocument;
-use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
+use awbrn_map::editor::{Brush, PaletteGroup};
+use awbrn_map::{AwbwMap, Dimensions, ValidatedMapDocument};
+use awbrn_types::{AwbwGamePlayerId, AwbwTerrain, FactionCode, PlayerFaction};
 use bevy::{
     app::PluginsState,
     input::{
@@ -59,12 +61,97 @@ pub enum GameEvent {
     ReplayPositionChanged(ReplayPositionChanged),
     ReplayViewpointChanged(ReplayViewpointChanged),
     PlayerRosterUpdated(PlayerRosterSnapshot),
+    EditorStateChanged(EditorStateChanged),
 }
 
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(typescript_type = "(event: GameEvent) => void")]
     pub type GameEventCallback;
+}
+
+/// One cell of the editor's palette, as a picker draws it.
+#[derive(Debug, Serialize, tsify::Tsify)]
+#[serde(rename_all = "camelCase")]
+pub struct PaletteCell {
+    /// What the cell paints.
+    pub brush: Brush,
+    pub name: String,
+    pub group: PaletteGroup,
+    /// Defense stars. Zero where the ground shelters nothing.
+    pub defense: u8,
+    /// The cell of the terrain sheet to draw, or none for a unit.
+    #[tsify(optional)]
+    pub sprite_index: Option<u32>,
+}
+
+/// Everything the editor can put on a board.
+///
+/// The names, the order and the defense come from the map crate; the sprite
+/// index comes from the same atlas table the board itself draws through. A
+/// palette can therefore not offer a brush the editor cannot paint, or draw a
+/// tile as something other than what it becomes.
+#[derive(Debug, Serialize, tsify::Tsify)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorPalette {
+    pub terrain: Vec<PaletteCell>,
+    pub units: Vec<PaletteCell>,
+}
+
+/// The palette, with the buildings and units of one army.
+#[wasm_bindgen(js_name = editorPalette)]
+pub fn editor_palette(faction_code: Option<String>) -> Result<Ts<EditorPalette>, JsError> {
+    let owner = match faction_code {
+        Some(code) => Some(
+            FactionCode::parse(&code)
+                .ok_or_else(|| JsError::new(&format!("Unknown faction code: {code}")))?
+                .faction(),
+        ),
+        None => None,
+    };
+
+    let palette = EditorPalette {
+        terrain: awbrn_map::editor::terrain_palette(owner)
+            .into_iter()
+            .map(palette_cell)
+            .collect(),
+        units: owner
+            .map(|faction| {
+                awbrn_map::editor::unit_palette(faction)
+                    .into_iter()
+                    .map(palette_cell)
+                    .collect()
+            })
+            .unwrap_or_default(),
+    };
+
+    Ts::from_rust(&palette).map_err(|error| JsError::new(&error.to_string()))
+}
+
+fn palette_cell(entry: awbrn_map::editor::PaletteEntry) -> PaletteCell {
+    PaletteCell {
+        brush: entry.brush,
+        name: entry.name.to_owned(),
+        group: entry.group,
+        defense: entry.defense,
+        sprite_index: entry.sample.map(sample_sprite_index),
+    }
+}
+
+/// The atlas cell one terrain is drawn as, on a board of nothing but itself.
+///
+/// The board decides how a tile looks from the tiles around it, so a sample of
+/// one terrain is put on a small board of that terrain and read back. That is
+/// how a palette cell stays the picture the board would draw, rather than a
+/// second table that has to be kept in step with the first.
+fn sample_sprite_index(terrain: awbrn_types::AwbwTerrain) -> u32 {
+    let sample = awbrn_map::AwbwMap::new(awbrn_map::Dimensions::new(3, 3), terrain);
+    let drawn = awbrn_map::AwbrnMap::from_map(&sample);
+    let middle = drawn
+        .terrain_at(awbrn_map::Pos::new(1, 1))
+        .unwrap_or(awbrn_types::GraphicalTerrain::Plain);
+
+    u32::from(awbrn_content::spritesheet_index(awbrn_types::Weather::Clear, middle).index())
 }
 
 /// Wrapper around a JS callback that is safe to send across threads.
@@ -243,6 +330,7 @@ impl BevyApp {
             wasm_sink!(ReplayPositionChanged, ReplayPositionChanged);
             wasm_sink!(ReplayViewpointChanged, ReplayViewpointChanged);
             wasm_sink!(PlayerRosterUpdated, PlayerRosterSnapshot);
+            wasm_sink!(EditorStateChanged, EditorStateChanged);
         }
 
         app.insert_non_send(canvas);
@@ -487,6 +575,71 @@ impl BevyApp {
         self.app.world_mut().insert_resource(PendingMatchMap(map));
 
         Ok(())
+    }
+
+    /// Opens a map for editing, from the document the catalog holds.
+    ///
+    /// This is what forking a map is: the board arrives as it stands, and every
+    /// edit from here belongs to whoever is drawing.
+    #[wasm_bindgen]
+    pub fn open_editor(&mut self, map_data: JsValue) -> Result<(), JsError> {
+        let map = serde_wasm_bindgen::from_value::<ValidatedMapDocument>(map_data)
+            .map_err(|error| JsError::new(&format!("Invalid awbrn map: {error}")))?;
+
+        self.app
+            .world_mut()
+            .insert_resource(PendingEditorMap(map.into_map()));
+
+        Ok(())
+    }
+
+    /// Opens a new board of plain ground.
+    #[wasm_bindgen]
+    pub fn open_blank_editor(&mut self, width: u8, height: u8) -> Result<(), JsError> {
+        if width == 0 || height == 0 {
+            return Err(JsError::new("a board has at least one tile on each side"));
+        }
+
+        self.app
+            .world_mut()
+            .insert_resource(PendingEditorMap(AwbwMap::new(
+                Dimensions::new(width, height),
+                AwbwTerrain::Plain,
+            )));
+
+        Ok(())
+    }
+
+    /// Asks the editor to do something. The board reports back what changed.
+    #[wasm_bindgen]
+    pub fn editor_command(&mut self, command: JsValue) -> Result<(), JsError> {
+        let command = serde_wasm_bindgen::from_value::<EditorCommand>(command)
+            .map_err(|error| JsError::new(&format!("Invalid editor command: {error}")))?;
+
+        let world = self.app.world_mut();
+        let Some(mut queue) = world.get_resource_mut::<EditorCommandQueue>() else {
+            return Err(JsError::new("the editor is not open"));
+        };
+        queue.push(command);
+
+        Ok(())
+    }
+
+    /// The map document as the board now stands, ready to be saved.
+    ///
+    /// The player count is read off the board rather than asked for, because
+    /// the number of armies a map seats is a fact about the map.
+    #[wasm_bindgen]
+    pub fn editor_document(&mut self, name: String, author: String) -> Result<JsValue, JsError> {
+        let world = self.app.world_mut();
+        let Some(session) = world.get_resource::<EditorSession>() else {
+            return Err(JsError::new("the editor is not open"));
+        };
+
+        let document = session.document(name, author);
+
+        serde_wasm_bindgen::to_value(&document)
+            .map_err(|error| JsError::new(&format!("Could not read the map: {error}")))
     }
 
     #[wasm_bindgen]

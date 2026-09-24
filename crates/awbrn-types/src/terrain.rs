@@ -60,6 +60,40 @@ pub enum ShoalType {
     VerticalEast,
 }
 
+impl ShoalType {
+    /// The shoal that lies against the land on these sides.
+    ///
+    /// The client draws a shoal from the tiles around it, so this variant is
+    /// what the map document records and not what the player sees. It names
+    /// the same side the picture does, which keeps a mirrored board equal to
+    /// its original tile for tile.
+    ///
+    /// AWBW has one variant for each of the four sides and no more, so a shoal
+    /// with land on more than one side is recorded against one of them: north
+    /// before south, and east before west.
+    pub const fn from_land(north: bool, east: bool, south: bool, west: bool) -> ShoalType {
+        match (north, east, south, west) {
+            (true, false, false, false) => ShoalType::HorizontalNorth,
+            (false, true, false, false) => ShoalType::VerticalEast,
+            (false, false, false, true) => ShoalType::Vertical,
+            (false, false, true, false) => ShoalType::Horizontal,
+            (true, _, false, _) => ShoalType::HorizontalNorth,
+            (false, _, true, _) => ShoalType::Horizontal,
+            (_, true, _, false) => ShoalType::VerticalEast,
+            _ => ShoalType::Vertical,
+        }
+    }
+
+    /// The variant that records the shoal the client draws.
+    ///
+    /// The picture and the document then name the same land, because they are
+    /// the same answer read twice.
+    pub const fn from_direction(direction: ShoalDirection) -> ShoalType {
+        let sides = direction.land_sides();
+        ShoalType::from_land(sides[0], sides[1], sides[2], sides[3])
+    }
+}
+
 /// Sea configurations based on the variants file
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[cfg_attr(feature = "bevy", derive(bevy::reflect::Reflect))]
@@ -201,6 +235,100 @@ pub enum ShoalDirection {
     SAW,
     SW,
     W,
+}
+
+impl ShoalDirection {
+    /// The sides of the tile that land lies against, as north, east, south and
+    /// west.
+    ///
+    /// The name of a variant lists the sides in that order: a bare side letter
+    /// is land, a side after an `A` is open water, and a side that is absent
+    /// holds more shoal.
+    pub const fn land_sides(self) -> [bool; 4] {
+        match self {
+            ShoalDirection::AE => [false, false, false, false],
+            ShoalDirection::AEAS => [false, false, false, false],
+            ShoalDirection::AEASAW => [false, false, false, false],
+            ShoalDirection::AEASW => [false, false, false, true],
+            ShoalDirection::AEAW => [false, false, false, false],
+            ShoalDirection::AES => [false, false, true, false],
+            ShoalDirection::AESAW => [false, false, true, false],
+            ShoalDirection::AESW => [false, false, true, true],
+            ShoalDirection::AEW => [false, false, false, true],
+            ShoalDirection::AN => [false, false, false, false],
+            ShoalDirection::ANAE => [false, false, false, false],
+            ShoalDirection::ANAEAS => [false, false, false, false],
+            ShoalDirection::ANAEASAW => [false, false, false, false],
+            ShoalDirection::ANAEASW => [false, false, false, true],
+            ShoalDirection::ANAEAW => [false, false, false, false],
+            ShoalDirection::ANAES => [false, false, true, false],
+            ShoalDirection::ANAESAW => [false, false, true, false],
+            ShoalDirection::ANAESW => [false, false, true, true],
+            ShoalDirection::ANAEW => [false, false, false, true],
+            ShoalDirection::ANAS => [false, false, false, false],
+            ShoalDirection::ANASAW => [false, false, false, false],
+            ShoalDirection::ANASW => [false, false, false, true],
+            ShoalDirection::ANAW => [false, false, false, false],
+            ShoalDirection::ANE => [false, true, false, false],
+            ShoalDirection::ANEAS => [false, true, false, false],
+            ShoalDirection::ANEASAW => [false, true, false, false],
+            ShoalDirection::ANEASW => [false, true, false, true],
+            ShoalDirection::ANEAW => [false, true, false, false],
+            ShoalDirection::ANES => [false, true, true, false],
+            ShoalDirection::ANESAW => [false, true, true, false],
+            ShoalDirection::ANESW => [false, true, true, true],
+            ShoalDirection::ANEW => [false, true, false, true],
+            ShoalDirection::ANS => [false, false, true, false],
+            ShoalDirection::ANSAW => [false, false, true, false],
+            ShoalDirection::ANSW => [false, false, true, true],
+            ShoalDirection::ANW => [false, false, false, true],
+            ShoalDirection::AS => [false, false, false, false],
+            ShoalDirection::ASAW => [false, false, false, false],
+            ShoalDirection::ASW => [false, false, false, true],
+            ShoalDirection::AW => [false, false, false, false],
+            ShoalDirection::C => [false, false, false, false],
+            ShoalDirection::E => [false, true, false, false],
+            ShoalDirection::EAS => [false, true, false, false],
+            ShoalDirection::EASAW => [false, true, false, false],
+            ShoalDirection::EASW => [false, true, false, true],
+            ShoalDirection::EAW => [false, true, false, false],
+            ShoalDirection::ES => [false, true, true, false],
+            ShoalDirection::ESAW => [false, true, true, false],
+            ShoalDirection::ESW => [false, true, true, true],
+            ShoalDirection::EW => [false, true, false, true],
+            ShoalDirection::N => [true, false, false, false],
+            ShoalDirection::NAE => [true, false, false, false],
+            ShoalDirection::NAEAS => [true, false, false, false],
+            ShoalDirection::NAEASAW => [true, false, false, false],
+            ShoalDirection::NAEASW => [true, false, false, true],
+            ShoalDirection::NAEAW => [true, false, false, false],
+            ShoalDirection::NAES => [true, false, true, false],
+            ShoalDirection::NAESAW => [true, false, true, false],
+            ShoalDirection::NAESW => [true, false, true, true],
+            ShoalDirection::NAEW => [true, false, false, true],
+            ShoalDirection::NAS => [true, false, false, false],
+            ShoalDirection::NASAW => [true, false, false, false],
+            ShoalDirection::NASW => [true, false, false, true],
+            ShoalDirection::NAW => [true, false, false, false],
+            ShoalDirection::NE => [true, true, false, false],
+            ShoalDirection::NEAS => [true, true, false, false],
+            ShoalDirection::NEASAW => [true, true, false, false],
+            ShoalDirection::NEASW => [true, true, false, true],
+            ShoalDirection::NEAW => [true, true, false, false],
+            ShoalDirection::NES => [true, true, true, false],
+            ShoalDirection::NESAW => [true, true, true, false],
+            ShoalDirection::NESW => [true, true, true, true],
+            ShoalDirection::NEW => [true, true, false, true],
+            ShoalDirection::NS => [true, false, true, false],
+            ShoalDirection::NSAW => [true, false, true, false],
+            ShoalDirection::NSW => [true, false, true, true],
+            ShoalDirection::NW => [true, false, false, true],
+            ShoalDirection::S => [false, false, true, false],
+            ShoalDirection::SAW => [false, false, true, false],
+            ShoalDirection::SW => [false, false, true, true],
+            ShoalDirection::W => [false, false, false, true],
+        }
+    }
 }
 
 /// Pipe configurations
@@ -472,12 +600,27 @@ impl Property {
 }
 
 /// Property types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    strum::VariantArray,
+)]
+#[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
+#[serde(rename_all = "kebab-case")]
 pub enum PropertyKind {
     Airport,
     Base,
     City,
     ComTower,
+    // Two letters that stand for two words, which kebab case would break in
+    // half.
+    #[serde(rename = "hq")]
     HQ,
     Lab,
     Port,

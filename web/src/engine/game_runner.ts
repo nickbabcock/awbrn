@@ -12,6 +12,9 @@ import type {
   BattleForecastResponse,
   BattleRequestWire,
   DeleteUnitCommandRequested,
+  EditorCommand,
+  EditorPalette,
+  EditorStateChanged,
   EndTurnRequested,
   GameEvent,
   MoveCommandRequested,
@@ -30,11 +33,23 @@ export interface GameSurface extends CanvasCourierSurface {}
 export class GameRunner implements CanvasCourierController {
   private activeSurface: GameSurface | undefined;
   private battleCatalogPromise: Promise<BattleCatalog> | undefined;
+  private editorPalettes = new Map<string, Promise<EditorPalette>>();
   private createGamePromise: Promise<GameInstance> | undefined;
   private game: GameInstance | undefined;
   private pendingLiveTransitions: ObservedTransition[] = [];
   /** Keep live updates behind the first match snapshot. */
   private liveBaselinePending = true;
+  private editorStateHandler: ((state: EditorStateChanged) => void) | undefined;
+  /**
+   * The last report the board sent, kept for a handler that arrives after it.
+   *
+   * The board reports once as soon as it is built, and the screen registers
+   * its handler when React mounts the page. Neither waits for the other, so a
+   * board that opens quickly can report into nobody and then say nothing more
+   * until the first edit — leaving the screen with no loaded brush, no fold
+   * and no muster, all of which the board already knew.
+   */
+  private editorState: EditorStateChanged | undefined;
   private liveCommandHandler: ((command: PlayerCommand) => void) | undefined;
   private endTurnRequestHandler: ((request: EndTurnRequested) => void) | undefined;
   private rawWorker: Worker | undefined;
@@ -126,6 +141,71 @@ export class GameRunner implements CanvasCourierController {
     await game.applyLiveTransition(transition);
   }
 
+  /**
+   * Open a map for editing, or open a blank board of this size.
+   *
+   * The board is the engine's own, so a map is drawn on exactly the surface it
+   * will be played on. The editor keeps the map; the browser sends commands and
+   * reads the board back when it is saved.
+   */
+  async openEditor(map: AwbrnMapDocument): Promise<void> {
+    const game = await this.requireGame();
+    // The board that is being replaced has nothing to say about the one
+    // arriving, so its last report is dropped rather than replayed.
+    this.editorState = undefined;
+    await game.openEditor(map);
+  }
+
+  async openBlankEditor(width: number, height: number): Promise<void> {
+    const game = await this.requireGame();
+    this.editorState = undefined;
+    await game.openBlankEditor(width, height);
+  }
+
+  async sendEditorCommand(command: EditorCommand): Promise<void> {
+    const game = await this.requireGame();
+    await game.editorCommand(command);
+  }
+
+  /** The map as the board now stands, ready to be saved. */
+  async readEditorDocument(name: string, author: string): Promise<AwbrnMapDocument> {
+    const game = await this.requireGame();
+    return game.readEditorDocument(name, author);
+  }
+
+  /**
+   * Every brush the editor can load, in one army's colours. Fetched once.
+   *
+   * It goes to the worker rather than to the board, so the palette is drawn
+   * while the first map is still loading.
+   */
+  loadEditorPalette(factionCode: string | null): Promise<EditorPalette> {
+    const key = factionCode ?? "";
+    const held = this.editorPalettes.get(key);
+    if (held) return held;
+
+    const palette = this.getWorker()
+      .loadEditorPalette(factionCode)
+      .catch((error: unknown) => {
+        this.editorPalettes.delete(key);
+        throw error;
+      });
+    this.editorPalettes.set(key, palette);
+    return palette;
+  }
+
+  /**
+   * Who is told what the board holds after each edit.
+   *
+   * A handler that arrives after the board has already reported is given that
+   * report straight away, so the screen never waits on an edit to learn what
+   * is already on the board.
+   */
+  setEditorStateHandler(handler: ((state: EditorStateChanged) => void) | undefined): void {
+    this.editorStateHandler = handler;
+    if (handler && this.editorState) handler(this.editorState);
+  }
+
   async setPlayerDisplayFaction(playerId: number, factionId: number | null): Promise<void> {
     const game = await this.requireGame();
     await game.setPlayerDisplayFaction(playerId, factionId);
@@ -172,6 +252,8 @@ export class GameRunner implements CanvasCourierController {
     this.surfaceVersion += 1;
     this.activeSurface = undefined;
     this.battleCatalogPromise = undefined;
+    this.editorPalettes.clear();
+    this.editorStateHandler = undefined;
     this.liveCommandHandler = undefined;
     this.endTurnRequestHandler = undefined;
     this.transport.dispose();
@@ -295,6 +377,11 @@ export class GameRunner implements CanvasCourierController {
       }
       case "EndTurnRequested": {
         this.endTurnRequestHandler?.(event);
+        break;
+      }
+      case "EditorStateChanged": {
+        this.editorState = event;
+        this.editorStateHandler?.(event);
         break;
       }
       case "UnitActionsChanged": {

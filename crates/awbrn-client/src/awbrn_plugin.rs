@@ -88,6 +88,7 @@ impl Plugin for AwbrnPlugin {
             crate::modes::play::PlayPlugin,
             // After the play mode, whose selection a reading follows.
             crate::modes::play::inspect::InspectionPlugin,
+            crate::modes::editor::EditorPlugin,
         ));
 
         // Cross-plugin OnEnter(Complete) scheduling
@@ -108,6 +109,10 @@ impl Plugin for AwbrnPlugin {
         app.add_systems(
             OnEnter(LoadingState::Complete),
             crate::modes::play::initialize_live_semantic_world.run_if(in_state(GameMode::Game)),
+        );
+        app.add_systems(
+            OnEnter(LoadingState::Complete),
+            crate::modes::editor::initialize_editor_world.run_if(in_state(GameMode::Editor)),
         );
         app.add_systems(
             OnEnter(LoadingState::Complete),

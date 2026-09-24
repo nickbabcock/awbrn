@@ -13,7 +13,7 @@ import { adminAc, defaultStatements } from "better-auth/plugins/admin/access";
  */
 export const statement = {
   ...defaultStatements,
-  map: ["import", "tag", "rank", "edit-any"],
+  map: ["import", "write", "tag", "rank", "edit-any"],
   match: ["void", "view-any"],
 } as const;
 
@@ -24,12 +24,13 @@ export const ac = createAccessControl(statement);
  *
  * `map:tag` is here because an author tags their own map. It does not say
  * which map: that is what `mapTagGrant` decides, and `map:edit-any` is the
- * action that reaches past ownership.
+ * action that reaches past ownership. `map:write` is the same shape: everybody
+ * may draw a map, and `mapEditGrant` decides whose map they may draw over.
  */
 const userRole = ac.newRole({
   user: [],
   session: [],
-  map: ["import", "tag"],
+  map: ["import", "write", "tag"],
   match: [],
 });
 
@@ -37,14 +38,14 @@ const userRole = ac.newRole({
 const moderatorRole = ac.newRole({
   user: ["list", "get", "ban"],
   session: ["list", "revoke"],
-  map: ["import", "tag", "rank", "edit-any"],
+  map: ["import", "write", "tag", "rank", "edit-any"],
   match: ["void", "view-any"],
 });
 
 /** Everything a moderator holds, plus the rest of the admin plugin. */
 const adminRole = ac.newRole({
   ...adminAc.statements,
-  map: ["import", "tag", "rank", "edit-any"],
+  map: ["import", "write", "tag", "rank", "edit-any"],
   match: ["void", "view-any"],
 });
 
