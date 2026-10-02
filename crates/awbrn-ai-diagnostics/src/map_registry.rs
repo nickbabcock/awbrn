@@ -1,4 +1,4 @@
-//! Checked-in map loading, normalization, and fingerprint validation.
+//! Map registry loading and computed source and normalized identities.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -19,13 +19,20 @@ pub struct MapManifestEntry {
     pub awbw_id: u32,
     pub name: String,
     pub source: String,
+    /// The source map's two factions. This array records source metadata.
+    /// The registry uses AWBW country order to select the first mover.
     pub original_factions: [String; 2],
+    /// Recorded AWBW category labels. These labels do not set match settings.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub categories: Vec<String>,
     /// Whether matches on this map use fog of war.
     #[serde(default, skip_serializing_if = "is_false")]
     pub fog: bool,
-    #[serde(default)]
+    /// Optional expected identity from an archived manifest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_fingerprint: Option<String>,
-    #[serde(default)]
+    /// Optional expected normalized identity from an archived manifest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub normalized_fingerprint: Option<String>,
 }
 
@@ -77,8 +84,10 @@ pub struct MapPropertyRecord {
     pub position: [u8; 2],
     pub property_type: String,
     pub original_faction: String,
+    /// The faction slot in the source manifest array.
     pub owner_slot: u8,
     pub normalized_faction: String,
+    /// The player seat after AWBW move order sets the first mover.
     pub normalized_owner_slot: u8,
 }
 
@@ -89,8 +98,10 @@ pub struct MapDeploymentRecord {
     pub unit: String,
     pub hp: u8,
     pub original_faction: String,
+    /// The faction slot in the source manifest array.
     pub owner_slot: u8,
     pub normalized_faction: String,
+    /// The player seat after AWBW move order sets the first mover.
     pub normalized_owner_slot: u8,
 }
 
@@ -113,7 +124,10 @@ pub struct RegisteredMap {
     pub id: u32,
     pub name: String,
     pub source_path: String,
+    /// The source factions in the order recorded by the manifest.
     pub original_factions: [PlayerFaction; 2],
+    /// The source factions in AWBW move order. The first faction maps to player 0.
+    pub move_order_factions: [PlayerFaction; 2],
     pub source: AwbwMap,
     pub normalized: AwbwMap,
     /// Whether matches on this map use fog of war.
@@ -151,6 +165,7 @@ impl RegisteredMap {
         let source = AwbwMap::parse_json(source_data)
             .map_err(|error| MapRegistryError::Map(error.to_string()))?;
         let original_factions = [first, second];
+        let move_order_factions = move_order_factions(original_factions);
         for (_, terrain) in source.iter() {
             if let AwbwTerrain::Property(property) = terrain
                 && let Faction::Player(faction) = property.faction()
@@ -173,7 +188,7 @@ impl RegisteredMap {
             }
         }
         let normalized = source.map_factions(|faction| {
-            if faction == original_factions[0] {
+            if faction == move_order_factions[0] {
                 CANONICAL_SEATS[0]
             } else {
                 CANONICAL_SEATS[1]
@@ -201,6 +216,7 @@ impl RegisteredMap {
             name: entry.name.clone(),
             source_path: entry.source.clone(),
             original_factions,
+            move_order_factions,
             source,
             normalized,
             fog: entry.fog,
@@ -237,6 +253,7 @@ impl RegisteredMap {
     /// Validate every recorded source and normalized setup fact.
     pub fn validate_setup(&self) -> Result<(), MapRegistryError> {
         if self.original_factions[0] == self.original_factions[1]
+            || self.move_order_factions != move_order_factions(self.original_factions)
             || self
                 .properties
                 .iter()
@@ -267,6 +284,14 @@ impl RegisteredMap {
                 || normalized.kind().name() != property.property_type
                 || faction_code(source.faction()) != property.original_faction
                 || faction_code(normalized.faction()) != property.normalized_faction
+                || normalized.faction()
+                    != Faction::Player(
+                        if source.faction() == Faction::Player(self.move_order_factions[0]) {
+                            CANONICAL_SEATS[0]
+                        } else {
+                            CANONICAL_SEATS[1]
+                        },
+                    )
             {
                 return Err(MapRegistryError::Map(format!(
                     "map {} changed property at ({}, {})",
@@ -290,6 +315,12 @@ impl RegisteredMap {
                 || normalized.hp.get() != deployment.hp
                 || source.faction.country_code() != deployment.original_faction
                 || normalized.faction.country_code() != deployment.normalized_faction
+                || normalized.faction
+                    != if source.faction == self.move_order_factions[0] {
+                        CANONICAL_SEATS[0]
+                    } else {
+                        CANONICAL_SEATS[1]
+                    }
             {
                 return Err(MapRegistryError::Map(format!(
                     "map {} changed deployment at ({}, {})",
@@ -303,6 +334,11 @@ impl RegisteredMap {
 
 fn is_false(value: &bool) -> bool {
     !value
+}
+
+fn move_order_factions(mut factions: [PlayerFaction; 2]) -> [PlayerFaction; 2] {
+    factions.sort();
+    factions
 }
 
 /// A deterministic registry loaded from a manifest.
@@ -584,20 +620,14 @@ mod tests {
     #[test]
     fn checked_in_registry_loads_in_manifest_order() {
         let registry = MapRegistry::load_checked_in().expect("the checked-in maps load");
-        assert_eq!(registry.len(), 4);
+        assert_eq!(registry.len(), 24);
         let ids = registry.iter().map(|map| map.id).collect::<Vec<_>>();
-        assert_eq!(ids, vec![61748, 67945, 67073, 73021]);
-        let fingerprints = registry
-            .iter()
-            .map(|map| map.normalized_fingerprint.as_str())
-            .collect::<Vec<_>>();
         assert_eq!(
-            fingerprints,
+            ids,
             vec![
-                "6f2236eae04d7b52",
-                "f811fa06a6f19b1e",
-                "340849e43090fda2",
-                "1cdb3c3c9594d2d9"
+                61748, 67945, 67073, 73021, 80184, 82950, 36927, 56354, 59589, 85639, 69201, 77060,
+                126428, 133665, 159501, 166877, 180298, 72841, 76744, 58436, 62344, 30765, 48596,
+                61222
             ]
         );
         assert!(registry.iter().all(|map| map.validate_setup().is_ok()));
@@ -609,6 +639,191 @@ mod tests {
                     .settings
                     .fog
             );
+        }
+    }
+
+    #[test]
+    fn normalization_uses_awbw_country_order_and_keeps_setup_on_its_side() {
+        let registry = MapRegistry::load_checked_in().expect("the checked-in maps load");
+        let expected = [
+            (
+                56354,
+                "gs",
+                "pc",
+                BTreeMap::from([("Infantry", 1), ("Missile", 1)]),
+                BTreeMap::from([("Infantry", 3), ("Missile", 1)]),
+            ),
+            (
+                59589,
+                "bd",
+                "tg",
+                BTreeMap::new(),
+                BTreeMap::from([("Infantry", 1)]),
+            ),
+            (
+                85639,
+                "yc",
+                "pl",
+                BTreeMap::new(),
+                BTreeMap::from([("Infantry", 1)]),
+            ),
+            (
+                73021,
+                "rf",
+                "bd",
+                BTreeMap::from([("Infantry", 1)]),
+                BTreeMap::from([("Infantry", 2)]),
+            ),
+        ];
+
+        for (map_id, first_code, second_code, first_inventory, second_inventory) in expected {
+            let map = registry.get(map_id).expect("the map is registered");
+            assert_eq!(map.move_order_factions[0].country_code(), first_code);
+            assert_eq!(map.move_order_factions[1].country_code(), second_code);
+
+            let inventory_for = |slot| {
+                let mut inventory = BTreeMap::new();
+                for deployment in map
+                    .deployments
+                    .iter()
+                    .filter(|deployment| deployment.normalized_owner_slot == slot)
+                {
+                    *inventory.entry(deployment.unit.as_str()).or_insert(0) += 1;
+                }
+                inventory
+            };
+            assert_eq!(
+                inventory_for(0),
+                first_inventory,
+                "map {map_id} first-mover inventory"
+            );
+            assert_eq!(
+                inventory_for(1),
+                second_inventory,
+                "map {map_id} second-mover inventory"
+            );
+
+            let state = map.state(19).expect("the map builds a match state");
+            assert_eq!(
+                state.turn.active_player,
+                state.players[0].id(),
+                "map {map_id} starts with the AWBW first mover"
+            );
+            assert!(map.properties.iter().all(|property| {
+                property.normalized_owner_slot
+                    == if property.original_faction == first_code {
+                        0
+                    } else {
+                        1
+                    }
+            }));
+            assert!(map.deployments.iter().all(|deployment| {
+                deployment.normalized_owner_slot
+                    == if deployment.original_faction == first_code {
+                        0
+                    } else {
+                        1
+                    }
+            }));
+        }
+    }
+
+    #[test]
+    fn regression_maps_keep_awbw_setup_and_second_mover_compensation() {
+        let registry = MapRegistry::load_checked_in().expect("the checked-in maps load");
+        let expected = [
+            (
+                72841,
+                "yc",
+                "gs",
+                vec![("Lander", 1)],
+                vec![("Infantry", 1), ("Lander", 1)],
+            ),
+            (
+                76744,
+                "bh",
+                "wn",
+                vec![("Infantry", 1)],
+                vec![("Infantry", 2)],
+            ),
+            (58436, "gs", "ab", vec![], vec![("Infantry", 1)]),
+            (62344, "gs", "ab", vec![], vec![("Infantry", 1)]),
+            (30765, "js", "ci", vec![], vec![("Infantry", 1)]),
+            (48596, "yc", "bh", vec![], vec![("Infantry", 1)]),
+            (
+                61222,
+                "bm",
+                "gs",
+                vec![("Black Boat", 2)],
+                vec![("Black Boat", 2), ("Infantry", 1)],
+            ),
+        ];
+        for (id, first, second, first_units, second_units) in expected {
+            let map = registry.get(id).expect("development map is registered");
+            assert_eq!(
+                map.move_order_factions
+                    .map(|faction| faction.country_code()),
+                [first, second]
+            );
+            assert_eq!(map.original_factions, map.move_order_factions);
+            let owned = [
+                map.properties
+                    .iter()
+                    .filter(|property| property.normalized_owner_slot == 0)
+                    .count(),
+                map.properties
+                    .iter()
+                    .filter(|property| property.normalized_owner_slot == 1)
+                    .count(),
+            ];
+            assert_eq!(owned[0], owned[1]);
+            let mut deployments = [BTreeMap::<String, usize>::new(), BTreeMap::new()];
+            for deployment in &map.deployments {
+                *deployments[usize::from(deployment.normalized_owner_slot)]
+                    .entry(deployment.unit.clone())
+                    .or_default() += 1;
+                assert_eq!(
+                    deployment.owner_slot, deployment.normalized_owner_slot,
+                    "map {id} must keep source deployments on their side"
+                );
+            }
+            let expected_units = [first_units, second_units];
+            for seat in 0..2 {
+                let expected = expected_units[seat]
+                    .iter()
+                    .map(|(unit, count)| ((*unit).to_owned(), *count))
+                    .collect::<BTreeMap<_, _>>();
+                assert_eq!(deployments[seat], expected, "map {id}, seat {seat}");
+            }
+            let state = map.state(20260925).expect("development map makes a state");
+            assert_eq!(
+                state
+                    .player_index(&state.turn.active_player)
+                    .map(|seat| seat.get()),
+                Some(0),
+                "map {id} must start with the AWBW first mover"
+            );
+            assert_eq!(state.settings.starting_funds, 0);
+            assert_eq!(state.settings.income_per_property, 1000);
+        }
+    }
+
+    #[test]
+    fn manifest_faction_order_does_not_change_the_normalized_setup() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/ai-diagnostics/maps.json");
+        let mut manifest = MapManifest::from_json(&fs::read(path).unwrap()).unwrap();
+        let forward = MapRegistry::load(&manifest).unwrap();
+        for entry in &mut manifest.maps {
+            assert!(entry.source_fingerprint.is_none());
+            assert!(entry.normalized_fingerprint.is_none());
+            entry.original_factions.reverse();
+        }
+        let reversed = MapRegistry::load(&manifest).unwrap();
+        for map in forward.iter() {
+            let other = reversed.get(map.id).unwrap();
+            assert_eq!(map.move_order_factions, other.move_order_factions);
+            assert_eq!(map.normalized, other.normalized);
         }
     }
 
