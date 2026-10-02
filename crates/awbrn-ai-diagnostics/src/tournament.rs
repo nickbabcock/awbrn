@@ -14,8 +14,8 @@ use awbrn_ai::harness::{Limits, RefusalTrace, next_command_fingerprint, play_obs
 use awbrn_ai::rng::Rng;
 use awbrn_ai::{AiProfile, profile};
 use awbrn_ai_diagnostic_types::{
-    AgentIdentity, PairKey, Reduction, RunLimits, RunManifest, RunManifestError, SeatOrderVariant,
-    fingerprint_bytes,
+    AgentIdentity, AgentSeedProtocol, PairKey, Reduction, RunLimits, RunManifest, RunManifestError,
+    SeatOrderVariant, fingerprint_bytes,
 };
 use awvm::semantic::Outcome;
 use awvm::session::Session;
@@ -670,8 +670,16 @@ fn run_match(
     let candidate_configuration_fingerprint =
         candidate.identity().configuration_fingerprint.clone();
     let baseline_configuration_fingerprint = baseline.identity().configuration_fingerprint.clone();
-    let candidate_seed = BaselineConfig::LOCKED.agent_seed(match_seed, 0);
-    let baseline_seed = BaselineConfig::LOCKED.agent_seed(match_seed, 1);
+    let (candidate_seat, baseline_seat) = match seat_order {
+        SeatOrderVariant::AgentFirst => (0, 1),
+        SeatOrderVariant::BaselineFirst => (1, 0),
+    };
+    let (candidate_seed, baseline_seed) = match_agent_seeds(
+        manifest.seed_derivation.agent_seed_protocol,
+        match_seed,
+        candidate_seat,
+        baseline_seat,
+    );
     let mut candidate = candidate.create(candidate_seed);
     let mut baseline = baseline.create(baseline_seed);
     let mut agents: [&mut dyn Agent; 2] = match seat_order {
@@ -811,6 +819,24 @@ fn run_match(
         baseline_decision_times_nanos,
         refusal_traces: record.refusal_traces,
     })
+}
+
+pub(crate) fn match_agent_seeds(
+    protocol: AgentSeedProtocol,
+    match_seed: u64,
+    candidate_seat: usize,
+    baseline_seat: usize,
+) -> (u64, u64) {
+    match protocol {
+        AgentSeedProtocol::RoleSeeded => (
+            BaselineConfig::LOCKED.agent_seed(match_seed, 0),
+            BaselineConfig::LOCKED.agent_seed(match_seed, 1),
+        ),
+        AgentSeedProtocol::SeatSeeded => (
+            BaselineConfig::LOCKED.agent_seed(match_seed, candidate_seat),
+            BaselineConfig::LOCKED.agent_seed(match_seed, baseline_seat),
+        ),
+    }
 }
 
 impl TournamentPerformance {
@@ -1010,6 +1036,7 @@ fn match_id(pair: &PairKey, seat_order: SeatOrderVariant) -> String {
 mod tests {
     use super::*;
     use awvm::semantic::{AwbwVisibility, observe};
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     #[test]
     fn search_factory_budget_controls_agent_execution() {
@@ -1204,5 +1231,125 @@ mod tests {
         assert_eq!(performance.baseline_unrealizable_plays, 1);
         assert_eq!(performance.match_records.len(), 3);
         assert_eq!(performance.wall_clock_nanos, 99);
+    }
+
+    fn seed_protocol_plan(
+        candidate: crate::plan::AgentSpec,
+        pairs: u64,
+    ) -> crate::plan::ExperimentPlan {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/ai-diagnostics/smoke-plan.json");
+        let mut plan = crate::plan::read_plan(path).expect("the seat-seeded plan loads");
+        plan.run_seed = 20260925;
+        plan.limits.day_limit = 8;
+        plan.run_id = format!("{}-test", plan.run_id);
+        plan.candidate = candidate;
+        plan.baseline = crate::plan::AgentSpec::AiProfile {
+            profile_id: "ai-hard-v2".into(),
+        };
+        plan.maps = vec![61748];
+        plan.pairs_per_map = pairs;
+        plan.agent_seed_protocol = AgentSeedProtocol::SeatSeeded;
+        plan.analyses.clear();
+        plan.annotations = None;
+        plan
+    }
+
+    fn output_path(label: &str) -> PathBuf {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        std::env::temp_dir().join(format!(
+            "awbrn-seat-seeded-{label}-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed),
+        ))
+    }
+
+    fn projected_stream(rows: &[crate::events::EventRow]) -> Vec<Vec<u8>> {
+        rows.iter()
+            .map(|row| {
+                serde_json::to_vec(&(
+                    row.event_kind,
+                    row.day,
+                    &row.active_player,
+                    row.turn_index,
+                    row.command_index,
+                    &row.command,
+                    row.command_fingerprint,
+                    &row.state,
+                ))
+                .expect("the event projection serializes")
+            })
+            .collect()
+    }
+
+    fn match_streams(
+        rows: &[crate::events::EventRow],
+        pair_index: u64,
+    ) -> (Vec<crate::events::EventRow>, Vec<crate::events::EventRow>) {
+        let select = |seat_order| {
+            rows.iter()
+                .filter(|row| {
+                    row.pair.map_id == 61748
+                        && row.pair.run_seed == 20260925
+                        && row.pair.pair_index == pair_index
+                        && row.seat_order == seat_order
+                })
+                .cloned()
+                .collect()
+        };
+        (
+            select(SeatOrderVariant::AgentFirst),
+            select(SeatOrderVariant::BaselineFirst),
+        )
+    }
+
+    #[test]
+    fn role_seeded_keeps_the_existing_agent_stream_assignment() {
+        let match_seed = 91;
+        let agent_zero = BaselineConfig::LOCKED.agent_seed(match_seed, 0);
+        let agent_one = BaselineConfig::LOCKED.agent_seed(match_seed, 1);
+
+        assert_eq!(
+            match_agent_seeds(AgentSeedProtocol::RoleSeeded, match_seed, 1, 0),
+            (agent_zero, agent_one),
+        );
+        assert_eq!(
+            match_agent_seeds(AgentSeedProtocol::SeatSeeded, match_seed, 1, 0),
+            (agent_one, agent_zero),
+        );
+    }
+
+    #[test]
+    fn identical_hard_agents_have_identical_mirrored_streams_when_seeds_follow_seats() {
+        let registry = MapRegistry::load_checked_in().expect("the fixed maps load");
+        let spec = crate::plan::AgentSpec::AiProfile {
+            profile_id: "ai-hard-v2".into(),
+        };
+        let plan = seed_protocol_plan(spec.clone(), 1);
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/ai-diagnostics/smoke-plan.json");
+        let materialized = plan
+            .materialize(path, &registry)
+            .expect("the mirrored Hard plan materializes");
+        let output = output_path("hard-parity");
+
+        run_paired_tournament(
+            &materialized.manifest,
+            &registry,
+            materialized.candidate.as_ref(),
+            materialized.baseline.as_ref(),
+            &output,
+        )
+        .expect("the mirrored Hard matches complete");
+
+        let rows = crate::events::read_event_log(output.join("events.jsonl"))
+            .expect("the event log reads");
+        let (agent_first, baseline_first) = match_streams(&rows, 0);
+        assert_eq!(
+            projected_stream(&agent_first),
+            projected_stream(&baseline_first),
+            "seat-seeded Hard-v-Hard matches must follow the same complete game stream"
+        );
+        fs::remove_dir_all(output).expect("the temporary run is removed");
     }
 }

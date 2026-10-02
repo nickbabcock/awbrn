@@ -37,6 +37,7 @@ fn search_candidate() -> SearchFactory {
 
 fn experiment_plan(run_id: &str, candidate: AgentSpec) -> ExperimentPlan {
     ExperimentPlan {
+        agent_seed_protocol: Default::default(),
         schema_version: awbrn_ai_diagnostics::EXPERIMENT_PLAN_SCHEMA_VERSION,
         run_id: run_id.into(),
         candidate,

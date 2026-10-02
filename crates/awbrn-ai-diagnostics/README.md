@@ -112,3 +112,16 @@ Require a fresh paired experiment with independent seeds and maps, complete
 coverage, stable pair-level uncertainty, no invalid-command regression, and a
 runtime result that is acceptable for the target. Review the action-selection
 result against the locked baseline before changing a production profile.
+
+## Agent seed protocol
+
+Set `"agent_seed_protocol": "seat-seeded"` in a new experiment plan to give
+each physical seat the same agent random stream in both games of a pair.
+This permits a comparison of policy changes with fixed seat streams.
+
+If the field is absent, the runner uses `role-seeded`: the candidate uses
+stream 0 and the baseline uses stream 1 in both games. The default field is
+omitted from plan and manifest JSON. The existing plan identity and seed
+assignment stay the same. A seat-based plan records its protocol in the
+manifest and includes it in the configuration fingerprint. Use a new run
+directory when the protocol changes.
