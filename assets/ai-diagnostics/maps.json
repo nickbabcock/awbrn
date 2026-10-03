@@ -5,33 +5,339 @@
       "awbw_id": 61748,
       "name": "Amber Valley",
       "source": "61748.json",
-      "source_fingerprint": "1c39d916a5fc2287",
-      "normalized_fingerprint": "6f2236eae04d7b52",
-      "original_factions": ["pc", "tg"]
+      "original_factions": [
+        "pc",
+        "tg"
+      ],
+      "categories": [
+        "S-Rank",
+        "Hall of Fame",
+        "Standard"
+      ]
     },
     {
       "awbw_id": 67945,
       "name": "1vs1 Stalingrad",
       "source": "67945.json",
-      "source_fingerprint": "f811fa06a6f19b1e",
-      "normalized_fingerprint": "f811fa06a6f19b1e",
-      "original_factions": ["os", "bm"]
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "categories": [
+        "S-Rank",
+        "Global League",
+        "Hall of Fame",
+        "Fog of War"
+      ]
     },
     {
       "awbw_id": 67073,
       "name": "1vs1 Normandie",
       "source": "67073.json",
-      "source_fingerprint": "deecf6a2360c5c3e",
-      "normalized_fingerprint": "340849e43090fda2",
-      "original_factions": ["yc", "bd"]
+      "original_factions": [
+        "yc",
+        "bd"
+      ],
+      "categories": [
+        "S-Rank",
+        "Hall of Fame",
+        "Fog of War"
+      ]
     },
     {
       "awbw_id": 73021,
       "name": "Beach Nation Vacation",
       "source": "73021.json",
-      "source_fingerprint": "3b46f7380db912c1",
-      "normalized_fingerprint": "1cdb3c3c9594d2d9",
-      "original_factions": ["bd", "rf"]
+      "original_factions": [
+        "bd",
+        "rf"
+      ],
+      "categories": [
+        "A-Rank",
+        "High Funds",
+        "Live Play"
+      ]
+    },
+    {
+      "awbw_id": 80184,
+      "name": "Celeste",
+      "source": "80184.json",
+      "original_factions": [
+        "rf",
+        "gs"
+      ],
+      "categories": [
+        "S-Rank",
+        "Standard"
+      ]
+    },
+    {
+      "awbw_id": 82950,
+      "name": "End of Entropy",
+      "source": "82950.json",
+      "original_factions": [
+        "ge",
+        "rf"
+      ],
+      "categories": [
+        "S-Rank",
+        "Standard",
+        "Mixed Base"
+      ]
+    },
+    {
+      "awbw_id": 36927,
+      "name": "Caustic Finale",
+      "source": "36927.json",
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "categories": [
+        "S-Rank",
+        "Standard",
+        "Mixed Base"
+      ]
+    },
+    {
+      "awbw_id": 56354,
+      "name": "Brush With Death",
+      "source": "56354.json",
+      "original_factions": [
+        "pc",
+        "gs"
+      ],
+      "categories": [
+        "S-Rank",
+        "Hall of Fame",
+        "Live Play",
+        "Standard"
+      ]
+    },
+    {
+      "awbw_id": 59589,
+      "name": "From Wharf to Wilds",
+      "source": "59589.json",
+      "original_factions": [
+        "tg",
+        "bd"
+      ],
+      "categories": [
+        "S-Rank",
+        "Hall of Fame",
+        "Base Light",
+        "Live Play",
+        "Standard"
+      ]
+    },
+    {
+      "awbw_id": 85639,
+      "name": "Last Vigil",
+      "source": "85639.json",
+      "original_factions": [
+        "pl",
+        "yc"
+      ],
+      "categories": [
+        "S-Rank",
+        "Hall of Fame",
+        "Live Play",
+        "RBC Playable",
+        "Standard"
+      ]
+    },
+    {
+      "awbw_id": 69201,
+      "name": "Beads on a String",
+      "source": "69201.json",
+      "original_factions": [
+        "rf",
+        "tg"
+      ],
+      "categories": [
+        "S-Rank",
+        "Global League",
+        "Standard"
+      ]
+    },
+    {
+      "awbw_id": 77060,
+      "name": "A Hope Forlorn",
+      "source": "77060.json",
+      "original_factions": [
+        "rf",
+        "ci"
+      ],
+      "categories": [
+        "S-Rank",
+        "Global League",
+        "Hall of Fame",
+        "Standard"
+      ]
+    },
+    {
+      "awbw_id": 126428,
+      "name": "Ft. Fantasy",
+      "source": "126428.json",
+      "original_factions": [
+        "ab",
+        "pl"
+      ],
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Live Play",
+        "Standard"
+      ]
+    },
+    {
+      "awbw_id": 133665,
+      "name": "Walls Are Closing In",
+      "source": "133665.json",
+      "original_factions": [
+        "ab",
+        "aa"
+      ],
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Mixed Base",
+        "Standard"
+      ]
+    },
+    {
+      "awbw_id": 159501,
+      "name": "A Dance With Magnums",
+      "source": "159501.json",
+      "original_factions": [
+        "bm",
+        "bd"
+      ],
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Standard"
+      ]
+    },
+    {
+      "awbw_id": 166877,
+      "name": "Throne Of Skulls",
+      "source": "166877.json",
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Standard"
+      ]
+    },
+    {
+      "awbw_id": 180298,
+      "name": "Eternity, Served Cold",
+      "source": "180298.json",
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "categories": [
+        "A-Rank",
+        "Global League",
+        "Mixed Base",
+        "Standard"
+      ]
+    },
+    {
+      "awbw_id": 72841,
+      "name": "Roll For Initiative",
+      "source": "72841.json",
+      "original_factions": [
+        "yc",
+        "gs"
+      ],
+      "categories": [
+        "S-Rank",
+        "Standard"
+      ]
+    },
+    {
+      "awbw_id": 76744,
+      "name": "Unfathomed Force",
+      "source": "76744.json",
+      "original_factions": [
+        "bh",
+        "wn"
+      ],
+      "categories": [
+        "S-Rank",
+        "Standard"
+      ]
+    },
+    {
+      "awbw_id": 58436,
+      "name": "It That Betrays",
+      "source": "58436.json",
+      "original_factions": [
+        "gs",
+        "ab"
+      ],
+      "categories": [
+        "S-Rank",
+        "Standard"
+      ]
+    },
+    {
+      "awbw_id": 62344,
+      "name": "Lucifer",
+      "source": "62344.json",
+      "original_factions": [
+        "gs",
+        "ab"
+      ],
+      "categories": [
+        "S-Rank",
+        "Standard"
+      ]
+    },
+    {
+      "awbw_id": 30765,
+      "name": "Sahara",
+      "source": "30765.json",
+      "original_factions": [
+        "js",
+        "ci"
+      ],
+      "categories": [
+        "S-Rank",
+        "Standard"
+      ]
+    },
+    {
+      "awbw_id": 48596,
+      "name": "Scorpion Operation",
+      "source": "48596.json",
+      "original_factions": [
+        "yc",
+        "bh"
+      ],
+      "categories": [
+        "S-Rank",
+        "Standard"
+      ]
+    },
+    {
+      "awbw_id": 61222,
+      "name": "String Theory",
+      "source": "61222.json",
+      "original_factions": [
+        "bm",
+        "gs"
+      ],
+      "categories": [
+        "S-Rank",
+        "Standard"
+      ]
     }
   ]
 }

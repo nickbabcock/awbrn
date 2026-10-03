@@ -4,6 +4,25 @@ The diagnostics tool runs paired AI experiments from a plan. The plan is user
 input. The tool resolves every agent, map, limit, and model before it writes a
 manifest.
 
+## Map inputs and run outputs
+
+`assets/maps/<AWBW ID>.json` contains the map data in compact JSON.
+`assets/ai-diagnostics/maps.json` selects the default diagnostic maps. Each
+entry records its AWBW ID, name, source file, source factions, and category
+labels. The source files in this registry are relative to `assets/maps`.
+The registry can also set `fog` for a match. Category labels record imported
+metadata; they do not set match settings.
+
+The loader preserves the source setup and assigns canonical seats by AWBW
+country turn order. It computes map dimensions, property records, initial
+units, and fingerprints from the map data. These derived facts are not
+stored in a second source manifest.
+
+Run manifests record the computed source and normalized fingerprints. The
+runner checks those identities when it resumes a run. Archived map manifests
+can still supply expected fingerprints, but new registry entries omit them.
+Tests check first-mover assignment, property ownership, and initial units.
+
 ## Run a plan
 
 ```text

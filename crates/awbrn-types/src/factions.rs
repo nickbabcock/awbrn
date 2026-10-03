@@ -26,13 +26,10 @@ pub enum PlayerFaction {
     YellowComet,
 }
 
-/// Factions order the way the game lists them: Orange Star first, Umber Wilds
-/// last. That order is the ascending faction id, which is why it is the key
-/// here.
+/// Compare factions in AWBW country turn order.
 ///
-/// The order cannot be derived. The variants are declared alphabetically, so a
-/// derived `Ord` would sort Acid Rain first and Yellow Comet last, which is a
-/// list no screen wants.
+/// The generated faction IDs set this order. The enum declaration order is
+/// alphabetical, so a derived `Ord` would give a different order.
 impl Ord for PlayerFaction {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.id().cmp(&other.id())
