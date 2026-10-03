@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "run_id": "fixed-ai-hard-v3-vs-hard-v2-review-280",
+  "candidate": {
+    "kind": "ai-profile",
+    "profile_id": "ai-hard-v3"
+  },
+  "baseline": {
+    "kind": "ai-profile",
+    "profile_id": "ai-hard-v2"
+  },
+  "map_manifest": "../global-league-pool/manifest.json",
+  "maps": [
+    159501,
+    77060,
+    69201,
+    180298,
+    126428,
+    166877,
+    133665,
+    172238,
+    182023,
+    132144,
+    160882,
+    173362,
+    169069,
+    169382
+  ],
+  "fog": false,
+  "run_seed": 202610030338,
+  "max_pairs": 280,
+  "stop_early": false,
+  "limits": {
+    "day_limit": 35,
+    "node_budget": 16,
+    "refusal_limit": 64
+  },
+  "bounds": {
+    "h0": 0.0,
+    "h1": 0.05,
+    "alpha": 1e-09,
+    "beta": 1e-09
+  },
+  "agent_seed_protocol": "seat-seeded"
+}

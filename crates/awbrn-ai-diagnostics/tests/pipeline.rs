@@ -9,9 +9,9 @@ use awbrn_ai_diagnostics::{
     ProducerUsabilityPlan, SearchFactory, StrategicFactory, TacticalMode, TournamentError,
     command_stream_fingerprint, event_stream_fingerprint, extract_feature_rows, read_event_log,
     read_manifest, read_plan, reanalyse_event_log_with_manifest, run_diagnostic,
-    run_paired_tournament, run_plan, run_producer_usability_diagnostics_from_manifest,
-    run_review_with_tilesets, verify_artifact, verify_expected_fingerprints, write_manifest,
-    write_or_validate_manifest,
+    run_paired_tournament, run_paired_tournament_with_jobs, run_plan,
+    run_producer_usability_diagnostics_from_manifest, run_review_with_tilesets, verify_artifact,
+    verify_expected_fingerprints, write_manifest, write_or_validate_manifest,
 };
 use serde_json::json;
 
@@ -66,6 +66,87 @@ fn search_candidate_identity_is_stable() {
         search_candidate().identity().configuration_fingerprint,
         "1fa0910ff8a578c3"
     );
+}
+
+#[test]
+fn parallel_workers_write_the_same_outputs_as_one_worker() {
+    let root = temporary_directory();
+    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../assets/ai-diagnostics/smoke-manifest.json");
+    let manifest: RunManifest = read_manifest(&manifest_path).expect("the fixture manifest loads");
+    let registry = MapRegistry::load_checked_in().expect("the fixed maps load");
+    let candidate = StrategicFactory::new(BaselineConfig::PRODUCTION);
+    let baseline = StrategicFactory::new(BaselineConfig::LOCKED);
+    let sequential = root.join("sequential");
+    let parallel = root.join("parallel");
+    run_paired_tournament_with_jobs(&manifest, &registry, &candidate, &baseline, &sequential, 1)
+        .expect("the sequential run completes");
+    let summary =
+        run_paired_tournament_with_jobs(&manifest, &registry, &candidate, &baseline, &parallel, 3)
+            .expect("the parallel run completes");
+    assert!(
+        summary.matches > 1,
+        "the fixture must hold more than one match"
+    );
+    for file in ["events.jsonl", "matches.jsonl", "reduction.json"] {
+        assert_eq!(
+            fs::read(sequential.join(file)).expect("the sequential output exists"),
+            fs::read(parallel.join(file)).expect("the parallel output exists"),
+            "{file} differs between one worker and three workers"
+        );
+    }
+    fs::remove_dir_all(root).expect("the test directory removes");
+}
+
+#[test]
+fn planner_counters_survive_serial_and_parallel_tournaments() {
+    let root = temporary_directory();
+    let registry = MapRegistry::load_checked_in().unwrap();
+    let mut plan = experiment_plan(
+        "planner-counters",
+        AgentSpec::AiProfile {
+            profile_id: "ai-hard-v3".into(),
+        },
+    );
+    plan.limits.node_budget = 16;
+    plan.limits.refusal_limit = 64;
+    let plan_path = root.join("plan.json");
+    fs::write(&plan_path, serde_json::to_vec(&plan).unwrap()).unwrap();
+    let materialized = plan.materialize(&plan_path, &registry).unwrap();
+    let mut counters = None;
+    let mut events = None;
+    for jobs in [1, 2] {
+        let output = root.join(format!("jobs-{jobs}"));
+        let summary = run_paired_tournament_with_jobs(
+            &materialized.manifest,
+            &registry,
+            &*materialized.candidate,
+            &*materialized.baseline,
+            &output,
+            jobs,
+        )
+        .unwrap();
+        let stats: Vec<_> = summary
+            .performance
+            .match_records
+            .iter()
+            .map(|record| {
+                let stats = record.candidate_planner_stats.clone().unwrap();
+                assert!(stats.plans > 0);
+                assert!(record.baseline_planner_stats.is_none());
+                stats
+            })
+            .collect();
+        let rows = fs::read(output.join("events.jsonl")).unwrap();
+        if let Some(expected) = &counters {
+            assert_eq!(&stats, expected);
+            assert_eq!(Some(&rows), events.as_ref());
+        } else {
+            counters = Some(stats);
+            events = Some(rows);
+        }
+    }
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

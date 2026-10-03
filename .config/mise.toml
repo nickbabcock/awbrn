@@ -178,3 +178,7 @@ run = 'cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- run -
 description = "Fit a grouped feature model from a states.jsonl artifact"
 usage = 'arg "states" help="Raw or derived states.jsonl"; arg "output" help="Feature analysis directory"'
 run = 'cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- features --states "{{ usage.states }}" --output "{{ usage.output }}"'
+
+[tasks."ai:timing"]
+description = "Report AI turn times on one thread"
+run = "cargo run --release -p awbrn-ai-diagnostics --example planner_timing -- assets/ai-diagnostics/global-league-pool/manifest.json 1 v3"

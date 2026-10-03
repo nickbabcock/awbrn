@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "run_id": "sprt-planner-v1-vs-hard-v2-fog",
+  "candidate": {
+    "kind": "planner",
+    "identifier": "planner-v1",
+    "configuration": "v1"
+  },
+  "baseline": {
+    "kind": "ai-profile",
+    "profile_id": "ai-hard-v2"
+  },
+  "map_manifest": "../global-league-pool/manifest.json",
+  "maps": [
+    67945,
+    143661,
+    175434,
+    142984,
+    180231,
+    178780,
+    166541
+  ],
+  "fog": true,
+  "run_seed": 9401,
+  "max_pairs": 400,
+  "limits": {
+    "day_limit": 35,
+    "node_budget": 4,
+    "refusal_limit": 64
+  }
+}

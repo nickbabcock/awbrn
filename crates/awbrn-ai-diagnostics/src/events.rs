@@ -129,6 +129,15 @@ impl EventLogWriter {
             .is_some_and(|progress| progress.terminal))
     }
 
+    /// Return the attempt number that [`Self::begin_attempt`] gives next.
+    ///
+    /// This does not write to the log.
+    pub fn next_attempt(&self, match_id: &str) -> u32 {
+        self.matches
+            .get(match_id)
+            .map_or(0, |progress| progress.attempt + 1)
+    }
+
     /// Start the next attempt for a match and record an interrupted attempt.
     pub fn begin_attempt(&mut self, match_id: &str) -> Result<u32, EventLogError> {
         let Some(progress) = self.matches.get(match_id) else {

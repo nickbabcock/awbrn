@@ -39,9 +39,11 @@ mod fingerprint;
 pub mod harness;
 pub mod map;
 pub mod mission;
+pub mod planner;
 pub mod probe;
 pub mod producer;
 pub mod profile;
+pub mod puzzles;
 pub mod rng;
 pub mod shape;
 pub mod threat;
@@ -82,7 +84,7 @@ pub use producer::{
 };
 pub use profile::{
     AiImplementation, AiProfile, AiTier, CURRENT_PROFILES as AI_CURRENT_PROFILES, EASY, HARD,
-    PROFILES as AI_PROFILES, STANDARD, profile, profile_for_tier,
+    HARD_V2, PROFILES as AI_PROFILES, STANDARD, profile, profile_for_tier,
 };
 pub use rng::Rng;
 pub use shape::{SeatShape, Shape};

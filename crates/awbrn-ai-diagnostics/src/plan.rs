@@ -21,8 +21,12 @@ use crate::feature_analysis::{
 };
 use crate::map_registry::MapRegistry;
 use crate::producer_diagnostics::ProducerUsabilityPlan;
+use crate::source::source_provenance;
 use crate::tactical::{TacticalFactory, TacticalRerank, TacticalRerankMode};
-use crate::tournament::{AgentFactory, AiProfileFactory, SearchFactory, StrategicFactory};
+use crate::tournament::{
+    AgentFactory, AiProfileFactory, PlannerFactory, SearchFactory, StrategicFactory,
+};
+use awbrn_ai::planner::PlannerConfig;
 
 /// The current experiment plan schema.
 pub const EXPERIMENT_PLAN_SCHEMA_VERSION: u16 = 1;
@@ -46,6 +50,31 @@ pub enum AgentSpec {
         model: PathBuf,
         baseline_configuration: String,
         top_k: usize,
+    },
+    /// The whole-turn planner. This is not a production profile.
+    ///
+    /// The optional fields change one value of the named configuration.
+    Planner {
+        identifier: String,
+        configuration: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reply_weight: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        front: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_work: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plans_per_turn: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kill_plans: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        safety_plans: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        block_plans: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seed_margin: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hard_reply_top: Option<usize>,
     },
     /// An opt-in tactical reranker. This is not a production profile.
     TacticalRerank {
@@ -329,7 +358,10 @@ impl ExperimentPlan {
 }
 
 impl AgentSpec {
-    fn materialize(
+    /// Build the agent factory for this specification.
+    ///
+    /// `plan_path` resolves relative model paths.
+    pub fn materialize(
         &self,
         plan_path: &Path,
     ) -> Result<(Box<dyn AgentFactory>, Vec<ReferencedArtifact>), PlanError> {
@@ -451,8 +483,92 @@ impl AgentSpec {
                     Vec::new(),
                 ))
             }
+            Self::Planner {
+                identifier,
+                configuration,
+                reply_weight,
+                front,
+                turn_work,
+                plans_per_turn,
+                kill_plans,
+                safety_plans,
+                block_plans,
+                seed_margin,
+                hard_reply_top,
+            } => {
+                if identifier.is_empty() {
+                    return Err(PlanError::Configuration(
+                        "planner identifier must not be empty".into(),
+                    ));
+                }
+                let mut config = match configuration.as_str() {
+                    "v1" => PlannerConfig::V1,
+                    "v2" => PlannerConfig::V2,
+                    "v3" => PlannerConfig::V3,
+                    other => {
+                        return Err(PlanError::Configuration(format!(
+                            "unknown planner configuration {other}"
+                        )));
+                    }
+                };
+                if let Some(value) = reply_weight {
+                    config.reply_weight = *value;
+                }
+                if let Some(value) = front {
+                    config.eval_weights.front = *value;
+                }
+                if let Some(value) = turn_work {
+                    config.turn_work = (*value > 0).then_some(*value);
+                }
+                if let Some(value) = plans_per_turn {
+                    if *value == 0 {
+                        return Err(PlanError::Configuration(
+                            "planner plans_per_turn must be positive".into(),
+                        ));
+                    }
+                    config.plans_per_turn = *value;
+                }
+                if let Some(value) = kill_plans {
+                    config.kill_plans = *value;
+                }
+                if let Some(value) = safety_plans {
+                    config.safety_plans = *value;
+                }
+                if let Some(value) = block_plans {
+                    config.block_plans = *value;
+                }
+                if let Some(value) = seed_margin {
+                    config.seed_margin = *value;
+                }
+                if let Some(value) = hard_reply_top {
+                    config.hard_reply_top = *value;
+                }
+                if [
+                    config.reply_weight,
+                    config.eval_weights.front,
+                    config.seed_margin,
+                ]
+                .iter()
+                .any(|value| !value.is_finite() || *value < 0.0)
+                {
+                    return Err(PlanError::Configuration(
+                        "planner score overrides must be finite and nonnegative".into(),
+                    ));
+                }
+                Ok((
+                    Box::new(PlannerFactory::new(identifier, config)),
+                    Vec::new(),
+                ))
+            }
         }
     }
+}
+
+fn plan_directory(plan_path: &Path) -> &Path {
+    plan_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
 }
 
 fn resolve_artifact_path(plan_path: &Path, artifact: &Path) -> Result<PathBuf, PlanError> {
@@ -479,112 +595,6 @@ fn normalized_artifact_path(path: &Path) -> Result<String, PlanError> {
         ));
     }
     Ok(path.to_string_lossy().replace('\\', "/"))
-}
-
-struct SourceProvenance {
-    revision: String,
-    dirty: bool,
-    fingerprint: String,
-}
-
-/// Capture the Git source state that can affect a diagnostic run.
-fn source_provenance(plan_path: &Path) -> Result<SourceProvenance, PlanError> {
-    let root = git_root(plan_path)?;
-    let revision = git_text(&root, &["rev-parse", "HEAD"])?;
-    let diff = git_bytes(
-        &root,
-        &[
-            "diff",
-            "--binary",
-            "--no-ext-diff",
-            "--no-textconv",
-            "HEAD",
-            "--",
-        ],
-    )?;
-    let untracked = git_bytes(&root, &["ls-files", "--others", "--exclude-standard", "-z"])?;
-    let mut paths = untracked
-        .split(|byte| *byte == 0)
-        .filter(|path| !path.is_empty())
-        .map(|path| String::from_utf8_lossy(path).into_owned())
-        .collect::<Vec<_>>();
-    paths.sort();
-
-    let mut fingerprint_input = b"awbrn-source-fingerprint-v1\0".to_vec();
-    append_fingerprint_part(&mut fingerprint_input, revision.as_bytes());
-    append_fingerprint_part(&mut fingerprint_input, &diff);
-    for path in &paths {
-        append_fingerprint_part(&mut fingerprint_input, path.as_bytes());
-        let bytes = fs::read(root.join(path)).map_err(|error| {
-            PlanError::Configuration(format!(
-                "cannot read untracked source file {path:?} for source fingerprint: {error}"
-            ))
-        })?;
-        append_fingerprint_part(&mut fingerprint_input, &bytes);
-    }
-    Ok(SourceProvenance {
-        revision,
-        dirty: !diff.is_empty() || !paths.is_empty(),
-        fingerprint: fingerprint_bytes(&fingerprint_input),
-    })
-}
-
-fn git_root(plan_path: &Path) -> Result<PathBuf, PlanError> {
-    for directory in [plan_directory(plan_path), Path::new(".")] {
-        let output = std::process::Command::new("git")
-            .args(["rev-parse", "--show-toplevel"])
-            .current_dir(directory)
-            .output();
-        if let Ok(output) = output
-            && output.status.success()
-        {
-            let root = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-            if !root.is_empty() {
-                return Ok(PathBuf::from(root));
-            }
-        }
-    }
-    Err(PlanError::Configuration(
-        "cannot determine the Git repository for source provenance".into(),
-    ))
-}
-
-fn git_bytes(root: &Path, arguments: &[&str]) -> Result<Vec<u8>, PlanError> {
-    let output = std::process::Command::new("git")
-        .args(arguments)
-        .current_dir(root)
-        .output()
-        .map_err(|error| PlanError::Configuration(format!("cannot run Git: {error}")))?;
-    if !output.status.success() {
-        return Err(PlanError::Configuration(format!(
-            "Git command {arguments:?} failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        )));
-    }
-    Ok(output.stdout)
-}
-
-fn git_text(root: &Path, arguments: &[&str]) -> Result<String, PlanError> {
-    let bytes = git_bytes(root, arguments)?;
-    let value = String::from_utf8_lossy(&bytes).trim().to_owned();
-    if value.is_empty() {
-        return Err(PlanError::Configuration(format!(
-            "Git command {arguments:?} returned an empty value"
-        )));
-    }
-    Ok(value)
-}
-
-fn append_fingerprint_part(input: &mut Vec<u8>, part: &[u8]) {
-    input.extend_from_slice(&(part.len() as u64).to_le_bytes());
-    input.extend_from_slice(part);
-}
-
-fn plan_directory(plan_path: &Path) -> &Path {
-    plan_path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."))
 }
 
 fn configuration_name(name: &str) -> Result<BaselineConfig, PlanError> {
@@ -646,6 +656,28 @@ fn validate_learned_model(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn planner_limits_and_score_overrides_are_validated() {
+        let mut input = serde_json::json!({
+            "kind": "planner", "identifier": "validation", "configuration": "v3",
+            "kill_plans": 0, "safety_plans": 0, "block_plans": 0,
+            "hard_reply_top": 0, "reply_weight": 0.0
+        });
+        let spec: super::AgentSpec = serde_json::from_value(input.clone()).unwrap();
+        spec.materialize(std::path::Path::new("plan.json")).unwrap();
+        for (key, value) in [
+            ("plans_per_turn", serde_json::json!(0)),
+            ("reply_weight", serde_json::json!(-1.0)),
+            ("front", serde_json::json!(-1.0)),
+            ("seed_margin", serde_json::json!(-1.0)),
+        ] {
+            input[key] = value;
+            let spec: super::AgentSpec = serde_json::from_value(input.clone()).unwrap();
+            assert!(spec.materialize(std::path::Path::new("plan.json")).is_err());
+            input.as_object_mut().unwrap().remove(key);
+        }
+    }
+
     use super::*;
 
     #[test]

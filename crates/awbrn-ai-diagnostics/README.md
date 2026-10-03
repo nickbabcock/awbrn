@@ -39,6 +39,94 @@ Use the checked-in small plan for a smoke run. Use
 learned, and tactical agents are diagnostics candidates. They are not player
 profiles.
 
+## Parallel workers
+
+The `run` command plays matches on parallel workers. Set `AWBRN_AI_JOBS` to
+change the worker count. The default is the number of cores. The runner
+keeps at most one uncommitted match per worker. Parallel workers write event
+rows to temporary files in the output directory. The files are removed when
+their handles close, including after an error or panic. A single worker writes
+rows directly to the event log. The runner commits each match in the sequential
+order, so the event
+log and all derived outputs do not change with the worker count. Turn times
+include the effect of other workers on the same host.
+
+## Run a sequential development test
+
+```text
+cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
+  sprt --plan assets/ai-diagnostics/sprt/planner-v1-vs-hard.json \
+  --output target/sprt-planner-v1 [--jobs 8]
+```
+
+The `sprt` command retains its name but uses bounded betting evidence.
+One pair is two games on one map with one seed and swapped seats. The
+runner checks for a decision after each complete round of maps. Each map
+has the same weight. It stops at `max_pairs` if no decision occurs.
+
+The default hypotheses are a mean pair differential at most `0` (H0) and
+at least `+0.05` (H1). The default error rates are `alpha = beta = 0.05`.
+Evidence against H0 must reach `1 / alpha`; evidence against H1 must reach
+`1 / beta`. Bets use only previous rounds. The bounds require independent
+fresh seed samples with an expected round mean that meets the hypothesis.
+Repeated tuning on the same seeds does not provide these guarantees.
+See [the bounded betting method](https://arxiv.org/abs/2010.09686).
+
+The schema 3 result records the method, plan, Git source state, map
+fingerprints, both log evidence values, every pair, and complete-turn timing.
+Each game also records planner counters when its agent supplies them.
+Schema 2 results remain readable. A fixed run that ends with a partial map
+round retains the decision from its last complete round. Direct calls to
+`run_sprt` do not require Git and leave the optional source record empty.
+Its normal interval
+is descriptive; it has no 95% coverage guarantee after a sequential stop.
+Set `"stop_early": false` for a fixed-size run. Very small error rates alone
+do not force a fixed-size run. Historical schema 1 results used a different
+stopping rule. A clean day-limit exit scores as a draw. Invalid commands or
+other missing outcomes stop the run with an error.
+
+The planner respects the plan's `node_budget`, including reply evaluations.
+Use `16` to match the current Hard profile. A budget of `1` scores only the
+seed turn. Use a new run directory after a policy or budget change.
+The plan `assets/ai-diagnostics/sprt/hard-v3-vs-hard-v2-review-fixed280.json`
+uses the current Hard profile, 16 evaluations, seat-based seeds, and a new run
+seed. The earlier four-evaluation plan remains available for historical runs.
+
+Use sequential runs for development. Keep the frozen gate and the sealed
+holdout for a release decision.
+
+## Measure planner strength and turn time
+
+Run the fixed comparison of the current Hard profile against `ai-hard-v2`:
+
+```text
+cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
+  sprt --plan assets/ai-diagnostics/sprt/hard-v3-vs-hard-v2-review-fixed280.json \
+  --output target/hard-v3-comparison
+```
+
+The plan plays 280 pairs on 14 development maps. It uses both seats, a
+35-day limit, and 16 evaluations per planning call. The
+[archived summary](../../assets/ai-diagnostics/sprt/results/hard-v3-review-summary.json)
+records the source, inputs, results, and timing environment. These maps
+have been used in development. Their results do not supply holdout evidence.
+
+Run `mise run ai:timing` on an idle host for native turn times. To measure
+Wasm turn times with Node and V8, run:
+
+```text
+cargo build --release -p awbrn-ai-diagnostics --example planner_timing \
+  --target wasm32-wasip1
+node scripts/run-wasi.mjs \
+  target/wasm32-wasip1/release/examples/planner_timing.wasm . \
+  /w/assets/ai-diagnostics/global-league-pool/manifest.json 1 v3
+```
+
+The timing example plays one pair per map on one thread. Compare work
+counts between builds before comparing times. Host load affects elapsed
+time. Measure the service host before setting a runtime requirement.
+Wall-clock limits are excluded from CI; tests check deterministic work limits.
+
 ## Run a search budget sweep
 
 ```text
@@ -125,3 +213,12 @@ omitted from plan and manifest JSON. The existing plan identity and seed
 assignment stay the same. A seat-based plan records its protocol in the
 manifest and includes it in the configuration fingerprint. Use a new run
 directory when the protocol changes.
+
+SPRT plans accept the same `agent_seed_protocol` field. The SPRT result records
+a seat-based protocol. Old SPRT plans and results use role-based seeds. Both
+runners use the same seed assignment with one or more workers.
+
+Use `assets/ai-diagnostics/sprt/planner-v3-seat-seeded-smoke.json` to check the
+planner with seat-based seeds. Its two pairs and two-day limit test the run
+path only. They do not measure match strength. Historical results require
+the original source revision and plans.

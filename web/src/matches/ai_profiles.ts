@@ -39,10 +39,11 @@ export const aiProfileDisplays: readonly AiProfileDisplay[] = [
     blurb: "Scores every play and takes the best one. It captures, builds, and trades.",
   },
   {
-    id: "ai-hard-v2",
+    id: "ai-hard-v3",
     tier: "hard",
     label: "Hard",
-    blurb: "Uses production scoring. In fog, values positions hidden from enemy sight.",
+    blurb:
+      "Plans its whole turn. It sets up kills, guards its bases, and keeps units out of focused fire.",
   },
 ];
 

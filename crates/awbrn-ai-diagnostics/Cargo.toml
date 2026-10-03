@@ -20,4 +20,5 @@ awvm = { path = "../awvm" }
 awvm-awbw = { path = "../awvm-awbw" }
 serde.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
