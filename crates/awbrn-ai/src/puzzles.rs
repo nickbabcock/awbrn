@@ -258,15 +258,23 @@ fn after<'a>(turn: &'a PuzzleTurn<'_>) -> &'a State {
     &turn.result.state
 }
 
-fn alive(state: &State, id: UnitId) -> Option<&Unit> {
-    state.units.get(id)
+/// Whether a unit of the seat that moves next can end its move on `target`.
+///
+/// `state` must hold the position at the start of the enemy turn.
+fn enemy_reaches(state: &State, target: Pos) -> bool {
+    let Some(cell) = state.board.dimensions().cell_index(target) else {
+        return false;
+    };
+    let session = Session::new(state.clone());
+    let mut orders = Vec::new();
+    session.legal().orders(&mut orders);
+    orders
+        .iter()
+        .any(|order| order.unit().is_some() && order.destination() == cell)
 }
 
-fn position(unit: &Unit) -> Option<Pos> {
-    match unit.location {
-        Location::Board { position } => Some(position),
-        _ => None,
-    }
+fn alive(state: &State, id: UnitId) -> Option<&Unit> {
+    state.units.get(id)
 }
 
 const ENEMY_TANK: u32 = 100;
@@ -356,19 +364,14 @@ fn hq_block() -> Puzzle {
     Puzzle {
         name: "hq-block",
         passive_solution: false,
-        description: "Our infantry stands on the headquarters before the enemy infantry reaches it.",
+        description: "The enemy infantry cannot reach the headquarters on its next turn.",
         state,
         check: |turn| {
             let state = after(turn);
             if alive(state, UnitId::new(ENEMY_INFANTRY)).is_none() {
                 return Ok(());
             }
-            let (ours, _) = seats(state);
-            let guarded = state
-                .units
-                .iter()
-                .any(|unit| unit.owner == ours && position(unit) == Some(OUR_HQ));
-            if guarded {
+            if !enemy_reaches(state, OUR_HQ) {
                 Ok(())
             } else {
                 Err("the headquarters is open to the enemy infantry".into())

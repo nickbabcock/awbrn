@@ -18,7 +18,7 @@
 //!   /w/assets/ai-diagnostics/global-league-pool/manifest.json 1 v3
 //! ```
 //!
-//! Usage: `planner_timing <manifest> <pairs-per-map> <uncapped|v3>`
+//! Usage: `planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4>`
 
 use awbrn_ai::agent::Agent;
 use awbrn_ai::baseline::BaselineConfig;
@@ -38,13 +38,14 @@ const RUN_SEED: u64 = 0x7a11_0002;
 fn main() {
     let arguments: Vec<String> = std::env::args().collect();
     let [_, manifest, pairs, mode] = arguments.as_slice() else {
-        eprintln!("usage: planner_timing <manifest> <pairs-per-map> <uncapped|v3>");
+        eprintln!("usage: planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4>");
         std::process::exit(2);
     };
     let pairs: std::num::NonZeroUsize = pairs.parse().expect("pairs must be positive");
     let config = match mode.as_str() {
         "uncapped" => PlannerConfig::V2,
         "v3" => PlannerConfig::V3,
+        "v4" => PlannerConfig::V4,
         other => panic!("unknown mode {other}"),
     };
     let registry = MapRegistry::load(&MapManifest::read(manifest).expect("manifest reads"))

@@ -50,7 +50,7 @@ pub enum AiImplementation {
     /// Uses the configured strategic baseline.
     Strategic,
     /// Compares complete own turns with the planner of
-    /// [`PlannerConfig::V3`].
+    /// [`PlannerConfig::V4`].
     Planner,
 }
 
@@ -167,7 +167,7 @@ impl AiProfile {
     pub const fn planner(&self) -> PlannerConfig {
         PlannerConfig {
             baseline: self.config,
-            ..PlannerConfig::V3
+            ..PlannerConfig::V4
         }
     }
 
@@ -198,7 +198,7 @@ impl AiProfile {
     /// How many candidate turn plans this profile may evaluate.
     pub const fn node_budget(&self) -> NodeBudget {
         match self.implementation {
-            AiImplementation::Planner => NodeBudget::SIXTEEN,
+            AiImplementation::Planner => NodeBudget::THIRTY_TWO,
             _ => self.config.node_budget,
         }
     }
@@ -355,18 +355,19 @@ mod tests {
     }
 
     #[test]
-    fn hard_tier_seats_the_v3_planner_on_the_v2_scoring() {
+    fn hard_tier_seats_the_v4_planner_on_the_v2_scoring() {
         assert_eq!(profile_for_tier(AiTier::Hard), &HARD);
         assert_eq!(HARD.id, "ai-hard-v3");
         assert_eq!(HARD.implementation, AiImplementation::Planner);
         assert_eq!(HARD.config, HARD_V2.config);
-        assert_eq!(HARD.planner(), PlannerConfig::V3);
+        assert_eq!(HARD.planner(), PlannerConfig::V4);
+        assert_eq!(HARD.node_budget(), NodeBudget::THIRTY_TWO);
         assert!(HARD.planner().turn_work.is_some());
     }
 
     #[test]
     fn hard_v3_profile_fingerprint_is_locked() {
-        assert_eq!(HARD.configuration_fingerprint(), "078428a8af2405d5");
+        assert_eq!(HARD.configuration_fingerprint(), "ecc243a219620587");
     }
 
     #[test]
