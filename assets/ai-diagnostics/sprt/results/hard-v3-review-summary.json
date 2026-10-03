@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "comparison": {
+    "agent_seed_protocol": "seat-seeded",
+    "schema_version": 3,
+    "run_id": "fixed-ai-hard-v3-vs-hard-v2-review-280",
+    "source": {
+      "revision": "aed0bc919ed3dd73460b23b6bb8f6a63ca3d1ed4",
+      "dirty": false,
+      "fingerprint": "c5520d590abaf2e2"
+    },
+    "map_fingerprints": {
+      "69201": "68b8938e6ee7f518",
+      "77060": "192154c6a9d8ed6a",
+      "126428": "8376c257b505c15d",
+      "132144": "4740ab78b3bf2320",
+      "133665": "99e0de8c1d9e87cd",
+      "159501": "468e93b2f80861e5",
+      "160882": "c5520ed60e86cf14",
+      "166877": "5a7fd890124cf453",
+      "169069": "1bc14339e60aecdf",
+      "169382": "3085b0150bd64696",
+      "172238": "5ac166a34e1f6ff2",
+      "173362": "bfeeda4caeceaad8",
+      "180298": "19673ce2b631d353",
+      "182023": "575bdb64fceba9c4"
+    },
+    "candidate": {
+      "identifier": "ai-hard-v3",
+      "configuration_fingerprint": "078428a8af2405d5",
+      "executable_fingerprint": "awbrn-ai-versioned-profile-v1"
+    },
+    "baseline": {
+      "identifier": "ai-hard-v2",
+      "configuration_fingerprint": "d5e39223474b7cd3",
+      "executable_fingerprint": "awbrn-ai-versioned-profile-v1"
+    },
+    "bounds": {
+      "h0": 0.0,
+      "h1": 0.05,
+      "alpha": 1e-09,
+      "beta": 1e-09
+    },
+    "method": "bounded-betting-map-round-v1",
+    "log_e_h0_threshold": 20.72326583694641,
+    "log_e_h1_threshold": 20.72326583694641,
+    "decision": "inconclusive",
+    "statistic": {
+      "pairs": 280,
+      "mean": 0.4142857142857143,
+      "variance": 0.3743471582181259,
+      "ci95_half_width": 0.07166619154631204,
+      "rounds": 20,
+      "log_e_h0": 3.499615800185202,
+      "log_e_h1": -0.008602974468019286
+    },
+    "maps": {
+      "69201": {
+        "pairs": 20,
+        "mean": 0.65
+      },
+      "77060": {
+        "pairs": 20,
+        "mean": 0.35
+      },
+      "126428": {
+        "pairs": 20,
+        "mean": 0.45
+      },
+      "132144": {
+        "pairs": 20,
+        "mean": 0.7
+      },
+      "133665": {
+        "pairs": 20,
+        "mean": 0.525
+      },
+      "159501": {
+        "pairs": 20,
+        "mean": 0.3
+      },
+      "160882": {
+        "pairs": 20,
+        "mean": -0.075
+      },
+      "166877": {
+        "pairs": 20,
+        "mean": 0.45
+      },
+      "169069": {
+        "pairs": 20,
+        "mean": 0.35
+      },
+      "169382": {
+        "pairs": 20,
+        "mean": 0.2
+      },
+      "172238": {
+        "pairs": 20,
+        "mean": 0.2
+      },
+      "173362": {
+        "pairs": 20,
+        "mean": 0.45
+      },
+      "180298": {
+        "pairs": 20,
+        "mean": 0.55
+      },
+      "182023": {
+        "pairs": 20,
+        "mean": 0.7
+      }
+    },
+    "candidate_invalid_commands": 0,
+    "baseline_invalid_commands": 0,
+    "jobs": 6,
+    "wall_clock_nanos": 873432305831,
+    "plan": "assets/ai-diagnostics/sprt/hard-v3-vs-hard-v2-review-fixed280.json",
+    "raw_result_sha256": "45e142b4ff2e4b087a24e590a84834b8dd265dd208c771bf6a64b9fc96eff64e",
+    "games": {
+      "wins": 388,
+      "losses": 156,
+      "draws": 16
+    },
+    "candidate_planner_stats": {
+      "plans": 98460,
+      "evaluations": 426200,
+      "candidates": 351997,
+      "chose_seed": 77222,
+      "chose_kill": 11348,
+      "chose_safety": 5924,
+      "chose_block": 3966,
+      "mismatches": 83834,
+      "fallbacks": 36594,
+      "rejections": 0,
+      "work": 7166553,
+      "max_turn_work": 1039
+    }
+  },
+  "timing": {
+    "source_revision": "aed0bc919ed3dd73460b23b6bb8f6a63ca3d1ed4",
+    "example": "planner_timing",
+    "run_seed": 2047934466,
+    "pairs_per_map": 1,
+    "threads": 1,
+    "configuration": "planner-v3",
+    "node_budget": 16,
+    "maps": [
+      159501,
+      77060,
+      69201,
+      180298,
+      126428,
+      166877,
+      133665,
+      172238,
+      182023,
+      132144,
+      160882,
+      173362,
+      169069,
+      169382
+    ],
+    "work": {
+      "plans": 4764,
+      "fallbacks": 1978,
+      "work": 360117,
+      "max_turn_work": 1027
+    },
+    "native": {
+      "target": "x86_64-unknown-linux-gnu",
+      "turns": 818,
+      "median_ms": 177.1,
+      "p95_ms": 503.9,
+      "p99_ms": 627.1,
+      "maximum_ms": 684.8,
+      "turns_over_800_ms": 0,
+      "turns_over_1000_ms": 0
+    },
+    "wasm": {
+      "target": "wasm32-wasip1",
+      "runner": "Node 24.14.1 (V8)",
+      "turns": 818,
+      "median_ms": 247.3,
+      "p95_ms": 714.6,
+      "p99_ms": 865.3,
+      "maximum_ms": 963.4,
+      "turns_over_800_ms": 15,
+      "turns_over_1000_ms": 0
+    }
+  }
+}

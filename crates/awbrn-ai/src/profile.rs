@@ -11,10 +11,14 @@ use crate::agent::{Agent, NodeBudget};
 use crate::agents::{GreedyAgent, RandomAgent, StrategicAgent, Weights};
 use crate::baseline::BaselineConfig;
 use crate::fingerprint::fnv1a;
+use crate::planner::{PlannerAgent, PlannerConfig};
 use crate::rng::Rng;
 use serde::{Deserialize, Serialize};
 
-const HARD_V2_CONFIG: BaselineConfig = BaselineConfig {
+/// The scoring configuration of `ai-hard-v2`.
+///
+/// The planner of `ai-hard-v3` uses it for its seed plan and its fallback.
+pub const HARD_V2_CONFIG: BaselineConfig = BaselineConfig {
     identifier: "greedy-capturer-shortfall-50-generic-tactical-v2-conceal",
     weights: Weights {
         conceal: 2.0,
@@ -45,6 +49,9 @@ pub enum AiImplementation {
     Greedy,
     /// Uses the configured strategic baseline.
     Strategic,
+    /// Compares complete own turns with the planner of
+    /// [`PlannerConfig::V3`].
+    Planner,
 }
 
 /// One named opponent, and everything that decides how it plays.
@@ -84,8 +91,11 @@ pub const STANDARD: AiProfile = AiProfile {
     config: BaselineConfig::LOCKED,
 };
 
-/// The opponent seated for [`AiTier::Hard`].
-pub const HARD: AiProfile = AiProfile {
+/// The retired Hard opponent. It scores one order at a time.
+///
+/// It stays here because it is the fixed comparison opponent of the AI
+/// diagnostics, and the planner of [`HARD`] starts from its turn.
+pub const HARD_V2: AiProfile = AiProfile {
     id: "ai-hard-v2",
     tier: AiTier::Hard,
     label: "Hard",
@@ -94,11 +104,21 @@ pub const HARD: AiProfile = AiProfile {
     config: HARD_V2_CONFIG,
 };
 
+/// The opponent seated for [`AiTier::Hard`].
+pub const HARD: AiProfile = AiProfile {
+    id: "ai-hard-v3",
+    tier: AiTier::Hard,
+    label: "Hard",
+    blurb: "Plans its whole turn. It sets up kills, guards its bases, and keeps units out of focused fire.",
+    implementation: AiImplementation::Planner,
+    config: HARD_V2_CONFIG,
+};
+
 /// Every profile a stored match may name, including retired profiles.
 ///
 /// Before release, development may replace a profile under its identifier.
 /// After release, add a new identifier and keep the old one here.
-pub const PROFILES: [AiProfile; 3] = [EASY, STANDARD, HARD];
+pub const PROFILES: [AiProfile; 4] = [EASY, STANDARD, HARD_V2, HARD];
 
 /// The profile that each tier seats now, easiest first.
 ///
@@ -135,24 +155,52 @@ impl AiProfile {
                 Box::new(GreedyAgent::with_weights(seed, self.config.weights))
             }
             AiImplementation::Strategic => Box::new(StrategicAgent::with_config(seed, self.config)),
+            AiImplementation::Planner => Box::new(PlannerAgent::with_config(seed, self.planner())),
+        }
+    }
+
+    /// The planner configuration that a [`AiImplementation::Planner`]
+    /// profile seats.
+    ///
+    /// The planner starts from the greedy turn of this profile's scoring
+    /// configuration.
+    pub const fn planner(&self) -> PlannerConfig {
+        PlannerConfig {
+            baseline: self.config,
+            ..PlannerConfig::V3
         }
     }
 
     /// Return a fingerprint for the profile and its scoring configuration.
     pub fn configuration_fingerprint(&self) -> String {
-        let bytes = serde_json::to_vec(&(
-            self.id,
-            self.implementation,
-            self.config,
-            "seeded-reservoir",
-        ))
+        let planner = matches!(self.implementation, AiImplementation::Planner)
+            .then(|| self.planner().fingerprint());
+        let bytes = match planner {
+            None => serde_json::to_vec(&(
+                self.id,
+                self.implementation,
+                self.config,
+                "seeded-reservoir",
+            )),
+            Some(planner) => serde_json::to_vec(&(
+                self.id,
+                self.implementation,
+                self.config,
+                "seeded-reservoir",
+                planner,
+                self.node_budget(),
+            )),
+        }
         .expect("AI profile configuration serializes");
         format!("{:016x}", fnv1a(&bytes))
     }
 
     /// How many candidate turn plans this profile may evaluate.
     pub const fn node_budget(&self) -> NodeBudget {
-        self.config.node_budget
+        match self.implementation {
+            AiImplementation::Planner => NodeBudget::SIXTEEN,
+            _ => self.config.node_budget,
+        }
     }
 
     /// The seed for one turn of one seat.
@@ -205,7 +253,8 @@ mod tests {
 
     #[test]
     fn a_stored_identifier_resolves() {
-        assert_eq!(profile("ai-hard-v2"), Some(&HARD));
+        assert_eq!(profile("ai-hard-v2"), Some(&HARD_V2));
+        assert_eq!(profile("ai-hard-v3"), Some(&HARD));
         assert_eq!(profile("ai-nonesuch"), None);
     }
 
@@ -215,27 +264,29 @@ mod tests {
     fn identifiers_are_locked() {
         assert_eq!(
             PROFILES.map(|profile| profile.id),
-            ["ai-easy-v1", "ai-standard-v1", "ai-hard-v2"]
+            ["ai-easy-v1", "ai-standard-v1", "ai-hard-v2", "ai-hard-v3"]
         );
     }
 
     #[test]
     fn hard_v2_uses_a_distinct_config_with_only_concealment_changed() {
-        assert_eq!(profile("ai-hard-v2"), Some(&HARD));
-        assert_eq!(profile_for_tier(AiTier::Hard), &HARD);
-        assert_eq!(HARD.implementation, AiImplementation::Strategic);
+        assert_eq!(profile("ai-hard-v2"), Some(&HARD_V2));
+        assert_eq!(HARD_V2.implementation, AiImplementation::Strategic);
         assert_ne!(
-            HARD.config.identifier,
+            HARD_V2.config.identifier,
             BaselineConfig::PRODUCTION.identifier
         );
-        assert_eq!(HARD.config.agent, BaselineConfig::PRODUCTION.agent);
+        assert_eq!(HARD_V2.config.agent, BaselineConfig::PRODUCTION.agent);
         assert_eq!(
-            HARD.config.node_budget,
+            HARD_V2.config.node_budget,
             BaselineConfig::PRODUCTION.node_budget
         );
-        assert_eq!(HARD.config.tie_break, BaselineConfig::PRODUCTION.tie_break);
         assert_eq!(
-            HARD.config.weights,
+            HARD_V2.config.tie_break,
+            BaselineConfig::PRODUCTION.tie_break
+        );
+        assert_eq!(
+            HARD_V2.config.weights,
             Weights {
                 conceal: 2.0,
                 ..BaselineConfig::PRODUCTION.weights
@@ -247,7 +298,7 @@ mod tests {
     fn hard_v2_keeps_the_production_standard_turn() {
         let seed = 18;
         let state = arena(false, seed);
-        let mut current = HARD.agent(73);
+        let mut current = HARD_V2.agent(73);
         let mut old_config = StrategicAgent::with_config(73, BaselineConfig::PRODUCTION);
         current.start_match();
         old_config.start_match();
@@ -257,14 +308,14 @@ mod tests {
             state.clone(),
             &mut *current,
             &mut current_entropy,
-            HARD.node_budget(),
+            HARD_V2.node_budget(),
         )
         .expect("the current standard turn executes");
         let old_config_turn = run_agent_turn_unmeasured(
             state,
             &mut old_config,
             &mut old_config_entropy,
-            HARD.node_budget(),
+            HARD_V2.node_budget(),
         )
         .expect("the old production turn executes");
 
@@ -279,26 +330,43 @@ mod tests {
     }
 
     #[test]
-    fn hard_v2_runs_a_legal_fog_turn() {
-        let seed = 91;
-        let state = arena(true, seed);
-        let mut agent = HARD.agent(101);
-        agent.start_match();
-        let mut entropy = Rng::from_seed(seed);
-        let result =
-            run_agent_turn_unmeasured(state, &mut *agent, &mut entropy, HARD.node_budget())
-                .expect("the fog turn executes");
+    fn every_hard_profile_runs_a_legal_fog_turn() {
+        for hard in [HARD_V2, HARD] {
+            let seed = 91;
+            let state = arena(true, seed);
+            let mut agent = hard.agent(101);
+            agent.start_match();
+            let mut entropy = Rng::from_seed(seed);
+            let result =
+                run_agent_turn_unmeasured(state, &mut *agent, &mut entropy, hard.node_budget())
+                    .expect("the fog turn executes");
 
-        assert!(result.completed);
-        assert_eq!(result.rejected_commands, 0);
-        assert_eq!(result.preflight_rejections, 0);
-        assert_eq!(result.unrealizable_plays, 0);
-        assert!(!result.commands.is_empty());
+            assert!(result.completed, "{}", hard.id);
+            assert_eq!(result.rejected_commands, 0, "{}", hard.id);
+            assert_eq!(result.preflight_rejections, 0, "{}", hard.id);
+            assert_eq!(result.unrealizable_plays, 0, "{}", hard.id);
+            assert!(!result.commands.is_empty(), "{}", hard.id);
+        }
     }
 
     #[test]
     fn hard_v2_profile_fingerprint_is_locked() {
-        assert_eq!(HARD.configuration_fingerprint(), "d5e39223474b7cd3");
+        assert_eq!(HARD_V2.configuration_fingerprint(), "d5e39223474b7cd3");
+    }
+
+    #[test]
+    fn hard_tier_seats_the_v3_planner_on_the_v2_scoring() {
+        assert_eq!(profile_for_tier(AiTier::Hard), &HARD);
+        assert_eq!(HARD.id, "ai-hard-v3");
+        assert_eq!(HARD.implementation, AiImplementation::Planner);
+        assert_eq!(HARD.config, HARD_V2.config);
+        assert_eq!(HARD.planner(), PlannerConfig::V3);
+        assert!(HARD.planner().turn_work.is_some());
+    }
+
+    #[test]
+    fn hard_v3_profile_fingerprint_is_locked() {
+        assert_eq!(HARD.configuration_fingerprint(), "078428a8af2405d5");
     }
 
     #[test]

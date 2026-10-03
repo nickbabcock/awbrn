@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::{BufReader, BufWriter, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -11,6 +12,7 @@ use awbrn_ai::agent::{Agent, NodeBudget, SearchStats};
 use awbrn_ai::agents::{SearchAgent, SearchAllocator, StrategicAgent, Weights};
 use awbrn_ai::baseline::BaselineConfig;
 use awbrn_ai::harness::{Limits, RefusalTrace, next_command_fingerprint, play_observed_fallible};
+use awbrn_ai::planner::{PlannerAgent, PlannerConfig, PlannerStats};
 use awbrn_ai::rng::Rng;
 use awbrn_ai::{AiProfile, profile};
 use awbrn_ai_diagnostic_types::{
@@ -23,8 +25,9 @@ use awvm::transition::{Command, ExecuteError};
 use serde::{Deserialize, Serialize};
 
 use crate::events::{
-    EventLogError, EventLogWriter, EventMetadata, observations_from_event_log, read_event_log,
-    row_for_state, verify_expected_fingerprints, write_derived_outputs, write_event_tables,
+    EventLogError, EventLogWriter, EventMetadata, EventRow, observations_from_event_log,
+    read_event_log, row_for_state, verify_expected_fingerprints, write_derived_outputs,
+    write_event_tables,
 };
 use crate::manifest::{
     ManifestError, read_manifest, resolve_event_log_path, write_or_validate_manifest,
@@ -108,6 +111,42 @@ impl AgentFactory for StrategicFactory {
 
     fn create(&self, seed: u64) -> Box<dyn Agent> {
         Box::new(StrategicAgent::with_config(seed, self.config))
+    }
+}
+
+/// The executable identity for the whole-turn planner.
+pub const PLANNER_EXECUTABLE_FINGERPRINT: &str = "awbrn-ai-planner-v3";
+
+/// A factory for a whole-turn planner candidate.
+#[derive(Clone, Debug)]
+pub struct PlannerFactory {
+    identity: AgentIdentity,
+    config: PlannerConfig,
+}
+
+impl PlannerFactory {
+    /// Create a factory for one planner configuration.
+    pub fn new(identifier: &str, config: PlannerConfig) -> Self {
+        let bytes = serde_json::to_vec(&(identifier, config.fingerprint()))
+            .expect("planner configuration serializes");
+        Self {
+            identity: AgentIdentity {
+                identifier: identifier.to_owned(),
+                configuration_fingerprint: fingerprint_bytes(&bytes),
+                executable_fingerprint: PLANNER_EXECUTABLE_FINGERPRINT.into(),
+            },
+            config,
+        }
+    }
+}
+
+impl AgentFactory for PlannerFactory {
+    fn identity(&self) -> &AgentIdentity {
+        &self.identity
+    }
+
+    fn create(&self, seed: u64) -> Box<dyn Agent> {
+        Box::new(PlannerAgent::with_config(seed, self.config))
     }
 }
 
@@ -333,6 +372,12 @@ pub struct MatchPerformance {
     /// Search counters for the baseline, when it is a search agent.
     #[serde(default)]
     pub baseline_search_stats: Option<SearchStats>,
+    /// Candidate planner counters for this match.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_planner_stats: Option<PlannerStats>,
+    /// Baseline planner counters for this match.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub baseline_planner_stats: Option<PlannerStats>,
     /// Candidate search decision times in nanoseconds.
     #[serde(default)]
     pub candidate_decision_times_nanos: Vec<u64>,
@@ -433,13 +478,55 @@ pub enum TournamentError {
     Configuration(String),
 }
 
+/// The environment variable that sets the number of match workers.
+pub const JOBS_ENVIRONMENT_VARIABLE: &str = "AWBRN_AI_JOBS";
+
+/// Return the number of match workers for a run.
+///
+/// The value comes from [`JOBS_ENVIRONMENT_VARIABLE`]. If it is not set or
+/// is not a positive number, the value is the number of available cores.
+pub fn default_jobs() -> usize {
+    std::env::var(JOBS_ENVIRONMENT_VARIABLE)
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|jobs| *jobs > 0)
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
+        })
+}
+
 /// Run all expected map and pair identities in both seat orders.
+///
+/// The run uses [`default_jobs`] match workers.
 pub fn run_paired_tournament(
     manifest: &RunManifest,
     registry: &MapRegistry,
     candidate: &dyn AgentFactory,
     baseline: &dyn AgentFactory,
     output: impl AsRef<Path>,
+) -> Result<TournamentSummary, TournamentError> {
+    run_paired_tournament_with_jobs(
+        manifest,
+        registry,
+        candidate,
+        baseline,
+        output,
+        default_jobs(),
+    )
+}
+
+/// Run all expected matches with `jobs` match workers.
+///
+/// Workers play matches at the same time, but the event log receives each
+/// match's rows in the sequential order. Thus the event log and all derived
+/// outputs are the same for each worker count. Only timing values change.
+pub fn run_paired_tournament_with_jobs(
+    manifest: &RunManifest,
+    registry: &MapRegistry,
+    candidate: &dyn AgentFactory,
+    baseline: &dyn AgentFactory,
+    output: impl AsRef<Path>,
+    jobs: usize,
 ) -> Result<TournamentSummary, TournamentError> {
     manifest.validate().map_err(RunManifestError::Invalid)?;
     validate_agents(manifest, candidate, baseline)?;
@@ -467,8 +554,7 @@ pub fn run_paired_tournament(
         .map_or(0, |performance| performance.wall_clock_nanos);
     let event_path = resolve_event_log_path(&output, manifest)?;
     let mut event_log = EventLogWriter::open(&event_path)?;
-    let mut match_performance = Vec::new();
-
+    let mut work = Vec::new();
     for pair in manifest.expected_pairs() {
         let map = registry.get(pair.map_id).ok_or_else(|| {
             TournamentError::Configuration(format!("map {} is not loaded", pair.map_id))
@@ -478,21 +564,24 @@ pub fn run_paired_tournament(
             if event_log.has_terminal_match(&match_id)? {
                 continue;
             }
-            let attempt = event_log.begin_attempt(&match_id)?;
-            match_performance.push(run_match(
-                manifest,
+            let attempt = event_log.next_attempt(&match_id);
+            work.push(MatchWork {
+                pair: pair.clone(),
                 map,
-                MatchSelection {
-                    pair: &pair,
-                    seat_order,
-                    attempt,
-                },
-                candidate,
-                baseline,
-                &mut event_log,
-            )?);
+                seat_order,
+                match_id,
+                attempt,
+            });
         }
     }
+    let match_performance = run_work(
+        manifest,
+        &work,
+        candidate,
+        baseline,
+        &mut event_log,
+        jobs.max(1),
+    )?;
     event_log.flush()?;
 
     // The event log is the resume source. Derived match rows can be rebuilt.
@@ -636,6 +725,110 @@ fn validate_maps(manifest: &RunManifest, registry: &MapRegistry) -> Result<(), T
     Ok(())
 }
 
+/// One match that the run must play.
+struct MatchWork<'a> {
+    pair: PairKey,
+    map: &'a RegisteredMap,
+    seat_order: SeatOrderVariant,
+    match_id: String,
+    attempt: u32,
+}
+
+/// The rows and the result of one played match.
+struct MatchOutput {
+    rows: fs::File,
+    result: Result<MatchPerformance, TournamentError>,
+}
+
+/// Play `work` with `jobs` workers and write the rows in work order.
+///
+/// A worker takes the next unclaimed match. The calling thread writes the
+/// rows of a match when all earlier matches are written. A failed match stops
+/// the run after its rows are written, as in a sequential run.
+fn run_work(
+    manifest: &RunManifest,
+    work: &[MatchWork<'_>],
+    candidate: &dyn AgentFactory,
+    baseline: &dyn AgentFactory,
+    event_log: &mut EventLogWriter,
+    jobs: usize,
+) -> Result<Vec<MatchPerformance>, TournamentError> {
+    let mut performance = Vec::with_capacity(work.len());
+    if jobs <= 1 || work.len() <= 1 {
+        for item in work {
+            let attempt = event_log.begin_attempt(&item.match_id)?;
+            debug_assert_eq!(attempt, item.attempt, "the attempt changed during the run");
+            performance.push(run_match(
+                manifest,
+                item.map,
+                MatchSelection {
+                    pair: &item.pair,
+                    seat_order: item.seat_order,
+                    attempt: item.attempt,
+                },
+                candidate,
+                baseline,
+                |row| event_log.append(row),
+            )?);
+        }
+        return Ok(performance);
+    }
+
+    let directory = event_log
+        .path()
+        .parent()
+        .expect("the event log has a parent")
+        .to_owned();
+    let play = |item: &MatchWork<'_>| -> Result<MatchOutput, TournamentError> {
+        let mut rows = BufWriter::new(tempfile::tempfile_in(&directory)?);
+        let result = run_match(
+            manifest,
+            item.map,
+            MatchSelection {
+                pair: &item.pair,
+                seat_order: item.seat_order,
+                attempt: item.attempt,
+            },
+            candidate,
+            baseline,
+            |row| {
+                serde_json::to_writer(&mut rows, &row)?;
+                rows.write_all(b"\n")?;
+                Ok(())
+            },
+        );
+        rows.flush()?;
+        let mut rows = rows.into_inner().map_err(|error| error.into_error())?;
+        rows.rewind()?;
+        Ok(MatchOutput { rows, result })
+    };
+    let mut commit = |item: &MatchWork<'_>,
+                      output: MatchOutput,
+                      event_log: &mut EventLogWriter|
+     -> Result<(), TournamentError> {
+        let attempt = event_log.begin_attempt(&item.match_id)?;
+        debug_assert_eq!(attempt, item.attempt, "the attempt changed during the run");
+        for row in serde_json::Deserializer::from_reader(BufReader::new(output.rows))
+            .into_iter::<EventRow>()
+        {
+            event_log.append(row?)?;
+        }
+        performance.push(output.result?);
+        Ok(())
+    };
+
+    crate::workers::run_ordered(
+        work.len(),
+        jobs,
+        |index| play(&work[index]),
+        |index, output| {
+            commit(&work[index], output?, event_log)?;
+            Ok::<_, TournamentError>(false)
+        },
+    )?;
+    Ok(performance)
+}
+
 struct MatchSelection<'a> {
     pair: &'a PairKey,
     seat_order: SeatOrderVariant,
@@ -648,7 +841,7 @@ fn run_match(
     selection: MatchSelection<'_>,
     candidate: &dyn AgentFactory,
     baseline: &dyn AgentFactory,
-    event_log: &mut EventLogWriter,
+    mut emit: impl FnMut(EventRow) -> Result<(), EventLogError>,
 ) -> Result<MatchPerformance, TournamentError> {
     let pair = selection.pair;
     let seat_order = selection.seat_order;
@@ -711,7 +904,7 @@ fn run_match(
                 turn_index,
                 command_index,
             );
-            event_log.append(row)?;
+            emit(row)?;
             sequence += 1;
             if command.is_some() {
                 if matches!(command, Some(Command::EndTurn { .. })) {
@@ -815,6 +1008,8 @@ fn run_match(
         outcome: outcome_name(record.outcome.as_ref()).into(),
         candidate_search_stats,
         baseline_search_stats,
+        candidate_planner_stats: candidate.planner_stats(),
+        baseline_planner_stats: baseline.planner_stats(),
         candidate_decision_times_nanos,
         baseline_decision_times_nanos,
         refusal_traces: record.refusal_traces,
@@ -1132,6 +1327,8 @@ mod tests {
             outcome: "incomplete".into(),
             candidate_search_stats: None,
             baseline_search_stats: None,
+            candidate_planner_stats: None,
+            baseline_planner_stats: None,
             candidate_decision_times_nanos: Vec::new(),
             baseline_decision_times_nanos: Vec::new(),
             refusal_traces: Vec::new(),
@@ -1163,6 +1360,8 @@ mod tests {
             outcome: "victory".into(),
             candidate_search_stats: None,
             baseline_search_stats: None,
+            candidate_planner_stats: None,
+            baseline_planner_stats: None,
             candidate_decision_times_nanos: Vec::new(),
             baseline_decision_times_nanos: Vec::new(),
             refusal_traces: Vec::new(),
@@ -1194,6 +1393,8 @@ mod tests {
             outcome: "draw".into(),
             candidate_search_stats: None,
             baseline_search_stats: None,
+            candidate_planner_stats: None,
+            baseline_planner_stats: None,
             candidate_decision_times_nanos: Vec::new(),
             baseline_decision_times_nanos: Vec::new(),
             refusal_traces: Vec::new(),
@@ -1331,25 +1532,30 @@ mod tests {
         let materialized = plan
             .materialize(path, &registry)
             .expect("the mirrored Hard plan materializes");
-        let output = output_path("hard-parity");
-
-        run_paired_tournament(
-            &materialized.manifest,
-            &registry,
-            materialized.candidate.as_ref(),
-            materialized.baseline.as_ref(),
-            &output,
-        )
-        .expect("the mirrored Hard matches complete");
-
-        let rows = crate::events::read_event_log(output.join("events.jsonl"))
-            .expect("the event log reads");
-        let (agent_first, baseline_first) = match_streams(&rows, 0);
-        assert_eq!(
-            projected_stream(&agent_first),
-            projected_stream(&baseline_first),
-            "seat-seeded Hard-v-Hard matches must follow the same complete game stream"
-        );
-        fs::remove_dir_all(output).expect("the temporary run is removed");
+        let mut serial_stream = None;
+        for jobs in [1, 2] {
+            let output = output_path("hard-parity");
+            run_paired_tournament_with_jobs(
+                &materialized.manifest,
+                &registry,
+                materialized.candidate.as_ref(),
+                materialized.baseline.as_ref(),
+                &output,
+                jobs,
+            )
+            .expect("the mirrored Hard matches complete");
+            let rows = crate::events::read_event_log(output.join("events.jsonl"))
+                .expect("the event log reads");
+            let (agent_first, baseline_first) = match_streams(&rows, 0);
+            let stream = projected_stream(&agent_first);
+            assert!(!stream.is_empty());
+            assert_eq!(stream, projected_stream(&baseline_first));
+            if let Some(serial) = &serial_stream {
+                assert_eq!(&stream, serial);
+            } else {
+                serial_stream = Some(stream);
+            }
+            fs::remove_dir_all(output).expect("the temporary run is removed");
+        }
     }
 }

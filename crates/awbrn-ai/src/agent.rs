@@ -81,6 +81,11 @@ pub trait Agent {
         None
     }
 
+    /// Return planner counters when this agent has them.
+    fn planner_stats(&self) -> Option<crate::planner::PlannerStats> {
+        None
+    }
+
     /// Return wall-clock decision samples when the agent records them.
     fn search_decision_times_nanos(&self) -> Option<Vec<u64>> {
         None
