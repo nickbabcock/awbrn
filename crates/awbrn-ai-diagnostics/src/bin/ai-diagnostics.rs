@@ -4,9 +4,10 @@ use std::process::ExitCode;
 
 use awbrn_ai_diagnostic_types::RunManifest;
 use awbrn_ai_diagnostics::{
-    AnalysisStage, analyze_event_log, read_manifest, reanalyse_event_log_with_manifest,
-    resolve_event_log_path, run_plan, run_producer_usability_diagnostics_from_manifest, run_review,
-    run_search_sweep, verify_artifact,
+    AnalysisStage, analyze_event_log, default_jobs, read_manifest,
+    reanalyse_event_log_with_manifest, resolve_event_log_path, run_plan,
+    run_producer_usability_diagnostics_from_manifest, run_review, run_search_sweep, run_sprt_plan,
+    verify_artifact,
 };
 
 fn main() -> ExitCode {
@@ -18,6 +19,7 @@ fn main() -> ExitCode {
     match command {
         "run" => run(&arguments[1..]),
         "search-sweep" => search_sweep(&arguments[1..]),
+        "sprt" => sprt(&arguments[1..]),
         "analyze" => analyze(&arguments[1..]),
         "features" | "feature-analysis" => features(&arguments[1..]),
         "review" => review(&arguments[1..]),
@@ -48,6 +50,61 @@ fn search_sweep(arguments: &[String]) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => report_error("search-sweep", error),
+    }
+}
+
+fn sprt(arguments: &[String]) -> ExitCode {
+    const USAGE: &str =
+        "usage: ai-diagnostics sprt --plan sprt-plan.json --output target/sprt [--jobs N]";
+    let options = match parse_options(arguments, &["--plan", "--output", "--jobs"]) {
+        Ok(options) => options,
+        Err(message) => return invalid_arguments(&message, USAGE),
+    };
+    let (Some(plan), Some(output)) = (options.get("--plan"), options.get("--output")) else {
+        return invalid_arguments("sprt needs --plan and --output", USAGE);
+    };
+    let jobs = match options.get("--jobs").map(|value| value.parse::<usize>()) {
+        None => default_jobs(),
+        Some(Ok(jobs)) if jobs > 0 => jobs,
+        Some(_) => return invalid_arguments("--jobs needs a positive number", USAGE),
+    };
+    let result = run_sprt_plan(plan, output, jobs, |pair, statistic| {
+        eprintln!(
+            "pair {:>4} map {:>6} diff {:+.1} | n {:>4} mean {:+.4} ± {:.4} log evidence {:.3} / {:.3}",
+            pair.pair_index,
+            pair.map_id,
+            pair.differential,
+            statistic.pairs,
+            statistic.mean,
+            statistic.ci95_half_width,
+            statistic.log_e_h0,
+            statistic.log_e_h1,
+        );
+    });
+    match result {
+        Ok(result) => {
+            println!(
+                "{:?} after {} pairs: mean {:+.4} ± {:.4} (descriptive 95%), log evidence {:.3} / {:.3}; thresholds {:.3} / {:.3}",
+                result.decision,
+                result.statistic.pairs,
+                result.statistic.mean,
+                result.statistic.ci95_half_width,
+                result.statistic.log_e_h0,
+                result.statistic.log_e_h1,
+                result.log_e_h0_threshold,
+                result.log_e_h1_threshold,
+            );
+            println!(
+                "candidate turn p95 {:.1} ms max {:.1} ms; baseline turn p95 {:.1} ms; invalid {} / {}",
+                result.candidate_complete_turn_timing.p95_nanos as f64 / 1.0e6,
+                result.candidate_complete_turn_timing.maximum_nanos as f64 / 1.0e6,
+                result.baseline_complete_turn_timing.p95_nanos as f64 / 1.0e6,
+                result.candidate_invalid_commands,
+                result.baseline_invalid_commands,
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => report_error("sprt", error),
     }
 }
 
@@ -369,7 +426,7 @@ fn report_error(command: &str, error: impl std::fmt::Display) -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage:\n  ai-diagnostics search-sweep --plan search-budget-sweep-plan.json --output target/search-sweep\n  ai-diagnostics run --plan experiment.json --output target/run\n  ai-diagnostics analyze --run target/run [--analysis outcome-features,producer-usability,review,verification]\n  ai-diagnostics features --states states.jsonl --output target/features\n  ai-diagnostics review --output target/run\n  ai-diagnostics verify --output target/run"
+        "usage:\n  ai-diagnostics sprt --plan sprt-plan.json --output target/sprt [--jobs N]\n  ai-diagnostics search-sweep --plan search-budget-sweep-plan.json --output target/search-sweep\n  ai-diagnostics run --plan experiment.json --output target/run\n  ai-diagnostics analyze --run target/run [--analysis outcome-features,producer-usability,review,verification]\n  ai-diagnostics features --states states.jsonl --output target/features\n  ai-diagnostics review --output target/run\n  ai-diagnostics verify --output target/run"
     );
 }
 

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "run_id": "sprt-hard-vs-hard-null",
+  "candidate": { "kind": "ai-profile", "profile_id": "ai-hard-v2" },
+  "baseline": { "kind": "ai-profile", "profile_id": "ai-hard-v2" },
+  "map_manifest": "../global-league-pool/manifest.json",
+  "maps": [159501, 77060, 69201, 180298, 126428, 166877, 133665, 172238, 182023, 132144, 160882, 173362, 169069, 169382],
+  "fog": false,
+  "run_seed": 9001,
+  "max_pairs": 400,
+  "limits": { "day_limit": 35, "node_budget": 4, "refusal_limit": 64 }
+}

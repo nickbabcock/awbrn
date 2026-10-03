@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "run_id": "sprt-planner-v2-vs-v1",
+  "candidate": {
+    "kind": "planner",
+    "identifier": "planner-v2",
+    "configuration": "v2"
+  },
+  "baseline": {
+    "kind": "planner",
+    "identifier": "planner-v1",
+    "configuration": "v1"
+  },
+  "map_manifest": "../global-league-pool/manifest.json",
+  "maps": [
+    159501,
+    77060,
+    69201,
+    180298,
+    126428,
+    166877,
+    133665,
+    172238,
+    182023,
+    132144,
+    160882,
+    173362,
+    169069,
+    169382
+  ],
+  "fog": false,
+  "run_seed": 9201,
+  "max_pairs": 600,
+  "limits": {
+    "day_limit": 35,
+    "node_budget": 4,
+    "refusal_limit": 64
+  }
+}

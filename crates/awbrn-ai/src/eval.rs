@@ -1445,7 +1445,13 @@ fn reconcile_terms_score(terms: &mut EvalTerms, score: f64, weights: EvalWeights
     } else {
         terms.army += residual;
     }
-    debug_assert_eq!(terms.named_sum(), score);
+    // The residual moves into one term, so the sum can still differ from
+    // the score in the last bit.
+    debug_assert!(
+        (terms.named_sum() - score).abs() <= RESIDUAL_TOLERANCE * score.abs().max(1.0),
+        "the named terms sum to {} and not to the score {score}",
+        terms.named_sum()
+    );
     residual
 }
 

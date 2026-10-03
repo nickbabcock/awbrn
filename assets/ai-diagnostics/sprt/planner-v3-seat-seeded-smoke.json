@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "run_id": "planner-v3-seat-seeded-smoke",
+  "candidate": {
+    "kind": "planner",
+    "identifier": "planner-v3",
+    "configuration": "v3"
+  },
+  "baseline": {
+    "kind": "ai-profile",
+    "profile_id": "ai-hard-v2"
+  },
+  "maps": [
+    61748
+  ],
+  "run_seed": 771004,
+  "agent_seed_protocol": "seat-seeded",
+  "max_pairs": 2,
+  "limits": {
+    "day_limit": 2,
+    "node_budget": 16,
+    "refusal_limit": 64
+  }
+}

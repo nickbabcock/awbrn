@@ -162,17 +162,17 @@ fn a_seat_plays_the_same_way_from_the_same_seed() {
     let play_once = || {
         let mut server = GameServer::new(setup.clone()).expect("the setup is valid");
         let mut events = Vec::new();
-        play_ai_turn(&mut server, &mut events, p1(), "ai-hard-v2", 99)
+        play_ai_turn(&mut server, &mut events, p1(), "ai-hard-v3", 99)
     };
 
     assert_eq!(play_once(), play_once());
 }
 
 #[test]
-fn current_hard_tier_seats_v2_and_plays_in_fog() {
+fn current_hard_tier_seats_v3_and_plays_in_fog() {
     let current = profile_for_tier(AiTier::Hard);
-    assert_eq!(current.id, "ai-hard-v2");
-    assert_eq!(profile("ai-hard-v2"), Some(&HARD));
+    assert_eq!(current.id, "ai-hard-v3");
+    assert_eq!(profile("ai-hard-v3"), Some(&HARD));
 
     let mut setup = contested_setup();
     setup.fog_enabled = true;

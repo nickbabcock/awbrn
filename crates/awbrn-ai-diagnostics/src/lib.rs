@@ -11,6 +11,8 @@ pub mod plan;
 pub mod producer_diagnostics;
 pub mod review;
 pub mod search_sweep;
+pub mod source;
+pub mod sprt;
 pub mod tactical;
 pub mod tournament;
 pub mod verify;
@@ -64,13 +66,21 @@ pub use search_sweep::{
     SearchSweepMapReport, SearchSweepPerformance, SearchSweepPlan, SearchSweepSummary,
     SearchSweepThresholds, UnblockAndProduceAudit, read_search_sweep_plan, run_search_sweep,
 };
+pub use source::SourceProvenance;
+pub use sprt::{
+    SPRT_PLAN_SCHEMA_VERSION, SprtBounds, SprtDecision, SprtError, SprtPair, SprtPlan, SprtResult,
+    SprtStatistic, read_sprt_plan, run_sprt, run_sprt_plan,
+};
 pub use tactical::{
     TACTICAL_EXECUTABLE_FINGERPRINT, TacticalFactory, TacticalRerank, TacticalRerankMode,
 };
 pub use tournament::{
-    AgentFactory, CompleteTurnTiming, MatchPerformance, SEARCH_COVERAGE_SCHEMA_VERSION,
-    SEARCH_EXECUTABLE_FINGERPRINT, STRATEGIC_EXECUTABLE_FINGERPRINT, SearchCoverageArtifact,
-    SearchCoverageMatch, SearchFactory, StrategicFactory, TournamentError, TournamentPerformance,
-    TournamentSummary, run_manifest, run_paired_tournament,
+    AgentFactory, CompleteTurnTiming, MatchPerformance, PLANNER_EXECUTABLE_FINGERPRINT,
+    PlannerFactory, SEARCH_COVERAGE_SCHEMA_VERSION, SEARCH_EXECUTABLE_FINGERPRINT,
+    STRATEGIC_EXECUTABLE_FINGERPRINT, SearchCoverageArtifact, SearchCoverageMatch, SearchFactory,
+    StrategicFactory, TournamentError, TournamentPerformance, TournamentSummary, default_jobs,
+    run_manifest, run_paired_tournament, run_paired_tournament_with_jobs,
 };
 pub use verify::{VerificationSummary, VerifyError, verify_artifact};
+
+mod workers;

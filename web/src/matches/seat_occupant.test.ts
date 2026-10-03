@@ -10,9 +10,9 @@ describe("who holds a seat", () => {
   });
 
   it("reads an opponent off the column that names one", () => {
-    expect(seatOccupant({ userId: null, aiProfileId: "ai-hard-v2" })).toEqual({
+    expect(seatOccupant({ userId: null, aiProfileId: "ai-hard-v3" })).toEqual({
       kind: "ai",
-      profileId: "ai-hard-v2",
+      profileId: "ai-hard-v3",
     });
   });
 
