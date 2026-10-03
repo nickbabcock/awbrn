@@ -9,8 +9,9 @@ use awbrn_ai::EvalWeights;
 use awbrn_ai::agent::NodeBudget;
 use awbrn_ai::baseline::BaselineConfig;
 use awbrn_ai_diagnostic_types::{
-    CapturePolicy, ExecutionMode, MapIdentity, PairKey, RUN_MANIFEST_SCHEMA_VERSION,
-    ReferencedArtifact, RunLimits, RunManifest, SeedDerivation, TelemetryMode, fingerprint_bytes,
+    AgentSeedProtocol, CapturePolicy, ExecutionMode, MapIdentity, PairKey,
+    RUN_MANIFEST_SCHEMA_VERSION, ReferencedArtifact, RunLimits, RunManifest, SeedDerivation,
+    TelemetryMode, fingerprint_bytes,
 };
 use serde::{Deserialize, Serialize};
 
@@ -85,6 +86,9 @@ pub struct ExperimentPlan {
     pub maps: Vec<u32>,
     pub run_seed: u64,
     pub pairs_per_map: u64,
+    /// Assign agent random streams by role or by physical seat.
+    #[serde(default, skip_serializing_if = "is_role_seeded")]
+    pub agent_seed_protocol: AgentSeedProtocol,
     pub limits: RunLimits,
     #[serde(default)]
     pub telemetry: TelemetryMode,
@@ -97,6 +101,10 @@ pub struct ExperimentPlan {
     pub producer_usability: Option<ProducerUsabilityPlan>,
     #[serde(default)]
     pub annotations: Option<String>,
+}
+
+fn is_role_seeded(protocol: &AgentSeedProtocol) -> bool {
+    *protocol == AgentSeedProtocol::RoleSeeded
 }
 
 /// A plan with its immutable manifest and resolved factories.
@@ -247,7 +255,7 @@ impl ExperimentPlan {
             .collect::<Vec<_>>();
         let source = source_provenance(plan_path.as_ref())?;
         let experiment_plan_fingerprint = fingerprint_bytes(&serde_json::to_vec(self)?);
-        let configuration_bytes = serde_json::to_vec(&(
+        let legacy_configuration = (
             candidate.identity(),
             baseline.identity(),
             &maps,
@@ -264,7 +272,13 @@ impl ExperimentPlan {
                 .iter()
                 .map(|artifact| artifact.fingerprint.as_str())
                 .collect::<Vec<_>>(),
-        ))?;
+        );
+        let configuration_bytes = match self.agent_seed_protocol {
+            AgentSeedProtocol::RoleSeeded => serde_json::to_vec(&legacy_configuration)?,
+            AgentSeedProtocol::SeatSeeded => {
+                serde_json::to_vec(&(&legacy_configuration, self.agent_seed_protocol))?
+            }
+        };
         let configuration_fingerprint = fingerprint_bytes(&configuration_bytes);
         artifacts.sort_by(|left, right| left.path.cmp(&right.path));
         let manifest = RunManifest {
@@ -289,6 +303,7 @@ impl ExperimentPlan {
                 .transpose()?,
             maps,
             seed_derivation: SeedDerivation {
+                agent_seed_protocol: self.agent_seed_protocol,
                 run_seed: self.run_seed,
                 algorithm: "baseline-game-seed-v1".into(),
                 pair_index_domain: format!("0..{}", self.pairs_per_map),
@@ -659,6 +674,47 @@ mod tests {
         assert!(
             spec.materialize(Path::new("/tmp/profile-plan.json"))
                 .is_err()
+        );
+    }
+    #[test]
+    fn old_plans_keep_role_seeded_identity() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/ai-diagnostics/smoke-plan.json");
+        let original: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let plan = read_plan(&path).unwrap();
+        assert_eq!(plan.agent_seed_protocol, AgentSeedProtocol::RoleSeeded);
+        let encoded = serde_json::to_value(&plan).unwrap();
+        assert!(encoded.get("agent_seed_protocol").is_none());
+        let mut explicit = original;
+        explicit["agent_seed_protocol"] = serde_json::json!("role-seeded");
+        let restored: ExperimentPlan = serde_json::from_value(explicit).unwrap();
+        assert_eq!(
+            serde_json::to_vec(&restored).unwrap(),
+            serde_json::to_vec(&plan).unwrap()
+        );
+    }
+
+    #[test]
+    fn seat_seeded_configuration_has_a_distinct_identity() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/ai-diagnostics/smoke-plan.json");
+        let registry = MapRegistry::load_checked_in().unwrap();
+        let mut plan = read_plan(&path).unwrap();
+        let role = plan.materialize(&path, &registry).unwrap().manifest;
+        plan.agent_seed_protocol = AgentSeedProtocol::SeatSeeded;
+        let seat = plan.materialize(&path, &registry).unwrap().manifest;
+        assert_ne!(
+            role.experiment_plan_fingerprint,
+            seat.experiment_plan_fingerprint
+        );
+        assert_ne!(
+            role.configuration_fingerprint,
+            seat.configuration_fingerprint
+        );
+        assert_eq!(
+            seat.seed_derivation.agent_seed_protocol,
+            AgentSeedProtocol::SeatSeeded
         );
     }
 }

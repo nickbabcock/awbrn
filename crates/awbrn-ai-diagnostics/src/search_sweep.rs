@@ -625,6 +625,7 @@ fn experiment_plan(
     run_seed: u64,
 ) -> ExperimentPlan {
     ExperimentPlan {
+        agent_seed_protocol: Default::default(),
         schema_version: EXPERIMENT_PLAN_SCHEMA_VERSION,
         run_id: format!("{}-{identifier}-{run_seed}", plan.run_id),
         candidate: AgentSpec::Search {

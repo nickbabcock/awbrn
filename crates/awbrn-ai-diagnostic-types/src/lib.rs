@@ -14,6 +14,27 @@ pub const RUN_MANIFEST_SCHEMA_VERSION: u16 = 1;
 /// The event log schema version.
 pub const EVENT_LOG_SCHEMA_VERSION: u16 = 1;
 
+/// Selects whether agent random streams follow the role or the physical seat.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AgentSeedProtocol {
+    /// Keep the current stream assignment: candidate uses slot 0, baseline slot 1.
+    #[default]
+    RoleSeeded,
+    /// Give each physical seat its own stream in both mirrored games.
+    SeatSeeded,
+}
+
+impl AgentSeedProtocol {
+    /// Return the stable manifest name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::RoleSeeded => "role-seeded",
+            Self::SeatSeeded => "seat-seeded",
+        }
+    }
+}
+
 /// The seat order used by a paired match.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -470,6 +491,13 @@ pub struct SeedDerivation {
     pub run_seed: u64,
     pub algorithm: String,
     pub pair_index_domain: String,
+    /// The policy used to assign per-agent random streams.
+    #[serde(default, skip_serializing_if = "is_role_seeded")]
+    pub agent_seed_protocol: AgentSeedProtocol,
+}
+
+fn is_role_seeded(value: &AgentSeedProtocol) -> bool {
+    *value == AgentSeedProtocol::RoleSeeded
 }
 
 /// Limits that affect a match outcome or its measured cost.
@@ -740,6 +768,7 @@ mod tests {
                 run_seed: 1,
                 algorithm: "algorithm".into(),
                 pair_index_domain: "0..1".into(),
+                agent_seed_protocol: AgentSeedProtocol::RoleSeeded,
             },
             limits: RunLimits {
                 day_limit: 1,
@@ -765,6 +794,23 @@ mod tests {
             expected: ExpectedFingerprints::default(),
             pairs: vec![PairKey::new(1, 1, 0)],
         }
+    }
+
+    #[test]
+    fn manifests_without_an_agent_seed_protocol_keep_role_seeded_compatibility() {
+        let mut value = serde_json::to_value(manifest()).expect("the fixture serializes");
+        let derivation = value
+            .get_mut("seed_derivation")
+            .and_then(serde_json::Value::as_object_mut)
+            .expect("the manifest has seed inputs");
+        assert!(!derivation.contains_key("agent_seed_protocol"));
+
+        let restored: RunManifest = serde_json::from_value(value)
+            .expect("a previous manifest loads without a seed protocol field");
+        assert_eq!(
+            restored.seed_derivation.agent_seed_protocol,
+            AgentSeedProtocol::RoleSeeded
+        );
     }
 
     #[test]
