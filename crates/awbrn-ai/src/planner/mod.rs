@@ -32,10 +32,6 @@
 mod combat;
 mod reply;
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::Hasher;
-use std::io::{self, Write};
-
 use awvm::commander::Domain;
 use awvm::random::{Entropy, Luck, RandomError};
 use awvm::ruleset::WeatherKind;
@@ -258,8 +254,6 @@ struct Line {
     generator: Generator,
     /// The plays before the end of the turn, in order.
     plays: Vec<Play>,
-    /// The digest of the position before each play, and one more at the end.
-    digests: Vec<u64>,
     score: f64,
     reply: ReplyEstimate,
 }
@@ -272,7 +266,7 @@ pub struct PlannerAgent {
     fallback: GreedyAgent,
     evaluator: Evaluator,
     plan: Vec<Play>,
-    digests: Vec<u64>,
+    positions: Vec<State>,
     next: usize,
     turn: Option<(awvm::semantic::PlayerId, u64)>,
     plans_this_turn: u32,
@@ -294,7 +288,7 @@ impl PlannerAgent {
             fallback: config.baseline.build_greedy(seed),
             evaluator: Evaluator::new(config.eval_weights),
             plan: Vec::new(),
-            digests: Vec::new(),
+            positions: Vec::new(),
             next: 0,
             turn: None,
             plans_this_turn: 0,
@@ -320,7 +314,7 @@ impl PlannerAgent {
             self.plans_this_turn = 0;
             self.work_this_turn = 0;
             self.plan.clear();
-            self.digests.clear();
+            self.positions.clear();
             self.next = 0;
         }
     }
@@ -363,6 +357,7 @@ impl PlannerAgent {
         self.plans_this_turn += 1;
         self.stats.plans += 1;
         let line = line?;
+        let positions = line_positions(session, &line.plays)?;
         match line.generator {
             Generator::Seed => self.stats.chose_seed += 1,
             Generator::Kill => self.stats.chose_kill += 1,
@@ -371,7 +366,7 @@ impl PlannerAgent {
             Generator::Reroute => self.stats.chose_reroute += 1,
         }
         self.plan = line.plays;
-        self.digests = line.digests;
+        self.positions = positions;
         self.next = 0;
         Some(())
     }
@@ -384,14 +379,13 @@ impl Agent for PlannerAgent {
             return None;
         }
         self.begin_turn(view);
-        let digest = digest(session.state());
-        let on_plan = !self.digests.is_empty() && self.digests.get(self.next) == Some(&digest);
+        let on_plan = self.positions.get(self.next) == Some(session.state());
         if !on_plan {
-            if !self.digests.is_empty() {
+            if !self.positions.is_empty() {
                 self.stats.mismatches += 1;
             }
             self.plan.clear();
-            self.digests.clear();
+            self.positions.clear();
             self.next = 0;
             if !self.may_plan() || self.build(&session, budget).is_none() {
                 self.stats.fallbacks += 1;
@@ -420,7 +414,7 @@ impl Agent for PlannerAgent {
     fn reject(&mut self, _view: &Observation) {
         self.stats.rejections += 1;
         self.plan.clear();
-        self.digests.clear();
+        self.positions.clear();
         self.next = 0;
         // A rejected plan must not be built again, so the rest of the turn
         // uses the Hard policy.
@@ -710,7 +704,6 @@ impl TurnPlanner<'_> {
         let mut entropy = MeanLuck;
         let mut hard = self.config.baseline.build_greedy(self.seed);
         let mut plays = Vec::new();
-        let mut digests = Vec::new();
         let mut root = None;
         let mut prefix = prefix.iter();
         let mut work = 0;
@@ -752,14 +745,12 @@ impl TurnPlanner<'_> {
                                     player: friendly.clone(),
                                 })
                                 .ok()?;
-                            digests.push(digest(session.state()));
                             let mark = session.apply(order, &mut entropy, &mut ()).ok()?;
                             root.get_or_insert(mark);
                             break;
                         }
                     },
                 };
-                digests.push(digest(session.state()));
                 plays.push(play);
                 let mark = session.apply(order, &mut entropy, &mut ()).ok()?;
                 root.get_or_insert(mark);
@@ -785,7 +776,6 @@ impl TurnPlanner<'_> {
         Some(Line {
             generator,
             plays,
-            digests,
             score,
             reply,
         })
@@ -832,24 +822,27 @@ fn block(session: &Session, seat: PlayerIdx, cell: CellIdx) -> Option<Play> {
     })
 }
 
-/// A digest of the position used by the plan.
+/// The position before each play of a line, and one more before the end of
+/// the turn if the turn is still active after the plays.
 ///
-/// Keep exact health and all mutable command inputs. Write the fields into
-/// the hasher without an intermediate string or byte buffer.
-fn digest(state: &State) -> u64 {
-    struct HashWriter(DefaultHasher);
-    impl Write for HashWriter {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.0.write(buf);
-            Ok(buf.len())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
+/// The planner scores many lines but keeps only one, so only that line keeps
+/// its positions. The plays use mean luck, as in [`TurnPlanner::line`], so the
+/// replay gets the same positions.
+fn line_positions(root: &Session, plays: &[Play]) -> Option<Vec<State>> {
+    let mut session = Session::new(root.state().clone());
+    let friendly = session.state().turn.active_player.clone();
+    let mut entropy = MeanLuck;
+    let mut positions = Vec::with_capacity(plays.len() + 1);
+    for play in plays {
+        let order = play_order(&session, play)?;
+        positions.push(session.state().clone());
+        session.apply(order, &mut entropy, &mut ()).ok()?;
     }
-    let mut writer = HashWriter(DefaultHasher::new());
-    serde_json::to_writer(&mut writer, state).expect("the position serializes");
-    writer.0.finish()
+    let state = session.state();
+    if state.turn.active_player == friendly && matches!(state.match_state, Match::Active { .. }) {
+        positions.push(state.clone());
+    }
+    Some(positions)
 }
 
 #[cfg(test)]
