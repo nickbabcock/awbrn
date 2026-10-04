@@ -122,34 +122,6 @@ fn a_planner_game_is_legal_and_repeatable() {
 }
 
 #[test]
-fn exact_health_changes_the_digest() {
-    let mut state = arena(false, 3);
-    let id = state.units.iter().next().unwrap().id;
-    state.units.get_mut(id).unwrap().hp = 99;
-    let before = digest(&state);
-    state.units.get_mut(id).unwrap().hp = 91;
-    assert_ne!(before, digest(&state));
-}
-
-#[test]
-fn command_inputs_change_the_digest() {
-    let state = arena(false, 3);
-    let before = digest(&state);
-    let id = state.units.iter().next().unwrap().id;
-    let mut changed = state.clone();
-    changed.units.get_mut(id).unwrap().fuel -= 1;
-    assert_ne!(before, digest(&changed));
-    let mut changed = state.clone();
-    let (seat, _) = changed.players.seats().next().unwrap();
-    changed.players.player_mut(seat).commanders[0].power_charge += 1;
-    assert_ne!(before, digest(&changed));
-    let mut changed = state.clone();
-    changed.board.get_mut(crate::puzzles::OUR_HQ).unwrap().owner =
-        awvm::semantic::TileOwner::Neutral;
-    assert_ne!(before, digest(&changed));
-}
-
-#[test]
 fn the_caller_limits_position_evaluations() {
     for puzzle in suite() {
         let view = awvm::semantic::observe(

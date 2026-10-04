@@ -97,3 +97,9 @@ strip = true
 # Gungraun/Callgrind needs function symbols to locate library benchmark entry points.
 [profile.bench]
 strip = false
+
+[profile.diag]
+inherits = "release"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
