@@ -290,3 +290,76 @@ fn the_production_profile_solves_all_puzzles() {
         (puzzle.check)(&turn).unwrap_or_else(|error| panic!("{}: {error}", puzzle.name));
     }
 }
+
+fn replay_fixture(name: &str) -> State {
+    let path = format!(
+        "{}/tests/fixtures/replay_regressions/{name}.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+/// A unit that focused fire destroys is also an exposed unit.
+#[test]
+fn the_reply_estimate_lists_destroyed_units_as_exposed() {
+    let state = replay_fixture("amber-valley-day07");
+    let seat = state.players.seat(&state.turn.active_player).unwrap();
+    let config = PlannerConfig::V4;
+    let mut evaluator = Evaluator::new(config.eval_weights);
+    let mut planner = TurnPlanner {
+        config: &config,
+        seed: 1,
+        seat,
+        evaluator: &mut evaluator,
+        candidates: 0,
+        work: 0,
+        work_left: None,
+        nodes_left: u32::MAX,
+    };
+    let mut session = Session::new(state);
+    let seed = planner.line(&mut session, Generator::Seed, &[]).unwrap();
+    assert!(!seed.reply.exposed.is_empty());
+    for unit in &seed.reply.destroyed {
+        assert!(seed.reply.exposed.contains(unit));
+    }
+}
+
+/// Reroutes move only exposed units, differ from the seed plan, and give each
+/// unit at most one order of each kind.
+#[test]
+fn reroutes_give_exposed_units_new_orders_of_different_kinds() {
+    let state = replay_fixture("amber-valley-day06");
+    let seat = state.players.seat(&state.turn.active_player).unwrap();
+    for config in [PlannerConfig::V3, PlannerConfig::V4] {
+        let mut evaluator = Evaluator::new(config.eval_weights);
+        let mut planner = TurnPlanner {
+            config: &config,
+            seed: 1,
+            seat,
+            evaluator: &mut evaluator,
+            candidates: 0,
+            work: 0,
+            work_left: None,
+            nodes_left: u32::MAX,
+        };
+        let mut session = Session::new(state.clone());
+        let before = session.state().clone();
+        let seed = planner.line(&mut session, Generator::Seed, &[]).unwrap();
+        let plays = planner.reroutes(&mut session, &seed);
+        assert_eq!(session.state(), &before);
+        if config.reroute_units == 0 {
+            assert!(plays.is_empty());
+            continue;
+        }
+        assert!(!plays.is_empty());
+        for (index, play) in plays.iter().enumerate() {
+            assert!(seed.reply.exposed.contains(&play.unit().unwrap()));
+            assert!(!seed.plays.contains(play));
+            assert!(
+                plays[..index]
+                    .iter()
+                    .all(|other| other.unit() != play.unit() || other.kind() != play.kind())
+            );
+        }
+    }
+}

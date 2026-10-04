@@ -86,30 +86,40 @@ stopping rule. A clean day-limit exit scores as a draw. Invalid commands or
 other missing outcomes stop the run with an error.
 
 The planner respects the plan's `node_budget`, including reply evaluations.
-Use `16` to match the current Hard profile. A budget of `1` scores only the
-seed turn. Use a new run directory after a policy or budget change.
-The plan `assets/ai-diagnostics/sprt/hard-v3-vs-hard-v2-review-fixed280.json`
-uses the current Hard profile, 16 evaluations, seat-based seeds, and a new run
-seed. The earlier four-evaluation plan remains available for historical runs.
+Use `32` to match the current Hard profile, which uses `planner-v4`.
+`planner-v3` uses at most 16 evaluations, so a budget of `32` does not change
+it. A budget of `1` scores only the seed turn. Use a new run directory after a
+policy or budget change. The plan
+`assets/ai-diagnostics/sprt/hard-v3-vs-hard-v2-review-fixed280.json` recorded
+the promotion of `planner-v3` with 16 evaluations. Its profile now seats
+`planner-v4`, so it does not repeat that result. The earlier four-evaluation
+plan remains available for historical runs.
 
 Use sequential runs for development. Keep the frozen gate and the sealed
 holdout for a release decision.
 
 ## Measure planner strength and turn time
 
-Run the fixed comparison of the current Hard profile against `ai-hard-v2`:
+Run the fixed comparison of `planner-v4`, which the Hard profile seats, against
+`planner-v3`:
 
 ```text
 cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
-  sprt --plan assets/ai-diagnostics/sprt/hard-v3-vs-hard-v2-review-fixed280.json \
-  --output target/hard-v3-comparison
+  sprt --plan assets/ai-diagnostics/sprt/planner-v4-vs-v3-fixed280.json \
+  --output target/planner-v4-comparison
 ```
 
 The plan plays 280 pairs on 14 development maps. It uses both seats, a
-35-day limit, and 16 evaluations per planning call. The
-[archived summary](../../assets/ai-diagnostics/sprt/results/hard-v3-review-summary.json)
-records the source, inputs, results, and timing environment. These maps
-have been used in development. Their results do not supply holdout evidence.
+35-day limit, and 32 evaluations per planning call. The
+[archived summary](../../assets/ai-diagnostics/sprt/results/planner-v4-review-summary.json)
+records the source, inputs, results, and timing environment. The
+[summary of the `planner-v3` promotion](../../assets/ai-diagnostics/sprt/results/hard-v3-review-summary.json)
+records the earlier comparison against `ai-hard-v2`. These maps have been used
+in development. Their results do not supply holdout evidence.
+
+The replay regression tests in `crates/awbrn-ai/tests/replay_regressions.rs`
+play positions from a match that a person won against the Hard profile. They
+are fast tactical checks. They do not replace a paired experiment.
 
 Run `mise run ai:timing` on an idle host for native turn times. To measure
 Wasm turn times with Node and V8, run:
@@ -119,7 +129,7 @@ cargo build --release -p awbrn-ai-diagnostics --example planner_timing \
   --target wasm32-wasip1
 node scripts/run-wasi.mjs \
   target/wasm32-wasip1/release/examples/planner_timing.wasm . \
-  /w/assets/ai-diagnostics/global-league-pool/manifest.json 1 v3
+  /w/assets/ai-diagnostics/global-league-pool/manifest.json 1 v4
 ```
 
 The timing example plays one pair per map on one thread. Compare work

@@ -34,6 +34,8 @@ pub struct ReplyEstimate {
     pub headquarters_lost: bool,
     /// Our units that focused fire destroys, most valuable first.
     pub destroyed: Vec<UnitId>,
+    /// Our units that focused fire damages or destroys, largest loss first.
+    pub exposed: Vec<UnitId>,
     /// Our properties that an enemy capturer can reach, most valuable first.
     pub threatened: Vec<CellIdx>,
 }
@@ -142,6 +144,7 @@ pub fn estimate(session: &Session, ours: PlayerIdx, values: PropertyValues) -> R
         .collect();
     let mut attacks = collector.attacks;
     let mut destroyed_units: Vec<(f64, UnitId)> = Vec::new();
+    let mut exposed_units: Vec<(f64, UnitId)> = Vec::new();
     loop {
         let mut best: Option<(usize, f64)> = None;
         for (index, attack) in attacks.iter().enumerate() {
@@ -172,6 +175,13 @@ pub fn estimate(session: &Session, ours: PlayerIdx, values: PropertyValues) -> R
         let destroyed = target.1 > 0.0 && attack.damage >= target.1;
         target.1 = (target.1 - attack.damage).max(0.0);
         estimate.unit_loss += value;
+        match exposed_units
+            .iter_mut()
+            .find(|(_, id)| *id == attack.target)
+        {
+            Some((loss, _)) => *loss += value,
+            None => exposed_units.push((value, attack.target)),
+        }
         if destroyed {
             estimate.units_destroyed += 1;
             destroyed_units.push((target.2, target.0));
@@ -231,6 +241,8 @@ pub fn estimate(session: &Session, ours: PlayerIdx, values: PropertyValues) -> R
     estimate.property_loss = taken.iter().map(|(_, loss)| loss).sum();
     destroyed_units.sort_by(|left, right| right.0.total_cmp(&left.0));
     estimate.destroyed = destroyed_units.into_iter().map(|(_, id)| id).collect();
+    exposed_units.sort_by(|left, right| right.0.total_cmp(&left.0));
+    estimate.exposed = exposed_units.into_iter().map(|(_, id)| id).collect();
     taken.sort_by(|left, right| right.1.total_cmp(&left.1));
     estimate.threatened = taken.into_iter().map(|(cell, _)| cell).collect();
     estimate

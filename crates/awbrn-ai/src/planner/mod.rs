@@ -12,9 +12,16 @@
 //!      focused enemy fire can destroy it.
 //!    - Block plans put a unit on one of our properties that an enemy
 //!      capturer can reach.
+//!    - Reroute plans give a different order to a unit that the seed plan
+//!      leaves exposed to enemy fire. The planner plays each legal order of
+//!      that unit alone, ends the turn, and scores the result with the reply
+//!      estimate. The best orders become plans.
 //! 3. Each complete turn gets a score: the position value from
 //!    [`crate::eval`] at the start of the enemy turn, less a fast estimate of
-//!    the enemy reply ([`reply`]).
+//!    the enemy reply ([`reply`]). The best plans are then played against a
+//!    simulated Hard reply. A plan can enter this check with a score below the
+//!    seed plan when it is inside the reply window, because the fast estimate
+//!    does not see how the enemy reply changes the board.
 //! 4. The agent plays the best turn one order at a time. Before each order it
 //!    compares the observed position with the predicted one. A combat roll or
 //!    a fog reveal changes the position, and the agent then plans again from
@@ -82,6 +89,33 @@ pub struct PlannerConfig {
     /// The number of best alternatives that a simulated Hard reply checks
     /// against the seed plan. Zero turns the check off.
     pub hard_reply_top: usize,
+    /// The largest number of exposed units that get reroute plans in one
+    /// decision.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub reroute_units: usize,
+    /// The largest number of reroute plans for one exposed unit.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub reroute_orders: usize,
+    /// How far below the seed score an alternative can be and still enter the
+    /// simulated Hard reply check, in funds.
+    ///
+    /// Only the reply check can choose such an alternative. Without the
+    /// check, an alternative must still be better than the seed plan.
+    #[serde(skip_serializing_if = "is_zero_funds")]
+    pub reply_window: f64,
+}
+
+// The fields that later configurations add are left out of the fingerprint
+// when they are zero, so the fingerprints of the earlier configurations do not
+// change.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn is_zero(value: &usize) -> bool {
+    *value == 0
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_zero_funds(value: &f64) -> bool {
+    *value == 0.0
 }
 
 impl PlannerConfig {
@@ -103,6 +137,9 @@ impl PlannerConfig {
         turn_work: None,
         seed_margin: 0.0,
         hard_reply_top: 0,
+        reroute_units: 0,
+        reroute_orders: 0,
+        reply_window: 0.0,
     };
 
     /// The first configuration with a simulated Hard reply check.
@@ -118,6 +155,21 @@ impl PlannerConfig {
         identifier: "planner-v3",
         turn_work: Some(TURN_WORK),
         ..Self::V2
+    };
+
+    /// planner-v3 with reroute plans and a wider simulated Hard reply check.
+    ///
+    /// It evaluates more plans than planner-v3. Use a node budget of
+    /// [`NodeBudget::THIRTY_TWO`] and the work threshold
+    /// [`TURN_WORK_V4`].
+    pub const V4: Self = Self {
+        identifier: "planner-v4",
+        turn_work: Some(TURN_WORK_V4),
+        hard_reply_top: 4,
+        reroute_units: 3,
+        reroute_orders: 3,
+        reply_window: 5_000.0,
+        ..Self::V3
     };
 
     /// Return a stable fingerprint of all configuration values.
@@ -141,6 +193,10 @@ impl PlannerConfig {
 /// The work threshold of [`PlannerConfig::V3`], in simulated greedy decisions.
 pub const TURN_WORK: u64 = 1_000;
 
+/// The work threshold of [`PlannerConfig::V4`], in simulated greedy decisions
+/// and reroute screens.
+pub const TURN_WORK_V4: u64 = 2_000;
+
 /// Which generator made a plan.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -149,6 +205,7 @@ pub enum Generator {
     Kill,
     Safety,
     Block,
+    Reroute,
 }
 
 /// Counters for one agent over a match.
@@ -168,6 +225,9 @@ pub struct PlannerStats {
     pub chose_safety: u64,
     /// Plans where a block plan won.
     pub chose_block: u64,
+    /// Plans where a reroute plan won.
+    #[serde(default)]
+    pub chose_reroute: u64,
     /// Decisions where the observed position differed from the prediction.
     pub mismatches: u64,
     /// Decisions that the Hard policy made after the plan or work limit.
@@ -308,6 +368,7 @@ impl PlannerAgent {
             Generator::Kill => self.stats.chose_kill += 1,
             Generator::Safety => self.stats.chose_safety += 1,
             Generator::Block => self.stats.chose_block += 1,
+            Generator::Reroute => self.stats.chose_reroute += 1,
         }
         self.plan = line.plays;
         self.digests = line.digests;
@@ -422,7 +483,13 @@ impl TurnPlanner<'_> {
                 alternatives.push((Generator::Block, vec![play]));
             }
         }
+        // Reroutes come last: a block can save the headquarters, and a work
+        // limit must not stop it.
+        for play in self.reroutes(&mut session, &best) {
+            alternatives.push((Generator::Reroute, vec![play]));
+        }
 
+        let better = seed_score + self.config.seed_margin;
         let mut contenders: Vec<Line> = Vec::new();
         for (generator, prefix) in alternatives {
             if self.out_of_work() {
@@ -431,26 +498,35 @@ impl TurnPlanner<'_> {
             let Some(line) = self.line(&mut session, generator, &prefix) else {
                 continue;
             };
-            if line.score > seed_score + self.config.seed_margin {
+            if line.score > better - self.config.reply_window {
                 contenders.push(line);
             }
         }
         contenders.sort_by(|left, right| right.score.total_cmp(&left.score));
+        // Without the reply check, only a contender above the seed can win.
+        let unchecked = |contenders: Vec<Line>, seed: Line| {
+            Some(
+                contenders
+                    .into_iter()
+                    .find(|line| line.score > better)
+                    .unwrap_or(seed),
+            )
+        };
         if contenders.is_empty() {
             return Some(best);
         }
         if self.config.hard_reply_top == 0 {
-            return contenders.into_iter().next();
+            return unchecked(contenders, best);
         }
 
         // Play the Hard reply for the seed and the best contenders, and keep
         // the line with the best position after that reply.
         if self.out_of_work() || self.nodes_left < 2 {
-            return contenders.into_iter().next();
+            return unchecked(contenders, best);
         }
         contenders.truncate(self.config.hard_reply_top.min(self.nodes_left as usize - 1));
         let Some(mut best_value) = self.replied_value(&mut session, &best) else {
-            return contenders.into_iter().next();
+            return unchecked(contenders, best);
         };
         for line in contenders {
             if self.out_of_work() {
@@ -464,6 +540,107 @@ impl TurnPlanner<'_> {
             }
         }
         Some(best)
+    }
+
+    /// Other orders for the units that the seed plan leaves most exposed.
+    ///
+    /// For each exposed unit, the planner applies each legal wait, capture,
+    /// and attack of that unit alone, ends the turn, and scores the position
+    /// as a complete line is scored. Other units do not move in this screen.
+    /// The screen keeps the best order of each kind: one wait, one capture,
+    /// and one attack for each target. Many waits often get the same score,
+    /// and the plans must not all be retreats. The best of these orders that
+    /// are not in the seed plan are returned. Each screened order is one unit
+    /// of work. The session is back at its start position when this returns.
+    fn reroutes(&mut self, session: &mut Session, seed: &Line) -> Vec<Play> {
+        if self.config.reroute_units == 0 || self.config.reroute_orders == 0 {
+            return Vec::new();
+        }
+        let friendly = session.state().turn.active_player.clone();
+        let mut orders = Vec::new();
+        session.legal().orders(&mut orders);
+        let mut plays = Vec::new();
+        let mut units = 0;
+        for unit in &seed.reply.exposed {
+            if units >= self.config.reroute_units || self.out_of_work() {
+                break;
+            }
+            let options: Vec<(Order, Play)> = orders
+                .iter()
+                .filter(|order| {
+                    matches!(
+                        order.kind(),
+                        OrderKind::Wait | OrderKind::Capture | OrderKind::Attack(_)
+                    )
+                })
+                .filter_map(|order| Some((*order, Play::from_order(session, *order)?)))
+                .filter(|(_, play)| play.unit() == Some(*unit) && !seed.plays.contains(play))
+                .collect();
+            if options.is_empty() {
+                continue;
+            }
+            units += 1;
+            let mut scored: Vec<(f64, Play)> = Vec::new();
+            for (order, play) in options {
+                if self.work_left.is_some_and(|left| self.work >= left) {
+                    break;
+                }
+                self.work += 1;
+                if let Some(score) = self.screen(session, order, &friendly) {
+                    scored.push((score, play));
+                }
+            }
+            scored.sort_by(|left, right| right.0.total_cmp(&left.0));
+            let mut kinds: Vec<OrderKind> = Vec::new();
+            scored.retain(|(_, play)| {
+                let kind = play.kind();
+                if kinds.contains(&kind) {
+                    return false;
+                }
+                kinds.push(kind);
+                true
+            });
+            plays.extend(
+                scored
+                    .into_iter()
+                    .take(self.config.reroute_orders)
+                    .map(|(_, play)| play),
+            );
+        }
+        plays
+    }
+
+    /// The score of a turn that plays only `order` and then ends.
+    ///
+    /// This does not spend a node, because it is not a complete line. The
+    /// session is back at its start position when this returns.
+    fn screen(
+        &mut self,
+        session: &mut Session,
+        order: Order,
+        friendly: &awvm::semantic::PlayerId,
+    ) -> Option<f64> {
+        let mut entropy = MeanLuck;
+        let root = session.apply(order, &mut entropy, &mut ()).ok()?;
+        let score = (|| {
+            if matches!(session.state().match_state, Match::Active { .. }) {
+                let end = session
+                    .resolve(&Command::EndTurn {
+                        player: friendly.clone(),
+                    })
+                    .ok()?;
+                session.apply(end, &mut entropy, &mut ()).ok()?;
+            }
+            let value = self.evaluator.value_in(session, self.seat);
+            let reply = if matches!(session.state().match_state, Match::Active { .. }) {
+                reply::estimate(session, self.seat, self.config.property_values).total()
+            } else {
+                0.0
+            };
+            Some(value - self.config.reply_weight * reply)
+        })();
+        session.rewind(root);
+        score
     }
 
     fn out_of_work(&self) -> bool {

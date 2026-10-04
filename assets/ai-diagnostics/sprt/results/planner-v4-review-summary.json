@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "comparison": {
+    "agent_seed_protocol": "seat-seeded",
+    "schema_version": 3,
+    "run_id": "fixed-planner-v4-vs-planner-v3-280",
+    "source": {
+      "revision": "b4f35eebfd53739bf87f16d528883e6d78b4f700",
+      "dirty": false,
+      "fingerprint": "e78c7987323c4504"
+    },
+    "map_fingerprints": {
+      "69201": "68b8938e6ee7f518",
+      "77060": "192154c6a9d8ed6a",
+      "126428": "8376c257b505c15d",
+      "132144": "4740ab78b3bf2320",
+      "133665": "99e0de8c1d9e87cd",
+      "159501": "468e93b2f80861e5",
+      "160882": "c5520ed60e86cf14",
+      "166877": "5a7fd890124cf453",
+      "169069": "1bc14339e60aecdf",
+      "169382": "3085b0150bd64696",
+      "172238": "5ac166a34e1f6ff2",
+      "173362": "bfeeda4caeceaad8",
+      "180298": "19673ce2b631d353",
+      "182023": "575bdb64fceba9c4"
+    },
+    "candidate": {
+      "identifier": "planner-v4",
+      "configuration_fingerprint": "d02a86b9a9caae50",
+      "executable_fingerprint": "awbrn-ai-planner-v3"
+    },
+    "baseline": {
+      "identifier": "planner-v3",
+      "configuration_fingerprint": "2d4a54a3944ddb2f",
+      "executable_fingerprint": "awbrn-ai-planner-v3"
+    },
+    "bounds": {
+      "h0": 0.0,
+      "h1": 0.05,
+      "alpha": 1e-09,
+      "beta": 1e-09
+    },
+    "method": "bounded-betting-map-round-v1",
+    "log_e_h0_threshold": 20.72326583694641,
+    "log_e_h1_threshold": 20.72326583694641,
+    "decision": "inconclusive",
+    "statistic": {
+      "pairs": 280,
+      "mean": 0.35714285714285715,
+      "variance": 0.3540706605222734,
+      "ci95_half_width": 0.06969827445759035,
+      "rounds": 20,
+      "log_e_h0": 3.0759219204451527,
+      "log_e_h1": -0.007703370233186031
+    },
+    "maps": {
+      "69201": {
+        "pairs": 20,
+        "mean": 0.75
+      },
+      "77060": {
+        "pairs": 20,
+        "mean": 0.425
+      },
+      "126428": {
+        "pairs": 20,
+        "mean": 0.175
+      },
+      "132144": {
+        "pairs": 20,
+        "mean": 0.575
+      },
+      "133665": {
+        "pairs": 20,
+        "mean": 0.25
+      },
+      "159501": {
+        "pairs": 20,
+        "mean": 0.45
+      },
+      "160882": {
+        "pairs": 20,
+        "mean": 0.3
+      },
+      "166877": {
+        "pairs": 20,
+        "mean": 0.7
+      },
+      "169069": {
+        "pairs": 20,
+        "mean": 0.3
+      },
+      "169382": {
+        "pairs": 20,
+        "mean": 0.025
+      },
+      "172238": {
+        "pairs": 20,
+        "mean": 0.15
+      },
+      "173362": {
+        "pairs": 20,
+        "mean": 0.1
+      },
+      "180298": {
+        "pairs": 20,
+        "mean": 0.5
+      },
+      "182023": {
+        "pairs": 20,
+        "mean": 0.3
+      }
+    },
+    "candidate_invalid_commands": 0,
+    "baseline_invalid_commands": 0,
+    "jobs": 8,
+    "wall_clock_nanos": 2134598572731,
+    "plan": "assets/ai-diagnostics/sprt/planner-v4-vs-v3-fixed280.json",
+    "raw_result_sha256": "46b35791b9a13846ae2336eca655e1a585518d18832dc5077d32f4c219a6c616",
+    "games": {
+      "wins": 370,
+      "losses": 170,
+      "draws": 20
+    },
+    "candidate_planner_stats": {
+      "plans": 81708,
+      "evaluations": 806925,
+      "candidates": 562644,
+      "chose_seed": 42197,
+      "chose_kill": 7704,
+      "chose_safety": 3222,
+      "chose_block": 2720,
+      "chose_reroute": 25865,
+      "mismatches": 70349,
+      "fallbacks": 96180,
+      "rejections": 0,
+      "work": 19859448,
+      "max_turn_work": 2045
+    },
+    "baseline_planner_stats": {
+      "plans": 90783,
+      "evaluations": 398533,
+      "candidates": 326665,
+      "chose_seed": 70688,
+      "chose_kill": 9759,
+      "chose_safety": 6511,
+      "chose_block": 3825,
+      "chose_reroute": 0,
+      "mismatches": 75807,
+      "fallbacks": 31199,
+      "rejections": 0,
+      "work": 6750738,
+      "max_turn_work": 1044
+    },
+    "candidate_complete_turn_timing": {
+      "samples": 16769,
+      "median_nanos": 649989341,
+      "p95_nanos": 1315471762,
+      "mean_nanos": 612603410,
+      "maximum_nanos": 1865156291
+    },
+    "baseline_complete_turn_timing": {
+      "samples": 16854,
+      "median_nanos": 157341860,
+      "p95_nanos": 577587282,
+      "mean_nanos": 205437297,
+      "maximum_nanos": 860321506
+    }
+  },
+  "timing": {
+    "source_revision": "b4f35eebfd53739bf87f16d528883e6d78b4f700",
+    "example": "planner_timing",
+    "run_seed": 2047934466,
+    "pairs_per_map": 1,
+    "threads": 1,
+    "configuration": "planner-v4",
+    "node_budget": 32,
+    "maps": [
+      159501,
+      77060,
+      69201,
+      180298,
+      126428,
+      166877,
+      133665,
+      172238,
+      182023,
+      132144,
+      160882,
+      173362,
+      169069,
+      169382
+    ],
+    "work": {
+      "plans": 4003,
+      "fallbacks": 5275,
+      "work": 1011967,
+      "max_turn_work": 2040
+    },
+    "native": {
+      "target": "x86_64-unknown-linux-gnu",
+      "turns": 828,
+      "median_ms": 640.2,
+      "p95_ms": 1302.9,
+      "p99_ms": 1423.6,
+      "maximum_ms": 1545.2,
+      "turns_over_800_ms": 336,
+      "turns_over_1000_ms": 181
+    },
+    "wasm": {
+      "target": "wasm32-wasip1",
+      "runner": "Node 24.14.1 (V8)",
+      "turns": 828,
+      "median_ms": 896.7,
+      "p95_ms": 1776.8,
+      "p99_ms": 1956.6,
+      "maximum_ms": 2193.2,
+      "turns_over_800_ms": 442,
+      "turns_over_1000_ms": 378
+    }
+  }
+}
