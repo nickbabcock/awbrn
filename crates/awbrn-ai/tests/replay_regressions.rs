@@ -119,6 +119,7 @@ fn print_replay_swings() {
         "amber-valley-day07",
         "amber-valley-day08",
         "amber-valley-day09",
+        "amber-valley-day10",
         "amber-valley-day11",
     ] {
         println!("{name}: {:.0}", mean_swing(name));
@@ -128,14 +129,14 @@ fn print_replay_swings() {
 /// A tank attacks a capturing infantry from a tile where the enemy tank and
 /// recon can reach it.
 #[test]
-#[ignore = "planner-v4 does not pass this position"]
+#[ignore = "planner-v5 does not pass this position"]
 fn day_six_does_not_trade_a_tank_for_a_capture_stop() {
     check("amber-valley-day06", 0.0);
 }
 
 /// A damaged tank attacks again into enemy fire and is destroyed.
 #[test]
-#[ignore = "planner-v4 does not pass this position"]
+#[ignore = "planner-v5 does not pass this position"]
 fn day_seven_does_not_attack_into_a_counterattack() {
     check("amber-valley-day07", -4_000.0);
 }
@@ -148,7 +149,7 @@ fn day_nine_does_not_leave_its_attackers_exposed() {
 
 /// The army near the headquarters loses most of its value in one exchange.
 #[test]
-#[ignore = "planner-v4 does not pass this position"]
+#[ignore = "planner-v5 does not pass this position"]
 fn day_eleven_limits_the_loss_near_its_headquarters() {
     check("amber-valley-day11", -9_500.0);
 }

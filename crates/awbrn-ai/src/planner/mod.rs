@@ -16,6 +16,7 @@
 //!      leaves exposed to enemy fire. The planner plays each legal order of
 //!      that unit alone, ends the turn, and scores the result with the reply
 //!      estimate. The best orders become plans.
+//!    - Power plans use a legal commander power before all other orders.
 //! 3. Each complete turn gets a score: the position value from
 //!    [`crate::eval`] at the start of the enemy turn, less a fast estimate of
 //!    the enemy reply ([`reply`]). The best plans are then played against a
@@ -99,6 +100,14 @@ pub struct PlannerConfig {
     /// check, an alternative must still be better than the seed plan.
     #[serde(skip_serializing_if = "is_zero_funds")]
     pub reply_window: f64,
+    /// Whether the planner adds plans that use a commander power first.
+    ///
+    /// The Hard policy ranks a power below captures, so it can use a power
+    /// after some of its attacks and moves. A power changes only the orders
+    /// after it. For each legal power, the plan uses that power first and the
+    /// Hard policy plays the rest of the turn.
+    #[serde(skip_serializing_if = "is_false")]
+    pub power_first: bool,
 }
 
 // The fields that later configurations add are left out of the fingerprint
@@ -107,6 +116,11 @@ pub struct PlannerConfig {
 #[allow(clippy::trivially_copy_pass_by_ref)]
 const fn is_zero(value: &usize) -> bool {
     *value == 0
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -136,6 +150,7 @@ impl PlannerConfig {
         reroute_units: 0,
         reroute_orders: 0,
         reply_window: 0.0,
+        power_first: false,
     };
 
     /// The first configuration with a simulated Hard reply check.
@@ -166,6 +181,17 @@ impl PlannerConfig {
         reroute_orders: 3,
         reply_window: 5_000.0,
         ..Self::V3
+    };
+
+    /// planner-v4 with power plans, on the scoring of `ai-hard-v3`, which
+    /// adds a build floor.
+    ///
+    /// It uses the same node budget and work threshold as planner-v4.
+    pub const V5: Self = Self {
+        identifier: "planner-v5",
+        baseline: crate::profile::HARD_V3_CONFIG,
+        power_first: true,
+        ..Self::V4
     };
 
     /// Return a stable fingerprint of all configuration values.
@@ -202,6 +228,7 @@ pub enum Generator {
     Safety,
     Block,
     Reroute,
+    Power,
 }
 
 /// Counters for one agent over a match.
@@ -224,6 +251,9 @@ pub struct PlannerStats {
     /// Plans where a reroute plan won.
     #[serde(default)]
     pub chose_reroute: u64,
+    /// Plans where a power plan won.
+    #[serde(default)]
+    pub chose_power: u64,
     /// Decisions where the observed position differed from the prediction.
     pub mismatches: u64,
     /// Decisions that the Hard policy made after the plan or work limit.
@@ -364,6 +394,7 @@ impl PlannerAgent {
             Generator::Safety => self.stats.chose_safety += 1,
             Generator::Block => self.stats.chose_block += 1,
             Generator::Reroute => self.stats.chose_reroute += 1,
+            Generator::Power => self.stats.chose_power += 1,
         }
         self.plan = line.plays;
         self.positions = positions;
@@ -466,6 +497,13 @@ impl TurnPlanner<'_> {
         }
         if self.out_of_work() {
             return Some(best);
+        }
+        if self.config.power_first {
+            alternatives.extend(
+                powers(&session)
+                    .filter(|play| best.plays.first() != Some(play))
+                    .map(|play| (Generator::Power, vec![play])),
+            );
         }
         for unit in best.reply.destroyed.iter().take(self.config.safety_plans) {
             if let Some(play) = hold(&session, *unit) {
@@ -794,6 +832,16 @@ fn target_cell(state: &State, unit: UnitId) -> Option<CellIdx> {
         Location::Board { position } => state.board.dimensions().cell_index(position),
         Location::Cargo { .. } => None,
     }
+}
+
+/// The commander powers that are legal in `session`.
+fn powers(session: &Session) -> impl Iterator<Item = Play> + '_ {
+    let mut orders = Vec::new();
+    session.legal().orders(&mut orders);
+    orders
+        .into_iter()
+        .filter(|order| matches!(order.kind(), OrderKind::Power(_)))
+        .filter_map(|order| Play::from_order(session, order))
 }
 
 /// A play that keeps `unit` where it stands.

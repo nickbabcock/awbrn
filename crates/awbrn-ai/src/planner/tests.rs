@@ -335,3 +335,40 @@ fn reroutes_give_exposed_units_new_orders_of_different_kinds() {
         }
     }
 }
+
+/// In the day 10 position the Hard policy uses the power of Drake after some
+/// of its orders. A power plan uses the power before all other orders.
+#[test]
+fn a_power_plan_uses_the_power_first() {
+    let state = replay_fixture("amber-valley-day10");
+    let seat = state.players.seat(&state.turn.active_player).unwrap();
+    let config = PlannerConfig::V5;
+    let mut evaluator = Evaluator::new(config.eval_weights);
+    let mut planner = TurnPlanner {
+        config: &config,
+        seed: 1,
+        seat,
+        evaluator: &mut evaluator,
+        candidates: 0,
+        work: 0,
+        work_left: None,
+        nodes_left: u32::MAX,
+    };
+    let mut session = Session::new(state);
+    let before = session.state().clone();
+    let seed = planner.line(&mut session, Generator::Seed, &[]).unwrap();
+    let is_power = |play: &Play| matches!(play.kind(), OrderKind::Power(_));
+    let seed_power = seed.plays.iter().position(is_power).unwrap();
+    assert!(seed_power > 0, "the seed plan uses the power first");
+
+    let powers: Vec<Play> = powers(&session).collect();
+    assert!(!powers.is_empty());
+    for power in powers {
+        let line = planner
+            .line(&mut session, Generator::Power, &[power])
+            .unwrap();
+        assert_eq!(line.plays.first(), Some(&power));
+        assert_eq!(line.plays.iter().filter(|play| is_power(play)).count(), 1);
+    }
+    assert_eq!(session.state(), &before);
+}

@@ -75,6 +75,11 @@ pub enum AgentSpec {
         seed_margin: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         hard_reply_top: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        power_first: Option<bool>,
+        /// Greedy weights that replace those of the seed policy, by name.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        baseline_weights: Option<serde_json::Map<String, serde_json::Value>>,
     },
     /// An opt-in tactical reranker. This is not a production profile.
     TacticalRerank {
@@ -495,6 +500,8 @@ impl AgentSpec {
                 block_plans,
                 seed_margin,
                 hard_reply_top,
+                power_first,
+                baseline_weights,
             } => {
                 if identifier.is_empty() {
                     return Err(PlanError::Configuration(
@@ -506,6 +513,7 @@ impl AgentSpec {
                     "v2" => PlannerConfig::V2,
                     "v3" => PlannerConfig::V3,
                     "v4" => PlannerConfig::V4,
+                    "v5" => PlannerConfig::V5,
                     other => {
                         return Err(PlanError::Configuration(format!(
                             "unknown planner configuration {other}"
@@ -543,6 +551,23 @@ impl AgentSpec {
                 }
                 if let Some(value) = hard_reply_top {
                     config.hard_reply_top = *value;
+                }
+                if let Some(value) = power_first {
+                    config.power_first = *value;
+                }
+                if let Some(overrides) = baseline_weights {
+                    let mut weights = serde_json::to_value(config.baseline.weights)
+                        .map_err(|error| PlanError::Configuration(error.to_string()))?;
+                    let fields = weights
+                        .as_object_mut()
+                        .expect("greedy weights serialize as an object");
+                    // The weights deny unknown fields, so a misspelled name
+                    // fails when they are read back.
+                    for (name, value) in overrides {
+                        fields.insert(name.clone(), value.clone());
+                    }
+                    config.baseline.weights = serde_json::from_value(weights)
+                        .map_err(|error| PlanError::Configuration(error.to_string()))?;
                 }
                 if [
                     config.reply_weight,

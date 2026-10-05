@@ -86,7 +86,7 @@ stopping rule. A clean day-limit exit scores as a draw. Invalid commands or
 other missing outcomes stop the run with an error.
 
 The planner respects the plan's `node_budget`, including reply evaluations.
-Use `32` to match the current Hard profile, which uses `planner-v4`.
+Use `32` to match the current Hard profile, which uses `planner-v5`.
 `planner-v3` uses at most 16 evaluations, so a budget of `32` does not change
 it. A budget of `1` scores only the seed turn. Use a new run directory after a
 policy or budget change. The plan
@@ -100,17 +100,25 @@ holdout for a release decision.
 
 ## Measure planner strength and turn time
 
-Run the fixed comparison of `planner-v4`, which the Hard profile seats, against
-`planner-v3`:
+Run the fixed comparison of `planner-v5`, which the Hard profile seats, against
+`planner-v4`:
 
 ```text
 cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
-  sprt --plan assets/ai-diagnostics/sprt/planner-v4-vs-v3-fixed280.json \
-  --output target/planner-v4-comparison
+  sprt --plan assets/ai-diagnostics/sprt/planner-v5-vs-v4-fixed280.json \
+  --output target/planner-v5-comparison
 ```
 
-The plan plays 280 pairs on 14 development maps. It uses both seats, a
-35-day limit, and 32 evaluations per planning call. The
+`planner-v5` adds two changes to `planner-v4`. A power plan uses a legal
+commander power before all other orders, and the Hard policy plays the rest of
+the turn. The Hard scoring of `ai-hard-v3` adds a build floor, so a factory is
+not left empty while the funds can buy a unit. The confirmation run of this
+plan has not been archived yet.
+
+The plan `planner-v4-vs-v3-fixed280.json` records the earlier comparison of
+`planner-v4` against `planner-v3`. Each plan plays 280 pairs on 14 development
+maps. Each plan uses both seats, a 35-day limit, and 32 evaluations per
+planning call. The
 [archived summary](../../assets/ai-diagnostics/sprt/results/planner-v4-review-summary.json)
 records the source, inputs, results, and timing environment. The
 [summary of the `planner-v3` promotion](../../assets/ai-diagnostics/sprt/results/hard-v3-review-summary.json)
