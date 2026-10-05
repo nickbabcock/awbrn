@@ -371,8 +371,17 @@ fn apply_recorded(
         Action::Repair { repair_action, .. } => {
             let repairing = targeted_hidden(&repair_action.unit)
                 .ok_or(RecordedAdapterError::Missing("repairing unit"))?;
-            let repaired = targeted_value(&repair_action.repaired)
+            let mut repaired = targeted_value(&repair_action.repaired)
                 .ok_or(RecordedAdapterError::Missing("repaired unit"))?;
+            if repaired.units_hit_points.is_masked() {
+                repaired = repair_action
+                    .repaired
+                    .values()
+                    .find(|row| {
+                        row.units_id == repaired.units_id && !row.units_hit_points.is_masked()
+                    })
+                    .unwrap_or(repaired);
+            }
             apply_repaired(state, repaired)?;
             spend(state, UnitId::new(repairing))?;
             if let Some(funds) = targeted_hidden(&repair_action.funds) {
@@ -498,7 +507,13 @@ fn apply_move(
             id,
             kind: unit.units_name,
             owner,
-            hp: display_hp(unit.units_hit_points.value().max(1)),
+            hp: display_hp(
+                unit.units_hit_points
+                    .get_value()
+                    .ok_or(RecordedAdapterError::Missing("moving unit hit points"))?
+                    .value()
+                    .max(1),
+            ),
             fuel: u64::from(
                 unit.units_fuel
                     .unwrap_or_else(|| unit.units_name.max_fuel()),
@@ -555,6 +570,14 @@ fn apply_build(state: &mut State, units: &UnitMap) -> Result<(), RecordedAdapter
         if !seen.insert(unit.units_id) || state.units.contains(unit_id(unit.units_id)) {
             continue;
         }
+        let hp = unit.units_hit_points.get_value().or_else(|| {
+            units
+                .values()
+                .filter_map(|value| value.get_value())
+                .filter(|row| row.units_id == unit.units_id)
+                .find_map(|row| row.units_hit_points.get_value())
+        });
+        let hp = hp.ok_or(RecordedAdapterError::Missing("built unit hit points"))?;
         let owner = player_id(unit.units_players_id);
         let player = state
             .find_player_mut(&owner)
@@ -572,7 +595,7 @@ fn apply_build(state: &mut State, units: &UnitMap) -> Result<(), RecordedAdapter
             id: unit_id(unit.units_id),
             kind: unit.units_name,
             owner,
-            hp: display_hp(unit.units_hit_points.value()),
+            hp: display_hp(hp.value()),
             fuel: u64::from(
                 unit.units_fuel
                     .unwrap_or_else(|| unit.units_name.max_fuel()),
@@ -605,7 +628,11 @@ fn apply_combat_unit(
     spent: bool,
 ) -> Result<(), RecordedAdapterError> {
     let id = unit_id(recorded.units_id);
-    let hp = recorded.units_hit_points.map(|value| value.value());
+    let hp = recorded
+        .units_hit_points
+        .as_ref()
+        .and_then(|value| value.get_value())
+        .map(|value| value.value());
     if hp == Some(0) {
         remove_unit(state, id)?;
         return Ok(());
@@ -1020,7 +1047,11 @@ fn apply_unit_change(state: &mut State, change: &UnitChange) -> Result<(), Recor
     let Some(unit) = state.units.get_mut(id) else {
         return Ok(());
     };
-    if let Some(hp) = change.units_hit_points {
+    if let Some(hp) = change
+        .units_hit_points
+        .as_ref()
+        .and_then(|value| value.get_value())
+    {
         unit.hp = display_hp(hp.value().max(1));
     }
     if let Some(ammo) = change.units_ammo {
@@ -1049,7 +1080,9 @@ fn update_from_property(
     let Some(unit) = state.units.get_mut(id) else {
         return Ok(());
     };
-    unit.hp = display_hp(recorded.units_hit_points.value().max(1));
+    if let Some(hp) = recorded.units_hit_points.get_value() {
+        unit.hp = display_hp(hp.value().max(1));
+    }
     if let Some(fuel) = recorded.units_fuel {
         unit.fuel = u64::from(fuel);
     }
@@ -1061,13 +1094,16 @@ fn update_from_property(
 
 fn apply_repaired(state: &mut State, repaired: &RepairedUnit) -> Result<(), RecordedAdapterError> {
     let id = unit_id(repaired.units_id);
-    if repaired.units_hit_points.value() == 0 {
+    let hp = repaired.units_hit_points.get_value();
+    if hp.is_some_and(|hp| hp.value() == 0) {
         return remove_unit(state, id);
     }
     let Some(unit) = state.units.get_mut(id) else {
         return Ok(());
     };
-    unit.hp = display_hp(repaired.units_hit_points.value());
+    if let Some(hp) = hp {
+        unit.hp = display_hp(hp.value());
+    }
     unit.fuel = profile(unit.kind).max_fuel;
     unit.ammo = profile(unit.kind).max_ammo;
     Ok(())
@@ -1506,17 +1542,28 @@ fn visible_move_unit(action: &MoveAction) -> Option<&UnitProperty> {
 
 /// The moving unit together with the coordinates it moved to.
 ///
-/// Global rows win over recipient rows, but only a row that discloses both
-/// coordinates describes a destination.
+/// Use a row with coordinates and visible hit points when available.
+/// Use the global row first if its hit points are visible.
 fn complete_move_unit(action: &MoveAction) -> Option<(&UnitProperty, u32, u32)> {
     fn with_position(unit: &UnitProperty) -> Option<(&UnitProperty, u32, u32)> {
         Some((unit, unit.units_x?, unit.units_y?))
     }
-    action
+    let global = action
         .unit
         .get(&TargetedPlayer::Global)
         .and_then(|value| value.get_value())
-        .and_then(with_position)
+        .and_then(with_position);
+    global
+        .filter(|(unit, _, _)| !unit.units_hit_points.is_masked())
+        .or_else(|| {
+            action
+                .unit
+                .values()
+                .filter_map(|value| value.get_value())
+                .filter(|unit| !unit.units_hit_points.is_masked())
+                .find_map(with_position)
+        })
+        .or(global)
         .or_else(|| {
             action
                 .unit

@@ -302,43 +302,18 @@ impl ReplayParser {
                         let day = turn.day();
 
                         for element in turn.actions()? {
-                            let mut deser = element.deserializer();
-                            let action = if self.debug {
-                                let mut track = serde_path_to_error::Track::new();
-                                let path_deser =
-                                    serde_path_to_error::Deserializer::new(&mut deser, &mut track);
-                                Action::deserialize(path_deser).map_err(|error| ReplayError {
-                                    kind: ReplayErrorKind::Json {
-                                        error,
-                                        path: Some(track.path()),
-                                        context: Some(errors::DeserializationContext {
-                                            file_entry_index,
-                                            entry_kind: errors::EntryKind::Turn {
-                                                turn_index,
-                                                player_id,
-                                                day,
-                                                action_index: Some(turns.len()),
-                                            },
-                                        }),
+                            let action = self.parse_action(
+                                &element,
+                                errors::DeserializationContext {
+                                    file_entry_index,
+                                    entry_kind: errors::EntryKind::Turn {
+                                        turn_index,
+                                        player_id,
+                                        day,
+                                        action_index: Some(turns.len()),
                                     },
-                                })?
-                            } else {
-                                Action::deserialize(&mut deser).map_err(|error| ReplayError {
-                                    kind: ReplayErrorKind::Json {
-                                        error,
-                                        path: None,
-                                        context: Some(errors::DeserializationContext {
-                                            file_entry_index,
-                                            entry_kind: errors::EntryKind::Turn {
-                                                turn_index,
-                                                player_id,
-                                                day,
-                                                action_index: Some(turns.len()),
-                                            },
-                                        }),
-                                    },
-                                })?
-                            };
+                                },
+                            )?;
                             turns.push(action);
                         }
                         turn_index += 1;
@@ -348,6 +323,33 @@ impl ReplayParser {
         }
 
         Ok(AwbwReplay { games, turns })
+    }
+
+    fn parse_action(
+        &self,
+        element: &ActionData<'_>,
+        context: errors::DeserializationContext,
+    ) -> Result<Action, ReplayError> {
+        if element.data() == b"Array" {
+            return Err(ReplayError {
+                kind: ReplayErrorKind::MissingActionData { context },
+            });
+        }
+        let mut deser = element.deserializer();
+        let mut track = serde_path_to_error::Track::new();
+        let result = if self.debug {
+            let path_deser = serde_path_to_error::Deserializer::new(&mut deser, &mut track);
+            Action::deserialize(path_deser)
+        } else {
+            Action::deserialize(&mut deser)
+        };
+        result.map_err(|error| ReplayError {
+            kind: ReplayErrorKind::Json {
+                error,
+                path: self.debug.then(|| track.path()),
+                context: Some(context),
+            },
+        })
     }
 }
 
@@ -427,6 +429,35 @@ impl<'a> ActionData<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn array_placeholder_reports_missing_action_data() {
+        for debug in [false, true] {
+            let error = ReplayParser::new()
+                .with_debug(debug)
+                .parse_action(
+                    &ActionData { data: b"Array" },
+                    errors::DeserializationContext {
+                        file_entry_index: 1,
+                        entry_kind: errors::EntryKind::Turn {
+                            turn_index: 12,
+                            player_id: 1957720,
+                            day: 7,
+                            action_index: Some(185),
+                        },
+                    },
+                )
+                .unwrap_err();
+            assert!(matches!(
+                error.kind,
+                ReplayErrorKind::MissingActionData { .. }
+            ));
+            assert_eq!(
+                error.to_string(),
+                "Missing action data at file[1] turn[12] (player=1957720, day=7) action[185]: the archive contains a PHP Array placeholder"
+            );
+        }
+    }
 
     #[test]
     fn test_turn_header() {

@@ -6,6 +6,7 @@
 
 mod common;
 
+mod archive_schemas;
 mod command_coverage;
 mod compatibility_corpus;
 mod initial_state;
