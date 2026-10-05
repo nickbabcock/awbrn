@@ -148,9 +148,10 @@ pub enum ReplayEntriesKind<R> {
 }
 
 impl<R: BufRead> ReplayEntriesKind<R> {
+    /// Use the record prefix to identify game or turn data.
     pub fn classify(mut reader: R) -> Result<Self, errors::ReplayError> {
         let buf = reader.fill_buf()?;
-        let mut decoder = flate2::bufread::GzDecoder::new(buf);
+        let mut decoder = flate2::bufread::MultiGzDecoder::new(buf);
         let mut peek_data = [0u8; 2];
         decoder.read_exact(&mut peek_data)?;
         if peek_data == *b"p:" {
@@ -180,6 +181,7 @@ pub struct ReplayEntries<T, R> {
 }
 
 impl<T, R: BufRead> ReplayEntries<T, R> {
+    /// Read the next PHP record from the gzip stream.
     pub fn next_entry<'a>(
         &mut self,
         sink: &'a mut Vec<u8>,
@@ -199,13 +201,13 @@ impl<T, R: BufRead> ReplayEntries<T, R> {
                 return Ok(None);
             }
 
-            let mut reader = flate2::bufread::GzDecoder::new(&mut self.reader);
+            let mut reader = flate2::bufread::MultiGzDecoder::new(&mut self.reader);
             self.data.clear();
             reader.read_to_end(&mut self.data)?;
             self.position = 0;
         }
 
-        // A gzip member can contain more than one PHP record.
+        // PHP record boundaries can differ from gzip member boundaries.
         let data = &self.data[self.position..];
         let php_data = if data.starts_with(b"p:") {
             TurnContent::from_slice(data)
@@ -524,6 +526,54 @@ mod tests {
             assert_eq!(actions, [action]);
         }
         assert!(entries.next_entry(&mut sink).unwrap().is_none());
+    }
+
+    #[test]
+    fn gzip_members_can_split_game_records() {
+        let first = b"O:4:\"Game\":1:{s:3:\"day\";i:1;}";
+        let second = b"O:4:\"Game\":1:{s:3:\"day\";i:2;}";
+        let packed = [first.as_slice(), b"\n", second.as_slice()].concat();
+        for split in 0..=packed.len() {
+            let data = gzip_members(&[&packed[..split], &packed[split..]]);
+            let ReplayEntriesKind::Game(mut entries) =
+                ReplayEntriesKind::classify(data.as_slice()).unwrap()
+            else {
+                panic!("expected game records");
+            };
+            let mut sink = Vec::new();
+            for expected in [first.as_slice(), second.as_slice()] {
+                assert_eq!(
+                    entries.next_entry(&mut sink).unwrap().unwrap().data(),
+                    expected,
+                    "gzip member boundary at {split}"
+                );
+            }
+            assert!(entries.next_entry(&mut sink).unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn gzip_members_can_split_turn_records() {
+        let first = b"p:1;d:1;a:a:3:{i:0;i:1;i:1;i:1;i:2;a:1:{i:0;s:4:\"p:2;\";}}";
+        let second = b"p:2;d:1;a:a:3:{i:0;i:2;i:1;i:1;i:2;a:1:{i:0;s:2:\"bb\";}}";
+        let packed = [first.as_slice(), b"\n", second.as_slice()].concat();
+        for split in 0..=packed.len() {
+            let data = gzip_members(&[&packed[..split], &packed[split..]]);
+            let ReplayEntriesKind::Turn(mut entries) =
+                ReplayEntriesKind::classify(data.as_slice()).unwrap()
+            else {
+                panic!("expected turn records");
+            };
+            let mut sink = Vec::new();
+            for expected in [first.as_slice(), second.as_slice()] {
+                assert_eq!(
+                    entries.next_entry(&mut sink).unwrap().unwrap().data(),
+                    expected,
+                    "gzip member boundary at {split}"
+                );
+            }
+            assert!(entries.next_entry(&mut sink).unwrap().is_none());
+        }
     }
 
     #[test]

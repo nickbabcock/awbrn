@@ -1553,7 +1553,7 @@ fn complete_move_unit(action: &MoveAction) -> Option<(&UnitProperty, u32, u32)> 
         .get(&TargetedPlayer::Global)
         .and_then(|value| value.get_value())
         .and_then(with_position);
-    global
+    let visible = global
         .filter(|(unit, _, _)| !unit.units_hit_points.is_masked())
         .or_else(|| {
             action
@@ -1562,15 +1562,17 @@ fn complete_move_unit(action: &MoveAction) -> Option<(&UnitProperty, u32, u32)> 
                 .filter_map(|value| value.get_value())
                 .filter(|unit| !unit.units_hit_points.is_masked())
                 .find_map(with_position)
-        })
-        .or(global)
-        .or_else(|| {
-            action
-                .unit
-                .values()
-                .filter_map(|value| value.get_value())
-                .find_map(with_position)
-        })
+        });
+    if let Some((global_unit, x, y)) = global {
+        return Some((visible.map_or(global_unit, |(unit, _, _)| unit), x, y));
+    }
+    visible.or_else(|| {
+        action
+            .unit
+            .values()
+            .filter_map(|value| value.get_value())
+            .find_map(with_position)
+    })
 }
 
 fn targeted_vec_union<T: Clone + PartialEq>(

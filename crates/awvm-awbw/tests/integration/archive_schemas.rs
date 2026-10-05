@@ -6,7 +6,7 @@ use awbw_replay::{
         UnitProperty,
     },
 };
-use awvm::semantic::{Location, Match, Outcome, UnitId, VictoryReason};
+use awvm::semantic::{Location, Match, Outcome, Pos, UnitId, VictoryReason};
 use awvm_awbw::RecordedAdapter;
 use indexmap::IndexMap;
 
@@ -83,6 +83,66 @@ fn build_uses_the_owner_hit_points_when_the_global_value_is_masked() {
     ]);
     adapter.advance(&action).unwrap();
     assert_eq!(adapter.state().units.get(id).unwrap().hp, 100);
+}
+
+#[test]
+fn moves_keep_global_coordinates_when_recipient_hit_points_are_visible() {
+    let (mut adapter, build, mut unit) = before_first_build();
+    adapter.advance(&build).unwrap();
+    let id = UnitId::new(unit.units_id.as_u32());
+    let mut state = adapter.state().clone();
+    let global_position = state.units.get(id).unwrap().location;
+    let recipient_position = Location::Board {
+        position: Pos::new(0, 0),
+    };
+    assert!(
+        state
+            .units
+            .iter()
+            .all(|unit| unit.location != recipient_position)
+    );
+    let mut occupant = *state.units.get(id).unwrap();
+    let occupant_id = UnitId::new(state.next_unit_id.unwrap());
+    occupant.id = occupant_id;
+    occupant.location = recipient_position;
+    state.units.push(occupant);
+    state.next_unit_id = Some(occupant_id.get() + 1);
+    let mut adapter = RecordedAdapter::from_state(state).unwrap();
+
+    let owner = TargetedPlayer::Player(unit.units_players_id);
+    let mut global = unit.clone();
+    global.units_hit_points = Masked::Masked;
+    unit.units_x = Some(0);
+    unit.units_y = Some(0);
+    unit.units_hit_points = serde_json::from_value(serde_json::json!(4)).unwrap();
+    let mut movement = MoveAction {
+        unit: IndexMap::from([
+            (TargetedPlayer::Global, Hidden::Visible(global.clone())),
+            (owner, Hidden::Visible(unit)),
+        ]),
+        paths: IndexMap::new(),
+        dist: 0,
+        trapped: false,
+        discovered: None,
+    };
+    adapter.advance(&Action::Move(movement.clone())).unwrap();
+    let moving = adapter.state().units.get(id).unwrap();
+    assert_eq!(moving.location, global_position);
+    assert_eq!(moving.hp, 40);
+    assert_eq!(
+        adapter.state().units.get(occupant_id).unwrap().location,
+        recipient_position
+    );
+
+    global.units_hit_points = serde_json::from_value(serde_json::json!(8)).unwrap();
+    movement
+        .unit
+        .insert(TargetedPlayer::Global, Hidden::Visible(global));
+    adapter.advance(&Action::Move(movement)).unwrap();
+    let moving = adapter.state().units.get(id).unwrap();
+    assert_eq!(moving.location, global_position);
+    assert_eq!(moving.hp, 80);
+    assert!(adapter.state().units.contains(occupant_id));
 }
 
 #[test]
