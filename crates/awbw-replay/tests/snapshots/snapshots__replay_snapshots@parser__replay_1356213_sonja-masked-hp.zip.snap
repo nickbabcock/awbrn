@@ -1,0 +1,170 @@
+---
+source: crates/awbw-replay/tests/snapshots.rs
+assertion_line: 101
+expression: snapshot
+input_file: assets/replays/parser/replay_1356213_sonja-masked-hp.zip
+---
+{
+  "checksum": "0x37b13961c506a667a6dee69de4af3959833323b638a667d36030c38541207330",
+  "file_entries": [
+    {
+      "data": {
+        "Game": {
+          "count": 28
+        }
+      },
+      "file_path": "1356213",
+      "file_size": 71133
+    },
+    {
+      "data": {
+        "Turn": {
+          "turns": [
+            {
+              "day": 1,
+              "elements": 3,
+              "player_id": 3238642
+            },
+            {
+              "day": 1,
+              "elements": 8,
+              "player_id": 3232528
+            },
+            {
+              "day": 2,
+              "elements": 7,
+              "player_id": 3238642
+            },
+            {
+              "day": 2,
+              "elements": 7,
+              "player_id": 3232528
+            },
+            {
+              "day": 3,
+              "elements": 8,
+              "player_id": 3238642
+            },
+            {
+              "day": 3,
+              "elements": 10,
+              "player_id": 3232528
+            },
+            {
+              "day": 4,
+              "elements": 12,
+              "player_id": 3238642
+            },
+            {
+              "day": 4,
+              "elements": 11,
+              "player_id": 3232528
+            },
+            {
+              "day": 5,
+              "elements": 13,
+              "player_id": 3238642
+            },
+            {
+              "day": 5,
+              "elements": 15,
+              "player_id": 3232528
+            },
+            {
+              "day": 6,
+              "elements": 15,
+              "player_id": 3238642
+            },
+            {
+              "day": 6,
+              "elements": 17,
+              "player_id": 3232528
+            },
+            {
+              "day": 7,
+              "elements": 16,
+              "player_id": 3238642
+            },
+            {
+              "day": 7,
+              "elements": 21,
+              "player_id": 3232528
+            },
+            {
+              "day": 8,
+              "elements": 21,
+              "player_id": 3238642
+            },
+            {
+              "day": 8,
+              "elements": 23,
+              "player_id": 3232528
+            },
+            {
+              "day": 9,
+              "elements": 23,
+              "player_id": 3238642
+            },
+            {
+              "day": 9,
+              "elements": 27,
+              "player_id": 3232528
+            },
+            {
+              "day": 10,
+              "elements": 24,
+              "player_id": 3238642
+            },
+            {
+              "day": 10,
+              "elements": 28,
+              "player_id": 3232528
+            },
+            {
+              "day": 11,
+              "elements": 25,
+              "player_id": 3238642
+            },
+            {
+              "day": 11,
+              "elements": 28,
+              "player_id": 3232528
+            },
+            {
+              "day": 12,
+              "elements": 28,
+              "player_id": 3238642
+            },
+            {
+              "day": 12,
+              "elements": 27,
+              "player_id": 3232528
+            },
+            {
+              "day": 13,
+              "elements": 24,
+              "player_id": 3238642
+            },
+            {
+              "day": 13,
+              "elements": 27,
+              "player_id": 3232528
+            },
+            {
+              "day": 14,
+              "elements": 27,
+              "player_id": 3238642
+            },
+            {
+              "day": 14,
+              "elements": 14,
+              "player_id": 3232528
+            }
+          ]
+        }
+      },
+      "file_path": "a1356213",
+      "file_size": 52290
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+---
+source: crates/awbw-replay/tests/snapshots.rs
+assertion_line: 101
+expression: snapshot
+input_file: assets/replays/parser/replay_1598747_null-min-rating.zip
+---
+{
+  "checksum": "0x94cb77353fc358a692ec08fe6bd29d5b85476f2db6f95740084fb067d095e19b",
+  "file_entries": [
+    {
+      "data": {
+        "Game": {
+          "count": 12
+        }
+      },
+      "file_path": "1598747",
+      "file_size": 38796
+    },
+    {
+      "data": {
+        "Turn": {
+          "turns": [
+            {
+              "day": 1,
+              "elements": 3,
+              "player_id": 3842324
+            },
+            {
+              "day": 8,
+              "elements": 24,
+              "player_id": 3851197
+            },
+            {
+              "day": 9,
+              "elements": 24,
+              "player_id": 3842324
+            },
+            {
+              "day": 9,
+              "elements": 28,
+              "player_id": 3851197
+            },
+            {
+              "day": 10,
+              "elements": 27,
+              "player_id": 3842324
+            },
+            {
+              "day": 10,
+              "elements": 32,
+              "player_id": 3851197
+            },
+            {
+              "day": 11,
+              "elements": 31,
+              "player_id": 3842324
+            },
+            {
+              "day": 11,
+              "elements": 34,
+              "player_id": 3851197
+            },
+            {
+              "day": 12,
+              "elements": 32,
+              "player_id": 3842324
+            },
+            {
+              "day": 12,
+              "elements": 38,
+              "player_id": 3851197
+            },
+            {
+              "day": 13,
+              "elements": 31,
+              "player_id": 3842324
+            },
+            {
+              "day": 13,
+              "elements": 34,
+              "player_id": 3851197
+            },
+            {
+              "day": 14,
+              "elements": 1,
+              "player_id": 3842324
+            }
+          ]
+        }
+      },
+      "file_path": "a1598747",
+      "file_size": 36225
+    }
+  ]
+}
