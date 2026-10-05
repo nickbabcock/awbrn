@@ -61,7 +61,7 @@ fde0ad6b3b5bcd1c  obs=6 ev=15  commander/drake-cop.json
 2ff65edb6b173527  obs=6 ev=4  commander/drake-day-to-day.json
 f1b5098e408850f5  obs=4 ev=8  commander/drake-scop-combat.json
 ed9c17cf663c1478  obs=6 ev=12  commander/drake-scop.json
-d6e69571439f426d  obs=4 ev=6  commander/eagle-cop-activation.json
+c16cf04a0ee3dad1  obs=4 ev=2  commander/eagle-cop-activation.json
 3c8eef52eef9b78e  obs=4 ev=8  commander/eagle-cop.json
 637cc3cc70fe684f  obs=4 ev=10  commander/eagle-day-to-day-air-combat.json
 2c60b11dc7865b31  obs=4 ev=12  commander/eagle-day-to-day-air-defense.json

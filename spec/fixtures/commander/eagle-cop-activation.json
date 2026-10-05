@@ -1,5 +1,5 @@
 {
-  "id": "eagle-lightning-drive-refresh",
+  "id": "eagle-lightning-drive-no-refresh",
   "spec_version": "0.1.0",
   "ruleset": {
     "id": "awbw",
@@ -304,7 +304,7 @@
           },
           "units": [
             {
-              "action": "ready",
+              "action": "spent",
               "ammo": 9,
               "concealment": "exposed",
               "fuel": 70,
@@ -332,7 +332,7 @@
               "owner": "blue"
             },
             {
-              "action": "ready",
+              "action": "spent",
               "ammo": 6,
               "concealment": "exposed",
               "fuel": 99,
@@ -385,20 +385,6 @@
             "player": "red",
             "power": "cop",
             "type": "power-activated"
-          },
-          {
-            "from": "spent",
-            "reason": "commander-power",
-            "to": "ready",
-            "type": "unit-action-changed",
-            "unit": 0
-          },
-          {
-            "from": "spent",
-            "reason": "commander-power",
-            "to": "ready",
-            "type": "unit-action-changed",
-            "unit": 2
           }
         ],
         "random_consumed": 0

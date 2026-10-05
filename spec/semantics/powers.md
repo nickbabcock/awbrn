@@ -545,9 +545,11 @@ unit ID. For each selected unit whose action is `spent`, set its action to
 Already-`ready` units emit no event. A `moved` unit has a pending follow-up
 choice and is not refreshed; activation does not discard an incomplete action.
 The operator changes no HP, fuel, ammo, funds, concealment, or location.
-Eagle's AWBW profile excludes `infantry` and `mech`, so every other owned kind
-that has spent its action may act again, including a unit built earlier in the
-same turn.
+Eagle's Lightning Strike SCOP excludes `infantry` and `mech`. Other owned
+units with spent actions can act again. This includes units built earlier
+in the same turn.
+Lightning Drive COP changes aircraft combat stats. It does not refresh unit
+actions.
 
 ## `resupply-units`
 
@@ -659,6 +661,10 @@ Corroborated implementation:
 - AWBW Replay Player and WarsWorld agree that Grimm has +30 attack/-20 defense
   day-to-day, gains another +20 attack under three-star Knuckleduster, and
   another +50 under six-star Haymaker after the shared power bonus is included.
+- The [official AWBW CO chart](https://awbw.amarriner.com/co.php) gives
+  Lightning Drive aircraft combat bonuses without an action refresh.
+  Lightning Strike adds the action refresh for units other than Infantry
+  and Mech. This includes units built that turn.
 - WarsWorld's Eagle AWDS profile assigns nine stars to Lightning Strike and
   marks every owned non-Infantry/non-Mech unit ready, including units built that
   turn.
