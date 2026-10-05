@@ -6,11 +6,41 @@ use awbw_replay::{
         UnitProperty,
     },
 };
-use awvm::semantic::{Match, Outcome, UnitId, VictoryReason};
+use awvm::semantic::{Location, Match, Outcome, UnitId, VictoryReason};
 use awvm_awbw::RecordedAdapter;
 use indexmap::IndexMap;
 
 use crate::common::{map_path, replay_path};
+
+#[test]
+fn packed_turn_history_moves_units_before_reusing_their_tiles() {
+    let replay = ReplayParser::new()
+        .parse(&std::fs::read(replay_path("replay_1598747_null-min-rating.zip")).unwrap())
+        .unwrap();
+    assert_eq!(replay.games.len(), 27);
+    assert_eq!(replay.turns.len(), 505);
+    let map: AwbwMapData =
+        serde_json::from_slice(&std::fs::read(map_path("153972.json")).unwrap()).unwrap();
+    let mut adapter = RecordedAdapter::new(&replay, &map).unwrap();
+    let mut checked_build = false;
+    for action in &replay.turns {
+        if let Action::Build { new_unit, .. } = action
+            && new_unit
+                .values()
+                .filter_map(Hidden::get_value)
+                .any(|unit| unit.units_id.as_u32() == 195603830)
+        {
+            let existing = adapter.state().units.get(UnitId::new(195450357)).unwrap();
+            let Location::Board { position } = existing.location else {
+                panic!("expected the existing unit on the board");
+            };
+            assert_eq!((position.x, position.y), (11, 6));
+            checked_build = true;
+        }
+        adapter.advance(action).unwrap();
+    }
+    assert!(checked_build);
+}
 
 fn before_first_build() -> (RecordedAdapter, Action, UnitProperty) {
     let replay = ReplayParser::new()

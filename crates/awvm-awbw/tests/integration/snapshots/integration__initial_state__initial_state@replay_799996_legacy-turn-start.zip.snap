@@ -1,0 +1,7 @@
+---
+source: crates/awvm-awbw/tests/integration/initial_state.rs
+assertion_line: 97
+expression: snapshot
+input_file: assets/replays/replay_799996_legacy-turn-start.zip
+---
+map=133605 size=23x20 players=2 units=4 state=88ed334c3fdf2d5d observations=d37e50ccff7d4241

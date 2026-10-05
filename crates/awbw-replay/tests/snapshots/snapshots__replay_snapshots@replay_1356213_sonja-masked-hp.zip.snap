@@ -2,7 +2,7 @@
 source: crates/awbw-replay/tests/snapshots.rs
 assertion_line: 101
 expression: snapshot
-input_file: assets/replays/parser/replay_1356213_sonja-masked-hp.zip
+input_file: assets/replays/replay_1356213_sonja-masked-hp.zip
 ---
 {
   "checksum": "0x37b13961c506a667a6dee69de4af3959833323b638a667d36030c38541207330",

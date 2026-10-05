@@ -1,0 +1,7 @@
+---
+source: crates/awvm-awbw/tests/integration/initial_state.rs
+assertion_line: 97
+expression: snapshot
+input_file: assets/replays/replay_1109718_legacy-game-over.zip
+---
+map=66616 size=23x17 players=2 units=1 state=1b4c2566a194266c observations=8c32df2ee5777386

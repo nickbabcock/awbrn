@@ -1,0 +1,7 @@
+---
+source: crates/awvm-awbw/tests/integration/initial_state.rs
+assertion_line: 97
+expression: snapshot
+input_file: assets/replays/replay_990706_capture-elimination.zip
+---
+map=82543 size=22x25 players=2 units=2 state=27f7757f316adeeb observations=331064d8585157ad

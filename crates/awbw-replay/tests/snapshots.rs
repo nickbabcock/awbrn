@@ -26,7 +26,7 @@ struct TurnEntry {
 
 #[test]
 fn test_replay_snapshots() {
-    glob!("../../../assets/replays", "**/*.zip", |path| {
+    glob!("../../../assets/replays", "*.zip", |path| {
         let data = std::fs::read(path).unwrap();
 
         let file = ReplayFile::open(&data).unwrap();

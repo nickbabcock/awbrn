@@ -2,7 +2,7 @@
 source: crates/awbw-replay/tests/snapshots.rs
 assertion_line: 101
 expression: snapshot
-input_file: assets/replays/parser/replay_1109718_legacy-game-over.zip
+input_file: assets/replays/replay_1109718_legacy-game-over.zip
 ---
 {
   "checksum": "0x368260264d0205ba5ce6422e2d4d7a89f54eb6b5818bece8f80f1312c7bfe647",

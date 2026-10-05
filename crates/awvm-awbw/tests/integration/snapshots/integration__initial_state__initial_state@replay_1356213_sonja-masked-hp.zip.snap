@@ -1,0 +1,7 @@
+---
+source: crates/awvm-awbw/tests/integration/initial_state.rs
+assertion_line: 97
+expression: snapshot
+input_file: assets/replays/replay_1356213_sonja-masked-hp.zip
+---
+map=163726 size=19x19 players=2 units=7 state=e2d77a5e4f047d00 observations=72cabd05272adb18

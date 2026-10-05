@@ -1,0 +1,77 @@
+---
+source: crates/awvm-awbw/tests/integration/recorded_outcomes.rs
+assertion_line: 47
+expression: outcome.snapshot
+input_file: assets/replays/replay_1109718_legacy-game-over.zip
+---
+00002 d=1 p=2725706 End        s=ff75ec53ed6e3768 o=2cf3b442e0a79715
+00006 d=2 p=2721532 End        s=7d1357ba080d3a20 o=0b1b49ef9dfb1fb2
+00011 d=2 p=2725706 End        s=45febf143ea8c8af o=cac4dfd326e17921
+00017 d=3 p=2721532 End        s=506fb61e1a2f5c68 o=ad3d70b58a6eac1f
+00024 d=3 p=2725706 End        s=25d600b895fb2384 o=24d1704b8ec55244
+00032 d=4 p=2721532 End        s=c6ac2e3565b5d4a6 o=e52222e2d17e0872
+00041 d=4 p=2725706 End        s=12c85b0d99184282 o=eb6326ebf1b28929
+00052 d=5 p=2721532 End        s=c99a89af646a3ec4 o=4a3cc0bae3840677
+00064 d=5 p=2725706 End        s=5af59d3e776f693b o=873809ad30628c17
+00079 d=6 p=2721532 End        s=b67d98416088898f o=ebb8301410f25b62
+00095 d=6 p=2725706 End        s=c960a76415073633 o=3491a9e9eb375d28
+00113 d=7 p=2721532 End        s=cd7ecde5c235e537 o=8a03ea16dd94376d
+00132 d=7 p=2725706 End        s=36fa89edbafb78ec o=843737e54f221cb6
+00154 d=8 p=2721532 End        s=af8f4f06ab2f069d o=fcfc7ad2eb6d2c93
+00177 d=8 p=2725706 End        s=b9638895d6a7a3cc o=cd75e0b860c2edb9
+00201 d=9 p=2721532 End        s=f805ef5ce84177f3 o=06ccd3b25eb58b48
+00226 d=9 p=2725706 End        s=4750feb9cc21b63e o=7053cf495130b38e
+00252 d=10 p=2721532 End        s=83dfe43d2ac6f1d9 o=e6b118ebcfcc6a24
+00280 d=10 p=2725706 End        s=95385b1673eaee1d o=5d20ae306d140f63
+00307 d=11 p=2721532 End        s=c3f018e4106c5ba6 o=a4285193acd303c8
+00338 d=11 p=2725706 End        s=b04e87d81c4713a0 o=b8004c455cc4c99d
+00370 d=12 p=2721532 End        s=625e2a6e6bc84f9a o=e2fa7a98644b1f34
+00405 d=12 p=2725706 End        s=f067fcec135098e8 o=f0540f1e091f5e16
+00439 d=13 p=2721532 End        s=380b57ef3b1d0908 o=04d85c385b3e63e8
+00475 d=13 p=2725706 End        s=42e0ead7cc66d50c o=cc3d4ae32eedc320
+00512 d=14 p=2721532 End        s=cdf6184c7678253e o=044a07dee9ade3b1
+00551 d=14 p=2725706 End        s=e29a31440d338020 o=17339448e10eadc0
+00592 d=15 p=2721532 End        s=e07aab7d59977fbc o=63446c4df0fd0b15
+00635 d=15 p=2725706 End        s=653343d88e10b950 o=8fce430fb8a8d238
+00674 d=16 p=2721532 End        s=fa94d76da16a15e7 o=a871c3fafc1a3797
+00718 d=16 p=2725706 End        s=fb3bc5f42ffc4299 o=d363bc34570fbdc1
+00763 d=17 p=2721532 End        s=4571d15d89d28178 o=e41bbb99e204f0f0
+00810 d=17 p=2725706 End        s=7d2764be29c4e8db o=947e4204c366ae65
+00852 d=18 p=2721532 End        s=3f7587ce095ef07d o=e0608af393e2773e
+00898 d=18 p=2725706 End        s=b99f30e3c309cb9b o=c5306417149337b3
+00937 d=19 p=2721532 End        s=0fe0748a85607388 o=99a9f1e5df7c73a2
+00986 d=19 p=2725706 End        s=cc299ddfa5a08080 o=8e0aa6e66284e7fd
+01028 d=20 p=2721532 End        s=9d6ab206a705bbbe o=ef4dd166e8574a83
+01082 d=20 p=2725706 End        s=44224ac09816abde o=3c8c91df9595547c
+01124 d=21 p=2721532 End        s=918503b2d6f95fb3 o=03c83aca1530216c
+01169 d=21 p=2725706 End        s=b7884599253e0cb0 o=a2f6e9859594305a
+01207 d=22 p=2721532 End        s=c526c3342ee16518 o=6fa52e449e6612cb
+01250 d=22 p=2725706 End        s=8f6d0aa569895695 o=7a6a59d751d6f7d2
+01280 d=23 p=2721532 End        s=f6510eb1b0308c62 o=6af839fb60c5ca46
+01315 d=23 p=2725706 End        s=b767973a406942d0 o=5303230faf15ed5a
+01345 d=24 p=2721532 End        s=cd6ce56ab37e8567 o=f912a832800740d4
+01378 d=24 p=2725706 End        s=6cbe2be3d9e505fe o=508c6438fda8623a
+01406 d=25 p=2721532 End        s=8ddaf6b9b4002ce5 o=913d82bbc8d36887
+01433 d=25 p=2725706 End        s=3b0e3d9d67f77b81 o=312a62a69d7a790b
+01460 d=26 p=2721532 End        s=7bfb8b316b5db9bf o=07c3d047f059a9c9
+01490 d=26 p=2725706 End        s=e14c00d215121d4d o=11c4a0570b83f39d
+01519 d=27 p=2721532 End        s=0c2f0f54c57fc4c1 o=4a54311dbec65ca6
+01551 d=27 p=2725706 End        s=98b0b20085c2872d o=3c5f393eb1d9466f
+01586 d=28 p=2721532 End        s=cb1a9afdcf61e545 o=5a56baa35228cee4
+01621 d=28 p=2725706 End        s=25c85c1a31a316de o=9a63e0ef6cdd5c3d
+01658 d=29 p=2721532 End        s=7786885b74efe805 o=d779761f9e7d1062
+01694 d=29 p=2725706 End        s=90fc53053cf8797a o=8ef831f6e67ac188
+01735 d=30 p=2721532 End        s=2b7f87eea27c03ee o=556affa78501fc79
+01768 d=30 p=2725706 End        s=a28f4a36501dcc34 o=292b5648b24771f2
+01807 d=31 p=2721532 End        s=f2666cec9db572fc o=a3b51b90b8dcf3b6
+01834 d=31 p=2725706 End        s=984c8c3b1305e41e o=e73727bb8a7f8c08
+01873 d=32 p=2721532 End        s=fdca9f7f2b8dc951 o=d971becefb7b367a
+01897 d=32 p=2725706 End        s=28cba6c487e0f655 o=4cd360381ab9f4d6
+01937 d=33 p=2721532 End        s=04fb8ea9ec4dbfb9 o=f22f5b12f616b094
+01956 d=33 p=2725706 End        s=fae90bccacbe2081 o=40d44d08702a869f
+01997 d=34 p=2721532 End        s=94783025ed78dce0 o=b6cd722b30795264
+02011 d=34 p=2725706 End        s=4352522dce1c5e2f o=aa28bc8011b3ba69
+02054 d=35 p=2721532 End        s=e817dd1c91a77586 o=12963e92223e698c
+02063 d=35 p=2725706 End        s=cb83ce65a29b9ef5 o=ef010280ccb37202
+02072 d=35 p=2725706 End        s=44038aeb90967d4f o=df5dc3dc825d985d
+final {"day":35,"match":{"outcome":{"reason":"day-limit","type":"victory","winners":["player:2725706"]},"status":"finished"},"phase":"finished","players":[["2721532","active",17],["2725706","active",27]]}

@@ -2,7 +2,7 @@
 source: crates/awbw-replay/tests/snapshots.rs
 assertion_line: 101
 expression: snapshot
-input_file: assets/replays/parser/replay_990706_capture-elimination.zip
+input_file: assets/replays/replay_990706_capture-elimination.zip
 ---
 {
   "checksum": "0x893393e42b6591fcf8405984df7aa90f9f91a80a80cda88d285fba52cfec12db",

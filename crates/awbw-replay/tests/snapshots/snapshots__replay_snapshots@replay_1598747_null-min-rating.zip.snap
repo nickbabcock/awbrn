@@ -2,15 +2,15 @@
 source: crates/awbw-replay/tests/snapshots.rs
 assertion_line: 101
 expression: snapshot
-input_file: assets/replays/parser/replay_1598747_null-min-rating.zip
+input_file: assets/replays/replay_1598747_null-min-rating.zip
 ---
 {
-  "checksum": "0x94cb77353fc358a692ec08fe6bd29d5b85476f2db6f95740084fb067d095e19b",
+  "checksum": "0x3c8ee3432b072924d166e90c7a033a4fb3a972bfe095fdd582b3a5e9c4ce72ff",
   "file_entries": [
     {
       "data": {
         "Game": {
-          "count": 12
+          "count": 27
         }
       },
       "file_path": "1598747",
@@ -23,6 +23,76 @@ input_file: assets/replays/parser/replay_1598747_null-min-rating.zip
             {
               "day": 1,
               "elements": 3,
+              "player_id": 3842324
+            },
+            {
+              "day": 1,
+              "elements": 4,
+              "player_id": 3851197
+            },
+            {
+              "day": 2,
+              "elements": 5,
+              "player_id": 3842324
+            },
+            {
+              "day": 2,
+              "elements": 6,
+              "player_id": 3851197
+            },
+            {
+              "day": 3,
+              "elements": 7,
+              "player_id": 3842324
+            },
+            {
+              "day": 3,
+              "elements": 8,
+              "player_id": 3851197
+            },
+            {
+              "day": 4,
+              "elements": 9,
+              "player_id": 3842324
+            },
+            {
+              "day": 4,
+              "elements": 11,
+              "player_id": 3851197
+            },
+            {
+              "day": 5,
+              "elements": 12,
+              "player_id": 3842324
+            },
+            {
+              "day": 5,
+              "elements": 14,
+              "player_id": 3851197
+            },
+            {
+              "day": 6,
+              "elements": 15,
+              "player_id": 3842324
+            },
+            {
+              "day": 6,
+              "elements": 17,
+              "player_id": 3851197
+            },
+            {
+              "day": 7,
+              "elements": 17,
+              "player_id": 3842324
+            },
+            {
+              "day": 7,
+              "elements": 20,
+              "player_id": 3851197
+            },
+            {
+              "day": 8,
+              "elements": 21,
               "player_id": 3842324
             },
             {

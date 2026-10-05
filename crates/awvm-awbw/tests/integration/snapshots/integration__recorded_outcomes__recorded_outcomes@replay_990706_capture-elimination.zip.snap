@@ -1,0 +1,26 @@
+---
+source: crates/awvm-awbw/tests/integration/recorded_outcomes.rs
+assertion_line: 47
+expression: outcome.snapshot
+input_file: assets/replays/replay_990706_capture-elimination.zip
+---
+00004 d=1 p=2379763 End        s=48e4c82f12fec4f1 o=9a3f74e03c173c99
+00011 d=2 p=2379762 End        s=850d647720e7089b o=64f7fd23432523df
+00020 d=2 p=2379763 End        s=2658c3d2d70aee70 o=a7f3dcb2571bc4ff
+00031 d=3 p=2379762 End        s=922f059023623a26 o=83dc1ae0f1a802ed
+00044 d=3 p=2379763 End        s=5b503c63372960c3 o=b6b366d4d3c60bf0
+00059 d=4 p=2379762 End        s=1e39cec27b06b5e1 o=aa30b26c467e2e08
+00076 d=4 p=2379763 End        s=d00c996802e2ca1a o=216ad6b45d027538
+00094 d=5 p=2379762 End        s=6ef1522dffca47ed o=189c9629ce933fcd
+00115 d=5 p=2379763 End        s=020b0e12925b435c o=7f79a3738bae01e7
+00137 d=6 p=2379762 End        s=811b1d4bb8bd4e25 o=8c23e095b14172f9
+00159 d=6 p=2379763 End        s=c1d7027670960838 o=ce9f1270d56aa188
+00185 d=7 p=2379762 End        s=61f9c7b43d0508d5 o=b4e6439c8ee3661c
+00209 d=7 p=2379763 End        s=208cf855b0420ee2 o=3adec317496d9a9b
+00238 d=8 p=2379762 End        s=d303d30d8c1c3bc5 o=43fa1fc78af0b81c
+00266 d=8 p=2379763 End        s=a1cff4e45fa971a4 o=592d4e7390d54d29
+00297 d=9 p=2379762 End        s=dd1427a4351e0b3a o=fc6f466e63f7c48a
+00328 d=9 p=2379763 End        s=0ef18edea2755d86 o=d709274ff8227a83
+00362 d=10 p=2379762 End        s=1fef5f6c9e8229c2 o=fa0dd29378fe13fc
+00364 d=10 p=2379762 Capt       s=d2d0ff8ba56ee19a o=a8320d0751669d2a
+final {"day":10,"match":{"outcome":{"reason":"lab-capture","type":"victory","winners":["player:2379762"]},"status":"finished"},"phase":"finished","players":[["2379762","active",30],["2379763","eliminated",23]]}
