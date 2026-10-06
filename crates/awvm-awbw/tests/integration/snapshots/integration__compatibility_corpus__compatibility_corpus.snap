@@ -80,62 +80,56 @@ per-action-classification-digests:
   replay_1714174_timeout_2026-08-21.zip 828cb582647cf284
 
 [all fog]
-total=5703 compatible=4136 divergent=421 insufficient=1146
+total=5740 compatible=4224 divergent=408 insufficient=1108
 by-action (compatible/divergent/insufficient):
   AttackSeam    16/    1/    0
-  Build          0/    0/  742
-  Capt         280/   16/  303
+  Build          0/    0/  744
+  Capt         282/   17/  307
   Delete         1/    0/    0
-  End          173/    0/   52
-  Fire         808/  119/   35
+  End          218/    0/    8
+  Fire         821/  110/   35
   Hide           2/    0/    0
   Join          21/    2/    0
-  Load         160/    2/    0
-  Move        2494/  248/    0
+  Load         162/    1/    0
+  Move        2519/  243/    0
   Power         20/    0/    9
   Repair         4/    0/    1
   Resign         4/    0/    2
   Supply        24/    4/    2
   Tag            5/    0/    0
   Unhide         1/    0/    0
-  Unload       123/   29/    0
+  Unload       124/   30/    0
 divergence-buckets:
      22 mismatch:players
-      4 mismatch:players+units
+      3 mismatch:players+units
      74 mismatch:units
-     20 rejected:DestinationOccupied
+     19 rejected:DestinationOccupied
       2 rejected:InvalidTarget
       9 rejected:PathNonAdjacent
       9 rejected:PathOccupied
-    264 rejected:PathOriginMismatch
-      1 rejected:TargetOutOfRange
-      4 rejected:UnitNotFound
-      1 rejected:UnitNotOnBoard
-     11 rejected:UnitNotOwned
+    242 rejected:PathOriginMismatch
+     28 rejected:UnitNotOwned
 insufficient-buckets:
-    742 Build does not record the AWVM-assigned unit identifier
+    744 Build does not record the AWVM-assigned unit identifier
      35 advisory-search-limit
-     63 broad-exact-hp-dependence
-    306 missing-move
+     19 broad-exact-hp-dependence
+    310 missing-move
 bucket-samples:
   D:mismatch:players 1563018.zip:284:Fire, 1563018.zip:287:Fire, 1563018.zip:335:Fire
-  D:mismatch:players+units 1403019.zip:653:Fire, 1563018.zip:279:Fire, 1563018.zip:405:Fire
+  D:mismatch:players+units 1563018.zip:279:Fire, 1563018.zip:405:Fire, replay_1578186_d-day_2026-01-14.zip:623:Fire
   D:mismatch:units 1391406.zip:163:Unload, 1391406.zip:240:Move, 1391406.zip:269:Unload
-  D:rejected:DestinationOccupied 1391406.zip:446:Move, 1391406.zip:820:Move, 1403019.zip:561:Fire
-  D:rejected:InvalidTarget 1403019.zip:629:Load, 1403019.zip:660:Unload
-  D:rejected:PathNonAdjacent 1403019.zip:702:Move, 1403019.zip:1545:Move, 1403019.zip:1587:Fire
-  D:rejected:PathOccupied 1403019.zip:2393:Move, 1403019.zip:2418:Fire, 1403019.zip:2433:Move
+  D:rejected:DestinationOccupied 1391406.zip:446:Move, 1391406.zip:820:Move, 1403019.zip:601:Move
+  D:rejected:InvalidTarget 1403019.zip:547:Unload, 1403019.zip:554:Unload
+  D:rejected:PathNonAdjacent 1403019.zip:739:Move, 1403019.zip:1582:Move, 1403019.zip:1624:Fire
+  D:rejected:PathOccupied 1403019.zip:2430:Move, 1403019.zip:2455:Fire, 1403019.zip:2470:Move
   D:rejected:PathOriginMismatch 1391406.zip:186:Move, 1391406.zip:195:Move, 1391406.zip:230:Capt
-  D:rejected:TargetOutOfRange 1403019.zip:575:Fire
-  D:rejected:UnitNotFound 1403019.zip:633:Move, 1403019.zip:634:Move, 1403019.zip:659:Move
-  D:rejected:UnitNotOnBoard 1403019.zip:625:Move
-  D:rejected:UnitNotOwned 1403019.zip:541:Move, 1403019.zip:542:Fire, 1403019.zip:543:Fire
+  D:rejected:UnitNotOwned 1403019.zip:541:Fire, 1403019.zip:542:Move, 1403019.zip:544:Move
   I:Build does not record the AWVM-assigned unit identifier 1391406.zip:0:Build, 1391406.zip:1:Build, 1391406.zip:4:Build
   I:advisory-search-limit 1563018.zip:216:Fire, 1563018.zip:235:Fire, 1563018.zip:258:Fire
   I:broad-exact-hp-dependence 1391406.zip:554:Power, 1391406.zip:589:Power, 1391406.zip:649:End
   I:missing-move 1391406.zip:12:Capt, 1391406.zip:18:Capt, 1391406.zip:25:Capt
 per-action-classification-digests:
   1391406.zip 34b419dd9dc0a547
-  1403019.zip 7c656b2f021478e0
+  1403019.zip dcf497fce75bc821
   1563018.zip 955111d70a62bf45
   replay_1578186_d-day_2026-01-14.zip b02ead38e4ab071c

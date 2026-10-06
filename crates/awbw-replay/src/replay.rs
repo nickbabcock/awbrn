@@ -8,6 +8,9 @@ use rawzip::{ZipSliceArchive, ZipVerification, path::ZipFilePath};
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, Read};
 
+// Per ZIP entry, across all gzip members. Supported fixtures are below 24 MiB.
+const MAX_DECOMPRESSED_BYTES: usize = 128 * 1024 * 1024;
+
 #[derive(Debug, Serialize, PartialEq, Clone)]
 pub struct AwbwReplay {
     pub games: Vec<AwbwGame>,
@@ -148,19 +151,24 @@ pub enum ReplayEntriesKind<R> {
 }
 
 impl<R: BufRead> ReplayEntriesKind<R> {
+    /// Use the record prefix to identify game or turn data.
     pub fn classify(mut reader: R) -> Result<Self, errors::ReplayError> {
         let buf = reader.fill_buf()?;
-        let mut decoder = flate2::bufread::GzDecoder::new(buf);
+        let mut decoder = flate2::bufread::MultiGzDecoder::new(buf);
         let mut peek_data = [0u8; 2];
         decoder.read_exact(&mut peek_data)?;
         if peek_data == *b"p:" {
             Ok(ReplayEntriesKind::Turn(ReplayEntries {
                 reader,
+                data: Vec::new(),
+                position: 0,
                 marker: std::marker::PhantomData,
             }))
         } else {
             Ok(ReplayEntriesKind::Game(ReplayEntries {
                 reader,
+                data: Vec::new(),
+                position: 0,
                 marker: std::marker::PhantomData,
             }))
         }
@@ -170,22 +178,64 @@ impl<R: BufRead> ReplayEntriesKind<R> {
 #[derive(Debug)]
 pub struct ReplayEntries<T, R> {
     reader: R,
+    data: Vec<u8>,
+    position: usize,
     marker: std::marker::PhantomData<T>,
 }
 
 impl<T, R: BufRead> ReplayEntries<T, R> {
+    /// Read the next PHP record from the gzip stream.
     pub fn next_entry<'a>(
         &mut self,
         sink: &'a mut Vec<u8>,
     ) -> Result<Option<ReplayEntry<'a, T>>, errors::ReplayError> {
-        let is_eof = self.reader.fill_buf().map(|buf| buf.is_empty())?;
-        if is_eof {
-            return Ok(None);
+        loop {
+            while self
+                .data
+                .get(self.position)
+                .is_some_and(u8::is_ascii_whitespace)
+            {
+                self.position += 1;
+            }
+            if self.position < self.data.len() {
+                break;
+            }
+            if self.reader.fill_buf()?.is_empty() {
+                return Ok(None);
+            }
+
+            let reader = flate2::bufread::MultiGzDecoder::new(&mut self.reader);
+            self.data.clear();
+            reader
+                .take((MAX_DECOMPRESSED_BYTES + 1) as u64)
+                .read_to_end(&mut self.data)?;
+            if self.data.len() > MAX_DECOMPRESSED_BYTES {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "decompressed replay exceeds the 128 MiB limit",
+                )
+                .into());
+            }
+            self.position = 0;
         }
 
-        let mut reader = flate2::bufread::GzDecoder::new(&mut self.reader);
+        // PHP record boundaries can differ from gzip member boundaries.
+        let data = &self.data[self.position..];
+        let php_data = if data.starts_with(b"p:") {
+            TurnContent::from_slice(data)
+                .ok_or(ReplayError {
+                    kind: ReplayErrorKind::InvalidTurnData { context: None },
+                })?
+                .data
+        } else {
+            data
+        };
+        let mut deser = phpserz::PhpDeserializer::new(php_data);
+        serde::de::IgnoredAny::deserialize(&mut deser)?;
+        let len = data.len() - php_data.len() + deser.into_parser().position();
         sink.clear();
-        reader.read_to_end(sink)?;
+        sink.extend_from_slice(&data[..len]);
+        self.position += len;
 
         Ok(Some(ReplayEntry {
             data: sink,
@@ -427,6 +477,181 @@ impl<'a> ActionData<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+
+    fn gzip_members(members: &[&[u8]]) -> Vec<u8> {
+        let mut data = Vec::new();
+        for member in members {
+            let mut encoder = flate2::write::GzEncoder::new(&mut data, flate2::Compression::fast());
+            encoder.write_all(member).unwrap();
+            encoder.finish().unwrap();
+        }
+        data
+    }
+
+    #[test]
+    fn packed_gzip_members_yield_all_game_records() {
+        let first = b"O:4:\"Game\":1:{s:3:\"day\";i:1;}";
+        let second = b"O:4:\"Game\":1:{s:3:\"day\";i:2;}";
+        let third = b"O:4:\"Game\":1:{s:3:\"day\";i:3;}";
+        let packed = [first.as_slice(), b"\n", second.as_slice(), b"\n"].concat();
+        let data = gzip_members(&[&packed, b"", third]);
+        let ReplayEntriesKind::Game(mut entries) =
+            ReplayEntriesKind::classify(data.as_slice()).unwrap()
+        else {
+            panic!("expected game records");
+        };
+        let mut sink = Vec::new();
+        for expected in [first, second, third] {
+            assert_eq!(
+                entries.next_entry(&mut sink).unwrap().unwrap().data(),
+                expected
+            );
+        }
+        assert!(entries.next_entry(&mut sink).unwrap().is_none());
+    }
+
+    #[test]
+    fn packed_gzip_members_yield_all_turn_records() {
+        let first = b"p:1;d:1;a:a:3:{i:0;i:1;i:1;i:1;i:2;a:1:{i:0;s:4:\"p:2;\";}}";
+        let second = b"p:2;d:1;a:a:3:{i:0;i:2;i:1;i:1;i:2;a:1:{i:0;s:2:\"bb\";}}";
+        let third = b"p:1;d:2;a:a:3:{i:0;i:1;i:1;i:2;i:2;a:1:{i:0;s:2:\"cc\";}}";
+        let packed = [first.as_slice(), b"\n", second.as_slice(), b"\n"].concat();
+        let data = gzip_members(&[&packed, third]);
+        let ReplayEntriesKind::Turn(mut entries) =
+            ReplayEntriesKind::classify(data.as_slice()).unwrap()
+        else {
+            panic!("expected turn records");
+        };
+        let mut sink = Vec::new();
+        for (player, day, action) in [(1, 1, b"p:2;".as_slice()), (2, 1, b"bb"), (1, 2, b"cc")] {
+            let entry = entries.next_entry(&mut sink).unwrap().unwrap();
+            let turn = entry.parse().unwrap();
+            assert_eq!((turn.player_id(), turn.day()), (player, day));
+            let actions = turn
+                .actions()
+                .unwrap()
+                .map(|action| action.data)
+                .collect::<Vec<_>>();
+            assert_eq!(actions, [action]);
+        }
+        assert!(entries.next_entry(&mut sink).unwrap().is_none());
+    }
+
+    #[test]
+    fn gzip_members_can_split_game_records() {
+        let first = b"O:4:\"Game\":1:{s:3:\"day\";i:1;}";
+        let second = b"O:4:\"Game\":1:{s:3:\"day\";i:2;}";
+        let packed = [first.as_slice(), b"\n", second.as_slice()].concat();
+        for split in 0..=packed.len() {
+            let data = gzip_members(&[&packed[..split], &packed[split..]]);
+            let ReplayEntriesKind::Game(mut entries) =
+                ReplayEntriesKind::classify(data.as_slice()).unwrap()
+            else {
+                panic!("expected game records");
+            };
+            let mut sink = Vec::new();
+            for expected in [first.as_slice(), second.as_slice()] {
+                assert_eq!(
+                    entries.next_entry(&mut sink).unwrap().unwrap().data(),
+                    expected,
+                    "gzip member boundary at {split}"
+                );
+            }
+            assert!(entries.next_entry(&mut sink).unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn gzip_members_can_split_turn_records() {
+        let first = b"p:1;d:1;a:a:3:{i:0;i:1;i:1;i:1;i:2;a:1:{i:0;s:4:\"p:2;\";}}";
+        let second = b"p:2;d:1;a:a:3:{i:0;i:2;i:1;i:1;i:2;a:1:{i:0;s:2:\"bb\";}}";
+        let packed = [first.as_slice(), b"\n", second.as_slice()].concat();
+        for split in 0..=packed.len() {
+            let data = gzip_members(&[&packed[..split], &packed[split..]]);
+            let ReplayEntriesKind::Turn(mut entries) =
+                ReplayEntriesKind::classify(data.as_slice()).unwrap()
+            else {
+                panic!("expected turn records");
+            };
+            let mut sink = Vec::new();
+            for expected in [first.as_slice(), second.as_slice()] {
+                assert_eq!(
+                    entries.next_entry(&mut sink).unwrap().unwrap().data(),
+                    expected,
+                    "gzip member boundary at {split}"
+                );
+            }
+            assert!(entries.next_entry(&mut sink).unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn packed_gzip_members_reject_invalid_trailing_records() {
+        let first = b"O:4:\"Game\":1:{s:3:\"day\";i:1;}";
+        let packed = [first.as_slice(), b"\nO:4:\"Game\":1:{"].concat();
+        let data = gzip_members(&[&packed]);
+        let ReplayEntriesKind::Game(mut entries) =
+            ReplayEntriesKind::classify(data.as_slice()).unwrap()
+        else {
+            panic!("expected game records");
+        };
+        let mut sink = Vec::new();
+        assert_eq!(
+            entries.next_entry(&mut sink).unwrap().unwrap().data(),
+            first
+        );
+        entries.next_entry(&mut sink).unwrap_err();
+    }
+
+    fn padded_game_stream(size: usize) -> Vec<u8> {
+        let record = b"O:4:\"Game\":1:{s:3:\"day\";i:1;}";
+        let mut data = gzip_members(&[record]);
+        // Put padding in another member to verify that the limit spans members.
+        let mut encoder = flate2::write::GzEncoder::new(&mut data, flate2::Compression::fast());
+        std::io::copy(
+            &mut std::io::repeat(b' ').take((size - record.len()) as u64),
+            &mut encoder,
+        )
+        .unwrap();
+        encoder.finish().unwrap();
+        data
+    }
+
+    #[test]
+    fn decompressed_streams_at_or_below_the_limit_are_complete() {
+        for size in [MAX_DECOMPRESSED_BYTES - 1, MAX_DECOMPRESSED_BYTES] {
+            let data = padded_game_stream(size);
+            let ReplayEntriesKind::Game(mut entries) =
+                ReplayEntriesKind::classify(data.as_slice()).unwrap()
+            else {
+                panic!("expected game records");
+            };
+            let mut sink = Vec::new();
+            assert_eq!(
+                entries.next_entry(&mut sink).unwrap().unwrap().data(),
+                b"O:4:\"Game\":1:{s:3:\"day\";i:1;}"
+            );
+            assert_eq!(entries.data.len(), size);
+            assert!(entries.next_entry(&mut sink).unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn oversized_decompressed_streams_fail_before_yielding_records() {
+        let data = padded_game_stream(MAX_DECOMPRESSED_BYTES + 2);
+        let ReplayEntriesKind::Game(mut entries) =
+            ReplayEntriesKind::classify(data.as_slice()).unwrap()
+        else {
+            panic!("expected game records");
+        };
+        let error = entries.next_entry(&mut Vec::new()).unwrap_err();
+        let ReplayErrorKind::Io(error) = error.kind else {
+            panic!("expected an IO error");
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(entries.data.len(), MAX_DECOMPRESSED_BYTES + 1);
+    }
 
     #[test]
     fn test_turn_header() {
