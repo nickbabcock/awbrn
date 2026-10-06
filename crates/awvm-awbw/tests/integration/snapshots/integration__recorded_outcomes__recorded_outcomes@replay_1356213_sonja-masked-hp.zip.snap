@@ -1,0 +1,34 @@
+---
+source: crates/awvm-awbw/tests/integration/recorded_outcomes.rs
+expression: outcome.snapshot
+input_file: assets/replays/replay_1356213_sonja-masked-hp.zip
+---
+00002 d=1 p=3232528 End        s=73474916a583a8b1 o=3749b2085b2ee124
+00010 d=2 p=3238642 End        s=56a6dc3b4bd9710a o=a13a7d74307a864a
+00017 d=2 p=3232528 End        s=e7f4e0d60faf81c7 o=d107f27855fbccec
+00024 d=3 p=3238642 End        s=40cbe87b5ebb5e49 o=e27d84be96e1a426
+00032 d=3 p=3232528 End        s=566a9148f1330732 o=84bccd058f051190
+00042 d=4 p=3238642 End        s=ed01ed2aa81edfb1 o=a29c885e61bcda86
+00054 d=4 p=3232528 End        s=6bf9351bbba49f8f o=83eee7ccbd454f38
+00065 d=5 p=3238642 End        s=4761ffeb7073f85c o=0110b04a7d55da12
+00078 d=5 p=3232528 End        s=0ac2588f9abc8fcb o=8a30edb5483166f5
+00093 d=6 p=3238642 End        s=8161681f8c6f24ef o=fa27970406256b3a
+00108 d=6 p=3232528 End        s=a2cae245a034316a o=27e16f53ba04042b
+00125 d=7 p=3238642 End        s=b179e014baa0fdd9 o=a5a1935655eda19d
+00141 d=7 p=3232528 End        s=4cc4fd046fe0e1b5 o=8434bfda0f2e49fc
+00162 d=8 p=3238642 End        s=749cbbe3c7a2c23d o=00d09eb15227b4d8
+00183 d=8 p=3232528 End        s=33b109765d9af390 o=c0d8c27f15dc7d3b
+00206 d=9 p=3238642 End        s=318d172d2a790368 o=ef9c8c735adf2826
+00229 d=9 p=3232528 End        s=4b1ce09823112695 o=07ac4b7d4af0aef3
+00256 d=10 p=3238642 End        s=4d740f08230c2a2d o=d33d76cbb57e6861
+00280 d=10 p=3232528 End        s=27b907ccb922f8d5 o=48e6749bf0f540b3
+00308 d=11 p=3238642 End        s=98dedcef88e7a19b o=9d461744d135dc89
+00333 d=11 p=3232528 End        s=4be85b8620e9b616 o=d6fff38e969121bd
+00361 d=12 p=3238642 End        s=54dde41ad5660340 o=8d1cc48ed9f4c604
+00389 d=12 p=3232528 End        s=98f1dc0aa82df2c8 o=c17f487257f7d6ec
+00416 d=13 p=3238642 End        s=8e00aefc162d2411 o=dd3a7ccb21af3aa7
+00440 d=13 p=3232528 End        s=d937547489e1f70f o=1844c733019b6df1
+00467 d=14 p=3238642 End        s=7e24f2fefa697fdd o=2ac47f610e8faa15
+00494 d=14 p=3232528 End        s=434a2560f04a1c2d o=46c4a8ce1a1eb58b
+00508 d=14 p=3232528 Resign     s=29fd31060868bffc o=36fe8ec471fe8637
+final {"day":14,"match":{"outcome":{"reason":"resignation","type":"victory","winners":["player:3238642"]},"status":"finished"},"phase":"finished","players":[["3238642","active",21],["3232528","resigned",19]]}

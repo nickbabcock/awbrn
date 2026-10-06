@@ -184,7 +184,7 @@ pub struct UnitProperty {
     pub units_moved: Option<u32>,
     pub units_capture: Option<u32>,
     pub units_fired: Option<u32>,
-    pub units_hit_points: AwbwHpDisplay,
+    pub units_hit_points: Masked<AwbwHpDisplay>,
     #[serde(default)]
     pub units_cargo1_units_id: Masked<u32>,
     #[serde(default)]
@@ -196,6 +196,7 @@ pub struct UnitProperty {
 
 /// Unit hit points in Awbw replays are only tracked in deciles [0-10]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Copy)]
+#[serde(transparent)]
 pub struct AwbwHpDisplay(u8);
 
 impl AwbwHpDisplay {
@@ -552,7 +553,7 @@ pub struct UnitReplaceGroup {
 pub struct UnitChange {
     pub units_id: AwbwUnitId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub units_hit_points: Option<AwbwHpDisplay>,
+    pub units_hit_points: Option<Masked<AwbwHpDisplay>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub units_ammo: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -697,7 +698,7 @@ pub struct CombatInfo {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct CombatUnit {
     pub units_ammo: u32,
-    pub units_hit_points: Option<AwbwHpDisplay>,
+    pub units_hit_points: Option<Masked<AwbwHpDisplay>>,
     pub units_id: AwbwUnitId,
     pub units_x: u32,
     pub units_y: u32,
@@ -777,7 +778,7 @@ impl From<NextTurnAction> for UpdatedInfo {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct RepairedUnit {
     pub units_id: AwbwUnitId,
-    pub units_hit_points: AwbwHpDisplay,
+    pub units_hit_points: Masked<AwbwHpDisplay>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -1074,6 +1075,103 @@ mod tests {
     }
 
     #[test]
+    fn test_sonja_hit_points_keep_the_masked_and_visible_views() {
+        let json = r#"{
+            "action": "Build",
+            "newUnit": {
+                "3232528": {
+                    "units_id": 172013987,
+                    "units_players_id": 3232528,
+                    "units_name": "Infantry",
+                    "units_sub_dive": "N",
+                    "units_movement_type": "F",
+                    "units_hit_points": 10,
+                    "countries_code": "yc"
+                },
+                "global": {
+                    "units_id": 172013987,
+                    "units_players_id": 3232528,
+                    "units_name": "Infantry",
+                    "units_sub_dive": "N",
+                    "units_movement_type": "F",
+                    "units_hit_points": "?",
+                    "countries_code": "yc"
+                }
+            },
+            "discovered": {
+                "3232528": null
+            }
+        }"#;
+        let Action::Build { new_unit, .. } = serde_json::from_str(json).unwrap() else {
+            panic!("expected a build");
+        };
+        let global = new_unit[&TargetedPlayer::Global].get_value().unwrap();
+        assert_eq!(global.units_hit_points, Masked::Masked);
+        let owner = TargetedPlayer::Player(AwbwGamePlayerId::new(3232528));
+        let Hidden::Visible(unit) = &new_unit[&owner] else {
+            panic!("expected the owner's unit");
+        };
+        assert_eq!(unit.units_hit_points.get_value().unwrap().value(), 10);
+        let serialized = serde_json::to_value(&new_unit).unwrap();
+        assert_eq!(serialized["global"]["units_hit_points"], "?");
+        assert_eq!(serialized["3232528"]["units_hit_points"], 10);
+
+        let json = r#"{
+            "action": "End",
+            "updatedInfo": {
+                "event": "NextTurn",
+                "nextPId": 3232528,
+                "nextFunds": {
+                    "global": 3000
+                },
+                "nextTimer": 561600,
+                "nextWeather": "C",
+                "supplied": {
+                    "global": [],
+                    "3238642": [],
+                    "3232528": []
+                },
+                "repaired": {
+                    "global": [
+                        {
+                            "units_id": "172013508",
+                            "units_hit_points": "?"
+                        }
+                    ],
+                    "3238642": [],
+                    "3232528": [
+                        {
+                            "units_id": "172013508",
+                            "units_hit_points": 10
+                        }
+                    ]
+                },
+                "day": 1,
+                "nextTurnStart": "2025-03-18 10:53:34"
+            }
+        }"#;
+        let Action::End { updated_info } = serde_json::from_str(json).unwrap() else {
+            panic!("expected a turn end");
+        };
+        let next = updated_info.next_turn().unwrap();
+        assert_eq!(next.next_turn_start.as_deref(), Some("2025-03-18 10:53:34"));
+        let repairs = next.repaired.as_ref().unwrap();
+        assert!(
+            repairs[&TargetedPlayer::Global][0]
+                .units_hit_points
+                .is_masked()
+        );
+        assert_eq!(
+            repairs[&owner][0]
+                .units_hit_points
+                .get_value()
+                .unwrap()
+                .value(),
+            10
+        );
+    }
+
+    #[test]
     fn test_global_stat_boost() {
         let json = r#"{
             "playerID": 3189356, "coName": "Koal", "coPower": "Y",
@@ -1144,7 +1242,10 @@ mod tests {
         let group = &replace[&TargetedPlayer::Global];
         let units = group.units.as_ref().unwrap();
         assert_eq!(units[0].units_id, AwbwUnitId::new(190042235));
-        assert_eq!(units[0].units_hit_points, Some(AwbwHpDisplay(4)));
+        assert_eq!(
+            units[0].units_hit_points,
+            Some(Masked::Visible(AwbwHpDisplay(4)))
+        );
         assert_eq!(units[1].units_movement_points, Some(7));
     }
 

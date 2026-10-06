@@ -74,7 +74,7 @@ fn every_archived_action_maps_or_has_a_named_counted_reason() {
     });
 
     if std::env::var_os("INSTA_GLOB_FILTER").is_none() {
-        assert_eq!(total, 16_218);
+        assert_eq!(total, 16_727, "mapped={mapped:#?}, tail={tail:#?}");
         for kind in ACTION_KINDS {
             assert!(
                 mapped.get(kind).copied().unwrap_or_default() > 0,
@@ -84,33 +84,33 @@ fn every_archived_action_maps_or_has_a_named_counted_reason() {
         assert_eq!(
             mapped,
             BTreeMap::from([
-                ("AttackSeam", 47),
-                ("Build", 2_114),
-                ("Capt", 793),
+                ("AttackSeam", 58),
+                ("Build", 2_179),
+                ("Capt", 834),
                 ("Delete", 6),
-                ("End", 757),
+                ("End", 784),
                 ("Explode", 1),
-                ("Fire", 2_836),
+                ("Fire", 2_883),
                 ("Hide", 2),
-                ("Join", 84),
+                ("Join", 85),
                 ("Launch", 1),
-                ("Load", 284),
-                ("Move", 8_081),
-                ("Power", 86),
-                ("Repair", 5),
-                ("Resign", 16),
+                ("Load", 300),
+                ("Move", 8_315),
+                ("Power", 87),
+                ("Repair", 11),
+                ("Resign", 17),
                 ("Supply", 82),
                 ("Tag", 5),
                 ("Unhide", 1),
-                ("Unload", 273),
+                ("Unload", 289),
             ]),
             "mapped compatibility histogram changed"
         );
         assert_eq!(
             tail,
             BTreeMap::from([
-                (("Capt", "missing-move"), 740),
-                (("Repair", "missing-move"), 1),
+                (("Capt", "missing-move"), 781),
+                (("Repair", "missing-move"), 3),
                 (("Supply", "missing-move"), 3),
             ]),
             "named compatibility tail changed"
