@@ -59,13 +59,7 @@
     "eagle": {
       "cop": {
         "stars": 3,
-        "instant_effects": [
-          {
-            "operator": "refresh-unit-action",
-            "target": "owned-units",
-            "exclude_unit_kinds": ["infantry", "mech"]
-          }
-        ]
+        "instant_effects": []
       },
       "scop": {
         "stars": 9,
