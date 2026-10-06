@@ -3,25 +3,26 @@ source: crates/awvm-awbw/tests/integration/compatibility_corpus.rs
 expression: snapshot
 ---
 [fog-off pre-power prefix]
-total=2030 compatible=1511 divergent=0 insufficient=519
+total=3824 compatible=2835 divergent=0 insufficient=989
 by-action (compatible/divergent/insufficient):
   AttackSeam    12/    0/    0
-  Build          0/    0/  332
-  Capt         203/    0/  185
-  End          172/    0/    2
+  Build          0/    0/  633
+  Capt         402/    0/  354
+  End          260/    0/    2
   Explode        1/    0/    0
-  Fire         183/    0/    0
+  Fire         306/    0/    0
   Join           5/    0/    0
   Launch         1/    0/    0
   Load          27/    0/    0
-  Move         879/    0/    0
+  Move        1792/    0/    0
+  Resign         1/    0/    0
   Supply         2/    0/    0
   Unload        26/    0/    0
 divergence-buckets:
 insufficient-buckets:
-    332 Build does not record the AWVM-assigned unit identifier
+    633 Build does not record the AWVM-assigned unit identifier
       2 broad-exact-hp-dependence
-    185 missing-move
+    354 missing-move
 bucket-samples:
   I:Build does not record the AWVM-assigned unit identifier 1362397.zip:0:Build, 1362397.zip:1:Build, 1362397.zip:3:Build
   I:broad-exact-hp-dependence replay_1714171_day-limit_2026-08-21.zip:11:End, replay_1714172_day-limit-draw_2026-08-21.zip:9:End
@@ -30,6 +31,8 @@ per-action-classification-digests:
   1362397.zip 450a6fb0fa4255aa
   1419680.zip 5bcbee9ac160240b
   1468032_landfall_2025-12-22.zip 10c3a35cf87bc151
+  replay_1109718_legacy-game-over.zip 9b1d19d80dd46286
+  replay_1598747_null-min-rating.zip 2206bdb3c92286fc
   replay_1699315_missle-bomb_2026-07-28.zip f2bbce197cebff91
   replay_1714117_labs_2026-08-21.zip e52ff86683fd33f1
   replay_1714166_rout_2026-08-21.zip 41cfe02b0f63c0ba
@@ -38,30 +41,33 @@ per-action-classification-digests:
   replay_1714171_day-limit_2026-08-21.zip d3656666889d79b0
   replay_1714172_day-limit-draw_2026-08-21.zip 13a18d75bd5aa814
   replay_1714174_timeout_2026-08-21.zip 828cb582647cf284
+  replay_799996_legacy-turn-start.zip b15c40ca79c0f90d
+  replay_990706_capture-elimination.zip b046f1b70a7a6ee2
 
 [all fog-off]
-total=7275 compatible=6089 divergent=0 insufficient=1186
+total=10478 compatible=8661 divergent=0 insufficient=1817
 by-action (compatible/divergent/insufficient):
   AttackSeam    30/    0/    0
-  Build          0/    0/  929
-  Capt         265/    0/  245
-  End          400/    0/    2
+  Build          0/    0/ 1370
+  Capt         494/    0/  433
+  Delete         5/    0/    0
+  End          528/    0/    3
   Explode        1/    0/    0
-  Fire        1372/    0/    0
-  Join          54/    0/    0
+  Fire        1870/    0/    0
+  Join          61/    0/    0
   Launch         1/    0/    0
-  Load          80/    0/    0
-  Move        3733/    0/    0
-  Power         37/    0/    5
+  Load         121/    0/    0
+  Move        5319/    0/    0
+  Power         52/    0/    5
   Repair         1/    0/    0
-  Resign         3/    0/    5
-  Supply        34/    0/    0
-  Unload        78/    0/    0
+  Resign         5/    0/    5
+  Supply        54/    0/    1
+  Unload       119/    0/    0
 divergence-buckets:
 insufficient-buckets:
-    929 Build does not record the AWVM-assigned unit identifier
-     12 broad-exact-hp-dependence
-    245 missing-move
+   1370 Build does not record the AWVM-assigned unit identifier
+     13 broad-exact-hp-dependence
+    434 missing-move
 bucket-samples:
   I:Build does not record the AWVM-assigned unit identifier 1362397.zip:0:Build, 1362397.zip:1:Build, 1362397.zip:3:Build
   I:broad-exact-hp-dependence 1362397.zip:1792:Resign, 1362397.zip:1793:Resign, 1362397.zip:1794:Resign
@@ -70,6 +76,8 @@ per-action-classification-digests:
   1362397.zip 32c5ed0be5ced1e3
   1419680.zip d0df3cbe7dc87de5
   1468032_landfall_2025-12-22.zip 89dcca3f9f9715ff
+  replay_1109718_legacy-game-over.zip de949e520c00f2ac
+  replay_1598747_null-min-rating.zip 57689181d5f70fd7
   replay_1699315_missle-bomb_2026-07-28.zip f2bbce197cebff91
   replay_1714117_labs_2026-08-21.zip e52ff86683fd33f1
   replay_1714166_rout_2026-08-21.zip 41cfe02b0f63c0ba
@@ -78,6 +86,8 @@ per-action-classification-digests:
   replay_1714171_day-limit_2026-08-21.zip d3656666889d79b0
   replay_1714172_day-limit-draw_2026-08-21.zip 13a18d75bd5aa814
   replay_1714174_timeout_2026-08-21.zip 828cb582647cf284
+  replay_799996_legacy-turn-start.zip b15c40ca79c0f90d
+  replay_990706_capture-elimination.zip b046f1b70a7a6ee2
 
 [all fog]
 total=5740 compatible=4224 divergent=408 insufficient=1108

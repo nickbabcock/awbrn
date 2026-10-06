@@ -40,6 +40,9 @@ pub enum ReplayErrorKind {
     InvalidTurnData {
         context: Option<DeserializationContext>,
     },
+    MissingActionData {
+        context: DeserializationContext,
+    },
 }
 
 impl std::error::Error for ReplayError {
@@ -50,6 +53,7 @@ impl std::error::Error for ReplayError {
             ReplayErrorKind::Php { error, .. } => Some(error),
             ReplayErrorKind::Json { error, .. } => Some(error),
             ReplayErrorKind::InvalidTurnData { .. } => None,
+            ReplayErrorKind::MissingActionData { .. } => None,
         }
     }
 }
@@ -94,6 +98,10 @@ impl std::fmt::Display for ReplayError {
                 }
                 Ok(())
             }
+            ReplayErrorKind::MissingActionData { context } => write!(
+                f,
+                "Missing action data at {context}: the archive contains a PHP Array placeholder"
+            ),
         }
     }
 }

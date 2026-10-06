@@ -4,18 +4,22 @@ use std::io::BufWriter;
 use std::path::Path;
 
 use awbrn_map::AwbwMapData;
-use awbw_replay::{ReplayParser, turn_models::Action};
+use awbw_replay::{
+    Hidden, ReplayParser,
+    turn_models::{Action, EndInfo, GameOverAction},
+};
 use awvm::event::Event;
 use awvm::ruleset::{Domain, KnownReason, profile};
 use awvm::semantic::{
-    Location, ObservedTransition, PlayerId, PlayerStatus, PowerState, Reason, UnitAction,
+    Location, Match, ObservedTransition, Outcome, PlayerId, PlayerStatus, PowerState, Reason,
+    UnitAction, UnitId, VictoryReason,
 };
 use awvm_awbw::RecordedAdapter;
 use highway::HighwayHash;
 use rayon::prelude::*;
 use serde::Serialize;
 
-use crate::common::{append_framed, append_framed_json, map_path, workspace_path};
+use crate::common::{append_framed, append_framed_json, map_path, replay_path, workspace_path};
 
 /// One replay's per-action digest lines plus the power transitions it exercised.
 struct ReplayOutcome {
@@ -62,6 +66,78 @@ fn every_recorded_outcome_produces_valid_typed_transitions() {
             "archive never exercised an elimination the match outlived"
         );
     }
+}
+
+#[test]
+fn packed_turn_history_moves_units_before_reusing_their_tiles() {
+    let replay = ReplayParser::new()
+        .parse(&std::fs::read(replay_path("replay_1598747_null-min-rating.zip")).unwrap())
+        .unwrap();
+    assert_eq!(replay.games.len(), 27);
+    assert_eq!(replay.turns.len(), 505);
+    let map: AwbwMapData =
+        serde_json::from_slice(&std::fs::read(map_path("153972.json")).unwrap()).unwrap();
+    let mut adapter = RecordedAdapter::new(&replay, &map).unwrap();
+    let mut checked_build = false;
+    for action in &replay.turns {
+        if let Action::Build { new_unit, .. } = action
+            && new_unit
+                .values()
+                .filter_map(Hidden::get_value)
+                .any(|unit| unit.units_id.as_u32() == 195603830)
+        {
+            let existing = adapter.state().units.get(UnitId::new(195450357)).unwrap();
+            let Location::Board { position } = existing.location else {
+                panic!("expected the existing unit on the board");
+            };
+            assert_eq!((position.x, position.y), (11, 6));
+            checked_build = true;
+        }
+        adapter.advance(action).unwrap();
+    }
+    assert!(checked_build);
+}
+
+#[test]
+fn legacy_game_over_uses_elimination_flags_without_winner_metadata() {
+    let replay = ReplayParser::new()
+        .parse(&std::fs::read(replay_path("1362397.zip")).unwrap())
+        .unwrap();
+    let map: AwbwMapData =
+        serde_json::from_slice(&std::fs::read(map_path("162795.json")).unwrap()).unwrap();
+    let mut adapter = RecordedAdapter::new(&replay, &map).unwrap();
+    let winner_id = adapter.state().players[1].id();
+    let winner = adapter.state().players[1].team.clone();
+    let eliminated = adapter
+        .state()
+        .players
+        .iter()
+        .map(|player| {
+            (
+                player.id().to_string(),
+                serde_json::json!(if player.id() == winner_id { "N" } else { "Y" }),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    let over: GameOverAction = serde_json::from_value(serde_json::json!({
+        "message": "The game is over!",
+        "playersElim": eliminated,
+    }))
+    .unwrap();
+    adapter
+        .advance(&Action::End {
+            updated_info: EndInfo::GameOver(over),
+        })
+        .unwrap();
+    assert_eq!(
+        adapter.state().match_state,
+        Match::Finished {
+            outcome: Outcome::Victory {
+                winners: vec![winner],
+                reason: VictoryReason::DayLimit,
+            },
+        }
+    );
 }
 
 /// Replay every archived game on rayon's pool.

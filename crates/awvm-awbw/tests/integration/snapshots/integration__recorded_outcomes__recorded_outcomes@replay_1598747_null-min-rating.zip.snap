@@ -1,0 +1,33 @@
+---
+source: crates/awvm-awbw/tests/integration/recorded_outcomes.rs
+expression: outcome.snapshot
+input_file: assets/replays/replay_1598747_null-min-rating.zip
+---
+00002 d=1 p=3851197 End        s=373d37aab4102003 o=77356008730f7b34
+00006 d=2 p=3842324 End        s=2d26a4721cd7b027 o=5821132c5dddae3d
+00011 d=2 p=3851197 End        s=0f7f7938e5d6b3e4 o=ab72f42c6fdff26a
+00017 d=3 p=3842324 End        s=b901f8cf264b064d o=daf44e7fe8ced2f8
+00024 d=3 p=3851197 End        s=aca8c6ed2f7ce370 o=9e1b601a489689cf
+00032 d=4 p=3842324 End        s=e36068debe15b774 o=b6ffb90470de0cc3
+00041 d=4 p=3851197 End        s=864869e1649bdcee o=526336a0222e8cea
+00052 d=5 p=3842324 End        s=01b01f82283d81cc o=bbcb5768fa4309cb
+00064 d=5 p=3851197 End        s=4fb7971c2580bd34 o=8c581ffc6bea280d
+00078 d=6 p=3842324 End        s=129464ec2b826f9e o=087a6332666de758
+00093 d=6 p=3851197 End        s=93d70b9594ed7bcc o=d0a39636c69a219a
+00110 d=7 p=3842324 End        s=1e1401b5b67f3f9d o=f2020d6aa370bb12
+00127 d=7 p=3851197 End        s=ed85524430c7790c o=767d05205fa253e9
+00147 d=8 p=3842324 End        s=4ae4be5cfae246b4 o=4e93f70411299c26
+00168 d=8 p=3851197 End        s=54e935ed3c6eb537 o=e17bf0db4cf9e263
+00192 d=9 p=3842324 End        s=695b9fb66b59a627 o=e42e849dce0fe889
+00216 d=9 p=3851197 End        s=e709fe70b2f03234 o=dc88716400a6f2a0
+00244 d=10 p=3842324 End        s=2919a6ae10535027 o=e622a02390ae8ef2
+00271 d=10 p=3851197 End        s=00f33d14c986f16c o=55c7c367e35e8940
+00303 d=11 p=3842324 End        s=7ed3bded1607c45b o=93af6b0e51298a81
+00334 d=11 p=3851197 End        s=b25a4c381d8fa7b6 o=20b2a42059173ead
+00368 d=12 p=3842324 End        s=d38226219695d881 o=702cd4523fd15593
+00400 d=12 p=3851197 End        s=5804d833985b8de3 o=91cf6c43c7f1e203
+00438 d=13 p=3842324 End        s=95e45506509e1284 o=70bd8018da28c142
+00469 d=13 p=3851197 End        s=76061674d961b079 o=144c579498d51af0
+00503 d=14 p=3842324 End        s=4cdc4b68abd09028 o=b89ca452e57ae600
+00504 d=14 p=3842324 Resign     s=9e95d26ccccdc395 o=bc7dbfbbd718cca1
+final {"day":14,"match":{"outcome":{"reason":"resignation","type":"victory","winners":["player:3851197"]},"status":"finished"},"phase":"finished","players":[["3842324","resigned",22],["3851197","active",25]]}

@@ -315,7 +315,7 @@ pub struct LoadAction {
 pub struct CaptureAction {
     #[serde(rename = "buildingInfo")]
     pub building_info: BuildingInfo,
-    pub vision: indexmap::IndexMap<TargetedPlayer, BuildingVision>,
+    pub vision: CaptureVision,
     pub income: Option<indexmap::IndexMap<TargetedPlayer, PlayerIncome>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub eliminated: Option<EliminatedInfo>,
@@ -340,6 +340,31 @@ pub struct BuildingInfo {
 pub struct BuildingVision {
     #[serde(rename = "onCapture")]
     pub on_capture: Masked<Coordinate>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct CaptureVision {
+    #[serde(
+        rename = "onElimination",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub on_elimination: Option<indexmap::IndexMap<TargetedPlayer, EliminationDiscovery>>,
+    #[serde(flatten)]
+    pub on_capture: indexmap::IndexMap<TargetedPlayer, BuildingVision>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct EliminationDiscovery {
+    pub units: Vec<UnitProperty>,
+    pub buildings: Vec<EliminationBuilding>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct EliminationBuilding {
+    pub buildings_players_id: Option<AwbwGamePlayerId>,
+    pub buildings_x: u32,
+    pub buildings_y: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -589,24 +614,26 @@ pub struct NextTurnAction {
     pub supplied: Option<indexmap::IndexMap<TargetedPlayer, Vec<AwbwUnitId>>>,
     pub repaired: Option<indexmap::IndexMap<TargetedPlayer, Vec<RepairedUnit>>>,
     pub day: u32,
-    #[serde(rename = "nextTurnStart")]
-    pub next_turn_start: String,
+    #[serde(rename = "nextTurnStart", skip_serializing_if = "Option::is_none")]
+    pub next_turn_start: Option<String>,
 }
 
 /// The record that closes a match.
 ///
-/// AWBW writes it nested in the action that ended the match -- a resignation,
-/// or the elimination an attack or a capture caused -- and as the payload of
-/// the turn end that reached a day limit. The nested form carries a date; the
-/// turn-end form leaves the date null and adds `playersElim`.
+/// A resignation, attack, or capture can contain this record.
+/// A turn end at the day limit also contains this record.
+/// Older turn ends contain only `message` and `playersElim`.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct GameOverAction {
-    pub day: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub day: Option<u32>,
     #[serde(rename = "gameEndDate")]
     /// AWBW encodes this end time as a calendar day.
     pub game_end_date: Option<AwbwDate>,
+    #[serde(default)]
     pub losers: Vec<AwbwGamePlayerId>,
     pub message: String,
+    #[serde(default)]
     pub winners: Vec<AwbwGamePlayerId>,
     /// The players that lost, written only by a turn end that reached a day
     /// limit.
@@ -728,8 +755,8 @@ pub struct UpdatedInfo {
     pub supplied: Option<indexmap::IndexMap<TargetedPlayer, Vec<AwbwUnitId>>>,
     pub repaired: Option<indexmap::IndexMap<TargetedPlayer, Vec<RepairedUnit>>>,
     pub day: u32,
-    #[serde(rename = "nextTurnStart")]
-    pub next_turn_start: String,
+    #[serde(rename = "nextTurnStart", skip_serializing_if = "Option::is_none")]
+    pub next_turn_start: Option<String>,
 }
 
 impl From<NextTurnAction> for UpdatedInfo {
@@ -875,6 +902,176 @@ impl<'de> Deserialize<'de> for TargetedPlayer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_legacy_turns_can_omit_the_start_time() {
+        let raw = r#"{
+            "action": "End",
+            "updatedInfo": {
+                "event": "NextTurn",
+                "nextPId": 1957717,
+                "nextFunds": {
+                    "global": 5000
+                },
+                "nextTimer": 518400,
+                "nextWeather": "C",
+                "supplied": {
+                    "global": []
+                },
+                "repaired": {
+                    "global": [
+                        {
+                            "units_id": "121362589",
+                            "units_hit_points": 10
+                        },
+                        {
+                            "units_id": "121362590",
+                            "units_hit_points": 10
+                        }
+                    ]
+                },
+                "day": 1
+            }
+        }"#;
+        let Action::End { updated_info } = serde_json::from_str(raw).unwrap() else {
+            panic!("expected a turn end");
+        };
+        let next = updated_info.next_turn().unwrap();
+        assert_eq!(next.next_turn_start, None);
+        assert_eq!(next.next_player_id, AwbwGamePlayerId::new(1957717));
+        assert_eq!(next.day, 1);
+
+        let mut value: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let payload = &mut value["updatedInfo"];
+        let action: NextTurnAction = serde_json::from_value(payload.clone()).unwrap();
+        assert_eq!(UpdatedInfo::from(action), *next);
+        payload["nextTurnStart"] = serde_json::Value::Null;
+        assert_eq!(
+            serde_json::from_value::<UpdatedInfo>(payload.clone())
+                .unwrap()
+                .next_turn_start,
+            None
+        );
+        payload.as_object_mut().unwrap().remove("nextPId");
+        let error = serde_json::from_value::<UpdatedInfo>(payload.clone()).unwrap_err();
+        assert!(error.to_string().contains("nextPId"));
+    }
+
+    #[test]
+    fn test_legacy_game_over_records_retain_the_elimination_flags() {
+        let json = r#"{
+            "action": "End",
+            "updatedInfo": {
+                "event": "GameOver",
+                "message": "The game is over! PAChen is the winner!",
+                "playersElim": {
+                    "2721532": "Y",
+                    "2725706": "N"
+                },
+                "nextTimer": null,
+                "nextTurnStart": null,
+                "nextFunds": null,
+                "repaired": null,
+                "supplied": null
+            }
+        }"#;
+        let Action::End {
+            updated_info: EndInfo::GameOver(over),
+        } = serde_json::from_str(json).unwrap()
+        else {
+            panic!("expected a terminal record");
+        };
+        assert_eq!(over.day, None);
+        assert_eq!(over.game_end_date, None);
+        assert!(over.winners.is_empty());
+        assert!(over.losers.is_empty());
+        let eliminated = over.players_elim.unwrap();
+        assert!(eliminated[&TargetedPlayer::Player(AwbwGamePlayerId::new(2721532))]);
+        assert!(!eliminated[&TargetedPlayer::Player(AwbwGamePlayerId::new(2725706))]);
+    }
+
+    #[test]
+    fn test_capture_vision_retains_the_elimination_discoveries() {
+        let raw = r#"{
+            "action": "Capt",
+            "Move": [],
+            "Capt": {
+                "action": "Capt",
+                "buildingInfo": {
+                    "0": 49504790,
+                    "buildings_id": 49504790,
+                    "buildings_x": 10,
+                    "buildings_y": 11,
+                    "buildings_capture": 0,
+                    "terrain_id": 147,
+                    "terrain_name": "Red Fire Lab",
+                    "terrain_defense": 3,
+                    "buildings_players_id": 2379762,
+                    "buildings_team": "2379762"
+                },
+                "vision": {
+                    "global": {
+                        "onCapture": {
+                            "x": 10,
+                            "y": 11
+                        }
+                    },
+                    "onElimination": {
+                        "2379762": {
+                            "units": [],
+                            "buildings": [
+                                {
+                                    "buildings_players_id": 2379763,
+                                    "buildings_x": 4,
+                                    "buildings_y": 23
+                                }
+                            ]
+                        }
+                    }
+                },
+                "income": {
+                    "2379763": {
+                        "player": 2379763,
+                        "income": 23000
+                    }
+                },
+                "eliminated": {
+                    "eliminatedByPId": 2379762,
+                    "message": "GiantSlayer was eliminated by capture!",
+                    "playerId": 2379763,
+                    "GameOver": {
+                        "day": 10,
+                        "gameEndDate": "2023-08-17",
+                        "losers": [
+                            2379763
+                        ],
+                        "message": "The game is over! DrkZro is the winner!",
+                        "winners": [
+                            2379762
+                        ]
+                    }
+                }
+            }
+        }"#;
+        let Action::Capt { capture_action, .. } = serde_json::from_str(raw).unwrap() else {
+            panic!("expected a capture");
+        };
+        let capture = &capture_action.vision.on_capture[&TargetedPlayer::Global];
+        assert_eq!(capture.on_capture.get_value().unwrap().x, 10);
+        let target = TargetedPlayer::Player(AwbwGamePlayerId::new(2379762));
+        let discoveries = capture_action.vision.on_elimination.as_ref().unwrap();
+        assert!(discoveries[&target].units.is_empty());
+        assert_eq!(discoveries[&target].buildings.len(), 1);
+        let building = &discoveries[&target].buildings[0];
+        assert_eq!(
+            building.buildings_players_id,
+            Some(AwbwGamePlayerId::new(2379763))
+        );
+        assert_eq!((building.buildings_x, building.buildings_y), (4, 23));
+        let parsed = serde_json::to_value(&capture_action).unwrap();
+        let original: serde_json::Value = serde_json::from_str(raw).unwrap();
+        assert_eq!(parsed["vision"], original["Capt"]["vision"]);
+    }
 
     #[test]
     fn test_global_stat_boost() {

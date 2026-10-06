@@ -1,0 +1,124 @@
+---
+source: crates/awbw-replay/tests/snapshots.rs
+expression: snapshot
+input_file: assets/replays/replay_990706_capture-elimination.zip
+---
+{
+  "checksum": "0x893393e42b6591fcf8405984df7aa90f9f91a80a80cda88d285fba52cfec12db",
+  "file_entries": [
+    {
+      "data": {
+        "Game": {
+          "count": 19
+        }
+      },
+      "file_path": "990706",
+      "file_size": 55423
+    },
+    {
+      "data": {
+        "Turn": {
+          "turns": [
+            {
+              "day": 1,
+              "elements": 5,
+              "player_id": 2379762
+            },
+            {
+              "day": 1,
+              "elements": 7,
+              "player_id": 2379763
+            },
+            {
+              "day": 2,
+              "elements": 9,
+              "player_id": 2379762
+            },
+            {
+              "day": 2,
+              "elements": 11,
+              "player_id": 2379763
+            },
+            {
+              "day": 3,
+              "elements": 13,
+              "player_id": 2379762
+            },
+            {
+              "day": 3,
+              "elements": 15,
+              "player_id": 2379763
+            },
+            {
+              "day": 4,
+              "elements": 17,
+              "player_id": 2379762
+            },
+            {
+              "day": 4,
+              "elements": 18,
+              "player_id": 2379763
+            },
+            {
+              "day": 5,
+              "elements": 21,
+              "player_id": 2379762
+            },
+            {
+              "day": 5,
+              "elements": 22,
+              "player_id": 2379763
+            },
+            {
+              "day": 6,
+              "elements": 22,
+              "player_id": 2379762
+            },
+            {
+              "day": 6,
+              "elements": 26,
+              "player_id": 2379763
+            },
+            {
+              "day": 7,
+              "elements": 24,
+              "player_id": 2379762
+            },
+            {
+              "day": 7,
+              "elements": 29,
+              "player_id": 2379763
+            },
+            {
+              "day": 8,
+              "elements": 28,
+              "player_id": 2379762
+            },
+            {
+              "day": 8,
+              "elements": 31,
+              "player_id": 2379763
+            },
+            {
+              "day": 9,
+              "elements": 31,
+              "player_id": 2379762
+            },
+            {
+              "day": 9,
+              "elements": 34,
+              "player_id": 2379763
+            },
+            {
+              "day": 10,
+              "elements": 2,
+              "player_id": 2379762
+            }
+          ]
+        }
+      },
+      "file_path": "a990706",
+      "file_size": 28783
+    }
+  ]
+}
