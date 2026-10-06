@@ -4,7 +4,7 @@ expression: snapshot
 input_file: assets/replays/1403019.zip
 ---
 {
-  "checksum": "0x262707ab780b388cee13297697ed1431219c5b7205e902b890203065d50dde88",
+  "checksum": "0x61af7a8efa1c6e36c6fa04a96742a1f426ed5df59f59c3eecaa90d33b745de9d",
   "file_entries": [
     {
       "data": {
@@ -203,6 +203,16 @@ input_file: assets/replays/1403019.zip
               "day": 8,
               "elements": 25,
               "player_id": 3277011
+            },
+            {
+              "day": 8,
+              "elements": 19,
+              "player_id": 3279740
+            },
+            {
+              "day": 8,
+              "elements": 18,
+              "player_id": 3277095
             },
             {
               "day": 8,

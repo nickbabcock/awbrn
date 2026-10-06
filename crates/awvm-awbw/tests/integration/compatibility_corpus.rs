@@ -9,7 +9,7 @@ use highway::{HighwayHash, HighwayHasher, Key};
 use crate::common::map_path;
 
 #[test]
-#[ignore = "advisory 12,929-action differential; run explicitly for phase 5.3 diagnostics"]
+#[ignore = "advisory 13,015-action differential; run explicitly for phase 5.3 diagnostics"]
 fn archived_actions_have_an_advisory_local_compatibility_report() {
     let prefix_only = std::env::var_os("AWVM_COMPAT_PREFIX_ONLY").is_some();
     let mut prefix = Report::new("fog-off pre-power prefix");
@@ -74,7 +74,7 @@ fn archived_actions_have_an_advisory_local_compatibility_report() {
         return;
     }
     assert_eq!(fog_off.actions, 7_275, "fog-off archive size drifted");
-    assert_eq!(fog.actions, 5_703, "fog archive size drifted");
+    assert_eq!(fog.actions, 5_740, "fog archive size drifted");
 
     let snapshot = format!(
         "{}\n\n{}\n\n{}",
