@@ -10,4 +10,5 @@ mod command_coverage;
 mod compatibility_corpus;
 mod initial_state;
 mod local_compatibility;
+mod masked_hp;
 mod recorded_outcomes;

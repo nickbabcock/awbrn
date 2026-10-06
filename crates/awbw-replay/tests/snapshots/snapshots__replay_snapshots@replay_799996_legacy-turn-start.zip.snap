@@ -1,0 +1,109 @@
+---
+source: crates/awbw-replay/tests/snapshots.rs
+expression: snapshot
+input_file: assets/replays/replay_799996_legacy-turn-start.zip
+---
+{
+  "checksum": "0x8c996b8694a996c20c61c396258e58998bc20ad5683ab68f9199ca3ae76b0aa5",
+  "file_entries": [
+    {
+      "data": {
+        "Game": {
+          "count": 16
+        }
+      },
+      "file_path": "799996",
+      "file_size": 38954
+    },
+    {
+      "data": {
+        "Turn": {
+          "turns": [
+            {
+              "day": 1,
+              "elements": 5,
+              "player_id": 1957716
+            },
+            {
+              "day": 1,
+              "elements": 6,
+              "player_id": 1957717
+            },
+            {
+              "day": 2,
+              "elements": 7,
+              "player_id": 1957716
+            },
+            {
+              "day": 2,
+              "elements": 9,
+              "player_id": 1957717
+            },
+            {
+              "day": 3,
+              "elements": 11,
+              "player_id": 1957716
+            },
+            {
+              "day": 3,
+              "elements": 13,
+              "player_id": 1957717
+            },
+            {
+              "day": 4,
+              "elements": 15,
+              "player_id": 1957716
+            },
+            {
+              "day": 4,
+              "elements": 17,
+              "player_id": 1957717
+            },
+            {
+              "day": 5,
+              "elements": 19,
+              "player_id": 1957716
+            },
+            {
+              "day": 5,
+              "elements": 21,
+              "player_id": 1957717
+            },
+            {
+              "day": 6,
+              "elements": 23,
+              "player_id": 1957716
+            },
+            {
+              "day": 6,
+              "elements": 25,
+              "player_id": 1957717
+            },
+            {
+              "day": 7,
+              "elements": 26,
+              "player_id": 1957716
+            },
+            {
+              "day": 7,
+              "elements": 29,
+              "player_id": 1957717
+            },
+            {
+              "day": 8,
+              "elements": 30,
+              "player_id": 1957716
+            },
+            {
+              "day": 8,
+              "elements": 4,
+              "player_id": 1957717
+            }
+          ]
+        }
+      },
+      "file_path": "a799996",
+      "file_size": 20778
+    }
+  ]
+}

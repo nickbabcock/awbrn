@@ -1,0 +1,22 @@
+---
+source: crates/awvm-awbw/tests/integration/recorded_outcomes.rs
+expression: outcome.snapshot
+input_file: assets/replays/replay_799996_legacy-turn-start.zip
+---
+00004 d=1 p=1957717 End        s=10ad62af4dc86833 o=3641f956e701c6b4
+00010 d=2 p=1957716 End        s=47a490e030e6c3f4 o=baafb74da2e9d029
+00017 d=2 p=1957717 End        s=3d13dd4bd7507801 o=537f1afe4a5bcafa
+00026 d=3 p=1957716 End        s=6efbd50276094df0 o=6c55b818addf8a45
+00037 d=3 p=1957717 End        s=c4d3d4613be1b2c2 o=0b246f505d3303d1
+00050 d=4 p=1957716 End        s=88a7e8471b3a5e6d o=214876db14b76c05
+00065 d=4 p=1957717 End        s=fc87a6e1a429ce5b o=5ed730c2947e49f0
+00082 d=5 p=1957716 End        s=e1195d19ace0ccd9 o=fbd3e93d318c71f5
+00101 d=5 p=1957717 End        s=778fcbed0b4604c2 o=bf9d7606c29c0586
+00122 d=6 p=1957716 End        s=a05773a8cf1137c3 o=9510f7eb1aea6980
+00145 d=6 p=1957717 End        s=9cafc5cd8050bbc2 o=8932cb36e196c105
+00170 d=7 p=1957716 End        s=88bf96b32c9c2156 o=8858bcc27a8b70bb
+00196 d=7 p=1957717 End        s=9fc08f1c4a2b644c o=930a30dbe74f0304
+00225 d=8 p=1957716 End        s=adcf6de11d5b1c94 o=85f5730939342982
+00255 d=8 p=1957717 End        s=007706aecb8415d7 o=cef08955ec3979de
+00259 d=8 p=1957717 Resign     s=6a1997c9ad1cdc41 o=968e818fd0ee3bf2
+final {"day":8,"match":{"outcome":{"reason":"resignation","type":"victory","winners":["player:1957716"]},"status":"finished"},"phase":"finished","players":[["1957716","active",23],["1957717","resigned",22]]}
