@@ -46,10 +46,10 @@ export const SYMMETRY_BLURBS: Record<Symmetry, string> = {
   "mirror-left-right": "The left half faces the right. Two armies.",
   "mirror-top-bottom": "The top half faces the bottom. Two armies.",
   rotate180: "Turned about the middle. Two armies, facing corners.",
-  rotate90: "Turned a quarter at a time. Four armies, one corner each.",
+  rotate90: "Turned a quarter at a time. Two armies hold opposite corners, or four hold one each.",
   "mirror-diagonal": "Folded on the diagonal from the top left. Two armies.",
   "mirror-anti-diagonal": "Folded on the diagonal from the top right. Two armies.",
-  "quad-mirror": "Mirrored on both axes. Four armies, one quarter each.",
+  "quad-mirror": "Mirrored on both axes. Two armies hold one side each, or four hold one quarter each.",
 };
 
 /** Why a mode is out of reach. There is only ever one reason. */

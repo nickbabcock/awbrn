@@ -136,6 +136,16 @@ impl EditorCommandQueue {
     }
 }
 
+/// Whether the editor holds a board, or is loading one.
+///
+/// A command sent while a board loads waits in the queue for that board. The
+/// queue itself always exists, so it does not show whether the editor is open.
+pub fn editor_is_open(world: &World) -> bool {
+    world.contains_resource::<EditorSession>()
+        || world.contains_resource::<crate::loading::LoadedEditorMap>()
+        || world.contains_resource::<crate::loading::PendingEditorMap>()
+}
+
 /// One army on the board, and what it holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(target_family = "wasm", derive(tsify::Tsify))]
@@ -193,9 +203,9 @@ pub struct EditorStateChanged {
     /// whoever holds it. A com tower and a lab are held like any other
     /// building and pay nothing, so this is not the building count.
     pub board_income: u32,
-    /// That figure shared evenly between the armies the fold seats. It is what
-    /// a half of this map is worth when the halves are equal, which is the
-    /// number a map maker is drawing towards.
+    /// That figure shared evenly between the armies on the roster. It is what
+    /// one side of the map is worth when the sides are equal. A map maker
+    /// draws towards this number.
     pub income_per_army: u32,
     pub can_undo: bool,
     pub can_redo: bool,
@@ -204,22 +214,31 @@ pub struct EditorStateChanged {
     pub roster: Vec<FactionCode>,
 }
 
-/// The board a stroke is being drawn on, while a stroke is in flight.
-#[derive(Debug, Resource, Default)]
-pub(crate) struct StrokeInFlight(bool);
+/// The stroke the pointer is drawing, if a drag opened one.
+#[derive(Debug, Resource, Default, PartialEq, Eq)]
+pub(crate) enum StrokeInFlight {
+    #[default]
+    Closed,
+    /// A drag is painting. `last` is the tile it last painted, so the next
+    /// move paints the tiles between, and not the same tile again.
+    Open { last: Option<Pos> },
+}
 
 /// Drops what the last edit left behind when the editor closes.
 ///
 /// The commands run only in editor mode, so a command that arrives as the mode
 /// closes would otherwise wait in the queue and land on the next board. A
 /// stroke that was open when the mode closed would do the same, and the next
-/// drag would carry on from it.
+/// drag would carry on from it. The session goes too, so that nothing reads
+/// or saves the old board while the next one loads.
 pub(crate) fn cleanup_editor_input(
+    mut commands: Commands,
     mut queue: ResMut<EditorCommandQueue>,
     mut stroke: ResMut<StrokeInFlight>,
 ) {
+    commands.remove_resource::<EditorSession>();
     queue.0.clear();
-    stroke.0 = false;
+    *stroke = StrokeInFlight::Closed;
 }
 
 /// Puts the open map on the board once the assets are ready.
@@ -228,6 +247,9 @@ pub(crate) fn initialize_editor_world(world: &mut World) {
         return;
     };
 
+    // The loading step gives `GameMap` this board before loading completes,
+    // so other systems that run then read the right shape. It is set again
+    // here so that this system does not depend on that step.
     let session = EditorSession::new(pending.0);
     world
         .resource_mut::<GameMap>()
@@ -505,9 +527,9 @@ fn read_state(session: &EditorSession) -> EditorStateChanged {
     armies.sort_by_key(|held| held.faction.faction());
 
     let uneven = editor.asymmetries(editor.symmetry());
-    // Divided between the armies the fold seats rather than the armies that
-    // happen to hold something: a board drawn for four is drawn towards a
-    // quarter each, whether or not the fourth has been given anything yet.
+    // Divided between the armies on the roster, not the armies that hold
+    // something now. A board drawn for four is drawn towards a quarter each,
+    // even before the fourth army holds anything.
     let seats = editor.roster().seats().len();
 
     EditorStateChanged {
@@ -567,7 +589,17 @@ const FOLD_CURSOR_COUNT: usize = 3;
 /// where the pointer is.
 const FOLD_CURSOR_ALPHA: f32 = 0.5;
 
-pub(crate) fn spawn_fold_cursors(mut commands: Commands, ui_atlas: UiAtlas) {
+pub(crate) fn spawn_fold_cursors(
+    mut commands: Commands,
+    ui_atlas: UiAtlas,
+    existing: Query<(), With<FoldCursor>>,
+) {
+    // Every map the editor opens completes a load. The cursors from the first
+    // one serve all of them.
+    if !existing.is_empty() {
+        return;
+    }
+
     for _ in 0..FOLD_CURSOR_COUNT {
         let mut sprite = ui_atlas.sprite_for("Effects/TileCursor.png");
         sprite.color = Color::srgba(1.0, 1.0, 1.0, FOLD_CURSOR_ALPHA);
@@ -712,27 +744,67 @@ pub(crate) fn paint_from_pointer(
                     continue;
                 }
                 queue.push(EditorCommand::BeginStroke);
-                stroke.0 = true;
                 if let Some(position) = gesture.tile {
                     queue.push(EditorCommand::Paint { position });
                 }
+                *stroke = StrokeInFlight::Open { last: gesture.tile };
             }
             PointerGestureKind::DragMove => {
-                if !stroke.0 {
+                let StrokeInFlight::Open { last } = &mut *stroke else {
                     continue;
+                };
+                let Some(position) = gesture.tile else {
+                    continue;
+                };
+                // A fast pointer jumps tiles between two moves. The tiles it
+                // jumped are painted too, so a road drawn quickly has no gaps.
+                match *last {
+                    Some(from) => {
+                        for position in tiles_between(from, position) {
+                            queue.push(EditorCommand::Paint { position });
+                        }
+                    }
+                    None => queue.push(EditorCommand::Paint { position }),
                 }
-                if let Some(position) = gesture.tile {
-                    queue.push(EditorCommand::Paint { position });
-                }
+                *last = Some(position);
             }
             PointerGestureKind::DragEnd | PointerGestureKind::DragCancel => {
-                if stroke.0 {
+                if *stroke != StrokeInFlight::Closed {
                     queue.push(EditorCommand::EndStroke);
-                    stroke.0 = false;
+                    *stroke = StrokeInFlight::Closed;
                 }
             }
         }
     }
+}
+
+/// The tiles a stroke crosses from `from` to `to`, without `from`.
+///
+/// Each step goes to a tile that shares a side with the one before. A road
+/// that steps diagonally does not join, so a diagonal stroke paints a stair.
+/// The result is empty when the two tiles are the same.
+fn tiles_between(from: Pos, to: Pos) -> Vec<Pos> {
+    let (mut x, mut y) = (i32::from(from.x), i32::from(from.y));
+    let (dx, dy) = (i32::from(to.x) - x, i32::from(to.y) - y);
+    let (across, down) = (dx.abs(), dy.abs());
+    let (step_x, step_y) = (dx.signum(), dy.signum());
+
+    let mut tiles = Vec::with_capacity(usize::try_from(across + down).unwrap_or(0));
+    let (mut moved_x, mut moved_y) = (0, 0);
+    while moved_x < across || moved_y < down {
+        // Step along the axis whose next tile centre is nearer the line.
+        if (1 + 2 * moved_x) * down < (1 + 2 * moved_y) * across {
+            x += step_x;
+            moved_x += 1;
+        } else {
+            y += step_y;
+            moved_y += 1;
+        }
+        if let (Ok(x), Ok(y)) = (u8::try_from(x), u8::try_from(y)) {
+            tiles.push(Pos::new(x, y));
+        }
+    }
+    tiles
 }
 
 /// Undo and redo from the keyboard, where a drawing tool puts them.
@@ -1153,6 +1225,58 @@ mod tests {
     }
 
     #[test]
+    fn undoing_a_resize_rebuilds_the_board_at_the_old_shape() {
+        let mut app = editor_world(6, 6);
+        queue(
+            &mut app,
+            EditorCommand::Resize {
+                width: 10,
+                height: 8,
+                anchor: ResizeAnchor::TopLeft,
+            },
+        );
+        queue(&mut app, EditorCommand::Undo);
+        run_editor_commands(app.world_mut());
+
+        assert_eq!(app.world().resource::<GameMap>().width(), 6);
+        assert_eq!(app.world().resource::<GameMap>().height(), 6);
+        let index = app.world().resource::<BoardIndex>();
+        index
+            .terrain_entity(Pos::new(5, 5))
+            .expect("the old corner is on the board");
+        index
+            .terrain_entity(Pos::new(9, 7))
+            .expect_err("the corner the resize added is gone");
+    }
+
+    #[test]
+    fn a_stroke_paints_every_tile_between_two_pointer_moves() {
+        assert_eq!(
+            tiles_between(Pos::new(0, 0), Pos::new(3, 0)),
+            vec![Pos::new(1, 0), Pos::new(2, 0), Pos::new(3, 0)]
+        );
+        assert_eq!(
+            tiles_between(Pos::new(3, 2), Pos::new(3, 0)),
+            vec![Pos::new(3, 1), Pos::new(3, 0)]
+        );
+        assert!(tiles_between(Pos::new(2, 2), Pos::new(2, 2)).is_empty());
+    }
+
+    #[test]
+    fn a_diagonal_stroke_steps_through_tiles_that_share_a_side() {
+        let tiles = tiles_between(Pos::new(0, 0), Pos::new(3, 2));
+
+        assert_eq!(tiles.len(), 5);
+        assert_eq!(tiles.last(), Some(&Pos::new(3, 2)));
+        let mut previous = Pos::new(0, 0);
+        for tile in tiles {
+            let apart = previous.x.abs_diff(tile.x) + previous.y.abs_diff(tile.y);
+            assert_eq!(apart, 1, "{previous:?} to {tile:?} is not one side");
+            previous = tile;
+        }
+    }
+
+    #[test]
     fn a_blank_board_holds_no_armies() {
         let state = read_state(&session(10, 6));
 
@@ -1223,12 +1347,13 @@ mod tests {
         assert_eq!(state.income_per_army, 1_000, "shared between the two seats");
     }
 
-    /// The share is taken over the seats the fold holds, not the armies that
-    /// happen to hold something: a board drawn for four is drawn towards a
-    /// quarter each before the fourth army has been given anything.
+    /// The share is taken over the seats on the roster, not the armies that
+    /// hold something now. A board drawn for four is drawn towards a quarter
+    /// each before the fourth army holds anything.
     #[test]
     fn the_share_follows_the_roster_rather_than_the_board() {
         let mut session = session(12, 12);
+        session.editor.set_roster(ArmyRoster::standard());
         session.editor.set_symmetry(Symmetry::QuadMirror);
         session.editor.paint(
             Pos::new(1, 1),

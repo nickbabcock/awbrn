@@ -6,7 +6,7 @@ use awbrn_client::{
     PlayerRosterSnapshot, ProductionOptionsChanged, ReplayLoaded, ReplayPositionChanged,
     ReplayToLoad, ReplayViewpointChanged, StaticAssetPathResolver, TileHoverChanged, TileSelected,
     TurnReadinessChanged, UnitActionsChanged, UnitBuilt, UnitInspectionChanged, UnitMoved,
-    UnloadCommandRequested, core::coords::LogicalPx,
+    UnloadCommandRequested, core::coords::LogicalPx, editor_is_open,
 };
 use awbrn_map::editor::{Brush, PaletteGroup};
 use awbrn_map::{AwbwMap, Dimensions, ValidatedMapDocument};
@@ -238,6 +238,18 @@ fn register_awbw_asset_source(_app: &mut App) {}
 #[wasm_bindgen]
 pub struct BevyApp {
     app: App,
+}
+
+impl BevyApp {
+    /// Hands a board to the editor, and closes the board it had.
+    ///
+    /// The old session goes now, not when the new board loads. Until then,
+    /// a save must not read the old board as the new one.
+    fn open_editor_on(&mut self, map: AwbwMap) {
+        let world = self.app.world_mut();
+        world.remove_resource::<EditorSession>();
+        world.insert_resource(PendingEditorMap(map));
+    }
 }
 
 impl std::fmt::Debug for BevyApp {
@@ -586,10 +598,7 @@ impl BevyApp {
         let map = serde_wasm_bindgen::from_value::<ValidatedMapDocument>(map_data)
             .map_err(|error| JsError::new(&format!("Invalid awbrn map: {error}")))?;
 
-        self.app
-            .world_mut()
-            .insert_resource(PendingEditorMap(map.into_map()));
-
+        self.open_editor_on(map.into_map());
         Ok(())
     }
 
@@ -600,13 +609,10 @@ impl BevyApp {
             return Err(JsError::new("a board has at least one tile on each side"));
         }
 
-        self.app
-            .world_mut()
-            .insert_resource(PendingEditorMap(AwbwMap::new(
-                Dimensions::new(width, height),
-                AwbwTerrain::Plain,
-            )));
-
+        self.open_editor_on(AwbwMap::new(
+            Dimensions::new(width, height),
+            AwbwTerrain::Plain,
+        ));
         Ok(())
     }
 
@@ -617,10 +623,10 @@ impl BevyApp {
             .map_err(|error| JsError::new(&format!("Invalid editor command: {error}")))?;
 
         let world = self.app.world_mut();
-        let Some(mut queue) = world.get_resource_mut::<EditorCommandQueue>() else {
+        if !editor_is_open(world) {
             return Err(JsError::new("the editor is not open"));
-        };
-        queue.push(command);
+        }
+        world.resource_mut::<EditorCommandQueue>().push(command);
 
         Ok(())
     }

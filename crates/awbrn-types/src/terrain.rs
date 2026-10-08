@@ -68,19 +68,16 @@ impl ShoalType {
     /// the same side the picture does, which keeps a mirrored board equal to
     /// its original tile for tile.
     ///
-    /// AWBW has one variant for each of the four sides and no more, so a shoal
-    /// with land on more than one side is recorded against one of them: north
-    /// before south, and east before west.
+    /// AWBW has one variant for each of the four sides and no more. A shoal
+    /// with land on more than one side is recorded against one of them, in
+    /// this order: north, south, east, west. A shoal with no land is recorded
+    /// against the west.
     pub const fn from_land(north: bool, east: bool, south: bool, west: bool) -> ShoalType {
         match (north, east, south, west) {
-            (true, false, false, false) => ShoalType::HorizontalNorth,
-            (false, true, false, false) => ShoalType::VerticalEast,
-            (false, false, false, true) => ShoalType::Vertical,
-            (false, false, true, false) => ShoalType::Horizontal,
-            (true, _, false, _) => ShoalType::HorizontalNorth,
+            (true, ..) => ShoalType::HorizontalNorth,
             (false, _, true, _) => ShoalType::Horizontal,
-            (_, true, _, false) => ShoalType::VerticalEast,
-            _ => ShoalType::Vertical,
+            (false, true, false, _) => ShoalType::VerticalEast,
+            (false, false, false, _) => ShoalType::Vertical,
         }
     }
 

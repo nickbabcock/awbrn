@@ -26,5 +26,6 @@ pub use loading::{
 };
 pub use modes::editor::{
     EditorArmy, EditorCommand, EditorCommandQueue, EditorSession, EditorStateChanged,
+    editor_is_open,
 };
 pub use ui_atlas::*;

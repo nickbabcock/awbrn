@@ -18,7 +18,7 @@
 
 use crate::awbrn_map::AwbrnMap;
 use crate::awbw_map::AwbwMap;
-use crate::deployment::Deployment;
+use crate::deployment::{Deployment, MAX_UNIT_HP};
 use crate::map_document::{AwbrnMapDocument, AwbrnMapMetadata};
 use awbrn_types::{
     AwbwTerrain, BridgeType, Faction, FactionCode, GraphicalTerrain, MissileSiloStatus,
@@ -87,6 +87,11 @@ impl Sides {
     const WEST: Sides = Sides(8);
     const HORIZONTAL: Sides = Sides(2 | 8);
     const VERTICAL: Sides = Sides(1 | 4);
+    const ALL: Sides = Sides(1 | 2 | 4 | 8);
+
+    const fn and(self, other: Sides) -> Sides {
+        Sides(self.0 | other.0)
+    }
 
     const fn with(self, direction: Direction) -> Sides {
         Sides(self.0 | direction.bit())
@@ -94,6 +99,14 @@ impl Sides {
 
     const fn has(self, direction: Direction) -> bool {
         self.0 & direction.bit() != 0
+    }
+
+    /// Whether a straight piece through these sides runs north to south.
+    ///
+    /// A piece that has no variant for these sides uses this rule. A stub
+    /// that points north or south is vertical. All other stubs are horizontal.
+    const fn runs_vertically(self) -> bool {
+        self.has(Direction::North) || self.has(Direction::South)
     }
 
     /// The same set after a swap of two opposite sides.
@@ -242,8 +255,8 @@ impl Symmetry {
 
     /// The order a board is read for a fold it already holds, strongest first.
     ///
-    /// A fold that shares an edit out to four armies says more than one that
-    /// shares it out to two, so the two quarter folds are read first. The rest
+    /// A fold that repeats an edit four times says more than one that repeats
+    /// it twice, so the two quarter folds are read first. The rest
     /// follow in the order the picker offers them, which is the order a map
     /// maker reaching for a fold thinks of them in. [`Symmetry::None`] is not
     /// listed: it is the answer when nothing else holds.
@@ -330,10 +343,12 @@ impl Symmetry {
 ///
 /// Painting an Orange Star headquarters under a half turn should put a Blue
 /// Moon headquarters at the other end of the board, not a second Orange Star
-/// one. The roster is what says which army each image belongs to: the army the
-/// brush names takes its own seat, and each image takes the seat after it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
+/// one. The roster tells which army each image belongs to. The army the brush
+/// names takes its own seat, and each image takes the seat after it.
+///
+/// The roster sets the number of armies, not the fold. A quarter turn with two
+/// armies on the roster gives a 1v1 map: each army holds two opposite corners.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArmyRoster(Vec<PlayerFaction>);
 
 impl ArmyRoster {
@@ -367,59 +382,17 @@ impl ArmyRoster {
 
     /// The armies a board already holds, in the order the game lists them.
     ///
-    /// A map that comes out of the catalog names its own armies: the roster it
-    /// is edited under is the one it was drawn with, not the one the standard
-    /// four would guess. Painting as Orange Star on a board that seats Green
-    /// Earth and Yellow Comet is an offer no map maker wants.
-    ///
-    /// A fold needs two armies to have anything to say, so a board that seats
-    /// fewer takes the next armies the game lists.
+    /// A map from the catalog keeps the armies it was drawn with. A fold needs
+    /// two armies, so a board that seats fewer gets the seats a match would
+    /// give it.
     pub fn from_map(map: &AwbwMap) -> ArmyRoster {
-        let mut seats: Vec<PlayerFaction> = Vec::new();
-        let mut seat = |faction: Faction| {
-            if let Faction::Player(player) = faction
-                && !seats.contains(&player)
-            {
-                seats.push(player);
-            }
-        };
-
-        for (_, terrain) in map.iter() {
-            if let AwbwTerrain::Property(property) = terrain {
-                seat(property.faction());
-            }
-        }
-        for (_, deployment) in map.deployments().iter() {
-            seat(Faction::Player(deployment.faction));
-        }
-
-        seats.sort();
-        let mut roster = ArmyRoster(seats);
-        roster.seat_at_least(2);
-        roster
+        let seats = map.factions().len().max(2);
+        ArmyRoster(map.slot_factions(seats))
     }
 
     /// The armies in seat order.
     pub fn seats(&self) -> &[PlayerFaction] {
         &self.0
-    }
-
-    /// Adds armies, in the order the game lists them, until the roster holds
-    /// `seats` of them.
-    ///
-    /// A fold of order four with two armies on the roster has nobody to give
-    /// two of its four images to, and would hand them back to the army that
-    /// drew the stroke. Growing the roster to the fold is what keeps a quarter
-    /// turn meaning four armies.
-    pub fn seat_at_least(&mut self, seats: usize) {
-        for faction in (1..=u8::MAX).filter_map(PlayerFaction::from_id) {
-            if self.0.len() >= seats {
-                return;
-            }
-            if !self.0.contains(&faction) {
-                self.0.push(faction);
-            }
-        }
     }
 
     /// How many armies the roster holds.
@@ -434,15 +407,16 @@ impl ArmyRoster {
 
     /// The army `step` seats after `faction`, inside its own group.
     ///
-    /// A symmetry of order two pairs the armies two at a time, and one of order
-    /// four takes them four at a time, so a roster of four armies mirrors as
-    /// two pairs and turns as one set of four. That is what a map maker means
-    /// by a four player mirror: two armies on each side, each facing its
-    /// opposite number.
+    /// A fold of order two pairs the armies two at a time. A fold of order
+    /// four takes them four at a time. Thus a roster of four armies mirrors as
+    /// two pairs, and turns as one set of four.
     ///
-    /// An army the roster does not hold is left as it is: a map maker who
-    /// paints an army that is not on the board means that army, and a mirror is
-    /// not the place to correct them.
+    /// A group that has fewer armies than the fold repeats the armies it has.
+    /// Two armies under a quarter turn therefore alternate from corner to
+    /// corner, and two armies under a quad mirror hold the left and the right.
+    ///
+    /// An army the roster does not hold is left as it is. A map maker who
+    /// paints an army that is not on the board means that army.
     pub fn rotate(&self, faction: PlayerFaction, symmetry: Symmetry, step: usize) -> PlayerFaction {
         let order = symmetry.order();
         let Some(seat) = self.0.iter().position(|held| *held == faction) else {
@@ -450,8 +424,9 @@ impl ArmyRoster {
         };
 
         let group = seat - seat % order;
-        let image = group + symmetry.compose(seat % order, step);
-        self.0.get(image).copied().unwrap_or(faction)
+        let held = (self.0.len() - group).min(order);
+        let image = symmetry.compose(seat % order, step) % held;
+        self.0[group + image]
     }
 }
 
@@ -494,6 +469,29 @@ pub enum Brush {
     EraseUnit,
 }
 
+impl Brush {
+    /// The brush that the editor's own rules apply to.
+    ///
+    /// The browser can name any terrain as [`Brush::Terrain`]. A road named
+    /// that way must still join its neighbours, and a building must still
+    /// change army under a fold. A unit's hit points stay in the range a map
+    /// can hold.
+    fn normalized(self) -> Brush {
+        match self {
+            Brush::Terrain { terrain } => brush_for_terrain(terrain),
+            Brush::Unit { unit, faction, hp } => Brush::Unit {
+                unit,
+                faction,
+                hp: VisualHp::new(
+                    hp.get()
+                        .clamp(1, u8::try_from(MAX_UNIT_HP).unwrap_or(u8::MAX)),
+                ),
+            },
+            brush => brush,
+        }
+    }
+}
+
 /// Terrain that takes its shape from the tiles around it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
@@ -511,34 +509,51 @@ pub enum Connection {
 impl Connection {
     /// The terrain of this kind that reaches out to `sides`.
     ///
-    /// Roads and rivers have no variant for one side or for none, so a stub is
-    /// drawn along the axis it points down, which is what AWBW itself draws.
+    /// Roads and rivers have no variant for one side or for none. A bridge, a
+    /// seam and pipe rubble have only the two straight variants. AWBW draws
+    /// these along the axis the stub points down, and so does the editor.
     fn build(self, sides: Sides) -> AwbwTerrain {
+        let vertical = sides.runs_vertically();
         match self {
-            Connection::Road => AwbwTerrain::Road(road_type(sides)),
-            Connection::River => AwbwTerrain::River(river_type(sides)),
-            Connection::Bridge => AwbwTerrain::Bridge(
-                if sides.has(Direction::North) || sides.has(Direction::South) {
-                    BridgeType::Vertical
+            Connection::Road => {
+                AwbwTerrain::Road(variant_for(&ROADS, sides).unwrap_or(if vertical {
+                    RoadType::Vertical
                 } else {
-                    BridgeType::Horizontal
-                },
-            ),
-            Connection::Pipe => AwbwTerrain::Pipe(pipe_type(sides)),
-            Connection::PipeSeam => AwbwTerrain::PipeSeam(
-                if sides.has(Direction::North) || sides.has(Direction::South) {
-                    PipeSeamType::Vertical
+                    RoadType::Horizontal
+                }))
+            }
+            Connection::River => {
+                AwbwTerrain::River(variant_for(&RIVERS, sides).unwrap_or(if vertical {
+                    RiverType::Vertical
                 } else {
-                    PipeSeamType::Horizontal
-                },
-            ),
-            Connection::PipeRubble => AwbwTerrain::PipeRubble(
-                if sides.has(Direction::North) || sides.has(Direction::South) {
-                    PipeRubbleType::Vertical
+                    RiverType::Horizontal
+                }))
+            }
+            Connection::Bridge => AwbwTerrain::Bridge(if vertical {
+                BridgeType::Vertical
+            } else {
+                BridgeType::Horizontal
+            }),
+            Connection::Pipe => AwbwTerrain::Pipe(variant_for(&PIPES, sides).unwrap_or(
+                // A pipe network in AWBW never branches, so a tile that would
+                // branch is drawn straight. It runs north to south only when
+                // it reaches both ways.
+                if sides.has(Direction::North) && sides.has(Direction::South) {
+                    PipeType::Vertical
                 } else {
-                    PipeRubbleType::Horizontal
+                    PipeType::Horizontal
                 },
-            ),
+            )),
+            Connection::PipeSeam => AwbwTerrain::PipeSeam(if vertical {
+                PipeSeamType::Vertical
+            } else {
+                PipeSeamType::Horizontal
+            }),
+            Connection::PipeRubble => AwbwTerrain::PipeRubble(if vertical {
+                PipeRubbleType::Vertical
+            } else {
+                PipeRubbleType::Horizontal
+            }),
             Connection::Shoal => AwbwTerrain::Shoal(ShoalType::from_land(
                 sides.has(Direction::North),
                 sides.has(Direction::East),
@@ -587,169 +602,99 @@ impl Connection {
     }
 }
 
-fn road_type(sides: Sides) -> RoadType {
-    match (
-        sides.has(Direction::North),
-        sides.has(Direction::East),
-        sides.has(Direction::South),
-        sides.has(Direction::West),
-    ) {
-        (true, true, true, true) => RoadType::Cross,
-        (false, true, true, true) => RoadType::ESW,
-        (true, false, true, true) => RoadType::SWN,
-        (true, true, false, true) => RoadType::WNE,
-        (true, true, true, false) => RoadType::NES,
-        (false, true, true, false) => RoadType::ES,
-        (false, false, true, true) => RoadType::SW,
-        (true, false, false, true) => RoadType::WN,
-        (true, true, false, false) => RoadType::NE,
-        (true, false, true, false) => RoadType::Vertical,
-        (false, true, false, true) => RoadType::Horizontal,
-        (true, false, false, false) | (false, false, true, false) => RoadType::Vertical,
-        _ => RoadType::Horizontal,
-    }
-}
-
-fn river_type(sides: Sides) -> RiverType {
-    match (
-        sides.has(Direction::North),
-        sides.has(Direction::East),
-        sides.has(Direction::South),
-        sides.has(Direction::West),
-    ) {
-        (true, true, true, true) => RiverType::Cross,
-        (false, true, true, true) => RiverType::ESW,
-        (true, false, true, true) => RiverType::SWN,
-        (true, true, false, true) => RiverType::WNE,
-        (true, true, true, false) => RiverType::NES,
-        (false, true, true, false) => RiverType::ES,
-        (false, false, true, true) => RiverType::SW,
-        (true, false, false, true) => RiverType::WN,
-        (true, true, false, false) => RiverType::NE,
-        (true, false, true, false) => RiverType::Vertical,
-        (false, true, false, true) => RiverType::Horizontal,
-        (true, false, false, false) | (false, false, true, false) => RiverType::Vertical,
-        _ => RiverType::Horizontal,
-    }
-}
-
-/// The pipe that reaches out to `sides`.
+/// The road variant for each set of sides a road reaches out to.
 ///
-/// A pipe has an end cap for one side and a corner for two, and nothing for
-/// three or four: a pipe network in AWBW never branches. A tile that would
-/// branch is drawn along the axis with the most of its run on it.
-fn pipe_type(sides: Sides) -> PipeType {
-    match (
-        sides.has(Direction::North),
-        sides.has(Direction::East),
-        sides.has(Direction::South),
-        sides.has(Direction::West),
-    ) {
-        (true, false, true, _) => PipeType::Vertical,
-        (false, true, false, true) => PipeType::Horizontal,
-        (true, true, false, false) => PipeType::NE,
-        (false, true, true, false) => PipeType::ES,
-        (false, false, true, true) => PipeType::SW,
-        (true, false, false, true) => PipeType::WN,
-        (true, false, false, false) => PipeType::NorthEnd,
-        (false, true, false, false) => PipeType::EastEnd,
-        (false, false, true, false) => PipeType::SouthEnd,
-        (false, false, false, true) => PipeType::WestEnd,
-        (true, true, true, true) | (true, true, true, false) => PipeType::Vertical,
-        _ => PipeType::Horizontal,
-    }
+/// One table gives both directions. [`Connection::build`] reads it from the
+/// sides, and [`connection_of`] reads it from the variant, so the two cannot
+/// disagree.
+const ROADS: [(RoadType, Sides); 11] = [
+    (RoadType::Horizontal, Sides::HORIZONTAL),
+    (RoadType::Vertical, Sides::VERTICAL),
+    (RoadType::Cross, Sides::ALL),
+    (RoadType::ES, Sides::EAST.and(Sides::SOUTH)),
+    (RoadType::SW, Sides::SOUTH.and(Sides::WEST)),
+    (RoadType::WN, Sides::WEST.and(Sides::NORTH)),
+    (RoadType::NE, Sides::NORTH.and(Sides::EAST)),
+    (RoadType::ESW, Sides::HORIZONTAL.and(Sides::SOUTH)),
+    (RoadType::SWN, Sides::VERTICAL.and(Sides::WEST)),
+    (RoadType::WNE, Sides::HORIZONTAL.and(Sides::NORTH)),
+    (RoadType::NES, Sides::VERTICAL.and(Sides::EAST)),
+];
+
+/// The river variant for each set of sides. Rivers join the same way roads do.
+const RIVERS: [(RiverType, Sides); 11] = [
+    (RiverType::Horizontal, Sides::HORIZONTAL),
+    (RiverType::Vertical, Sides::VERTICAL),
+    (RiverType::Cross, Sides::ALL),
+    (RiverType::ES, Sides::EAST.and(Sides::SOUTH)),
+    (RiverType::SW, Sides::SOUTH.and(Sides::WEST)),
+    (RiverType::WN, Sides::WEST.and(Sides::NORTH)),
+    (RiverType::NE, Sides::NORTH.and(Sides::EAST)),
+    (RiverType::ESW, Sides::HORIZONTAL.and(Sides::SOUTH)),
+    (RiverType::SWN, Sides::VERTICAL.and(Sides::WEST)),
+    (RiverType::WNE, Sides::HORIZONTAL.and(Sides::NORTH)),
+    (RiverType::NES, Sides::VERTICAL.and(Sides::EAST)),
+];
+
+/// The pipe variant for each set of sides.
+///
+/// A pipe has an end cap for one side and a corner for two. It has no variant
+/// for three or four sides, because a pipe network in AWBW never branches.
+const PIPES: [(PipeType, Sides); 10] = [
+    (PipeType::Horizontal, Sides::HORIZONTAL),
+    (PipeType::Vertical, Sides::VERTICAL),
+    (PipeType::NE, Sides::NORTH.and(Sides::EAST)),
+    (PipeType::ES, Sides::EAST.and(Sides::SOUTH)),
+    (PipeType::SW, Sides::SOUTH.and(Sides::WEST)),
+    (PipeType::WN, Sides::WEST.and(Sides::NORTH)),
+    (PipeType::NorthEnd, Sides::NORTH),
+    (PipeType::EastEnd, Sides::EAST),
+    (PipeType::SouthEnd, Sides::SOUTH),
+    (PipeType::WestEnd, Sides::WEST),
+];
+
+/// The variant in `table` that reaches out to exactly `sides`.
+fn variant_for<T: Copy>(table: &[(T, Sides)], sides: Sides) -> Option<T> {
+    table
+        .iter()
+        .find_map(|(variant, reaches)| (*reaches == sides).then_some(*variant))
+}
+
+/// The sides that `variant` reaches out to, as `table` gives them.
+fn sides_of<T: PartialEq>(table: &[(T, Sides)], variant: T) -> Sides {
+    table
+        .iter()
+        .find_map(|(held, reaches)| (*held == variant).then_some(*reaches))
+        .unwrap_or(Sides::NONE)
 }
 
 /// The connecting kind of a terrain, and the sides it reaches out to.
 ///
-/// This is the inverse of [`Connection::build`], and it is what lets a mirror
-/// turn a variant it was not given the kind of.
+/// This is the inverse of [`Connection::build`]. A mirror uses it to turn a
+/// variant without the kind.
 fn connection_of(terrain: AwbwTerrain) -> Option<(Connection, Sides)> {
-    let sides = |north, east, south, west| {
-        let mut sides = Sides::NONE;
-        if north {
-            sides = sides.with(Direction::North);
+    let straight = |vertical: bool| {
+        if vertical {
+            Sides::VERTICAL
+        } else {
+            Sides::HORIZONTAL
         }
-        if east {
-            sides = sides.with(Direction::East);
-        }
-        if south {
-            sides = sides.with(Direction::South);
-        }
-        if west {
-            sides = sides.with(Direction::West);
-        }
-        sides
     };
 
     match terrain {
-        AwbwTerrain::Road(road) => Some((
-            Connection::Road,
-            match road {
-                RoadType::Horizontal => Sides::HORIZONTAL,
-                RoadType::Vertical => Sides::VERTICAL,
-                RoadType::Cross => sides(true, true, true, true),
-                RoadType::ES => sides(false, true, true, false),
-                RoadType::SW => sides(false, false, true, true),
-                RoadType::WN => sides(true, false, false, true),
-                RoadType::NE => sides(true, true, false, false),
-                RoadType::ESW => sides(false, true, true, true),
-                RoadType::SWN => sides(true, false, true, true),
-                RoadType::WNE => sides(true, true, false, true),
-                RoadType::NES => sides(true, true, true, false),
-            },
-        )),
-        AwbwTerrain::River(river) => Some((
-            Connection::River,
-            match river {
-                RiverType::Horizontal => Sides::HORIZONTAL,
-                RiverType::Vertical => Sides::VERTICAL,
-                RiverType::Cross => sides(true, true, true, true),
-                RiverType::ES => sides(false, true, true, false),
-                RiverType::SW => sides(false, false, true, true),
-                RiverType::WN => sides(true, false, false, true),
-                RiverType::NE => sides(true, true, false, false),
-                RiverType::ESW => sides(false, true, true, true),
-                RiverType::SWN => sides(true, false, true, true),
-                RiverType::WNE => sides(true, true, false, true),
-                RiverType::NES => sides(true, true, true, false),
-            },
-        )),
-        AwbwTerrain::Bridge(bridge) => Some((
-            Connection::Bridge,
-            match bridge {
-                BridgeType::Horizontal => Sides::HORIZONTAL,
-                BridgeType::Vertical => Sides::VERTICAL,
-            },
-        )),
-        AwbwTerrain::Pipe(pipe) => Some((
-            Connection::Pipe,
-            match pipe {
-                PipeType::Horizontal => Sides::HORIZONTAL,
-                PipeType::Vertical => Sides::VERTICAL,
-                PipeType::NE => sides(true, true, false, false),
-                PipeType::ES => sides(false, true, true, false),
-                PipeType::SW => sides(false, false, true, true),
-                PipeType::WN => sides(true, false, false, true),
-                PipeType::NorthEnd => Sides::NORTH,
-                PipeType::EastEnd => Sides::EAST,
-                PipeType::SouthEnd => Sides::SOUTH,
-                PipeType::WestEnd => Sides::WEST,
-            },
-        )),
+        AwbwTerrain::Road(road) => Some((Connection::Road, sides_of(&ROADS, road))),
+        AwbwTerrain::River(river) => Some((Connection::River, sides_of(&RIVERS, river))),
+        AwbwTerrain::Pipe(pipe) => Some((Connection::Pipe, sides_of(&PIPES, pipe))),
+        AwbwTerrain::Bridge(bridge) => {
+            Some((Connection::Bridge, straight(bridge == BridgeType::Vertical)))
+        }
         AwbwTerrain::PipeSeam(seam) => Some((
             Connection::PipeSeam,
-            match seam {
-                PipeSeamType::Horizontal => Sides::HORIZONTAL,
-                PipeSeamType::Vertical => Sides::VERTICAL,
-            },
+            straight(seam == PipeSeamType::Vertical),
         )),
         AwbwTerrain::PipeRubble(rubble) => Some((
             Connection::PipeRubble,
-            match rubble {
-                PipeRubbleType::Horizontal => Sides::HORIZONTAL,
-                PipeRubbleType::Vertical => Sides::VERTICAL,
-            },
+            straight(rubble == PipeRubbleType::Vertical),
         )),
         AwbwTerrain::Shoal(shoal) => Some((
             Connection::Shoal,
@@ -956,25 +901,22 @@ pub fn unit_palette(faction: PlayerFaction) -> Vec<PaletteEntry> {
 }
 
 /// One tile the board draws differently after an edit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TerrainChange {
-    #[serde(with = "crate::xy")]
     pub position: Pos,
     pub terrain: GraphicalTerrain,
 }
 
 /// One tile whose unit arrived, left, or changed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnitChange {
-    #[serde(with = "crate::xy")]
     pub position: Pos,
     /// The unit that now stands there, or `None` when the tile is empty.
     pub deployment: Option<DeploymentView>,
 }
 
-/// A deployment as the browser reads it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+/// A deployment as the board draws it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeploymentView {
     pub unit: Unit,
     pub faction: PlayerFaction,
@@ -996,8 +938,7 @@ impl From<Deployment> for DeploymentView {
 /// The board redraws from this rather than from the whole map, so a stroke
 /// costs the tiles it touched. An edit that changes nothing reports nothing,
 /// which is what lets a stroke run over the same tile without work.
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct BoardChanges {
     pub terrain: Vec<TerrainChange>,
     pub units: Vec<UnitChange>,
@@ -1061,7 +1002,6 @@ impl MapEditor {
             stroke: None,
         };
         editor.symmetry = editor.detect_symmetry();
-        editor.roster.seat_at_least(editor.symmetry.order());
         editor
     }
 
@@ -1099,17 +1039,30 @@ impl MapEditor {
     /// because two cursors on one tile is a brighter cursor and not a second
     /// place the stroke lands.
     pub fn images(&self, position: Pos) -> Vec<Pos> {
+        self.reach(position)
+            .into_iter()
+            .map(|(target, _)| target)
+            .collect()
+    }
+
+    /// Every tile a stroke on `position` reaches, with the step of the fold
+    /// that reaches it.
+    ///
+    /// A tile that is its own image is listed only for the first step that
+    /// reaches it. The identity comes first, so a tile on the axis keeps the
+    /// army the brush names.
+    fn reach(&self, position: Pos) -> Vec<(Pos, usize)> {
         let dimensions = self.dimensions();
-        let mut images = Vec::with_capacity(self.symmetry.order());
-        for isometry in self.symmetry.isometries() {
+        let mut reached: Vec<(Pos, usize)> = Vec::with_capacity(self.symmetry.order());
+        for (step, isometry) in self.symmetry.isometries().iter().enumerate() {
             let Some(target) = isometry.apply(position, dimensions) else {
                 continue;
             };
-            if !images.contains(&target) {
-                images.push(target);
+            if !reached.iter().any(|(held, _)| *held == target) {
+                reached.push((target, step));
             }
         }
-        images
+        reached
     }
 
     /// Sets the mode later edits are repeated with.
@@ -1122,7 +1075,6 @@ impl MapEditor {
             return false;
         }
         self.symmetry = symmetry;
-        self.roster.seat_at_least(symmetry.order());
         true
     }
 
@@ -1144,26 +1096,14 @@ impl MapEditor {
     }
 
     /// Whether every terrain tile is the image the fold asks for.
+    ///
+    /// This is stricter than [`Self::asymmetries`]. A building must face a
+    /// building of the same kind, but the owners can differ.
     fn folds_exactly(&self, symmetry: Symmetry) -> bool {
         let dimensions = self.dimensions();
-        if symmetry == Symmetry::None {
-            return true;
-        }
-
-        for (position, terrain) in self.map.iter() {
-            for isometry in symmetry.isometries() {
-                let Some(image) = isometry.apply(position, dimensions) else {
-                    return false;
-                };
-                let Some(found) = self.map.terrain_at(image) else {
-                    return false;
-                };
-                if !same_fold_terrain(found, isometry.turn_terrain(terrain)) {
-                    return false;
-                }
-            }
-        }
-        true
+        self.map.iter().all(|(position, terrain)| {
+            self.tile_folds(position, terrain, symmetry, dimensions, false)
+        })
     }
 
     /// Whether the ground reads the same under `symmetry`.
@@ -1188,7 +1128,7 @@ impl MapEditor {
         let dimensions = self.dimensions();
 
         for (position, terrain) in self.map.iter() {
-            if !self.folds_leniently(position, terrain, symmetry, dimensions) {
+            if !self.tile_folds(position, terrain, symmetry, dimensions, true) {
                 found.push(position);
             }
         }
@@ -1196,31 +1136,31 @@ impl MapEditor {
     }
 
     /// Whether one tile keeps the fold's promise about the ground.
-    fn folds_leniently(
+    ///
+    /// With `buildings_may_differ`, a building can face any terrain. Map
+    /// makers use this to give one side a deliberate advantage.
+    fn tile_folds(
         &self,
         position: Pos,
         terrain: AwbwTerrain,
         symmetry: Symmetry,
         dimensions: Dimensions,
+        buildings_may_differ: bool,
     ) -> bool {
-        for isometry in symmetry.isometries() {
-            let Some(image) = isometry.apply(position, dimensions) else {
+        symmetry.isometries().iter().all(|isometry| {
+            let Some(found) = isometry
+                .apply(position, dimensions)
+                .and_then(|image| self.map.terrain_at(image))
+            else {
                 return false;
             };
-            let Some(found) = self.map.terrain_at(image) else {
-                return false;
-            };
-            if same_fold_terrain(found, isometry.turn_terrain(terrain)) {
-                continue;
-            }
-
-            match (terrain, found) {
-                // Buildings and their owners can differ by design.
-                (AwbwTerrain::Property(_), _) | (_, AwbwTerrain::Property(_)) => continue,
-                _ => return false,
-            }
-        }
-        true
+            same_fold_terrain(found, terrain)
+                || (buildings_may_differ
+                    && matches!(
+                        (terrain, found),
+                        (AwbwTerrain::Property(_), _) | (_, AwbwTerrain::Property(_))
+                    ))
+        })
     }
 
     /// Whether one fold-relevant terrain kind fills the board.
@@ -1238,7 +1178,6 @@ impl MapEditor {
 
     pub fn set_roster(&mut self, roster: ArmyRoster) {
         self.roster = roster;
-        self.roster.seat_at_least(self.symmetry.order());
     }
 
     pub fn can_undo(&self) -> bool {
@@ -1321,21 +1260,20 @@ impl MapEditor {
 
     /// Puts `brush` on `position` and on every image symmetry gives it.
     pub fn paint(&mut self, position: Pos, brush: Brush) -> BoardChanges {
+        let brush = brush.normalized();
         let single = self.stroke.is_none();
         if single {
             self.begin_stroke();
         }
 
-        for (step, isometry) in self.symmetry.isometries().iter().enumerate() {
-            let Some(target) = isometry.apply(position, self.dimensions()) else {
-                continue;
-            };
-            self.apply_brush(target, brush, *isometry, step);
+        let reached = self.reach(position);
+        for (target, step) in &reached {
+            self.apply_brush(*target, brush, *step);
         }
 
         // The tiles around each edit are retuned, because a road that arrives
         // beside a road changes both of them.
-        self.retune_around(position);
+        self.retune_around(&reached);
 
         if single {
             self.end_stroke();
@@ -1344,12 +1282,14 @@ impl MapEditor {
     }
 
     /// Fills the whole board with one terrain, and clears every unit.
+    ///
+    /// Only ground fills a board. Connecting terrain takes its shape from its
+    /// neighbours, and a building needs an owner, so the editor refuses them.
     pub fn fill(&mut self, terrain: AwbwTerrain) -> BoardChanges {
-        let before = self.map.clone();
-        let mut filled = AwbwMap::new(self.dimensions(), terrain);
-        std::mem::swap(&mut self.map, &mut filled);
-        self.record(before);
-        self.redraw()
+        if !matches!(brush_for_terrain(terrain), Brush::Terrain { .. }) {
+            return BoardChanges::default();
+        }
+        self.replace_board(AwbwMap::new(self.dimensions(), terrain))
     }
 
     /// Changes the shape of the board, keeping what still fits inside it.
@@ -1362,7 +1302,6 @@ impl MapEditor {
             return BoardChanges::default();
         }
 
-        let before = self.map.clone();
         let offset = resize_offset(self.dimensions(), dimensions, anchor);
         let mut resized = AwbwMap::new(dimensions, AwbwTerrain::Plain);
 
@@ -1381,15 +1320,7 @@ impl MapEditor {
             let _ = resized.deploy(target, *deployment);
         }
 
-        self.map = resized;
-        self.record(before);
-        if !self.symmetry.fits(dimensions) {
-            self.symmetry = Symmetry::None;
-        }
-
-        let mut changes = self.redraw();
-        changes.dimensions = Some([dimensions.width(), dimensions.height()]);
-        changes
+        self.replace_board(resized)
     }
 
     /// The map document for this board, under the metadata it is saved with.
@@ -1397,11 +1328,34 @@ impl MapEditor {
         AwbrnMapDocument::from_awbw_map(&self.map, metadata)
     }
 
-    /// Puts one brush on one tile, under the transform of its image.
-    fn apply_brush(&mut self, position: Pos, brush: Brush, isometry: Isometry, step: usize) {
+    /// Replaces the whole board, as one undo step of its own.
+    ///
+    /// A stroke that is open is closed first, so that its tiles and this edit
+    /// are two steps in the order they were made. The stroke then opens again
+    /// on the new board.
+    fn replace_board(&mut self, board: AwbwMap) -> BoardChanges {
+        let stroking = self.stroke.is_some();
+        self.end_stroke();
+
+        if board != self.map {
+            let before = std::mem::replace(&mut self.map, board);
+            self.record(before);
+        }
+
+        if stroking {
+            self.begin_stroke();
+        }
+        self.redraw()
+    }
+
+    /// Puts one brush on one tile, for the image at `step` of the fold.
+    ///
+    /// The brush is normalized, so ground is the only terrain that comes here
+    /// as [`Brush::Terrain`]. Ground has no variant to turn with the image.
+    fn apply_brush(&mut self, position: Pos, brush: Brush, step: usize) {
         match brush {
             Brush::Terrain { terrain } => {
-                self.set_terrain(position, isometry.turn_terrain(terrain));
+                self.set_terrain(position, terrain);
             }
             Brush::Connecting { connection } => {
                 let sides = self.sides_at(position, connection);
@@ -1460,18 +1414,16 @@ impl MapEditor {
         sides
     }
 
-    /// Gives every image of `position`, and the tiles beside them, the variant
-    /// their neighbours now ask for.
+    /// Gives every reached tile, and the tiles beside them, the variant their
+    /// neighbours now ask for.
     ///
     /// Only connecting terrain moves. Everything else was decided by the brush.
-    fn retune_around(&mut self, position: Pos) {
+    fn retune_around(&mut self, reached: &[(Pos, usize)]) {
         let dimensions = self.dimensions();
         let mut retune: Vec<Pos> = Vec::new();
 
-        for isometry in self.symmetry.isometries() {
-            let Some(target) = isometry.apply(position, dimensions) else {
-                continue;
-            };
+        for (target, _) in reached {
+            let target = *target;
             for neighbour in std::iter::once(target).chain(
                 Direction::ALL
                     .iter()
@@ -1506,11 +1458,22 @@ impl MapEditor {
     }
 
     /// Redraws the graphical map, and reports the tiles that changed.
+    ///
+    /// A board of a new shape is reported with its dimensions, so the client
+    /// rebuilds it. This applies to a resize, and also to an undo or a redo
+    /// across one. A fold that the new shape refuses goes back to none.
     fn redraw(&mut self) -> BoardChanges {
         let drawn = AwbrnMap::from_map(&self.map);
         let mut changes = BoardChanges::default();
 
-        let same_shape = drawn.dimensions() == self.drawn.dimensions();
+        let dimensions = drawn.dimensions();
+        let same_shape = dimensions == self.drawn.dimensions();
+        if !same_shape {
+            changes.dimensions = Some([dimensions.width(), dimensions.height()]);
+            if !self.symmetry.fits(dimensions) {
+                self.symmetry = Symmetry::None;
+            }
+        }
         for (position, terrain) in drawn.iter() {
             let before = same_shape
                 .then(|| self.drawn.terrain_at(position))
@@ -1548,11 +1511,20 @@ impl MapEditor {
 /// Whether two terrain tiles match for a fold.
 ///
 /// A property kind is terrain. Its owner is a map maker's choice, so the fold
-/// ignores it.
+/// ignores it: the two sides of a 1v1 map hold the same buildings for
+/// different armies.
+///
+/// Connecting terrain matches on its kind, not on its variant. The variant
+/// comes from the neighbours, and the neighbours are compared on their own
+/// tiles. A shoal variant also records only one side of land, so a mirror
+/// cannot always give the variant that the far side holds.
 fn same_fold_terrain(left: AwbwTerrain, right: AwbwTerrain) -> bool {
     match (left, right) {
         (AwbwTerrain::Property(left), AwbwTerrain::Property(right)) => left.kind() == right.kind(),
-        _ => left == right,
+        _ => match (connection_of(left), connection_of(right)) {
+            (Some((left, _)), Some((right, _))) => left == right,
+            _ => left == right,
+        },
     }
 }
 
@@ -1900,21 +1872,93 @@ mod tests {
     }
 
     #[test]
-    fn a_quarter_turn_seats_four_armies() {
+    fn a_quarter_turn_keeps_the_armies_on_the_roster() {
         let mut editor = editor(9, 9);
-        assert_eq!(editor.roster().seats().len(), 2);
 
         assert!(editor.set_symmetry(Symmetry::Rotate90));
 
         assert_eq!(
             editor.roster().seats(),
-            [
-                PlayerFaction::OrangeStar,
-                PlayerFaction::BlueMoon,
-                PlayerFaction::GreenEarth,
-                PlayerFaction::YellowComet
+            [PlayerFaction::OrangeStar, PlayerFaction::BlueMoon]
+        );
+    }
+
+    /// The headquarters a stroke on `position` puts down, in board order.
+    fn headquarters(editor: &MapEditor) -> Vec<(Pos, PlayerFaction)> {
+        editor
+            .map()
+            .iter()
+            .filter_map(|(position, terrain)| match terrain {
+                AwbwTerrain::Property(Property::HQ(faction)) => Some((position, faction)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn orange_star_hq() -> Brush {
+        Brush::Property {
+            property: PropertyKind::HQ,
+            faction: Some(FactionCode::new(PlayerFaction::OrangeStar)),
+        }
+    }
+
+    #[test]
+    fn a_quarter_turn_with_two_armies_gives_each_army_opposite_corners() {
+        let mut editor = editor(8, 8);
+        assert!(editor.set_symmetry(Symmetry::Rotate90));
+
+        editor.paint(Pos::new(1, 0), orange_star_hq());
+
+        // The quarter turn takes (1, 0) to (7, 1), then (6, 7), then (0, 6).
+        assert_eq!(
+            headquarters(&editor),
+            vec![
+                (Pos::new(1, 0), PlayerFaction::OrangeStar),
+                (Pos::new(7, 1), PlayerFaction::BlueMoon),
+                (Pos::new(0, 6), PlayerFaction::BlueMoon),
+                (Pos::new(6, 7), PlayerFaction::OrangeStar),
             ]
         );
+    }
+
+    #[test]
+    fn a_quad_mirror_with_two_armies_gives_each_army_one_side() {
+        let mut editor = editor(8, 8);
+        assert!(editor.set_symmetry(Symmetry::QuadMirror));
+
+        editor.paint(Pos::new(1, 1), orange_star_hq());
+
+        assert_eq!(
+            headquarters(&editor),
+            vec![
+                (Pos::new(1, 1), PlayerFaction::OrangeStar),
+                (Pos::new(6, 1), PlayerFaction::BlueMoon),
+                (Pos::new(1, 6), PlayerFaction::OrangeStar),
+                (Pos::new(6, 6), PlayerFaction::BlueMoon),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tile_that_is_its_own_image_keeps_the_army_of_the_brush() {
+        for symmetry in [
+            Symmetry::MirrorLeftRight,
+            Symmetry::Rotate180,
+            Symmetry::Rotate90,
+            Symmetry::QuadMirror,
+        ] {
+            let mut editor = editor(5, 5);
+            editor.set_roster(ArmyRoster::standard());
+            assert!(editor.set_symmetry(symmetry));
+
+            editor.paint(Pos::new(2, 2), orange_star_hq());
+
+            assert_eq!(
+                terrain(&editor, 2, 2),
+                AwbwTerrain::Property(Property::HQ(PlayerFaction::OrangeStar)),
+                "{symmetry:?} gave the centre to another army"
+            );
+        }
     }
 
     #[test]
@@ -2156,6 +2200,7 @@ mod tests {
     #[test]
     fn a_quarter_turn_gives_four_armies_one_corner_each() {
         let mut editor = editor(8, 8);
+        editor.set_roster(ArmyRoster::standard());
         editor.set_symmetry(Symmetry::Rotate90);
 
         editor.paint(
@@ -2408,6 +2453,145 @@ mod tests {
         assert!(
             editor.map().deployments().is_empty(),
             "a unit outside the new board is dropped"
+        );
+    }
+
+    #[test]
+    fn undoing_a_resize_asks_for_the_old_board_back() {
+        let mut editor = editor(6, 6);
+        editor.resize(Dimensions::new(10, 8), ResizeAnchor::TopLeft);
+
+        let undone = editor.undo();
+        assert_eq!(undone.dimensions, Some([6, 6]));
+        assert_eq!(editor.dimensions(), Dimensions::new(6, 6));
+
+        let redone = editor.redo();
+        assert_eq!(redone.dimensions, Some([10, 8]));
+    }
+
+    #[test]
+    fn undoing_into_a_board_the_fold_does_not_fit_steps_symmetry_down() {
+        let mut editor = editor(8, 10);
+        editor.resize(Dimensions::new(8, 8), ResizeAnchor::TopLeft);
+        assert!(editor.set_symmetry(Symmetry::Rotate90));
+
+        editor.undo();
+
+        assert_eq!(editor.symmetry(), Symmetry::None);
+    }
+
+    #[test]
+    fn a_fill_that_changes_nothing_records_nothing() {
+        let mut editor = editor(4, 4);
+
+        let changes = editor.fill(AwbwTerrain::Plain);
+
+        assert!(changes.is_empty());
+        assert!(!editor.can_undo());
+    }
+
+    #[test]
+    fn a_fill_refuses_terrain_that_is_not_ground() {
+        let mut editor = editor(4, 4);
+
+        editor.fill(AwbwTerrain::Road(RoadType::Cross));
+
+        assert_eq!(terrain(&editor, 0, 0), AwbwTerrain::Plain);
+        assert!(!editor.can_undo());
+    }
+
+    #[test]
+    fn a_fill_during_a_stroke_is_undone_in_the_order_it_was_made() {
+        let mut editor = editor(4, 4);
+        let mountain = Brush::Terrain {
+            terrain: AwbwTerrain::Mountain,
+        };
+
+        editor.begin_stroke();
+        editor.paint(Pos::new(0, 0), mountain);
+        editor.fill(AwbwTerrain::Sea);
+        editor.paint(Pos::new(1, 1), mountain);
+        editor.end_stroke();
+
+        editor.undo();
+        assert_eq!(
+            terrain(&editor, 1, 1),
+            AwbwTerrain::Sea,
+            "the second stroke"
+        );
+        editor.undo();
+        assert_eq!(terrain(&editor, 0, 0), AwbwTerrain::Mountain, "the fill");
+        editor.undo();
+        assert_eq!(
+            terrain(&editor, 0, 0),
+            AwbwTerrain::Plain,
+            "the first stroke"
+        );
+        assert!(!editor.can_undo());
+    }
+
+    #[test]
+    fn a_road_named_as_ground_still_joins_its_neighbours() {
+        let mut editor = editor(3, 1);
+        let road = Brush::Terrain {
+            terrain: AwbwTerrain::Road(RoadType::Cross),
+        };
+
+        editor.paint(Pos::new(0, 0), road);
+        editor.paint(Pos::new(1, 0), road);
+
+        assert_eq!(
+            terrain(&editor, 0, 0),
+            AwbwTerrain::Road(RoadType::Horizontal)
+        );
+    }
+
+    #[test]
+    fn a_unit_brush_keeps_hit_points_a_map_can_hold() {
+        let mut editor = editor(3, 1);
+        for (asked, placed) in [(0, 1), (15, 10)] {
+            editor.paint(
+                Pos::new(0, 0),
+                Brush::Unit {
+                    unit: Unit::Infantry,
+                    faction: FactionCode::new(PlayerFaction::OrangeStar),
+                    hp: VisualHp::new(asked),
+                },
+            );
+            let deployment = editor
+                .map()
+                .deployments()
+                .get(Pos::new(0, 0))
+                .copied()
+                .expect("a unit");
+            assert_eq!(deployment.hp.get(), placed);
+        }
+    }
+
+    #[test]
+    fn a_mirrored_shoal_channel_folds() {
+        let mut drawing = editor(6, 3);
+        assert!(drawing.set_symmetry(Symmetry::MirrorLeftRight));
+        for x in 0..3 {
+            drawing.paint(
+                Pos::new(x, 1),
+                Brush::Terrain {
+                    terrain: AwbwTerrain::Sea,
+                },
+            );
+        }
+        drawing.paint(
+            Pos::new(1, 1),
+            Brush::Connecting {
+                connection: Connection::Shoal,
+            },
+        );
+
+        assert!(drawing.is_symmetric(Symmetry::MirrorLeftRight));
+        assert!(drawing.is_symmetric(Symmetry::Rotate180));
+        assert_eq!(
+            MapEditor::open(drawing.map().clone()).symmetry(),
+            Symmetry::QuadMirror
         );
     }
 

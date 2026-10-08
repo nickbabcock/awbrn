@@ -325,6 +325,8 @@ pub(crate) fn detect_pending_editor_map(
     mut transitions: LoadingTransitions,
     asset_loader: ClientAssetLoader,
 ) {
+    // The previous board must not answer for this one while it loads.
+    commands.remove_resource::<crate::modes::editor::EditorSession>();
     commands.insert_resource(LoadedEditorMap(pending.0.clone()));
     commands.remove_resource::<PendingEditorMap>();
     commands.insert_resource(asset_loader.load_pending_ui_atlas());
@@ -334,14 +336,19 @@ pub(crate) fn detect_pending_editor_map(
 }
 
 pub(crate) fn check_editor_assets_loaded(
+    loaded: Res<LoadedEditorMap>,
     pending_ui: Res<PendingUiAtlas>,
     ui_atlas_assets: Res<Assets<UiAtlasAsset>>,
+    mut game_map: ResMut<GameMap>,
     mut next_state: ResMut<NextState<LoadingState>>,
 ) {
     if ui_atlas_assets.get(&pending_ui.atlas).is_none() {
         return;
     }
 
+    // The board is set here, as the other modes set theirs, so every system
+    // that runs as loading completes reads this map.
+    game_map.set(AwbrnMap::from_map(&loaded.0));
     next_state.set(LoadingState::Complete);
 }
 
