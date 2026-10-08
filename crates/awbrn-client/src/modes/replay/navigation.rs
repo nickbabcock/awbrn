@@ -20,9 +20,13 @@ use crate::modes::replay::presentation::{ReplayAdvanceLock, ReplayFollowupComman
 
 /// Multiplier for replay path-related animation timing.
 pub const REPLAY_PATH_ANIMATION_SPEED_FACTOR: f32 = 3.0;
-pub const UNIT_PATH_SINGLE_SEGMENT_MS: u64 = 400;
-pub const UNIT_PATH_EDGE_SEGMENT_MS: u64 = 350;
-pub const UNIT_PATH_INTERIOR_SEGMENT_MS: u64 = 140;
+/// Time for one tile at full speed.
+pub const UNIT_PATH_CRUISE_TILE_MS: u64 = 140;
+/// Time to go from stop to full speed.
+pub const UNIT_PATH_ACCEL_MS: u64 = 300;
+/// Time to go from full speed to stop. It is longer than the acceleration
+/// so that the unit settles softly on the destination tile.
+pub const UNIT_PATH_DECEL_MS: u64 = 540;
 
 pub(crate) const COURSE_ARROW_LAYER_OFFSET: f32 = 0.5;
 pub(crate) const COURSE_ARROW_BASE_SCALE: f32 = 0.8;
@@ -88,26 +92,90 @@ pub fn movement_direction(from: Pos, to: Pos) -> GraphicalMovement {
     }
 }
 
-pub fn unit_path_segment_durations(path_len: usize) -> Option<Vec<Duration>> {
-    if path_len < 2 {
-        return None;
+/// Speed profile for a unit that moves along a path of tiles.
+///
+/// The unit starts from a stop, increases speed to a cruise speed, and
+/// decreases speed to a stop on the last tile. The speed changes follow a
+/// half cosine, thus the speed and the acceleration have no sudden changes.
+/// The unit does not go past the destination tile.
+///
+/// A path that is too short for the full ramps uses shorter ramps and a lower
+/// peak speed. The ramp ratio stays the same.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UnitPathMotion {
+    distance: f32,
+    peak_speed: f32,
+    accel_secs: f32,
+    cruise_secs: f32,
+    decel_secs: f32,
+}
+
+impl UnitPathMotion {
+    pub fn new(segment_count: usize) -> Option<Self> {
+        if segment_count == 0 {
+            return None;
+        }
+
+        let distance = segment_count as f32;
+        let cruise_speed = 1.0
+            / scaled_animation_duration(UNIT_PATH_CRUISE_TILE_MS)
+                .as_secs_f32()
+                .max(f32::EPSILON);
+        let accel_secs = scaled_animation_duration(UNIT_PATH_ACCEL_MS).as_secs_f32();
+        let decel_secs = scaled_animation_duration(UNIT_PATH_DECEL_MS).as_secs_f32();
+
+        // A half cosine ramp covers half the distance of the same time at
+        // the peak speed.
+        let ramp_distance = cruise_speed * (accel_secs + decel_secs) / 2.0;
+        if distance >= ramp_distance {
+            return Some(Self {
+                distance,
+                peak_speed: cruise_speed,
+                accel_secs,
+                cruise_secs: (distance - ramp_distance) / cruise_speed,
+                decel_secs,
+            });
+        }
+
+        // Make the ramps and the peak speed smaller by the same scale. The
+        // ramp distance then decreases by the square of the scale.
+        let scale = (distance / ramp_distance).sqrt();
+        Some(Self {
+            distance,
+            peak_speed: cruise_speed * scale,
+            accel_secs: accel_secs * scale,
+            cruise_secs: 0.0,
+            decel_secs: decel_secs * scale,
+        })
     }
 
-    let segment_count = path_len - 1;
-    if segment_count == 1 {
-        return Some(vec![scaled_animation_duration(UNIT_PATH_SINGLE_SEGMENT_MS)]);
+    pub fn duration(&self) -> Duration {
+        Duration::from_secs_f32(self.accel_secs + self.cruise_secs + self.decel_secs)
     }
 
-    let total_duration_ms = UNIT_PATH_EDGE_SEGMENT_MS * 2
-        + UNIT_PATH_INTERIOR_SEGMENT_MS * segment_count.saturating_sub(2) as u64;
-    let per_segment_ms = total_duration_ms / segment_count as u64;
-    let remainder_ms = total_duration_ms % segment_count as u64;
-    let mut durations = vec![scaled_animation_duration(per_segment_ms); segment_count];
-    if let Some(last) = durations.last_mut() {
-        *last += scaled_animation_duration(remainder_ms);
-    }
+    /// Distance in tiles from the start of the path at the given time.
+    pub fn distance_at(&self, elapsed: Duration) -> f32 {
+        use std::f32::consts::PI;
 
-    Some(durations)
+        let t = elapsed.as_secs_f32();
+        let v = self.peak_speed;
+        let accel_distance = v * self.accel_secs / 2.0;
+
+        let distance = if t < self.accel_secs {
+            let phase = PI * t / self.accel_secs;
+            v / 2.0 * (t - self.accel_secs / PI * phase.sin())
+        } else if t < self.accel_secs + self.cruise_secs {
+            accel_distance + v * (t - self.accel_secs)
+        } else {
+            let u = (t - self.accel_secs - self.cruise_secs).min(self.decel_secs);
+            let phase = PI * u / self.decel_secs.max(f32::EPSILON);
+            accel_distance
+                + v * self.cruise_secs
+                + v / 2.0 * (u + self.decel_secs / PI * phase.sin())
+        };
+
+        distance.clamp(0.0, self.distance)
+    }
 }
 
 pub(crate) fn replay_path_tiles(
@@ -177,21 +245,14 @@ fn build_course_arrow_spawns(path: &[ReplayPathTile]) -> Vec<ReplayCourseArrowSp
 }
 
 fn current_segment_and_progress(path_animation: &UnitPathAnimation) -> (usize, f32) {
-    let last_segment = path_animation.segment_durations.len().saturating_sub(1);
+    let last_segment = path_animation.path.len().saturating_sub(2);
     if path_animation.elapsed >= path_animation.total_duration {
         return (last_segment, 1.0);
     }
 
-    let mut elapsed = path_animation.elapsed;
-    for (index, segment_duration) in path_animation.segment_durations.iter().enumerate() {
-        if elapsed < *segment_duration {
-            let segment_secs = segment_duration.as_secs_f32().max(f32::EPSILON);
-            return (index, elapsed.as_secs_f32() / segment_secs);
-        }
-        elapsed = elapsed.saturating_sub(*segment_duration);
-    }
-
-    (last_segment, 1.0)
+    let distance = path_animation.motion.distance_at(path_animation.elapsed);
+    let segment_index = (distance.floor() as usize).min(last_segment);
+    (segment_index, distance - segment_index as f32)
 }
 
 pub(crate) fn spawn_pending_course_arrows(
@@ -368,11 +429,10 @@ pub(crate) fn animate_unit_paths(
             faction: *faction,
             flip_x,
         };
-        if previous_elapsed.is_zero()
-            || segment_index != path_animation.current_segment
-            || movement != path_animation.current_movement
-        {
-            path_animation.current_segment = segment_index;
+        // Restart the walk cycle only when the pose changes. A restart on
+        // each tile keeps the unit on the first frame, because the unit
+        // crosses a tile faster than one frame.
+        if previous_elapsed.is_zero() || movement != path_animation.current_movement {
             path_animation.current_movement = movement;
             set_unit_animation_state(
                 &mut commands,
@@ -382,6 +442,8 @@ pub(crate) fn animate_unit_paths(
                 moving_visual_state,
                 movement,
             );
+        } else if sprite.flip_x != flip_x {
+            sprite.flip_x = flip_x;
         }
 
         // The animated path is the one the selected projection reported, so
@@ -616,5 +678,69 @@ mod tests {
         assert_eq!(spawns.len(), 1);
         assert_eq!(spawns[0].kind, CourseArrowSpriteKind::Tip);
         assert_eq!(spawns[0].rotation_degrees, -90.0);
+    }
+
+    fn sample_motion(motion: &UnitPathMotion, steps: u32) -> Vec<f32> {
+        let duration = motion.duration();
+        (0..=steps)
+            .map(|step| motion.distance_at(duration.mul_f32(step as f32 / steps as f32)))
+            .collect()
+    }
+
+    #[test]
+    fn unit_path_motion_starts_and_ends_on_tiles() {
+        for segments in [1, 2, 3, 5, 12] {
+            let motion = UnitPathMotion::new(segments).unwrap();
+            assert_eq!(motion.distance_at(Duration::ZERO), 0.0);
+            assert!((motion.distance_at(motion.duration()) - segments as f32).abs() < 1e-4);
+            assert_eq!(
+                motion.distance_at(motion.duration() * 2),
+                segments as f32,
+                "distance stays on the destination after the end"
+            );
+        }
+        assert!(UnitPathMotion::new(0).is_none());
+    }
+
+    #[test]
+    fn unit_path_motion_never_moves_backward_or_past_the_destination() {
+        for segments in [1, 2, 3, 5, 12] {
+            let motion = UnitPathMotion::new(segments).unwrap();
+            let samples = sample_motion(&motion, 500);
+            for pair in samples.windows(2) {
+                assert!(pair[1] >= pair[0] - 1e-5, "motion reversed: {pair:?}");
+                assert!(pair[1] <= segments as f32);
+            }
+        }
+    }
+
+    #[test]
+    fn unit_path_motion_eases_in_and_out() {
+        let motion = UnitPathMotion::new(6).unwrap();
+        let samples = sample_motion(&motion, 600);
+        let steps: Vec<f32> = samples.windows(2).map(|pair| pair[1] - pair[0]).collect();
+        let peak = steps.iter().copied().fold(0.0, f32::max);
+
+        // The first and the last steps are much shorter than the peak step.
+        assert!(steps[0] < peak * 0.05);
+        assert!(steps[steps.len() - 1] < peak * 0.05);
+
+        // The slow down takes more time than the speed up.
+        let slow_start = steps.iter().position(|step| *step >= peak * 0.5).unwrap();
+        let slow_end = steps.len() - steps.iter().rposition(|step| *step >= peak * 0.5).unwrap();
+        assert!(slow_end > slow_start);
+    }
+
+    #[test]
+    fn unit_path_motion_duration_grows_with_path_length() {
+        let durations: Vec<_> = (1..=10)
+            .map(|segments| UnitPathMotion::new(segments).unwrap().duration())
+            .collect();
+        assert!(durations.windows(2).all(|pair| pair[1] > pair[0]));
+
+        // A long path adds one cruise tile of time for each extra tile.
+        let cruise_tile = scaled_animation_duration(UNIT_PATH_CRUISE_TILE_MS).as_secs_f32();
+        let extra = durations[9].as_secs_f32() - durations[8].as_secs_f32();
+        assert!((extra - cruise_tile).abs() < 1e-3);
     }
 }
