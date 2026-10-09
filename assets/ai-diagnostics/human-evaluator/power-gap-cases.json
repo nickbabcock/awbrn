@@ -1,0 +1,198 @@
+{
+  "selection": "Three games with the largest single-position loss in Cup 4. This is a retrospective error audit.",
+  "model_report_fingerprint": "faa3868d2d178355",
+  "cases": [
+    {
+      "day": 16,
+      "features": {
+        "capture_progress_delta": 0.5,
+        "deferred_threat_safety_delta": -55620.0,
+        "front_position_delta": 1.471042471042471,
+        "immediate_threat_safety_delta": 2600.0,
+        "income_delta": 3000.0,
+        "material_delta": 17200.0,
+        "own_bank": 5700.0,
+        "turn_index": 31.0,
+        "unit_count_delta": 16.0
+      },
+      "loss": 1.9987605895206157,
+      "map_id": 58205,
+      "match_id": "awbw-1225436",
+      "p": 0.8644968768052974,
+      "turn_index": 31,
+      "winner": false,
+      "archive_fingerprint": "d8b5da53191a1c43",
+      "map_fingerprint": "8dc3fdebd0311d69",
+      "perspective": "2906981",
+      "power_readiness": [
+        {
+          "charge": 10700,
+          "commander": "adder",
+          "cop_cost": 25200,
+          "cop_ready": false,
+          "player": "2906981",
+          "scop_cost": 63000,
+          "scop_ready": false
+        },
+        {
+          "charge": 44300,
+          "commander": "jess",
+          "cop_cost": 32400,
+          "cop_ready": true,
+          "player": "2921947",
+          "scop_cost": 64800,
+          "scop_ready": false
+        }
+      ],
+      "current_score": 58276.666666666686,
+      "current_score_without_charge": 58276.666666666686,
+      "authoritative_funds": {
+        "2906981": 5700,
+        "2921947": 21400
+      },
+      "first_later_power": {
+        "day": 22,
+        "player": "2921947",
+        "power": "Overdrive"
+      },
+      "final_outcome": {
+        "outcome": {
+          "reason": "resignation",
+          "type": "victory",
+          "winners": [
+            "player:2921947"
+          ]
+        },
+        "status": "finished"
+      }
+    },
+    {
+      "day": 17,
+      "features": {
+        "capture_progress_delta": 0.0,
+        "deferred_threat_safety_delta": -10460.0,
+        "front_position_delta": 1.1025,
+        "immediate_threat_safety_delta": -5070.0001220703125,
+        "income_delta": 4000.0,
+        "material_delta": 33000.0,
+        "own_bank": 4100.0,
+        "turn_index": 33.0,
+        "unit_count_delta": 7.0
+      },
+      "loss": 1.760665659661585,
+      "map_id": 82950,
+      "match_id": "awbw-1394917",
+      "p": 0.8280696213944564,
+      "turn_index": 33,
+      "winner": false,
+      "archive_fingerprint": "9ae2693a4f2c042b",
+      "map_fingerprint": "5559f36a0ef84c94",
+      "perspective": "3260011",
+      "power_readiness": [
+        {
+          "charge": 8900,
+          "commander": "sami",
+          "cop_cost": 43200,
+          "cop_ready": false,
+          "player": "3260011",
+          "scop_cost": 115200,
+          "scop_ready": false
+        },
+        {
+          "charge": 85800,
+          "commander": "javier",
+          "cop_cost": 43200,
+          "cop_ready": true,
+          "player": "3260012",
+          "scop_cost": 86400,
+          "scop_ready": false
+        }
+      ],
+      "current_score": 76163.33333333331,
+      "current_score_without_charge": 76163.33333333331,
+      "authoritative_funds": {
+        "3260011": 4100,
+        "3260012": 22400
+      },
+      "first_later_power": {
+        "day": 17,
+        "player": "3260012",
+        "power": "Tower Shield"
+      },
+      "final_outcome": {
+        "outcome": {
+          "reason": "resignation",
+          "type": "victory",
+          "winners": [
+            "player:3260012"
+          ]
+        },
+        "status": "finished"
+      }
+    },
+    {
+      "day": 16,
+      "features": {
+        "capture_progress_delta": -0.1499999999999999,
+        "deferred_threat_safety_delta": 0.0,
+        "front_position_delta": 1.0328042328042328,
+        "immediate_threat_safety_delta": 49980.0,
+        "income_delta": 4000.0,
+        "material_delta": 16200.0,
+        "own_bank": 2600.0,
+        "turn_index": 30.0,
+        "unit_count_delta": 8.0
+      },
+      "loss": 1.651520184436707,
+      "map_id": 58205,
+      "match_id": "awbw-1225421",
+      "p": 0.8082418208639097,
+      "turn_index": 30,
+      "winner": false,
+      "archive_fingerprint": "3564bdd970ef5bc4",
+      "map_fingerprint": "8dc3fdebd0311d69",
+      "perspective": "2902511",
+      "power_readiness": [
+        {
+          "charge": 64800,
+          "commander": "jess",
+          "cop_cost": 32400,
+          "cop_ready": true,
+          "player": "2911081",
+          "scop_cost": 64800,
+          "scop_ready": true
+        },
+        {
+          "charge": 35000,
+          "commander": "jess",
+          "cop_cost": 32400,
+          "cop_ready": true,
+          "player": "2902511",
+          "scop_cost": 64800,
+          "scop_ready": false
+        }
+      ],
+      "current_score": 69405.0,
+      "current_score_without_charge": 69405.0,
+      "authoritative_funds": {
+        "2911081": 17200,
+        "2902511": 2600
+      },
+      "first_later_power": {
+        "day": 16,
+        "player": "2911081",
+        "power": "Overdrive"
+      },
+      "final_outcome": {
+        "outcome": {
+          "reason": "resignation",
+          "type": "victory",
+          "winners": [
+            "player:2911081"
+          ]
+        },
+        "status": "finished"
+      }
+    }
+  ]
+}

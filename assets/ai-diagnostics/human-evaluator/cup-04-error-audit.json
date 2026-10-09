@@ -1,0 +1,305 @@
+{
+  "confidence_buckets": {
+    "0.5-0.6": {
+      "equal_game_accuracy": 0.5654489382157475,
+      "equal_game_loss": 0.680736746670629,
+      "games": 111,
+      "rows": 1633
+    },
+    "0.6-0.7": {
+      "equal_game_accuracy": 0.8238054745707806,
+      "equal_game_loss": 0.5455745035112584,
+      "games": 98,
+      "rows": 405
+    },
+    "0.7-0.8": {
+      "equal_game_accuracy": 0.9154397296108527,
+      "equal_game_loss": 0.3814377882412291,
+      "games": 77,
+      "rows": 235
+    },
+    "0.8-1.0": {
+      "equal_game_accuracy": 0.9603825136612021,
+      "equal_game_loss": 0.20838831564760635,
+      "games": 61,
+      "rows": 212
+    }
+  },
+  "day_buckets": {
+    "15-21": {
+      "equal_game_accuracy": 0.842761544011544,
+      "equal_game_loss": 0.4053722205231874,
+      "games": 40,
+      "rows": 293
+    },
+    "22-35": {
+      "equal_game_accuracy": 0.7135217723453018,
+      "equal_game_loss": 0.5224724023489619,
+      "games": 7,
+      "rows": 48
+    },
+    "3-7": {
+      "equal_game_accuracy": 0.5532103532103535,
+      "equal_game_loss": 0.6805224284509171,
+      "games": 111,
+      "rows": 1102
+    },
+    "36-18446744073709551615": {
+      "equal_game_accuracy": null,
+      "equal_game_loss": null,
+      "games": 0,
+      "rows": 0
+    },
+    "8-14": {
+      "equal_game_accuracy": 0.7491777986970294,
+      "equal_game_loss": 0.5355940621817967,
+      "games": 104,
+      "rows": 1042
+    }
+  },
+  "high_confidence_errors": [
+    {
+      "day": 16,
+      "features": {
+        "capture_progress_delta": 0.5,
+        "deferred_threat_safety_delta": -55620.0,
+        "front_position_delta": 1.471042471042471,
+        "immediate_threat_safety_delta": 2600.0,
+        "income_delta": 3000.0,
+        "material_delta": 17200.0,
+        "own_bank": 5700.0,
+        "turn_index": 31.0,
+        "unit_count_delta": 16.0
+      },
+      "loss": 1.9987605895206157,
+      "map_id": 58205,
+      "match_id": "awbw-1225436",
+      "p": 0.8644968768052974,
+      "turn_index": 31,
+      "winner": false
+    },
+    {
+      "day": 17,
+      "features": {
+        "capture_progress_delta": 0.0,
+        "deferred_threat_safety_delta": -10460.0,
+        "front_position_delta": 1.1025,
+        "immediate_threat_safety_delta": -5070.0001220703125,
+        "income_delta": 4000.0,
+        "material_delta": 33000.0,
+        "own_bank": 4100.0,
+        "turn_index": 33.0,
+        "unit_count_delta": 7.0
+      },
+      "loss": 1.760665659661585,
+      "map_id": 82950,
+      "match_id": "awbw-1394917",
+      "p": 0.8280696213944564,
+      "turn_index": 33,
+      "winner": false
+    },
+    {
+      "day": 16,
+      "features": {
+        "capture_progress_delta": -0.1499999999999999,
+        "deferred_threat_safety_delta": 0.0,
+        "front_position_delta": 1.0328042328042328,
+        "immediate_threat_safety_delta": 49980.0,
+        "income_delta": 4000.0,
+        "material_delta": 16200.0,
+        "own_bank": 2600.0,
+        "turn_index": 30.0,
+        "unit_count_delta": 8.0
+      },
+      "loss": 1.651520184436707,
+      "map_id": 58205,
+      "match_id": "awbw-1225421",
+      "p": 0.8082418208639097,
+      "turn_index": 30,
+      "winner": false
+    },
+    {
+      "day": 19,
+      "features": {
+        "capture_progress_delta": -0.5,
+        "deferred_threat_safety_delta": 47500.0,
+        "front_position_delta": -0.8634920634920635,
+        "immediate_threat_safety_delta": 87940.0,
+        "income_delta": 3000.0,
+        "material_delta": 30200.0,
+        "own_bank": 2600.0,
+        "turn_index": 36.0,
+        "unit_count_delta": 10.0
+      },
+      "loss": 1.5426835732469752,
+      "map_id": 77060,
+      "match_id": "awbw-1394924",
+      "p": 0.7861934347117663,
+      "turn_index": 36,
+      "winner": false
+    },
+    {
+      "day": 10,
+      "features": {
+        "capture_progress_delta": 1.2999999999999998,
+        "deferred_threat_safety_delta": 0.0,
+        "front_position_delta": 1.2752100840336134,
+        "immediate_threat_safety_delta": -9870.0,
+        "income_delta": 1000.0,
+        "material_delta": 26400.0,
+        "own_bank": 400.0,
+        "turn_index": 19.0,
+        "unit_count_delta": 6.0
+      },
+      "loss": 1.4695090708963097,
+      "map_id": 153152,
+      "match_id": "awbw-1225664",
+      "p": 0.7699616099890534,
+      "turn_index": 19,
+      "winner": false
+    },
+    {
+      "day": 14,
+      "features": {
+        "capture_progress_delta": 0.30000000000000004,
+        "deferred_threat_safety_delta": 19070.0,
+        "front_position_delta": -0.5606758832565284,
+        "immediate_threat_safety_delta": 59720.0,
+        "income_delta": 0.0,
+        "material_delta": 38700.0,
+        "own_bank": 1900.0,
+        "turn_index": 27.0,
+        "unit_count_delta": 10.0
+      },
+      "loss": 1.4247039294273143,
+      "map_id": 58205,
+      "match_id": "awbw-1225448",
+      "p": 0.7594203187709602,
+      "turn_index": 27,
+      "winner": false
+    },
+    {
+      "day": 11,
+      "features": {
+        "capture_progress_delta": 0.8,
+        "deferred_threat_safety_delta": 0.0,
+        "front_position_delta": 1.1363636363636362,
+        "immediate_threat_safety_delta": 13450.0,
+        "income_delta": -2000.0,
+        "material_delta": 25700.0,
+        "own_bank": 4400.0,
+        "turn_index": 20.0,
+        "unit_count_delta": 11.0
+      },
+      "loss": 1.3451843449244734,
+      "map_id": 153152,
+      "match_id": "awbw-1225729",
+      "p": 0.7395083168860971,
+      "turn_index": 20,
+      "winner": false
+    },
+    {
+      "day": 10,
+      "features": {
+        "capture_progress_delta": 0.8999999999999999,
+        "deferred_threat_safety_delta": 0.0,
+        "front_position_delta": 0.2484848484848483,
+        "immediate_threat_safety_delta": 30510.000061035156,
+        "income_delta": 2000.0,
+        "material_delta": 23800.0,
+        "own_bank": 400.0,
+        "turn_index": 19.0,
+        "unit_count_delta": 3.0
+      },
+      "loss": 1.2573588415713448,
+      "map_id": 153152,
+      "match_id": "awbw-1225650",
+      "p": 0.7155958080605093,
+      "turn_index": 19,
+      "winner": false
+    },
+    {
+      "day": 19,
+      "features": {
+        "capture_progress_delta": 0.75,
+        "deferred_threat_safety_delta": -4439.99951171875,
+        "front_position_delta": 1.3531746031746033,
+        "immediate_threat_safety_delta": 4369.9998779296875,
+        "income_delta": 2000.0,
+        "material_delta": -100.0,
+        "own_bank": 2700.0,
+        "turn_index": 37.0,
+        "unit_count_delta": 10.0
+      },
+      "loss": 1.2281583316550526,
+      "map_id": 107389,
+      "match_id": "awbw-1225484",
+      "p": 0.7071686203363745,
+      "turn_index": 37,
+      "winner": false
+    },
+    {
+      "day": 12,
+      "features": {
+        "capture_progress_delta": 0.4500000000000002,
+        "deferred_threat_safety_delta": 0.0,
+        "front_position_delta": -0.053708439897698246,
+        "immediate_threat_safety_delta": -2690.0,
+        "income_delta": 0.0,
+        "material_delta": 25000.0,
+        "own_bank": 2900.0,
+        "turn_index": 22.0,
+        "unit_count_delta": 11.0
+      },
+      "loss": 1.207551374194009,
+      "map_id": 153152,
+      "match_id": "awbw-1225668",
+      "p": 0.7010716523254156,
+      "turn_index": 22,
+      "winner": false
+    },
+    {
+      "day": 12,
+      "features": {
+        "capture_progress_delta": -0.5,
+        "deferred_threat_safety_delta": 17460.0,
+        "front_position_delta": 0.7824074074074073,
+        "immediate_threat_safety_delta": -8495.0,
+        "income_delta": 4000.0,
+        "material_delta": 16500.0,
+        "own_bank": 2000.0,
+        "turn_index": 23.0,
+        "unit_count_delta": 3.0
+      },
+      "loss": 1.1793679289840673,
+      "map_id": 157601,
+      "match_id": "awbw-1225438",
+      "p": 0.6925269780204086,
+      "turn_index": 23,
+      "winner": false
+    },
+    {
+      "day": 9,
+      "features": {
+        "capture_progress_delta": -0.15000000000000002,
+        "deferred_threat_safety_delta": -4970.0,
+        "front_position_delta": 0.92,
+        "immediate_threat_safety_delta": 8230.0,
+        "income_delta": 2000.0,
+        "material_delta": 32100.0,
+        "own_bank": 800.0,
+        "turn_index": 17.0,
+        "unit_count_delta": 0.0
+      },
+      "loss": 1.179216270631172,
+      "map_id": 153152,
+      "match_id": "awbw-1225726",
+      "p": 0.6924803436321776,
+      "turn_index": 17,
+      "winner": false
+    }
+  ],
+  "holdout_features_fingerprint": "82af6a504f852148",
+  "model_report_fingerprint": "faa3868d2d178355",
+  "weighting": "Equal game means within each bucket. Buckets have different game sets."
+}

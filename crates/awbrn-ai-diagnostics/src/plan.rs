@@ -51,6 +51,8 @@ pub enum AgentSpec {
         baseline_configuration: String,
         top_k: usize,
     },
+    /// Planner v5 with an experimental replay-trained position score.
+    ReplayPlanner { identifier: String, model: PathBuf },
     /// The whole-turn planner. This is not a production profile.
     ///
     /// The optional fields change one value of the named configuration.
@@ -371,6 +373,24 @@ impl AgentSpec {
         plan_path: &Path,
     ) -> Result<(Box<dyn AgentFactory>, Vec<ReferencedArtifact>), PlanError> {
         match self {
+            Self::ReplayPlanner { identifier, model } => {
+                let bytes = fs::read(resolve_artifact_path(plan_path, model)?)?;
+                let model_data = serde_json::from_slice(&bytes)?;
+                let content_fingerprint = fingerprint_bytes(&bytes);
+                let factory = crate::replay_planner::ReplayPlannerFactory::new(
+                    identifier,
+                    model_data,
+                    content_fingerprint.clone(),
+                )
+                .map_err(PlanError::Configuration)?;
+                Ok((
+                    Box::new(factory),
+                    vec![ReferencedArtifact {
+                        path: normalized_artifact_path(model)?,
+                        fingerprint: content_fingerprint,
+                    }],
+                ))
+            }
             Self::AiProfile { profile_id } => Ok((
                 Box::new(AiProfileFactory::new(profile_id).map_err(PlanError::Configuration)?),
                 Vec::new(),

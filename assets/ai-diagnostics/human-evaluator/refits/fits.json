@@ -1,0 +1,556 @@
+{
+  "sources": [
+    {
+      "directory": "target/ai-human-evaluator/refits/cup-03",
+      "positions_sha256": "a6feb83366e22cd07c37242556a8125bf241c8c7dcd04ecb5cbbac27b255d547",
+      "features_sha256": "badfe243b2b211cc29b8c117dbb87fa55484fb56cdde53ebf79f015c378af688"
+    },
+    {
+      "directory": "target/ai-human-evaluator/refits/cup-04",
+      "positions_sha256": "2f391b350638e9339328e037d54e768066fe4b48e15f4cd6f7f21eeaa851aba6",
+      "features_sha256": "c6e6193ec45156fcfdbd56d89f97eb88e0ea5b3d7b8c0ada03972c4b48743274"
+    }
+  ],
+  "games": 315,
+  "rows": 7426,
+  "folds": "3 repeats of 5 folds, grouped by game and balanced per map",
+  "candidate_reports": [
+    {
+      "name": "safe-core",
+      "features": [
+        "turn_index",
+        "material_delta",
+        "income_delta",
+        "own_bank",
+        "unit_count_delta",
+        "capture_progress_delta",
+        "immediate_threat_safety_delta",
+        "deferred_threat_safety_delta"
+      ],
+      "l2": 0.1,
+      "positive": false,
+      "cv": {
+        "log_loss": 0.6159699977701006,
+        "accuracy": 0.6426666979747049,
+        "brier": 0.21459552110864996
+      },
+      "leave_one_map_out": {
+        "log_loss": 0.6170566609952864,
+        "accuracy": 0.6514675757238665,
+        "brier": 0.21476653495043235
+      }
+    },
+    {
+      "name": "funds-front",
+      "features": [
+        "turn_index",
+        "material_delta",
+        "income_delta",
+        "own_bank",
+        "unit_count_delta",
+        "capture_progress_delta",
+        "immediate_threat_safety_delta",
+        "deferred_threat_safety_delta",
+        "material_front"
+      ],
+      "l2": 0.1,
+      "positive": false,
+      "cv": {
+        "log_loss": 0.6147196573251207,
+        "accuracy": 0.6423307838887475,
+        "brier": 0.21423787105183567
+      },
+      "leave_one_map_out": {
+        "log_loss": 0.6130389336969255,
+        "accuracy": 0.6379390091288657,
+        "brier": 0.21350536146646695
+      }
+    },
+    {
+      "name": "properties",
+      "features": [
+        "turn_index",
+        "material_delta",
+        "income_delta",
+        "own_bank",
+        "unit_count_delta",
+        "capture_progress_delta",
+        "immediate_threat_safety_delta",
+        "deferred_threat_safety_delta",
+        "material_front",
+        "property_capture",
+        "production",
+        "contest"
+      ],
+      "l2": 0.1,
+      "positive": false,
+      "cv": {
+        "log_loss": 0.6122865565751517,
+        "accuracy": 0.6438818810852492,
+        "brier": 0.2133155655247286
+      },
+      "leave_one_map_out": {
+        "log_loss": 0.6091638910243174,
+        "accuracy": 0.6434537655100673,
+        "brier": 0.21184616003251167
+      }
+    },
+    {
+      "name": "power-meter",
+      "features": [
+        "turn_index",
+        "material_delta",
+        "income_delta",
+        "own_bank",
+        "unit_count_delta",
+        "capture_progress_delta",
+        "immediate_threat_safety_delta",
+        "deferred_threat_safety_delta",
+        "material_front",
+        "property_capture",
+        "production",
+        "contest",
+        "power_meter_army"
+      ],
+      "l2": 0.1,
+      "positive": false,
+      "cv": {
+        "log_loss": 0.6122626329644895,
+        "accuracy": 0.6435467687973132,
+        "brier": 0.21336403784155408
+      },
+      "leave_one_map_out": {
+        "log_loss": 0.6077447239603148,
+        "accuracy": 0.643812869996703,
+        "brier": 0.21131667064617865
+      }
+    },
+    {
+      "name": "power-ready",
+      "features": [
+        "turn_index",
+        "material_delta",
+        "income_delta",
+        "own_bank",
+        "unit_count_delta",
+        "capture_progress_delta",
+        "immediate_threat_safety_delta",
+        "deferred_threat_safety_delta",
+        "material_front",
+        "property_capture",
+        "production",
+        "contest",
+        "power_meter_army",
+        "cop_ready_army",
+        "scop_ready_army"
+      ],
+      "l2": 0.1,
+      "positive": false,
+      "cv": {
+        "log_loss": 0.6122926863573145,
+        "accuracy": 0.6432594231126135,
+        "brier": 0.21340250740331723
+      },
+      "leave_one_map_out": {
+        "log_loss": 0.6071492488685292,
+        "accuracy": 0.6443314975864549,
+        "brier": 0.21109434297011634
+      }
+    },
+    {
+      "name": "eagle",
+      "features": [
+        "turn_index",
+        "material_delta",
+        "income_delta",
+        "own_bank",
+        "unit_count_delta",
+        "capture_progress_delta",
+        "immediate_threat_safety_delta",
+        "deferred_threat_safety_delta",
+        "material_front",
+        "property_capture",
+        "production",
+        "contest",
+        "power_meter_army",
+        "cop_ready_army",
+        "scop_ready_army",
+        "eagle_refresh"
+      ],
+      "l2": 0.1,
+      "positive": false,
+      "cv": {
+        "log_loss": 0.6121508329063757,
+        "accuracy": 0.6433991471691961,
+        "brier": 0.21336765728526988
+      },
+      "leave_one_map_out": {
+        "log_loss": 0.605773054783892,
+        "accuracy": 0.6436196214469069,
+        "brier": 0.21070914702298071
+      }
+    },
+    {
+      "name": "weak-regularization",
+      "features": [
+        "turn_index",
+        "material_delta",
+        "income_delta",
+        "own_bank",
+        "unit_count_delta",
+        "capture_progress_delta",
+        "immediate_threat_safety_delta",
+        "deferred_threat_safety_delta",
+        "material_front",
+        "property_capture",
+        "production",
+        "contest",
+        "power_meter_army",
+        "cop_ready_army",
+        "scop_ready_army",
+        "eagle_refresh"
+      ],
+      "l2": 0.03,
+      "positive": false,
+      "cv": {
+        "log_loss": 0.6026605477269251,
+        "accuracy": 0.6434378061370147,
+        "brier": 0.209969405467847
+      },
+      "leave_one_map_out": {
+        "log_loss": 0.5947792117658631,
+        "accuracy": 0.6497876738843414,
+        "brier": 0.20647978118881696
+      }
+    },
+    {
+      "name": "strong-regularization",
+      "features": [
+        "turn_index",
+        "material_delta",
+        "income_delta",
+        "own_bank",
+        "unit_count_delta",
+        "capture_progress_delta",
+        "immediate_threat_safety_delta",
+        "deferred_threat_safety_delta",
+        "material_front",
+        "property_capture",
+        "production",
+        "contest",
+        "power_meter_army",
+        "cop_ready_army",
+        "scop_ready_army",
+        "eagle_refresh"
+      ],
+      "l2": 0.3,
+      "positive": false,
+      "cv": {
+        "log_loss": 0.6311731057358668,
+        "accuracy": 0.643516042034381,
+        "brier": 0.22088424330943934
+      },
+      "leave_one_map_out": {
+        "log_loss": 0.6260621726278497,
+        "accuracy": 0.6403573989740059,
+        "brier": 0.21876318882650966
+      }
+    },
+    {
+      "name": "no-deferred-threat",
+      "features": [
+        "turn_index",
+        "material_delta",
+        "income_delta",
+        "own_bank",
+        "unit_count_delta",
+        "capture_progress_delta",
+        "immediate_threat_safety_delta",
+        "material_front",
+        "property_capture",
+        "production",
+        "contest",
+        "power_meter_army",
+        "cop_ready_army",
+        "scop_ready_army",
+        "eagle_refresh"
+      ],
+      "l2": 0.03,
+      "positive": false,
+      "cv": {
+        "log_loss": 0.6024731947069019,
+        "accuracy": 0.6460990852970211,
+        "brier": 0.2097951587293091
+      },
+      "leave_one_map_out": {
+        "log_loss": 0.5947388856741745,
+        "accuracy": 0.6516341235555986,
+        "brier": 0.20637501821826443
+      }
+    },
+    {
+      "name": "l2-01",
+      "features": [
+        "turn_index",
+        "material_delta",
+        "income_delta",
+        "own_bank",
+        "unit_count_delta",
+        "capture_progress_delta",
+        "immediate_threat_safety_delta",
+        "deferred_threat_safety_delta",
+        "material_front",
+        "property_capture",
+        "production",
+        "contest",
+        "power_meter_army",
+        "cop_ready_army",
+        "scop_ready_army",
+        "eagle_refresh"
+      ],
+      "l2": 0.01,
+      "positive": false,
+      "cv": {
+        "log_loss": 0.6006116966466032,
+        "accuracy": 0.6435713049420209,
+        "brier": 0.20919126708092103
+      },
+      "leave_one_map_out": {
+        "log_loss": 0.5914772795887917,
+        "accuracy": 0.652630625874086,
+        "brier": 0.20492280120295336
+      }
+    },
+    {
+      "name": "l2-003",
+      "features": [
+        "turn_index",
+        "material_delta",
+        "income_delta",
+        "own_bank",
+        "unit_count_delta",
+        "capture_progress_delta",
+        "immediate_threat_safety_delta",
+        "deferred_threat_safety_delta",
+        "material_front",
+        "property_capture",
+        "production",
+        "contest",
+        "power_meter_army",
+        "cop_ready_army",
+        "scop_ready_army",
+        "eagle_refresh"
+      ],
+      "l2": 0.003,
+      "positive": false,
+      "cv": {
+        "log_loss": 0.600607812502649,
+        "accuracy": 0.6449389242166209,
+        "brier": 0.2090970613356052
+      },
+      "leave_one_map_out": {
+        "log_loss": 0.5906888052134092,
+        "accuracy": 0.6559393514711376,
+        "brier": 0.20428497353209257
+      }
+    },
+    {
+      "name": "l2-001",
+      "features": [
+        "turn_index",
+        "material_delta",
+        "income_delta",
+        "own_bank",
+        "unit_count_delta",
+        "capture_progress_delta",
+        "immediate_threat_safety_delta",
+        "deferred_threat_safety_delta",
+        "material_front",
+        "property_capture",
+        "production",
+        "contest",
+        "power_meter_army",
+        "cop_ready_army",
+        "scop_ready_army",
+        "eagle_refresh"
+      ],
+      "l2": 0.001,
+      "positive": false,
+      "cv": {
+        "log_loss": 0.6008072940818426,
+        "accuracy": 0.6447861963002964,
+        "brier": 0.20912058930877575
+      },
+      "leave_one_map_out": {
+        "log_loss": 0.5906088275992103,
+        "accuracy": 0.6557329234355195,
+        "brier": 0.2040951709067016
+      }
+    },
+    {
+      "name": "l2-0003",
+      "features": [
+        "turn_index",
+        "material_delta",
+        "income_delta",
+        "own_bank",
+        "unit_count_delta",
+        "capture_progress_delta",
+        "immediate_threat_safety_delta",
+        "deferred_threat_safety_delta",
+        "material_front",
+        "property_capture",
+        "production",
+        "contest",
+        "power_meter_army",
+        "cop_ready_army",
+        "scop_ready_army",
+        "eagle_refresh"
+      ],
+      "l2": 0.0003,
+      "positive": false,
+      "cv": {
+        "log_loss": 0.6009114634800351,
+        "accuracy": 0.6449871083375746,
+        "brier": 0.2091379917014451
+      },
+      "leave_one_map_out": {
+        "log_loss": 0.5906105763622352,
+        "accuracy": 0.6556707802327176,
+        "brier": 0.2040294049495101
+      }
+    },
+    {
+      "name": "unregularized",
+      "features": [
+        "turn_index",
+        "material_delta",
+        "income_delta",
+        "own_bank",
+        "unit_count_delta",
+        "capture_progress_delta",
+        "immediate_threat_safety_delta",
+        "deferred_threat_safety_delta",
+        "material_front",
+        "property_capture",
+        "production",
+        "contest",
+        "power_meter_army",
+        "cop_ready_army",
+        "scop_ready_army",
+        "eagle_refresh"
+      ],
+      "l2": 0.0,
+      "positive": false,
+      "cv": {
+        "log_loss": 0.6009603209525164,
+        "accuracy": 0.6449500202266906,
+        "brier": 0.20914729769801288
+      },
+      "leave_one_map_out": {
+        "log_loss": 0.5906173056616264,
+        "accuracy": 0.6562181015983855,
+        "brier": 0.2040017644523364
+      }
+    },
+    {
+      "name": "positive-01",
+      "features": [
+        "turn_index",
+        "material_delta",
+        "income_delta",
+        "own_bank",
+        "unit_count_delta",
+        "capture_progress_delta",
+        "immediate_threat_safety_delta",
+        "deferred_threat_safety_delta",
+        "material_front",
+        "property_capture",
+        "production",
+        "contest",
+        "power_meter_army",
+        "cop_ready_army",
+        "scop_ready_army",
+        "eagle_refresh"
+      ],
+      "l2": 0.01,
+      "positive": true,
+      "cv": {
+        "log_loss": 0.600635608044405,
+        "accuracy": 0.6403518620498927,
+        "brier": 0.20905033111946447
+      },
+      "leave_one_map_out": {
+        "log_loss": 0.5957311279740419,
+        "accuracy": 0.6532730177532582,
+        "brier": 0.2064945850321414
+      }
+    },
+    {
+      "name": "positive-003",
+      "features": [
+        "turn_index",
+        "material_delta",
+        "income_delta",
+        "own_bank",
+        "unit_count_delta",
+        "capture_progress_delta",
+        "immediate_threat_safety_delta",
+        "deferred_threat_safety_delta",
+        "material_front",
+        "property_capture",
+        "production",
+        "contest",
+        "power_meter_army",
+        "cop_ready_army",
+        "scop_ready_army",
+        "eagle_refresh"
+      ],
+      "l2": 0.003,
+      "positive": true,
+      "cv": {
+        "log_loss": 0.6005562432093794,
+        "accuracy": 0.6398724612733823,
+        "brier": 0.2089078449917431
+      },
+      "leave_one_map_out": {
+        "log_loss": 0.5951351417923055,
+        "accuracy": 0.6547588024508583,
+        "brier": 0.2059092379625243
+      }
+    },
+    {
+      "name": "without-powers",
+      "features": [
+        "turn_index",
+        "material_delta",
+        "income_delta",
+        "own_bank",
+        "unit_count_delta",
+        "capture_progress_delta",
+        "immediate_threat_safety_delta",
+        "deferred_threat_safety_delta",
+        "material_front",
+        "property_capture",
+        "production",
+        "contest"
+      ],
+      "l2": 0.01,
+      "positive": false,
+      "cv": {
+        "log_loss": 0.6007674980275202,
+        "accuracy": 0.6433626591086314,
+        "brier": 0.2090233214949059
+      },
+      "leave_one_map_out": {
+        "log_loss": 0.5968304040516527,
+        "accuracy": 0.6545215462211197,
+        "brier": 0.20649230242914599
+      }
+    }
+  ],
+  "selection": "minimum grouped validation loss",
+  "best": "positive-003",
+  "stop_threshold": 0.002,
+  "stop_consecutive_failures": 3
+}

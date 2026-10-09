@@ -1,0 +1,77 @@
+{
+  "comparison": "Full score less score with only four power coefficients zeroed. Same maps, seeds, and planner settings.",
+  "rules": "Current local Eagle COP incorrectly refreshes units. This is not an AWBW power validation.",
+  "mean_pair_point_difference": 0.14285714285714285,
+  "pairs": [
+    {
+      "map": 159501,
+      "pair_index": 0,
+      "full_less_ablated_pair_points": 0.5
+    },
+    {
+      "map": 77060,
+      "pair_index": 1,
+      "full_less_ablated_pair_points": 1.0
+    },
+    {
+      "map": 69201,
+      "pair_index": 2,
+      "full_less_ablated_pair_points": 0.0
+    },
+    {
+      "map": 180298,
+      "pair_index": 3,
+      "full_less_ablated_pair_points": 0.0
+    },
+    {
+      "map": 126428,
+      "pair_index": 4,
+      "full_less_ablated_pair_points": 0.0
+    },
+    {
+      "map": 166877,
+      "pair_index": 5,
+      "full_less_ablated_pair_points": 0.0
+    },
+    {
+      "map": 133665,
+      "pair_index": 6,
+      "full_less_ablated_pair_points": 0.0
+    },
+    {
+      "map": 172238,
+      "pair_index": 7,
+      "full_less_ablated_pair_points": 0.0
+    },
+    {
+      "map": 182023,
+      "pair_index": 8,
+      "full_less_ablated_pair_points": -1.0
+    },
+    {
+      "map": 132144,
+      "pair_index": 9,
+      "full_less_ablated_pair_points": 0.0
+    },
+    {
+      "map": 160882,
+      "pair_index": 10,
+      "full_less_ablated_pair_points": 0.0
+    },
+    {
+      "map": 173362,
+      "pair_index": 11,
+      "full_less_ablated_pair_points": 1.5
+    },
+    {
+      "map": 169069,
+      "pair_index": 12,
+      "full_less_ablated_pair_points": 0.0
+    },
+    {
+      "map": 169382,
+      "pair_index": 13,
+      "full_less_ablated_pair_points": 0.0
+    }
+  ]
+}

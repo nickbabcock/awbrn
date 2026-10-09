@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "source_report_fingerprint": "595a551ce1460ebaa87b61f6c3c3100f20237309b18404e386d491cf9cdf3431",
+  "corpus_fingerprint": "595a551ce1460ebaa87b61f6c3c3100f20237309b18404e386d491cf9cdf3431",
+  "mode": "fog-visible",
+  "intercept": -0.2993346148258696,
+  "coefficients": {
+    "turn_index": -0.002688986951052196,
+    "material_delta": 1.6467975325944675e-05,
+    "income_delta": 0.0001121305194030483,
+    "own_bank": 6.9201639173519275e-06,
+    "unit_count_delta": 0.050298113719947204,
+    "capture_progress_delta": 0.07659761218593197,
+    "front_position_delta": 0.0,
+    "immediate_threat_safety_delta": 3.3464741224080878e-06,
+    "deferred_threat_safety_delta": 1.0365920602202393e-06
+  },
+  "extra_coefficients": {
+    "material_front": 4.345918740484362e-06,
+    "property_capture": 1.17125177970847e-05,
+    "production": 1.8871832499872525e-05,
+    "contest": -9.008432129808047e-06,
+    "power_meter_army": 8.425096675015476e-07,
+    "cop_ready_army": 2.2593526997564298e-07,
+    "scop_ready_army": 8.305874054648407e-07,
+    "eagle_refresh": -6.684522678622909e-06
+  }
+}

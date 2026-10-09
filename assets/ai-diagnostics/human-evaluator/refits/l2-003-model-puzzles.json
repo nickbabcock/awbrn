@@ -1,0 +1,192 @@
+{
+  "agent_seed": 7,
+  "entropy_seed": 11,
+  "model_fingerprint": "5374522e220fbeb8",
+  "node_budget": 4,
+  "outcomes": [
+    {
+      "baseline": {
+        "commands": 3,
+        "detail": "",
+        "passed": true
+      },
+      "candidate": {
+        "commands": 3,
+        "detail": "",
+        "passed": true
+      },
+      "name": "kill-the-tank"
+    },
+    {
+      "baseline": {
+        "commands": 4,
+        "detail": "",
+        "passed": true
+      },
+      "candidate": {
+        "commands": 4,
+        "detail": "",
+        "passed": true
+      },
+      "name": "three-attacker-kill"
+    },
+    {
+      "baseline": {
+        "commands": 4,
+        "detail": "",
+        "passed": true
+      },
+      "candidate": {
+        "commands": 4,
+        "detail": "",
+        "passed": true
+      },
+      "name": "focus-fire"
+    },
+    {
+      "baseline": {
+        "commands": 2,
+        "detail": "",
+        "passed": true
+      },
+      "candidate": {
+        "commands": 2,
+        "detail": "",
+        "passed": true
+      },
+      "name": "hq-block"
+    },
+    {
+      "baseline": {
+        "commands": 2,
+        "detail": "",
+        "passed": true
+      },
+      "candidate": {
+        "commands": 2,
+        "detail": "",
+        "passed": true
+      },
+      "name": "capture-denial"
+    },
+    {
+      "baseline": {
+        "commands": 2,
+        "detail": "",
+        "passed": true
+      },
+      "candidate": {
+        "commands": 2,
+        "detail": "",
+        "passed": true
+      },
+      "name": "hq-capture-denial"
+    },
+    {
+      "baseline": {
+        "commands": 2,
+        "detail": "",
+        "passed": true
+      },
+      "candidate": {
+        "commands": 2,
+        "detail": "",
+        "passed": true
+      },
+      "name": "no-suicide"
+    }
+  ],
+  "outcomes_with_node_budget_32": [
+    {
+      "baseline": {
+        "commands": 3,
+        "detail": "",
+        "passed": true
+      },
+      "candidate": {
+        "commands": 3,
+        "detail": "",
+        "passed": true
+      },
+      "name": "kill-the-tank"
+    },
+    {
+      "baseline": {
+        "commands": 4,
+        "detail": "",
+        "passed": true
+      },
+      "candidate": {
+        "commands": 4,
+        "detail": "",
+        "passed": true
+      },
+      "name": "three-attacker-kill"
+    },
+    {
+      "baseline": {
+        "commands": 4,
+        "detail": "",
+        "passed": true
+      },
+      "candidate": {
+        "commands": 4,
+        "detail": "",
+        "passed": true
+      },
+      "name": "focus-fire"
+    },
+    {
+      "baseline": {
+        "commands": 2,
+        "detail": "",
+        "passed": true
+      },
+      "candidate": {
+        "commands": 2,
+        "detail": "",
+        "passed": true
+      },
+      "name": "hq-block"
+    },
+    {
+      "baseline": {
+        "commands": 2,
+        "detail": "",
+        "passed": true
+      },
+      "candidate": {
+        "commands": 2,
+        "detail": "",
+        "passed": true
+      },
+      "name": "capture-denial"
+    },
+    {
+      "baseline": {
+        "commands": 2,
+        "detail": "",
+        "passed": true
+      },
+      "candidate": {
+        "commands": 2,
+        "detail": "",
+        "passed": true
+      },
+      "name": "hq-capture-denial"
+    },
+    {
+      "baseline": {
+        "commands": 2,
+        "detail": "",
+        "passed": true
+      },
+      "candidate": {
+        "commands": 2,
+        "detail": "",
+        "passed": true
+      },
+      "name": "no-suicide"
+    }
+  ]
+}

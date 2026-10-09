@@ -1,0 +1,139 @@
+{
+  "date": "2026-10-05",
+  "source_branch": "ai-experiments",
+  "training_games": 315,
+  "training_positions": 7426,
+  "fits": 17,
+  "stop": "The final seven trials have no validation loss reduction of at least 0.002. Prediction accuracy has reached a plateau.",
+  "selected_model": "../refit-positive-003-model.json",
+  "selected_cv_log_loss": 0.6005562432093794,
+  "holdout_games": 184,
+  "holdout_positions": 4346,
+  "holdout_original_accuracy": 0.6562646439307486,
+  "holdout_selected_accuracy": 0.6576309137467566,
+  "holdout_stock_accuracy": 0.6037741823769571,
+  "holdout_selected_log_loss": 0.5996888716575404,
+  "puzzle_passes": {
+    "node_budget_4": 7,
+    "node_budget_32": 7
+  },
+  "runs": [
+    {
+      "run": "positive-003-pilot28",
+      "seed": 202610052100,
+      "commanders": [
+        "andy",
+        "andy"
+      ],
+      "pairs": 28,
+      "wins": 34,
+      "losses": 20,
+      "draws": 2,
+      "mean_pair_differential": 0.25,
+      "descriptive_ci95_half_width": 0.1984476794560256,
+      "sequential_decision": "inconclusive",
+      "candidate_invalid_commands": 0,
+      "baseline_invalid_commands": 0,
+      "candidate_turn_p95_nanos": 7327874222,
+      "baseline_turn_p95_nanos": 4857079512
+    },
+    {
+      "run": "safe-core-pilot28",
+      "seed": 202610052101,
+      "commanders": [
+        "andy",
+        "andy"
+      ],
+      "pairs": 28,
+      "wins": 30,
+      "losses": 24,
+      "draws": 2,
+      "mean_pair_differential": 0.10714285714285714,
+      "descriptive_ci95_half_width": 0.23294411982911903,
+      "sequential_decision": "inconclusive",
+      "candidate_invalid_commands": 0,
+      "baseline_invalid_commands": 0,
+      "candidate_turn_p95_nanos": 5937073969,
+      "baseline_turn_p95_nanos": 4722932605
+    },
+    {
+      "run": "without-powers-pilot28",
+      "seed": 202610052102,
+      "commanders": [
+        "andy",
+        "andy"
+      ],
+      "pairs": 28,
+      "wins": 26,
+      "losses": 27,
+      "draws": 3,
+      "mean_pair_differential": -0.017857142857142856,
+      "descriptive_ci95_half_width": 0.2166987155784116,
+      "sequential_decision": "inconclusive",
+      "candidate_invalid_commands": 0,
+      "baseline_invalid_commands": 0,
+      "candidate_turn_p95_nanos": 6943573704,
+      "baseline_turn_p95_nanos": 4746517671
+    },
+    {
+      "run": "positive-003-eagle14",
+      "seed": 202610052201,
+      "commanders": [
+        "eagle",
+        "eagle"
+      ],
+      "pairs": 14,
+      "wins": 19,
+      "losses": 8,
+      "draws": 1,
+      "mean_pair_differential": 0.39285714285714285,
+      "descriptive_ci95_half_width": 0.25535796895278656,
+      "sequential_decision": "inconclusive",
+      "candidate_invalid_commands": 0,
+      "baseline_invalid_commands": 0,
+      "candidate_turn_p95_nanos": 7030230704,
+      "baseline_turn_p95_nanos": 4718025280
+    },
+    {
+      "run": "power-ablation-eagle14",
+      "seed": 202610052201,
+      "commanders": [
+        "eagle",
+        "eagle"
+      ],
+      "pairs": 14,
+      "wins": 17,
+      "losses": 10,
+      "draws": 1,
+      "mean_pair_differential": 0.25,
+      "descriptive_ci95_half_width": 0.2669053419069419,
+      "sequential_decision": "inconclusive",
+      "candidate_invalid_commands": 0,
+      "baseline_invalid_commands": 0,
+      "candidate_turn_p95_nanos": 5000375913,
+      "baseline_turn_p95_nanos": 3407598779
+    },
+    {
+      "run": "positive-003-confirm56",
+      "seed": 202610052301,
+      "commanders": [
+        "andy",
+        "andy"
+      ],
+      "pairs": 56,
+      "wins": 70,
+      "losses": 35,
+      "draws": 7,
+      "mean_pair_differential": 0.3125,
+      "descriptive_ci95_half_width": 0.14467479204942874,
+      "sequential_decision": "inconclusive",
+      "candidate_invalid_commands": 0,
+      "baseline_invalid_commands": 0,
+      "candidate_turn_p95_nanos": 2532802829,
+      "baseline_turn_p95_nanos": 1690826878
+    }
+  ],
+  "total_completed_games": 336,
+  "promotion": "Experimental agent only. Production weights are unchanged. Current Eagle COP does not match AWBW, and feature extraction adds work.",
+  "next_work": "Correct Eagle COP and its fixtures. Add samples around SCOP activations and local outcome targets. Use new reserved games for later fits."
+}
