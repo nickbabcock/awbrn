@@ -829,7 +829,7 @@ pub(crate) fn handle_tile_clicks(
 }
 
 pub(crate) fn on_tile_selected(
-    trigger: On<Insert, SelectedTile>,
+    trigger: On<Insert<SelectedTile>>,
     tiles: Query<(&MapPosition, &TerrainTile)>,
     sink: If<Res<EventSink<TileSelected>>>,
 ) {

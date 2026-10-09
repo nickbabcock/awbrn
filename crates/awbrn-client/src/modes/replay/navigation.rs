@@ -195,7 +195,7 @@ fn current_segment_and_progress(path_animation: &UnitPathAnimation) -> (usize, f
 }
 
 pub(crate) fn spawn_pending_course_arrows(
-    trigger: On<Insert, PendingCourseArrows>,
+    trigger: On<Insert<PendingCourseArrows>>,
     mut commands: Commands,
     ui_atlas: UiAtlas,
     game_map: Res<GameMap>,

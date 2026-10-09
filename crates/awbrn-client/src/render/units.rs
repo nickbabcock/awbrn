@@ -342,7 +342,7 @@ fn animate_blinking_overlays(time: Res<Time>, mut query: Query<(&OverlayBlink, &
 
 /// Observer that handles unit spawning - creates the base sprite bundle.
 pub(crate) fn handle_unit_spawn(
-    trigger: On<Insert, Unit>,
+    trigger: On<Insert<Unit>>,
     mut commands: Commands,
     unit_atlas: Res<UnitAtlasResource>,
     query: Query<(&Unit, &Faction, Has<UnitActive>), Without<Sprite>>,

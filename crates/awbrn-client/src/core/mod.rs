@@ -35,7 +35,7 @@ pub struct SpriteSize {
 
 /// Observer that triggers when MapPosition is inserted
 pub(crate) fn on_map_position_insert(
-    trigger: On<Insert, MapPosition>,
+    trigger: On<Insert<MapPosition>>,
     mut query: Query<(
         &mut Transform,
         &SpriteSize,
