@@ -1,4 +1,6 @@
 use crate::core::INACTIVE_UNIT_COLOR;
+use crate::core::SpriteSize;
+use crate::core::coords::TILE_SIZE;
 use crate::modes::replay::navigation;
 use crate::projection::{ClientProjectionSet, ProjectedUnitOverlayFlags, ProjectedUnitRenderState};
 use crate::render::animation::{
@@ -340,6 +342,19 @@ fn animate_blinking_overlays(time: Res<Time>, mut query: Query<(&OverlayBlink, &
     }
 }
 
+fn align_unit_sprites(mut query: Query<(&Sprite, &SpriteSize, &mut Anchor), With<Unit>>) {
+    for (sprite, size, mut anchor) in &mut query {
+        // Atlas frames align with the right edge of the cell. Move a flipped
+        // frame by the extra cell width to keep its tile position constant.
+        let x = if sprite.flip_x {
+            (TILE_SIZE - size.width) / size.width
+        } else {
+            0.0
+        };
+        anchor.set_if_neq(Anchor(Vec2::new(x, 0.0)));
+    }
+}
+
 /// Observer that handles unit spawning - creates the base sprite bundle.
 pub(crate) fn handle_unit_spawn(
     trigger: On<Insert<Unit>>,
@@ -397,6 +412,7 @@ impl Plugin for UnitRenderingPlugin {
                         .after(navigation::animate_unit_paths)
                         .before(crate::render::animation::animate_units),
                     animate_blinking_overlays,
+                    align_unit_sprites.after(sync_projected_unit_render_state),
                 )
                     .run_if(in_state(crate::core::AppState::InGame)),
             );
@@ -529,6 +545,86 @@ mod tests {
             .as_ref()
             .unwrap()
             .index
+    }
+
+    #[test]
+    fn flipped_movement_and_idle_frames_keep_the_same_tile_alignment() {
+        use crate::core::coords::position_to_world_translation;
+        use crate::modes::replay::presentation::ReplayAdvanceLock;
+        use awbrn_bevy::world::GameMap;
+        use awbrn_map::Pos;
+        use std::time::Duration;
+
+        for (from, to) in [
+            (Pos::new(0, 0), Pos::new(1, 0)),
+            (Pos::new(1, 0), Pos::new(0, 0)),
+        ] {
+            for idle_flip_x in [false, true] {
+                let mut app = App::new();
+                let mut map = GameMap::default();
+                map.set(awbrn_map::AwbrnMap::new(
+                    awbrn_map::Dimensions::new(2, 1),
+                    awbrn_types::GraphicalTerrain::Plain,
+                ));
+                let size = SpriteSize {
+                    width: 23.0,
+                    height: 24.0,
+                    z_index: 2,
+                };
+                let start = position_to_world_translation(&size, from, &map);
+                let end = position_to_world_translation(&size, to, &map);
+                app.insert_resource(map)
+                    .insert_resource(Time::<()>::default())
+                    .init_resource::<ReplayAdvanceLock>()
+                    .init_resource::<ViewerVisibility>()
+                    .add_systems(
+                        Update,
+                        (navigation::animate_unit_paths, align_unit_sprites).chain(),
+                    );
+                let entity = app
+                    .world_mut()
+                    .spawn((
+                        Unit(awbrn_types::Unit::Infantry),
+                        Faction(PlayerFaction::GreenEarth),
+                        Sprite::default(),
+                        Anchor::default(),
+                        size,
+                        Transform::from_translation(start),
+                        Visibility::Inherited,
+                        UnitPathAnimation::new(vec![from, to], idle_flip_x).unwrap(),
+                    ))
+                    .id();
+
+                for _ in 0..30 {
+                    app.world_mut()
+                        .resource_mut::<Time>()
+                        .advance_by(Duration::from_millis(10));
+                    app.update();
+                    let unit = app.world().entity(entity);
+                    let sprite = unit.get::<Sprite>().unwrap();
+                    let anchor = unit.get::<Anchor>().unwrap();
+                    let translation = unit.get::<Transform>().unwrap().translation;
+                    // A 16-pixel frame has 7 pixels of padding on its left.
+                    // The padding moves to the right when the frame is flipped.
+                    let padding = if sprite.flip_x {
+                        0.0
+                    } else {
+                        size.width - TILE_SIZE
+                    };
+                    let frame_left =
+                        translation.x - size.width / 2.0 - anchor.x * size.width + padding;
+                    let tile_left =
+                        translation.x + (size.width - TILE_SIZE) / 2.0 - TILE_SIZE / 2.0;
+                    assert!((frame_left - tile_left).abs() < 1e-5);
+                    assert!(translation.x >= start.x.min(end.x));
+                    assert!(translation.x <= start.x.max(end.x));
+                }
+                let unit = app.world().entity(entity);
+                assert!(unit.get::<UnitPathAnimation>().is_none());
+                assert_eq!(unit.get::<Transform>().unwrap().translation, end);
+                assert_eq!(unit.get::<Sprite>().unwrap().flip_x, idle_flip_x);
+            }
+        }
     }
 
     #[test]

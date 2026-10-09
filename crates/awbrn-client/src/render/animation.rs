@@ -28,10 +28,9 @@ pub(crate) struct TerrainAnimation {
 #[component(storage = "SparseSet")]
 pub struct UnitPathAnimation {
     pub path: Vec<awbrn_map::Pos>,
-    pub segment_durations: Vec<Duration>,
+    pub motion: navigation::UnitPathMotion,
     pub total_duration: Duration,
     pub elapsed: Duration,
-    pub current_segment: usize,
     pub current_movement: GraphicalMovement,
     pub idle_flip_x: bool,
 }
@@ -42,16 +41,15 @@ impl UnitPathAnimation {
             return None;
         }
 
-        let segment_durations = navigation::unit_path_segment_durations(path.len())?;
-        let total_duration = segment_durations.iter().copied().sum();
+        let motion = navigation::UnitPathMotion::new(path.len() - 1)?;
+        let total_duration = motion.duration();
 
         Some(Self {
             current_movement: navigation::movement_direction(path[0], path[1]),
             path,
-            segment_durations,
+            motion,
             total_duration,
             elapsed: Duration::ZERO,
-            current_segment: 0,
             idle_flip_x,
         })
     }
