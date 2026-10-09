@@ -5,7 +5,7 @@ members = ["crates/*"]
 [workspace.dependencies]
 anyhow = "1.0.102"
 approx = "0.5.1"
-bevy = { version = "0.19.1", default-features = false }
+bevy = { version = "0.20.0", default-features = false }
 criterion = { version = "0.8", default-features = false }
 flate2 = { version = "1.1.9", default-features = false, features = ["zlib-rs"] }
 gungraun = "0.19.4"
@@ -14,7 +14,7 @@ image = { version = "0.25.10", default-features = false, features = ["png"] }
 indexmap = { version = "2.9.0", features = ["serde"] }
 insta = { version = "1.42.2", features = ["glob", "serde", "json"] }
 jiff = { version = "0.2.35", default-features = false, features = ["std", "serde"] }
-js-sys = "0.3.91"
+js-sys = "0.3.106"
 oxipng = "10.0.0"
 phpserz = "0.3.0"
 png = "0.18.1"
@@ -34,8 +34,8 @@ thiserror = "2.0.18"
 tracing = "0.1.44"
 tsify = { version = "0.5.8", default-features = false, features = ["js"] }
 walkdir = "2.5"
-wasm-bindgen = "0.2.118"
-web-sys = { version = "0.3.91", features = ["OffscreenCanvas"] }
+wasm-bindgen = "0.2.129"
+web-sys = { version = "0.3.106", features = ["OffscreenCanvas"] }
 
 [workspace.lints.rust]
 ambiguous_negative_literals = "warn"

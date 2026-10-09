@@ -24,14 +24,14 @@ pub struct ReplaySemanticComponentType;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ReplaySemanticResourceType;
 
-impl<T> bevy::reflect::FromType<T> for ReplaySemanticComponentType {
-    fn from_type() -> Self {
+impl<T> bevy::reflect::CreateTypeData<T> for ReplaySemanticComponentType {
+    fn create_type_data((): ()) -> Self {
         Self
     }
 }
 
-impl<T> bevy::reflect::FromType<T> for ReplaySemanticResourceType {
-    fn from_type() -> Self {
+impl<T> bevy::reflect::CreateTypeData<T> for ReplaySemanticResourceType {
+    fn create_type_data((): ()) -> Self {
         Self
     }
 }

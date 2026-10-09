@@ -627,13 +627,13 @@ fn entity_for_observed_unit(
 }
 
 /// Observer: when `CarriedBy` is added to an entity, hide it visually.
-pub(crate) fn on_carried_by_add(trigger: On<Insert, CarriedBy>, mut commands: Commands) {
+pub(crate) fn on_carried_by_add(trigger: On<Insert<CarriedBy>>, mut commands: Commands) {
     commands.entity(trigger.entity).insert(Visibility::Hidden);
 }
 
 /// Observer: when `CarriedBy` is removed, keep the entity hidden until the
 /// projection pass decides whether it is visible.
-pub(crate) fn on_carried_by_remove(trigger: On<Remove, CarriedBy>, mut commands: Commands) {
+pub(crate) fn on_carried_by_remove(trigger: On<Remove<CarriedBy>>, mut commands: Commands) {
     commands.entity(trigger.entity).insert(Visibility::Hidden);
 }
 
