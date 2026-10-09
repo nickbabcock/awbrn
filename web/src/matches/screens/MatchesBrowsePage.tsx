@@ -3,13 +3,13 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "#/ui/Button.tsx";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { Heading } from "@astryxdesign/core/Heading";
 import { List } from "@astryxdesign/core/List";
-import { Section } from "@astryxdesign/core/Section";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { useState } from "react";
+import { MapThumb } from "#/maps/components/MapThumb.tsx";
 import { RouterButton, RouterListItem } from "#/ui/astryx-links.tsx";
+import { Page, PageHeader } from "#/ui/Page.tsx";
 import { matchesBrowseQueryOptions } from "#/matches/matches.queries.ts";
 import type { MatchBrowseSummary } from "#/matches/schemas.ts";
 import { formatRelativeTime } from "#/utils/time.ts";
@@ -37,16 +37,12 @@ export function MatchesBrowsePage() {
   }
 
   return (
-    <Section padding={6} variant="transparent">
+    <Page>
       <VStack gap={6}>
-        <VStack gap={2}>
-          <Heading level={1} type="display-2">
-            Open lobbies
-          </Heading>
-          <Text color="secondary" type="large">
-            Join a public room or create a new match.
-          </Text>
-        </VStack>
+        <PageHeader
+          description="Public matches looking for players. Open one to read its briefing and take a seat."
+          title="Play"
+        />
 
         {paginationError ? (
           <Banner
@@ -71,8 +67,8 @@ export function MatchesBrowsePage() {
             density="spacious"
             hasDividers
             header={
-              <Text color="secondary" type="supporting" weight="bold">
-                Public open lobbies
+              <Text type="label">
+                {matches.length === 1 ? "1 open lobby" : `${matches.length} open lobbies`}
               </Text>
             }
           >
@@ -94,7 +90,7 @@ export function MatchesBrowsePage() {
           </HStack>
         ) : null}
       </VStack>
-    </Section>
+    </Page>
   );
 }
 
@@ -106,22 +102,20 @@ function LobbyRow({
   relativeTimeBaseMs: number;
 }) {
   const details = [
-    `Host ${lobby.creatorName}`,
-    `Map ${lobby.mapId}`,
-    lobby.settings.fogEnabled ? "Fog on" : "Fog off",
+    lobby.settings.fogEnabled ? "Fog" : "No fog",
     `${lobby.settings.startingFunds.toLocaleString()} funds`,
     formatClockSummary(lobby.settings.clock),
   ].join(" · ");
   const joined =
     lobby.joinedPlayerNames.length > 0
-      ? `Joined: ${lobby.joinedPlayerNames.join(", ")}`
-      : "Joined: No players yet";
+      ? `Hosted by ${lobby.creatorName} · with ${lobby.joinedPlayerNames.join(", ")}`
+      : `Hosted by ${lobby.creatorName}`;
 
   return (
     <RouterListItem
       description={
         <VStack gap={1}>
-          <Text color="secondary" type="supporting">
+          <Text color="secondary" type="label">
             {details}
           </Text>
           <Text color="secondary" type="supporting">
@@ -131,21 +125,22 @@ function LobbyRow({
       }
       endContent={
         <VStack align="end" gap={1}>
-          <Text type="supporting" weight="bold">
-            {lobby.participantCount} / {lobby.maxPlayers} seats
+          <Text type="label" weight="bold">
+            {lobby.participantCount}/{lobby.maxPlayers} seats
           </Text>
           <Text color="secondary" type="supporting">
-            {lobby.openSlotCount} open · {formatRelativeTime(lobby.createdAt, relativeTimeBaseMs)}
+            {formatRelativeTime(lobby.createdAt, relativeTimeBaseMs)}
           </Text>
         </VStack>
       }
       label={
         <HStack align="center" gap={2} wrap="wrap">
-          <Heading level={2}>{lobby.name}</Heading>
+          <Text weight="bold">{lobby.name}</Text>
           {lobby.settings.hotseatEnabled ? <Badge label="Hotseat" variant="blue" /> : null}
         </HStack>
       }
       params={{ matchId: lobby.matchId }}
+      startContent={<MapThumb mapId={lobby.mapId} revision={lobby.mapRevision} size="md" />}
       to="/matches/$matchId"
     />
   );

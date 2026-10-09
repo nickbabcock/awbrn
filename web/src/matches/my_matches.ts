@@ -68,6 +68,32 @@ export function needsViewerAction(match: MyMatchSummary): boolean {
   }
 }
 
+/**
+ * Where a match stands for the viewer, in one or two words.
+ *
+ * Home, My games, and any other list that names a match read the word from
+ * here, so the same match never says Confirm on one screen and Needs you on
+ * the next.
+ */
+export function viewerStatusLabel(match: MyMatchSummary): string {
+  const owed = needsViewerAction(match);
+  switch (match.phase) {
+    case "active":
+      return owed ? "Your turn" : "Their turn";
+    case "pending":
+      return owed ? "Confirm" : "Confirmed";
+    case "lobby":
+    case "draft":
+      return owed ? "Get ready" : "Lobby";
+    case "starting":
+      return "Starting";
+    case "completed":
+      return "Finished";
+    case "cancelled":
+      return "Cancelled";
+  }
+}
+
 export function myMatchActionLabel(phase: MatchPhase): string {
   switch (phase) {
     case "active":

@@ -3,11 +3,8 @@ import { useNavigate, useRouter } from "@tanstack/react-router";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "#/ui/Button.tsx";
 import { Card } from "@astryxdesign/core/Card";
-import { Center } from "@astryxdesign/core/Center";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
-import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
-import { Section } from "@astryxdesign/core/Section";
 import { VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
@@ -17,7 +14,8 @@ import { authSignInSchema, authSignUpSchema } from "./schemas";
 import { authKeys } from "./auth.keys";
 import { matchKeys } from "#/matches/matches.keys.ts";
 import { RouterTextLink } from "#/ui/astryx-links.tsx";
-import { TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
+import { Page } from "#/ui/Page.tsx";
+import * as stylex from "@stylexjs/stylex";
 
 export function AuthPage({ isRegister }: { isRegister: boolean }) {
   const navigate = useNavigate();
@@ -58,94 +56,83 @@ export function AuthPage({ isRegister }: { isRegister: boolean }) {
   }
 
   return (
-    <Section padding={6} variant="transparent">
-      <Center axis="horizontal" width="100%">
-        <Grid
-          align="start"
-          columns={{ minWidth: TWO_COLUMN_GRID_MIN_WIDTH, max: 2, repeat: "fit" }}
-          gap={8}
-          maxWidth={1200}
-          width="100%"
-        >
-          <Section padding={6} variant="muted">
-            <VStack gap={3}>
-              <Heading level={1} type="display-2">
-                {isRegister ? "Register" : "Sign In"}
-              </Heading>
-              <Text type="large" weight="medium">
-                Use the same field manual language as the rest of the app: clear intent, direct
-                actions, no filler.
+    <Page width="narrow">
+      <VStack gap={6} xstyle={styles.column}>
+        <VStack gap={2}>
+          <Heading level={1}>{isRegister ? "Create an account" : "Sign in"}</Heading>
+          <Text color="secondary" type="large">
+            {isRegister
+              ? "An account lets you take seats, play ranked, and keep the record of every battle you finish."
+              : "Welcome back. Your turns are waiting where you left them."}
+          </Text>
+        </VStack>
+        <Card padding={6} width="100%">
+          <form onSubmit={handleSubmit}>
+            <VStack gap={4}>
+              <FormLayout>
+                {isRegister ? (
+                  <TextInput
+                    autoComplete="name"
+                    id="name"
+                    isRequired
+                    label="Name"
+                    onChange={setName}
+                    type="text"
+                    value={name}
+                  />
+                ) : null}
+                <TextInput
+                  autoComplete="email"
+                  id="email"
+                  isRequired
+                  label="Email"
+                  onChange={setEmail}
+                  type="email"
+                  value={email}
+                />
+                <TextInput
+                  autoComplete={isRegister ? "new-password" : "current-password"}
+                  id="password"
+                  isRequired
+                  label="Password"
+                  onChange={setPassword}
+                  type="password"
+                  value={password}
+                />
+              </FormLayout>
+              {error ? (
+                <Banner status="error" title="Authentication failed" description={error} />
+              ) : null}
+              <Button
+                isDisabled={isPending}
+                isLoading={isPending}
+                label={isRegister ? "Create account" : "Sign in"}
+                type="submit"
+                variant="primary"
+                width="100%"
+              />
+              <Text color="secondary">
+                {isRegister ? (
+                  <>
+                    Already have an account?{" "}
+                    <RouterTextLink to="/auth" search={{ mode: undefined }}>
+                      Sign in →
+                    </RouterTextLink>
+                  </>
+                ) : (
+                  <>
+                    New here?{" "}
+                    <RouterTextLink to="/auth" search={{ mode: "register" }}>
+                      Create an account →
+                    </RouterTextLink>
+                  </>
+                )}
               </Text>
             </VStack>
-          </Section>
-          <Card padding={6} width="100%">
-            <form onSubmit={handleSubmit}>
-              <VStack gap={4}>
-                <FormLayout>
-                  {isRegister ? (
-                    <TextInput
-                      autoComplete="name"
-                      id="name"
-                      isRequired
-                      label="Name"
-                      onChange={setName}
-                      type="text"
-                      value={name}
-                    />
-                  ) : null}
-                  <TextInput
-                    autoComplete="email"
-                    id="email"
-                    isRequired
-                    label="Email"
-                    onChange={setEmail}
-                    type="email"
-                    value={email}
-                  />
-                  <TextInput
-                    autoComplete={isRegister ? "new-password" : "current-password"}
-                    id="password"
-                    isRequired
-                    label="Password"
-                    onChange={setPassword}
-                    type="password"
-                    value={password}
-                  />
-                </FormLayout>
-                {error ? (
-                  <Banner status="error" title="Authentication failed" description={error} />
-                ) : null}
-                <Button
-                  isDisabled={isPending}
-                  isLoading={isPending}
-                  label={isRegister ? "Create account" : "Sign in"}
-                  type="submit"
-                  variant="primary"
-                  width="100%"
-                />
-                <Text color="secondary">
-                  {isRegister ? (
-                    <>
-                      Already have an account?{" "}
-                      <RouterTextLink to="/auth" search={{ mode: undefined }}>
-                        Sign in →
-                      </RouterTextLink>
-                    </>
-                  ) : (
-                    <>
-                      New here?{" "}
-                      <RouterTextLink to="/auth" search={{ mode: "register" }}>
-                        Create an account →
-                      </RouterTextLink>
-                    </>
-                  )}
-                </Text>
-              </VStack>
-            </form>
-          </Card>
-        </Grid>
-      </Center>
-    </Section>
+          </form>
+        </Card>
+      </VStack>
+    </Page>
   );
 }
 
@@ -174,3 +161,12 @@ async function submitAuthRequest(
 
   return authClient.signIn.email(parsed.data);
 }
+
+const styles = stylex.create({
+  // A form of three fields reads as one column, the width of a field.
+  column: {
+    inlineSize: "100%",
+    maxInlineSize: "28rem",
+    marginInline: "auto",
+  },
+});

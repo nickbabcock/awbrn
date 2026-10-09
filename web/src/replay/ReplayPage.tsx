@@ -4,7 +4,6 @@ import { Center } from "@astryxdesign/core/Center";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { FileInput } from "@astryxdesign/core/FileInput";
 import { Grid } from "@astryxdesign/core/Grid";
-import { Heading } from "@astryxdesign/core/Heading";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { borderVars, colorVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
@@ -29,6 +28,7 @@ import {
   BattleCalculator,
 } from "#/matches/components/BattleCalculator.tsx";
 import { RosterList, RosterRow } from "./RosterRow";
+import { Page, PageHeader } from "#/ui/Page.tsx";
 
 export function ReplayPage() {
   const playerRoster = useGameStore((state) => state.playerRoster);
@@ -162,171 +162,176 @@ export function ReplayPage() {
   );
 
   return (
-    <VStack gap={4} padding={4}>
-      <Heading level={1}>Battle review</Heading>
+    <Page width="full">
+      <VStack gap={6}>
+        <PageHeader
+          description="Load an AWBW .zip or AWBRN .json archive and step through the battle turn by turn. The file stays on your device."
+          title="Replays"
+        />
 
-      {replayError ? (
-        <Banner description={replayError} status="error" title="Replay failed to load" />
-      ) : null}
+        {replayError ? (
+          <Banner description={replayError} status="error" title="Replay failed to load" />
+        ) : null}
 
-      {/* The board leads: it takes the width the viewport has and the armies
+        {/* The board leads: it takes the width the viewport has and the armies
           keep a fixed rail beside it, so the map is the largest thing on the
           page rather than one half of a split. */}
-      <Grid align="start" gap={4} xstyle={styles.reviewLayout}>
-        {/* The board is the artifact; everything else frames it. */}
-        <Card padding={0} variant="muted" xstyle={styles.boardPanel}>
-          <VStack
-            gap={0}
-            ref={surfaceRef}
-            xstyle={[
-              styles.gameSurface,
-              // With no replay the frame only has to say where the board goes,
-              // unless the calculator is standing on it: a panel is not a
-              // placeholder, and it needs the room a board would have had.
-              !playerRoster && !isCalculatorOpen && styles.gameSurfaceEmpty,
-              isFullscreen && styles.gameSurfaceFullscreen,
-              fullscreenMode === "immersive" && styles.gameSurfaceImmersive,
-            ]}
-          >
-            <VStack ref={canvasContainerRef} gap={0} width="100%" height="100%" />
-            {isFullscreen ? (
-              <BoardFullscreenExit mode={fullscreenMode} onExit={exitFullscreen} />
-            ) : null}
-            {!playerRoster ? (
-              <Center height="100%" width="100%" xstyle={styles.loaderOverlay}>
-                <VStack gap={3} maxWidth={420} width="100%">
-                  {replayLoader}
-                </VStack>
-              </Center>
-            ) : null}
+        <Grid align="start" gap={4} xstyle={styles.reviewLayout}>
+          {/* The board is the artifact; everything else frames it. */}
+          <Card padding={0} variant="muted" xstyle={styles.boardPanel}>
+            <VStack
+              gap={0}
+              ref={surfaceRef}
+              xstyle={[
+                styles.gameSurface,
+                // With no replay the frame only has to say where the board goes,
+                // unless the calculator is standing on it: a panel is not a
+                // placeholder, and it needs the room a board would have had.
+                !playerRoster && !isCalculatorOpen && styles.gameSurfaceEmpty,
+                isFullscreen && styles.gameSurfaceFullscreen,
+                fullscreenMode === "immersive" && styles.gameSurfaceImmersive,
+              ]}
+            >
+              <VStack ref={canvasContainerRef} gap={0} width="100%" height="100%" />
+              {isFullscreen ? (
+                <BoardFullscreenExit mode={fullscreenMode} onExit={exitFullscreen} />
+              ) : null}
+              {!playerRoster ? (
+                <Center height="100%" width="100%" xstyle={styles.loaderOverlay}>
+                  <VStack gap={3} maxWidth={420} width="100%">
+                    {replayLoader}
+                  </VStack>
+                </Center>
+              ) : null}
 
-            {/* The engagement a reviewer is imagining, over the battle they
+              {/* The engagement a reviewer is imagining, over the battle they
                 are imagining it in. It changes nothing about the replay. */}
-            {isCalculatorOpen ? (
-              <BattleCalculator
-                onDismiss={() => setIsCalculatorOpen(false)}
-                onRestoreFocus={focus}
-                presentation={isCalculatorCompact ? "sheet" : "board"}
-                roster={playerRoster}
-                runner={runner}
-              />
-            ) : null}
+              {isCalculatorOpen ? (
+                <BattleCalculator
+                  onDismiss={() => setIsCalculatorOpen(false)}
+                  onRestoreFocus={focus}
+                  presentation={isCalculatorCompact ? "sheet" : "board"}
+                  roster={playerRoster}
+                  runner={runner}
+                />
+              ) : null}
 
-            {/* The terrain window stands on the battlefield itself, so reading
+              {/* The terrain window stands on the battlefield itself, so reading
                 a tile costs the review no height. */}
-            {playerRoster ? <TileInfoBar /> : null}
-          </VStack>
+              {playerRoster ? <TileInfoBar /> : null}
+            </VStack>
 
-          {/* The game's own status line, kept on the board it describes. */}
-          <HStack
-            align="center"
-            gap={3}
-            justify="between"
-            paddingBlock={2}
-            paddingInline={3}
-            wrap="wrap"
-            xstyle={styles.boardHud}
-          >
-            <HStack align="center" gap={2} wrap="wrap">
-              {playerRoster ? (
-                <Text type="supporting">
-                  Game {playerRoster.matchId} · Map {playerRoster.mapId}
-                </Text>
-              ) : (
-                <Text type="supporting">No replay loaded</Text>
-              )}
-            </HStack>
-            {/* Full screen is only an offer once there is a battle to watch,
+            {/* The game's own status line, kept on the board it describes. */}
+            <HStack
+              align="center"
+              gap={3}
+              justify="between"
+              paddingBlock={2}
+              paddingInline={3}
+              wrap="wrap"
+              xstyle={styles.boardHud}
+            >
+              <HStack align="center" gap={2} wrap="wrap">
+                {playerRoster ? (
+                  <Text type="supporting">
+                    Game {playerRoster.matchId} · Map {playerRoster.mapId}
+                  </Text>
+                ) : (
+                  <Text type="supporting">No replay loaded</Text>
+                )}
+              </HStack>
+              {/* Full screen is only an offer once there is a battle to watch,
                 and while the board holds the screen the way back out is the key
                 on the board itself. The calculator does not wait on a replay:
                 it asks about an engagement no board holds, and a player who
                 came to check a matchup has nothing to load first. */}
-            <HStack align="center" gap={2} wrap="wrap">
-              <Button
-                clickAction={() => setIsCalculatorOpen(true)}
-                icon={<CalculatorIcon aria-hidden height={16} width={16} />}
-                isDisabled={isCalculatorOpen}
-                label="Calculator"
-                size="sm"
-                variant="secondary"
-              />
-              {playerRoster ? (
-                <>
-                  {isFullscreen ? null : <GameFullscreenButton onEnter={enterFullscreen} />}
-                  {replayLoader}
-                </>
-              ) : null}
+              <HStack align="center" gap={2} wrap="wrap">
+                <Button
+                  clickAction={() => setIsCalculatorOpen(true)}
+                  icon={<CalculatorIcon aria-hidden height={16} width={16} />}
+                  isDisabled={isCalculatorOpen}
+                  label="Calculator"
+                  size="sm"
+                  variant="secondary"
+                />
+                {playerRoster ? (
+                  <>
+                    {isFullscreen ? null : <GameFullscreenButton onEnter={enterFullscreen} />}
+                    {replayLoader}
+                  </>
+                ) : null}
+              </HStack>
             </HStack>
-          </HStack>
 
-          {/* The archive is walked from under the board it is drawn on, so the
+            {/* The archive is walked from under the board it is drawn on, so the
               keys are beside the thing they move. The day and the seat live
               here rather than in the status line above: they are what a step
               changes, and saying them twice would leave a reader checking
               which of the two had moved. */}
-          {playerRoster && replayPosition ? (
-            <VStack gap={0} paddingBlock={2} paddingInline={3} xstyle={styles.stepControls}>
-              <StepControls
-                canStepBack={replayPosition.index > 0}
-                canStepForward={replayPosition.index < replayPosition.total}
-                canStepTurnBack={replayPosition.previousTurnIndex !== null}
-                canStepTurnForward={replayPosition.nextTurnIndex !== null}
-                day={replayPosition.day}
-                isAtLatest={replayPosition.index >= replayPosition.total}
-                latestLabel="End"
-                onSeekLatest={() => stepReplay((runner) => runner.replaySeekEnd())}
-                onSeekStart={() => stepReplay((runner) => runner.replaySeek(0))}
-                onStep={(delta) => stepReplay((runner) => runner.replayStep(delta))}
-                onTurnStep={(delta) => stepReplay((runner) => runner.replayStepTurn(delta))}
-                position={{ index: replayPosition.index, total: replayPosition.total }}
-                turnHolder={
-                  turnHolder === null
-                    ? null
-                    : (playerNames[turnHolder.userId] ?? `Player ${turnHolder.turnOrder}`)
-                }
-              />
-            </VStack>
-          ) : null}
-        </Card>
-
-        {/* The armies need no visible title: the board names the battle, and
-            each row names its own army. */}
-        <VStack as="section" aria-label="Armies" gap={0} xstyle={styles.rosterSection}>
-          <Card padding={0} xstyle={styles.rosterPanel}>
-            {playerRoster ? (
-              <RosterList>
-                {playerRoster.players.map((player) => (
-                  <RosterRow
-                    isActive={playerRoster.activePlayerId === player.playerId}
-                    key={player.playerId}
-                    name={playerNames[player.userId] ?? `Player ${player.turnOrder}`}
-                    onFactionChange={(factionId) =>
-                      handlePlayerDisplayFactionChange(
-                        player.playerId,
-                        factionId === getFactionByCode(player.actualFactionCode)?.id
-                          ? null
-                          : factionId,
-                      )
-                    }
-                    player={player}
-                    portraitCatalog={portraitCatalog}
-                  />
-                ))}
-              </RosterList>
-            ) : (
-              <VStack gap={0} padding={3}>
-                <EmptyState
-                  description="Once a replay is loaded, every army lists its CO, funds, and unit strength here."
-                  headingLevel={3}
-                  isCompact
-                  title="No armies yet"
+            {playerRoster && replayPosition ? (
+              <VStack gap={0} paddingBlock={2} paddingInline={3} xstyle={styles.stepControls}>
+                <StepControls
+                  canStepBack={replayPosition.index > 0}
+                  canStepForward={replayPosition.index < replayPosition.total}
+                  canStepTurnBack={replayPosition.previousTurnIndex !== null}
+                  canStepTurnForward={replayPosition.nextTurnIndex !== null}
+                  day={replayPosition.day}
+                  isAtLatest={replayPosition.index >= replayPosition.total}
+                  latestLabel="End"
+                  onSeekLatest={() => stepReplay((runner) => runner.replaySeekEnd())}
+                  onSeekStart={() => stepReplay((runner) => runner.replaySeek(0))}
+                  onStep={(delta) => stepReplay((runner) => runner.replayStep(delta))}
+                  onTurnStep={(delta) => stepReplay((runner) => runner.replayStepTurn(delta))}
+                  position={{ index: replayPosition.index, total: replayPosition.total }}
+                  turnHolder={
+                    turnHolder === null
+                      ? null
+                      : (playerNames[turnHolder.userId] ?? `Player ${turnHolder.turnOrder}`)
+                  }
                 />
               </VStack>
-            )}
+            ) : null}
           </Card>
-        </VStack>
-      </Grid>
-    </VStack>
+
+          {/* The armies need no visible title: the board names the battle, and
+            each row names its own army. */}
+          <VStack as="section" aria-label="Armies" gap={0} xstyle={styles.rosterSection}>
+            <Card padding={0} xstyle={styles.rosterPanel}>
+              {playerRoster ? (
+                <RosterList>
+                  {playerRoster.players.map((player) => (
+                    <RosterRow
+                      isActive={playerRoster.activePlayerId === player.playerId}
+                      key={player.playerId}
+                      name={playerNames[player.userId] ?? `Player ${player.turnOrder}`}
+                      onFactionChange={(factionId) =>
+                        handlePlayerDisplayFactionChange(
+                          player.playerId,
+                          factionId === getFactionByCode(player.actualFactionCode)?.id
+                            ? null
+                            : factionId,
+                        )
+                      }
+                      player={player}
+                      portraitCatalog={portraitCatalog}
+                    />
+                  ))}
+                </RosterList>
+              ) : (
+                <VStack gap={0} padding={3}>
+                  <EmptyState
+                    description="Once a replay is loaded, every army lists its CO, funds, and unit strength here."
+                    headingLevel={3}
+                    isCompact
+                    title="No armies yet"
+                  />
+                </VStack>
+              )}
+            </Card>
+          </VStack>
+        </Grid>
+      </VStack>
+    </Page>
   );
 }
 

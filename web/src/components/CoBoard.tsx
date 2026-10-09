@@ -32,7 +32,7 @@ import { loadCoPortraitCatalog } from "#/components/co_portraits.ts";
  */
 const BOARD_SIZES = {
   md: { portrait: 64, tile: 84 },
-  sm: { portrait: 32, tile: 56 },
+  sm: { portrait: 40, tile: 72 },
 } as const;
 
 /** How many screen pixels a portrait takes in the banned strip. */
@@ -95,7 +95,12 @@ export function CoBoard(props: CoBoardProps) {
                   size={portrait}
                 />
               </Section>
-              <Text hasStrikethrough={isBanned} justify="center" maxLines={1} type="label">
+              <Text
+                hasStrikethrough={isBanned}
+                justify="center"
+                maxLines={size === "sm" ? 2 : 1}
+                type="label"
+              >
                 {co.displayName}
               </Text>
             </VStack>

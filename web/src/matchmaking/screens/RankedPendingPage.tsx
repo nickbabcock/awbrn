@@ -45,6 +45,7 @@ import { updateRankedConfirmationFn } from "#/matchmaking/matchmaking.functions.
 import { rankedKeys } from "#/matchmaking/matchmaking.keys.ts";
 import { rankedOverviewQueryOptions } from "#/matchmaking/matchmaking.queries.ts";
 import { TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
+import { Page } from "#/ui/Page.tsx";
 
 /** How often the page asks whether the other player has readied. */
 const CONFIRMATION_POLL_INTERVAL_MS = 15_000;
@@ -115,14 +116,14 @@ export function RankedPendingPage({
 
   if (!seat) {
     return (
-      <Section padding={6} variant="transparent">
+      <Page>
         <Banner
           collapsible={false}
           description="A ranked pairing is readable only by the two players in it."
           status="error"
           title="This pairing is not yours"
         />
-      </Section>
+      </Page>
     );
   }
 
@@ -131,7 +132,7 @@ export function RankedPendingPage({
   const isBusy = confirmation.isPending;
 
   return (
-    <Section padding={6} variant="transparent">
+    <Page>
       <VStack gap={6}>
         <Grid
           align="end"
@@ -139,7 +140,7 @@ export function RankedPendingPage({
           gap={5}
         >
           <VStack gap={2}>
-            <Heading level={1} type="display-2" xstyle={styles.breakAnywhere}>
+            <Heading level={1} xstyle={styles.breakAnywhere}>
               {mapName}
             </Heading>
             <Text color="secondary" type="large">
@@ -279,7 +280,7 @@ export function RankedPendingPage({
           </Card>
         </Grid>
       </VStack>
-    </Section>
+    </Page>
   );
 }
 

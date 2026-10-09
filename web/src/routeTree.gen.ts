@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as RankedRouteImport } from './routes/ranked'
+import { Route as ReplayRouteImport } from './routes/replay'
 import { Route as MapsIndexRouteImport } from './routes/maps/index'
 import { Route as MapsMapIdRouteImport } from './routes/maps/$mapId'
 import { Route as MatchesIndexRouteImport } from './routes/matches/index'
@@ -45,6 +46,11 @@ const AuthRoute = AuthRouteImport.update({
 const RankedRoute = RankedRouteImport.update({
   id: '/ranked',
   path: '/ranked',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReplayRoute = ReplayRouteImport.update({
+  id: '/replay',
+  path: '/replay',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MapsIndexRoute = MapsIndexRouteImport.update({
@@ -120,6 +126,7 @@ export interface FileRoutesByFullPath {
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
   '/ranked': typeof RankedRoute
+  '/replay': typeof ReplayRoute
   '/maps/$mapId': typeof MapsMapIdRoute
   '/matches/$matchId': typeof MatchesMatchIdRoute
   '/matches/new': typeof MatchesNewRoute
@@ -139,6 +146,7 @@ export interface FileRoutesByTo {
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
   '/ranked': typeof RankedRoute
+  '/replay': typeof ReplayRoute
   '/maps/$mapId': typeof MapsMapIdRoute
   '/matches/$matchId': typeof MatchesMatchIdRoute
   '/matches/new': typeof MatchesNewRoute
@@ -159,6 +167,7 @@ export interface FileRoutesById {
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
   '/ranked': typeof RankedRoute
+  '/replay': typeof ReplayRoute
   '/maps/$mapId': typeof MapsMapIdRoute
   '/matches/$matchId': typeof MatchesMatchIdRoute
   '/matches/new': typeof MatchesNewRoute
@@ -180,6 +189,7 @@ export interface FileRouteTypes {
     | '/about'
     | '/auth'
     | '/ranked'
+    | '/replay'
     | '/maps/$mapId'
     | '/matches/$matchId'
     | '/matches/new'
@@ -199,6 +209,7 @@ export interface FileRouteTypes {
     | '/about'
     | '/auth'
     | '/ranked'
+    | '/replay'
     | '/maps/$mapId'
     | '/matches/$matchId'
     | '/matches/new'
@@ -218,6 +229,7 @@ export interface FileRouteTypes {
     | '/about'
     | '/auth'
     | '/ranked'
+    | '/replay'
     | '/maps/$mapId'
     | '/matches/$matchId'
     | '/matches/new'
@@ -238,6 +250,7 @@ export interface RootRouteChildren {
   AboutRoute: typeof AboutRoute
   AuthRoute: typeof AuthRoute
   RankedRoute: typeof RankedRoute
+  ReplayRoute: typeof ReplayRoute
   MapsMapIdRoute: typeof MapsMapIdRoute
   MatchesMatchIdRoute: typeof MatchesMatchIdRoute
   MatchesNewRoute: typeof MatchesNewRoute
@@ -281,6 +294,13 @@ declare module '@tanstack/react-router' {
       path: '/ranked'
       fullPath: '/ranked'
       preLoaderRoute: typeof RankedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/replay': {
+      id: '/replay'
+      path: '/replay'
+      fullPath: '/replay'
+      preLoaderRoute: typeof ReplayRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/maps/': {
@@ -382,6 +402,7 @@ const rootRouteChildren: RootRouteChildren = {
   AboutRoute: AboutRoute,
   AuthRoute: AuthRoute,
   RankedRoute: RankedRoute,
+  ReplayRoute: ReplayRoute,
   MapsMapIdRoute: MapsMapIdRoute,
   MatchesMatchIdRoute: MatchesMatchIdRoute,
   MatchesNewRoute: MatchesNewRoute,

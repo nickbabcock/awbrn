@@ -1,7 +1,6 @@
 import { useSuspenseInfiniteQuery } from "@tanstack/react-query";
 import { Banner } from "@astryxdesign/core/Banner";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Section } from "@astryxdesign/core/Section";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
@@ -36,9 +35,10 @@ import { awbrnVars, matchHistoryVars } from "#/themes/awbrnTokens.stylex.ts";
 import { Button } from "#/ui/Button.tsx";
 import { RouterButton, RouterTextLink } from "#/ui/astryx-links.tsx";
 import { Thumbnail } from "#/ui/Thumbnail.tsx";
-import { MATCH_REPORT_MEDIA_SIZE, TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
+import { MATCH_REPORT_MEDIA_SIZE } from "#/ui/layout.ts";
 import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
 import { formatClockSummary } from "#/matches/match_clock.ts";
+import { Page, PageHeader } from "#/ui/Page.tsx";
 
 const dateFormat = new Intl.DateTimeFormat(undefined, {
   day: "numeric",
@@ -76,26 +76,12 @@ export function MatchHistoryPage() {
   }
 
   return (
-    <Section padding={6} variant="transparent">
+    <Page>
       <VStack gap={6}>
-        <Grid
-          align="end"
-          columns={{ minWidth: TWO_COLUMN_GRID_MIN_WIDTH, max: 2, repeat: "fit" }}
-          gap={4}
-        >
-          <VStack gap={2}>
-            <Heading level={1} type="display-2" xstyle={styles.pageTitle}>
-              Completed games
-            </Heading>
-            <Text color="secondary" type="large">
-              Every battle you have finished, and the replay archive it left behind.
-            </Text>
-          </VStack>
-          <HStack gap={2} justify="end" wrap="wrap">
-            <RouterButton label="Ongoing games" to="/my/matches" variant="secondary" />
-            <RouterButton label="Create match" to="/matches/new" variant="primary" />
-          </HStack>
-        </Grid>
+        <PageHeader
+          description="Every battle you have finished, and the replay archive it left behind."
+          title="My games"
+        />
 
         {paginationError ? (
           <Banner
@@ -147,7 +133,7 @@ export function MatchHistoryPage() {
           </HStack>
         ) : null}
       </VStack>
-    </Section>
+    </Page>
   );
 }
 
@@ -389,15 +375,6 @@ function verdictStyle(outcome: MatchOutcome | null) {
 }
 
 const styles = stylex.create({
-  // The signage face sets one long word here, and "COMPLETED" is wider than a
-  // phone at the display size. It scales with the viewport below the two-column
-  // breakpoint rather than being clipped.
-  pageTitle: {
-    fontSize: {
-      default: null,
-      [rosterLayout.stackedMedia]: `clamp(${matchHistoryVars.titleMinimumSize}, ${matchHistoryVars.titleFluidSize}, ${matchHistoryVars.titleMaximumSize})`,
-    },
-  },
   // Once the armies stack, the separator takes its own line; left at the end of
   // a wrapped row it reads as a stray label rather than as a matchup.
   versus: {

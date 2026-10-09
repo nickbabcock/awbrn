@@ -26,32 +26,6 @@ import { mapScreenshotSize } from "#/maps/map_screenshot.ts";
 import { MAP_TAG_LABELS, type MapCatalogEntry } from "#/maps/schemas.ts";
 import { RouterClickableCard } from "#/ui/astryx-links.tsx";
 
-/** The picture size of every plate on a board, which fixes their shared multiple. */
-export interface BoardPictureSize {
-  width: number;
-  height: number;
-}
-
-/**
- * The largest picture the board holds.
- *
- * Every well on a board is one size, so one multiple has to serve all of
- * them, and it is the multiple the largest map fits in. That is what keeps a
- * big map reading as bigger than a small one.
- */
-export function boardPictureSize(maps: readonly MapCatalogEntry[]): BoardPictureSize {
-  return maps.reduce(
-    (largest, map) => {
-      const picture = mapScreenshotSize("small", map.width, map.height);
-      return {
-        width: Math.max(largest.width, picture.width),
-        height: Math.max(largest.height, picture.height),
-      };
-    },
-    { width: 1, height: 1 },
-  );
-}
-
 /** What a plate says about a map, in one line the screen reader also reads. */
 export function mapPlateSummary(map: MapCatalogEntry): string {
   const rank = map.rank ? `rank ${map.rank}` : "unranked";
@@ -59,13 +33,7 @@ export function mapPlateSummary(map: MapCatalogEntry): string {
 }
 
 /** The plate on the catalog board: a key that opens the map's own page. */
-export function MapLinkPlate({
-  boardPicture,
-  map,
-}: {
-  boardPicture: BoardPictureSize;
-  map: MapCatalogEntry;
-}) {
+export function MapLinkPlate({ map }: { map: MapCatalogEntry }) {
   return (
     <RouterClickableCard
       label={mapPlateSummary(map)}
@@ -73,19 +41,17 @@ export function MapLinkPlate({
       params={{ mapId: map.mapId }}
       to="/maps/$mapId"
     >
-      <MapPlateFace boardPicture={boardPicture} map={map} />
+      <MapPlateFace map={map} />
     </RouterClickableCard>
   );
 }
 
 /** The plate on the create screen: one of a set, and the chosen one wears the cursor. */
 export function MapSelectPlate({
-  boardPicture,
   isSelected,
   map,
   onSelect,
 }: {
-  boardPicture: BoardPictureSize;
   isSelected: boolean;
   map: MapCatalogEntry;
   onSelect: (map: MapCatalogEntry) => void;
@@ -97,19 +63,16 @@ export function MapSelectPlate({
       onChange={() => onSelect(map)}
       padding={2}
     >
-      <MapPlateFace boardPicture={boardPicture} map={map} />
+      <MapPlateFace map={map} />
     </SelectableCard>
   );
 }
 
-function MapPlateFace({
-  boardPicture,
-  map,
-}: {
-  boardPicture: BoardPictureSize;
-  map: MapCatalogEntry;
-}) {
-  const picture = mapScreenshotSize("small", map.width, map.height);
+function MapPlateFace({ map }: { map: MapCatalogEntry }) {
+  // The full picture, drawn down to fill the well. The small picture fits a
+  // plate only at one multiple, which left most maps a third of their well;
+  // a battlefield is chosen by its shape, so it takes the whole plate.
+  const picture = mapScreenshotSize("full", map.width, map.height);
 
   return (
     <VStack gap={2}>
@@ -117,10 +80,9 @@ function MapPlateFace({
         <MapPicture
           alt=""
           ratio={1}
-          scaleFrom={boardPicture}
           sourceHeight={picture.height}
           sourceWidth={picture.width}
-          src={map.screenshot.small}
+          src={map.screenshot.full}
         />
         {/* An unranked map shows nothing here: an empty corner is what
             unranked looks like on a board, and the dashed slot belongs on the

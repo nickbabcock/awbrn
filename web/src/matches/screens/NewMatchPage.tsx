@@ -10,9 +10,10 @@
  *   command orange that marks the chosen map and the launch key.
  * STORY: a player sees what AWBRN can play, picks a battlefield by its shape,
  *   reads its briefing, dials the rules, and opens the lobby.
- * FIRST VIEWPORT: the page title, then the board itself: the AWBW import slot
- *   at the head, then every map as a plate. The briefing panel and the create
- *   key follow the board, under the map that was chosen.
+ * FIRST VIEWPORT: the page title, then the board itself, the AWBW import slot
+ *   at the head and every map as a plate, with the setup panel beside it. The
+ *   panel holds the chosen map's rules and the create key, and stays on screen
+ *   while the board scrolls.
  * FORM: the map board, index 5 of the ordered structures, seed key c7f7ecc5.
  * FINISH: unreviewed and undocumented is unfinished; this build ends with the
  *   finish review, the verdict, DESIGN.md, and every shipping raster carrying
@@ -29,14 +30,14 @@ import { Divider } from "@astryxdesign/core/Divider";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Grid, GridSpan } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
-import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
-import { MapPicture } from "#/maps/components/MapPicture.tsx";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { MapThumb } from "#/maps/components/MapThumb.tsx";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
-import { Section } from "@astryxdesign/core/Section";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { colorVars } from "@astryxdesign/core/theme/tokens.stylex";
+import { borderVars, colorVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import * as stylex from "@stylexjs/stylex";
 import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
@@ -47,11 +48,10 @@ import { coRoster } from "#/co_roster.ts";
 import { CoBoard } from "#/components/CoBoard.tsx";
 import { importAwbwMapFn } from "#/maps/maps.functions.ts";
 import { MapFilterBar } from "#/maps/components/MapFilterBar.tsx";
-import { MapLoadingPlate, MapSelectPlate, boardPictureSize } from "#/maps/components/MapPlate.tsx";
+import { MapLoadingPlate, MapSelectPlate } from "#/maps/components/MapPlate.tsx";
 import { MAP_BOARD_COLUMNS, MAP_BOARD_LOADING_PLATES, mapBoardSummary } from "#/maps/map_board.ts";
 import { mapCatalogQueryOptions, mapQueryOptions } from "#/maps/maps.queries.ts";
 import { mapKeys } from "#/maps/maps.keys.ts";
-import { mapScreenshotSize } from "#/maps/map_screenshot.ts";
 import { countMapCatalogFilters } from "#/maps/map_taxonomy.ts";
 import type { MapCatalogEntry, MapCatalogFilter } from "#/maps/schemas.ts";
 import { defaultMatchClock, type MatchClock } from "../schemas.ts";
@@ -60,7 +60,7 @@ import { matchKeys } from "#/matches/matches.keys.ts";
 import { ClockSettings, validateClock } from "#/matches/components/ClockSettings.tsx";
 import { NO_AI_SEATS, SeatRoster } from "#/matches/components/SeatRoster.tsx";
 import type { AiProfileId } from "#/matches/schemas.ts";
-import { TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
+import { Page, PageHeader } from "#/ui/Page.tsx";
 
 /** How long the board waits after a keystroke before it searches. */
 const SEARCH_DEBOUNCE_MS = 250;
@@ -123,8 +123,6 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
   // The board is narrowed when a search or a filter is on it, which is what
   // separates "nothing matches" from "the catalog is empty".
   const isNarrowed = search.trim().length > 0 || filterCount > 0;
-
-  const boardPicture = useMemo(() => boardPictureSize(catalogMaps), [catalogMaps]);
 
   // A map chosen on its own page arrives in the address. It is read on its
   // own rather than waited for on the board, because the board is paged and
@@ -229,159 +227,153 @@ export function NewMatchPage({ chosenMapId }: { chosenMapId?: string }) {
     }
   }
 
-  const isBoardEmpty = !catalogQuery.isPending && catalogMaps.length === 0;
+  const isBoardEmpty = !catalogQuery.isPending && !catalogQuery.isError && catalogMaps.length === 0;
 
   return (
-    <Section padding={6} variant="transparent">
-      <VStack gap={8}>
-        <VStack gap={2}>
-          <Heading level={1} type="display-2">
-            Create match
-          </Heading>
-          <Text color="secondary" type="large">
-            Pick a battlefield from the maps AWBRN holds, or bring one over from AWBW.
-          </Text>
-        </VStack>
-
-        <VStack gap={4}>
-          {isBoardEmpty && !isNarrowed ? null : (
-            <Card padding={4}>
-              <MapFilterBar
-                filterCount={filterCount}
-                filters={filters}
-                onFiltersChange={setFilters}
-                onSearchChange={setSearchInput}
-                search={searchInput}
-                summary={mapBoardSummary({
-                  count: catalogMaps.length,
-                  hasMore: catalogQuery.hasNextPage,
-                  isNarrowed,
-                  isPending: catalogQuery.isPending,
-                })}
-              />
-            </Card>
-          )}
-
-          {catalogQuery.isError ? (
-            <Banner
-              description="The map catalog could not be read. Try again in a moment."
-              status="error"
-              title="Catalog unavailable"
+    <Page>
+      <VStack gap={6}>
+        <VStack gap={6} xstyle={styles.split}>
+          <VStack gap={4} xstyle={styles.boardColumn}>
+            <PageHeader
+              description="Pick a battlefield from the maps AWBRN holds, or bring one over from AWBW, then set the rules."
+              title="Play"
             />
-          ) : null}
-
-          <Grid columns={MAP_BOARD_COLUMNS} gap={4}>
-            {isBoardEmpty && !isNarrowed ? (
-              <GridSpan columns={2}>
-                <FirstMapPanel isSignedIn={session !== null} onImported={handleImported} />
-              </GridSpan>
-            ) : (
-              <ImportPlate isSignedIn={session !== null} onImported={handleImported} />
+            <Heading level={2}>Choose a battlefield</Heading>
+            {isBoardEmpty && !isNarrowed ? null : (
+              <Card padding={4}>
+                <MapFilterBar
+                  filterCount={filterCount}
+                  filters={filters}
+                  onFiltersChange={setFilters}
+                  onSearchChange={setSearchInput}
+                  search={searchInput}
+                  summary={mapBoardSummary({
+                    count: catalogMaps.length,
+                    hasMore: catalogQuery.hasNextPage,
+                    isNarrowed,
+                    isPending: catalogQuery.isPending,
+                  })}
+                />
+              </Card>
             )}
-            {isBoardEmpty && !isNarrowed
-              ? Array.from({ length: OPEN_SLOT_COUNT }, (_, index) => <OpenSlot key={index} />)
-              : null}
-            {catalogQuery.isPending
-              ? Array.from({ length: MAP_BOARD_LOADING_PLATES }, (_, index) => (
-                  <MapLoadingPlate index={index} key={index} />
-                ))
-              : catalogMaps.map((map) => (
-                  <MapSelectPlate
-                    boardPicture={boardPicture}
-                    isSelected={selectedMap?.mapId === map.mapId}
-                    key={map.mapId}
-                    map={map}
-                    onSelect={handleSelectMap}
-                  />
-                ))}
-          </Grid>
 
-          {isBoardEmpty && isNarrowed ? (
-            <EmptyState
-              actions={
-                filterCount > 0 ? (
-                  <Button
-                    clickAction={() => setFilters(NO_MAP_FILTERS)}
-                    label="Clear filters"
-                    size="sm"
-                    variant="secondary"
-                  />
-                ) : undefined
-              }
-              description={
-                filterCount > 0
-                  ? "No map the catalog holds answers all of it. Widen the filters, or import the map from AWBW and it joins the board."
-                  : `Nothing in the catalog matches "${search}". Import the map from AWBW and it joins the board.`
-              }
-              headingLevel={2}
-              isCompact
-              title={filterCount > 0 ? "No map fits that brief" : "No map by that name"}
-            />
-          ) : null}
-
-          {catalogQuery.hasNextPage ? (
-            <HStack justify="center">
-              <Button
-                clickAction={async () => {
-                  await catalogQuery.fetchNextPage();
-                }}
-                isLoading={catalogQuery.isFetchingNextPage}
-                label="More maps"
-                size="sm"
-                variant="secondary"
+            {catalogQuery.isError ? (
+              <Banner
+                description="The map catalog could not be read. Try again in a moment."
+                status="error"
+                title="Catalog unavailable"
               />
-            </HStack>
-          ) : null}
-        </VStack>
+            ) : null}
 
-        {selectedMap ? (
-          <MapBriefing
-            aiSeats={aiSeats}
-            bannedCoIds={bannedCoIds}
-            briefingRef={briefingRef}
-            clock={clock}
-            createError={createError}
-            fogEnabled={fogEnabled}
-            hotseatEnabled={hotseatEnabled}
-            isCreating={createMatchMutation.isPending}
-            isPrivate={isPrivate}
-            map={selectedMap}
-            matchName={matchName}
-            onAiSeatsChange={(seats) => {
-              setCreateError(null);
-              setAiSeats(seats);
-            }}
-            onCreate={handleCreateLobby}
-            onClockChange={setClock}
-            onFogChange={setFogEnabled}
-            onHotseatChange={setHotseatEnabled}
-            onToggleBan={(coId) => {
-              setCreateError(null);
-              setBannedCoIds((banned) => {
-                const next = new Set(banned);
-                if (!next.delete(coId)) next.add(coId);
-                return next;
-              });
-            }}
-            onMatchNameChange={(value) => {
-              autoMatchNameRef.current = null;
-              setMatchName(value);
-            }}
-            onPrivateChange={setIsPrivate}
-            onStartingFundsChange={setStartingFunds}
-            session={session}
-            startingFunds={startingFunds}
-          />
-        ) : catalogMaps.length > 0 ? (
-          <EmptyState
-            description="Choose a map from the board to read its briefing and set the rules."
-            headingLevel={2}
-            isCompact
-            title="No map chosen"
-          />
-        ) : null}
+            <Grid columns={MAP_BOARD_COLUMNS} gap={4}>
+              {isBoardEmpty && !isNarrowed ? (
+                <GridSpan columns={2}>
+                  <FirstMapPanel isSignedIn={session !== null} onImported={handleImported} />
+                </GridSpan>
+              ) : (
+                <ImportPlate isSignedIn={session !== null} onImported={handleImported} />
+              )}
+              {isBoardEmpty && !isNarrowed
+                ? Array.from({ length: OPEN_SLOT_COUNT }, (_, index) => <OpenSlot key={index} />)
+                : null}
+              {catalogQuery.isPending
+                ? Array.from({ length: MAP_BOARD_LOADING_PLATES }, (_, index) => (
+                    <MapLoadingPlate index={index} key={index} />
+                  ))
+                : catalogMaps.map((map) => (
+                    <MapSelectPlate
+                      isSelected={selectedMap?.mapId === map.mapId}
+                      key={map.mapId}
+                      map={map}
+                      onSelect={handleSelectMap}
+                    />
+                  ))}
+            </Grid>
+
+            {isBoardEmpty && isNarrowed ? (
+              <EmptyState
+                actions={
+                  filterCount > 0 ? (
+                    <Button
+                      clickAction={() => setFilters(NO_MAP_FILTERS)}
+                      label="Clear filters"
+                      size="sm"
+                      variant="secondary"
+                    />
+                  ) : undefined
+                }
+                description={
+                  filterCount > 0
+                    ? "No map the catalog holds answers all of it. Widen the filters, or import the map from AWBW and it joins the board."
+                    : `Nothing in the catalog matches "${search}". Import the map from AWBW and it joins the board.`
+                }
+                headingLevel={2}
+                isCompact
+                title={filterCount > 0 ? "No map fits that brief" : "No map by that name"}
+              />
+            ) : null}
+
+            {catalogQuery.hasNextPage ? (
+              <HStack justify="center">
+                <Button
+                  clickAction={async () => {
+                    await catalogQuery.fetchNextPage();
+                  }}
+                  isLoading={catalogQuery.isFetchingNextPage}
+                  label="More maps"
+                  size="sm"
+                  variant="secondary"
+                />
+              </HStack>
+            ) : null}
+          </VStack>
+
+          <VStack gap={0} xstyle={styles.setupColumn}>
+            {selectedMap ? (
+              <MapBriefing
+                aiSeats={aiSeats}
+                bannedCoIds={bannedCoIds}
+                briefingRef={briefingRef}
+                clock={clock}
+                createError={createError}
+                fogEnabled={fogEnabled}
+                hotseatEnabled={hotseatEnabled}
+                isCreating={createMatchMutation.isPending}
+                isPrivate={isPrivate}
+                map={selectedMap}
+                matchName={matchName}
+                onAiSeatsChange={(seats) => {
+                  setCreateError(null);
+                  setAiSeats(seats);
+                }}
+                onCreate={handleCreateLobby}
+                onClockChange={setClock}
+                onFogChange={setFogEnabled}
+                onHotseatChange={setHotseatEnabled}
+                onToggleBan={(coId) => {
+                  setCreateError(null);
+                  setBannedCoIds((banned) => {
+                    const next = new Set(banned);
+                    if (!next.delete(coId)) next.add(coId);
+                    return next;
+                  });
+                }}
+                onMatchNameChange={(value) => {
+                  autoMatchNameRef.current = null;
+                  setMatchName(value);
+                }}
+                onPrivateChange={setIsPrivate}
+                onStartingFundsChange={setStartingFunds}
+                session={session}
+                startingFunds={startingFunds}
+              />
+            ) : (
+              <SetupPlaceholder />
+            )}
+          </VStack>
+        </VStack>
       </VStack>
-    </Section>
+    </Page>
   );
 }
 
@@ -556,87 +548,50 @@ function MapBriefing({
   startingFunds: number;
 }) {
   return (
-    <Card padding={6} ref={briefingRef}>
-      <VStack gap={6}>
-        <VStack gap={1}>
+    <Card padding={0} ref={briefingRef} xstyle={styles.setupPanel}>
+      <HStack align="center" gap={3} xstyle={styles.setupHead}>
+        <MapThumb mapId={map.mapId} revision={map.revision} size="md" />
+        <VStack gap={1} xstyle={styles.setupTitle}>
           <Heading level={2}>{map.name}</Heading>
-          <Text type="label">By {map.author}</Text>
+          <Text color="secondary" type="label">
+            {map.playerCount}P · {map.width}×{map.height} · by {map.author}
+            {map.origin ? ` · AWBW ${map.origin.sourceMapId}` : ""}
+          </Text>
         </VStack>
+      </HStack>
 
-        <Grid
-          align="start"
-          columns={{ minWidth: TWO_COLUMN_GRID_MIN_WIDTH, max: 2, repeat: "fit" }}
-          gap={6}
-        >
-          <MapPicture
-            alt={`The battlefield of ${map.name}`}
-            sourceHeight={mapScreenshotSize("full", map.width, map.height).height}
-            sourceWidth={mapScreenshotSize("full", map.width, map.height).width}
-            src={map.screenshot.full}
+      <VStack gap={6} xstyle={styles.setupBody}>
+        <VStack gap={4}>
+          <TextInput
+            isRequired
+            label="Match name"
+            onChange={onMatchNameChange}
+            placeholder="Riverside Duel"
+            value={matchName}
           />
-
-          <VStack gap={4}>
-            <MetadataList columns={3} label={{ position: "top" }}>
-              <MetadataListItem label="Players">{map.playerCount}</MetadataListItem>
-              <MetadataListItem label="Size">
-                {map.width} × {map.height}
-              </MetadataListItem>
-              <MetadataListItem label="Source">
-                {map.origin ? `AWBW ${map.origin.sourceMapId}` : "AWBRN"}
-              </MetadataListItem>
-            </MetadataList>
-
-            <TextInput
-              isRequired
-              label="Match name"
-              onChange={onMatchNameChange}
-              placeholder="Riverside Duel"
-              value={matchName}
+          <NumberInput
+            isIntegerOnly
+            isRequired
+            label="Starting funds"
+            min={0}
+            onChange={onStartingFundsChange}
+            value={startingFunds}
+          />
+          <VStack gap={2}>
+            <CheckboxInput label="Fog of war" onChange={onFogChange} value={fogEnabled} />
+            <CheckboxInput
+              description="Only players holding the link can join."
+              label="Private match"
+              onChange={onPrivateChange}
+              value={isPrivate}
             />
-
-            <NumberInput
-              isIntegerOnly
-              isRequired
-              label="Starting funds"
-              min={0}
-              onChange={onStartingFundsChange}
-              value={startingFunds}
+            <CheckboxInput
+              description="Let one signed-in player claim more than one army."
+              label="Hotseat"
+              onChange={onHotseatChange}
+              value={hotseatEnabled}
             />
-
-            <VStack gap={2}>
-              <CheckboxInput label="Fog of war" onChange={onFogChange} value={fogEnabled} />
-              <CheckboxInput
-                description="Only players holding the link can join."
-                label="Private match"
-                onChange={onPrivateChange}
-                value={isPrivate}
-              />
-              <CheckboxInput
-                description="Let one signed-in player claim more than one army."
-                label="Hotseat"
-                onChange={onHotseatChange}
-                value={hotseatEnabled}
-              />
-            </VStack>
           </VStack>
-        </Grid>
-
-        <Divider />
-
-        <SeatRoster aiSeats={aiSeats} onChange={onAiSeatsChange} playerCount={map.playerCount} />
-
-        <Divider />
-
-        <VStack gap={3}>
-          <VStack gap={1}>
-            <Heading level={3}>Banned COs</Heading>
-            <Text color="secondary">
-              {bannedCoIds.size === 0
-                ? "Press a CO to take them out of this match. Every CO is in play until you do."
-                : `${bannedCoIds.size} of ${coRoster.length} COs are out of this match. Nobody can claim a struck CO, and the ban stands for the whole match.`}
-            </Text>
-          </VStack>
-          <CoBoard bannedCoIds={bannedCoIds} mode="ban" onToggleBan={onToggleBan} />
         </VStack>
 
         <Divider />
@@ -645,31 +600,70 @@ function MapBriefing({
 
         <Divider />
 
-        <VStack gap={4}>
-          {session ? (
-            <Text type="label">Host {session.user.name}</Text>
-          ) : (
-            <Text weight="medium">
-              <RouterTextLink search={{ mode: undefined }} to="/auth">
-                Sign in
-              </RouterTextLink>{" "}
-              to open a lobby.
+        <SeatRoster aiSeats={aiSeats} onChange={onAiSeatsChange} playerCount={map.playerCount} />
+
+        <Divider />
+
+        {/* Most matches ban nobody, so the board of faces stays folded until
+            the host asks for it; the trigger still says how many are out. */}
+        <Collapsible
+          defaultIsOpen={false}
+          trigger={
+            <HStack align="center" gap={2}>
+              <Heading level={3}>Banned COs</Heading>
+              <Text color="secondary" type="label">
+                {bannedCoIds.size === 0 ? "None" : `${bannedCoIds.size} out`}
+              </Text>
+            </HStack>
+          }
+        >
+          <VStack gap={3} paddingBlockStart={2}>
+            <Text color="secondary">
+              Press a CO to take them out of this match. Nobody can claim a struck CO, and the ban
+              stands for the whole match.
             </Text>
-          )}
+            <CoBoard bannedCoIds={bannedCoIds} mode="ban" onToggleBan={onToggleBan} size="sm" />
+          </VStack>
+        </Collapsible>
+      </VStack>
 
-          {createError ? (
-            <Banner description={createError} status="error" title="The lobby did not open" />
-          ) : null}
+      <VStack gap={3} xstyle={styles.setupFoot}>
+        {createError ? (
+          <Banner description={createError} status="error" title="The lobby did not open" />
+        ) : null}
+        {session ? null : (
+          <Text weight="medium">
+            <RouterTextLink search={{ mode: undefined }} to="/auth">
+              Sign in
+            </RouterTextLink>{" "}
+            to open a lobby.
+          </Text>
+        )}
+        <Button
+          clickAction={onCreate}
+          isDisabled={isCreating || !session}
+          isLoading={isCreating}
+          label="Create lobby"
+          variant="primary"
+          width="100%"
+        />
+      </VStack>
+    </Card>
+  );
+}
 
-          <Button
-            clickAction={onCreate}
-            isDisabled={isCreating || !session}
-            isLoading={isCreating}
-            label="Create lobby"
-            variant="primary"
-            width="100%"
-          />
-        </VStack>
+/** The setup panel before a map is chosen: it says what it is waiting for. */
+function SetupPlaceholder() {
+  return (
+    <Card padding={0} xstyle={styles.setupPanel}>
+      <VStack gap={2} xstyle={styles.setupHead}>
+        <Heading level={2}>Match setup</Heading>
+        <Text color="secondary">
+          Choose a battlefield from the board. Its rules, seats, and clock are set here.
+        </Text>
+      </VStack>
+      <VStack gap={3} xstyle={styles.setupFoot}>
+        <Button isDisabled label="Create lobby" variant="primary" width="100%" />
       </VStack>
     </Card>
   );
@@ -712,6 +706,69 @@ function formatImportError(error: unknown): string {
 }
 
 const styles = stylex.create({
+  // The board takes seven columns of twelve and the setup panel the other
+  // five, so the map is chosen and its rules set without leaving the screen.
+  split: {
+    display: {
+      default: "flex",
+      [pageLayout.desktopMedia]: "grid",
+    },
+    gridTemplateColumns: {
+      default: null,
+      [pageLayout.desktopMedia]: "minmax(0, 7fr) minmax(0, 5fr)",
+    },
+    alignItems: {
+      default: "stretch",
+      [pageLayout.desktopMedia]: "start",
+    },
+  },
+  boardColumn: {
+    minInlineSize: 0,
+  },
+  // The panel rides beside the board as it scrolls, and scrolls inside
+  // itself, so Create lobby is always one press away.
+  setupColumn: {
+    minInlineSize: 0,
+    position: {
+      default: "static",
+      [pageLayout.desktopMedia]: "sticky",
+    },
+    top: spacingVars["--spacing-4"],
+  },
+  setupPanel: {
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    maxBlockSize: {
+      default: null,
+      // The panel starts under the bar, beside the title, so it has the
+      // window less the bar and a margin; Create lobby is on the first screen.
+      [pageLayout.desktopMedia]: "calc(100dvh - 8rem)",
+    },
+  },
+  setupHead: {
+    flexShrink: 0,
+    padding: spacingVars["--spacing-5"],
+    borderBlockEndColor: colorVars["--color-border-emphasized"],
+    borderBlockEndStyle: "solid",
+    borderBlockEndWidth: borderVars["--border-width"],
+  },
+  setupTitle: {
+    minInlineSize: 0,
+  },
+  setupBody: {
+    minBlockSize: 0,
+    overflowY: "auto",
+    padding: spacingVars["--spacing-5"],
+  },
+  setupFoot: {
+    flexShrink: 0,
+    padding: spacingVars["--spacing-5"],
+    backgroundColor: colorVars["--color-background-surface"],
+    borderBlockStartColor: colorVars["--color-border-emphasized"],
+    borderBlockStartStyle: "solid",
+    borderBlockStartWidth: borderVars["--border-width"],
+  },
   // A well is recessed into the plate it sits in, so it takes the road-tan
   // fill and no outline of its own.
   plateWell: {

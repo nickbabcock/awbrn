@@ -20,15 +20,12 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Card } from "@astryxdesign/core/Card";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Grid } from "@astryxdesign/core/Grid";
-import { Heading } from "@astryxdesign/core/Heading";
-import { Section } from "@astryxdesign/core/Section";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { Text } from "@astryxdesign/core/Text";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "#/ui/Button.tsx";
 import { RouterButton } from "#/ui/astryx-links.tsx";
 import { MapFilterBar } from "#/maps/components/MapFilterBar.tsx";
-import { MapLinkPlate, MapLoadingPlate, boardPictureSize } from "#/maps/components/MapPlate.tsx";
+import { MapLinkPlate, MapLoadingPlate } from "#/maps/components/MapPlate.tsx";
 import {
   mapBoardAddress,
   mapBoardFilters,
@@ -39,6 +36,7 @@ import { mapCatalogQueryOptions } from "#/maps/maps.queries.ts";
 import { countMapCatalogFilters } from "#/maps/map_taxonomy.ts";
 import { MAP_BOARD_COLUMNS, MAP_BOARD_LOADING_PLATES, mapBoardSummary } from "#/maps/map_board.ts";
 import type { MapCatalogFilter } from "#/maps/schemas.ts";
+import { Page, PageHeader } from "#/ui/Page.tsx";
 
 /** How long the console waits after a keystroke before it writes the address. */
 const SEARCH_DEBOUNCE_MS = 250;
@@ -71,7 +69,6 @@ export function MapsBoardPage({ search }: { search: MapBoardSearch }) {
     () => catalogQuery.data?.pages.flatMap((page) => page.maps) ?? [],
     [catalogQuery.data],
   );
-  const boardPicture = useMemo(() => boardPictureSize(maps), [maps]);
 
   const filterCount = countMapCatalogFilters(filters);
   const isNarrowed = text.length > 0 || filterCount > 0;
@@ -80,19 +77,13 @@ export function MapsBoardPage({ search }: { search: MapBoardSearch }) {
   const isBoardEmpty = !catalogQuery.isPending && !catalogQuery.isError && maps.length === 0;
 
   return (
-    <Section padding={6} variant="transparent">
-      <VStack gap={8}>
-        <HStack align="end" gap={4} justify="between" wrap="wrap">
-          <VStack gap={2}>
-            <Heading level={1} type="display-2">
-              Maps
-            </Heading>
-            <Text color="secondary" type="large">
-              Every battlefield AWBRN holds. Open one to read its record, or start a match on it.
-            </Text>
-          </VStack>
-          <RouterButton label="New match" to="/matches/new" variant="primary" />
-        </HStack>
+    <Page>
+      <VStack gap={6}>
+        <PageHeader
+          actions={<RouterButton label="New match" to="/matches/new" variant="primary" />}
+          description="Every battlefield AWBRN holds. Open one to read its record, or start a match on it."
+          title="Maps"
+        />
 
         <VStack gap={4}>
           <Card padding={4}>
@@ -125,9 +116,7 @@ export function MapsBoardPage({ search }: { search: MapBoardSearch }) {
                 ? Array.from({ length: MAP_BOARD_LOADING_PLATES }, (_, index) => (
                     <MapLoadingPlate index={index} key={index} />
                   ))
-                : maps.map((map) => (
-                    <MapLinkPlate boardPicture={boardPicture} key={map.mapId} map={map} />
-                  ))}
+                : maps.map((map) => <MapLinkPlate key={map.mapId} map={map} />)}
             </Grid>
           )}
 
@@ -170,6 +159,6 @@ export function MapsBoardPage({ search }: { search: MapBoardSearch }) {
           ) : null}
         </VStack>
       </VStack>
-    </Section>
+    </Page>
   );
 }

@@ -24,7 +24,6 @@ import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
-import { Section } from "@astryxdesign/core/Section";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
@@ -40,14 +39,15 @@ import { mapQueryOptions } from "#/maps/maps.queries.ts";
 import { MAP_TAG_LABELS, type MapCatalogEntry } from "#/maps/schemas.ts";
 import { RouterButton, RouterTextLink } from "#/ui/astryx-links.tsx";
 import { TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
+import { Page } from "#/ui/Page.tsx";
 
 export function MapPage({ mapId }: { mapId: string }) {
   const actor = useActor();
   const mapQuery = useQuery(mapQueryOptions(mapId));
 
   return (
-    <Section padding={6} variant="transparent">
-      <VStack gap={8}>
+    <Page>
+      <VStack gap={6}>
         <HStack align="center" gap={1}>
           <ArrowLeftIcon aria-hidden height={14} width={14} />
           <RouterTextLink to="/maps">All maps</RouterTextLink>
@@ -80,7 +80,7 @@ export function MapPage({ mapId }: { mapId: string }) {
           </>
         ) : null}
       </VStack>
-    </Section>
+    </Page>
   );
 }
 
@@ -91,9 +91,7 @@ function MapRecord({ map }: { map: MapCatalogEntry }) {
     <VStack gap={6}>
       <HStack align="center" gap={6} justify="between" wrap="wrap">
         <VStack gap={1}>
-          <Heading level={1} type="display-2">
-            {map.name}
-          </Heading>
+          <Heading level={1}>{map.name}</Heading>
           <Text type="label">By {map.author}</Text>
         </VStack>
         <VStack align="center" gap={1.5}>

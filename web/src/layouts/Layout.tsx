@@ -2,8 +2,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
 import { AppShell } from "@astryxdesign/core/AppShell";
 import { Badge } from "@astryxdesign/core/Badge";
-import { Button } from "#/ui/Button.tsx";
-import { HStack } from "@astryxdesign/core/Stack";
+import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TopNav } from "@astryxdesign/core/TopNav";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
@@ -16,9 +16,17 @@ import { matchKeys } from "#/matches/matches.keys.ts";
 import { matchesAwaitingQueryOptions } from "#/matches/matches.queries.ts";
 import { rankedKeys } from "#/matchmaking/matchmaking.keys.ts";
 import { rankedOverviewQueryOptions } from "#/matchmaking/matchmaking.queries.ts";
-import { PushToggle } from "#/players/components/PushToggle.tsx";
 import { usePlayerNotifications, useTabBadge } from "#/players/player_notifications.ts";
-import { RouterButton, RouterTopNavHeading, RouterTopNavItem } from "#/ui/astryx-links.tsx";
+import { colorVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
+import * as stylex from "@stylexjs/stylex";
+import {
+  RouterButton,
+  RouterTextLink,
+  RouterTopNavHeading,
+  RouterTopNavItem,
+} from "#/ui/astryx-links.tsx";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
+import { SITE_SECTIONS, sectionForPath, type SiteSection } from "#/ui/site_sections.ts";
 
 export function Layout({ children }: { children: ReactNode }) {
   const session = useAppSession();
@@ -81,99 +89,91 @@ export function Layout({ children }: { children: ReactNode }) {
     }
   }
 
+  // The bar names the four places a player goes. The pages inside each place
+  // are tabs under the page title, so the bar stays short enough to read in
+  // one glance and New match stays a command rather than a place.
+  const sections = SITE_SECTIONS.filter((section) => session !== null || !section.requiresSession);
+  const current = sectionForPath(pathname);
+  // Each count stays on the section that holds the page it is about: a
+  // pairing to confirm is on Ranked, which is part of Play, and a turn to take
+  // is on My games.
+  const sectionBadges: Partial<Record<SiteSection["id"], { count: number; label: string }>> =
+    session === null
+      ? {}
+      : {
+          play: {
+            count: pendingPairings,
+            label:
+              pendingPairings === 1
+                ? "1 pairing needs you"
+                : `${pendingPairings} pairings need you`,
+          },
+          mine: {
+            count: awaiting,
+            label: awaiting === 1 ? "1 game awaits your turn" : `${awaiting} games await your turn`,
+          },
+        };
+
   const topNav = (
     <TopNav
       label="Main navigation"
       heading={<RouterTopNavHeading heading="AWBRN" to="/" />}
       startContent={
         <>
-          <RouterTopNavItem to="/" isSelected={pathname === "/"} label="Play" />
-          <RouterTopNavItem
-            to="/matches"
-            isSelected={
-              pathname === "/matches" ||
-              pathname === "/matches/" ||
-              (pathname !== "/matches/new" && /^\/matches\/[^/]+\/?$/.test(pathname))
-            }
-            label="Matches"
-          />
-          <RouterTopNavItem
-            to="/maps"
-            isSelected={pathname === "/maps" || pathname.startsWith("/maps/")}
-            label="Maps"
-          />
-          {session ? (
-            <>
-              <RouterTopNavItem to="/ranked" isSelected={pathname === "/ranked"} label="Ranked">
-                <HStack align="center" gap={1}>
-                  <Text type="inherit">Ranked</Text>
-                  {pendingPairings > 0 ? (
-                    <>
-                      <Badge label={pendingPairings} variant="warning" />
-                      {/* The badge reads as a bare number aloud, so what the
-                          number is about is said here instead. */}
-                      <VisuallyHidden>
-                        {pendingPairings === 1
-                          ? "1 pairing needs you"
-                          : `${pendingPairings} pairings need you`}
-                      </VisuallyHidden>
-                    </>
-                  ) : null}
-                </HStack>
-              </RouterTopNavItem>
+          {sections.map((section) => {
+            const badge = sectionBadges[section.id];
+            return (
               <RouterTopNavItem
-                to="/my/matches"
-                isSelected={pathname === "/my/matches"}
-                label="My Matches"
+                isSelected={current?.id === section.id}
+                key={section.id}
+                label={section.label}
+                to={section.to}
               >
-                <HStack align="center" gap={1}>
-                  <Text type="inherit">My Matches</Text>
-                  {awaiting > 0 ? (
-                    <>
-                      <Badge label={awaiting} variant="warning" />
-                      <VisuallyHidden>
-                        {awaiting === 1
-                          ? "1 game awaits your turn"
-                          : `${awaiting} games await your turn`}
-                      </VisuallyHidden>
-                    </>
-                  ) : null}
-                </HStack>
+                {badge && badge.count > 0 ? (
+                  <HStack align="center" gap={1}>
+                    <Text type="inherit">{section.label}</Text>
+                    <Badge label={badge.count} variant="warning" />
+                    {/* The badge reads as a bare number aloud, so what the
+                        number is about is said here instead. */}
+                    <VisuallyHidden>{badge.label}</VisuallyHidden>
+                  </HStack>
+                ) : null}
               </RouterTopNavItem>
-              <RouterTopNavItem
-                to="/my/history"
-                isSelected={pathname === "/my/history"}
-                label="History"
-              />
-            </>
-          ) : null}
-          <RouterTopNavItem
-            to="/matches/new"
-            isSelected={pathname === "/matches/new"}
-            label="New Match"
-          />
-          <RouterTopNavItem to="/about" isSelected={pathname === "/about"} label="About" />
+            );
+          })}
         </>
       }
       endContent={
-        <HStack align="center" gap={1} wrap="wrap">
+        <HStack align="center" gap={2}>
+          <RouterButton
+            label="New match"
+            size="sm"
+            to="/matches/new"
+            variant="secondary"
+            xstyle={styles.desktopOnly}
+          />
           {session ? (
             <>
-              <Text color="secondary" type="supporting">
-                {session.user.name}
-              </Text>
-              <PushToggle isSignedIn />
               {signOutError ? (
                 <Text color="primary" role="alert" type="supporting">
                   {signOutError}
                 </Text>
               ) : null}
-              <Button
-                clickAction={handleSignOut}
-                isLoading={isSigningOut}
-                label={isSigningOut ? "Signing out" : "Sign out"}
-                size="sm"
-                variant="secondary"
+              <DropdownMenu
+                alignment="end"
+                button={{
+                  isLoading: isSigningOut,
+                  label: session.user.name,
+                  size: "sm",
+                  variant: "ghost",
+                }}
+                items={[
+                  {
+                    label: isSigningOut ? "Signing out" : "Sign out",
+                    onClick: () => void handleSignOut(),
+                  },
+                ]}
+                menuWidth={180}
               />
             </>
           ) : (
@@ -201,7 +201,65 @@ export function Layout({ children }: { children: ReactNode }) {
 
   return (
     <AppShell contentPadding={0} height="auto" topNav={topNav} variant="wash">
-      {children}
+      <VStack gap={0} xstyle={styles.body}>
+        <VStack gap={0} xstyle={styles.content}>
+          {children}
+        </VStack>
+        <SiteFooter />
+      </VStack>
     </AppShell>
   );
 }
+
+/**
+ * The foot of every page: what AWBRN is, said once, and the way to About.
+ *
+ * AWBRN is independent, and the foot is where that is said, so no screen has
+ * to make room for it and no screen can be read as implying otherwise.
+ */
+function SiteFooter() {
+  return (
+    <HStack align="center" as="footer" gap={4} justify="between" wrap="wrap" xstyle={styles.footer}>
+      <Text type="supporting">
+        AWBRN is an independent client for Advance Wars By Web players. It is not affiliated with
+        AWBW, Nintendo, or Intelligent Systems.
+      </Text>
+      <HStack align="center" gap={4}>
+        <RouterTextLink to="/about">About AWBRN</RouterTextLink>
+      </HStack>
+    </HStack>
+  );
+}
+
+const styles = stylex.create({
+  // The page grows to the window, so a short page still puts its foot at the
+  // bottom of the screen rather than halfway up the terrain.
+  body: {
+    inlineSize: "100%",
+    minInlineSize: 0,
+    minBlockSize: "calc(100dvh - 3.5rem)",
+  },
+  content: {
+    flexGrow: 1,
+    minInlineSize: 0,
+  },
+  footer: {
+    borderTopColor: colorVars["--color-border-emphasized"],
+    borderTopStyle: "solid",
+    borderTopWidth: "var(--border-width)",
+    backgroundColor: colorVars["--color-background-surface"],
+    paddingBlock: spacingVars["--spacing-4"],
+    paddingInline: {
+      default: spacingVars["--spacing-8"],
+      [pageLayout.phoneMedia]: spacingVars["--spacing-4"],
+    },
+  },
+  // On a phone the bar has room for the account and the menu, and New match
+  // is already the third tab of Play.
+  desktopOnly: {
+    display: {
+      default: null,
+      [pageLayout.phoneMedia]: "none",
+    },
+  },
+});

@@ -3,9 +3,9 @@ import { Card } from "@astryxdesign/core/Card";
 import { Center } from "@astryxdesign/core/Center";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { HStack } from "@astryxdesign/core/Stack";
-import { Section } from "@astryxdesign/core/Section";
 import { useRouter } from "@tanstack/react-router";
 import { RouterButton } from "#/ui/astryx-links.tsx";
+import { Page } from "#/ui/Page.tsx";
 
 export function NotFound() {
   const router = useRouter();
@@ -19,7 +19,7 @@ export function NotFound() {
   }
 
   return (
-    <Section padding={6} variant="transparent">
+    <Page width="narrow">
       <Center axis="horizontal" width="100%">
         <Card maxWidth={720} padding={8} width="100%">
           <EmptyState
@@ -35,6 +35,6 @@ export function NotFound() {
           />
         </Card>
       </Center>
-    </Section>
+    </Page>
   );
 }
