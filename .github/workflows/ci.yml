@@ -19,10 +19,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: stable
-        components: rustfmt, clippy
+      run: rustup toolchain install
     - name: Enable pnpm
       run: corepack enable
     - name: Install JavaScript dependencies
@@ -50,32 +47,28 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - build: stable
+        - build: linux
           os: ubuntu-latest
-          rust: stable
+        # Find problems with the next Rust release before we change
+        # rust-toolchain.toml.
         - build: beta
           os: ubuntu-latest
           rust: beta
-        - build: nightly
-          os: ubuntu-latest
-          # Current nightly does not compile Bevy 0.19.1.
-          rust: nightly-2026-07-09
         - build: macos
           os: macos-latest
-          rust: stable
         - build: win-msvc
           os: windows-latest
-          rust: stable
         - build: linux-arm64
           os: ubuntu-24.04-arm
-          rust: stable
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: ${{ matrix.rust }}
+      run: rustup toolchain install ${{ matrix.rust }}
+    # A directory override has priority over rust-toolchain.toml.
+    - name: Use matrix Rust toolchain
+      if: matrix.rust
+      run: rustup override set ${{ matrix.rust }}
 
     # https://github.com/bevyengine/bevy_github_ci_template/blob/667143cd049befd33c05eb75d538248904625e2c/.github/workflows/ci.yaml#L34
     - name: Install Ubuntu dependencies
@@ -88,25 +81,15 @@ jobs:
       if: matrix.build == 'win-msvc'
 
   build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-        - build: stable
-          os: ubuntu-latest
-          rust: stable
+    runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: ${{ matrix.rust }}
+      run: rustup toolchain install
 
     # https://github.com/bevyengine/bevy_github_ci_template/blob/667143cd049befd33c05eb75d538248904625e2c/.github/workflows/ci.yaml#L34
     - name: Install Ubuntu dependencies
-      if: startsWith(matrix.os, 'ubuntu')
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
 
     - run: cargo build --profile ci --locked --verbose -p awbrn-desktop
@@ -125,9 +108,7 @@ jobs:
       with:
         submodules: true
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: stable
+      run: rustup toolchain install
     - uses: jdx/mise-action@v4
     - name: Build assets
       run: mise run assets
@@ -143,10 +124,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: stable
-        components: rustfmt
+      run: rustup toolchain install
     - uses: jdx/mise-action@v4
     - run: mise run format:check
 
@@ -156,10 +134,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: stable
-        components: clippy
+      run: rustup toolchain install
     - uses: jdx/mise-action@v4
     - name: Install Ubuntu dependencies
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
@@ -174,10 +149,7 @@ jobs:
       with:
         submodules: true
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: stable
-        targets: wasm32-unknown-unknown
+      run: rustup toolchain install
     - uses: jdx/mise-action@v4
     - name: Build assets
       run: mise run assets
