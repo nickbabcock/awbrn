@@ -514,6 +514,7 @@ impl AgentSpec {
                     "v3" => PlannerConfig::V3,
                     "v4" => PlannerConfig::V4,
                     "v5" => PlannerConfig::V5,
+                    "v6" => PlannerConfig::V6,
                     other => {
                         return Err(PlanError::Configuration(format!(
                             "unknown planner configuration {other}"

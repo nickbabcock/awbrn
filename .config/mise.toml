@@ -181,4 +181,4 @@ run = 'cargo run --profile diag -p awbrn-ai-diagnostics --bin ai-diagnostics -- 
 
 [tasks."ai:timing"]
 description = "Report AI turn times on one thread"
-run = "cargo run --release -p awbrn-ai-diagnostics --example planner_timing -- assets/ai-diagnostics/global-league-pool/manifest.json 1 v5"
+run = "cargo run --release -p awbrn-ai-diagnostics --example planner_timing -- assets/ai-diagnostics/global-league-pool/manifest.json 1 v6"

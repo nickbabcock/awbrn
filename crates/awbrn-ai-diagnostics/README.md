@@ -86,7 +86,7 @@ stopping rule. A clean day-limit exit scores as a draw. Invalid commands or
 other missing outcomes stop the run with an error.
 
 The planner respects the plan's `node_budget`, including reply evaluations.
-Use `32` to match the current Hard profile, which uses `planner-v5`.
+Use `32` to match the current Hard profile, which uses `planner-v6`.
 `planner-v3` uses at most 16 evaluations, so a budget of `32` does not change
 it. A budget of `1` scores only the seed turn. Use a new run directory after a
 policy or budget change. The plan
@@ -100,8 +100,18 @@ holdout for a release decision.
 
 ## Measure planner strength and turn time
 
-Run the fixed comparison of `planner-v5`, which the Hard profile seats, against
-`planner-v4`:
+Run the fixed comparison of `planner-v6`, which the Hard profile seats, against
+`planner-v5`. The
+[summary](../../assets/ai-diagnostics/sprt/results/planner-v6-vs-v5-fixed280-summary.json)
+records the result:
+
+```text
+cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
+  sprt --plan assets/ai-diagnostics/sprt/planner-v6-vs-v5-fixed280.json \
+  --output target/planner-v6-comparison
+```
+
+Run the fixed comparison of `planner-v5` against `planner-v4`:
 
 ```text
 cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
@@ -137,7 +147,7 @@ cargo build --release -p awbrn-ai-diagnostics --example planner_timing \
   --target wasm32-wasip1
 node scripts/run-wasi.mjs \
   target/wasm32-wasip1/release/examples/planner_timing.wasm . \
-  /w/assets/ai-diagnostics/global-league-pool/manifest.json 1 v4
+  /w/assets/ai-diagnostics/global-league-pool/manifest.json 1 v6
 ```
 
 The timing example plays one pair per map on one thread. Compare work
