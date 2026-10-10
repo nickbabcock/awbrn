@@ -40,8 +40,6 @@ def read(directories):
             values = {**feature["features"], **position["extra"]}
             terms = position["terms"]
             values["v5_score"] = sum(v for k, v in terms.items() if k not in ("front", "exposure")) + .25 * terms["front"]
-            # The score uses half the difference between seat logits.
-            values["own_bank"] *= 0.5
             rows.append((position["game"], position["map"], position["winner"], values))
         sources.append({"directory": str(directory), "positions_sha256": hashlib.sha256(
             (directory / "positions.jsonl").read_bytes()).hexdigest(),
@@ -124,7 +122,7 @@ def main():
         report = {"training_sources": sources, "holdout_sources": hs,
                   "model_sha256": hashlib.sha256(Path(args.model).read_bytes()).hexdigest(),
                   "games": len(set(hg)), "rows": len(hg), "metrics": metrics(hy, scores, hw),
-                  "uncalibrated_leaf": metrics(hy, leaf_scores, hw),
+                  "calibration_removed_prediction": metrics(hy, leaf_scores, hw),
                   "stock_temperature": temperature,
                   "stock_frozen_calibration": metrics(hy, stock_scores, hw),
                   "stock_shipped_calibration": metrics(hy, holdout_stock / 27486, hw),

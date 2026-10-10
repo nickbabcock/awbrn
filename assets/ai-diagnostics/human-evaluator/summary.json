@@ -392,5 +392,10 @@
     "total_completed_games": 336,
     "promotion": "Experimental agent only. Production weights are unchanged. Current Eagle COP does not match AWBW, and feature extraction adds work.",
     "next_work": "Correct Eagle COP and its fixtures. Add samples around SCOP activations and local outcome targets. Use new reserved games for later fits."
+  },
+  "bank_coefficient_revision": {
+    "conversion_record": "bank-coefficient-conversion.json",
+    "earlier_game_results": "These results used twice the fitted bank value. Use the final corrected v6 comparison for promotion.",
+    "earlier_eagle_results": "These results used the old Eagle COP rule. The current ruleset does not refresh unit actions for COP."
   }
 }

@@ -23,7 +23,7 @@
       "features_sha256": "33e55a825549291d60791e6b3e54dae4c5a570ec48f639f4c98d9c491b4b2304"
     }
   ],
-  "model_sha256": "b3c808a8eb396436abea23a28fca47c716e1d55577e9941644a587bc16e93ba4",
+  "model_sha256": "aa2fc7ffb3d1b06aa0542a072c1cf407a50b9780b305ece0b86acc1403d4486a",
   "games": 184,
   "rows": 4346,
   "metrics": {
@@ -31,7 +31,7 @@
     "accuracy": 0.6576309137467566,
     "brier": 0.20577171424579058
   },
-  "uncalibrated_leaf": {
+  "calibration_removed_prediction": {
     "log_loss": 0.7327830034940991,
     "accuracy": 0.5810174383632212,
     "brier": 0.25893741199585385

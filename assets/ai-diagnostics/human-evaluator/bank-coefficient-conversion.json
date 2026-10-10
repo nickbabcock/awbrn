@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "conversion": "The old fitter used half the bank funds. The corrected model stores the coefficient per fund. Divide each old bank coefficient by two. Other coefficients do not change.",
+  "prediction_metrics": "The corrected models give the same fitted logits with the full bank funds. The recorded cross-validation and calibrated holdout metrics do not change.",
+  "match_metrics": "The old live score used twice the fitted bank value. Earlier match and puzzle results measure that old score.",
+  "models": [
+    {
+      "model": "refit-positive-003-model.json",
+      "previous_sha256": "b3c808a8eb396436abea23a28fca47c716e1d55577e9941644a587bc16e93ba4",
+      "corrected_sha256": "aa2fc7ffb3d1b06aa0542a072c1cf407a50b9780b305ece0b86acc1403d4486a"
+    },
+    {
+      "model": "refit-power-ablation-model.json",
+      "previous_sha256": "5c32a7633a0dd4f71585c62216c942a6256e3e6b0964644103c1c4119c94c0a8",
+      "corrected_sha256": "823141e1e9e8c85ba4fdb838910f70e53fac0f55dc468b4ba924a4b562526091"
+    },
+    {
+      "model": "refit-safe-core-model.json",
+      "previous_sha256": "2bad48acc24f77dab0e5099280843ae6ee94116b004fa6583d5c39b06a9c3705",
+      "corrected_sha256": "41ce3194eaf388b4b37fd94a94820136152699a15f4b03c8f9c916ef99bdf248"
+    },
+    {
+      "model": "refit-without-powers-model.json",
+      "previous_sha256": "76aa2f3e2455c4f7543117678216942d9a7c9facbb86f3cb843e659770e3ffe5",
+      "corrected_sha256": "9403e819438cac02a63f2bd906af032f203ad0c7c9ff327e010ccf9077f8b42e"
+    },
+    {
+      "model": "refits/eagle-model.json",
+      "previous_sha256": "b03da33491605005758a31443d174023d8828ad5836bb0264ba9bbbed154173c",
+      "corrected_sha256": "b526fc7c9be5555d3c37f428ea944195023a83e1990e2cb04eb2c0805a424a6a"
+    },
+    {
+      "model": "refits/funds-front-model.json",
+      "previous_sha256": "aa0bceedeaf8c5e2444b62c8f1fc75165aaff943900a69ab0dce4ad84c8ec528",
+      "corrected_sha256": "7cce4dc71a60f23a783dd737a6a29f0bead325d8c4c3eb8d3bb97210760512a8"
+    },
+    {
+      "model": "refits/l2-0003-model.json",
+      "previous_sha256": "7ff80bff67c6c21b7f01f4a3eb0c46635030235422420e4fe528357a0d23a1b0",
+      "corrected_sha256": "bdddd4eff9f303624e2d7c784e56d808301c895d40d5120dba402033d7206cca"
+    },
+    {
+      "model": "refits/l2-001-model.json",
+      "previous_sha256": "d950ae5db5d2e11bc2cd681f4c29be446eaffc23cecfe9ea07b17b98fbb6942b",
+      "corrected_sha256": "190dc6ba77aa828b9e7377047d322b6d8fac7e2b4e8165016fd3076e7360a12c"
+    },
+    {
+      "model": "refits/l2-003-model.json",
+      "previous_sha256": "8bd2b5fe510054901295e1dfd6a3a929597d5c4fde71935e034748fa8ea60e95",
+      "corrected_sha256": "2d2ce037d168ebdaa2b41911ba6df6d7a64b0dd67eb15781f40074f70059f883"
+    },
+    {
+      "model": "refits/l2-01-model.json",
+      "previous_sha256": "1aa7775e98605dbdd0ca6dd9ff055e19965b88c963948d74570aa6d79d8aea2d",
+      "corrected_sha256": "bba925e9346041eab789e0b01b87398f1c0b46e1b29156240178c0e8571383ba"
+    },
+    {
+      "model": "refits/no-deferred-threat-model.json",
+      "previous_sha256": "5ed50e76310f3ed090d71681039dddf8486d8d1ce8c3d80fdd7b70dbbf49ae11",
+      "corrected_sha256": "61679f2477640c3a9dba964af9850cefbbbeccbfb4b9c792dbaee5eec6aab13d"
+    },
+    {
+      "model": "refits/positive-003-model.json",
+      "previous_sha256": "b3c808a8eb396436abea23a28fca47c716e1d55577e9941644a587bc16e93ba4",
+      "corrected_sha256": "aa2fc7ffb3d1b06aa0542a072c1cf407a50b9780b305ece0b86acc1403d4486a"
+    },
+    {
+      "model": "refits/positive-01-model.json",
+      "previous_sha256": "b415f68b0cc4fe0f1eb4ee08d3cde0a07284b37e0b1baf6ad3f6e41f302a7a7d",
+      "corrected_sha256": "a1a0ec84b5cd5f743542632790c425e922fb6f3d7aa78e175f64ed2ad1ab6cea"
+    },
+    {
+      "model": "refits/power-meter-model.json",
+      "previous_sha256": "8c308af90a67aea20ebf9ad8e46762268a53ae548a72adc2e3243a7852e5e254",
+      "corrected_sha256": "4181258f4a77e431d3263ce78162153346e743d2edacd5b3a57e3772f238fcd1"
+    },
+    {
+      "model": "refits/power-ready-model.json",
+      "previous_sha256": "097717b4a439aa1a639b5eaf007ed00a92be1d0a0fc6df51cd0d4488a8c64ab8",
+      "corrected_sha256": "298cf360f1501cedbe4d9f23a42641828ac7749abafc447f4afd47cb536c1fb7"
+    },
+    {
+      "model": "refits/properties-model.json",
+      "previous_sha256": "b69910f2a3be39bc491c584719ee26812066947f0de88aff75d2e41c2ccc696e",
+      "corrected_sha256": "333519fbb8d62e934b484674e82729cd9dd3a05facb801d41ccf22d076db5c63"
+    },
+    {
+      "model": "refits/safe-core-model.json",
+      "previous_sha256": "2bad48acc24f77dab0e5099280843ae6ee94116b004fa6583d5c39b06a9c3705",
+      "corrected_sha256": "41ce3194eaf388b4b37fd94a94820136152699a15f4b03c8f9c916ef99bdf248"
+    },
+    {
+      "model": "refits/strong-regularization-model.json",
+      "previous_sha256": "92d9e86a604ba4c78c4665c8f748f4bf8b56ddbab4b3c348b25192874de24713",
+      "corrected_sha256": "98f186f77d41aebab3d1b30ca83506f413b380a359ed7e2041dbc192b6352ad4"
+    },
+    {
+      "model": "refits/unregularized-model.json",
+      "previous_sha256": "bd0026b96b9ea6a87d1b0fd2df3f80eb10ee6f2435070add7daa327e0036e5d5",
+      "corrected_sha256": "7cecd0d92c5a1d7478a2a7767835d670904ca7198007242ce6edc9ccb0712fab"
+    },
+    {
+      "model": "refits/weak-regularization-model.json",
+      "previous_sha256": "5242a9f554f0aa2c179713679fb85c806d6448363ecb957f76ebf5743d996930",
+      "corrected_sha256": "88b82744be7ba358793cced72e7fe1606c38c589d6ebdf5d86809588e24ab5f2"
+    },
+    {
+      "model": "refits/without-powers-model.json",
+      "previous_sha256": "76aa2f3e2455c4f7543117678216942d9a7c9facbb86f3cb843e659770e3ffe5",
+      "corrected_sha256": "9403e819438cac02a63f2bd906af032f203ad0c7c9ff327e010ccf9077f8b42e"
+    }
+  ]
+}
