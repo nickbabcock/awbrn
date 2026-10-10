@@ -18,7 +18,7 @@
 //!   /w/assets/ai-diagnostics/global-league-pool/manifest.json 1 v6
 //! ```
 //!
-//! Usage: `planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v7-day6>`
+//! Usage: `planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v7-day6|v7>`
 
 use awbrn_ai::agent::Agent;
 use awbrn_ai::baseline::BaselineConfig;
@@ -39,7 +39,7 @@ fn main() {
     let arguments: Vec<String> = std::env::args().collect();
     let [_, manifest, pairs, mode] = arguments.as_slice() else {
         eprintln!(
-            "usage: planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v7-day6>"
+            "usage: planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6|v7-day6|v7>"
         );
         std::process::exit(2);
     };
@@ -51,6 +51,7 @@ fn main() {
         "v5" => PlannerConfig::V5,
         "v6" => PlannerConfig::V6,
         "v7-day6" => PlannerConfig::V7_DAY6,
+        "v7" => PlannerConfig::V7,
         other => panic!("unknown mode {other}"),
     };
     let registry = MapRegistry::load(&MapManifest::read(manifest).expect("manifest reads"))

@@ -6,8 +6,8 @@
 //! position, the AI played a turn that lost army value to the reply of the
 //! person. Better turns were available in each position.
 //!
-//! A test plays the Hard turn and then one reply by the fixed planner of
-//! `ai-hard-v3`. Both turns use the middle of each luck range. The test
+//! A test plays a named planner turn and then one reply by the fixed planner
+//! of `ai-hard-v3`. Both turns use the middle of each luck range. The test
 //! measures the change in army value of the AI seat over the two turns: the
 //! value of our units less the value of the enemy units, in funds. A turn
 //! passes when the mean change over three agent seeds reaches the threshold.
@@ -17,9 +17,9 @@
 //! reply is a stronger opponent than the reply model of the planner, so a
 //! turn cannot pass only because it exploits that model.
 //!
-//! An ignored test is a position that the current profile does not pass. Do
-//! not lower its threshold to make it pass. Remove the `ignore` attribute when
-//! a profile passes it.
+//! V6 is the production baseline. The target checks use the V7 candidate.
+//! The other tactical checks also retain V6 and V7 day-six coverage. Do not
+//! lower a threshold to make a candidate pass.
 
 use awbrn_ai::HARD;
 use awbrn_ai::agent::{Agent, NodeBudget};
@@ -80,11 +80,7 @@ fn play_turn(state: State, agent: &mut dyn Agent, budget: NodeBudget) -> State {
     result.state
 }
 
-/// The mean change in army balance over the Hard turn and the reply.
-fn mean_swing(name: &str) -> f64 {
-    mean_swing_with(name, HARD.planner())
-}
-
+/// The mean change in army balance over the planner turn and the reply.
 fn mean_swing_with(name: &str, config: PlannerConfig) -> f64 {
     let start = fixture(name);
     let seat = start
@@ -123,15 +119,21 @@ fn check_with(name: &str, threshold: f64, config: PlannerConfig) {
 #[test]
 #[ignore = "prints a report"]
 fn print_replay_swings() {
-    for name in [
-        "amber-valley-day06",
-        "amber-valley-day07",
-        "amber-valley-day08",
-        "amber-valley-day09",
-        "amber-valley-day10",
-        "amber-valley-day11",
-    ] {
-        println!("{name}: {:.0}", mean_swing(name));
+    for config in [HARD.planner(), PlannerConfig::V7_DAY6, PlannerConfig::V7] {
+        for name in [
+            "amber-valley-day06",
+            "amber-valley-day07",
+            "amber-valley-day08",
+            "amber-valley-day09",
+            "amber-valley-day10",
+            "amber-valley-day11",
+        ] {
+            println!(
+                "{} {name}: {:.0}",
+                config.identifier,
+                mean_swing_with(name, config)
+            );
+        }
     }
 }
 
@@ -140,6 +142,7 @@ fn print_replay_swings() {
 #[test]
 fn day_six_does_not_trade_a_tank_for_a_capture_stop() {
     check_with("amber-valley-day06", 0.0, PlannerConfig::V7_DAY6);
+    check_with("amber-valley-day06", 0.0, PlannerConfig::V7);
 }
 
 /// A damaged tank attacks again into enemy fire and is destroyed.
@@ -147,6 +150,7 @@ fn day_six_does_not_trade_a_tank_for_a_capture_stop() {
 fn day_seven_does_not_attack_into_a_counterattack() {
     check("amber-valley-day07", -4_000.0);
     check_with("amber-valley-day07", -4_000.0, PlannerConfig::V7_DAY6);
+    check_with("amber-valley-day07", -4_000.0, PlannerConfig::V7);
 }
 
 /// Three units attack one tank from tiles that the enemy army covers.
@@ -154,11 +158,11 @@ fn day_seven_does_not_attack_into_a_counterattack() {
 fn day_nine_does_not_leave_its_attackers_exposed() {
     check("amber-valley-day09", -3_500.0);
     check_with("amber-valley-day09", -3_500.0, PlannerConfig::V7_DAY6);
+    check_with("amber-valley-day09", -3_500.0, PlannerConfig::V7);
 }
 
 /// The army near the headquarters loses most of its value in one exchange.
 #[test]
-#[ignore = "planner-v6 does not pass this position"]
 fn day_eleven_limits_the_loss_near_its_headquarters() {
-    check("amber-valley-day11", -9_500.0);
+    check_with("amber-valley-day11", -9_500.0, PlannerConfig::V7);
 }

@@ -12,6 +12,8 @@
 //!      focused enemy fire can destroy it.
 //!    - Block plans put a unit on one of our properties that an enemy
 //!      capturer can reach.
+//!    - Defense plans block a headquarters and keep another exposed unit in
+//!      its current cell.
 //!    - Reroute plans give a different order to a unit that the seed plan
 //!      leaves exposed to enemy fire. The planner plays each legal order of
 //!      that unit alone, ends the turn, and scores the result with the reply
@@ -32,6 +34,7 @@
 
 mod clearance;
 mod combat;
+mod joint_hq;
 mod reply;
 
 use awvm::commander::Domain;
@@ -114,6 +117,9 @@ pub struct PlannerConfig {
     /// The largest number of plans that open attack routes for one decision.
     #[serde(skip_serializing_if = "is_zero")]
     pub clearance_plans: usize,
+    /// The largest number of plans that block a headquarters and hold another exposed unit.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub joint_hq_plans: usize,
     /// The score of active duels without fog, fitted to human replays.
     ///
     /// When present, it replaces [`PlannerConfig::eval_weights`] at every
@@ -165,6 +171,7 @@ impl PlannerConfig {
         reply_window: 0.0,
         power_first: false,
         clearance_plans: 0,
+        joint_hq_plans: 0,
         replay_score: None,
     };
 
@@ -226,6 +233,13 @@ impl PlannerConfig {
         ..Self::V6
     };
 
+    /// Adds up to three plans that block a headquarters and hold one exposed unit.
+    pub const V7: Self = Self {
+        identifier: "planner-v7",
+        joint_hq_plans: 3,
+        ..Self::V7_DAY6
+    };
+
     /// Return a stable fingerprint of all configuration values.
     pub fn fingerprint(&self) -> String {
         let bytes = serde_json::to_vec(&(self, self.property_values_key()))
@@ -259,6 +273,7 @@ pub enum Generator {
     Kill,
     Safety,
     Block,
+    Defense,
     Reroute,
     Power,
     Clearance,
@@ -281,6 +296,9 @@ pub struct PlannerStats {
     pub chose_safety: u64,
     /// Plans where a block plan won.
     pub chose_block: u64,
+    /// Plans won by a joint headquarters defense plan.
+    #[serde(default)]
+    pub chose_defense: u64,
     /// Plans where a reroute plan won.
     #[serde(default)]
     pub chose_reroute: u64,
@@ -432,6 +450,7 @@ impl PlannerAgent {
             Generator::Kill => self.stats.chose_kill += 1,
             Generator::Safety => self.stats.chose_safety += 1,
             Generator::Block => self.stats.chose_block += 1,
+            Generator::Defense => self.stats.chose_defense += 1,
             Generator::Reroute => self.stats.chose_reroute += 1,
             Generator::Power => self.stats.chose_power += 1,
             Generator::Clearance => self.stats.chose_clearance += 1,
@@ -566,9 +585,11 @@ impl TurnPlanner<'_> {
         for play in &safety_holds {
             alternatives.push((Generator::Safety, vec![*play]));
         }
+        let mut block_plays = Vec::new();
         for cell in best.reply.threatened.iter().take(self.config.block_plans) {
             if let Some(play) = block(&session, self.seat, *cell) {
                 alternatives.push((Generator::Block, vec![play]));
+                block_plays.push(play);
             }
         }
         if self.config.clearance_plans > 0 {
@@ -584,9 +605,22 @@ impl TurnPlanner<'_> {
                 .map(|prefix| (Generator::Clearance, prefix)),
             );
         }
+        let reroutes = self.reroutes(&mut session, &best);
+        if self.config.joint_hq_plans > 0 && !self.out_of_work() {
+            alternatives.extend(
+                joint_hq::plans(
+                    &session,
+                    &block_plays,
+                    &best.reply.exposed,
+                    self.config.joint_hq_plans,
+                )
+                .into_iter()
+                .map(|prefix| (Generator::Defense, prefix)),
+            );
+        }
         // Reroutes come last: a block can save the headquarters, and a work
         // limit must not stop it.
-        for play in self.reroutes(&mut session, &best) {
+        for play in reroutes {
             alternatives.push((Generator::Reroute, vec![play]));
         }
 
@@ -967,3 +1001,6 @@ mod tests;
 
 #[cfg(test)]
 mod day6_diagnostics;
+
+#[cfg(test)]
+mod day11_diagnostics;
