@@ -1,0 +1,32 @@
+map 159501 pair 0 seat 0: 35 days
+map 159501 pair 0 seat 1: 30 days
+map 77060 pair 0 seat 0: 35 days
+map 77060 pair 0 seat 1: 20 days
+map 69201 pair 0 seat 0: 18 days
+map 69201 pair 0 seat 1: 18 days
+map 180298 pair 0 seat 0: 16 days
+map 180298 pair 0 seat 1: 30 days
+map 126428 pair 0 seat 0: 35 days
+map 126428 pair 0 seat 1: 35 days
+map 166877 pair 0 seat 0: 26 days
+map 166877 pair 0 seat 1: 24 days
+map 133665 pair 0 seat 0: 27 days
+map 133665 pair 0 seat 1: 14 days
+map 172238 pair 0 seat 0: 33 days
+map 172238 pair 0 seat 1: 23 days
+map 182023 pair 0 seat 0: 16 days
+map 182023 pair 0 seat 1: 13 days
+map 132144 pair 0 seat 0: 35 days
+map 132144 pair 0 seat 1: 28 days
+map 160882 pair 0 seat 0: 35 days
+map 160882 pair 0 seat 1: 35 days
+map 173362 pair 0 seat 0: 32 days
+map 173362 pair 0 seat 1: 23 days
+map 169069 pair 0 seat 0: 35 days
+map 169069 pair 0 seat 1: 25 days
+map 169382 pair 0 seat 0: 22 days
+map 169382 pair 0 seat 1: 18 days
+planner-v6: turns 715 median 673.9 ms p95 1136.6 ms p99 1320.9 ms max 1502.3 ms; >800 ms 293, >1000 ms 110
+hard: turns 727 median 7.6 ms p95 16.0 ms p99 22.1 ms max 28.4 ms; >800 ms 0, >1000 ms 0
+planner plans 3562, hard fallback decisions 6608
+planner work 928788 decisions, most in one turn 2047, 443.3 us of turn time per decision

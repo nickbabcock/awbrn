@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "configuration": "planner-v6",
+  "hard_profile_fingerprint": "954f7fe0d735c852",
+  "build_profile": "release",
+  "pairs_per_map": 1,
+  "threads": 1,
+  "node_budget": 32,
+  "run_seed": 2047934466,
+  "maps": [
+    159501,
+    77060,
+    69201,
+    180298,
+    126428,
+    166877,
+    133665,
+    172238,
+    182023,
+    132144,
+    160882,
+    173362,
+    169069,
+    169382
+  ],
+  "host": {
+    "architecture": "x86_64",
+    "cpu": "QEMU Virtual CPU version 2.5+",
+    "logical_cpus": 8,
+    "runner": "Node 24.14.1 (V8)",
+    "load": "No concurrent local build or match run during timing."
+  },
+  "sources": {
+    "native": "7561a46b",
+    "wasm": "98344d9d"
+  },
+  "source_note": "The constant expression changed from a decimal literal to multiplication by one half. The fitted coefficients and profile fingerprint are equal.",
+  "native": {
+    "target": "x86_64-unknown-linux-gnu",
+    "turns": 715,
+    "median_ms": 673.9,
+    "p95_ms": 1136.6,
+    "p99_ms": 1320.9,
+    "maximum_ms": 1502.3,
+    "turns_over_800_ms": 293,
+    "turns_over_1000_ms": 110,
+    "work": {
+      "plans": 3562,
+      "fallbacks": 6608,
+      "decisions": 928788,
+      "max_turn_work": 2047
+    }
+  },
+  "wasm": {
+    "target": "wasm32-wasip1",
+    "turns": 715,
+    "median_ms": 940.9,
+    "p95_ms": 1599.1,
+    "p99_ms": 1835.5,
+    "maximum_ms": 2034.9,
+    "turns_over_800_ms": 403,
+    "turns_over_1000_ms": 338,
+    "work": {
+      "plans": 3562,
+      "fallbacks": 6608,
+      "decisions": 928788,
+      "max_turn_work": 2047
+    }
+  },
+  "work_counts_equal": true
+}
