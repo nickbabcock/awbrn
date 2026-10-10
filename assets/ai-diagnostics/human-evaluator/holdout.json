@@ -1,0 +1,76 @@
+{
+  "training_sources": [
+    {
+      "directory": "target/ai-human-evaluator/refits/cup-03",
+      "positions_sha256": "a6feb83366e22cd07c37242556a8125bf241c8c7dcd04ecb5cbbac27b255d547",
+      "features_sha256": "badfe243b2b211cc29b8c117dbb87fa55484fb56cdde53ebf79f015c378af688"
+    },
+    {
+      "directory": "target/ai-human-evaluator/refits/cup-04",
+      "positions_sha256": "2f391b350638e9339328e037d54e768066fe4b48e15f4cd6f7f21eeaa851aba6",
+      "features_sha256": "c6e6193ec45156fcfdbd56d89f97eb88e0ea5b3d7b8c0ada03972c4b48743274"
+    }
+  ],
+  "holdout_sources": [
+    {
+      "directory": "target/ai-human-evaluator/refits/cup-05",
+      "positions_sha256": "cf5f816cec5654e1a452d6978affb7796e17b2c71f090c0095d5719995098c2e",
+      "features_sha256": "857d01422f169ac530619c456f1b2d7215b119ff3a00937470a8972abb8d4b86"
+    },
+    {
+      "directory": "target/ai-human-evaluator/refits/cup-06",
+      "positions_sha256": "88372961fd4a4995d759d95372857782ae1bc9bdbd7c441efe9ed0f5895b6045",
+      "features_sha256": "33e55a825549291d60791e6b3e54dae4c5a570ec48f639f4c98d9c491b4b2304"
+    }
+  ],
+  "model_sha256": "aa2fc7ffb3d1b06aa0542a072c1cf407a50b9780b305ece0b86acc1403d4486a",
+  "games": 184,
+  "rows": 4346,
+  "metrics": {
+    "log_loss": 0.5996888716575404,
+    "accuracy": 0.6576309137467566,
+    "brier": 0.20577171424579058
+  },
+  "calibration_removed_prediction": {
+    "log_loss": 0.7327830034940991,
+    "accuracy": 0.5810174383632212,
+    "brier": 0.25893741199585385
+  },
+  "stock_temperature": 43759.469654686385,
+  "stock_frozen_calibration": {
+    "log_loss": 0.6381993611595232,
+    "accuracy": 0.6037741823769571,
+    "brier": 0.22474681132416705
+  },
+  "stock_shipped_calibration": {
+    "log_loss": 0.6514561734327805,
+    "accuracy": 0.6037741823769571,
+    "brier": 0.2294883545404433
+  },
+  "paired_game_loss_difference": {
+    "mean": -0.03851048950198295,
+    "descriptive_interval": [
+      -0.059328307357606885,
+      -0.017692671646359015
+    ]
+  },
+  "unseen_maps": [
+    28759,
+    62344,
+    80184,
+    140000,
+    153972,
+    163134,
+    163726
+  ],
+  "unseen_map_metrics": {
+    "log_loss": 0.6036725795598471,
+    "accuracy": 0.6564008347440318,
+    "brier": 0.20607045790412545
+  },
+  "unseen_map_stock": {
+    "log_loss": 0.6366605389451041,
+    "accuracy": 0.6080053608464399,
+    "brier": 0.22354827847315523
+  }
+}

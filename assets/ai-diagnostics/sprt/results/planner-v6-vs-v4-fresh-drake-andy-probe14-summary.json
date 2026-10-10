@@ -1,0 +1,168 @@
+{
+  "agent_seed_protocol": "seat-seeded",
+  "schema_version": 3,
+  "run_id": "planner-v6-vs-v4-fresh-drake-andy-probe14",
+  "plan": {
+    "schema_version": 1,
+    "run_id": "planner-v6-vs-v4-fresh-drake-andy-probe14",
+    "candidate": {
+      "kind": "planner",
+      "identifier": "planner-v6",
+      "configuration": "v6"
+    },
+    "baseline": {
+      "kind": "planner",
+      "identifier": "planner-v4",
+      "configuration": "v4"
+    },
+    "map_manifest": "../global-league-pool/fog-holdout-manifest.json",
+    "maps": [
+      75796,
+      176149,
+      80008,
+      170819,
+      166637,
+      143354,
+      144739
+    ],
+    "fog": false,
+    "commanders": [
+      "drake",
+      "andy"
+    ],
+    "run_seed": 202610100403,
+    "agent_seed_protocol": "seat-seeded",
+    "max_pairs": 14,
+    "stop_early": false,
+    "limits": {
+      "day_limit": 35,
+      "node_budget": 32,
+      "refusal_limit": 64
+    },
+    "bounds": {
+      "h0": 0.0,
+      "h1": 0.05,
+      "alpha": 1e-09,
+      "beta": 1e-09
+    }
+  },
+  "source": {
+    "revision": "a7cf2f1acbc08b4b14d5c7dbf788de75045ff010",
+    "dirty": false,
+    "fingerprint": "f9313e22a5d20705"
+  },
+  "map_fingerprints": {
+    "75796": "da8f5a3166decacc",
+    "80008": "47e72418c21ee527",
+    "143354": "ada18859e9af2462",
+    "144739": "cebcd3a20696f284",
+    "166637": "0c12c0bde06baf65",
+    "170819": "c74a9cdc7745a2a3",
+    "176149": "68c6dd817cf93f66"
+  },
+  "candidate": {
+    "identifier": "planner-v6",
+    "configuration_fingerprint": "7796830904b48417",
+    "executable_fingerprint": "awbrn-ai-planner-v3"
+  },
+  "baseline": {
+    "identifier": "planner-v4",
+    "configuration_fingerprint": "d02a86b9a9caae50",
+    "executable_fingerprint": "awbrn-ai-planner-v3"
+  },
+  "bounds": {
+    "h0": 0.0,
+    "h1": 0.05,
+    "alpha": 1e-09,
+    "beta": 1e-09
+  },
+  "method": "bounded-betting-map-round-v1",
+  "log_e_h0_threshold": 20.72326583694641,
+  "log_e_h1_threshold": 20.72326583694641,
+  "decision": "inconclusive",
+  "statistic": {
+    "pairs": 14,
+    "mean": 0.4642857142857143,
+    "variance": 0.3255494505494506,
+    "ci95_half_width": 0.29888253416813976,
+    "rounds": 2,
+    "log_e_h0": 0.15727668127535582,
+    "log_e_h1": -0.013113175149773783
+  },
+  "maps": {
+    "75796": {
+      "pairs": 2,
+      "mean": 0.0
+    },
+    "80008": {
+      "pairs": 2,
+      "mean": 0.5
+    },
+    "143354": {
+      "pairs": 2,
+      "mean": 0.25
+    },
+    "144739": {
+      "pairs": 2,
+      "mean": 0.0
+    },
+    "166637": {
+      "pairs": 2,
+      "mean": 1.0
+    },
+    "170819": {
+      "pairs": 2,
+      "mean": 0.5
+    },
+    "176149": {
+      "pairs": 2,
+      "mean": 1.0
+    }
+  },
+  "candidate_complete_turn_timing": {
+    "samples": 909,
+    "median_nanos": 781030931,
+    "p95_nanos": 2041241282,
+    "mean_nanos": 794743330,
+    "maximum_nanos": 4545725390
+  },
+  "baseline_complete_turn_timing": {
+    "samples": 909,
+    "median_nanos": 749941265,
+    "p95_nanos": 1960666864,
+    "mean_nanos": 746990744,
+    "maximum_nanos": 3182118866
+  },
+  "candidate_invalid_commands": 0,
+  "baseline_invalid_commands": 0,
+  "jobs": 4,
+  "wall_clock_nanos": 414360995363,
+  "games": {
+    "candidate_wins": 20,
+    "candidate_losses": 7,
+    "draws": 1
+  },
+  "outcome_reasons": {
+    "day-limit": 20,
+    "hq-capture": 8
+  },
+  "pair_differentials": [
+    0.0,
+    1.0,
+    0.0,
+    1.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    -0.5,
+    0.0
+  ],
+  "raw_result_sha256": "6425a6687325d01c4a5f97eb73b3c8b515a710b7d42d02ff394dd38e109c653d",
+  "build_profile": "diag",
+  "timing_note": "The comparison and coverage probes ran at the same time. Use the separate release timing record for runtime."
+}

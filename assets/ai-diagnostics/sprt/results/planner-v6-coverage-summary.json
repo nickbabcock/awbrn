@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "scope": "Seven additional maps without fog. Four commander matchups. Two pairs per map and matchup.",
+  "limitations": "These small fixed samples check coverage. They do not establish improvement for each commander or for games against people.",
+  "games": 112,
+  "probes": [
+    {
+      "matchup": "andy",
+      "summary": "planner-v6-vs-v4-fresh-andy-probe14-summary.json",
+      "pairs": 14,
+      "mean": 0.07142857142857142,
+      "ci95_half_width": 0.33850349390311374,
+      "games": {
+        "candidate_wins": 14,
+        "draws": 2,
+        "candidate_losses": 12
+      },
+      "candidate_invalid_commands": 0,
+      "baseline_invalid_commands": 0
+    },
+    {
+      "matchup": "eagle",
+      "summary": "planner-v6-vs-v4-fresh-eagle-probe14-summary.json",
+      "pairs": 14,
+      "mean": 0.14285714285714285,
+      "ci95_half_width": 0.3472972568497837,
+      "games": {
+        "candidate_losses": 12,
+        "candidate_wins": 16
+      },
+      "candidate_invalid_commands": 0,
+      "baseline_invalid_commands": 0
+    },
+    {
+      "matchup": "drake-andy",
+      "summary": "planner-v6-vs-v4-fresh-drake-andy-probe14-summary.json",
+      "pairs": 14,
+      "mean": 0.4642857142857143,
+      "ci95_half_width": 0.29888253416813976,
+      "games": {
+        "candidate_wins": 20,
+        "candidate_losses": 7,
+        "draws": 1
+      },
+      "candidate_invalid_commands": 0,
+      "baseline_invalid_commands": 0
+    },
+    {
+      "matchup": "sami-andy",
+      "summary": "planner-v6-vs-v4-fresh-sami-andy-probe14-summary.json",
+      "pairs": 14,
+      "mean": 0.35714285714285715,
+      "ci95_half_width": 0.2604729426373378,
+      "games": {
+        "candidate_losses": 9,
+        "candidate_wins": 19
+      },
+      "candidate_invalid_commands": 0,
+      "baseline_invalid_commands": 0
+    }
+  ]
+}
