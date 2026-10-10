@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "evaluation_ledger": "manifest.json#evaluation_ledger",
+  "maps": [
+    {
+      "awbw_id": 140000,
+      "name": "140000 Ways to Die",
+      "source": "maps/140000.json",
+      "original_factions": [
+        "yc",
+        "gs"
+      ],
+      "source_fingerprint": "99a7fe30865b0d6f",
+      "normalized_fingerprint": "4ec66a43beaed472"
+    },
+    {
+      "awbw_id": 170934,
+      "name": "BL Go Brrr",
+      "source": "maps/170934.json",
+      "original_factions": [
+        "gs",
+        "tg"
+      ],
+      "source_fingerprint": "63744228128e00fe",
+      "normalized_fingerprint": "b37eadeec73d0f35"
+    },
+    {
+      "awbw_id": 171596,
+      "name": "Designed Desires",
+      "source": "maps/171596.json",
+      "original_factions": [
+        "os",
+        "bh"
+      ],
+      "source_fingerprint": "28da23d112381a26",
+      "normalized_fingerprint": "28b2ac65a9f0a3fa"
+    },
+    {
+      "awbw_id": 181570,
+      "name": "French Shuffle",
+      "source": "maps/181570.json",
+      "original_factions": [
+        "pl",
+        "ne"
+      ],
+      "source_fingerprint": "855f03ca01f226bf",
+      "normalized_fingerprint": "10538b59feb8e595"
+    },
+    {
+      "awbw_id": 177963,
+      "name": "Furia",
+      "source": "maps/177963.json",
+      "original_factions": [
+        "os",
+        "bh"
+      ],
+      "source_fingerprint": "3dcf0a1b8db7c2ef",
+      "normalized_fingerprint": "1dd65310671fc6dd"
+    },
+    {
+      "awbw_id": 146797,
+      "name": "Inland Viking",
+      "source": "maps/146797.json",
+      "original_factions": [
+        "os",
+        "yc"
+      ],
+      "source_fingerprint": "de60d500f7142b99",
+      "normalized_fingerprint": "9c7eefac13ed9420"
+    },
+    {
+      "awbw_id": 128505,
+      "name": "Malachite Trail",
+      "source": "maps/128505.json",
+      "original_factions": [
+        "tg",
+        "wn"
+      ],
+      "source_fingerprint": "cfbbbfe396c167bd",
+      "normalized_fingerprint": "df5bb5e6f184457b"
+    },
+    {
+      "awbw_id": 123858,
+      "name": "Misery",
+      "source": "maps/123858.json",
+      "original_factions": [
+        "os",
+        "bh"
+      ],
+      "source_fingerprint": "5643c3448d97adf1",
+      "normalized_fingerprint": "9dd5c209be619199"
+    },
+    {
+      "awbw_id": 173170,
+      "name": "Phobies",
+      "source": "maps/173170.json",
+      "original_factions": [
+        "os",
+        "bm"
+      ],
+      "source_fingerprint": "cc1d5fb712eea863",
+      "normalized_fingerprint": "cc1d5fb712eea863"
+    },
+    {
+      "awbw_id": 173471,
+      "name": "Rhinoplast Reno",
+      "source": "maps/173471.json",
+      "original_factions": [
+        "os",
+        "tg"
+      ],
+      "source_fingerprint": "a1e2c092664604b5",
+      "normalized_fingerprint": "e47d9c30ea9c2498"
+    },
+    {
+      "awbw_id": 172231,
+      "name": "Sandtrap",
+      "source": "maps/172231.json",
+      "original_factions": [
+        "bd",
+        "ab"
+      ],
+      "source_fingerprint": "80ed3729b3f323e4",
+      "normalized_fingerprint": "756e7ffeaf6c0b51"
+    },
+    {
+      "awbw_id": 165694,
+      "name": "Silverado",
+      "source": "maps/165694.json",
+      "original_factions": [
+        "aa",
+        "ne"
+      ],
+      "source_fingerprint": "59d7ee5bc4b9c317",
+      "normalized_fingerprint": "7f30a267ecb702f5"
+    },
+    {
+      "awbw_id": 134930,
+      "name": "Swiss Banking",
+      "source": "maps/134930.json",
+      "original_factions": [
+        "ab",
+        "pl"
+      ],
+      "source_fingerprint": "5c75d6fce88b8fa7",
+      "normalized_fingerprint": "ba4c59eb8e677aca"
+    },
+    {
+      "awbw_id": 82657,
+      "name": "Viridia Aqua",
+      "source": "maps/82657.json",
+      "original_factions": [
+        "ge",
+        "ab"
+      ],
+      "source_fingerprint": "a8bf17b805df368c",
+      "normalized_fingerprint": "b0d533c8b4285889"
+    }
+  ]
+}

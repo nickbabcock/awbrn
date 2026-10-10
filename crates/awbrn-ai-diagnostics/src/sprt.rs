@@ -43,7 +43,10 @@ use awbrn_ai::baseline::BaselineConfig;
 use awbrn_ai::harness::{Limits, play_measured};
 use awbrn_ai::planner::PlannerStats;
 use awbrn_ai::rng::Rng;
-use awbrn_ai_diagnostic_types::{AgentIdentity, AgentSeedProtocol, RunLimits, SeatOrderVariant};
+use awbrn_ai_diagnostic_types::{
+    AgentIdentity, AgentSeedProtocol, RunLimits, SeatOrderVariant, fingerprint_bytes,
+};
+use awvm::ruleset::CommanderKind;
 use awvm::semantic::{Match, Outcome, State};
 use awvm::session::Session;
 use serde::{Deserialize, Serialize};
@@ -59,7 +62,7 @@ use crate::tournament::{
 pub const SPRT_PLAN_SCHEMA_VERSION: u16 = 1;
 
 /// The current SPRT result schema.
-pub const SPRT_RESULT_SCHEMA_VERSION: u16 = 3;
+pub const SPRT_RESULT_SCHEMA_VERSION: u16 = 4;
 
 /// The minimum number of pairs before the test can make a decision.
 ///
@@ -131,9 +134,9 @@ pub struct SprtPlan {
     /// Set fog for all maps. Without it, each map uses its registry value.
     #[serde(default)]
     pub fog: Option<bool>,
-    /// Commander assignments by physical seat. Both games keep these seats.
+    /// Set the commanders for physical seats in map order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub commanders: Option<[awvm::ruleset::CommanderKind; 2]>,
+    pub commanders: Option<[CommanderKind; 2]>,
     pub run_seed: u64,
     /// Assign agent random streams by role or by physical seat.
     #[serde(default, skip_serializing_if = "is_role_seeded")]
@@ -348,6 +351,43 @@ pub struct SprtMapSummary {
     pub mean: f64,
 }
 
+/// Fixed-sample evidence for independent fresh pair seeds on the planned maps.
+///
+/// Hoeffding's one-sided bound applies to pair differentials in [-1, 1].
+/// It does not require identical map distributions or a normal approximation.
+/// Repeatedly tuning on the same results invalidates the confidence claim.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FixedSampleEvidence {
+    pub method: String,
+    pub confidence: f64,
+    pub lower_bound: f64,
+    pub minimum_gain: f64,
+    /// Complete, balanced coverage, no invalid commands, and a supported gain.
+    pub gain_supported: bool,
+}
+
+impl FixedSampleEvidence {
+    fn from_run(plan: &SprtPlan, statistic: SprtStatistic, invalid_commands: u64) -> Option<Self> {
+        if plan.stop_early || statistic.pairs == 0 {
+            return None;
+        }
+        let radius = (2.0 * -plan.bounds.alpha.ln() / statistic.pairs as f64).sqrt();
+        let lower_bound = (statistic.mean - radius).max(-1.0);
+        let complete =
+            statistic.pairs == plan.max_pairs && statistic.pairs.is_multiple_of(plan.maps.len());
+        Some(Self {
+            method: "hoeffding-one-sided-pairs-v1".into(),
+            confidence: 1.0 - plan.bounds.alpha,
+            lower_bound,
+            minimum_gain: plan.bounds.h1,
+            gain_supported: complete
+                && invalid_commands == 0
+                && statistic.mean >= plan.bounds.h1
+                && lower_bound > plan.bounds.h0,
+        })
+    }
+}
+
 /// The result of one SPRT run.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SprtResult {
@@ -361,6 +401,9 @@ pub struct SprtResult {
     /// direct library runs can omit it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<SourceProvenance>,
+    /// Fingerprint of the exact plan, including map and commander choices.
+    #[serde(default)]
+    pub plan_fingerprint: String,
     pub map_fingerprints: BTreeMap<u32, String>,
     pub candidate: AgentIdentity,
     pub baseline: AgentIdentity,
@@ -370,6 +413,9 @@ pub struct SprtResult {
     pub log_e_h1_threshold: f64,
     pub decision: SprtDecision,
     pub statistic: SprtStatistic,
+    /// A separate strength check for fixed runs. Sequential and old runs omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed_sample: Option<FixedSampleEvidence>,
     pub maps: BTreeMap<u32, SprtMapSummary>,
     pub candidate_complete_turn_timing: CompleteTurnTiming,
     pub baseline_complete_turn_timing: CompleteTurnTiming,
@@ -427,6 +473,7 @@ pub fn run_sprt_plan(
         }
         None => MapRegistry::load_checked_in()?,
     };
+    validate_commander_assignments(&plan, &registry)?;
     let (candidate, _) = plan.candidate.materialize(plan_path)?;
     let (baseline, _) = plan.baseline.materialize(plan_path)?;
     let source = source_provenance(plan_path)?;
@@ -481,6 +528,7 @@ pub fn run_sprt(
                 .ok_or_else(|| SprtError::Configuration(format!("map {id} is not loaded")))
         })
         .collect::<Result<Vec<_>, _>>()?;
+    validate_commander_maps(plan, &maps)?;
     let limits = Limits {
         nodes: NodeBudget::new(plan.limits.node_budget)
             .ok_or_else(|| SprtError::Configuration("node budget must be nonzero".into()))?,
@@ -537,6 +585,7 @@ pub fn run_sprt(
         entry.1 += pair.differential;
     }
     let (log_e_h0_threshold, log_e_h1_threshold) = plan.bounds.limits();
+    let plan_fingerprint = fingerprint_bytes(&serde_json::to_vec(plan)?);
     let invalid = |candidate: bool| {
         pairs
             .iter()
@@ -550,12 +599,20 @@ pub fn run_sprt(
             })
             .sum()
     };
+    let candidate_invalid_commands = invalid(true);
+    let baseline_invalid_commands = invalid(false);
+    let fixed_sample = FixedSampleEvidence::from_run(
+        plan,
+        statistic,
+        candidate_invalid_commands + baseline_invalid_commands,
+    );
     Ok(SprtResult {
         agent_seed_protocol: plan.agent_seed_protocol,
         schema_version: SPRT_RESULT_SCHEMA_VERSION,
         run_id: plan.run_id.clone(),
         plan: plan.clone(),
         source: None,
+        plan_fingerprint,
         map_fingerprints: maps
             .iter()
             .map(|map| (map.id, map.normalized_fingerprint.clone()))
@@ -568,6 +625,7 @@ pub fn run_sprt(
         log_e_h1_threshold,
         decision: decision.unwrap_or(SprtDecision::Inconclusive),
         statistic,
+        fixed_sample,
         maps: by_map
             .into_iter()
             .map(|(map, (pairs, sum))| {
@@ -582,8 +640,8 @@ pub fn run_sprt(
             .collect(),
         candidate_complete_turn_timing: summarize_complete_turns(candidate_turns),
         baseline_complete_turn_timing: summarize_complete_turns(baseline_turns),
-        candidate_invalid_commands: invalid(true),
-        baseline_invalid_commands: invalid(false),
+        candidate_invalid_commands,
+        baseline_invalid_commands,
         jobs,
         wall_clock_nanos: started.elapsed().as_nanos().try_into().unwrap_or(u64::MAX),
         pairs,
@@ -594,6 +652,63 @@ struct PairOutput {
     pair: SprtPair,
     candidate_turn_nanos: Vec<u64>,
     baseline_turn_nanos: Vec<u64>,
+}
+
+fn validate_commander_assignments(
+    plan: &SprtPlan,
+    registry: &MapRegistry,
+) -> Result<(), SprtError> {
+    if plan.commanders.is_none() {
+        return Ok(());
+    }
+    let maps = plan
+        .maps
+        .iter()
+        .map(|id| {
+            registry
+                .get(*id)
+                .ok_or_else(|| SprtError::Configuration(format!("map {id} is not loaded")))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    validate_commander_maps(plan, &maps)
+}
+
+fn validate_commander_maps(plan: &SprtPlan, maps: &[&RegisteredMap]) -> Result<(), SprtError> {
+    if plan.commanders.is_none() {
+        return Ok(());
+    }
+    for map in maps {
+        let state = map.state(plan.run_seed)?;
+        if state.players.seats().count() != 2 {
+            return Err(SprtError::Configuration(format!(
+                "commander assignments need two playable seats on map {}",
+                map.id
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn assign_commanders(state: &mut State, commanders: [CommanderKind; 2]) -> Result<(), SprtError> {
+    let seats = state
+        .players
+        .seats()
+        .map(|(seat, _)| seat)
+        .collect::<Vec<_>>();
+    if seats.len() != commanders.len() {
+        return Err(SprtError::Configuration(
+            "commander assignments need two playable seats".into(),
+        ));
+    }
+    for (seat, id) in seats.into_iter().zip(commanders) {
+        state.player_mut(seat).commanders = vec![awvm::semantic::Commander {
+            id,
+            active: true,
+            power_charge: 0,
+            power_uses: 0,
+        }];
+    }
+    Ok(())
 }
 
 fn play_pair(
@@ -614,19 +729,7 @@ fn play_pair(
             state.settings.fog = fog;
         }
         if let Some(commanders) = plan.commanders {
-            let seats = state
-                .players
-                .seats()
-                .map(|(seat, _)| seat)
-                .collect::<Vec<_>>();
-            for (seat, id) in seats.into_iter().zip(commanders) {
-                state.player_mut(seat).commanders = vec![awvm::semantic::Commander {
-                    id,
-                    active: true,
-                    power_charge: 0,
-                    power_uses: 0,
-                }];
-            }
+            assign_commanders(&mut state, commanders)?;
         }
         let mut session = Session::new(state.clone());
         let mut entropy = Rng::from_seed(BaselineConfig::LOCKED.entropy_seed(match_seed));
@@ -760,6 +863,54 @@ fn outcome_reason(state: &State) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use awbrn_ai::agent::Play;
+    use awvm::semantic::{Observation, ObservedPlayer};
+
+    #[test]
+    fn fixed_sample_evidence_requires_a_complete_valid_supported_gain() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/ai-diagnostics/sprt/planner-v7-vs-v6-fresh-fixed280.json");
+        let mut plan = read_sprt_plan(path).unwrap();
+        let statistic = SprtStatistic {
+            pairs: 280,
+            mean: 0.20,
+            ..SprtStatistic::default()
+        };
+        let evidence = FixedSampleEvidence::from_run(&plan, statistic, 0).unwrap();
+        assert!(evidence.gain_supported);
+        assert!((evidence.lower_bound - 0.0537).abs() < 0.001);
+        assert_eq!(evidence.confidence, 0.95);
+        for (pairs, mean, invalid) in [(280, 0.10, 0), (279, 0.20, 0), (280, 0.20, 1)] {
+            let statistic = SprtStatistic {
+                pairs,
+                mean,
+                ..statistic
+            };
+            assert!(
+                !FixedSampleEvidence::from_run(&plan, statistic, invalid)
+                    .unwrap()
+                    .gain_supported
+            );
+        }
+        plan.bounds.h1 = 0.25;
+        assert!(
+            !FixedSampleEvidence::from_run(&plan, statistic, 0)
+                .unwrap()
+                .gain_supported
+        );
+        plan.max_pairs = 281;
+        let unbalanced = SprtStatistic {
+            pairs: 281,
+            ..statistic
+        };
+        assert!(
+            !FixedSampleEvidence::from_run(&plan, unbalanced, 0)
+                .unwrap()
+                .gain_supported
+        );
+        plan.stop_early = true;
+        assert!(FixedSampleEvidence::from_run(&plan, statistic, 0).is_none());
+    }
 
     #[test]
     fn a_clear_gain_accepts_h1_and_a_clear_loss_accepts_h0() {
@@ -959,6 +1110,8 @@ mod tests {
         }
         let mut old = serde_json::to_value(&result).unwrap();
         old.as_object_mut().unwrap().remove("source");
+        old.as_object_mut().unwrap().remove("plan_fingerprint");
+        old.as_object_mut().unwrap().remove("fixed_sample");
         old["schema_version"] = serde_json::json!(2);
         for pair in old["pairs"].as_array_mut().unwrap() {
             for game in pair["games"].as_array_mut().unwrap() {
@@ -969,11 +1122,117 @@ mod tests {
         }
         let old: SprtResult = serde_json::from_value(old).unwrap();
         assert!(old.source.is_none());
+        assert!(old.fixed_sample.is_none());
         assert!(
             old.pairs
                 .iter()
                 .flat_map(|pair| &pair.games)
                 .all(|game| game.candidate_planner_stats.is_none())
+        );
+    }
+
+    #[derive(Debug)]
+    struct CommanderRecordingFactory {
+        identity: AgentIdentity,
+        observations: std::sync::Arc<std::sync::Mutex<Vec<(String, CommanderKind)>>>,
+    }
+
+    impl CommanderRecordingFactory {
+        fn new(
+            observations: std::sync::Arc<std::sync::Mutex<Vec<(String, CommanderKind)>>>,
+        ) -> Self {
+            Self {
+                identity: AgentIdentity {
+                    identifier: "commander-recording-agent".into(),
+                    configuration_fingerprint: "commander-recording-agent-v1".into(),
+                    executable_fingerprint: "commander-recording-agent-v1".into(),
+                },
+                observations,
+            }
+        }
+    }
+
+    impl AgentFactory for CommanderRecordingFactory {
+        fn identity(&self) -> &AgentIdentity {
+            &self.identity
+        }
+
+        fn create(&self, _seed: u64) -> Box<dyn Agent> {
+            Box::new(CommanderRecordingAgent {
+                observations: std::sync::Arc::clone(&self.observations),
+            })
+        }
+    }
+
+    struct CommanderRecordingAgent {
+        observations: std::sync::Arc<std::sync::Mutex<Vec<(String, CommanderKind)>>>,
+    }
+
+    impl Agent for CommanderRecordingAgent {
+        fn act(&mut self, view: &Observation, _budget: NodeBudget) -> Option<Play> {
+            let commander = view.players.iter().find_map(|player| match player {
+                ObservedPlayer::Private { id, commanders, .. } if id == &view.recipient => {
+                    commanders.first().map(|commander| commander.id)
+                }
+                _ => None,
+            });
+            if let Some(commander) = commander {
+                self.observations
+                    .lock()
+                    .unwrap()
+                    .push((view.recipient.as_str().to_owned(), commander));
+            }
+            None
+        }
+    }
+
+    #[test]
+    fn assigned_commanders_reach_each_physical_seat_and_change_the_plan_fingerprint() {
+        use awvm::ruleset::CommanderKind::{Andy, Drake};
+
+        let registry = MapRegistry::load_checked_in().unwrap();
+        let map = registry.get(61748).unwrap();
+        let initial = map.state(7001).unwrap();
+        let expected = initial
+            .players
+            .seats()
+            .zip([Andy, Drake])
+            .map(|((_, player), commander)| (player.id().as_str().to_owned(), commander))
+            .collect::<BTreeMap<_, _>>();
+        let observations = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let factory = CommanderRecordingFactory::new(std::sync::Arc::clone(&observations));
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/ai-diagnostics/sprt/planner-v3-seat-seeded-smoke.json");
+        let mut plan = read_sprt_plan(path).unwrap();
+        plan.maps = vec![61748];
+        plan.commanders = Some([Andy, Drake]);
+        plan.run_seed = 7001;
+        plan.max_pairs = 1;
+        plan.stop_early = false;
+        plan.limits = RunLimits {
+            day_limit: 1,
+            node_budget: 1,
+            refusal_limit: 8,
+        };
+
+        let result = run_sprt(&plan, &registry, &factory, &factory, 1, |_, _| {}).unwrap();
+        let expected_fingerprint = fingerprint_bytes(&serde_json::to_vec(&plan).unwrap());
+        assert_eq!(result.plan_fingerprint, expected_fingerprint);
+        let assigned = observations.lock().unwrap();
+        assert!(!assigned.is_empty());
+        for (player, commander) in assigned.iter() {
+            assert_eq!(expected.get(player), Some(commander));
+        }
+        for player in expected.keys() {
+            assert!(assigned.iter().any(|(observed, _)| observed == player));
+        }
+        drop(assigned);
+
+        let mut swapped = plan.clone();
+        swapped.commanders = Some([Drake, Andy]);
+        assert_ne!(
+            result.plan_fingerprint,
+            fingerprint_bytes(&serde_json::to_vec(&swapped).unwrap())
         );
     }
 

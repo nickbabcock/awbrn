@@ -863,6 +863,39 @@ mod tests {
     }
 
     #[test]
+    fn sealed_manifest_matches_the_ledger_and_excludes_evaluated_maps() {
+        use std::collections::BTreeSet;
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/ai-diagnostics/global-league-pool");
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(root.join("manifest.json")).unwrap()).unwrap();
+        let ledger = &manifest["evaluation_ledger"];
+        let ids = |field: &str| {
+            ledger[field]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|id| id.as_u64().unwrap() as u32)
+                .collect::<BTreeSet<_>>()
+        };
+        let reserved = ids("remaining_untouched_holdout_map_ids");
+        assert_eq!(reserved.len(), 14);
+        assert!(reserved.is_disjoint(&ids("evaluated_v6_coverage_map_ids")));
+        let sealed = MapRegistry::load_path(root.join("sealed-holdout-manifest.json")).unwrap();
+        assert_eq!(
+            sealed.iter().map(|map| map.id).collect::<BTreeSet<_>>(),
+            reserved
+        );
+        let all = MapRegistry::load_path(root.join("manifest.json")).unwrap();
+        for map in sealed.iter() {
+            let original = all.get(map.id).unwrap();
+            assert_eq!(map.source_fingerprint, original.source_fingerprint);
+            assert_eq!(map.normalized_fingerprint, original.normalized_fingerprint);
+            assert!(!map.fog);
+        }
+    }
+
+    #[test]
     fn source_paths_cannot_escape_the_manifest_directory() {
         assert!(!safe_source_name("../outside.json"));
         assert!(!safe_source_name("/tmp/map.json"));

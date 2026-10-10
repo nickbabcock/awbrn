@@ -22,8 +22,31 @@
       67945
     ],
     "development_count": 21,
-    "untouched_holdout_count": 21,
+    "untouched_holdout_count": 14,
     "holdout_bucket_counts": {
+      "Standard": {
+        "S-Rank": {
+          "small": 3,
+          "large": 0
+        },
+        "A-Rank": {
+          "small": 2,
+          "large": 2
+        }
+      },
+      "High Funds": {
+        "A-Rank": {
+          "small": 1,
+          "large": 4
+        },
+        "S-Rank": {
+          "small": 0,
+          "large": 2
+        }
+      }
+    },
+    "initial_holdout_count": 21,
+    "initial_holdout_bucket_counts": {
       "Standard": {
         "S-Rank": {
           "small": 3,
@@ -54,7 +77,8 @@
           "large": 4
         }
       }
-    }
+    },
+    "evaluated_v6_coverage_count": 7
   },
   "maps": [
     {
@@ -102,7 +126,7 @@
         "Hall of Fame",
         "Fog of War"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "os",
         "bm"
@@ -350,7 +374,7 @@
         "Global League",
         "Fog of War"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "os",
         "bh"
@@ -603,7 +627,7 @@
         "Global League",
         "Fog of War"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "ge",
         "bd"
@@ -631,7 +655,7 @@
         "Fog of War",
         "Live Play"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "ge",
         "yc"
@@ -913,7 +937,7 @@
         "Fog of War",
         "Live Play"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "rf",
         "bd"
@@ -995,7 +1019,7 @@
         "Global League",
         "Fog of War"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "tg",
         "pl"
@@ -1049,7 +1073,7 @@
         "Global League",
         "Fog of War"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "tg",
         "pl"
@@ -1231,5 +1255,65 @@
       "source_fingerprint": "d96fc641de97d956",
       "normalized_fingerprint": "99e0de8c1d9e87cd"
     }
-  ]
+  ],
+  "evaluation_ledger": {
+    "evaluated_v6_coverage_map_ids": [
+      75796,
+      176149,
+      80008,
+      170819,
+      166637,
+      143354,
+      144739
+    ],
+    "remaining_untouched_holdout_map_ids": [
+      140000,
+      170934,
+      171596,
+      181570,
+      177963,
+      146797,
+      128505,
+      123858,
+      173170,
+      173471,
+      172231,
+      165694,
+      134930,
+      82657
+    ],
+    "holdout_source_categories": [
+      "Standard",
+      "High Funds"
+    ],
+    "holdout_match_settings": {
+      "fog": false,
+      "starting_funds": 0,
+      "income_per_city": 1000
+    },
+    "coverage": {
+      "candidate": "planner-v6",
+      "baseline": "planner-v4",
+      "fog": false,
+      "starting_funds": 0,
+      "income_per_city": 1000,
+      "pairs_per_map_per_matchup": 2,
+      "matchups": [
+        "andy-andy",
+        "eagle-eagle",
+        "drake-andy",
+        "sami-andy"
+      ],
+      "run_ids": [
+        "planner-v6-vs-v4-fresh-andy-probe14",
+        "planner-v6-vs-v4-fresh-eagle-probe14",
+        "planner-v6-vs-v4-fresh-drake-andy-probe14",
+        "planner-v6-vs-v4-fresh-sami-andy-probe14"
+      ],
+      "plan_revision": "4bd20ec",
+      "configuration_fingerprint": "7796830904b48417",
+      "interpretation": "Coverage only. Do not use these results to tune or claim a holdout result."
+    },
+    "holdout_rule": "Keep the 14 reserved maps sealed until the final v7 candidate is frozen. Do not use their outcomes to tune the agent."
+  }
 }

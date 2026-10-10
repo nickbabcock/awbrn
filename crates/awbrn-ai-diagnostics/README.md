@@ -72,7 +72,7 @@ fresh seed samples with an expected round mean that meets the hypothesis.
 Repeated tuning on the same seeds does not provide these guarantees.
 See [the bounded betting method](https://arxiv.org/abs/2010.09686).
 
-The schema 3 result records the method, plan, Git source state, map
+The schema 4 result records the method, plan, Git source state, map
 fingerprints, both log evidence values, every pair, and complete-turn timing.
 Each game also records planner counters when its agent supplies them.
 Schema 2 results remain readable. A fixed run that ends with a partial map
@@ -97,6 +97,82 @@ plan remains available for historical runs.
 
 Use sequential runs for development. Keep the frozen gate and the sealed
 holdout for a release decision.
+
+## Compare a new planner with frozen v6
+
+The [v6 freeze record](../../assets/ai-diagnostics/planner-v6-freeze.json)
+pins the source commit, the archive hash, and the planner fingerprints. The
+source commit is `9fbdac50983055aa5db1600026b94d3667c3d5c0`. It was
+captured in a clean detached checkout at
+`target/baseline-freezes/planner-v6-9fbdac5`.
+Regenerate its source archive with `git archive` at that commit. The freeze
+record gives the expected SHA-256 hash. It records both the raw
+`PlannerConfig::V6` fingerprint and the `PlannerFactory` identity fingerprint.
+The factory fingerprint also includes the planner identifier. The Hard profile
+has its own fingerprint. Plans instantiate both agents in the current binary;
+the archive identifies the reference source rather than selecting a separate
+baseline executable. Keep v6 behavior unchanged and verify its fingerprints
+and saved replay outcomes when changing shared planner code.
+
+Use the fixed development plan
+`planner-v7-vs-v6-fresh-fixed280.json` after the final `v7` configuration is
+ready. It compares `v7` with the current build of the pinned `v6` configuration on
+the same 14 development maps as the
+old fixed comparison. It uses 20 pairs per map, fresh seat seeds, and no early
+stop. It uses a new run seed. Archive `sprt-result.json` with the source
+revision, source fingerprint, plan fingerprint, and map fingerprints.
+
+Use the four `planner-v7-vs-v6-commander-*-probe14.json` plans for small
+commander checks. Each plan uses two pairs on each of the seven maps used by
+the older v6 coverage probes. The plans test Andy against Andy, Eagle against
+Eagle, Drake against Andy, and Sami against Andy. These maps are evaluated
+development maps. The probes check regressions. They do not provide holdout
+evidence.
+
+The commander assignments stay fixed by physical seat when the agents swap
+seats. The plan fingerprint includes the assignments. The result records the
+plan and the source and map fingerprints. The runner rejects commander plans
+when a selected map does not have two playable seats.
+
+Measure v6 and the final v7 build on the same idle host. Use the release
+profile, Node 24 with V8, and one worker for each timing run. The earlier Wasm
+record reports a p95 turn time of 1,599.1 ms. That record used a local virtual
+machine. Report the new v6 and v7 p95 values beside that historical value. Use
+the same-host v6 result for the runtime gate: v7 p95 must not exceed 1.10
+times v6 p95. Keep the historical value as context. Do not change this gate
+after seeing the v7 results.
+
+The [sealed holdout plan](../../assets/ai-diagnostics/sprt/planner-v7-vs-v6-sealed-holdout-fixed280.json)
+uses all 14 remaining untouched maps, with fog disabled. Their source
+metadata includes Standard and High Funds categories. The runner uses its
+default setup for every map: 0 starting funds and 1,000 income per city. It
+does not apply High Funds rules. The seven original Fog holdout maps were used
+in earlier v6 checks with fog disabled. This pool has no untouched Fog
+holdout. Do not run the sealed plan until the final v7 candidate is frozen.
+Do not use its outcomes to tune the agent.
+
+The development and sealed plans each use 280 pairs, 20 per map, with fresh
+seeds and no early stop. Their fixed-sample strength check requires complete,
+balanced coverage, no invalid commands from either agent, a mean pair gain
+of at least +0.05, and a one-sided 95% Hoeffding lower bound above zero.
+The result records this check in `fixed_sample.gain_supported`. Its lower
+bound is `mean - sqrt(2 * ln(1 / alpha) / pairs)`, clipped at -1, for pair
+differentials in [-1, 1]. With 280 pairs and alpha 0.05, the radius is about
+0.1463. A failed check leaves the strength claim unsupported; it does not
+prove a regression.
+
+Require the development check before freezing the candidate, then require
+the sealed check and the same-host Wasm runtime gate before promotion.
+Development results used repeatedly for tuning are diagnostic evidence;
+only the single frozen holdout check supports the fresh-seed confidence
+claim. Commander probes are coverage checks, not strength gates. Review
+map-level results and retain the descriptive interval beside the decision.
+
+The plans use alpha and beta 0.05. The sequential `decision` is reported
+separately and does not decide these fixed runs. The earlier 1e-9 bounds
+could never be reached in 20 map rounds, even with perfect results. Do not
+change the fixed-sample rule, bounds, pair count, or runtime gate after
+viewing v7 results. The holdout remains sealed until the candidate is frozen.
 
 ## Measure planner strength and turn time
 

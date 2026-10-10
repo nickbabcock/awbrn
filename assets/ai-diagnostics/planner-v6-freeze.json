@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "purpose": "frozen_planner_v6_baseline",
+  "baseline": {
+    "identifier": "planner-v6",
+    "hard_profile": "ai-hard-v3",
+    "revision": "9fbdac50983055aa5db1600026b94d3667c3d5c0",
+    "tree": "0dc389184952acddf2cb35a58427cbd9aa019cc9",
+    "commit_subject": "Seat planner-v6 with a score fitted to human replays",
+    "worktree_at_freeze": "clean detached checkout",
+    "raw_planner_config_fingerprint": "26569da0906e9bc4",
+    "planner_factory_agent_identity_configuration_fingerprint": "7796830904b48417",
+    "hard_profile_configuration_fingerprint": "954f7fe0d735c852",
+    "node_budget": 32,
+    "archive": {
+      "path": "target/baseline-freezes/planner-v6-9fbdac5.tar",
+      "format": "git archive tar",
+      "sha256": "45e5dcb2e0a4c13e44930aa45e7687d815da62bdfb400df2d526fb578aecc4f2",
+      "recreate": "git archive --format=tar 9fbdac50983055aa5db1600026b94d3667c3d5c0"
+    },
+    "submodules": {
+      "assets/AWBW-Replay-Player": "3ccbc6001501adc52488b1e106f7a01d6f750a3a"
+    }
+  },
+  "validation": {
+    "smoke_map_ids": [
+      67945
+    ],
+    "smoke_run_seed": 202610100601,
+    "smoke_pairs": 1,
+    "invalid_commands": {
+      "candidate": 0,
+      "baseline": 0
+    },
+    "interpretation": "One development pair verifies that the frozen v6 runner builds and plays. It is not a strength or timing gate."
+  }
+}

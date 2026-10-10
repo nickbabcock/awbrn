@@ -102,6 +102,15 @@ fn sprt(arguments: &[String]) -> ExitCode {
                 result.candidate_invalid_commands,
                 result.baseline_invalid_commands,
             );
+            if let Some(evidence) = &result.fixed_sample {
+                println!(
+                    "fixed-sample gain supported: {}, {:.0}% lower bound {:+.4}, minimum mean gain {:+.4}",
+                    evidence.gain_supported,
+                    evidence.confidence * 100.0,
+                    evidence.lower_bound,
+                    evidence.minimum_gain,
+                );
+            }
             ExitCode::SUCCESS
         }
         Err(error) => report_error("sprt", error),

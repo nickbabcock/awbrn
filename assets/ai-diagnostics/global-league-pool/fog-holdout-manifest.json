@@ -85,5 +85,9 @@
       "normalized_fingerprint": "cebcd3a20696f284",
       "fog": true
     }
-  ]
+  ],
+  "purpose": "historical_v6_coverage_maps",
+  "eligible_for_future_holdout": false,
+  "evaluation_status": "evaluated_v6_coverage_no_fog",
+  "evaluation_ledger": "manifest.json#evaluation_ledger"
 }
