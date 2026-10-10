@@ -7,7 +7,7 @@
 //! engine of a Worker. Build it natively to get the ratio for the same games.
 //! The work counts must be equal in the two builds.
 //!
-//! `uncapped` is planner-v2 with no work limit. `v3` is the production
+//! `uncapped` is planner-v2 with no work limit. `v6` is the current Hard
 //! configuration.
 //!
 //! ```text
@@ -15,7 +15,7 @@
 //!   --target wasm32-wasip1
 //! node scripts/run-wasi.mjs \
 //!   target/wasm32-wasip1/release/examples/planner_timing.wasm . \
-//!   /w/assets/ai-diagnostics/global-league-pool/manifest.json 1 v3
+//!   /w/assets/ai-diagnostics/global-league-pool/manifest.json 1 v6
 //! ```
 //!
 //! Usage: `planner_timing <manifest> <pairs-per-map> <uncapped|v3|v4|v5|v6>`
