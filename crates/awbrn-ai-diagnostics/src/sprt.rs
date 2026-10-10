@@ -43,7 +43,10 @@ use awbrn_ai::baseline::BaselineConfig;
 use awbrn_ai::harness::{Limits, play_measured};
 use awbrn_ai::planner::PlannerStats;
 use awbrn_ai::rng::Rng;
-use awbrn_ai_diagnostic_types::{AgentIdentity, AgentSeedProtocol, RunLimits, SeatOrderVariant};
+use awbrn_ai_diagnostic_types::{
+    AgentIdentity, AgentSeedProtocol, RunLimits, SeatOrderVariant, fingerprint_bytes,
+};
+use awvm::ruleset::CommanderKind;
 use awvm::semantic::{Match, Outcome, State};
 use awvm::session::Session;
 use serde::{Deserialize, Serialize};
@@ -59,7 +62,7 @@ use crate::tournament::{
 pub const SPRT_PLAN_SCHEMA_VERSION: u16 = 1;
 
 /// The current SPRT result schema.
-pub const SPRT_RESULT_SCHEMA_VERSION: u16 = 3;
+pub const SPRT_RESULT_SCHEMA_VERSION: u16 = 4;
 
 /// The minimum number of pairs before the test can make a decision.
 ///
@@ -131,9 +134,9 @@ pub struct SprtPlan {
     /// Set fog for all maps. Without it, each map uses its registry value.
     #[serde(default)]
     pub fog: Option<bool>,
-    /// Commander assignments by physical seat. Both games keep these seats.
+    /// Set the commanders for physical seats in map order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub commanders: Option<[awvm::ruleset::CommanderKind; 2]>,
+    pub commanders: Option<[CommanderKind; 2]>,
     pub run_seed: u64,
     /// Assign agent random streams by role or by physical seat.
     #[serde(default, skip_serializing_if = "is_role_seeded")]
@@ -361,6 +364,9 @@ pub struct SprtResult {
     /// direct library runs can omit it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<SourceProvenance>,
+    /// Fingerprint of the exact plan, including map and commander choices.
+    #[serde(default)]
+    pub plan_fingerprint: String,
     pub map_fingerprints: BTreeMap<u32, String>,
     pub candidate: AgentIdentity,
     pub baseline: AgentIdentity,
@@ -427,6 +433,7 @@ pub fn run_sprt_plan(
         }
         None => MapRegistry::load_checked_in()?,
     };
+    validate_commander_assignments(&plan, &registry)?;
     let (candidate, _) = plan.candidate.materialize(plan_path)?;
     let (baseline, _) = plan.baseline.materialize(plan_path)?;
     let source = source_provenance(plan_path)?;
@@ -481,6 +488,7 @@ pub fn run_sprt(
                 .ok_or_else(|| SprtError::Configuration(format!("map {id} is not loaded")))
         })
         .collect::<Result<Vec<_>, _>>()?;
+    validate_commander_maps(plan, &maps)?;
     let limits = Limits {
         nodes: NodeBudget::new(plan.limits.node_budget)
             .ok_or_else(|| SprtError::Configuration("node budget must be nonzero".into()))?,
@@ -537,6 +545,7 @@ pub fn run_sprt(
         entry.1 += pair.differential;
     }
     let (log_e_h0_threshold, log_e_h1_threshold) = plan.bounds.limits();
+    let plan_fingerprint = fingerprint_bytes(&serde_json::to_vec(plan)?);
     let invalid = |candidate: bool| {
         pairs
             .iter()
@@ -556,6 +565,7 @@ pub fn run_sprt(
         run_id: plan.run_id.clone(),
         plan: plan.clone(),
         source: None,
+        plan_fingerprint,
         map_fingerprints: maps
             .iter()
             .map(|map| (map.id, map.normalized_fingerprint.clone()))
@@ -596,6 +606,63 @@ struct PairOutput {
     baseline_turn_nanos: Vec<u64>,
 }
 
+fn validate_commander_assignments(
+    plan: &SprtPlan,
+    registry: &MapRegistry,
+) -> Result<(), SprtError> {
+    if plan.commanders.is_none() {
+        return Ok(());
+    }
+    let maps = plan
+        .maps
+        .iter()
+        .map(|id| {
+            registry
+                .get(*id)
+                .ok_or_else(|| SprtError::Configuration(format!("map {id} is not loaded")))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    validate_commander_maps(plan, &maps)
+}
+
+fn validate_commander_maps(plan: &SprtPlan, maps: &[&RegisteredMap]) -> Result<(), SprtError> {
+    if plan.commanders.is_none() {
+        return Ok(());
+    }
+    for map in maps {
+        let state = map.state(plan.run_seed)?;
+        if state.players.seats().count() != 2 {
+            return Err(SprtError::Configuration(format!(
+                "commander assignments need two playable seats on map {}",
+                map.id
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn assign_commanders(state: &mut State, commanders: [CommanderKind; 2]) -> Result<(), SprtError> {
+    let seats = state
+        .players
+        .seats()
+        .map(|(seat, _)| seat)
+        .collect::<Vec<_>>();
+    if seats.len() != commanders.len() {
+        return Err(SprtError::Configuration(
+            "commander assignments need two playable seats".into(),
+        ));
+    }
+    for (seat, id) in seats.into_iter().zip(commanders) {
+        state.player_mut(seat).commanders = vec![awvm::semantic::Commander {
+            id,
+            active: true,
+            power_charge: 0,
+            power_uses: 0,
+        }];
+    }
+    Ok(())
+}
+
 fn play_pair(
     plan: &SprtPlan,
     map: &RegisteredMap,
@@ -614,19 +681,7 @@ fn play_pair(
             state.settings.fog = fog;
         }
         if let Some(commanders) = plan.commanders {
-            let seats = state
-                .players
-                .seats()
-                .map(|(seat, _)| seat)
-                .collect::<Vec<_>>();
-            for (seat, id) in seats.into_iter().zip(commanders) {
-                state.player_mut(seat).commanders = vec![awvm::semantic::Commander {
-                    id,
-                    active: true,
-                    power_charge: 0,
-                    power_uses: 0,
-                }];
-            }
+            assign_commanders(&mut state, commanders)?;
         }
         let mut session = Session::new(state.clone());
         let mut entropy = Rng::from_seed(BaselineConfig::LOCKED.entropy_seed(match_seed));
@@ -760,6 +815,8 @@ fn outcome_reason(state: &State) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use awbrn_ai::agent::Play;
+    use awvm::semantic::{Observation, ObservedPlayer};
 
     #[test]
     fn a_clear_gain_accepts_h1_and_a_clear_loss_accepts_h0() {
@@ -959,6 +1016,7 @@ mod tests {
         }
         let mut old = serde_json::to_value(&result).unwrap();
         old.as_object_mut().unwrap().remove("source");
+        old.as_object_mut().unwrap().remove("plan_fingerprint");
         old["schema_version"] = serde_json::json!(2);
         for pair in old["pairs"].as_array_mut().unwrap() {
             for game in pair["games"].as_array_mut().unwrap() {
@@ -974,6 +1032,111 @@ mod tests {
                 .iter()
                 .flat_map(|pair| &pair.games)
                 .all(|game| game.candidate_planner_stats.is_none())
+        );
+    }
+
+    #[derive(Debug)]
+    struct CommanderRecordingFactory {
+        identity: AgentIdentity,
+        observations: std::sync::Arc<std::sync::Mutex<Vec<(String, CommanderKind)>>>,
+    }
+
+    impl CommanderRecordingFactory {
+        fn new(
+            observations: std::sync::Arc<std::sync::Mutex<Vec<(String, CommanderKind)>>>,
+        ) -> Self {
+            Self {
+                identity: AgentIdentity {
+                    identifier: "commander-recording-agent".into(),
+                    configuration_fingerprint: "commander-recording-agent-v1".into(),
+                    executable_fingerprint: "commander-recording-agent-v1".into(),
+                },
+                observations,
+            }
+        }
+    }
+
+    impl AgentFactory for CommanderRecordingFactory {
+        fn identity(&self) -> &AgentIdentity {
+            &self.identity
+        }
+
+        fn create(&self, _seed: u64) -> Box<dyn Agent> {
+            Box::new(CommanderRecordingAgent {
+                observations: std::sync::Arc::clone(&self.observations),
+            })
+        }
+    }
+
+    struct CommanderRecordingAgent {
+        observations: std::sync::Arc<std::sync::Mutex<Vec<(String, CommanderKind)>>>,
+    }
+
+    impl Agent for CommanderRecordingAgent {
+        fn act(&mut self, view: &Observation, _budget: NodeBudget) -> Option<Play> {
+            let commander = view.players.iter().find_map(|player| match player {
+                ObservedPlayer::Private { id, commanders, .. } if id == &view.recipient => {
+                    commanders.first().map(|commander| commander.id)
+                }
+                _ => None,
+            });
+            if let Some(commander) = commander {
+                self.observations
+                    .lock()
+                    .unwrap()
+                    .push((view.recipient.as_str().to_owned(), commander));
+            }
+            None
+        }
+    }
+
+    #[test]
+    fn assigned_commanders_reach_each_physical_seat_and_change_the_plan_fingerprint() {
+        use awvm::ruleset::CommanderKind::{Andy, Drake};
+
+        let registry = MapRegistry::load_checked_in().unwrap();
+        let map = registry.get(61748).unwrap();
+        let initial = map.state(7001).unwrap();
+        let expected = initial
+            .players
+            .seats()
+            .zip([Andy, Drake])
+            .map(|((_, player), commander)| (player.id().as_str().to_owned(), commander))
+            .collect::<BTreeMap<_, _>>();
+        let observations = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let factory = CommanderRecordingFactory::new(std::sync::Arc::clone(&observations));
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/ai-diagnostics/sprt/planner-v3-seat-seeded-smoke.json");
+        let mut plan = read_sprt_plan(path).unwrap();
+        plan.maps = vec![61748];
+        plan.commanders = Some([Andy, Drake]);
+        plan.run_seed = 7001;
+        plan.max_pairs = 1;
+        plan.stop_early = false;
+        plan.limits = RunLimits {
+            day_limit: 1,
+            node_budget: 1,
+            refusal_limit: 8,
+        };
+
+        let result = run_sprt(&plan, &registry, &factory, &factory, 1, |_, _| {}).unwrap();
+        let expected_fingerprint = fingerprint_bytes(&serde_json::to_vec(&plan).unwrap());
+        assert_eq!(result.plan_fingerprint, expected_fingerprint);
+        let assigned = observations.lock().unwrap();
+        assert!(!assigned.is_empty());
+        for (player, commander) in assigned.iter() {
+            assert_eq!(expected.get(player), Some(commander));
+        }
+        for player in expected.keys() {
+            assert!(assigned.iter().any(|(observed, _)| observed == player));
+        }
+        drop(assigned);
+
+        let mut swapped = plan.clone();
+        swapped.commanders = Some([Drake, Andy]);
+        assert_ne!(
+            result.plan_fingerprint,
+            fingerprint_bytes(&serde_json::to_vec(&swapped).unwrap())
         );
     }
 

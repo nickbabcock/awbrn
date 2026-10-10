@@ -22,8 +22,31 @@
       67945
     ],
     "development_count": 21,
-    "untouched_holdout_count": 21,
+    "untouched_holdout_count": 14,
     "holdout_bucket_counts": {
+      "Standard": {
+        "S-Rank": {
+          "small": 3,
+          "large": 0
+        },
+        "A-Rank": {
+          "small": 2,
+          "large": 2
+        }
+      },
+      "High Funds": {
+        "A-Rank": {
+          "small": 1,
+          "large": 4
+        },
+        "S-Rank": {
+          "small": 0,
+          "large": 2
+        }
+      }
+    },
+    "initial_holdout_count": 21,
+    "initial_holdout_bucket_counts": {
       "Standard": {
         "S-Rank": {
           "small": 3,
@@ -54,7 +77,8 @@
           "large": 4
         }
       }
-    }
+    },
+    "evaluated_v6_coverage_count": 7
   },
   "maps": [
     {
@@ -84,7 +108,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=140000",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=140000",
       "source_fingerprint": "99a7fe30865b0d6f",
-      "normalized_fingerprint": "4ec66a43beaed472"
+      "normalized_fingerprint": "4ec66a43beaed472",
+      "evaluation_status": "reserved_untouched_holdout"
     },
     {
       "awbw_id": 75796,
@@ -102,7 +127,7 @@
         "Hall of Fame",
         "Fog of War"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "os",
         "bm"
@@ -112,7 +137,22 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=75796",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=75796",
       "source_fingerprint": "da8f5a3166decacc",
-      "normalized_fingerprint": "da8f5a3166decacc"
+      "normalized_fingerprint": "da8f5a3166decacc",
+      "initial_split": "untouched_holdout",
+      "evaluation_status": "evaluated",
+      "evaluation_fog": false,
+      "evaluation_matchups": [
+        "andy-andy",
+        "eagle-eagle",
+        "drake-andy",
+        "sami-andy"
+      ],
+      "evaluation_run_ids": [
+        "planner-v6-vs-v4-fresh-andy-probe14",
+        "planner-v6-vs-v4-fresh-eagle-probe14",
+        "planner-v6-vs-v4-fresh-drake-andy-probe14",
+        "planner-v6-vs-v4-fresh-sami-andy-probe14"
+      ]
     },
     {
       "awbw_id": 67945,
@@ -140,7 +180,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=67945",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=67945",
       "source_fingerprint": "f811fa06a6f19b1e",
-      "normalized_fingerprint": "f811fa06a6f19b1e"
+      "normalized_fingerprint": "f811fa06a6f19b1e",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 159501,
@@ -167,7 +208,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=159501",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=159501",
       "source_fingerprint": "2b8d4284296c231e",
-      "normalized_fingerprint": "468e93b2f80861e5"
+      "normalized_fingerprint": "468e93b2f80861e5",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 77060,
@@ -195,7 +237,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=77060",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=77060",
       "source_fingerprint": "0f48924c21dd4304",
-      "normalized_fingerprint": "192154c6a9d8ed6a"
+      "normalized_fingerprint": "192154c6a9d8ed6a",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 172238,
@@ -222,7 +265,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=172238",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=172238",
       "source_fingerprint": "c572de84d989eb07",
-      "normalized_fingerprint": "5ac166a34e1f6ff2"
+      "normalized_fingerprint": "5ac166a34e1f6ff2",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 182023,
@@ -250,7 +294,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=182023",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=182023",
       "source_fingerprint": "575bdb64fceba9c4",
-      "normalized_fingerprint": "575bdb64fceba9c4"
+      "normalized_fingerprint": "575bdb64fceba9c4",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 69201,
@@ -277,7 +322,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=69201",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=69201",
       "source_fingerprint": "78d34ca7d5ca147a",
-      "normalized_fingerprint": "68b8938e6ee7f518"
+      "normalized_fingerprint": "68b8938e6ee7f518",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 170934,
@@ -306,7 +352,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=170934",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=170934",
       "source_fingerprint": "63744228128e00fe",
-      "normalized_fingerprint": "b37eadeec73d0f35"
+      "normalized_fingerprint": "b37eadeec73d0f35",
+      "evaluation_status": "reserved_untouched_holdout"
     },
     {
       "awbw_id": 143661,
@@ -333,7 +380,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=143661",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=143661",
       "source_fingerprint": "67fed4f5d96771d1",
-      "normalized_fingerprint": "b117a167aa3fbdea"
+      "normalized_fingerprint": "b117a167aa3fbdea",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 176149,
@@ -350,7 +398,7 @@
         "Global League",
         "Fog of War"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "os",
         "bh"
@@ -360,7 +408,22 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=176149",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=176149",
       "source_fingerprint": "900e9373b02fc5b4",
-      "normalized_fingerprint": "68c6dd817cf93f66"
+      "normalized_fingerprint": "68c6dd817cf93f66",
+      "initial_split": "untouched_holdout",
+      "evaluation_status": "evaluated",
+      "evaluation_fog": false,
+      "evaluation_matchups": [
+        "andy-andy",
+        "eagle-eagle",
+        "drake-andy",
+        "sami-andy"
+      ],
+      "evaluation_run_ids": [
+        "planner-v6-vs-v4-fresh-andy-probe14",
+        "planner-v6-vs-v4-fresh-eagle-probe14",
+        "planner-v6-vs-v4-fresh-drake-andy-probe14",
+        "planner-v6-vs-v4-fresh-sami-andy-probe14"
+      ]
     },
     {
       "awbw_id": 175434,
@@ -388,7 +451,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=175434",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=175434",
       "source_fingerprint": "f211c54acb029491",
-      "normalized_fingerprint": "ec19f22670541757"
+      "normalized_fingerprint": "ec19f22670541757",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 171596,
@@ -417,7 +481,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=171596",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=171596",
       "source_fingerprint": "28da23d112381a26",
-      "normalized_fingerprint": "28b2ac65a9f0a3fa"
+      "normalized_fingerprint": "28b2ac65a9f0a3fa",
+      "evaluation_status": "reserved_untouched_holdout"
     },
     {
       "awbw_id": 132144,
@@ -445,7 +510,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=132144",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=132144",
       "source_fingerprint": "4740ab78b3bf2320",
-      "normalized_fingerprint": "4740ab78b3bf2320"
+      "normalized_fingerprint": "4740ab78b3bf2320",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 180298,
@@ -473,7 +539,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=180298",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=180298",
       "source_fingerprint": "19673ce2b631d353",
-      "normalized_fingerprint": "19673ce2b631d353"
+      "normalized_fingerprint": "19673ce2b631d353",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 160882,
@@ -501,7 +568,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=160882",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=160882",
       "source_fingerprint": "c5520ed60e86cf14",
-      "normalized_fingerprint": "c5520ed60e86cf14"
+      "normalized_fingerprint": "c5520ed60e86cf14",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 181570,
@@ -530,7 +598,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=181570",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=181570",
       "source_fingerprint": "855f03ca01f226bf",
-      "normalized_fingerprint": "10538b59feb8e595"
+      "normalized_fingerprint": "10538b59feb8e595",
+      "evaluation_status": "reserved_untouched_holdout"
     },
     {
       "awbw_id": 126428,
@@ -558,7 +627,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=126428",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=126428",
       "source_fingerprint": "9b525b172744388b",
-      "normalized_fingerprint": "8376c257b505c15d"
+      "normalized_fingerprint": "8376c257b505c15d",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 177963,
@@ -586,7 +656,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=177963",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=177963",
       "source_fingerprint": "3dcf0a1b8db7c2ef",
-      "normalized_fingerprint": "1dd65310671fc6dd"
+      "normalized_fingerprint": "1dd65310671fc6dd",
+      "evaluation_status": "reserved_untouched_holdout"
     },
     {
       "awbw_id": 80008,
@@ -603,7 +674,7 @@
         "Global League",
         "Fog of War"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "ge",
         "bd"
@@ -613,7 +684,22 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=80008",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=80008",
       "source_fingerprint": "88a21b308ca0b2aa",
-      "normalized_fingerprint": "47e72418c21ee527"
+      "normalized_fingerprint": "47e72418c21ee527",
+      "initial_split": "untouched_holdout",
+      "evaluation_status": "evaluated",
+      "evaluation_fog": false,
+      "evaluation_matchups": [
+        "andy-andy",
+        "eagle-eagle",
+        "drake-andy",
+        "sami-andy"
+      ],
+      "evaluation_run_ids": [
+        "planner-v6-vs-v4-fresh-andy-probe14",
+        "planner-v6-vs-v4-fresh-eagle-probe14",
+        "planner-v6-vs-v4-fresh-drake-andy-probe14",
+        "planner-v6-vs-v4-fresh-sami-andy-probe14"
+      ]
     },
     {
       "awbw_id": 170819,
@@ -631,7 +717,7 @@
         "Fog of War",
         "Live Play"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "ge",
         "yc"
@@ -641,7 +727,22 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=170819",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=170819",
       "source_fingerprint": "96f683812980af61",
-      "normalized_fingerprint": "c74a9cdc7745a2a3"
+      "normalized_fingerprint": "c74a9cdc7745a2a3",
+      "initial_split": "untouched_holdout",
+      "evaluation_status": "evaluated",
+      "evaluation_fog": false,
+      "evaluation_matchups": [
+        "andy-andy",
+        "eagle-eagle",
+        "drake-andy",
+        "sami-andy"
+      ],
+      "evaluation_run_ids": [
+        "planner-v6-vs-v4-fresh-andy-probe14",
+        "planner-v6-vs-v4-fresh-eagle-probe14",
+        "planner-v6-vs-v4-fresh-drake-andy-probe14",
+        "planner-v6-vs-v4-fresh-sami-andy-probe14"
+      ]
     },
     {
       "awbw_id": 146797,
@@ -669,7 +770,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=146797",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=146797",
       "source_fingerprint": "de60d500f7142b99",
-      "normalized_fingerprint": "9c7eefac13ed9420"
+      "normalized_fingerprint": "9c7eefac13ed9420",
+      "evaluation_status": "reserved_untouched_holdout"
     },
     {
       "awbw_id": 142984,
@@ -699,7 +801,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=142984",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=142984",
       "source_fingerprint": "a30d4c3f23174f33",
-      "normalized_fingerprint": "a30d4c3f23174f33"
+      "normalized_fingerprint": "a30d4c3f23174f33",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 173362,
@@ -727,7 +830,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=173362",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=173362",
       "source_fingerprint": "7419c64d249a6162",
-      "normalized_fingerprint": "bfeeda4caeceaad8"
+      "normalized_fingerprint": "bfeeda4caeceaad8",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 180231,
@@ -754,7 +858,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=180231",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=180231",
       "source_fingerprint": "3fb9197e071078c5",
-      "normalized_fingerprint": "7f29f3bdc7857942"
+      "normalized_fingerprint": "7f29f3bdc7857942",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 178780,
@@ -781,7 +886,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=178780",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=178780",
       "source_fingerprint": "61612d1d582d1bd7",
-      "normalized_fingerprint": "2e33d4ba2059d4b0"
+      "normalized_fingerprint": "2e33d4ba2059d4b0",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 128505,
@@ -810,7 +916,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=128505",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=128505",
       "source_fingerprint": "cfbbbfe396c167bd",
-      "normalized_fingerprint": "df5bb5e6f184457b"
+      "normalized_fingerprint": "df5bb5e6f184457b",
+      "evaluation_status": "reserved_untouched_holdout"
     },
     {
       "awbw_id": 123858,
@@ -839,7 +946,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=123858",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=123858",
       "source_fingerprint": "5643c3448d97adf1",
-      "normalized_fingerprint": "9dd5c209be619199"
+      "normalized_fingerprint": "9dd5c209be619199",
+      "evaluation_status": "reserved_untouched_holdout"
     },
     {
       "awbw_id": 169069,
@@ -867,7 +975,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=169069",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=169069",
       "source_fingerprint": "1bc14339e60aecdf",
-      "normalized_fingerprint": "1bc14339e60aecdf"
+      "normalized_fingerprint": "1bc14339e60aecdf",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 173170,
@@ -895,7 +1004,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=173170",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=173170",
       "source_fingerprint": "cc1d5fb712eea863",
-      "normalized_fingerprint": "cc1d5fb712eea863"
+      "normalized_fingerprint": "cc1d5fb712eea863",
+      "evaluation_status": "reserved_untouched_holdout"
     },
     {
       "awbw_id": 166637,
@@ -913,7 +1023,7 @@
         "Fog of War",
         "Live Play"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "rf",
         "bd"
@@ -923,7 +1033,22 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=166637",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=166637",
       "source_fingerprint": "4f613ed691626a90",
-      "normalized_fingerprint": "0c12c0bde06baf65"
+      "normalized_fingerprint": "0c12c0bde06baf65",
+      "initial_split": "untouched_holdout",
+      "evaluation_status": "evaluated",
+      "evaluation_fog": false,
+      "evaluation_matchups": [
+        "andy-andy",
+        "eagle-eagle",
+        "drake-andy",
+        "sami-andy"
+      ],
+      "evaluation_run_ids": [
+        "planner-v6-vs-v4-fresh-andy-probe14",
+        "planner-v6-vs-v4-fresh-eagle-probe14",
+        "planner-v6-vs-v4-fresh-drake-andy-probe14",
+        "planner-v6-vs-v4-fresh-sami-andy-probe14"
+      ]
     },
     {
       "awbw_id": 173471,
@@ -950,7 +1075,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=173471",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=173471",
       "source_fingerprint": "a1e2c092664604b5",
-      "normalized_fingerprint": "e47d9c30ea9c2498"
+      "normalized_fingerprint": "e47d9c30ea9c2498",
+      "evaluation_status": "reserved_untouched_holdout"
     },
     {
       "awbw_id": 172231,
@@ -978,7 +1104,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=172231",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=172231",
       "source_fingerprint": "80ed3729b3f323e4",
-      "normalized_fingerprint": "756e7ffeaf6c0b51"
+      "normalized_fingerprint": "756e7ffeaf6c0b51",
+      "evaluation_status": "reserved_untouched_holdout"
     },
     {
       "awbw_id": 143354,
@@ -995,7 +1122,7 @@
         "Global League",
         "Fog of War"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "tg",
         "pl"
@@ -1005,7 +1132,22 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=143354",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=143354",
       "source_fingerprint": "f90a19d5721f7967",
-      "normalized_fingerprint": "ada18859e9af2462"
+      "normalized_fingerprint": "ada18859e9af2462",
+      "initial_split": "untouched_holdout",
+      "evaluation_status": "evaluated",
+      "evaluation_fog": false,
+      "evaluation_matchups": [
+        "andy-andy",
+        "eagle-eagle",
+        "drake-andy",
+        "sami-andy"
+      ],
+      "evaluation_run_ids": [
+        "planner-v6-vs-v4-fresh-andy-probe14",
+        "planner-v6-vs-v4-fresh-eagle-probe14",
+        "planner-v6-vs-v4-fresh-drake-andy-probe14",
+        "planner-v6-vs-v4-fresh-sami-andy-probe14"
+      ]
     },
     {
       "awbw_id": 165694,
@@ -1032,7 +1174,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=165694",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=165694",
       "source_fingerprint": "59d7ee5bc4b9c317",
-      "normalized_fingerprint": "7f30a267ecb702f5"
+      "normalized_fingerprint": "7f30a267ecb702f5",
+      "evaluation_status": "reserved_untouched_holdout"
     },
     {
       "awbw_id": 144739,
@@ -1049,7 +1192,7 @@
         "Global League",
         "Fog of War"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "tg",
         "pl"
@@ -1059,7 +1202,22 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=144739",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=144739",
       "source_fingerprint": "395a795a6a5f0809",
-      "normalized_fingerprint": "cebcd3a20696f284"
+      "normalized_fingerprint": "cebcd3a20696f284",
+      "initial_split": "untouched_holdout",
+      "evaluation_status": "evaluated",
+      "evaluation_fog": false,
+      "evaluation_matchups": [
+        "andy-andy",
+        "eagle-eagle",
+        "drake-andy",
+        "sami-andy"
+      ],
+      "evaluation_run_ids": [
+        "planner-v6-vs-v4-fresh-andy-probe14",
+        "planner-v6-vs-v4-fresh-eagle-probe14",
+        "planner-v6-vs-v4-fresh-drake-andy-probe14",
+        "planner-v6-vs-v4-fresh-sami-andy-probe14"
+      ]
     },
     {
       "awbw_id": 134930,
@@ -1088,7 +1246,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=134930",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=134930",
       "source_fingerprint": "5c75d6fce88b8fa7",
-      "normalized_fingerprint": "ba4c59eb8e677aca"
+      "normalized_fingerprint": "ba4c59eb8e677aca",
+      "evaluation_status": "reserved_untouched_holdout"
     },
     {
       "awbw_id": 166541,
@@ -1116,7 +1275,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=166541",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=166541",
       "source_fingerprint": "5474e8be745b5d38",
-      "normalized_fingerprint": "5474e8be745b5d38"
+      "normalized_fingerprint": "5474e8be745b5d38",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 166877,
@@ -1143,7 +1303,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=166877",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=166877",
       "source_fingerprint": "5a7fd890124cf453",
-      "normalized_fingerprint": "5a7fd890124cf453"
+      "normalized_fingerprint": "5a7fd890124cf453",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 169382,
@@ -1171,7 +1332,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=169382",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=169382",
       "source_fingerprint": "3085b0150bd64696",
-      "normalized_fingerprint": "3085b0150bd64696"
+      "normalized_fingerprint": "3085b0150bd64696",
+      "evaluation_status": "development"
     },
     {
       "awbw_id": 82657,
@@ -1201,7 +1363,8 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=82657",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=82657",
       "source_fingerprint": "a8bf17b805df368c",
-      "normalized_fingerprint": "b0d533c8b4285889"
+      "normalized_fingerprint": "b0d533c8b4285889",
+      "evaluation_status": "reserved_untouched_holdout"
     },
     {
       "awbw_id": 133665,
@@ -1229,7 +1392,68 @@
       "source_url": "https://awbw.amarriner.com/api/map/map_info.php?maps_id=133665",
       "map_url": "https://awbw.amarriner.com/prevmaps.php?maps_id=133665",
       "source_fingerprint": "d96fc641de97d956",
-      "normalized_fingerprint": "99e0de8c1d9e87cd"
+      "normalized_fingerprint": "99e0de8c1d9e87cd",
+      "evaluation_status": "development"
     }
-  ]
+  ],
+  "evaluation_ledger": {
+    "evaluated_v6_coverage_map_ids": [
+      75796,
+      176149,
+      80008,
+      170819,
+      166637,
+      143354,
+      144739
+    ],
+    "remaining_untouched_holdout_map_ids": [
+      140000,
+      170934,
+      171596,
+      181570,
+      177963,
+      146797,
+      128505,
+      123858,
+      173170,
+      173471,
+      172231,
+      165694,
+      134930,
+      82657
+    ],
+    "holdout_source_categories": [
+      "Standard",
+      "High Funds"
+    ],
+    "holdout_match_settings": {
+      "fog": false,
+      "starting_funds": 0,
+      "income_per_city": 1000
+    },
+    "coverage": {
+      "candidate": "planner-v6",
+      "baseline": "planner-v4",
+      "fog": false,
+      "starting_funds": 0,
+      "income_per_city": 1000,
+      "pairs_per_map_per_matchup": 2,
+      "matchups": [
+        "andy-andy",
+        "eagle-eagle",
+        "drake-andy",
+        "sami-andy"
+      ],
+      "run_ids": [
+        "planner-v6-vs-v4-fresh-andy-probe14",
+        "planner-v6-vs-v4-fresh-eagle-probe14",
+        "planner-v6-vs-v4-fresh-drake-andy-probe14",
+        "planner-v6-vs-v4-fresh-sami-andy-probe14"
+      ],
+      "plan_revision": "4bd20ec",
+      "configuration_fingerprint": "7796830904b48417",
+      "interpretation": "Coverage only. Do not use these results to tune or claim a holdout result."
+    },
+    "holdout_rule": "Keep the 14 reserved maps sealed until the final v7 candidate is frozen. Do not use their outcomes to tune the agent."
+  }
 }

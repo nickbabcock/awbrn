@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "purpose": "frozen_planner_v6_baseline",
+  "baseline": {
+    "identifier": "planner-v6",
+    "hard_profile": "ai-hard-v3",
+    "revision": "9fbdac50983055aa5db1600026b94d3667c3d5c0",
+    "tree": "0dc389184952acddf2cb35a58427cbd9aa019cc9",
+    "commit_subject": "Seat planner-v6 with a score fitted to human replays",
+    "worktree_at_freeze": "clean detached checkout",
+    "raw_planner_config_fingerprint": "26569da0906e9bc4",
+    "planner_factory_agent_identity_configuration_fingerprint": "7796830904b48417",
+    "hard_profile_configuration_fingerprint": "954f7fe0d735c852",
+    "node_budget": 32,
+    "archive": {
+      "path": "target/baseline-freezes/planner-v6-9fbdac5.tar",
+      "format": "git archive tar",
+      "sha256": "45e5dcb2e0a4c13e44930aa45e7687d815da62bdfb400df2d526fb578aecc4f2",
+      "recreate": "git archive --format=tar 9fbdac50983055aa5db1600026b94d3667c3d5c0"
+    },
+    "submodules": {
+      "assets/AWBW-Replay-Player": "3ccbc6001501adc52488b1e106f7a01d6f750a3a"
+    },
+    "sha256_files": {
+      "Cargo.lock": "a28dbeee103b4f66e744cbbaf7371998897841af00d0af77a3b8f69279144640",
+      "crates/awbrn-ai/src/planner/mod.rs": "83ab975983358e3f8f8808ad6f8995de706cfaa03fafd3a7fb5ea55df9c6aacc",
+      "crates/awbrn-ai/src/profile.rs": "d4c01bd0625731719e418436ab7058ef7039ca79eb7e9270707108a8d77e3c40",
+      "crates/awbrn-ai/src/replay_score.rs": "9b35ed1134803f86c0c66f20b2cb3d64c3eee02c9c75b5fc634ae40b30d2b1c4",
+      "assets/ai-diagnostics/human-evaluator/refit-positive-003-model.json": "aa2fc7ffb3d1b06aa0542a072c1cf407a50b9780b305ece0b86acc1403d4486a",
+      "assets/ai-diagnostics/global-league-pool/manifest.json": "002bc630b620aad52d8cab4f4f7f0b7c0b0a8334964ac9628bafc321418564eb"
+    }
+  },
+  "smoke_check": {
+    "run_id": "planner-v6-freeze-smoke-9fbdac5",
+    "plan_sha256": "f8697850933644dcdcb4b671a9ed4b3dcaee4f7b7588bc4dc404dc0a14be440c",
+    "result_path": "target/baseline-freezes/v6-freeze-smoke-result.json",
+    "source_revision": "9fbdac50983055aa5db1600026b94d3667c3d5c0",
+    "source_fingerprint": "b4e15f9f604a7851",
+    "note": "The temporary plan and output made the Git worktree dirty. The code revision and config fingerprints match the frozen archive.",
+    "map_ids": [
+      67945
+    ],
+    "run_seed": 202610100601,
+    "pairs": 1,
+    "games": 2,
+    "mean_pair_differential": 1.0,
+    "invalid_commands": {
+      "candidate": 0,
+      "baseline": 0
+    },
+    "candidate_turn_p95_ms": 1515.083388,
+    "baseline_turn_p95_ms": 1457.582813,
+    "wall_clock_seconds": 97.31739409,
+    "interpretation": "One development pair verifies that the frozen v6 runner builds and plays. It is not a strength or timing gate."
+  },
+  "tactical_check": {
+    "command": "cargo test --release -p awbrn-ai --test replay_regressions",
+    "worktree_revision": "9fbdac50983055aa5db1600026b94d3667c3d5c0",
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "tests_ignored": 3,
+    "passed_cases": [
+      "day_seven_does_not_attack_into_a_counterattack",
+      "day_nine_does_not_leave_its_attackers_exposed"
+    ],
+    "ignored_cases": [
+      "day_six_does_not_trade_a_tank_for_a_capture_stop",
+      "day_eleven_limits_the_loss_near_its_headquarters",
+      "print_replay_swings"
+    ],
+    "interpretation": "The two checked positions pass. The day six and day eleven positions remain known v6 failures."
+  }
+}

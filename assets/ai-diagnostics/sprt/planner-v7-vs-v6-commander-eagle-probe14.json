@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "run_id": "planner-v7-vs-v6-commander-eagle-probe14",
+  "candidate": {
+    "kind": "planner",
+    "identifier": "planner-v7",
+    "configuration": "v7"
+  },
+  "baseline": {
+    "kind": "planner",
+    "identifier": "planner-v6",
+    "configuration": "v6"
+  },
+  "map_manifest": "../global-league-pool/manifest.json",
+  "maps": [
+    75796,
+    176149,
+    80008,
+    170819,
+    166637,
+    143354,
+    144739
+  ],
+  "fog": false,
+  "run_seed": 202610100603,
+  "max_pairs": 14,
+  "stop_early": false,
+  "limits": {
+    "day_limit": 35,
+    "node_budget": 32,
+    "refusal_limit": 64
+  },
+  "bounds": {
+    "h0": 0.0,
+    "h1": 0.05,
+    "alpha": 1e-09,
+    "beta": 1e-09
+  },
+  "agent_seed_protocol": "seat-seeded",
+  "commanders": [
+    "eagle",
+    "eagle"
+  ]
+}
