@@ -44,6 +44,7 @@ pub mod probe;
 pub mod producer;
 pub mod profile;
 pub mod puzzles;
+pub mod replay_score;
 pub mod rng;
 pub mod shape;
 pub mod threat;

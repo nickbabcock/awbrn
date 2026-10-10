@@ -16,6 +16,7 @@
 //!      leaves exposed to enemy fire. The planner plays each legal order of
 //!      that unit alone, ends the turn, and scores the result with the reply
 //!      estimate. The best orders become plans.
+//!    - Power plans use a legal commander power before all other orders.
 //! 3. Each complete turn gets a score: the position value from
 //!    [`crate::eval`] at the start of the enemy turn, less a fast estimate of
 //!    the enemy reply ([`reply`]). The best plans are then played against a
@@ -46,6 +47,8 @@ use crate::eval::{EvalWeights, Evaluator};
 use crate::rng::Rng;
 
 pub use reply::{PropertyValues, ReplyEstimate};
+
+use crate::replay_score::{ReplayReader, ReplayScore};
 
 /// Everything that decides how the planner plays.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
@@ -99,6 +102,21 @@ pub struct PlannerConfig {
     /// check, an alternative must still be better than the seed plan.
     #[serde(skip_serializing_if = "is_zero_funds")]
     pub reply_window: f64,
+    /// Whether the planner adds plans that use a commander power first.
+    ///
+    /// The Hard policy ranks a power below captures, so it can use a power
+    /// after some of its attacks and moves. A power changes only the orders
+    /// after it. For each legal power, the plan uses that power first and the
+    /// Hard policy plays the rest of the turn.
+    #[serde(skip_serializing_if = "is_false")]
+    pub power_first: bool,
+    /// The score of active duels without fog, fitted to human replays.
+    ///
+    /// When present, it replaces [`PlannerConfig::eval_weights`] at every
+    /// search leaf and reroute screen of such a game. Terminal positions and
+    /// other games keep the stock score.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replay_score: Option<ReplayScore>,
 }
 
 // The fields that later configurations add are left out of the fingerprint
@@ -107,6 +125,11 @@ pub struct PlannerConfig {
 #[allow(clippy::trivially_copy_pass_by_ref)]
 const fn is_zero(value: &usize) -> bool {
     *value == 0
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -136,6 +159,8 @@ impl PlannerConfig {
         reroute_units: 0,
         reroute_orders: 0,
         reply_window: 0.0,
+        power_first: false,
+        replay_score: None,
     };
 
     /// The first configuration with a simulated Hard reply check.
@@ -166,6 +191,27 @@ impl PlannerConfig {
         reroute_orders: 3,
         reply_window: 5_000.0,
         ..Self::V3
+    };
+
+    /// planner-v4 with power plans, on the scoring of `ai-hard-v3`, which
+    /// adds a build floor.
+    ///
+    /// It uses the same node budget and work threshold as planner-v4.
+    pub const V5: Self = Self {
+        identifier: "planner-v5",
+        baseline: crate::profile::HARD_V3_CONFIG,
+        power_first: true,
+        ..Self::V4
+    };
+
+    /// planner-v5 with the position score fitted to human replays.
+    ///
+    /// The plan generators, reply checks and work limits are those of
+    /// planner-v5.
+    pub const V6: Self = Self {
+        identifier: "planner-v6",
+        replay_score: Some(ReplayScore::CUP_3_4),
+        ..Self::V5
     };
 
     /// Return a stable fingerprint of all configuration values.
@@ -202,6 +248,7 @@ pub enum Generator {
     Safety,
     Block,
     Reroute,
+    Power,
 }
 
 /// Counters for one agent over a match.
@@ -224,6 +271,9 @@ pub struct PlannerStats {
     /// Plans where a reroute plan won.
     #[serde(default)]
     pub chose_reroute: u64,
+    /// Plans where a power plan won.
+    #[serde(default)]
+    pub chose_power: u64,
     /// Decisions where the observed position differed from the prediction.
     pub mismatches: u64,
     /// Decisions that the Hard policy made after the plan or work limit.
@@ -265,6 +315,7 @@ pub struct PlannerAgent {
     seed: u64,
     fallback: GreedyAgent,
     evaluator: Evaluator,
+    replay: Option<ReplayReader>,
     plan: Vec<Play>,
     positions: Vec<State>,
     next: usize,
@@ -287,6 +338,7 @@ impl PlannerAgent {
             seed,
             fallback: config.baseline.build_greedy(seed),
             evaluator: Evaluator::new(config.eval_weights),
+            replay: config.replay_score.map(ReplayReader::new),
             plan: Vec::new(),
             positions: Vec::new(),
             next: 0,
@@ -343,6 +395,7 @@ impl PlannerAgent {
             seed: Rng::mix(self.seed ^ u64::from(self.plans_this_turn)),
             seat,
             evaluator: &mut self.evaluator,
+            replay: self.replay.as_mut(),
             candidates: 0,
             work: 0,
             work_left,
@@ -364,6 +417,7 @@ impl PlannerAgent {
             Generator::Safety => self.stats.chose_safety += 1,
             Generator::Block => self.stats.chose_block += 1,
             Generator::Reroute => self.stats.chose_reroute += 1,
+            Generator::Power => self.stats.chose_power += 1,
         }
         self.plan = line.plays;
         self.positions = positions;
@@ -428,6 +482,7 @@ struct TurnPlanner<'a> {
     seed: u64,
     seat: PlayerIdx,
     evaluator: &'a mut Evaluator,
+    replay: Option<&'a mut ReplayReader>,
     candidates: u64,
     /// Simulated greedy decisions in this call.
     work: u64,
@@ -437,6 +492,16 @@ struct TurnPlanner<'a> {
 }
 
 impl TurnPlanner<'_> {
+    fn leaf_value(&mut self, session: &Session) -> f64 {
+        match self.replay.as_deref_mut() {
+            Some(replay) if ReplayScore::applies(session.state()) => {
+                Evaluator::terminal_value(session.state(), self.seat)
+                    .unwrap_or_else(|| replay.value_in(session, self.seat))
+            }
+            _ => self.evaluator.value_in(session, self.seat),
+        }
+    }
+
     fn plan(&mut self, root: &Session) -> Option<Line> {
         let mut session = Session::new(root.state().clone());
         let seed = self.line(&mut session, Generator::Seed, &[])?;
@@ -466,6 +531,13 @@ impl TurnPlanner<'_> {
         }
         if self.out_of_work() {
             return Some(best);
+        }
+        if self.config.power_first {
+            alternatives.extend(
+                powers(&session)
+                    .filter(|play| best.plays.first() != Some(play))
+                    .map(|play| (Generator::Power, vec![play])),
+            );
         }
         for unit in best.reply.destroyed.iter().take(self.config.safety_plans) {
             if let Some(play) = hold(&session, *unit) {
@@ -625,7 +697,7 @@ impl TurnPlanner<'_> {
                     .ok()?;
                 session.apply(end, &mut entropy, &mut ()).ok()?;
             }
-            let value = self.evaluator.value_in(session, self.seat);
+            let value = self.leaf_value(session);
             let reply = if matches!(session.state().match_state, Match::Active { .. }) {
                 reply::estimate(session, self.seat, self.config.property_values).total()
             } else {
@@ -655,7 +727,7 @@ impl TurnPlanner<'_> {
             }
             if !matches!(session.state().match_state, Match::Active { .. }) {
                 self.nodes_left -= 1;
-                return Some(self.evaluator.value_in(session, self.seat));
+                return Some(self.leaf_value(session));
             }
             let end = session
                 .resolve(&Command::EndTurn {
@@ -683,7 +755,7 @@ impl TurnPlanner<'_> {
                 session.apply(order, &mut entropy, &mut ()).ok()?;
             }
             self.nodes_left -= 1;
-            Some(self.evaluator.value_in(session, self.seat))
+            Some(self.leaf_value(session))
         })();
         if let Some(mark) = root {
             session.rewind(mark);
@@ -761,7 +833,7 @@ impl TurnPlanner<'_> {
         let scored = result.map(|()| {
             self.nodes_left -= 1;
             self.candidates += 1;
-            let value = self.evaluator.value_in(session, self.seat);
+            let value = self.leaf_value(session);
             let reply = if matches!(session.state().match_state, Match::Active { .. }) {
                 reply::estimate(session, self.seat, self.config.property_values)
             } else {
@@ -794,6 +866,16 @@ fn target_cell(state: &State, unit: UnitId) -> Option<CellIdx> {
         Location::Board { position } => state.board.dimensions().cell_index(position),
         Location::Cargo { .. } => None,
     }
+}
+
+/// The commander powers that are legal in `session`.
+fn powers(session: &Session) -> impl Iterator<Item = Play> + '_ {
+    let mut orders = Vec::new();
+    session.legal().orders(&mut orders);
+    orders
+        .into_iter()
+        .filter(|order| matches!(order.kind(), OrderKind::Power(_)))
+        .filter_map(|order| Play::from_order(session, order))
 }
 
 /// A play that keeps `unit` where it stands.

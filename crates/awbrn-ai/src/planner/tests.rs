@@ -10,6 +10,119 @@ fn deterministic() -> PlannerConfig {
     }
 }
 
+#[test]
+fn the_replay_score_survives_match_reset_and_changes_only_the_score() {
+    let mut candidate = PlannerAgent::with_config(7, PlannerConfig::V6);
+    let state = suite().remove(0).state;
+    let view = awvm::semantic::observe(
+        &awvm::semantic::AwbwVisibility,
+        &state,
+        &state.turn.active_player,
+    )
+    .unwrap();
+    let mut plays = Vec::new();
+    for _ in 0..2 {
+        candidate.start_match();
+        assert!(candidate.replay.is_some());
+        plays.push(candidate.act(&view, NodeBudget::new(32).unwrap()));
+    }
+    assert_eq!(plays[0], plays[1]);
+    assert!(plays[0].is_some());
+    assert_ne!(
+        PlannerConfig::V6.fingerprint(),
+        PlannerConfig::V5.fingerprint()
+    );
+    assert!(
+        PlannerAgent::with_config(7, PlannerConfig::V5)
+            .replay
+            .is_none()
+    );
+}
+
+#[test]
+fn the_replay_score_keeps_terminal_scores() {
+    let mut state = arena(false, 3);
+    let seat = state.players.seats().next().unwrap().0;
+    state.match_state = Match::Finished {
+        outcome: awvm::semantic::Outcome::Cancelled {
+            reason: "test".into(),
+        },
+    };
+    let session = Session::new(state);
+    let mut evaluator = Evaluator::new(PlannerConfig::V6.eval_weights);
+    let mut replay = ReplayReader::new(ReplayScore::CUP_3_4);
+    let mut planner = TurnPlanner {
+        config: &PlannerConfig::V6,
+        seed: 7,
+        seat,
+        evaluator: &mut evaluator,
+        replay: Some(&mut replay),
+        candidates: 0,
+        work: 0,
+        work_left: None,
+        nodes_left: 32,
+    };
+    assert_eq!(planner.leaf_value(&session), 0.0);
+    let own_team = session.state().player(seat).team.clone();
+    let other_team = session
+        .state()
+        .players
+        .seats()
+        .find(|(other, _)| *other != seat)
+        .unwrap()
+        .1
+        .team
+        .clone();
+    for (winner, expected) in [
+        (own_team, crate::eval::DECISIVE),
+        (other_team, -crate::eval::DECISIVE),
+    ] {
+        let mut state = session.state().clone();
+        state.match_state = Match::Finished {
+            outcome: awvm::semantic::Outcome::Victory {
+                winners: vec![winner],
+                reason: awvm::semantic::VictoryReason::HqCapture,
+            },
+        };
+        assert_eq!(planner.leaf_value(&Session::new(state)), expected);
+    }
+}
+
+#[test]
+fn the_replay_score_is_antisymmetric_and_fog_keeps_the_stock_score() {
+    let mut state = arena(false, 3);
+    let seats = state
+        .players
+        .seats()
+        .map(|(seat, _)| seat)
+        .collect::<Vec<_>>();
+    state.player_mut(seats[0]).funds = 20_000;
+    state.player_mut(seats[1]).funds = 5_000;
+    let session = Session::new(state.clone());
+    let mut replay = ReplayReader::new(ReplayScore::CUP_3_4);
+    let a = replay.value_in(&session, seats[0]);
+    let b = replay.value_in(&session, seats[1]);
+    assert!(a > 0.0);
+    assert!((a + b).abs() < 1e-9);
+
+    state.settings.fog = true;
+    let fog = Session::new(state);
+    let mut evaluator = Evaluator::new(PlannerConfig::V6.eval_weights);
+    let expected = evaluator.value_in(&fog, seats[0]);
+    let mut planner = TurnPlanner {
+        config: &PlannerConfig::V6,
+        seed: 7,
+        seat: seats[0],
+        evaluator: &mut evaluator,
+        replay: Some(&mut replay),
+        candidates: 0,
+        work: 0,
+        work_left: None,
+        nodes_left: 32,
+    };
+    assert_eq!(planner.leaf_value(&fog), expected);
+}
+
 /// Print what the planner plays in each puzzle.
 #[test]
 #[ignore = "prints a report"]
@@ -46,6 +159,7 @@ fn print_puzzle_candidates() {
             seed: 1,
             seat,
             evaluator: &mut evaluator,
+            replay: None,
             candidates: 0,
             work: 0,
             work_left: None,
@@ -183,6 +297,7 @@ fn a_terminal_alternative_beats_a_nonterminal_seed_after_reply_check() {
         seed: 7,
         seat,
         evaluator: &mut evaluator,
+        replay: None,
         candidates: 0,
         work: 0,
         work_left: None,
@@ -283,6 +398,7 @@ fn the_reply_estimate_lists_destroyed_units_as_exposed() {
         seed: 1,
         seat,
         evaluator: &mut evaluator,
+        replay: None,
         candidates: 0,
         work: 0,
         work_left: None,
@@ -309,6 +425,7 @@ fn reroutes_give_exposed_units_new_orders_of_different_kinds() {
             seed: 1,
             seat,
             evaluator: &mut evaluator,
+            replay: None,
             candidates: 0,
             work: 0,
             work_left: None,
@@ -334,4 +451,42 @@ fn reroutes_give_exposed_units_new_orders_of_different_kinds() {
             );
         }
     }
+}
+
+/// In the day 10 position the Hard policy uses the power of Drake after some
+/// of its orders. A power plan uses the power before all other orders.
+#[test]
+fn a_power_plan_uses_the_power_first() {
+    let state = replay_fixture("amber-valley-day10");
+    let seat = state.players.seat(&state.turn.active_player).unwrap();
+    let config = PlannerConfig::V5;
+    let mut evaluator = Evaluator::new(config.eval_weights);
+    let mut planner = TurnPlanner {
+        config: &config,
+        seed: 1,
+        seat,
+        evaluator: &mut evaluator,
+        replay: None,
+        candidates: 0,
+        work: 0,
+        work_left: None,
+        nodes_left: u32::MAX,
+    };
+    let mut session = Session::new(state);
+    let before = session.state().clone();
+    let seed = planner.line(&mut session, Generator::Seed, &[]).unwrap();
+    let is_power = |play: &Play| matches!(play.kind(), OrderKind::Power(_));
+    let seed_power = seed.plays.iter().position(is_power).unwrap();
+    assert!(seed_power > 0, "the seed plan uses the power first");
+
+    let powers: Vec<Play> = powers(&session).collect();
+    assert!(!powers.is_empty());
+    for power in powers {
+        let line = planner
+            .line(&mut session, Generator::Power, &[power])
+            .unwrap();
+        assert_eq!(line.plays.first(), Some(&power));
+        assert_eq!(line.plays.iter().filter(|play| is_power(play)).count(), 1);
+    }
+    assert_eq!(session.state(), &before);
 }

@@ -304,6 +304,21 @@ pub struct Weights {
     pub power: f64,
     /// Resupplying the units around an APC.
     pub supply: f64,
+    /// The lowest score that a legal build can have, when it is above zero.
+    ///
+    /// A build that scores at or below zero is never played, so its factory
+    /// stays empty for the turn. The counter term reads the exchange of one
+    /// strike against the enemy army, and a cheap kind can read below zero
+    /// against an army of tanks. The unit is still worth more on the board
+    /// than an empty factory. With a floor above zero, a build score below the
+    /// floor maps onto a curve between zero and the floor. The curve keeps the
+    /// order of the kinds, so the counter term still chooses the kind, but a
+    /// build always beats the end of the turn. Zero turns the floor off.
+    ///
+    /// The field is left out of the serialized weights at zero, so the
+    /// fingerprints of the earlier weightings do not change.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub build_floor: f64,
 }
 
 impl Weights {
@@ -346,6 +361,7 @@ impl Weights {
         scout_build: 0.0,
         power: 200.0,
         supply: 10.0,
+        build_floor: 0.0,
     };
 
     /// Tier 1 as it landed: neither the threat map, nor the denial term,
@@ -1536,6 +1552,25 @@ fn add_to(army: &mut Vec<(UnitKind, f64)>, kind: UnitKind, health: f64) {
     }
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_zero(value: &f64) -> bool {
+    *value == 0.0
+}
+
+/// `score`, or a value between zero and `floor` when `score` is below
+/// `floor`.
+///
+/// The map is continuous and increasing, so it keeps the order of scores. A
+/// floor of zero returns `score`.
+fn floored(score: f64, floor: f64) -> f64 {
+    /// The score difference that divides the floored value by e.
+    const SCALE: f64 = 1_000.0;
+    if floor <= 0.0 || score >= floor {
+        return score;
+    }
+    floor * ((score - floor) / SCALE).exp()
+}
+
 /// What one unit costs to replace, in funds.
 fn cost(kind: UnitKind) -> f64 {
     ruleset::profile(kind).cost as f64
@@ -1707,7 +1742,7 @@ impl Scorer<'_> {
             // transport is cargo, which sees nothing at all.
             OrderKind::Join | OrderKind::Load => self.arrival(order) - self.weights().unit_count,
             OrderKind::Supply => self.arrival(order) + self.weights().supply + self.sight(order),
-            OrderKind::Produce(kind) => self.produce(kind),
+            OrderKind::Produce(kind) => floored(self.produce(kind), self.weights().build_floor),
             OrderKind::Power(_) => self.weights().power,
             // Nothing below is scored. Resignation and deletion decide a game
             // for a reason no policy holds; ending the turn is what `None`
@@ -2978,5 +3013,17 @@ mod tests {
             "open properties buy soldiers"
         );
         assert!(tank > soldier, "a covered board buys what fights");
+    }
+
+    /// The floor keeps the order of build scores and puts each of them above
+    /// zero.
+    #[test]
+    fn the_build_floor_keeps_the_order_above_zero() {
+        let scores = [-5_000.0, -900.0, -1.0, 0.0, 0.5, 1.0, 40.0, 320.0];
+        let mapped: Vec<f64> = scores.iter().map(|score| floored(*score, 1.0)).collect();
+        assert!(mapped.iter().all(|score| *score > 0.0));
+        assert!(mapped.windows(2).all(|pair| pair[0] < pair[1]));
+        assert_eq!(mapped[5..], scores[5..]);
+        assert_eq!(floored(-900.0, 0.0), -900.0);
     }
 }

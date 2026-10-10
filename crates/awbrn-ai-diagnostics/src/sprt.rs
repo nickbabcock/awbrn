@@ -131,6 +131,9 @@ pub struct SprtPlan {
     /// Set fog for all maps. Without it, each map uses its registry value.
     #[serde(default)]
     pub fog: Option<bool>,
+    /// Commander assignments by physical seat. Both games keep these seats.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commanders: Option<[awvm::ruleset::CommanderKind; 2]>,
     pub run_seed: u64,
     /// Assign agent random streams by role or by physical seat.
     #[serde(default, skip_serializing_if = "is_role_seeded")]
@@ -312,6 +315,9 @@ pub struct SprtGame {
     /// Candidate points: one for a win, half for a draw, zero for a loss.
     pub candidate_points: f64,
     pub outcome: String,
+    /// The ruleset reason. Older results can omit this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome_reason: Option<String>,
     pub days: u32,
     pub commands: u64,
     pub candidate_invalid_commands: u64,
@@ -607,6 +613,21 @@ fn play_pair(
         if let Some(fog) = plan.fog {
             state.settings.fog = fog;
         }
+        if let Some(commanders) = plan.commanders {
+            let seats = state
+                .players
+                .seats()
+                .map(|(seat, _)| seat)
+                .collect::<Vec<_>>();
+            for (seat, id) in seats.into_iter().zip(commanders) {
+                state.player_mut(seat).commanders = vec![awvm::semantic::Commander {
+                    id,
+                    active: true,
+                    power_charge: 0,
+                    power_uses: 0,
+                }];
+            }
+        }
         let mut session = Session::new(state.clone());
         let mut entropy = Rng::from_seed(BaselineConfig::LOCKED.entropy_seed(match_seed));
         let candidate_seat = match seat_order {
@@ -665,6 +686,7 @@ fn play_pair(
             seat_order,
             candidate_points: points,
             outcome: outcome_name(final_state).into(),
+            outcome_reason: outcome_reason(final_state),
             days: record.days,
             commands: record.commands,
             candidate_invalid_commands: invalid(candidate_seat),
@@ -722,6 +744,17 @@ fn outcome_name(state: &State) -> &'static str {
         } => "cancelled",
         _ => "incomplete",
     }
+}
+
+fn outcome_reason(state: &State) -> Option<String> {
+    let Match::Finished { outcome } = &state.match_state else {
+        return None;
+    };
+    serde_json::to_value(outcome)
+        .ok()?
+        .get("reason")?
+        .as_str()
+        .map(str::to_owned)
 }
 
 #[cfg(test)]

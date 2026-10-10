@@ -9,6 +9,7 @@ pub mod map_registry;
 pub mod pipeline;
 pub mod plan;
 pub mod producer_diagnostics;
+pub mod replay_planner;
 pub mod review;
 pub mod search_sweep;
 pub mod source;

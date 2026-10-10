@@ -755,6 +755,11 @@ impl Clone for Evaluator {
 }
 
 impl Evaluator {
+    /// Return a terminal or invalid-seat score without reading the board.
+    pub fn terminal_value(state: &State, seat: PlayerIdx) -> Option<f64> {
+        settled_value(state, seat).map(|(value, _)| value)
+    }
+
     pub const fn new(weights: EvalWeights) -> Self {
         Self {
             weights,
