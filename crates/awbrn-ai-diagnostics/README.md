@@ -142,6 +142,12 @@ The replay regression tests in `crates/awbrn-ai/tests/replay_regressions.rs`
 play positions from a match that a person won against the Hard profile. They
 are fast tactical checks. They do not replace a paired experiment.
 
+The [corrected v6 timing record](../../assets/ai-diagnostics/sprt/results/planner-v6-timing.json)
+measures 715 turns on one thread. Native p95 is 1,136.6 ms. Wasm p95 under
+Node 24.14.1 and V8 is 1,599.1 ms. The work counts and game lengths match.
+These measurements use a local virtual machine. They do not measure the
+service host.
+
 Run `mise run ai:timing` on an idle host for native turn times. To measure
 Wasm turn times with Node and V8, run:
 
