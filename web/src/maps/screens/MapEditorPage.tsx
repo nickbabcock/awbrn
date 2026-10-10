@@ -78,7 +78,10 @@ export function MapEditorPage({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const runner = useMapEditorRunner();
-  const { canvasRef, surfaceRef } = useCanvasCourierSurface({ controller: runner });
+  const { canvasContainerRef, surfaceRef } = useCanvasCourierSurface({
+    host: runner.host,
+    canvasClassName: stylex.props(styles.canvas).className ?? "",
+  });
 
   const sourceMapId = mapId ?? startFrom ?? null;
   const sourceMap = useQuery({
@@ -345,13 +348,7 @@ export function MapEditorPage({
           >
             <VStack gap={0} xstyle={styles.board}>
               <VStack gap={0} ref={surfaceRef} xstyle={styles.surface}>
-                <canvas
-                  height={640}
-                  ref={canvasRef}
-                  tabIndex={0}
-                  width={960}
-                  {...stylex.props(styles.canvas)}
-                />
+                <VStack ref={canvasContainerRef} gap={0} width="100%" height="100%" />
                 <TileInfoBar />
               </VStack>
 
