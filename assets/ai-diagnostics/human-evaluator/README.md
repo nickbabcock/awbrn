@@ -11,8 +11,8 @@ have been divided by two to convert them to coefficients per fund.
 The fitted logits and their prediction metrics do not change. The live bank
 score is half its earlier value.
 
-The old match, power probe, and puzzle files record the earlier live score.
-Their model hashes identify the old files. The Eagle match probes also used
+The old refit match, power probe, and puzzle files record the earlier live
+score. Their model hashes identify the old files. The Eagle match probes also used
 the old COP rule. These files do not measure the corrected production score.
 Use the final v6 comparison and timing records for a production decision.
 

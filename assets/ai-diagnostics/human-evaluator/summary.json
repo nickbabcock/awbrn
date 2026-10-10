@@ -395,7 +395,7 @@
   },
   "bank_coefficient_revision": {
     "conversion_record": "bank-coefficient-conversion.json",
-    "earlier_game_results": "These results used twice the fitted bank value. Use the final corrected v6 comparison for promotion.",
+    "earlier_game_results": "Earlier Python refit results used twice the fitted bank value. Use the final corrected v6 comparison for promotion.",
     "earlier_eagle_results": "These results used the old Eagle COP rule. The current ruleset does not refresh unit actions for COP."
   }
 }
