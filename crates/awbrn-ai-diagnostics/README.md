@@ -100,16 +100,19 @@ holdout for a release decision.
 
 ## Measure planner strength and turn time
 
-Run the fixed comparison of `planner-v6`, which the Hard profile seats, against
-`planner-v5`. The
-[summary](../../assets/ai-diagnostics/sprt/results/planner-v6-vs-v5-fixed280-summary.json)
-records the result:
+Run the fixed comparison of the final `planner-v6` against `planner-v4`, the
+production baseline before this stack:
 
 ```text
 cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
-  sprt --plan assets/ai-diagnostics/sprt/planner-v6-vs-v5-fixed280.json \
+  sprt --plan assets/ai-diagnostics/sprt/planner-v6-vs-v4-fixed280.json \
   --output target/planner-v6-comparison
 ```
+
+The [earlier v6 summary](../../assets/ai-diagnostics/sprt/results/planner-v6-vs-v5-fixed280-summary.json)
+used twice the fitted bank value. It records the old score. It does not
+measure the corrected score. The corrected model stores the bank coefficient
+per fund. The live score uses half the difference between the two bank terms.
 
 Run the fixed comparison of `planner-v5` against `planner-v4`:
 

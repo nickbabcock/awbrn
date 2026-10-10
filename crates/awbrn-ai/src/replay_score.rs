@@ -73,7 +73,7 @@ impl ReplayScore {
     pub const CUP_3_4: Self = Self {
         material: 1.0,
         income: 3.306_273_208_283_262_6e-4 / CUP_3_4_MATERIAL,
-        bank: 9.690_198_422_248_923e-5 / CUP_3_4_MATERIAL,
+        bank: 4.845_099_211_124_461_5e-5 / CUP_3_4_MATERIAL,
         unit_count: 0.099_613_397_579_772_51 / CUP_3_4_MATERIAL,
         capture_progress: 0.086_030_140_260_857_66 / CUP_3_4_MATERIAL,
         front_position: 0.0,
@@ -341,6 +341,29 @@ fn power_features(state: &State, seat: PlayerIdx) -> [f64; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bank_value_is_half_the_fitted_logit_difference() {
+        let model: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../assets/ai-diagnostics/human-evaluator/refit-positive-003-model.json"
+        ))
+        .unwrap();
+        let bank = model["coefficients"]["own_bank"].as_f64().unwrap();
+        let material = model["coefficients"]["material_delta"].as_f64().unwrap();
+        let intercept = model["intercept"].as_f64().unwrap();
+        let mut state = crate::board::arena(false, 3);
+        let seat = state.players.seats().next().unwrap().0;
+        let mut reader = ReplayReader::new(ReplayScore::CUP_3_4);
+        state.player_mut(seat).funds = 5_000;
+        let before = reader.value_in(&Session::new(state.clone()), seat);
+        state.player_mut(seat).funds = 20_000;
+        let after = reader.value_in(&Session::new(state), seat);
+        let own_logit = intercept + bank * 20_000.0;
+        let rival_logit = intercept + bank * 5_000.0;
+        let expected = 0.5 * (own_logit - rival_logit) / material;
+        assert!((after - before - expected).abs() < 1e-8);
+        assert!((expected - 5_855.162_426_327_185).abs() < 1e-8);
+    }
 
     /// Each coefficient of the model file, divided by the material
     /// coefficient, is the coefficient of [`ReplayScore::CUP_3_4`].

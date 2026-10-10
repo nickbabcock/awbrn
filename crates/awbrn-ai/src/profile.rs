@@ -65,7 +65,7 @@ pub enum AiImplementation {
     /// Uses the configured strategic baseline.
     Strategic,
     /// Compares complete own turns with the planner of
-    /// [`PlannerConfig::V5`].
+    /// [`PlannerConfig::V6`].
     Planner,
 }
 
@@ -382,7 +382,7 @@ mod tests {
 
     #[test]
     fn hard_v3_profile_fingerprint_is_locked() {
-        assert_eq!(HARD.configuration_fingerprint(), "9f149435d34e1894");
+        assert_eq!(HARD.configuration_fingerprint(), "954f7fe0d735c852");
     }
 
     #[test]
