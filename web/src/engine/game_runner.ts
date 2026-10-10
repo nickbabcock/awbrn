@@ -1,9 +1,10 @@
 import { proxy, transfer, wrap } from "comlink";
 import {
-  CanvasCourierTransport,
-  type CanvasCourierController,
+  CanvasCourierHost,
+  type CanvasCourierTransport,
   type CanvasCourierSurface,
   type CanvasSize,
+  type SharedCanvasInputConfig,
 } from "#/canvas_courier/index.ts";
 import type { AwbrnMapDocument } from "#/maps/map_document.ts";
 import type { ObservedTransition } from "#/wasm/awbrn_server.js";
@@ -27,8 +28,10 @@ type GameInstance = Awaited<ReturnType<GameWorker["createGame"]>>;
 
 export interface GameSurface extends CanvasCourierSurface {}
 
-export class GameRunner implements CanvasCourierController {
-  private activeSurface: GameSurface | undefined;
+export class GameRunner {
+  readonly host = new CanvasCourierHost("", (surface, transport) => {
+    this.startSurface(surface, transport);
+  });
   private battleCatalogPromise: Promise<BattleCatalog> | undefined;
   private createGamePromise: Promise<GameInstance> | undefined;
   private game: GameInstance | undefined;
@@ -39,24 +42,24 @@ export class GameRunner implements CanvasCourierController {
   private endTurnRequestHandler: ((request: EndTurnRequested) => void) | undefined;
   private rawWorker: Worker | undefined;
   private surfaceVersion = 0;
-  private readonly transport = new CanvasCourierTransport();
-  private transferredCanvas: HTMLCanvasElement | undefined;
   private worker: GameWorker | undefined;
 
-  attachSurface(surface: GameSurface): void {
-    if (this.activeSurface?.canvas === surface.canvas) {
-      this.activeSurface = surface;
-      return;
+  private startSurface(surface: GameSurface, transport: CanvasCourierTransport): void {
+    if (this.surfaceVersion > 0) {
+      this.rawWorker?.terminate();
+      this.rawWorker = undefined;
+      this.worker = undefined;
+      this.game = undefined;
+      this.createGamePromise = undefined;
+      this.battleCatalogPromise = undefined;
     }
-
     const version = ++this.surfaceVersion;
-    this.activeSurface = surface;
 
-    const measuredSize = this.transport.measureSurface(surface);
-    this.prepareCanvasForAttachment(surface, measuredSize);
-    this.transport.attachSurface(surface);
+    const size = transport.currentSize();
+    surface.offscreen.width = size.width;
+    surface.offscreen.height = size.height;
 
-    void this.ensureGame(surface, measuredSize).catch((error) => {
+    void this.ensureGame(surface, size, transport.inputConfig, version).catch((error) => {
       if (version === this.surfaceVersion) {
         console.error("GameRunner failed to initialize:", error);
       }
@@ -170,46 +173,46 @@ export class GameRunner implements CanvasCourierController {
 
   dispose(): void {
     this.surfaceVersion += 1;
-    this.activeSurface = undefined;
     this.battleCatalogPromise = undefined;
     this.liveCommandHandler = undefined;
     this.endTurnRequestHandler = undefined;
-    this.transport.dispose();
+    this.host.dispose();
     this.game = undefined;
     this.pendingLiveTransitions = [];
     this.liveBaselinePending = true;
     this.createGamePromise = undefined;
-    this.transferredCanvas = undefined;
     this.worker = undefined;
     this.rawWorker?.terminate();
     this.rawWorker = undefined;
   }
 
-  private async ensureGame(surface: GameSurface, size: CanvasSize): Promise<GameInstance> {
+  private async ensureGame(
+    surface: GameSurface,
+    size: CanvasSize,
+    inputConfig: SharedCanvasInputConfig,
+    version: number,
+  ): Promise<GameInstance> {
     if (this.game) {
       return this.game;
     }
 
     if (!this.createGamePromise) {
-      this.assertCanvasTransferable(surface.canvas);
-      this.transferredCanvas = surface.canvas;
-
       this.createGamePromise = this.getWorker()
         .createGame(
           transfer(surface.offscreen, [surface.offscreen]),
           size,
           gameAssetConfig,
-          this.transport.inputConfig,
+          inputConfig,
           proxy((event: GameEvent) => {
-            this.handleGameEvent(event);
+            if (version === this.surfaceVersion) this.handleGameEvent(event);
           }),
         )
         .then((game) => {
-          this.game = game;
+          if (version === this.surfaceVersion) this.game = game;
           return game;
         })
         .catch((error) => {
-          this.createGamePromise = undefined;
+          if (version === this.surfaceVersion) this.createGamePromise = undefined;
           throw error;
         });
     }
@@ -419,28 +422,6 @@ export class GameRunner implements CanvasCourierController {
   async rejectPendingCommand(): Promise<void> {
     const game = await this.requireGame();
     await game.rejectPendingCommand();
-  }
-
-  private prepareCanvasForAttachment(surface: GameSurface, size: CanvasSize): void {
-    if (this.transferredCanvas === undefined) {
-      this.applyInitialCanvasSize(surface.offscreen, size);
-      return;
-    }
-
-    this.assertCanvasTransferable(surface.canvas);
-  }
-
-  private assertCanvasTransferable(canvas: HTMLCanvasElement): void {
-    if (this.transferredCanvas && this.transferredCanvas !== canvas) {
-      throw new Error(
-        "GameRunner cannot attach a different canvas after transferring to OffscreenCanvas.",
-      );
-    }
-  }
-
-  private applyInitialCanvasSize(offscreen: OffscreenCanvas, size: CanvasSize): void {
-    offscreen.width = size.width;
-    offscreen.height = size.height;
   }
 
   private async requireGame(): Promise<GameInstance> {

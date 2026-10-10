@@ -191,6 +191,9 @@ export class CanvasCourierTransport {
         : undefined;
       const nextSize = canvasPhysicalSize(rect.width, rect.height, scaleFactor, devicePixels);
 
+      // Keep the last size while the canvas is outside the document.
+      if (nextSize.width === 0 || nextSize.height === 0) return;
+
       this.canvasSize = nextSize;
       this.inputQueue.writer.enqueueResize(nextSize);
     });
@@ -202,7 +205,22 @@ export class CanvasCourierTransport {
       this.observeDevicePixelRatio(surface);
     }
 
+    if (document.activeElement === surface.canvas) {
+      this.inputQueue.writer.enqueueFocus(performance.now());
+    } else {
+      this.inputQueue.writer.enqueueBlur(performance.now());
+    }
     this.inputQueue.writer.enqueueVisibility(document.hidden);
+  }
+
+  detachSurface(): void {
+    if (!this.activeSurface) return;
+
+    // Clear held keys and stop the worker while the canvas is detached.
+    this.inputQueue.writer.enqueueBlur(performance.now());
+    this.inputQueue.writer.enqueueVisibility(true);
+    this.activeSurface = undefined;
+    this.releaseSurfaceBindings();
   }
 
   dispose(): void {

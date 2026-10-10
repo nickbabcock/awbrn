@@ -4,6 +4,6 @@ export default defineProject({
   test: {
     name: "node",
     environment: "node",
-    include: ["src/canvas_courier/ring_buffer.test.ts"],
+    include: ["src/canvas_courier/ring_buffer.test.ts", "src/canvas_courier/host.test.ts"],
   },
 });

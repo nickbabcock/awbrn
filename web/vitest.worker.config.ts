@@ -45,7 +45,7 @@ export default defineProject(async () => {
     ],
     test: {
       name: "worker",
-      exclude: ["src/canvas_courier/ring_buffer.test.ts"],
+      exclude: ["src/canvas_courier/ring_buffer.test.ts", "src/canvas_courier/host.test.ts"],
       include: ["src/**/*.test.ts"],
       setupFiles: ["./test/apply-migrations.ts"],
     },
