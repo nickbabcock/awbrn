@@ -16,6 +16,16 @@ score. Their model hashes identify the old files. The Eagle match probes also us
 the old COP rule. These files do not measure the corrected production score.
 Use the final v6 comparison and timing records for a production decision.
 
+The corrected model passes all seven tactical puzzles at node budgets 4
+and 32. `corrected-model-puzzles.json` records these checks.
+`corrected-eagle-power-probe.json` records zero ready units after COP and
+three ready units after SCOP.
+
+The [coverage summary](../sprt/results/planner-v6-coverage-summary.json) records
+112 games on seven additional maps without fog. Each of the four commander
+matchups has 14 pairs. The samples do not establish strength for every
+commander or for games against people.
+
 The Rust example imports replay archives and writes the input files:
 
 ```text
