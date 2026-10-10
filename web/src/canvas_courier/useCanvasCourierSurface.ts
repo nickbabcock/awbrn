@@ -1,47 +1,45 @@
-import { useCallback, useEffect, useEffectEvent, useRef } from "react";
-import type { CanvasCourierController } from "./types";
+import { useCallback, useLayoutEffect, useRef } from "react";
+import type { CanvasCourierHost } from "./host";
 import { useGameFullscreen } from "./useGameFullscreen";
 
-export function useCanvasCourierSurface({ controller }: { controller: CanvasCourierController }) {
+export function useCanvasCourierSurface({
+  host,
+  canvasClassName,
+}: {
+  host: CanvasCourierHost;
+  canvasClassName: string;
+}) {
   const surfaceRef = useRef<HTMLElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const offscreenRef = useRef<OffscreenCanvas | null>(null);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
 
-  const attachSurface = useEffectEvent((canvas: HTMLCanvasElement, offscreen: OffscreenCanvas) => {
-    controller.attachSurface({ canvas, offscreen });
-  });
+  useLayoutEffect(() => {
+    host.setClassName(canvasClassName);
+  }, [host, canvasClassName]);
+
+  useLayoutEffect(() => {
+    const container = canvasContainerRef.current;
+    if (!container) return;
+
+    host.attach(container);
+    return () => host.detach(container);
+  }, [host]);
 
   const focus = useCallback(() => {
-    canvasRef.current?.focus({ preventScroll: true });
-  }, []);
+    host.canvas?.focus({ preventScroll: true });
+  }, [host]);
 
   const blur = useCallback(() => {
-    canvasRef.current?.blur();
-  }, []);
+    host.canvas?.blur();
+  }, [host]);
 
   const { enterFullscreen, exitFullscreen, isFullscreen, mode } = useGameFullscreen({
     focusSurface: focus,
     surfaceRef,
   });
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const container = surfaceRef.current;
-    if (!canvas || !container) {
-      return;
-    }
-
-    if (offscreenRef.current === null) {
-      offscreenRef.current = canvas.transferControlToOffscreen();
-      attachSurface(canvas, offscreenRef.current);
-    }
-
-    // No cleanup as transferring is a one-way operation
-  }, []);
-
   return {
     surfaceRef,
-    canvasRef,
+    canvasContainerRef,
     focus,
     blur,
     enterFullscreen,

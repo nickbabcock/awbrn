@@ -42,14 +42,18 @@ export function ReplayPage() {
   const isCalculatorCompact = useMediaQuery(BATTLE_CALCULATOR_SHEET_MEDIA);
   const runner = useReplayRunner();
   const {
-    canvasRef,
+    canvasContainerRef,
     enterFullscreen,
     exitFullscreen,
     focus,
     fullscreenMode,
     isFullscreen,
     surfaceRef,
-  } = useCanvasCourierSurface({ controller: runner });
+  } = useCanvasCourierSurface({
+    host: runner.host,
+    canvasClassName:
+      stylex.props(styles.gameCanvas, !playerRoster && styles.gameCanvasHidden).className ?? "",
+  });
 
   async function handleReplayFileChange(files: File | File[] | null) {
     const file = Array.isArray(files) ? files[0] : files;
@@ -184,13 +188,7 @@ export function ReplayPage() {
               fullscreenMode === "immersive" && styles.gameSurfaceImmersive,
             ]}
           >
-            <canvas
-              ref={canvasRef}
-              width={960}
-              height={640}
-              tabIndex={0}
-              {...stylex.props(styles.gameCanvas, !playerRoster && styles.gameCanvasHidden)}
-            />
+            <VStack ref={canvasContainerRef} gap={0} width="100%" height="100%" />
             {isFullscreen ? (
               <BoardFullscreenExit mode={fullscreenMode} onExit={exitFullscreen} />
             ) : null}

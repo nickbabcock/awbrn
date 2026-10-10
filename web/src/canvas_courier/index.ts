@@ -15,8 +15,9 @@
  *
  * This library is analogous to winit in many aspects.
  *
- * `useCanvasCourierSurface` is a React hook that manages attaching, detaching,
- * and transferring the canvas offscreen in a React Strict Mode-compliant way.
+ * `CanvasCourierHost` owns the canvas and transfers it to a worker once.
+ * `useCanvasCourierSurface` puts the canvas in a component container.
+ * The host keeps the canvas when the component is removed.
  *
  * Styling contract: the canvas element must have `width: 100%; height: 100%`
  * CSS so that it fills its container. The canvas must also have no padding or
@@ -37,10 +38,12 @@ export {
   SharedCanvasEventAction,
   SharedCanvasPointerKind,
   SharedCanvasWheelDeltaMode,
+  SharedCanvasModifierBits,
   type CanvasSize,
   type SharedCanvasInputConfig,
   type SharedCanvasDecodedEvent,
 } from "./ring_buffer";
+export { CanvasCourierHost } from "./host";
 export { useCanvasCourierSurface } from "./useCanvasCourierSurface";
 export type { GameFullscreenMode } from "./useGameFullscreen";
-export type { CanvasCourierController, CanvasCourierSurface } from "./types";
+export type { CanvasCourierSurface } from "./types";
