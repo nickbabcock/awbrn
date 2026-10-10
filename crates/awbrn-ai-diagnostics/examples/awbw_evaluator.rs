@@ -162,6 +162,16 @@ fn power_probe(model: &Path, output: &Path) -> Result<()> {
         "current":zero_current,
         "candidate":zero_score,"power_legal":zero_legal,
     });
+    let mut cop = Session::new(ready.state().clone());
+    let activation = cop.resolve(&awvm::transition::Command::ActivatePower {
+        player: cop.state().turn.active_player.clone(),
+        level: awvm::commander::PowerLevel::Cop,
+    })?;
+    cop.apply(activation, &mut awbrn_ai::rng::Rng::from_seed(11), &mut ())?;
+    let cop_after = serde_json::json!({
+        "legal_attackers":count_attackers(&cop),
+        "ready_units":cop.state().units.iter().filter(|unit| unit.owner == seat && unit.action == UnitAction::Ready).count(),
+    });
     let activation = ready.resolve(&command)?;
     ready.apply(activation, &mut awbrn_ai::rng::Rng::from_seed(11), &mut ())?;
     let after = serde_json::json!({
@@ -174,6 +184,7 @@ fn power_probe(model: &Path, output: &Path) -> Result<()> {
         &serde_json::json!({
             "model_fingerprint":fingerprint_bytes(&bytes),"fixture":"focus-fire with Eagle and spent units",
             "super_power_cost":cost,"uncharged":zero,"charged":before,"activated":after,
+            "cop_activated":cop_after,
         }),
     )
 }
@@ -1302,6 +1313,8 @@ mod tests {
         let result: serde_json::Value = serde_json::from_slice(&fs::read(output).unwrap()).unwrap();
         assert_eq!(result["uncharged"]["power_legal"], false);
         assert_eq!(result["charged"]["legal_attackers"], 0);
+        assert_eq!(result["cop_activated"]["legal_attackers"], 0);
+        assert_eq!(result["cop_activated"]["ready_units"], 0);
         assert_eq!(result["activated"]["legal_attackers"], 3);
         assert_eq!(result["activated"]["ready_units"], 3);
         for reader in ["current", "candidate"] {
