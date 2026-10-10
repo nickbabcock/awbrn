@@ -1,40 +1,27 @@
-# Human replay models
+# Replay score tools
 
 The model coefficients use the feature values in `features.jsonl`. The bank
-feature is the full number of funds. Do not scale this feature before fitting.
-The live score uses half the difference between the two seat logits. This
-operation changes the bank feature to half the bank difference.
+feature is the full number of funds. The live score uses half the difference
+between the two seat logits. This operation changes the bank feature to half
+the bank difference.
 
-The old Python fitter used half the bank funds. The saved bank coefficients
-have been divided by two to convert them to coefficients per fund.
-`bank-coefficient-conversion.json` records the old and new file hashes.
-The fitted logits and their prediction metrics do not change. The live bank
-score is half its earlier value.
+The frozen v6 model is `refit-positive-003-model.json`. The selected training
+check is in `fit-summary.json`. The Cup 5 and Cup 6 check is in `holdout.json`.
+The [earlier study](https://github.com/nickbabcock/awbrn/tree/1c5dfd302e5eb59c5f7c1051addece8c73728b47/assets/ai-diagnostics/human-evaluator)
+contains the rejected models and old experiments. Its Python refit games
+used the old bank scale. Its Eagle games used the old COP rule.
 
-The old refit match, power probe, and puzzle files record the earlier live
-score. Their model hashes identify the old files. The Eagle match probes also used
-the old COP rule. These files do not measure the corrected production score.
-Use the final v6 comparison and timing records for a production decision.
-
-The corrected model passes all seven tactical puzzles at node budgets 4
-and 32. `corrected-model-puzzles.json` records these checks.
-`corrected-eagle-power-probe.json` records zero ready units after COP and
-three ready units after SCOP.
-
-The [coverage summary](../sprt/results/planner-v6-coverage-summary.json) records
-112 games on seven additional maps without fog. Each of the four commander
-matchups has 14 pairs. The samples do not establish strength for every
-commander or for games against people.
-
-The Rust example imports replay archives and writes the input files:
+Import the replay archives:
 
 ```text
 cargo run --release -p awbrn-ai-diagnostics --example awbw_evaluator -- \
   extract <division-directory> <map-directory> <output-directory>
 ```
 
-Install NumPy and SciPy in a Python environment. Fit the models from the
-extracted Cup 3 and Cup 4 directories:
+Install NumPy and SciPy in a Python environment. Fit the v6 score from the
+extracted Cup 3 and Cup 4 directories. The fit uses nonnegative position
+coefficients and an L2 penalty of 0.003. It writes `model.json` and
+`fit-summary.json`:
 
 ```text
 python crates/awbrn-ai-diagnostics/examples/fit_replay.py \
@@ -42,7 +29,7 @@ python crates/awbrn-ai-diagnostics/examples/fit_replay.py \
 python crates/awbrn-ai-diagnostics/examples/test_fit_replay.py
 ```
 
-Check the selected model on Cup 5 and Cup 6:
+Check the model on Cup 5 and Cup 6:
 
 ```text
 python crates/awbrn-ai-diagnostics/examples/fit_replay.py \
@@ -51,6 +38,11 @@ python crates/awbrn-ai-diagnostics/examples/fit_replay.py \
   --model <model-file> --output <check-directory>
 ```
 
-`calibration_removed_prediction` removes the intercept and turn term from
-one seat prediction. It does not compute the live score, which also uses the
-rival seat and the material coefficient.
+Run `awbw_evaluator puzzles <model-file> <output-file>` for the tactical
+checks. Run `awbw_evaluator power-probe <model-file> <output-file>` to check
+Eagle COP and SCOP. The power test also runs in the Rust test suite.
+
+The [coverage summary](../sprt/results/planner-v6-coverage-summary.json) records
+112 games on seven additional maps without fog. Each of the four commander
+matchups has 14 pairs. These samples do not establish strength for every
+commander or for games against people.

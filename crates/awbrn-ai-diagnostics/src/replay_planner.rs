@@ -10,9 +10,7 @@ use awvm::semantic::PlayerIdx;
 use awvm::session::Session;
 use serde::{Deserialize, Serialize};
 
-use crate::feature_analysis::{
-    FEATURE_ANALYSIS_SCHEMA_VERSION, FEATURE_NAMES, FeatureAnalysisReport, FeatureMode,
-};
+use crate::feature_analysis::{FEATURE_NAMES, FeatureMode};
 use crate::tournament::AgentFactory;
 
 /// Frozen coefficients and their training source.
@@ -30,48 +28,6 @@ pub struct ReplayPlannerModel {
 }
 
 impl ReplayPlannerModel {
-    /// Export the selected AI-visible coefficients from a converged report.
-    pub fn from_report(report: &FeatureAnalysisReport, bytes: &[u8]) -> Result<Self, String> {
-        if report.schema_version != FEATURE_ANALYSIS_SCHEMA_VERSION || !report.sufficient_corpus {
-            return Err("replay planner needs a supported report with sufficient games".into());
-        }
-        let visible = report
-            .modes
-            .iter()
-            .find(|mode| mode.mode == FeatureMode::FogVisible)
-            .ok_or("replay planner needs an AI-visible model")?;
-        if !visible.model.converged || !visible.model.reduced_converged {
-            return Err("replay planner needs a converged model".into());
-        }
-        if visible.model.feature_names != FEATURE_NAMES {
-            return Err("replay planner feature schema differs from the report".into());
-        }
-        let mut coefficients = FEATURE_NAMES
-            .iter()
-            .map(|name| ((*name).into(), 0.0))
-            .collect::<BTreeMap<_, _>>();
-        let mut seen = std::collections::BTreeSet::new();
-        for weight in &visible.model.reduced_weights {
-            if !seen.insert(&weight.name) {
-                return Err("replay planner report has duplicate coefficients".into());
-            }
-            *coefficients
-                .get_mut(&weight.name)
-                .ok_or("unknown replay coefficient")? = weight.coefficient;
-        }
-        let model = Self {
-            schema_version: 1,
-            source_report_fingerprint: fingerprint_bytes(bytes),
-            corpus_fingerprint: report.corpus_fingerprint.clone(),
-            mode: FeatureMode::FogVisible,
-            intercept: visible.model.reduced_intercept,
-            coefficients,
-            extra_coefficients: BTreeMap::new(),
-        };
-        model.validate()?;
-        Ok(model)
-    }
-
     /// Check the feature schema and the funds conversion.
     pub fn validate(&self) -> Result<(), String> {
         if self.extra_coefficients.iter().any(|(name, value)| {
@@ -328,7 +284,7 @@ mod tests {
 
     fn model() -> ReplayPlannerModel {
         serde_json::from_str(include_str!(
-            "../../../assets/ai-diagnostics/human-evaluator/cup-03-planner-model.json"
+            "../../../assets/ai-diagnostics/human-evaluator/refit-positive-003-model.json"
         ))
         .unwrap()
     }
@@ -395,13 +351,12 @@ mod tests {
 
     #[test]
     fn reused_maps_give_the_reference_score() {
-        let models = [
-            serde_json::from_str::<ReplayPlannerModel>(include_str!(
-                "../../../assets/ai-diagnostics/human-evaluator/refit-positive-003-model.json"
-            ))
-            .unwrap(),
-            model(),
-        ];
+        let selected = model();
+        let mut with_front = selected.clone();
+        with_front
+            .coefficients
+            .insert("front_position_delta".into(), 0.272);
+        let models = [selected, with_front];
         let root = concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../awbrn-ai/tests/fixtures/replay_regressions/"

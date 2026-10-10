@@ -1,0 +1,50 @@
+{
+  "sources": [
+    {
+      "directory": "target/ai-human-evaluator/refits/cup-03",
+      "positions_sha256": "a6feb83366e22cd07c37242556a8125bf241c8c7dcd04ecb5cbbac27b255d547",
+      "features_sha256": "badfe243b2b211cc29b8c117dbb87fa55484fb56cdde53ebf79f015c378af688"
+    },
+    {
+      "directory": "target/ai-human-evaluator/refits/cup-04",
+      "positions_sha256": "2f391b350638e9339328e037d54e768066fe4b48e15f4cd6f7f21eeaa851aba6",
+      "features_sha256": "c6e6193ec45156fcfdbd56d89f97eb88e0ea5b3d7b8c0ada03972c4b48743274"
+    }
+  ],
+  "games": 315,
+  "rows": 7426,
+  "folds": "3 repeats of 5 folds, grouped by game and balanced per map",
+  "fit": {
+    "name": "positive-003",
+    "features": [
+      "turn_index",
+      "material_delta",
+      "income_delta",
+      "own_bank",
+      "unit_count_delta",
+      "capture_progress_delta",
+      "immediate_threat_safety_delta",
+      "deferred_threat_safety_delta",
+      "material_front",
+      "property_capture",
+      "production",
+      "contest",
+      "power_meter_army",
+      "cop_ready_army",
+      "scop_ready_army",
+      "eagle_refresh"
+    ],
+    "l2": 0.003,
+    "positive": true,
+    "cv": {
+      "log_loss": 0.6005562432093794,
+      "accuracy": 0.6398724612733823,
+      "brier": 0.2089078449917431
+    },
+    "leave_one_map_out": {
+      "log_loss": 0.5951351417923055,
+      "accuracy": 0.6547588024508583,
+      "brier": 0.2059092379625243
+    }
+  }
+}

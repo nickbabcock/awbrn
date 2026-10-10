@@ -1,7 +1,7 @@
-"""Fit experimental replay scores. Requires NumPy and SciPy.
+"""Fit the v6 replay score. Requires NumPy and SciPy.
 
 Keep all rows of a game in one fold. Give each game the same weight.
-Use validation loss to select a fit. Reserve new cups for the final check.
+Use grouped validation to check the fit. Reserve new cups for the final check.
 """
 
 import argparse
@@ -134,64 +134,40 @@ def main():
         (output / "holdout.json").write_text(json.dumps(report, indent=2) + "\n")
         print(json.dumps(report["metrics"]), flush=True)
         return
-    candidates = [
-        ("safe-core", CORE, .1),
-        ("funds-front", CORE + POSITION[:1], .1),
-        ("properties", CORE + POSITION, .1),
-        ("power-meter", CORE + POSITION + POWER[:1], .1),
-        ("power-ready", CORE + POSITION + POWER[:3], .1),
-        ("eagle", CORE + POSITION + POWER, .1),
-        ("weak-regularization", CORE + POSITION + POWER, .03),
-        ("strong-regularization", CORE + POSITION + POWER, .3),
-        ("no-deferred-threat", [n for n in CORE + POSITION + POWER if n != "deferred_threat_safety_delta"], .03),
-        ("l2-01", CORE + POSITION + POWER, .01),
-        ("l2-003", CORE + POSITION + POWER, .003),
-        ("l2-001", CORE + POSITION + POWER, .001),
-        ("l2-0003", CORE + POSITION + POWER, .0003),
-        ("unregularized", CORE + POSITION + POWER, 0.0),
-        ("positive-01", CORE + POSITION + POWER, .01),
-        ("positive-003", CORE + POSITION + POWER, .003),
-        ("without-powers", CORE + POSITION, .01),
-    ]
-    reports = []
-    for label, names, penalty in candidates:
-        positive = label.startswith("positive-")
-        x = np.array([[values[name] for name in names] for _, _, _, values in rows])
-        predictions = []
-        for repeat in range(3):
-            fold = folds(rows, games, repeat)
-            scores = np.zeros(len(rows))
-            for number in range(5):
-                train, test = fold != number, fold == number
-                intercept, coef = fit(x[train], y[train], weights[train], penalty, positive)
-                scores[test] = intercept + x[test] @ coef
-            predictions.append(metrics(y, scores, weights))
-        map_scores = np.zeros(len(rows))
-        maps = np.array([r[1] for r in rows])
-        for map_id in sorted(set(maps)):
-            train, test = maps != map_id, maps == map_id
+    label, names, penalty, positive = "positive-003", CORE + POSITION + POWER, .003, True
+    x = np.array([[values[name] for name in names] for _, _, _, values in rows])
+    predictions = []
+    for repeat in range(3):
+        fold = folds(rows, games, repeat)
+        scores = np.zeros(len(rows))
+        for number in range(5):
+            train, test = fold != number, fold == number
             intercept, coef = fit(x[train], y[train], weights[train], penalty, positive)
-            map_scores[test] = intercept + x[test] @ coef
-        intercept, coef = fit(x, y, weights, penalty, positive)
-        coefficients = dict(zip(names, map(float, coef)))
-        model = {"schema_version": 1, "source_report_fingerprint": fingerprint,
-                 "corpus_fingerprint": fingerprint, "mode": "fog-visible", "intercept": intercept,
-                 "coefficients": {n: coefficients.get(n, 0.0) for n in BASE},
-                 "extra_coefficients": {n: coefficients[n] for n in POSITION + POWER if n in coefficients}}
-        assert coefficients["material_delta"] > 0
-        (output / f"{label}-model.json").write_text(json.dumps(model, indent=2) + "\n")
-        report = {"name": label, "features": names, "l2": penalty, "positive": positive,
-                  "cv": {key: float(np.mean([p[key] for p in predictions])) for key in predictions[0]},
-                  "leave_one_map_out": {key: float(np.mean([metrics(y[maps == m], map_scores[maps == m],
-                      weights[maps == m])[key] for m in set(maps)])) for key in predictions[0]}}
-        reports.append(report)
-        print(json.dumps(report), flush=True)
+            scores[test] = intercept + x[test] @ coef
+        predictions.append(metrics(y, scores, weights))
+    map_scores = np.zeros(len(rows))
+    maps = np.array([r[1] for r in rows])
+    for map_id in sorted(set(maps)):
+        train, test = maps != map_id, maps == map_id
+        intercept, coef = fit(x[train], y[train], weights[train], penalty, positive)
+        map_scores[test] = intercept + x[test] @ coef
+    intercept, coef = fit(x, y, weights, penalty, positive)
+    coefficients = dict(zip(names, map(float, coef)))
+    model = {"schema_version": 1, "source_report_fingerprint": fingerprint,
+             "corpus_fingerprint": fingerprint, "mode": "fog-visible", "intercept": intercept,
+             "coefficients": {n: coefficients.get(n, 0.0) for n in BASE},
+             "extra_coefficients": {n: coefficients[n] for n in POSITION + POWER if n in coefficients}}
+    assert coefficients["material_delta"] > 0
+    (output / "model.json").write_text(json.dumps(model, indent=2) + "\n")
+    report = {"name": label, "features": names, "l2": penalty, "positive": positive,
+              "cv": {key: float(np.mean([p[key] for p in predictions])) for key in predictions[0]},
+              "leave_one_map_out": {key: float(np.mean([metrics(y[maps == m], map_scores[maps == m],
+                  weights[maps == m])[key] for m in set(maps)])) for key in predictions[0]}}
+    print(json.dumps(report), flush=True)
     result = {"sources": sources, "games": len(set(games)), "rows": len(rows),
               "folds": "3 repeats of 5 folds, grouped by game and balanced per map",
-              "candidate_reports": reports, "selection": "minimum grouped validation loss",
-              "best": min(reports, key=lambda r: r["cv"]["log_loss"])["name"],
-              "stop_threshold": .002, "stop_consecutive_failures": 3}
-    (output / "fits.json").write_text(json.dumps(result, indent=2) + "\n")
+              "fit": report}
+    (output / "fit-summary.json").write_text(json.dumps(result, indent=2) + "\n")
 
 
 if __name__ == "__main__":
