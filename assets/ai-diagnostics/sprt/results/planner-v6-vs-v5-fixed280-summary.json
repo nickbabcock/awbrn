@@ -1,0 +1,117 @@
+{
+  "schema_version": 3,
+  "run_id": "replay-refit-positive-003-fixed280",
+  "source": {
+    "revision": "9aa010badb274bf7793a5f914d5ae21fac1ab983",
+    "dirty": true,
+    "fingerprint": "5732bf7ad7c157f1"
+  },
+  "candidate": {
+    "identifier": "replay-refit-positive-003",
+    "configuration_fingerprint": "8df11917a1933fe9",
+    "executable_fingerprint": "awbrn-ai-replay-planner-v1"
+  },
+  "baseline": {
+    "identifier": "planner-v5",
+    "configuration_fingerprint": "728b3823776dd81c",
+    "executable_fingerprint": "awbrn-ai-planner-v3"
+  },
+  "bounds": {
+    "h0": 0.0,
+    "h1": 0.05,
+    "alpha": 1e-09,
+    "beta": 1e-09
+  },
+  "method": "bounded-betting-map-round-v1",
+  "decision": "inconclusive",
+  "statistic": {
+    "pairs": 280,
+    "mean": 0.1732142857142857,
+    "variance": 0.3489215309779826,
+    "ci95_half_width": 0.06918961919983316,
+    "rounds": 20,
+    "log_e_h0": 1.3864919755156901,
+    "log_e_h1": -0.005906585992711465
+  },
+  "maps": {
+    "69201": {
+      "pairs": 20,
+      "mean": 0.35
+    },
+    "77060": {
+      "pairs": 20,
+      "mean": 0.2
+    },
+    "126428": {
+      "pairs": 20,
+      "mean": 0.175
+    },
+    "132144": {
+      "pairs": 20,
+      "mean": 0.2
+    },
+    "133665": {
+      "pairs": 20,
+      "mean": 0.125
+    },
+    "159501": {
+      "pairs": 20,
+      "mean": 0.025
+    },
+    "160882": {
+      "pairs": 20,
+      "mean": 0.225
+    },
+    "166877": {
+      "pairs": 20,
+      "mean": 0.175
+    },
+    "169069": {
+      "pairs": 20,
+      "mean": 0.1
+    },
+    "169382": {
+      "pairs": 20,
+      "mean": 0.1
+    },
+    "172238": {
+      "pairs": 20,
+      "mean": 0.05
+    },
+    "173362": {
+      "pairs": 20,
+      "mean": 0.45
+    },
+    "180298": {
+      "pairs": 20,
+      "mean": 0.15
+    },
+    "182023": {
+      "pairs": 20,
+      "mean": 0.1
+    }
+  },
+  "candidate_complete_turn_timing": {
+    "samples": 16991,
+    "median_nanos": 865376719,
+    "p95_nanos": 1767604402,
+    "mean_nanos": 799370084,
+    "maximum_nanos": 4931848610
+  },
+  "baseline_complete_turn_timing": {
+    "samples": 17028,
+    "median_nanos": 573756085,
+    "p95_nanos": 1139439618,
+    "mean_nanos": 519952142,
+    "maximum_nanos": 4438675238
+  },
+  "candidate_invalid_commands": 0,
+  "baseline_invalid_commands": 0,
+  "jobs": 8,
+  "wall_clock_nanos": 3292989674284,
+  "games": {
+    "candidate_wins": 319,
+    "candidate_losses": 222,
+    "draws": 19
+  }
+}

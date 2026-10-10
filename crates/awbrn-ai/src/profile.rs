@@ -65,7 +65,7 @@ pub enum AiImplementation {
     /// Uses the configured strategic baseline.
     Strategic,
     /// Compares complete own turns with the planner of
-    /// [`PlannerConfig::V5`].
+    /// [`PlannerConfig::V6`].
     Planner,
 }
 
@@ -182,7 +182,7 @@ impl AiProfile {
     pub const fn planner(&self) -> PlannerConfig {
         PlannerConfig {
             baseline: self.config,
-            ..PlannerConfig::V5
+            ..PlannerConfig::V6
         }
     }
 
@@ -370,19 +370,19 @@ mod tests {
     }
 
     #[test]
-    fn hard_tier_seats_the_v5_planner_on_the_v3_scoring() {
+    fn hard_tier_seats_the_v6_planner_on_the_v3_scoring() {
         assert_eq!(profile_for_tier(AiTier::Hard), &HARD);
         assert_eq!(HARD.id, "ai-hard-v3");
         assert_eq!(HARD.implementation, AiImplementation::Planner);
         assert_eq!(HARD.config, HARD_V3_CONFIG);
-        assert_eq!(HARD.planner(), PlannerConfig::V5);
+        assert_eq!(HARD.planner(), PlannerConfig::V6);
         assert_eq!(HARD.node_budget(), NodeBudget::THIRTY_TWO);
         assert!(HARD.planner().turn_work.is_some());
     }
 
     #[test]
     fn hard_v3_profile_fingerprint_is_locked() {
-        assert_eq!(HARD.configuration_fingerprint(), "40b33e3b1260c4e2");
+        assert_eq!(HARD.configuration_fingerprint(), "954f7fe0d735c852");
     }
 
     #[test]

@@ -48,6 +48,8 @@ use crate::rng::Rng;
 
 pub use reply::{PropertyValues, ReplyEstimate};
 
+use crate::replay_score::{ReplayReader, ReplayScore};
+
 /// Everything that decides how the planner plays.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
 pub struct PlannerConfig {
@@ -108,6 +110,13 @@ pub struct PlannerConfig {
     /// Hard policy plays the rest of the turn.
     #[serde(skip_serializing_if = "is_false")]
     pub power_first: bool,
+    /// The score of active duels without fog, fitted to human replays.
+    ///
+    /// When present, it replaces [`PlannerConfig::eval_weights`] at every
+    /// search leaf and reroute screen of such a game. Terminal positions and
+    /// other games keep the stock score.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replay_score: Option<ReplayScore>,
 }
 
 // The fields that later configurations add are left out of the fingerprint
@@ -151,6 +160,7 @@ impl PlannerConfig {
         reroute_orders: 0,
         reply_window: 0.0,
         power_first: false,
+        replay_score: None,
     };
 
     /// The first configuration with a simulated Hard reply check.
@@ -192,6 +202,16 @@ impl PlannerConfig {
         baseline: crate::profile::HARD_V3_CONFIG,
         power_first: true,
         ..Self::V4
+    };
+
+    /// planner-v5 with the position score fitted to human replays.
+    ///
+    /// The plan generators, reply checks and work limits are those of
+    /// planner-v5.
+    pub const V6: Self = Self {
+        identifier: "planner-v6",
+        replay_score: Some(ReplayScore::CUP_3_4),
+        ..Self::V5
     };
 
     /// Return a stable fingerprint of all configuration values.
@@ -295,6 +315,7 @@ pub struct PlannerAgent {
     seed: u64,
     fallback: GreedyAgent,
     evaluator: Evaluator,
+    replay: Option<ReplayReader>,
     plan: Vec<Play>,
     positions: Vec<State>,
     next: usize,
@@ -317,6 +338,7 @@ impl PlannerAgent {
             seed,
             fallback: config.baseline.build_greedy(seed),
             evaluator: Evaluator::new(config.eval_weights),
+            replay: config.replay_score.map(ReplayReader::new),
             plan: Vec::new(),
             positions: Vec::new(),
             next: 0,
@@ -373,6 +395,7 @@ impl PlannerAgent {
             seed: Rng::mix(self.seed ^ u64::from(self.plans_this_turn)),
             seat,
             evaluator: &mut self.evaluator,
+            replay: self.replay.as_mut(),
             candidates: 0,
             work: 0,
             work_left,
@@ -459,6 +482,7 @@ struct TurnPlanner<'a> {
     seed: u64,
     seat: PlayerIdx,
     evaluator: &'a mut Evaluator,
+    replay: Option<&'a mut ReplayReader>,
     candidates: u64,
     /// Simulated greedy decisions in this call.
     work: u64,
@@ -468,6 +492,16 @@ struct TurnPlanner<'a> {
 }
 
 impl TurnPlanner<'_> {
+    fn leaf_value(&mut self, session: &Session) -> f64 {
+        match self.replay.as_deref_mut() {
+            Some(replay) if ReplayScore::applies(session.state()) => {
+                Evaluator::terminal_value(session.state(), self.seat)
+                    .unwrap_or_else(|| replay.value_in(session, self.seat))
+            }
+            _ => self.evaluator.value_in(session, self.seat),
+        }
+    }
+
     fn plan(&mut self, root: &Session) -> Option<Line> {
         let mut session = Session::new(root.state().clone());
         let seed = self.line(&mut session, Generator::Seed, &[])?;
@@ -663,7 +697,7 @@ impl TurnPlanner<'_> {
                     .ok()?;
                 session.apply(end, &mut entropy, &mut ()).ok()?;
             }
-            let value = self.evaluator.value_in(session, self.seat);
+            let value = self.leaf_value(session);
             let reply = if matches!(session.state().match_state, Match::Active { .. }) {
                 reply::estimate(session, self.seat, self.config.property_values).total()
             } else {
@@ -693,7 +727,7 @@ impl TurnPlanner<'_> {
             }
             if !matches!(session.state().match_state, Match::Active { .. }) {
                 self.nodes_left -= 1;
-                return Some(self.evaluator.value_in(session, self.seat));
+                return Some(self.leaf_value(session));
             }
             let end = session
                 .resolve(&Command::EndTurn {
@@ -721,7 +755,7 @@ impl TurnPlanner<'_> {
                 session.apply(order, &mut entropy, &mut ()).ok()?;
             }
             self.nodes_left -= 1;
-            Some(self.evaluator.value_in(session, self.seat))
+            Some(self.leaf_value(session))
         })();
         if let Some(mark) = root {
             session.rewind(mark);
@@ -799,7 +833,7 @@ impl TurnPlanner<'_> {
         let scored = result.map(|()| {
             self.nodes_left -= 1;
             self.candidates += 1;
-            let value = self.evaluator.value_in(session, self.seat);
+            let value = self.leaf_value(session);
             let reply = if matches!(session.state().match_state, Match::Active { .. }) {
                 reply::estimate(session, self.seat, self.config.property_values)
             } else {
