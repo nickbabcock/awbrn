@@ -17,7 +17,7 @@ export const awbrnMapDocumentSchema = z
     metadata: z.object({
       name: z.string(),
       author: z.string(),
-      player_count: z.number().int().positive(),
+      player_count: z.number().int().nonnegative(),
     }),
   })
   .superRefine((document, context) => {

@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import {
+  canonicalizeMapDocument as canonicalizeMapDocumentWasm,
   importAwbwMapDocument,
   initSync,
   MapRenderer,
@@ -21,6 +22,18 @@ initSync({ module: serverWasmModule });
 
 export function canonicalizeAwbwMap(source: AwbwMapDataWire): ImportedMapDocument {
   return importAwbwMapDocument(source);
+}
+
+/**
+ * Check a map written in the editor, and hash it the way an import is hashed.
+ *
+ * The browser is not trusted with either half. The board is put back through
+ * the same validation an imported map goes through, and the three digests come
+ * from the same code, so a map drawn here and a map imported from AWBW are
+ * stored and matched by the same rules.
+ */
+export function canonicalizeMapDocument(document: AwbrnMapDocumentWire): ImportedMapDocument {
+  return canonicalizeMapDocumentWasm(document);
 }
 
 /**

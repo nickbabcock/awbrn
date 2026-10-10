@@ -88,10 +88,14 @@ export function MapsBoardPage({ search }: { search: MapBoardSearch }) {
               Maps
             </Heading>
             <Text color="secondary" type="large">
-              Every battlefield AWBRN holds. Open one to read its record, or start a match on it.
+              Every battlefield AWBRN holds. Open one to read its record, start a match on it, or
+              draw one of your own.
             </Text>
           </VStack>
-          <RouterButton label="New match" to="/matches/new" variant="primary" />
+          <HStack gap={2}>
+            <RouterButton label="Draw a map" to="/maps/new" variant="secondary" />
+            <RouterButton label="New match" to="/matches/new" variant="primary" />
+          </HStack>
         </HStack>
 
         <VStack gap={4}>

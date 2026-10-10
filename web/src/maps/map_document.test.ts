@@ -6,7 +6,8 @@ import map178597 from "../../../assets/maps/178597.json";
 import { awbwMapDataSchema } from "#/awbw/schemas.ts";
 import { importAwbwMapDocument, initSync, WasmMatch } from "#/wasm/awbrn_server.js";
 import serverWasmModule from "#/wasm/awbrn_server_bg.wasm";
-import { importedMapDocumentSchema } from "./map_document.ts";
+import { awbrnMapDocumentSchema, importedMapDocumentSchema } from "./map_document.ts";
+import { mapSaveRequestSchema } from "./schemas.ts";
 
 describe("awbrn map documents", () => {
   initSync({
@@ -55,5 +56,47 @@ describe("awbrn map documents", () => {
           startingFunds: 0,
         }),
     ).not.toThrow();
+  });
+
+  it("accepts a draft with no player seats", () => {
+    const document = {
+      map_format: 1,
+      width: 5,
+      height: 5,
+      terrain: Array.from({ length: 25 }, () => 1),
+      units: [],
+      metadata: { name: "Draft", author: "Map maker", player_count: 0 },
+    };
+
+    expect(awbrnMapDocumentSchema.parse(document)).toEqual(document);
+    expect(mapSaveRequestSchema.parse({ name: "Draft", document })).toMatchObject({ document });
+  });
+
+  it("requires the revision an edit was based on", () => {
+    const document = {
+      map_format: 1 as const,
+      width: 5,
+      height: 5,
+      terrain: Array.from({ length: 25 }, () => 1),
+      units: [],
+      metadata: { name: "Draft", author: "Map maker", player_count: 0 },
+    };
+    const request = {
+      mapId: "aaaaaaaaaaaa",
+      expectedName: "Draft",
+      name: "Draft",
+      document,
+    };
+
+    expect(mapSaveRequestSchema.safeParse({ ...request, expectedRevision: 1 }).success).toBe(true);
+    expect(mapSaveRequestSchema.safeParse(request).success).toBe(false);
+    expect(
+      mapSaveRequestSchema.safeParse({
+        name: "Draft",
+        expectedRevision: 1,
+        expectedName: "Draft",
+        document,
+      }).success,
+    ).toBe(false);
   });
 });

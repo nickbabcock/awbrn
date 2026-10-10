@@ -9,12 +9,10 @@
 use std::collections::{HashMap, HashSet};
 
 use awbrn_map::{AwbwMap, AwbwMapData};
-use awbrn_types::{
-    AwbwGamePlayerId, AwbwTerrain, Faction, MissileSiloStatus, PlayerFaction, Property,
-};
+use awbrn_types::{AwbwGamePlayerId, AwbwTerrain, Faction, MissileSiloStatus, PlayerFaction};
 use awbw_replay::AwbwReplay;
 use awbw_replay::game_models::{AwbwGame, AwbwPlayer, AwbwUnit, CoPower, MatchType};
-use awvm::ruleset::{RULESET_ID, RULESET_REVISION, Terrain, WeatherKind};
+use awvm::ruleset::{RULESET_ID, RULESET_REVISION, WeatherKind};
 use awvm::semantic::{
     Board, Commander, CommanderBans, Concealment, Location, Match, Phase, Player, PlayerId,
     PlayerIdx, PlayerStatus, Pos, PowerState, Roster, RulesetId, RulesetRef, RulesetRevision,
@@ -504,30 +502,4 @@ fn weather_kind(value: &str) -> Result<WeatherKind, AdapterError> {
     }
 }
 
-/// Erase AWBW's graphical terrain spelling to the ruleset's semantic terrain.
-pub fn semantic_terrain(terrain: AwbwTerrain) -> Terrain {
-    match terrain {
-        AwbwTerrain::Plain | AwbwTerrain::PipeRubble(_) => Terrain::Plain,
-        AwbwTerrain::Mountain => Terrain::Mountain,
-        AwbwTerrain::Wood => Terrain::Wood,
-        AwbwTerrain::River(_) => Terrain::River,
-        AwbwTerrain::Road(_) => Terrain::Road,
-        AwbwTerrain::Bridge(_) => Terrain::Bridge,
-        AwbwTerrain::Sea => Terrain::Sea,
-        AwbwTerrain::Shoal(_) => Terrain::Shoal,
-        AwbwTerrain::Reef => Terrain::Reef,
-        AwbwTerrain::Property(property) => match property {
-            Property::City(_) => Terrain::City,
-            Property::Base(_) => Terrain::Base,
-            Property::Airport(_) => Terrain::Airport,
-            Property::Port(_) => Terrain::Port,
-            Property::ComTower(_) => Terrain::ComTower,
-            Property::Lab(_) => Terrain::Lab,
-            Property::HQ(_) => Terrain::Hq,
-        },
-        AwbwTerrain::Pipe(_) => Terrain::Pipe,
-        AwbwTerrain::MissileSilo(_) => Terrain::MissileSilo,
-        AwbwTerrain::PipeSeam(_) => Terrain::PipeSeam,
-        AwbwTerrain::Teleporter => Terrain::Teleporter,
-    }
-}
+pub use awbrn_map::semantic_terrain;

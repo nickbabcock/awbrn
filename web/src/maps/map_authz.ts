@@ -29,6 +29,21 @@ export function mapTagGrant(map: MapOwnership, actor: Actor | null): MapGrant {
 }
 
 /**
+ * Who may write a new revision of a map: its author, or a moderator.
+ *
+ * A player who is neither gets no grant, and the screen offers them a fork
+ * instead. That is not a lesser act: a fork keeps the map they started from
+ * intact, and gives them one of their own to answer for.
+ */
+export function mapEditGrant(map: MapOwnership, actor: Actor | null): MapGrant {
+  if (actor === null) return null;
+  if (map.authorUserId !== null && map.authorUserId === actor.userId) {
+    return actor.can({ map: ["write"] }) ? "owner" : null;
+  }
+  return actor.can({ map: ["write", "edit-any"] }) ? "moderator" : null;
+}
+
+/**
  * Who may rank a map revision: a moderator, and never its author.
  *
  * A rank is this site's judgement of a map and feeds the board a player

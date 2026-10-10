@@ -263,6 +263,14 @@ impl AwbwMap {
         &self.deployments
     }
 
+    /// The units, so that a caller can move one or take one away.
+    ///
+    /// Editing is what needs this. Loading a map does not, because a map that
+    /// is being read never loses a unit.
+    pub fn deployments_mut(&mut self) -> &mut Deployments {
+        &mut self.deployments
+    }
+
     /// Places a unit on `position` before the first turn.
     ///
     /// Fails when the tile is off the board or already holds a unit.

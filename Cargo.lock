@@ -574,6 +574,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tsify",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -617,6 +619,8 @@ dependencies = [
  "serde",
  "serde_json",
  "strum",
+ "tsify",
+ "wasm-bindgen",
 ]
 
 [[package]]
