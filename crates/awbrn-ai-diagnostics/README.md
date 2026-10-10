@@ -109,6 +109,13 @@ cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
   --output target/planner-v6-comparison
 ```
 
+The [corrected comparison](../../assets/ai-diagnostics/sprt/results/planner-v6-vs-v4-fixed280-summary.json)
+completed 280 pairs with a mean pair differential of +0.2679 and a descriptive
+95% half-width of 0.0757. There were no invalid commands. Each of the 14
+development maps has 20 pairs. The run uses fresh seat seeds. It does not
+provide a map holdout result. The sequential decision remains inconclusive
+at the configured error rates of 1e-9.
+
 The [earlier v6 summary](../../assets/ai-diagnostics/sprt/results/planner-v6-vs-v5-fixed280-summary.json)
 used twice the fitted bank value. It records the old score. It does not
 measure the corrected score. The corrected model stores the bank coefficient
@@ -152,6 +159,7 @@ Run `mise run ai:timing` on an idle host for native turn times. To measure
 Wasm turn times with Node and V8, run:
 
 ```text
+rustup target add wasm32-wasip1
 cargo build --release -p awbrn-ai-diagnostics --example planner_timing \
   --target wasm32-wasip1
 node scripts/run-wasi.mjs \
