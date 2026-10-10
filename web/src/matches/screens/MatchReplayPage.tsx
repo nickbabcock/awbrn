@@ -34,6 +34,7 @@ import { fetchMatchReplayBytes, matchReplayDownloadPath } from "#/matches/replay
 import { RosterList, RosterRow } from "#/replay/RosterRow.tsx";
 import { Button } from "#/ui/Button.tsx";
 import { rosterLayout } from "#/ui/rosterLayout.stylex.ts";
+import { Page } from "#/ui/Page.tsx";
 
 /**
  * A finished match, read back.
@@ -136,160 +137,162 @@ export function MatchReplayPage({
         null);
 
   return (
-    <VStack gap={4} padding={4}>
-      <VStack gap={1}>
-        <Heading level={1}>{match.name}</Heading>
-        <Text color="secondary">This match is over. Every seat can be watched through.</Text>
-      </VStack>
+    <Page width="full">
+      <VStack gap={6}>
+        <VStack gap={1}>
+          <Heading level={1}>{match.name}</Heading>
+          <Text color="secondary">This match is over. Every seat can be watched through.</Text>
+        </VStack>
 
-      {loadError ? (
-        <Banner description={loadError} status="error" title="The replay could not be opened" />
-      ) : null}
+        {loadError ? (
+          <Banner description={loadError} status="error" title="The replay could not be opened" />
+        ) : null}
 
-      <Grid align="start" gap={4} xstyle={styles.reviewLayout}>
-        <Card padding={0} variant="muted" xstyle={styles.boardPanel}>
-          <VStack
-            gap={0}
-            ref={surfaceRef}
-            xstyle={[
-              styles.gameSurface,
-              isFullscreen && styles.gameSurfaceFullscreen,
-              fullscreenMode === "immersive" && styles.gameSurfaceImmersive,
-            ]}
-          >
-            <VStack ref={canvasContainerRef} gap={0} width="100%" height="100%" />
-            {isFullscreen ? (
-              <BoardFullscreenExit mode={fullscreenMode} onExit={exitFullscreen} />
-            ) : null}
+        <Grid align="start" gap={4} xstyle={styles.reviewLayout}>
+          <Card padding={0} variant="muted" xstyle={styles.boardPanel}>
+            <VStack
+              gap={0}
+              ref={surfaceRef}
+              xstyle={[
+                styles.gameSurface,
+                isFullscreen && styles.gameSurfaceFullscreen,
+                fullscreenMode === "immersive" && styles.gameSurfaceImmersive,
+              ]}
+            >
+              <VStack ref={canvasContainerRef} gap={0} width="100%" height="100%" />
+              {isFullscreen ? (
+                <BoardFullscreenExit mode={fullscreenMode} onExit={exitFullscreen} />
+              ) : null}
 
-            {/* One overlay for the two ways there is no board: the archive is
+              {/* One overlay for the two ways there is no board: the archive is
                 still being read, or there is none to read. */}
-            {playerRoster ? null : (
-              <Center height="100%" width="100%">
-                {isLoading ? (
-                  <Spinner label="Opening the replay" />
-                ) : (
-                  <VStack gap={0} maxWidth={420} padding={3}>
-                    <EmptyState
-                      description={
-                        loadError ??
-                        "No archive was stored for this match, so there is nothing to watch."
-                      }
-                      headingLevel={2}
-                      isCompact
-                      title="No replay to watch"
-                    />
-                  </VStack>
-                )}
-              </Center>
-            )}
+              {playerRoster ? null : (
+                <Center height="100%" width="100%">
+                  {isLoading ? (
+                    <Spinner label="Opening the replay" />
+                  ) : (
+                    <VStack gap={0} maxWidth={420} padding={3}>
+                      <EmptyState
+                        description={
+                          loadError ??
+                          "No archive was stored for this match, so there is nothing to watch."
+                        }
+                        headingLevel={2}
+                        isCompact
+                        title="No replay to watch"
+                      />
+                    </VStack>
+                  )}
+                </Center>
+              )}
 
-            {isCalculatorOpen ? (
-              <BattleCalculator
-                onDismiss={() => setIsCalculatorOpen(false)}
-                onRestoreFocus={focus}
-                presentation={isCalculatorCompact ? "sheet" : "board"}
-                roster={playerRoster}
-                runner={runner}
-              />
-            ) : null}
+              {isCalculatorOpen ? (
+                <BattleCalculator
+                  onDismiss={() => setIsCalculatorOpen(false)}
+                  onRestoreFocus={focus}
+                  presentation={isCalculatorCompact ? "sheet" : "board"}
+                  roster={playerRoster}
+                  runner={runner}
+                />
+              ) : null}
 
-            {playerRoster ? <TileInfoBar /> : null}
-          </VStack>
+              {playerRoster ? <TileInfoBar /> : null}
+            </VStack>
 
-          <HStack
-            align="center"
-            gap={3}
-            justify="between"
-            paddingBlock={2}
-            paddingInline={3}
-            wrap="wrap"
-            xstyle={styles.boardHud}
-          >
-            {/* Whose eyes the board is drawn through is the control this page
+            <HStack
+              align="center"
+              gap={3}
+              justify="between"
+              paddingBlock={2}
+              paddingInline={3}
+              wrap="wrap"
+              xstyle={styles.boardHud}
+            >
+              {/* Whose eyes the board is drawn through is the control this page
                 exists for, so it leads the status line rather than sitting
                 among the commands on the other end. */}
-            {playerRoster ? (
-              <ViewpointSelector
-                armies={armies}
-                onChange={changeViewpoint}
-                viewpoint={replayViewpoint}
-              />
-            ) : (
-              <Text type="supporting">Map {match.mapId}</Text>
-            )}
-
-            <HStack align="center" gap={2} wrap="wrap">
-              <Button
-                clickAction={() => setIsCalculatorOpen(true)}
-                icon={<CalculatorIcon aria-hidden height={16} width={16} />}
-                isDisabled={isCalculatorOpen}
-                label="Calculator"
-                size="sm"
-                variant="secondary"
-              />
-              <Button
-                as="a"
-                href={matchReplayDownloadPath(matchId)}
-                icon={<DownloadIcon aria-hidden height={16} width={16} />}
-                label="Download the replay archive"
-                size="sm"
-                variant="secondary"
-              >
-                Archive
-              </Button>
-              {playerRoster && !isFullscreen ? (
-                <GameFullscreenButton onEnter={enterFullscreen} />
-              ) : null}
-            </HStack>
-          </HStack>
-
-          {playerRoster && replayPosition ? (
-            <VStack gap={0} paddingBlock={2} paddingInline={3} xstyle={styles.stepControls}>
-              <StepControls
-                canStepBack={replayPosition.index > 0}
-                canStepForward={replayPosition.index < replayPosition.total}
-                canStepTurnBack={replayPosition.previousTurnIndex !== null}
-                canStepTurnForward={replayPosition.nextTurnIndex !== null}
-                day={replayPosition.day}
-                isAtLatest={replayPosition.index >= replayPosition.total}
-                latestLabel="End"
-                onSeekLatest={() => stepReplay((runner) => runner.replaySeekEnd())}
-                onSeekStart={() => stepReplay((runner) => runner.replaySeek(0))}
-                onStep={(delta) => stepReplay((runner) => runner.replayStep(delta))}
-                onTurnStep={(delta) => stepReplay((runner) => runner.replayStepTurn(delta))}
-                position={{ index: replayPosition.index, total: replayPosition.total }}
-                turnHolder={turnHolder}
-              />
-            </VStack>
-          ) : null}
-        </Card>
-
-        <VStack as="section" aria-label="Armies" gap={0} xstyle={styles.rosterSection}>
-          <Card padding={0} xstyle={styles.rosterPanel}>
-            <RosterList>
-              {armies.map((army) => (
-                <RosterRow
-                  isActive={army.isActive}
-                  key={army.entry.playerId}
-                  name={army.name}
-                  onFactionChange={(factionId) =>
-                    runner.setPlayerDisplayFaction(
-                      army.entry.playerId,
-                      factionId === getFactionByCode(army.entry.actualFactionCode)?.id
-                        ? null
-                        : factionId,
-                    )
-                  }
-                  player={army.entry}
-                  portraitCatalog={portraitCatalog}
+              {playerRoster ? (
+                <ViewpointSelector
+                  armies={armies}
+                  onChange={changeViewpoint}
+                  viewpoint={replayViewpoint}
                 />
-              ))}
-            </RosterList>
+              ) : (
+                <Text type="supporting">Map {match.mapId}</Text>
+              )}
+
+              <HStack align="center" gap={2} wrap="wrap">
+                <Button
+                  clickAction={() => setIsCalculatorOpen(true)}
+                  icon={<CalculatorIcon aria-hidden height={16} width={16} />}
+                  isDisabled={isCalculatorOpen}
+                  label="Calculator"
+                  size="sm"
+                  variant="secondary"
+                />
+                <Button
+                  as="a"
+                  href={matchReplayDownloadPath(matchId)}
+                  icon={<DownloadIcon aria-hidden height={16} width={16} />}
+                  label="Download the replay archive"
+                  size="sm"
+                  variant="secondary"
+                >
+                  Archive
+                </Button>
+                {playerRoster && !isFullscreen ? (
+                  <GameFullscreenButton onEnter={enterFullscreen} />
+                ) : null}
+              </HStack>
+            </HStack>
+
+            {playerRoster && replayPosition ? (
+              <VStack gap={0} paddingBlock={2} paddingInline={3} xstyle={styles.stepControls}>
+                <StepControls
+                  canStepBack={replayPosition.index > 0}
+                  canStepForward={replayPosition.index < replayPosition.total}
+                  canStepTurnBack={replayPosition.previousTurnIndex !== null}
+                  canStepTurnForward={replayPosition.nextTurnIndex !== null}
+                  day={replayPosition.day}
+                  isAtLatest={replayPosition.index >= replayPosition.total}
+                  latestLabel="End"
+                  onSeekLatest={() => stepReplay((runner) => runner.replaySeekEnd())}
+                  onSeekStart={() => stepReplay((runner) => runner.replaySeek(0))}
+                  onStep={(delta) => stepReplay((runner) => runner.replayStep(delta))}
+                  onTurnStep={(delta) => stepReplay((runner) => runner.replayStepTurn(delta))}
+                  position={{ index: replayPosition.index, total: replayPosition.total }}
+                  turnHolder={turnHolder}
+                />
+              </VStack>
+            ) : null}
           </Card>
-        </VStack>
-      </Grid>
-    </VStack>
+
+          <VStack as="section" aria-label="Armies" gap={0} xstyle={styles.rosterSection}>
+            <Card padding={0} xstyle={styles.rosterPanel}>
+              <RosterList>
+                {armies.map((army) => (
+                  <RosterRow
+                    isActive={army.isActive}
+                    key={army.entry.playerId}
+                    name={army.name}
+                    onFactionChange={(factionId) =>
+                      runner.setPlayerDisplayFaction(
+                        army.entry.playerId,
+                        factionId === getFactionByCode(army.entry.actualFactionCode)?.id
+                          ? null
+                          : factionId,
+                      )
+                    }
+                    player={army.entry}
+                    portraitCatalog={portraitCatalog}
+                  />
+                ))}
+              </RosterList>
+            </Card>
+          </VStack>
+        </Grid>
+      </VStack>
+    </Page>
   );
 }
 

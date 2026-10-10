@@ -14,6 +14,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { ToggleButton, ToggleButtonGroup } from "@astryxdesign/core/ToggleButton";
+import { borderVars, colorVars, radiusVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { Close as CloseIcon } from "pixelarticons/react/Close";
 import { MAP_RANK_FILTERS } from "#/maps/map_taxonomy.ts";
@@ -136,7 +137,12 @@ function FilterRow<T extends string>({
         xstyle={styles.keys}
       >
         {options.map((option) => (
-          <ToggleButton key={option} label={labels[option]} value={option} />
+          <ToggleButton
+            key={option}
+            label={labels[option]}
+            value={option}
+            xstyle={[styles.key, value.includes(option) && styles.keyOn]}
+          />
         ))}
       </ToggleButtonGroup>
     </VStack>
@@ -149,6 +155,19 @@ const styles = stylex.create({
   // reached is a filter nobody has.
   keys: {
     flexWrap: "wrap",
+  },
+  // A filter is a key: the ink outline every control carries, so an
+  // unpressed filter reads as a control and not as a word on the panel. A
+  // pressed one wears the cursor.
+  key: {
+    borderColor: colorVars["--color-border-emphasized"],
+    borderStyle: "solid",
+    borderWidth: borderVars["--border-width"],
+    borderRadius: radiusVars["--radius-element"],
+    backgroundColor: colorVars["--color-background-surface"],
+  },
+  keyOn: {
+    backgroundColor: colorVars["--color-accent"],
   },
   // The reset key lines up with the buttons beside it rather than with the
   // labels above them, so the row still reads as one rule.

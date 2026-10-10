@@ -6,7 +6,6 @@ import { Button } from "#/ui/Button.tsx";
 import { Card } from "@astryxdesign/core/Card";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
-import { Section } from "@astryxdesign/core/Section";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
@@ -68,6 +67,7 @@ import type {
   UnitActionsChanged,
   UnitKind,
 } from "#/wasm/awbrn_wasm.js";
+import { Page } from "#/ui/Page.tsx";
 
 /** The press that opened a menu: where it landed, and what pressed. */
 interface BoardPress {
@@ -675,7 +675,7 @@ export function MatchActivePage({
       : seatRemainingMs(clock, viewerSlotIndex, now);
 
   return (
-    <Section padding={6} variant="transparent">
+    <Page width="full">
       <VStack gap={6}>
         {matchError ? <Banner description={matchError} status="error" title="Match error" /> : null}
         {reviewError ? (
@@ -859,7 +859,7 @@ export function MatchActivePage({
           viewerSlotIndex={viewerSlotIndex ?? null}
         />
       ) : null}
-    </Section>
+    </Page>
   );
 }
 

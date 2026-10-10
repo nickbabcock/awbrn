@@ -97,7 +97,7 @@ export function SeatRoster({ aiSeats, onChange, playerCount }: SeatRosterProps) 
       </List>
 
       <HStack gap={2}>
-        <Text color="secondary" type="label">
+        <Text color="secondary" type="supporting">
           You claim your own seat in the lobby, so one seat always stays open.
         </Text>
       </HStack>

@@ -9,10 +9,10 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "#/ui/Button.tsx";
 import { Card } from "@astryxdesign/core/Card";
 import { Center } from "@astryxdesign/core/Center";
-import { Section } from "@astryxdesign/core/Section";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { RouterButton } from "#/ui/astryx-links.tsx";
+import { Page } from "#/ui/Page.tsx";
 
 export function DefaultCatchBoundary({ error }: ErrorComponentProps) {
   const router = useRouter();
@@ -33,7 +33,7 @@ export function DefaultCatchBoundary({ error }: ErrorComponentProps) {
   }
 
   return (
-    <Section padding={6} variant="transparent">
+    <Page width="narrow">
       <Center axis="horizontal" width="100%">
         <Card maxWidth={800} padding={8} width="100%">
           <VStack gap={4}>
@@ -56,6 +56,6 @@ export function DefaultCatchBoundary({ error }: ErrorComponentProps) {
           </VStack>
         </Card>
       </Center>
-    </Section>
+    </Page>
   );
 }

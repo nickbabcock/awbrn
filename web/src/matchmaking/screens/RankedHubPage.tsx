@@ -22,12 +22,9 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "#/ui/Button.tsx";
 import { Card } from "@astryxdesign/core/Card";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
-import { List } from "@astryxdesign/core/List";
-import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
+import { List, ListItem } from "@astryxdesign/core/List";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
-import { Section } from "@astryxdesign/core/Section";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Table, proportional, pixel } from "@astryxdesign/core/Table";
@@ -68,8 +65,9 @@ interface StandingsRow extends StandingsEntry {
 }
 import type { RankedPool } from "#/matches/schemas.ts";
 import { RouterButton, RouterListItem } from "#/ui/astryx-links.tsx";
-import { ROSTER_MEDIA_SIZE, TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
+import { ROSTER_MEDIA_SIZE } from "#/ui/layout.ts";
 import { formatCompactDuration, formatRelativeTime } from "#/utils/time.ts";
+import { Page, PageHeader } from "#/ui/Page.tsx";
 
 /** How long a stepper press rests before the new capacity is saved. */
 const CAPACITY_SAVE_DELAY_MS = 700;
@@ -92,23 +90,13 @@ export function RankedHubPage({
   const copy = rankedPoolCopy(snapshot.pool);
 
   return (
-    <Section padding={6} variant="transparent">
+    <Page>
       <VStack gap={6}>
-        <Grid
-          align="end"
-          columns={{ minWidth: TWO_COLUMN_GRID_MIN_WIDTH, max: 2, repeat: "fit" }}
-          gap={4}
-        >
-          <VStack gap={2}>
-            <Heading level={1} type="display-2">
-              Ranked play
-            </Heading>
-            <Text color="secondary" type="large">
-              Say how many games you want at a time. We find the opponents.
-            </Text>
-          </VStack>
-          <SeasonReadout season={overview.season} />
-        </Grid>
+        <PageHeader
+          actions={<SeasonReadout season={overview.season} />}
+          description="Say how many games you want at a time, and we find the opponents."
+          title="Play"
+        />
 
         <VStack gap={2}>
           <SegmentedControl
@@ -139,7 +127,7 @@ export function RankedHubPage({
 
         <StandingsPanel pool={snapshot.pool} />
       </VStack>
-    </Section>
+    </Page>
   );
 }
 
@@ -157,12 +145,10 @@ function SeasonReadout({
   }
 
   return (
-    <MetadataList>
-      <MetadataListItem label="Season">{`Season ${season.number}`}</MetadataListItem>
-      <MetadataListItem label="Ends in">
-        {formatCompactDuration(Date.parse(season.endsAt) - Date.now())}
-      </MetadataListItem>
-    </MetadataList>
+    <Text type="label">
+      Season {season.number} · ends in{" "}
+      {formatCompactDuration(Date.parse(season.endsAt) - Date.now())}
+    </Text>
   );
 }
 
@@ -261,9 +247,7 @@ function SeekPanel({
         </HStack>
 
         <VStack gap={3}>
-          <Text type="supporting" weight="bold">
-            {statusLine}
-          </Text>
+          <Text type="label">{statusLine}</Text>
           <SlotMeter
             slots={slotMeter({
               activeMatches: snapshot.activeMatches,
@@ -346,7 +330,7 @@ function RatingReadout({ rating }: { rating: RankedPoolSnapshot["rating"] }) {
 
   return (
     <VStack align="end" gap={1}>
-      <Text color="secondary" type="supporting" weight="bold">
+      <Text color="secondary" type="label">
         Your rating
       </Text>
       <Heading level={3}>{value}</Heading>
@@ -368,17 +352,16 @@ function PendingPanel({ pending }: { pending: RankedPendingSummary[] }) {
       hasDividers
       header={
         <HStack align="center" gap={2}>
-          <Text type="supporting" weight="bold">
+          <Text type="label">
             {pending.length === 1 ? "1 pairing needs you" : `${pending.length} pairings need you`}
           </Text>
-          <Badge label="Confirm" variant="warning" />
         </HStack>
       }
     >
       {pending.map((match) => {
         const faction = getFactionById(match.factionId);
         return (
-          <RouterListItem
+          <ListItem
             description={
               <Text color="secondary" type="supporting">
                 {[
@@ -388,16 +371,25 @@ function PendingPanel({ pending }: { pending: RankedPendingSummary[] }) {
                 ].join(" · ")}
               </Text>
             }
-            endContent={<Countdown deadlineAt={match.deadlineAt} />}
+            endContent={
+              <HStack align="center" gap={3}>
+                <Countdown deadlineAt={match.deadlineAt} />
+                <RouterButton
+                  label="Confirm pairing"
+                  params={{ matchId: match.matchId }}
+                  size="sm"
+                  to="/matches/$matchId"
+                  variant="primary"
+                />
+              </HStack>
+            }
             key={match.matchId}
             label={match.mapName}
-            params={{ matchId: match.matchId }}
             startContent={
               faction ? (
                 <FactionLogo factionCode={faction.code} size={ROSTER_MEDIA_SIZE.crest} />
               ) : null
             }
-            to="/matches/$matchId"
           />
         );
       })}
@@ -406,6 +398,9 @@ function PendingPanel({ pending }: { pending: RankedPendingSummary[] }) {
 }
 
 function InPlayPanel({ snapshot }: { snapshot: RankedPoolSnapshot }) {
+  // A pairing waiting to be confirmed is already the first game, so the empty
+  // state that promises one would be talking about the row above it.
+  if (snapshot.inPlay.length === 0 && snapshot.pending.length > 0) return null;
   if (snapshot.inPlay.length === 0) {
     return (
       <EmptyState
@@ -427,7 +422,7 @@ function InPlayPanel({ snapshot }: { snapshot: RankedPoolSnapshot }) {
       density="spacious"
       hasDividers
       header={
-        <Text type="supporting" weight="bold">
+        <Text type="label">
           {snapshot.inPlay.length === 1
             ? "1 game in play"
             : `${snapshot.inPlay.length} games in play`}
@@ -524,9 +519,7 @@ function StandingsPanel({ pool }: { pool: RankedPool }) {
       {data.viewer?.isProvisional ? (
         <Card padding={4} variant="muted">
           <VStack gap={1}>
-            <Text type="supporting" weight="bold">
-              Provisional · {formatRating(data.viewer.rating, 350)}
-            </Text>
+            <Text type="label">Provisional · {formatRating(data.viewer.rating, 350)}</Text>
             <Text color="secondary" type="supporting">
               {data.viewer.ratedMatches === 0
                 ? "Play a rated game and your rating settles into the standings."

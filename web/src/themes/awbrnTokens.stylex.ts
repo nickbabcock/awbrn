@@ -10,7 +10,4 @@ export const awbrnVars = stylex.defineConsts({
 /** Match report dimensions that do not map to the Astryx core scale. */
 export const matchHistoryVars = stylex.defineConsts({
   briefWidth: "300px",
-  titleFluidSize: "13vw",
-  titleMaximumSize: "3.375rem",
-  titleMinimumSize: "1.75rem",
 });

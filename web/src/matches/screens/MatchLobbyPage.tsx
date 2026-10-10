@@ -18,17 +18,14 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "#/ui/Button.tsx";
 import { Card } from "@astryxdesign/core/Card";
-import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
-import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
-import { Section } from "@astryxdesign/core/Section";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { colorVars, durationVars } from "@astryxdesign/core/theme/tokens.stylex";
+import { colorVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import { awbrnVars } from "#/themes/awbrnTokens.stylex.ts";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { Cancel as CancelIcon } from "pixelarticons/react/Cancel";
 import { Check as CheckIcon } from "pixelarticons/react/Check";
 import { Logout as LogoutIcon } from "pixelarticons/react/Logout";
@@ -40,13 +37,13 @@ import { MapPicture } from "#/maps/components/MapPicture.tsx";
 import { CoPortrait } from "#/components/CoPortrait.tsx";
 import { BannedCoList, CoBoard } from "#/components/CoBoard.tsx";
 import {
-  DEFAULT_CO_PORTRAIT_KEY,
   getCoPortraitByAwbwId,
   loadCoPortraitCatalog,
   type CoPortraitCatalog,
 } from "#/components/co_portraits.ts";
 import { PlayerHeader } from "#/components/PlayerHeader.tsx";
-import { defaultFactionIdForSlot, getFactionById } from "#/factions.ts";
+import { defaultFactionIdForSlot, getFactionByCode, getFactionById } from "#/factions.ts";
+import { FactionCrest } from "#/components/FactionCrest.tsx";
 import {
   lobbyPollInterval,
   lobbySignature,
@@ -60,8 +57,10 @@ import type {
   MatchParticipantSnapshot,
   MatchSnapshot,
 } from "#/matches/schemas.ts";
-import { TWO_COLUMN_GRID_MIN_WIDTH } from "#/ui/layout.ts";
+import { RouterTextLink } from "#/ui/astryx-links.tsx";
+import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { formatClockSummary } from "#/matches/match_clock.ts";
+import { Page } from "#/ui/Page.tsx";
 
 /** How long an armed "Confirm leave" stays armed before it disarms itself. */
 const LEAVE_CONFIRM_TIMEOUT_MS = 5_000;
@@ -222,448 +221,465 @@ export function MatchLobbyPage({
   const isLocked = pendingAction !== null || match.phase !== "lobby";
   const mapName = mapData?.metadata.name ?? mapEntry?.name ?? `Map ${match.mapId}`;
 
-  return (
-    <Section padding={6} variant="transparent">
-      <VStack gap={6}>
-        <Grid align="end" columns={{ minWidth: 320, max: 2, repeat: "fit" }} gap={5}>
+  const ownedSlots = Array.from({ length: match.maxPlayers }, (_, slotIndex) => slotIndex).filter(
+    (slotIndex) =>
+      currentUserId !== null && participantsBySlot.get(slotIndex)?.userId === currentUserId,
+  );
+  const openSlots = Array.from({ length: match.maxPlayers }, (_, slotIndex) => slotIndex).filter(
+    (slotIndex) => !participantsBySlot.has(slotIndex),
+  );
+  const canClaim = session !== null && (match.settings.hotseatEnabled || !hasOwnedSeat);
+  const readyCount = match.participants.filter((participant) => participant.ready).length;
+
+  function factionCodeFor(slotIndex: number): string {
+    const participant = participantsBySlot.get(slotIndex) ?? null;
+    const factionId =
+      participant?.factionId ?? slotFactionIds?.[slotIndex] ?? defaultFactionIdForSlot(slotIndex);
+    return getFactionById(factionId)?.code ?? "os";
+  }
+
+  function claim(slotIndex: number): void {
+    const slotFactionId = slotFactionIds?.[slotIndex] ?? null;
+    if (slotFactionId === null) return;
+    void submitAction(
+      { action: "join", slotIndex, factionId: slotFactionId, joinSlug },
+      `join-${slotIndex}`,
+    );
+  }
+
+  // The battlefield sits under the claim panel for a viewer without a seat,
+  // where it is what they are deciding on, and beside the seat once they
+  // have one, where the CO board is the decision.
+  const battlefield = (
+    <Card padding={0} xstyle={styles.panel}>
+      <VStack gap={1} xstyle={styles.panelHead}>
+        <Heading level={2}>Battlefield</Heading>
+        <Text color="secondary" type="label">
+          {[
+            mapName === match.name ? null : mapName,
+            mapData ? `${mapData.width}×${mapData.height}` : null,
+            mapData ? `by ${mapData.metadata.author}` : null,
+          ]
+            .filter((part): part is string => part !== null)
+            .join(" · ") || "Reading the battlefield"}
+        </Text>
+      </VStack>
+      <VStack align="center" gap={0} xstyle={styles.mapWell}>
+        {mapEntry ? (
+          <VStack gap={0} xstyle={styles.mapCap}>
+            <MapPicture
+              alt={`The battlefield of ${mapEntry.name}`}
+              sourceHeight={mapScreenshotSize("full", mapEntry.width, mapEntry.height).height}
+              sourceWidth={mapScreenshotSize("full", mapEntry.width, mapEntry.height).width}
+              src={mapEntry.screenshot.full}
+            />
+          </VStack>
+        ) : (
+          <Skeleton height={280} radius="none" width="100%" />
+        )}
+      </VStack>
+      <VStack gap={4} xstyle={styles.panelBody}>
+        <Text type="label">
+          {[
+            match.settings.fogEnabled ? "Fog" : "No fog",
+            `${match.settings.startingFunds.toLocaleString()} funds`,
+            formatClockSummary(match.settings.clock),
+            `Host ${match.creatorName}`,
+          ].join(" · ")}
+        </Text>
+        <VStack gap={2}>
+          <Text type="label">Banned COs</Text>
+          <BannedCoList bannedCoIds={match.settings.bannedCoIds} />
+        </VStack>
+        {shareUrl ? (
           <VStack gap={2}>
-            <Text color="accent" type="supporting" weight="bold">
-              {formatPhaseLabel(match.phase)}
-            </Text>
-            {/* A match name is free text, so it may arrive as one unbroken run. */}
-            <HStack align="center" gap={2} wrap="wrap">
-              <Heading level={1} type="display-2" xstyle={styles.breakAnywhere}>
-                {match.name}
-              </Heading>
-              {match.settings.hotseatEnabled ? <Badge label="Hotseat" variant="blue" /> : null}
-            </HStack>
-            <Text color="secondary" type="large">
-              {mapName} · {match.maxPlayers} players ·{" "}
-              {match.isPrivate ? "Private invite" : "Open lobby"}
+            <Text type="label">Private join link</Text>
+            {/* A slug has no spaces, so the URL is one unbreakable run. */}
+            <Text type="supporting" xstyle={styles.breakAnywhere}>
+              {shareUrl}
             </Text>
           </VStack>
-          <MetadataList columns="single" label={{ position: "start", width: 120 }}>
-            <MetadataListItem label="Creator">{match.creatorName}</MetadataListItem>
-            <MetadataListItem label="Match rules">
-              {match.settings.fogEnabled ? "Fog on" : "Fog off"} ·{" "}
-              {match.settings.startingFunds.toLocaleString()} funds
-            </MetadataListItem>
-            <MetadataListItem label="Clock">
-              {formatClockSummary(match.settings.clock)}
-            </MetadataListItem>
-            {shareUrl ? (
-              <MetadataListItem label="Private join link">
-                {/* A slug has no spaces, so the URL is one unbreakable run. */}
-                <Text type="supporting" xstyle={styles.breakAnywhere}>
-                  {shareUrl}
-                </Text>
-              </MetadataListItem>
-            ) : null}
-          </MetadataList>
-        </Grid>
-
-        <Grid
-          align="start"
-          columns={{ minWidth: TWO_COLUMN_GRID_MIN_WIDTH, max: 2, repeat: "fit" }}
-          gap={6}
-        >
-          <Card padding={5}>
-            <VStack gap={4}>
-              <VStack gap={1}>
-                <Heading level={2}>{mapName}</Heading>
-                <Text color="secondary" type="supporting">
-                  {mapData
-                    ? `${mapData.metadata.author} · ${mapData.width} × ${mapData.height}`
-                    : "Reading the battlefield…"}
-                </Text>
-              </VStack>
-
-              {mapEntry ? (
-                <MapPicture
-                  alt={`The battlefield of ${mapEntry.name}`}
-                  sourceHeight={mapScreenshotSize("full", mapEntry.width, mapEntry.height).height}
-                  sourceWidth={mapScreenshotSize("full", mapEntry.width, mapEntry.height).width}
-                  src={mapEntry.screenshot.full}
-                />
-              ) : (
-                <Section height={280} padding={0} variant="muted" xstyle={styles.pictureWell}>
-                  <Skeleton height="100%" radius="none" />
-                </Section>
-              )}
-
-              <MetadataList columns={3} label={{ position: "top" }}>
-                <MetadataListItem label="Layout">
-                  {mapData
-                    ? `${mapData.width} × ${mapData.height}`
-                    : `${match.maxPlayers} player map`}
-                </MetadataListItem>
-                <MetadataListItem label="Visibility">
-                  {match.settings.fogEnabled ? "Fog enabled" : "Clear vision"}
-                </MetadataListItem>
-                <MetadataListItem label="Economy">
-                  {match.settings.startingFunds.toLocaleString()} starting funds
-                </MetadataListItem>
-              </MetadataList>
-
-              <VStack gap={2}>
-                <Heading level={3}>Banned COs</Heading>
-                <BannedCoList bannedCoIds={match.settings.bannedCoIds} />
-              </VStack>
-
-              {mapQuery.isError || mapEntryQuery.isError ? (
-                <Banner
-                  endContent={
-                    <Button
-                      clickAction={() => {
-                        void mapQuery.refetch();
-                        void mapEntryQuery.refetch();
-                      }}
-                      isLoading={mapQuery.isFetching || mapEntryQuery.isFetching}
-                      label="Retry"
-                      size="sm"
-                      variant="secondary"
-                    />
-                  }
-                  status="warning"
-                  title="The map could not be read"
-                />
-              ) : null}
-            </VStack>
-          </Card>
-
-          <Card padding={5}>
-            <VStack gap={4}>
-              <VStack gap={1}>
-                <Heading level={2}>Seats</Heading>
-                <Text color="secondary" type="supporting">
-                  {match.participants.length} of {match.maxPlayers} claimed
-                </Text>
-              </VStack>
-
-              {/* These messages arrive without the viewer acting, now that the
-                  record is polled, so they are announced rather than only
-                  drawn. */}
-              <VStack as="output" gap={3}>
-                {actionError ? (
-                  <Banner description={actionError} status="error" title="Lobby update failed" />
-                ) : null}
-                {!session ? (
-                  <Banner status="info" title="Sign in to claim a seat in the lobby" />
-                ) : null}
-                {match.phase === "starting" ? (
-                  <Banner status="info" title="All players are ready. Starting the match…" />
-                ) : null}
-                {match.phase === "active" ? (
-                  <Banner status="info" title="The match is active. Lobby controls are locked." />
-                ) : null}
-              </VStack>
-
-              <VStack gap={3}>
-                {Array.from({ length: match.maxPlayers }, (_, slotIndex) => {
-                  const participant = participantsBySlot.get(slotIndex) ?? null;
-                  const slotFactionId = slotFactionIds?.[slotIndex] ?? null;
-                  const factionId =
-                    participant?.factionId ?? slotFactionId ?? defaultFactionIdForSlot(slotIndex);
-
-                  return (
-                    <SeatCard
-                      bannedCoIds={bannedCoIds}
-                      catalog={portraitCatalog}
-                      isLocked={isLocked}
-                      isMine={participant?.userId === currentUserId && currentUserId !== null}
-                      canClaim={
-                        session !== null &&
-                        slotFactionId !== null &&
-                        (match.settings.hotseatEnabled || !hasOwnedSeat)
-                      }
-                      factionCode={getFactionById(factionId)?.code ?? "os"}
-                      isLeaveConfirming={leaveConfirmingSlot === slotIndex}
-                      key={slotIndex}
-                      onClaim={() =>
-                        slotFactionId === null
-                          ? undefined
-                          : void submitAction(
-                              { action: "join", slotIndex, factionId: slotFactionId, joinSlug },
-                              `join-${slotIndex}`,
-                            )
-                      }
-                      onFactionChange={
-                        participant === null || match.phase !== "lobby"
-                          ? undefined
-                          : (nextValue) =>
-                              submitAction(
-                                {
-                                  action: "updateParticipant",
-                                  slotIndex,
-                                  factionId: nextValue,
-                                  joinSlug,
-                                },
-                                "faction",
-                              )
-                      }
-                      onPickCo={(coId) =>
-                        void submitAction(
-                          { action: "updateParticipant", slotIndex, coId, joinSlug },
-                          "co",
-                        )
-                      }
-                      onLeave={() => {
-                        if (leaveConfirmingSlot !== slotIndex) {
-                          setLeaveConfirmingSlot(slotIndex);
-                          return;
-                        }
-                        setLeaveConfirmingSlot(null);
-                        void submitAction({ action: "leave", slotIndex }, "leave");
-                      }}
-                      onReadyChange={(ready) =>
-                        void submitAction(
-                          { action: "updateParticipant", slotIndex, ready, joinSlug },
-                          "ready",
-                        )
-                      }
-                      participant={participant}
-                      phase={match.phase}
-                      slotIndex={slotIndex}
-                    />
-                  );
-                })}
-              </VStack>
-            </VStack>
-          </Card>
-        </Grid>
+        ) : null}
+        {mapQuery.isError || mapEntryQuery.isError ? (
+          <Banner
+            endContent={
+              <Button
+                clickAction={() => {
+                  void mapQuery.refetch();
+                  void mapEntryQuery.refetch();
+                }}
+                isLoading={mapQuery.isFetching || mapEntryQuery.isFetching}
+                label="Retry"
+                size="sm"
+                variant="secondary"
+              />
+            }
+            status="warning"
+            title="The map could not be read"
+          />
+        ) : null}
       </VStack>
-    </Section>
+    </Card>
+  );
+
+  return (
+    <Page>
+      <VStack gap={6}>
+        <VStack as="header" gap={2}>
+          {/* A match name is free text, so it may arrive as one unbroken run. */}
+          <HStack align="center" gap={2} wrap="wrap">
+            <Heading level={1} xstyle={styles.breakAnywhere}>
+              {match.name}
+            </Heading>
+            <Badge label={formatPhaseLabel(match.phase)} variant="warning" />
+            {match.settings.hotseatEnabled ? <Badge label="Hotseat" variant="blue" /> : null}
+          </HStack>
+          <Text color="secondary" type="large">
+            {match.participants.length} of {match.maxPlayers} seats claimed · {readyCount} ready.
+            The match starts when every seat is ready.
+          </Text>
+        </VStack>
+
+        {/* These messages arrive without the viewer acting, now that the
+            record is polled, so they are announced rather than only drawn. */}
+        <VStack as="output" gap={3}>
+          {actionError ? (
+            <Banner description={actionError} status="error" title="Lobby update failed" />
+          ) : null}
+          {match.phase === "starting" ? (
+            <Banner status="info" title="All players are ready. Starting the match…" />
+          ) : null}
+          {match.phase === "active" ? (
+            <Banner status="info" title="The match is active. Lobby controls are locked." />
+          ) : null}
+        </VStack>
+
+        <VStack gap={6} xstyle={styles.split}>
+          <VStack gap={6} xstyle={styles.column}>
+            {ownedSlots.length > 0 ? (
+              ownedSlots.map((slotIndex) => {
+                const participant = participantsBySlot.get(slotIndex)!;
+                return (
+                  <OwnSeatPanel
+                    bannedCoIds={bannedCoIds}
+                    factionCode={factionCodeFor(slotIndex)}
+                    isLeaveConfirming={leaveConfirmingSlot === slotIndex}
+                    isLocked={isLocked}
+                    key={slotIndex}
+                    onFactionChange={
+                      match.phase !== "lobby"
+                        ? undefined
+                        : (nextValue) =>
+                            submitAction(
+                              {
+                                action: "updateParticipant",
+                                slotIndex,
+                                factionId: nextValue,
+                                joinSlug,
+                              },
+                              "faction",
+                            )
+                    }
+                    onLeave={() => {
+                      if (leaveConfirmingSlot !== slotIndex) {
+                        setLeaveConfirmingSlot(slotIndex);
+                        return;
+                      }
+                      setLeaveConfirmingSlot(null);
+                      void submitAction({ action: "leave", slotIndex }, "leave");
+                    }}
+                    onPickCo={(coId) =>
+                      void submitAction(
+                        { action: "updateParticipant", slotIndex, coId, joinSlug },
+                        "co",
+                      )
+                    }
+                    onReadyChange={(ready) =>
+                      void submitAction(
+                        { action: "updateParticipant", slotIndex, ready, joinSlug },
+                        "ready",
+                      )
+                    }
+                    participant={participant}
+                  />
+                );
+              })
+            ) : (
+              <ClaimPanel
+                canClaim={canClaim && slotFactionIds !== null}
+                factionCodeFor={factionCodeFor}
+                isLocked={isLocked}
+                isSignedIn={session !== null}
+                onClaim={claim}
+                openSlots={openSlots}
+              />
+            )}
+            {ownedSlots.length > 0 &&
+            canClaim &&
+            openSlots.length > 0 &&
+            match.settings.hotseatEnabled ? (
+              <ClaimPanel
+                canClaim={slotFactionIds !== null}
+                factionCodeFor={factionCodeFor}
+                isLocked={isLocked}
+                isSignedIn
+                onClaim={claim}
+                openSlots={openSlots}
+              />
+            ) : null}
+            {ownedSlots.length === 0 ? battlefield : null}
+          </VStack>
+
+          <VStack gap={6} xstyle={styles.column}>
+            <Card padding={0} xstyle={styles.panel}>
+              <VStack gap={1} xstyle={styles.panelHead}>
+                <Heading level={2}>Seats</Heading>
+              </VStack>
+              <VStack as="ul" gap={0} role="list" xstyle={styles.roster}>
+                {Array.from({ length: match.maxPlayers }, (_, slotIndex) => (
+                  <RosterRow
+                    catalog={portraitCatalog}
+                    factionCode={factionCodeFor(slotIndex)}
+                    isMine={
+                      currentUserId !== null &&
+                      participantsBySlot.get(slotIndex)?.userId === currentUserId
+                    }
+                    key={slotIndex}
+                    participant={participantsBySlot.get(slotIndex) ?? null}
+                    phase={match.phase}
+                    slotIndex={slotIndex}
+                  />
+                ))}
+              </VStack>
+            </Card>
+
+            {ownedSlots.length > 0 ? battlefield : null}
+          </VStack>
+        </VStack>
+      </VStack>
+    </Page>
   );
 }
 
 /**
- * One seat, drawn the same whoever holds it.
- *
- * An open seat and a claimed one are the same card with the same parts in the
- * same places: the army above, the CO and the state beside each other, the
- * commands at the foot. A roster whose rows change shape as players arrive is
- * a roster nobody can read at a glance, which is the whole job of this panel.
+ * The viewer's own seat, which is the task the lobby exists for: choose the
+ * commander, then ready. The board of faces is the panel's body at full size,
+ * because it is the decision, and Ready is the one key that matters.
  */
-function SeatCard({
+function OwnSeatPanel({
   bannedCoIds,
-  canClaim,
-  catalog,
   factionCode,
   isLeaveConfirming,
   isLocked,
-  isMine,
-  onClaim,
   onFactionChange,
   onLeave,
   onPickCo,
   onReadyChange,
   participant,
-  phase,
-  slotIndex,
 }: {
   bannedCoIds: ReadonlySet<number>;
-  canClaim: boolean;
-  catalog: CoPortraitCatalog;
   factionCode: string;
   isLeaveConfirming: boolean;
   isLocked: boolean;
-  isMine: boolean;
-  onClaim: () => void;
   onFactionChange?: (factionId: number) => void | Promise<void>;
   onLeave: () => void;
   onPickCo: (coId: number) => void;
   onReadyChange: (ready: boolean) => void;
+  participant: MatchParticipantSnapshot;
+}) {
+  const hasCo = participant.coId !== null;
+  const coName = coDisplayName(participant.coId);
+  // A phone fits five small faces to a row and three large ones, and the
+  // large board puts Ready ten rows down.
+  const isWide = useMediaQuery("(min-width: 600px)");
+
+  return (
+    <Card padding={0} xstyle={styles.panel}>
+      <VStack gap={3} xstyle={styles.panelHead}>
+        <Heading level={2}>Your seat</Heading>
+        <PlayerHeader
+          factionCode={factionCode}
+          isFactionLocked={isLocked || onFactionChange === undefined}
+          name={participant.userName}
+          onFactionChange={onFactionChange}
+        />
+      </VStack>
+      <VStack gap={3} xstyle={styles.panelBody}>
+        <HStack align="center" gap={2} justify="between" wrap="wrap">
+          <Heading level={3}>Choose your commander</Heading>
+          <Text color="secondary" type="label">
+            {hasCo ? coName : "Not chosen"}
+          </Text>
+        </HStack>
+        <CoBoard
+          bannedCoIds={bannedCoIds}
+          isDisabled={isLocked}
+          mode="pick"
+          onPick={onPickCo}
+          selectedCoId={participant.coId}
+          size={isWide ? "md" : "sm"}
+        />
+      </VStack>
+      <HStack align="center" gap={3} justify="between" wrap="wrap" xstyle={styles.panelFoot}>
+        <Text color="secondary">
+          {participant.ready
+            ? "You are ready. Changing your commander stands you down."
+            : hasCo
+              ? `Ready to command as ${coName}?`
+              : "Pick a commander to ready up."}
+        </Text>
+        <HStack gap={2} wrap="wrap">
+          {/* Leaving forfeits the seat and cannot be undone if someone else
+              claims it. It takes two presses, and the second one says what it
+              does. */}
+          <Button
+            clickAction={onLeave}
+            icon={<LogoutIcon aria-hidden />}
+            isDisabled={isLocked}
+            label={isLeaveConfirming ? "Confirm leave" : "Leave"}
+            variant={isLeaveConfirming ? "destructive" : "secondary"}
+          />
+          <Button
+            clickAction={() => onReadyChange(!participant.ready)}
+            icon={
+              participant.ready ? (
+                <CancelIcon aria-hidden height={14} width={14} />
+              ) : (
+                <CheckIcon aria-hidden height={14} width={14} />
+              )
+            }
+            isDisabled={isLocked || (!hasCo && !participant.ready)}
+            label={participant.ready ? "Unready" : "Ready up"}
+            variant={participant.ready ? "secondary" : "primary"}
+          />
+        </HStack>
+      </HStack>
+    </Card>
+  );
+}
+
+/** A viewer without a seat: the open seats, each with the key that claims it. */
+function ClaimPanel({
+  canClaim,
+  factionCodeFor,
+  isLocked,
+  isSignedIn,
+  onClaim,
+  openSlots,
+}: {
+  canClaim: boolean;
+  factionCodeFor: (slotIndex: number) => string;
+  isLocked: boolean;
+  isSignedIn: boolean;
+  onClaim: (slotIndex: number) => void;
+  openSlots: number[];
+}) {
+  return (
+    <Card padding={0} xstyle={styles.panel}>
+      <VStack gap={1} xstyle={styles.panelHead}>
+        <Heading level={2}>Take a seat</Heading>
+        <Text color="secondary">
+          {!isSignedIn ? (
+            <>
+              <RouterTextLink search={{ mode: undefined }} to="/auth">
+                Sign in
+              </RouterTextLink>{" "}
+              to claim a seat. You can watch the lobby fill from here.
+            </>
+          ) : openSlots.length === 0 ? (
+            "Every seat is taken. You can watch the lobby from here."
+          ) : (
+            "Claim a seat, then choose your commander and ready up."
+          )}
+        </Text>
+      </VStack>
+      {openSlots.length > 0 ? (
+        <VStack as="ul" gap={0} role="list" xstyle={styles.roster}>
+          {openSlots.map((slotIndex, index) => (
+            <HStack
+              align="center"
+              as="li"
+              gap={3}
+              justify="between"
+              key={slotIndex}
+              xstyle={styles.rosterRow}
+            >
+              <HStack align="center" gap={3}>
+                <FactionCrest factionCode={factionCodeFor(slotIndex)} size={24} />
+                <Text weight="bold">Seat {slotIndex + 1}</Text>
+                <Text color="secondary" type="supporting">
+                  {getFactionByCode(factionCodeFor(slotIndex))?.displayName ?? ""}
+                </Text>
+              </HStack>
+              <Button
+                clickAction={() => onClaim(slotIndex)}
+                isDisabled={isLocked || !canClaim}
+                label="Claim seat"
+                size="sm"
+                variant={index === 0 ? "primary" : "secondary"}
+              />
+            </HStack>
+          ))}
+        </VStack>
+      ) : null}
+    </Card>
+  );
+}
+
+/** One seat in the roster: army, face, name, commander, and where they stand. */
+function RosterRow({
+  catalog,
+  factionCode,
+  isMine,
+  participant,
+  phase,
+  slotIndex,
+}: {
+  catalog: CoPortraitCatalog;
+  factionCode: string;
+  isMine: boolean;
   participant: MatchParticipantSnapshot | null;
   phase: MatchSnapshot["phase"];
   slotIndex: number;
 }) {
-  const portrait = getCoPortraitByAwbwId(participant?.coId ?? null);
-  const coName = participant === null ? "—" : coDisplayName(participant.coId);
   const status = seatStatus(participant, phase);
-
-  // The board opens by itself on the seat that has no CO yet, which is the
-  // seat the player just claimed, and closes once they have chosen. After that
-  // it is theirs to open again. Deriving the default from the seat rather than
-  // holding it in state is what makes it open on the claim: the card was
-  // already mounted as an open seat when the player pressed it.
-  const [isBoardOpen, setBoardOpen] = useState<boolean | null>(null);
-  const canPick = isMine && phase === "lobby";
-  const showBoard = canPick && (isBoardOpen ?? participant?.coId == null);
-  const boardRef = useRef<HTMLDivElement>(null);
-
-  // A board that opens below the fold is the same as no board, so it brings
-  // itself to the player rather than waiting to be scrolled to.
-  useEffect(() => {
-    if (showBoard) boardRef.current?.scrollIntoView({ block: "nearest" });
-  }, [showBoard]);
+  const portrait =
+    participant?.coId === null || participant === null
+      ? null
+      : getCoPortraitByAwbwId(participant.coId);
 
   return (
-    <Section padding={0} variant="muted">
-      <VStack gap={2}>
-        <PlayerHeader
-          factionCode={factionCode}
-          isFactionLocked={!isMine || isLocked}
-          name={participant ? participant.userName : `Seat ${slotIndex + 1} · open`}
-          onFactionChange={isMine ? onFactionChange : undefined}
+    <HStack align="center" as="li" gap={3} xstyle={styles.rosterRow}>
+      <FactionCrest factionCode={factionCode} size={24} />
+      {portrait ? (
+        <CoPortrait
+          catalog={catalog}
+          coKey={portrait.key}
+          fallbackLabel={portrait.displayName}
+          size={SEAT_PORTRAIT_SIZE}
         />
-
-        <Section padding={3} variant="transparent">
-          <VStack gap={3}>
-            <HStack align="center" gap={3}>
-              <SeatPortrait
-                catalog={catalog}
-                coKey={portrait?.key ?? DEFAULT_CO_PORTRAIT_KEY}
-                coName={coName}
-                isEmpty={participant === null}
-                isOpen={showBoard}
-                onToggle={canPick && !isLocked ? () => setBoardOpen(!showBoard) : undefined}
-              />
-              <VStack gap={0.5} xstyle={styles.seatIdentity}>
-                <Text maxLines={1} weight="bold">
-                  {coName}
-                </Text>
-                <Text color={status.tone} type="label">
-                  {status.label}
-                </Text>
-              </VStack>
-            </HStack>
-
-            {showBoard && participant !== null ? (
-              <VStack gap={2} ref={boardRef}>
-                <Text color="secondary" type="supporting">
-                  {participant.coId === null
-                    ? "Choose the commander for this seat. You cannot ready up until you do."
-                    : "Press another face to change commander. Changing stands you down until you ready again."}
-                </Text>
-                <CoBoard
-                  bannedCoIds={bannedCoIds}
-                  isDisabled={isLocked}
-                  mode="pick"
-                  onPick={(coId) => {
-                    setBoardOpen(false);
-                    onPickCo(coId);
-                  }}
-                  selectedCoId={participant.coId}
-                  size="sm"
-                />
-              </VStack>
-            ) : null}
-
-            {participant === null ? (
-              <Button
-                clickAction={onClaim}
-                isDisabled={isLocked || !canClaim}
-                label="Claim seat"
-                size="sm"
-                variant="primary"
-                width="100%"
-              />
-            ) : isMine ? (
-              <HStack gap={2} wrap="wrap">
-                <Button
-                  clickAction={() => onReadyChange(!participant.ready)}
-                  icon={
-                    participant.ready ? (
-                      <CancelIcon aria-hidden height={14} width={14} />
-                    ) : (
-                      <CheckIcon aria-hidden height={14} width={14} />
-                    )
-                  }
-                  isDisabled={isLocked}
-                  label={participant.ready ? "Unready" : "Ready up"}
-                  size="sm"
-                  variant="primary"
-                />
-                {/* Leaving forfeits the seat and cannot be undone if someone
-                    else claims it, and this button sits 8px from Ready on a
-                    phone. It takes two presses, and the second one says what
-                    it does. */}
-                <Button
-                  clickAction={onLeave}
-                  icon={<LogoutIcon aria-hidden />}
-                  isDisabled={isLocked}
-                  label={isLeaveConfirming ? "Confirm leave" : "Leave"}
-                  size="sm"
-                  variant={isLeaveConfirming ? "destructive" : "secondary"}
-                />
-              </HStack>
-            ) : null}
-          </VStack>
-        </Section>
-      </VStack>
-    </Section>
-  );
-}
-
-/**
- * The face in a seat, and the fastest way to change it.
- *
- * On the viewer's own seat the portrait is the key that opens the CO board: a
- * player who wants a different commander reaches for the face they want to
- * replace, not for a control beside it. On every other seat it is the same
- * cell without the behaviour, so the roster still reads as one row repeated.
- *
- * It wears the cursor the rest of the system uses for a chosen thing, the
- * accent outline with the accent ring inside it, while the board it opened is
- * on screen.
- */
-function SeatPortrait({
-  catalog,
-  coKey,
-  coName,
-  isEmpty,
-  isOpen,
-  onToggle,
-}: {
-  catalog: CoPortraitCatalog;
-  coKey: string;
-  coName: string;
-  isEmpty: boolean;
-  isOpen: boolean;
-  /** Left out on a seat the viewer cannot change, which makes it a plain cell. */
-  onToggle?: () => void;
-}) {
-  const face = (
-    <CoPortrait
-      catalog={catalog}
-      coKey={coKey}
-      fallbackLabel={coName}
-      hasFrame={false}
-      size={SEAT_PORTRAIT_SIZE}
-    />
-  );
-
-  if (!onToggle) {
-    return (
-      <Section
-        padding={0}
-        variant="muted"
-        xstyle={[styles.seatPortrait, isEmpty && styles.seatPortraitEmpty]}
-      >
-        {face}
-      </Section>
-    );
-  }
-
-  return (
-    // The label is set on the key rather than beside it, because the portrait
-    // inside already names the CO and a key that reads "Change CO, now Andy
-    // Andy" is what happens when both are left to be read.
-    <button
-      aria-expanded={isOpen}
-      aria-label={isOpen ? "Close the CO board" : `Change CO, now ${coName}`}
-      onClick={onToggle}
-      title={isOpen ? "Close the CO board" : "Change CO"}
-      type="button"
-      {...stylex.props(
-        styles.seatPortrait,
-        styles.portraitKey,
-        isOpen && styles.portraitKeyOpen,
-        styles.portraitKeyReducedMotion,
+      ) : (
+        <VStack gap={0} xstyle={styles.emptyPortrait} />
       )}
-    >
-      {face}
-    </button>
+      <VStack gap={0.5} xstyle={styles.seatIdentity}>
+        <HStack align="center" gap={2}>
+          <Text maxLines={1} weight="bold">
+            {participant ? participant.userName : `Seat ${slotIndex + 1}`}
+          </Text>
+          {isMine ? <Badge label="You" variant="neutral" /> : null}
+        </HStack>
+        <Text color="secondary" maxLines={1} type="supporting">
+          {participant
+            ? portrait
+              ? portrait.displayName
+              : "No commander yet"
+            : "Waiting for a player"}
+        </Text>
+      </VStack>
+      <Text color={status.tone} type="label">
+        {status.label}
+      </Text>
+    </HStack>
   );
 }
 
@@ -695,58 +711,85 @@ const styles = stylex.create({
     lineHeight: 0,
     overflow: "hidden",
   },
-  // A command in this system is a key on a menu, so the portrait that opens
-  // the CO board is one: the ink outline, the cast shadow, and the 2px it
-  // moves into that shadow when pressed. A control that only appears on hover
-  // is a control nobody knows is there.
-  portraitKey: {
-    borderColor: {
-      default: colorVars["--color-border-emphasized"],
-      ":hover": "var(--color-accent)",
-      ":focus-visible": "var(--color-accent)",
+  // Your seat takes seven columns of twelve and the roster and battlefield
+  // the other five, so the decision leads and what it is about sits beside it.
+  split: {
+    display: {
+      default: "flex",
+      [pageLayout.desktopMedia]: "grid",
     },
-    borderStyle: "solid",
-    borderWidth: "var(--border-width)",
-    boxShadow: {
-      default: "var(--shadow-low)",
-      ":active": "none",
+    gridTemplateColumns: {
+      default: null,
+      [pageLayout.desktopMedia]: "minmax(0, 7fr) minmax(0, 5fr)",
     },
-    cursor: "pointer",
-    display: "block",
-    outline: "none",
+    alignItems: {
+      default: "stretch",
+      [pageLayout.desktopMedia]: "start",
+    },
+  },
+  column: {
+    minInlineSize: 0,
+  },
+  panel: {
+    overflow: "hidden",
+  },
+  panelHead: {
+    padding: spacingVars["--spacing-5"],
+    borderBlockEndColor: colorVars["--color-border-emphasized"],
+    borderBlockEndStyle: "solid",
+    borderBlockEndWidth: "var(--border-width)",
+  },
+  panelBody: {
+    padding: spacingVars["--spacing-5"],
+  },
+  panelFoot: {
+    padding: spacingVars["--spacing-5"],
+    backgroundColor: colorVars["--color-background-surface"],
+    borderBlockStartColor: colorVars["--color-border-emphasized"],
+    borderBlockStartStyle: "solid",
+    borderBlockStartWidth: "var(--border-width)",
+  },
+  roster: {
+    margin: 0,
     padding: 0,
-    transform: {
-      default: null,
-      ":active": `translate(${awbrnVars.offsetControlPressed}, ${awbrnVars.offsetControlPressed})`,
-    },
-    transitionDuration: {
-      default: null,
-      ":active": durationVars["--duration-fast-min"],
-    },
+    listStyle: "none",
   },
-  // While the board it opened is on screen the key stays down: the accent
-  // outline with the accent ring inside it, flush on the panel rather than
-  // above it, which is the same cursor a chosen map plate wears.
-  portraitKeyOpen: {
-    borderColor: "var(--color-accent)",
-    boxShadow: "var(--shadow-inset-selected)",
-    transform: `translate(${awbrnVars.offsetControlPressed}, ${awbrnVars.offsetControlPressed})`,
-  },
-  // The key still loses its shadow and keeps its accent outline, so the state
-  // is legible without the 2px of travel. Applied last so it wins over both.
-  portraitKeyReducedMotion: {
-    transform: {
-      default: null,
-      "@media (prefers-reduced-motion: reduce)": "none",
+  rosterRow: {
+    paddingInline: spacingVars["--spacing-5"],
+    paddingBlock: spacingVars["--spacing-3"],
+    borderBlockEndColor: "var(--color-border-soft)",
+    borderBlockEndStyle: "solid",
+    borderBlockEndWidth: {
+      default: "var(--border-width)",
+      ":last-child": 0,
     },
   },
-  // An open seat shows the same portrait cell the claimed seats show, held
-  // back so the row reads as waiting rather than as a player with no face.
-  seatPortraitEmpty: {
-    opacity: 0.4,
+  // The map draws at its own size: large enough to read the ground, never
+  // the largest thing on a screen whose job is a seat and a commander.
+  mapCap: {
+    inlineSize: "100%",
+    maxInlineSize: "360px",
+  },
+  mapWell: {
+    padding: spacingVars["--spacing-3"],
+    backgroundColor: colorVars["--color-background-muted"],
+    borderBlockEndColor: colorVars["--color-border-emphasized"],
+    borderBlockEndStyle: "solid",
+    borderBlockEndWidth: "var(--border-width)",
+  },
+  // An open seat has no face yet: a dashed cell the size of one.
+  emptyPortrait: {
+    flexShrink: 0,
+    inlineSize: `${SEAT_PORTRAIT_SIZE}px`,
+    blockSize: `${SEAT_PORTRAIT_SIZE}px`,
+    borderColor: "var(--color-border-soft)",
+    borderStyle: "dashed",
+    borderWidth: "var(--border-width)",
+    borderRadius: "var(--radius-element)",
   },
   seatIdentity: {
     minWidth: 0,
+    flexGrow: 1,
   },
 });
 
