@@ -112,8 +112,8 @@ cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
 `planner-v5` adds two changes to `planner-v4`. A power plan uses a legal
 commander power before all other orders, and the Hard policy plays the rest of
 the turn. The Hard scoring of `ai-hard-v3` adds a build floor, so a factory is
-not left empty while the funds can buy a unit. The confirmation run of this
-plan has not been archived yet.
+not left empty while the funds can buy a unit. This configuration is an intermediate step. Use the final `planner-v6`
+comparison against `planner-v4` for the production decision.
 
 The plan `planner-v4-vs-v3-fixed280.json` records the earlier comparison of
 `planner-v4` against `planner-v3`. Each plan plays 280 pairs on 14 development
