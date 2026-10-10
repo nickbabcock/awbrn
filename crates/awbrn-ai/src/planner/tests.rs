@@ -206,6 +206,28 @@ fn the_planner_solves_the_puzzle_suite() {
     assert!(failed.is_empty(), "failed puzzles: {failed:?}");
 }
 
+#[test]
+fn the_clearance_planner_preserves_the_tactical_checks() {
+    for puzzle in suite() {
+        let mut agent = PlannerAgent::with_config(7, PlannerConfig::V7_DAY6);
+        agent.start_match();
+        let result = crate::harness::run_agent_turn_unmeasured(
+            puzzle.state.clone(),
+            &mut agent,
+            &mut Rng::from_seed(11),
+            NodeBudget::THIRTY_TWO,
+        )
+        .expect("the turn executes");
+        assert!(result.completed, "{} did not complete", puzzle.name);
+        assert_eq!(result.rejected_commands, 0, "{} was rejected", puzzle.name);
+        let turn = crate::puzzles::PuzzleTurn {
+            start: &puzzle.state,
+            result: &result,
+        };
+        (puzzle.check)(&turn).unwrap_or_else(|error| panic!("{}: {error}", puzzle.name));
+    }
+}
+
 /// A full arena game between two planners has no rejected command, and the
 /// same seeds give the same game.
 #[test]

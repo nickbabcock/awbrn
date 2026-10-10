@@ -30,6 +30,7 @@
 //!
 //! Simulation uses the middle of each luck range, so a plan is deterministic.
 
+mod clearance;
 mod combat;
 mod reply;
 
@@ -110,6 +111,9 @@ pub struct PlannerConfig {
     /// Hard policy plays the rest of the turn.
     #[serde(skip_serializing_if = "is_false")]
     pub power_first: bool,
+    /// The largest number of plans that open attack routes for one decision.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub clearance_plans: usize,
     /// The score of active duels without fog, fitted to human replays.
     ///
     /// When present, it replaces [`PlannerConfig::eval_weights`] at every
@@ -160,6 +164,7 @@ impl PlannerConfig {
         reroute_orders: 0,
         reply_window: 0.0,
         power_first: false,
+        clearance_plans: 0,
         replay_score: None,
     };
 
@@ -214,6 +219,13 @@ impl PlannerConfig {
         ..Self::V5
     };
 
+    /// planner-v6 with plans that open attack routes for exposed units.
+    pub const V7_DAY6: Self = Self {
+        identifier: "planner-v7-day6",
+        clearance_plans: 3,
+        ..Self::V6
+    };
+
     /// Return a stable fingerprint of all configuration values.
     pub fn fingerprint(&self) -> String {
         let bytes = serde_json::to_vec(&(self, self.property_values_key()))
@@ -249,6 +261,7 @@ pub enum Generator {
     Block,
     Reroute,
     Power,
+    Clearance,
 }
 
 /// Counters for one agent over a match.
@@ -274,6 +287,9 @@ pub struct PlannerStats {
     /// Plans where a power plan won.
     #[serde(default)]
     pub chose_power: u64,
+    /// Plans won by an attack-route plan.
+    #[serde(default)]
+    pub chose_clearance: u64,
     /// Decisions where the observed position differed from the prediction.
     pub mismatches: u64,
     /// Decisions that the Hard policy made after the plan or work limit.
@@ -418,6 +434,7 @@ impl PlannerAgent {
             Generator::Block => self.stats.chose_block += 1,
             Generator::Reroute => self.stats.chose_reroute += 1,
             Generator::Power => self.stats.chose_power += 1,
+            Generator::Clearance => self.stats.chose_clearance += 1,
         }
         self.plan = line.plays;
         self.positions = positions;
@@ -539,15 +556,33 @@ impl TurnPlanner<'_> {
                     .map(|play| (Generator::Power, vec![play])),
             );
         }
-        for unit in best.reply.destroyed.iter().take(self.config.safety_plans) {
-            if let Some(play) = hold(&session, *unit) {
-                alternatives.push((Generator::Safety, vec![play]));
-            }
+        let safety_holds: Vec<Play> = best
+            .reply
+            .destroyed
+            .iter()
+            .take(self.config.safety_plans)
+            .filter_map(|unit| hold(&session, *unit))
+            .collect();
+        for play in &safety_holds {
+            alternatives.push((Generator::Safety, vec![*play]));
         }
         for cell in best.reply.threatened.iter().take(self.config.block_plans) {
             if let Some(play) = block(&session, self.seat, *cell) {
                 alternatives.push((Generator::Block, vec![play]));
             }
+        }
+        if self.config.clearance_plans > 0 {
+            alternatives.extend(
+                clearance::plans(
+                    self,
+                    &session,
+                    &best,
+                    &safety_holds,
+                    self.config.clearance_plans,
+                )
+                .into_iter()
+                .map(|prefix| (Generator::Clearance, prefix)),
+            );
         }
         // Reroutes come last: a block can save the headquarters, and a work
         // limit must not stop it.
@@ -929,3 +964,6 @@ fn line_positions(root: &Session, plays: &[Play]) -> Option<Vec<State>> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod day6_diagnostics;

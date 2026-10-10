@@ -82,6 +82,10 @@ fn play_turn(state: State, agent: &mut dyn Agent, budget: NodeBudget) -> State {
 
 /// The mean change in army balance over the Hard turn and the reply.
 fn mean_swing(name: &str) -> f64 {
+    mean_swing_with(name, HARD.planner())
+}
+
+fn mean_swing_with(name: &str, config: PlannerConfig) -> f64 {
     let start = fixture(name);
     let seat = start
         .players
@@ -90,9 +94,9 @@ fn mean_swing(name: &str) -> f64 {
     let total: f64 = SEEDS
         .iter()
         .map(|&seed| {
-            let mut agent = HARD.agent(seed);
+            let mut agent = PlannerAgent::with_config(seed, config);
             agent.start_match();
-            let after = play_turn(start.clone(), &mut *agent, HARD.node_budget());
+            let after = play_turn(start.clone(), &mut agent, HARD.node_budget());
             let mut reply = PlannerAgent::with_config(REPLY_SEED, PlannerConfig::V3);
             reply.start_match();
             let replied = play_turn(after, &mut reply, NodeBudget::SIXTEEN);
@@ -103,10 +107,15 @@ fn mean_swing(name: &str) -> f64 {
 }
 
 fn check(name: &str, threshold: f64) {
-    let swing = mean_swing(name);
+    check_with(name, threshold, HARD.planner());
+}
+
+fn check_with(name: &str, threshold: f64, config: PlannerConfig) {
+    let swing = mean_swing_with(name, config);
     assert!(
         swing >= threshold,
-        "{name}: army balance changed by {swing:.0}, threshold {threshold:.0}"
+        "{} {name}: army balance changed by {swing:.0}, threshold {threshold:.0}",
+        config.identifier
     );
 }
 
@@ -129,21 +138,22 @@ fn print_replay_swings() {
 /// A tank attacks a capturing infantry from a tile where the enemy tank and
 /// recon can reach it.
 #[test]
-#[ignore = "planner-v6 does not pass this position"]
 fn day_six_does_not_trade_a_tank_for_a_capture_stop() {
-    check("amber-valley-day06", 0.0);
+    check_with("amber-valley-day06", 0.0, PlannerConfig::V7_DAY6);
 }
 
 /// A damaged tank attacks again into enemy fire and is destroyed.
 #[test]
 fn day_seven_does_not_attack_into_a_counterattack() {
     check("amber-valley-day07", -4_000.0);
+    check_with("amber-valley-day07", -4_000.0, PlannerConfig::V7_DAY6);
 }
 
 /// Three units attack one tank from tiles that the enemy army covers.
 #[test]
 fn day_nine_does_not_leave_its_attackers_exposed() {
     check("amber-valley-day09", -3_500.0);
+    check_with("amber-valley-day09", -3_500.0, PlannerConfig::V7_DAY6);
 }
 
 /// The army near the headquarters loses most of its value in one exchange.

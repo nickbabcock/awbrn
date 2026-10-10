@@ -1,0 +1,28 @@
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/awbrn_ai-5c45c1bad4498980)
+
+running 1 test
+single-order candidates=292 passing=20
+mean=3970 seed_score=188 line_score=2688 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 15, y: 8 }) Attack(CellIdx(195))"] swings=[2630.0, 4640.0, 4640.0]
+mean=3633 seed_score=188 line_score=2136 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 18, y: 7 }) Wait"] swings=[4700.0, 1500.0, 4700.0]
+mean=3597 seed_score=188 line_score=2100 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 17, y: 6 }) Wait"] swings=[1510.0, 4640.0, 4640.0]
+mean=3457 seed_score=188 line_score=2093 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 16, y: 6 }) Wait"] swings=[4640.0, 1090.0, 4640.0]
+mean=1650 seed_score=188 line_score=823 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 16, y: 8 }) Attack(CellIdx(196))"] swings=[1650.0, 1650.0, 1650.0]
+mean=1650 seed_score=188 line_score=823 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 17, y: 9 }) Attack(CellIdx(196))"] swings=[1650.0, 1650.0, 1650.0]
+mean=1630 seed_score=188 line_score=2068 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 14, y: 7 }) Wait"] swings=[1630.0, 1630.0, 1630.0]
+mean=1630 seed_score=188 line_score=2040 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 15, y: 7 }) Wait"] swings=[1630.0, 1630.0, 1630.0]
+mean=1630 seed_score=188 line_score=1989 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 16, y: 7 }) Wait"] swings=[1630.0, 1630.0, 1630.0]
+mean=1630 seed_score=188 line_score=2034 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 17, y: 7 }) Wait"] swings=[1630.0, 1630.0, 1630.0]
+mean=1630 seed_score=188 line_score=2038 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 13, y: 8 }) Wait"] swings=[1630.0, 1630.0, 1630.0]
+mean=1630 seed_score=188 line_score=1992 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 14, y: 8 }) Wait"] swings=[1630.0, 1630.0, 1630.0]
+mean=1630 seed_score=188 line_score=2652 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 15, y: 8 }) Wait"] swings=[1630.0, 1630.0, 1630.0]
+mean=1630 seed_score=188 line_score=2034 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 17, y: 8 }) Wait"] swings=[1630.0, 1630.0, 1630.0]
+mean=1630 seed_score=188 line_score=2017 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 14, y: 9 }) Wait"] swings=[1630.0, 1630.0, 1630.0]
+mean=1630 seed_score=188 line_score=2061 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 18, y: 9 }) Wait"] swings=[1630.0, 1630.0, 1630.0]
+mean=1500 seed_score=188 line_score=2161 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 19, y: 8 }) Wait"] swings=[1500.0, 1500.0, 1500.0]
+mean=1480 seed_score=188 line_score=2167 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 18, y: 8 }) Wait"] swings=[1480.0, 1480.0, 1480.0]
+mean=1220 seed_score=188 line_score=1728 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 14, y: 9 }) Attack(CellIdx(195))"] swings=[1220.0, 1220.0, 1220.0]
+mean=1090 seed_score=188 line_score=2216 play=["unit=Some(UnitId(4)) to=Some(Pos { x: 17, y: 9 }) Wait"] swings=[1090.0, 1090.0, 1090.0]
+test planner::day6_diagnostics::scan_day6_all_unit_orders ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 180 filtered out; finished in 48.52s
