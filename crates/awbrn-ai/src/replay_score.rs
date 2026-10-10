@@ -73,7 +73,7 @@ impl ReplayScore {
     pub const CUP_3_4: Self = Self {
         material: 1.0,
         income: 3.306_273_208_283_262_6e-4 / CUP_3_4_MATERIAL,
-        bank: 4.845_099_211_124_461_5e-5 / CUP_3_4_MATERIAL,
+        bank: 0.5 * 9.690_198_422_248_923e-5 / CUP_3_4_MATERIAL,
         unit_count: 0.099_613_397_579_772_51 / CUP_3_4_MATERIAL,
         capture_progress: 0.086_030_140_260_857_66 / CUP_3_4_MATERIAL,
         front_position: 0.0,
