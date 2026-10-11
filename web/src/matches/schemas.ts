@@ -288,6 +288,11 @@ export interface MatchParticipantSnapshot {
   slotIndex: number;
   factionId: number;
   coId: number | null;
+  /**
+   * The seat has chosen a commander that this viewer may not see yet. The
+   * commander is withheld until the match starts, so `coId` is null.
+   */
+  isCoSealed?: boolean;
   ready: boolean;
   joinedAt: string;
   updatedAt: string;

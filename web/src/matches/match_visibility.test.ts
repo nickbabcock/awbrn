@@ -107,3 +107,46 @@ describe("a pending ranked pairing", () => {
     expect(seen.participants.find((entry) => entry.userId === OPPONENT)?.userName).toBe("Sami");
   });
 });
+
+describe("a lobby", () => {
+  it("seals the other seat's commander but says one is chosen", () => {
+    const seen = applyViewerVisibility(pairing("lobby"), VIEWER);
+    const opponent = seen.participants.find((entry) => entry.userId === OPPONENT);
+
+    expect(opponent?.coId).toBeNull();
+    expect(opponent?.isCoSealed).toBe(true);
+    expect(opponent?.userName).toBe("Sami");
+  });
+
+  it("keeps the viewer's own commander", () => {
+    const seen = applyViewerVisibility(pairing("lobby"), VIEWER);
+    const seat = seen.participants.find((entry) => entry.userId === VIEWER);
+
+    expect(seat?.coId).toBe(5);
+    expect(seat?.isCoSealed).toBeUndefined();
+  });
+
+  it("does not seal a seat that has not chosen", () => {
+    const seen = applyViewerVisibility(
+      pairing("lobby", {
+        participants: [participant(VIEWER), participant(OPPONENT, { coId: null })],
+      }),
+      VIEWER,
+    );
+    const opponent = seen.participants.find((entry) => entry.userId === OPPONENT);
+
+    expect(opponent?.isCoSealed).toBeUndefined();
+  });
+
+  it("seals every commander from a spectator", () => {
+    const seen = applyViewerVisibility(pairing("lobby"), null);
+
+    expect(seen.participants.every((entry) => entry.coId === null && entry.isCoSealed)).toBe(true);
+  });
+
+  it("shows every commander once the match is active", () => {
+    const seen = applyViewerVisibility(pairing("active"), VIEWER);
+
+    expect(seen.participants.every((entry) => entry.coId === 5)).toBe(true);
+  });
+});
