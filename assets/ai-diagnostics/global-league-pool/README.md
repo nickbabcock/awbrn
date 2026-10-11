@@ -6,10 +6,10 @@ The map files use the official AWBW map-info API. This API includes terrain and 
 
 The manifest records each map's source URL, map page, mode, rank, size, factions, deployment count, and fingerprints. Its source paths are relative to this folder.
 
-The manifest splits the maps into 21 development maps and 21 untouched holdout maps. The split was assigned without using match outcomes from these maps. Do not use holdout results to choose or tune an agent. Map 67945 stays in development because earlier research used it. The other researched maps do not appear in this pool.
+The original split assigned 21 development maps and 21 holdout maps without using their match outcomes. Earlier v6 commander probes used seven holdout maps with fog disabled; these now have the `evaluated_v6_coverage` split. The manifest references those runs in `evaluation_history`. The remaining 14 maps retain the `untouched_holdout` split. Do not use their results to choose or tune an agent. Map 67945 stays in development because earlier research used it. The other researched maps do not appear in this pool.
 
-`fog-holdout-manifest.json` lists the seven Fog holdout maps with fog enabled. It supports the recorded fog evaluation plan. It does not change the Global League split.
+`fog-holdout-manifest.json` preserves the seven Fog maps used by the earlier coverage probes. It is historical coverage, not an untouched holdout. No untouched Fog holdout remains in this pool. The remaining holdout maps have Standard or High Funds source categories; the diagnostic runner uses its default match settings (0 starting funds and 1,000 income per city), not High Funds rules.
 
-The split uses the fixed label `awbrn-global-league-holdout-v1`. The selector hashes `awbrn-global-league-holdout-v1:<AWBW ID>`, then takes the lowest hashes within fixed mode, rank, and size groups. A map is small when it has 420 tiles or less. The manifest records the bucket counts and prior map IDs.
+The split uses the fixed label `awbrn-global-league-holdout-v1`. The selector hashes `awbrn-global-league-holdout-v1:<AWBW ID>`, then takes the lowest hashes within fixed mode, rank, and size groups. A map is small when it has 420 tiles or less. The manifest records the original and remaining holdout bucket counts and prior map IDs.
 
 All 42 files passed `AwbwMap::parse_json`. The map registry loaded their source and normalized fingerprints and built a canonical two-seat state for each map. Map 61748 also matched the checked-in source and normalized fingerprints exactly.

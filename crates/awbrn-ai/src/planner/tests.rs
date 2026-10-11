@@ -206,6 +206,92 @@ fn the_planner_solves_the_puzzle_suite() {
     assert!(failed.is_empty(), "failed puzzles: {failed:?}");
 }
 
+#[test]
+fn the_joint_order_planner_preserves_the_tactical_checks() {
+    for puzzle in suite() {
+        let mut agent = PlannerAgent::with_config(7, PlannerConfig::V7);
+        agent.start_match();
+        let result = crate::harness::run_agent_turn_unmeasured(
+            puzzle.state.clone(),
+            &mut agent,
+            &mut Rng::from_seed(11),
+            NodeBudget::THIRTY_TWO,
+        )
+        .expect("the turn executes");
+        assert!(result.completed, "{} did not complete", puzzle.name);
+        assert_eq!(result.rejected_commands, 0, "{} was rejected", puzzle.name);
+        let turn = crate::puzzles::PuzzleTurn {
+            start: &puzzle.state,
+            result: &result,
+        };
+        (puzzle.check)(&turn).unwrap_or_else(|error| panic!("{}: {error}", puzzle.name));
+    }
+}
+
+#[test]
+fn optional_joint_search_preserves_the_existing_winner_with_little_work_left() {
+    let path = format!(
+        "{}/tests/fixtures/replay_regressions/amber-valley-day06.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let state: State = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let view = awvm::semantic::observe(
+        &awvm::semantic::AwbwVisibility,
+        &state,
+        &state.turn.active_player,
+    )
+    .unwrap();
+    for work in [100, 200, 250, 300] {
+        let mut baseline = PlannerAgent::with_config(
+            1,
+            PlannerConfig {
+                turn_work: Some(work),
+                ..PlannerConfig::V6
+            },
+        );
+        let mut joint = PlannerAgent::with_config(
+            1,
+            PlannerConfig {
+                turn_work: Some(work),
+                ..PlannerConfig::V7
+            },
+        );
+        assert_eq!(
+            baseline.act(&view, NodeBudget::THIRTY_TWO),
+            joint.act(&view, NodeBudget::THIRTY_TWO)
+        );
+        assert_eq!(baseline.plan, joint.plan);
+        assert_eq!(baseline.stats.evaluations, joint.stats.evaluations);
+        assert_eq!(baseline.stats.work, joint.stats.work);
+        if work == 250 {
+            assert_eq!(joint.stats.chose_safety, 1);
+            assert_eq!(joint.stats.evaluations - joint.stats.candidates, 5);
+        }
+    }
+}
+
+#[test]
+fn joint_search_always_respects_the_caller_node_budget() {
+    for puzzle in suite() {
+        let view = awvm::semantic::observe(
+            &awvm::semantic::AwbwVisibility,
+            &puzzle.state,
+            &puzzle.state.turn.active_player,
+        )
+        .unwrap();
+        for budget in [
+            NodeBudget::ONE,
+            NodeBudget::FOUR,
+            NodeBudget::SIXTEEN,
+            NodeBudget::THIRTY_TWO,
+        ] {
+            let mut agent = PlannerAgent::with_config(7, PlannerConfig::V7);
+            agent.act(&view, budget);
+            assert!(agent.stats.evaluations <= u64::from(budget.get()));
+        }
+    }
+}
+
 /// A full arena game between two planners has no rejected command, and the
 /// same seeds give the same game.
 #[test]

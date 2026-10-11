@@ -1,0 +1,48 @@
+planner-v6 amber-valley-day06 seed=1 planning_view=observation swing=-1530 clearance=0 defense=0 candidates=14 evaluations=25 work=509 replans=3
+planner-v6 amber-valley-day06 seed=2 planning_view=observation swing=-800 clearance=0 defense=0 candidates=14 evaluations=25 work=506 replans=3
+planner-v6 amber-valley-day06 seed=3 planning_view=observation swing=-800 clearance=0 defense=0 candidates=14 evaluations=25 work=509 replans=3
+planner-v6 amber-valley-day06: -1043
+planner-v6 amber-valley-day07: -3183
+planner-v6 amber-valley-day08: -2250
+planner-v6 amber-valley-day09: 270
+planner-v6 amber-valley-day10: 5723
+planner-v6 amber-valley-day11 seed=1 planning_view=observation swing=-11280 clearance=0 defense=0 candidates=49 evaluations=68 work=1299 replans=5
+planner-v6 amber-valley-day11 seed=2 planning_view=observation swing=-9240 clearance=0 defense=0 candidates=47 evaluations=62 work=1088 replans=5
+planner-v6 amber-valley-day11 seed=3 planning_view=observation swing=-11120 clearance=0 defense=0 candidates=47 evaluations=62 work=1090 replans=5
+planner-v6 amber-valley-day11: -10547
+planner-v7-clearance amber-valley-day06 seed=1 planning_view=observation swing=4640 clearance=1 defense=0 candidates=17 evaluations=29 work=584 replans=3
+planner-v7-clearance amber-valley-day06 seed=2 planning_view=observation swing=4640 clearance=1 defense=0 candidates=17 evaluations=29 work=587 replans=3
+planner-v7-clearance amber-valley-day06 seed=3 planning_view=observation swing=4640 clearance=1 defense=0 candidates=17 evaluations=29 work=587 replans=3
+planner-v7-clearance amber-valley-day06: 4640
+planner-v7-clearance amber-valley-day07: -3183
+planner-v7-clearance amber-valley-day08: -2250
+planner-v7-clearance amber-valley-day09: 270
+planner-v7-clearance amber-valley-day10: 5723
+planner-v7-clearance amber-valley-day11 seed=1 planning_view=observation swing=-11280 clearance=0 defense=0 candidates=49 evaluations=68 work=1299 replans=5
+planner-v7-clearance amber-valley-day11 seed=2 planning_view=observation swing=-9240 clearance=0 defense=0 candidates=47 evaluations=62 work=1088 replans=5
+planner-v7-clearance amber-valley-day11 seed=3 planning_view=observation swing=-11120 clearance=0 defense=0 candidates=47 evaluations=62 work=1090 replans=5
+planner-v7-clearance amber-valley-day11: -10547
+planner-v7-defense amber-valley-day06 seed=1 planning_view=observation swing=-1530 clearance=0 defense=0 candidates=14 evaluations=25 work=509 replans=3
+planner-v7-defense amber-valley-day06 seed=2 planning_view=observation swing=-800 clearance=0 defense=0 candidates=14 evaluations=25 work=506 replans=3
+planner-v7-defense amber-valley-day06 seed=3 planning_view=observation swing=-800 clearance=0 defense=0 candidates=14 evaluations=25 work=509 replans=3
+planner-v7-defense amber-valley-day06: -1043
+planner-v7-defense amber-valley-day07: -3183
+planner-v7-defense amber-valley-day08: -2250
+planner-v7-defense amber-valley-day09: 270
+planner-v7-defense amber-valley-day10: 5723
+planner-v7-defense amber-valley-day11 seed=1 planning_view=observation swing=-6260 clearance=0 defense=1 candidates=51 evaluations=71 work=1288 replans=4
+planner-v7-defense amber-valley-day11 seed=2 planning_view=observation swing=-11020 clearance=0 defense=1 candidates=65 evaluations=90 work=1580 replans=5
+planner-v7-defense amber-valley-day11 seed=3 planning_view=observation swing=-7710 clearance=0 defense=1 candidates=65 evaluations=90 work=1581 replans=5
+planner-v7-defense amber-valley-day11: -8330
+planner-v7 amber-valley-day06 seed=1 planning_view=observation swing=4640 clearance=1 defense=0 candidates=17 evaluations=29 work=584 replans=3
+planner-v7 amber-valley-day06 seed=2 planning_view=observation swing=4640 clearance=1 defense=0 candidates=17 evaluations=29 work=587 replans=3
+planner-v7 amber-valley-day06 seed=3 planning_view=observation swing=4640 clearance=1 defense=0 candidates=17 evaluations=29 work=587 replans=3
+planner-v7 amber-valley-day06: 4640
+planner-v7 amber-valley-day07: -3183
+planner-v7 amber-valley-day08: -2250
+planner-v7 amber-valley-day09: 270
+planner-v7 amber-valley-day10: 5723
+planner-v7 amber-valley-day11 seed=1 planning_view=observation swing=-6260 clearance=0 defense=1 candidates=51 evaluations=71 work=1288 replans=4
+planner-v7 amber-valley-day11 seed=2 planning_view=observation swing=-11020 clearance=0 defense=1 candidates=65 evaluations=90 work=1580 replans=5
+planner-v7 amber-valley-day11 seed=3 planning_view=observation swing=-7710 clearance=0 defense=1 candidates=65 evaluations=90 work=1581 replans=5
+planner-v7 amber-valley-day11: -8330
