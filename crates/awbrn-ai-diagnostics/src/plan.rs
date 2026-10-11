@@ -74,6 +74,10 @@ pub enum AgentSpec {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         block_plans: Option<usize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        clearance_plans: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        joint_hq_plans: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         seed_margin: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         hard_reply_top: Option<usize>,
@@ -518,6 +522,8 @@ impl AgentSpec {
                 kill_plans,
                 safety_plans,
                 block_plans,
+                clearance_plans,
+                joint_hq_plans,
                 seed_margin,
                 hard_reply_top,
                 power_first,
@@ -535,6 +541,7 @@ impl AgentSpec {
                     "v4" => PlannerConfig::V4,
                     "v5" => PlannerConfig::V5,
                     "v6" => PlannerConfig::V6,
+                    "v7" => PlannerConfig::V7,
                     other => {
                         return Err(PlanError::Configuration(format!(
                             "unknown planner configuration {other}"
@@ -566,6 +573,23 @@ impl AgentSpec {
                 }
                 if let Some(value) = block_plans {
                     config.block_plans = *value;
+                }
+                for (name, requested, target) in [
+                    (
+                        "clearance_plans",
+                        clearance_plans,
+                        &mut config.clearance_plans,
+                    ),
+                    ("joint_hq_plans", joint_hq_plans, &mut config.joint_hq_plans),
+                ] {
+                    if let Some(value) = requested {
+                        if *value > 3 {
+                            return Err(PlanError::Configuration(format!(
+                                "planner {name} must be at most 3"
+                            )));
+                        }
+                        *target = *value;
+                    }
                 }
                 if let Some(value) = seed_margin {
                     config.seed_margin = *value;
@@ -717,12 +741,29 @@ mod tests {
             ("reply_weight", serde_json::json!(-1.0)),
             ("front", serde_json::json!(-1.0)),
             ("seed_margin", serde_json::json!(-1.0)),
+            ("clearance_plans", serde_json::json!(4)),
+            ("joint_hq_plans", serde_json::json!(4)),
         ] {
             input[key] = value;
             let spec: super::AgentSpec = serde_json::from_value(input.clone()).unwrap();
             assert!(spec.materialize(std::path::Path::new("plan.json")).is_err());
             input.as_object_mut().unwrap().remove(key);
         }
+    }
+
+    #[test]
+    fn joint_order_ablations_have_distinct_configuration_identities() {
+        let mut fingerprints = std::collections::BTreeSet::new();
+        for (clearance, defense) in [(0, 0), (3, 0), (0, 3), (3, 3)] {
+            let spec: super::AgentSpec = serde_json::from_value(serde_json::json!({
+                "kind": "planner", "identifier": "ablation", "configuration": "v7",
+                "clearance_plans": clearance, "joint_hq_plans": defense,
+            }))
+            .unwrap();
+            let (factory, _) = spec.materialize(std::path::Path::new("plan.json")).unwrap();
+            fingerprints.insert(factory.identity().configuration_fingerprint.clone());
+        }
+        assert_eq!(fingerprints.len(), 4);
     }
 
     use super::*;

@@ -117,10 +117,35 @@ and saved replay outcomes when changing shared planner code.
 Use the fixed development plan
 `planner-v7-vs-v6-fresh-fixed280.json` after the final `v7` configuration is
 ready. It compares `v7` with the current build of the pinned `v6` configuration on
-the same 14 development maps as the
-old fixed comparison. It uses 20 pairs per map, fresh seat seeds, and no early
+the same 14 development maps as the old fixed comparison. It uses 20 pairs per map, fresh seat seeds, and no early
 stop. It uses a new run seed. Archive `sprt-result.json` with the source
 revision, source fingerprint, plan fingerprint, and map fingerprints.
+
+V7 generates two kinds of joint orders: vacate a cheap friendly unit's tile
+so an exposed attacker can use its higher defense, paired with a safety hold;
+and block a threatened headquarters, paired with a cheap exposed-unit hold.
+Both use the existing score and reply policy. Candidate discovery tests up
+to 24 possible blockers, retains at most three attack-relevant blockers,
+and screens at most 24 vacating orders per retained blocker. Each generator
+returns at most three compatible prefixes. The v6 search and reply checks
+run first. Joint discovery and candidate evaluations reserve reply nodes
+and estimated reply work, and cannot replace the existing winner without
+an additional reply check. V7 stays opt-in; the Hard profile remains v6.
+
+Before the final development comparison, use copies of its plan to compare
+clearance only (`candidate.joint_hq_plans: 0`) and headquarters defense only
+(`candidate.clearance_plans: 0`) against v6, alongside both enabled. Keep the
+same maps, seeds, and budgets, distinct run IDs and output directories, and
+report each configuration's strength, generator usage, and timing. These
+optional diagnostic fields accept 0 through 3 and enter the agent identity.
+Retain only features whose benefit justifies their runtime cost.
+
+The compact [joint-order replay trace](../../assets/ai-diagnostics/v7/joint-orders-replay.log)
+compares the four configurations through the observation and execution
+lifecycle on the saved Amber Valley positions. Regenerate it with
+`cargo test -p awbrn-ai --test replay_regressions print_replay_swings -- --ignored --nocapture`.
+It reports army-balance swings and work counters; it is tactical evidence,
+not a match-strength or runtime gate.
 
 Use the four `planner-v7-vs-v6-commander-*-probe14.json` plans for small
 commander checks. Each plan uses two pairs on each of the seven maps used by

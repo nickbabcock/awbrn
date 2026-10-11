@@ -12,6 +12,10 @@
 //!      focused enemy fire can destroy it.
 //!    - Block plans put a unit on one of our properties that an enemy
 //!      capturer can reach.
+//!    - Clearance plans vacate a cheaper unit's tile so an exposed attacker
+//!      can use its higher defense, optionally paired with a safety hold.
+//!    - Defense plans block a headquarters and keep another exposed unit in
+//!      its current cell.
 //!    - Reroute plans give a different order to a unit that the seed plan
 //!      leaves exposed to enemy fire. The planner plays each legal order of
 //!      that unit alone, ends the turn, and scores the result with the reply
@@ -30,7 +34,10 @@
 //!
 //! Simulation uses the middle of each luck range, so a plan is deterministic.
 
+mod clearance;
 mod combat;
+mod joint_hq;
+mod joint_orders;
 mod reply;
 
 use awvm::commander::Domain;
@@ -110,6 +117,12 @@ pub struct PlannerConfig {
     /// Hard policy plays the rest of the turn.
     #[serde(skip_serializing_if = "is_false")]
     pub power_first: bool,
+    /// The largest number of plans that open attack routes for one decision.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub clearance_plans: usize,
+    /// The largest number of plans that block a headquarters and hold another exposed unit.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub joint_hq_plans: usize,
     /// The score of active duels without fog, fitted to human replays.
     ///
     /// When present, it replaces [`PlannerConfig::eval_weights`] at every
@@ -160,6 +173,8 @@ impl PlannerConfig {
         reroute_orders: 0,
         reply_window: 0.0,
         power_first: false,
+        clearance_plans: 0,
+        joint_hq_plans: 0,
         replay_score: None,
     };
 
@@ -214,6 +229,14 @@ impl PlannerConfig {
         ..Self::V5
     };
 
+    /// planner-v6 with bounded attack-clearance and joint headquarters defense plans.
+    pub const V7: Self = Self {
+        identifier: "planner-v7",
+        clearance_plans: 3,
+        joint_hq_plans: 3,
+        ..Self::V6
+    };
+
     /// Return a stable fingerprint of all configuration values.
     pub fn fingerprint(&self) -> String {
         let bytes = serde_json::to_vec(&(self, self.property_values_key()))
@@ -247,8 +270,10 @@ pub enum Generator {
     Kill,
     Safety,
     Block,
+    Defense,
     Reroute,
     Power,
+    Clearance,
 }
 
 /// Counters for one agent over a match.
@@ -268,12 +293,18 @@ pub struct PlannerStats {
     pub chose_safety: u64,
     /// Plans where a block plan won.
     pub chose_block: u64,
+    /// Plans won by a joint headquarters defense plan.
+    #[serde(default)]
+    pub chose_defense: u64,
     /// Plans where a reroute plan won.
     #[serde(default)]
     pub chose_reroute: u64,
     /// Plans where a power plan won.
     #[serde(default)]
     pub chose_power: u64,
+    /// Plans won by an attack-route plan.
+    #[serde(default)]
+    pub chose_clearance: u64,
     /// Decisions where the observed position differed from the prediction.
     pub mismatches: u64,
     /// Decisions that the Hard policy made after the plan or work limit.
@@ -300,6 +331,7 @@ impl Entropy for MeanLuck {
 }
 
 /// One complete simulated turn.
+#[derive(Clone)]
 struct Line {
     generator: Generator,
     /// The plays before the end of the turn, in order.
@@ -416,8 +448,10 @@ impl PlannerAgent {
             Generator::Kill => self.stats.chose_kill += 1,
             Generator::Safety => self.stats.chose_safety += 1,
             Generator::Block => self.stats.chose_block += 1,
+            Generator::Defense => self.stats.chose_defense += 1,
             Generator::Reroute => self.stats.chose_reroute += 1,
             Generator::Power => self.stats.chose_power += 1,
+            Generator::Clearance => self.stats.chose_clearance += 1,
         }
         self.plan = line.plays;
         self.positions = positions;
@@ -505,8 +539,9 @@ impl TurnPlanner<'_> {
     fn plan(&mut self, root: &Session) -> Option<Line> {
         let mut session = Session::new(root.state().clone());
         let seed = self.line(&mut session, Generator::Seed, &[])?;
-        let mut best = seed;
-        let seed_score = best.score;
+        let joint = self.config.clearance_plans > 0 || self.config.joint_hq_plans > 0;
+        let joint_seed = joint.then(|| seed.clone());
+        let best = seed;
 
         let mut alternatives: Vec<(Generator, Vec<Play>)> = Vec::new();
         if !self.out_of_work() && self.config.kill_plans > 0 {
@@ -539,29 +574,116 @@ impl TurnPlanner<'_> {
                     .map(|play| (Generator::Power, vec![play])),
             );
         }
-        for unit in best.reply.destroyed.iter().take(self.config.safety_plans) {
-            if let Some(play) = hold(&session, *unit) {
-                alternatives.push((Generator::Safety, vec![play]));
-            }
+        let safety_holds: Vec<Play> = best
+            .reply
+            .destroyed
+            .iter()
+            .take(self.config.safety_plans)
+            .filter_map(|unit| hold(&session, *unit))
+            .collect();
+        for play in &safety_holds {
+            alternatives.push((Generator::Safety, vec![*play]));
         }
+        let mut block_plays = Vec::new();
         for cell in best.reply.threatened.iter().take(self.config.block_plans) {
             if let Some(play) = block(&session, self.seat, *cell) {
                 alternatives.push((Generator::Block, vec![play]));
+                block_plays.push(play);
             }
         }
+        let reroutes = self.reroutes(&mut session, &best);
         // Reroutes come last: a block can save the headquarters, and a work
         // limit must not stop it.
-        for play in self.reroutes(&mut session, &best) {
+        for play in reroutes {
             alternatives.push((Generator::Reroute, vec![play]));
         }
 
+        let contenders = self.contenders(&mut session, best.score, alternatives, 0);
+        let (best, value) = self.choose(&mut session, best, contenders, None, false);
+        let Some(seed) = joint_seed else {
+            return Some(best);
+        };
+        // Finish the existing search and reply checks before optional discovery.
+        // Keep its winner if additional candidates cannot be reply-checked.
+        let reply_nodes = self
+            .config
+            .hard_reply_top
+            .min(self.nodes_left.saturating_sub(1) as usize) as u32
+            + u32::from(value.is_none());
+        if self.config.hard_reply_top == 0 || self.out_of_work() || self.nodes_left <= reply_nodes {
+            return Some(best);
+        }
+        let work_left = self.work_left;
+        // A reply can refresh units with a commander power. Reserve three
+        // actions per enemy unit, plus producers and turn/power orders, for
+        // every reply slot. Started simulations still finish as in v6.
+        let enemy_actions = root
+            .state()
+            .units
+            .iter()
+            .filter(|unit| unit.owner != self.seat)
+            .count();
+        let producers = root
+            .state()
+            .board
+            .tiles()
+            .filter(|tile| {
+                matches!(tile.owner, awvm::semantic::TileOwner::Owned(owner) if owner != self.seat)
+                    && [
+                        awvm::ruleset::TerrainTrait::ProducesGround,
+                        awvm::ruleset::TerrainTrait::ProducesAir,
+                        awvm::ruleset::TerrainTrait::ProducesSea,
+                    ]
+                    .into_iter()
+                    .any(|kind| awvm::ruleset::terrain_has(tile.terrain, kind))
+            })
+            .count();
+        let reply_work = 3 * (enemy_actions as u64 + producers as u64 + 3);
+        self.work_left =
+            work_left.map(|left| left.saturating_sub(reply_work * u64::from(reply_nodes)));
+        if self.out_of_work() {
+            self.work_left = work_left;
+            return Some(best);
+        }
+        let mut alternatives: Vec<(Generator, Vec<Play>)> = joint_hq::plans(
+            &session,
+            &block_plays,
+            &seed.reply.exposed,
+            self.config.joint_hq_plans,
+        )
+        .into_iter()
+        .map(|prefix| (Generator::Defense, prefix))
+        .collect();
+        alternatives.extend(
+            clearance::plans(
+                self,
+                &session,
+                &seed,
+                &safety_holds,
+                self.config.clearance_plans,
+            )
+            .into_iter()
+            .map(|prefix| (Generator::Clearance, prefix)),
+        );
+        let contenders = self.contenders(&mut session, seed.score, alternatives, reply_nodes);
+        self.work_left = work_left;
+        Some(self.choose(&mut session, best, contenders, value, true).0)
+    }
+
+    fn contenders(
+        &mut self,
+        session: &mut Session,
+        seed_score: f64,
+        alternatives: Vec<(Generator, Vec<Play>)>,
+        reply_nodes: u32,
+    ) -> Vec<Line> {
         let better = seed_score + self.config.seed_margin;
         let mut contenders: Vec<Line> = Vec::new();
         for (generator, prefix) in alternatives {
-            if self.out_of_work() {
+            if self.out_of_work() || self.nodes_left <= reply_nodes {
                 break;
             }
-            let Some(line) = self.line(&mut session, generator, &prefix) else {
+            let Some(line) = self.line(session, generator, &prefix) else {
                 continue;
             };
             if line.score > better - self.config.reply_window {
@@ -569,43 +691,71 @@ impl TurnPlanner<'_> {
             }
         }
         contenders.sort_by(|left, right| right.score.total_cmp(&left.score));
+        contenders
+    }
+
+    fn choose(
+        &mut self,
+        session: &mut Session,
+        mut best: Line,
+        mut contenders: Vec<Line>,
+        cached_value: Option<f64>,
+        require_reply: bool,
+    ) -> (Line, Option<f64>) {
+        let better = best.score + self.config.seed_margin;
         // Without the reply check, only a contender above the seed can win.
         let unchecked = |contenders: Vec<Line>, seed: Line| {
-            Some(
+            (
                 contenders
                     .into_iter()
                     .find(|line| line.score > better)
                     .unwrap_or(seed),
+                None,
             )
         };
         if contenders.is_empty() {
-            return Some(best);
+            return (best, cached_value);
         }
         if self.config.hard_reply_top == 0 {
+            if require_reply {
+                return (best, cached_value);
+            }
             return unchecked(contenders, best);
         }
 
         // Play the Hard reply for the seed and the best contenders, and keep
         // the line with the best position after that reply.
-        if self.out_of_work() || self.nodes_left < 2 {
+        let baseline_node = u32::from(cached_value.is_none());
+        if self.out_of_work() || self.nodes_left <= baseline_node {
+            if require_reply {
+                return (best, cached_value);
+            }
             return unchecked(contenders, best);
         }
-        contenders.truncate(self.config.hard_reply_top.min(self.nodes_left as usize - 1));
-        let Some(mut best_value) = self.replied_value(&mut session, &best) else {
+        contenders.truncate(
+            self.config
+                .hard_reply_top
+                .min((self.nodes_left - baseline_node) as usize),
+        );
+        let Some(mut best_value) = cached_value.or_else(|| self.replied_value(session, &best))
+        else {
+            if require_reply {
+                return (best, None);
+            }
             return unchecked(contenders, best);
         };
         for line in contenders {
             if self.out_of_work() {
                 break;
             }
-            if let Some(value) = self.replied_value(&mut session, &line)
+            if let Some(value) = self.replied_value(session, &line)
                 && value > best_value
             {
                 best_value = value;
                 best = line;
             }
         }
-        Some(best)
+        (best, Some(best_value))
     }
 
     /// Other orders for the units that the seed plan leaves most exposed.
