@@ -13,9 +13,13 @@
  * withheld until both players are ready and the match can no longer be
  * refused. The fields are replaced here rather than hidden in the interface,
  * because a name that ships inside the payload is not hidden.
+ *
+ * A lobby seals the commanders the same way. A player sees that the other
+ * seats have chosen, but not whom, until the match starts. A player who could
+ * read the other pick could wait for it and answer with the CO that beats it.
  */
 
-import type { MatchSnapshot } from "./schemas.ts";
+import type { MatchParticipantSnapshot, MatchSnapshot } from "./schemas.ts";
 
 export const HIDDEN_OPPONENT_NAME = "Opponent";
 
@@ -36,11 +40,32 @@ export function hidesOpponent(snapshot: MatchSnapshot): boolean {
   );
 }
 
+/** Whether this snapshot withholds the commanders of the seats a viewer does not hold. */
+export function sealsCommanders(snapshot: MatchSnapshot): boolean {
+  return snapshot.phase === "draft" || snapshot.phase === "lobby";
+}
+
+function sealCommander(participant: MatchParticipantSnapshot): MatchParticipantSnapshot {
+  if (participant.coId === null) return participant;
+  return { ...participant, coId: null, isCoSealed: true };
+}
+
 export function applyViewerVisibility(
   snapshot: MatchSnapshot,
   viewerUserId: string | null,
 ): MatchSnapshot {
   const joinSlug = viewerUserId === snapshot.creatorUserId ? snapshot.joinSlug : null;
+  if (sealsCommanders(snapshot)) {
+    return {
+      ...snapshot,
+      joinSlug,
+      participants: snapshot.participants.map((participant) =>
+        participant.userId !== null && participant.userId === viewerUserId
+          ? participant
+          : sealCommander(participant),
+      ),
+    };
+  }
   if (!hidesOpponent(snapshot)) return { ...snapshot, joinSlug };
 
   // The creator of a ranked match is one of its two players, so the creator

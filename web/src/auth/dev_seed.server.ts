@@ -40,10 +40,10 @@ interface DevAccount {
  * when the author is a real row that somebody can sign in as.
  */
 const DEV_ACCOUNTS: readonly DevAccount[] = [
-  { email: "player@awbrn.test", name: "Andy", role: "user" },
-  { email: "rival@awbrn.test", name: "Sami", role: "user" },
-  { email: "moderator@awbrn.test", name: "Nell", role: "moderator" },
-  { email: "admin@awbrn.test", name: "Hawke", role: "admin" },
+  { email: "player@awbrn.test", name: "Ash", role: "user" },
+  { email: "rival@awbrn.test", name: "Misty", role: "user" },
+  { email: "moderator@awbrn.test", name: "Brock", role: "moderator" },
+  { email: "admin@awbrn.test", name: "Gary", role: "admin" },
 ];
 
 const db = () => drizzle(env.DB, { schema: { user } });

@@ -48,6 +48,7 @@ export function lobbySignature(match: MatchSnapshot): string {
       participant.userId,
       participant.ready,
       participant.coId,
+      participant.isCoSealed ?? false,
       participant.factionId,
     ]),
   ]);

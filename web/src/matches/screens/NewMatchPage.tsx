@@ -45,6 +45,7 @@ import { useAppSession } from "#/auth/useAppSession.ts";
 import { Button } from "#/ui/Button.tsx";
 import { RouterTextLink } from "#/ui/astryx-links.tsx";
 import { coRoster } from "#/co_roster.ts";
+import { coTierListFor } from "#/co_tiers.ts";
 import { CoBoard } from "#/components/CoBoard.tsx";
 import { importAwbwMapFn } from "#/maps/maps.functions.ts";
 import { MapFilterBar } from "#/maps/components/MapFilterBar.tsx";
@@ -619,10 +620,16 @@ function MapBriefing({
         >
           <VStack gap={3} paddingBlockStart={2}>
             <Text color="secondary">
-              Press a CO to take them out of this match. Nobody can claim a struck CO, and the ban
-              stands for the whole match.
+              Press a CO to take them out of this match, or ban a whole tier at once. Nobody can
+              claim a struck CO, and the ban stands for the whole match.
             </Text>
-            <CoBoard bannedCoIds={bannedCoIds} mode="ban" onToggleBan={onToggleBan} size="sm" />
+            <CoBoard
+              bannedCoIds={bannedCoIds}
+              mode="ban"
+              onToggleBan={onToggleBan}
+              size="sm"
+              tierList={coTierListFor({ fogEnabled, playerCount: map.playerCount })}
+            />
           </VStack>
         </Collapsible>
       </VStack>

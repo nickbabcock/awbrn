@@ -10,6 +10,12 @@ import * as stylex from "@stylexjs/stylex";
 export const pageLayout = stylex.defineConsts({
   /** The measure of an ordinary page: wide enough for a briefing beside a queue. */
   standardWidth: "1240px",
+  /**
+   * The measure of a page that sets a map at twice its size beside a panel,
+   * such as a lobby: a 20 by 20 map at its second pixel step, and eight faces
+   * to a row beside it.
+   */
+  wideWidth: "1360px",
   /** The measure of a page that is mostly prose or one form. */
   narrowWidth: "760px",
   /** Where a page takes its desktop arrangement. */

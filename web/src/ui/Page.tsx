@@ -16,15 +16,15 @@ import { RouterTextLink } from "#/ui/astryx-links.tsx";
 import { pageLayout } from "#/ui/pageLayout.stylex.ts";
 import { sectionForPath, type SiteSection } from "#/ui/site_sections.ts";
 
-type PageWidth = "standard" | "narrow" | "full";
+type PageWidth = "standard" | "wide" | "narrow" | "full";
 
 /**
  * The frame of one screen: a centered measure on the terrain with one gutter.
  *
  * Every page sits in the same frame, so the title, the first panel, and the
  * edge of the content land in the same place on every screen. A board that
- * needs the whole window asks for `full`; prose and single forms ask for
- * `narrow`.
+ * needs the whole window asks for `full`; a map set beside a panel asks for
+ * `wide`; prose and single forms ask for `narrow`.
  */
 export function Page({ children, width = "standard" }: { children: ReactNode; width?: PageWidth }) {
   return (
@@ -33,6 +33,7 @@ export function Page({ children, width = "standard" }: { children: ReactNode; wi
       xstyle={[
         styles.frame,
         width === "standard" && styles.standard,
+        width === "wide" && styles.wide,
         width === "narrow" && styles.narrow,
       ]}
     >
@@ -136,6 +137,9 @@ const styles = stylex.create({
   },
   standard: {
     maxInlineSize: `calc(${pageLayout.standardWidth} + 2 * ${spacingVars["--spacing-8"]})`,
+  },
+  wide: {
+    maxInlineSize: `calc(${pageLayout.wideWidth} + 2 * ${spacingVars["--spacing-8"]})`,
   },
   narrow: {
     maxInlineSize: `calc(${pageLayout.narrowWidth} + 2 * ${spacingVars["--spacing-8"]})`,

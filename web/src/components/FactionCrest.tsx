@@ -34,7 +34,6 @@ export function FactionCrest({
   size = 24,
 }: FactionCrestProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [isPending, setIsPending] = useState(false);
   const activeFaction = getFactionByCode(factionCode);
   const activeName = activeFaction?.displayName ?? factionCode.toUpperCase();
 
@@ -42,16 +41,13 @@ export function FactionCrest({
     return <FactionLogo factionCode={factionCode} size={size} />;
   }
 
-  async function handleSelect(value: string | null | string[]) {
+  // The crest changes at once. The caller writes the choice to the screen first
+  // and sends it second, so the picker never waits on the server.
+  function handleSelect(value: string | null | string[]) {
     if (typeof value !== "string" || !onChange) return;
 
     setIsOpen(false);
-    setIsPending(true);
-    try {
-      await onChange(Number(value));
-    } finally {
-      setIsPending(false);
-    }
+    void onChange(Number(value));
   }
 
   return (
@@ -63,7 +59,7 @@ export function FactionCrest({
         !isOpen ? null : (
           <ToggleButtonGroup
             label="Army"
-            onChange={(value) => void handleSelect(value)}
+            onChange={handleSelect}
             size="sm"
             type="single"
             value={activeFaction ? String(activeFaction.id) : null}
@@ -98,7 +94,6 @@ export function FactionCrest({
         icon={<FactionLogo factionCode={factionCode} isFramed={false} isLabelHidden size={size} />}
         isDisabled={isDisabled}
         isIconOnly
-        isLoading={isPending}
         label={`${activeName}. Choose a different army.`}
         size="sm"
         variant="secondary"

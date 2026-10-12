@@ -30,6 +30,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useAppSession } from "#/auth/useAppSession.ts";
+import { coTierListFor } from "#/co_tiers.ts";
 import { CoBoard } from "#/components/CoBoard.tsx";
 import { FactionLogo } from "#/components/FactionLogo.tsx";
 import { coDisplayName } from "#/co_roster.ts";
@@ -39,6 +40,8 @@ import { mapScreenshotSize } from "#/maps/map_screenshot.ts";
 import { mapCatalogEntryQueryOptions, mapRevisionQueryOptions } from "#/maps/maps.queries.ts";
 import { matchKeys } from "#/matches/matches.keys.ts";
 import { matchDetailQueryOptions } from "#/matches/matches.queries.ts";
+import { projectSeatChanges } from "#/matches/seat_changes.ts";
+import { useSeatChanges } from "#/matches/useSeatChanges.ts";
 import type { RankedConfirmationRequest } from "#/matches/schemas.ts";
 import { Countdown } from "#/matchmaking/components/Countdown.tsx";
 import { updateRankedConfirmationFn } from "#/matchmaking/matchmaking.functions.ts";
@@ -82,7 +85,36 @@ export function RankedPendingPage({
   const mapName = mapData?.metadata.name ?? mapEntry?.name ?? `Map ${match.mapId}`;
 
   const currentUserId = session?.user.id ?? null;
-  const seat = match.participants.find((participant) => participant.userId === currentUserId);
+  const seatChanges = useSeatChanges(
+    JSON.stringify([matchId, joinSlug, currentUserId]),
+    async (_slotIndex, patch) => {
+      if (patch.coId === undefined || patch.coId === null) return;
+      await updateRankedConfirmationFn({
+        data: { matchId, action: { action: "selectCommander", coId: patch.coId } },
+      });
+      await queryClient.cancelQueries({ queryKey: detailQueryOptions.queryKey });
+      const confirmed = await queryClient.fetchQuery({ ...detailQueryOptions, staleTime: 0 });
+      const saved = confirmed.participants.find(
+        (participant) => participant.userId === currentUserId,
+      );
+      if (saved?.coId !== patch.coId) throw new Error("The server did not confirm your choice.");
+    },
+    () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: detailQueryOptions.queryKey }),
+        queryClient.invalidateQueries({ queryKey: rankedKeys.overview() }),
+        queryClient.invalidateQueries({ queryKey: matchKeys.mine() }),
+        queryClient.invalidateQueries({ queryKey: matchKeys.awaiting() }),
+      ]),
+  );
+  useEffect(() => {
+    seatChanges.changes.reconcile(match, currentUserId);
+  }, [match, currentUserId, seatChanges.changes, seatChanges.intents]);
+  const displayMatch = projectSeatChanges(match, currentUserId, seatChanges.intents);
+  const seat = displayMatch.participants.find(
+    (participant) => participant.userId === currentUserId,
+  );
+  const seatError = Array.from(seatChanges.intents.values()).find((intent) => intent.error)?.error;
   const faction = seat ? getFactionById(seat.factionId) : null;
   const bannedCoIds = useMemo(() => new Set(match.settings.bannedCoIds), [match.settings]);
 
@@ -98,7 +130,9 @@ export function RankedPendingPage({
   const confirmation = useMutation({
     mutationFn: (action: RankedConfirmationRequest) =>
       updateRankedConfirmationFn({ data: { matchId, action } }),
-    onError: (mutationError: Error) => setError(mutationError.message),
+    onError: (mutationError: Error) => {
+      setError(mutationError.message);
+    },
     onSuccess: async (_result, action) => {
       setError(null);
       await Promise.all([
@@ -129,7 +163,8 @@ export function RankedPendingPage({
 
   const deadlineAt = match.confirmationDeadlineAt;
   const isReady = seat.ready;
-  const isBusy = confirmation.isPending;
+  const isBusy = confirmation.isPending || seatChanges.isSaving;
+  const hasUnsavedChoice = seatChanges.intents.size > 0;
 
   return (
     <Page>
@@ -226,11 +261,19 @@ export function RankedPendingPage({
 
               <CoBoard
                 bannedCoIds={bannedCoIds}
-                isDisabled={isBusy || isReady}
+                isDisabled={isReady || confirmation.isPending || match.phase !== "pending"}
+                isSaving={isBusy}
                 mode="pick"
-                onPick={(coId) => confirmation.mutate({ action: "selectCommander", coId })}
+                onPick={(coId) => {
+                  if (!confirmation.isPending)
+                    seatChanges.changes.select(seat.slotIndex, { coId, ready: false });
+                }}
                 selectedCoId={seat.coId}
                 size="sm"
+                tierList={coTierListFor({
+                  fogEnabled: match.settings.fogEnabled,
+                  playerCount: match.maxPlayers,
+                })}
               />
 
               {isReady ? (
@@ -243,21 +286,28 @@ export function RankedPendingPage({
               ) : (
                 <HStack gap={3} wrap="wrap">
                   <Button
-                    clickAction={() => confirmation.mutate({ action: "ready" })}
-                    isDisabled={seat.coId === null}
+                    clickAction={() => {
+                      if (seatChanges.changes.getSnapshot().intents.size === 0)
+                        confirmation.mutate({ action: "ready" });
+                    }}
+                    isDisabled={
+                      seat.coId === null || hasUnsavedChoice || isBusy || match.phase !== "pending"
+                    }
                     isLoading={isBusy}
                     label="Ready"
                     variant="primary"
                   />
                   <Button
                     clickAction={() => {
+                      if (seatChanges.changes.getSnapshot().isSaving || confirmation.isPending)
+                        return;
                       if (!isDeclineArmed) {
                         setIsDeclineArmed(true);
                         return;
                       }
                       confirmation.mutate({ action: "refuse" });
                     }}
-                    isDisabled={isBusy}
+                    isDisabled={isBusy || match.phase !== "pending"}
                     label={isDeclineArmed ? "Confirm decline" : "Decline this pairing"}
                     variant={isDeclineArmed ? "destructive" : "ghost"}
                   />
@@ -271,6 +321,16 @@ export function RankedPendingPage({
                 </Text>
               ) : null}
 
+              {seatError ? (
+                <HStack gap={3}>
+                  <Text role="alert">Could not save your choice: {seatError}</Text>
+                  <Button
+                    label="Retry"
+                    isDisabled={isBusy || match.phase !== "pending"}
+                    clickAction={() => seatChanges.changes.retry()}
+                  />
+                </HStack>
+              ) : null}
               {error ? (
                 <Text color="accent" role="alert" type="supporting">
                   {error}
