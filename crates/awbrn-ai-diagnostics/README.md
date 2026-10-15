@@ -98,6 +98,42 @@ plan remains available for historical runs.
 Use sequential runs for development. Keep the frozen gate and the sealed
 holdout for a release decision.
 
+## Evaluate joint-order candidates
+
+Planner `v7` adds bounded two-order candidates for attack clearance with a
+safety hold, and headquarters blocking with an exposed-unit hold. It uses the
+v6 score and reply policy. The existing search and reply checks run first;
+joint candidates reserve reply nodes and estimated work and can replace the
+existing winner only after an additional simulated reply check. Each generator
+returns at most three compatible prefixes. Hard remains on v6; v7 is opt-in.
+
+The [replay trace](../../assets/ai-diagnostics/v7/joint-orders-replay.log)
+compares v6, clearance only, headquarters defense only, and both through the
+observation and execution lifecycle on the saved Amber Valley positions.
+Regenerate it with:
+
+```bash
+cargo test -p awbrn-ai --test replay_regressions print_replay_swings -- --ignored --nocapture
+```
+
+This is tactical evidence from one match, not a match-strength claim. For a
+broader development comparison, use
+`assets/ai-diagnostics/sprt/planner-v7-vs-v6-fresh-fixed280.json`.
+Copy the plan with `candidate.joint_hq_plans: 0` for clearance only and
+`candidate.clearance_plans: 0` for defense only, keeping the same maps, seeds,
+and budgets but separate run IDs and output directories. The overrides accept
+0 through 3 and enter the agent configuration identity. Compare map-level
+outcomes, invalid commands, generator usage, and same-host timing before
+retaining either feature or promoting v7.
+
+The companion `planner-v7-vs-v6-sealed-holdout-fixed280.json` selects the 14
+remaining untouched maps from the existing registry. Run it once after the
+candidate is frozen; do not use its results to tune the planner. Both plans
+use 280 pairs, fresh seat seeds, fog disabled, and no early stop. Their results
+use the existing reporting; no new release gate is defined. The baseline is
+the current binary's v6 configuration. Neither full comparison nor v7 Wasm
+timing has been run yet.
+
 ## Measure planner strength and turn time
 
 Run the fixed comparison of the final `planner-v6` against `planner-v4`, the

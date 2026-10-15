@@ -6,8 +6,8 @@
 //! position, the AI played a turn that lost army value to the reply of the
 //! person. Better turns were available in each position.
 //!
-//! A test plays the Hard turn and then one reply by the fixed planner of
-//! `ai-hard-v3`. Both turns use the middle of each luck range. The test
+//! A test plays a named planner turn and then one reply by the fixed planner
+//! of `ai-hard-v3`. Both turns use the middle of each luck range. The test
 //! measures the change in army value of the AI seat over the two turns: the
 //! value of our units less the value of the enemy units, in funds. A turn
 //! passes when the mean change over three agent seeds reaches the threshold.
@@ -17,9 +17,9 @@
 //! reply is a stronger opponent than the reply model of the planner, so a
 //! turn cannot pass only because it exploits that model.
 //!
-//! An ignored test is a position that the current profile does not pass. Do
-//! not lower its threshold to make it pass. Remove the `ignore` attribute when
-//! a profile passes it.
+//! V6 is the production baseline. The target checks use the V7 candidate.
+//! The other tactical checks retain both V6 and V7 coverage. Do not
+//! lower a threshold to make a candidate pass.
 
 use awbrn_ai::HARD;
 use awbrn_ai::agent::{Agent, NodeBudget};
@@ -80,8 +80,8 @@ fn play_turn(state: State, agent: &mut dyn Agent, budget: NodeBudget) -> State {
     result.state
 }
 
-/// The mean change in army balance over the Hard turn and the reply.
-fn mean_swing(name: &str) -> f64 {
+/// The mean change in army balance over the planner turn and the reply.
+fn mean_swing_with(name: &str, config: PlannerConfig, trace: bool) -> f64 {
     let start = fixture(name);
     let seat = start
         .players
@@ -90,23 +90,35 @@ fn mean_swing(name: &str) -> f64 {
     let total: f64 = SEEDS
         .iter()
         .map(|&seed| {
-            let mut agent = HARD.agent(seed);
+            let mut agent = PlannerAgent::with_config(seed, config);
             agent.start_match();
-            let after = play_turn(start.clone(), &mut *agent, HARD.node_budget());
+            let after = play_turn(start.clone(), &mut agent, HARD.node_budget());
             let mut reply = PlannerAgent::with_config(REPLY_SEED, PlannerConfig::V3);
             reply.start_match();
             let replied = play_turn(after, &mut reply, NodeBudget::SIXTEEN);
-            army_balance(&replied, seat) - army_balance(&start, seat)
+            let swing = army_balance(&replied, seat) - army_balance(&start, seat);
+            if trace {
+                let stats = agent.stats();
+                println!("{} {name} seed={seed} planning_view=observation swing={swing:.0} clearance={} defense={} candidates={} evaluations={} work={} replans={}",
+                    config.identifier, stats.chose_clearance, stats.chose_defense,
+                    stats.candidates, stats.evaluations, stats.work, stats.mismatches);
+            }
+            swing
         })
         .sum();
     total / SEEDS.len() as f64
 }
 
 fn check(name: &str, threshold: f64) {
-    let swing = mean_swing(name);
+    check_with(name, threshold, HARD.planner());
+}
+
+fn check_with(name: &str, threshold: f64, config: PlannerConfig) {
+    let swing = mean_swing_with(name, config, false);
     assert!(
         swing >= threshold,
-        "{name}: army balance changed by {swing:.0}, threshold {threshold:.0}"
+        "{} {name}: army balance changed by {swing:.0}, threshold {threshold:.0}",
+        config.identifier
     );
 }
 
@@ -114,41 +126,64 @@ fn check(name: &str, threshold: f64) {
 #[test]
 #[ignore = "prints a report"]
 fn print_replay_swings() {
-    for name in [
-        "amber-valley-day06",
-        "amber-valley-day07",
-        "amber-valley-day08",
-        "amber-valley-day09",
-        "amber-valley-day10",
-        "amber-valley-day11",
+    for config in [
+        HARD.planner(),
+        PlannerConfig {
+            identifier: "planner-v7-clearance",
+            joint_hq_plans: 0,
+            ..PlannerConfig::V7
+        },
+        PlannerConfig {
+            identifier: "planner-v7-defense",
+            clearance_plans: 0,
+            ..PlannerConfig::V7
+        },
+        PlannerConfig::V7,
     ] {
-        println!("{name}: {:.0}", mean_swing(name));
+        for name in [
+            "amber-valley-day06",
+            "amber-valley-day07",
+            "amber-valley-day08",
+            "amber-valley-day09",
+            "amber-valley-day10",
+            "amber-valley-day11",
+        ] {
+            println!(
+                "{} {name}: {:.0}",
+                config.identifier,
+                mean_swing_with(
+                    name,
+                    config,
+                    name.ends_with("day06") || name.ends_with("day11")
+                )
+            );
+        }
     }
 }
 
 /// A tank attacks a capturing infantry from a tile where the enemy tank and
 /// recon can reach it.
 #[test]
-#[ignore = "planner-v6 does not pass this position"]
 fn day_six_does_not_trade_a_tank_for_a_capture_stop() {
-    check("amber-valley-day06", 0.0);
+    check_with("amber-valley-day06", 0.0, PlannerConfig::V7);
 }
 
 /// A damaged tank attacks again into enemy fire and is destroyed.
 #[test]
 fn day_seven_does_not_attack_into_a_counterattack() {
     check("amber-valley-day07", -4_000.0);
+    check_with("amber-valley-day07", -4_000.0, PlannerConfig::V7);
 }
 
 /// Three units attack one tank from tiles that the enemy army covers.
 #[test]
 fn day_nine_does_not_leave_its_attackers_exposed() {
     check("amber-valley-day09", -3_500.0);
+    check_with("amber-valley-day09", -3_500.0, PlannerConfig::V7);
 }
 
 /// The army near the headquarters loses most of its value in one exchange.
 #[test]
-#[ignore = "planner-v6 does not pass this position"]
 fn day_eleven_limits_the_loss_near_its_headquarters() {
-    check("amber-valley-day11", -9_500.0);
+    check_with("amber-valley-day11", -9_500.0, PlannerConfig::V7);
 }

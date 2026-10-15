@@ -22,8 +22,31 @@
       67945
     ],
     "development_count": 21,
-    "untouched_holdout_count": 21,
+    "untouched_holdout_count": 14,
     "holdout_bucket_counts": {
+      "Standard": {
+        "S-Rank": {
+          "small": 3,
+          "large": 0
+        },
+        "A-Rank": {
+          "small": 2,
+          "large": 2
+        }
+      },
+      "High Funds": {
+        "A-Rank": {
+          "small": 1,
+          "large": 4
+        },
+        "S-Rank": {
+          "small": 0,
+          "large": 2
+        }
+      }
+    },
+    "initial_holdout_count": 21,
+    "initial_holdout_bucket_counts": {
       "Standard": {
         "S-Rank": {
           "small": 3,
@@ -54,7 +77,8 @@
           "large": 4
         }
       }
-    }
+    },
+    "evaluated_v6_coverage_count": 7
   },
   "maps": [
     {
@@ -102,7 +126,7 @@
         "Hall of Fame",
         "Fog of War"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "os",
         "bm"
@@ -350,7 +374,7 @@
         "Global League",
         "Fog of War"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "os",
         "bh"
@@ -603,7 +627,7 @@
         "Global League",
         "Fog of War"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "ge",
         "bd"
@@ -631,7 +655,7 @@
         "Fog of War",
         "Live Play"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "ge",
         "yc"
@@ -913,7 +937,7 @@
         "Fog of War",
         "Live Play"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "rf",
         "bd"
@@ -995,7 +1019,7 @@
         "Global League",
         "Fog of War"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "tg",
         "pl"
@@ -1049,7 +1073,7 @@
         "Global League",
         "Fog of War"
       ],
-      "split": "untouched_holdout",
+      "split": "evaluated_v6_coverage",
       "original_factions": [
         "tg",
         "pl"
@@ -1231,5 +1255,16 @@
       "source_fingerprint": "d96fc641de97d956",
       "normalized_fingerprint": "99e0de8c1d9e87cd"
     }
-  ]
+  ],
+  "evaluation_history": {
+    "evaluated_split": "evaluated_v6_coverage",
+    "run_ids": [
+      "planner-v6-vs-v4-fresh-andy-probe14",
+      "planner-v6-vs-v4-fresh-eagle-probe14",
+      "planner-v6-vs-v4-fresh-drake-andy-probe14",
+      "planner-v6-vs-v4-fresh-sami-andy-probe14"
+    ],
+    "fog": false,
+    "note": "These seven maps were used by the recorded v6 commander probes and are no longer untouched holdout maps."
+  }
 }
