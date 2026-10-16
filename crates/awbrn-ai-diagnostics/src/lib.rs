@@ -3,6 +3,7 @@
 pub mod capture;
 pub mod events;
 pub mod feature_analysis;
+pub mod fog_accuracy;
 pub mod learned;
 pub mod manifest;
 pub mod map_registry;
@@ -34,6 +35,7 @@ pub use feature_analysis::{
     analyze_event_log, extract_feature_rows, fit_feature_analysis, observable_features,
     read_feature_rows, write_feature_rows,
 };
+pub use fog_accuracy::{FogAccuracyResult, FogAccuracyRow, FogAccuracySummary, run_fog_accuracy};
 pub use learned::{LEARNED_EXECUTABLE_FINGERPRINT, LearnedFactory};
 pub use manifest::{
     ManifestError, read_manifest, resolve_event_log_path, write_manifest,

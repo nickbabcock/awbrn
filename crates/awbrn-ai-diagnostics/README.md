@@ -98,6 +98,43 @@ plan remains available for historical runs.
 Use sequential runs for development. Keep the frozen gate and the sealed
 holdout for a release decision.
 
+## Score the fog memory
+
+The fog memory (`awbrn_ai::fog`) remembers enemy units that go out of sight
+and estimates the enemy properties and army value. The `fog-accuracy` command
+plays fog matches from an SPRT plan and compares the memory of each seat with
+the true state at the start of each turn:
+
+```text
+cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
+  fog-accuracy --plan assets/ai-diagnostics/sprt/planner-v6-fog-vs-v6-dev-fog-fixed280.json \
+  --output target/fog-accuracy [--games 28] [--jobs N]
+```
+
+The command always sets fog on. Game `n` uses map `n` of the plan in turn.
+The output `fog-accuracy.json` has one row for each sample and a summary for
+each range of days. The summary compares the ledger estimate of the enemy
+army with the old rule that the enemy army equals our army now. It also
+compares the property estimate with the count of properties seen as
+enemy-owned. The true state is used only for this score.
+
+The plan `planner-v6-fog-vs-v6-dev-fog-fixed280.json` compares `planner-v6-fog`
+with `planner-v6` on the 14 development maps with fog on. It uses 280 pairs
+and no early stop. Without fog, `planner-v6-fog` plays the same commands as
+`planner-v6`. Diagnostics average threat over the possible positions of
+each tracked unit. The policy uses only enemy positions known in the current own turn.
+Production uses the v6 estimate of enemy composition.
+The income ledger remains available for diagnostics. It does not set build
+scores.
+
+The planner models hidden properties with full capture points. It uses the
+last owner seen, or neutral ownership if no owner was seen. It projects each
+predicted position through the player's view before comparing it with the
+next observation. These steps let capture rollouts complete and keep an
+expected loss of sight from causing a new plan. The plan
+`planner-v6-fog-state-dev-fixed56.json` tests this position model against v6
+on new development seeds.
+
 ## Measure planner strength and turn time
 
 Run the fixed comparison of the final `planner-v6` against `planner-v4`, the

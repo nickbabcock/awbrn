@@ -37,6 +37,8 @@
 //! recon covers — and for the cover it takes, which is the woods. Both are
 //! zero with the board lit, and the map is not built there.
 
+use std::sync::Arc;
+
 use awvm::combat::{self, Forecast, Side};
 use awvm::commander;
 use awvm::query::{self};
@@ -49,6 +51,7 @@ use awvm::session::{
 };
 
 use crate::agent::{Agent, NodeBudget, Play};
+use crate::fog::FogEstimate;
 use crate::map::ContestMap;
 use crate::rng::Rng;
 use crate::threat::{self, ThreatMap};
@@ -608,6 +611,10 @@ pub struct GreedyAgent {
     /// calls, and a command moves a unit, so a map held across calls would be
     /// a map of a board that is gone.
     threat: ThreatMap,
+    /// What the fog memory of the seat that owns this policy estimates of
+    /// the enemy it cannot see. It is read only for that seat, so a policy
+    /// that also plays the simulated enemy reply does not use it there.
+    fog: Option<Arc<FogEstimate>>,
 }
 
 /// The score and typed production terms for one legal order.
@@ -693,7 +700,14 @@ impl GreedyAgent {
             contest: ContestMap::new(),
             vision: VisionMap::new(),
             threat: ThreatMap::new(),
+            fog: None,
         }
+    }
+
+    /// Read the hidden enemy that `estimate` describes in the decisions of
+    /// its seat. `None` reads only what is visible.
+    pub fn set_fog(&mut self, estimate: Option<Arc<FogEstimate>>) {
+        self.fog = estimate;
     }
 
     /// Build the weighting with generic tactical corrections enabled.
@@ -1153,7 +1167,9 @@ impl GreedyAgent {
             contest,
             vision,
             threat,
+            fog,
         } = self;
+        let fog = fog.as_deref().filter(|estimate| estimate.seat == seat);
 
         let board = Board {
             state,
@@ -1184,6 +1200,7 @@ impl GreedyAgent {
         // is what keeps the threatless weighting at the throughput it was
         // measured at, and it is what makes the two a comparison of one term.
         if weights.threat != 0.0 {
+            threat.set_overlay(fog.map(|estimate| Arc::clone(&estimate.threat)));
             threat.build(session, seat);
         }
         // A table priced at nothing decides nothing, so a weighting without
@@ -2686,6 +2703,41 @@ mod tests {
             .find(|(kind, _)| *kind == UnitKind::Infantry)
             .map(|(_, health)| *health);
         assert_eq!(seen, Some(1.0), "the enemy in sight is counted as it is");
+    }
+
+    #[test]
+    fn uncertain_army_composition_does_not_change_production_scores() {
+        let (mut state, ours, _) = army_of(UnitKind::Infantry, 1);
+        state.settings.fog = true;
+        state.player_mut(ours).funds = 30_000;
+        let mut tank = test_unit(UnitKind::MdTank, Pos::new(5, 5), ours);
+        tank.id = UnitId::new(500);
+        state.units.push(tank);
+        let view = observe(&AwbwVisibility, &state, &state.turn.active_player)
+            .expect("the active player has a view");
+        let mut agent = GreedyAgent::with_weights(1, Weights::COUNTER);
+        let builds = |scores: ScoredOrders| -> Vec<_> {
+            scores
+                .candidates()
+                .iter()
+                .copied()
+                .filter(|row| matches!(row.order.kind(), OrderKind::Produce(_)))
+                .collect()
+        };
+        let expected = builds(agent.scored_orders(&view).expect("the orders have scores"));
+        assert!(
+            expected.len() > 1,
+            "the factory can build several unit kinds"
+        );
+        agent.set_fog(Some(Arc::new(FogEstimate {
+            seat: ours,
+            threat: Arc::new(crate::threat::ThreatOverlay::new(state.board.dimensions())),
+            tracks: vec![(UnitKind::Infantry, 20.0)],
+            residual: 100_000.0,
+            enemies: Vec::new(),
+        })));
+        let actual = builds(agent.scored_orders(&view).expect("the orders have scores"));
+        assert_eq!(actual, expected);
     }
 
     /// A board holding `count` enemy units of one kind, and nothing else,

@@ -58,6 +58,7 @@ use awvm::semantic::{
     UnitId, WeatherKind,
 };
 use awvm::session::Session;
+use std::sync::Arc;
 
 /// Terrain defense runs from no stars to four, so a row holds five columns.
 const STAR_LEVELS: usize = 5;
@@ -115,6 +116,9 @@ pub struct ThreatMap {
     cached: Vec<CachedThreat>,
     collecting: [Vec<CellIdx>; 2],
     dependencies: Vec<CellIdx>,
+    /// The estimated threat of enemy units this player cannot see, added to
+    /// every reading. See [`ThreatOverlay`].
+    overlay: Option<Arc<ThreatOverlay>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -180,7 +184,16 @@ impl ThreatMap {
             cached: Vec::new(),
             collecting: [const { Vec::new() }; 2],
             dependencies: Vec::new(),
+            overlay: None,
         }
+    }
+
+    /// Add the estimated threat of hidden enemy units to every reading.
+    ///
+    /// The overlay stays in place across builds until the caller replaces it.
+    /// An overlay for a board of another shape adds nothing.
+    pub fn set_overlay(&mut self, overlay: Option<Arc<ThreatOverlay>>) {
+        self.overlay = overlay;
     }
 
     /// Work out what every player at war with `seat` threatens.
@@ -332,9 +345,14 @@ impl ThreatMap {
 
     /// One tile's row of one layer, or zero where this build wrote nothing.
     fn read(&self, layer: Layer, cell: CellIdx, kind: UnitKind) -> f64 {
+        let hidden = self
+            .overlay
+            .as_deref()
+            .filter(|overlay| overlay.dimensions == self.dimensions)
+            .map_or(0.0, |overlay| overlay.read(layer, cell, kind));
         let index = usize::from(cell.get());
         if self.written[layer.index()].get(index) != Some(&self.generation) {
-            return 0.0;
+            return hidden;
         }
         let rows = match layer {
             Layer::Immediate => &self.immediate,
@@ -342,6 +360,7 @@ impl ThreatMap {
         };
         rows.get(index * UnitKind::COUNT + kind.index())
             .map_or(0.0, |value| f64::from(*value))
+            + hidden
     }
 
     /// Add one enemy unit's threat to both layers.
@@ -614,7 +633,12 @@ struct DamageTable {
 impl DamageTable {
     /// The table one enemy unit presents, at the health it has now.
     fn of(unit: &Unit) -> Self {
-        let profile = ruleset::profile(unit.kind);
+        Self::of_kind(unit.kind, unit.hp)
+    }
+
+    /// The table a unit of `kind` presents at `hp`.
+    fn of_kind(kind: UnitKind, hp: u8) -> Self {
+        let profile = ruleset::profile(kind);
         let mut funds = [[0.0; STAR_LEVELS]; UnitKind::COUNT];
         let mut armed = false;
 
@@ -622,8 +646,8 @@ impl DamageTable {
         // reads defense and stars off the target alone, so one attacking side
         // serves the whole table.
         let attacker = Side {
-            kind: unit.kind,
-            hp: unit.hp,
+            kind,
+            hp,
             // Enemy ammo is hidden under fog. A full magazine is the cautious
             // guess.
             ammo: profile.max_ammo,
@@ -664,6 +688,104 @@ impl DamageTable {
 
     fn is_empty(&self) -> bool {
         !self.armed
+    }
+}
+
+/// The estimated threat of enemy units that this player cannot see now.
+///
+/// The fog memory ([`crate::fog`]) builds it once for each position. A
+/// [`ThreatMap`] with an overlay adds it to every reading, so every reader of
+/// the map sees the remembered units without a change of its own.
+///
+/// Each estimated unit adds its damage row multiplied by a weight. The weight
+/// is the confidence that the unit can strike there. A unit seen a turn ago
+/// can be at any tile that it could reach since. Each target receives the
+/// share of possible positions that can strike it, multiplied by the track
+/// weight.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ThreatOverlay {
+    dimensions: Dimensions,
+    /// `UnitKind::COUNT` funds for each tile, the tiles in cell order.
+    immediate: Vec<f32>,
+    deferred: Vec<f32>,
+}
+
+impl ThreatOverlay {
+    /// An overlay that adds nothing, for a board of `dimensions`.
+    pub fn new(dimensions: Dimensions) -> Self {
+        let rows = dimensions.len() * UnitKind::COUNT;
+        Self {
+            dimensions,
+            immediate: vec![0.0; rows],
+            deferred: vec![0.0; rows],
+        }
+    }
+
+    /// Add one estimated unit of `kind` at `hp`.
+    ///
+    /// `immediate` and `deferred` give each target tile and the share of
+    /// possible positions that can strike it on the next turn and the turn
+    /// after. The terrain of `state` gives the stars of each tile.
+    pub fn add(
+        &mut self,
+        state: &State,
+        kind: UnitKind,
+        hp: u8,
+        weight: f32,
+        immediate: &[(CellIdx, f32)],
+        deferred: &[(CellIdx, f32)],
+    ) {
+        if weight <= 0.0 || hp == 0 || ruleset::profile(kind).fire_mode == FireMode::None {
+            return;
+        }
+        let table = DamageTable::of_kind(kind, hp);
+        if table.is_empty() {
+            return;
+        }
+        for (layer, cells) in [(Layer::Immediate, immediate), (Layer::Deferred, deferred)] {
+            for (cell, probability) in cells {
+                let Some(position) = self.dimensions.position_of(*cell) else {
+                    continue;
+                };
+                let stars = usize::from(stars_of(state, position));
+                let row = usize::from(cell.get()) * UnitKind::COUNT;
+                let out = match layer {
+                    Layer::Immediate => &mut self.immediate,
+                    Layer::Deferred => &mut self.deferred,
+                };
+                for (index, value) in out[row..row + UnitKind::COUNT].iter_mut().enumerate() {
+                    *value += weight * probability * table.funds[index][stars];
+                }
+            }
+        }
+    }
+
+    /// Whether no estimated unit added anything.
+    pub fn is_empty(&self) -> bool {
+        self.immediate
+            .iter()
+            .chain(&self.deferred)
+            .all(|value| *value == 0.0)
+    }
+
+    /// The estimated funds a hidden enemy could take off a whole unit of
+    /// `kind` on `cell` on the enemy's next turn.
+    pub fn immediate(&self, cell: CellIdx, kind: UnitKind) -> f64 {
+        self.read(Layer::Immediate, cell, kind)
+    }
+
+    /// The same for the turn after that.
+    pub fn deferred(&self, cell: CellIdx, kind: UnitKind) -> f64 {
+        self.read(Layer::Deferred, cell, kind)
+    }
+
+    fn read(&self, layer: Layer, cell: CellIdx, kind: UnitKind) -> f64 {
+        let rows = match layer {
+            Layer::Immediate => &self.immediate,
+            Layer::Deferred => &self.deferred,
+        };
+        rows.get(usize::from(cell.get()) * UnitKind::COUNT + kind.index())
+            .map_or(0.0, |value| f64::from(*value))
     }
 }
 

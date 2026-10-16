@@ -535,6 +535,7 @@ impl AgentSpec {
                     "v4" => PlannerConfig::V4,
                     "v5" => PlannerConfig::V5,
                     "v6" => PlannerConfig::V6,
+                    "v6-fog" => PlannerConfig::V6_FOG,
                     other => {
                         return Err(PlanError::Configuration(format!(
                             "unknown planner configuration {other}"
