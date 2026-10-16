@@ -107,7 +107,7 @@ the true state at the start of each turn:
 
 ```text
 cargo run --release -p awbrn-ai-diagnostics --bin ai-diagnostics -- \
-  fog-accuracy --plan assets/ai-diagnostics/sprt/planner-v6-fog-vs-v6-dev-fog-fixed280.json \
+  fog-accuracy --plan assets/ai-diagnostics/sprt/planner-v6-fog-state-dev-fixed56.json \
   --output target/fog-accuracy [--games 28] [--jobs N]
 ```
 
@@ -118,11 +118,12 @@ army with the old rule that the enemy army equals our army now. It also
 compares the property estimate with the count of properties seen as
 enemy-owned. The true state is used only for this score.
 
-The plan `planner-v6-fog-vs-v6-dev-fog-fixed280.json` compares `planner-v6-fog`
-with `planner-v6` on the 14 development maps with fog on. It uses 280 pairs
+The plan `planner-v6-fog-state-dev-fixed56.json` compares `planner-v6-fog`
+with `planner-v6` on the 14 development maps with fog on. It uses 56 pairs
 and no early stop. Without fog, `planner-v6-fog` plays the same commands as
 `planner-v6`. Diagnostics average threat over the possible positions of
-each tracked unit. The policy uses only enemy positions known in the current own turn.
+each tracked unit. The policy uses only enemy positions known in the current
+own turn.
 Production uses the v6 estimate of enemy composition.
 The income ledger remains available for diagnostics. It does not set build
 scores.

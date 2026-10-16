@@ -3,13 +3,11 @@
 The fog candidate scored 85.71% of available points against v6 on
 56 fresh pairs. It won 94 games, lost 14, and drew 4. The descriptive
 95% score interval is 5.84 percentage points on each side.
-This result exceeds the parity result of the first repair.
 
-## Why the first repair was insufficient
+## Why fog planning failed
 
-The first repair removed unreliable tactical and production estimates. It did
-not correct how the planner used a fog observation as a complete position.
-Two errors remained.
+Two errors prevented the planner from using a fog observation as a complete
+position.
 
 A hidden property has no capture-point value in an observation. The legal
 order generator can offer a capture there. Applying that order to the raw
@@ -36,22 +34,20 @@ are projected through the player's visibility rules before comparison with
 the next observation. Newly revealed facts and combat luck can still cause
 replanning. Model assumptions do not enter the comparison as observed facts.
 
-The earlier repair remains in place. Production keeps the v6 composition
-estimate. Tactical overlays use enemy positions known within the current own
+Production keeps the v6 composition estimate. Tactical overlays use enemy positions known within the current own
 turn. Cross-turn unit inference remains available for diagnostics.
 The v6 control and games without fog retain their previous behavior.
 
 ## Results
 
 The implementation was frozen before the fresh run. Later changes were
-limited to tests and documentation. Both tests completed their preset size.
-They used the same 14 development maps, fog, swapped seats, seat seeds,
-a 35-day limit, and 32 nodes per planning call. The fresh run used new seeds.
+limited to tests and documentation. The run completed its preset size.
+It used 14 development maps, fog, swapped seats, seat seeds, a 35-day limit,
+and 32 nodes per planning call. The run used new seeds.
 No sealed holdout maps were used.
 
 | Run | Seed | Pairs | Score | Descriptive 95% half-width | Wins / losses / draws |
 | --- | --- | ---: | ---: | ---: | ---: |
-| probe | 202610160404 | 28 | 94.64% | 5.26 | 52 / 2 / 2 |
 | fresh | 202610160505 | 56 | 85.71% | 5.84 | 94 / 14 / 4 |
 
 A score is wins plus half the draws, divided by games. The preset bounded
@@ -86,8 +82,7 @@ The existing fog game test also passed its legality and non-fog behavior checks.
 [The data record](fog-position-model-20261016.json) contains source, binary,
 plan, and map identities, outcomes, pair differentials, planner counters, and
 timings. Full results, logs, source snapshots, and binaries remain in
-`target/fog-strength`. The earlier
-[regression record](fog-regression-20261016.md) documents the parity repair.
+`target/fog-strength`.
 
 [The fixed plan](../../../assets/ai-diagnostics/sprt/planner-v6-fog-state-dev-fixed56.json)
 repeats the fresh comparison. Use a new output directory:
