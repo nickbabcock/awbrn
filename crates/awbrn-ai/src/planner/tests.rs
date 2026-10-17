@@ -61,6 +61,7 @@ fn the_replay_score_keeps_terminal_scores() {
         work: 0,
         work_left: None,
         nodes_left: 32,
+        fog: None,
     };
     assert_eq!(planner.leaf_value(&session), 0.0);
     let own_team = session.state().player(seat).team.clone();
@@ -119,6 +120,7 @@ fn the_replay_score_is_antisymmetric_and_fog_keeps_the_stock_score() {
         work: 0,
         work_left: None,
         nodes_left: 32,
+        fog: None,
     };
     assert_eq!(planner.leaf_value(&fog), expected);
 }
@@ -164,6 +166,7 @@ fn print_puzzle_candidates() {
             work: 0,
             work_left: None,
             nodes_left: u32::MAX,
+            fog: None,
         };
         println!("{}", puzzle.name);
         let mut work = Session::new(session.state().clone());
@@ -302,6 +305,7 @@ fn a_terminal_alternative_beats_a_nonterminal_seed_after_reply_check() {
         work: 0,
         work_left: None,
         nodes_left: 16,
+        fog: None,
     };
     let holds: Vec<_> = session
         .state()
@@ -403,6 +407,7 @@ fn the_reply_estimate_lists_destroyed_units_as_exposed() {
         work: 0,
         work_left: None,
         nodes_left: u32::MAX,
+        fog: None,
     };
     let mut session = Session::new(state);
     let seed = planner.line(&mut session, Generator::Seed, &[]).unwrap();
@@ -430,6 +435,7 @@ fn reroutes_give_exposed_units_new_orders_of_different_kinds() {
             work: 0,
             work_left: None,
             nodes_left: u32::MAX,
+            fog: None,
         };
         let mut session = Session::new(state.clone());
         let before = session.state().clone();
@@ -471,6 +477,7 @@ fn a_power_plan_uses_the_power_first() {
         work: 0,
         work_left: None,
         nodes_left: u32::MAX,
+        fog: None,
     };
     let mut session = Session::new(state);
     let before = session.state().clone();
@@ -489,4 +496,123 @@ fn a_power_plan_uses_the_power_first() {
         assert_eq!(line.plays.iter().filter(|play| is_power(play)).count(), 1);
     }
     assert_eq!(session.state(), &before);
+}
+
+/// A fog game with the fog memory has no rejected command, and the memory
+/// reads the enemy. A game without fog plays as planner-v6 does.
+#[test]
+fn the_fog_memory_plays_legal_fog_games_and_leaves_standard_games_alone() {
+    let game = |config: PlannerConfig, fog: bool| {
+        let state = arena(fog, 3);
+        let mut session = Session::new(state.clone());
+        let mut first = PlannerAgent::with_config(1, config);
+        let mut second = crate::profile::HARD_V2.agent(2);
+        let mut agents: [&mut dyn Agent; 2] = [&mut first, &mut *second];
+        let mut entropy = Rng::from_seed(5);
+        let limits = Limits {
+            days: 10,
+            nodes: NodeBudget::new(8).expect("a budget"),
+            ..Limits::DEFAULT
+        };
+        let record =
+            play(state, &mut session, &mut agents, &mut entropy, limits).expect("the game runs");
+        let enemies = first
+            .memory
+            .estimate(session.state())
+            .map(|estimate| estimate.enemies.len());
+        (record, session.state().clone(), enemies)
+    };
+
+    let (record, _, enemies) = game(PlannerConfig::V6_FOG, true);
+    assert_eq!(record.refusals, 0);
+    assert_eq!(record.preflight_rejections, 0);
+    assert_eq!(record.unrealizable_plays, 0);
+    assert_eq!(enemies, Some(1), "the memory has an estimate of the enemy");
+
+    let (standard, standard_state, enemies) = game(PlannerConfig::V6_FOG, false);
+    let (v6, v6_state, _) = game(PlannerConfig::V6, false);
+    assert_eq!(enemies, None, "the memory reads only fog games");
+    assert_eq!(standard.commands, v6.commands);
+    assert_eq!(standard_state, v6_state);
+}
+
+#[test]
+fn a_fog_prediction_keeps_the_observed_state_separate_from_the_model() {
+    let state = arena(true, 1);
+    let view = awvm::semantic::observe(
+        &awvm::semantic::AwbwVisibility,
+        &state,
+        &state.turn.active_player,
+    )
+    .expect("the active player has a view");
+    let observed = Session::from_observation(&view).expect("the view reifies");
+    let mut memory = FogMemory::new();
+    memory.update(&view);
+    let modeled = Session::new(memory.planning_state(observed.state()));
+    assert_ne!(modeled.state(), observed.state());
+    let predicted = line_positions(&modeled, &[], true).expect("the model projects");
+    assert_eq!(predicted, vec![observed.state().clone()]);
+}
+
+#[test]
+fn a_predicted_loss_of_sight_does_not_require_a_replan() {
+    use awvm::ruleset::{self, Terrain, UnitKind};
+    use awvm::semantic::{Concealment, Pos, TileOwner, Unit, UnitAction};
+    let mut state = arena(true, 1);
+    state.units.retain(|_| false);
+    for position in state.board.dimensions().positions() {
+        let tile = state.board.tile_mut(position);
+        tile.terrain = Terrain::Plain;
+        tile.owner = TileOwner::NotOwnable;
+        tile.capture_points = None;
+        tile.silo = None;
+    }
+    let ours = state.players.seat(&state.turn.active_player).unwrap();
+    let theirs = state
+        .players
+        .seats()
+        .map(|(seat, _)| seat)
+        .find(|seat| *seat != ours)
+        .unwrap();
+    for (id, kind, owner, position) in [
+        (1, UnitKind::Recon, ours, Pos::new(2, 2)),
+        (2, UnitKind::Tank, theirs, Pos::new(6, 2)),
+    ] {
+        let profile = ruleset::profile(kind);
+        state.units.push(Unit {
+            id: UnitId::new(id),
+            kind,
+            owner,
+            hp: 100,
+            fuel: profile.max_fuel,
+            ammo: profile.max_ammo,
+            action: UnitAction::Ready,
+            concealment: Concealment::Exposed,
+            location: Location::Board { position },
+        });
+    }
+    state.next_unit_id = Some(3);
+    let observe = |state: &State| {
+        awvm::semantic::observe(
+            &awvm::semantic::AwbwVisibility,
+            state,
+            &state.turn.active_player,
+        )
+        .expect("the active player has a view")
+    };
+    let observed = Session::from_observation(&observe(&state)).expect("the view reifies");
+    assert!(observed.state().units.get(UnitId::new(2)).is_some());
+    let destination = state.board.dimensions().cell_index(Pos::new(2, 6)).unwrap();
+    let play = Play::new(UnitId::new(1), destination, OrderKind::Wait);
+    let predicted = line_positions(&observed, &[play], true).expect("the line projects");
+    let mut truth = Session::new(state);
+    let command = play.command(&truth).expect("the recon can move");
+    truth
+        .apply_command::<()>(command, &mut MeanLuck, &mut ())
+        .expect("the move plays");
+    let actual = Session::from_observation(&observe(truth.state())).expect("the view reifies");
+    assert!(actual.state().units.get(UnitId::new(2)).is_none());
+    assert_eq!(predicted.last(), Some(actual.state()));
+    let unprojected = line_positions(&observed, &[play], false).expect("the old line plays");
+    assert_ne!(unprojected.last(), Some(actual.state()));
 }

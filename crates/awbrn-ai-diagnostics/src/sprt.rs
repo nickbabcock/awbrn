@@ -418,15 +418,7 @@ pub fn run_sprt_plan(
 ) -> Result<SprtResult, SprtError> {
     let plan_path = plan_path.as_ref();
     let plan = read_sprt_plan(plan_path)?;
-    let registry = match &plan.map_manifest {
-        Some(manifest) => {
-            let path = plan_path
-                .parent()
-                .map_or_else(|| manifest.clone(), |parent| parent.join(manifest));
-            MapRegistry::load(&MapManifest::read(path)?)?
-        }
-        None => MapRegistry::load_checked_in()?,
-    };
+    let registry = plan_registry(&plan, plan_path)?;
     let (candidate, _) = plan.candidate.materialize(plan_path)?;
     let (baseline, _) = plan.baseline.materialize(plan_path)?;
     let source = source_provenance(plan_path)?;
@@ -439,6 +431,19 @@ pub fn run_sprt_plan(
         serde_json::to_vec_pretty(&result)?,
     )?;
     Ok(result)
+}
+
+/// Load the maps of a plan. A map manifest is relative to the plan.
+pub(crate) fn plan_registry(plan: &SprtPlan, plan_path: &Path) -> Result<MapRegistry, SprtError> {
+    Ok(match &plan.map_manifest {
+        Some(manifest) => {
+            let path = plan_path
+                .parent()
+                .map_or_else(|| manifest.clone(), |parent| parent.join(manifest));
+            MapRegistry::load(&MapManifest::read(path)?)?
+        }
+        None => MapRegistry::load_checked_in()?,
+    })
 }
 
 /// Run an SPRT with `jobs` workers.

@@ -36,6 +36,7 @@ pub mod calibration;
 pub mod diagnostic;
 pub mod eval;
 mod fingerprint;
+pub mod fog;
 pub mod harness;
 pub mod map;
 pub mod mission;
@@ -69,6 +70,7 @@ pub use eval::{
     EvalWeights, Evaluator, MIRROR_TOLERANCE, RESIDUAL_TOLERANCE,
 };
 pub use fingerprint::FNV1A_OFFSET_BASIS;
+pub use fog::{FogAccuracy, FogEstimate, FogMemory};
 pub use harness::{
     Limits, Record, TurnResult, next_command_fingerprint, play, play_measured, play_observed,
     play_observed_fallible, run_agent_turn, run_agent_turn_unmeasured,
@@ -89,5 +91,5 @@ pub use profile::{
 };
 pub use rng::Rng;
 pub use shape::{SeatShape, Shape};
-pub use threat::ThreatMap;
+pub use threat::{ThreatMap, ThreatOverlay};
 pub use vision::VisionMap;

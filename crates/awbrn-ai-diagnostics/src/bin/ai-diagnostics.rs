@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use awbrn_ai_diagnostic_types::RunManifest;
 use awbrn_ai_diagnostics::{
     AnalysisStage, analyze_event_log, default_jobs, read_manifest,
-    reanalyse_event_log_with_manifest, resolve_event_log_path, run_plan,
+    reanalyse_event_log_with_manifest, resolve_event_log_path, run_fog_accuracy, run_plan,
     run_producer_usability_diagnostics_from_manifest, run_review, run_search_sweep, run_sprt_plan,
     verify_artifact,
 };
@@ -20,6 +20,7 @@ fn main() -> ExitCode {
         "run" => run(&arguments[1..]),
         "search-sweep" => search_sweep(&arguments[1..]),
         "sprt" => sprt(&arguments[1..]),
+        "fog-accuracy" => fog_accuracy(&arguments[1..]),
         "analyze" => analyze(&arguments[1..]),
         "features" | "feature-analysis" => features(&arguments[1..]),
         "review" => review(&arguments[1..]),
@@ -105,6 +106,65 @@ fn sprt(arguments: &[String]) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => report_error("sprt", error),
+    }
+}
+
+fn fog_accuracy(arguments: &[String]) -> ExitCode {
+    const USAGE: &str = "usage: ai-diagnostics fog-accuracy --plan sprt-plan.json --output target/fog-accuracy [--games N] [--jobs N]";
+    let options = match parse_options(arguments, &["--plan", "--output", "--games", "--jobs"]) {
+        Ok(options) => options,
+        Err(message) => return invalid_arguments(&message, USAGE),
+    };
+    let (Some(plan), Some(output)) = (options.get("--plan"), options.get("--output")) else {
+        return invalid_arguments("fog-accuracy needs --plan and --output", USAGE);
+    };
+    let games = match options.get("--games").map(|value| value.parse::<usize>()) {
+        None => 28,
+        Some(Ok(games)) if games > 0 => games,
+        Some(_) => return invalid_arguments("--games needs a positive number", USAGE),
+    };
+    let jobs = match options.get("--jobs").map(|value| value.parse::<usize>()) {
+        None => default_jobs(),
+        Some(Ok(jobs)) if jobs > 0 => jobs,
+        Some(_) => return invalid_arguments("--jobs needs a positive number", USAGE),
+    };
+    match run_fog_accuracy(plan, output, games, jobs) {
+        Ok(result) => {
+            println!(
+                "{:>7} {:>7} {:>9} {:>9} {:>9} {:>9} {:>9} {:>6} {:>6} {:>6} {:>6} {:>6}",
+                "days",
+                "samples",
+                "true",
+                "ledger",
+                "|ledger|",
+                "mirror",
+                "|mirror|",
+                "props",
+                "|est|",
+                "|known|",
+                "tracks",
+                "prec",
+            );
+            for summary in &result.summaries {
+                println!(
+                    "{:>7} {:>7} {:>9.0} {:>+9.0} {:>9.0} {:>+9.0} {:>9.0} {:>6.1} {:>6.2} {:>6.2} {:>6.2} {:>6.2}",
+                    summary.days,
+                    summary.samples,
+                    summary.true_value,
+                    summary.ledger_error,
+                    summary.ledger_absolute_error,
+                    summary.mirror_error,
+                    summary.mirror_absolute_error,
+                    summary.true_properties,
+                    summary.property_absolute_error,
+                    summary.known_property_absolute_error,
+                    summary.tracks,
+                    summary.track_precision,
+                );
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => report_error("fog-accuracy", error),
     }
 }
 
@@ -426,7 +486,7 @@ fn report_error(command: &str, error: impl std::fmt::Display) -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage:\n  ai-diagnostics sprt --plan sprt-plan.json --output target/sprt [--jobs N]\n  ai-diagnostics search-sweep --plan search-budget-sweep-plan.json --output target/search-sweep\n  ai-diagnostics run --plan experiment.json --output target/run\n  ai-diagnostics analyze --run target/run [--analysis outcome-features,producer-usability,review,verification]\n  ai-diagnostics features --states states.jsonl --output target/features\n  ai-diagnostics review --output target/run\n  ai-diagnostics verify --output target/run"
+        "usage:\n  ai-diagnostics sprt --plan sprt-plan.json --output target/sprt [--jobs N]\n  ai-diagnostics fog-accuracy --plan sprt-plan.json --output target/fog-accuracy [--games N] [--jobs N]\n  ai-diagnostics search-sweep --plan search-budget-sweep-plan.json --output target/search-sweep\n  ai-diagnostics run --plan experiment.json --output target/run\n  ai-diagnostics analyze --run target/run [--analysis outcome-features,producer-usability,review,verification]\n  ai-diagnostics features --states states.jsonl --output target/features\n  ai-diagnostics review --output target/run\n  ai-diagnostics verify --output target/run"
     );
 }
 

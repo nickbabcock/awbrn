@@ -33,6 +33,8 @@
 mod combat;
 mod reply;
 
+use std::sync::Arc;
+
 use awvm::commander::Domain;
 use awvm::random::{Entropy, Luck, RandomError};
 use awvm::ruleset::WeatherKind;
@@ -44,6 +46,7 @@ use crate::agent::{Agent, NodeBudget, Play};
 use crate::agents::GreedyAgent;
 use crate::baseline::BaselineConfig;
 use crate::eval::{EvalWeights, Evaluator};
+use crate::fog::{FogEstimate, FogMemory};
 use crate::rng::Rng;
 
 pub use reply::{PropertyValues, ReplyEstimate};
@@ -117,6 +120,14 @@ pub struct PlannerConfig {
     /// other games keep the stock score.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replay_score: Option<ReplayScore>,
+    /// Whether the agent remembers the enemy in fog ([`crate::fog`]).
+    ///
+    /// The Hard policy of each own turn, simulated or played, then reads the
+    /// threat of enemy positions known in this turn. The planner models
+    /// hidden captures and remembers property owners. Production keeps the
+    /// v6 estimate of enemy composition. A game without fog does not change.
+    #[serde(skip_serializing_if = "is_false")]
+    pub fog_memory: bool,
 }
 
 // The fields that later configurations add are left out of the fingerprint
@@ -161,6 +172,7 @@ impl PlannerConfig {
         reply_window: 0.0,
         power_first: false,
         replay_score: None,
+        fog_memory: false,
     };
 
     /// The first configuration with a simulated Hard reply check.
@@ -212,6 +224,13 @@ impl PlannerConfig {
         identifier: "planner-v6",
         replay_score: Some(ReplayScore::CUP_3_4),
         ..Self::V5
+    };
+
+    /// planner-v6 with the fog memory.
+    pub const V6_FOG: Self = Self {
+        identifier: "planner-v6-fog",
+        fog_memory: true,
+        ..Self::V6
     };
 
     /// Return a stable fingerprint of all configuration values.
@@ -323,6 +342,9 @@ pub struct PlannerAgent {
     plans_this_turn: u32,
     work_this_turn: u64,
     stats: PlannerStats,
+    memory: FogMemory,
+    /// The estimate of the memory, and the memory version it was made from.
+    fog: Option<(u64, Arc<FogEstimate>)>,
 }
 
 impl PlannerAgent {
@@ -346,6 +368,8 @@ impl PlannerAgent {
             plans_this_turn: 0,
             work_this_turn: 0,
             stats: PlannerStats::default(),
+            memory: FogMemory::new(),
+            fog: None,
         }
     }
 
@@ -371,6 +395,30 @@ impl PlannerAgent {
         }
     }
 
+    /// Read one view into the fog memory, when the configuration has one.
+    fn remember(&mut self, view: &Observation) {
+        if self.config.fog_memory {
+            self.memory.update(view);
+        }
+    }
+
+    /// The estimate of the fog memory for the position in `session`.
+    ///
+    /// The estimate is made again only after the memory changes.
+    fn fog_estimate(&mut self, session: &Session) -> Option<Arc<FogEstimate>> {
+        if !self.config.fog_memory || !session.state().settings.fog {
+            return None;
+        }
+        let version = self.memory.version();
+        if self.fog.as_ref().is_none_or(|(made, _)| *made != version) {
+            self.fog = self
+                .memory
+                .estimate_for_policy(session.state())
+                .map(|estimate| (version, Arc::new(estimate)));
+        }
+        self.fog.as_ref().map(|(_, estimate)| Arc::clone(estimate))
+    }
+
     fn may_plan(&self) -> bool {
         if self.plans_this_turn >= self.config.plans_per_turn {
             return false;
@@ -381,7 +429,12 @@ impl PlannerAgent {
     }
 
     /// Build a plan for the position in `session` and keep it.
-    fn build(&mut self, session: &Session, budget: NodeBudget) -> Option<()> {
+    fn build(
+        &mut self,
+        session: &Session,
+        budget: NodeBudget,
+        fog: Option<Arc<FogEstimate>>,
+    ) -> Option<()> {
         let seat = session
             .state()
             .players
@@ -390,6 +443,9 @@ impl PlannerAgent {
             .config
             .turn_work
             .map(|limit| limit.saturating_sub(self.work_this_turn));
+        let modeled = (self.config.fog_memory && session.state().settings.fog)
+            .then(|| Session::new(self.memory.planning_state(session.state())));
+        let planning = modeled.as_ref().unwrap_or(session);
         let mut planner = TurnPlanner {
             config: &self.config,
             seed: Rng::mix(self.seed ^ u64::from(self.plans_this_turn)),
@@ -400,8 +456,9 @@ impl PlannerAgent {
             work: 0,
             work_left,
             nodes_left: budget.get(),
+            fog,
         };
-        let line = planner.plan(session);
+        let line = planner.plan(planning);
         self.stats.evaluations += u64::from(budget.get() - planner.nodes_left);
         self.stats.candidates += planner.candidates;
         self.stats.work += planner.work;
@@ -410,7 +467,7 @@ impl PlannerAgent {
         self.plans_this_turn += 1;
         self.stats.plans += 1;
         let line = line?;
-        let positions = line_positions(session, &line.plays)?;
+        let positions = line_positions(planning, &line.plays, modeled.is_some())?;
         match line.generator {
             Generator::Seed => self.stats.chose_seed += 1,
             Generator::Kill => self.stats.chose_kill += 1,
@@ -433,6 +490,7 @@ impl Agent for PlannerAgent {
             return None;
         }
         self.begin_turn(view);
+        self.remember(view);
         let on_plan = self.positions.get(self.next) == Some(session.state());
         if !on_plan {
             if !self.positions.is_empty() {
@@ -441,9 +499,15 @@ impl Agent for PlannerAgent {
             self.plan.clear();
             self.positions.clear();
             self.next = 0;
-            if !self.may_plan() || self.build(&session, budget).is_none() {
+            let fog = self.fog_estimate(&session);
+            if !self.may_plan() || self.build(&session, budget, fog.clone()).is_none() {
                 self.stats.fallbacks += 1;
-                return self.fallback.act_in_session(&session);
+                self.fallback.set_fog(fog);
+                let modeled = (self.config.fog_memory && session.state().settings.fog)
+                    .then(|| Session::new(self.memory.planning_state(session.state())));
+                return self
+                    .fallback
+                    .act_in_session(modeled.as_ref().unwrap_or(&session));
             }
         }
         let play = self.plan.get(self.next).copied();
@@ -463,6 +527,7 @@ impl Agent for PlannerAgent {
 
     fn start_turn(&mut self, view: &Observation) {
         self.begin_turn(view);
+        self.remember(view);
     }
 
     fn reject(&mut self, _view: &Observation) {
@@ -489,6 +554,8 @@ struct TurnPlanner<'a> {
     /// The decisions this call may use before it starts no new candidate.
     work_left: Option<u64>,
     nodes_left: u32,
+    /// The fog estimate of the planning seat, for its own simulated turns.
+    fog: Option<Arc<FogEstimate>>,
 }
 
 impl TurnPlanner<'_> {
@@ -775,6 +842,7 @@ impl TurnPlanner<'_> {
         let friendly = session.state().turn.active_player.clone();
         let mut entropy = MeanLuck;
         let mut hard = self.config.baseline.build_greedy(self.seed);
+        hard.set_fog(self.fog.clone());
         let mut plays = Vec::new();
         let mut root = None;
         let mut prefix = prefix.iter();
@@ -909,20 +977,30 @@ fn block(session: &Session, seat: PlayerIdx, cell: CellIdx) -> Option<Play> {
 ///
 /// The planner scores many lines but keeps only one, so only that line keeps
 /// its positions. The plays use mean luck, as in [`TurnPlanner::line`], so the
-/// replay gets the same positions.
-fn line_positions(root: &Session, plays: &[Play]) -> Option<Vec<State>> {
+/// replay gets the same positions. Fog models record each position through
+/// the player's view, so modeled facts do not enter the comparison.
+fn line_positions(root: &Session, plays: &[Play], projected: bool) -> Option<Vec<State>> {
     let mut session = Session::new(root.state().clone());
     let friendly = session.state().turn.active_player.clone();
     let mut entropy = MeanLuck;
     let mut positions = Vec::with_capacity(plays.len() + 1);
+    let predicted = |state: &State| -> Option<State> {
+        if projected {
+            let view =
+                awvm::semantic::observe(&awvm::semantic::AwbwVisibility, state, &friendly).ok()?;
+            awvm::query::reify(&view).ok()
+        } else {
+            Some(state.clone())
+        }
+    };
     for play in plays {
         let order = play_order(&session, play)?;
-        positions.push(session.state().clone());
+        positions.push(predicted(session.state())?);
         session.apply(order, &mut entropy, &mut ()).ok()?;
     }
     let state = session.state();
     if state.turn.active_player == friendly && matches!(state.match_state, Match::Active { .. }) {
-        positions.push(state.clone());
+        positions.push(predicted(state)?);
     }
     Some(positions)
 }
