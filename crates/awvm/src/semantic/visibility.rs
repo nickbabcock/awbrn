@@ -45,6 +45,9 @@ pub trait Visibility {
 /// a caller cannot accidentally ask one ruleset's question with another's
 /// roster.
 pub trait Viewpoint {
+    /// Prepare repeated visibility queries over the board.
+    fn prepare_board(&self) {}
+
     /// Whether the tile at `position` is visible. A coordinate off the board is
     /// never visible.
     fn position(&self, position: Pos) -> bool;
@@ -92,6 +95,7 @@ pub struct AwbwView<'a> {
     /// What this team perceives standing on each tile. Resolved on first use
     /// for the same reason as `sightings`.
     occupancy: OnceCell<Grid<Occupant>>,
+    coverage: OnceCell<Grid<VisionLevel>>,
 }
 
 /// Which unit is standing on each tile.
@@ -241,6 +245,7 @@ impl<'a> AwbwView<'a> {
             teammates,
             sightings: OnceCell::new(),
             occupancy: OnceCell::new(),
+            coverage: OnceCell::new(),
         }
     }
 
@@ -413,6 +418,9 @@ impl<'a> AwbwView<'a> {
     }
 
     fn vision_level(&self, position: Pos) -> VisionLevel {
+        if let Some(coverage) = self.coverage.get() {
+            return coverage.get(position).copied().unwrap_or(VisionLevel::None);
+        }
         if !self.state.board.contains(position) {
             return VisionLevel::None;
         }
@@ -439,6 +447,61 @@ impl<'a> AwbwView<'a> {
 }
 
 impl Viewpoint for AwbwView<'_> {
+    fn prepare_board(&self) {
+        if !self.fog {
+            return;
+        }
+        self.coverage.get_or_init(|| {
+            let dimensions = self.state.board.dimensions();
+            let mut coverage = Grid::from_fn(dimensions, |position| {
+                let tile = self.state.board.tile(position);
+                let terrain = ruleset::terrain(tile.terrain);
+                if terrain.has(TerrainTrait::Teleporter) {
+                    VisionLevel::None
+                } else if self.holds_seat(tile.owner.player())
+                    || terrain.has(TerrainTrait::AlwaysVisible)
+                {
+                    VisionLevel::Full
+                } else {
+                    VisionLevel::None
+                }
+            });
+            for sight in self.sightings() {
+                let radius = sight.sight;
+                let axis = radius.min(u64::from(u8::MAX)) as u8;
+                let min_y = sight.position.y.saturating_sub(axis);
+                let max_y = sight
+                    .position
+                    .y
+                    .saturating_add(axis)
+                    .min(dimensions.height() - 1);
+                for y in min_y..=max_y {
+                    let reach = radius
+                        .saturating_sub(u64::from(sight.position.y.abs_diff(y)))
+                        .min(u64::from(u8::MAX)) as u8;
+                    let min_x = sight.position.x.saturating_sub(reach);
+                    let max_x = sight
+                        .position
+                        .x
+                        .saturating_add(reach)
+                        .min(dimensions.width() - 1);
+                    for x in min_x..=max_x {
+                        let position = Pos::new(x, y);
+                        let level = &mut coverage[position];
+                        if *level == VisionLevel::Full {
+                            continue;
+                        }
+                        let terrain = ruleset::terrain(self.state.board.tile(position).terrain);
+                        if !terrain.has(TerrainTrait::Teleporter) {
+                            *level = (*level).max(sighting_level(sight, terrain, position));
+                        }
+                    }
+                }
+            }
+            coverage
+        });
+    }
+
     fn position(&self, position: Pos) -> bool {
         self.vision_level(position) == VisionLevel::Full
     }

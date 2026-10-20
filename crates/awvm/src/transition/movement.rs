@@ -35,11 +35,23 @@ pub(super) fn available_destination(
     movement: &PreparedMovement<'_>,
     view: &AwbwView<'_>,
 ) -> Result<AvailableDestination, Violation> {
-    let destination = movement.plan().destination();
-    if view
-        .blocking_occupant(destination, movement.unit())
-        .is_some()
-    {
+    available_destination_at(view, movement.plan().destination(), movement.unit())
+}
+
+pub(crate) fn destination_is_available(
+    view: &AwbwView<'_>,
+    destination: Pos,
+    unit: UnitId,
+) -> bool {
+    available_destination_at(view, destination, unit).is_ok()
+}
+
+fn available_destination_at(
+    view: &AwbwView<'_>,
+    destination: Pos,
+    unit: UnitId,
+) -> Result<AvailableDestination, Violation> {
+    if view.blocking_occupant(destination, unit).is_some() {
         return Err(Violation::DestinationOccupied {
             position: destination,
         });

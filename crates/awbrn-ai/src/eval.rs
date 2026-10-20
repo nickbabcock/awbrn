@@ -1039,7 +1039,7 @@ impl Evaluator {
             if self.weights.contest == 0.0 && self.weights.front == 0.0 {
                 continue;
             }
-            self.contest[seat.get()].build(state, seat);
+            self.contest[seat.get()].build_in(session, seat);
             if !self.contest[seat.get()].is_built() {
                 continue;
             }

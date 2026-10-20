@@ -539,6 +539,7 @@ where
     }
 
     let mut projection: Option<Observation> = None;
+    let mut projection_current = false;
     let mut turns = 0;
     let mut commands = 0;
     let mut refusals = 0;
@@ -601,12 +602,12 @@ where
             player: player.clone(),
         };
 
-        // Refresh the active view before every decision, including a forced
-        // refusal-limit end. This keeps lifecycle callbacks authoritative.
         let view = match &mut projection {
             Some(view) => {
-                observe_into(&AwbwVisibility, session.state(), &player, view)
-                    .expect("the active player can observe the position they act on");
+                if !projection_current {
+                    observe_into(&AwbwVisibility, session.state(), &player, view)
+                        .expect("the active player can observe the position they act on");
+                }
                 view
             }
             None => projection.insert(
@@ -614,6 +615,7 @@ where
                     .expect("the active player can observe the position they act on"),
             ),
         };
+        projection_current = true;
         let turn_key = (
             player.clone(),
             session.state().turn.day,
@@ -698,6 +700,7 @@ where
                     shape.observe(session.state(), &execution.events);
                 }
                 session.reset(execution.state);
+                projection_current = false;
                 let match_finished = matches!(session.state().match_state, Match::Finished { .. });
                 if !ends_turn && !match_finished {
                     let view = match &mut projection {
@@ -712,6 +715,7 @@ where
                         ),
                     };
                     agents[seat.get()].refresh(view);
+                    projection_current = true;
                 } else {
                     let reason = if match_finished {
                         TurnEndReason::MatchFinished

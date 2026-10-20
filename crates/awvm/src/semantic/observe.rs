@@ -797,6 +797,7 @@ fn project_into(
     players: &mut Vec<ObservedPlayer>,
     units: &mut Vec<ObservedUnit>,
 ) -> Result<ObservedMatch, ObserveError> {
+    view.prepare_board();
     tiles.clear();
     tiles.reserve(usize::from(state.board.width()) * usize::from(state.board.height()));
     for (position, tile) in state.board.rows().flatten() {

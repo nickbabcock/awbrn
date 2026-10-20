@@ -34,6 +34,7 @@ use awvm::ruleset::{self, MovementClass, TerrainTrait, UnitKind};
 use awvm::semantic::{
     Concealment, Dimensions, Location, PlayerIdx, Pos, State, TileOwner, Unit, UnitAction, UnitId,
 };
+use awvm::session::Session;
 
 use crate::threat;
 
@@ -150,7 +151,16 @@ impl ContestMap {
     /// One search for each side, and neither of them is run while the answer
     /// in hand was taken from the same tables and the same seeds.
     pub fn build(&mut self, state: &State, seat: PlayerIdx) {
-        let ours = match self.search_for(state, seat) {
+        self.build_position(state, None, seat);
+    }
+
+    /// Reuse the session's terrain tables for this position.
+    pub fn build_in(&mut self, session: &Session, seat: PlayerIdx) {
+        self.build_position(session.state(), Some(session), seat);
+    }
+
+    fn build_position(&mut self, state: &State, session: Option<&Session>, seat: PlayerIdx) {
+        let ours = match self.search_for(state, session, seat) {
             Some(search) => search,
             None => {
                 self.forget();
@@ -162,7 +172,7 @@ impl ContestMap {
             .seats()
             .map(|(other, _)| other)
             .filter(|other| threat::hostile(state, seat, *other))
-            .filter_map(|other| self.search_for(state, other))
+            .filter_map(|other| self.search_for(state, session, other))
             .collect();
         if theirs.is_empty() {
             self.forget();
@@ -179,13 +189,13 @@ impl ContestMap {
         }
 
         let cells = state.board.dimensions().len();
-        self.turns_to(state, &built.ours, cells);
+        self.turns_to(state, session, &built.ours, cells);
         std::mem::swap(&mut self.ours, &mut self.points);
 
         self.theirs.clear();
         self.theirs.resize(cells, None);
         for search in &built.theirs {
-            self.turns_to(state, search, cells);
+            self.turns_to(state, session, search, cells);
             for (best, turns) in self.theirs.iter_mut().zip(self.points.iter().copied()) {
                 *best = match (*best, turns) {
                     (Some(held), Some(found)) => Some(held.min(found)),
@@ -197,8 +207,17 @@ impl ContestMap {
     }
 
     /// Run one side's search into [`ContestMap::points`], in turns.
-    fn turns_to(&mut self, state: &State, search: &Search, cells: usize) {
-        let Some(mut travel) = Travel::open(state, search.seat) else {
+    fn turns_to(
+        &mut self,
+        state: &State,
+        session: Option<&Session>,
+        search: &Search,
+        cells: usize,
+    ) {
+        let Some(mut travel) = (match session {
+            Some(session) => session.travel(search.seat),
+            None => Travel::open(state, search.seat),
+        }) else {
             self.points.clear();
             self.points.resize(cells, None);
             return;
@@ -216,7 +235,12 @@ impl ContestMap {
 
     /// What one side's search reads: its entry costs, its allowance and the
     /// production it starts from.
-    fn search_for(&mut self, state: &State, seat: PlayerIdx) -> Option<Search> {
+    fn search_for(
+        &mut self,
+        state: &State,
+        session: Option<&Session>,
+        seat: PlayerIdx,
+    ) -> Option<Search> {
         self.seeds.clear();
         for (position, tile) in state.board.iter() {
             if tile.owner != TileOwner::Owned(seat) {
@@ -231,7 +255,10 @@ impl ContestMap {
         if self.seeds.is_empty() {
             return None;
         }
-        let mut travel = Travel::open(state, seat)?;
+        let mut travel = match session {
+            Some(session) => session.travel(seat),
+            None => Travel::open(state, seat),
+        }?;
         Some(Search {
             seat,
             allowance: foot_allowance(state, seat),

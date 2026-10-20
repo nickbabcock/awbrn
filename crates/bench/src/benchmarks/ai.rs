@@ -479,9 +479,8 @@ pub fn run_session_destinations(case: &mut SessionCase) -> usize {
 /// What a search node costs at the edges: apply one order, then leave the
 /// branch. `rewind` had no case until now.
 ///
-/// The session has just swept every unit, so the reach it holds belongs to the
-/// last unit and not to this order. Spelling the order therefore searches,
-/// which is the pessimistic half of the pair below.
+/// The session has queried every unit. Its bounded movement cache can keep
+/// the selected unit's routes for this operation.
 pub fn run_session_apply_rewind(case: &mut SessionCase) -> usize {
     let mark = case
         .session
