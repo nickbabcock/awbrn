@@ -31,6 +31,27 @@ fn corpus() -> Vec<State> {
         .collect()
 }
 
+#[test]
+fn prepared_visibility_matches_individual_queries() {
+    use awvm::semantic::{AwbwVisibility, Viewpoint, Visibility};
+    for state in corpus() {
+        for (_, player) in state.players.seats() {
+            let reference = AwbwVisibility.view(&state, &player.team);
+            let prepared = AwbwVisibility.view(&state, &player.team);
+            prepared.prepare_board();
+            for position in state.board.positions() {
+                assert_eq!(prepared.position(position), reference.position(position));
+                for unit in state.units.iter() {
+                    assert_eq!(
+                        prepared.unit_at(unit, position),
+                        reference.unit_at(unit, position)
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// The tile a target stands on, which is how an order names it.
 fn cell_of(state: &State, target: &AttackTarget) -> Option<CellIdx> {
     let position = match target {
@@ -101,6 +122,128 @@ fn typed_visitation_preserves_the_complete_order_stream() {
     }
     assert!(positions > 100, "the fixture corpus must contain positions");
     assert!(attacks > 0, "the fixture corpus must contain legal attacks");
+}
+
+#[test]
+fn action_filters_preserve_the_selected_order_stream() {
+    #[derive(Default)]
+    struct Filtered(Vec<Order>);
+    impl LegalVisitor for Filtered {
+        const ACTIONS: OrderMask =
+            OrderMask::from_untargeted(&[OrderKind::Wait, OrderKind::Capture, OrderKind::Supply])
+                .with_targets(TargetKind::Attack);
+        const DELETE: bool = false;
+        fn order(&mut self, order: Order) {
+            self.0.push(order);
+        }
+    }
+    for state in corpus() {
+        let session = Session::new(state);
+        let legal = session.legal();
+        let expected: Vec<_> = all_orders(&legal)
+            .into_iter()
+            .filter(|order| {
+                order.unit().is_none()
+                    || matches!(order.kind(), OrderKind::Unload(_))
+                    || Filtered::ACTIONS.allows(order.kind())
+            })
+            .collect();
+        let mut filtered = Filtered::default();
+        legal.visit_orders(&mut filtered);
+        assert_eq!(filtered.0, expected);
+    }
+}
+
+#[test]
+fn observed_unit_visits_match_individual_destination_queries() {
+    let mut compared = 0;
+    for state in corpus() {
+        let Ok(view) = awvm::semantic::observe(
+            &awvm::semantic::AwbwVisibility,
+            &state,
+            &state.turn.active_player,
+        ) else {
+            continue;
+        };
+        let Ok(session) = Session::from_observation(&view) else {
+            continue;
+        };
+        let legal = session.legal();
+        let dimensions = session.state().board.dimensions();
+        for unit in seats(&legal) {
+            let cells: Vec<_> = legal
+                .field(unit, |field| {
+                    field
+                        .reach()
+                        .filter_map(|(pos, _)| dimensions.cell_index(pos))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut actual = Vec::new();
+            legal.unit_orders(unit, &mut actual);
+            let mut expected = Vec::new();
+            if legal.can_delete(unit) {
+                let subject = session
+                    .state()
+                    .units
+                    .at(usize::from(unit.get()))
+                    .expect("the unit exists");
+                if let Location::Board { position } = subject.location {
+                    expected.push(Order::new(
+                        unit,
+                        dimensions
+                            .cell_index(position)
+                            .expect("the unit is on the board"),
+                        OrderKind::Delete,
+                    ));
+                }
+            }
+            for cell in cells {
+                legal.orders_at(unit, cell, &mut expected);
+            }
+            assert_eq!(actual, expected);
+            compared += 1;
+        }
+    }
+    assert!(compared > 100);
+}
+
+#[test]
+fn reset_observations_match_fresh_sessions() {
+    let states = corpus();
+    let mut retained = Session::new(states[0].clone());
+    let mut compared = 0;
+    for state in &states {
+        for (_, player) in state.players.seats() {
+            let Ok(view) =
+                awvm::semantic::observe(&awvm::semantic::AwbwVisibility, state, player.id())
+            else {
+                continue;
+            };
+            let Ok(fresh) = Session::from_observation(&view) else {
+                continue;
+            };
+            retained
+                .reset_from_observation(&view)
+                .expect("the observation reifies");
+            assert_eq!(retained.state(), fresh.state());
+            assert_eq!(retained.depth(), 0);
+            assert_eq!(retained.is_commandable(), fresh.is_commandable());
+            let actual = all_orders(&retained.legal());
+            assert_eq!(actual, all_orders(&fresh.legal()));
+            for order in actual {
+                if let OrderKind::Attack(target) = order.kind() {
+                    let unit = order.unit().expect("an attack names a unit");
+                    assert_eq!(
+                        retained.legal().forecast(unit, order.destination(), target),
+                        fresh.legal().forecast(unit, order.destination(), target)
+                    );
+                }
+            }
+            compared += 1;
+        }
+    }
+    assert!(compared > 100);
 }
 
 #[test]

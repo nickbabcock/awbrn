@@ -47,6 +47,16 @@ pub(super) fn prepare_production_site<'a>(
         .any(|unit| board_position(unit) == Some(position));
     let owned_units = owned_unit_count(state, player_index)?;
     let owns_lab = player_owns_lab(state, player_index);
+    let domains = std::array::from_fn(|index| {
+        state.board.get(position).is_some_and(|tile| {
+            commander::production_site(
+                state,
+                player_index,
+                tile.terrain,
+                ruleset::Domain::ALL[index],
+            )
+        })
+    });
     Ok(PreparedProductionSite {
         state,
         position,
@@ -54,6 +64,7 @@ pub(super) fn prepare_production_site<'a>(
         occupied,
         owned_units,
         owns_lab,
+        domains,
     })
 }
 
@@ -80,10 +91,8 @@ pub(super) fn production_cost(
     let position = site.position;
     let tile = state.board.get(position);
     let seat = site.player_index;
-    let site_valid = tile.is_some_and(|tile| {
-        tile.owner.is_owned_by(seat)
-            && commander::production_site(state, seat, tile.terrain, profile.domain)
-    });
+    let site_valid = tile
+        .is_some_and(|tile| tile.owner.is_owned_by(seat) && site.domains[profile.domain.index()]);
     if !site_valid {
         return Err(violation(Violation::InvalidTarget {
             target: Some(position.into()),

@@ -276,6 +276,7 @@ impl VisionMap {
             return;
         };
         let view = AwbwVisibility.view(state, &player.team);
+        view.prepare_board();
         let dimensions = self.dimensions;
         self.seen.reserve(dimensions.len());
         self.seen

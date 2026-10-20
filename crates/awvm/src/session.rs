@@ -30,9 +30,8 @@
 //! Every question that would build a list takes the vector to build it in.
 //! Each question has one form and no allocating twin, because the answer is
 //! asked for thousands of times and the buffer is the difference between
-//! asking cheaply and asking again. The session keeps the rest: the last unit
-//! searched, the route walk's vectors, and the board-sized grid the search
-//! writes into.
+//! repeated calls. The session keeps up to 32 movement fields, route buffers,
+//! and board tables.
 
 use std::cell::RefCell;
 
@@ -204,6 +203,34 @@ pub enum TargetKind {
 }
 
 impl OrderMask {
+    /// Every destination action.
+    pub const ALL: Self = Self((1 << 11) - 1);
+
+    /// Select the supplied untargeted actions.
+    pub const fn from_untargeted(kinds: &[OrderKind]) -> Self {
+        let mut bits = 0;
+        let mut index = 0;
+        while index < kinds.len() {
+            if let Some(bit) = Self::bit(kinds[index]) {
+                bits |= bit;
+            }
+            index += 1;
+        }
+        Self(bits)
+    }
+
+    /// Include targets of this kind.
+    pub const fn with_targets(self, kind: TargetKind) -> Self {
+        Self(
+            self.0
+                | match kind {
+                    TargetKind::Attack => Self::ATTACK,
+                    TargetKind::Repair => Self::REPAIR,
+                    TargetKind::Launch => Self::LAUNCH,
+                },
+        )
+    }
+
     const WAIT: u16 = 1 << 0;
     const CAPTURE: u16 = 1 << 1;
     const SUPPLY: u16 = 1 << 2;
@@ -404,18 +431,12 @@ struct Routes {
     attack_tiles: Vec<Pos>,
 }
 
-/// One unit's searched reach, and the pool the search draws from.
-///
-/// A shortest-path search over the board is the dearest thing a question about
-/// one unit needs, and every question about that unit needs the same one: each
-/// destination's mask, each destination's targets, and the route
-/// [`Session::spell`] puts in a wire command. Holding the last one searched
-/// stops a session from paying for it again. The epoch stops it from answering
-/// out of a position it has left.
+/// Keep at most 32 movement fields and reuse their buffers.
+/// A field checks its unit, entry costs, and blockers before it is reused.
 #[derive(Debug, Default)]
 struct Reach {
     /// The index searched, the epoch it was searched at, and the search.
-    held: Option<(UnitIdx, u64, MoveField)>,
+    held: Vec<(UnitIdx, u64, MoveField)>,
     /// Board-sized allocations spent fields have handed back.
     scratch: MoveScratch,
     /// Each seat's board tables, in seat order, and the current epoch.
@@ -503,19 +524,32 @@ impl Session {
     /// [`Session::legal`] offers nothing rather than an error.
     pub fn from_observation(observation: &Observation) -> Result<Self, Error> {
         let mut session = Self::new(query::reify(observation)?);
-        session.commandable = recipient_may_command(observation);
-        let dimensions = session.state.board.dimensions();
-        session.uncertain = observation
-            .units
-            .iter()
-            .filter(|unit| unit.hp.exact().is_none())
-            .filter_map(|unit| match unit.location {
-                Location::Board { position } => dimensions.cell_index(position),
-                Location::Cargo { .. } => None,
-            })
-            .collect();
-        session.uncertain.sort_unstable();
+        session.restrict_to_observation(observation);
         Ok(session)
+    }
+
+    /// Replace the observed position and keep the query buffers and tables.
+    pub fn reset_from_observation(&mut self, observation: &Observation) -> Result<(), Error> {
+        self.reset(query::reify(observation)?);
+        self.restrict_to_observation(observation);
+        Ok(())
+    }
+
+    fn restrict_to_observation(&mut self, observation: &Observation) {
+        self.commandable = recipient_may_command(observation);
+        let dimensions = self.state.board.dimensions();
+        self.uncertain.clear();
+        self.uncertain.extend(
+            observation
+                .units
+                .iter()
+                .filter(|unit| unit.hp.exact().is_none())
+                .filter_map(|unit| match unit.location {
+                    Location::Board { position } => dimensions.cell_index(position),
+                    Location::Cargo { .. } => None,
+                }),
+        );
+        self.uncertain.sort_unstable();
     }
 
     /// The position as it stands.
@@ -716,19 +750,30 @@ impl Session {
         let subject = self.state.units.at(usize::from(unit.get()))?;
         let mut reach = self.reach.borrow_mut();
         let epoch = self.epoch;
-        let held = match reach.held.take() {
-            Some((index, at, geometry)) if index == unit && at == epoch => Some(geometry),
-            // Another unit's, or another position's. The next search wants
-            // the board-sized half of it. The rest is stale.
-            Some((_, _, geometry)) => {
-                geometry.recycle(&mut reach.scratch);
-                None
+        let previous = reach
+            .held
+            .iter()
+            .position(|(index, _, _)| *index == unit)
+            .map(|index| reach.held.remove(index));
+        let held = match previous {
+            Some((_, at, mut geometry)) => {
+                if at == epoch || geometry.rebind(subject, turn.maps()) {
+                    Some(geometry)
+                } else {
+                    geometry.recycle(&mut reach.scratch);
+                    None
+                }
             }
             None => None,
         };
+        if reach.held.len() >= 32 {
+            let (_, _, geometry) = reach.held.remove(0);
+            geometry.recycle(&mut reach.scratch);
+        }
         let field = match held {
             Some(geometry) => {
                 let active = turn.unit(subject.id).ok()?.ok()?;
+                turn.maps().prepare_occupancy();
                 PreparedMoveField::from_parts(active, geometry, turn.maps())
             }
             None => turn
@@ -740,7 +785,7 @@ impl Session {
         drop(reach);
         let answer = read(&field);
         let (_, geometry) = field.into_parts();
-        self.reach.borrow_mut().held = Some((unit, epoch, geometry));
+        self.reach.borrow_mut().held.push((unit, epoch, geometry));
         Some(answer)
     }
 }
@@ -1123,6 +1168,17 @@ pub trait LegalVisitor {
     /// Whether attack forecasts and unit references are required.
     const ATTACK_CONTEXT: bool = false;
 
+    /// Select the destination actions to visit. Omitted actions are not queried.
+    const ACTIONS: OrderMask = OrderMask::ALL;
+
+    /// Include unit deletion in the visit.
+    const DELETE: bool = true;
+
+    /// Return false to omit this unit's destination actions.
+    fn visit_unit(&mut self, _unit: UnitIdx) -> bool {
+        true
+    }
+
     /// Take one order. Ask the visiting [`Legal`] nothing from here.
     fn order(&mut self, order: Order);
 
@@ -1232,7 +1288,11 @@ impl<'a> Legal<'a> {
         let Location::Board { position: origin } = subject.location else {
             return;
         };
-        if let Some(cell) = dimensions.cell_index(origin)
+        if !visitor.visit_unit(unit) {
+            return;
+        }
+        if V::DELETE
+            && let Some(cell) = dimensions.cell_index(origin)
             && let Ok(Ok(active)) = turn.unit(subject.id)
             && active.can_delete().unwrap_or(false)
         {
@@ -1555,10 +1615,15 @@ impl<'a> Legal<'a> {
         let dimensions = state.board.dimensions();
         let mut rows = Vec::new();
         for position in dimensions.positions() {
-            if state
-                .board
-                .get(position)
-                .is_none_or(|tile| !tile.owner.is_owned_by(seat))
+            let tile = state.board.tile(position);
+            if !tile.owner.is_owned_by(seat)
+                || !ruleset::Domain::ALL.iter().any(|domain| {
+                    crate::commander::production_site(state, seat, tile.terrain, *domain)
+                })
+                || state
+                    .units
+                    .iter()
+                    .any(|unit| unit.location == (Location::Board { position }))
             {
                 continue;
             }
@@ -1709,10 +1774,34 @@ fn push_orders_at<'a, M, V: LegalVisitor>(
     let Some(position) = state.board.dimensions().position_of(dest) else {
         return;
     };
+    if prepared_attacks.is_some_and(<[_]>::is_empty) {
+        let Some(subject) = state.units.at(usize::from(unit.get())) else {
+            return;
+        };
+        let profile = ruleset::profile(subject.kind);
+        let tile = state.board.tile(position);
+        let requested = V::ACTIONS;
+        let other_action = (requested.allows(OrderKind::Capture)
+            && profile.can_capture
+            && ruleset::terrain_has(tile.terrain, ruleset::TerrainTrait::Capturable))
+            || (requested.allows(OrderKind::Supply) && profile.supply.is_some())
+            || ((requested.allows(OrderKind::Hide) || requested.allows(OrderKind::Reveal))
+                && profile.concealment.is_some())
+            || (requested.allows(OrderKind::Explode)
+                && profile.special_actions.contains(&ruleset::Command::Explode))
+            || (requested.has(TargetKind::Repair) && profile.repair.is_some())
+            || (requested.has(TargetKind::Launch) && tile.silo.is_some());
+        if !other_action && field.can_wait_at(position) {
+            if requested.allows(OrderKind::Wait) {
+                visitor.order(Order::new(unit, dest, OrderKind::Wait));
+            }
+            return;
+        }
+    }
     let Some(destination) = field.query_destination(position) else {
         return;
     };
-    for kind in untargeted_mask(&destination, position).untargeted() {
+    for kind in untargeted_mask(&destination, position, V::ACTIONS).untargeted() {
         visitor.order(Order::new(unit, dest, kind));
     }
     // No probe first. A list walked in full says by its own length whether
@@ -1720,6 +1809,7 @@ fn push_orders_at<'a, M, V: LegalVisitor>(
     // for a unit that cannot do it at all.
     routes.attacks.clear();
     let attacks = match prepared_attacks {
+        _ if !V::ACTIONS.has(TargetKind::Attack) => false,
         Some(candidates) => {
             let mut valid = true;
             for target in candidates.iter().copied() {
@@ -1786,6 +1876,9 @@ fn push_orders_at<'a, M, V: LegalVisitor>(
         ),
         (TargetKind::Launch, OrderKind::Launch),
     ] {
+        if !V::ACTIONS.has(kind) {
+            continue;
+        }
         walk_targets(
             state,
             routes,
@@ -1918,7 +2011,11 @@ fn rows_at(site: &PreparedProductionSite<'_>, out: &mut Vec<Production>) {
 }
 
 /// The eight orders that name nothing beyond the destination itself.
-fn untargeted_mask<'a, M>(destination: &PreparedDestination<'a, M>, position: Pos) -> OrderMask
+fn untargeted_mask<'a, M>(
+    destination: &PreparedDestination<'a, M>,
+    position: Pos,
+    requested: OrderMask,
+) -> OrderMask
 where
     M: std::borrow::Borrow<TurnMaps<'a>>,
 {
@@ -1926,33 +2023,45 @@ where
     let movement = destination.movement();
     let unit = &movement.state().units[movement.plan().unit_index()];
     let profile = ruleset::profile(unit.kind);
-    mask.set(OrderMask::WAIT, destination.can_wait().unwrap_or(false));
-    if profile.can_capture {
+    if requested.allows(OrderKind::Wait) {
+        mask.set(OrderMask::WAIT, destination.can_wait().unwrap_or(false));
+    }
+    if requested.allows(OrderKind::Capture) && profile.can_capture {
         mask.set(
             OrderMask::CAPTURE,
             destination.can_capture().unwrap_or(false),
         );
     }
-    if profile.supply.is_some() {
+    if requested.allows(OrderKind::Supply) && profile.supply.is_some() {
         mask.set(OrderMask::SUPPLY, destination.can_supply().unwrap_or(false));
     }
     if profile.concealment.is_some() {
-        mask.set(OrderMask::HIDE, destination.can_hide().unwrap_or(false));
-        mask.set(OrderMask::REVEAL, destination.can_reveal().unwrap_or(false));
+        if requested.allows(OrderKind::Hide) {
+            mask.set(OrderMask::HIDE, destination.can_hide().unwrap_or(false));
+        }
+        if requested.allows(OrderKind::Reveal) {
+            mask.set(OrderMask::REVEAL, destination.can_reveal().unwrap_or(false));
+        }
     }
-    mask.set(
-        OrderMask::EXPLODE,
-        destination.can_explode().unwrap_or(false),
-    );
+    if requested.allows(OrderKind::Explode) {
+        mask.set(
+            OrderMask::EXPLODE,
+            destination.can_explode().unwrap_or(false),
+        );
+    }
     if let Some(occupant) = destination.view().occupant(position) {
-        mask.set(
-            OrderMask::JOIN,
-            destination.can_join(occupant).unwrap_or(false),
-        );
-        mask.set(
-            OrderMask::LOAD,
-            destination.can_load(occupant).unwrap_or(false),
-        );
+        if requested.allows(OrderKind::Join) {
+            mask.set(
+                OrderMask::JOIN,
+                destination.can_join(occupant).unwrap_or(false),
+            );
+        }
+        if requested.allows(OrderKind::Load) {
+            mask.set(
+                OrderMask::LOAD,
+                destination.can_load(occupant).unwrap_or(false),
+            );
+        }
     }
     mask
 }
@@ -1971,7 +2080,7 @@ fn mask_at<'a, M>(
 where
     M: std::borrow::Borrow<TurnMaps<'a>>,
 {
-    let mut mask = untargeted_mask(destination, position);
+    let mut mask = untargeted_mask(destination, position, OrderMask::ALL);
     routes.attacks.clear();
     routes.repairs.clear();
     routes.launches.clear();

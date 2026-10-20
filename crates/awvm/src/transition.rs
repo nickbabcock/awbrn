@@ -228,6 +228,7 @@ pub(crate) struct PreparedProductionSite<'a> {
     occupied: bool,
     owned_units: u64,
     owns_lab: bool,
+    domains: [bool; ruleset::Domain::COUNT],
 }
 
 /// A valid transport bound to one active turn.

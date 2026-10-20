@@ -158,6 +158,7 @@ pub struct Step {
 #[derive(Clone, Debug)]
 pub struct MoveField {
     unit: UnitId,
+    subject: Unit,
     origin: Pos,
     /// What each tile costs this unit's movement class to enter, shared with
     /// every other unit of that class this turn.
@@ -347,7 +348,7 @@ pub(crate) struct TurnTables {
     /// itself and drops them with the rest of its maps, so a share nobody
     /// asked for costs no allocation.
     shared: Option<Arc<SharedTables>>,
-    entries_for: Option<EntryContext>,
+    entries_for: Option<Arc<EntryContext>>,
 }
 
 /// The cells a [`TurnTables`] handle shares. [`OnceLock`] rather than the
@@ -365,11 +366,19 @@ struct EntryTables {
     /// Entry costs, one map per movement class, each built when a unit of that
     /// class first asks.
     entries: [OnceLock<Arc<Grid<EntryCost>>>; MovementClass::COUNT],
+    travel: [OnceLock<Arc<TravelCosts>>; MovementClass::COUNT],
+}
+
+#[derive(Debug)]
+struct TravelCosts {
+    cells: Arc<[Option<u16>]>,
+    widest: u16,
 }
 
 /// The state inputs that can change a player's terrain entry costs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct EntryContext {
+    dimensions: crate::semantic::Dimensions,
     terrain: Vec<TerrainId>,
     weather: WeatherKind,
     commanders: Vec<(CommanderKind, bool)>,
@@ -380,6 +389,7 @@ impl EntryContext {
     fn of(state: &State, seat: PlayerIdx) -> Option<Self> {
         let player = state.players.get(seat.get())?;
         Some(Self {
+            dimensions: state.board.dimensions(),
             terrain: state.board.iter().map(|(_, tile)| tile.terrain).collect(),
             weather: state.weather.kind,
             commanders: player
@@ -389,6 +399,24 @@ impl EntryContext {
                 .collect(),
             power: player.power_state.clone(),
         })
+    }
+
+    fn matches(&self, state: &State, seat: PlayerIdx) -> bool {
+        let Some(player) = state.players.get(seat.get()) else {
+            return false;
+        };
+        self.dimensions == state.board.dimensions()
+            && self.weather == state.weather.kind
+            && self.power == player.power_state
+            && self.commanders.iter().copied().eq(player
+                .commanders
+                .iter()
+                .map(|commander| (commander.id, commander.active)))
+            && self
+                .terrain
+                .iter()
+                .copied()
+                .eq(state.board.tiles().map(|tile| tile.terrain))
     }
 }
 
@@ -410,12 +438,16 @@ impl TurnTables {
     /// survive when terrain, weather, and the player's movement rules did not
     /// change.
     pub(crate) fn advance(&mut self, state: &State, seat: PlayerIdx) {
-        let entries_for = EntryContext::of(state, seat);
-        let entries = if self.entries_for == entries_for {
+        let entries = if self
+            .entries_for
+            .as_ref()
+            .is_some_and(|context| context.matches(state, seat))
+        {
             self.shared
                 .as_ref()
                 .map_or_else(Arc::default, |tables| Arc::clone(&tables.entries))
         } else {
+            self.entries_for = EntryContext::of(state, seat).map(Arc::new);
             Arc::default()
         };
         self.shared = Some(Arc::new(SharedTables {
@@ -423,7 +455,6 @@ impl TurnTables {
             hidden_board_unit: OnceLock::new(),
             entries,
         }));
-        self.entries_for = entries_for;
     }
 }
 
@@ -568,7 +599,7 @@ impl<'a> TurnMaps<'a> {
         // same position, but the index belongs to this turn's view, and a view
         // without one answers an occupancy question by walking every unit of
         // the state for every tile.
-        self.view.index_occupancy();
+        self.prepare_occupancy();
         self.tables().blocking.get_or_init(|| {
             Arc::new(Grid::from_fn(self.state.board.dimensions(), |position| {
                 let occupied = self.view.occupant_disclosed(position);
@@ -578,6 +609,10 @@ impl<'a> TurnMaps<'a> {
                 }
             }))
         })
+    }
+
+    pub(crate) fn prepare_occupancy(&self) {
+        self.view.index_occupancy();
     }
 
     /// What each tile costs a unit of `class` to enter.
@@ -598,9 +633,53 @@ impl<'a> TurnMaps<'a> {
             }))
         })
     }
+
+    fn travel_costs(&self, class: MovementClass) -> &Arc<TravelCosts> {
+        self.tables().entries.travel[class.index()].get_or_init(|| {
+            let cells: Arc<[Option<u16>]> = self
+                .entry_costs(class)
+                .cells()
+                .map(|entry| entry.points())
+                .collect();
+            let widest = cells.iter().flatten().copied().max().unwrap_or(1).max(1);
+            Arc::new(TravelCosts { cells, widest })
+        })
+    }
 }
 
 impl MoveField {
+    /// Reuse routes when the unit, entry costs, and route blockers are equal.
+    /// Refresh resting tiles because friendly units can move across a route.
+    pub(crate) fn rebind(&mut self, subject: &Unit, maps: &TurnMaps<'_>) -> bool {
+        if self.subject != *subject
+            || !Arc::ptr_eq(
+                &self.entry,
+                maps.entry_costs(ruleset::profile(subject.kind).movement_class),
+            )
+        {
+            return false;
+        }
+        let blocking = maps.blocking();
+        if !self
+            .blocking
+            .cells()
+            .map(|cell| cell.route)
+            .eq(blocking.cells().map(|cell| cell.route))
+        {
+            return false;
+        }
+        for (arrival, block) in self.arrivals.cells_mut().zip(blocking.cells()) {
+            if let Some(arrival) = arrival {
+                arrival.can_stop = !block.stop;
+            }
+        }
+        if let Some(arrival) = self.arrivals.get_mut(self.origin).and_then(Option::as_mut) {
+            arrival.can_stop = !is_teleporter(maps.state, self.origin);
+        }
+        self.blocking = Arc::clone(blocking);
+        true
+    }
+
     /// Give the arrival grid back to the pool it came from.
     ///
     /// The grid is the only board-sized thing a search owns. A caller done
@@ -974,6 +1053,20 @@ where
         )
     }
 
+    /// Query a wait without constructing the movement proof for other actions.
+    pub(crate) fn can_wait_at(&self, position: Pos) -> bool {
+        self.field
+            .arrivals
+            .get(position)
+            .is_some_and(Option::is_some)
+            && !is_teleporter(self.active.state(), position)
+            && crate::transition::destination_is_available(
+                self.maps.borrow().view(),
+                position,
+                self.active.unit(),
+            )
+    }
+
     /// Enumerate actions at one destination without validating its path again.
     pub fn actions_at(&self, position: Pos) -> Result<ActionSet, QueryError> {
         self.prepare_destination(position)
@@ -1266,6 +1359,7 @@ pub(crate) fn reachable_with(
 
     Ok(MoveField {
         unit,
+        subject: *subject,
         origin,
         entry,
         blocking,
@@ -1472,7 +1566,7 @@ pub struct Travel<'a> {
     /// the search reads it in: a search settles every tile and looks at four
     /// neighbours of each, and asking a grid costs a bounds check and a
     /// multiply every time.
-    costs: Vec<Option<u16>>,
+    costs: Arc<[Option<u16>]>,
     /// The largest entry cost on the board, which is the width of the ring
     /// below.
     widest: u16,
@@ -1495,11 +1589,11 @@ impl<'a> Travel<'a> {
     ///
     /// This is what lets a caller who searches and then measures distance pay
     /// for one entry-cost grid per movement class instead of two.
-    pub(crate) const fn with_maps(maps: TurnMaps<'a>) -> Self {
+    pub(crate) fn with_maps(maps: TurnMaps<'a>) -> Self {
         Self {
             maps,
             flattened: None,
-            costs: Vec::new(),
+            costs: Arc::from([]),
             widest: 0,
             ring: Vec::new(),
         }
@@ -1510,21 +1604,9 @@ impl<'a> Travel<'a> {
         if self.flattened == Some(class) {
             return;
         }
-        let entry = Arc::clone(self.maps.entry_costs(class));
-        let dimensions = self.maps.state.board.dimensions();
-        self.costs.clear();
-        self.costs.reserve(dimensions.len());
-        self.widest = 1;
-        for position in dimensions.positions() {
-            let points = dimensions
-                .cell(position)
-                .and_then(|cell| entry.at(cell).points());
-            if let Some(points) = points {
-                self.widest = self.widest.max(points);
-            }
-            self.costs.push(points);
-        }
-        self.ring.clear();
+        let flattened = self.maps.travel_costs(class);
+        self.costs = Arc::clone(&flattened.cells);
+        self.widest = flattened.widest;
         self.ring
             .resize_with(usize::from(self.widest) + 1, Vec::new);
         self.flattened = Some(class);
