@@ -754,7 +754,7 @@ impl Session {
             .held
             .iter()
             .position(|(index, _, _)| *index == unit)
-            .map(|index| reach.held.swap_remove(index));
+            .map(|index| reach.held.remove(index));
         let held = match previous {
             Some((_, at, mut geometry)) => {
                 if at == epoch || geometry.rebind(subject, turn.maps()) {
@@ -767,7 +767,7 @@ impl Session {
             None => None,
         };
         if reach.held.len() >= 32 {
-            let (_, _, geometry) = reach.held.swap_remove(0);
+            let (_, _, geometry) = reach.held.remove(0);
             geometry.recycle(&mut reach.scratch);
         }
         let field = match held {
