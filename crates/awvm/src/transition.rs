@@ -647,7 +647,11 @@ where
     where
         A: DestinationAction<'a>,
     {
-        prepared(action.validate(self)).map(|outcome| outcome.is_ok())
+        match action.validate(self) {
+            Ok(_) => Ok(true),
+            Err(ReducerError::Violation(_)) => Ok(false),
+            Err(error) => Err(execute_error(error)),
+        }
     }
 
     pub(crate) fn can_wait(&self) -> Result<bool, ExecuteError> {

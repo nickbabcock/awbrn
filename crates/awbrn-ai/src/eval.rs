@@ -708,10 +708,8 @@ impl EvaluationRead {
 
 /// Reads a position and answers what it is worth.
 ///
-/// It holds scratch and nothing else, so one evaluator can be kept across a
-/// whole tournament. The scratch is one entry for each seat and one for each
-/// tile, which is what stops a board walk turning into a walk over the units
-/// for every tile of it.
+/// Keep one evaluator across matches to reuse its buffers and maps. Each seat
+/// has its own maps. Each map checks its inputs before it uses cached data.
 #[derive(Debug)]
 pub struct Evaluator {
     weights: EvalWeights,
@@ -736,8 +734,9 @@ pub struct Evaluator {
     capture_transfers: Vec<CaptureTransfer>,
     /// Neutral contest credits from the current raw extraction.
     contest_targets: Vec<ContestTarget>,
-    threat: ThreatMap,
-    contest: ContestMap,
+    /// Keep each seat's maps so that another seat does not remove cached data.
+    threat: Vec<ThreatMap>,
+    contest: Vec<ContestMap>,
     /// Number of nonterminal position evaluations performed by this reader.
     position_evaluations: u64,
 }
@@ -773,8 +772,8 @@ impl Evaluator {
             occupant: Vec::new(),
             capture_transfers: Vec::new(),
             contest_targets: Vec::new(),
-            threat: ThreatMap::new(),
-            contest: ContestMap::new(),
+            threat: Vec::new(),
+            contest: Vec::new(),
             position_evaluations: 0,
         }
     }
@@ -1007,13 +1006,21 @@ impl Evaluator {
         let state = session.state();
         let dimensions = state.board.dimensions();
         self.contest_targets.clear();
+        if self.weights.exposure != 0.0 {
+            self.threat.resize_with(state.players.len(), ThreatMap::new);
+        }
+        if self.weights.contest != 0.0 || self.weights.front != 0.0 {
+            self.contest
+                .resize_with(state.players.len(), ContestMap::new);
+        }
         for (seat, player) in state.players.seats() {
             if player.status != PlayerStatus::Active {
                 continue;
             }
 
             if self.weights.exposure != 0.0 {
-                self.threat.build(session, seat);
+                let threat = &mut self.threat[seat.get()];
+                threat.build(session, seat);
                 for unit in state.units.iter().filter(|unit| unit.owner == seat) {
                     let Location::Board { position } = unit.location else {
                         continue;
@@ -1021,8 +1028,7 @@ impl Evaluator {
                     let Some(cell) = dimensions.cell_index(position) else {
                         continue;
                     };
-                    let at_risk = self
-                        .threat
+                    let at_risk = threat
                         .immediate(cell, unit.kind)
                         .min(cost(unit.kind) * f64::from(unit.hp) / 100.0);
                     self.raw[seat.get()].at_risk_funds += at_risk;
@@ -1033,8 +1039,8 @@ impl Evaluator {
             if self.weights.contest == 0.0 && self.weights.front == 0.0 {
                 continue;
             }
-            self.contest.build(state, seat);
-            if !self.contest.is_built() {
+            self.contest[seat.get()].build(state, seat);
+            if !self.contest[seat.get()].is_built() {
                 continue;
             }
 
@@ -1044,7 +1050,8 @@ impl Evaluator {
                         let Some(cell) = dimensions.cell_index(position) else {
                             continue;
                         };
-                        let deficit = f64::from(self.contest.deficit(usize::from(cell.get())));
+                        let deficit =
+                            f64::from(self.contest[seat.get()].deficit(usize::from(cell.get())));
                         let share = 1.0 - deficit / f64::from(MAX_DEFICIT);
                         self.raw[seat.get()].neutral_contest_share += share;
                         self.contest_targets.push(ContestTarget {
@@ -1066,8 +1073,9 @@ impl Evaluator {
                     let Some(cell) = dimensions.cell_index(position) else {
                         continue;
                     };
-                    let progress = f64::from(self.contest.front(usize::from(cell.get())))
-                        / f64::from(MAX_DEFICIT);
+                    let progress =
+                        f64::from(self.contest[seat.get()].front(usize::from(cell.get())))
+                            / f64::from(MAX_DEFICIT);
                     let army = cost(unit.kind) * f64::from(unit.hp) / 100.0;
                     self.raw[seat.get()].front_steps += progress * army;
                     self.strengths[seat.get()] += self.weights.front * progress * army;
@@ -1784,6 +1792,100 @@ mod tests {
                     actual, expected,
                     "fixture score changed for seat {seat:?}: {breakdown:?}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn retained_seat_maps_match_fresh_maps_after_position_changes() {
+        let weights = EvalWeights {
+            exposure: 1.0,
+            contest: 1.0,
+            front: 1.0,
+            ..EvalWeights::STANDARD
+        };
+        let mut retained = Evaluator::new(weights);
+        for fog in [false, true, false] {
+            let mut state = amber_valley(fog, 11);
+            let (first, second) = seats(&state);
+            let position = headquarters(&state, first);
+            let enemy = field_unit(&mut state, second, position, UnitKind::Tank);
+            for change in 0..5 {
+                match change {
+                    1 => state.units.get_mut(enemy).expect("the tank exists").hp = 40,
+                    2 => state.board.tile_mut(position).owner = TileOwner::Owned(second),
+                    3 => state.weather.kind = awvm::semantic::WeatherKind::Snow,
+                    4 => state.units.retain(|unit| unit.id != enemy),
+                    _ => {}
+                }
+                let session = Session::new(state.clone());
+                for _ in 0..2 {
+                    for (seat, _) in state.players.seats() {
+                        let actual = retained.breakdown_in(&session, seat);
+                        let expected = Evaluator::new(weights).breakdown_in(&session, seat);
+                        assert_eq!(actual.score.to_bits(), expected.score.to_bits());
+                        assert_eq!(actual.terms, expected.terms);
+                        assert_eq!(actual.context.friendly_raw, expected.context.friendly_raw);
+                        assert_eq!(actual.context.hostile_raw, expected.context.hostile_raw);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn retained_seat_maps_follow_board_shape_changes() {
+        let weights = EvalWeights {
+            exposure: 1.0,
+            contest: 1.0,
+            front: 1.0,
+            ..EvalWeights::STANDARD
+        };
+        let mut retained = Evaluator::new(weights);
+        for (width, height) in [(6, 12), (12, 6), (6, 12)] {
+            let mut state = amber_valley(false, 11);
+            let (first, second) = seats(&state);
+            state.board = awvm::semantic::Board::new(
+                width,
+                height,
+                vec![awvm::semantic::Tile::new(Terrain::Plain); 72],
+            )
+            .expect("the board has 72 tiles");
+            state.units.retain(|_| false);
+            for (seat, position) in [(first, Pos::new(0, 0)), (second, Pos::new(1, 0))] {
+                let tile = state.board.tile_mut(position);
+                tile.terrain = Terrain::Hq;
+                tile.owner = TileOwner::Owned(seat);
+                field_unit(&mut state, seat, position, UnitKind::Tank);
+            }
+            let session = Session::new(state);
+            let mut fresh = Evaluator::new(weights);
+            assert_eq!(
+                retained.value_in(&session, first).to_bits(),
+                fresh.value_in(&session, first).to_bits()
+            );
+            for (seat, _) in session.state().players.seats() {
+                for index in 0..72 {
+                    let cell = awvm::semantic::CellIdx::from_raw(index);
+                    for kind in UnitKind::ALL {
+                        assert_eq!(
+                            retained.threat[seat.get()].immediate(cell, kind),
+                            fresh.threat[seat.get()].immediate(cell, kind)
+                        );
+                        assert_eq!(
+                            retained.threat[seat.get()].deferred(cell, kind),
+                            fresh.threat[seat.get()].deferred(cell, kind)
+                        );
+                    }
+                    assert_eq!(
+                        retained.contest[seat.get()].front(usize::from(index)),
+                        fresh.contest[seat.get()].front(usize::from(index))
+                    );
+                    assert_eq!(
+                        retained.contest[seat.get()].deficit(usize::from(index)),
+                        fresh.contest[seat.get()].deficit(usize::from(index))
+                    );
+                }
             }
         }
     }

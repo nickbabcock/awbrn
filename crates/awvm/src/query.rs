@@ -458,7 +458,7 @@ pub(crate) struct TurnMaps<'a> {
     /// tower and property counts of both sides of every strike, and scoring
     /// one attack candidate used to count them from the board twice.
     holdings: OnceCell<Holdings<'a>>,
-    /// Visible board units in stable identifier order.
+    /// Visible enemy board units in stable identifier order.
     attack_units: OnceCell<Vec<(Unit, Pos)>>,
     /// Destructible board tiles in board order.
     attack_tiles: OnceCell<Vec<(Pos, crate::ruleset::UnitKind)>>,
@@ -520,6 +520,7 @@ impl<'a> TurnMaps<'a> {
 
     fn attack_units(&self) -> &[(Unit, Pos)] {
         self.attack_units.get_or_init(|| {
+            let team = &self.state.player(self.seat).team;
             let mut units: Vec<_> = self
                 .state
                 .units
@@ -528,6 +529,14 @@ impl<'a> TurnMaps<'a> {
                     let Location::Board { position } = unit.location else {
                         return None;
                     };
+                    if self
+                        .state
+                        .players
+                        .get(unit.owner.get())
+                        .is_some_and(|owner| owner.team == *team)
+                    {
+                        return None;
+                    }
                     self.view.unit(unit).then_some((*unit, position))
                 })
                 .collect();
