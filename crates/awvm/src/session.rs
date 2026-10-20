@@ -277,9 +277,15 @@ impl OrderMask {
             OrderKind::Join,
             OrderKind::Load,
         ];
-        UNTARGETED
-            .into_iter()
-            .filter(move |kind| self.allows(*kind))
+        let mut remaining = self.0 & (Self::ATTACK - 1);
+        std::iter::from_fn(move || {
+            if remaining == 0 {
+                return None;
+            }
+            let index = remaining.trailing_zeros() as usize;
+            remaining &= remaining - 1;
+            Some(UNTARGETED[index])
+        })
     }
 
     fn set(&mut self, bit: u16, present: bool) {
@@ -1917,14 +1923,23 @@ where
     M: std::borrow::Borrow<TurnMaps<'a>>,
 {
     let mut mask = OrderMask::default();
+    let movement = destination.movement();
+    let unit = &movement.state().units[movement.plan().unit_index()];
+    let profile = ruleset::profile(unit.kind);
     mask.set(OrderMask::WAIT, destination.can_wait().unwrap_or(false));
-    mask.set(
-        OrderMask::CAPTURE,
-        destination.can_capture().unwrap_or(false),
-    );
-    mask.set(OrderMask::SUPPLY, destination.can_supply().unwrap_or(false));
-    mask.set(OrderMask::HIDE, destination.can_hide().unwrap_or(false));
-    mask.set(OrderMask::REVEAL, destination.can_reveal().unwrap_or(false));
+    if profile.can_capture {
+        mask.set(
+            OrderMask::CAPTURE,
+            destination.can_capture().unwrap_or(false),
+        );
+    }
+    if profile.supply.is_some() {
+        mask.set(OrderMask::SUPPLY, destination.can_supply().unwrap_or(false));
+    }
+    if profile.concealment.is_some() {
+        mask.set(OrderMask::HIDE, destination.can_hide().unwrap_or(false));
+        mask.set(OrderMask::REVEAL, destination.can_reveal().unwrap_or(false));
+    }
     mask.set(
         OrderMask::EXPLODE,
         destination.can_explode().unwrap_or(false),
@@ -1986,7 +2001,28 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::Session;
+    use super::{OrderKind, OrderMask, Session};
+
+    #[test]
+    fn untargeted_orders_match_membership_in_bit_order() {
+        let kinds = [
+            OrderKind::Wait,
+            OrderKind::Capture,
+            OrderKind::Supply,
+            OrderKind::Hide,
+            OrderKind::Reveal,
+            OrderKind::Explode,
+            OrderKind::Join,
+            OrderKind::Load,
+        ];
+        for bits in 0..=u16::MAX {
+            let mask = OrderMask(bits);
+            assert!(
+                mask.untargeted()
+                    .eq(kinds.into_iter().filter(|kind| mask.allows(*kind)))
+            );
+        }
+    }
 
     /// A session is the unit of ownership a parallel search wants: one per
     /// core, each holding its own position and scratch. That works only if a

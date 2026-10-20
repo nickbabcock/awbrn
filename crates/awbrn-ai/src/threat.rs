@@ -123,6 +123,7 @@ pub struct ThreatMap {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ThreatContext {
+    dimensions: Dimensions,
     seat: PlayerIdx,
     fog: bool,
     terrain: Vec<TerrainId>,
@@ -516,6 +517,7 @@ impl ThreatMap {
 impl ThreatContext {
     fn of(state: &State, seat: PlayerIdx) -> Self {
         Self {
+            dimensions: state.board.dimensions(),
             seat,
             fog: state.settings.fog,
             terrain: state.board.iter().map(|(_, tile)| tile.terrain).collect(),

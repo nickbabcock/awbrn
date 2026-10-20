@@ -32,7 +32,7 @@ use awvm::commander;
 use awvm::query::{self, Travel};
 use awvm::ruleset::{self, MovementClass, TerrainTrait, UnitKind};
 use awvm::semantic::{
-    Concealment, Location, PlayerIdx, Pos, State, TileOwner, Unit, UnitAction, UnitId,
+    Concealment, Dimensions, Location, PlayerIdx, Pos, State, TileOwner, Unit, UnitAction, UnitId,
 };
 
 use crate::threat;
@@ -77,6 +77,7 @@ struct Search {
 
 #[derive(Clone, Debug, PartialEq)]
 struct Built {
+    dimensions: Dimensions,
     ours: Search,
     theirs: Vec<Search>,
 }
@@ -169,20 +170,21 @@ impl ContestMap {
         }
 
         let built = Built {
-            ours: ours.clone(),
-            theirs: theirs.clone(),
+            dimensions: state.board.dimensions(),
+            ours,
+            theirs,
         };
         if self.built.as_ref() == Some(&built) && self.is_built() {
             return;
         }
 
         let cells = state.board.dimensions().len();
-        self.turns_to(state, &ours, cells);
+        self.turns_to(state, &built.ours, cells);
         std::mem::swap(&mut self.ours, &mut self.points);
 
         self.theirs.clear();
         self.theirs.resize(cells, None);
-        for search in &theirs {
+        for search in &built.theirs {
             self.turns_to(state, search, cells);
             for (best, turns) in self.theirs.iter_mut().zip(self.points.iter().copied()) {
                 *best = match (*best, turns) {
