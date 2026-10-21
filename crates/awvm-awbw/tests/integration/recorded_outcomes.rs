@@ -140,6 +140,37 @@ fn legacy_game_over_uses_elimination_flags_without_winner_metadata() {
     );
 }
 
+#[test]
+fn tag_charge_goes_to_the_active_commander() {
+    let replay = ReplayParser::new()
+        .parse(&std::fs::read(replay_path("1563018.zip")).unwrap())
+        .unwrap();
+    let map_id = replay.games[0].maps_id.as_u32();
+    let map: AwbwMapData =
+        serde_json::from_slice(&std::fs::read(map_path(&format!("{map_id}.json"))).unwrap())
+            .unwrap();
+    let mut adapter = RecordedAdapter::new(&replay, &map).unwrap();
+    // The defender tags from Drake to Flak at action 136. Action 235 is the
+    // first attack after that tag that records its charge.
+    for action in &replay.turns[..=235] {
+        adapter.advance(action).unwrap();
+    }
+    let defender = adapter
+        .state()
+        .players
+        .iter()
+        .find(|player| player.id().as_str() == "3650740")
+        .unwrap();
+    let charges = defender
+        .commanders
+        .iter()
+        .map(|commander| (commander.active, commander.power_charge))
+        .collect::<Vec<_>>();
+    // Drake keeps slot 0 and Flak keeps slot 1. The recorded `copValue` of
+    // 42500 belongs to Flak, who is active.
+    assert_eq!(charges, [(false, 2125), (true, 4250)]);
+}
+
 /// Replay every archived game on rayon's pool.
 ///
 /// The pool is sized to the machine rather than to the archive: a thread per
