@@ -714,6 +714,7 @@ impl EvaluationRead {
 pub struct Evaluator {
     weights: EvalWeights,
     position: Option<PositionKey>,
+    reads: Vec<Option<EvaluationRead>>,
     /// Select a compiled preset from the position before each read.
     mode_defaults: bool,
     /// The preset that supplied the current weights.
@@ -764,6 +765,7 @@ impl Evaluator {
         Self {
             weights,
             position: None,
+            reads: Vec::new(),
             mode_defaults: false,
             preset: EvalPreset::Explicit,
             raw: Vec::new(),
@@ -872,6 +874,9 @@ impl Evaluator {
             self.position = position;
         }
         self.position_evaluations += 1;
+        if let Some(Some(read)) = self.reads.get(seat.get()) {
+            return *read;
+        }
 
         let Some(terms) = self.delta_terms(state, seat) else {
             return EvaluationRead {
@@ -901,7 +906,7 @@ impl Evaluator {
         let term_residual = reconcile_terms_score(&mut terms, score, self.weights);
         let (friendly_raw, hostile_raw) = self.raw_sides(state, seat).unwrap_or_default();
         let positional_shares = self.positional_shares(state, seat, terms);
-        EvaluationRead {
+        let read = EvaluationRead {
             score,
             terms,
             term_residual,
@@ -910,7 +915,9 @@ impl Evaluator {
             friendly_raw,
             hostile_raw,
             positional_shares,
-        }
+        };
+        self.reads[seat.get()] = Some(read);
+        read
     }
 
     /// What one seat holds, in funds, without reading the seats against it.
@@ -943,6 +950,8 @@ impl Evaluator {
     /// Extract unweighted values for every seat on the roster.
     fn extract_raw(&mut self, state: &State) {
         self.position = None;
+        self.reads.clear();
+        self.reads.resize(state.players.len(), None);
         // A day beyond any match ever played decays to nothing anyway, so the
         // clamp only stops a silly day from reaching `powf`.
         let day = (state.turn.day.min(1_000)) as f64;

@@ -1286,18 +1286,28 @@ impl<'a> Legal<'a> {
         let dimensions = self.session.state.board.dimensions();
         self.session.with_field(turn, unit, |field| {
             let mut routes = self.session.routes.borrow_mut();
+            let mut attack_index = std::mem::take(&mut routes.attack_index);
+            field.prepare_attack_index(&mut attack_index);
             for (position, _) in field.geometry().reach() {
                 let Some(cell) = dimensions.cell_index(position) else {
                     continue;
                 };
+                let attacks = attack_index.targets(cell);
+                if attacks.is_empty()
+                    && only_wait_at(field, unit, position, OrderMask::ALL, self.state())
+                {
+                    out.push((cell, OrderMask::from_untargeted(&[OrderKind::Wait])));
+                    continue;
+                }
                 let Some(destination) = field.query_destination(position) else {
                     continue;
                 };
-                let mask = mask_at(&mut routes, &destination, position);
+                let mask = mask_at(&mut routes, &destination, position, attacks);
                 if !mask.is_empty() {
                     out.push((cell, mask));
                 }
             }
+            routes.attack_index = attack_index;
         });
     }
 
@@ -1793,6 +1803,36 @@ impl<'a> Legal<'a> {
     }
 }
 
+/// Return true when waiting is the only requested action at this tile.
+#[inline(always)]
+fn only_wait_at<'a, M>(
+    field: &PreparedMoveField<'a, M>,
+    unit: UnitIdx,
+    position: Pos,
+    requested: OrderMask,
+    state: &State,
+) -> bool
+where
+    M: std::borrow::Borrow<TurnMaps<'a>>,
+{
+    let Some(subject) = state.units.at(usize::from(unit.get())) else {
+        return false;
+    };
+    let profile = ruleset::profile(subject.kind);
+    let tile = state.board.tile(position);
+    let other_action = (requested.allows(OrderKind::Capture)
+        && profile.can_capture
+        && ruleset::terrain_has(tile.terrain, ruleset::TerrainTrait::Capturable))
+        || (requested.allows(OrderKind::Supply) && profile.supply.is_some())
+        || ((requested.allows(OrderKind::Hide) || requested.allows(OrderKind::Reveal))
+            && profile.concealment.is_some())
+        || (requested.allows(OrderKind::Explode)
+            && profile.special_actions.contains(&ruleset::Command::Explode))
+        || (requested.has(TargetKind::Repair) && profile.repair.is_some())
+        || (requested.has(TargetKind::Launch) && tile.silo.is_some());
+    !other_action && field.can_wait_at(position)
+}
+
 /// Every order that ends at one arrival tile, appended to `out`.
 ///
 /// One preparation answers all of them. Splitting the mask from the orders
@@ -1813,29 +1853,13 @@ fn push_orders_at<'a, M, V: LegalVisitor>(
     let Some(position) = state.board.dimensions().position_of(dest) else {
         return;
     };
-    if prepared_attacks.is_some_and(<[_]>::is_empty) {
-        let Some(subject) = state.units.at(usize::from(unit.get())) else {
-            return;
-        };
-        let profile = ruleset::profile(subject.kind);
-        let tile = state.board.tile(position);
-        let requested = V::ACTIONS;
-        let other_action = (requested.allows(OrderKind::Capture)
-            && profile.can_capture
-            && ruleset::terrain_has(tile.terrain, ruleset::TerrainTrait::Capturable))
-            || (requested.allows(OrderKind::Supply) && profile.supply.is_some())
-            || ((requested.allows(OrderKind::Hide) || requested.allows(OrderKind::Reveal))
-                && profile.concealment.is_some())
-            || (requested.allows(OrderKind::Explode)
-                && profile.special_actions.contains(&ruleset::Command::Explode))
-            || (requested.has(TargetKind::Repair) && profile.repair.is_some())
-            || (requested.has(TargetKind::Launch) && tile.silo.is_some());
-        if !other_action && field.can_wait_at(position) {
-            if requested.allows(OrderKind::Wait) {
-                visitor.order(Order::new(unit, dest, OrderKind::Wait));
-            }
-            return;
+    if prepared_attacks.is_some_and(<[_]>::is_empty)
+        && only_wait_at(field, unit, position, V::ACTIONS, state)
+    {
+        if V::ACTIONS.allows(OrderKind::Wait) {
+            visitor.order(Order::new(unit, dest, OrderKind::Wait));
         }
+        return;
     }
     let Some(destination) = field.query_destination(position) else {
         return;
@@ -2115,6 +2139,7 @@ fn mask_at<'a, M>(
     routes: &mut Routes,
     destination: &PreparedDestination<'a, M>,
     position: Pos,
+    attacks: &[AttackTarget],
 ) -> OrderMask
 where
     M: std::borrow::Borrow<TurnMaps<'a>>,
@@ -2123,17 +2148,18 @@ where
     routes.attacks.clear();
     routes.repairs.clear();
     routes.launches.clear();
-    mask.set(
-        OrderMask::ATTACK,
-        query::attack_targets_into::<M, 1>(
-            destination,
-            &mut routes.attacks,
-            &mut routes.attack_units,
-            &mut routes.attack_tiles,
-        )
-        .is_ok()
-            && !routes.attacks.is_empty(),
-    );
+    let mut attack = false;
+    for target in attacks {
+        match destination.can_attack(*target) {
+            Ok(true) => {
+                attack = true;
+                break;
+            }
+            Ok(false) => {}
+            Err(_) => break,
+        }
+    }
+    mask.set(OrderMask::ATTACK, attack);
     mask.set(
         OrderMask::REPAIR,
         query::repair_targets_into::<M, 1>(destination, &mut routes.repairs).is_ok()
