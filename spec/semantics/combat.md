@@ -31,7 +31,8 @@ that the unlimited weapon is conventionally a unit's secondary weapon.
 
 Let `visual-hp(hp) = ceiling(hp / 10)`. Given selected base damage `B`, attack
 percent `A`, defense percent `D`, defender terrain stars `T`, good luck `G`,
-bad luck `L`, and the attacker's exact HP `HA`:
+bad luck `L`, and the attacker's visual HP in points
+`HA = 10 * visual-hp(attacker.hp)`:
 
 ```text
 attack-factor = max(0, floor(B * A / 100) + G - L)
@@ -41,7 +42,9 @@ damage        = floor(floor(hp-factor * defense-term / 100) / 100)
 ```
 
 Damage is clamped to the defender's exact HP. All values are integers and the
-two displayed floors are distinct rounding points.
+two displayed floors are distinct rounding points. Exact HP inside a bar does
+not change the damage that a unit deals: an attacker at 61 points and one at 70
+points both strike as 7 bars.
 
 Zero HP is an event value, not a state value. A lethal strike emits
 `unit-damaged` with `to_hp: 0`, performs any capture reset, and removes the unit
@@ -61,7 +64,7 @@ A counter's tokens are consumed only if a counterattack actually occurs.
 
 After the initial damage, a surviving defender counters only when its selected
 weapon is direct, can target the attacker, and has sufficient ammo. Counter
-damage uses its post-damage exact HP. Ammunition for each strike is deducted
+damage uses the visual HP of its post-damage exact HP. Ammunition for each strike is deducted
 when that strike begins.
 
 For this slice events are ordered: movement events (when the path changes
@@ -82,7 +85,8 @@ When the defender's revisioned `counter-first` operator is true and that
 defender is otherwise eligible to counter, reverse the two strike-resolution
 blocks while preserving combat roles. Consume the defender's good- and
 bad-luck tokens first. If the acting attacker survives, consume its two tokens
-and resolve its initiating strike using its reduced exact HP. If it does not
+and resolve its initiating strike using the visual HP of its reduced exact HP.
+If it does not
 survive, remove it immediately; do not consume its tokens, spend ammunition for
 its unperformed strike, or emit `unit-action-changed` for the removed unit.
 
@@ -216,8 +220,15 @@ this rule. A controlled AWBW experiment is still required for a higher evidence
 rank.
 
 The weapon selection and base damage are backed by `weapons.json`. The formula,
-visual HP use, counter post-damage HP, and demand-driven counter are
+counter post-damage HP, and demand-driven counter are
 `corroborated-implementation` from AWBW Replay Player and WarsWorld. They need
 controlled AWBW experiments before this profile can be marked complete.
+
+The attacker's visual HP in `HA` is `confirmed-replay`. As in Advance Wars, a
+unit fights with the HP bars that it shows. Recorded AWBW games agree: every
+archived attack that the two rules separate fits visual HP, for initial strikes
+and for counters. The `awvm-awbw` test `recorded_attacks_use_visual_attacker_hp`
+keeps two of these attacks.
+
 Power charge arithmetic is `documentation-only` from the AWBW Wiki CO power
 meter documentation pending replay-controlled confirmation.

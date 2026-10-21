@@ -12,3 +12,4 @@ mod initial_state;
 mod local_compatibility;
 mod masked_hp;
 mod recorded_outcomes;
+mod visual_attacker_hp;

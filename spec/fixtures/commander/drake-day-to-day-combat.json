@@ -105,7 +105,7 @@
           "players": [
             {
               "commanders": [
-                { "active": true, "id": "drake", "power_charge": 9000, "power_uses": 0 }
+                { "active": true, "id": "drake", "power_charge": 9900, "power_uses": 0 }
               ],
               "funds": 0,
               "id": "red",
@@ -115,7 +115,7 @@
             },
             {
               "commanders": [
-                { "active": true, "id": "drake", "power_charge": 8550, "power_uses": 0 }
+                { "active": true, "id": "drake", "power_charge": 9000, "power_uses": 0 }
               ],
               "funds": 0,
               "id": "blue",
@@ -156,7 +156,7 @@
               "ammo": 5,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 25,
+              "hp": 20,
               "id": 0,
               "kind": "b-copter",
               "location": { "position": [0, 0], "type": "board" },
@@ -224,7 +224,7 @@
           {
             "from_hp": 100,
             "reason": "combat-counter",
-            "to_hp": 25,
+            "to_hp": 20,
             "type": "unit-damaged",
             "unit": 0
           },
@@ -233,7 +233,7 @@
             "from": 5400,
             "player": "blue",
             "reason": "combat-counter",
-            "to": 8550,
+            "to": 9000,
             "type": "power-charge-changed"
           },
           {
@@ -241,7 +241,7 @@
             "from": 2700,
             "player": "red",
             "reason": "combat-counter",
-            "to": 9000,
+            "to": 9900,
             "type": "power-charge-changed"
           },
           {

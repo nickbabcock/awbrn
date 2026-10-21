@@ -83,8 +83,9 @@ otherwise eligible direct counter has this effect, resolve the defender's
 counter before the initiating strike. The defender uses its full pre-engagement
 HP. If that strike removes the acting attacker, the initiating strike does not
 occur and its luck tokens are not consumed. Otherwise the initiating attacker
-uses its reduced exact HP. Combat roles remain stable: the defender's first
-strike is a counter and the initiating attacker's second strike is initial.
+uses the visual HP of its reduced exact HP. Combat roles remain stable: the
+defender's first strike is a counter and the initiating attacker's second strike
+is initial.
 
 `commander-combat.json` is complete for the AWBW commander roster. Revision
 `2026-07-10` claims `combat-neutral-v1` and the commander-specific feature

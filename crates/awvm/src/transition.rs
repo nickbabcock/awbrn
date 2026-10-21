@@ -2624,7 +2624,7 @@ mod tests {
             RandomToken::CombatBadLuck(0),
         ];
         let result = execute(&state, command, &random).unwrap();
-        assert_eq!(result.state.units[0].hp, 75);
+        assert_eq!(result.state.units[0].hp, 71);
         assert_eq!(result.state.units[1].hp, 51);
         assert_eq!(result.random_consumed, 4);
         assert_eq!(event_weapon(&result.events[0]), Weapon::Unlimited);

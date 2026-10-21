@@ -249,7 +249,7 @@
               "ammo": 0,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 80,
+              "hp": 78,
               "id": 0,
               "kind": "infantry",
               "location": { "position": [0, 0], "type": "board" },
@@ -299,7 +299,7 @@
           {
             "from_hp": 100,
             "reason": "combat-counter",
-            "to_hp": 80,
+            "to_hp": 78,
             "type": "unit-damaged",
             "unit": 0
           },
@@ -379,7 +379,7 @@
               "ammo": 0,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 80,
+              "hp": 78,
               "id": 0,
               "kind": "infantry",
               "location": { "position": [0, 0], "type": "board" },
@@ -484,7 +484,7 @@
               "ammo": 0,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 60,
+              "hp": 56,
               "id": 0,
               "kind": "infantry",
               "location": { "position": [0, 0], "type": "board" },
@@ -512,9 +512,9 @@
             "weapon": "unlimited"
           },
           {
-            "from_hp": 80,
+            "from_hp": 78,
             "reason": "combat",
-            "to_hp": 60,
+            "to_hp": 56,
             "type": "unit-damaged",
             "unit": 0
           },
