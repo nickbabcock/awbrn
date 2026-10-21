@@ -38,14 +38,6 @@ pub(super) fn available_destination(
     available_destination_at(view, movement.plan().destination(), movement.unit())
 }
 
-pub(crate) fn destination_is_available(
-    view: &AwbwView<'_>,
-    destination: Pos,
-    unit: UnitId,
-) -> bool {
-    available_destination_at(view, destination, unit).is_ok()
-}
-
 fn available_destination_at(
     view: &AwbwView<'_>,
     destination: Pos,
@@ -312,6 +304,7 @@ pub(super) fn from_field<'a>(
     }
 }
 
+#[inline(always)]
 pub(super) fn summarized<'a>(
     active: &PreparedActiveUnit<'a>,
     destination: Pos,

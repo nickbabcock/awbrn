@@ -102,11 +102,16 @@ pub struct ThreatMap {
     /// movement field so that the field is dropped before the rows are
     /// written.
     stops: Vec<Pos>,
+    reached: Vec<(CellIdx, bool)>,
     /// The grids and buckets every search after the first one reuses.
     scratch: MoveScratch,
     context: Option<ThreatContext>,
     occupancy: Vec<OccupancyCell>,
+    occupancy_scratch: Vec<OccupancyCell>,
+    changed: Vec<u64>,
     cached: Vec<CachedThreat>,
+    cache_scratch: Vec<CachedThreat>,
+    dirty: [Vec<bool>; 2],
     collecting: [Vec<CellIdx>; 2],
     dependencies: Vec<CellIdx>,
     /// The estimated threat of enemy units this player cannot see, added to
@@ -147,16 +152,32 @@ struct PlayerThreatContext {
 #[derive(Debug)]
 struct CachedThreat {
     unit: Unit,
-    table: DamageTable,
+    table: Arc<DamageTable>,
     dependencies: Vec<CellIdx>,
+    dependency_mask: Vec<u64>,
     layers: [Vec<CellIdx>; 2],
     membership: [Vec<u64>; 2],
 }
 
 fn same_threat_unit(left: &Unit, right: &Unit) -> bool {
-    let mut left = *left;
-    left.id = right.id;
-    left == *right
+    left.hp == right.hp && same_threat_geometry(left, right)
+}
+
+fn same_threat_geometry(left: &Unit, right: &Unit) -> bool {
+    left.kind == right.kind
+        && left.owner == right.owner
+        && left.fuel == right.fuel
+        && left.concealment == right.concealment
+        && left.location == right.location
+}
+
+impl CachedThreat {
+    fn affected_by(&self, changed: &[u64]) -> bool {
+        self.dependency_mask
+            .iter()
+            .zip(changed)
+            .any(|(covered, changed)| covered & changed != 0)
+    }
 }
 
 /// Empty `buffer` to `len` zeroes, reusing what it already holds.
@@ -191,10 +212,15 @@ impl ThreatMap {
             serial: 0,
             stars: Vec::new(),
             stops: Vec::new(),
+            reached: Vec::new(),
             scratch: MoveScratch::new(),
             context: None,
             occupancy: Vec::new(),
+            occupancy_scratch: Vec::new(),
+            changed: Vec::new(),
             cached: Vec::new(),
+            cache_scratch: Vec::new(),
+            dirty: [const { Vec::new() }; 2],
             collecting: [const { Vec::new() }; 2],
             dependencies: Vec::new(),
             overlay: None,
@@ -228,10 +254,19 @@ impl ThreatMap {
         self.dimensions = state.board.dimensions();
         let cells = self.dimensions.len();
 
-        let context = ThreatContext::of(state, seat);
-        let occupancy = occupancy(state);
-        let changed_occupancy = changed_cells(&self.occupancy, &occupancy);
-        let context_changed = self.context.as_ref() != Some(&context);
+        let context_changed = self
+            .context
+            .as_ref()
+            .is_none_or(|context| !context.matches(state, seat));
+        let mut occupancy = std::mem::take(&mut self.occupancy_scratch);
+        fill_occupancy(state, &mut occupancy);
+        let mut changed_occupancy = std::mem::take(&mut self.changed);
+        zero(&mut changed_occupancy, cells.div_ceil(64));
+        for (index, cell) in occupancy.iter().enumerate() {
+            if self.occupancy.get(index) != Some(cell) {
+                changed_occupancy[index / 64] |= 1 << (index % 64);
+            }
+        }
         if !context_changed {
             let mut cached = self.cached.iter();
             let unchanged = state
@@ -244,10 +279,7 @@ impl ThreatMap {
                 .all(|unit| {
                     cached.next().is_some_and(|entry| {
                         same_threat_unit(&entry.unit, unit)
-                            && !entry
-                                .dependencies
-                                .iter()
-                                .any(|cell| changed_occupancy[usize::from(cell.get())])
+                            && !entry.affected_by(&changed_occupancy)
                     })
                 });
             if unchanged && cached.next().is_none() {
@@ -261,7 +293,8 @@ impl ThreatMap {
                 {
                     cached.unit = *unit;
                 }
-                self.occupancy = occupancy;
+                self.occupancy_scratch = std::mem::replace(&mut self.occupancy, occupancy);
+                self.changed = changed_occupancy;
                 return;
             }
         }
@@ -276,10 +309,11 @@ impl ThreatMap {
             .iter()
             .all(|cached| roster.next().is_some_and(|unit| cached.unit.id == unit.id))
             || roster.next().is_some();
-        let mut dirty = [
-            vec![context_changed || roster_changed; cells],
-            vec![context_changed || roster_changed; cells],
-        ];
+        let mut dirty = std::mem::take(&mut self.dirty);
+        for layer in &mut dirty {
+            layer.resize(cells, false);
+            layer.fill(context_changed || roster_changed);
+        }
 
         let rows = cells * UnitKind::COUNT;
         // Keep row allocations. Validity flags identify rows that can be read.
@@ -297,16 +331,24 @@ impl ThreatMap {
                 written.fill(false);
             }
         }
-        zero(&mut self.stamp, cells);
-        self.serial = 0;
-
-        self.stars.clear();
-        self.stars.extend(
-            state
-                .board
-                .positions()
-                .map(|position| stars_of(state, position)),
-        );
+        let serials = u32::try_from(state.units.len().saturating_mul(6)).ok();
+        if self.stamp.len() != cells
+            || serials
+                .and_then(|count| self.serial.checked_add(count))
+                .is_none()
+        {
+            zero(&mut self.stamp, cells);
+            self.serial = 0;
+        }
+        if context_changed {
+            self.stars.clear();
+            self.stars.extend(
+                state
+                    .board
+                    .tiles()
+                    .map(|tile| clamp_stars(ruleset::defense_stars(tile.terrain))),
+            );
+        }
 
         // One row per seat, filled for the hostile ones only, so the loop
         // below reads a sweep by seat index and skips a friendly unit by
@@ -325,7 +367,8 @@ impl ThreatMap {
             sweeps[row] = session.sweep(other);
         }
 
-        let mut previous = std::mem::take(&mut self.cached);
+        let mut previous =
+            std::mem::replace(&mut self.cached, std::mem::take(&mut self.cache_scratch));
         for unit in state.units.iter() {
             let Location::Board { position } = unit.location else {
                 continue;
@@ -336,14 +379,15 @@ impl ThreatMap {
             let prior = previous
                 .iter()
                 .position(|cached| same_threat_unit(&cached.unit, unit))
+                .or_else(|| {
+                    previous
+                        .iter()
+                        .position(|cached| same_threat_geometry(&cached.unit, unit))
+                })
                 .or_else(|| previous.iter().position(|cached| cached.unit.id == unit.id));
             let reusable = prior.is_some_and(|index| {
                 let cached = &previous[index];
-                same_threat_unit(&cached.unit, unit)
-                    && !cached
-                        .dependencies
-                        .iter()
-                        .any(|cell| changed_occupancy[usize::from(cell.get())])
+                same_threat_unit(&cached.unit, unit) && !cached.affected_by(&changed_occupancy)
             });
             if reusable {
                 let mut cached = previous.swap_remove(prior.unwrap());
@@ -359,7 +403,25 @@ impl ThreatMap {
             let table = old
                 .as_ref()
                 .filter(|cached| cached.unit.kind == unit.kind && cached.unit.hp == unit.hp)
-                .map_or_else(|| DamageTable::of(unit), |cached| cached.table.clone());
+                .map(|cached| Arc::clone(&cached.table))
+                .unwrap_or_else(|| DamageTable::cached(unit));
+            let reusable_geometry = old.as_ref().is_some_and(|cached| {
+                same_threat_geometry(&cached.unit, unit)
+                    && cached.table.is_empty() == table.is_empty()
+                    && !cached.affected_by(&changed_occupancy)
+            });
+            if reusable_geometry {
+                let mut cached = old.take().unwrap();
+                for (layer, cells) in cached.layers.iter().enumerate() {
+                    for cell in cells {
+                        dirty[layer][usize::from(cell.get())] = true;
+                    }
+                }
+                cached.unit = *unit;
+                cached.table = table;
+                self.cached.push(cached);
+                continue;
+            }
             let dependencies = self.add(sweep, unit, position, &table);
             let same = old.as_ref().is_some_and(|cached| {
                 cached.unit.kind == unit.kind
@@ -400,10 +462,20 @@ impl ThreatMap {
                     }
                 }
             }
+            let mut dependency_mask = old
+                .as_mut()
+                .map(|cached| std::mem::take(&mut cached.dependency_mask))
+                .unwrap_or_default();
+            zero(&mut dependency_mask, cells.div_ceil(64));
+            for cell in &dependencies {
+                let index = usize::from(cell.get());
+                dependency_mask[index / 64] |= 1 << (index % 64);
+            }
             self.cached.push(CachedThreat {
                 unit: *unit,
                 table,
                 dependencies,
+                dependency_mask,
                 membership: std::array::from_fn(|index| {
                     let layer = &self.collecting[index];
                     let mut bits = old
@@ -427,7 +499,7 @@ impl ThreatMap {
                 self.dependencies = old.dependencies;
             }
         }
-        for old in previous {
+        for old in previous.drain(..) {
             for (layer, cells) in old.layers.iter().enumerate() {
                 for cell in cells {
                     dirty[layer][usize::from(cell.get())] = true;
@@ -442,8 +514,13 @@ impl ThreatMap {
             }
         }
         self.write_cached(&dirty);
-        self.context = Some(context);
-        self.occupancy = occupancy;
+        self.dirty = dirty;
+        self.cache_scratch = previous;
+        if context_changed {
+            self.context = Some(ThreatContext::of(state, seat));
+        }
+        self.occupancy_scratch = std::mem::replace(&mut self.occupancy, occupancy);
+        self.changed = changed_occupancy;
     }
 
     /// The funds an enemy could take off a whole unit of `kind` standing on
@@ -567,22 +644,23 @@ impl ThreatMap {
     fn collect_stops(&mut self, sweep: &Sweep<'_>, unit: &Unit) {
         self.stops.clear();
         self.dependencies.clear();
-        let Ok(field) = sweep.reachable_into(unit.id, &mut self.scratch) else {
+        if sweep
+            .reachable_cells_into(unit.id, &mut self.scratch, &mut self.reached)
+            .is_err()
+        {
             self.dependencies.extend(
                 self.dimensions
                     .positions()
                     .filter_map(|position| self.dimensions.cell_index(position)),
             );
             return;
-        };
-        self.stops
-            .extend(field.destinations().map(|(position, _)| position));
-        self.dependencies.extend(
-            field
-                .reach()
-                .filter_map(|(position, _)| self.dimensions.cell_index(position)),
-        );
-        field.recycle(&mut self.scratch);
+        }
+        for (cell, can_stop) in &self.reached {
+            self.dependencies.push(*cell);
+            if *can_stop && let Some(position) = self.dimensions.position_of(*cell) {
+                self.stops.push(position);
+            }
+        }
     }
 
     /// Add the row to every tile in the range ring around `center`.
@@ -621,9 +699,53 @@ impl ThreatMap {
     /// This repeats the old floating-point addition order. Reusing a unit
     /// therefore cannot change a tie through a different rounding sequence.
     fn write_cached(&mut self, dirty: &[Vec<bool>; 2]) {
+        let local = std::array::from_fn::<_, 2, _>(|layer| {
+            let changed = dirty[layer].iter().filter(|cell| **cell).count();
+            let covered: usize = self
+                .cached
+                .iter()
+                .map(|unit| unit.layers[layer].len())
+                .sum();
+            changed.saturating_mul(self.cached.len()) < covered
+        });
+        for layer in [Layer::Immediate, Layer::Deferred] {
+            let index = layer.index();
+            if !local[index] {
+                continue;
+            }
+            let out = match layer {
+                Layer::Immediate => &mut self.immediate,
+                Layer::Deferred => &mut self.deferred,
+            };
+            for (cell, changed) in dirty[index].iter().enumerate() {
+                if !changed {
+                    continue;
+                }
+                let row = &mut out[cell * UnitKind::COUNT..(cell + 1) * UnitKind::COUNT];
+                let stars = usize::from(self.stars[cell]);
+                let mut fresh = true;
+                for cached in &self.cached {
+                    if cached.membership[index][cell / 64] & (1 << (cell % 64)) == 0 {
+                        continue;
+                    }
+                    if fresh {
+                        row.copy_from_slice(&cached.table.funds[stars]);
+                        fresh = false;
+                    } else {
+                        for (value, added) in row.iter_mut().zip(&cached.table.funds[stars]) {
+                            *value += added;
+                        }
+                    }
+                }
+                self.written[index][cell] = !fresh;
+            }
+        }
         for cached in &self.cached {
             let table = &cached.table;
             for layer in [Layer::Immediate, Layer::Deferred] {
+                if local[layer.index()] {
+                    continue;
+                }
                 for cell in &cached.layers[layer.index()] {
                     let index = usize::from(cell.get());
                     if !dirty[layer.index()][index] {
@@ -652,6 +774,45 @@ impl ThreatMap {
 }
 
 impl ThreatContext {
+    fn matches(&self, state: &State, seat: PlayerIdx) -> bool {
+        let uses_sight = state.settings.fog
+            || state
+                .units
+                .iter()
+                .any(|unit| unit.concealment == Concealment::Hidden);
+        self.dimensions == state.board.dimensions()
+            && self.seat == seat
+            && self.fog == state.settings.fog
+            && self.weather == state.weather.kind
+            && self
+                .terrain
+                .iter()
+                .copied()
+                .eq(state.board.tiles().map(|tile| tile.terrain))
+            && self.players.len() == state.players.len()
+            && self
+                .players
+                .iter()
+                .zip(state.players.iter())
+                .all(|(left, right)| {
+                    left.team == right.team
+                        && left.power == right.power_state
+                        && left
+                            .commanders
+                            .iter()
+                            .copied()
+                            .eq(right.commanders.iter().map(|co| (co.id, co.active)))
+                })
+            && self.sight_units.iter().copied().eq(state
+                .units
+                .iter()
+                .filter(|unit| uses_sight && hostile(state, seat, unit.owner))
+                .filter_map(|unit| match unit.location {
+                    Location::Board { position } => Some((unit.owner, unit.kind, position)),
+                    _ => None,
+                }))
+    }
+
     fn of(state: &State, seat: PlayerIdx) -> Self {
         let uses_sight = state.settings.fog
             || state
@@ -662,7 +823,7 @@ impl ThreatContext {
             dimensions: state.board.dimensions(),
             seat,
             fog: state.settings.fog,
-            terrain: state.board.iter().map(|(_, tile)| tile.terrain).collect(),
+            terrain: state.board.tiles().map(|tile| tile.terrain).collect(),
             weather: state.weather.kind,
             players: state
                 .players
@@ -696,16 +857,13 @@ impl ThreatContext {
     }
 }
 
-fn occupancy(state: &State) -> Vec<OccupancyCell> {
+fn fill_occupancy(state: &State, occupied: &mut Vec<OccupancyCell>) {
     let dimensions = state.board.dimensions();
-    let mut occupied: Vec<_> = state
-        .board
-        .tiles()
-        .map(|tile| OccupancyCell {
-            owner: tile.owner,
-            unit: None,
-        })
-        .collect();
+    occupied.clear();
+    occupied.extend(state.board.tiles().map(|tile| OccupancyCell {
+        owner: tile.owner,
+        unit: None,
+    }));
     for unit in state.units.iter() {
         let Location::Board { position } = unit.location else {
             continue;
@@ -717,15 +875,6 @@ fn occupancy(state: &State) -> Vec<OccupancyCell> {
             });
         }
     }
-    occupied
-}
-
-fn changed_cells(previous: &[OccupancyCell], current: &[OccupancyCell]) -> Vec<bool> {
-    current
-        .iter()
-        .enumerate()
-        .map(|(index, current)| previous.get(index) != Some(current))
-        .collect()
 }
 
 /// The terrain defense of one tile, clamped to the table the rows carry.
@@ -786,6 +935,15 @@ struct DamageTable {
 }
 
 impl DamageTable {
+    fn cached(unit: &Unit) -> Arc<Self> {
+        static TABLES: [[std::sync::OnceLock<Arc<DamageTable>>; 101]; UnitKind::COUNT] =
+            [const { [const { std::sync::OnceLock::new() }; 101] }; UnitKind::COUNT];
+        match TABLES[unit.kind.index()].get(usize::from(unit.hp)) {
+            Some(slot) => Arc::clone(slot.get_or_init(|| Arc::new(Self::of(unit)))),
+            None => Arc::new(Self::of(unit)),
+        }
+    }
+
     /// The table one enemy unit presents, at the health it has now.
     fn of(unit: &Unit) -> Self {
         Self::of_kind(unit.kind, unit.hp)
@@ -983,6 +1141,20 @@ mod tests {
     /// defenders with numbers that do not follow from each other, and a
     /// fighter answers a ground unit with nothing at all.
     #[test]
+    fn cached_damage_matches_direct_damage_for_each_kind_and_health() {
+        for kind in UnitKind::ALL {
+            for hp in [0, 1, 10, 50, 99, 100, 101, 250] {
+                let mut attacker = unit(kind, Pos::new(0, 0));
+                attacker.hp = hp;
+                let expected = DamageTable::of(&attacker);
+                let actual = DamageTable::cached(&attacker);
+                assert_eq!(actual.funds, expected.funds, "{kind:?}, health {hp}");
+                assert_eq!(actual.armed, expected.armed);
+            }
+        }
+    }
+
+    #[test]
     fn one_attacker_answers_each_defender_differently() {
         let table = DamageTable::of(&unit(UnitKind::Fighter, Pos::new(0, 0)));
         assert_eq!(
@@ -1158,6 +1330,68 @@ mod tests {
                     fresh.immediate(cell, defender)
                 );
                 assert_eq!(map.deferred(cell, defender), fresh.deferred(cell, defender));
+            }
+        }
+    }
+
+    #[test]
+    fn health_and_resource_changes_match_fresh_maps() {
+        for kind in [UnitKind::Infantry, UnitKind::Tank, UnitKind::Artillery] {
+            let (mut state, ours, origin) = one_enemy(kind);
+            let enemy = state.units[0];
+            for (index, position) in state
+                .board
+                .positions()
+                .filter(|position| *position != origin && origin.distance(*position) <= 3)
+                .take(2)
+                .enumerate()
+            {
+                state.units.push(Unit {
+                    id: UnitId::new(20_000 + u32::try_from(index).unwrap()),
+                    location: Location::Board { position },
+                    ..enemy
+                });
+            }
+            let mut retained = ThreatMap::new();
+            for (step, hp) in [100, 50, 1, 0, 100, 60, 100].into_iter().enumerate() {
+                let changed = state.units.get_mut(enemy.id).unwrap();
+                changed.hp = hp;
+                changed.ammo = if step % 2 == 0 { 0 } else { 1 };
+                changed.action = if step % 2 == 0 {
+                    awvm::semantic::UnitAction::Spent
+                } else {
+                    awvm::semantic::UnitAction::Ready
+                };
+                if step == 5 {
+                    changed.fuel = 0;
+                }
+                let session = Session::new(state.clone());
+                retained.build(&session, ours);
+                let mut fresh = ThreatMap::new();
+                fresh.build(&session, ours);
+                for cell in state
+                    .board
+                    .positions()
+                    .map(|position| state.board.dimensions().cell_index(position).unwrap())
+                {
+                    for defender in UnitKind::ALL {
+                        assert_eq!(
+                            retained.immediate(cell, defender),
+                            fresh.immediate(cell, defender),
+                            "{kind:?}, step {step}, {cell:?}, {defender:?}"
+                        );
+                        assert_eq!(
+                            retained.deferred(cell, defender),
+                            fresh.deferred(cell, defender)
+                        );
+                        for unit in state.units.iter() {
+                            assert_eq!(
+                                retained.immediate_contribution(unit.id, cell, defender),
+                                fresh.immediate_contribution(unit.id, cell, defender)
+                            );
+                        }
+                    }
+                }
             }
         }
     }

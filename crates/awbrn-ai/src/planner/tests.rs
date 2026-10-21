@@ -11,6 +11,98 @@ fn deterministic() -> PlannerConfig {
 }
 
 #[test]
+fn production_does_not_replan_after_unit_names_change() {
+    let config = PlannerConfig {
+        turn_work: None,
+        ..PlannerConfig::V7
+    };
+    let mut agent = PlannerAgent::with_config(7, config);
+    let mut session = Session::new(arena(false, 7));
+    let view = awvm::semantic::observe(
+        &awvm::semantic::AwbwVisibility,
+        session.state(),
+        &session.state().turn.active_player,
+    )
+    .unwrap();
+    agent.start_match();
+    let first = agent.act(&view, NodeBudget::FOUR).unwrap();
+    assert!(matches!(first.kind(), OrderKind::Produce(_)));
+    let plans = agent.stats().plans;
+    let command = first.command(&session).unwrap();
+    session
+        .apply_command(command, &mut MeanLuck, &mut ())
+        .unwrap();
+    let view = awvm::semantic::observe(
+        &awvm::semantic::AwbwVisibility,
+        session.state(),
+        &session.state().turn.active_player,
+    )
+    .unwrap();
+    agent.act(&view, NodeBudget::FOUR);
+    assert_eq!(agent.stats().plans, plans);
+}
+
+#[test]
+fn equivalent_positions_remap_actors_and_reject_changed_unit_facts() {
+    use awvm::ruleset::{self, Terrain, UnitKind};
+    use awvm::semantic::{Board, Concealment, Pos, Tile, Unit, UnitAction, UnitStore};
+
+    let mut expected = arena(false, 7);
+    let ours = expected.players.seat(&expected.turn.active_player).unwrap();
+    let other = expected
+        .players
+        .seats()
+        .map(|(seat, _)| seat)
+        .find(|seat| *seat != ours)
+        .unwrap();
+    expected.board = Board::new(9, 9, vec![Tile::new(Terrain::Plain); 81]).unwrap();
+    let unit = |id, owner, position| {
+        let profile = ruleset::profile(UnitKind::Infantry);
+        Unit {
+            id: UnitId::new(id),
+            kind: UnitKind::Infantry,
+            owner,
+            hp: 100,
+            fuel: profile.max_fuel,
+            ammo: profile.max_ammo,
+            action: UnitAction::Ready,
+            concealment: Concealment::Exposed,
+            location: Location::Board { position },
+        }
+    };
+    let actor = unit(200, ours, Pos::new(2, 2));
+    let enemy = unit(100, other, Pos::new(8, 8));
+    expected.units = UnitStore::new(vec![enemy, actor]).unwrap();
+    expected.next_unit_id = Some(201);
+    let mut current = expected.clone();
+    current.units = UnitStore::new(vec![
+        Unit {
+            id: UnitId::new(3),
+            ..actor
+        },
+        Unit {
+            id: UnitId::new(4),
+            ..enemy
+        },
+    ])
+    .unwrap();
+    current.next_unit_id = Some(5);
+    assert!(position::matches(&expected, &current));
+    let destination = current
+        .board
+        .dimensions()
+        .cell_index(Pos::new(2, 3))
+        .unwrap();
+    let play = Play::new(actor.id, destination, OrderKind::Wait);
+    let mapped = position::remap(&expected, &current, play).unwrap();
+    assert_eq!(mapped.unit(), Some(UnitId::new(3)));
+    assert_eq!(mapped.kind(), play.kind());
+    assert_eq!(mapped.destination(), destination);
+    current.units.get_mut(UnitId::new(4)).unwrap().hp = 90;
+    assert!(!position::matches(&expected, &current));
+}
+
+#[test]
 fn the_replay_score_survives_match_reset_and_changes_only_the_score() {
     let mut candidate = PlannerAgent::with_config(7, PlannerConfig::V6);
     let state = suite().remove(0).state;
@@ -52,6 +144,7 @@ fn the_replay_score_keeps_terminal_scores() {
     let mut evaluator = Evaluator::new(PlannerConfig::V6.eval_weights);
     let mut replay = ReplayReader::new(ReplayScore::CUP_3_4);
     let mut planner = TurnPlanner {
+        rollout: None,
         config: &PlannerConfig::V6,
         seed: 7,
         seat,
@@ -111,6 +204,7 @@ fn the_replay_score_is_antisymmetric_and_fog_keeps_the_stock_score() {
     let mut evaluator = Evaluator::new(PlannerConfig::V6.eval_weights);
     let expected = evaluator.value_in(&fog, seats[0]);
     let mut planner = TurnPlanner {
+        rollout: None,
         config: &PlannerConfig::V6,
         seed: 7,
         seat: seats[0],
@@ -157,6 +251,7 @@ fn print_puzzle_candidates() {
             .expect("the active player holds a seat");
         let mut evaluator = Evaluator::new(config.eval_weights);
         let mut planner = TurnPlanner {
+            rollout: None,
             config: &config,
             seed: 1,
             seat,
@@ -286,6 +381,94 @@ fn a_spent_work_threshold_starts_no_alternative_or_reply() {
 }
 
 #[test]
+fn stored_line_positions_and_replies_match_command_replay() {
+    for puzzle in suite() {
+        for explicit_boundary in [false, true] {
+            let mut session = Session::new(puzzle.state.clone());
+            let initial = session.state().clone();
+            let seat = initial.players.seat(&initial.turn.active_player).unwrap();
+            let config = PlannerConfig::V3;
+            let mut evaluator = Evaluator::new(config.eval_weights);
+            let mut planner = TurnPlanner {
+                rollout: None,
+                config: &config,
+                seed: 7,
+                seat,
+                evaluator: &mut evaluator,
+                replay: None,
+                candidates: 0,
+                work: 0,
+                work_left: None,
+                nodes_left: 16,
+                fog: None,
+            };
+            let prefix = if explicit_boundary {
+                vec![Play::unitless(
+                    initial
+                        .board
+                        .dimensions()
+                        .cell_index(awvm::semantic::Pos::new(0, 0))
+                        .unwrap(),
+                    OrderKind::EndTurn,
+                )]
+            } else {
+                Vec::new()
+            };
+            let line = planner
+                .line(&mut session, Generator::Seed, &prefix)
+                .unwrap();
+            assert_eq!(session.state(), &initial);
+            let mut replay = Session::new(initial.clone());
+            let mut entropy = MeanLuck;
+            for play in &line.plays {
+                let order = play_order(&replay, play).unwrap();
+                replay.apply(order, &mut entropy, &mut ()).unwrap();
+            }
+            if !explicit_boundary && matches!(replay.state().match_state, Match::Active { .. }) {
+                let end = replay
+                    .resolve(&Command::EndTurn {
+                        player: initial.turn.active_player.clone(),
+                    })
+                    .unwrap();
+                replay.apply(end, &mut entropy, &mut ()).unwrap();
+            }
+            assert_eq!(replay.state(), &line.end_state);
+            if explicit_boundary && matches!(replay.state().match_state, Match::Active { .. }) {
+                let end = replay
+                    .resolve(&Command::EndTurn {
+                        player: initial.turn.active_player.clone(),
+                    })
+                    .unwrap();
+                replay.apply(end, &mut entropy, &mut ()).unwrap();
+            }
+            let enemy = replay.state().turn.active_player.clone();
+            let mut hard = config
+                .baseline
+                .build_greedy(Rng::mix(planner.seed ^ 0x5eed));
+            let mut decisions = 0;
+            while replay.state().turn.active_player == enemy
+                && matches!(replay.state().match_state, Match::Active { .. })
+            {
+                decisions += 1;
+                let order = hard.order_in_session(&replay).unwrap_or_else(|| {
+                    replay
+                        .resolve(&Command::EndTurn {
+                            player: enemy.clone(),
+                        })
+                        .unwrap()
+                });
+                replay.apply(order, &mut entropy, &mut ()).unwrap();
+            }
+            let expected = planner.leaf_value(&replay);
+            let work = planner.work;
+            assert_eq!(planner.replied_value(&mut session, &line), Some(expected));
+            assert_eq!(planner.work - work, decisions);
+            assert_eq!(session.state(), &initial);
+        }
+    }
+}
+
+#[test]
 fn a_terminal_alternative_beats_a_nonterminal_seed_after_reply_check() {
     let mut state = suite().remove(0).state;
     let seat = state.players.seat(&state.turn.active_player).unwrap();
@@ -296,6 +479,7 @@ fn a_terminal_alternative_beats_a_nonterminal_seed_after_reply_check() {
     let config = PlannerConfig::V3;
     let mut evaluator = Evaluator::new(config.eval_weights);
     let mut planner = TurnPlanner {
+        rollout: None,
         config: &config,
         seed: 7,
         seat,
@@ -398,6 +582,7 @@ fn the_reply_estimate_lists_destroyed_units_as_exposed() {
     let config = PlannerConfig::V4;
     let mut evaluator = Evaluator::new(config.eval_weights);
     let mut planner = TurnPlanner {
+        rollout: None,
         config: &config,
         seed: 1,
         seat,
@@ -426,6 +611,7 @@ fn reroutes_give_exposed_units_new_orders_of_different_kinds() {
     for config in [PlannerConfig::V3, PlannerConfig::V4] {
         let mut evaluator = Evaluator::new(config.eval_weights);
         let mut planner = TurnPlanner {
+            rollout: None,
             config: &config,
             seed: 1,
             seat,
@@ -468,6 +654,7 @@ fn a_power_plan_uses_the_power_first() {
     let config = PlannerConfig::V5;
     let mut evaluator = Evaluator::new(config.eval_weights);
     let mut planner = TurnPlanner {
+        rollout: None,
         config: &config,
         seed: 1,
         seat,

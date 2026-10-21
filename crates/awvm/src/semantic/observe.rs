@@ -782,12 +782,8 @@ fn project_state(
 
 /// Fill one projection's three vectors and answer its match state.
 ///
-/// The vectors arrive emptied and leave holding the projection, so the caller
-/// decides whether they are fresh allocations or ones an earlier projection
-/// paid for. The walks push into a reserved vector rather than collecting,
-/// because the board is projected once for every command of a match and the
-/// collect this replaced re-checked the capacity for each of the four hundred
-/// tiles.
+/// Keep the tile storage and unchanged owner names. Replace all fields with
+/// the current projection before returning the vectors to the caller.
 fn project_into(
     view: &impl Viewpoint,
     state: &State,
@@ -798,25 +794,53 @@ fn project_into(
     units: &mut Vec<ObservedUnit>,
 ) -> Result<ObservedMatch, ObserveError> {
     view.prepare_board();
-    tiles.clear();
-    tiles.reserve(usize::from(state.board.width()) * usize::from(state.board.height()));
-    for (position, tile) in state.board.rows().flatten() {
-        tiles.push(projected_tile(
-            view,
-            &state.board,
-            &state.players,
-            position,
-            tile,
-        )?);
+    tiles.resize_with(state.board.dimensions().len(), || ObservedTile {
+        terrain: state.board.tile(Pos::new(0, 0)).terrain,
+        visibility: TileVisibility::Fogged,
+        owner: ObservedTileOwner::NotOwnable,
+        capture_points: None,
+        silo: None,
+        rare: None,
+    });
+    for ((position, tile), observed) in state.board.iter().zip(tiles.iter_mut()) {
+        if observed.rare.is_some() || state.board.rare_state(position).is_some() {
+            *observed = projected_tile(view, &state.board, &state.players, position, tile)?;
+            continue;
+        }
+        let visible = view.position(position);
+        observed.terrain = tile.terrain;
+        observed.visibility = if visible {
+            TileVisibility::Visible
+        } else {
+            TileVisibility::Fogged
+        };
+        observed.capture_points = visible.then_some(tile.capture_points).flatten();
+        observed.silo = visible.then_some(tile.silo).flatten();
+        match (visible, tile.owner) {
+            (true, TileOwner::Owned(seat)) => {
+                let player = state
+                    .players
+                    .get(seat.get())
+                    .ok_or(ObserveError::TileOwnerOffTheRoster(seat))?;
+                if observed.owner.player() != Some(player.id()) {
+                    observed.owner = ObservedTileOwner::Owned(player.id().clone());
+                }
+            }
+            (true, TileOwner::Neutral) => observed.owner = ObservedTileOwner::Neutral,
+            _ => observed.owner = ObservedTileOwner::NotOwnable,
+        }
     }
 
-    players.clear();
-    players.reserve(state.players.len());
-    for player in state.players.iter() {
-        players.push(projected_player(player, recipient, team));
+    for (index, player) in state.players.iter().enumerate() {
+        if let Some(out) = players.get_mut(index) {
+            project_player_into(out, player, recipient, team);
+        } else {
+            players.push(projected_player(player, recipient, team));
+        }
     }
+    players.truncate(state.players.len());
 
-    units.clear();
+    let mut count = 0;
     for u in &state.units {
         let owner = state
             .players
@@ -827,14 +851,28 @@ fn project_into(
         // is, including inside a transport, and an opponent's cargo as hidden.
         if view.unit(u) {
             let friendly = owner_team == team;
-            units.push(observed_unit_snapshot(
+            let name = if let Some(previous) = units.get_mut(count) {
+                let mut name = core::mem::replace(&mut previous.owner, PlayerId::from(""));
+                name.clone_from(&owner.id);
+                name
+            } else {
+                owner.id.clone()
+            };
+            let snapshot = observed_unit_snapshot_owned(
                 u,
                 friendly,
                 friendly || !commander::hides_hp(state, Some(u.owner)),
-                &owner.id,
-            ));
+                name,
+            );
+            if let Some(previous) = units.get_mut(count) {
+                *previous = snapshot;
+            } else {
+                units.push(snapshot);
+            }
+            count += 1;
         }
     }
+    units.truncate(count);
     units.sort_by_key(|unit| unit.reference);
 
     Ok(match &state.match_state {
@@ -915,6 +953,65 @@ fn projected_tile(
         silo: visible.then_some(tile.silo).flatten(),
         rare,
     })
+}
+
+fn project_player_into(
+    out: &mut ObservedPlayer,
+    player: &super::Player,
+    recipient: &PlayerId,
+    team: &TeamId,
+) {
+    match (out, player.team == *team) {
+        (
+            ObservedPlayer::Private {
+                id,
+                team,
+                relation,
+                funds,
+                status,
+                commanders,
+                power_state,
+            },
+            true,
+        ) => {
+            id.clone_from(&player.id);
+            team.clone_from(&player.team);
+            *relation = if player.id == *recipient {
+                Relation::Self_
+            } else {
+                Relation::Ally
+            };
+            *funds = player.funds;
+            *status = player.status;
+            commanders.clone_from(&player.commanders);
+            power_state.clone_from(&player.power_state);
+        }
+        (
+            ObservedPlayer::Public {
+                id,
+                team,
+                relation,
+                status,
+                commanders,
+                power_state,
+            },
+            false,
+        ) => {
+            id.clone_from(&player.id);
+            team.clone_from(&player.team);
+            *relation = Relation::Opponent;
+            *status = player.status;
+            commanders.clear();
+            commanders.extend(player.commanders.iter().map(|co| PublicCommander {
+                id: co.id,
+                active: co.active,
+                power_charge: co.power_charge,
+                power_uses: co.power_uses,
+            }));
+            power_state.clone_from(&player.power_state);
+        }
+        (out, _) => *out = projected_player(player, recipient, team),
+    }
 }
 
 fn projected_player(player: &super::Player, recipient: &PlayerId, team: &TeamId) -> ObservedPlayer {
@@ -1404,6 +1501,16 @@ fn observed_unit_snapshot(
     disclose_hp: bool,
     owner: &PlayerId,
 ) -> ObservedUnit {
+    observed_unit_snapshot_owned(unit, friendly, disclose_hp, owner.clone())
+}
+
+#[inline(always)]
+fn observed_unit_snapshot_owned(
+    unit: &Unit,
+    friendly: bool,
+    disclose_hp: bool,
+    owner: PlayerId,
+) -> ObservedUnit {
     ObservedUnit {
         reference: if friendly {
             ObservedUnitRef::Friendly { unit: unit.id }
@@ -1413,7 +1520,7 @@ fn observed_unit_snapshot(
             )
         },
         kind: unit.kind,
-        owner: owner.clone(),
+        owner,
         hp: if disclose_hp {
             ObservedUnitHp::Exact(unit.hp)
         } else {

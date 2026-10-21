@@ -53,6 +53,198 @@ fn prepared_visibility_matches_individual_queries() {
 }
 
 #[test]
+fn movement_lists_match_point_queries_with_reused_scratch() {
+    let mut scratch = query::MoveScratch::new();
+    let mut compared = 0;
+    for state in corpus() {
+        for unit in state.units.iter() {
+            let Ok(field) = query::reachable_into(&state, unit.id, &mut scratch) else {
+                continue;
+            };
+            let expected: Vec<_> = state
+                .board
+                .positions()
+                .filter_map(|position| field.step(position).map(|step| (position, step.cost)))
+                .collect();
+            assert_eq!(field.reach().collect::<Vec<_>>(), expected);
+            let stops: Vec<_> = state
+                .board
+                .positions()
+                .filter_map(|position| {
+                    let step = field.step(position)?;
+                    assert_eq!(field.can_stop_at(position), step.can_stop);
+                    step.can_stop.then_some((position, step.cost))
+                })
+                .collect();
+            assert_eq!(field.destinations().collect::<Vec<_>>(), stops);
+            let expected: Vec<_> = field
+                .reach()
+                .map(|(position, _)| {
+                    (
+                        state.board.dimensions().cell_index(position).unwrap(),
+                        field.can_stop_at(position),
+                    )
+                })
+                .collect();
+            let mut cells = Vec::new();
+            query::Sweep::open(&state, unit.owner)
+                .unwrap()
+                .reachable_cells_into(unit.id, &mut scratch, &mut cells)
+                .unwrap();
+            assert_eq!(cells, expected);
+            field.recycle(&mut scratch);
+            compared += 1;
+        }
+    }
+    assert!(compared > 100);
+}
+
+#[test]
+fn movement_masks_match_routes_across_word_boundaries() {
+    let mut state = corpus()
+        .into_iter()
+        .find(|state| !state.units.is_empty())
+        .unwrap();
+    let mut subject = state.units[0];
+    let mut scratch = query::MoveScratch::new();
+    let mut cells = Vec::new();
+    for width in [1, 2, 63, 64, 65, 127, 128, 129, 255] {
+        for height in [1, 3, 7] {
+            let terrain = [
+                Terrain::Plain,
+                Terrain::Road,
+                Terrain::Mountain,
+                Terrain::Sea,
+                Terrain::Teleporter,
+                Terrain::Wood,
+            ];
+            state.board = awvm::semantic::Board::new(
+                width,
+                height,
+                (0..usize::from(width) * usize::from(height))
+                    .map(|index| awvm::semantic::Tile::new(terrain[index % terrain.len()]))
+                    .collect(),
+            )
+            .unwrap();
+            let dimensions = state.board.dimensions();
+            for kind in UnitKind::ALL {
+                subject.kind = kind;
+                for fuel in [0, 1, 20] {
+                    subject.fuel = fuel;
+                    for position in [
+                        Pos::new(0, 0),
+                        Pos::new(width / 2, height / 2),
+                        Pos::new(width - 1, height - 1),
+                    ] {
+                        subject.location = Location::Board { position };
+                        state.units = awvm::semantic::UnitStore::new(vec![subject]).unwrap();
+                        let sweep = query::Sweep::open(&state, subject.owner).unwrap();
+                        let field = sweep.reachable_into(subject.id, &mut scratch).unwrap();
+                        sweep
+                            .reachable_cells_into(subject.id, &mut scratch, &mut cells)
+                            .unwrap();
+                        let expected: Vec<_> = field
+                            .reach()
+                            .map(|(position, _)| {
+                                (
+                                    dimensions.cell_index(position).unwrap(),
+                                    field.can_stop_at(position),
+                                )
+                            })
+                            .collect();
+                        assert_eq!(
+                            cells, expected,
+                            "{width}x{height}, {kind:?}, {fuel}, {position}"
+                        );
+                        field.recycle(&mut scratch);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn retained_movement_matches_fresh_fields_after_blockers_move() {
+    let mut state = corpus()
+        .into_iter()
+        .find(|state| {
+            state.players.len() >= 2 && !seats(&Session::new(state.clone()).legal()).is_empty()
+        })
+        .unwrap();
+    let ours = state.players.seat(&state.turn.active_player).unwrap();
+    let other = state
+        .players
+        .seats()
+        .map(|(seat, _)| seat)
+        .find(|seat| *seat != ours)
+        .unwrap();
+    let mut subject = *state
+        .units
+        .iter()
+        .find(|unit| {
+            unit.owner == ours
+                && unit.action == awvm::semantic::UnitAction::Ready
+                && matches!(unit.location, Location::Board { .. })
+        })
+        .unwrap();
+    subject.id = UnitId::new(1);
+    subject.kind = UnitKind::Infantry;
+    subject.location = Location::Board {
+        position: Pos::new(2, 4),
+    };
+    state.settings.fog = false;
+    state.board = awvm::semantic::Board::new(
+        17,
+        9,
+        vec![awvm::semantic::Tile::new(Terrain::Plain); 17 * 9],
+    )
+    .unwrap();
+    let dimensions = state.board.dimensions();
+    let mut retained = Session::new(state.clone());
+    for owner in [other, ours] {
+        for fuel in [0, 1, 3, 99] {
+            subject.fuel = fuel;
+            for position in [
+                Pos::new(14, 8),
+                Pos::new(12, 8),
+                Pos::new(6, 4),
+                Pos::new(5, 4),
+                Pos::new(3, 4),
+                Pos::new(3, 5),
+                Pos::new(14, 8),
+                Pos::new(15, 8),
+            ] {
+                state.units = awvm::semantic::UnitStore::new(vec![
+                    subject,
+                    Unit {
+                        id: UnitId::new(2),
+                        owner,
+                        location: Location::Board { position },
+                        ..subject
+                    },
+                ])
+                .unwrap();
+                retained.reset(state.clone());
+                let fresh = Session::new(state.clone());
+                let unit = retained.index_of(subject.id).unwrap();
+                let read = |field: &query::MoveField| {
+                    dimensions
+                        .positions()
+                        .map(|position| (field.step(position), field.path_to(position)))
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(
+                    retained.legal().field(unit, read),
+                    fresh.legal().field(unit, read),
+                    "owner {owner:?}, fuel {fuel}, blocker {position}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn retained_travel_matches_fresh_searches_after_resets() {
     let states = corpus();
     let mut retained = Session::new(states[0].clone());
@@ -160,30 +352,46 @@ fn typed_visitation_preserves_the_complete_order_stream() {
 #[test]
 fn action_filters_preserve_the_selected_order_stream() {
     #[derive(Default)]
-    struct Filtered(Vec<Order>);
-    impl LegalVisitor for Filtered {
-        const ACTIONS: OrderMask =
-            OrderMask::from_untargeted(&[OrderKind::Wait, OrderKind::Capture, OrderKind::Supply])
-                .with_targets(TargetKind::Attack);
+    struct Filtered<const MODE: u8>(Vec<Order>);
+    impl<const MODE: u8> LegalVisitor for Filtered<MODE> {
+        const ACTIONS: OrderMask = match MODE {
+            0 => OrderMask::from_untargeted(&[
+                OrderKind::Wait,
+                OrderKind::Capture,
+                OrderKind::Supply,
+            ])
+            .with_targets(TargetKind::Attack),
+            1 => OrderMask::from_untargeted(&[]).with_targets(TargetKind::Attack),
+            2 => OrderMask::from_untargeted(&[OrderKind::Capture]).with_targets(TargetKind::Attack),
+            _ => OrderMask::from_untargeted(&[OrderKind::Capture]),
+        };
         const DELETE: bool = false;
         fn order(&mut self, order: Order) {
             self.0.push(order);
         }
     }
-    for state in corpus() {
-        let session = Session::new(state);
-        let legal = session.legal();
-        let expected: Vec<_> = all_orders(&legal)
-            .into_iter()
+    fn compare<const MODE: u8>(legal: &Legal<'_>, all: &[Order]) {
+        let expected: Vec<_> = all
+            .iter()
+            .copied()
             .filter(|order| {
                 order.unit().is_none()
                     || matches!(order.kind(), OrderKind::Unload(_))
-                    || Filtered::ACTIONS.allows(order.kind())
+                    || Filtered::<MODE>::ACTIONS.allows(order.kind())
             })
             .collect();
-        let mut filtered = Filtered::default();
+        let mut filtered = Filtered::<MODE>::default();
         legal.visit_orders(&mut filtered);
-        assert_eq!(filtered.0, expected);
+        assert_eq!(filtered.0, expected, "action filter {MODE}");
+    }
+    for state in corpus() {
+        let session = Session::new(state);
+        let legal = session.legal();
+        let all = all_orders(&legal);
+        compare::<0>(&legal, &all);
+        compare::<1>(&legal, &all);
+        compare::<2>(&legal, &all);
+        compare::<3>(&legal, &all);
     }
 }
 

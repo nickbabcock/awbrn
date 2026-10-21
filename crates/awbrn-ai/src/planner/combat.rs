@@ -18,7 +18,9 @@
 
 use awvm::ruleset::{self, UnitKind};
 use awvm::semantic::{CellIdx, PlayerIdx, UnitId};
-use awvm::session::{AttackCandidate, LegalVisitor, Order, Session};
+use awvm::session::{
+    AttackCandidate, LegalScope, LegalVisitor, Order, OrderMask, Session, TargetKind,
+};
 
 /// The largest attacker set the solver considers for one target.
 const MAX_ATTACKERS: usize = 3;
@@ -74,6 +76,8 @@ struct Collector {
 
 impl LegalVisitor for Collector {
     const ATTACK_CONTEXT: bool = true;
+    const ACTIONS: OrderMask = OrderMask::from_untargeted(&[]).with_targets(TargetKind::Attack);
+    const DELETE: bool = false;
 
     fn order(&mut self, _order: Order) {}
 
@@ -108,7 +112,21 @@ pub(super) fn attack_options(session: &Session) -> Vec<AttackOption> {
         ours,
         options: Vec::new(),
     };
-    session.legal().visit_orders(&mut collector);
+    let units: Vec<_> = state
+        .units
+        .iter()
+        .filter(|unit| {
+            unit.owner == ours && ruleset::profile(unit.kind).fire_mode != ruleset::FireMode::None
+        })
+        .map(|unit| unit.id)
+        .collect();
+    session.legal().visit_scoped(
+        LegalScope {
+            units: &units,
+            unitless: false,
+        },
+        &mut collector,
+    );
     collector.options
 }
 

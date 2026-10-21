@@ -24,6 +24,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::ops::Deref;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -139,10 +140,15 @@ impl<'de> Deserialize<'de> for Pos {
 macro_rules! string_id {
     ($($name:ident),+ $(,)?) => {
         $(
-            #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+            #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
             #[cfg_attr(feature = "typescript", derive(tsify::Tsify))]
             #[serde(transparent)]
             pub struct $name(String);
+
+            impl Clone for $name {
+                fn clone(&self) -> Self { Self(self.0.clone()) }
+                fn clone_from(&mut self, source: &Self) { self.0.clone_from(&source.0); }
+            }
 
             impl $name {
                 pub fn as_str(&self) -> &str {
@@ -1381,12 +1387,10 @@ pub enum CargoFault {
 /// a ragged board and no accessor can index past a short row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Board {
-    /// The tiles, as the same row-major map every side table over the board
-    /// uses. Holding a [`Grid`] rather than a width, a height and a `Vec`
-    /// is what keeps one implementation of the index arithmetic and the
-    /// bounds check, instead of the board restating what its own side tables
-    /// already say.
-    tiles: Grid<Tile>,
+    dimensions: Dimensions,
+    /// Board copies share the tile grid until a tile changes.
+    /// The grid checks coordinates for all tile access.
+    tiles: Arc<Grid<Tile>>,
     /// State that belongs to a position rather than to every tile.
     ///
     /// Destructible HP, teleporter pairing and ruleset trait state are carried
@@ -1415,22 +1419,23 @@ impl Board {
         }
         let tiles = Grid::from_cells(Dimensions::new(width, height), tiles).ok_or_else(shape)?;
         Ok(Self {
-            tiles,
+            dimensions: tiles.dimensions(),
+            tiles: Arc::new(tiles),
             rare: BTreeMap::new(),
         })
     }
 
     pub const fn width(&self) -> u8 {
-        self.tiles.width()
+        self.dimensions.width()
     }
 
     pub const fn height(&self) -> u8 {
-        self.tiles.height()
+        self.dimensions.height()
     }
 
     /// The shape every map over this board shares.
     pub const fn dimensions(&self) -> Dimensions {
-        self.tiles.dimensions()
+        self.dimensions
     }
 
     /// Whether a coordinate is on the board.
@@ -1444,19 +1449,23 @@ impl Board {
     }
 
     pub fn get_mut(&mut self, position: Pos) -> Option<&mut Tile> {
-        self.tiles.get_mut(position)
+        if !self.contains(position) {
+            return None;
+        }
+        Arc::make_mut(&mut self.tiles).get_mut(position)
     }
 
     /// The tile at a coordinate that has already been bounds-checked.
     ///
     /// Panics off the board. Use it only where a validator has established the
     /// coordinate is on it; [`Board::get`] is the accessor for everywhere else.
+    #[inline(always)]
     pub fn tile(&self, position: Pos) -> &Tile {
         &self.tiles[position]
     }
 
     pub fn tile_mut(&mut self, position: Pos) -> &mut Tile {
-        &mut self.tiles[position]
+        &mut Arc::make_mut(&mut self.tiles)[position]
     }
 
     /// The tile at a cell this board's own [`Dimensions`] minted.
@@ -1569,7 +1578,7 @@ impl Board {
     }
 
     pub fn tiles_mut(&mut self) -> impl Iterator<Item = &mut Tile> {
-        self.tiles.cells_mut()
+        Arc::make_mut(&mut self.tiles).cells_mut()
     }
 }
 
@@ -1698,8 +1707,8 @@ enum BoardDecodeError {
 
 /// One square of the board.
 ///
-/// The whole board is cloned once per `execute` and projected once per
-/// `observe`, so what a tile costs is multiplied by the board's area. Only the
+/// A tile change can copy the grid shared by board copies. The projection
+/// also reads every tile, so tile size affects both operations. Only the
 /// four fields every tile has are here; the three that a handful of terrains
 /// ever carry live in [`Board`], keyed by position, which took a tile from 104
 /// bytes to 40 and then to 32 and left it with no pointer to follow. The wire
