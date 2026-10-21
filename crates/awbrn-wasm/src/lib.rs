@@ -1,11 +1,13 @@
 use awbrn_client::{
-    AttackPreviewChanged, AwbrnPlugin, DeleteUnitCommandRequested, EndTurnRequested, EventSink,
-    LiveMatchPlayer, MapAssetPathResolver, MapDimensions, MoveCommandRequested, NewDay,
-    PendingGameStart, PendingLiveMatch, PendingLiveTransitions, PendingMatchMap,
-    PlayerRosterSnapshot, ProductionOptionsChanged, ReplayLoaded, ReplayPositionChanged,
-    ReplayToLoad, ReplayViewpointChanged, StaticAssetPathResolver, TileHoverChanged, TileSelected,
-    TurnReadinessChanged, UnitActionsChanged, UnitBuilt, UnitInspectionChanged, UnitMoved,
-    UnloadCommandRequested, core::coords::LogicalPx,
+    AreaStrikePreview, AreaStrikesPreviewed, AttackPreviewChanged, AwbrnPlugin,
+    DeleteUnitCommandRequested, EndTurnRequested, EventSink, LiveMatchPlayer, MapAssetPathResolver,
+    MapDimensions, MoveCommandRequested, MovePlannerToLoad, NewDay, PendingGameStart,
+    PendingLiveMatch, PendingLiveTransitions, PendingMatchMap, PlannerAfterStrikes, PlannerEdit,
+    PlannerLuck, PlannerSelectionChanged, PlayerRosterSnapshot, ProductionOptionsChanged,
+    ReplayLoaded, ReplayPositionChanged, ReplayToLoad, ReplayViewpointChanged,
+    StaticAssetPathResolver, TileHoverChanged, TileSelected, TurnReadinessChanged,
+    UnitActionsChanged, UnitBuilt, UnitInspectionChanged, UnitMoved, UnloadCommandRequested,
+    core::coords::LogicalPx,
 };
 use awbrn_map::ValidatedMapDocument;
 use awbrn_types::{AwbwGamePlayerId, PlayerFaction};
@@ -28,6 +30,7 @@ use web_sys::OffscreenCanvas;
 
 pub mod calculator;
 mod keyboard;
+pub mod move_planner;
 mod offscreen_window_handle;
 mod web_key_code_generated;
 
@@ -59,6 +62,8 @@ pub enum GameEvent {
     ReplayPositionChanged(ReplayPositionChanged),
     ReplayViewpointChanged(ReplayViewpointChanged),
     PlayerRosterUpdated(PlayerRosterSnapshot),
+    AreaStrikesPreviewed(AreaStrikesPreviewed),
+    PlannerSelectionChanged(PlannerSelectionChanged),
 }
 
 #[wasm_bindgen]
@@ -243,6 +248,8 @@ impl BevyApp {
             wasm_sink!(ReplayPositionChanged, ReplayPositionChanged);
             wasm_sink!(ReplayViewpointChanged, ReplayViewpointChanged);
             wasm_sink!(PlayerRosterUpdated, PlayerRosterSnapshot);
+            wasm_sink!(AreaStrikesPreviewed, AreaStrikesPreviewed);
+            wasm_sink!(PlannerSelectionChanged, PlannerSelectionChanged);
         }
 
         app.insert_non_send(canvas);
@@ -467,6 +474,111 @@ impl BevyApp {
             .map_err(|error| JsError::new(&error))?;
         self.app.world_mut().insert_resource(ReplayToLoad(data));
 
+        Ok(())
+    }
+
+    /// Open a move planner file as a local game with `setup`. The first
+    /// player has the turn, and the board shows where the previewed player's
+    /// super power would strike.
+    #[wasm_bindgen]
+    pub fn load_move_planner(
+        &mut self,
+        data: Vec<u8>,
+        setup: Ts<move_planner::MovePlannerSetup>,
+    ) -> Result<(), JsError> {
+        let setup = setup.to_rust()?;
+        let planner = move_planner::parse(&data)?;
+        let replay = move_planner::planner_replay(&planner, &setup)?;
+        self.app.world_mut().insert_resource(MovePlannerToLoad {
+            replay,
+            previewed_player: setup.previewed_player_id.map(AwbwGamePlayerId::new),
+            power_uses: setup
+                .seats
+                .iter()
+                .map(|seat| (AwbwGamePlayerId::new(seat.player_id), seat.power_uses))
+                .collect(),
+        });
+
+        Ok(())
+    }
+
+    /// Preview the super power strikes of `player_id` on the planner board,
+    /// or no strikes.
+    #[wasm_bindgen]
+    pub fn planner_set_previewed_player(&mut self, player_id: Option<u32>) {
+        self.app.world_mut().insert_resource(AreaStrikePreview {
+            player: player_id.map(AwbwGamePlayerId::new),
+        });
+    }
+
+    /// Give an order on the planner board for the army whose turn it is, in
+    /// the shape of a match command. A refused order gives the board's
+    /// selection back.
+    #[wasm_bindgen]
+    pub fn planner_order(&mut self, command: JsValue) -> Result<(), JsError> {
+        let command = serde_wasm_bindgen::from_value::<awbrn_game::GameCommand>(command)
+            .map_err(|error| JsError::new(&format!("Invalid planner order: {error}")))?;
+        self.app
+            .world_mut()
+            .write_message(PlannerEdit::Order(command));
+        Ok(())
+    }
+
+    /// Undo the last edit on the planner board.
+    #[wasm_bindgen]
+    pub fn planner_undo(&mut self) {
+        self.app.world_mut().write_message(PlannerEdit::Undo);
+    }
+
+    /// Redo the last undone edit on the planner board.
+    #[wasm_bindgen]
+    pub fn planner_redo(&mut self) {
+        self.app.world_mut().write_message(PlannerEdit::Redo);
+    }
+
+    /// Put the planner board back to the loaded file. Undo can reverse this.
+    #[wasm_bindgen]
+    pub fn planner_reset(&mut self) {
+        self.app.world_mut().write_message(PlannerEdit::Reset);
+    }
+
+    /// Set the visible HP (1 to 10) of a unit on the planner board.
+    #[wasm_bindgen]
+    pub fn planner_set_hp(&mut self, unit_id: u32, hp: u8) {
+        self.app.world_mut().write_message(PlannerEdit::SetHp {
+            unit: awvm::semantic::UnitId::new(unit_id),
+            hp,
+        });
+    }
+
+    /// Remove a unit, and its cargo, from the planner board.
+    #[wasm_bindgen]
+    pub fn planner_delete_unit(&mut self, unit_id: u32) {
+        self.app.world_mut().write_message(PlannerEdit::Delete {
+            unit: awvm::semantic::UnitId::new(unit_id),
+        });
+    }
+
+    /// Show each unit's HP after all planned strikes in place of its current
+    /// HP, or show the current HP again.
+    #[wasm_bindgen]
+    pub fn planner_set_after_strikes(&mut self, on: bool) {
+        self.app
+            .world_mut()
+            .insert_resource(PlannerAfterStrikes(on));
+    }
+
+    /// Set where each luck roll of a planner attack lands: "low", "average"
+    /// or "high".
+    #[wasm_bindgen]
+    pub fn planner_set_luck(&mut self, luck: &str) -> Result<(), JsError> {
+        let luck = match luck {
+            "low" => PlannerLuck::Low,
+            "average" => PlannerLuck::Average,
+            "high" => PlannerLuck::High,
+            _ => return Err(JsError::new(&format!("Unknown planner luck: {luck}"))),
+        };
+        self.app.world_mut().insert_resource(luck);
         Ok(())
     }
 

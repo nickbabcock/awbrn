@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { env } from "cloudflare:workers";
 import {
+  fetchAwbwGameResponse,
   fetchAwbwMapResponse,
   fetchAwbwSmallMapResponse,
   fetchAwbwUsernameResponse,
@@ -217,5 +218,51 @@ describe("awbw edge caching", () => {
     expect(await response.json()).toEqual({ userId: 7, username: "Andy" });
     expect(response.headers.get("Cache-Control")).toBe(SUCCESS_CACHE_CONTROL);
     expect(cachePutMock).not.toHaveBeenCalled();
+  });
+
+  it("reads a game page through the gateway and never caches it", async () => {
+    const playersInfo = {
+      "7": {
+        players_id: 7,
+        users_username: "Rachel player",
+        players_team: "B",
+        players_order: 1,
+        players_eliminated: "N",
+        players_co_id: 28,
+        players_co_power: 90000,
+        players_co_power_on: "N",
+        co_max_power: 270000,
+        co_max_spower: 540000,
+        players_co_max_power: 270000,
+        players_co_max_spower: 540000,
+        players_funds: "?",
+        countries_code: "bm",
+      },
+    };
+    fetchMock.mockResolvedValue(
+      new Response(
+        `<script>let playersInfo = ${JSON.stringify(playersInfo)};\nlet currentTurn = 7;</script>` +
+          `<a href="prevmaps.php?maps_id=12">Map</a>`,
+      ),
+    );
+
+    const request = new Request("https://example.com/api/awbw/game/99");
+    const response = await fetchAwbwGameResponse(request, 99);
+
+    expect(fetchMock).toHaveBeenCalledWith("https://awbw-gateway/game/99", expect.anything());
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    const game = (await response.json()) as { mapId: number; activePlayerId: number };
+    expect(game.mapId).toBe(12);
+    expect(game.activePlayerId).toBe(7);
+    expect(cachePutMock).not.toHaveBeenCalled();
+  });
+
+  it("answers 404 for a page without a game", async () => {
+    fetchMock.mockResolvedValue(new Response("<html>No game</html>"));
+
+    const request = new Request("https://example.com/api/awbw/game/99");
+    const response = await fetchAwbwGameResponse(request, 99);
+
+    expect(response.status).toBe(404);
   });
 });

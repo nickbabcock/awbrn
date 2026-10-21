@@ -1,13 +1,17 @@
 import init, {
   battle_catalog,
   battle_forecast,
+  move_planner_players,
   type BattleCatalog,
   type BattleForecastResponse,
   type BattleRequestWire,
   type CanvasDisplay,
+  type MovePlannerSetup,
+  type MovePlannerSummary,
   BevyApp,
 } from "#/wasm/awbrn_wasm.js";
 import type { ObservedTransition } from "#/wasm/awbrn_server.js";
+import type { PlayerCommand } from "#/matches/match_protocol.ts";
 import wasmPath from "#/wasm/awbrn_wasm_bg.wasm?url";
 import { proxy } from "comlink";
 import type { AwbrnMapDocument } from "#/maps/map_document.ts";
@@ -24,6 +28,9 @@ const initialized = init({ module_or_path: wasmPath });
 
 export type GameDisplay = CanvasDisplay;
 
+/** Where each luck roll of a planner attack lands in its range. */
+export type PlannerLuck = "low" | "average" | "high";
+
 export interface LiveMatchPlayer {
   playerId: number;
   factionId: number;
@@ -31,6 +38,16 @@ export interface LiveMatchPlayer {
 
 export interface GameInstance {
   newReplay: (source: File | FileSystemFileHandle | Uint8Array) => Promise<void>;
+  loadMovePlanner: (data: Uint8Array, setup: MovePlannerSetup) => Promise<void>;
+  plannerOrder: (command: PlayerCommand) => Promise<void>;
+  plannerSetPreviewedPlayer: (playerId: number | null) => Promise<void>;
+  plannerUndo: () => Promise<void>;
+  plannerRedo: () => Promise<void>;
+  plannerReset: () => Promise<void>;
+  plannerSetHp: (unitId: number, hp: number) => Promise<void>;
+  plannerDeleteUnit: (unitId: number) => Promise<void>;
+  plannerSetAfterStrikes: (on: boolean) => Promise<void>;
+  plannerSetLuck: (luck: PlannerLuck) => Promise<void>;
   setReplayViewpoint: (playerId: number | null, followsActivePlayer: boolean) => Promise<void>;
   loadMapPreview: (mapId: number) => Promise<void>;
   loadMatchMap: (map: AwbrnMapDocument) => Promise<void>;
@@ -184,6 +201,12 @@ export const forecastBattle = async (
  * the same tables that resolve a shot, so a picker cannot offer a unit the
  * rules lack or disagree with them about what it costs.
  */
+/** The name, game and players of a move planner file. */
+export const readMovePlanner = async (data: Uint8Array): Promise<MovePlannerSummary> => {
+  await initialized;
+  return move_planner_players(data);
+};
+
 export const loadBattleCatalog = async (): Promise<BattleCatalog> => {
   await initialized;
   return battle_catalog();
@@ -212,6 +235,36 @@ export const createGame = async (
   return proxy<GameInstance>({
     newReplay: async (source: File | FileSystemFileHandle | Uint8Array) => {
       app.new_replay(await replayBytes(source));
+    },
+    loadMovePlanner: async (data: Uint8Array, setup: MovePlannerSetup) => {
+      app.load_move_planner(data, setup);
+    },
+    plannerOrder: async (command: PlayerCommand) => {
+      app.planner_order(command);
+    },
+    plannerSetPreviewedPlayer: async (playerId: number | null) => {
+      app.planner_set_previewed_player(playerId ?? undefined);
+    },
+    plannerUndo: async () => {
+      app.planner_undo();
+    },
+    plannerRedo: async () => {
+      app.planner_redo();
+    },
+    plannerReset: async () => {
+      app.planner_reset();
+    },
+    plannerSetHp: async (unitId: number, hp: number) => {
+      app.planner_set_hp(unitId, hp);
+    },
+    plannerDeleteUnit: async (unitId: number) => {
+      app.planner_delete_unit(unitId);
+    },
+    plannerSetAfterStrikes: async (on: boolean) => {
+      app.planner_set_after_strikes(on);
+    },
+    plannerSetLuck: async (luck: PlannerLuck) => {
+      app.planner_set_luck(luck);
     },
     setReplayViewpoint: async (playerId: number | null, followsActivePlayer: boolean) => {
       app.set_replay_viewpoint(playerId ?? undefined, followsActivePlayer);
