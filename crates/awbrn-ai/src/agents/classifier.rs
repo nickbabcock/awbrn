@@ -5,7 +5,9 @@ use std::collections::HashSet;
 use awvm::commander;
 use awvm::ruleset::{self, TerrainTrait};
 use awvm::semantic::{Location, Observation, PlayerIdx, Pos, TileOwner, UnitId};
-use awvm::session::{Order, OrderKind, Session};
+use awvm::session::{
+    LegalScope, LegalVisitor, Order, OrderKind, OrderMask, Session, TargetKind, UnitIdx,
+};
 
 /// A unit's current job, in classification precedence order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -106,7 +108,6 @@ impl MissionBook {
             return;
         };
         let day = state.turn.day;
-        let threatened = threatened_objectives(session, friendly);
 
         for mission in &mut self.capture {
             if !mission.state.is_active() {
@@ -134,7 +135,7 @@ impl MissionBook {
             } else if session
                 .index_of(mission.unit)
                 .and_then(|unit| orders.get(usize::from(unit.get())))
-                .is_some_and(|candidates| attacks_threat(candidates, &threatened))
+                .is_some_and(|facts| facts.emergency)
             {
                 mission.state = CaptureMissionState::SuspendedByEmergency;
             } else if unit.location
@@ -318,8 +319,6 @@ pub(crate) fn classify_in_session(
     };
 
     let loaded = state.units.loaded_transports();
-    let threatened = threatened_objectives(session, friendly);
-    let loading = loading_units(session, &orders_by_unit);
     let mut assigned = vec![false; state.units.len()];
     for mission in missions
         .capture
@@ -341,10 +340,8 @@ pub(crate) fn classify_in_session(
             role: role_of(
                 session,
                 unit,
-                orders_by_unit.get(index).map(Vec::as_slice).unwrap_or(&[]),
+                orders_by_unit.get(index).copied().unwrap_or_default(),
                 &loaded,
-                loading.get(index).copied().unwrap_or(false),
-                &threatened,
                 assigned.get(index).copied().unwrap_or(false),
             ),
         })
@@ -354,21 +351,12 @@ pub(crate) fn classify_in_session(
 fn role_of(
     session: &Session,
     unit: &awvm::semantic::Unit,
-    orders: &[Order],
+    facts: UnitFacts,
     loaded: &HashSet<UnitId, impl std::hash::BuildHasher>,
-    loading: bool,
-    threatened: &HashSet<awvm::semantic::CellIdx>,
     assigned: bool,
 ) -> UnitRole {
     let profile = ruleset::profile(unit.kind);
-    let attacks = || {
-        orders.iter().filter_map(|order| match order.kind() {
-            OrderKind::Attack(target) => Some(target),
-            _ => None,
-        })
-    };
-
-    if attacks().any(|target| threatened.contains(&target)) {
+    if facts.emergency {
         return UnitRole::EmergencyDefender;
     }
     if active_capturer(session, unit) {
@@ -376,14 +364,12 @@ fn role_of(
     }
     if matches!(unit.location, Location::Cargo { .. })
         || loaded.contains(&unit.id)
-        || loading
-        || orders
-            .iter()
-            .any(|order| matches!(order.kind(), OrderKind::Load | OrderKind::Unload(_)))
+        || facts.loading
+        || facts.unloading
     {
         return UnitRole::TransportMission;
     }
-    if attacks().next().is_some() {
+    if facts.attack {
         return if profile.indirect_range.is_some() {
             UnitRole::ImmediateIndirectAttacker
         } else {
@@ -397,12 +383,6 @@ fn role_of(
         return UnitRole::RearProduction;
     }
     UnitRole::Flex
-}
-
-fn attacks_threat(orders: &[Order], threatened: &HashSet<awvm::semantic::CellIdx>) -> bool {
-    orders.iter().any(
-        |order| matches!(order.kind(), OrderKind::Attack(target) if threatened.contains(&target)),
-    )
 }
 
 fn capturable_by(state: &awvm::semantic::State, friendly: PlayerIdx, position: Pos) -> bool {
@@ -441,40 +421,113 @@ fn property_priority(state: &awvm::semantic::State, position: Pos) -> u8 {
     }
 }
 
-type UnitOrders = Vec<Vec<Order>>;
-
-fn legal_orders_by_unit(session: &Session) -> UnitOrders {
-    let mut orders = Vec::new();
-    session.legal().orders(&mut orders);
-    let mut grouped = vec![Vec::new(); session.state().units.len()];
-    for order in orders {
-        if let Some(unit) = order.unit()
-            && let Some(row) = grouped.get_mut(usize::from(unit.get()))
-        {
-            row.push(order);
-        }
-    }
-    grouped
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct UnitFacts {
+    attack: bool,
+    emergency: bool,
+    loading: bool,
+    unloading: bool,
 }
 
-/// Units participating in a legal load bind the cargo and carrier together.
-fn loading_units(session: &Session, orders: &UnitOrders) -> Vec<bool> {
-    let mut loading = vec![false; session.state().units.len()];
-    for (cargo, candidates) in orders.iter().enumerate() {
-        for order in candidates {
-            if order.kind() != OrderKind::Load {
-                continue;
-            }
-            loading[cargo] = true;
-            let destination = order.destination();
-            if let Some(transport) = unit_on_cell(session, destination)
-                && let Some(index) = session.index_of(transport)
-            {
-                loading[usize::from(index.get())] = true;
+type UnitOrders = Vec<UnitFacts>;
+
+fn legal_orders_by_unit(session: &Session) -> UnitOrders {
+    struct ClassifierOrders {
+        facts: UnitOrders,
+        threatened: HashSet<awvm::semantic::CellIdx>,
+        can_load: Vec<bool>,
+        occupants: Vec<Option<usize>>,
+    }
+
+    impl LegalVisitor for ClassifierOrders {
+        const ACTIONS: OrderMask =
+            OrderMask::from_untargeted(&[OrderKind::Load]).with_targets(TargetKind::Attack);
+        const DELETE: bool = false;
+
+        fn continue_unit(&mut self, unit: UnitIdx) -> bool {
+            let index = usize::from(unit.get());
+            let facts = self.facts[index];
+            self.can_load[index]
+                || !(facts.emergency || (self.threatened.is_empty() && facts.attack))
+        }
+
+        fn order(&mut self, order: Order) {
+            let Some(unit) = order.unit() else {
+                return;
+            };
+            let facts = &mut self.facts[usize::from(unit.get())];
+            match order.kind() {
+                OrderKind::Attack(target) => {
+                    facts.attack = true;
+                    facts.emergency |= self.threatened.contains(&target);
+                }
+                OrderKind::Load => {
+                    facts.loading = true;
+                    if let Some(transport) = self.occupants[usize::from(order.destination().get())]
+                    {
+                        self.facts[transport].loading = true;
+                    }
+                }
+                OrderKind::Unload(_) => facts.unloading = true,
+                _ => {}
             }
         }
     }
-    loading
+
+    let state = session.state();
+    let units: Vec<_> = state.units.iter().map(|unit| unit.id).collect();
+    let transports: Vec<_> = state
+        .units
+        .iter()
+        .filter_map(|unit| {
+            matches!(unit.location, Location::Board { .. })
+                .then(|| {
+                    ruleset::profile(unit.kind)
+                        .transport
+                        .map(|profile| (unit, profile))
+                })
+                .flatten()
+        })
+        .collect();
+    let can_load = state
+        .units
+        .iter()
+        .map(|unit| {
+            transports.iter().any(|(carrier, profile)| {
+                carrier.id != unit.id
+                    && carrier.owner == unit.owner
+                    && profile.cargo.contains(unit.kind)
+            })
+        })
+        .collect();
+    let threatened = state
+        .players
+        .seat(&state.turn.active_player)
+        .map(|friendly| threatened_objectives(session, friendly))
+        .unwrap_or_default();
+    let mut occupants = vec![None; state.board.dimensions().len()];
+    for (index, unit) in state.units.iter().enumerate() {
+        if index <= usize::from(u16::MAX)
+            && let Location::Board { position } = unit.location
+            && let Some(cell) = state.board.dimensions().cell_index(position)
+        {
+            occupants[usize::from(cell.get())].get_or_insert(index);
+        }
+    }
+    let mut grouped = ClassifierOrders {
+        facts: vec![UnitFacts::default(); units.len()],
+        threatened,
+        can_load,
+        occupants,
+    };
+    session.legal().visit_scoped(
+        LegalScope {
+            units: &units,
+            unitless: false,
+        },
+        &mut grouped,
+    );
+    grouped.facts
 }
 
 /// Cells occupied by enemy capturers that are taking one of our objectives.
@@ -521,16 +574,6 @@ fn active_capturer(session: &Session, unit: &awvm::semantic::Unit) -> bool {
         .is_some_and(|points| points < 20)
 }
 
-fn unit_on_cell(session: &Session, wanted: awvm::semantic::CellIdx) -> Option<UnitId> {
-    let dimensions = session.state().board.dimensions();
-    session.state().units.iter().find_map(|unit| {
-        let Location::Board { position } = unit.location else {
-            return None;
-        };
-        (dimensions.cell_index(position) == Some(wanted)).then_some(unit.id)
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use awvm::ruleset::{Terrain, UnitKind};
@@ -539,6 +582,16 @@ mod tests {
 
     use super::*;
     use crate::board::arena;
+
+    fn unit_on_cell(session: &Session, wanted: awvm::semantic::CellIdx) -> Option<UnitId> {
+        let dimensions = session.state().board.dimensions();
+        session.state().units.iter().find_map(|unit| {
+            let Location::Board { position } = unit.location else {
+                return None;
+            };
+            (dimensions.cell_index(position) == Some(wanted)).then_some(unit.id)
+        })
+    }
 
     fn view() -> Observation {
         let mut state = arena(false, 1);
@@ -549,6 +602,60 @@ mod tests {
         };
         observe(&AwbwVisibility, &state, &state.turn.active_player)
             .expect("the active player observes the arena")
+    }
+
+    #[test]
+    fn classifier_orders_match_complete_fixture_enumeration() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../spec/fixtures");
+        let fixtures = awvm::conformance::fixture_documents(&root).expect("the fixtures load");
+        let mut compared = 0;
+        for (name, fixture) in fixtures {
+            for key in ["initial_state", "left", "right"] {
+                let Some(value) = fixture.get(key) else {
+                    continue;
+                };
+                let value = value.get("initial_state").unwrap_or(value);
+                let Ok(state) = serde_json::from_value::<awvm::semantic::State>(value.clone())
+                else {
+                    continue;
+                };
+                let session = Session::new(state);
+                let mut orders = Vec::new();
+                session.legal().orders(&mut orders);
+                let state = session.state();
+                let threatened = state
+                    .players
+                    .seat(&state.turn.active_player)
+                    .map(|seat| threatened_objectives(&session, seat))
+                    .unwrap_or_default();
+                let mut expected = vec![UnitFacts::default(); state.units.len()];
+                for order in orders {
+                    let Some(unit) = order.unit() else {
+                        continue;
+                    };
+                    let row = &mut expected[usize::from(unit.get())];
+                    match order.kind() {
+                        OrderKind::Attack(target) => {
+                            row.attack = true;
+                            row.emergency |= threatened.contains(&target);
+                        }
+                        OrderKind::Load => {
+                            row.loading = true;
+                            if let Some(transport) = unit_on_cell(&session, order.destination())
+                                .and_then(|id| session.index_of(id))
+                            {
+                                expected[usize::from(transport.get())].loading = true;
+                            }
+                        }
+                        OrderKind::Unload(_) => row.unloading = true,
+                        _ => {}
+                    }
+                }
+                assert_eq!(legal_orders_by_unit(&session), expected, "{name:?}: {key}");
+                compared += 1;
+            }
+        }
+        assert!(compared > 100);
     }
 
     #[test]

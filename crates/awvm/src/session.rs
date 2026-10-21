@@ -34,6 +34,9 @@
 //! and board tables.
 
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
 use crate::combat::Forecast;
 use crate::commander::PowerLevel;
@@ -459,6 +462,13 @@ struct Reach {
     tables: (u64, Vec<TurnTables>),
 }
 
+/// A key for one session position. A changed position has a new key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct PositionKey {
+    session: u64,
+    epoch: u64,
+}
+
 /// One position, and the memory that answering about it needs.
 ///
 /// A session is the unit of ownership a search wants: one per thread, each
@@ -467,6 +477,7 @@ struct Reach {
 /// instruction count and loses on cache misses has not won.
 #[derive(Debug)]
 pub struct Session {
+    id: u64,
     state: State,
     /// The position each live mark names, oldest first, with the epoch it was
     /// pushed at. A `State` is a handful of `Vec`s over `Copy` cells, so
@@ -497,6 +508,7 @@ impl Session {
     /// Open a session on a position.
     pub fn new(state: State) -> Self {
         Self {
+            id: NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed),
             state,
             prior: Vec::new(),
             routes: RefCell::new(Routes::default()),
@@ -530,13 +542,21 @@ impl Session {
 
     /// Replace the observed position and keep the query buffers and tables.
     pub fn reset_from_observation(&mut self, observation: &Observation) -> Result<(), Error> {
-        self.reset(query::reify(observation)?);
+        let state = query::reify(observation)?;
+        if self.state != state {
+            self.reset(state);
+        } else {
+            self.prior.clear();
+        }
         self.restrict_to_observation(observation);
         Ok(())
     }
 
     fn restrict_to_observation(&mut self, observation: &Observation) {
-        self.commandable = recipient_may_command(observation);
+        let commandable = recipient_may_command(observation);
+        let changed_permission = self.commandable != commandable;
+        self.commandable = commandable;
+        let previous_uncertain = self.uncertain.clone();
         let dimensions = self.state.board.dimensions();
         self.uncertain.clear();
         self.uncertain.extend(
@@ -550,6 +570,17 @@ impl Session {
                 }),
         );
         self.uncertain.sort_unstable();
+        if changed_permission || previous_uncertain != self.uncertain {
+            self.epoch += 1;
+        }
+    }
+
+    /// Identify the current position and its query permissions.
+    pub const fn position_key(&self) -> PositionKey {
+        PositionKey {
+            session: self.id,
+            epoch: self.epoch,
+        }
     }
 
     /// The position as it stands.
@@ -1179,6 +1210,11 @@ pub trait LegalVisitor {
         true
     }
 
+    /// Return false when this unit needs no more destination queries.
+    fn continue_unit(&mut self, _unit: UnitIdx) -> bool {
+        true
+    }
+
     /// Take one order. Ask the visiting [`Legal`] nothing from here.
     fn order(&mut self, order: Order);
 
@@ -1303,6 +1339,9 @@ impl<'a> Legal<'a> {
             let mut attack_index = std::mem::take(&mut routes.attack_index);
             field.prepare_attack_index(&mut attack_index);
             for (position, _) in field.geometry().reach() {
+                if !visitor.continue_unit(unit) {
+                    break;
+                }
                 let Some(cell) = dimensions.cell_index(position) else {
                     continue;
                 };

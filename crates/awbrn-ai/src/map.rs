@@ -34,7 +34,7 @@ use awvm::ruleset::{self, MovementClass, TerrainTrait, UnitKind};
 use awvm::semantic::{
     Concealment, Dimensions, Location, PlayerIdx, Pos, State, TileOwner, Unit, UnitAction, UnitId,
 };
-use awvm::session::Session;
+use awvm::session::{PositionKey, Session};
 
 use crate::threat;
 
@@ -49,6 +49,7 @@ pub const MAX_DEFICIT: u16 = 3;
 /// properties on it.
 #[derive(Debug, Default)]
 pub struct ContestMap {
+    position: Option<(PositionKey, PlayerIdx)>,
     /// Turns for our side's production to reach each tile, `None` where no
     /// route exists at all.
     ours: Vec<Option<u16>>,
@@ -86,6 +87,7 @@ struct Built {
 impl ContestMap {
     pub const fn new() -> Self {
         Self {
+            position: None,
             ours: Vec::new(),
             theirs: Vec::new(),
             built: None,
@@ -101,6 +103,7 @@ impl ContestMap {
 
     /// Forget the map, so that a later reader knows there is none.
     pub fn forget(&mut self) {
+        self.position = None;
         self.ours.clear();
         self.theirs.clear();
         self.built = None;
@@ -160,6 +163,11 @@ impl ContestMap {
     }
 
     fn build_position(&mut self, state: &State, session: Option<&Session>, seat: PlayerIdx) {
+        let position = session.map(|session| (session.position_key(), seat));
+        if position.is_some() && self.position == position {
+            return;
+        }
+        self.position = None;
         let ours = match self.search_for(state, session, seat) {
             Some(search) => search,
             None => {
@@ -185,6 +193,7 @@ impl ContestMap {
             theirs,
         };
         if self.built.as_ref() == Some(&built) && self.is_built() {
+            self.position = position;
             return;
         }
 
@@ -204,6 +213,7 @@ impl ContestMap {
             }
         }
         self.built = Some(built);
+        self.position = position;
     }
 
     /// Run one side's search into [`ContestMap::points`], in turns.

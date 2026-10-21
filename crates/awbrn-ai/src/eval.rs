@@ -46,7 +46,7 @@ use awvm::ruleset::{self, Terrain, TerrainTrait, UnitKind};
 use awvm::semantic::{
     CAPTURE_REQUIRED_POINTS, Location, Match, Outcome, PlayerIdx, PlayerStatus, State, TeamStatus,
 };
-use awvm::session::Session;
+use awvm::session::{PositionKey, Session};
 
 use crate::map::{ContestMap, MAX_DEFICIT};
 use crate::threat::ThreatMap;
@@ -713,6 +713,7 @@ impl EvaluationRead {
 #[derive(Debug)]
 pub struct Evaluator {
     weights: EvalWeights,
+    position: Option<PositionKey>,
     /// Select a compiled preset from the position before each read.
     mode_defaults: bool,
     /// The preset that supplied the current weights.
@@ -762,6 +763,7 @@ impl Evaluator {
     pub const fn new(weights: EvalWeights) -> Self {
         Self {
             weights,
+            position: None,
             mode_defaults: false,
             preset: EvalPreset::Explicit,
             raw: Vec::new(),
@@ -857,14 +859,18 @@ impl Evaluator {
             };
         }
 
-        self.extract_raw(state);
-        if self.position_enabled() {
-            let Some(session) = session else {
-                return EvaluationRead::invalid();
-            };
-            self.fill_position(session);
+        let position = session.map(Session::position_key);
+        if position.is_none() || self.position != position {
+            self.extract_raw(state);
+            if self.position_enabled() {
+                let Some(session) = session else {
+                    return EvaluationRead::invalid();
+                };
+                self.fill_position(session);
+            }
+            self.build_terms(state);
+            self.position = position;
         }
-        self.build_terms(state);
         self.position_evaluations += 1;
 
         let Some(terms) = self.delta_terms(state, seat) else {
@@ -936,6 +942,7 @@ impl Evaluator {
 
     /// Extract unweighted values for every seat on the roster.
     fn extract_raw(&mut self, state: &State) {
+        self.position = None;
         // A day beyond any match ever played decays to nothing anyway, so the
         // clamp only stops a silly day from reaching `powf`.
         let day = (state.turn.day.min(1_000)) as f64;
@@ -1794,6 +1801,37 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn retained_evaluations_match_fresh_after_resets_and_strength_reads() {
+        let state = amber_valley(false, 11);
+        let (first, second) = seats(&state);
+        let weights = EvalWeights::STANDARD;
+        let mut session = Session::new(state.clone());
+        let mut retained = Evaluator::new(weights);
+        for _ in 0..3 {
+            for seat in [first, second] {
+                let actual = retained.breakdown_in(&session, seat);
+                let expected = Evaluator::new(weights).breakdown_in(&session, seat);
+                assert_eq!(actual.score.to_bits(), expected.score.to_bits());
+                assert_eq!(actual.terms, expected.terms);
+            }
+        }
+        assert_eq!(retained.position_evaluations(), 6);
+        let mut changed = state.clone();
+        changed.player_mut(first).funds += 1_000;
+        session.reset(changed);
+        let expected = Evaluator::new(weights).value_in(&session, first);
+        assert_eq!(
+            retained.value_in(&session, first).to_bits(),
+            expected.to_bits()
+        );
+        retained.strength(&state, first);
+        assert_eq!(
+            retained.value_in(&session, first).to_bits(),
+            expected.to_bits()
+        );
     }
 
     #[test]

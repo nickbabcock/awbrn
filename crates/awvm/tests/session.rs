@@ -52,6 +52,39 @@ fn prepared_visibility_matches_individual_queries() {
     }
 }
 
+#[test]
+fn retained_travel_matches_fresh_searches_after_resets() {
+    let states = corpus();
+    let mut retained = Session::new(states[0].clone());
+    let mut checked = 0;
+    for state in &states {
+        retained.reset(state.clone());
+        let targets = [
+            Pos::new(0, 0),
+            Pos::new(state.board.width() - 1, state.board.height() - 1),
+            Pos::new(0, 0),
+        ];
+        for (seat, _) in state.players.seats() {
+            let mut travel = retained.travel(seat).expect("the seat has travel tables");
+            let mut fresh = query::Travel::open(state, seat).expect("the seat has travel tables");
+            for class in awvm::ruleset::MovementClass::ALL {
+                for allowance in [1, 3, 7] {
+                    let mut expected = Vec::new();
+                    fresh.points_to(class, allowance, targets, &mut expected);
+                    let mut actual = Vec::new();
+                    travel.points_to(class, allowance, targets, &mut actual);
+                    assert_eq!(actual, expected);
+                    actual.clear();
+                    travel.points_to(class, allowance, targets.into_iter().rev(), &mut actual);
+                    assert_eq!(actual, expected);
+                    checked += 1;
+                }
+            }
+        }
+    }
+    assert!(checked > 1_000);
+}
+
 /// The tile a target stands on, which is how an order names it.
 fn cell_of(state: &State, target: &AttackTarget) -> Option<CellIdx> {
     let position = match target {
@@ -209,6 +242,18 @@ fn observed_unit_visits_match_individual_destination_queries() {
 }
 
 #[test]
+fn position_keys_follow_the_session_and_change_on_reset() {
+    let state = corpus().remove(0);
+    let session = Session::new(state.clone());
+    let key = session.position_key();
+    assert_ne!(key, Session::new(state.clone()).position_key());
+    let mut moved = Box::new(session);
+    assert_eq!(key, moved.position_key());
+    moved.reset(state);
+    assert_ne!(key, moved.position_key());
+}
+
+#[test]
 fn reset_observations_match_fresh_sessions() {
     let states = corpus();
     let mut retained = Session::new(states[0].clone());
@@ -229,6 +274,11 @@ fn reset_observations_match_fresh_sessions() {
             assert_eq!(retained.state(), fresh.state());
             assert_eq!(retained.depth(), 0);
             assert_eq!(retained.is_commandable(), fresh.is_commandable());
+            let key = retained.position_key();
+            retained
+                .reset_from_observation(&view)
+                .expect("the observation reifies again");
+            assert_eq!(key, retained.position_key());
             let actual = all_orders(&retained.legal());
             assert_eq!(actual, all_orders(&fresh.legal()));
             for order in actual {
@@ -489,11 +539,16 @@ fn a_rewind_restores_the_position() {
         else {
             continue;
         };
+        let before = session.position_key();
         let Ok(mark) = session.apply(order, &mut RandomTape::new(&[]), &mut ()) else {
             continue;
         };
         assert_ne!(session.state(), &state, "{order:?} changed nothing");
+        let applied_key = session.position_key();
+        assert_ne!(before, applied_key);
         session.rewind(mark);
+        assert_ne!(session.position_key(), before);
+        assert_ne!(session.position_key(), applied_key);
         assert_eq!(session.state(), &state, "{order:?} did not rewind cleanly");
         assert_eq!(session.depth(), 0);
         rewound += 1;

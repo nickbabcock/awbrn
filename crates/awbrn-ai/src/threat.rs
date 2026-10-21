@@ -57,7 +57,7 @@ use awvm::semantic::{
     CellIdx, Concealment, Dimensions, Location, PlayerIdx, Pos, PowerState, State, TeamId,
     TerrainId, TileOwner, Unit, UnitId, WeatherKind,
 };
-use awvm::session::Session;
+use awvm::session::{PositionKey, Session};
 use std::sync::Arc;
 
 /// Terrain defense runs from no stars to four, so a row holds five columns.
@@ -82,6 +82,7 @@ const WHOLE: u8 = 100;
 #[derive(Debug)]
 pub struct ThreatMap {
     dimensions: Dimensions,
+    position: Option<(PositionKey, PlayerIdx)>,
     /// `UnitKind::COUNT` funds for each tile, the tiles in cell order.
     immediate: Vec<f32>,
     deferred: Vec<f32>,
@@ -182,6 +183,7 @@ impl ThreatMap {
     pub const fn new() -> Self {
         Self {
             dimensions: Dimensions::new(0, 0),
+            position: None,
             immediate: Vec::new(),
             deferred: Vec::new(),
             written: [const { Vec::new() }; 2],
@@ -217,6 +219,11 @@ impl ThreatMap {
     /// hostile seat, so a sweep of twenty enemy units builds the entry-cost
     /// and blocking grids once for each side rather than once for each unit.
     pub fn build(&mut self, session: &Session, seat: PlayerIdx) {
+        let position = (session.position_key(), seat);
+        if self.position == Some(position) {
+            return;
+        }
+        self.position = Some(position);
         let state = session.state();
         self.dimensions = state.board.dimensions();
         let cells = self.dimensions.len();
