@@ -26,9 +26,9 @@ use awvm::ruleset::{
 };
 use awvm::semantic::{
     AwbwVisibility, CAPTURE_REQUIRED_POINTS, Concealment, DrawReason, Location, Match,
-    ObserveError, ObservedTransition, Outcome, Phase, PlayerId, PlayerStatus, Pos, PowerState,
-    Reason, ReasonId, Silo, State, StateInvariant, TeamId, TeamStatus, TileOwner, Unit, UnitAction,
-    UnitId, VictoryReason, observe_transition,
+    ObserveError, ObservedTransition, Outcome, Phase, Player, PlayerId, PlayerStatus, Pos,
+    PowerState, Reason, ReasonId, Silo, State, StateInvariant, TeamId, TeamStatus, TileOwner, Unit,
+    UnitAction, UnitId, VictoryReason, observe_transition,
 };
 
 use crate::targeting::{targeted_hidden, targeted_value, visible_targeted_unit, visible_unit};
@@ -807,16 +807,7 @@ fn apply_power(state: &mut State, action: &PowerAction) -> Result<(), RecordedAd
                 if let Some(funds) = change.players_funds {
                     player.funds = u64::from(funds);
                 }
-                if let Some(charge) = change.players_co_power
-                    && let Some(commander) = player.commanders.first_mut()
-                {
-                    commander.power_charge = awbw_power_charge(charge);
-                }
-                if let Some(charge) = change.tags_co_power
-                    && let Some(commander) = player.commanders.get_mut(1)
-                {
-                    commander.power_charge = awbw_power_charge(charge);
-                }
+                set_recorded_charge(player, change.players_co_power, change.tags_co_power);
             }
         }
     }
@@ -1214,15 +1205,30 @@ fn update_combat_charge(
     let player = state
         .find_player_mut(&player_id(player))
         .ok_or(RecordedAdapterError::UnknownPlayer(player))?;
-    if let Some(commander) = player.commanders.first_mut() {
-        commander.power_charge = awbw_power_charge(lead);
-    }
-    if let Some(tag) = tag
-        && let Some(commander) = player.commanders.get_mut(1)
-    {
-        commander.power_charge = awbw_power_charge(tag);
-    }
+    set_recorded_charge(player, Some(lead), tag);
     Ok(())
+}
+
+/// Set the power charge from AWBW's `co` and `tags_co` values.
+///
+/// AWBW keeps the active commander in its `co` fields and swaps the two
+/// commanders at each tag. AWVM keeps each commander in its slot and moves the
+/// `active` flag. Thus `lead` goes to the active commander and `tag` goes to
+/// the other commander.
+fn set_recorded_charge(player: &mut Player, lead: Option<u32>, tag: Option<u32>) {
+    let lead_slot = player
+        .commanders
+        .iter()
+        .position(|commander| commander.active)
+        .unwrap_or(0);
+    let tag_slot = 1 - lead_slot.min(1);
+    for (slot, value) in [(lead_slot, lead), (tag_slot, tag)] {
+        if let Some(value) = value
+            && let Some(commander) = player.commanders.get_mut(slot)
+        {
+            commander.power_charge = awbw_power_charge(value);
+        }
+    }
 }
 
 fn set_player_funds(
