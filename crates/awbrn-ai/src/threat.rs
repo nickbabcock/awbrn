@@ -271,11 +271,11 @@ impl ThreatMap {
         let mut roster = state.units.iter().filter(|unit| {
             matches!(unit.location, Location::Board { .. }) && hostile(state, seat, unit.owner)
         });
-        let roster_changed = !self.cached.iter().all(|cached| {
-            roster
-                .next()
-                .is_some_and(|unit| same_threat_unit(&cached.unit, unit))
-        }) || roster.next().is_some();
+        let roster_changed = !self
+            .cached
+            .iter()
+            .all(|cached| roster.next().is_some_and(|unit| cached.unit.id == unit.id))
+            || roster.next().is_some();
         let mut dirty = [
             vec![context_changed || roster_changed; cells],
             vec![context_changed || roster_changed; cells],
@@ -351,7 +351,7 @@ impl ThreatMap {
                 self.cached.push(cached);
                 continue;
             }
-            let old = prior.map(|index| previous.swap_remove(index));
+            let mut old = prior.map(|index| previous.swap_remove(index));
 
             for layer in &mut self.collecting {
                 layer.clear();
@@ -404,8 +404,13 @@ impl ThreatMap {
                 unit: *unit,
                 table,
                 dependencies,
-                membership: self.collecting.each_ref().map(|layer| {
-                    let mut bits = vec![0; cells.div_ceil(64)];
+                membership: std::array::from_fn(|index| {
+                    let layer = &self.collecting[index];
+                    let mut bits = old
+                        .as_mut()
+                        .map(|cached| std::mem::take(&mut cached.membership[index]))
+                        .unwrap_or_default();
+                    zero(&mut bits, cells.div_ceil(64));
                     for cell in layer {
                         let index = usize::from(cell.get());
                         bits[index / 64] |= 1 << (index % 64);
@@ -417,6 +422,10 @@ impl ThreatMap {
                     std::mem::take(&mut self.collecting[1]),
                 ],
             });
+            if let Some(old) = old {
+                self.collecting = old.layers;
+                self.dependencies = old.dependencies;
+            }
         }
         for old in previous {
             for (layer, cells) in old.layers.iter().enumerate() {

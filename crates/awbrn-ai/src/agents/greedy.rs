@@ -46,8 +46,8 @@ use awvm::semantic::{
     CellIdx, Location, Observation, PlayerIdx, Pos, State, Tile, TileOwner, Unit,
 };
 use awvm::session::{
-    AttackCandidate, LegalScope, LegalVisitor, Order, OrderKind, OrderMask, Session, TargetKind,
-    UnitIdx,
+    AttackCandidate, LegalScope, LegalVisitor, Order, OrderKind, OrderMask, PositionKey, Session,
+    TargetKind, UnitIdx,
 };
 
 use crate::agent::{Agent, NodeBudget, Play};
@@ -626,6 +626,77 @@ pub struct GreedyAgent {
     fog: Option<Arc<FogEstimate>>,
     /// Keep query buffers and terrain tables across observed decisions.
     session: Option<Session>,
+    selection: Selection,
+}
+
+#[derive(Debug)]
+struct Selection {
+    position: Option<PositionKey>,
+    ready: bool,
+    units: Option<Vec<awvm::semantic::UnitId>>,
+    unitless: bool,
+    initial: Option<Order>,
+    /// Keep every tie draw, including ties before a later higher score.
+    draws: Vec<(u64, Order)>,
+    /// Only draws at or after this index can change the final order.
+    final_start: usize,
+    sacrifice: Option<Order>,
+}
+
+impl Selection {
+    const fn new() -> Self {
+        Self {
+            position: None,
+            ready: false,
+            units: None,
+            unitless: true,
+            initial: None,
+            draws: Vec::new(),
+            final_start: 0,
+            sacrifice: None,
+        }
+    }
+
+    fn matches(&self, position: PositionKey, scope: Option<LegalScope<'_>>) -> bool {
+        self.position == Some(position)
+            && self.units.as_deref() == scope.map(|scope| scope.units)
+            && self.unitless == scope.is_none_or(|scope| scope.unitless)
+    }
+
+    fn begin(&mut self, position: PositionKey, scope: Option<LegalScope<'_>>) {
+        self.position = Some(position);
+        self.ready = false;
+        match scope {
+            Some(scope) => {
+                let units = self.units.get_or_insert_default();
+                units.clear();
+                units.extend_from_slice(scope.units);
+            }
+            None => self.units = None,
+        }
+        self.unitless = scope.is_none_or(|scope| scope.unitless);
+        self.initial = None;
+        self.draws.clear();
+        self.final_start = 0;
+        self.sacrifice = None;
+    }
+
+    fn choose(&self, rng: &mut Rng) -> Option<Order> {
+        let mut chosen = self.initial;
+        for (index, (range, order)) in self.draws.iter().enumerate() {
+            let selected = rng.below(*range) == 0;
+            if index >= self.final_start && selected {
+                chosen = Some(*order);
+            }
+        }
+        match (chosen, self.sacrifice) {
+            (Some(order), Some(sacrifice)) if matches!(order.kind(), OrderKind::Wait) => {
+                Some(sacrifice)
+            }
+            (Some(order), _) => Some(order),
+            (None, sacrifice) => sacrifice,
+        }
+    }
 }
 
 /// The score and typed production terms for one legal order.
@@ -714,6 +785,7 @@ impl GreedyAgent {
             threat: ThreatMap::new(),
             fog: None,
             session: None,
+            selection: Selection::new(),
         }
     }
 
@@ -726,6 +798,7 @@ impl GreedyAgent {
     /// its seat. `None` reads only what is visible.
     pub fn set_fog(&mut self, estimate: Option<Arc<FogEstimate>>) {
         self.fog = estimate;
+        self.selection.position = None;
     }
 
     /// Build the weighting with generic tactical corrections enabled.
@@ -1257,6 +1330,19 @@ impl GreedyAgent {
             return None;
         }
         awvm::benchmark::record_greedy_action();
+        if !RECORD {
+            if self.selection.matches(session.position_key(), scope) {
+                if self.selection.ready {
+                    return self
+                        .selection
+                        .choose(&mut self.rng)
+                        .and_then(|order| Play::from_order(session, order));
+                }
+                self.selection.ready = true;
+            } else {
+                self.selection.begin(session.position_key(), scope);
+            }
+        }
         let state = session.state();
         let seat = state.players.seat(&state.turn.active_player)?;
 
@@ -1275,6 +1361,7 @@ impl GreedyAgent {
             vision,
             threat,
             fog,
+            selection,
             ..
         } = self;
         let fog = fog.as_deref().filter(|estimate| estimate.seat == seat);
@@ -1397,10 +1484,14 @@ impl GreedyAgent {
             chosen: None,
             preserve_denial_sacrifice: policy.preserve_denial_sacrifice,
             denial_sacrifice: None,
+            selection,
         };
         match scope {
             Some(scope) => session.legal().visit_scoped(scope, &mut visitor),
             None => session.legal().visit_orders(&mut visitor),
+        }
+        if !RECORD && visitor.selection.ready {
+            visitor.selection.sacrifice = visitor.denial_sacrifice.map(|value| value.order);
         }
 
         // Nothing scores above zero when every unit has acted and nothing is
@@ -1806,6 +1897,7 @@ struct GreedyVisitor<'a, const RECORD: bool> {
     chosen: Option<Order>,
     preserve_denial_sacrifice: bool,
     denial_sacrifice: Option<DenialSacrifice>,
+    selection: &'a mut Selection,
 }
 
 /// A losing attack that delays an enemy capture by enough to cover its unit
@@ -1853,8 +1945,15 @@ impl<const RECORD: bool> GreedyVisitor<'_, RECORD> {
                 self.best = score;
                 self.tied = 1;
                 self.chosen = Some(order);
+                if self.selection.ready {
+                    self.selection.initial = Some(order);
+                    self.selection.final_start = self.selection.draws.len();
+                }
             } else if score == self.best && self.chosen.is_some() {
                 self.tied += 1;
+                if self.selection.ready {
+                    self.selection.draws.push((self.tied, order));
+                }
                 if self.rng.below(self.tied) == 0 {
                     self.chosen = Some(order);
                 }
@@ -2584,29 +2683,89 @@ mod tests {
                     let scored = reference
                         .scored_orders(&view)
                         .expect("the orders are scored");
-                    let mut best = 0.0;
-                    let mut tied = 0;
-                    let mut chosen = None;
-                    for candidate in scored.candidates() {
-                        if candidate.score > best {
-                            best = candidate.score;
-                            tied = 1;
-                            chosen = Some(candidate.order);
-                        } else if candidate.score == best && chosen.is_some() {
-                            tied += 1;
-                            if reference.rng.below(tied) == 0 {
+                    let mut filtered = GreedyAgent::with_weights(19, weights);
+                    for _ in 0..8 {
+                        let mut best = 0.0;
+                        let mut tied = 0;
+                        let mut chosen = None;
+                        for candidate in scored.candidates() {
+                            if candidate.score > best {
+                                best = candidate.score;
+                                tied = 1;
                                 chosen = Some(candidate.order);
+                            } else if candidate.score == best && chosen.is_some() {
+                                tied += 1;
+                                if reference.rng.below(tied) == 0 {
+                                    chosen = Some(candidate.order);
+                                }
                             }
                         }
+                        let expected = chosen.and_then(|order| Play::from_order(&session, order));
+                        assert_eq!(
+                            filtered.act(&view, NodeBudget::FOUR),
+                            expected,
+                            "{kind:?}, fog {fog}"
+                        );
+                        assert_eq!(filtered.tie_break_state(), reference.tie_break_state());
                     }
-                    let expected = chosen.and_then(|order| Play::from_order(&session, order));
-                    let mut filtered = GreedyAgent::with_weights(19, weights);
-                    assert_eq!(
-                        filtered.act(&view, NodeBudget::FOUR),
-                        expected,
-                        "{kind:?}, fog {fog}"
-                    );
-                    assert_eq!(filtered.tie_break_state(), reference.tie_break_state());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn retained_selection_matches_fresh_across_scopes() {
+        let mut state = arena(false, 7);
+        let seat = state.player_index(&state.turn.active_player).unwrap();
+        state.units.retain(|_| false);
+        for (index, position) in [Pos::new(2, 2), Pos::new(3, 3), Pos::new(4, 4)]
+            .into_iter()
+            .enumerate()
+        {
+            let mut unit = test_unit(UnitKind::Infantry, position, seat);
+            unit.id = UnitId::new(u32::try_from(index).unwrap() + 1);
+            state.units.push(unit);
+        }
+        state.next_unit_id = Some(4);
+        let view = observe(&AwbwVisibility, &state, &state.turn.active_player)
+            .expect("the player observes");
+        let session = Session::from_observation(&view).expect("the observation reifies");
+        let mut units = Vec::new();
+        session.legal().units(&mut units);
+        let ids: Vec<_> = units
+            .iter()
+            .map(|unit| {
+                session
+                    .state()
+                    .units
+                    .at(usize::from(unit.get()))
+                    .unwrap()
+                    .id
+            })
+            .collect();
+        for generic in [false, true] {
+            let make = |seed| {
+                if generic {
+                    GreedyAgent::with_generic_tactical_policy(seed, Weights::THREAT)
+                } else {
+                    GreedyAgent::with_weights(seed, Weights::THREAT)
+                }
+            };
+            let mut retained = make(19);
+            for selected in [ids.as_slice(), &ids[..1], &ids[1..], ids.as_slice()] {
+                for unitless in [true, false, true] {
+                    let scope = Some(LegalScope {
+                        units: selected,
+                        unitless,
+                    });
+                    for _ in 0..3 {
+                        let mut fresh = make(retained.tie_break_state());
+                        assert_eq!(
+                            retained.act_in_session_scoped::<false>(&session, scope, None),
+                            fresh.act_in_session_scoped::<false>(&session, scope, None),
+                        );
+                        assert_eq!(retained.tie_break_state(), fresh.tie_break_state());
+                    }
                 }
             }
         }
