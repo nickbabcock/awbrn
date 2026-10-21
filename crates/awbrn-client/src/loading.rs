@@ -124,6 +124,17 @@ pub(crate) struct StaticPathResolver(pub(crate) Arc<dyn StaticAssetPathResolver>
 #[derive(Resource)]
 pub(crate) struct MapAssetHandle(Handle<AwbwMapAsset>);
 
+impl MapAssetHandle {
+    pub(crate) fn id(&self) -> AssetId<AwbwMapAsset> {
+        self.0.id()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new(handle: Handle<AwbwMapAsset>) -> Self {
+        Self(handle)
+    }
+}
+
 #[derive(Resource)]
 pub(crate) struct PendingLoadedMatchMap(AwbrnMap);
 

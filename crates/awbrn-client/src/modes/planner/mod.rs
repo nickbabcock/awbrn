@@ -47,7 +47,7 @@ pub use board::{EditOutcome, EditRefused, PlannerBoard, PlannerEdit, PlannerLuck
 use crate::core::coords::{TILE_SIZE, position_to_world_translation};
 use crate::core::{AppState, GameMode, LoadingState, RenderLayer, SpriteSize};
 use crate::features::event_bus::EventSink;
-use crate::loading::LiveMatchPlayer;
+use crate::loading::{LiveMatchPlayer, MapAssetHandle};
 use crate::modes::play::PendingCommandRejected;
 use crate::modes::play::inspect::InspectedUnit;
 use crate::modes::replay::presentation::{CompleteTransitionCommand, ReplayAdvanceLock};
@@ -208,6 +208,13 @@ impl Plugin for PlannerPlugin {
                     .run_if(in_state(GameMode::Game))
                     .run_if(resource_exists::<PlannerToOpen>),
             )
+            .add_systems(
+                Update,
+                report_failed_planner_map
+                    .run_if(in_state(LoadingState::LoadingAssets))
+                    .run_if(resource_exists::<PlannerToOpen>)
+                    .run_if(resource_exists::<MapAssetHandle>),
+            )
             .add_systems(OnExit(AppState::InGame), close_planner_board)
             // Orders and edits arrive between frames from the host, so the
             // board takes them before it reads new input.
@@ -309,15 +316,41 @@ pub(crate) fn open_planner_board(world: &mut World) {
         Err(error) => {
             error!("Could not open the planner board: {error}");
             if let Some(sink) = world.get_resource::<EventSink<AreaStrikesPreviewed>>() {
-                sink.emit(AreaStrikesPreviewed {
-                    player_id: planner.previewed_player.map(|player| player.as_u32()),
-                    strikes: Vec::new(),
-                    error: Some(error),
-                    can_undo: false,
-                    can_redo: false,
-                });
+                sink.emit(not_opened(planner.previewed_player, error));
             }
         }
+    }
+}
+
+/// Report a planner board whose map does not load, for example because no
+/// map has its ID. Loading stops, and the board does not open.
+pub(crate) fn report_failed_planner_map(
+    mut commands: Commands,
+    map: Res<MapAssetHandle>,
+    asset_server: Res<AssetServer>,
+    planner: Res<PlannerToOpen>,
+    sink: Option<Res<EventSink<AreaStrikesPreviewed>>>,
+) {
+    if !asset_server.load_state(map.id()).is_failed() {
+        return;
+    }
+    let error = "the map of the planner board did not load".to_string();
+    error!("Could not open the planner board: {error}");
+    commands.remove_resource::<PlannerToOpen>();
+    commands.remove_resource::<MapAssetHandle>();
+    if let Some(sink) = sink {
+        sink.emit(not_opened(planner.previewed_player, error));
+    }
+}
+
+/// The report of a planner board that did not open.
+fn not_opened(previewed_player: Option<AwbwGamePlayerId>, error: String) -> AreaStrikesPreviewed {
+    AreaStrikesPreviewed {
+        player_id: previewed_player.map(|player| player.as_u32()),
+        strikes: Vec::new(),
+        error: Some(error),
+        can_undo: false,
+        can_redo: false,
     }
 }
 
@@ -1278,6 +1311,53 @@ mod tests {
         let report = reports.last().unwrap();
         assert!(!report.can_undo && report.can_redo);
         assert_eq!(report.strikes, reports[0].strikes);
+    }
+
+    #[test]
+    fn a_map_that_does_not_load_is_reported() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            crate::JsonAssetPlugin::<crate::loading::AwbwMapAsset>::new(),
+        ));
+        let reports = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&reports);
+        app.insert_resource(EventSink::new(move |report: AreaStrikesPreviewed| {
+            sink.lock().unwrap().push(report);
+        }));
+        let handle = app
+            .world()
+            .resource::<AssetServer>()
+            .load("maps/no-such-map.json");
+        app.insert_resource(MapAssetHandle::new(handle));
+        app.insert_resource(PlannerToOpen {
+            replay: AwbwReplay {
+                games: Vec::new(),
+                turns: Vec::new(),
+            },
+            previewed_player: Some(AwbwGamePlayerId::new(7)),
+            power_uses: Vec::new(),
+        });
+
+        for _ in 0..500 {
+            app.update();
+            app.world_mut()
+                .run_system_once(report_failed_planner_map)
+                .unwrap();
+            if !app.world().contains_resource::<PlannerToOpen>() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+
+        assert!(!app.world().contains_resource::<MapAssetHandle>());
+        let reports = reports.lock().unwrap();
+        let [report] = reports.as_slice() else {
+            panic!("expected one report, got {reports:?}");
+        };
+        assert_eq!(report.player_id, Some(7));
+        assert!(report.error.is_some());
     }
 
     #[test]
