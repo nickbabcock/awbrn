@@ -212,7 +212,7 @@
               "ammo": 8,
               "concealment": "exposed",
               "fuel": 99,
-              "hp": 94,
+              "hp": 91,
               "id": 2,
               "kind": "fighter",
               "location": { "position": [2, 0], "type": "board" },
@@ -262,7 +262,7 @@
           {
             "from_hp": 100,
             "reason": "combat-counter",
-            "to_hp": 94,
+            "to_hp": 91,
             "type": "unit-damaged",
             "unit": 2
           },

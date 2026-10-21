@@ -141,7 +141,7 @@
               "funds": 0,
               "status": "active",
               "commanders": [
-                { "id": "sonja", "active": true, "power_charge": 550, "power_uses": 0 }
+                { "id": "sonja", "active": true, "power_charge": 600, "power_uses": 0 }
               ],
               "power_state": { "type": "none" }
             }
@@ -159,7 +159,7 @@
               "id": 0,
               "kind": "infantry",
               "owner": "red",
-              "hp": 63,
+              "hp": 56,
               "fuel": 99,
               "ammo": 0,
               "action": "spent",
@@ -206,7 +206,7 @@
             "type": "unit-damaged",
             "unit": 0,
             "from_hp": 100,
-            "to_hp": 63,
+            "to_hp": 56,
             "reason": "combat-counter"
           },
           {
@@ -214,7 +214,7 @@
             "player": "blue",
             "commander_slot": 0,
             "from": 400,
-            "to": 550,
+            "to": 600,
             "reason": "combat-counter"
           },
           {

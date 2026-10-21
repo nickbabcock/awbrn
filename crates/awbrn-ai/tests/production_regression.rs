@@ -84,11 +84,8 @@ fn production_matches_its_locked_regression_fingerprints_against_baseline() {
 
     assert_ne!(baseline_first.1, production_first.1);
     assert_ne!(baseline_second.1, production_second.1);
-    assert_eq!(fingerprint(&baseline_first.1), 17_699_916_440_832_964_813);
-    assert_eq!(fingerprint(&baseline_second.1), 5_902_654_325_709_691_999);
-    assert_eq!(fingerprint(&production_first.1), 2_808_536_800_085_030_627);
-    assert_eq!(
-        fingerprint(&production_second.1),
-        14_427_752_061_776_380_085
-    );
+    assert_eq!(fingerprint(&baseline_first.1), 16_112_239_628_672_683_102);
+    assert_eq!(fingerprint(&baseline_second.1), 2_577_671_001_228_672_926);
+    assert_eq!(fingerprint(&production_first.1), 4_195_657_732_052_382_886);
+    assert_eq!(fingerprint(&production_second.1), 4_336_880_402_904_474_279);
 }

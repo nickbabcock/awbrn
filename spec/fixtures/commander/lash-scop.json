@@ -157,7 +157,7 @@
               "id": 0,
               "kind": "infantry",
               "owner": "red",
-              "hp": 12,
+              "hp": 7,
               "fuel": 99,
               "ammo": 0,
               "action": "spent",
@@ -202,7 +202,7 @@
             "type": "unit-damaged",
             "unit": 0,
             "from_hp": 100,
-            "to_hp": 12,
+            "to_hp": 7,
             "reason": "combat-counter"
           },
           {

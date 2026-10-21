@@ -178,7 +178,7 @@
               "ammo": 0,
               "concealment": "exposed",
               "fuel": 98,
-              "hp": 75,
+              "hp": 71,
               "id": 0,
               "kind": "infantry",
               "location": { "position": [1, 0], "type": "board" },
@@ -227,7 +227,7 @@
           {
             "from_hp": 100,
             "reason": "combat-counter",
-            "to_hp": 75,
+            "to_hp": 71,
             "type": "unit-damaged",
             "unit": 0
           },

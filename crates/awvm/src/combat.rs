@@ -132,11 +132,15 @@ pub fn select_weapon(attacker: UnitKind, defender: UnitKind, ammo: u64) -> Optio
 }
 
 /// AWBW integer damage formula. Luck is the already-mapped signed modifier.
+///
+/// Both units count their HP in visible bars. An attacker at 61 points hits as
+/// hard as one at 70, because Advance Wars shows both as 7 bars.
 pub fn damage(attacker: Side, defender: Side, luck: i64) -> Option<Hit> {
     let weapon = select_weapon(attacker.kind, defender.kind, attacker.ammo)?;
     let visual_defender = u64::from(defender.hp).div_ceil(10);
+    let visual_attacker = attacker.hp.div_ceil(HEALTH_STEP) * HEALTH_STEP;
     let attack_factor = ((weapon.base_damage as i64 * attacker.attack) / 100 + luck).max(0);
-    let attack_hp_factor = attack_factor * i64::from(attacker.hp);
+    let attack_hp_factor = attack_factor * i64::from(visual_attacker);
     let defense_numerator =
         200 - (defender.defense + i64::from(defender.terrain_stars) * visual_defender as i64);
     let raw = (attack_hp_factor * defense_numerator / 100 / 100).max(0);
@@ -195,10 +199,26 @@ mod tests {
         assert_eq!(hit.weapon.ammo_cost, 0)
     }
     #[test]
-    fn counter_uses_damaged_exact_hp() {
+    fn counter_uses_damaged_visible_hp() {
+        // The defender keeps 45 points, which Advance Wars shows as 5 bars,
+        // so it counters as a 50-point unit.
         let c = resolve(infantry(100, 0, 0), infantry(100, 0, 0), 0, Some(0), true).unwrap();
         assert_eq!(c.attack.damage, 55);
-        assert_eq!(c.counter.unwrap().damage, 24)
+        assert_eq!(c.counter.unwrap().damage, 27)
+    }
+    #[test]
+    fn attacker_hp_counts_in_visible_bars() {
+        // 61 and 70 points are both 7 bars. 71 points is 8 bars.
+        let hit = |hp| {
+            damage(infantry(hp, 0, 0), infantry(100, 0, 0), 0)
+                .unwrap()
+                .damage
+        };
+        assert_eq!(hit(61), hit(70));
+        assert_eq!(hit(70), 38);
+        assert_eq!(hit(71), 44);
+        // A unit at 1 point still attacks as a whole bar.
+        assert_eq!(hit(1), 5);
     }
     #[test]
     fn tank_falls_back_at_zero_ammo() {

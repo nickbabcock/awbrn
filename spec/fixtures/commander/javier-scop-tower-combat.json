@@ -167,7 +167,7 @@
               "ammo": 8,
               "concealment": "exposed",
               "fuel": 70,
-              "hp": 97,
+              "hp": 96,
               "id": 0,
               "kind": "tank",
               "location": { "position": [0, 0], "type": "board" },
@@ -228,7 +228,7 @@
           {
             "from_hp": 100,
             "reason": "combat-counter",
-            "to_hp": 97,
+            "to_hp": 96,
             "type": "unit-damaged",
             "unit": 0
           },

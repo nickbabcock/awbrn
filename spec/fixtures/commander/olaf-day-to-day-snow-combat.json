@@ -268,7 +268,7 @@
               "id": 0,
               "kind": "tank",
               "owner": "red",
-              "hp": 75,
+              "hp": 71,
               "fuel": 70,
               "ammo": 8,
               "action": "spent",
@@ -354,7 +354,7 @@
             "type": "unit-damaged",
             "unit": 0,
             "from_hp": 100,
-            "to_hp": 75,
+            "to_hp": 71,
             "reason": "combat-counter"
           },
           {
