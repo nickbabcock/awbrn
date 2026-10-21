@@ -134,7 +134,7 @@ function abortReason(signal: AbortSignal): unknown {
 }
 
 function resolveAwbwTarget(requestUrl: URL): URL | null {
-  const match = /^\/(map|smallmap|user)\/(\d+)$/.exec(requestUrl.pathname);
+  const match = /^\/(map|smallmap|user|game)\/(\d+)$/.exec(requestUrl.pathname);
   if (!match) return null;
 
   const [, kind, id] = match;
@@ -145,6 +145,8 @@ function resolveAwbwTarget(requestUrl: URL): URL | null {
       return new URL(`/smallmaps/${id}.png`, AWBW_BASE_URL);
     case "user":
       return new URL(`/profile.php?users_id=${id}`, AWBW_BASE_URL);
+    case "game":
+      return new URL(`/game.php?games_id=${id}`, AWBW_BASE_URL);
     default:
       return null;
   }

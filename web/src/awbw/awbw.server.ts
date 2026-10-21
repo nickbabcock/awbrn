@@ -1,5 +1,5 @@
 import { env, waitUntil } from "cloudflare:workers";
-import { parseAwbwUsername } from "./parsers";
+import { parseAwbwGame, parseAwbwUsername } from "./parsers";
 import { awbwMapDataSchema, type AwbwMapData } from "./schemas";
 import { rateLimitBindings, requestActorKey, requireRateLimit } from "#/rate_limit.ts";
 
@@ -56,6 +56,37 @@ export async function fetchAwbwUsername(userId: number): Promise<Response> {
         status: 502,
       },
     );
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * The armies, map and turn of an AWBW game.
+ *
+ * A game changes on every turn, so the answer is never cached.
+ */
+export async function fetchAwbwGameResponse(request: Request, gameId: number): Promise<Response> {
+  await requireAwbwRateLimit(request, "game");
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, AWBW_FETCH_TIMEOUT_MS);
+  const headers = { "Cache-Control": AWBW_NO_STORE_CACHE_CONTROL };
+
+  try {
+    const response = await fetchThroughGateway("game", gameId, controller.signal);
+    if (!response.ok) {
+      return Response.json({ error: "AWBW did not answer" }, { headers, status: 502 });
+    }
+
+    const game = parseAwbwGame(await response.text(), gameId);
+    if (game === null || game.armies.length === 0) {
+      return Response.json({ error: "Game not found" }, { headers, status: 404 });
+    }
+    return Response.json(game, { headers });
+  } catch {
+    return Response.json({ error: "AWBW did not answer" }, { headers, status: 502 });
   } finally {
     clearTimeout(timeoutId);
   }
@@ -160,7 +191,7 @@ export async function fetchAwbwMapData(mapId: number): Promise<AwbwMapData> {
   return parsed.data;
 }
 
-type AwbwResourceKind = "map" | "smallmap" | "user";
+type AwbwResourceKind = "map" | "smallmap" | "user" | "game";
 
 async function fetchThroughGateway(
   kind: AwbwResourceKind,

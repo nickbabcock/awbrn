@@ -1,6 +1,7 @@
 mod de;
 mod errors;
 pub mod game_models;
+pub mod move_planner;
 mod replay;
 pub mod turn_models;
 

@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as PlannerRouteImport } from './routes/planner'
 import { Route as RankedRouteImport } from './routes/ranked'
 import { Route as ReplayRouteImport } from './routes/replay'
 import { Route as MapsIndexRouteImport } from './routes/maps/index'
@@ -23,6 +24,7 @@ import { Route as MyHistoryRouteImport } from './routes/my/history'
 import { Route as MyMatchesRouteImport } from './routes/my/matches'
 import { Route as ReplaysChar123matchIdChar125DotjsonRouteImport } from './routes/replays/{$matchId}[.]json'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiAwbwGameGameIdRouteImport } from './routes/api/awbw/game.$gameId'
 import { Route as ApiAwbwMapMapIdRouteImport } from './routes/api/awbw/map.$mapId'
 import { Route as ApiAwbwSmallmapMapIdRouteImport } from './routes/api/awbw/smallmap.$mapId'
 import { Route as ApiAwbwUserUserIdRouteImport } from './routes/api/awbw/user.$userId'
@@ -41,6 +43,11 @@ const AboutRoute = AboutRouteImport.update({
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlannerRoute = PlannerRouteImport.update({
+  id: '/planner',
+  path: '/planner',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RankedRoute = RankedRouteImport.update({
@@ -99,6 +106,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAwbwGameGameIdRoute = ApiAwbwGameGameIdRouteImport.update({
+  id: '/api/awbw/game/$gameId',
+  path: '/api/awbw/game/$gameId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAwbwMapMapIdRoute = ApiAwbwMapMapIdRouteImport.update({
   id: '/api/awbw/map/$mapId',
   path: '/api/awbw/map/$mapId',
@@ -125,6 +137,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
+  '/planner': typeof PlannerRoute
   '/ranked': typeof RankedRoute
   '/replay': typeof ReplayRoute
   '/maps/$mapId': typeof MapsMapIdRoute
@@ -136,6 +149,7 @@ export interface FileRoutesByFullPath {
   '/maps/': typeof MapsIndexRoute
   '/matches/': typeof MatchesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/awbw/game/$gameId': typeof ApiAwbwGameGameIdRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/smallmap/$mapId': typeof ApiAwbwSmallmapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
@@ -145,6 +159,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
+  '/planner': typeof PlannerRoute
   '/ranked': typeof RankedRoute
   '/replay': typeof ReplayRoute
   '/maps/$mapId': typeof MapsMapIdRoute
@@ -156,6 +171,7 @@ export interface FileRoutesByTo {
   '/maps': typeof MapsIndexRoute
   '/matches': typeof MatchesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/awbw/game/$gameId': typeof ApiAwbwGameGameIdRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/smallmap/$mapId': typeof ApiAwbwSmallmapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
@@ -166,6 +182,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
+  '/planner': typeof PlannerRoute
   '/ranked': typeof RankedRoute
   '/replay': typeof ReplayRoute
   '/maps/$mapId': typeof MapsMapIdRoute
@@ -177,6 +194,7 @@ export interface FileRoutesById {
   '/maps/': typeof MapsIndexRoute
   '/matches/': typeof MatchesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/awbw/game/$gameId': typeof ApiAwbwGameGameIdRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/smallmap/$mapId': typeof ApiAwbwSmallmapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
@@ -188,6 +206,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/auth'
+    | '/planner'
     | '/ranked'
     | '/replay'
     | '/maps/$mapId'
@@ -199,6 +218,7 @@ export interface FileRouteTypes {
     | '/maps/'
     | '/matches/'
     | '/api/auth/$'
+    | '/api/awbw/game/$gameId'
     | '/api/awbw/map/$mapId'
     | '/api/awbw/smallmap/$mapId'
     | '/api/awbw/user/$userId'
@@ -208,6 +228,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/auth'
+    | '/planner'
     | '/ranked'
     | '/replay'
     | '/maps/$mapId'
@@ -219,6 +240,7 @@ export interface FileRouteTypes {
     | '/maps'
     | '/matches'
     | '/api/auth/$'
+    | '/api/awbw/game/$gameId'
     | '/api/awbw/map/$mapId'
     | '/api/awbw/smallmap/$mapId'
     | '/api/awbw/user/$userId'
@@ -228,6 +250,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/auth'
+    | '/planner'
     | '/ranked'
     | '/replay'
     | '/maps/$mapId'
@@ -239,6 +262,7 @@ export interface FileRouteTypes {
     | '/maps/'
     | '/matches/'
     | '/api/auth/$'
+    | '/api/awbw/game/$gameId'
     | '/api/awbw/map/$mapId'
     | '/api/awbw/smallmap/$mapId'
     | '/api/awbw/user/$userId'
@@ -249,6 +273,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   AuthRoute: typeof AuthRoute
+  PlannerRoute: typeof PlannerRoute
   RankedRoute: typeof RankedRoute
   ReplayRoute: typeof ReplayRoute
   MapsMapIdRoute: typeof MapsMapIdRoute
@@ -260,6 +285,7 @@ export interface RootRouteChildren {
   MapsIndexRoute: typeof MapsIndexRoute
   MatchesIndexRoute: typeof MatchesIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiAwbwGameGameIdRoute: typeof ApiAwbwGameGameIdRoute
   ApiAwbwMapMapIdRoute: typeof ApiAwbwMapMapIdRoute
   ApiAwbwSmallmapMapIdRoute: typeof ApiAwbwSmallmapMapIdRoute
   ApiAwbwUserUserIdRoute: typeof ApiAwbwUserUserIdRoute
@@ -287,6 +313,13 @@ declare module '@tanstack/react-router' {
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/planner': {
+      id: '/planner'
+      path: '/planner'
+      fullPath: '/planner'
+      preLoaderRoute: typeof PlannerRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/ranked': {
@@ -366,6 +399,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/awbw/game/$gameId': {
+      id: '/api/awbw/game/$gameId'
+      path: '/api/awbw/game/$gameId'
+      fullPath: '/api/awbw/game/$gameId'
+      preLoaderRoute: typeof ApiAwbwGameGameIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/awbw/map/$mapId': {
       id: '/api/awbw/map/$mapId'
       path: '/api/awbw/map/$mapId'
@@ -401,6 +441,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   AuthRoute: AuthRoute,
+  PlannerRoute: PlannerRoute,
   RankedRoute: RankedRoute,
   ReplayRoute: ReplayRoute,
   MapsMapIdRoute: MapsMapIdRoute,
@@ -413,6 +454,7 @@ const rootRouteChildren: RootRouteChildren = {
   MapsIndexRoute: MapsIndexRoute,
   MatchesIndexRoute: MatchesIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiAwbwGameGameIdRoute: ApiAwbwGameGameIdRoute,
   ApiAwbwMapMapIdRoute: ApiAwbwMapMapIdRoute,
   ApiAwbwSmallmapMapIdRoute: ApiAwbwSmallmapMapIdRoute,
   ApiAwbwUserUserIdRoute: ApiAwbwUserUserIdRoute,

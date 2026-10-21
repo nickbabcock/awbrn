@@ -69,6 +69,14 @@ impl UnitOverlayRegistry {
     }
 }
 
+/// The HP that a unit's health overlay shows in place of its own HP.
+///
+/// The move planner uses this to show the HP that a unit keeps after a
+/// planned power. The unit's real HP does not change. Remove the component to
+/// show the real HP again.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HealthOverlayOverride(pub awbrn_bevy::world::GraphicalHp);
+
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OverlayVisual {
     pub kind: OverlayKind,
@@ -830,6 +838,42 @@ mod tests {
             overlay_sprite_index(&app, updated_overlay),
             atlas_index(&app, "Healthv2/1.png")
         );
+    }
+
+    #[test]
+    fn health_overlay_override_replaces_the_shown_hp_until_removed() {
+        let mut app = unit_render_test_app();
+        let entity = spawn_test_unit(&mut app, PlayerFaction::OrangeStar, true);
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(GraphicalHp::from(awbrn_types::ExactHp::new(100)));
+        app.update();
+        let registry = app.world().get::<UnitOverlayRegistry>(entity).unwrap();
+        assert!(registry.overlay(OverlayKind::Health).is_none());
+
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(HealthOverlayOverride(GraphicalHp::from(
+                awbrn_types::ExactHp::new(1),
+            )));
+        app.update();
+        let health = app
+            .world()
+            .get::<UnitOverlayRegistry>(entity)
+            .unwrap()
+            .overlay(OverlayKind::Health)
+            .unwrap();
+        assert_eq!(
+            overlay_sprite_index(&app, health),
+            atlas_index(&app, "Healthv2/1.png")
+        );
+
+        app.world_mut()
+            .entity_mut(entity)
+            .remove::<HealthOverlayOverride>();
+        app.update();
+        let registry = app.world().get::<UnitOverlayRegistry>(entity).unwrap();
+        assert!(registry.overlay(OverlayKind::Health).is_none());
     }
 
     #[test]
