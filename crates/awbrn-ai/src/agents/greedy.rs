@@ -41,7 +41,6 @@ use std::sync::Arc;
 
 use awvm::combat::{self, Forecast, Side};
 use awvm::commander;
-use awvm::query::{self};
 use awvm::ruleset::{self, MovementClass, Terrain, TerrainTrait, UnitKind};
 use awvm::semantic::{
     CellIdx, Location, Observation, PlayerIdx, Pos, State, Tile, TileOwner, Unit,
@@ -718,6 +717,11 @@ impl GreedyAgent {
         }
     }
 
+    /// Reset tie selection and keep the derived fields.
+    pub(crate) fn restart(&mut self, seed: u64) {
+        self.rng = Rng::from_seed(seed);
+    }
+
     /// Read the hidden enemy that `estimate` describes in the decisions of
     /// its seat. `None` reads only what is visible.
     pub fn set_fog(&mut self, estimate: Option<Arc<FogEstimate>>) {
@@ -789,7 +793,7 @@ impl GreedyAgent {
 /// Manhattan distance says a mountain and a road are the same distance apart,
 /// and that a river is no further than the bridge over it. On a board twenty
 /// tiles wide that is most of what the pull field is deciding, so the field
-/// asks [`query::Travel`] what a route really costs and divides by what a unit
+/// asks [`awvm::query::Travel`] what a route really costs and divides by what a unit
 /// can spend in a turn.
 ///
 /// One field for each movement class that can capture, because the two classes
@@ -818,6 +822,7 @@ struct CaptureFields {
     /// Movement points to the nearest target of the group being walked.
     points: Vec<Option<u16>>,
     distances: [Option<CaptureDistances>; MovementClass::COUNT],
+    point_decay: Vec<f64>,
 }
 
 #[derive(Debug)]
@@ -838,7 +843,7 @@ struct CaptureDistances {
 /// Keeping one is only sound while it names every input, so it names them by
 /// holding them rather than by summarising them:
 ///
-/// - `costs` is [`query::Travel::costs`], the table the search reads. Terrain,
+/// - `costs` is [`awvm::query::Travel::costs`], the table the search reads. Terrain,
 ///   weather, the seat's commander and its power are folded into it already,
 ///   which is why this is the table and not a list of those four. A rule added
 ///   to any of them moves this table and invalidates the field, without this
@@ -886,6 +891,25 @@ impl Built {
 /// property and does not limit this multi-turn estimate.
 const CAPTURE_CLASSES: [MovementClass; 2] = [MovementClass::Foot, MovementClass::Boot];
 
+/// Map movement points to the existing turn decay values.
+fn point_decay_table(decay: &[f64], allowance: u16, out: &mut Vec<f64>) {
+    out.clear();
+    if allowance == 0 {
+        out.push(*decay.last().expect("the decay table has an origin"));
+        return;
+    }
+    let limit = (1 + usize::from(allowance) * (decay.len() - 1)).min(usize::from(u16::MAX) + 1);
+    out.reserve(limit);
+    out.push(decay[0]);
+    for value in decay.iter().skip(1) {
+        let length = (out.len() + usize::from(allowance)).min(limit);
+        out.resize(length, *value);
+        if length == limit {
+            break;
+        }
+    }
+}
+
 impl CaptureFields {
     const fn new() -> Self {
         Self {
@@ -894,6 +918,7 @@ impl CaptureFields {
             groups: Vec::new(),
             points: Vec::new(),
             distances: [const { None }; MovementClass::COUNT],
+            point_decay: Vec::new(),
         }
     }
 
@@ -1012,6 +1037,7 @@ impl CaptureFields {
             let field = &mut self.fields[index];
             field.clear();
             field.resize(cells, 0.0);
+            point_decay_table(decay, allowance, &mut self.point_decay);
             for (weight, targets) in &self.groups {
                 if let Some(cached) = &mut self.distances[index] {
                     let distance = match cached
@@ -1040,11 +1066,8 @@ impl CaptureFields {
                     let Some(Some(points)) = self.points.get(cell).copied() else {
                         continue;
                     };
-                    let turns = usize::from(query::Travel::turns(points, allowance));
-                    // Past the end of the table the pull is smaller than
-                    // anything that decides a play, so the last entry stands
-                    // for every distance beyond it.
-                    let step = decay[turns.min(decay.len() - 1)];
+                    let step =
+                        self.point_decay[usize::from(points).min(self.point_decay.len() - 1)];
                     let pull = weight * step;
                     if pull > *value {
                         *value = pull;
@@ -1358,6 +1381,7 @@ impl GreedyAgent {
             vision,
             threat,
             shortfall: board.capturer_shortfall(occupant),
+            production: [const { std::cell::Cell::new(None) }; UnitKind::COUNT],
             policy: *policy,
             min_step: &min_step,
             reduction_bound,
@@ -1551,18 +1575,17 @@ impl Board<'_> {
         }
         out.clear();
         out.resize(self.cells(), 0.0);
-        for unit in self.state.units.iter() {
-            let Location::Board { position: target } = unit.location else {
-                continue;
-            };
-            if !self.hostile(unit.owner) {
-                continue;
-            }
-            let weight = self.weights.advance * cost(unit.kind) * health_of(unit);
-            for (from, value) in self.state.board.positions().zip(out.iter_mut()) {
-                let pull = weight * decay[target.distance(from) as usize];
-                if pull > *value {
-                    *value = pull;
+        let width = usize::from(self.state.board.width());
+        for (kind, target, hp) in &context.enemies {
+            let weight = self.weights.advance * cost(*kind) * (f64::from(*hp) / 100.0);
+            for (y, row) in out.chunks_mut(width).enumerate() {
+                let vertical = usize::from(target.y).abs_diff(y);
+                for (x, value) in row.iter_mut().enumerate() {
+                    let distance = usize::from(target.x).abs_diff(x) + vertical;
+                    let pull = weight * decay[distance];
+                    if pull > *value {
+                        *value = pull;
+                    }
                 }
             }
         }
@@ -1891,6 +1914,7 @@ struct Scorer<'a> {
     vision: &'a VisionMap,
     threat: &'a ThreatMap,
     shortfall: f64,
+    production: [std::cell::Cell<Option<f64>>; UnitKind::COUNT],
     policy: TacticalPolicy,
     min_step: &'a [u16; MovementClass::COUNT],
     reduction_bound: f64,
@@ -2446,6 +2470,9 @@ impl Scorer<'_> {
     /// anything. A capture-capable kind is worth more while properties are
     /// open that no capturer of ours is walking at.
     fn produce(&self, kind: UnitKind) -> f64 {
+        if let Some(score) = self.production[kind.index()].get() {
+            return score;
+        }
         let weights = self.weights();
         let profile = ruleset::profile(kind);
         let mut score = weights.unit_count;
@@ -2465,7 +2492,9 @@ impl Scorer<'_> {
             let sight = f64::from(i32::try_from(profile.vision).unwrap_or(0)).max(0.0);
             score += weights.scout_build * sight * efficiency;
         }
-        score + weights.counter * self.counter.of(kind) * efficiency
+        score += weights.counter * self.counter.of(kind) * efficiency;
+        self.production[kind.index()].set(Some(score));
+        score
     }
 }
 
@@ -2473,6 +2502,7 @@ impl Scorer<'_> {
 mod tests {
     use super::*;
     use crate::board::{amber_valley, arena};
+    use awvm::query;
     use awvm::ruleset::WeatherKind;
     use awvm::semantic::{AwbwVisibility, Concealment, UnitAction, UnitId, observe};
 
@@ -2489,6 +2519,22 @@ mod tests {
             action: UnitAction::Ready,
             concealment: Concealment::Exposed,
             location: Location::Board { position },
+        }
+    }
+
+    #[test]
+    fn point_decay_lookup_matches_turn_division() {
+        for decay in [vec![1.0_f64], vec![1.0, 0.75, 0.5, 0.0], vec![0.25; 511]] {
+            for allowance in [0, 1, 2, 3, 7, u16::MAX] {
+                let mut table = Vec::new();
+                point_decay_table(&decay, allowance, &mut table);
+                for points in 0..=u16::MAX {
+                    let turns = usize::from(query::Travel::turns(points, allowance));
+                    let expected = decay[turns.min(decay.len() - 1)];
+                    let actual = table[usize::from(points).min(table.len() - 1)];
+                    assert_eq!(actual.to_bits(), expected.to_bits());
+                }
+            }
         }
     }
 

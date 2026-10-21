@@ -106,17 +106,18 @@ pub fn generate_stratified_plan(
     missions: &mut MissionBook,
     scripts: StratifiedScripts,
 ) -> Option<Vec<Play>> {
+    let mut agents = PlanningAgents::default();
     missions.update(view);
     let mut working_missions = missions.clone();
     let mut planner = TurnPlanner::new(view, seed)?;
 
     for stratum in Stratum::ALL {
-        let mut agent = GreedyAgent::with_weights(seed, scripts.script(stratum).weights());
-        planner.play_stratum(stratum, &mut agent, &mut working_missions)?;
+        let agent = agents.get(seed, scripts.script(stratum).weights());
+        planner.play_stratum(stratum, agent, &mut working_missions)?;
     }
 
-    let mut repair = GreedyAgent::with_weights(seed, Weights::BASELINE);
-    planner.repair(&mut repair, &mut working_missions)?;
+    let repair = agents.get(seed, Weights::BASELINE);
+    planner.repair(repair, &mut working_missions)?;
     Some(planner.plays)
 }
 
@@ -130,63 +131,7 @@ pub fn generate_stratified_candidates(
     missions: &mut MissionBook,
     base: StratifiedScripts,
 ) -> Option<Vec<StratifiedPlan>> {
-    missions.update(view);
-    let root_missions = missions.clone();
-    let mut planner = TurnPlanner::new(view, seed)?;
-    let mut working_missions = root_missions.clone();
-    let mut checkpoints = Vec::with_capacity(Stratum::ALL.len());
-    for stratum in Stratum::ALL {
-        checkpoints.push(planner.checkpoint(&working_missions));
-        let mut agent = GreedyAgent::with_weights(seed, base.script(stratum).weights());
-        planner.play_stratum(stratum, &mut agent, &mut working_missions)?;
-    }
-    let mut repair = GreedyAgent::with_weights(seed, Weights::BASELINE);
-    planner.repair(&mut repair, &mut working_missions)?;
-    let base_plays = planner.plays;
-
-    let mut candidates = Vec::with_capacity(Stratum::ALL.len() * Script::ALL.len());
-    for (changed_index, changed) in Stratum::ALL.into_iter().enumerate() {
-        for script in Script::ALL {
-            let scripts = base.with_script(changed, script);
-            if script == base.script(changed) {
-                candidates.push(StratifiedPlan {
-                    scripts,
-                    plays: base_plays.clone(),
-                });
-                continue;
-            }
-            let (mut candidate, mut candidate_missions) =
-                TurnPlanner::from_checkpoint(&checkpoints[changed_index]);
-            // One script that cannot finish a plan drops only its own
-            // candidate. The scripts that can plan still answer.
-            let mut planned = true;
-            for stratum in Stratum::ALL.into_iter().skip(changed_index) {
-                let mut agent = GreedyAgent::with_weights(seed, scripts.script(stratum).weights());
-                if candidate
-                    .play_stratum(stratum, &mut agent, &mut candidate_missions)
-                    .is_none()
-                {
-                    planned = false;
-                    break;
-                }
-            }
-            if !planned {
-                continue;
-            }
-            let mut repair = GreedyAgent::with_weights(seed, Weights::BASELINE);
-            if candidate
-                .repair(&mut repair, &mut candidate_missions)
-                .is_none()
-            {
-                continue;
-            }
-            candidates.push(StratifiedPlan {
-                scripts,
-                plays: candidate.plays,
-            });
-        }
-    }
-    Some(candidates)
+    generate_candidates(view, seed, missions, base, &Stratum::ALL)
 }
 
 /// Generate the alternatives for one stratum from a shared prefix.
@@ -197,65 +142,105 @@ pub fn generate_stratum_candidates(
     base: StratifiedScripts,
     changed: Stratum,
 ) -> Option<Vec<StratifiedPlan>> {
+    generate_candidates(view, seed, missions, base, &[changed])
+}
+
+fn generate_candidates(
+    view: &Observation,
+    seed: u64,
+    missions: &mut MissionBook,
+    base: StratifiedScripts,
+    changed_strata: &[Stratum],
+) -> Option<Vec<StratifiedPlan>> {
+    let mut agents = PlanningAgents::default();
     missions.update(view);
     let mut working_missions = missions.clone();
     let mut planner = TurnPlanner::new(view, seed)?;
-    let changed_index = Stratum::ALL
-        .iter()
-        .position(|candidate| *candidate == changed)?;
-    let mut checkpoint = None;
-    for (index, stratum) in Stratum::ALL.into_iter().enumerate() {
-        if index == changed_index {
-            checkpoint = Some(planner.checkpoint(&working_missions));
-        }
-        let mut agent = GreedyAgent::with_weights(seed, base.script(stratum).weights());
-        planner.play_stratum(stratum, &mut agent, &mut working_missions)?;
+    let mut checkpoints = Vec::with_capacity(Stratum::ALL.len() + 1);
+    for stratum in Stratum::ALL {
+        checkpoints.push(planner.checkpoint(&working_missions));
+        let agent = agents.get(seed, base.script(stratum).weights());
+        planner.play_stratum(stratum, agent, &mut working_missions)?;
     }
-    let mut repair = GreedyAgent::with_weights(seed, Weights::BASELINE);
-    planner.repair(&mut repair, &mut working_missions)?;
-    let base_plays = planner.plays;
-    let checkpoint = checkpoint?;
+    checkpoints.push(planner.checkpoint(&working_missions));
+    let repair = agents.get(seed, Weights::BASELINE);
+    planner.repair(repair, &mut working_missions)?;
+    let base_plays = planner.plays.clone();
+    let exact_health = view.units.iter().all(|unit| unit.hp.exact().is_some());
 
-    let mut candidates = Vec::with_capacity(Script::ALL.len());
-    for script in Script::ALL {
-        let scripts = base.with_script(changed, script);
-        if script == base.script(changed) {
+    let mut candidates = Vec::with_capacity(changed_strata.len() * Script::ALL.len());
+    for changed in changed_strata {
+        let changed_index = Stratum::ALL.iter().position(|stratum| stratum == changed)?;
+        for script in Script::ALL {
+            let scripts = base.with_script(*changed, script);
+            if script == base.script(*changed) {
+                candidates.push(StratifiedPlan {
+                    scripts,
+                    plays: base_plays.clone(),
+                });
+                continue;
+            }
+            planner.restore(&checkpoints[changed_index]);
+            let mut candidate_missions = checkpoints[changed_index].missions.clone();
+            let mut planned = true;
+            let mut reused = false;
+            for (index, stratum) in Stratum::ALL.into_iter().enumerate().skip(changed_index) {
+                if index > changed_index
+                    && exact_health
+                    && planner.reuse_suffix(&checkpoints[index], &candidate_missions, &base_plays)
+                {
+                    reused = true;
+                    break;
+                }
+                let agent = agents.get(seed, scripts.script(stratum).weights());
+                if planner
+                    .play_stratum(stratum, agent, &mut candidate_missions)
+                    .is_none()
+                {
+                    planned = false;
+                    break;
+                }
+            }
+            if !planned {
+                continue;
+            }
+            if !reused {
+                reused = exact_health
+                    && planner.reuse_suffix(
+                        &checkpoints[Stratum::ALL.len()],
+                        &candidate_missions,
+                        &base_plays,
+                    );
+            }
+            if !reused {
+                let repair = agents.get(seed, Weights::BASELINE);
+                if planner.repair(repair, &mut candidate_missions).is_none() {
+                    continue;
+                }
+            }
             candidates.push(StratifiedPlan {
                 scripts,
-                plays: base_plays.clone(),
+                plays: planner.plays.clone(),
             });
-            continue;
         }
-        let (mut candidate, mut candidate_missions) = TurnPlanner::from_checkpoint(&checkpoint);
-        // One script that cannot finish a plan drops only its own candidate.
-        // The scripts that can plan still answer.
-        let mut planned = true;
-        for stratum in Stratum::ALL.into_iter().skip(changed_index) {
-            let mut agent = GreedyAgent::with_weights(seed, scripts.script(stratum).weights());
-            if candidate
-                .play_stratum(stratum, &mut agent, &mut candidate_missions)
-                .is_none()
-            {
-                planned = false;
-                break;
-            }
-        }
-        if !planned {
-            continue;
-        }
-        let mut repair = GreedyAgent::with_weights(seed, Weights::BASELINE);
-        if candidate
-            .repair(&mut repair, &mut candidate_missions)
-            .is_none()
-        {
-            continue;
-        }
-        candidates.push(StratifiedPlan {
-            scripts,
-            plays: candidate.plays,
-        });
     }
     Some(candidates)
+}
+
+#[derive(Default)]
+struct PlanningAgents(Vec<GreedyAgent>);
+
+impl PlanningAgents {
+    fn get(&mut self, seed: u64, weights: Weights) -> &mut GreedyAgent {
+        let index = self.0.iter().position(|agent| *agent.weights() == weights);
+        let index = index.unwrap_or_else(|| {
+            self.0.push(GreedyAgent::with_weights(seed, weights));
+            self.0.len() - 1
+        });
+        let agent = &mut self.0[index];
+        agent.restart(seed);
+        agent
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -298,16 +283,30 @@ impl TurnPlanner {
         }
     }
 
-    fn from_checkpoint(checkpoint: &StratumCheckpoint) -> (Self, MissionBook) {
-        (
-            Self {
-                session: Session::new(checkpoint.state.clone()),
-                player: checkpoint.player.clone(),
-                entropy: checkpoint.entropy.clone(),
-                plays: checkpoint.plays.clone(),
-            },
-            checkpoint.missions.clone(),
-        )
+    fn restore(&mut self, checkpoint: &StratumCheckpoint) {
+        self.session.reset(checkpoint.state.clone());
+        self.player.clone_from(&checkpoint.player);
+        self.entropy.clone_from(&checkpoint.entropy);
+        self.plays.clone_from(&checkpoint.plays);
+    }
+
+    /// Append a known suffix when all of its starting inputs agree.
+    fn reuse_suffix(
+        &mut self,
+        checkpoint: &StratumCheckpoint,
+        missions: &MissionBook,
+        base_plays: &[Play],
+    ) -> bool {
+        if self.player != checkpoint.player
+            || self.entropy.state() != checkpoint.entropy.state()
+            || *missions != checkpoint.missions
+            || *self.session.state() != checkpoint.state
+        {
+            return false;
+        }
+        self.plays
+            .extend_from_slice(&base_plays[checkpoint.plays.len()..]);
+        true
     }
 
     fn play_stratum(
@@ -538,6 +537,37 @@ mod tests {
         };
         observe(&AwbwVisibility, &state, &state.turn.active_player)
             .expect("the active player observes the arena")
+    }
+
+    #[test]
+    fn suffix_reuse_checks_state_missions_and_entropy() {
+        let view = view();
+        let mut missions = MissionBook::new();
+        missions.update(&view);
+        assert!(!missions.capture_missions().is_empty());
+        let mut planner = TurnPlanner::new(&view, 41).expect("the planner opens");
+        let checkpoint = planner.checkpoint(&missions);
+        let plays =
+            generate_stratified_plan(&view, 41, &mut missions, StratifiedScripts::default())
+                .expect("the plan completes");
+
+        let mut changed = checkpoint.clone();
+        changed.entropy.next_u64();
+        assert!(!planner.reuse_suffix(&changed, &missions, &plays));
+        changed = checkpoint.clone();
+        changed.missions = MissionBook::new();
+        assert!(!planner.reuse_suffix(&changed, &missions, &plays));
+        changed = checkpoint.clone();
+        let seat = changed
+            .state
+            .players
+            .seat(&changed.player)
+            .expect("the player has a seat");
+        changed.state.player_mut(seat).funds += 1;
+        assert!(!planner.reuse_suffix(&changed, &missions, &plays));
+        assert!(planner.plays.is_empty());
+        assert!(planner.reuse_suffix(&checkpoint, &missions, &plays));
+        assert_eq!(planner.plays, plays);
     }
 
     #[test]

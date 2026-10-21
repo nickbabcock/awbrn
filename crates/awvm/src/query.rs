@@ -42,7 +42,7 @@ use crate::semantic;
 use std::borrow::Borrow;
 use std::cell::OnceCell;
 use std::collections::HashSet;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::combat::{self, Forecast};
 use crate::commander::{self, Holdings};
@@ -358,7 +358,13 @@ pub(crate) struct TurnTables {
 struct SharedTables {
     blocking: OnceLock<Arc<Grid<Blocking>>>,
     hidden_board_unit: OnceLock<bool>,
-    entries: Arc<EntryTables>,
+    entries: OnceLock<Arc<EntryTables>>,
+}
+
+impl SharedTables {
+    fn entry_tables(&self) -> &EntryTables {
+        self.entries.get_or_init(Arc::default)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -373,6 +379,14 @@ struct EntryTables {
 struct TravelCosts {
     cells: Arc<[Option<u16>]>,
     widest: u16,
+    distances: Mutex<Vec<TravelDistance>>,
+}
+
+#[derive(Debug)]
+struct TravelDistance {
+    allowance: u16,
+    targets: Vec<semantic::CellIdx>,
+    points: Vec<Option<u16>>,
 }
 
 /// The state inputs that can change a player's terrain entry costs.
@@ -445,15 +459,16 @@ impl TurnTables {
         {
             self.shared
                 .as_ref()
-                .map_or_else(Arc::default, |tables| Arc::clone(&tables.entries))
+                .and_then(|tables| tables.entries.get())
+                .cloned()
         } else {
             self.entries_for = EntryContext::of(state, seat).map(Arc::new);
-            Arc::default()
+            None
         };
         self.shared = Some(Arc::new(SharedTables {
             blocking: OnceLock::new(),
             hidden_board_unit: OnceLock::new(),
-            entries,
+            entries: entries.map(OnceLock::from).unwrap_or_default(),
         }));
     }
 }
@@ -621,7 +636,7 @@ impl<'a> TurnMaps<'a> {
     /// and the weather, and on nothing else about it, so one map serves every
     /// unit of a class.
     fn entry_costs(&self, class: MovementClass) -> &Arc<Grid<EntryCost>> {
-        self.tables().entries.entries[class.index()].get_or_init(|| {
+        self.tables().entry_tables().entries[class.index()].get_or_init(|| {
             Arc::new(Grid::from_fn(self.state.board.dimensions(), |position| {
                 EntryCost::new(entry_cost(
                     self.state,
@@ -635,14 +650,18 @@ impl<'a> TurnMaps<'a> {
     }
 
     fn travel_costs(&self, class: MovementClass) -> &Arc<TravelCosts> {
-        self.tables().entries.travel[class.index()].get_or_init(|| {
+        self.tables().entry_tables().travel[class.index()].get_or_init(|| {
             let cells: Arc<[Option<u16>]> = self
                 .entry_costs(class)
                 .cells()
                 .map(|entry| entry.points())
                 .collect();
             let widest = cells.iter().flatten().copied().max().unwrap_or(1).max(1);
-            Arc::new(TravelCosts { cells, widest })
+            Arc::new(TravelCosts {
+                cells,
+                widest,
+                distances: Mutex::default(),
+            })
         })
     }
 }
@@ -1607,8 +1626,6 @@ impl<'a> Travel<'a> {
         let flattened = self.maps.travel_costs(class);
         self.costs = Arc::clone(&flattened.cells);
         self.widest = flattened.widest;
-        self.ring
-            .resize_with(usize::from(self.widest) + 1, Vec::new);
         self.flattened = Some(class);
     }
 
@@ -1654,19 +1671,35 @@ impl<'a> Travel<'a> {
         let dimensions = self.maps.state.board.dimensions();
         let width = usize::from(dimensions.width());
         let cells = dimensions.len();
+        let mut targets: Vec<_> = targets
+            .into_iter()
+            .filter_map(|target| dimensions.cell_index(target))
+            .collect();
+        targets.sort_unstable();
+        targets.dedup();
+        let costs = self.maps.travel_costs(class);
+        {
+            let distances = costs.distances.lock().expect("travel distance cache");
+            if let Some(distance) = distances
+                .iter()
+                .find(|distance| distance.allowance == allowance && distance.targets == targets)
+            {
+                out.clone_from(&distance.points);
+                return;
+            }
+        }
         out.clear();
         out.resize(cells, None);
+        self.ring
+            .resize_with(usize::from(self.widest) + 1, Vec::new);
         for bucket in &mut self.ring {
             bucket.clear();
         }
         let ring = self.ring.len();
         let mut waiting = 0usize;
 
-        for target in targets {
-            let Some(index) = dimensions.cell_index(target) else {
-                continue;
-            };
-            let index = usize::from(index.get());
+        for target in &targets {
+            let index = usize::from(target.get());
             // A tile this class cannot enter cannot be walked to, so it is not
             // a target however much the caller wants it.
             if !self.costs[index].is_some_and(|cost| cost <= allowance) || out[index].is_some() {
@@ -1720,6 +1753,19 @@ impl<'a> Travel<'a> {
                 break;
             };
             cost = next;
+        }
+        // Each entry-cost table keeps a bounded set of distance fields.
+        let limit = 128.min(1_000_000 / cells.max(1));
+        if limit > 0 {
+            let mut distances = costs.distances.lock().expect("travel distance cache");
+            if distances.len() >= limit {
+                distances.remove(0);
+            }
+            distances.push(TravelDistance {
+                allowance,
+                targets,
+                points: out.clone(),
+            });
         }
     }
 
