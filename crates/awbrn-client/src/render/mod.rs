@@ -2,6 +2,7 @@ pub mod animation;
 pub(crate) mod course_arrow;
 pub mod fog_overlay;
 pub mod map;
+pub(crate) mod outline;
 pub mod units;
 
 use bevy::ecs::system::SystemParam;

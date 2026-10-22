@@ -9,7 +9,7 @@ mod setup;
 mod setup_state;
 mod unit_id;
 
-pub use authority::{AcceptedTransition, Authority};
+pub use authority::{AcceptedTransition, Authority, awvm_commands};
 pub use awbrn_map::AwbrnMap;
 pub use command::{GameCommand, PostMoveAction, PowerLevel, UnmappedCommand, game_command};
 pub use error::CommandError;

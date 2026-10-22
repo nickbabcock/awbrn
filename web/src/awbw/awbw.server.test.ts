@@ -4,6 +4,7 @@ import {
   fetchAwbwMapResponse,
   fetchAwbwSmallMapResponse,
   fetchAwbwUsernameResponse,
+  readAwbwGame,
 } from "./awbw.server.ts";
 
 const SUCCESS_CACHE_CONTROL = "public, s-maxage=604800, max-age=0, must-revalidate";
@@ -217,5 +218,65 @@ describe("awbw edge caching", () => {
     expect(await response.json()).toEqual({ userId: 7, username: "Andy" });
     expect(response.headers.get("Cache-Control")).toBe(SUCCESS_CACHE_CONTROL);
     expect(cachePutMock).not.toHaveBeenCalled();
+  });
+
+  it("reads a game page through the gateway and never caches it", async () => {
+    const playersInfo = {
+      "7": {
+        players_id: 7,
+        users_username: "Rachel player",
+        players_team: "B",
+        players_order: 1,
+        players_eliminated: "N",
+        players_co_id: 28,
+        players_co_power: 90000,
+        players_co_power_on: "N",
+        co_max_power: 270000,
+        co_max_spower: 540000,
+        players_co_max_power: 270000,
+        players_co_max_spower: 540000,
+        players_funds: "?",
+        countries_code: "bm",
+      },
+    };
+    fetchMock.mockResolvedValue(
+      new Response(
+        `<script>let playersInfo = ${JSON.stringify(playersInfo)};\nlet currentTurn = 7;</script>` +
+          `<a href="prevmaps.php?maps_id=12">Map</a>`,
+      ),
+    );
+
+    const result = await readAwbwGame(new Request("https://example.com/planner"), 99);
+
+    expect(fetchMock).toHaveBeenCalledWith("https://awbw-gateway/game/99", expect.anything());
+    if (result.status !== "found") throw new Error(`expected a game, got ${result.status}`);
+    expect(result.game.mapId).toBe(12);
+    expect(result.game.activePlayerId).toBe(7);
+    expect(cachePutMock).not.toHaveBeenCalled();
+  });
+
+  it("finds no game on a page without a game", async () => {
+    fetchMock.mockResolvedValue(new Response("<html>No game</html>"));
+
+    const result = await readAwbwGame(new Request("https://example.com/planner"), 99);
+
+    expect(result).toEqual({ status: "notFound" });
+  });
+
+  it("reports a rate-limited requester without asking AWBW", async () => {
+    vi.spyOn(env.AWBW_ACTOR_RATE_LIMITER, "limit").mockResolvedValue({ success: false });
+
+    const result = await readAwbwGame(new Request("https://example.com/planner"), 99);
+
+    expect(result).toEqual({ status: "rateLimited" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports AWBW as unavailable when the gateway fails", async () => {
+    fetchMock.mockResolvedValue(new Response("Bad Gateway", { status: 502 }));
+
+    const result = await readAwbwGame(new Request("https://example.com/planner"), 99);
+
+    expect(result).toEqual({ status: "unavailable" });
   });
 });
