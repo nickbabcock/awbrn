@@ -1,6 +1,6 @@
 import { env, waitUntil } from "cloudflare:workers";
 import { parseAwbwGame, parseAwbwUsername } from "./parsers";
-import { awbwMapDataSchema, type AwbwMapData } from "./schemas";
+import { awbwMapDataSchema, type AwbwGameSnapshot, type AwbwMapData } from "./schemas";
 import { rateLimitBindings, requestActorKey, requireRateLimit } from "#/rate_limit.ts";
 
 const AWBW_FETCH_TIMEOUT_MS = 5000;
@@ -61,32 +61,37 @@ export async function fetchAwbwUsername(userId: number): Promise<Response> {
   }
 }
 
+/** What reading an AWBW game gives, or why it gives no game. */
+export type AwbwGameResult =
+  | { status: "found"; game: AwbwGameSnapshot }
+  | { status: "notFound" | "rateLimited" | "unavailable" };
+
 /**
- * The armies, map and turn of an AWBW game.
+ * The armies, map and turn of an AWBW game, read from its game page.
  *
- * A game changes on every turn, so the answer is never cached.
+ * A game changes on every turn, so nothing keeps the answer.
  */
-export async function fetchAwbwGameResponse(request: Request, gameId: number): Promise<Response> {
-  await requireAwbwRateLimit(request, "game");
+export async function readAwbwGame(request: Request, gameId: number): Promise<AwbwGameResult> {
+  try {
+    await requireAwbwRateLimit(request, "game");
+  } catch (error) {
+    if (error instanceof Response && error.status === 429) return { status: "rateLimited" };
+    throw error;
+  }
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
     controller.abort();
   }, AWBW_FETCH_TIMEOUT_MS);
-  const headers = { "Cache-Control": AWBW_NO_STORE_CACHE_CONTROL };
 
   try {
     const response = await fetchThroughGateway("game", gameId, controller.signal);
-    if (!response.ok) {
-      return Response.json({ error: "AWBW did not answer" }, { headers, status: 502 });
-    }
+    if (!response.ok) return { status: "unavailable" };
 
     const game = parseAwbwGame(await response.text(), gameId);
-    if (game === null || game.armies.length === 0) {
-      return Response.json({ error: "Game not found" }, { headers, status: 404 });
-    }
-    return Response.json(game, { headers });
+    if (game === null || game.armies.length === 0) return { status: "notFound" };
+    return { status: "found", game };
   } catch {
-    return Response.json({ error: "AWBW did not answer" }, { headers, status: 502 });
+    return { status: "unavailable" };
   } finally {
     clearTimeout(timeoutId);
   }

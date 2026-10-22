@@ -24,7 +24,6 @@ import { Route as MyHistoryRouteImport } from './routes/my/history'
 import { Route as MyMatchesRouteImport } from './routes/my/matches'
 import { Route as ReplaysChar123matchIdChar125DotjsonRouteImport } from './routes/replays/{$matchId}[.]json'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
-import { Route as ApiAwbwGameGameIdRouteImport } from './routes/api/awbw/game.$gameId'
 import { Route as ApiAwbwMapMapIdRouteImport } from './routes/api/awbw/map.$mapId'
 import { Route as ApiAwbwSmallmapMapIdRouteImport } from './routes/api/awbw/smallmap.$mapId'
 import { Route as ApiAwbwUserUserIdRouteImport } from './routes/api/awbw/user.$userId'
@@ -106,11 +105,6 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiAwbwGameGameIdRoute = ApiAwbwGameGameIdRouteImport.update({
-  id: '/api/awbw/game/$gameId',
-  path: '/api/awbw/game/$gameId',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiAwbwMapMapIdRoute = ApiAwbwMapMapIdRouteImport.update({
   id: '/api/awbw/map/$mapId',
   path: '/api/awbw/map/$mapId',
@@ -149,7 +143,6 @@ export interface FileRoutesByFullPath {
   '/maps/': typeof MapsIndexRoute
   '/matches/': typeof MatchesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/awbw/game/$gameId': typeof ApiAwbwGameGameIdRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/smallmap/$mapId': typeof ApiAwbwSmallmapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
@@ -171,7 +164,6 @@ export interface FileRoutesByTo {
   '/maps': typeof MapsIndexRoute
   '/matches': typeof MatchesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/awbw/game/$gameId': typeof ApiAwbwGameGameIdRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/smallmap/$mapId': typeof ApiAwbwSmallmapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
@@ -194,7 +186,6 @@ export interface FileRoutesById {
   '/maps/': typeof MapsIndexRoute
   '/matches/': typeof MatchesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/awbw/game/$gameId': typeof ApiAwbwGameGameIdRoute
   '/api/awbw/map/$mapId': typeof ApiAwbwMapMapIdRoute
   '/api/awbw/smallmap/$mapId': typeof ApiAwbwSmallmapMapIdRoute
   '/api/awbw/user/$userId': typeof ApiAwbwUserUserIdRoute
@@ -218,7 +209,6 @@ export interface FileRouteTypes {
     | '/maps/'
     | '/matches/'
     | '/api/auth/$'
-    | '/api/awbw/game/$gameId'
     | '/api/awbw/map/$mapId'
     | '/api/awbw/smallmap/$mapId'
     | '/api/awbw/user/$userId'
@@ -240,7 +230,6 @@ export interface FileRouteTypes {
     | '/maps'
     | '/matches'
     | '/api/auth/$'
-    | '/api/awbw/game/$gameId'
     | '/api/awbw/map/$mapId'
     | '/api/awbw/smallmap/$mapId'
     | '/api/awbw/user/$userId'
@@ -262,7 +251,6 @@ export interface FileRouteTypes {
     | '/maps/'
     | '/matches/'
     | '/api/auth/$'
-    | '/api/awbw/game/$gameId'
     | '/api/awbw/map/$mapId'
     | '/api/awbw/smallmap/$mapId'
     | '/api/awbw/user/$userId'
@@ -285,7 +273,6 @@ export interface RootRouteChildren {
   MapsIndexRoute: typeof MapsIndexRoute
   MatchesIndexRoute: typeof MatchesIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
-  ApiAwbwGameGameIdRoute: typeof ApiAwbwGameGameIdRoute
   ApiAwbwMapMapIdRoute: typeof ApiAwbwMapMapIdRoute
   ApiAwbwSmallmapMapIdRoute: typeof ApiAwbwSmallmapMapIdRoute
   ApiAwbwUserUserIdRoute: typeof ApiAwbwUserUserIdRoute
@@ -399,13 +386,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/awbw/game/$gameId': {
-      id: '/api/awbw/game/$gameId'
-      path: '/api/awbw/game/$gameId'
-      fullPath: '/api/awbw/game/$gameId'
-      preLoaderRoute: typeof ApiAwbwGameGameIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/awbw/map/$mapId': {
       id: '/api/awbw/map/$mapId'
       path: '/api/awbw/map/$mapId'
@@ -454,7 +434,6 @@ const rootRouteChildren: RootRouteChildren = {
   MapsIndexRoute: MapsIndexRoute,
   MatchesIndexRoute: MatchesIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
-  ApiAwbwGameGameIdRoute: ApiAwbwGameGameIdRoute,
   ApiAwbwMapMapIdRoute: ApiAwbwMapMapIdRoute,
   ApiAwbwSmallmapMapIdRoute: ApiAwbwSmallmapMapIdRoute,
   ApiAwbwUserUserIdRoute: ApiAwbwUserUserIdRoute,
