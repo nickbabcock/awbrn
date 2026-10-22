@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { env } from "cloudflare:workers";
 import {
-  fetchAwbwGameResponse,
   fetchAwbwMapResponse,
   fetchAwbwSmallMapResponse,
   fetchAwbwUsernameResponse,
+  readAwbwGame,
 } from "./awbw.server.ts";
 
 const SUCCESS_CACHE_CONTROL = "public, s-maxage=604800, max-age=0, must-revalidate";
@@ -246,23 +246,37 @@ describe("awbw edge caching", () => {
       ),
     );
 
-    const request = new Request("https://example.com/api/awbw/game/99");
-    const response = await fetchAwbwGameResponse(request, 99);
+    const result = await readAwbwGame(new Request("https://example.com/planner"), 99);
 
     expect(fetchMock).toHaveBeenCalledWith("https://awbw-gateway/game/99", expect.anything());
-    expect(response.headers.get("Cache-Control")).toBe("no-store");
-    const game = (await response.json()) as { mapId: number; activePlayerId: number };
-    expect(game.mapId).toBe(12);
-    expect(game.activePlayerId).toBe(7);
+    if (result.status !== "found") throw new Error(`expected a game, got ${result.status}`);
+    expect(result.game.mapId).toBe(12);
+    expect(result.game.activePlayerId).toBe(7);
     expect(cachePutMock).not.toHaveBeenCalled();
   });
 
-  it("answers 404 for a page without a game", async () => {
+  it("finds no game on a page without a game", async () => {
     fetchMock.mockResolvedValue(new Response("<html>No game</html>"));
 
-    const request = new Request("https://example.com/api/awbw/game/99");
-    const response = await fetchAwbwGameResponse(request, 99);
+    const result = await readAwbwGame(new Request("https://example.com/planner"), 99);
 
-    expect(response.status).toBe(404);
+    expect(result).toEqual({ status: "notFound" });
+  });
+
+  it("reports a rate-limited requester without asking AWBW", async () => {
+    vi.spyOn(env.AWBW_ACTOR_RATE_LIMITER, "limit").mockResolvedValue({ success: false });
+
+    const result = await readAwbwGame(new Request("https://example.com/planner"), 99);
+
+    expect(result).toEqual({ status: "rateLimited" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports AWBW as unavailable when the gateway fails", async () => {
+    fetchMock.mockResolvedValue(new Response("Bad Gateway", { status: 502 }));
+
+    const result = await readAwbwGame(new Request("https://example.com/planner"), 99);
+
+    expect(result).toEqual({ status: "unavailable" });
   });
 });

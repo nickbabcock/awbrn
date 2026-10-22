@@ -44,35 +44,37 @@ export const awbwGamePagePlayerSchema = z.object({
 });
 
 /** What the planner reads from one AWBW game, for one army. */
-export const awbwGameArmySchema = z.object({
-  playerId: z.number().int(),
-  username: z.string(),
-  factionCode: z.string(),
-  team: z.string(),
-  order: z.number().int(),
-  eliminated: z.boolean(),
-  coId: z.number().int(),
+export interface AwbwGameArmy {
+  playerId: number;
+  username: string;
+  factionCode: string;
+  team: string;
+  order: number;
+  eliminated: boolean;
+  coId: number;
   /** The power charge, in the units that AWBW records. */
-  coPower: z.number().int(),
-  powerOn: z.enum(["none", "cop", "scop"]),
+  coPower: number;
+  powerOn: "none" | "cop" | "scop";
   /** The super power cost before any power use, and now. */
-  scopBaseCost: z.number().int(),
-  scopCost: z.number().int(),
+  scopBaseCost: number;
+  scopCost: number;
   /** The normal power cost before any power use, and now. */
-  copBaseCost: z.number().int(),
-  copCost: z.number().int(),
+  copBaseCost: number;
+  copCost: number;
   /** Null when fog hides the funds. */
-  funds: z.number().int().nullable(),
-});
+  funds: number | null;
+}
 
-/** What the planner reads from one AWBW game page. */
-export const awbwGameSnapshotSchema = z.object({
-  gameId: z.number().int(),
-  mapId: z.number().int().nullable(),
+/**
+ * What the planner reads from one AWBW game page.
+ *
+ * The server makes it from the page, and the planner gets it through a server
+ * function, so it has no schema.
+ */
+export interface AwbwGameSnapshot {
+  gameId: number;
+  mapId: number | null;
   /** The player whose turn it is. */
-  activePlayerId: z.number().int().nullable(),
-  armies: z.array(awbwGameArmySchema),
-});
-
-export type AwbwGameArmy = z.infer<typeof awbwGameArmySchema>;
-export type AwbwGameSnapshot = z.infer<typeof awbwGameSnapshotSchema>;
+  activePlayerId: number | null;
+  armies: AwbwGameArmy[];
+}

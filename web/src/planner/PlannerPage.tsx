@@ -17,7 +17,7 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { borderVars, colorVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchAwbwGame } from "#/awbw/api.ts";
+import { getAwbwGameFn } from "#/awbw/awbw.functions.ts";
 import type { AwbwGameSnapshot } from "#/awbw/schemas.ts";
 import { parseAwbwGameId } from "#/awbw/parsers.ts";
 import { useCanvasCourierSurface } from "#/canvas_courier/index.ts";
@@ -284,7 +284,7 @@ export function PlannerPage() {
     setError(null);
     setIsFillingFromGame(true);
     try {
-      const game = await fetchAwbwGame(gameId);
+      const game = await readGame(gameId);
       if (planner) {
         applyGame(game, planner.summary, seats);
       } else {
@@ -838,6 +838,25 @@ export function PlannerPage() {
 }
 
 /** How far an army's meter is from its super power, in words. */
+/**
+ * The armies, map and turn of an AWBW game.
+ *
+ * Throws an error with a message for the player when the game cannot be read.
+ */
+async function readGame(gameId: number): Promise<AwbwGameSnapshot> {
+  const result = await getAwbwGameFn({ data: { gameId } });
+  switch (result.status) {
+    case "found":
+      return result.game;
+    case "notFound":
+      throw new Error(`AWBW has no game ${gameId}.`);
+    case "rateLimited":
+      throw new Error("Too many AWBW requests. Try again in a moment.");
+    case "unavailable":
+      throw new Error("AWBW did not answer. Try again later.");
+  }
+}
+
 function superPowerCharge(army: PlayerRosterEntry): string {
   const name = army.displayFactionName;
   if (army.activePower !== undefined) return `${name} has a power on now.`;
