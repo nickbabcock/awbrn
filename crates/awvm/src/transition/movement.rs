@@ -414,12 +414,14 @@ pub(crate) fn reset_capture_on_departure(
 }
 
 pub(crate) fn reset_capture_on_removal(state: &mut State, position: Pos, events: &mut Vec<Event>) {
-    let tile = &mut state.board.tile_mut(position);
-    if let Some(before) = tile
+    if let Some(before) = state
+        .board
+        .tile(position)
         .capture_points
         .filter(|points| *points < crate::semantic::CAPTURE_REQUIRED_POINTS)
     {
-        tile.capture_points = Some(crate::semantic::CAPTURE_REQUIRED_POINTS);
+        state.board.tile_mut(position).capture_points =
+            Some(crate::semantic::CAPTURE_REQUIRED_POINTS);
         events.push(Event::CaptureChanged {
             position,
             from: before,

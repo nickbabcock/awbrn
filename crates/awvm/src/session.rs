@@ -33,6 +33,8 @@
 //! repeated calls. The session keeps up to 32 movement fields, route buffers,
 //! and board tables.
 
+mod order_cache;
+
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -428,6 +430,7 @@ struct Routes {
     attacks: Vec<AttackTarget>,
     repairs: Vec<UnitId>,
     launches: Vec<Pos>,
+    production: Vec<Production>,
     /// The scratch the attack walk sorts its units in, lent to every call so
     /// that a walk per destination does not allocate a pair of its own.
     attack_units: Vec<UnitId>,
@@ -486,6 +489,7 @@ pub struct Session {
     /// reducer through one path.
     prior: Vec<(State, u64)>,
     routes: RefCell<Routes>,
+    unit_orders: RefCell<order_cache::UnitOrders>,
     /// Held apart from [`Session::routes`] because a field walk and an action
     /// query need both scratch stores at the same time.
     reach: RefCell<Reach>,
@@ -512,6 +516,7 @@ impl Session {
             state,
             prior: Vec::new(),
             routes: RefCell::new(Routes::default()),
+            unit_orders: RefCell::new(order_cache::UnitOrders::default()),
             reach: RefCell::new(Reach::default()),
             epoch: 0,
             commandable: true,
@@ -1331,6 +1336,40 @@ impl<'a> Legal<'a> {
             return;
         };
         let state = &self.session.state;
+        let Some(subject) = state.units.at(usize::from(unit.get())) else {
+            return;
+        };
+        let Location::Board { .. } = subject.location else {
+            return;
+        };
+        if !visitor.visit_unit(unit) {
+            return;
+        }
+        let cached = self
+            .session
+            .unit_orders
+            .borrow_mut()
+            .take::<V>(self.session, unit);
+        if let Some(mut entry) = cached {
+            if entry.valid() {
+                entry.replay(state, unit, visitor);
+            } else {
+                self.walk_unit_orders(unit, &mut entry.record(visitor));
+                self.session.with_field(turn, unit, |field| {
+                    entry.cover(state, field);
+                });
+            }
+            self.session.unit_orders.borrow_mut().put(unit, entry);
+        } else {
+            self.walk_unit_orders(unit, visitor);
+        }
+    }
+
+    fn walk_unit_orders<V: LegalVisitor>(&self, unit: UnitIdx, visitor: &mut V) {
+        let Some(turn) = self.turn.as_ref() else {
+            return;
+        };
+        let state = &self.session.state;
         let dimensions = state.board.dimensions();
         let Some(subject) = state.units.at(usize::from(unit.get())) else {
             return;
@@ -1338,9 +1377,6 @@ impl<'a> Legal<'a> {
         let Location::Board { position: origin } = subject.location else {
             return;
         };
-        if !visitor.visit_unit(unit) {
-            return;
-        }
         if V::DELETE
             && let Some(cell) = dimensions.cell_index(origin)
             && let Ok(Ok(active)) = turn.unit(subject.id)
@@ -1688,12 +1724,15 @@ impl<'a> Legal<'a> {
         let state = &self.session.state;
         let seat = turn.seat();
         let dimensions = state.board.dimensions();
-        let mut rows = Vec::new();
+        let mut rows = std::mem::take(&mut self.session.routes.borrow_mut().production);
+        let mut production = [None; ruleset::Terrain::COUNT];
         for position in dimensions.positions() {
             let tile = state.board.tile(position);
             if !tile.owner.is_owned_by(seat)
-                || !ruleset::Domain::ALL.iter().any(|domain| {
-                    crate::commander::production_site(state, seat, tile.terrain, *domain)
+                || !*production[tile.terrain.index()].get_or_insert_with(|| {
+                    ruleset::Domain::ALL.iter().any(|domain| {
+                        crate::commander::production_site(state, seat, tile.terrain, *domain)
+                    })
                 })
                 || state
                     .units
@@ -1726,6 +1765,7 @@ impl<'a> Legal<'a> {
                 visitor.order(Order::unitless(cell, OrderKind::Produce(row.kind)));
             }
         }
+        self.session.routes.borrow_mut().production = rows;
     }
 
     /// Every cargo a transport of the active player may put down, and where.
